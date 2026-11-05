@@ -1,0 +1,5 @@
+2026-11-05T17:30:07.940296Z  INFO nik_web::app: 数据库迁移完成: 应用 0 个迁移
+2026-11-05T17:30:08.116870Z  INFO nik_web::app: 插件启动完成 elapsed_ms=0
+2026-11-05T17:30:08.251480Z  INFO nik_web::app: cloudpivot 启动完成, 耗时 615ms
+killed 2880136
+port free

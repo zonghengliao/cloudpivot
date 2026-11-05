@@ -1,0 +1,29 @@
+Pager usage is off.
+==== A) 5 个按钮：现状父页 → 目标父页（迁移会 UPDATE 的行）====
+           button_code           |             current_parent              |                    target_parent                     | will_update 
+---------------------------------+-----------------------------------------+------------------------------------------------------+-------------
+ business:flow:admin             | 流程定义 /flow/def (business:flow:read) | 审批中心 /flow/task (business:flow:instance:read)    | t
+ business:flow:approve           | 流程定义 /flow/def (business:flow:read) | 审批中心 /flow/task (business:flow:instance:read)    | t
+ business:flow:instance:create   | 流程定义 /flow/def (business:flow:read) | 发起审批 /flow/start (business:flow:instance:create) | t
+ business:flow:instance:read     | 流程定义 /flow/def (business:flow:read) | 审批中心 /flow/task (business:flow:instance:read)    | t
+ business:flow:instance:withdraw | 流程定义 /flow/def (business:flow:read) | 审批中心 /flow/task (business:flow:instance:read)    | t
+(5 rows)
+
+==== B) 兜底补授（迁移 step 1）：会插入多少 (角色,码) 对（期望 0）====
+ grant_pairs_to_insert | roles_that_would_get_parent_code 
+-----------------------+----------------------------------
+                     0 | <无>
+(1 row)
+
+==== C) 归位后 5 个按钮的持有角色是否都会「可达」（期望 0 对孤儿）====
+ orphan_pairs_after 
+--------------------
+                  0
+(1 row)
+
+==== D) 生产基线：授权行数 / 菜单行数 / 版本 ===
+ role_menu_rows | menu_rows | max_version 
+----------------+-----------+-------------
+            999 |       335 |         258
+(1 row)
+

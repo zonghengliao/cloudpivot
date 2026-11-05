@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 提交前检查：后端 fmt / clippy / check + 前端 typecheck + 批次B 数据权限防漏门禁
 #            + 闸③ERP不变量 / 闸④词表 / 闸⑤快照巡检 / 闸⑥死权限码（handler 注解码必须有菜单承载）
+#            + 闸⑦孤儿按钮（角色拿到的按钮码必须至少有一个可达父页）
 #
 # 用法：bash scripts/check.sh
 #
@@ -574,6 +575,87 @@ perm_menu_gate() {
 }
 
 if ! perm_menu_gate; then
+    exit 1
+fi
+
+# ======================================================================
+# 闸⑦ 孤儿按钮常驻闸（角色拿到的按钮码 ⇒ 至少有一个可达父页）
+#
+# 为什么是硬门禁：`sys_role_menu` 挂的是 `sys_menu` 的行，按钮（menu_type=3）挂在页面
+# （menu_type=2）下。角色持有一个按钮码、却没有任何一个「带码祖先」被授给它 ⇒ 这个按钮
+# 在权限树里挂在一个它永远看不见的页面下。2026-11-06 生产实测 8 对（FLOW_CONFIG_APPROVER /
+# FINANCE_DIRECTOR × 4 个流程实例侧按钮，父页 business:flow:read 没授），根因是 V0124 写这
+# 5 个按钮时目标页面还不存在（V0128 才种），之后没人归位 —— 修法见 V0259。
+#
+# 口径（与脚本头注释逐条一致，详见 scripts/verify/orphan_button_gate.py）：
+#   orphan_pairs     = (角色,码)，该码的**每个**按钮节点向上走祖先链都有带码祖先未授 → **必须 0**；
+#   redundant_node_grants = 同码另有可达节点、个别节点不可达 → 只报告（V0258 按码补授权会把
+#                      该码的全部节点写进去，功能上无损失，判红只会逼人拆授权去凑绿）；
+#   SUPER_ADMIN      = 不参与判红（*:*:* 通配，sys_role_menu 行对功能零影响，V0258 同口径）；
+#   软删角色          = 不参与判红（登录不了），只报告。
+# 防假绿：脚本自带扫描基数断言（活跃菜单 < 100 行 / 带码父页的按钮 < 50 个 ⇒ exit 2）
+#         与判据自检（--self-test，不连库），判据被改坏时自检先红。
+#
+# 开关：`ORPHAN_BTN_GATE` = block（默认）/ warn / off
+# 无库环境（NIK_DATABASE_PASSWORD / PGPASSWORD 均空）→ 按「无 DB 环境」跳过，与闸③④⑤⑥ 同口径。
+# ======================================================================
+orphan_button_gate() {
+    local mode="${ORPHAN_BTN_GATE:-block}"
+    if [ "$mode" = "off" ]; then
+        echo "==> 闸⑦：孤儿按钮（ORPHAN_BTN_GATE=off → 跳过）"
+        return 0
+    fi
+    echo "==> 闸⑦：孤儿按钮（scripts/verify/orphan_button_gate.py）"
+
+    local selftest
+    if ! selftest="$(python3 "$ROOT/scripts/verify/orphan_button_gate.py" --self-test 2>&1)"; then
+        echo "  ✗ 闸门自检未通过（判据被改坏了？）：" >&2
+        printf '%s\n' "$selftest" | grep -E '✘' | head -5 >&2
+        return 1
+    fi
+    echo "  ✓ 判据自检通过（$(printf '%s\n' "$selftest" | grep -oE '[0-9]+/[0-9]+ 通过' | head -1)）"
+
+    if [ -f /etc/cloudpivot/cloudpivot.env ]; then
+        # shellcheck disable=SC1091
+        set -a; . /etc/cloudpivot/cloudpivot.env; set +a
+    fi
+    if [ -z "${NIK_DATABASE_PASSWORD:-}" ] && [ -z "${PGPASSWORD:-}" ]; then
+        echo "  ⚠ 没有库口令（NIK_DATABASE_PASSWORD / PGPASSWORD 均为空）→ 视作「无 DB 环境」，跳过"
+        echo "    （本机要跑就先 . /etc/cloudpivot/cloudpivot.env；生产只读核对用 --remote root@172.18.10.144 --db cloudpivot）"
+        return 0
+    fi
+
+    local log rc
+    log="$(mktemp /tmp/orphan_btn.XXXXXX.log)"
+    python3 "$ROOT/scripts/verify/orphan_button_gate.py" > "$log" 2>&1
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+        echo "  ✓ 孤儿 (角色,码) = 0（$(grep -oE '按钮授权 [0-9]+ 行' "$log" | head -1)）"
+        grep -E '^ℹ' "$log" | sed 's/^/    /' | head -5
+        rm -f "$log"
+        return 0
+    fi
+    if [ "$rc" -ge 2 ]; then
+        echo "  ⚠ 巡检环境错误（退出码 $rc：拿不到菜单/授权数据）→ 跳过，不算失败"
+        sed 's/^/    /' "$log" | head -3
+        rm -f "$log"
+        return 0
+    fi
+    if [ "$mode" = "warn" ]; then
+        echo "  ⚠ 有孤儿按钮（ORPHAN_BTN_GATE=warn → 不阻断）"
+        grep -E '^  · ' "$log" | sed 's/^/    /' | head -12
+        rm -f "$log"
+        return 0
+    fi
+    echo "  ✗ 有按钮挂在该角色看不见的页面下（孤儿按钮），不许合：" >&2
+    grep -E '^  · ' "$log" | sed 's/^/    /' | head -20 >&2
+    echo "    修法：① 该角色确实该看该页面 ⇒ 补授父页码（新迁移，按码判重 + down）；" >&2
+    echo "          ② 不该看 ⇒ 把按钮挂到别的父页（改 sys_menu.parent_id，零授权变化，如 V0259）。" >&2
+    echo "    完整报告：$log" >&2
+    return 1
+}
+
+if ! orphan_button_gate; then
     exit 1
 fi
 

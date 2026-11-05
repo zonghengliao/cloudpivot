@@ -1,0 +1,16 @@
+============================================================================================
+孤儿按钮常驻闸 · orphan_button_gate.py（角色拿到的按钮码 ⇒ 至少有一个可达父页）
+============================================================================================
+扫描面：活跃 sys_menu 335 行 / 带码父页的按钮节点 242 个 / 按钮授权 619 行
+--------------------------------------------------------------------------------------------
+✗ 孤儿 (角色,码) = 8  ← 必须为 0！这些按钮挂在该角色看不见的页面下：
+  · FINANCE_DIRECTOR       business:flow:approve              不可达父页 /flow/def(business:flow:read)（该角色未持有父页码）
+  · FINANCE_DIRECTOR       business:flow:instance:create      不可达父页 /flow/def(business:flow:read)（该角色未持有父页码）
+  · FINANCE_DIRECTOR       business:flow:instance:read        不可达父页 /flow/def(business:flow:read)（该角色未持有父页码）
+  · FINANCE_DIRECTOR       business:flow:instance:withdraw    不可达父页 /flow/def(business:flow:read)（该角色未持有父页码）
+  · FLOW_CONFIG_APPROVER   business:flow:approve              不可达父页 /flow/def(business:flow:read)（该角色未持有父页码）
+  · FLOW_CONFIG_APPROVER   business:flow:instance:create      不可达父页 /flow/def(business:flow:read)（该角色未持有父页码）
+  · FLOW_CONFIG_APPROVER   business:flow:instance:read        不可达父页 /flow/def(business:flow:read)（该角色未持有父页码）
+  · FLOW_CONFIG_APPROVER   business:flow:instance:withdraw    不可达父页 /flow/def(business:flow:read)（该角色未持有父页码）
+  修法：① 该角色确实该看该页面 ⇒ 补授父页码（新迁移，按码判重 + down）；
+        ② 不该看 ⇒ 把按钮挂到别的父页（改 sys_menu.parent_id，零授权变化，如 V0259）。

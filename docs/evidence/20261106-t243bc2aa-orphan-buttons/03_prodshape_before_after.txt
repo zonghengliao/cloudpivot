@@ -1,0 +1,32 @@
+== ① 克隆 cloudpivot_t243b → cloudpivot_t243b_prod ==
+   克隆完成：role_menu=688 / menu=336
+
+== ② 造「生产形状」：down 回旧父页 + 撤掉两个角色的 business:flow:read ==
+   role_menu_rows=686 parents=0800->0780,0803->0780 flow_read_held=0
+   闸（期望红 8 对）：
+孤儿按钮常驻闸 · orphan_button_gate.py（角色拿到的按钮码 ⇒ 至少有一个可达父页）
+✗ 孤儿 (角色,码) = 8  ← 必须为 0！这些按钮挂在该角色看不见的页面下：
+  · FINANCE_DIRECTOR       business:flow:approve              不可达父页 /flow/def(business:flow:read)（该角色未持有父页码）
+  · FINANCE_DIRECTOR       business:flow:instance:create      不可达父页 /flow/def(business:flow:read)（该角色未持有父页码）
+  · FINANCE_DIRECTOR       business:flow:instance:read        不可达父页 /flow/def(business:flow:read)（该角色未持有父页码）
+  · FINANCE_DIRECTOR       business:flow:instance:withdraw    不可达父页 /flow/def(business:flow:read)（该角色未持有父页码）
+  · FLOW_CONFIG_APPROVER   business:flow:approve              不可达父页 /flow/def(business:flow:read)（该角色未持有父页码）
+  · FLOW_CONFIG_APPROVER   business:flow:instance:create      不可达父页 /flow/def(business:flow:read)（该角色未持有父页码）
+  · FLOW_CONFIG_APPROVER   business:flow:instance:read        不可达父页 /flow/def(business:flow:read)（该角色未持有父页码）
+  · FLOW_CONFIG_APPROVER   business:flow:instance:withdraw    不可达父页 /flow/def(business:flow:read)（该角色未持有父页码）
+
+== ③ 只跑 V0259 up（生产部署只会做这一件事）==
+psql:/opt/cloudpivot/backend/migrations/business/V0259__flow_instance_button_parentage.up.sql:271: NOTICE:  table "_v0259_fix" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0259__flow_instance_button_parentage.up.sql:271: NOTICE:  table "_v0259_sel" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0259__flow_instance_button_parentage.up.sql:271: NOTICE:  table "_v0259_orphan" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0259__flow_instance_button_parentage.up.sql:271: NOTICE:  V0259 完成：5 个实例侧按钮已归位（本次改父页 5 行）/ 兜底补授 0 行 / 推进 token_version 0 个账号
+   role_menu_rows=686 parents=0800->0861,0803->0862 flow_read_held=0
+   闸（期望绿）：
+✓ 孤儿 (角色,码) = 0   （每个按钮码都至少有一个角色看得见的父页）
+ℹ 冗余节点授权（同码另有可达节点，不判红）：WAREHOUSE_MANAGER business:erp:doc:cancel-cascade @ /business/erp/payable(business:erp:payable:list)（2/3 个节点可达）
+ℹ 冗余节点授权（同码另有可达节点，不判红）：WAREHOUSE_MANAGER business:erp:doc:cancel-impact @ /business/erp/payable(business:erp:payable:list)（2/3 个节点可达）
+
+== ④ 断言 ==
+   [PASS] 授权行数零变化（role_menu_rows=686 parents=0800->0780,0803->0780 flow_read_held=0 → role_menu_rows=686 parents=0800->0861,0803->0862 flow_read_held=0 的 role_menu_rows 相同）
+   [PASS] 两个角色仍然没有 business:flow:read（本迁移零新增授权）
+   [PASS] 父页已归位（0800→发起审批 0861，0803→审批中心 0862）
