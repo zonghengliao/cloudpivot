@@ -943,6 +943,11 @@ pub fn register_cancel_builtin(scheduler: &crate::task::Scheduler) {
 // ```
 //
 // 夹具全部带 `P17` 前缀（应付单号 `AP-P17-…`、用户 `p17_*`），每次 `setup()` 先按前缀清掉上一轮。
+// ⚠️ 清场**两处都要挂**（卡 t_977c5189）：每例 `setup()` 开头自清上一轮 + **每例末尾的 teardown**
+//    再调一次 `cleanup_fixtures()`。只挂 setup 的话，模块跑完库里会留下 3 个**在职**夹具账号
+//    （`p17_ap1/p17_ap2` 还挂着 SUPER_ADMIN）—— 而 `assignee_type='ADMIN'` / `FALLBACK_ADMIN`
+//    的展开口径是「全部在职超管」，后续模块的审批单就多出 2 票会签，实测把
+//    `flow::edge_admin_tests` 的 3 条批量审批用例打成假红（落边 0 行、实例停在 PENDING）。
 // ⚠️ 本模块与 `payable_payment::tests`（P7）**共用同一把锁**（`fixture_hygiene::FINANCE_SEED_LOCK`）：
 //    两者都写 `biz_payment` / `biz_voucher`，**并且都会改写种子流程行 `biz_flow_def`（payable_pay）**。
 //    过去的「各一把锁 + 靠 --test-threads=1 串行」在并行下会互踩：P7 的 setup 把 P17 临时
@@ -1549,6 +1554,8 @@ mod tests {
             !pending_tasks(instance_id).await.is_empty(),
             "必须有人有待办"
         );
+        // teardown：用例结束即摘净夹具（不把「还活着的超管账号」留给后面的模块 —— 卡 t_977c5189）
+        cleanup_fixtures().await;
     }
 
     // ---------- ② 未配流程 → 409（ARCH-3 DC-01：不再降级直付） ----------
@@ -1602,6 +1609,8 @@ mod tests {
             .expect("查付款记录")
             .unwrap_or(0);
         assert_eq!(payments, 0, "被拒后不许落付款记录（更不许出凭证）");
+        // teardown：用例结束即摘净夹具（不把「还活着的超管账号」留给后面的模块 —— 卡 t_977c5189）
+        cleanup_fixtures().await;
     }
 
     // ---------- ③ 重复提交 → 409 ----------
@@ -1642,6 +1651,8 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(count, 1);
+        // teardown：用例结束即摘净夹具（不把「还活着的超管账号」留给后面的模块 —— 卡 t_977c5189）
+        cleanup_fixtures().await;
     }
 
     // ---------- ④ 金额 > 未付余额 → 400 ----------
@@ -1679,6 +1690,8 @@ mod tests {
             .unwrap();
         assert_eq!(instances, 0);
         assert!(payment_row_count(payable_id).await == 0);
+        // teardown：用例结束即摘净夹具（不把「还活着的超管账号」留给后面的模块 —— 卡 t_977c5189）
+        cleanup_fixtures().await;
     }
 
     async fn payment_row_count(payable_id: Uuid) -> i64 {
@@ -1711,6 +1724,8 @@ mod tests {
                 .expect_err("已结清不能再付款");
         assert_eq!(err.status, 409, "{}", err.msg);
         assert!(err.msg.contains("已结清"), "{}", err.msg);
+        // teardown：用例结束即摘净夹具（不把「还活着的超管账号」留给后面的模块 —— 卡 t_977c5189）
+        cleanup_fixtures().await;
     }
 
     // ---------- ⑥⑦⑧ 金额分级（条件节点，不是代码 if/else） ----------
@@ -1731,6 +1746,8 @@ mod tests {
             "5000 元必须只落在 n_dept：{:?}",
             tasks
         );
+        // teardown：用例结束即摘净夹具（不把「还活着的超管账号」留给后面的模块 —— 卡 t_977c5189）
+        cleanup_fixtures().await;
     }
 
     /// ⑦ 50000 元（1 万 ≤ 金额 < 10 万）→ 只走「财务经理审批」节点。
@@ -1749,6 +1766,8 @@ mod tests {
             "50000 元必须只落在 n_fin：{:?}",
             tasks
         );
+        // teardown：用例结束即摘净夹具（不把「还活着的超管账号」留给后面的模块 —— 卡 t_977c5189）
+        cleanup_fixtures().await;
     }
 
     /// ⑧ 500000 元（≥ 10 万）→ 走「财务总监+总经理会签」，且**每个审批人一条待办**（≥ 2）。
@@ -1772,6 +1791,8 @@ mod tests {
             "会签节点必须给每个审批人一条待办（实测 {} 条）",
             tasks.len()
         );
+        // teardown：用例结束即摘净夹具（不把「还活着的超管账号」留给后面的模块 —— 卡 t_977c5189）
+        cleanup_fixtures().await;
     }
 
     /// ⑨ 会签：只批一个**不算通过**，全部批完才通过。
@@ -1808,6 +1829,8 @@ mod tests {
             payment_row(payment_id).await.approval_status,
             APPROVAL_APPROVED
         );
+        // teardown：用例结束即摘净夹具（不把「还活着的超管账号」留给后面的模块 —— 卡 t_977c5189）
+        cleanup_fixtures().await;
     }
 
     // ---------- ⑩⑪⑫⑬ 审批通过 → 记账 ----------
@@ -1829,6 +1852,8 @@ mod tests {
         assert_eq!(payable.unpaid_amount, dec("3000"));
         assert_eq!(payable.status, payable_mod::STATUS_PARTIAL_PAID);
         assert!(payable.settled_at.is_none());
+        // teardown：用例结束即摘净夹具（不把「还活着的超管账号」留给后面的模块 —— 卡 t_977c5189）
+        cleanup_fixtures().await;
     }
 
     /// ⑪ 通过 → 全额付款 → `SETTLED`。
@@ -1847,6 +1872,8 @@ mod tests {
         assert_eq!(payable.unpaid_amount, Decimal::ZERO);
         assert_eq!(payable.status, payable_mod::STATUS_SETTLED);
         assert!(payable.settled_at.is_some(), "结清必须写 settled_at");
+        // teardown：用例结束即摘净夹具（不把「还活着的超管账号」留给后面的模块 —— 卡 t_977c5189）
+        cleanup_fixtures().await;
     }
 
     /// ⑫ 通过 → 生成付款凭证，**借 2202 = 贷 1002 = 金额**，借贷平衡。
@@ -1881,6 +1908,8 @@ mod tests {
         assert_eq!(debit.debit, dec("5000"));
         assert_eq!(credit.credit, dec("5000"));
         assert_eq!(debit.debit, credit.credit, "借贷必须平衡");
+        // teardown：用例结束即摘净夹具（不把「还活着的超管账号」留给后面的模块 —— 卡 t_977c5189）
+        cleanup_fixtures().await;
     }
 
     /// ⑬ 通过 → 凭证**挂在付款记录上**（`biz_payment.voucher_id` + `source_id` 双向可追）。
@@ -1920,6 +1949,8 @@ mod tests {
         );
         assert_eq!(shown.approval_status, APPROVAL_APPROVED);
         assert!(!shown.pending);
+        // teardown：用例结束即摘净夹具（不把「还活着的超管账号」留给后面的模块 —— 卡 t_977c5189）
+        cleanup_fixtures().await;
     }
 
     /// 全部审批人都批一遍（制单人不是超管，不在审批人里）。
@@ -1984,6 +2015,8 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(count, 1, "被驳回的那笔要留痕（供审计）");
+        // teardown：用例结束即摘净夹具（不把「还活着的超管账号」留给后面的模块 —— 卡 t_977c5189）
+        cleanup_fixtures().await;
     }
 
     // ---------- ⑮ 审批中应付单被作废 → 撤审批 ----------
@@ -2027,6 +2060,8 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(leaked, 0);
+        // teardown：用例结束即摘净夹具（不把「还活着的超管账号」留给后面的模块 —— 卡 t_977c5189）
+        cleanup_fixtures().await;
     }
 
     // ---------- ⑯ 审批通过但单据已作废 → 拒绝执行 + CANCELLED ----------
@@ -2058,6 +2093,8 @@ mod tests {
         let payable = payable_row(payable_id).await;
         assert_eq!(payable.paid_amount, Decimal::ZERO, "账一分不能动");
         assert_eq!(payable.unpaid_amount, dec("5000"));
+        // teardown：用例结束即摘净夹具（不把「还活着的超管账号」留给后面的模块 —— 卡 t_977c5189）
+        cleanup_fixtures().await;
     }
 
     // ---------- ⑰ 内控：制单人不能批自己 ----------
@@ -2135,6 +2172,8 @@ mod tests {
             APPROVAL_PENDING
         );
         assert_eq!(payable_row(payable_id).await.paid_amount, Decimal::ZERO);
+        // teardown：用例结束即摘净夹具（不把「还活着的超管账号」留给后面的模块 —— 卡 t_977c5189）
+        cleanup_fixtures().await;
     }
 
     // ---------- ⑱ 迁移自检：种子流程图与 hash 自洽 ----------
@@ -2208,6 +2247,8 @@ mod tests {
         let board = graph.node("n_board").expect("缺会签节点");
         assert_eq!(board.node_type, graph::NodeType::Countersign);
         assert_eq!(board.approval_mode, Some(graph::ApprovalMode::All));
+        // teardown：用例结束即摘净夹具（不把「还活着的超管账号」留给后面的模块 —— 卡 t_977c5189）
+        cleanup_fixtures().await;
     }
 
     // ---------- 纯逻辑：状态映射 ----------
@@ -2287,6 +2328,8 @@ mod tests {
             0,
             "夹具用户的 SUPER_ADMIN 绑定必须删净（否则仍会被当成审批人）"
         );
+        // teardown：用例结束即摘净夹具（不把「还活着的超管账号」留给后面的模块 —— 卡 t_977c5189）
+        cleanup_fixtures().await;
     }
 
     /// 夹具用户剩余条数：按**固定 uuid 集合**数，只数**未软删**的行。
@@ -2310,7 +2353,7 @@ mod tests {
             .unwrap_or(0)
     }
 
-    // ---------- 收尾清场自证（**不承担清场职责**：清场在每例 setup 前跑） ----------
+    // ---------- 收尾清场自证（清场在「每例 setup 开头」+「每例末尾 teardown」两处都跑） ----------
 
     /// 显式跳过审批的直付会写 `PAYABLE` / `VOUCHER` 状态日志，且模块清场**按 id 把它们删干净**。
     ///
@@ -2423,5 +2466,7 @@ mod tests {
             left, 0,
             "整库不许留 PAYABLE / VOUCHER 的孤儿状态日志（收敛等待 5s 后仍非 0）"
         );
+        // teardown：用例结束即摘净夹具（不把「还活着的超管账号」留给后面的模块 —— 卡 t_977c5189）
+        cleanup_fixtures().await;
     }
 }

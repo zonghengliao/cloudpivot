@@ -1,0 +1,54 @@
+    Blocking waiting for file lock on artifact directory
+    Finished `test` profile [unoptimized] target(s) in 59.16s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-78ceea9b7d1dc903)
+
+running 46 tests
+test business::erp::payable_bridge::tests::dc01_pay_without_published_flow_is_409 ... ok
+test business::erp::payable_bridge::tests::p17_amount_500000_routes_to_countersign ... ok
+test business::erp::payable_bridge::tests::p17_amount_50000_routes_to_finance_manager ... ok
+test business::erp::payable_bridge::tests::p17_amount_5000_routes_to_dept_lead ... ok
+test business::erp::payable_bridge::tests::p17_amount_number_is_json_number ... ok
+test business::erp::payable_bridge::tests::p17_amount_over_unpaid_is_rejected ... ok
+test business::erp::payable_bridge::tests::p17_approval_backfills_payment_voucher ... ok
+test business::erp::payable_bridge::tests::p17_approval_full_amount_settles ... ok
+test business::erp::payable_bridge::tests::p17_approval_generates_balanced_voucher ... ok
+test business::erp::payable_bridge::tests::p17_approval_marks_partial_paid ... ok
+test business::erp::payable_bridge::tests::p17_approve_after_payable_cancelled_is_refused ... ok
+test business::erp::payable_bridge::tests::p17_cancel_payable_terminates_pending_approval ... ok
+test business::erp::payable_bridge::tests::p17_constants_match_seed ... ok
+test business::erp::payable_bridge::tests::p17_countersign_needs_every_vote ... ok
+test business::erp::payable_bridge::tests::p17_creator_cannot_approve_own_payment ... ok
+test business::erp::payable_bridge::tests::p17_duplicate_submit_is_conflict ... ok
+test business::erp::payable_bridge::tests::p17_fixture_users_are_removed_by_cleanup ... ok
+test business::erp::payable_bridge::tests::p17_pay_settled_payable_is_conflict ... ok
+test business::erp::payable_bridge::tests::p17_reject_keeps_books_and_allows_resubmit ... ok
+test business::erp::payable_bridge::tests::p17_seeded_flow_graph_is_consistent ... ok
+test business::erp::payable_bridge::tests::p17_skip_approval_payment_logs_are_purged_by_id ... ok
+test business::erp::payable_bridge::tests::p17_submit_creates_pending_payment_and_instance ... ok
+test business::erp::payable_bridge::tests::p17_verdict_maps_only_final_states ... ok
+test business::flow::edge_admin_tests::bad_patch_is_rejected_before_any_approval ... ok
+test business::flow::edge_admin_tests::batch_task_empty_ids_is_rejected ... ok
+test business::flow::edge_admin_tests::batch_task_error_code_matches_single_approve ... ok
+test business::flow::edge_admin_tests::batch_task_invalid_uuid_only_fails_that_item ... ok
+test business::flow::edge_admin_tests::batch_task_reject_keeps_edge_config_untouched ... ok
+test business::flow::edge_admin_tests::batch_task_reject_requires_five_char_comment ... ok
+test business::flow::edge_admin_tests::batch_task_rejects_oversized_batch_and_illegal_action ... ok
+test business::flow::edge_admin_tests::batch_task_repeated_approval_keeps_single_row ... ok
+test business::flow::edge_admin_tests::batch_task_requires_approve_permission ... ok
+test business::flow::edge_admin_tests::batch_task_writes_edge_after_approval ... ok
+test business::flow::edge_admin_tests::biz_id_is_stable_per_edge ... ok
+test business::flow::edge_admin_tests::change_takes_effect_only_after_approval ... ok
+test business::flow::edge_admin_tests::change_verdict_maps_terminal_states ... ok
+test business::flow::edge_admin_tests::delete_config_also_goes_through_approval ... ok
+test business::flow::edge_admin_tests::form_data_rejects_dirty_payload ... ok
+test business::flow::edge_admin_tests::form_data_round_trips_both_actions ... ok
+test business::flow::edge_admin_tests::list_view_marks_configured_edges ... ok
+test business::flow::edge_admin_tests::list_view_reports_base_config_and_effective ... ok
+test business::flow::edge_admin_tests::offline_flow_falls_back_to_explicit_skip ... ok
+test business::flow::edge_admin_tests::rejected_change_does_not_take_effect ... ok
+test business::flow::edge_admin_tests::seed_flow_hash_matches_rows ... ok
+test business::flow::edge_admin_tests::seed_migration_matches_code_constants ... ok
+test business::flow::edge_admin_tests::summary_spells_out_the_change ... ok
+
+test result: ok. 46 passed; 0 failed; 0 ignored; 0 measured; 2637 filtered out; finished in 68.93s
+

@@ -1,0 +1,10 @@
+# 闸⓪ 负样本：三库 URL 齐全、但目标模块自己少的 env（P0FIX_DB_URL）没配
+# 期望：7 条用例「passed」但全部打印 SKIP ⇒ 闸⓪ 必须判「假绿」并 exit 1
+$ CHECK_WITH_DB=1 CHECK_WITH_DB_FILTER=business::flow::internal_control::db_tests bash scripts/check.sh
+==> 闸⓪：真库用例（cargo test --lib --features test-hooks -- --test-threads=1）
+  test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 2676 filtered out; finished in 0.00s
+  ✗ 有真库用例因「库没配 / 连不上」而 SKIP（libtest 记 passed = 假绿）：
+          1 SKIP: 未设置 P0FIX_DB_URL（内控 / 会签的真库用例需要真库）
+    修法：三个库 URL（ERP_DB_URL / SYS_DB_URL / TASK_DB_URL）指同一个隔离库；
+          要跑内控那组再加 P0FIX_DB_URL。完整日志：/tmp/check_with_db.2ADP5G.log
+rc=1

@@ -310,6 +310,237 @@ async fn purge() {
     ] {
         exec(sql).await;
     }
+    // 「复核岗绑 admin」是本模块的夹具（`prepare()` 里装），这里一并还原：
+    // 用例跑完库里的种子角色要和迁移 V0206 时一样（0 成员，走 FALLBACK_ADMIN）。
+    unbind_config_approver().await;
+}
+
+// ==================== 夹具：隔离（单人复核）+ 守卫（图基线） ====================
+//
+// # 为什么夹具要「把复核岗绑死到一个人」（卡 t_977c5189）
+//
+// 种子 `n_cfg` 是 `assignee_type='ROLE'`（`FLOW_CONFIG_APPROVER`）+ `empty_assignee='FALLBACK_ADMIN'`，
+// 而 `join_mode='AND'` 是**会签**：角色 0 人时兜底到「**全部**在职超管」⇒ 一张单要投几票，
+// 取决于「库里现在有几个超管」，而不是取决于本例要验的业务语义。
+//
+// 2026-11-06 全量真库实测（同一隔离库、`--test-threads=1`）：`payable_bridge`（P17）的夹具
+// 用户 `p17_ap1 / p17_ap2` 在模块跑完后仍是**在职超管**（它的清场只挂在「下一个用例的
+// setup」上，模块跑完不会跑），于是本模块的审批单从 1 票变 3 票，三条「批量同意后必须落边」
+// 的用例集体假红（落边 0 行、实例停在 `PENDING`、报文「还有 2 条 PENDING 待办没批」）。
+//
+// 修法：夹具自己把复核岗绑到**确定的一个人**（内置 admin）⇒ `ROLE` 非空、不再走
+// `FALLBACK_ADMIN` 展开 ⇒ 待办恒为 1，与环境里的超管人数彻底解耦。
+//
+// # 为什么还要一道「图基线」守卫
+//
+// 上面的隔离只能挡住「环境里有几个超管」。如果**已发布流程本身**被别人改写
+// （换版本 / 改节点 / 把 `n_cfg` 从 ROLE 改成 ADMIN / 加会签节点），那破坏的是**本例的前提**，
+// 不是被测代码 —— 应该一眼看到「夹具污染」，而不是让 `落边行数 left:0 right:1` 去背锅。
+// `guard_published_flow_graph` 就是这道守卫：只认 V0206 的种子图指纹。
+
+/// 种子流程 `flow_edge_config` 的定义 id（V0206 里写死的 uuid；被换掉 = 别人重新发布了流程）。
+const SEED_DEF_ID: &str = "20000000-0000-4000-8000-0000000e0206";
+
+/// 种子图的基线指纹（V0206 的 `graph_hash`，与「从 node/edge/assignee 行重建」逐字节一致）。
+///
+/// 变了只有两种可能：① 有人正当改了种子（那要同步改这里，并在提交里写明是哪条迁移）；
+/// ② 有人在共用库上把图改了（夹具污染，本例的前提没了）。守卫的报错会把这两种可能都写出来。
+const BASELINE_GRAPH_HASH: &str =
+    "c0ad61937b734114f6865f9347b57ab9824f560605e522a204d22650baa30e08";
+
+/// 复核岗角色码（V0206 种子角色；`n_cfg` 的审批人来源）。
+const APPROVER_ROLE_CODE: &str = "FLOW_CONFIG_APPROVER";
+
+/// 复核岗的角色 id（种子缺失直接炸：那是「V0206 没应用」，不是业务红）。
+async fn approver_role_id() -> Uuid {
+    let id: Option<Uuid> = db()
+        .scalar_with_params::<Option<Uuid>>(
+            "SELECT id FROM sys_role WHERE role_code = ? AND deleted_at IS NULL LIMIT 1",
+            vec![Value::Text(APPROVER_ROLE_CODE.to_string())],
+        )
+        .await
+        .expect("查复核岗角色");
+    id.unwrap_or_else(|| panic!("测试库缺种子角色 {APPROVER_ROLE_CODE}（V0206 没跑？）"))
+}
+
+/// 守卫：已发布的 `flow_edge_config` 必须仍是 V0206 的种子图（定义 id / 指纹 / 节点结构逐项钉死）。
+///
+/// 断言口径**取产品解析出来的那一条**（[`edge_admin::published_flow`]），不是「库里第一条」——
+/// 守卫要证明的是「产品这次会拿哪张图」，那才是本例的前提。
+async fn guard_published_flow_graph() {
+    let flow = edge_admin::published_flow()
+        .await
+        .expect("查已发布流程（守卫）")
+        .unwrap_or_else(|| {
+            panic!(
+                "夹具污染：库里没有已发布的 `flow_edge_config` 流程（V0206 种子被删/被下线）。\n\
+                 本模块的前提是「有一条已发布流程，提交就会送审」；缺了它，用例会走\n\
+                 「显式跳过审批」分支 —— 那不是本例要验的路径。\n\
+                 修法：确认 V0206 已应用、`biz_flow_def.flow_code='flow_edge_config'` 的 \
+                 `status='PUBLISHED'` 且 `deleted_at IS NULL`。"
+            )
+        });
+    assert_eq!(
+        flow.def_id.to_string(),
+        SEED_DEF_ID,
+        "夹具污染：产品解析到的已发布流程是 `{}`（{}），不是 V0206 种子 `{SEED_DEF_ID}`。\n\
+         说明有人在共用库上又发布了一条 `biz_type='FLOW_EDGE_CFG'` 的流程盖住了种子。\n\
+         修法：删掉多余的那条定义（或把它的 `is_default` / 版本号降下去），再重跑。",
+        flow.flow_code,
+        flow.def_id
+    );
+
+    let row = db()
+        .find_with_params(
+            "SELECT graph_hash, node_count, edge_count FROM biz_flow_def_version WHERE id = ?::uuid",
+            vec![Value::from(&flow.version_id)],
+        )
+        .await
+        .expect("查已发布版本（守卫）");
+    let Some(row) = row.first() else {
+        panic!("夹具污染：已发布流程指向的版本 {} 不存在", flow.version_id);
+    };
+    let hash: String = row.get_typed("graph_hash").expect("graph_hash");
+    let nodes: i32 = row.get_typed("node_count").expect("node_count");
+    let edges: i32 = row.get_typed("edge_count").expect("edge_count");
+    let node_rows = db()
+        .find_with_params(
+            "SELECT node_key::text AS node_key, node_type::text AS node_type, \
+                    assignee_type::text AS assignee_type, empty_assignee::text AS empty_assignee, \
+                    join_mode::text AS join_mode \
+               FROM biz_flow_node WHERE version_id = ?::uuid ORDER BY node_key",
+            vec![Value::from(&flow.version_id)],
+        )
+        .await
+        .expect("查已发布版本的节点（守卫）");
+    let keys: Vec<String> = node_rows
+        .iter()
+        .map(|row| row.get_typed::<String>("node_key").unwrap_or_default())
+        .collect();
+    let assignees = db()
+        .find_with_params(
+            "SELECT a.assignee_type::text AS assignee_type, a.ref_id::text AS ref_id, \
+                    n.node_key::text AS node_key \
+               FROM biz_flow_node_assignee a JOIN biz_flow_node n ON n.id = a.node_id \
+              WHERE n.version_id = ?::uuid ORDER BY n.node_key, a.sort_order",
+            vec![Value::from(&flow.version_id)],
+        )
+        .await
+        .expect("查已发布版本的审批人（守卫）");
+    let assignee_text: Vec<String> = assignees
+        .iter()
+        .map(|row| {
+            format!(
+                "{}:{}:{}",
+                row.get_typed::<String>("node_key").unwrap_or_default(),
+                row.get_typed::<String>("assignee_type").unwrap_or_default(),
+                row.get_typed::<String>("ref_id").unwrap_or_default()
+            )
+        })
+        .collect();
+    let role = approver_role_id().await;
+    let n_cfg = node_rows
+        .iter()
+        .find(|row| row.get_typed::<String>("node_key").ok().as_deref() == Some("n_cfg"));
+
+    let pollution = |detail: String| -> ! {
+        panic!(
+            "夹具污染（不是业务断言失败）：已发布 `flow_edge_config` 图与 V0206 基线不一致。\n\
+             {detail}\n\
+             本模块全部真库用例的前提是「s → n_cfg(ROLE={APPROVER_ROLE_CODE}, 单人复核) → e」。\n\
+             两种可能：① 有用例/脚本在**共用库**上改了这张图（改完没恢复）；\n\
+             ② 种子被正当替换了 —— 那要同步更新本文件的 `BASELINE_GRAPH_HASH` / `SEED_DEF_ID`，\n\
+                并在提交里写明是哪条迁移改的图。\n\
+             修法：换一个干净隔离库跑（`scripts/verify/erp_clean_db.sh`），或把种子图恢复成 V0206 的版本。"
+        )
+    };
+
+    if hash != BASELINE_GRAPH_HASH || nodes != 3 || edges != 2 {
+        pollution(format!(
+            "基线：hash={BASELINE_GRAPH_HASH} node_count=3 edge_count=2\n\
+             实际：hash={hash} node_count={nodes} edge_count={edges}（版本 {}）",
+            flow.version_id
+        ));
+    }
+    if keys != vec!["e".to_string(), "n_cfg".to_string(), "s".to_string()] {
+        pollution(format!("节点 key 基线 [e, n_cfg, s]，实际 {keys:?}"));
+    }
+    match n_cfg {
+        Some(row)
+            if row.get_typed::<String>("node_type").ok().as_deref() == Some("APPROVAL")
+                && row.get_typed::<String>("assignee_type").ok().as_deref() == Some("ROLE")
+                && row.get_typed::<String>("empty_assignee").ok().as_deref()
+                    == Some("FALLBACK_ADMIN")
+                && row.get_typed::<String>("join_mode").ok().as_deref() == Some("AND") => {}
+        _ => pollution(
+            "`n_cfg` 的节点配置变了（基线 APPROVAL / ROLE / FALLBACK_ADMIN / AND）".to_string(),
+        ),
+    }
+    if assignee_text != vec![format!("n_cfg:ROLE:{role}")] {
+        pollution(format!(
+            "`n_cfg` 的审批人基线是 [n_cfg:ROLE:{role}]（复核岗），实际 {assignee_text:?}"
+        ));
+    }
+    println!("[t_977c5189] 已发布流程基线校验通过：hash={hash} 节点 {keys:?}");
+}
+
+/// 把内置 admin 绑到复核岗 → `n_cfg` **恒为单人复核**（与库里超管人数无关）。
+///
+/// 绑定后立刻断言「该角色在职成员恰好只有 admin」：别的用例往这个角色里塞人时，
+/// 本模块的「一张单 1 票」前提同样不成立 —— 那也要报夹具污染，而不是让业务断言去猜。
+async fn bind_config_approver() {
+    let role = approver_role_id().await;
+    let admin = admin_id().await;
+    exec(&format!(
+        "INSERT INTO sys_user_role (user_id, role_id) VALUES ('{admin}'::uuid, '{role}'::uuid) \
+         ON CONFLICT DO NOTHING"
+    ))
+    .await;
+    // 与产品 `flow/assignee.rs::load_role_members` **逐字同口径**：
+    // `role_id` 命中 + 绑定未过期 + 用户未软删（不含 status，产品在这一步不看 status）。
+    let members: Vec<String> = db()
+        .find_with_params(
+            "SELECT u.username FROM sys_user u JOIN sys_user_role ur ON ur.user_id = u.id \
+              WHERE ur.role_id = ?::uuid \
+                AND (ur.expire_time IS NULL OR ur.expire_time > now()) \
+                AND u.deleted_at IS NULL \
+              ORDER BY u.username",
+            vec![Value::from(&role)],
+        )
+        .await
+        .expect("查复核岗成员（守卫）")
+        .iter()
+        .map(|row| row.get_typed::<String>("username").unwrap_or_default())
+        .collect();
+    assert_eq!(
+        members,
+        vec!["admin".to_string()],
+        "夹具污染（不是业务断言失败）：复核岗 `{APPROVER_ROLE_CODE}` 的在职成员应当只有内置 \
+         admin，实际 {members:?}。\n\
+         本模块断言「一张审批单 = 1 条待办」（`join_mode=AND` 会签），多人绑这个角色就变会签、\
+         单点「同意」批不掉整单。\n\
+         修法：清掉该角色上的夹具成员（`DELETE FROM sys_user_role WHERE role_id = \
+         '<{APPROVER_ROLE_CODE} 的 id>'`），并把它改成「用例结束即清」（不要只挂在 setup 上）。"
+    );
+}
+
+/// 拆掉「复核岗绑 admin」这条夹具（挂在 `purge()` 上：用例开头自清、结尾还原）。
+async fn unbind_config_approver() {
+    let role = approver_role_id().await;
+    let admin = admin_id().await;
+    exec(&format!(
+        "DELETE FROM sys_user_role WHERE user_id = '{admin}'::uuid AND role_id = '{role}'::uuid"
+    ))
+    .await;
+}
+
+/// 每个真库用例的开头：守卫（前提）→ 清上一轮 → 装「单人复核」夹具。
+///
+/// 顺序有意义：守卫先跑，被污染时**第一句**就报「夹具污染」，不会被清理语句的报错盖住。
+async fn prepare() {
+    guard_published_flow_graph().await;
+    purge().await;
+    bind_config_approver().await;
 }
 
 /// 一条「禁用 STOCK_OUT DRAFT→POSTED」的请求（走真正的 handler）。
@@ -363,6 +594,12 @@ async fn seed_flow_hash_matches_rows() {
     let status: String = row.get_typed("status").expect("status");
     assert_eq!(biz_type, edge_admin::BIZ_TYPE);
     assert_eq!(status, "PUBLISHED");
+    // 与 `prepare()` 里那道守卫同一口径：指纹必须还是 V0206 的基线（图被改过 = 夹具污染，
+    // 那会让本模块所有「单人复核」用例一起假红，见文件头「夹具：隔离 + 守卫」）。
+    assert_eq!(
+        stored_hash, BASELINE_GRAPH_HASH,
+        "已发布 flow_edge_config 的 graph_hash 已偏离基线（图被改过？见 guard_published_flow_graph 的说明）"
+    );
     assert_eq!(row.get_typed::<i32>("node_count").expect("node_count"), 3);
     assert_eq!(row.get_typed::<i32>("edge_count").expect("edge_count"), 2);
 
@@ -394,7 +631,7 @@ async fn list_view_reports_base_config_and_effective() {
         return;
     }
     let _guard = DB_LOCK.lock().await;
-    purge().await;
+    prepare().await;
     let base = state_machine::Entity::StockOut.base_edges().len();
     let res = edge_admin::list_state_edges(Query(StateEdgeQuery {
         entity: Some("STOCK_OUT".to_string()),
@@ -436,7 +673,7 @@ async fn change_takes_effect_only_after_approval() {
         return;
     }
     let _guard = DB_LOCK.lock().await;
-    purge().await;
+    prepare().await;
     assert!(stock_out_allows_direct_post().await, "基线：允许直接过账");
 
     let claims = super_claims().await;
@@ -533,7 +770,7 @@ async fn rejected_change_does_not_take_effect() {
         return;
     }
     let _guard = DB_LOCK.lock().await;
-    purge().await;
+    prepare().await;
     assert!(stock_out_allows_direct_post().await);
 
     let claims = super_claims().await;
@@ -603,7 +840,7 @@ async fn bad_patch_is_rejected_before_any_approval() {
         return;
     }
     let _guard = DB_LOCK.lock().await;
-    purge().await;
+    prepare().await;
 
     // ① 没有二次确认 → 400
     let mut req = disable_stock_out_post();
@@ -657,7 +894,7 @@ async fn delete_config_also_goes_through_approval() {
         return;
     }
     let _guard = DB_LOCK.lock().await;
-    purge().await;
+    prepare().await;
     // 先直接落一行配置（超管 + 内核唯一入口）
     let claims = super_claims().await;
     state_machine::upsert_edge_config(
@@ -756,7 +993,7 @@ async fn list_view_marks_configured_edges() {
         return;
     }
     let _guard = DB_LOCK.lock().await;
-    purge().await;
+    prepare().await;
     let claims = super_claims().await;
     // 直接落一行「启用 + 要求原因 + 改文案」的配置（内核唯一入口）
     state_machine::upsert_edge_config(
@@ -819,7 +1056,7 @@ async fn offline_flow_falls_back_to_explicit_skip() {
         return;
     }
     let _guard = DB_LOCK.lock().await;
-    purge().await;
+    prepare().await;
     let claims = super_claims().await;
     // 下线流程（跑完**无论成败都恢复**：先登记恢复语句，再断言）
     exec(
@@ -1017,7 +1254,7 @@ async fn batch_task_writes_edge_after_approval() {
         return;
     }
     let _guard = DB_LOCK.lock().await;
-    purge().await;
+    prepare().await;
     assert!(stock_out_allows_direct_post().await, "基线：允许直接过账");
 
     let instance_id = submit_change("STOCK_OUT", "DRAFT", "POSTED").await;
@@ -1056,7 +1293,7 @@ async fn batch_task_reject_keeps_edge_config_untouched() {
         return;
     }
     let _guard = DB_LOCK.lock().await;
-    purge().await;
+    prepare().await;
 
     let instance_id = submit_change("STOCK_OUT", "DRAFT", "POSTED").await;
     let task_id = pending_task_of(instance_id).await;
@@ -1097,7 +1334,7 @@ async fn batch_task_invalid_uuid_only_fails_that_item() {
         return;
     }
     let _guard = DB_LOCK.lock().await;
-    purge().await;
+    prepare().await;
 
     let instance_id = submit_change("PURCHASE_ORDER", "SUBMITTED", "CLOSED").await;
     let task_id = pending_task_of(instance_id).await;
@@ -1138,7 +1375,7 @@ async fn batch_task_repeated_approval_keeps_single_row() {
         return;
     }
     let _guard = DB_LOCK.lock().await;
-    purge().await;
+    prepare().await;
 
     let instance_id = submit_change("STOCK_OUT", "DRAFT", "POSTED").await;
     let task_id = pending_task_of(instance_id).await;
@@ -1167,7 +1404,7 @@ async fn batch_task_error_code_matches_single_approve() {
         return;
     }
     let _guard = DB_LOCK.lock().await;
-    purge().await;
+    prepare().await;
 
     let claims = super_claims().await;
     let ghost = Uuid::now_v7();
@@ -1204,7 +1441,7 @@ async fn batch_task_reject_requires_five_char_comment() {
         return;
     }
     let _guard = DB_LOCK.lock().await;
-    purge().await;
+    prepare().await;
 
     let instance_id = submit_change("STOCK_OUT", "DRAFT", "POSTED").await;
     let task_id = pending_task_of(instance_id).await;

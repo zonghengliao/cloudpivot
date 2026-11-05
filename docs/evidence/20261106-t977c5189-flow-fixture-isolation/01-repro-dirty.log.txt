@@ -1,0 +1,48 @@
+    Blocking waiting for file lock on artifact directory
+    Finished `test` profile [unoptimized] target(s) in 2m 03s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-78ceea9b7d1dc903)
+
+running 9 tests
+test business::flow::edge_admin_tests::batch_task_empty_ids_is_rejected ... ok
+test business::flow::edge_admin_tests::batch_task_error_code_matches_single_approve ... ok
+test business::flow::edge_admin_tests::batch_task_invalid_uuid_only_fails_that_item ... FAILED
+test business::flow::edge_admin_tests::batch_task_reject_keeps_edge_config_untouched ... ok
+test business::flow::edge_admin_tests::batch_task_reject_requires_five_char_comment ... ok
+test business::flow::edge_admin_tests::batch_task_rejects_oversized_batch_and_illegal_action ... ok
+test business::flow::edge_admin_tests::batch_task_repeated_approval_keeps_single_row ... FAILED
+test business::flow::edge_admin_tests::batch_task_requires_approve_permission ... ok
+test business::flow::edge_admin_tests::batch_task_writes_edge_after_approval ... FAILED
+
+failures:
+
+---- business::flow::edge_admin_tests::batch_task_invalid_uuid_only_fails_that_item stdout ----
+
+thread 'business::flow::edge_admin_tests::batch_task_invalid_uuid_only_fails_that_item' (2905535) panicked at src/business/flow/edge_admin_tests.rs:1126:5:
+assertion `left == right` failed: 合法的那条已经批完 → 必须落边（一条坏 id 不该拖垮整批）
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- business::flow::edge_admin_tests::batch_task_repeated_approval_keeps_single_row stdout ----
+
+thread 'business::flow::edge_admin_tests::batch_task_repeated_approval_keeps_single_row' (2905797) panicked at src/business/flow/edge_admin_tests.rs:1154:5:
+assertion `left == right` failed: 重复审批不能把配置写成两行（第二次必须幂等，不是又落一次）
+  left: 0
+ right: 1
+
+---- business::flow::edge_admin_tests::batch_task_writes_edge_after_approval stdout ----
+
+thread 'business::flow::edge_admin_tests::batch_task_writes_edge_after_approval' (2906027) panicked at src/business/flow/test_support.rs:82:5:
+assertion `left == right` failed: 审批实例 01a1accb-3bdd-734e-b8ba-e4f765e26039 必须到 APPROVED（实际 Some("PENDING")）；没到终态就说明还有 2 条 PENDING 待办没批，业务回调本就不该触发
+  left: Some("PENDING")
+ right: Some("APPROVED")
+
+
+failures:
+    business::flow::edge_admin_tests::batch_task_invalid_uuid_only_fails_that_item
+    business::flow::edge_admin_tests::batch_task_repeated_approval_keeps_single_row
+    business::flow::edge_admin_tests::batch_task_writes_edge_after_approval
+
+test result: FAILED. 6 passed; 3 failed; 0 ignored; 0 measured; 2674 filtered out; finished in 9.62s
+
+error: test failed, to rerun pass `--lib`

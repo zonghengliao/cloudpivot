@@ -1,0 +1,35 @@
+# 修前：P17 模块「从空库起跑 → 跑完留下在职夹具账号」的库侧复查（当时实测记录）
+
+时间：2026-11-06 02:02（修复前，tree=b75ccc8 之后的 main）
+库：`cloudpivot_iso977`（隔离库，191 条迁移；本机 postgres）
+
+步骤：
+
+```bash
+# ① 先把 p17_* 账号从库里清干净（证明「是模块自己造的」，不是上一轮残留）
+bash t977-reset-p17.sh cloudpivot_iso977
+#    UPDATE 1 / DELETE 1 / DELETE 10 / DELETE 3 → 库里 p17_* 行数 = 0
+
+# ② 只跑 P17 模块（修前的 binary，无 teardown）
+ERP_DB_URL=postgres://alun:...@127.0.0.1:5432/cloudpivot_iso977 \
+  cargo test --lib --features test-hooks -- --test-threads=1 business::erp::payable_bridge::tests
+#    → test result: ok. 23 passed; 0 failed        （见 05-p17-residue-before.log.txt）
+
+# ③ 跑完立刻数「谁还是超管」
+psql -tAc "select username, deleted_at is null as active,
+                  (select count(*) from sys_user_role ur join sys_role r on r.id=ur.role_id
+                    where ur.user_id=u.id and r.role_code='SUPER_ADMIN') as superadmin_bindings
+             from sys_user u where username like 'p17%' order by 1"
+```
+
+实测输出：
+
+```
+p17_ap1|t|1
+p17_ap2|t|1
+p17_creator|t|0
+```
+
+结论：模块自己造了 3 个账号，跑完**一个都没摘**；其中 `p17_ap1 / p17_ap2` 仍**在职且挂着
+SUPER_ADMIN** ⇒ 下一批模块里任何 `assignee_type='ADMIN'` / `FALLBACK_ADMIN` 的审批节点
+都会把它们算进「全部超管」，会签人数 1 → 3。

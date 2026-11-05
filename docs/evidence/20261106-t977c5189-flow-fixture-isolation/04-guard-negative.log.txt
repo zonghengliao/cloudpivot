@@ -1,0 +1,27 @@
+    Finished `test` profile [unoptimized] target(s) in 0.11s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-78ceea9b7d1dc903)
+
+running 1 test
+test business::flow::edge_admin_tests::batch_task_writes_edge_after_approval ... FAILED
+
+failures:
+
+---- business::flow::edge_admin_tests::batch_task_writes_edge_after_approval stdout ----
+
+thread 'business::flow::edge_admin_tests::batch_task_writes_edge_after_approval' (2935327) panicked at src/business/flow/edge_admin_tests.rs:447:9:
+夹具污染（不是业务断言失败）：已发布 `flow_edge_config` 图与 V0206 基线不一致。
+`n_cfg` 的审批人基线是 [n_cfg:ROLE:20000000-0000-4000-8000-0000000f0015]（复核岗），实际 ["n_cfg:ROLE:20000000-0000-4000-8000-0000000f0015", "n_cfg:USER:e7e70001-0000-4000-8000-0000000a0171"]
+本模块全部真库用例的前提是「s → n_cfg(ROLE=FLOW_CONFIG_APPROVER, 单人复核) → e」。
+两种可能：① 有用例/脚本在**共用库**上改了这张图（改完没恢复）；
+② 种子被正当替换了 —— 那要同步更新本文件的 `BASELINE_GRAPH_HASH` / `SEED_DEF_ID`，
+并在提交里写明是哪条迁移改的图。
+修法：换一个干净隔离库跑（`scripts/verify/erp_clean_db.sh`），或把种子图恢复成 V0206 的版本。
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    business::flow::edge_admin_tests::batch_task_writes_edge_after_approval
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2682 filtered out; finished in 0.24s
+
+error: test failed, to rerun pass `--lib`

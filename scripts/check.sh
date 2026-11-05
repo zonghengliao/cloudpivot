@@ -57,8 +57,15 @@ echo "==> 前端：pnpm typecheck"
 # # 判据（三条都硬）
 #
 #   ① 任何一条用例失败 → 红；
-#   ② 日志里出现 `SKIP:` → 红（SKIP 绿等于没跑，不许混进「全绿」）；
+#   ② 出现「**库没配 / 连不上**」类 SKIP（`未设置 XXX_DB_URL` / `XXX_DB_URL 连接失败` /
+#      `set_db 失败`）→ 红（libtest 把这类 return 记成 passed，就是假绿）；
+#      「数据前提缺失」类 SKIP（`本库的 5602 仍是末级科目` 等）只打 ℹ 不判红 —— 那是如实
+#      报告环境差异，判红会把干净库上的正常情况变成假缺陷；
 #   ③ 三个库 URL 缺一个 → 红（只给 ERP_DB_URL 会让 `flow::model` / task 模块静默 SKIP）。
+#
+# 不传 `CHECK_WITH_DB_FILTER`（= 全量）时自动追加
+# `--skip business::flow::internal_control::db_tests`：那组用例按设计要求独占库
+# （`P0FIX_DB_URL`），同库全量时必须排除（与 `scripts/verify/run_lib_tests_by_module.sh` 同口径）。
 # ======================================================================
 
 if [ "${CHECK_WITH_DB:-0}" = "1" ]; then
@@ -75,26 +82,51 @@ if [ "${CHECK_WITH_DB:-0}" = "1" ]; then
     fi
     db_log="$(mktemp /tmp/check_with_db.XXXXXX.log)"
     db_rc=0
-    # `--test-threads=1`：lib 里有改全局配置（流程定义 / 状态机边 / 期末结账）的用例，
-    # 并行会互踩（详见 skill/SKILL.md「测试卫生」与 docs/测试卫生-真库连库入口清单.md）。
-    ( cd "$ROOT/backend" \
-        && cargo test --lib --features test-hooks -- --test-threads=1 ${CHECK_WITH_DB_FILTER:-} ) \
-        > "$db_log" 2>&1 || db_rc=$?
+    # 参数口径：
+    #   · `--test-threads=1`：lib 里有改全局配置（流程定义 / 状态机边 / 期末结账）的用例，
+    #     并行会互踩（详见 skill/SKILL.md「测试卫生」与 docs/测试卫生-真库连库入口清单.md）；
+    #   · 不传过滤（全量）时排除 `business::flow::internal_control::db_tests`：那组用例按设计
+    #     要求**独占库**（`P0FIX_DB_URL`），同库全量时必须 `--skip`，否则它会主动 panic 指路。
+    #     （skill §7 / scripts/verify/run_lib_tests_by_module.sh 同一口径）
+    #   · `--nocapture`：真库用例的 SKIP 是 `println!` 出来的，libtest 默认**只在失败时**
+    #     才把 stdout 打出来 ⇒ 不加 `--nocapture` 就永远 grep 不到 SKIP（等于没有这道判据）。
+    # shellcheck disable=SC2086
+    db_args="--test-threads=1 --nocapture ${CHECK_WITH_DB_FILTER:-}"
+    if [ -z "${CHECK_WITH_DB_FILTER:-}" ]; then
+        db_args="$db_args --skip business::flow::internal_control::db_tests"
+    fi
+    # shellcheck disable=SC2086
+    ( cd "$ROOT/backend" && cargo test --lib --features test-hooks -- $db_args ) > "$db_log" 2>&1 \
+        || db_rc=$?
     grep -E '^test result:' "$db_log" | sed 's/^/  /' || true
-    skips=$(grep -c '^SKIP:' "$db_log" || true)
     if [ "$db_rc" -ne 0 ]; then
         echo "  ✗ 真库用例有失败（退出码 $db_rc）。失败清单：" >&2
         grep -E '^test .* FAILED' "$db_log" | sed 's/^/    /' >&2 || true
         echo "    完整日志：$db_log" >&2
         exit 1
     fi
-    if [ "${skips:-0}" -gt 0 ]; then
-        echo "  ✗ 有 $skips 条用例打印了 \`SKIP:\`（= 一条断言都没跑，属于假绿）：" >&2
-        grep '^SKIP:' "$db_log" | sort -u | head -5 | sed 's/^/    /' >&2
-        echo "    完整日志：$db_log" >&2
+    # 假绿检测：只认「库没配 / 连不上」这一类 SKIP —— 那等于一条断言都没跑。
+    # 数据前提类 SKIP（「本库的 5602 仍是末级科目」「库缺部门种子」…）是**如实**报告环境差异，
+    # 不判红，但要打出来让人看得见（别把它也当成「全绿」）。
+    # ⚠ 不能锚 `^SKIP:`：`--nocapture` 下 libtest 把测试输出**接在 `test <name> ... ` 同一行**
+    #   （实测 `test …countersign_all_excluded_fails_closed ... SKIP: 未设置 P0FIX_DB_URL`）。
+    false_green="$(grep -E 'SKIP: (未设置 [A-Z0-9_]*DB_URL|[A-Z0-9_]*DB_URL 连接失败|set_db 失败)' "$db_log" \
+        | sed 's/^.*SKIP: /SKIP: /' | sort | uniq -c | sort -rn || true)"
+    if [ -n "$false_green" ]; then
+        echo "  ✗ 有真库用例因「库没配 / 连不上」而 SKIP（libtest 记 passed = 假绿）：" >&2
+        printf '%s\n' "$false_green" | sed 's/^/    /' >&2
+        echo "    修法：三个库 URL（ERP_DB_URL / SYS_DB_URL / TASK_DB_URL）指同一个隔离库；" >&2
+        echo "          要跑内控那组再加 P0FIX_DB_URL。完整日志：$db_log" >&2
         exit 1
     fi
-    echo "  ✓ 真库用例全绿且 0 条 SKIP（日志：$db_log）"
+    other_skips="$(grep -c 'SKIP:' "$db_log" || true)"
+    false_green_n="$(grep -cE 'SKIP: (未设置 [A-Z0-9_]*DB_URL|[A-Z0-9_]*DB_URL 连接失败|set_db 失败)' "$db_log" || true)"
+    other_skips=$(( ${other_skips:-0} - ${false_green_n:-0} ))
+    if [ "${other_skips:-0}" -gt 0 ]; then
+        echo "  ℹ 另有 $other_skips 条「数据前提缺失」类 SKIP（非假绿，如实报告环境差异）："
+        grep 'SKIP:' "$db_log" | sed 's/^.*SKIP: /SKIP: /' | sort -u | head -5 | sed 's/^/    /'
+    fi
+    echo "  ✓ 真库用例全绿、0 条「库未配置」假绿 SKIP（日志：$db_log）"
 else
     echo "==> 闸⓪：真库用例 —— 未启用（CHECK_WITH_DB=1 才跑）"
     echo "    ⚠ 本档不开时，全部真库用例都会打印 SKIP 并 return（libtest 记 passed）⇒"
