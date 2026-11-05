@@ -1,0 +1,7 @@
+    Blocking waiting for file lock on build directory
+   Compiling nik-db v0.4.2 (/opt/cloudpivot/backend/vendor/nik-db)
+    Checking nik-web v0.4.2 (/opt/cloudpivot/backend/vendor/nik-web)
+    Checking nik v0.4.2 (/opt/cloudpivot/backend/vendor/nik)
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 38s
+CLIPPY_EXIT=0

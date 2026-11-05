@@ -329,6 +329,15 @@ const routes: RouteRecordRaw[] = [
         redirect: '/flow/def?view=standard',
       },
       {
+        // 跨单据联动规则配置（V0253 种菜单 …001220，path 与本条逐字一致）。
+        // 读权限 `business:flow:linkage:list`；写操作按钮另有 manage 码（只授 SUPER_ADMIN）。
+        // 页面里的动作下拉 / 参数表单 / 状态集全部由后端下发，前端不维护第二份动作表。
+        path: 'flow/linkage',
+        name: 'BusinessFlowLinkage',
+        component: () => import('@/views/business/flow/linkage/index.vue'),
+        meta: { title: '联动规则', permission: 'business:flow:linkage:list' },
+      },
+      {
         // 发起审批：只列 PUBLISHED 流程；提交走实例侧接口。
         path: 'flow/start',
         name: 'BusinessFlowStart',

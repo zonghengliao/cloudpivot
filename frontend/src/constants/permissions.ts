@@ -294,6 +294,10 @@ export const FLOW_PERMISSIONS = {
   flowStateEdgeList: 'business:flow:state-edge:list',
   /** 状态机边配置：改 / 删（提交审批，V0206 只授 SUPER_ADMIN） */
   flowStateEdgeManage: 'business:flow:state-edge:manage',
+  /** 跨单据联动规则：读 + 预览影响（V0253 只授 SUPER_ADMIN） */
+  flowLinkageList: 'business:flow:linkage:list',
+  /** 跨单据联动规则：增改 / 启停 / 删除（V0253 只授 SUPER_ADMIN） */
+  flowLinkageManage: 'business:flow:linkage:manage',
 } as const;
 
 /** 实例侧权限码（D2 · V0124 已种，父节点 = D1 的流程定义页面） */

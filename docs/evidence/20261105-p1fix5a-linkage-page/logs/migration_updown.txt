@@ -1,0 +1,21 @@
+== V0253 down（回滚）==
+DELETE 3
+DELETE 3
+== V0253 up（重放，验证幂等）==
+INSERT 0 3
+INSERT 0 3
+psql:migrations/business/V0253__flow_linkage_config_page.up.sql:123: NOTICE:  V0253 完成：联动规则配置页 + 2 个权限码（仅授 SUPER_ADMIN）
+DO
+== 结果 ==
+                  id                  |             name             | menu_type |     path      |          component          | is_visible |          auth_code           
+--------------------------------------+------------------------------+-----------+---------------+-----------------------------+------------+------------------------------
+ 20000000-0000-0000-0000-000000001230 | 联动规则                     |         2 | /flow/linkage | business/flow/linkage/index | t          | business:flow:linkage:list
+ 20000000-0000-0000-0000-000000001231 | business:flow:linkage:list   |         3 |               |                             | f          | business:flow:linkage:list
+ 20000000-0000-0000-0000-000000001232 | business:flow:linkage:manage |         3 |               |                             | f          | business:flow:linkage:manage
+(3 rows)
+
+ grant_rows 
+------------
+          3
+(1 row)
+

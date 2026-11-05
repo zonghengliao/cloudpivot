@@ -19,6 +19,7 @@
 //! | [`model`] | `biz_flow_linkage_rule` 的读写；配置写入口（超管 + 二次确认 + 留痕）；读路径 fail-safe |
 //! | [`actions`] | 动作实现（**只复用既有 handler/model**，不重写算法）+ 第 3 层运行时校验 |
 //! | [`engine`] | 执行引擎（seq 排序 / 事务边界 / 失败策略）+ 第 2 步的 `SEND_NOTICE` 接管入口 |
+//! | [`admin`] | 配置管理面（HTTP）：规则列表 / 增改 / 启停 / 删除 / **预览影响** |
 //!
 //! # 三层校验
 //!
@@ -50,6 +51,7 @@
 //! - **不另造通知通道**：一切通知都走 `business::notice::dispatch`。
 
 pub mod actions;
+pub mod admin;
 pub mod engine;
 pub mod model;
 pub mod spec;

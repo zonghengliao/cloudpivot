@@ -1,0 +1,27 @@
+PASS login :: status=200 token=yes
+INFO 首登改密跳过 :: status=401 msg=原密码错误
+INFO reset :: 清掉上一轮遗留规则 1 条
+PASS list 初始 0 行 :: status=200 total=0
+PASS 字典下发 triggers(15)/actions(11)/forbidden_keys(12) :: triggers=15 actions=11 forbidden=12
+PASS 已接管动作 = SEND_NOTICE/UPDATE_RECEIVED_QTY/GENERATE_VOUCHER :: ['GENERATE_VOUCHER', 'UPDATE_RECEIVED_QTY', 'SEND_NOTICE']
+PASS SEND_NOTICE 参数声明（mode/title/content/force/recipient） :: ['mode', 'title', 'content', 'force', 'recipient']
+PASS 空触发点预览：0 步 + 有提醒 :: status=200 enabled=0 warnings=['STOCK_IN 走到 POSTED 时当前没有任何启用的联动规则：这次配置保存后，下一条该单据走到这个状态才会开始执行']
+PASS 新增 SEND_NOTICE 规则 :: status=200 id=01a1ab91-43fd-776a-9dc1-67027d593194 msg=ok
+PASS 新增 GENERATE_VOUCHER 规则 :: status=200 msg=ok
+PASS 列表 2 行且按 seq 排序 :: ['SEND_NOTICE', 'GENERATE_VOUCHER']
+PASS 预览执行链 2 步 + rollback_risk=true + after_commit=1 :: steps=2 risk=True after=1
+PASS 草稿校验通过 + overrides_existing=true :: status=200 draft={'ok': True, 'message': '', 'action_label': '发通知', 'phase': 'AFTER_COMMIT', 'severity': 'NON_CRITICAL', 'effect': 'business/notice::dispatch（模板渲染 / 扇出 / 偏好过滤 / 幂等键 / 投递记录全免费继承；flow/notify.rs 与 task/handler.rs::dispatch_task_notice 同一条口径）', 'overrides_existing': True}
+PASS 草稿校验拦未接管动作 :: ok=False msg=动作 LOCK_DOCUMENT（锁定单据（禁止编辑））尚未接管：入参契约已定，执行实现要等第 3 步复用既有 handler 后再开放配置
+PASS 非白名单动作 400 :: status=400 msg=动作码「DROP TABLE」不在白名单里：联动只允许预定义动作（WRITE_INVENTORY / WRITE_INVENTORY_TXN / UPDATE_COST / GENERATE_VOUCHER / REVERSE_VOUCHER / UPDATE_DOC_STATUS / UPDATE_RECEIVED_QTY / UPDATE_PAYABLE_BALANCE / CREATE_TASK / SEND_NOTICE / LOCK_DOCUMENT），不接受任何自定义语句（禁配 SQL）
+PASS 参数带 sql 键 400 :: status=400 msg=禁止在联动配置里写 SQL（参数键 `sql`）：跨单据联动只接受预定义动作 + 固定入参，任何可执行语句都不允许。动作 SEND_NOTICE 允许的参数：mode?, title?, content?, force?, recipient?
+PASS 缺二次确认 400 :: status=400 msg=改联动规则需要二次确认（confirm = true）：规则决定「单据状态变了以后还会动哪些账」
+PASS 未知触发点 400 :: status=400 msg=未知的触发单据类型「NOT_A_DOC」：只认 STOCK_IN / STOCK_OUT / STOCK_TRANSFER / PURCHASE_ORDER / PAYABLE / VOUCHER / ACCOUNTING_PERIOD / ACCOUNTING_YEAR / CONTRACT / STOCK_TAKE / FIXED_ASSET / DEPRECIATION / EXPENSE_REPORT / TASK / FLOW_INSTANCE
+PASS 未知状态 400 :: status=400 msg=STOCK_IN 没有状态「NOPE」：可用 DRAFT / POSTED / CANCELLED / PENDING_CANCEL / PENDING_POST（写错状态的规则永远不触发）
+PASS 停用规则 :: status=200 enabled=False
+PASS 停用后执行链只剩 1 步 :: enabled=1
+PASS 重新启用 :: status=200
+PASS 删除 GENERATE_VOUCHER :: status=200 msg=ok
+PASS 重复删除 404 :: status=404 msg=联动规则 01a1ab91-4404-7585-9b1b-8523930bd364 不存在（或已删除）
+-- 审计行（biz_status_log entity_type=FLOW_LINKAGE_CFG）需在 SQL 侧核对 --
+
+SUMMARY total=22 pass=22 fail=0

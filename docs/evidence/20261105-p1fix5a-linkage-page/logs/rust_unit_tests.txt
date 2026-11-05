@@ -1,0 +1,16 @@
+   Compiling nik-db v0.4.2 (/opt/cloudpivot/backend/vendor/nik-db)
+   Compiling nik-web v0.4.2 (/opt/cloudpivot/backend/vendor/nik-web)
+   Compiling nik v0.4.2 (/opt/cloudpivot/backend/vendor/nik)
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 42s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 4 tests
+test business::flow::linkage::admin::tests::catalog_covers_every_action_and_trigger ... ok
+test business::flow::linkage::admin::tests::catalog_implemented_flags_match_spec ... ok
+test business::flow::linkage::admin::tests::draft_check_rejects_bad_input ... ok
+test business::flow::linkage::admin::tests::unknown_trigger_and_status_are_rejected ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 2640 filtered out; finished in 0.00s
+
+TEST_EXIT=0
