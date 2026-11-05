@@ -55,6 +55,9 @@
         />
         <t-checkbox v-model="filter.onlyEnabled" data-testid="linkage-filter-enabled">只看启用</t-checkbox>
         <span class="filter-row__spacer" />
+        <span class="filter-row__count" data-testid="linkage-trigger-wired-count">
+          触发点已接线 {{ wiredTriggerCount }} 个 / 未接线 {{ unwiredTriggerCount }} 个
+        </span>
         <span class="filter-row__count" data-testid="linkage-count">
           共 {{ filteredRows.length }} 条规则（启用 {{ enabledCount }} 条 / 全部 {{ total }} 条）
         </span>
@@ -81,9 +84,25 @@
         <template #name="{ row }">
           <div class="cell-name">
             <span class="cell-name__text">{{ row.name }}</span>
-            <t-tag v-if="!isHealthy(row)" size="small" theme="danger" variant="light">配置异常</t-tag>
+            <t-tag
+              v-if="ruleWiringProblems(row, triggers).length > 0"
+              size="small"
+              theme="warning"
+              variant="light"
+              data-testid="linkage-row-unwired"
+            >
+              未接线
+            </t-tag>
+            <t-tag v-if="ruleOtherProblems(row, triggers).length > 0" size="small" theme="danger" variant="light">
+              配置异常
+            </t-tag>
           </div>
-          <div v-if="!isHealthy(row)" class="cell-problem">{{ row.problems.join('；') }}</div>
+          <div v-if="ruleWiringProblems(row, triggers).length > 0" class="cell-problem">
+            触发点 {{ row.trigger_entity }} 未接线：这条规则当前不会触发（配置已保存，接线后自动生效）
+          </div>
+          <div v-if="ruleOtherProblems(row, triggers).length > 0" class="cell-problem">
+            {{ ruleOtherProblems(row, triggers).join('；') }}
+          </div>
         </template>
 
         <template #trigger="{ row }">
@@ -91,7 +110,12 @@
             <span class="cell-trigger__entity">{{ row.trigger_entity_label }}</span>
             <code class="cell-trigger__code">{{ row.trigger_entity }}</code>
           </div>
-          <t-tag size="small" theme="primary" variant="outline">{{ row.trigger_status }}</t-tag>
+          <t-space size="4px">
+            <t-tag size="small" theme="primary" variant="outline">{{ row.trigger_status }}</t-tag>
+            <t-tag v-if="!isWiredEntity(triggers, row.trigger_entity)" size="small" theme="warning" variant="light">
+              未接线
+            </t-tag>
+          </t-space>
         </template>
 
         <template #action="{ row }">
@@ -185,7 +209,7 @@
         content: editing ? '保存修改' : '创建规则',
         theme: 'primary',
         loading: saving,
-        disabled: !confirmed || !form.action_code || !form.name.trim(),
+        disabled: !confirmed || (formUnwired && !unwiredAck) || !form.action_code || !form.name.trim(),
       }"
       :cancel-btn="{ content: '取消' }"
       width="820px"
@@ -195,6 +219,15 @@
     >
       <div class="editor">
         <t-alert theme="info" :message="'动作只能从白名单里选；编辑时「源单据类型 / 触发状态 / 动作」三项不可改（它们决定这条规则的身份），要换动作请删掉重建。'" />
+
+        <!-- 未接线触发点：必须让人在这里就看到「配了不会触发」，而不是保存完才发现（P1-FIX-5C） -->
+        <t-alert
+          v-if="formUnwired"
+          class="editor__unwired"
+          theme="warning"
+          data-testid="linkage-form-unwired-alert"
+          :message="`「${formEntityLabel}」这个触发点还没有接线：代码里没有任何状态变更点会调用联动引擎，在这里配的规则保存后永远不会触发。${formUnwiredNote}`"
+        />
 
         <t-form label-align="top" class="editor__form">
           <t-row :gutter="[16, 8]">
@@ -351,6 +384,15 @@
             <t-checkbox v-model="confirmed" data-testid="linkage-form-confirm">
               我确认这条规则会改变「单据状态变更后系统自动做的事」，并已看清上面的影响预览
             </t-checkbox>
+            <!-- 未接线触发点：第二道确认（勾了才能保存），后端也硬门 allow_unwired -->
+            <t-checkbox
+              v-if="formUnwired"
+              v-model="unwiredAck"
+              class="editor__unwired-ack"
+              data-testid="linkage-form-unwired-ack"
+            >
+              我已知晓该触发点<b>未接线</b>：这条规则保存后<b>不会触发</b>，只是先把配置存下来
+            </t-checkbox>
           </div>
 
           <t-alert v-if="formError" class="editor__error" theme="error" :message="formError" />
@@ -371,6 +413,15 @@
       </div>
       <t-alert v-else-if="previewError" theme="error" :message="previewError" />
       <div v-else-if="previewResult" class="preview">
+        <!-- 触发点接线状态：**绿条不能盖过「配了不生效」这条最重要的结论** -->
+        <t-alert
+          class="preview__wired"
+          data-testid="linkage-preview-wired"
+          :theme="previewAlertTheme(previewResult)"
+          :message="previewResult.trigger_wired
+            ? '这个触发点已接线：单据走到该状态时，下面这些规则会真的执行。'
+            : '这个触发点还没有接线：下面这些规则保存后不会触发，预览只表示「接线之后会怎么跑」。'"
+        />
         <div class="preview__head">
           <span class="preview__trigger">
             {{ previewResult.trigger_entity_label }}
@@ -457,18 +508,23 @@ import {
   emptyForm,
   filterRules,
   findAction,
+  findTrigger,
   formatDateTime,
   formatParams,
-  isHealthy,
+  isWiredEntity,
   kindLabel,
   paramsToForm,
   phaseLabel,
   phaseTheme,
+  previewAlertTheme,
   previewHighlights,
+  ruleOtherProblems,
+  ruleWiringProblems,
   severityLabel,
   severityTheme,
   statusOptions,
   triggerOptions,
+  unwiredNote,
   type LinkageOption,
   type ParamForm,
 } from './linkage-logic';
@@ -573,6 +629,8 @@ const form = reactive({
 const paramForm = ref<ParamForm>({});
 /** 二次确认勾选 */
 const confirmed = ref(false);
+/** 未接线触发点的**第二道**确认（只有未接线时才要求） */
+const unwiredAck = ref(false);
 /** 保存中 */
 const saving = ref(false);
 /** 表单级错误（保存失败原因） */
@@ -589,6 +647,25 @@ const currentAction = computed<LinkageAction | undefined>(() =>
 
 /** 触发点下拉 */
 const triggerSelectOptions = computed<LinkageOption[]>(() => triggerOptions(triggers.value));
+
+/** 当前表单选中的触发点**是否未接线**（P1-FIX-5C：未接线 → 强制第二道确认 + 允许 allow_unwired 保存） */
+const formUnwired = computed(() => !isWiredEntity(triggers.value, form.trigger_entity));
+
+/** 未接线的说明（后端下发的接线位置 / 未接线原因，前端不自己编） */
+const formUnwiredNote = computed(() => unwiredNote(triggers.value, form.trigger_entity));
+
+/** 当前触发点的中文名（提示文案里用，查不到就退回实体码） */
+const formEntityLabel = computed(
+  () => findTrigger(triggers.value, form.trigger_entity)?.label ?? form.trigger_entity,
+);
+
+/** 已接线的触发点数（页面顶部的进度提示：15 个白名单里到底几个真的会触发） */
+const wiredTriggerCount = computed(() => triggers.value.filter((item) => item.wired).length);
+
+/** 未接线的触发点数 */
+const unwiredTriggerCount = computed(
+  () => triggers.value.filter((item) => !item.wired).length,
+);
 
 /** 状态下拉（跟随源单据） */
 const statusSelectOptions = computed<LinkageOption[]>(() =>
@@ -638,6 +715,7 @@ function openCreate(): void {
   form.enabled = true;
   paramForm.value = {};
   confirmed.value = false;
+  unwiredAck.value = false;
   formError.value = '';
   draftPreview.value = null;
   editorVisible.value = true;
@@ -655,6 +733,7 @@ function openEditor(row: LinkageRule): void {
   const action = findAction(actions.value, row.action_code);
   paramForm.value = paramsToForm(action, row.action_params);
   confirmed.value = false;
+  unwiredAck.value = false;
   formError.value = '';
   draftPreview.value = null;
   editorVisible.value = true;

@@ -1,0 +1,23 @@
+登录成功（http://127.0.0.1:18132 库=cloudpivot_lnk5b）
+[PASS] A1 catalog_triggers 的 wired 与代码一致（3 个已接线）  —— wired=['STOCK_IN', 'STOCK_OUT', 'TASK']，unwired=12
+[PASS] A2 STOCK_OUT 标注已接线且点明调用点（post_out_tx）  —— 已接线：erp/stockout_handler.rs::post_out_tx 第 ⑥ 步跑通用引擎 run_excluding(spec::STOCKOUT_EXCLUDED_ACTIONS)（库存 / 成本 / 凭证由 ③⑤ 专用路径
+[PASS] A3 未接线触发点（STOCK_TRANSFER）带「未接线 + 要动哪里」说明  —— 未接线：状态变更点在 erp/transfer_handler_status.rs（调 state_machine::transition + transfer_write::apply_status），同样没有联动调用点。接线要动：状态事
+[PASS] B1 在未接线触发点（TRANSFER）上建规则被 400 拒绝  —— code=400 msg={"code": 10001, "msg": "触发点 STOCK_TRANSFER/DRAFT 尚未接线：引擎在这个状态变更点不会被执行，规则保存后永远不会触发。未接线：状态变更点在 erp/transfer_handler_status.rs（调 state_machine::transition + transf
+[PASS] B2 显式 allow_unwired=true 时才允许「预置配置」（不静默放行）  —— code=200
+[PASS] C 配置成功：LNK5C-出库过账 → 建复核任务  —— code=200 {'code': 0, 'msg': 'ok', 'data': {'id': '01a1ac07-2c02-763e-92cd-543fe3d48df0', 'name': 'LNK5C-出库过账 → 建复核任务', 'trigger_e
+[PASS] C 配置成功：LNK5C-出库过账 → 通知制单人  —— code=200 {'code': 0, 'msg': 'ok', 'data': {'id': '01a1ac07-2c0f-72d7-b8f5-3d5a90f5d1b2', 'name': 'LNK5C-出库过账 → 通知制单人', 'trigger_e
+[PASS] D1 建出库单成功  —— code=200 {'code': 0, 'msg': 'ok', 'data': {'id': '01a1ac0e-ce9e-73d9-bb88-5f79c3801e99', 'out_no': 'OUT-20261105-000004', 'out_type': 'ISSUE', 'out_type_label': '领用', 'w
+[PASS] D2 拿到出库单 id / 单号  —— OUT-20261105-000004 01a1ac0e-ce9e-73d9-bb88-5f79c3801e99
+[PASS] D3 出库单过账成功（DRAFT → POSTED）  —— code=200 {'code': 0, 'msg': 'ok', 'data': {'id': '01a1ac0e-ce9e-73d9-bb88-5f79c3801e99', 'out_no': 'OUT-20261105-000004', 'out_type': 'ISSUE', 'out_type_label': '领用', 'w
+[PASS] D4 成本结转凭证恰好 1 张（排除清单生效：GENERATE_VOUCHER 没被通用引擎再跑一次）  —— biz_voucher(source_id)= 1
+[PASS] E1 日志点名「出库过账：跨单据联动已执行」
+[PASS] E2 两条 AfterCommit 规则进入 deferred（commit 之后执行）
+[PASS] E3 两条提交后动作都 SUCCESS（CREATE_TASK + SEND_NOTICE）  —— lines=2
+[PASS] F1 biz_task 多出恰好 1 条（规则创建的目标单据）  —— 6 → 7
+[PASS] F2 任务行取值正确（编号 TSK- / 状态 TODO / 标题与配置一致）  —— TSK-202611-000007|TODO|出库过账复核（联动生成）|01a1abd2-5121-7546-bbff-7f1f6f56fa4b|SELF
+[PASS] F3 sys_notice 多出通知  —— 12 → 13
+[PASS] F4 通知行指向源单据（标题 + biz_id）  —— 出库单已过账|STOCK_OUT|01a1ac0e-ce9e-73d9-bb88-5f79c3801e99
+[PASS] G1 本轮加的规则已清理（可重复跑）  —— 残留=0
+
+PASS=19 FAIL=0  （源单据 OUT-20261105-000004）
+EXIT=0

@@ -98,12 +98,74 @@ export function severityTheme(severity: string): 'danger' | 'success' | 'default
   return 'default';
 }
 
-/** 触发单据下拉（全部 + 每个实体） */
+/**
+ * 触发点下拉：**未接线的触发点标注出来**（P1-FIX-5C）。
+ *
+ * 为什么不直接置灰：白名单 15 个触发点里当前只有一小部分真的接了线，剩下的如果一律禁选，
+ * 管理员就没法为「下周要上线的接线」先备好配置。所以这里**标注 + 强制二次确认**
+ * （见 `index.vue` 的保存流程与 `allow_unwired`），而不是简单禁选 —— 但**绝不允许静默保存**。
+ *
+ * 标注文案用「未接线 · 配了不会触发」，这是给管理员的最终结论，不是技术术语。
+ */
 export function triggerOptions(triggers: LinkageTrigger[]): LinkageOption[] {
   return triggers.map((trigger) => ({
-    label: `${trigger.label}（${trigger.entity}）`,
+    label: `${trigger.label}（${trigger.entity}）${trigger.wired ? '' : ' · 未接线'}`,
     value: trigger.entity,
+    // 未接线的项**可选**（允许预置配置），但视觉上必须能分辨：文案已带「· 未接线」
   }));
+}
+
+/** 按实体取触发点声明（配置页判断「是否接线」的唯一来源） */
+export function findTrigger(
+  triggers: LinkageTrigger[],
+  entity: string,
+): LinkageTrigger | undefined {
+  return triggers.find((item) => item.entity === entity);
+}
+
+/**
+ * 该触发点是否**真的接线**。
+ *
+ * 未知实体一律 `false`（fail-closed）：查不到就当没接线，宁可多一道确认，
+ * 也不能因为「字典里没有」而放一条永远不会触发的规则过去。
+ */
+export function isWiredEntity(triggers: LinkageTrigger[], entity: string): boolean {
+  return findTrigger(triggers, entity)?.wired === true;
+}
+
+/**
+ * 未接线触发点的说明文字（已接线 / 查不到 → 空串）。
+ *
+ * 文案直接来自后端 `TriggerSpec.wiring`：为什么没接、接的时候要动哪个文件哪个函数。
+ * 前端不维护第二份解释，避免两边说法打架。
+ */
+export function unwiredNote(triggers: LinkageTrigger[], entity: string): string {
+  const trigger = findTrigger(triggers, entity);
+  if (!trigger || trigger.wired) {
+    return '';
+  }
+  return trigger.wiring.trim();
+}
+
+/**
+ * 一条规则的「未接线」问题（不含其它配置问题）。
+ *
+ * 后端把「触发点未接线」也塞进了 `problems`（所以 `isHealthy` 会红），但列表里
+ * 这两类问题要分开显示：未接线是**接线进度**问题（配了也不会触发），
+ * 其它是**这条规则自己写错了**（动作不在白名单 / 参数非法）。
+ */
+export function ruleWiringProblems(rule: LinkageRule, triggers: LinkageTrigger[]): string[] {
+  if (isWiredEntity(triggers, rule.trigger_entity)) {
+    return [];
+  }
+  const prefix = `触发点 ${rule.trigger_entity} 未接线`;
+  return rule.problems.filter((item) => item.startsWith(prefix));
+}
+
+/** 一条规则的**其它**问题（排除「未接线」那一类，列表里分开显示） */
+export function ruleOtherProblems(rule: LinkageRule, triggers: LinkageTrigger[]): string[] {
+  const wiring = ruleWiringProblems(rule, triggers);
+  return rule.problems.filter((item) => !wiring.includes(item));
 }
 
 /** 某个实体的状态下拉（后端下发的状态集，前端不自己维护状态表） */
@@ -325,6 +387,19 @@ export function previewHighlights(preview: LinkagePreviewRes | null): string[] {
     list.push('全部动作都在提交后执行：失败不会影响单据本身');
   }
   return list;
+}
+
+/**
+ * 预览的结论主题：**未接线优先于一切**（P1-FIX-5C）。
+ *
+ * 未接线时即使草稿校验通过，也必须用 `warning`/`error` 的颜色说「不生效」，
+ * 否则「可以通过校验」的绿条会盖过真正重要的结论。
+ */
+export function previewAlertTheme(preview: LinkagePreviewRes | null): 'success' | 'warning' | 'info' {
+  if (!preview) {
+    return 'info';
+  }
+  return preview.trigger_wired ? 'success' : 'warning';
 }
 
 /** 草稿校验结果 → 弹窗里的 `t-alert` 主题 */

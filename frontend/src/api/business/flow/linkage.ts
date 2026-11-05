@@ -94,6 +94,18 @@ export interface LinkageTrigger {
   label: string;
   /** 允许的触发状态 */
   statuses: string[];
+  /**
+   * **是否已接线**（P1-FIX-5C）。
+   *
+   * `false` = 代码里没有任何状态变更点调用联动引擎 ⇒ 在该触发点上配规则**永远不会触发**。
+   * 前端据此在下拉里标注、在保存时强制二次确认（后端也会 400，除非显式 `allow_unwired`）。
+   */
+  wired: boolean;
+  /**
+   * 接线说明（后端下发，前端不维护第二份解释）：
+   * `wired = true` → 接线位置（文件::函数）；`false` → 为什么没接 + 接的时候要动哪里。
+   */
+  wiring: string;
 }
 
 // ==================== 规则 ====================
@@ -166,6 +178,13 @@ export interface LinkageRuleUpsertReq {
   seq?: number;
   /** 二次确认（**必须** `true`） */
   confirm: true;
+  /**
+   * 触发点未接线时**是否仍然保存**（P1-FIX-5C，默认省略 = 后端拒绝）。
+   *
+   * 语义不是「放开限制」，而是「我明确知道这条规则当前不会触发」：配置页对未接线触发点
+   * 强制多一道勾选 + 弹窗确认，确认后才带 `true`。为将来的接线预先备好配置时才会用到。
+   */
+  allow_unwired?: boolean;
 }
 
 /** 启停请求体（`RuleToggleReq`） */
@@ -176,6 +195,8 @@ export interface LinkageRuleToggleReq {
   enabled: boolean;
   /** 二次确认（**必须** `true`） */
   confirm: true;
+  /** **启用**一条挂在未接线触发点上的规则时是否仍然放行（同类二次确认，见 upsert） */
+  allow_unwired?: boolean;
 }
 
 /** 删除查询参数（`RuleDeleteQuery`） */
@@ -238,6 +259,8 @@ export interface LinkagePreviewRes {
   trigger_entity_label: string;
   /** 触发状态 */
   trigger_status: string;
+  /** **该触发点是否已接线**（`false` = 引擎在这个状态变更点不会被调用，配了也不触发） */
+  trigger_wired: boolean;
   /** 该触发点当前启用的规则数 */
   enabled_count: number;
   /** 按 seq 排好的执行链 */

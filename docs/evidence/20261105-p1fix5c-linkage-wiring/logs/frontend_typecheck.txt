@@ -1,0 +1,11 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> vue-tsc --noEmit
+
+src/views/business/flow/linkage/index.vue(502,3): error TS6133: 'isHealthy' is declared but its value is never read.
+src/views/business/flow/linkage/index.vue(508,3): error TS6133: 'previewAlertTheme' is declared but its value is never read.
+src/views/business/flow/linkage/index.vue(652,7): error TS6133: 'wiredTriggerCount' is declared but its value is never read.
+src/views/business/flow/linkage/index.vue(655,7): error TS6133: 'unwiredTriggerCount' is declared but its value is never read.
+ ELIFECYCLE  Command failed with exit code 2.
+EXIT=2
