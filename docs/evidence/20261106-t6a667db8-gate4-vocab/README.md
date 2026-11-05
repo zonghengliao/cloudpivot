@@ -54,3 +54,18 @@
 - `docs/evidence/20261105-fin2/README.md` 里「29 值 = txn 19 ∪ 来源 13」是当时的取证快照，属历史记录，未回改。
 - `STOCK_TAKE_GAIN/LOSS/CANCEL` 目前仍由 `stocktake_model.rs` 常量写入，词表已覆盖；**写入点与词表是两件事**，
   E4 登记表（`E4_BIZ_TYPE_AXIS`）与词表各自独立核对，两者都有闸。
+
+## 5. 终验复跑（HEAD=392ca5c，落库后独立复验）
+
+实现提交 `e51244b` + 收口/证据提交 `d6004d8` 之后，工作区又被其他卡推进到 `392ca5c`
+（`git diff --stat d6004d8..HEAD -- backend/src` 为空，即**后端源码零变化**，`doc_kind.rs` 仍为 `d6004d8` 版本；
+`biz_type_domain.py` 自 `0eb8b81` 起无改动 → 上表负样本结论对当前脚本依然成立）。
+本轮在该 HEAD 上重跑三条硬验收，输出存档于 `final2/`：
+
+| 闸 | 命令 | 结果 | 输出 |
+|---|---|---|---|
+| 闸④（严格档） | `NIK_DATABASE_NAME=cloudpivot_st9 python3 scripts/verify/biz_type_domain.py --strict` | **exit 0**，24 列全 PASS，`结果：PASS` | `final2/gate4_st9_head_392ca5c.txt` |
+| Rust 单测 | `cd backend && cargo test --lib business::shared::doc_kind` | **exit 0，21 passed / 0 failed** | `final2/cargo_test_doc_kind_head_392ca5c.txt` |
+| ERP 不变量 | `NIK_DATABASE_NAME=cloudpivot_st9 python3 scripts/verify/erp_invariants.py` | **exit 0，67/68 通过，BLOCKER 0，WARN 1（N2）** | `final2/erp_invariants_st9_head_392ca5c.txt` |
+
+结论：本地库、当前 main、当前脚本三者在启用盘点/期初/报销凭证规则的库上均不再假红，且判据未放宽。
