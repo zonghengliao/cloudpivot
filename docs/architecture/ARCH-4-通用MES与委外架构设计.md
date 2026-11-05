@@ -1568,7 +1568,24 @@ COMMENT ON COLUMN biz_mes_receipt.total_cost IS '本次入库分摊的生产成�
 
 **「在途仓」这个巧劲**：委外的料发出去了但还在我账上（加工商只是代管），所以不能像销售那样出成本。做法：发料 = 从原料仓调拨到「委外在途仓」（`biz_stock_transfer`），成本不变、物料不变、账上还在存货里；回收时 = 从在途仓领料 + 成品入库。这是**唯一不需要改现有表**就能表达「料在外面但钱还在存货」的方式。
 
-### 4.2.11 生产域 DDL 汇总（迁移规划见 §4.8）
+### 4.2.11 关于 `recipe`（配方）的落位：v1 不建表，P5 独立建
+
+卡面把 `recipe` 列进了生产域表清单。本设计的处置**不是漏了，是有意分期**：
+
+| 行业 | 「配方」到底是什么 | v1 怎么表达（不建表） | P5 建表后 |
+|---|---|---|---|
+| 流程制造（化工/食品/医药） | **投料清单**：做 1 吨成品要 A 料 600kg + B 料 350kg + 催化剂 2kg，含投料顺序与温度曲线 | `biz_mes_route_step.consume_bom=true` + 领料明细（`biz_mes_issue_item`）按「历史领料/手工白名单」；参数（温度/压力/时长）放 `route_step.ext` | `biz_mes_recipe(recipe_code, version_no, material_id)` + `biz_mes_recipe_item(material_id, qty_per_batch, unit_id, seq_no, add_at_step)` + 参数表（或 `ext`） |
+| 半导体 | **工艺参数集**（不是投料清单）：某道工序的 Recipe（温度/气体/时间）由设备侧管理，MES 只记「用了哪个 Recipe」 | `route_step.ext = {"recipe_code":"R-ETCH-01"}` + `operation.ext` 记实测参数 | 同上（参数集独立表） |
+| 离散制造（螺丝） | **无配方概念** | 不需要 | 不需要 |
+
+**为什么 v1 不建**：
+1. 配方只在流程制造是**核心**（投料比例错 = 整批报废），而 P1 的目标客户是离散/电子/半导体；
+2. 配方的正确形态取决于「是否要做物料平衡/联副产品」（流程制造特有），这部分设计需要单独一章，塞进本卡会做成半成品；
+3. **不建表不等于不支持**：v1 的领料明细 + `ext` 参数足以让流程制造客户跑通「按单领料 + 记录参数」，只是没有「自动按配方带出领料量」的便利。
+
+**翻案判据**：第一个流程制造客户提出「按配方自动带料 / 要做物料平衡」即启动 P5 的 recipe 卡。届时新增 2–3 张表（`biz_mes_recipe` / `_item` / `_param`），不影响本卡任何表结构。
+
+### 4.2.12 生产域 DDL 汇总（迁移规划见 §4.8）
 
 | 迁移号 | 内容 | 表 |
 |---|---|---|
@@ -2416,7 +2433,7 @@ COMMENT ON COLUMN biz_mes_rule.when_expr IS
 | 卡面要求 | 本设计 | 差异原因 |
 |---|---|---|
 | 销售 5 表（customer/sales_order/delivery/receivable/price_list） | 10 表 | 加了明细表（4 张）+ 收款单（1 张）；明细是必须的（一张订单多产品），收款单是必须的（否则「收到钱」无处记，`biz_payment.payable_id` 硬外键挡死） |
-| 生产 8 表（work_order/route/step/recipe/lot/wafer/operation_record/wip） | 13 表 + 1 视图 | `recipe` → `biz_mes_item_ext`（配方在流程行业是「投料清单」，v1 用 `consume_bom` + 领料明细表达，独立 `recipe` 表放 P5）；`wafer` → `biz_mes_lot_unit`（通用第二层，不只 Wafer）；`wip` → 视图（D13）；加了领料/入库 4 张（否则工单没有物料出入口） |
+| 生产 8 表（work_order/route/step/recipe/lot/wafer/operation_record/wip） | 13 表 + 1 视图 | `recipe` → **v1 不建表**（流程制造用 `consume_bom` + 领料明细 + `ext` 参数表达，P5 独立建 `biz_mes_recipe`，理由见 §4.2.11）；`wafer` → `biz_mes_lot_unit`（通用第二层，不只 Wafer）；`wip` → 视图（D13）；加了领料/入库 4 张（否则工单没有物料出入口） |
 | 工作量 4 表 | 7 表 | 加了 `period` / `settlement` / `settlement_line`；理由见 D2（结算必须是单据） |
 | 委外 4 表 | 7 表 | 加了明细 + 发料/回收明细（一张委外单多物料） |
 | 设备 4 表（含 oee） | 4 表 + 1 视图 | `oee` 从表改视图（D13） |
