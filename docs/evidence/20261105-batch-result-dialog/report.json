@@ -1,0 +1,96 @@
+{
+  "env": {
+    "base": "http://127.0.0.1:5212",
+    "api": "http://127.0.0.1:18126",
+    "startedAt": "2026-11-05T10:13:56.617Z",
+    "mustChangePassword": false
+  },
+  "cases": {
+    "export_before": {
+      "barPresent": false,
+      "resultVisible": false,
+      "firstRow": "\tAP-20261103-000002\t 示例供应商（种子）"
+    },
+    "export": {
+      "dialogShown": true,
+      "header": "已提交导出任务 EXP20261105-534E（1 行）",
+      "body": "已提交导出任务，请到「导入导出」页下载「应付单_20261105_181359.xlsx」",
+      "barStillMounted": true,
+      "barVisible": true,
+      "requests": [
+        {
+          "url": "http://127.0.0.1:5212/api/business/erp/payable/batch-export",
+          "status": 200,
+          "task_no": "EXP20261105-534E",
+          "total": 1
+        }
+      ],
+      "countText": "未勾选"
+    },
+    "export_after_close": {
+      "barGone": true,
+      "resultVisible": false
+    },
+    "reselect": {
+      "barVisible": true,
+      "resultVisible": false,
+      "headerAfterReselect": "批量操作结果",
+      "headerHoldsOldExport": false,
+      "bodyAfterReselect": ""
+    },
+    "partial_before": {
+      "draftNos": [
+        "IN-20261105-000003",
+        "IN-20261105-000002"
+      ],
+      "countText": "已选 2 条（本页，共 17 条筛选结果）",
+      "rows": [
+        {
+          "id": "01a1ab33-4692-7350-bb98-d62a9a31458e",
+          "no": "IN-20261105-000003",
+          "status": "DRAFT"
+        },
+        {
+          "id": "01a1ab33-467f-7511-a782-47d0b39b9d3a",
+          "no": "IN-20261105-000002",
+          "status": "DRAFT"
+        }
+      ],
+      "race": {
+        "no": "IN-20261105-000003",
+        "status": 200,
+        "result": {
+          "succeeded": [
+            {
+              "id": "01a1ab33-4692-7350-bb98-d62a9a31458e",
+              "no": "IN-20261105-000003"
+            }
+          ],
+          "failed": [],
+          "total": 1,
+          "success_count": 1,
+          "fail_count": 0
+        }
+      }
+    },
+    "partial": {
+      "dialogShown": true,
+      "header": "共 2 条：成功 1 条，失败 1 条",
+      "body": "失败的行未做任何改动（逐条独立事务），可按原因修正后重试\n\n失败 1 条（逐条原因）\n复制清单\nIN-20261105-000003：收货入库单 IN-20261105-000003 已经是「已作废」（CANCELLED），不能重复作废：库存只退一次",
+      "failures": [
+        "IN-20261105-000003：收货入库单 IN-20261105-000003 已经是「已作废」（CANCELLED），不能重复作废：库存只退一次"
+      ],
+      "barStillMounted": true
+    },
+    "partial_after_close": {
+      "barGone": true,
+      "resultVisible": false
+    }
+  },
+  "console": [
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+  ],
+  "pageErrors": [],
+  "finishedAt": "2026-11-05T10:14:02.598Z"
+}
