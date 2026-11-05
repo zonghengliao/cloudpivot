@@ -105,6 +105,16 @@ test('后端 dto / model / handler 三处与前端契约一致', () => {
   assert.match(model, /pub root_only: bool,/, 'model.rs / task_model_*.rs 的 TaskFilter 必须有归一化后的 root_only');
   assert.match(model, /if filter\.root_only \{[\s\S]{0,400}?AND t\.parent_id IS NULL/, 'root_only 必须落成无参数片段 AND t.parent_id IS NULL');
 
-  const handler = readFileSync(join(REPO, 'backend/src/business/task/handler.rs'), 'utf8');
+  // P2-1A 拆分后 handler 散了：`handler.rs` 只剩 facade（127 行重导出），接口体与 DTO 归一化
+  // 都搬进 `task_handler_*.rs` 部件（本条断言的目标在 `task_handler_crud.rs`）。
+  // 所以和上面 model 段同一口径：按「handler.rs + 所有 task_handler_*.rs 部件」拼起来读 ——
+  // 再拆一次也不会假红，且没有删断言 / 放宽成模糊匹配。
+  const handler = [
+    readFileSync(join(taskDir, 'handler.rs'), 'utf8'),
+    ...readdirSync(taskDir)
+      .filter((name: string) => name.startsWith('task_handler_') && name.endsWith('.rs'))
+      .sort()
+      .map((name: string) => readFileSync(join(taskDir, name), 'utf8')),
+  ].join('\n');
   assert.match(handler, /root_only: query\.root_only\.unwrap_or\(false\)/, 'handler 必须把 DTO 归一化成 bool（缺省 false）');
 });

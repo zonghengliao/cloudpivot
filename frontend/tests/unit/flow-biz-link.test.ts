@@ -16,7 +16,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { FLOW_BIZ_TYPES } from '@/api/business/erp/doc-kinds';
@@ -41,6 +41,40 @@ function backend(relative: string): string {
 /** 读前端源码（`frontend/tests/unit` → `frontend/src/...`） */
 function frontend(relative: string): string {
   return readFileSync(new URL(`../../${relative}`, import.meta.url), 'utf8');
+}
+
+/**
+ * 读后端「某模块 handler 家族」的源码：facade + 全部部件拼起来。
+ *
+ * 模块一旦按职责拆分（P2-1A 把 5757 行的 `task/handler.rs` 拆成 11 个部件；`erp/transfer_handler.rs`
+ * 同样是 114 行 facade），接口体和路由注解就散进 `<family>_*.rs` 部件里，按单个文件断言会在
+ * 拆分当天假红。所以这里按家族聚合读：
+ * - `<family>.rs` 自己（例：`task_handler_crud.rs`）；
+ * - 同目录 `<family>_*.rs` 部件（例：`task_handler_*.rs`、`transfer_handler_query.rs`）；
+ * - 同目录 `handler.rs` facade —— 仅当模块目录名 == family 去掉 `_handler` 前缀（task/task_handler_*）。
+ *
+ * 口径没变、也没放宽：仍然是整段源码里的逐字 `#[nik::get("…")]`，只是「源码」= 整个家族。
+ */
+function backendHandler(relative: string): string {
+  const slash = relative.lastIndexOf('/');
+  const file = relative.slice(slash + 1);
+  const dir = new URL(`../../../backend/${relative.slice(0, slash + 1)}`, import.meta.url);
+  const stem = file.replace(/\.rs$/, '');
+  const family = stem.includes('_handler')
+    ? stem.slice(0, stem.indexOf('_handler') + '_handler'.length)
+    : stem;
+  const moduleDir = relative.slice(0, slash).split('/').pop() ?? '';
+  const needFacade = family !== stem && family.replace(/_handler$/, '') === moduleDir;
+  const names = readdirSync(dir)
+    .filter(
+      (name: string) =>
+        name.endsWith('.rs') &&
+        (name === `${family}.rs` || name.startsWith(`${family}_`) || (needFacade && name === 'handler.rs')),
+    )
+    .sort();
+  assert.ok(names.includes(file), `${relative} 不在 handler 家族聚合结果里：${names.join(',')}`);
+  assert.ok(names.length > 0, `${relative} 的 handler 家族为空`);
+  return names.map((name: string) => readFileSync(new URL(name, dir), 'utf8')).join('\n');
 }
 
 /** `doc_kind.rs::FlowBizType::as_str` 里的落库字面量（顺序 = match 臂顺序 = `ALL` 顺序） */
@@ -172,18 +206,22 @@ test('深链键取的是各详情页自己读的那个 query 参数（不发明�
 
 test('探测接口路径 = 后端 #[nik::get(...)] 注解（逐字，含 /api 前缀）', () => {
   const cases: Array<[keyof typeof BIZ_LINKS, string, string]> = [
-    ['TASK_ACCEPT', 'src/business/task/handler.rs', '/business/task/{id}'],
+    // 路由注解已随 P2-1A 拆到部件文件里（真实位置），断言按「handler.rs + 所有 task_handler_*.rs」聚合读
+    ['TASK_ACCEPT', 'src/business/task/task_handler_crud.rs', '/business/task/{id}'],
     ['CONTRACT_APPROVE', 'src/business/erp/contract_handler.rs', '/business/erp/contract/{id}'],
     ['PO_APPROVE', 'src/business/erp/handler.rs', '/business/erp/purchase-order/{id}'],
     ['STOCK_IN_POST', 'src/business/erp/stockin_handler_query.rs', '/business/erp/stock-in/{id}'],
     ['STOCK_IN_CANCEL', 'src/business/erp/stockin_handler_query.rs', '/business/erp/stock-in/{id}'],
-    ['STOCK_TRANSFER', 'src/business/erp/transfer_handler.rs', '/business/erp/transfer/{id}'],
+    // 同 P2-1A：`erp/transfer_handler.rs` 也已拆成 114 行 facade，详情路由在 query 部件
+    ['STOCK_TRANSFER', 'src/business/erp/transfer_handler_query.rs', '/business/erp/transfer/{id}'],
     ['PAYABLE_PAY', 'src/business/erp/payable_query.rs', '/business/erp/payable/{id}'],
     ['PAYABLE_CANCEL', 'src/business/erp/payable_query.rs', '/business/erp/payable/{id}'],
     ['VOUCHER_REVERSE', 'src/business/erp/voucher_query.rs', '/business/erp/voucher/{id}'],
   ];
   for (const [bizType, file, route] of cases) {
-    const source = backend(file);
+    // 模块 handler 已按职责拆部件：契约断言读「facade + 全部 <family>_*.rs」，与
+    // task-root-only.test.ts 的 model / handler 段同一口径（再拆一次也不会假红）。
+    const source = backendHandler(file);
     assert.ok(
       source.includes(`#[nik::get("${route}")]`),
       `${file} 里没有 #[nik::get("${route}")]`,
