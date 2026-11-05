@@ -1,0 +1,27 @@
+==== ① 建干净库 cloudpivot_p4a_drill ====
+==== ② up：跑一次启动迁移 ====
+[PASS] schema_migrations 有 V0250 记录（1）
+[PASS] 3 个权限码已种（3）
+[PASS] 授权行已写（super admin 拿到 3 个）（3）
+[PASS] posted_at 已放开 NOT NULL（草稿没有记账时间）（YES）
+[PASS] DRAFT 凭证能落库（posted_at 留空）（DRAFT）
+   存量 POSTED 凭证：1 张
+==== ③ 重复执行 up（幂等证据 + NOTICE）====
+psql:/opt/cloudpivot/backend/migrations/business/V0250__erp_voucher_three_state.up.sql:91: NOTICE:  V0250 ①：ck_biz_voucher_status 已允许 DRAFT/AUDITED/POSTED，posted_at 已放开 NOT NULL
+psql:/opt/cloudpivot/backend/migrations/business/V0250__erp_voucher_three_state.up.sql:161: NOTICE:  V0250 ③：3 个权限码已种，授权新增 0 行（涉及 1 个角色）
+psql:/opt/cloudpivot/backend/migrations/business/V0250__erp_voucher_three_state.up.sql:190: NOTICE:  V0250 ④：存量凭证 POSTED 1 张 / 非 POSTED 1 张（本迁移不改任何凭证行）
+psql:/opt/cloudpivot/backend/migrations/business/V0250__erp_voucher_three_state.up.sql:190: NOTICE:  V0250 完成：凭证三态审核链的权限码就绪（DRAFT → AUDITED → POSTED）
+[PASS] 重复 up 后权限码仍是 3 个（3）
+==== ④ down ====
+psql:/opt/cloudpivot/backend/migrations/business/V0250__erp_voucher_three_state.down.sql:60: NOTICE:  V0250 down 完成：3 个权限码与授权行已删除（凭证与状态日志一行未动）
+[PASS] down 后 3 个权限码消失（0）
+[PASS] down 后授权行清零（0）
+[PASS] down 后 POSTED 凭证张数不变（1）
+[PASS] down 后已种权限码仍存活（只是新码被摘）（1）
+==== ⑤ 再 up（删掉记账行让迁移器重跑）====
+[PASS] 再 up 后 3 个权限码回来（3）
+[PASS] 再 up 后授权行回来（3）
+[PASS] 再 up 后 POSTED 凭证仍不变（1）
+
+==== 结果：PASS 13 / FAIL 0 ====
+EXIT=0

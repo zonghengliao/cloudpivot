@@ -1,0 +1,33 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 25 tests
+test business::erp::voucher_write::tests::biz_active_conflict_maps_to_409_with_voucher_no ... ok
+test business::erp::voucher_write::tests::p4a_audit_by_other_lands_audited ... ok
+test business::erp::voucher_write::tests::p4a_audited_voucher_summary_is_locked ... ok
+test business::erp::voucher_write::tests::p4a_auto_voucher_still_posts_directly ... ok
+test business::erp::voucher_write::tests::p4a_create_lands_draft_with_creation_log ... ok
+test business::erp::voucher_write::tests::p4a_initial_audited_status_is_rejected ... ok
+test business::erp::voucher_write::tests::p4a_locked_statuses_are_posted_and_audited ... ok
+test business::erp::voucher_write::tests::p4a_only_posted_enters_ledger_and_trial_balance ... ok
+test business::erp::voucher_write::tests::p4a_only_un_audit_needs_reason ... ok
+test business::erp::voucher_write::tests::p4a_post_requires_audited ... ok
+test business::erp::voucher_write::tests::p4a_posted_is_terminal ... ok
+test business::erp::voucher_write::tests::p4a_self_audit_gate_matrix ... ok
+test business::erp::voucher_write::tests::p4a_self_audit_is_forbidden ... ok
+test business::erp::voucher_write::tests::p4a_un_audit_back_to_draft_keeps_reason ... ok
+test business::erp::voucher_write::tests::p4a_un_audit_requires_reason ... ok
+test business::erp::voucher_write::tests::p4a_voucher_state_machine_registry ... ok
+test business::erp::voucher_write::tests::p7_manual_voucher_balanced_lands_draft ... ok
+test business::erp::voucher_write::tests::p7_manual_voucher_unbalanced_is_rejected ... ok
+test business::erp::voucher_write::tests::p7_reverse_closed_period_is_conflict ... ok
+test business::erp::voucher_write::tests::p7_reverse_creates_red_voucher ... ok
+test business::erp::voucher_write::tests::p7_reverse_red_voucher_is_conflict ... ok
+test business::erp::voucher_write::tests::p7_reverse_requires_reason ... ok
+test business::erp::voucher_write::tests::p7_reverse_twice_is_conflict ... ok
+test business::erp::voucher_write::tests::p7_reverse_writes_back_reversed_by_and_keeps_posted ... ok
+test business::erp::voucher_write::tests::zz_teardown_purges_voucher_status_logs ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 2589 filtered out; finished in 18.00s
+
+EXIT=0

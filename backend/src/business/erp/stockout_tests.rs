@@ -279,6 +279,7 @@ async fn seed_inbound(material_id: Uuid, warehouse_id: Uuid, qty: Decimal, unit_
             ],
             remark: None,
             red_of: None,
+            status: crate::business::erp::voucher::STATUS_POSTED,
         },
         None,
         now,

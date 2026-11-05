@@ -1,0 +1,31 @@
+==== P0-FIX-4A e2e base=http://127.0.0.1:18095 db=cloudpivot_p4a_4a ====
+[PASS] ① POST /voucher 建单 — HTTP 200 {"code": 0, "msg": "ok", "data": {"id": "00dbdd53-98bf-4046-8ed1-a51e5f6a026f", "voucher_word": "记", "voucher_no": "PZ-20261105-000003", "period": "2026-11", "voucher_date": "2026-11-05", "voucher_typ
+[PASS] ① 建单落 DRAFT（制单 ≠ 记账） — status=DRAFT label=草稿
+[PASS] ① 草稿没有记账戳 — posted_at=None posted_by=None
+[PASS] ① 建单留痕 NULL → DRAFT — logs=[['(NULL)', 'DRAFT', '']]
+[PASS] ① 草稿不进总账 — 1405 POSTED 合计 100.0000（基线 100.0000）
+[PASS] ② 制单人自审被拒 403 + 65019 — HTTP 403 code=65019 msg=不能审核自己制作的凭证：凭证 PZ-20261105-000003 由你本人制作（内控要求制单与审核分离），请交给其他有审核权限的账号处理（内控开关 erp.separation_of_duties.approve 已开启；小团队如确需本人
+[PASS] ② 自审失败不改状态 — row=[['DRAFT', '(null)']]
+[PASS] ② 自审失败不留日志 — 日志数 1
+   （把 create_by 改成另一个随机用户：模拟「别人制的单」，admin 现在不是制单人）
+[PASS] ③ 换人审核 200 — HTTP 200 {"code": 0, "msg": "ok", "data": {"id": "00dbdd53-98bf-4046-8ed1-a51e5f6a026f", "voucher_word": "记", "voucher_no": "PZ-20261105-000003", "period": "2026-11", "voucher_date": "2026-11-05", "voucher_typ
+[PASS] ③ 审核后 = AUDITED — status=AUDITED
+[PASS] ③ 审核不盖记账戳 — posted_at=None
+[PASS] ③ 审核留痕 DRAFT → AUDITED（含审核意见） — logs=[['(NULL)', 'DRAFT', ''], ['DRAFT', 'AUDITED', '复核无误']]
+[PASS] ③ 已审核仍不进总账 — 1405 POSTED 合计 100.0000（基线 100.0000）
+[PASS] ④ 反审核缺原因 400 — HTTP 400 msg=reason 必填：请写明反审核原因（会写进凭证状态日志，审计要能查到为什么把已审核打回草稿）
+[PASS] ④ 反审核带原因 200 → DRAFT — HTTP 200 status=DRAFT
+[PASS] ④ 反审核留痕 + 原因进日志 — logs=[['(NULL)', 'DRAFT', ''], ['DRAFT', 'AUDITED', '复核无误'], ['AUDITED', 'DRAFT', '科目选错了，退回改']]
+[PASS] ⑤ 重新审核 200 → AUDITED — HTTP 200
+[PASS] ⑤ 记账 200 — HTTP 200 {"code": 0, "msg": "ok", "data": {"id": "00dbdd53-98bf-4046-8ed1-a51e5f6a026f", "voucher_word": "记", "voucher_no": "PZ-20261105-000003", "period": "2026-11", "voucher_date": "2026-11-05", "voucher_typ
+[PASS] ⑤ 记账后 = POSTED 且盖戳 — status=POSTED posted_at=2026-11-05T06:52:25.502032Z posted_by=01a1aa7a-2838-706f-b6a5-73548a31ac16
+[PASS] ⑤ 记账留痕 AUDITED → POSTED — logs=[['(NULL)', 'DRAFT', ''], ['DRAFT', 'AUDITED', '复核无误'], ['AUDITED', 'DRAFT', '科目选错了，退回改'], ['DRAFT', 'AUDITED', '改完重审'], ['AUDITED', 'POSTED', '']]
+[PASS] ⑤ 记账后总账借方 1405 +100 — 100.0000 → 200.0000
+[PASS] ⑤ 记账后总账贷方 2202 +100 — 100.0000 → 200.0000
+   余额表口径（只算 POSTED）: [['1405', '200.0000', '0'], ['2202', '0', '200.0000']]
+[PASS] ⑥ 已记账再审核 → 409 + 10003 — HTTP 409 code=10003 msg=凭证 PZ-20261105-000003 当前是「已记账」，不能审核：只有草稿（DRAFT）状态的凭证能审核。当前可选动作：没有可选动作（该状态是终态，要更正请红冲后重开）
+[PASS] ⑥ 已记账反审核 → 409 — HTTP 409 msg=凭证 PZ-20261105-000003 当前是「已记账」，不能反审核：只有已审核（AUDITED）的凭证能反审核；已记账的只能红冲。当前可选动作：没有可选动作（该状态是终态，要更正请红冲后重开）
+[PASS] ⑥ 草稿不能直接记账 → 409（没有 DRAFT → POSTED 这条边） — HTTP 409 msg=凭证 PZ-20261105-000004 当前是「草稿」，不能记账：只有已审核（AUDITED）的凭证能记账；草稿要先审核（制单 ≠ 审核）。当前可选动作：审核（DRAFT → AUDITED）
+[PASS] ⑦ 已结账期间建单 → 400 — HTTP 400 msg=会计期间 2026-11 已结账，不能再生成凭证（凭证日期 2026-11-05）：已封账的月份只读，请在下一个未结账的期间做调整（或先反结账）
+
+==== 结果：PASS 26 / FAIL 0 ====

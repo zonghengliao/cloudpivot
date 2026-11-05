@@ -313,6 +313,7 @@ async fn posted_voucher(amount: &str, creator: &str) -> Uuid {
             lines,
             remark: None,
             red_of: None,
+            status: crate::business::erp::voucher::STATUS_POSTED,
         },
         Some(uid(creator)),
         now,

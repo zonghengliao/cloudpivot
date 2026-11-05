@@ -9,12 +9,19 @@
 //! 本卡新增的「手工凭证」与「红冲开关」属于凭证台账的**第二个写入口**，与 P5（`transfer_*` /
 //! `task_bridge` / `error_code`）、P6（`stockin_model`）并行开工，新文件不产生冲突。
 //!
-//! # 接口（卡面 §二 ②）
+//! # 接口（卡面 §二 ② + P0-FIX-4A）
 //!
 //! | 方法 | 路径 | 权限码 | 说明 |
 //! |------|------|--------|------|
 //! | POST | `/business/erp/voucher/{id}/reverse` | `business:erp:voucher:reverse` | 红冲一张已记账凭证 |
-//! | POST | `/business/erp/voucher` | `business:erp:voucher:create` | 手工新增凭证（分录手工录入） |
+//! | POST | `/business/erp/voucher` | `business:erp:voucher:create` | 手工新增凭证（落 **DRAFT**） |
+//! | POST | `/business/erp/voucher/{id}/audit` | `business:erp:voucher:audit` | 审核 `DRAFT → AUDITED` |
+//! | POST | `/business/erp/voucher/{id}/un-audit` | `business:erp:voucher:un-audit` | 反审核 `AUDITED → DRAFT`（reason 必填） |
+//! | POST | `/business/erp/voucher/{id}/post` | `business:erp:voucher:post` | 记账 `AUDITED → POSTED` |
+//!
+//! 后三条是 P0-FIX-4A 的「双人复核链」，前端契约见
+//! `frontend/src/views/business/erp/voucher/voucher-audit-api.ts`（P0-FIX-4B 先落）。
+//! 全部回 [`VoucherDetailRes`]，前端拿它直接刷抽屉。
 //!
 //! # 红冲语义（与 P2-C1 同口径，复用 `voucher::reverse_posted`）
 //!
@@ -34,8 +41,18 @@
 //! ③ 摘要必填（分录摘要留空则继承单头摘要）
 //! ④ 期间必须是 OPEN（期间不存在 / 已关闭都拒绝）
 //! ⑤ 至少 2 条分录
-//! 动作：status 直接 POSTED（与自动凭证同口径，手工凭证也即时记账）
+//! 动作：status 落 **DRAFT**（P0-FIX-4A 起）—— 制单只是「写了一张单」，
+//!       还要别人审核（AUDITED）再记账（POSTED）才进总账。
+//!       DRAFT 凭证的借贷仍然必须平衡：库里的 CHECK 与 A1/A2 巡检对**所有状态**生效。
 //! ```
+//!
+//! # 为什么改掉「制单即记账」（P0-FIX-4A）
+//!
+//! 改造前手工凭证落库即 `POSTED`，等于**制单人可以一个人把账做进总账**：
+//! 没有复核、没有第二双眼睛，与 PRD E4-09（审核 / 反审核）E4-10（记账）两条 P0 正面冲突，
+//! 也是审计必问的内控缺口（实测 21 张生产凭证全是 POSTED，一张草稿都没有）。
+//! 现在制单（DRAFT）→ 审核（AUDITED）→ 记账（POSTED）三步分离，审核那一步由
+//! [`check_self_audit`] 挡住「自己审自己」。
 //!
 //! # 数据权限（门禁闸① / 闸②）
 //!
@@ -53,6 +70,7 @@ use nik::uuid::Uuid;
 use serde::Deserialize;
 
 use crate::business::erp::approval_gate;
+use crate::business::erp::separation;
 use crate::business::erp::voucher::{self, AccountRef, EntryLine, ReversalInput};
 use crate::business::erp::voucher_bridge;
 use crate::business::erp::voucher_query::{self, VoucherDetailRes};
@@ -88,6 +106,30 @@ pub struct CreateVoucherReq {
     /// 备注。
     pub remark: Option<String>,
 }
+
+/// 审核入参（P0-FIX-4A）：`remark` 是**可选**审核意见，写进凭证状态日志。
+///
+/// 与反审核的 `reason`（必填）区分开：审核是流程内的正常推进，意见是加分项；
+/// 反审核是撤回已复核的结论，必须说明为什么。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct AuditVoucherReq {
+    /// 审核意见（可空）。
+    pub remark: Option<String>,
+}
+
+/// 反审核入参（P0-FIX-4A）：`reason` **必填**（缺失 → 400）。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct UnAuditVoucherReq {
+    /// 反审核原因（必填）。
+    pub reason: Option<String>,
+}
+
+/// 记账入参（P0-FIX-4A）：契约是 `{}`，没有业务字段。
+///
+/// 之所以还要有结构体而不是「无 body」：前端 `post(url, {})` 会带 `Content-Type: application/json`
+/// 与空对象，框架按 `Json<T>` 解析；用 `Option<Json<T>>` 兼容「完全不带 body」的调用方。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct PostAuditedVoucherReq {}
 
 /// 红冲入参。
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -304,8 +346,9 @@ async fn reverse_in_tx(
 /// 描述字段，改了它账证虽不差钱，但会与已出的报表 / 归档 PDF 不一致 ——
 /// 统一按「先红冲再重开」处理（**409**，文案点「已入账」）。
 ///
-/// 只有 `DRAFT` 状态的凭证允许改摘要；本仓目前没有 DRAFT 凭证的生成路径，
-/// 所以线上等价于「凭证一律不可改」，但接口语义在这里钉死，等草稿凭证上线即自动生效。
+/// 只有 `DRAFT` 状态的凭证允许改摘要（`AUDITED` 已复核、`POSTED` 已入账，都锁）：
+/// 审核之后改摘要 = 复核人看的是另一份数据（审 A 改 B），记账之后改 = 与已出报表不一致，
+/// 统一按「先反审核 / 先红冲，再改」处理（**409 + 入账态文案**，由 `ensure_writable` 给出）。
 pub async fn update_summary(
     id: Uuid,
     summary: Option<&str>,
@@ -329,7 +372,7 @@ pub async fn update_summary(
     tx.exec_sql(
         "UPDATE biz_voucher SET summary = ?, updated_at = ?, \
             update_by = NULLIF(?::text,'')::uuid \
-          WHERE id = ?::uuid AND status <> 'POSTED' AND deleted_at IS NULL"
+          WHERE id = ?::uuid AND status = 'DRAFT' AND deleted_at IS NULL"
             .to_string(),
         vec![
             Value::Text(summary.to_string()),
@@ -346,9 +389,326 @@ pub async fn update_summary(
     Ok(())
 }
 
+// ==================== ④ 审核链（P0-FIX-4A）：DRAFT → AUDITED → POSTED ====================
+//
+// 三个动作（审核 / 反审核 / 记账）**只走这一条路**：行锁取凭证 → 状态核对 →
+// 状态机 `transition()`（校验边 + reason + 写 `biz_status_log`）→ 改 `biz_voucher.status`。
+// 没有第二个写状态的地方 —— 谁想「顺手 UPDATE 一下状态」，会立刻被
+// `erp_invariants` 的「状态日志与凭证状态对不上」抓出来。
+
+/// 审核链一次状态变更的入参（三条边共用的事务体入参）。
+struct VoucherTransition<'a> {
+    /// 凭证 id。
+    id: Uuid,
+    /// 期望的当前状态（不是它 → 409，文案说明该先做什么）。
+    expect: &'a str,
+    /// 目标状态（必须是一条注册过的边，否则状态机自己会 409）。
+    to: &'a str,
+    /// 操作人。
+    operator: Option<Uuid>,
+    /// 原因（反审核必填；审核时是可选意见）。
+    reason: Option<&'a str>,
+    /// 中文动作名（拼错误文案）。
+    action: &'a str,
+    /// 这个动作的前提（拼错误文案）。
+    precondition: &'a str,
+}
+
+/// 状态的中文名（错误文案用；未知值原样返回，不假装认识）。
+fn status_label(status: &str) -> &str {
+    match status {
+        voucher::STATUS_DRAFT => "草稿",
+        voucher::STATUS_AUDITED => "已审核",
+        voucher::STATUS_POSTED => "已记账",
+        other => other,
+    }
+}
+
+/// 「当前能做什么」的提示（从状态机注册表现算，不写死 —— 边表改了文案自动跟着走）。
+fn next_actions(status: &str) -> String {
+    let next = state_machine::Entity::Voucher.next_statuses(status);
+    if next.is_empty() {
+        return "没有可选动作（该状态是终态，要更正请红冲后重开）".to_string();
+    }
+    next.iter()
+        .map(|to| {
+            format!(
+                "{}（{status} → {to}）",
+                match *to {
+                    voucher::STATUS_AUDITED => "审核",
+                    voucher::STATUS_DRAFT => "反审核",
+                    voucher::STATUS_POSTED => "记账",
+                    other => other,
+                }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" / ")
+}
+
+/// 自审闸（**纯函数**，便于单测钉死）：制单人不能审核自己制的凭证 → `403 + 65019`。
+///
+/// # 为什么是 403 而不是 409
+///
+/// 与仓里所有「自审」闸同口径（`purchase_bridge::guard_self_approval` /
+/// `payable_bridge::guard_self_approval` / `flow::assignee` 的 `FORBID`）：
+/// 这是**权限不足**（你没有资格审这一张），不是「参数冲突」。
+///
+/// # 为什么仍然受 `erp.separation_of_duties.approve` 开关约束
+///
+/// 复用的是 ERP-B2 的既有内控设施（默认 **开** = 拦），不是另造一套：
+/// 开关在「系统参数 / ERP 内控」里可见可审计，只有管理员显式关掉才放行本人自审
+/// （一人财务岗的小团队确实需要，这也是那个开关存在的原因）。
+/// 关掉这件事会留在参数变更日志里，比藏一个 code 里的常量更可追溯。
+fn check_self_audit(
+    switch_on: bool,
+    creator: Option<Uuid>,
+    operator: Option<Uuid>,
+    voucher_no: &str,
+) -> std::result::Result<(), ApiError> {
+    if !switch_on {
+        return Ok(());
+    }
+    // 操作人未知（定时任务 / 无令牌）→ 没有「自己」可言
+    let Some(operator) = operator else {
+        return Ok(());
+    };
+    if creator != Some(operator) {
+        return Ok(());
+    }
+    Err(ApiError::new(
+        403,
+        error_code::FLOW_SELF_APPROVAL_FORBIDDEN,
+        format!(
+            "不能审核自己制作的凭证：凭证 {voucher_no} 由你本人制作（内控要求制单与审核分离），\
+             请交给其他有审核权限的账号处理{}",
+            separation::approval_hint(separation::Duty::Approve)
+        ),
+    ))
+}
+
+/// 审核链的事务体：行锁 → 状态核对 → 内控闸 → 状态机 → 改状态列。
+async fn transition_voucher_in_tx(
+    tx: &Transaction,
+    input: VoucherTransition<'_>,
+) -> std::result::Result<(), ApiError> {
+    let row = voucher::find_voucher_locked(tx, input.id)
+        .await
+        .map_err(|error| utils::db_error(error, "锁定凭证"))?
+        .ok_or_else(not_found)?;
+
+    // ① 当前状态必须是这条边的起点（否则 409，并告诉用户现在到底能做什么）
+    if row.status != input.expect {
+        return Err(conflict(format!(
+            "凭证 {} 当前是「{}」，不能{}：{}。当前可选动作：{}",
+            row.voucher_no,
+            status_label(&row.status),
+            input.action,
+            input.precondition,
+            next_actions(&row.status)
+        )));
+    }
+
+    // ② 内控闸（只对「审核」）：制单人不能审核自己的凭证
+    if input.to == voucher::STATUS_AUDITED {
+        let switch_on = separation::enabled(separation::Duty::Approve).await;
+        let creator = voucher::creator_of(tx, row.id)
+            .await
+            .map_err(|error| utils::db_error(error, "查询凭证制单人"))?;
+        check_self_audit(switch_on, creator, input.operator, &row.voucher_no)?;
+    }
+
+    // ③ 记账前再查一次期间：制单时开着、审核后才封账的月份不许再记账
+    if input.to == voucher::STATUS_POSTED
+        && voucher::is_period_closed(tx, &row.period)
+            .await
+            .map_err(|error| utils::db_error(error, "查询会计期间状态"))?
+    {
+        return Err(conflict(format!(
+            "凭证 {} 所属期间 {} 已结账，不能再记账：已封账的月份只读，\
+             请先反结账（或在下一个未结账期间重开这张凭证）",
+            row.voucher_no, row.period
+        )));
+    }
+
+    // ④ 唯一状态变更入口：校验边（含配置层收窄）、校验必填 reason、写 biz_status_log
+    state_machine::transition(
+        tx,
+        state_machine::ENTITY_VOUCHER,
+        row.id,
+        &row.voucher_no,
+        &voucher::LEGAL_EDGES,
+        input.expect,
+        input.to,
+        input.operator,
+        input.reason,
+        None,
+    )
+    .await?;
+
+    // ⑤ 改状态列。记账时同时盖「记账时间 / 记账人」戳；反审核把戳清掉
+    //    （回到草稿的凭证不该留着「已记账」的痕迹），审核不动这两个戳。
+    //
+    // 三条分支各自拼 SQL + 参数（**同序**），不做「先拼一条再 insert 参数」——那种写法
+    // 一旦有人加字段就会错位，而且错位后是「静默写错值」而不是编译错。
+    let now = Utc::now();
+    let operator_text = input.operator.map(|v| v.to_string()).unwrap_or_default();
+    let (sql, params) = match input.to {
+        voucher::STATUS_POSTED => (
+            "UPDATE biz_voucher SET status = ?, posted_at = CURRENT_TIMESTAMP, \
+                posted_by = NULLIF(?::text,'')::uuid, updated_at = ?, \
+                update_by = NULLIF(?::text,'')::uuid \
+              WHERE id = ?::uuid AND deleted_at IS NULL"
+                .to_string(),
+            vec![
+                Value::Text(input.to.to_string()),
+                Value::Text(operator_text),
+                Value::from(now),
+                Value::Text(input.operator.map(|v| v.to_string()).unwrap_or_default()),
+                Value::from(&row.id),
+            ],
+        ),
+        voucher::STATUS_DRAFT => (
+            "UPDATE biz_voucher SET status = ?, posted_at = NULL, posted_by = NULL, \
+                updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
+              WHERE id = ?::uuid AND deleted_at IS NULL"
+                .to_string(),
+            vec![
+                Value::Text(input.to.to_string()),
+                Value::from(now),
+                Value::Text(operator_text),
+                Value::from(&row.id),
+            ],
+        ),
+        // AUDITED：既不盖戳也不清戳（从 DRAFT 审核上来时本来就没有戳）
+        _ => (
+            "UPDATE biz_voucher SET status = ?, updated_at = ?, \
+                update_by = NULLIF(?::text,'')::uuid \
+              WHERE id = ?::uuid AND deleted_at IS NULL"
+                .to_string(),
+            vec![
+                Value::Text(input.to.to_string()),
+                Value::from(now),
+                Value::Text(operator_text),
+                Value::from(&row.id),
+            ],
+        ),
+    };
+    // SCOPE-EXEMPT: 凭证台账无归属列（见模块文档）。
+    tx.exec_sql(sql, params)
+        .await
+        .map_err(|error| utils::db_error(error, "回写凭证状态"))?;
+    Ok(())
+}
+
+/// 审核（`DRAFT → AUDITED`，PRD E4-09）。
+///
+/// # 异常情况
+///
+/// * 404 + `10002`：凭证不存在 / 已删除；
+/// * 409 + `10003`：不是草稿（已审核 / 已记账）；
+/// * 403 + `65019`：制单人自己来审核（内控：制单 ≠ 审核）。
+pub async fn audit_voucher(
+    id: Uuid,
+    remark: Option<&str>,
+    operator: Option<Uuid>,
+) -> std::result::Result<VoucherDetailRes, ApiError> {
+    let reason = remark.map(str::trim).filter(|text| !text.is_empty());
+    run_voucher_transition(VoucherTransition {
+        id,
+        expect: voucher::STATUS_DRAFT,
+        to: voucher::STATUS_AUDITED,
+        operator,
+        reason,
+        action: "审核",
+        precondition: "只有草稿（DRAFT）状态的凭证能审核",
+    })
+    .await
+}
+
+/// 反审核（`AUDITED → DRAFT`，PRD E4-09）：**原因必填**，写进 `biz_status_log`。
+///
+/// # 异常情况
+///
+/// * 400 + `10001`：没给原因（状态机的必填 reason 边拦下）；
+/// * 404 + `10002`：凭证不存在 / 已删除；
+/// * 409 + `10003`：不是已审核（草稿 / 已记账都拦 —— 已记账只能红冲）。
+pub async fn un_audit_voucher(
+    id: Uuid,
+    reason: Option<&str>,
+    operator: Option<Uuid>,
+) -> std::result::Result<VoucherDetailRes, ApiError> {
+    let reason = reason.map(str::trim).filter(|text| !text.is_empty());
+    let Some(reason) = reason else {
+        return Err(bad_request(
+            "reason 必填：请写明反审核原因（会写进凭证状态日志，审计要能查到为什么把已审核打回草稿）",
+        ));
+    };
+    run_voucher_transition(VoucherTransition {
+        id,
+        expect: voucher::STATUS_AUDITED,
+        to: voucher::STATUS_DRAFT,
+        operator,
+        reason: Some(reason),
+        action: "反审核",
+        precondition: "只有已审核（AUDITED）的凭证能反审核；已记账的只能红冲",
+    })
+    .await
+}
+
+/// 记账（`AUDITED → POSTED`，PRD E4-10）：记完进总账 / 报表，**不可再反审核**。
+///
+/// # 异常情况
+///
+/// * 404 + `10002`：凭证不存在 / 已删除；
+/// * 409 + `10003`：不是已审核（草稿要先审核；已记账无需再记）；
+/// * 409 + `10003`：所属期间已结账。
+pub async fn post_audited_voucher(
+    id: Uuid,
+    operator: Option<Uuid>,
+) -> std::result::Result<VoucherDetailRes, ApiError> {
+    run_voucher_transition(VoucherTransition {
+        id,
+        expect: voucher::STATUS_AUDITED,
+        to: voucher::STATUS_POSTED,
+        operator,
+        reason: None,
+        action: "记账",
+        precondition: "只有已审核（AUDITED）的凭证能记账；草稿要先审核（制单 ≠ 审核）",
+    })
+    .await
+}
+
+/// 审核链的公共外壳：开事务 → 事务体 → 提交 → 回详情。
+async fn run_voucher_transition(
+    input: VoucherTransition<'_>,
+) -> std::result::Result<VoucherDetailRes, ApiError> {
+    let id = input.id;
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启凭证状态变更事务"))?;
+    match transition_voucher_in_tx(&tx, input).await {
+        Ok(()) => {
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交凭证状态变更事务"))?;
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(error);
+        }
+    }
+    voucher_query::voucher_detail(id).await
+}
+
 // ==================== ② 手工新增凭证 ====================
 
-/// 手工新增凭证（handler 与单测共用）：校验 → 科目快照 → 落库（直接 `POSTED`）。
+/// 手工新增凭证（handler 与单测共用）：校验 → 科目快照 → 落库（**DRAFT，待复核**）。
+///
+/// 落 `DRAFT` 而不是 `POSTED`（P0-FIX-4A）：手工凭证要经过「审核 → 记账」两步才进总账，
+/// 制单人一个人推不进账本。自动凭证（收货 / 付款 / 红冲 / 年结）仍由 `post_voucher`
+/// 直接落 `POSTED`，它们的复核在各自的审批链上。
 pub async fn create_manual_voucher(
     req: &CreateVoucherReq,
     operator: Option<Uuid>,
@@ -599,6 +959,7 @@ async fn manual_in_tx(
             lines,
             remark: remark.map(str::trim).filter(|text| !text.is_empty()),
             red_of: None,
+            status: crate::business::erp::voucher::STATUS_DRAFT,
         },
         operator,
         now,
@@ -1187,7 +1548,7 @@ pub async fn voucher_withdraw_reverse_handler(
     ))
 }
 
-/// 手工新增凭证（分录手工录入，直接 `POSTED`）。
+/// 手工新增凭证（分录手工录入，落 **DRAFT**，P0-FIX-4A 起）。
 #[nik::permission(
     path = "/business/erp/voucher",
     method = "POST",
@@ -1200,6 +1561,92 @@ pub async fn voucher_create_handler(
 ) -> ResResult<VoucherDetailRes> {
     Ok(Res::ok(
         create_manual_voucher(&req, operator_of(&claims)).await?,
+    ))
+}
+
+// ==================== P0-FIX-4A：审核链三个入口 ====================
+//
+// 与 `voucher-audit-api.ts`（P0-FIX-4B 前端契约）逐字对齐：
+//
+// ```text
+// POST /business/erp/voucher/{id}/audit      body { remark? }  DRAFT   → AUDITED
+// POST /business/erp/voucher/{id}/un-audit   body { reason }   AUDITED → DRAFT（reason 必填）
+// POST /business/erp/voucher/{id}/post       body {}           AUDITED → POSTED
+// ```
+//
+// 三条都回 `VoucherDetailRes`：前端拿它直接刷新抽屉，不用再补一次 `GET /voucher/{id}`。
+
+/// 审核（`DRAFT → AUDITED`）。
+///
+/// # 异常情况
+///
+/// * 404 + `10002`：凭证不存在 / 已删除；
+/// * 409 + `10003`：当前不是草稿（文案给出「当前可选动作」）；
+/// * 403 + `65019`：制单人自己来审核（内控：制单 ≠ 审核）。
+#[nik::permission(
+    path = "/business/erp/voucher/{id}/audit",
+    method = "POST",
+    permission = "business:erp:voucher:audit"
+)]
+#[nik::post("/business/erp/voucher/{id}/audit")]
+pub async fn voucher_audit_handler(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    body: Option<Json<AuditVoucherReq>>,
+) -> ResResult<VoucherDetailRes> {
+    let id = parse_uuid(&id, "id")?;
+    let remark = body.and_then(|Json(req)| req.remark);
+    Ok(Res::ok(
+        audit_voucher(id, remark.as_deref(), operator_of(&claims)).await?,
+    ))
+}
+
+/// 反审核（`AUDITED → DRAFT`，**原因必填**）。
+///
+/// # 异常情况
+///
+/// * 400 + `10001`：`reason` 为空；
+/// * 404 + `10002`：凭证不存在 / 已删除；
+/// * 409 + `10003`：当前不是已审核（已记账的只能红冲）。
+#[nik::permission(
+    path = "/business/erp/voucher/{id}/un-audit",
+    method = "POST",
+    permission = "business:erp:voucher:un-audit"
+)]
+#[nik::post("/business/erp/voucher/{id}/un-audit")]
+pub async fn voucher_un_audit_handler(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    body: Option<Json<UnAuditVoucherReq>>,
+) -> ResResult<VoucherDetailRes> {
+    let id = parse_uuid(&id, "id")?;
+    let reason = body.and_then(|Json(req)| req.reason);
+    Ok(Res::ok(
+        un_audit_voucher(id, reason.as_deref(), operator_of(&claims)).await?,
+    ))
+}
+
+/// 记账（`AUDITED → POSTED`）：记完进总账 / 报表，之后只能红冲。
+///
+/// # 异常情况
+///
+/// * 404 + `10002`：凭证不存在 / 已删除；
+/// * 409 + `10003`：当前不是已审核 / 所属期间已结账。
+#[nik::permission(
+    path = "/business/erp/voucher/{id}/post",
+    method = "POST",
+    permission = "business:erp:voucher:post"
+)]
+#[nik::post("/business/erp/voucher/{id}/post")]
+pub async fn voucher_post_handler(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    body: Option<Json<PostAuditedVoucherReq>>,
+) -> ResResult<VoucherDetailRes> {
+    let _ = body;
+    let id = parse_uuid(&id, "id")?;
+    Ok(Res::ok(
+        post_audited_voucher(id, operator_of(&claims)).await?,
     ))
 }
 
@@ -1218,6 +1665,7 @@ pub async fn voucher_create_handler(
 mod tests {
     use super::*;
     use crate::business::erp::fixture_hygiene;
+    use crate::business::erp::ledger;
     use crate::business::erp::voucher::{self, entries_of, find_voucher};
 
     // ---------- 审批实例唯一索引冲突：409 + 自家单号（不是「单号重复、去查 biz_seq」） ----------
@@ -1403,8 +1851,14 @@ mod tests {
         }
     }
 
-    /// 建一张平衡的手工凭证（借 1405 100 / 贷 2202 100），返回凭证 id。
-    async fn new_posted_voucher() -> Uuid {
+    /// 夹具操作人：**制单人**与**复核人**必须是两个不同 id（P0-FIX-4A 的内控：
+    /// 制单人不能审核自己的凭证）。这里用固定 UUID、不建 `sys_user` 行 ——
+    /// `biz_voucher.create_by` / `biz_status_log.operator_id` 都没有外键。
+    const CREATOR: Uuid = Uuid::from_u128(0x4a00_0000_0000_0000_0000_0000_0000_0001);
+    const AUDITOR: Uuid = Uuid::from_u128(0x4a00_0000_0000_0000_0000_0000_0000_0002);
+
+    /// 建一张平衡的**草稿**手工凭证（借 1405 100 / 贷 2202 100），制单人 = [`CREATOR`]。
+    async fn new_draft_voucher() -> VoucherDetailRes {
         let inventory = account_id("1405").await;
         let payable_account = account_id("2202").await;
         let req = CreateVoucherReq {
@@ -1416,10 +1870,71 @@ mod tests {
             ]),
             remark: Some("P7V 单测夹具".to_string()),
         };
-        let detail = create_manual_voucher(&req, None)
+        create_manual_voucher(&req, Some(CREATOR))
             .await
-            .unwrap_or_else(|err| panic!("造手工凭证失败：{} {}", err.code, err.msg));
-        Uuid::parse_str(&detail.voucher.id).expect("凭证 id 非法")
+            .unwrap_or_else(|err| panic!("造手工凭证失败：{} {}", err.code, err.msg))
+    }
+
+    /// 建一张**已审核**凭证（制单 [`CREATOR`] → 审核 [`AUDITOR`]）。
+    async fn new_audited_voucher() -> VoucherDetailRes {
+        let draft = new_draft_voucher().await;
+        let id = Uuid::parse_str(&draft.voucher.id).expect("凭证 id 非法");
+        audit_voucher(id, Some("P7V 复核通过"), Some(AUDITOR))
+            .await
+            .unwrap_or_else(|err| panic!("审核失败：{} {}", err.code, err.msg))
+    }
+
+    /// 建一张**已记账**凭证（草稿 → 审核 → 记账），返回凭证 id。
+    async fn new_posted_voucher() -> Uuid {
+        let audited = new_audited_voucher().await;
+        let id = Uuid::parse_str(&audited.voucher.id).expect("凭证 id 非法");
+        let posted = post_audited_voucher(id, Some(AUDITOR))
+            .await
+            .unwrap_or_else(|err| panic!("记账失败：{} {}", err.code, err.msg));
+        assert_eq!(posted.voucher.status, voucher::STATUS_POSTED);
+        id
+    }
+
+    /// 某张凭证在**总账**里占几行 —— 走生产取数口径 `ledger::ledger_page`（只算 POSTED）。
+    ///
+    /// 这里刻意不复写 `WHERE status='POSTED'`：要证明的是「生产总账不认 DRAFT / AUDITED」，
+    /// 自己在测试里写一遍那个条件等于自己验自己。
+    async fn ledger_lines_of(voucher_id: Uuid, account_code: &str) -> Vec<ledger::LedgerEntryRow> {
+        let account = voucher::account_required(db(), account_code, "单测科目")
+            .await
+            .unwrap();
+        let (rows, _total) = ledger::ledger_page(&ledger::LedgerFilter {
+            account_id: account.id,
+            date_from: None,
+            date_to: None,
+            page: 1,
+            page_size: 500,
+        })
+        .await
+        .expect("总账取数失败");
+        rows.into_iter()
+            .filter(|row| row.voucher_id == voucher_id)
+            .collect()
+    }
+
+    /// 凭证余额表里某科目「本期借方发生额」—— 生产报表口径（只算 POSTED）。
+    async fn trial_period_debit(period: &str, account_code: &str) -> Decimal {
+        let res = ledger::trial_balance(period).await.expect("余额表取数失败");
+        res.rows
+            .iter()
+            .find(|row| row.account_code == account_code)
+            .map(|row| row.period_debit)
+            .unwrap_or(Decimal::ZERO)
+    }
+
+    /// 凭证余额表里某科目「本期贷方发生额」（同上口径）。
+    async fn trial_period_credit(period: &str, account_code: &str) -> Decimal {
+        let res = ledger::trial_balance(period).await.expect("余额表取数失败");
+        res.rows
+            .iter()
+            .find(|row| row.account_code == account_code)
+            .map(|row| row.period_credit)
+            .unwrap_or(Decimal::ZERO)
     }
 
     // ---------- ⑨ 红冲生成红字凭证 ----------
@@ -1592,10 +2107,11 @@ mod tests {
 
     // ---------- ⑭ 手工凭证平衡 ----------
 
-    /// ⑭ 手工凭证借贷平衡 → 成功：`status = POSTED`、`voucher_type = MANUAL`、
-    /// `entry_count` 与分录行数一致、分录科目快照正确。
+    /// ⑭ 手工凭证借贷平衡 → 成功：`status = DRAFT`（P0-FIX-4A：制单只是「写了一张单」）、
+    /// `voucher_type = MANUAL`、`entry_count` 与分录行数一致、分录科目快照正确、
+    /// 记账时间 / 记账人**留空**（草稿还没有记账这回事）。
     #[tokio::test]
-    async fn p7_manual_voucher_balanced_is_posted() {
+    async fn p7_manual_voucher_balanced_lands_draft() {
         let _db = match setup().await {
             Some(guard) => guard,
             None => return,
@@ -1612,14 +2128,21 @@ mod tests {
             ]),
             remark: Some("P7V 三道分录".to_string()),
         };
-        let detail = create_manual_voucher(&req, None)
+        let detail = create_manual_voucher(&req, Some(CREATOR))
             .await
             .unwrap_or_else(|err| panic!("手工凭证失败：{} {}", err.code, err.msg));
 
         assert_eq!(
             detail.voucher.status,
-            voucher::STATUS_POSTED,
-            "手工凭证直接记账"
+            voucher::STATUS_DRAFT,
+            "手工凭证落草稿，等别人审核（P0-FIX-4A）"
+        );
+        assert_eq!(detail.voucher.status_label, "草稿");
+        assert!(
+            detail.voucher.posted_at.is_none() && detail.voucher.posted_by.is_none(),
+            "草稿不许有记账时间 / 记账人：{:?} / {:?}",
+            detail.voucher.posted_at,
+            detail.voucher.posted_by
         );
         assert_eq!(detail.voucher.voucher_type, voucher::VOUCHER_TYPE_MANUAL);
         assert_eq!(detail.voucher.source_type, voucher::SOURCE_MANUAL);
@@ -1689,6 +2212,541 @@ mod tests {
         let err = result.expect_err("已结账期间不能红冲");
         assert_eq!(err.status, 409, "{}", err.msg);
         assert!(err.msg.contains("已结账"), "{}", err.msg);
+    }
+
+    // ==================== P0-FIX-4A：三态（DRAFT → AUDITED → POSTED）====================
+    //
+    // 真库用例：口径是「生产入口进、生产取数出」——
+    //   写：`create_manual_voucher` / `audit_voucher` / `un_audit_voucher` / `post_audited_voucher`
+    //   读：`ledger::ledger_page`（总账流水）、`ledger::trial_balance`（科目余额表）
+    // 不自己复写 `WHERE status='POSTED'`：要证的是**生产报表不认草稿**，自己写一遍等于自己验自己。
+
+    /// 状态日志（走生产查询 `trail_of_no`）。
+    async fn trail(voucher_no: &str) -> Vec<crate::business::shared::state_machine::StatusLogRow> {
+        state_machine::trail_of_no(db(), voucher_no)
+            .await
+            .expect("查凭证状态日志失败")
+    }
+
+    /// ⑴ 建单落 DRAFT，并留一条 `NULL → DRAFT` 日志；草稿**不进总账**。
+    #[tokio::test]
+    async fn p4a_create_lands_draft_with_creation_log() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let detail = new_draft_voucher().await;
+        let id = Uuid::parse_str(&detail.voucher.id).expect("凭证 id 非法");
+        assert_eq!(detail.voucher.status, voucher::STATUS_DRAFT);
+
+        let logs = trail(&detail.voucher.voucher_no).await;
+        assert_eq!(logs.len(), 1, "建单只写一条日志：{logs:?}");
+        assert_eq!(
+            logs[0].from_status, None,
+            "建单日志的 from_status 必须是 NULL"
+        );
+        assert_eq!(logs[0].to_status, voucher::STATUS_DRAFT);
+        assert_eq!(logs[0].operator_id, Some(CREATOR), "日志要记制单人");
+
+        assert!(
+            ledger_lines_of(id, "1405").await.is_empty(),
+            "草稿凭证的分录一条都不许进总账"
+        );
+    }
+
+    /// ⑵ 自审被拒：制单人审核自己的凭证 → **403 + 65019**，状态与日志都不动。
+    #[tokio::test]
+    async fn p4a_self_audit_is_forbidden() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let draft = new_draft_voucher().await;
+        let id = Uuid::parse_str(&draft.voucher.id).expect("凭证 id 非法");
+
+        let err = audit_voucher(id, Some("我自己审"), Some(CREATOR))
+            .await
+            .expect_err("制单人自审必须被拒");
+        assert_eq!(err.status, 403, "{}", err.msg);
+        assert_eq!(err.code, error_code::FLOW_SELF_APPROVAL_FORBIDDEN);
+        assert!(
+            err.msg.contains("不能审核自己制作的凭证"),
+            "文案要说清为什么：{}",
+            err.msg
+        );
+        assert!(
+            err.msg.contains(&draft.voucher.voucher_no),
+            "文案要点名单号：{}",
+            err.msg
+        );
+        assert!(
+            err.msg.contains("erp.separation_of_duties.approve"),
+            "文案要带开关键，管理员才知道去哪改：{}",
+            err.msg
+        );
+
+        // 状态没变、日志没多（失败不许留半条轨迹）
+        let row = find_voucher(db(), id).await.unwrap().unwrap();
+        assert_eq!(row.status, voucher::STATUS_DRAFT);
+        assert_eq!(trail(&row.voucher_no).await.len(), 1, "自审失败不许写日志");
+    }
+
+    /// ⑶ 换人审核 → AUDITED：写 `DRAFT → AUDITED` 日志（reason = 审核意见），
+    /// 但**仍不进总账**（审核 ≠ 记账）。
+    #[tokio::test]
+    async fn p4a_audit_by_other_lands_audited() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let draft = new_draft_voucher().await;
+        let id = Uuid::parse_str(&draft.voucher.id).expect("凭证 id 非法");
+
+        let audited = audit_voucher(id, Some("复核无误"), Some(AUDITOR))
+            .await
+            .unwrap_or_else(|err| panic!("审核失败：{} {}", err.code, err.msg));
+        assert_eq!(audited.voucher.status, voucher::STATUS_AUDITED);
+        assert_eq!(audited.voucher.status_label, "已审核");
+        assert!(
+            audited.voucher.posted_at.is_none(),
+            "审核不是记账：不许有记账时间"
+        );
+
+        let logs = trail(&audited.voucher.voucher_no).await;
+        assert_eq!(logs.len(), 2, "建单 + 审核两条：{logs:?}");
+        let last = logs.last().expect("审核日志");
+        assert_eq!(last.from_status.as_deref(), Some(voucher::STATUS_DRAFT));
+        assert_eq!(last.to_status, voucher::STATUS_AUDITED);
+        assert_eq!(last.reason.as_deref(), Some("复核无误"));
+        assert_eq!(last.operator_id, Some(AUDITOR), "日志要记复核人");
+
+        assert!(
+            ledger_lines_of(id, "1405").await.is_empty(),
+            "已审核未记账的凭证也不进总账"
+        );
+    }
+
+    /// ⑷ 反审核原因必填 → 400；凭证仍是 AUDITED。
+    #[tokio::test]
+    async fn p4a_un_audit_requires_reason() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let audited = new_audited_voucher().await;
+        let id = Uuid::parse_str(&audited.voucher.id).expect("凭证 id 非法");
+
+        for reason in [None, Some(""), Some("   ")] {
+            let err = un_audit_voucher(id, reason, Some(AUDITOR))
+                .await
+                .expect_err("反审核缺原因必须被拒");
+            assert_eq!(err.status, 400, "{:?} → {}", reason, err.msg);
+            assert!(err.msg.contains("reason 必填"), "{}", err.msg);
+        }
+        let row = find_voucher(db(), id).await.unwrap().unwrap();
+        assert_eq!(row.status, voucher::STATUS_AUDITED, "失败不许改状态");
+        assert_eq!(trail(&row.voucher_no).await.len(), 2, "失败不许写日志");
+    }
+
+    /// ⑸ 反审核带原因 → 回 DRAFT，日志里留原因（审计要能查「为什么拆封条」）。
+    #[tokio::test]
+    async fn p4a_un_audit_back_to_draft_keeps_reason() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let audited = new_audited_voucher().await;
+        let id = Uuid::parse_str(&audited.voucher.id).expect("凭证 id 非法");
+
+        let back = un_audit_voucher(id, Some("科目选错了，退回改"), Some(AUDITOR))
+            .await
+            .unwrap_or_else(|err| panic!("反审核失败：{} {}", err.code, err.msg));
+        assert_eq!(back.voucher.status, voucher::STATUS_DRAFT);
+        assert_eq!(back.voucher.status_label, "草稿");
+
+        let logs = trail(&back.voucher.voucher_no).await;
+        assert_eq!(logs.len(), 3, "建单 + 审核 + 反审核：{logs:?}");
+        let last = logs.last().expect("反审核日志");
+        assert_eq!(last.from_status.as_deref(), Some(voucher::STATUS_AUDITED));
+        assert_eq!(last.to_status, voucher::STATUS_DRAFT);
+        assert_eq!(
+            last.reason.as_deref(),
+            Some("科目选错了，退回改"),
+            "反审核原因必须进日志"
+        );
+        assert_eq!(last.operator_id, Some(AUDITOR));
+    }
+
+    /// ⑹ 草稿不能直接记账（**没有 DRAFT → POSTED 这条边**）→ 409 + 提示先审核。
+    #[tokio::test]
+    async fn p4a_post_requires_audited() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let draft = new_draft_voucher().await;
+        let id = Uuid::parse_str(&draft.voucher.id).expect("凭证 id 非法");
+
+        let err = post_audited_voucher(id, Some(AUDITOR))
+            .await
+            .expect_err("草稿不许直接记账");
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert!(
+            err.msg.contains("不能记账") && err.msg.contains("先审核"),
+            "文案要说清该先做什么：{}",
+            err.msg
+        );
+        assert!(
+            err.msg.contains("审核"),
+            "文案要给出当前可选动作：{}",
+            err.msg
+        );
+        let row = find_voucher(db(), id).await.unwrap().unwrap();
+        assert_eq!(row.status, voucher::STATUS_DRAFT);
+        assert!(row.posted_at.is_none(), "记账失败不许盖戳");
+    }
+
+    /// ⑺ **总账口径**：草稿 / 已审核都不进余额，记账后才进（同一张凭证的前后对比）。
+    #[tokio::test]
+    async fn p4a_only_posted_enters_ledger_and_trial_balance() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let draft = new_draft_voucher().await;
+        let id = Uuid::parse_str(&draft.voucher.id).expect("凭证 id 非法");
+        let period = draft.voucher.period.clone();
+        // 基线：本用例造的那张凭证还没进账（setup 已清掉本模块夹具）
+        let base_ledger_1405 = trial_period_debit(&period, "1405").await;
+        let base_ledger_2202 = trial_period_credit(&period, "2202").await;
+
+        // ① DRAFT：总账 0 行，余额表一分没变
+        assert!(ledger_lines_of(id, "1405").await.is_empty(), "草稿不进总账");
+        assert_eq!(
+            trial_period_debit(&period, "1405").await,
+            base_ledger_1405,
+            "草稿不进余额表（借方）"
+        );
+        assert_eq!(
+            trial_period_credit(&period, "2202").await,
+            base_ledger_2202,
+            "草稿不进余额表（贷方）"
+        );
+
+        // ② AUDITED：仍然 0 行
+        audit_voucher(id, None, Some(AUDITOR))
+            .await
+            .unwrap_or_else(|err| panic!("审核失败：{} {}", err.code, err.msg));
+        assert!(
+            ledger_lines_of(id, "1405").await.is_empty(),
+            "已审核未记账也不进总账"
+        );
+        assert_eq!(
+            trial_period_debit(&period, "1405").await,
+            base_ledger_1405,
+            "已审核不进余额表"
+        );
+
+        // ③ POSTED：进总账（1405 一行借方 100 / 2202 一行贷方 100），余额表 +100
+        let posted = post_audited_voucher(id, Some(AUDITOR))
+            .await
+            .unwrap_or_else(|err| panic!("记账失败：{} {}", err.code, err.msg));
+        assert_eq!(posted.voucher.status, voucher::STATUS_POSTED);
+        assert!(posted.voucher.posted_at.is_some(), "记账要盖时间戳");
+        assert_eq!(
+            posted.voucher.posted_by.as_deref(),
+            Some(AUDITOR.to_string().as_str()),
+            "记账要盖记账人"
+        );
+
+        let lines_1405 = ledger_lines_of(id, "1405").await;
+        assert_eq!(lines_1405.len(), 1, "记账后 1405 应有一行流水");
+        assert_eq!(lines_1405[0].debit_amount, dec("100"));
+        assert_eq!(lines_1405[0].voucher_no, posted.voucher.voucher_no);
+        assert_eq!(
+            trial_period_debit(&period, "1405").await,
+            base_ledger_1405 + dec("100"),
+            "记账后余额表本期借方 +100"
+        );
+        assert_eq!(
+            trial_period_credit(&period, "2202").await,
+            base_ledger_2202 + dec("100"),
+            "记账后余额表本期贷方 +100"
+        );
+    }
+
+    /// ⑻ `POSTED` 是终态：不许再审核、不许反审核（更正只能红冲）。
+    #[tokio::test]
+    async fn p4a_posted_is_terminal() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = new_posted_voucher().await;
+
+        let audit_err = audit_voucher(id, None, Some(AUDITOR))
+            .await
+            .expect_err("已记账不能再审核");
+        assert_eq!(audit_err.status, 409, "{}", audit_err.msg);
+        assert!(audit_err.msg.contains("已记账"), "{}", audit_err.msg);
+
+        let un_audit_err = un_audit_voucher(id, Some("想退回"), Some(AUDITOR))
+            .await
+            .expect_err("已记账不能反审核");
+        assert_eq!(un_audit_err.status, 409, "{}", un_audit_err.msg);
+        assert!(
+            un_audit_err.msg.contains("红冲"),
+            "文案要把人指到红冲：{}",
+            un_audit_err.msg
+        );
+
+        let row = find_voucher(db(), id).await.unwrap().unwrap();
+        assert_eq!(row.status, voucher::STATUS_POSTED, "状态必须不动");
+        assert_eq!(trail(&row.voucher_no).await.len(), 3, "建单+审核+记账");
+    }
+
+    /// ⑼ 已审核的凭证摘要锁死（审 A 改 B 不许发生）→ 409。
+    #[tokio::test]
+    async fn p4a_audited_voucher_summary_is_locked() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let audited = new_audited_voucher().await;
+        let id = Uuid::parse_str(&audited.voucher.id).expect("凭证 id 非法");
+
+        let err = update_summary(id, Some("改一改"), Some(AUDITOR))
+            .await
+            .expect_err("已审核的凭证不许改摘要");
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert!(err.msg.contains("已入账"), "{}", err.msg);
+
+        // 回到草稿就能改（反审核之后）
+        un_audit_voucher(id, Some("要改摘要"), Some(AUDITOR))
+            .await
+            .unwrap();
+        update_summary(id, Some("草稿可以改"), Some(CREATOR))
+            .await
+            .expect("草稿必须能改摘要");
+        let row = find_voucher(db(), id).await.unwrap().unwrap();
+        assert_eq!(row.summary, "草稿可以改");
+    }
+
+    /// ⑽ 落库状态白名单：`AUDITED` 不能直接落库（没人审却显示已审核 = 掏空复核）。
+    #[tokio::test]
+    async fn p4a_initial_audited_status_is_rejected() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let inventory = voucher::account_required(db(), "1405", "单测科目")
+            .await
+            .unwrap();
+        let payable = voucher::account_required(db(), "2202", "单测科目")
+            .await
+            .unwrap();
+        let line = |line_no: i32, account: AccountRef, debit: &str, credit: &str| EntryLine {
+            line_no,
+            summary: "P4A 非法初始状态".to_string(),
+            account,
+            debit: dec(debit),
+            credit: dec(credit),
+            aux_supplier_id: None,
+            aux_material_id: None,
+            aux_warehouse_id: None,
+            aux_dept_id: None,
+        };
+        let err = voucher::post_voucher(
+            db(),
+            &voucher::PostVoucher {
+                voucher_type: voucher::VOUCHER_TYPE_MANUAL,
+                source_type: voucher::SOURCE_MANUAL,
+                source_id: None,
+                source_no: Some("P4A 非法状态"),
+                voucher_date: voucher::today_cst(Utc::now()),
+                summary: "P4A 非法初始状态".to_string(),
+                lines: vec![line(1, inventory, "1", "0"), line(2, payable, "0", "1")],
+                remark: None,
+                red_of: None,
+                status: voucher::STATUS_AUDITED,
+            },
+            Some(CREATOR),
+            Utc::now(),
+        )
+        .await
+        .expect_err("AUDITED 不许直接落库");
+        let DbError::InvalidValue(message) = err else {
+            panic!("应当是参数错，实际 {err:?}");
+        };
+        assert!(message.contains("落库状态只能是"), "{message}");
+
+        let left: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_voucher WHERE summary = ?",
+                vec![Value::Text("P4A 非法初始状态".to_string())],
+            )
+            .await
+            .unwrap();
+        assert_eq!(left, 0, "被拒的凭证一条都不许落库");
+    }
+
+    /// ⑾ 自动凭证（收货 / 付款 / 红冲）仍直接落 `POSTED` 并写 `NULL → POSTED` 日志，
+    ///     不受「三态」影响（它们的复核在上游单据的审批链上）。
+    #[tokio::test]
+    async fn p4a_auto_voucher_still_posts_directly() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let inventory = voucher::account_required(db(), "1405", "单测科目")
+            .await
+            .unwrap();
+        let payable = voucher::account_required(db(), "2202", "单测科目")
+            .await
+            .unwrap();
+        let line = |line_no: i32, account: AccountRef, debit: &str, credit: &str| EntryLine {
+            line_no,
+            summary: "P4A 自动凭证".to_string(),
+            account,
+            debit: dec(debit),
+            credit: dec(credit),
+            aux_supplier_id: None,
+            aux_material_id: None,
+            aux_warehouse_id: None,
+            aux_dept_id: None,
+        };
+        let id = voucher::post_voucher(
+            db(),
+            &voucher::PostVoucher {
+                voucher_type: voucher::VOUCHER_TYPE_AUTO,
+                source_type: "STOCK_IN",
+                source_id: None,
+                source_no: Some("P4A 自动凭证"),
+                voucher_date: voucher::today_cst(Utc::now()),
+                summary: "P4A 自动凭证".to_string(),
+                lines: vec![line(1, inventory, "5", "0"), line(2, payable, "0", "5")],
+                remark: None,
+                red_of: None,
+                status: voucher::STATUS_POSTED,
+            },
+            Some(CREATOR),
+            Utc::now(),
+        )
+        .await
+        .expect("自动凭证必须能落库");
+
+        let row = find_voucher(db(), id).await.unwrap().unwrap();
+        assert_eq!(row.status, voucher::STATUS_POSTED);
+        assert!(row.posted_at.is_some(), "自动凭证落库即记账");
+        let logs = trail(&row.voucher_no).await;
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].to_status, voucher::STATUS_POSTED);
+        assert_eq!(logs[0].from_status, None);
+        // 自动凭证进了总账（对照组：证明⑺的「不进」是状态造成的，不是查询写坏了）
+        assert_eq!(ledger_lines_of(id, "1405").await.len(), 1);
+    }
+
+    /// ⑿ 状态机注册表（纯逻辑）：凭证三条边，一条不多一条不少；`DRAFT → POSTED` 不存在。
+    #[test]
+    fn p4a_voucher_state_machine_registry() {
+        use crate::business::shared::state_machine::Entity;
+        assert_eq!(Entity::Voucher.edges(), &voucher::LEGAL_EDGES[..]);
+        assert_eq!(Entity::Voucher.edges().len(), 3, "凭证只认三条边");
+
+        for (from, to) in [
+            ("DRAFT", "AUDITED"),
+            ("AUDITED", "DRAFT"),
+            ("AUDITED", "POSTED"),
+        ] {
+            assert!(
+                Entity::Voucher.can_transition(from, to),
+                "{from} → {to} 必须是合法边"
+            );
+        }
+        for (from, to) in [
+            ("DRAFT", "POSTED"),   // 制单 ≠ 审核：故意没有这条捷径
+            ("POSTED", "DRAFT"),   // 已记账只能红冲
+            ("POSTED", "AUDITED"), // 同上
+            ("DRAFT", "DRAFT"),    // 自环不是状态变更
+            ("AUDITED", "AUDITED"),
+            ("POSTED", "POSTED"),
+            ("CANCELLED", "DRAFT"), // 作废不是凭证的态（库里 ck 允许但状态机不认）
+        ] {
+            assert!(
+                !Entity::Voucher.can_transition(from, to),
+                "{from} → {to} 必须被拒（非法边）"
+            );
+        }
+        // 终态：POSTED 没有出边
+        assert!(Entity::Voucher.next_statuses("POSTED").is_empty());
+        assert_eq!(
+            Entity::Voucher.next_statuses("AUDITED").len(),
+            2,
+            "已审核只能反审核或记账"
+        );
+    }
+
+    /// ⒀ 只有反审核需要 reason（审核的 remark 可空、记账不需要原因）。
+    #[test]
+    fn p4a_only_un_audit_needs_reason() {
+        use crate::business::shared::state_machine::Entity;
+        assert!(Entity::Voucher.needs_reason("AUDITED", "DRAFT"));
+        assert!(!Entity::Voucher.needs_reason("DRAFT", "AUDITED"));
+        assert!(!Entity::Voucher.needs_reason("AUDITED", "POSTED"));
+        // BASE 与注册表逐条对齐（状态机自己也有全局用例，这里钉住凭证这一行）
+        for (index, edge) in Entity::Voucher.base_edges().iter().enumerate() {
+            assert_eq!(
+                (edge.from, edge.to),
+                voucher::LEGAL_EDGES[index],
+                "VOUCHER_BASE 与 LEGAL_EDGES 第 {index} 条不一致"
+            );
+            assert!(
+                edge.meta.mandatory,
+                "凭证的三条边都必须 mandatory（内控动作不可关）"
+            );
+        }
+        assert_eq!(
+            Entity::Voucher
+                .base_edge("AUDITED", "DRAFT")
+                .map(|e| e.meta.requires_reason),
+            Some(true),
+            "反审核必须要求原因"
+        );
+    }
+
+    /// ⒁ 入账态：POSTED / AUDITED 锁，DRAFT 可编辑。
+    #[test]
+    fn p4a_locked_statuses_are_posted_and_audited() {
+        use crate::business::shared::state_machine::Entity;
+        assert!(Entity::Voucher.is_locked("POSTED"));
+        assert!(Entity::Voucher.is_locked("AUDITED"), "审 A 改 B 必须被锁");
+        assert!(!Entity::Voucher.is_locked("DRAFT"), "草稿必须能改");
+    }
+
+    /// ⒂ 自审闸矩阵（纯逻辑）：同人拦、异人放、无制单人放、开关关掉放。
+    #[test]
+    fn p4a_self_audit_gate_matrix() {
+        // 开关开（默认）+ 同人 → 403 + 65019
+        let err = check_self_audit(true, Some(CREATOR), Some(CREATOR), "PZ-20261105-000001")
+            .expect_err("同人自审必须被拦");
+        assert_eq!(err.status, 403);
+        assert_eq!(err.code, error_code::FLOW_SELF_APPROVAL_FORBIDDEN);
+        assert!(err.msg.contains("PZ-20261105-000001"), "{}", err.msg);
+        assert!(err.msg.contains("制单与审核分离"), "{}", err.msg);
+        assert!(
+            err.msg.contains("erp.separation_of_duties.approve"),
+            "给出放行办法：{}",
+            err.msg
+        );
+
+        // 换人 → 放行
+        assert!(check_self_audit(true, Some(CREATOR), Some(AUDITOR), "PZ-1").is_ok());
+        // 没有制单人（历史行 / 系统生成）→ 放行
+        assert!(check_self_audit(true, None, Some(AUDITOR), "PZ-1").is_ok());
+        // 操作人未知（定时任务）→ 放行
+        assert!(check_self_audit(true, Some(CREATOR), None, "PZ-1").is_ok());
+        // 管理员显式关掉内控开关 → 放行（一人财务岗的既有出口）
+        assert!(check_self_audit(false, Some(CREATOR), Some(CREATOR), "PZ-1").is_ok());
     }
 
     // ---------- 收尾清场：模块级 teardown（`zz_` 排在本模块最后） ----------

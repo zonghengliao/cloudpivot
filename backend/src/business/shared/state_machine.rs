@@ -464,14 +464,41 @@ pub const PAYABLE_EDGES: [(&str, &str); 7] = [
     ("PENDING_CANCEL", "OPEN"),
 ];
 
-/// 凭证没有「状态流转」：一落库就是 `POSTED`，更正靠**红冲开新单**，不原地改状态。
+/// 凭证的合法边（P0-FIX-4A 起）：`DRAFT → AUDITED → POSTED` 双人复核链。
 ///
-/// P-FLOW-3B 的「凭证红冲审批」**不新增边**，这是刻意的（卡面硬红线 3）：
-/// 红冲的语义是「生成红字凭证、原凭证保持 POSTED」。若真的把原凭证改成
-/// `PENDING_REVERSE`，四大报表 / 总账 / 余额表的取数（`WHERE v.status = 'POSTED'`）
-/// 会让这张**已入账**的凭证在报表里消失 —— 审批流程不该改变账务的存在性。
-/// 所以「审批中」用 `biz_voucher.pending_reverse_instance_id` 表达，不走状态机。
-pub const VOUCHER_EDGES: [(&str, &str); 0] = [];
+/// ```text
+/// DRAFT    → AUDITED   审核（制单人以外的账号；内控闸在入口，403 + 65019）
+/// AUDITED  → DRAFT     反审核（**必须给原因**，写进 biz_status_log）
+/// AUDITED  → POSTED    记账（此后进总账 / 报表；之后只能红冲，不能反审核）
+/// ```
+///
+/// # 为什么 `POSTED` 没有出边（刻意）
+///
+/// 已记账凭证的更正语义是「红冲开新单」，不是「把状态改回去」：一旦允许
+/// `POSTED → DRAFT`，总账 / 余额表 / 四大报表（`WHERE v.status = 'POSTED'`）就会
+/// 少掉一笔**已经对外出过报表**的金额 —— 报表口径会被一次点错改写。
+/// 所以 `POSTED` 在本表里是终态，退出只能是红字凭证。
+///
+/// 同理 **也没有** `DRAFT → POSTED`：制单与审核必须分离（P0-FIX-4A 的内控目标），
+/// 少了这条捷径，前端少画一个按钮的同时后端也真的没有这条路。
+///
+/// # 与「凭证红冲审批」的关系（P-FLOW-3B）
+///
+/// 红冲审批**不进**本表：红冲的语义是「生成红字凭证、原凭证保持 `POSTED`」，
+/// 若真把原凭证改成 `PENDING_REVERSE`，报表取数会让这张已入账的凭证消失 ——
+/// 审批流程不该改变账务的存在性。「审批中」用 `biz_voucher.pending_reverse_instance_id`
+/// 表达，与本表正交。
+///
+/// # 自动凭证
+///
+/// 收货 / 付款 / 盘盈亏 / 年结 / 红冲产生的凭证是**系统记账**（`post_voucher` 直接落
+/// `POSTED`），不是「某个人制的单」，不存在双人复核的前提；它们的复核由上游单据
+/// （过账审批 / 付款审批 / 作废审批）承担。
+pub const VOUCHER_EDGES: [(&str, &str); 3] = [
+    ("DRAFT", "AUDITED"),
+    ("AUDITED", "DRAFT"),
+    ("AUDITED", "POSTED"),
+];
 
 /// 会计期间的合法边（ERP-P1）。
 ///
@@ -549,8 +576,14 @@ pub const PAYABLE_REASON_EDGES: [(&str, &str); 3] = [
     ("OPEN", "PENDING_CANCEL"),
     ("PENDING_CANCEL", "CANCELLED"),
 ];
-/// 凭证没有流转边，自然也没有 reason 边。
-pub const VOUCHER_REASON_EDGES: [(&str, &str); 0] = [];
+/// 需要 reason 的凭证边：只有反审核（`AUDITED → DRAFT`）。
+///
+/// 反审核是**把已复核的凭证打回可编辑态**：审计要能回答「谁、什么时候、为什么」
+/// 把一张已审核的凭证拆了封条，所以原因必填（缺失 → `transition` 直接 400）。
+/// 审核（`DRAFT → AUDITED`）的 `remark` 是**可选**意见（前端 `{ remark? }`），
+/// 所以不进本清单 —— 进了就会被状态机挡成 400「必须给原因」，与卡面契约冲突。
+/// 记账（`AUDITED → POSTED`）是既定流程的下一步，无需原因。
+pub const VOUCHER_REASON_EDGES: [(&str, &str); 1] = [("AUDITED", "DRAFT")];
 
 /// 入账态（这些状态下不允许改业务字段，见 [`ensure_writable`]）。
 ///
@@ -569,8 +602,12 @@ pub const TRANSFER_LOCKED: [&str; 3] = ["APPROVED", "IN_TRANSIT", "DONE"];
 /// P-FLOW-3B 把 `PENDING_CANCEL` 也加进来：作废审批中如果还能改金额 / 备注，
 /// 财务经理批的就是一份已经变过的数据（审批对象 ≠ 执行对象），复核等于没做。
 pub const PAYABLE_LOCKED: [&str; 3] = ["SETTLED", "CANCELLED", "PENDING_CANCEL"];
-/// 凭证入账态：已记账。
-pub const VOUCHER_LOCKED: [&str; 1] = ["POSTED"];
+/// 凭证入账态：已记账 / 已审核。
+///
+/// `POSTED` 是会计档案（改了摘要就与已出报表不一致），`AUDITED` 是**复核过的版本**：
+/// 审核之后如果还能改金额 / 分录 / 摘要，记账人记的就是另一份数据（审 A 记 B），
+/// 复核等于没做。所以两者都锁；只有 `DRAFT` 可编辑（改完重新审核）。
+pub const VOUCHER_LOCKED: [&str; 2] = ["POSTED", "AUDITED"];
 
 // ==================== 合同（ARCH-2 · A1 基座） ====================
 
@@ -807,8 +844,16 @@ pub const PAYABLE_BASE: [BaseEdge; 7] = [
     BaseEdge::mandatory("PENDING_CANCEL", "OPEN", "驳回回未付", false),
 ];
 
-/// 凭证没有流转边（红冲 = 生成红字凭证，原凭证保持 `POSTED`，见 [`VOUCHER_EDGES`]）。
-pub const VOUCHER_BASE: [BaseEdge; 0] = [];
+/// 凭证的 BASE_EDGES（与 [`VOUCHER_EDGES`] 逐条对应，顺序一致）。
+///
+/// 三条全 `mandatory`：审核 / 反审核 / 记账都是内控动作，**没有可选捷径**。
+/// 尤其不能把 `AUDITED → POSTED` 配成可选再关掉 —— 关掉等于「凭证永远记不了账」，
+/// 账本停在 AUDITED，总账 / 报表一条不进。
+pub const VOUCHER_BASE: [BaseEdge; 3] = [
+    BaseEdge::mandatory("DRAFT", "AUDITED", "审核", false),
+    BaseEdge::mandatory("AUDITED", "DRAFT", "反审核", true),
+    BaseEdge::mandatory("AUDITED", "POSTED", "记账", false),
+];
 
 /// 会计期间的 BASE_EDGES（与 [`PERIOD_EDGES`] 逐条对应，顺序一致）。
 pub const PERIOD_BASE: [BaseEdge; 3] = [

@@ -159,6 +159,18 @@ pub const SOURCE_PAYMENT: &str = "PAYMENT";
 pub const SOURCE_MANUAL: &str = "MANUAL";
 /// 凭证状态：已记账（自动凭证直接进总账，PRD §3.3.3）。
 pub const STATUS_POSTED: &str = "POSTED";
+/// 凭证状态：草稿（P0-FIX-4A）。手工凭证的落库状态 —— 制单只是「写了一张单」，
+/// 还没人复核、更没进账，总账 / 余额表 / 报表一律不算它（取数只认 [`STATUS_POSTED`]）。
+pub const STATUS_DRAFT: &str = "DRAFT";
+/// 凭证状态：已审核（P0-FIX-4A）。复核人看过这一版金额与分录，但仍**不进账**：
+/// 记账是独立的一步（`AUDITED → POSTED`），记完才进总账 / 报表。
+pub const STATUS_AUDITED: &str = "AUDITED";
+
+/// 凭证的合法状态边（与 `state_machine::VOUCHER_EDGES` 同源，**唯一真相在状态机**）。
+///
+/// `transition()` 会拿本常量与注册表逐条核对：谁想在这里「顺手多放一条边」，
+/// 立刻 500（不会静默放行）。`DRAFT → POSTED` 刻意不存在（制单 ≠ 审核）。
+pub const LEGAL_EDGES: [(&str, &str); 3] = state_machine::VOUCHER_EDGES;
 /// 会计期间状态：已结账（结账后不允许再红冲 / 记账）。
 pub const PERIOD_CLOSED: &str = "CLOSED";
 /// 会计期间状态：已开启（手工凭证只允许记到 OPEN 期间）。
@@ -1375,6 +1387,27 @@ pub async fn find_voucher_locked(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Op
     row.as_ref().map(VoucherRow::from_row).transpose()
 }
 
+/// 取凭证的**制单人**（`biz_voucher.create_by`）。
+///
+/// P0-FIX-4A 的「制单人不能审核自己的凭证」要用它：`VoucherRow` 不带 `create_by`
+/// （它是审计列，不是业务字段），单独取一次比给全仓的 `VOUCHER_COLUMNS` 加列更安全 ——
+/// 那个常量被列表 / 详情 / 反查三处共用，加列会牵动每条 SELECT 的解码。
+///
+/// 返回 `None` = 历史行 / 系统生成（没有制单人可比，谈不上「自己审自己」）。
+pub async fn creator_of(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<Uuid>> {
+    // SCOPE-EXEMPT: 同上（按主键精确取 1 列）。
+    let row = ex
+        .query_first_sql(
+            format!("SELECT create_by FROM {TABLE} WHERE id = ?::uuid AND deleted_at IS NULL"),
+            vec![Value::from(&id)],
+        )
+        .await?;
+    match row {
+        Some(row) => row.get_typed("create_by"),
+        None => Ok(None),
+    }
+}
+
 /// 按来源单据取真凭证（`is_red = 0`，取最早一张）。
 pub async fn find_voucher_by_source(
     ex: &impl SqlExecutor,
@@ -1615,6 +1648,7 @@ pub async fn create_by_rule(
             lines,
             remark: None,
             red_of: None,
+            status: crate::business::erp::voucher::STATUS_POSTED,
         },
         operator,
         now,
@@ -1892,6 +1926,12 @@ pub struct PostVoucher<'a> {
     pub remark: Option<&'a str>,
     /// `Some(原凭证 id)` → 落红字凭证（`is_red = 1`、`reverse_of = 原凭证`、走 `PZR` 独立号段）。
     pub red_of: Option<Uuid>,
+    /// 落库的初始状态：`POSTED`（自动凭证 / 红冲）/ `DRAFT`（手工凭证，P0-FIX-4A）。
+    ///
+    /// 只有 [`STATUS_POSTED`] 与 [`STATUS_DRAFT`] 两个合法取值（`AUDITED` 不能直接落库：
+    /// 它表示「有人复核过」，而落库这一刻还没有复核这回事）。取值由本函数校验，
+    /// 不在「调用点各自写字符串」的口子上留余地。
+    pub status: &'a str,
 }
 
 /// 落一张凭证 + 它的分录（**不 commit**，由调用方的事务收口）。
@@ -1909,6 +1949,15 @@ pub async fn post_voucher(
         return Err(DbError::InvalidValue(format!(
             "凭证生成失败：至少要 2 条分录（当前 {} 行），会计上不构成一张凭证",
             req.lines.len()
+        )));
+    }
+    // 初始状态白名单（P0-FIX-4A）：落库只允许「草稿」或「已记账」两种起点。
+    // `AUDITED` 落库意味着「没人审核却显示已审核」，直接把双人复核掏空，所以拒绝。
+    if req.status != STATUS_POSTED && req.status != STATUS_DRAFT {
+        return Err(DbError::InvalidValue(format!(
+            "凭证生成失败：落库状态只能是 {STATUS_DRAFT}（手工凭证待复核）或 {STATUS_POSTED}\
+             （自动凭证 / 红字凭证直接记账），收到「{}」",
+            req.status
         )));
     }
     let (debit, credit) = totals_of(&req.lines);
@@ -1980,6 +2029,19 @@ pub async fn post_voucher(
         IS_RED_NO
     };
     let operator_text = operator.map(|v| v.to_string()).unwrap_or_default();
+    // 落库即记账（POSTED）才盖「记账时间 / 记账人」戳；草稿（DRAFT）两列留 NULL ——
+    // 否则列表 / 报表里会出现「草稿却有记账人」的自相矛盾行，审计第一个问的就是这个。
+    let posted = req.status == STATUS_POSTED;
+    let posted_at = if posted {
+        Value::from(now)
+    } else {
+        Value::Null
+    };
+    let posted_by = if posted {
+        Value::Text(operator_text.clone())
+    } else {
+        Value::Null
+    };
 
     // SCOPE-EXEMPT: 凭证台账无归属列（见模块文档）。
     let inserted = ex
@@ -1992,7 +2054,7 @@ pub async fn post_voucher(
                      created_at, updated_at, create_by, update_by) \
                  VALUES (?, ?, ?, NULLIF(?::text,'')::date, ?, ?, NULLIF(?::text,'')::uuid, ?, ?, \
                          NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, ?, ?, ?, \
-                         NULLIF(?::text,'')::uuid, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,''), \
+                         NULLIF(?::text,'')::uuid, ?::timestamptz, NULLIF(?::text,'')::uuid, NULLIF(?::text,''), \
                          ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid) \
                  RETURNING id"
             ),
@@ -2009,11 +2071,11 @@ pub async fn post_voucher(
                 Value::Text(debit.to_string()),
                 Value::Text(credit.to_string()),
                 Value::from(entry_count),
-                Value::Text(STATUS_POSTED.to_string()),
+                Value::Text(req.status.to_string()),
                 Value::I16(is_red),
                 Value::Text(req.red_of.map(|v| v.to_string()).unwrap_or_default()),
-                Value::from(now),
-                Value::Text(operator_text.clone()),
+                posted_at,
+                posted_by,
                 Value::Text(req.remark.unwrap_or_default().to_string()),
                 Value::from(now),
                 Value::from(now),
@@ -2033,8 +2095,9 @@ pub async fn post_voucher(
     };
 
     write_entries(ex, voucher_id, &req.lines).await?;
-    // P10 铁律 ③：凭证建单留痕（`NULL → POSTED`）。凭证没有原地状态流转（红冲开新单），
-    // 所以这里只留「谁在什么时候记了这张凭证」。
+    // P10 铁律 ③：凭证建单留痕（`NULL → DRAFT` / `NULL → POSTED`）。
+    // 凭证的「原地状态流转」只有 P0-FIX-4A 的三条边（审核 / 反审核 / 记账），
+    // 建单本身不是流转，所以这里只留「谁在什么时候、以什么状态落了这张凭证」。
     //
     // ARCH-3 DC-01：红字凭证的日志 reason 带上**红冲原因**（`红字冲销凭证｜<原因>`）——
     // 红冲没有状态流转可写，"为什么这次红冲没走复核"（显式跳过审批）就靠这段文字留痕；
@@ -2054,7 +2117,7 @@ pub async fn post_voucher(
         state_machine::ENTITY_VOUCHER,
         voucher_id,
         &voucher_no_text,
-        STATUS_POSTED,
+        req.status,
         operator,
         log_reason.as_deref(),
     )
@@ -2145,6 +2208,7 @@ pub async fn reverse_posted(
             lines,
             remark: input.reason.map(str::trim).filter(|text| !text.is_empty()),
             red_of: Some(original.id),
+            status: crate::business::erp::voucher::STATUS_POSTED,
         },
         operator,
         now,
@@ -2414,6 +2478,7 @@ pub async fn create_for_serial_movement(
             lines,
             remark: None,
             red_of: None,
+            status: crate::business::erp::voucher::STATUS_POSTED,
         },
         operator,
         now,
@@ -2611,6 +2676,7 @@ pub async fn create_for_stock_out(
             lines,
             remark: None,
             red_of: None,
+            status: crate::business::erp::voucher::STATUS_POSTED,
         },
         operator,
         now,
@@ -2958,6 +3024,7 @@ mod tests {
     ///
     /// ⚠️ 复核节点是 `assignee_type = 'ROLE'`（`WAREHOUSE_MANAGER`，P1-FIX-1 起）
     /// + `empty_assignee=ERROR`（不兜底超管）⇒ **复核岗位必须先在册有人**，否则发起就 422。
+    ///
     /// 角色成员是共享资源，这里只留本模块的复核人（`p2c1_reviewer`）。
     async fn cancel_via_approval(stock_in_id: Uuid, reason: &str) {
         for sql_text in [

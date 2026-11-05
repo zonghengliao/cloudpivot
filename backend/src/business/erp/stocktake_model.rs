@@ -1296,6 +1296,7 @@ pub async fn create_voucher(
             lines,
             remark: None,
             red_of: None,
+            status: crate::business::erp::voucher::STATUS_POSTED,
         },
         operator,
         now,

@@ -262,6 +262,7 @@ async fn make_voucher(
             lines,
             remark: None,
             red_of: None,
+            status: crate::business::erp::voucher::STATUS_POSTED,
         },
         None,
         Utc::now(),
