@@ -1,0 +1,108 @@
+Border style is 2.
+Pager usage is off.
+===== 1) 目标态不变量：SUPER_ADMIN 成员（必须 = 1 且只有 admin）=====
++----------+--------+
+| username | status |
++----------+--------+
+| admin    |      1 |
++----------+--------+
+(1 row)
+
+===== 2) 5 个业务角色：data_scope（本卡不动）/ 授权行数 =====
++-------------------+------------+------+-------+---------+-------+
+|     role_code     | data_scope | dirs | pages | buttons | total |
++-------------------+------------+------+-------+---------+-------+
+| DEPT_LEADER       |          3 |    9 |    27 |      59 |    95 |
+| FINANCE_MANAGER   |          5 |   11 |    41 |      83 |   135 |
+| GENERAL_MANAGER   |          1 |   12 |    54 |      53 |   119 |
+| PURCHASE_MANAGER  |          3 |    7 |    29 |      52 |    88 |
+| WAREHOUSE_MANAGER |          3 |    7 |    27 |      58 |    92 |
++-------------------+------------+------+-------+---------+-------+
+(5 rows)
+
+===== 3) 并集覆盖的业务页数（分母 = 全平台 menu_type=2 + module=business）=====
++----------------------+--------------------+-----------------+
+| business_pages_total | covered_by_5_roles | still_uncovered |
++----------------------+--------------------+-----------------+
+|                   59 |                 51 |               8 |
++----------------------+--------------------+-----------------+
+(1 row)
+
+===== 4) 仍然未覆盖的业务页明细（应当只剩平台治理 + 导入导出）=====
++------------------------------+--------------------------------+
+|             path             |           auth_code            |
++------------------------------+--------------------------------+
+| /business/impexp/export-task | business:impexp:export:list    |
+| /business/impexp/import      | business:impexp:import:upload  |
+| /business/impexp/import-task | business:impexp:import:list    |
+| /business/storage/backend    | business:storage:config:list   |
+| /system/change-log           | system:change-log:list         |
+| /system/data-scope           | business:permission:scope:read |
+| /system/field-mask           | system:field-mask:list         |
+| /system/role-mutex           | system:role-mutex:list         |
++------------------------------+--------------------------------+
+(8 rows)
+
+===== 5) 逐角色可见业务页（供对照 /system/auth/menus）=====
++-------------------+-------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+|     role_code     | pages |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  page_list                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
++-------------------+-------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| DEPT_LEADER       |    27 | /announcement, /business/announcement, /business/erp/asset, /business/erp/asset-category, /business/erp/budget, /business/erp/budget/mapping, /business/erp/budget/report, /business/erp/depreciation, /business/erp/expense, /business/erp/expense/pay, /business/erp/expense-type, /business/notice/message, /business/notice/send, /business/notice/template, /business/storage/file, /dashboard, /flow/def, /flow/start, /flow/task, /help, /project, /support/invariant, /task/board, /task/gantt, /task/list, /task/templates, /user/preference                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| FINANCE_MANAGER   |    41 | /announcement, /business/erp/account, /business/erp/asset, /business/erp/asset-category, /business/erp/budget, /business/erp/budget/mapping, /business/erp/budget/report, /business/erp/contract, /business/erp/depreciation, /business/erp/expense, /business/erp/expense/pay, /business/erp/expense-type, /business/erp/inventory, /business/erp/ledger, /business/erp/material, /business/erp/opening, /business/erp/payable, /business/erp/period, /business/erp/purchase, /business/erp/purchase-order-item, /business/erp/report/balance-sheet, /business/erp/report/cash-flow, /business/erp/report/income-statement, /business/erp/seq, /business/erp/stock-in, /business/erp/stock-out, /business/erp/stock-take, /business/erp/supplier, /business/erp/voucher, /business/erp/year-end, /business/notice/message, /business/notice/send, /business/notice/template, /business/storage/file, /dashboard, /flow/def, /flow/start, /flow/task, /help, /support/invariant, /user/preference                                                                                                                                                                                                                                                                            |
+| GENERAL_MANAGER   |    54 | /announcement, /business/announcement, /business/erp/account, /business/erp/asset, /business/erp/asset-category, /business/erp/budget, /business/erp/budget/mapping, /business/erp/budget/report, /business/erp/contract, /business/erp/depreciation, /business/erp/expense, /business/erp/expense/pay, /business/erp/expense-type, /business/erp/inventory, /business/erp/inventory-location, /business/erp/inventory-txn, /business/erp/ledger, /business/erp/location, /business/erp/material, /business/erp/opening, /business/erp/payable, /business/erp/period, /business/erp/purchase, /business/erp/purchase-order-item, /business/erp/report/balance-sheet, /business/erp/report/cash-flow, /business/erp/report/income-statement, /business/erp/seq, /business/erp/serial, /business/erp/stock-in, /business/erp/stock-out, /business/erp/stock-take, /business/erp/supplier, /business/erp/transfer, /business/erp/unit, /business/erp/voucher, /business/erp/warehouse, /business/erp/year-end, /business/notice/message, /business/notice/send, /business/notice/template, /business/storage/file, /dashboard, /flow/def, /flow/start, /flow/task, /help, /project, /support/invariant, /task/board, /task/gantt, /task/list, /task/templates, /user/preference |
+| PURCHASE_MANAGER  |    29 | /announcement, /business/erp/contract, /business/erp/inventory, /business/erp/inventory-location, /business/erp/inventory-txn, /business/erp/location, /business/erp/material, /business/erp/payable, /business/erp/purchase, /business/erp/purchase-order-item, /business/erp/serial, /business/erp/stock-in, /business/erp/stock-out, /business/erp/stock-take, /business/erp/supplier, /business/erp/transfer, /business/erp/unit, /business/erp/warehouse, /business/notice/message, /business/notice/send, /business/notice/template, /business/storage/file, /dashboard, /flow/def, /flow/start, /flow/task, /help, /support/invariant, /user/preference                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| WAREHOUSE_MANAGER |    27 | /announcement, /business/erp/inventory, /business/erp/inventory-location, /business/erp/inventory-txn, /business/erp/location, /business/erp/material, /business/erp/purchase, /business/erp/purchase-order-item, /business/erp/serial, /business/erp/stock-in, /business/erp/stock-out, /business/erp/stock-take, /business/erp/supplier, /business/erp/transfer, /business/erp/unit, /business/erp/warehouse, /business/notice/message, /business/notice/send, /business/notice/template, /business/storage/file, /dashboard, /flow/def, /flow/start, /flow/task, /help, /support/invariant, /user/preference                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
++-------------------+-------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+(5 rows)
+
+===== 6) 平台治理页：任何业务角色持有 = 0（红线检查）=====
++------------------+
+| governance_leaks |
++------------------+
+|                0 |
++------------------+
+(1 row)
+
+===== 7) 祖先目录孤儿检查：业务角色的页面若父目录未授权 → 侧边栏会丢页（目标 0）=====
++--------------+
+| orphan_pages |
++--------------+
+|            0 |
++--------------+
+(1 row)
+
+===== 8) 记账凭证 审核/记账/反审核 三条码：存在 + 只授给财务经理 =====
++-------------------------------+-----------------+
+|           auth_code           |   granted_to    |
++-------------------------------+-----------------+
+| business:erp:voucher:audit    | FINANCE_MANAGER |
+| business:erp:voucher:post     | FINANCE_MANAGER |
+| business:erp:voucher:un-audit | FINANCE_MANAGER |
++-------------------------------+-----------------+
+(3 rows)
+
+===== 9) 账号 → 角色 / 部门 / token_version =====
++-------------+-----------+--------+---------------+--------------------------------------------------------------------------------+
+|  username   | dept_code | status | token_version |                                     roles                                      |
++-------------+-----------+--------+---------------+--------------------------------------------------------------------------------+
+| admin       | HQ        |      1 |             1 | SUPER_ADMIN                                                                    |
+| henry.liao  | HQ        |      1 |             9 | DEPT_LEADER,GENERAL_MANAGER,PURCHASE_MANAGER,WAREHOUSE_MANAGER                 |
+| laoliu      | HQ        |      1 |             9 | DEPT_LEADER,FINANCE_MANAGER,GENERAL_MANAGER,PURCHASE_MANAGER,WAREHOUSE_MANAGER |
+| laoliu_test | TECH      |      0 |            11 | DEPT_LEADER,PURCHASE_MANAGER,WAREHOUSE_MANAGER                                 |
++-------------+-----------+--------+---------------+--------------------------------------------------------------------------------+
+(4 rows)
+
+===== 10) 不该变的计数（施工前后必须完全相同）=====
++--------------------------------+
+|            ?column?            |
++--------------------------------+
+| sys_user 行数            = 26  |
+| sys_user_role 行数       = 17  |
+| sys_menu 行数            = 328 |
+| biz_task 行数            = 846 |
+| biz_task.dept_id 非空    = 0   |
+| biz_project.dept_id 非空 = 0   |
+| biz_flow_task PENDING    = 3   |
++--------------------------------+
+(7 rows)
+

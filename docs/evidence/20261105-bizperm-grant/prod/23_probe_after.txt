@@ -1,0 +1,141 @@
+--- admin ---
+  [PASS] auth/me                      期望=200        实际=200
+  [PASS] auth/me 角色数                  期望=>= 1       实际=1
+  [PASS] 必含角色 SUPER_ADMIN             期望=含          实际=含
+  [PASS] 权限码条数                        期望=>0         实际=1
+  [PASS] auth/menus                   期望=200        实际=200
+  [PASS] 可见业务页数                       期望=>= 12      实际=72
+  [PASS] 菜单含 /task/list               期望=含          实际=含
+  [PASS] 菜单含 /project                 期望=含          实际=含
+  [PASS] 菜单含 /business/erp/voucher    期望=含          实际=含
+  [PASS] business:task 行数             期望=71         实际=71
+  [PASS] business:project 行数          期望=3          实际=3
+  [PASS] erp:purchase-order 可访问       期望=200        实际=200
+  [PASS] erp:purchase-order-item 可访问  期望=200        实际=200
+  [PASS] erp:supplier 可访问             期望=200        实际=200
+  [PASS] erp:contract 可访问             期望=200        实际=200
+  [PASS] erp:material 可访问             期望=200        实际=200
+  [PASS] erp:voucher 可访问              期望=200        实际=200
+  [PASS] erp:account 可访问              期望=200        实际=200
+  [PASS] erp:period 可访问               期望=200        实际=200
+  [PASS] erp:ledger 可访问               期望=200        实际=200
+  [PASS] erp:inventory 可访问            期望=200        实际=200
+  [PASS] erp:stock-in 可访问             期望=200        实际=200
+  [PASS] system:user（应 403）           期望=200        实际=200
+  [PASS] system:role（应 403）           期望=200        实际=200
+  [PASS] system:menu（应 403）           期望=200        实际=200
+  [PASS] support:log（应 403）           期望=200        实际=200
+  fail=0 / 26
+--- laoliu ---
+  [PASS] auth/me                      期望=200        实际=200
+  [PASS] auth/me 角色数                  期望=>= 5       实际=5
+  [PASS] 必含角色 DEPT_LEADER             期望=含          实际=含
+  [PASS] 必含角色 FINANCE_MANAGER         期望=含          实际=含
+  [PASS] 必含角色 GENERAL_MANAGER         期望=含          实际=含
+  [PASS] 必含角色 PURCHASE_MANAGER        期望=含          实际=含
+  [PASS] 必含角色 WAREHOUSE_MANAGER       期望=含          实际=含
+  [PASS] 必不含角色 SUPER_ADMIN            期望=不含         实际=不含
+  [PASS] 权限码条数                        期望=>0         实际=195
+  [PASS] auth/menus                   期望=200        实际=200
+  [PASS] 可见业务页数                       期望=>= 12      实际=54
+  [PASS] 菜单含 /task/list               期望=含          实际=含
+  [PASS] 菜单含 /task/board              期望=含          实际=含
+  [PASS] 菜单含 /project                 期望=含          实际=含
+  [PASS] 菜单含 /business/erp/purchase   期望=含          实际=含
+  [PASS] 菜单含 /business/erp/contract   期望=含          实际=含
+  [PASS] 菜单含 /business/erp/supplier   期望=含          实际=含
+  [PASS] 菜单含 /business/erp/material   期望=含          实际=含
+  [PASS] 菜单含 /business/erp/voucher    期望=含          实际=含
+  [PASS] 菜单含 /business/erp/ledger     期望=含          实际=含
+  [PASS] 菜单含 /business/erp/account    期望=含          实际=含
+  [PASS] 菜单含 /business/erp/period     期望=含          实际=含
+  [PASS] 菜单含 /business/erp/report/balance-sheet 期望=含          实际=含
+  [PASS] 菜单含 /business/erp/stock-in   期望=含          实际=含
+  [PASS] business:task 行数             期望=71         实际=71
+  [PASS] business:project 行数          期望=3          实际=3
+  [PASS] erp:purchase-order 可访问       期望=200        实际=200
+  [PASS] erp:purchase-order-item 可访问  期望=200        实际=200
+  [PASS] erp:supplier 可访问             期望=200        实际=200
+  [PASS] erp:contract 可访问             期望=200        实际=200
+  [PASS] erp:material 可访问             期望=200        实际=200
+  [PASS] erp:voucher 可访问              期望=200        实际=200
+  [PASS] erp:account 可访问              期望=200        实际=200
+  [PASS] erp:period 可访问               期望=200        实际=200
+  [PASS] erp:ledger 可访问               期望=200        实际=200
+  [PASS] erp:inventory 可访问            期望=200        实际=200
+  [PASS] erp:stock-in 可访问             期望=200        实际=200
+  [PASS] system:user（应 403）           期望=403        实际=403
+  [PASS] system:role（应 403）           期望=403        实际=403
+  [PASS] system:menu（应 403）           期望=403        实际=403
+  [PASS] support:log（应 403）           期望=403        实际=403
+  fail=0 / 41
+--- henry ---
+  [PASS] auth/me                      期望=200        实际=200
+  [PASS] auth/me 角色数                  期望=>= 4       实际=4
+  [PASS] 必含角色 DEPT_LEADER             期望=含          实际=含
+  [PASS] 必含角色 GENERAL_MANAGER         期望=含          实际=含
+  [PASS] 必含角色 PURCHASE_MANAGER        期望=含          实际=含
+  [PASS] 必含角色 WAREHOUSE_MANAGER       期望=含          实际=含
+  [PASS] 必不含角色 SUPER_ADMIN            期望=不含         实际=不含
+  [PASS] 权限码条数                        期望=>0         实际=175
+  [PASS] auth/menus                   期望=200        实际=200
+  [PASS] 可见业务页数                       期望=>= 12      实际=54
+  [PASS] 菜单含 /task/list               期望=含          实际=含
+  [PASS] 菜单含 /project                 期望=含          实际=含
+  [PASS] 菜单含 /business/erp/purchase   期望=含          实际=含
+  [PASS] 菜单含 /business/erp/contract   期望=含          实际=含
+  [PASS] 菜单含 /business/erp/supplier   期望=含          实际=含
+  [PASS] business:task 行数             期望=71         实际=71
+  [PASS] business:project 行数          期望=3          实际=3
+  [PASS] erp:purchase-order 可访问       期望=200        实际=200
+  [PASS] erp:purchase-order-item 可访问  期望=200        实际=200
+  [PASS] erp:supplier 可访问             期望=200        实际=200
+  [PASS] erp:contract 可访问             期望=200        实际=200
+  [PASS] erp:material 可访问             期望=200        实际=200
+  [PASS] erp:voucher 可访问              期望=200        实际=200
+  [PASS] erp:account 可访问              期望=200        实际=200
+  [PASS] erp:period 可访问               期望=200        实际=200
+  [PASS] erp:ledger 可访问               期望=200        实际=200
+  [PASS] erp:inventory 可访问            期望=200        实际=200
+  [PASS] erp:stock-in 可访问             期望=200        实际=200
+  [PASS] system:user（应 403）           期望=403        实际=403
+  [PASS] system:role（应 403）           期望=403        实际=403
+  [PASS] system:menu（应 403）           期望=403        实际=403
+  [PASS] support:log（应 403）           期望=403        实际=403
+  fail=0 / 32
+--- laoliu_test ---
+  [PASS] auth/me                      期望=200        实际=200
+  [PASS] auth/me 角色数                  期望=>= 3       实际=3
+  [PASS] 必含角色 DEPT_LEADER             期望=含          实际=含
+  [PASS] 必含角色 PURCHASE_MANAGER        期望=含          实际=含
+  [PASS] 必含角色 WAREHOUSE_MANAGER       期望=含          实际=含
+  [PASS] 必不含角色 SUPER_ADMIN            期望=不含         实际=不含
+  [PASS] 必不含角色 GENERAL_MANAGER        期望=不含         实际=不含
+  [PASS] 必不含角色 FINANCE_MANAGER        期望=不含         实际=不含
+  [PASS] 权限码条数                        期望=>0         实际=151
+  [PASS] auth/menus                   期望=200        实际=200
+  [PASS] 可见业务页数                       期望=>= 12      实际=44
+  [PASS] 菜单含 /task/list               期望=含          实际=含
+  [PASS] 菜单含 /project                 期望=含          实际=含
+  [PASS] 菜单含 /business/erp/purchase   期望=含          实际=含
+  [PASS] 菜单不含 /business/erp/voucher   期望=缺          实际=缺
+  [PASS] business:task 行数             期望=0          实际=0
+  [PASS] business:project 行数          期望=0          实际=0
+  [PASS] erp:purchase-order 可访问       期望=200        实际=200
+  [PASS] erp:purchase-order-item 可访问  期望=200        实际=200
+  [PASS] erp:supplier 可访问             期望=200        实际=200
+  [PASS] erp:contract 可访问             期望=200        实际=200
+  [PASS] erp:material 可访问             期望=200        实际=200
+  [PASS] erp:voucher（无该职能，应 403）      期望=403        实际=403
+  [PASS] erp:account（无该职能，应 403）      期望=403        实际=403
+  [PASS] erp:period（无该职能，应 403）       期望=403        实际=403
+  [PASS] erp:ledger（无该职能，应 403）       期望=403        实际=403
+  [PASS] erp:inventory 可访问            期望=200        实际=200
+  [PASS] erp:stock-in 可访问             期望=200        实际=200
+  [PASS] system:user（应 403）           期望=403        实际=403
+  [PASS] system:role（应 403）           期望=403        实际=403
+  [PASS] system:menu（应 403）           期望=403        实际=403
+  [PASS] support:log（应 403）           期望=403        实际=403
+  fail=0 / 32
+
+JSON {"base": "http://127.0.0.1:8023", "results": [{"mode": "admin", "roles": ["SUPER_ADMIN"], "perm_count": 1, "business_pages": 72, "page_list": ["/dashboard", "/system/user", "/system/role", "/system/menu", "/system/dept", "/system/data-scope", "/system/field-mask", "/system/role-mutex", "/system/change-log", "/announcement", "/business/notice/message", "/business/announcement", "/business/notice/template", "/business/notice/send", "/support/dict", "/support/config", "/support/file", "/support/log", "/support/job", "/support/online", "/support/invariant", "/flow/start", "/flow/task", "/flow/def", "/task/list", "/task/board", "/task/gantt", "/task/templates", "/business/erp/purchase", "/business/erp/stock-out", "/business/erp/stock-in", "/business/erp/payable", "/business/erp/supplier", "/business/erp/purchase-order-item", "/business/erp/stock-take", "/project", "/business/erp/warehouse", "/business/erp/location", "/business/erp/serial", "/business/erp/inventory", "/business/erp/transfer", "/business/erp/inventory-location", "/business/erp/inventory-txn", "/business/erp/account", "/business/erp/period", "/business/erp/opening", "/business/erp/year-end", "/business/erp/budget", "/business/erp/budget/report", "/business/erp/budget/mapping", "/business/erp/expense", "/business/erp/expense/pay", "/business/erp/expense-type", "/business/erp/asset", "/business/erp/asset-category", "/business/erp/depreciation", "/business/erp/voucher", "/business/erp/ledger", "/business/erp/report/balance-sheet", "/business/erp/report/income-statement", "/business/erp/report/cash-flow", "/business/erp/seq", "/business/storage/backend", "/business/storage/file", "/business/impexp/import", "/business/impexp/import-task", "/business/impexp/export-task", "/business/erp/contract", "/business/erp/material", "/business/erp/unit", "/help", "/user/preference"], "totals": {"business:task": 71, "business:project": 3, "erp:purchase-order": 14, "erp:purchase-order-item": 18, "erp:supplier": 1, "erp:contract": 1, "erp:material": 5, "erp:voucher": 21, "erp:account": 65, "erp:period": 12, "erp:ledger": 0, "erp:inventory": 3, "erp:stock-in": 14}, "fail": 0, "checks": [{"check": "auth/me", "expect": "200", "actual": "200", "ok": true}, {"check": "auth/me 角色数", "expect": ">= 1", "actual": 1, "ok": true}, {"check": "必含角色 SUPER_ADMIN", "expect": "含", "actual": "含", "ok": true}, {"check": "权限码条数", "expect": ">0", "actual": 1, "ok": true}, {"check": "auth/menus", "expect": "200", "actual": "200", "ok": true}, {"check": "可见业务页数", "expect": ">= 12", "actual": 72, "ok": true}, {"check": "菜单含 /task/list", "expect": "含", "actual": "含", "ok": true}, {"check": "菜单含 /project", "expect": "含", "actual": "含", "ok": true}, {"check": "菜单含 /business/erp/voucher", "expect": "含", "actual": "含", "ok": true}, {"check": "business:task 行数", "expect": 71, "actual": 71, "ok": true}, {"check": "business:project 行数", "expect": 3, "actual": 3, "ok": true}, {"check": "erp:purchase-order 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:purchase-order-item 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:supplier 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:contract 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:material 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:voucher 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:account 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:period 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:ledger 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:inventory 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:stock-in 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "system:user（应 403）", "expect": "200", "actual": "200", "ok": true}, {"check": "system:role（应 403）", "expect": "200", "actual": "200", "ok": true}, {"check": "system:menu（应 403）", "expect": "200", "actual": "200", "ok": true}, {"check": "support:log（应 403）", "expect": "200", "actual": "200", "ok": true}]}, {"mode": "laoliu", "roles": ["DEPT_LEADER", "FINANCE_MANAGER", "GENERAL_MANAGER", "PURCHASE_MANAGER", "WAREHOUSE_MANAGER"], "perm_count": 195, "business_pages": 54, "page_list": ["/dashboard", "/announcement", "/business/notice/message", "/business/announcement", "/business/notice/template", "/business/notice/send", "/support/invariant", "/flow/start", "/flow/task", "/flow/def", "/task/list", "/task/board", "/task/gantt", "/task/templates", "/business/erp/purchase", "/business/erp/stock-out", "/business/erp/stock-in", "/business/erp/payable", "/business/erp/supplier", "/business/erp/purchase-order-item", "/business/erp/stock-take", "/project", "/business/erp/warehouse", "/business/erp/location", "/business/erp/serial", "/business/erp/inventory", "/business/erp/transfer", "/business/erp/inventory-location", "/business/erp/inventory-txn", "/business/erp/account", "/business/erp/period", "/business/erp/opening", "/business/erp/year-end", "/business/erp/budget", "/business/erp/budget/report", "/business/erp/budget/mapping", "/business/erp/expense", "/business/erp/expense/pay", "/business/erp/expense-type", "/business/erp/asset", "/business/erp/asset-category", "/business/erp/depreciation", "/business/erp/voucher", "/business/erp/ledger", "/business/erp/report/balance-sheet", "/business/erp/report/income-statement", "/business/erp/report/cash-flow", "/business/erp/seq", "/business/storage/file", "/business/erp/contract", "/business/erp/material", "/business/erp/unit", "/help", "/user/preference"], "totals": {"business:task": 71, "business:project": 3, "erp:purchase-order": 14, "erp:purchase-order-item": 18, "erp:supplier": 1, "erp:contract": 1, "erp:material": 5, "erp:voucher": 21, "erp:account": 65, "erp:period": 12, "erp:ledger": 0, "erp:inventory": 3, "erp:stock-in": 14}, "fail": 0, "checks": [{"check": "auth/me", "expect": "200", "actual": "200", "ok": true}, {"check": "auth/me 角色数", "expect": ">= 5", "actual": 5, "ok": true}, {"check": "必含角色 DEPT_LEADER", "expect": "含", "actual": "含", "ok": true}, {"check": "必含角色 FINANCE_MANAGER", "expect": "含", "actual": "含", "ok": true}, {"check": "必含角色 GENERAL_MANAGER", "expect": "含", "actual": "含", "ok": true}, {"check": "必含角色 PURCHASE_MANAGER", "expect": "含", "actual": "含", "ok": true}, {"check": "必含角色 WAREHOUSE_MANAGER", "expect": "含", "actual": "含", "ok": true}, {"check": "必不含角色 SUPER_ADMIN", "expect": "不含", "actual": "不含", "ok": true}, {"check": "权限码条数", "expect": ">0", "actual": 195, "ok": true}, {"check": "auth/menus", "expect": "200", "actual": "200", "ok": true}, {"check": "可见业务页数", "expect": ">= 12", "actual": 54, "ok": true}, {"check": "菜单含 /task/list", "expect": "含", "actual": "含", "ok": true}, {"check": "菜单含 /task/board", "expect": "含", "actual": "含", "ok": true}, {"check": "菜单含 /project", "expect": "含", "actual": "含", "ok": true}, {"check": "菜单含 /business/erp/purchase", "expect": "含", "actual": "含", "ok": true}, {"check": "菜单含 /business/erp/contract", "expect": "含", "actual": "含", "ok": true}, {"check": "菜单含 /business/erp/supplier", "expect": "含", "actual": "含", "ok": true}, {"check": "菜单含 /business/erp/material", "expect": "含", "actual": "含", "ok": true}, {"check": "菜单含 /business/erp/voucher", "expect": "含", "actual": "含", "ok": true}, {"check": "菜单含 /business/erp/ledger", "expect": "含", "actual": "含", "ok": true}, {"check": "菜单含 /business/erp/account", "expect": "含", "actual": "含", "ok": true}, {"check": "菜单含 /business/erp/period", "expect": "含", "actual": "含", "ok": true}, {"check": "菜单含 /business/erp/report/balance-sheet", "expect": "含", "actual": "含", "ok": true}, {"check": "菜单含 /business/erp/stock-in", "expect": "含", "actual": "含", "ok": true}, {"check": "business:task 行数", "expect": 71, "actual": 71, "ok": true}, {"check": "business:project 行数", "expect": 3, "actual": 3, "ok": true}, {"check": "erp:purchase-order 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:purchase-order-item 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:supplier 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:contract 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:material 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:voucher 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:account 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:period 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:ledger 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:inventory 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:stock-in 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "system:user（应 403）", "expect": "403", "actual": "403", "ok": true}, {"check": "system:role（应 403）", "expect": "403", "actual": "403", "ok": true}, {"check": "system:menu（应 403）", "expect": "403", "actual": "403", "ok": true}, {"check": "support:log（应 403）", "expect": "403", "actual": "403", "ok": true}]}, {"mode": "henry", "roles": ["DEPT_LEADER", "GENERAL_MANAGER", "PURCHASE_MANAGER", "WAREHOUSE_MANAGER"], "perm_count": 175, "business_pages": 54, "page_list": ["/dashboard", "/announcement", "/business/notice/message", "/business/announcement", "/business/notice/template", "/business/notice/send", "/support/invariant", "/flow/start", "/flow/task", "/flow/def", "/task/list", "/task/board", "/task/gantt", "/task/templates", "/business/erp/purchase", "/business/erp/stock-out", "/business/erp/stock-in", "/business/erp/payable", "/business/erp/supplier", "/business/erp/purchase-order-item", "/business/erp/stock-take", "/project", "/business/erp/warehouse", "/business/erp/location", "/business/erp/serial", "/business/erp/inventory", "/business/erp/transfer", "/business/erp/inventory-location", "/business/erp/inventory-txn", "/business/erp/account", "/business/erp/period", "/business/erp/opening", "/business/erp/year-end", "/business/erp/budget", "/business/erp/budget/report", "/business/erp/budget/mapping", "/business/erp/expense", "/business/erp/expense/pay", "/business/erp/expense-type", "/business/erp/asset", "/business/erp/asset-category", "/business/erp/depreciation", "/business/erp/voucher", "/business/erp/ledger", "/business/erp/report/balance-sheet", "/business/erp/report/income-statement", "/business/erp/report/cash-flow", "/business/erp/seq", "/business/erp/contract", "/business/storage/file", "/business/erp/material", "/business/erp/unit", "/help", "/user/preference"], "totals": {"business:task": 71, "business:project": 3, "erp:purchase-order": 14, "erp:purchase-order-item": 18, "erp:supplier": 1, "erp:contract": 1, "erp:material": 5, "erp:voucher": 21, "erp:account": 65, "erp:period": 12, "erp:ledger": 0, "erp:inventory": 3, "erp:stock-in": 14}, "fail": 0, "checks": [{"check": "auth/me", "expect": "200", "actual": "200", "ok": true}, {"check": "auth/me 角色数", "expect": ">= 4", "actual": 4, "ok": true}, {"check": "必含角色 DEPT_LEADER", "expect": "含", "actual": "含", "ok": true}, {"check": "必含角色 GENERAL_MANAGER", "expect": "含", "actual": "含", "ok": true}, {"check": "必含角色 PURCHASE_MANAGER", "expect": "含", "actual": "含", "ok": true}, {"check": "必含角色 WAREHOUSE_MANAGER", "expect": "含", "actual": "含", "ok": true}, {"check": "必不含角色 SUPER_ADMIN", "expect": "不含", "actual": "不含", "ok": true}, {"check": "权限码条数", "expect": ">0", "actual": 175, "ok": true}, {"check": "auth/menus", "expect": "200", "actual": "200", "ok": true}, {"check": "可见业务页数", "expect": ">= 12", "actual": 54, "ok": true}, {"check": "菜单含 /task/list", "expect": "含", "actual": "含", "ok": true}, {"check": "菜单含 /project", "expect": "含", "actual": "含", "ok": true}, {"check": "菜单含 /business/erp/purchase", "expect": "含", "actual": "含", "ok": true}, {"check": "菜单含 /business/erp/contract", "expect": "含", "actual": "含", "ok": true}, {"check": "菜单含 /business/erp/supplier", "expect": "含", "actual": "含", "ok": true}, {"check": "business:task 行数", "expect": 71, "actual": 71, "ok": true}, {"check": "business:project 行数", "expect": 3, "actual": 3, "ok": true}, {"check": "erp:purchase-order 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:purchase-order-item 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:supplier 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:contract 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:material 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:voucher 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:account 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:period 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:ledger 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:inventory 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:stock-in 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "system:user（应 403）", "expect": "403", "actual": "403", "ok": true}, {"check": "system:role（应 403）", "expect": "403", "actual": "403", "ok": true}, {"check": "system:menu（应 403）", "expect": "403", "actual": "403", "ok": true}, {"check": "support:log（应 403）", "expect": "403", "actual": "403", "ok": true}]}, {"mode": "laoliu_test", "roles": ["DEPT_LEADER", "PURCHASE_MANAGER", "WAREHOUSE_MANAGER"], "perm_count": 151, "business_pages": 44, "page_list": ["/dashboard", "/announcement", "/business/notice/message", "/business/announcement", "/business/notice/template", "/business/notice/send", "/support/invariant", "/flow/start", "/flow/task", "/flow/def", "/task/list", "/task/board", "/task/gantt", "/task/templates", "/business/erp/purchase", "/business/erp/stock-out", "/business/erp/stock-in", "/business/erp/payable", "/business/erp/supplier", "/business/erp/purchase-order-item", "/business/erp/stock-take", "/project", "/business/erp/warehouse", "/business/erp/location", "/business/erp/serial", "/business/erp/inventory", "/business/erp/transfer", "/business/erp/inventory-location", "/business/erp/inventory-txn", "/business/erp/budget", "/business/erp/budget/report", "/business/erp/budget/mapping", "/business/erp/expense", "/business/erp/expense/pay", "/business/erp/expense-type", "/business/erp/asset", "/business/erp/asset-category", "/business/erp/depreciation", "/business/erp/contract", "/business/storage/file", "/business/erp/material", "/business/erp/unit", "/help", "/user/preference"], "totals": {"business:task": 0, "business:project": 0, "erp:purchase-order": 14, "erp:purchase-order-item": 18, "erp:supplier": 1, "erp:contract": 1, "erp:material": 5, "erp:voucher": null, "erp:account": null, "erp:period": null, "erp:ledger": null, "erp:inventory": 3, "erp:stock-in": 14}, "fail": 0, "checks": [{"check": "auth/me", "expect": "200", "actual": "200", "ok": true}, {"check": "auth/me 角色数", "expect": ">= 3", "actual": 3, "ok": true}, {"check": "必含角色 DEPT_LEADER", "expect": "含", "actual": "含", "ok": true}, {"check": "必含角色 PURCHASE_MANAGER", "expect": "含", "actual": "含", "ok": true}, {"check": "必含角色 WAREHOUSE_MANAGER", "expect": "含", "actual": "含", "ok": true}, {"check": "必不含角色 SUPER_ADMIN", "expect": "不含", "actual": "不含", "ok": true}, {"check": "必不含角色 GENERAL_MANAGER", "expect": "不含", "actual": "不含", "ok": true}, {"check": "必不含角色 FINANCE_MANAGER", "expect": "不含", "actual": "不含", "ok": true}, {"check": "权限码条数", "expect": ">0", "actual": 151, "ok": true}, {"check": "auth/menus", "expect": "200", "actual": "200", "ok": true}, {"check": "可见业务页数", "expect": ">= 12", "actual": 44, "ok": true}, {"check": "菜单含 /task/list", "expect": "含", "actual": "含", "ok": true}, {"check": "菜单含 /project", "expect": "含", "actual": "含", "ok": true}, {"check": "菜单含 /business/erp/purchase", "expect": "含", "actual": "含", "ok": true}, {"check": "菜单不含 /business/erp/voucher", "expect": "缺", "actual": "缺", "ok": true}, {"check": "business:task 行数", "expect": 0, "actual": 0, "ok": true}, {"check": "business:project 行数", "expect": 0, "actual": 0, "ok": true}, {"check": "erp:purchase-order 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:purchase-order-item 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:supplier 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:contract 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:material 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:voucher（无该职能，应 403）", "expect": "403", "actual": "403", "ok": true}, {"check": "erp:account（无该职能，应 403）", "expect": "403", "actual": "403", "ok": true}, {"check": "erp:period（无该职能，应 403）", "expect": "403", "actual": "403", "ok": true}, {"check": "erp:ledger（无该职能，应 403）", "expect": "403", "actual": "403", "ok": true}, {"check": "erp:inventory 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "erp:stock-in 可访问", "expect": "200", "actual": "200", "ok": true}, {"check": "system:user（应 403）", "expect": "403", "actual": "403", "ok": true}, {"check": "system:role（应 403）", "expect": "403", "actual": "403", "ok": true}, {"check": "system:menu（应 403）", "expect": "403", "actual": "403", "ok": true}, {"check": "support:log（应 403）", "expect": "403", "actual": "403", "ok": true}]}], "fail": 0}

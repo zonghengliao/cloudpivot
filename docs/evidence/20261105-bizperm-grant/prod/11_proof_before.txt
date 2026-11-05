@@ -1,0 +1,144 @@
+Border style is 2.
+Pager usage is off.
+===== 1) 目标态不变量：SUPER_ADMIN 成员（必须 = 1 且只有 admin）=====
++----------+--------+
+| username | status |
++----------+--------+
+| admin    |      1 |
++----------+--------+
+(1 row)
+
+===== 2) 5 个业务角色：data_scope（本卡不动）/ 授权行数 =====
++-------------------+------------+------+-------+---------+-------+
+|     role_code     | data_scope | dirs | pages | buttons | total |
++-------------------+------------+------+-------+---------+-------+
+| DEPT_LEADER       |          3 |    6 |    12 |      30 |    48 |
+| FINANCE_MANAGER   |          5 |    7 |    13 |      39 |    59 |
+| GENERAL_MANAGER   |          1 |    2 |     3 |       8 |    13 |
+| PURCHASE_MANAGER  |          3 |    2 |     3 |       8 |    13 |
+| WAREHOUSE_MANAGER |          3 |    3 |     4 |      13 |    20 |
++-------------------+------------+------+-------+---------+-------+
+(5 rows)
+
+===== 3) 并集覆盖的业务页数（分母 = 全平台 menu_type=2 + module=business）=====
++----------------------+--------------------+-----------------+
+| business_pages_total | covered_by_5_roles | still_uncovered |
++----------------------+--------------------+-----------------+
+|                   59 |                 12 |              47 |
++----------------------+--------------------+-----------------+
+(1 row)
+
+===== 4) 仍然未覆盖的业务页明细（应当只剩平台治理 + 导入导出）=====
++---------------------------------------+---------------------------------------+
+|                 path                  |               auth_code               |
++---------------------------------------+---------------------------------------+
+| /announcement                         | business:announcement:read            |
+| /business/announcement                | business:announcement:list            |
+| /business/erp/account                 | business:erp:account:list             |
+| /business/erp/contract                | business:erp:contract:list            |
+| /business/erp/inventory               | business:erp:inventory:list           |
+| /business/erp/inventory-location      | business:erp:inventory-location:list  |
+| /business/erp/inventory-txn           | business:erp:inventory-txn:list       |
+| /business/erp/ledger                  | business:erp:ledger:list              |
+| /business/erp/location                | business:erp:location:list            |
+| /business/erp/material                | business:erp:material:list            |
+| /business/erp/opening                 | business:erp:opening:read             |
+| /business/erp/payable                 | business:erp:payable:list             |
+| /business/erp/period                  | business:erp:period:list              |
+| /business/erp/purchase                | business:erp:purchase-order:list      |
+| /business/erp/purchase-order-item     | business:erp:purchase-order-item:list |
+| /business/erp/report/balance-sheet    | business:erp:report:balance-sheet     |
+| /business/erp/report/cash-flow        | business:erp:report:cash-flow         |
+| /business/erp/report/income-statement | business:erp:report:income-statement  |
+| /business/erp/seq                     | business:erp:seq:list                 |
+| /business/erp/serial                  | business:erp:serial:list              |
+| /business/erp/stock-in                | business:erp:stock-in:list            |
+| /business/erp/stock-out               | business:erp:stock-out:list           |
+| /business/erp/supplier                | business:erp:supplier:list            |
+| /business/erp/transfer                | business:erp:transfer:list            |
+| /business/erp/unit                    | business:erp:unit:list                |
+| /business/erp/voucher                 | business:erp:voucher:list             |
+| /business/erp/warehouse               | business:erp:warehouse:list           |
+| /business/erp/year-end                | business:erp:yearend:read             |
+| /business/impexp/export-task          | business:impexp:export:list           |
+| /business/impexp/import               | business:impexp:import:upload         |
+| /business/impexp/import-task          | business:impexp:import:list           |
+| /business/notice/message              | business:notice:mine                  |
+| /business/notice/send                 | business:notice:send                  |
+| /business/notice/template             | business:notice:list                  |
+| /business/storage/backend             | business:storage:config:list          |
+| /business/storage/file                | business:storage:list                 |
+| /flow/def                             | business:flow:read                    |
+| /help                                 | system:help:read                      |
+| /project                              | business:project:read                 |
+| /system/change-log                    | system:change-log:list                |
+| /system/data-scope                    | business:permission:scope:read        |
+| /system/field-mask                    | system:field-mask:list                |
+| /system/role-mutex                    | system:role-mutex:list                |
+| /task/board                           | business:task:read                    |
+| /task/gantt                           | business:task:read                    |
+| /task/list                            | business:task:read                    |
+| /task/templates                       | business:task:read                    |
++---------------------------------------+---------------------------------------+
+(47 rows)
+
+===== 5) 逐角色可见业务页（供对照 /system/auth/menus）=====
++-------------------+-------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+|     role_code     | pages |                                                                                                                                                      page_list                                                                                                                                                      |
++-------------------+-------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| DEPT_LEADER       |    12 | /business/erp/asset, /business/erp/asset-category, /business/erp/budget, /business/erp/budget/mapping, /business/erp/budget/report, /business/erp/depreciation, /business/erp/expense, /business/erp/expense/pay, /business/erp/expense-type, /flow/start, /flow/task, /support/invariant                           |
+| FINANCE_MANAGER   |    13 | /business/erp/asset, /business/erp/asset-category, /business/erp/budget, /business/erp/budget/mapping, /business/erp/budget/report, /business/erp/depreciation, /business/erp/expense, /business/erp/expense/pay, /business/erp/expense-type, /business/erp/stock-take, /flow/start, /flow/task, /support/invariant |
+| GENERAL_MANAGER   |     3 | /flow/start, /flow/task, /support/invariant                                                                                                                                                                                                                                                                         |
+| PURCHASE_MANAGER  |     3 | /flow/start, /flow/task, /support/invariant                                                                                                                                                                                                                                                                         |
+| WAREHOUSE_MANAGER |     4 | /business/erp/stock-take, /flow/start, /flow/task, /support/invariant                                                                                                                                                                                                                                               |
++-------------------+-------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+(5 rows)
+
+===== 6) 平台治理页：任何业务角色持有 = 0（红线检查）=====
++------------------+
+| governance_leaks |
++------------------+
+|                0 |
++------------------+
+(1 row)
+
+===== 7) 祖先目录孤儿检查：业务角色的页面若父目录未授权 → 侧边栏会丢页（目标 0）=====
++--------------+
+| orphan_pages |
++--------------+
+|            0 |
++--------------+
+(1 row)
+
+===== 8) 记账凭证 审核/记账/反审核 三条码：存在 + 只授给财务经理 =====
++-----------+------------+
+| auth_code | granted_to |
++-----------+------------+
++-----------+------------+
+(0 rows)
+
+===== 9) 账号 → 角色 / 部门 / token_version =====
++-------------+-----------+--------+---------------+--------------------------------------------------------------------------------+
+|  username   | dept_code | status | token_version |                                     roles                                      |
++-------------+-----------+--------+---------------+--------------------------------------------------------------------------------+
+| admin       | HQ        |      1 |             1 | SUPER_ADMIN                                                                    |
+| henry.liao  | HQ        |      1 |             2 | DEPT_LEADER,GENERAL_MANAGER,PURCHASE_MANAGER,WAREHOUSE_MANAGER                 |
+| laoliu      | HQ        |      1 |             2 | DEPT_LEADER,FINANCE_MANAGER,GENERAL_MANAGER,PURCHASE_MANAGER,WAREHOUSE_MANAGER |
+| laoliu_test | TECH      |      0 |             4 | DEPT_LEADER,PURCHASE_MANAGER,WAREHOUSE_MANAGER                                 |
++-------------+-----------+--------+---------------+--------------------------------------------------------------------------------+
+(4 rows)
+
+===== 10) 不该变的计数（施工前后必须完全相同）=====
++--------------------------------+
+|            ?column?            |
++--------------------------------+
+| sys_user 行数            = 26  |
+| sys_user_role 行数       = 17  |
+| sys_menu 行数            = 325 |
+| biz_task 行数            = 846 |
+| biz_task.dept_id 非空    = 0   |
+| biz_project.dept_id 非空 = 0   |
+| biz_flow_task PENDING    = 3   |
++--------------------------------+
+(7 rows)
+

@@ -1,0 +1,87 @@
+== 目标库：cloudpivot @ 127.0.0.1:5432（--rollback）==
+---- 现状（17:09:23，库 cloudpivot）----
+SUPER_ADMIN 成员（目标 = 1，只有 admin）
+ username 
+----------
+ admin
+(1 row)
+
+5 个业务角色：data_scope / 授权行数 / 可见业务页
+     role_code     | data_scope | dirs | pages | buttons 
+-------------------+------------+------+-------+---------
+ DEPT_LEADER       |          3 |    9 |    27 |      59
+ FINANCE_MANAGER   |          5 |   11 |    41 |      83
+ GENERAL_MANAGER   |          1 |   12 |    54 |      53
+ PURCHASE_MANAGER  |          3 |    7 |    29 |      52
+ WAREHOUSE_MANAGER |          3 |    7 |    28 |      58
+(5 rows)
+
+账号 → 角色 / 部门
+  username   | dept_code | status | token_version |                                     roles                                      
+-------------+-----------+--------+---------------+--------------------------------------------------------------------------------
+ admin       | HQ        |      1 |             1 | SUPER_ADMIN
+ henry.liao  | HQ        |      1 |             3 | DEPT_LEADER,GENERAL_MANAGER,PURCHASE_MANAGER,WAREHOUSE_MANAGER
+ laoliu      | HQ        |      1 |             3 | DEPT_LEADER,FINANCE_MANAGER,GENERAL_MANAGER,PURCHASE_MANAGER,WAREHOUSE_MANAGER
+ laoliu_test | TECH      |      0 |             5 | DEPT_LEADER,PURCHASE_MANAGER,WAREHOUSE_MANAGER
+(4 rows)
+
+快照表（有则在）
+      snapshot_table      
+--------------------------
+ datafix_bizperm_snapshot
+(1 row)
+
+==> 20_grant.down.sql
+psql:plan.sql:16: NOTICE:  table "_plan" does not exist, skipping
+psql:expand.sql:16: NOTICE:  table "_read_actions" does not exist, skipping
+psql:expand.sql:119: NOTICE:  table "_new_menus" does not exist, skipping
+psql:/opt/cloudpivot/scripts/datafix/bizperm/20_grant.down.sql:78: NOTICE:  阶段 1 已回退：删授权 377 行 / 删按钮码 3 条 / 推进 token_version 3 个账号（回退前 530 行）
+           batch           |      tbl      | rows 
+---------------------------+---------------+------
+ BIZPERM-20261105-ROLEMENU | sys_role_menu |  153
+(1 row)
+
+     role_code     | granted_rows 
+-------------------+--------------
+ DEPT_LEADER       |           48
+ FINANCE_MANAGER   |           59
+ GENERAL_MANAGER   |           13
+ PURCHASE_MANAGER  |           13
+ WAREHOUSE_MANAGER |           20
+(5 rows)
+
+==> 05_snapshot.down.sql
+psql:/opt/cloudpivot/scripts/datafix/bizperm/05_snapshot.down.sql:15: NOTICE:  已清掉快照 368 行
+---- 现状（17:09:23，库 cloudpivot）----
+SUPER_ADMIN 成员（目标 = 1，只有 admin）
+ username 
+----------
+ admin
+(1 row)
+
+5 个业务角色：data_scope / 授权行数 / 可见业务页
+     role_code     | data_scope | dirs | pages | buttons 
+-------------------+------------+------+-------+---------
+ DEPT_LEADER       |          3 |    6 |    12 |      30
+ FINANCE_MANAGER   |          5 |    7 |    13 |      39
+ GENERAL_MANAGER   |          1 |    2 |     3 |       8
+ PURCHASE_MANAGER  |          3 |    2 |     3 |       8
+ WAREHOUSE_MANAGER |          3 |    3 |     4 |      13
+(5 rows)
+
+账号 → 角色 / 部门
+  username   | dept_code | status | token_version |                                     roles                                      
+-------------+-----------+--------+---------------+--------------------------------------------------------------------------------
+ admin       | HQ        |      1 |             1 | SUPER_ADMIN
+ henry.liao  | HQ        |      1 |             4 | DEPT_LEADER,GENERAL_MANAGER,PURCHASE_MANAGER,WAREHOUSE_MANAGER
+ laoliu      | HQ        |      1 |             4 | DEPT_LEADER,FINANCE_MANAGER,GENERAL_MANAGER,PURCHASE_MANAGER,WAREHOUSE_MANAGER
+ laoliu_test | TECH      |      0 |             6 | DEPT_LEADER,PURCHASE_MANAGER,WAREHOUSE_MANAGER
+(4 rows)
+
+快照表（有则在）
+      snapshot_table      
+--------------------------
+ datafix_bizperm_snapshot
+(1 row)
+
+== 完成（--rollback）；改过授权请接着跑 cache_invalidate.sh ==

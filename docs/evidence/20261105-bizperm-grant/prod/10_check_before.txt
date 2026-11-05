@@ -1,0 +1,33 @@
+== 目标库：cloudpivot @ 127.0.0.1:5432（--check）==
+---- 现状（17:07:15，库 cloudpivot）----
+SUPER_ADMIN 成员（目标 = 1，只有 admin）
+ username 
+----------
+ admin
+(1 row)
+
+5 个业务角色：data_scope / 授权行数 / 可见业务页
+     role_code     | data_scope | dirs | pages | buttons 
+-------------------+------------+------+-------+---------
+ DEPT_LEADER       |          3 |    6 |    12 |      30
+ FINANCE_MANAGER   |          5 |    7 |    13 |      39
+ GENERAL_MANAGER   |          1 |    2 |     3 |       8
+ PURCHASE_MANAGER  |          3 |    2 |     3 |       8
+ WAREHOUSE_MANAGER |          3 |    3 |     4 |      13
+(5 rows)
+
+账号 → 角色 / 部门
+  username   | dept_code | status | token_version |                                     roles                                      
+-------------+-----------+--------+---------------+--------------------------------------------------------------------------------
+ admin       | HQ        |      1 |             1 | SUPER_ADMIN
+ henry.liao  | HQ        |      1 |             2 | DEPT_LEADER,GENERAL_MANAGER,PURCHASE_MANAGER,WAREHOUSE_MANAGER
+ laoliu      | HQ        |      1 |             2 | DEPT_LEADER,FINANCE_MANAGER,GENERAL_MANAGER,PURCHASE_MANAGER,WAREHOUSE_MANAGER
+ laoliu_test | TECH      |      0 |             4 | DEPT_LEADER,PURCHASE_MANAGER,WAREHOUSE_MANAGER
+(4 rows)
+
+快照表（有则在）
+ snapshot_table 
+----------------
+ (表未创建)
+(1 row)
+

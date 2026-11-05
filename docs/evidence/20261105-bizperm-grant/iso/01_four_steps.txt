@@ -1,0 +1,18 @@
+== ① 现状（基线）==
+  role_menu=600 menu=326 finance_manager=59
+== ② 快照 + 施工 ==
+  日志口径：新增授权 376 行 / 新建按钮码 3 条
+  [PASS] 施工后 role_menu 增量 = 976
+  [PASS] 施工后 menu 增量 = 329
+== ③ 幂等重放（应 0 变更）==
+  [PASS] 重放 0 行变更
+  [PASS] 重放后 role_menu 不变 = 976
+== ④ 回滚（应回到基线）==
+  [PASS] 回滚后 role_menu = 600
+  [PASS] 回滚后 menu = 326
+  [PASS] 回滚后 FINANCE_MANAGER 授权行 = 59
+== ⑤ 再施工（来回可逆）==
+  [PASS] 二次施工后 role_menu = 976
+  [PASS] 二次施工后 menu = 329
+== 结果 ==
+  四步演练 FAIL=0 ✅

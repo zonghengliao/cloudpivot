@@ -1,0 +1,78 @@
+===== [演练] 回滚前 =====
+ role_menu_rows | menu_rows | fm_rows 
+----------------+-----------+---------
+            976 |       329 |     135
+(1 row)
+
+BEGIN
+psql:plan.sql:16: NOTICE:  table "_plan" does not exist, skipping
+DROP TABLE
+CREATE TABLE
+INSERT 0 144
+DO
+psql:expand.sql:16: NOTICE:  table "_read_actions" does not exist, skipping
+DROP TABLE
+CREATE TABLE
+INSERT 0 13
+DROP TABLE
+SELECT 144
+DO
+DROP TABLE
+SELECT 593
+DROP TABLE
+SELECT 398
+DROP TABLE
+SELECT 115
+DROP TABLE
+SELECT 433
+DO
+psql:expand.sql:119: NOTICE:  table "_new_menus" does not exist, skipping
+DROP TABLE
+CREATE TABLE
+INSERT 0 3
+DO
+INSERT 0 3
+CREATE FUNCTION
+psql:20_grant.down.sql:78: NOTICE:  阶段 1 已回退：删授权 376 行 / 删按钮码 3 条 / 推进 token_version 3 个账号（回退前 529 行）
+DO
+           batch           |      tbl      | rows 
+---------------------------+---------------+------
+ BIZPERM-20261105-ROLEMENU | sys_role_menu |  153
+(1 row)
+
+     role_code     | granted_rows 
+-------------------+--------------
+ DEPT_LEADER       |           48
+ FINANCE_MANAGER   |           59
+ GENERAL_MANAGER   |           13
+ PURCHASE_MANAGER  |           13
+ WAREHOUSE_MANAGER |           20
+(5 rows)
+
+===== [演练] down 之后（事务内未提交）=====
+ role_menu_rows | menu_rows | fm_rows 
+----------------+-----------+---------
+            600 |       326 |      59
+(1 row)
+
+     role_code     | granted_rows 
+-------------------+--------------
+ DEPT_LEADER       |           48
+ FINANCE_MANAGER   |           59
+ GENERAL_MANAGER   |           13
+ PURCHASE_MANAGER  |           13
+ WAREHOUSE_MANAGER |           20
+(5 rows)
+
+ voucher_audit_menus_left 
+--------------------------
+                        0
+(1 row)
+
+ROLLBACK
+===== [演练] ROLLBACK 之后（必须与回滚前完全相同）=====
+ role_menu_rows | menu_rows | fm_rows 
+----------------+-----------+---------
+            976 |       329 |     135
+(1 row)
+
