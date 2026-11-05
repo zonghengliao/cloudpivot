@@ -1,0 +1,35 @@
+== 造一个「非超管 + 部门级角色(scope=3) + 无部门」的探针账号 zz_probe
+ username |  role_code  | data_scope 
+----------+-------------+------------
+ zz_probe | DEPT_LEADER |          3
+(1 row)
+
+
+== 落位前快照（zz_probe 无部门 → 范围降级为 SelfOnly）
+zz_probe      HUMAN  SelfOnly      True  0           1                   0                   0                   0                   0                   
+
+== 只把 zz_probe 落到 TECH（模拟「落位落错人 / 落了不该落的人」）
+zz_probe      HUMAN  DeptAndChild  False 1           3                   0                   0                   0                   0                   
+
+== 对照（期望：报错并点名 zz_probe —— 说明这个断言不是橡皮章）
+laoliu_test   All                       0             False           10                    64                    3                     0                     0                     
+qa.limited    SelfOnly                  0             True            1                     0                     0                     0                     0                     
+qa.mutex      SelfOnly                  0             True            1                     0                     0                     0                     0                     
+qa.viewer     SelfOnly                  0             True            1                     0                     0                     0                     0                     
+verify-ai     SelfOnly                  0             True            1                     1                     0                     0                     0                     
+zz_probe      SelfOnly → DeptAndChild   0→1           True→False      1→3                 0                     0                     0                     0                     
+
+🚨 影响面发生了变化（落位改到了不该改的东西，停手）：
+  · zz_probe: kind SelfOnly → DeptAndChild
+  · zz_probe: dept_ids [] → ['01a18381-b7d4-76ef-a290-8aa40bd4fd37']
+  · zz_probe: self_only True → False
+  · zz_probe: sys_user 可见行数 1 → 3
+对照退出码=1
+
+== 清理探针
+ zz_probe_left 
+---------------
+             0
+(1 row)
+
+PASS：落位改变了可见性 → 影响面核算当场报错（断言有牙）

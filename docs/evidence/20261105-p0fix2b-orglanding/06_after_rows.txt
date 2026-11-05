@@ -1,0 +1,13 @@
+  username   | status | user_type |   dept   |               dept_id                
+-------------+--------+-----------+----------+--------------------------------------
+ admin       |      1 | HUMAN     | HQ       | 01a18381-b7c4-753c-8fe6-d39684ead5cd
+ cl_43870    |      0 | HUMAN     | HQ       | 01a18381-b7c4-753c-8fe6-d39684ead5cd
+ henry.liao  |      1 | HUMAN     | (无部门) | NULL
+ laoliu      |      1 | HUMAN     | HQ       | 01a18381-b7c4-753c-8fe6-d39684ead5cd
+ laoliu_test |      0 | HUMAN     | TECH     | 01a18381-b7d4-76ef-a290-8aa40bd4fd37
+ qa.limited  |      0 | HUMAN     | TECH     | 01a18381-b7d4-76ef-a290-8aa40bd4fd37
+ qa.mutex    |      0 | HUMAN     | SALES    | 01a18381-b7e3-7770-90fc-c215cfb566e5
+ qa.viewer   |      0 | HUMAN     | (无部门) | NULL
+ verify-ai   |      0 | ROBOT     | (无部门) | NULL
+(9 rows)
+

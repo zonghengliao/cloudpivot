@@ -1649,6 +1649,82 @@ def group_n():
                from sys_role r where r.deleted_at is null
               order by r.data_scope desc, r.role_code""")
 
+    # ---- N2：在用 HUMAN 账号必须落地到部门（【P0-FIX-2B】D-5）----
+    #
+    # 判据（卡片 t_db82c38e 原文）：status=1 AND is_locked=false AND user_type='HUMAN'
+    # AND deleted_at IS NULL ⇒ dept_id IS NOT NULL。
+    # 豁免：user_type='ROBOT'（AI 用户不进组织树）、is_locked=true（锁定夹具）、status=0（停用号，
+    #       登不进来 —— `system/auth/handler.rs` 对 status=0 回 AUTH_ACCOUNT_DISABLED）。
+    #
+    # 为什么是 WARN 而不是 BLOCKER：`henry.liao` 的身份（docs/待决策.md 铁律①）尚未确认，
+    # 未确认期间这条会**长期亮**，升级成 BLOCKER 等于让巡检永久变红。升级是 C 卡的事。
+    #
+    # 为什么这条值得存在：HUMAN 账号没有部门时，`principal::RESOLVE_SQL` 的 `subtree`/`DEPT`
+    # 分支解析不出部门 ⇒ 部门类角色被 merge_scope_rows 静默降级成「仅本人」（S10/S11）。
+    # 也就是说「没部门」不是缺个字段，而是**权限静默缩水**，只在列表里表现为「怎么都看不到」。
+    name_n2 = "N2 在用 HUMAN 账号必须有部门归属"
+    if not table_exists("sys_user"):
+        check(name_n2, "权限", "INFO", True, "本库没有 sys_user（迁移未跑到用户模块），跳过")
+        return
+
+    # 本库有没有 dept_id 列（极老的库可能没有；缺列时按 INFO 跳过而不是整组炸）
+    has_dept_col = q(
+        "select 1 from information_schema.columns "
+        "where table_schema='public' and table_name='sys_user' and column_name='dept_id'")
+    if not has_dept_col:
+        check(name_n2, "权限", "INFO", True, "sys_user 没有 dept_id 列（未上组织树），跳过")
+        return
+
+    violated = q("""
+        select u.username, u.user_type, u.is_locked::text, u.status::text
+          from sys_user u
+         where u.status = 1
+           and u.is_locked = false
+           and u.user_type = 'HUMAN'
+           and u.deleted_at is null
+           and u.dept_id is null
+         order by u.username""")
+    in_use = one("""
+        select count(*) from sys_user
+         where status = 1 and is_locked = false and user_type = 'HUMAN'
+           and deleted_at is null""") or "0"
+    # 口径说明（写进 detail，免得下次有人拿「9 个账号」跟这里的数字对不上）：
+    # 卡片里的 5 来自「deleted_at IS NULL 的 HUMAN」（含停用号）；本判据按 status=1 收口，
+    # 停用号登不进来、不算「在用」。放一行「宽松口径」进来，两种数法都看得见。
+    loose = q("""
+        select u.username, u.status::text
+          from sys_user u
+         where u.is_locked = false
+           and u.user_type = 'HUMAN'
+           and u.deleted_at is null
+           and u.dept_id is null
+         order by u.username""")
+
+    lines2 = []
+    if violated:
+        lines2.append(
+            f"在用 HUMAN 账号（status=1/未锁/未删）里 {len(violated)} 个没有部门："
+            + "、".join(f"{r[0]}(status={r[3]})" for r in violated))
+        lines2.append(
+            "后果：这些账号的部门类角色会被静默降级成「仅本人」（S10/S11），列表少数据但不报错。")
+        lines2.append(
+            "处置：bash scripts/datafix/org_landing/apply.sh（按 dept_code 落位；"
+            "身份未确认的账号（henry.liao）等 C 卡定了再落）。")
+    else:
+        lines2.append(f"在用 HUMAN 账号 {in_use} 个，全部有部门。")
+    if loose:
+        lines2.append(
+            "宽松口径（含 status=0 停用号，便于与决策文档的「9 个在用账号」对账）："
+            + "、".join(f"{r[0]}(status={r[1]})" for r in loose))
+
+    check(name_n2, "权限", "WARN", not violated, "\n".join(lines2),
+          """select u.username as 账号, u.status::text as 状态, u.is_locked::text as 锁定,
+                    u.user_type as 类型, u.created_at::date as 创建日
+               from sys_user u
+              where u.is_locked = false and u.user_type = 'HUMAN'
+                and u.deleted_at is null and u.dept_id is null
+              order by u.status desc, u.username""")
+
 
 def group_o():
     """E2E 夹具标记不变量 O1（【P0-FIX-3】）。

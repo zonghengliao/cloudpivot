@@ -1,0 +1,29 @@
+
+########## 演练库是什么（prod 副本，不是生产） ##########
+host=ubuntu-svr  db=cloudpivot_orgland  user=alun
+sys_user=26
+sys_dept=4
+biz_task=846
+ dept_code | dept_name | leader | is_root 
+-----------+-----------+--------+---------
+ FIN       | 财务部    | NULL   | f
+ HQ        | 云枢总部  | NULL   | t
+ SALES     | 销售部    | NULL   | f
+ TECH      | 技术部    | NULL   | f
+(4 rows)
+
+
+########## 落位前：4 个目标账号 + 不动名单 ##########
+  username   | status | is_locked | user_type |   dept   
+-------------+--------+-----------+-----------+----------
+ admin       |      1 | f         | HUMAN     | (无部门)
+ cl_43870    |      0 | f         | HUMAN     | (无部门)
+ henry.liao  |      1 | f         | HUMAN     | (无部门)
+ laoliu      |      1 | f         | HUMAN     | (无部门)
+ laoliu_test |      0 | f         | HUMAN     | (无部门)
+ qa.limited  |      0 | t         | HUMAN     | TECH
+ qa.mutex    |      0 | t         | HUMAN     | SALES
+ qa.viewer   |      0 | f         | HUMAN     | (无部门)
+ verify-ai   |      0 | f         | ROBOT     | (无部门)
+(9 rows)
+

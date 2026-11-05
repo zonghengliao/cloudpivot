@@ -1,0 +1,24 @@
+== 克隆演练库 → cloudpivot_orgland_notree（按 dept_code 找不到 TECH）
+  dept_code   
+--------------
+ FIN
+ HQ
+ SALES
+ TECH_RENAMED
+(4 rows)
+
+
+== 跑 apply（期望：NOTICE 跳过 + 退出码非 0 + 4 个账号 dept_id 仍 NULL）
+退出码=3
+NOTICE:  ORGLANDING: 目标库组织树不满足前置条件（HQ 1 个 / TECH 0 个，各需恰好 1 个）—— 跳过，不猜部门、不造部门
+ERROR:  ORGLANDING: 跳过组织落位（部门树缺失或 dept_code 不唯一，HQ=1 TECH=0）
+
+  username   | dept_id 
+-------------+---------
+ admin       | NULL
+ cl_43870    | NULL
+ laoliu      | NULL
+ laoliu_test | NULL
+(4 rows)
+
+PASS：组织树缺失 → 跳过并 NOTICE + 非 0 退出（没有猜部门、没有造部门）

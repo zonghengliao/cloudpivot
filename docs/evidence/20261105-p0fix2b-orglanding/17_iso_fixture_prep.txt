@@ -1,0 +1,18 @@
+########## 隔离实例夹具准备（只动副本库） ##########
+-- ① 副本库 admin 口令重置为已知口令（prod 口令未知；副本库可随意）
+-- ② prod 的 FINANCE_MANAGER / DEPT_LEADER 没有 business:task:* 权限；A5 要验的是
+   「任务列表的部门隔离」，所以给这两个角色补任务权限码（只在本副本库；生产角色一行不动）
+    role_code    | task_perm_rows 
+-----------------+----------------
+ DEPT_LEADER     |              8
+ FINANCE_MANAGER |              8
+(2 rows)
+
+-- ③ 落位态复核（本实例里 4 个账号应已在 HQ/HQ/TECH/HQ）
+admin=HQ
+cl_43870=HQ
+henry.liao=NULL
+laoliu=HQ
+laoliu_test=TECH
+qa.viewer=NULL
+verify-ai=NULL

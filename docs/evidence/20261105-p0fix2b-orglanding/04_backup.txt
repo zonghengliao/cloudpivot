@@ -1,0 +1,15 @@
+==> 备份到 /root/datafix-backup-orglanding-drill（库 cloudpivot_orgland@127.0.0.1:5432）
+==> 完成，清单：
+ORGLANDING (P0-FIX-2B-A) datafix backup
+time      : 2026-11-05T15:35:14+08:00
+database  : cloudpivot_orgland on 127.0.0.1:5432 (user alun)
+created by: scripts/datafix/org_landing/00_backup.sh
+
+== md5 ==
+10d2005efd5192279f25ad8f1f43f56e  ./affected_rows.txt
+d731bfb8876d920ee4b78a84bbb263e1  ./full.dump
+886fe0ae0eb2f7f0cf7cd57740b0e8b8  ./MANIFEST.txt
+ab81a526a9bbd3f6ee9f68963df7bd9b  ./schema.sql
+f714de798533642aa48f348308c46b73  ./sys_dept.sql
+5dee1cc80f10b8bfe9aea3c8d5842515  ./sys_user_role.sql
+目录：/root/datafix-backup-orglanding-drill

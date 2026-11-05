@@ -1,0 +1,25 @@
+-- ① 临时给 henry.liao 一个部门，让 N2 先变 ✅（基准态）
+  ✅ [权限] N1 有 dept_id 的受控表必须有部门级授权
+  ✅ [权限] N2 在用 HUMAN 账号必须有部门归属
+结果：2/2 通过   🚨 BLOCKER 0   ⚠️ WARN 0
+
+-- ② 把 laoliu 的 dept_id 置 NULL（模拟「落位没生效 / 有人手工清掉」）
+  ✅ [权限] N1 有 dept_id 的受控表必须有部门级授权
+  ⚠️ [权限] N2 在用 HUMAN 账号必须有部门归属
+        在用 HUMAN 账号（status=1/未锁/未删）里 1 个没有部门：laoliu(status=1)
+        宽松口径（含 status=0 停用号，便于与决策文档的「9 个在用账号」对账）：laoliu(status=1)、qa.viewer(status=0)
+          laoliu | 1 | false | HUMAN | 2026-10-30
+结果：1/2 通过   🚨 BLOCKER 0   ⚠️ WARN 1
+  · [权限] N2 在用 HUMAN 账号必须有部门归属  —  在用 HUMAN 账号（status=1/未锁/未删）里 1 个没有部门：laoliu(status=1)
+
+-- ③ 还原 laoliu → HQ
+  ✅ [权限] N1 有 dept_id 的受控表必须有部门级授权
+  ✅ [权限] N2 在用 HUMAN 账号必须有部门归属
+结果：2/2 通过   🚨 BLOCKER 0   ⚠️ WARN 0
+
+-- ④ 恢复目标态：henry.liao 仍无部门（待决策）
+  ✅ [权限] N1 有 dept_id 的受控表必须有部门级授权
+  ⚠️ [权限] N2 在用 HUMAN 账号必须有部门归属
+        在用 HUMAN 账号（status=1/未锁/未删）里 1 个没有部门：henry.liao(status=1)
+结果：1/2 通过   🚨 BLOCKER 0   ⚠️ WARN 1
+  · [权限] N2 在用 HUMAN 账号必须有部门归属  —  在用 HUMAN 账号（status=1/未锁/未删）里 1 个没有部门：henry.liao(status=1)

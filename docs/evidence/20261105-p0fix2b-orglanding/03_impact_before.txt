@@ -1,0 +1,14 @@
+== 快照已写入 /tmp/orgland-impact/before.json
+
+库 cloudpivot_orgland@127.0.0.1  快照 2026-11-05T15:35:12+08:00
+账号            类型     kind          self  dept_ids    sys_user            task                project             budget              expense_report      
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+admin         HUMAN  All           False 0           9                   71                  3                   0                   0                   
+cl_43870      HUMAN  SelfOnly      True  0           1                   0                   0                   0                   0                   
+henry.liao    HUMAN  All           False 0           9                   71                  3                   0                   0                   
+laoliu        HUMAN  All           False 0           9                   71                  3                   0                   0                   
+laoliu_test   HUMAN  All           False 0           9                   71                  3                   0                   0                   
+qa.limited    HUMAN  SelfOnly      True  0           1                   0                   0                   0                   0                   
+qa.mutex      HUMAN  SelfOnly      True  0           1                   0                   0                   0                   0                   
+qa.viewer     HUMAN  SelfOnly      True  0           1                   0                   0                   0                   0                   
+verify-ai     ROBOT  SelfOnly      True  0           1                   1                   0                   0                   0                   
