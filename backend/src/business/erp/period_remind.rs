@@ -26,15 +26,22 @@
 //! 也不会因为页面停留期间单据被人处理了而催错人（那类明细会被判「已不在挡路清单」
 //! 而跳过）。
 //!
-//! # 防骚扰：同一张单 24 小时内不重复催
+//! # 防骚扰：同一张单 24 小时内不重复催（两层判据 + 幂等键）
 //!
-//! 两层：
-//! 1. **查库**：`sys_notice` 里 `biz_type = 'period_remind'` 且 `biz_id = 单据 id`
-//!    且 `created_at > now() - 24h` → 计入 `skipped_recent`，不再发
-//!    （判据是「最近通知记录」，与卡面要求一致，不建新表）；
-//! 2. **幂等键**：`PERIOD:REMIND:{期间}:{单据类型}:{单据 id}:{日期}`，
+//! 1. **台账**：`biz_reminder_log` 里 `remind_kind = 'PERIOD_REMIND'`（年结是
+//!    `YEAR_END_REMIND`）且 `doc_id = 单据 id` 且 `sent_at > now() - 24h` →
+//!    计入 `skipped_recent`，不再发。台账是 append-only 的事实表，**不随通知生命周期
+//!    消失**（`notice_expire_cleanup` 会按 `expire_at` 硬删过期通知）；
+//! 2. **通知记录**：`sys_notice` 里 `biz_type = 'period_remind'` 且 `biz_id = 单据 id`
+//!    且 `created_at > now() - 24h` → 同样计入 `skipped_recent`。这一层保留是为了
+//!    **兼容 P1-FIX-10 之前已经发出去的历史通知**（那时还没有台账行），否则升级当天
+//!    同一张单会被再催一次；
+//! 3. **幂等键**：`PERIOD:REMIND:{期间}:{单据类型}:{单据 id}:{日期}`，
 //!    并发点两次时第二次命中 `uk_sys_notice_idem` → `duplicated = true`，同样计入
 //!    `skipped_recent`（不会两个人各发一遍）。
+//!
+//! 判据是「同一张单」而不是「同一个人」：一张单只有一个下一步动作，
+//! 24h 内换个人再催一遍等于骚扰同一个处理组 —— 比卡面口径更严，**有意为之**。
 //!
 //! # 通知内容（卡面模板逐字）
 //!
@@ -84,6 +91,7 @@ use std::result::Result;
 
 use crate::business::erp::period;
 use crate::business::erp::period_items::{self, BlockingItem};
+use crate::business::erp::reminder::{self, ReminderLedgerRow};
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
 use crate::business::notice::{self, NoticeDraft, NoticeTarget};
 use crate::business::shared::state_machine;
@@ -106,6 +114,12 @@ pub const SENDER_NAME: &str = "会计期间";
 
 /// 同一张单的重复催办间隔（小时）—— 防骚扰。
 pub const REMIND_WINDOW_HOURS: i64 = 24;
+
+/// 台账 `remind_kind`：月结账催办（`biz_reminder_log.remind_kind`，V0257 起入值域）。
+pub const LEDGER_KIND_PERIOD: &str = "PERIOD_REMIND";
+
+/// 台账 `remind_kind`：年结账催办。
+pub const LEDGER_KIND_YEAR_END: &str = "YEAR_END_REMIND";
 
 /// 一次催办最多处理多少条明细（与 `period_items::ITEM_LIMIT` 同量级；
 /// 单次请求超过这个数直接 400：既不是人点得出来的，也会把通知系统打爆）。
@@ -186,6 +200,8 @@ pub struct RemindScope {
     pub biz_type: &'static str,
     /// 幂等键前缀（`PERIOD:REMIND` / `YEAREND:REMIND`）。
     pub idem_prefix: &'static str,
+    /// `biz_reminder_log.remind_kind`（台账类型段：`PERIOD_REMIND` / `YEAR_END_REMIND`）。
+    pub ledger_kind: &'static str,
 }
 
 impl RemindScope {
@@ -198,6 +214,7 @@ impl RemindScope {
             key_label: period_code.to_string(),
             biz_type: BIZ_TYPE,
             idem_prefix: "PERIOD:REMIND",
+            ledger_kind: LEDGER_KIND_PERIOD,
         }
     }
 
@@ -210,6 +227,7 @@ impl RemindScope {
             key_label: year.to_string(),
             biz_type: BIZ_TYPE_YEAR_END,
             idem_prefix: "YEAREND:REMIND",
+            ledger_kind: LEDGER_KIND_YEAR_END,
         }
     }
 }
@@ -336,6 +354,39 @@ pub fn build_draft(
     build_draft_in(&RemindScope::period(period_code), item, now, operator)
 }
 
+/// 一条催办对应的台账行（`biz_reminder_log`）。
+///
+/// # 列口径
+///
+/// | 列 | 值 | 为什么 |
+/// |----|----|--------|
+/// | `doc_type` | 明细的 `doc_type`（`VOUCHER` / `STOCK_IN` / `PURCHASE_ORDER` / `STOCK_TRANSFER` / `INVENTORY`） | 与明细同一套单据类型，`REMINDER_DOC_KINDS` 已按 V0257 放宽 |
+/// | `doc_id` / `doc_no` | 明细的单据主键 / 单号快照 | 与 4 类提醒台账同口径，可按单追「催过几次」 |
+/// | `remind_kind` | `PERIOD_REMIND` / `YEAR_END_REMIND` | 期间与年结分开统计；也与 `sys_notice.biz_type` 一一对应 |
+/// | `stage` | 期间码（`2036-03`）或年度（`2036`） | 台账里一眼看出「为哪个月催的」，不必回查单据期间 |
+/// | `remind_date` | 业务日（Asia/Shanghai） | 与 4 类提醒共用幂等键 `(doc_type, doc_id, remind_kind, remind_date)` |
+///
+/// 写成纯函数（不碰库）是为了让「列取哪个值」能被单测钉住 —— 台账写错列不会报错，
+/// 只会在半年后查不到数据时才发现。
+pub fn ledger_row_of<'a>(
+    scope: &'a RemindScope,
+    item: &'a BlockingItem,
+    notice_id: Uuid,
+    receiver_count: i64,
+    now: DateTime<Utc>,
+) -> ReminderLedgerRow<'a> {
+    ReminderLedgerRow {
+        doc_type: item.doc_type.as_str(),
+        doc_id: item.doc_id,
+        doc_no: Some(item.doc_no.as_str()),
+        remind_kind: scope.ledger_kind,
+        stage: scope.key_label.as_str(),
+        remind_date: reminder::business_day(now),
+        notice_id: Some(notice_id),
+        receiver_count,
+    }
+}
+
 /// 从明细里挑出本次要催的那些（`kind` 空 = 全部；`ids` 空 = 该类全部）。
 ///
 /// `sources` 是 `(blocker 类型, 该类明细)` 的序列：期间催办与年结催办都能直接传，
@@ -444,10 +495,14 @@ pub async fn remind_period(
 
 /// 逐条发送（**期间 / 年结共用的唯一发送循环**）。
 ///
-/// 三条行为在两边必须一致：
+/// 四条行为在两边必须一致：
 /// * 没有处理人 → 计入 `skipped_no_owner`，不发（不往全员推）；
 /// * 24 小时内催过 → 计入 `skipped_recent`，不再打扰；
-/// * 单条 `dispatch` 失败 → 计入 `failed` 并继续（一条失败不该让 49 条都发不出去）。
+/// * 单条 `dispatch` 失败 → 计入 `failed` 并继续（一条失败不该让 49 条都发不出去）；
+/// * 发送成功 → **先发信、再记台账**（`biz_reminder_log`，append-only）。记账失败只打
+///   WARN 不抛错：信已经发出去了，把整次催办判红会让用户以为没催成、再点一次。
+///   记账失败的那张单下一轮会被重复催一次 —— 由通知幂等键兜住（同键第二次 dispatch
+///   返回 `duplicated`），不会真的多发一条。
 pub async fn dispatch_all(
     scope: &RemindScope,
     items: &[BlockingItem],
@@ -463,13 +518,16 @@ pub async fn dispatch_all(
             result.skipped_no_owner += 1;
             continue;
         };
-        if reminded_recently(scope.biz_type, item.doc_id, now).await? {
+        if reminded_recently(scope, item.doc_id, now).await? {
             result.skipped_recent += 1;
             continue;
         }
         match notice::dispatch(draft).await {
             Ok(reply) if reply.duplicated => result.skipped_recent += 1,
-            Ok(_) => result.sent += 1,
+            Ok(reply) => {
+                record_ledger(scope, item, &reply, now).await;
+                result.sent += 1;
+            }
             Err(error) => {
                 result.failed += 1;
                 tracing::warn!(
@@ -485,22 +543,66 @@ pub async fn dispatch_all(
     Ok(result)
 }
 
-/// 24 小时内是否已经催过这张单（`sys_notice` 里最近一条同 `biz_type` 的记录）。
+/// 记台账（失败只 WARN：信已经发出去了，不能因为记账失败把 `sent` 判成失败）。
+async fn record_ledger(
+    scope: &RemindScope,
+    item: &BlockingItem,
+    reply: &notice::DispatchResult,
+    now: DateTime<Utc>,
+) {
+    let row = ledger_row_of(scope, item, reply.notice_id, reply.receiver_count, now);
+    if let Err(error) = reminder::ledger_insert(row).await {
+        tracing::warn!(
+            scope = %scope.key_label,
+            doc_no = %item.doc_no,
+            error = %error,
+            "结账催办台账写入失败（通知已发出，仅少一条审计记录）"
+        );
+    }
+}
+
+/// 24 小时内是否已经催过这张单。
 ///
-/// 判据带 `biz_type`：期间催办与年结催办互不干扰（同一个单据 id 在两个上下文里各催一次）。
+/// 两层**或**关系（任一命中即视为催过）：
+/// * `biz_reminder_log`（V0257 起）：`remind_kind` + `doc_id` + `sent_at > now()-24h`。
+///   这是主判据 —— 台账不随 `notice_expire_cleanup` 的硬删消失；
+/// * `sys_notice`：`biz_type` + `biz_id` + `created_at > now()-24h`。
+///   保留它是为了兼容升级前已经发出的历史通知（那些没有台账行）。
+///
+/// 判据带 `biz_type` / `remind_kind`：期间催办与年结催办互不干扰（同一个单据 id
+/// 在两个上下文里各催一次）。
 async fn reminded_recently(
-    biz_type: &str,
+    scope: &RemindScope,
     doc_id: Uuid,
     now: DateTime<Utc>,
 ) -> Result<bool, ApiError> {
     let since = now - Duration::hours(REMIND_WINDOW_HOURS);
+
+    // ① 台账（append-only，通知被清理也还在）
+    let in_ledger: i64 = db()
+        .scalar_with_params(
+            "SELECT COUNT(*)::bigint FROM biz_reminder_log \
+              WHERE remind_kind = ? AND doc_id = ? AND sent_at > ?",
+            vec![
+                Value::Text(scope.ledger_kind.to_string()),
+                Value::from(doc_id),
+                Value::from(since),
+            ],
+        )
+        .await
+        .map_err(|error| db_error(error, "查询最近催办台账"))?;
+    if in_ledger > 0 {
+        return Ok(true);
+    }
+
+    // ② 通知表（兼容升级前的历史通知）
     let count: i64 = db()
         .scalar_sql(
             "SELECT COUNT(*) FROM sys_notice \
               WHERE biz_type = ? AND biz_id = ? AND created_at > ?"
                 .to_string(),
             vec![
-                Value::Text(biz_type.to_string()),
+                Value::Text(scope.biz_type.to_string()),
                 Value::Text(doc_id.to_string()),
                 Value::from(since),
             ],

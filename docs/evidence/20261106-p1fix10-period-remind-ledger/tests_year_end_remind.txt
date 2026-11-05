@@ -1,0 +1,13 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 6 tests
+test business::erp::year_end_remind::tests::pick_filters_by_kind_and_ids ... ok
+test business::erp::year_end_remind::tests::remind_dedupes_within_24_hours ... ok
+test business::erp::year_end_remind::tests::remind_handles_empty_and_invalid_requests ... ok
+test business::erp::year_end_remind::tests::remind_sends_to_owner_and_counts_are_consistent ... ok
+test business::erp::year_end_remind::tests::remind_skips_items_without_owner ... ok
+test business::erp::year_end_remind::tests::scope_is_year_shaped_and_permission_code_is_pinned ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 2673 filtered out; finished in 12.78s
+

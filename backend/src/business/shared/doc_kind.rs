@@ -290,9 +290,17 @@ pub const ATTACHMENT_DOC_KINDS: [DocKind; 7] = [
 ];
 
 /// 能记业务提醒的对象（与 `ck_biz_reminder_log_doc_type` 逐字一致）。
-pub const REMINDER_DOC_KINDS: [DocKind; 5] = [
+///
+/// 加成员必须同时改 V0257 的 CHECK，否则写库直接 `check constraint violated`。
+pub const REMINDER_DOC_KINDS: [DocKind; 8] = [
     DocKind::Payable,
     DocKind::PurchaseOrder,
+    // P1-FIX-10：结账催办的挡路单据（凭证 / 收货单 / 调拨单）也要进台账 ——
+    // 4 类定时扫描只覆盖应付 / 采购 / 合同 / 库存，而结账清单里的挡路单据
+    // 有一半是这三类（`period_items` 的 DOC_VOUCHER / DOC_STOCK_IN / DOC_STOCK_TRANSFER）。
+    DocKind::StockIn,
+    DocKind::StockTransfer,
+    DocKind::Voucher,
     DocKind::Contract,
     DocKind::Inventory,
     // FIN-3：待付款提醒（V0244 把 CHECK 放宽到 5 值；扫描任务属 P1-5）。

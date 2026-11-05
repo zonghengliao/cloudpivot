@@ -1,0 +1,55 @@
+### 1) close-check blockers
+[
+  {
+    "kind": null,
+    "count": 1,
+    "items": [
+      {
+        "doc_type": "VOUCHER",
+        "doc_no": "PZ-R10-0001",
+        "owner_role": "FINANCE_MANAGER",
+        "owner_name": "财务经理一号"
+      }
+    ]
+  }
+]
+### 2) warnings 条数
+0
+### 3) 催办前 sys_notice(period_remind) 行数
+0
+### 4) 催办前 biz_reminder_log 行数
+0
+### 5) 第 1 次催办（HTTP 应答）
+{
+  "_http": 200,
+  "_ok": true,
+  "data": {
+    "sent": 1,
+    "failed": 0,
+    "skipped_no_owner": 0,
+    "skipped_recent": 0,
+    "total": 1,
+    "message": "2026-11：已催办 1 张"
+  }
+}
+### 6) 第 2 次催办（24h 内重复）
+{
+  "_http": 200,
+  "_ok": true,
+  "data": {
+    "sent": 0,
+    "failed": 0,
+    "skipped_no_owner": 0,
+    "skipped_recent": 1,
+    "total": 1,
+    "message": "2026-11：已催办 0 张，1 张24小时内已催过（不重复打扰）"
+  }
+}
+### 7) 催办后 sys_notice(period_remind) 行数
+1
+### 8) 催办后 sys_notice 明细
+NTT202611051635017539ba08|2026-11 月结账待处理：PZ-R10-0001|period_remind|29199558-8b2f-4159-88b1-350a65d2d62c|1|2026-11-06 00:35:01.385446+08
+### 9) 催办后 biz_reminder_log 行数
+0
+### 10) 催办后 biz_reminder_log 明细
+

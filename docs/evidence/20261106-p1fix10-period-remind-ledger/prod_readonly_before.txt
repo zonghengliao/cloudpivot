@@ -1,0 +1,49 @@
+# 生产只读核对（172.18.10.144 / cloudpivot）—— 2026-11-06 00:52:14 CST
+
+## ① 生产 biz_reminder_log 行数（评审查到的是 0）
+ reminder_log_rows 
+-------------------
+                 0
+(1 row)
+
+
+
+## ② 生产 sys_notice 里 period_remind 的通知（说明催办一直在同步发信）
+         notice_no         |                  title                   | receiver_count |          created_at           
+---------------------------+------------------------------------------+----------------+-------------------------------
+ NTT20261103133259b427e6a9 | 2026-10 月结账待处理：PO-20261031-000002 |              4 | 2026-11-03 21:32:59.738578+08
+ NTT20261103133259b4d614e5 | 2026-10 月结账待处理：IN-20261031-000001 |              4 | 2026-11-03 21:32:59.742972+08
+ NTT202611031332599cc60c66 | 2026-10 月结账待处理：PO-20261031-000003 |              4 | 2026-11-03 21:32:59.746308+08
+ NTT20261103133259a0ba2806 | 2026-10 月结账待处理：IN-20261031-000002 |              4 | 2026-11-03 21:32:59.74928+08
+ NTT202611031332591bb3ac50 | 2026-10 月结账待处理：PO-20261031-000009 |              4 | 2026-11-03 21:32:59.752864+08
+ NTT202611031332591a8147f6 | 2026-10 月结账待处理：PO-20261031-000010 |              4 | 2026-11-03 21:32:59.755489+08
+ NTT202611031332593bcb549f | 2026-10 月结账待处理：TK-20261031-000007 |              4 | 2026-11-03 21:32:59.758203+08
+(7 rows)
+
+
+
+## ③ 生产 sys_job 全量（没有任何「结账催办」任务，也就无所谓停用）
+         job_name         | status |  cron_expr   
+--------------------------+--------+--------------
+ erp_contract_expire_scan |      1 | 0 30 7 * * *
+ erp_depreciation_run     |      0 | 0 30 1 1 * *
+ erp_low_stock_scan       |      1 | 0 40 7 * * *
+ erp_payable_due_scan     |      1 | 0 10 7 * * *
+ erp_po_overdue_scan      |      1 | 0 20 7 * * *
+ invariant_audit          |      0 | 0 20 2 * * *
+(6 rows)
+
+
+
+## ④ 生产 结账相关权限授予
+          auth_code          |    role_code    
+-----------------------------+-----------------
+ business:erp:period:close   | FINANCE_MANAGER
+ business:erp:period:close   | SUPER_ADMIN
+ business:erp:period:remind  | FINANCE_MANAGER
+ business:erp:period:remind  | SUPER_ADMIN
+ business:erp:voucher:create | FINANCE_MANAGER
+ business:erp:voucher:create | SUPER_ADMIN
+(6 rows)
+
+

@@ -487,6 +487,154 @@ fn money_text_strips_trailing_zeros() {
     assert_eq!(money_text(Decimal::from(0)), "0");
 }
 
+// ==================== ⑥ 台账（P1-FIX-10） ====================
+
+/// `ledger_row_of`：台账 8 列各自取哪个值（纯函数，不连库）。
+///
+/// 台账写错列不会报错，只会在半年后查不到数据时才发现 —— 所以列口径必须有断言钉住。
+#[test]
+fn ledger_row_maps_all_columns() {
+    let doc_id = Uuid::now_v7();
+    let notice_id = Uuid::now_v7();
+    let item = period_items::BlockingItem {
+        doc_type: period_items::DOC_STOCK_TRANSFER.to_string(),
+        doc_id,
+        doc_no: "TR-2033-11-009".to_string(),
+        status_label: "已批准待发运".to_string(),
+        amount: None,
+        created_by_name: None,
+        owner_role: Some("WAREHOUSE_MANAGER".to_string()),
+        owner_name: None,
+        action_label: "去发运".to_string(),
+        route: "/business/erp/stock-transfer?transfer_no=TR-2033-11-009".to_string(),
+        waiting_since: None,
+        owner_role_id: Some(Uuid::now_v7()),
+        owner_user_id: None,
+    };
+    // 2026-11-05T16:30:00Z = 北京时间 2026-11-06 00:30 → 业务日必须是 11-06
+    let now = DateTime::parse_from_rfc3339("2026-11-05T16:30:00Z")
+        .expect("时间")
+        .with_timezone(&Utc);
+
+    let period = RemindScope::period("2033-11");
+    let row = ledger_row_of(&period, &item, notice_id, 3, now);
+    assert_eq!(row.doc_type, "STOCK_TRANSFER");
+    assert_eq!(row.doc_id, doc_id);
+    assert_eq!(row.doc_no, Some("TR-2033-11-009"));
+    assert_eq!(row.remind_kind, "PERIOD_REMIND");
+    assert_eq!(
+        row.stage, "2033-11",
+        "stage 写期间码，台账里一眼看出为哪个月催的"
+    );
+    assert_eq!(
+        row.remind_date.to_string(),
+        "2026-11-06",
+        "业务日按 Asia/Shanghai 折算（UTC 16:30 = 北京次日 00:30）"
+    );
+    assert_eq!(row.notice_id, Some(notice_id));
+    assert_eq!(row.receiver_count, 3);
+
+    let year = RemindScope::year_end(2026);
+    let row = ledger_row_of(&year, &item, notice_id, 1, now);
+    assert_eq!(row.remind_kind, "YEAR_END_REMIND");
+    assert_eq!(row.stage, "2026");
+}
+
+/// 催办真的写台账，且**台账单独就能挡住 24h 内的重复**（通知被清理后仍然拦得住）。
+#[tokio::test]
+async fn remind_writes_ledger_and_ledger_alone_blocks_repeat() {
+    let Some(_guard) = support::setup().await else {
+        return;
+    };
+    support::open_test_period(8).await;
+    support::ensure_role_for(
+        period_items::PERM_VOUCHER_POST,
+        "P2-ROLE-POST",
+        &[("p2.owner", "李四")],
+    )
+    .await;
+    let voucher_id =
+        support::seed_voucher("2033-08", "P2-V-801", "DRAFT", ("10", "10"), ("10", "10")).await;
+    let period_id = period_of("2033-08").await;
+    let request = RemindReq {
+        blocker_kind: Some(BLOCKER_DRAFT_VOUCHER.to_string()),
+        item_ids: Vec::new(),
+    };
+
+    let first = remind_period(period_id, &request, support::operator())
+        .await
+        .expect("首次催办");
+    if first.sent == 0 {
+        println!("SKIP: 该环境没有持有过账权限的角色，无法验证台账写入");
+        return;
+    }
+    assert_eq!(first.sent, 1, "一张草稿凭证应催出一条通知：{first:?}");
+
+    // ① 台账有记录，且 8 列都对（不是「只写了个 id」）
+    let rows = db()
+        .query_sql(
+            "SELECT doc_type, doc_no, remind_kind, stage, remind_date::text AS remind_date, \
+                    notice_id, receiver_count \
+               FROM biz_reminder_log WHERE doc_id = ?"
+                .to_string(),
+            vec![Value::from(voucher_id)],
+        )
+        .await
+        .expect("读台账");
+    assert_eq!(
+        rows.len(),
+        1,
+        "一次催办只该有一行台账（幂等键是 单据×类型×业务日）"
+    );
+    let row = &rows[0];
+    assert_eq!(row.get_typed::<String>("doc_type").unwrap(), "VOUCHER");
+    assert_eq!(row.get_typed::<String>("doc_no").unwrap(), "P2-V-801");
+    assert_eq!(
+        row.get_typed::<String>("remind_kind").unwrap(),
+        LEDGER_KIND_PERIOD
+    );
+    assert_eq!(row.get_typed::<String>("stage").unwrap(), "2033-08");
+    assert_eq!(
+        row.get_typed::<String>("remind_date").unwrap(),
+        reminder::business_day(Utc::now()).to_string(),
+        "remind_date 必须是北京时间的业务日"
+    );
+    let notice_id: Uuid = row.get_typed("notice_id").expect("notice_id 要回填");
+    let receiver_count: i64 = row.get_typed("receiver_count").expect("receiver_count");
+    assert!(
+        receiver_count >= 1,
+        "收件人数要记实际扇出数：{receiver_count}"
+    );
+
+    // 台账里的 notice_id 必须是真发出去的那条通知
+    let stored_notice: i64 = db()
+        .scalar_with_params(
+            "SELECT COUNT(*) FROM sys_notice WHERE id = ? AND biz_type = 'period_remind'",
+            vec![Value::from(notice_id)],
+        )
+        .await
+        .expect("查通知");
+    assert_eq!(stored_notice, 1, "台账的 notice_id 指向不存在的通知");
+
+    // ② 把通知的时间改成 25 小时前（模拟 notice_expire_cleanup 删掉/通知过期）：
+    //    通知层判据失效，只剩台账 —— 仍然要拦住重复催办
+    db().exec_sql(
+        "UPDATE sys_notice SET created_at = now() - interval '25 hours' WHERE id = ?".to_string(),
+        vec![Value::from(notice_id)],
+    )
+    .await
+    .expect("回拨通知时间");
+
+    let second = remind_period(period_id, &request, support::operator())
+        .await
+        .expect("二次催办");
+    assert_eq!(second.sent, 0, "台账在 24h 内，不许再发：{second:?}");
+    assert_eq!(
+        second.skipped_recent, 1,
+        "拦下来要记 skipped_recent（说明是台账拦的，不是通知表）：{second:?}"
+    );
+}
+
 // ==================== 夹具小工具 ====================
 
 /// 期间编码 → id。

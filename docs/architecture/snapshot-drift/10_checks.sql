@@ -499,6 +499,10 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('REMINDER_DOC', 'PURCHASE_ORDER', 'biz_purchase_order', 'deleted_at', '采购超期提醒'),
     ('REMINDER_DOC', 'CONTRACT',       'biz_contract',       'deleted_at', '合同到期提醒'),
     ('REMINDER_DOC', 'INVENTORY',      'biz_inventory',      NULL,         '低库存提醒（库存行无软删）'),
+    -- P1-FIX-10：结账催办（PERIOD_REMIND / YEAR_END_REMIND）的挡路单据进台账，值域 5 → 8
+    ('REMINDER_DOC', 'VOUCHER',        'biz_voucher',        'deleted_at', '结账催办：草稿凭证挡路'),
+    ('REMINDER_DOC', 'STOCK_IN',       'biz_stock_in',       'deleted_at', '结账催办：收货单未过账挡路'),
+    ('REMINDER_DOC', 'STOCK_TRANSFER', 'biz_stock_transfer', 'deleted_at', '结账催办：调拨单未完结挡路'),
     ('REMINDER_DOC', 'EXPENSE_REPORT', 'biz_expense_report', 'deleted_at', '报销待付款提醒（FIN-3）'),
     -- ⑧ 流程抄送来源：biz_flow_cc.source_type + source_ref（P2-6b，取值域 = flow::graph::AssigneeKind）
     --    只有「角色 / 部门」两类会把来源 id 落进 source_ref；人本身记在 receiver_id。
@@ -1084,6 +1088,34 @@ SELECT m.ref_domain, 'biz_reminder_log', r.id, coalesce(r.doc_no, r.id::text), '
   JOIN di.v_poly_ref_map m ON m.ref_domain = 'REMINDER_DOC' AND m.ref_type = r.doc_type
   LEFT JOIN biz_inventory t ON t.id = r.doc_id
  WHERE r.doc_type = 'INVENTORY' AND t.id IS NULL
+-- P1-FIX-10：结账催办的挡路单据（凭证 / 收货单 / 调拨单）也进台账，三块与新登记行一一对应
+UNION ALL
+SELECT m.ref_domain, 'biz_reminder_log', r.id, coalesce(r.doc_no, r.id::text), 'doc_id', m.ref_type, r.doc_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_reminder_log r
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'REMINDER_DOC' AND m.ref_type = r.doc_type
+  LEFT JOIN biz_voucher t ON t.id = r.doc_id
+ WHERE r.doc_type = 'VOUCHER' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+UNION ALL
+SELECT m.ref_domain, 'biz_reminder_log', r.id, coalesce(r.doc_no, r.id::text), 'doc_id', m.ref_type, r.doc_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_reminder_log r
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'REMINDER_DOC' AND m.ref_type = r.doc_type
+  LEFT JOIN biz_stock_in t ON t.id = r.doc_id
+ WHERE r.doc_type = 'STOCK_IN' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+UNION ALL
+SELECT m.ref_domain, 'biz_reminder_log', r.id, coalesce(r.doc_no, r.id::text), 'doc_id', m.ref_type, r.doc_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_reminder_log r
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'REMINDER_DOC' AND m.ref_type = r.doc_type
+  LEFT JOIN biz_stock_transfer t ON t.id = r.doc_id
+ WHERE r.doc_type = 'STOCK_TRANSFER' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
 -- ========== ⑧ 流程抄送来源（P2-6b） ==========
 --   角色（ROLE / ADMIN）→ sys_role；部门（DEPT_LEADER / INITIATOR_SUPERIOR）→ sys_dept。
 --   其余来源本来就不写 source_ref（人写在 receiver_id），登记表 target_table 为空。

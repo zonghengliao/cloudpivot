@@ -1,0 +1,89 @@
+### 0) 夹具草稿凭证
+{
+  "voucher_id": "cef0902c-826c-4307-8578-5f9cdab3a3dc"
+}
+### 1) 迁移版本（V0257 是否已应用）
+erp_period_remind_ledger
+### 2) biz_reminder_log 值域（CHECK）
+ck_biz_reminder_log_doc_type :: CHECK (((doc_type)::text = ANY ((ARRAY['PAYABLE'::character varying, 'PURCHASE_ORDER'::character varying, 'CONTRACT'::character varying, 'INVENTORY'::character varying, 'EXPENSE_REPORT'::character varying, 'VOUCHER'::character varying, 'STOCK_IN'::character varying, 'STOCK_TRANSFER'::character varying])::text[])))
+ck_biz_reminder_log_kind :: CHECK (((remind_kind)::text = ANY ((ARRAY['PAYABLE_DUE'::character varying, 'PO_OVERDUE'::character varying, 'CONTRACT_EXPIRE'::character varying, 'LOW_STOCK'::character varying, 'PERIOD_REMIND'::character varying, 'YEAR_END_REMIND'::character varying])::text[])))
+### 3) 挡路明细（2026-12）
+[
+  {
+    "doc_type": "VOUCHER",
+    "doc_no": "PZ-R10-0002",
+    "owner_role": "FINANCE_MANAGER",
+    "owner_name": "财务经理一号"
+  }
+]
+### 4) 催办前 台账/通知 计数
+{
+  "biz_reminder_log": "0",
+  "sys_notice": "0"
+}
+### 5) 第 1 次催办（HTTP 应答）
+{
+  "_http": 200,
+  "_ok": true,
+  "data": {
+    "sent": 1,
+    "failed": 0,
+    "skipped_no_owner": 0,
+    "skipped_recent": 0,
+    "total": 1,
+    "message": "2026-12：已催办 1 张"
+  }
+}
+### 5b) 端到端耗时
+{
+  "seconds": 0.013,
+  "说明": "同步发信：应答返回时通知与台账都已落库"
+}
+### 6) sys_notice 记录（点催办立即发信的证据）
+NTT20261105165058e51b3b99 | 2026-12 月结账待处理：PZ-R10-0002 | biz_type=period_remind | biz_id=cef0902c-826c-4307-8578-5f9cdab3a3dc | receivers=1 | created_at=2026-11-06 00:50:58.987984+08
+### 7) sys_notice_receiver（收件人）
+ERROR:  column nri.is_read does not exist
+LINE 1: select u.username||' | read='||nri.is_read from sys_notice_r...
+                                       ^
+### 8) biz_reminder_log 记录（逐列）
+doc_type=VOUCHER | doc_id=cef0902c-826c-4307-8578-5f9cdab3a3dc | doc_no=PZ-R10-0002 | remind_kind=PERIOD_REMIND | stage=2026-12 | remind_date=2026-11-06 | notice_id=01a1ac9e-ed2b-71e3-9710-1ecee51b3b99 | receiver_count=1 | sent_at=2026-11-06 00:50:58.992117+08
+### 9) 第 2 次催办（24h 内重复，应被拦）
+{
+  "_http": 200,
+  "_ok": true,
+  "data": {
+    "sent": 0,
+    "failed": 0,
+    "skipped_no_owner": 0,
+    "skipped_recent": 1,
+    "total": 1,
+    "message": "2026-12：已催办 0 张，1 张24小时内已催过（不重复打扰）"
+  }
+}
+### 9b) 拦下后 台账/通知 计数（不该增长）
+{
+  "biz_reminder_log": "1",
+  "sys_notice": "1"
+}
+### 10) 把通知回拨 25 小时（通知层判据失效）
+0 条通知 created_at > now()-24h
+### 11) 第 3 次催办（只剩台账判据，应仍被拦）
+{
+  "_http": 200,
+  "_ok": true,
+  "data": {
+    "sent": 0,
+    "failed": 0,
+    "skipped_no_owner": 0,
+    "skipped_recent": 1,
+    "total": 1,
+    "message": "2026-12：已催办 0 张，1 张24小时内已催过（不重复打扰）"
+  }
+}
+### 12) 台账计数（仍 1 行）
+1
+### 13) 不依赖定时任务的静态证据
+{
+  "period_remind 里的调度注册数": "0",
+  "sys_job 里与结账/期间有关的任务": "（无）"
+}

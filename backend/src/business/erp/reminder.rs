@@ -466,7 +466,68 @@ pub async fn ledger_snapshot(
     Ok(snapshot)
 }
 
+/// 台账一行的入参（`biz_reminder_log` 的**唯一**写入口参 —— 4 类扫描与结账催办共用）。
+///
+/// 写成结构体而不是 8 个位置参数：列数多且全是同型短字符串，位置参数极易在调用点
+/// 把 `stage` 和 `remind_kind` 写反（clippy 也会在超过 7 个参数时报警）。
+#[derive(Debug, Clone, Copy)]
+pub struct ReminderLedgerRow<'a> {
+    /// `doc_type` 列（取值域 = [`crate::business::shared::doc_kind::REMINDER_DOC_KINDS`]）。
+    pub doc_type: &'a str,
+    /// `doc_id` 列（单据主键）。
+    pub doc_id: Uuid,
+    /// `doc_no` 列（单号快照，只是排查线索）。
+    pub doc_no: Option<&'a str>,
+    /// `remind_kind` 列（提醒类型：4 类扫描 + `PERIOD_REMIND` / `YEAR_END_REMIND`）。
+    pub remind_kind: &'a str,
+    /// `stage` 列（档位；结账催办写期间码 / 年度）。
+    pub stage: &'a str,
+    /// `remind_date` 列（业务日，Asia/Shanghai）。
+    pub remind_date: NaiveDate,
+    /// `notice_id` 列（发出的 `sys_notice.id`）。
+    pub notice_id: Option<Uuid>,
+    /// `receiver_count` 列（当时扇出的收件人数）。
+    pub receiver_count: i64,
+}
+
 /// 记一条台账（`ON CONFLICT DO NOTHING`，返回是否新插入）。
+///
+/// **这是台账的唯一写入口**：4 类定时扫描（`ledger_record`）与结账催办
+/// （`period_remind::dispatch_all`）都走这里 —— 幂等索引
+/// `(doc_type, doc_id, remind_kind, remind_date)` 的意义只有在「所有写入共用一条
+/// SQL」时才成立（各写各的 `ON CONFLICT` 子句迟早对不齐）。
+///
+/// **先发通知、再记台账**：反过来的话，通知发送失败会永久吞掉这张单当天的提醒
+/// （台账已有行，下一轮直接跳过）。代价是极小概率「通知发出但记账失败」→ 下一轮再发一次，
+/// 那由通知幂等键（同一档位同一天同一个键）兜住。
+pub async fn ledger_insert(row: ReminderLedgerRow<'_>) -> DbResult<u64> {
+    db().exec_sql(
+        "INSERT INTO biz_reminder_log \
+             (doc_type, doc_id, doc_no, remind_kind, stage, remind_date, notice_id, receiver_count) \
+         VALUES (?, ?, ?::text, ?, ?, ?::text::date, ?::uuid, ?) \
+         ON CONFLICT (doc_type, doc_id, remind_kind, remind_date) DO NOTHING"
+            .to_string(),
+        vec![
+            Value::Text(row.doc_type.to_string()),
+            Value::from(row.doc_id),
+            match row.doc_no {
+                Some(no) => Value::Text(no.to_string()),
+                None => Value::Null,
+            },
+            Value::Text(row.remind_kind.to_string()),
+            Value::Text(row.stage.to_string()),
+            Value::Text(row.remind_date.format("%Y-%m-%d").to_string()),
+            match row.notice_id {
+                Some(id) => Value::from(id),
+                None => Value::Null,
+            },
+            Value::I64(row.receiver_count),
+        ],
+    )
+    .await
+}
+
+/// 记一条台账（4 类定时扫描的便捷入口：`doc_type` / `remind_kind` / `stage` 都从枚举取）。
 ///
 /// **先发通知、再记台账**：反过来的话，通知发送失败会永久吞掉这张单当天的提醒
 /// （台账已有行，下一轮直接跳过）。代价是极小概率「通知发出但记账失败」→ 下一轮再发一次，
@@ -478,23 +539,16 @@ pub async fn ledger_record(
     notice_id: Uuid,
     receiver_count: i64,
 ) -> DbResult<u64> {
-    db().exec_sql(
-        "INSERT INTO biz_reminder_log \
-             (doc_type, doc_id, doc_no, remind_kind, stage, remind_date, notice_id, receiver_count) \
-         VALUES (?, ?, ?, ?, ?, ?::text::date, ?, ?) \
-         ON CONFLICT (doc_type, doc_id, remind_kind, remind_date) DO NOTHING"
-            .to_string(),
-        vec![
-            Value::Text(kind.doc_type().to_string()),
-            Value::from(message.doc_id),
-            Value::Text(message.doc_no.clone()),
-            Value::Text(kind.code().to_string()),
-            Value::Text(message.stage.clone()),
-            Value::Text(day.format("%Y-%m-%d").to_string()),
-            Value::from(notice_id),
-            Value::I64(receiver_count),
-        ],
-    )
+    ledger_insert(ReminderLedgerRow {
+        doc_type: kind.doc_type(),
+        doc_id: message.doc_id,
+        doc_no: Some(message.doc_no.as_str()),
+        remind_kind: kind.code(),
+        stage: message.stage.as_str(),
+        remind_date: day,
+        notice_id: Some(notice_id),
+        receiver_count,
+    })
     .await
 }
 
