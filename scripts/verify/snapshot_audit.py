@@ -142,7 +142,7 @@ CHECKS = [
     dict(id="DI-12", group="主档", view="di.c_di12", level="BLOCKER", contract=False,
          name="采购单供应商主档悬空/已软删",
          meaning="悬空 ⇒ 追溯链断掉(P0)；软删 ⇒ 「当时是谁」只能靠快照名兜底(P1)"),
-    dict(id="DI-23", group="主档", view="di.c_di23", level="WARN", contract=False,
+    dict(id="DI-26", group="主档", view="di.c_di26", level="WARN", contract=False,
          name="供应商 ID→名字映射唯一性（同名/同简称/简称撞他人全名/晚写旧名/快照名≠现名）",
          meaning="关联只认 id，名字只用于显示：两个活跃供应商同名或同简称(P1)会让下拉框与按名字汇总"
                  "把两家并成一家，简称撞别人全名(P1)会让人分不清全名/简称；SPOT 采购单建单晚于主档"
@@ -160,23 +160,37 @@ CHECKS = [
          name="凭证来源悬空（source_type 指出的单据已软删/不存在，或类型有而 source_id 空）",
          meaning="凭证是审计证据链的终点：悬空 ⇒ 按来源筛凭证出现点不进去的幽灵行(P0)；缺 id ⇒ 只剩 source_no 可人工追(P1)"),
     dict(id="DI-18", group="多态引用", view="di.c_di18", level="BLOCKER", contract=False,
-         name="库存流水单据悬空（doc_id 指向的单据已软删/不存在）",
+         name="库存流水单据悬空（doc_id 指向的单据已软删/不存在；已核查豁免降 INFO）",
          meaning="流水是「账动了多少」的唯一证据，必须能回跳到造成它的单据；无源 ⇒ 账实不符时说不出谁动的(P0)。"
-                 "doc_type 本来没有实体表（ADJUST/OPENING）却填了 doc_id ⇒ 手工修数痕迹，INFO"),
+                 "doc_type 本来没有实体表（ADJUST/OPENING）却填了 doc_id ⇒ 手工修数痕迹，INFO；"
+                 "在 di.v_poly_ref_waiver 里精确到行 id 且未过期的「已核查豁免」⇒ INFO"
+                 "（snapshot_value 前缀「已核查豁免#<checked_on>：」），到期自动回 ERROR，不靠人记得删"),
     dict(id="DI-19", group="多态引用", view="di.c_di19", level="WARN", contract=False,
-         name="流程实例业务单据悬空/缺 biz_id",
-         meaning="审批挂在不存在的单据上：账不受影响，但审批中心点进去 404、TASK_OWNER 等变量解析不到(P1)"),
+         name="流程实例业务单据悬空/缺 biz_id（按实例状态分级：PENDING=WARN、终态=INFO）",
+         meaning="活待办挂在死对象上（PENDING 实例指向已删单据）⇒ WARN(P1)：审批人批的是一个不存在的东西；"
+                 "终态实例（APPROVED/CANCELLED/WITHDRAWN/REJECTED）指向已删对象 ⇒ INFO：实例是审计证据、"
+                 "不随业务对象删除（T12 / R-P1-1），历史正常但仍逐条列出；有 biz_type 无 biz_id ⇒ 保持 WARN"),
     dict(id="DI-20", group="多态引用", view="di.c_di20", level="INFO", contract=False,
          name="状态日志实体悬空（entity_type 指向的实体已软删/不存在）",
          meaning="日志是只增不改的历史台账：实体被删是正常生命周期，日志必须保留「谁在什么时候改了什么」⇒ 只记录不告警"),
     dict(id="DI-21", group="多态引用", view="di.c_di21", level="WARN", contract=False,
-         name="序列号来源未记录（source_type 有值、source_id 恒空；且来源类型无目标表）",
-         meaning="序列号的影响在「一物一码」的件数（C5 已守），来源单据缺失只影响「这件货哪张单进来的」追责 ⇒ INFO；"
-                 "无表映射却填了 id ⇒ WARN（映射未定义，需人工确认指向）"),
+         name="序列号来源悬空 / 未记录（source_type 指出的收货单/调拨单已软删，或有类型无 id）",
+         meaning="序列号的影响在「一物一码」的件数（C5 已守），来源单据缺失只影响「这件货哪张单进来的」追责；"
+                 "P2-6b 起四种来源都有登记表 ⇒ 能把**真悬空**查出来（WARN）；"
+                 "历史「有类型无 id」= INFO（可人工补），PRODUCE 无单据表不算缺"),
     dict(id="DI-22", group="多态引用", view="di.c_di22", level="INFO", contract=False,
          name="多态引用登记缺口（数据里出现 di.v_poly_ref_map 未登记的类型）",
-         meaning="本组巡检的可信度护栏：未登记的类型 ⇒ 它的悬空不会被 DI-17…DI-21 查到（静默漏报），"
+         meaning="本组巡检的可信度护栏：未登记的类型 ⇒ 它的悬空不会被 DI-17…DI-25 查到（静默漏报），"
                  "典型命中是客户端自建流程 biz_type / E2E 夹具（按设计不参与自检）"),
+    dict(id="DI-23", group="多态引用", view="di.c_di23", level="WARN", contract=False,
+         name="单据附件指向的单据悬空（doc_type 指出的单据已软删/不存在）",
+         meaning="附件是证据副本：单据没了附件还在 ⇒ 点开 404、归档不知归属（P2-6b 补口，生产当前 0 行）"),
+    dict(id="DI-24", group="多态引用", view="di.c_di24", level="INFO", contract=False,
+         name="业务提醒台账指向的单据悬空",
+         meaning="提醒历史是只增不改的台账，单据被删是正常生命周期（口径同 DI-20）⇒ 只记录不告警"),
+    dict(id="DI-25", group="多态引用", view="di.c_di25", level="INFO", contract=False,
+         name="流程抄送来源悬空 / 缺来源 id（角色/部门被删，或角色来源没记 source_ref）",
+         meaning="抄送在通知侧，不影响审批结论与账；但来源断链后说不清「这条抄送是怎么来的」（P2-6b 补口）"),
 ]
 
 GROUPS = []

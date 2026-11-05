@@ -581,10 +581,16 @@ export function semanticKey(value: unknown): string {
   }
 }
 
-/** 字段下拉选项（内置 10 个固定字段 + 常用前缀示例；`creatable` 让用户直接敲 `form.xxx`）。 */
+/**
+ * 字段下拉选项（内置 10 个固定字段；`creatable` 让用户直接敲 `form.xxx`）。
+ *
+ * 标签口径是**中文名在前**（`发起人姓名（initiator.name）`），不是键名在前：
+ * 面板可拖到 280px，键名在前时 select 会截成「initiator.nam…」—— 用户看到的全是术语，
+ * 中文名恰好被省略号吃掉（实测 320px 就是这样）。键名仍留在括号里，给高级用户核对条件表达式。
+ */
 export function fieldOptions(): Array<{ value: string; label: string }> {
   return FIXED_FIELDS.map((field) => ({
     value: field,
-    label: `${field}（${FIXED_FIELD_LABELS[field] ?? ''}）`,
+    label: `${FIXED_FIELD_LABELS[field] ?? field}（${field}）`,
   }));
 }

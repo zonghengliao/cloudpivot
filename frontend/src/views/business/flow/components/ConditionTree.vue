@@ -4,10 +4,10 @@
     <div class="ct__head">
       <span class="ct__title">条件规则</span>
       <span class="ct__meter" :class="{ 'ct__meter--limit': report.nodes > MAX_NODES }">
-        节点 {{ report.nodes }}/{{ MAX_NODES }}
+        已加 {{ report.nodes }}/{{ MAX_NODES }} 条
       </span>
       <span class="ct__meter" :class="{ 'ct__meter--limit': report.depth > MAX_DEPTH }">
-        深度 {{ report.depth }}/{{ MAX_DEPTH }}
+        嵌套 {{ report.depth }}/{{ MAX_DEPTH }} 层
       </span>
       <span class="ct__spacer" />
       <t-button
@@ -57,14 +57,38 @@
       <li v-if="issues.length > 4" class="ct__issue">… 还有 {{ issues.length - 4 }} 条</li>
     </ul>
 
-    <!-- JSON 预览：给后端 `parse_condition` 的原文，方便排障 -->
-    <div class="ct__foot">
-      <t-button size="small" variant="text" @click="showJson = !showJson">
-        {{ showJson ? '收起 JSON' : '查看 JSON' }}
+    <!-- 外部扩展（规则预览等）：落在条件树下方、说明区上方 -->
+    <slot />
+
+    <!--
+      说明区（降噪后的位置）：原来这段文案挤在条件区右栏、且都是给开发看的术语
+      （「提交时按 op / field / cmp / value / args 生成」「文案与后端 65016 / 65033 逐字一致」）。
+      现在统一收在条件区**下方**，只留业务人员看得懂的三句话，默认展开、可收起。
+    -->
+    <div class="ct__help">
+      <div class="ct__help-head">
+        <span class="ct__help-title">
+          <t-icon name="info-circle" size="14px" />
+          使用说明
+        </span>
+        <t-button class="ct__help-toggle" size="small" variant="text" @click="helpOpen = !helpOpen">
+          {{ helpOpen ? '收起' : '展开' }}
+        </t-button>
+      </div>
+      <template v-if="helpOpen">
+        <p class="ct__help-line">留空表示无条件通过。</p>
+        <p class="ct__help-line">
+          最多支持 {{ MAX_DEPTH }} 层嵌套、{{ MAX_NODES }} 个节点、{{ RULE_LIMITS.rules }} 条规则。
+        </p>
+        <p class="ct__help-line">添加条件后，系统会自动转成可执行的判断规则。</p>
+      </template>
+
+      <!-- 高级入口：原始表达式给排障用，默认收起、字号更小、颜色更淡 -->
+      <t-button class="ct__advanced" size="small" variant="text" @click="showJson = !showJson">
+        高级：{{ showJson ? '收起原始表达式' : '查看原始表达式' }}
       </t-button>
-      <span class="ct__foot-hint">提交时按 op / field / cmp / value / args 生成</span>
+      <pre v-if="showJson" class="ct__json">{{ jsonText }}</pre>
     </div>
-    <pre v-if="showJson" class="ct__json">{{ jsonText }}</pre>
   </div>
 </template>
 
@@ -85,8 +109,14 @@
  *
  * # 上限
  *
- * 深度 ≤ 8 / 节点 ≤ 64 / 每组 args ≤ 16 全部来自 `condition-tree.ts`（对齐后端常量）；
+ * 嵌套 ≤ 8 层 / 条件节点 ≤ 64 个 / 每组条件 ≤ 16 条 全部来自 `condition-tree.ts`（对齐后端常量），
+ * 规则 ≤ 32 条来自 `rule-validation.ts` 的 `RULE_LIMITS`（同一份常量表，不另抄一份数字）；
  * 越界的按钮直接 disabled 并在下方红字说明原因，不让用户拼出一条后端必拒的表达式。
+ *
+ * # 界面文案口径
+ *
+ * 这个组件里出现的说明文字**只给业务人员看**：不许出现 `op / field / cmp / value / args`、
+ * 「JSON」、「错误码 65016」这类开发者术语（原始表达式放在「高级」里，默认收起）。
  */
 import { ref, watch } from 'vue';
 import ConditionNodeRow from './ConditionNodeRow.vue';
@@ -110,6 +140,7 @@ import {
   type ConditionNode,
   type TreeIssue,
 } from './condition-tree';
+import { RULE_LIMITS } from './rule-validation';
 
 /** 组件入参 */
 const props = withDefaults(
@@ -131,8 +162,10 @@ const emit = defineEmits<{
 const tree = ref<ConditionNode | null>(null);
 /** 反解 JSON 时发现的问题（后端存进来的脏数据） */
 const parseIssues = ref<TreeIssue[]>([]);
-/** 是否展开 JSON 预览 */
+/** 是否展开「高级：原始表达式」预览（默认收起：排障用，不是日常操作） */
 const showJson = ref(false);
+/** 说明区是否展开（默认展开：这三句话是新用户唯一能看懂的口径） */
+const helpOpen = ref(true);
 
 /** 反解：JSON → 树 */
 function rebuild(raw: unknown): void {
@@ -226,6 +259,7 @@ function onAddFirst(kind: 'cmp' | 'group'): void {
 
   &__head {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     align-items: center;
     padding-bottom: 6px;
@@ -282,18 +316,47 @@ function onAddFirst(kind: 'cmp' | 'group'): void {
     color: var(--td-error-color);
   }
 
-  &__foot {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    padding-top: 4px;
-    margin-top: 4px;
-    border-top: 1px dashed var(--td-component-stroke);
+  /* 说明区（条件区下方独立一块）：12px 灰字、行高 1.6、顶部浅分隔线 */
+  &__help {
+    padding-top: 8px;
+    margin-top: 8px;
+    border-top: 1px solid var(--td-component-stroke);
   }
 
-  &__foot-hint {
+  &__help-head {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  &__help-title {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
     font-size: 12px;
+    color: var(--td-text-color-secondary);
+  }
+
+  &__help-toggle,
+  &__advanced {
+    padding: 0;
+    font-size: 12px;
+    line-height: 1.6;
     color: var(--td-text-color-placeholder);
+  }
+
+  &__advanced {
+    margin-top: 2px;
+  }
+
+  &__help-line {
+    margin: 4px 0 0;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--td-text-color-placeholder);
+    /* 280px 窄面板下按词换行，不出现「一列一个字」 */
+    overflow-wrap: anywhere;
   }
 
   &__json {

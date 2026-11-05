@@ -104,6 +104,7 @@ use crate::business::erp::model::normalize_page;
 use crate::business::erp::serial_dto::SerialFilter;
 use crate::business::erp::stockin_model::{self, CostBasis};
 use crate::business::erp::voucher::{self, SerialMovement};
+use crate::business::shared::doc_kind;
 use crate::business::shared::scope;
 
 use super::inventory_writer::{self, TxnRecord};
@@ -154,6 +155,82 @@ pub const CST_OFFSET_HOURS: i64 = 8;
 
 /// 来源单据类型白名单（V0138 列注释：PURCHASE / TRANSFER / PRODUCE / RETURN）。
 pub const SOURCE_TYPES: [&str; 4] = ["PURCHASE", "TRANSFER", "PRODUCE", "RETURN"];
+
+/// 校验「来源类型 + 来源 id」这一对是否自洽（`Ok(())` = 可以落库）。
+///
+/// 三条规则（P2-6b 定稿，写入点必须过这道闸，否则 DI-21 会一直红）：
+///
+/// 1. **成对出现**：有类型没 id（`MISSING_ID`）和有 id 没类型（`NO_TYPE`）都不许落库；
+/// 2. **有单据表就必须指向真实行**：目标行不存在 / 已软删 ⇒ 拒绝（否则今天写进去、明天就悬空）；
+/// 3. **没有单据表就不许带 id**：`PRODUCE`（生产入库，生产模块尚未落地）只能
+///    `source_type=PRODUCE, source_id=NULL`，硬填 id 会让审计上「指向谁」无法解释。
+///
+/// 返回 `DbError::InvalidValue`（接口层翻成 400，报文里点名是哪一条不满足）；
+/// 只有「查库失败」才是真正的 `DbErr`。
+pub async fn ensure_source_pair(
+    ex: &impl SqlExecutor,
+    source_type: Option<&str>,
+    source_id: Option<Uuid>,
+) -> DbResult<()> {
+    let Some(source_type) = source_type else {
+        if source_id.is_some() {
+            return Err(DbError::InvalidValue(
+                "source_id 不能单独出现：必须同时给 source_type（否则不知道这个 id 指向哪张表）"
+                    .to_string(),
+            ));
+        }
+        return Ok(());
+    };
+    let kind = doc_kind::SerialSourceType::parse(source_type).ok_or_else(|| {
+        DbError::InvalidValue(format!(
+            "source_type 只能是 {} 之一（收到 {source_type}）",
+            SOURCE_TYPES.join(" / ")
+        ))
+    })?;
+    // 第 3 条：没有单据表的来源（PRODUCE）只允许不带 id。
+    let Some(target) = kind.target_table() else {
+        if source_id.is_some() {
+            return Err(DbError::InvalidValue(format!(
+                "source_type={source_type} 没有实体单据表（生产入库模块尚未落地），不能带 source_id：\
+                 硬填一个 id 会让审计上「指向谁」无法解释（巡检 DI-21 的 NO_TARGET）"
+            )));
+        }
+        return Ok(());
+    };
+    // 第 1、2 条：有目标表 ⇒ 必须有 id，且 id 指向的行真实存在
+    let Some(source_id) = source_id else {
+        return Err(DbError::InvalidValue(format!(
+            "source_type={source_type} 必须同时给 source_id：这类来源有实体单据表（{target}），\
+             只写类型等于把「这件货哪张单进来的」记成了半个答案"
+        )));
+    };
+    let found: i64 = ex
+        .scalar_sql(
+            match target {
+                "biz_stock_in" => {
+                    "SELECT count(*) FROM biz_stock_in WHERE id = ?::uuid AND deleted_at IS NULL"
+                }
+                "biz_stock_transfer" => {
+                    "SELECT count(*) FROM biz_stock_transfer WHERE id = ?::uuid AND deleted_at IS NULL"
+                }
+                other => {
+                    return Err(DbError::InvalidValue(format!(
+                        "序列号来源目标表 {other} 未登记（见 doc_kind::SerialSourceType::target_table）"
+                    )));
+                }
+            }
+            .to_string(),
+            vec![Value::from(&source_id)],
+        )
+        .await?;
+    if found == 0 {
+        return Err(DbError::InvalidValue(format!(
+            "source_type={source_type} 的 source_id={source_id} 在 {target} 里不存在或已删除：\
+             来源单据必须真实存在，否则序列号一落库就是悬空引用（巡检 DI-21）"
+        )));
+    }
+    Ok(())
+}
 
 /// 分页排序：号大（新）的在前；`id` 兜底保证翻页稳定。
 pub const SERIAL_ORDER: &str = "ORDER BY serial_no DESC, id ASC";
@@ -919,6 +996,9 @@ pub async fn batch_generate(
                 .to_string(),
         ));
     }
+    // P2-6b：`source_type` 与 `source_id` 必须成对且指向真实单据（闸门放在模型层，
+    // 让「直接调 batch_generate」的路径也过同一道闸 —— handler 只是把错误翻成 400）。
+    ensure_source_pair(ex, params.source_type, params.source_id).await?;
     let Some(warehouse_id) = params.warehouse_id else {
         return Err(DbError::InvalidValue(
             "一物一码物料批量生成必须指定仓库：账面数量按 物料×仓库 由序列号派生（不变式①）"

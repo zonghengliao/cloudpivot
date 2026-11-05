@@ -3,7 +3,7 @@
 > 卡：`t_54ad4c5f`【P2-7】供应商三名不一致（盘点 + 定规则 + 补巡检）
 > 日期：2026-11-05 · 主机 99（Hermes）→ 生产 144 只读实测
 > 结论文档：`docs/architecture/P2-7-供应商名口径盘点.md`（盘点表 / 口径 S1–S6 / 偏离项）
-> 巡检落地：`docs/architecture/snapshot-drift/10_checks.sql` **DI-23** + `scripts/verify/snapshot_audit.py`
+> 巡检落地：`docs/architecture/snapshot-drift/10_checks.sql` **DI-26** + `scripts/verify/snapshot_audit.py`
 
 ## 0. 一页结论
 
@@ -11,22 +11,22 @@
 |---|---|---|
 | 盘点表完整（位置 / ID 还是名字 / 来源） | 17 处（4 类快照列 + 6 处实时取名 + 7 处前端显示） | `docs/architecture/P2-7-供应商名口径盘点.md` §2 |
 | 规则写进 docs | S1–S6 落 `编码规范.md` 1.10（强制）+ 盘点文档 §3 | `docs/编码规范.md` |
-| 新增 1 条巡检、能真跑出结果 | DI-23，6 类分支各自命中（1/1/1/1/2/3） | `fixture-branches.txt`、`audit-seeded-主档.txt` |
+| 新增 1 条巡检、能真跑出结果 | DI-26，6 类分支各自命中（1/1/1/1/2/3） | `fixture-branches.txt`、`audit-seeded-主档.txt` |
 | grep 确认没有「用名字 join」 | `biz_supplier` 全部 JOIN 均 `ON s.id = …`（6 处），名字 `GROUP BY` 0 处 | `grep-on-id-join.txt` |
 | 不变量全绿 | `erp_invariants.py` 52/52 通过、BLOCKER 0 / WARN 0（干净库） | `invariants-clean.txt` |
-| 巡检 23 条全绿（含 DI-23） | 23/23 通过、退出码 0（干净库） | `audit-clean.txt` / `audit-clean.json` |
+| 巡检 23 条全绿（含 DI-26） | 23/23 通过、退出码 0（干净库） | `audit-clean.txt` / `audit-clean.json` |
 | 防回归 | `cargo test --test invariant_registry` 1 passed；**故意改号后确实红** | `cargo-test-invariant-registry.log` |
 
 ## 1. 文件说明
 
 | 文件 | 内容 |
 |---|---|
-| `prod-readonly-measurements.txt` | 生产 `cloudpivot@144` 只读实测量（结构 A / 漂移计数 B / DI-23 六分支等价计数 C） |
+| `prod-readonly-measurements.txt` | 生产 `cloudpivot@144` 只读实测量（结构 A / 漂移计数 B / DI-26 六分支等价计数 C） |
 | `p27_probe_a.sql` / `p27_probe_b.sql` / `p27_probe_di23_prod.sql` | 上表用到的三条只读 SQL（可直接在 144 重跑） |
-| `p27_fixture.sql` | DI-23 夹具：**一个事务内**造齐 6 类命中 + 断言 + `ROLLBACK`（库侧零残留） |
+| `p27_fixture.sql` | DI-26 夹具：**一个事务内**造齐 6 类命中 + 断言 + `ROLLBACK`（库侧零残留） |
 | `fixture-branches.txt` | 夹具运行输出：6 类分支 `expected == actual` 全 `t`，回滚后残留 0 |
 | `p27_seed.sql` | 同一批变异**提交**版（只灌进一次性证据库 `cloudpivot_54ad4c5f_seeded`，供 `snapshot_audit.py` 端到端跑） |
-| `audit-seeded-主档.txt` / `audit-seeded-主档.json` | `snapshot_audit.py --group 主档` 在夹具库上的真实输出（DI-23 9 条：WARN 4 / INFO 5） |
+| `audit-seeded-主档.txt` / `audit-seeded-主档.json` | `snapshot_audit.py --group 主档` 在夹具库上的真实输出（DI-26 9 条：WARN 4 / INFO 5） |
 | `audit-clean.txt` / `audit-clean.json` / `audit-clean.log` | 干净库 `cloudpivot_54ad4c5f_clean` 全量 23 条巡检：全绿、退出码 0 |
 | `invariants-clean.txt` | 同库 `erp_invariants.py` 全量：52/52 通过 |
 | `cargo-test-invariant-registry.log` | `cargo test --test invariant_registry`（视图 ↔ 登记 一一对应） |

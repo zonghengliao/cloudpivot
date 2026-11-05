@@ -1,0 +1,8 @@
+  status   | severity | rows 
+-----------+----------+------
+ APPROVED  | INFO     |   27
+ CANCELLED | INFO     |   16
+ WITHDRAWN | INFO     |    3
+ REJECTED  | INFO     |    1
+(4 rows)
+

@@ -1,0 +1,18 @@
+########## 改前口径（7f0fe5c^）的 DI-19 SELECT 在生产上只读重放 ##########
+-- 语句只读确认 --
+on
+exit=0
+51 /tmp/d4-out/old-di19-rows.tsv
+ issue_code |  entity_type  |              entity_id               |       entity_no       | field_name |         snapshot_value          | truth_value  |      truth_source       | drift_kind | severity | affected_count 
+------------+---------------+--------------------------------------+-----------------------+------------+---------------------------------+--------------+-------------------------+------------+----------+----------------
+ DI-19      | FLOW_INSTANCE | 01a1a1c6-4508-736d-b250-a29e042cb795 | FLW-20261103-813E8AF3 | biz_id     | CONTRACT_APPROVE → biz_contract | SOFT_DELETED | biz_contract.deleted_at | DEFECT     | WARN     |              1
+
+########## 改后口径（线上视图 di.c_di19）##########
+exit=0
+51 /tmp/d4-out/new-di19-rows.tsv
+ issue_code |  entity_type  |              entity_id               |       entity_no       | field_name |         snapshot_value          | truth_value  |      truth_source       | drift_kind | severity | affected_count 
+------------+---------------+--------------------------------------+-----------------------+------------+---------------------------------+--------------+-------------------------+------------+----------+----------------
+ DI-19      | FLOW_INSTANCE | 01a18cae-80e8-768e-8fd8-43058240490f | FLW-20261030-116EC757 | biz_id     | TASK_ACCEPT → biz_task          | SOFT_DELETED | biz_task.deleted_at     | DEFECT     | INFO     |              1
+
+########## 行数守恒（同一条 = entity_type+entity_id）##########
+改后: count=47 distinct_id=47

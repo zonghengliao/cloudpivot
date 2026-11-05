@@ -1,0 +1,14 @@
+── 安装前（备份 /etc/cloudpivot/crontab.bak.1793786757）──
+     1	0 2 * * * /opt/cloudpivot/scripts/erp-health-daily.sh >/dev/null 2>&1
+
+$ crontab -l
+     1	0 2 * * * /opt/cloudpivot/scripts/erp-health-daily.sh >/dev/null 2>&1
+     2	0 2 * * * /opt/cloudpivot/scripts/cron/snapshot_audit.sh >> /var/log/cloudpivot/snapshot-audit.cron.log 2>&1
+
+$ crontab -l | grep snapshot
+0 2 * * * /opt/cloudpivot/scripts/cron/snapshot_audit.sh >> /var/log/cloudpivot/snapshot-audit.cron.log 2>&1
+
+$ systemctl is-active cron / status
+active
+Nov 04 17:17:01 ubuntu-svr CRON[638364]: pam_unix(cron:session): session closed for user root
+Nov 04 18:06:01 ubuntu-svr cron[213018]: (root) RELOAD (crontabs/root)

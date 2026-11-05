@@ -1,0 +1,14 @@
+-- show default_transaction_read_only --
+on
+-- c_di18 定义中的豁免相关行 --
+8:            WHEN (w.src_id IS NOT NULL) THEN (('已核查豁免#'::text || to_char((w.checked_on)::timestamp with time zone, 'YYYY-MM-DD'::text)) || '：'::text)
+21:     LEFT JOIN di.v_poly_ref_waiver w ON (((w.check_id = 'DI-18'::text) AND (w.src_table = d.src_table) AND (w.src_id = (d.src_id)::text) AND (w.expires_on > CURRENT_DATE))))
+-- c_di19 定义中的分级相关行 --
+10:        CASE
+11:            WHEN (d.ref_shape <> 'DANGLING'::text) THEN 'WARN'::text
+12:            WHEN (i.id IS NULL) THEN 'WARN'::text
+13:            WHEN ((i.status)::text = 'PENDING'::text) THEN 'WARN'::text
+14:            ELSE 'INFO'::text
+18:     LEFT JOIN biz_flow_instance i ON (((d.src_table = 'biz_flow_instance'::text) AND (i.id = d.src_id))))
+-- 与仓库 HEAD 明文对比（关键子串是否存在，大小写不敏感）--
+has_ckmian(豁免): true ; has_CURRENT_DATE: true ; has_expires_on: true ; di19_has_PENDING: true

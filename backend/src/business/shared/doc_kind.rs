@@ -859,6 +859,30 @@ impl SerialSourceType {
         }
     }
 
+    /// `source_id` 指向哪张单据表（**唯一映射**，`None` = 这一来源没有实体单据表）。
+    ///
+    /// 这是「序列号来源」这根轴的**第二半**：`source_type` 只说「怎么进来的」，
+    /// 要回跳必须知道 id 落在哪张表。三种有单据的来源与一种没有单据的来源：
+    ///
+    /// | 来源 | 目标表 | 依据 |
+    /// |---|---|---|
+    /// | `PURCHASE` | `biz_stock_in` | 收货过账（`in_type=PURCHASE`）生成，`source_id` = 收货单 id |
+    /// | `RETURN`   | `biz_stock_in` | 退货入库走**同一张**收货单表（`in_type=RETURN`） |
+    /// | `TRANSFER` | `biz_stock_transfer` | 调拨入库单；**注意**：调拨只搬已有序列号，不改它们的来源 |
+    /// | `PRODUCE`  | `None` | 生产模块尚未落地，没有「生产入库单」这张表 ⇒ 不记 id |
+    ///
+    /// 与巡检登记表 `di.v_poly_ref_map`（`ref_domain='SERIAL_SOURCE'`）逐行一致，
+    /// 由 `doc_kind_tests::serial_source_map_matches_snapshot_registry` 机械核对 ——
+    /// 改这里不改 SQL（或反过来）测试就红。
+    pub const fn target_table(self) -> Option<&'static str> {
+        Some(match self {
+            SerialSourceType::Purchase => "biz_stock_in",
+            SerialSourceType::Return => "biz_stock_in",
+            SerialSourceType::Transfer => "biz_stock_transfer",
+            SerialSourceType::Produce => return None,
+        })
+    }
+
     /// 字符串 → 来源（严格全等）。
     pub fn parse(raw: &str) -> Option<SerialSourceType> {
         SerialSourceType::ALL

@@ -1,12 +1,19 @@
 <template>
   <div class="rp" :class="{ 'rp--error': !report.ok }">
-    <!-- 头部：标题 + 结论 + 错误码 -->
+    <!-- 头部：标题 + 结论（错误码只挂 title：业务人员看不懂数字，技术支持悬停即可取） -->
     <div class="rp__head">
       <span class="rp__title">规则预览</span>
-      <span v-if="report.ok" class="rp__badge rp__badge--ok">校验通过</span>
-      <span v-else class="rp__badge rp__badge--error">校验未通过 {{ report.issues.length }} 条</span>
+      <span
+        v-if="report.ok"
+        class="rp__badge rp__badge--ok"
+        :title="codeHint"
+      >校验通过</span>
+      <span
+        v-else
+        class="rp__badge rp__badge--error"
+        :title="codeHint"
+      >校验未通过 {{ report.issues.length }} 条</span>
       <span class="rp__spacer" />
-      <span v-if="report.codes.length > 0" class="rp__codes">错误码 {{ report.codes.join(' / ') }}</span>
     </div>
 
     <!-- 人话翻译 -->
@@ -44,20 +51,22 @@
     <!-- ⚠ 提示（空字段 / 目标为空 / 超限） -->
     <ul v-if="preview.warnings.length > 0" class="rp__warns">
       <li v-for="warning in preview.warnings.slice(0, 5)" :key="warning" class="rp__warn">
-        {{ warning }}
+        {{ humanReason(warning) }}
       </li>
       <li v-if="preview.warnings.length > 5" class="rp__warn">
         … 还有 {{ preview.warnings.length - 5 }} 条
       </li>
     </ul>
 
-    <!-- 逐条问题（带后端码）：点一行把面板滚到那条，人工核对文案用 -->
+    <!-- 逐条问题：点一行看是哪一条；错误码只在 title 里（技术支持用，不进可视文案） -->
     <ul v-if="report.issues.length > 0" class="rp__issues">
-      <li v-for="(issue, index) in report.issues.slice(0, 4)" :key="`${index}-${issue.message}`" class="rp__issue">
-        <t-tag v-if="issue.code !== null" size="small" theme="danger" variant="light">
-          {{ issue.code }}
-        </t-tag>
-        <span class="rp__issue-text">{{ issue.reason }}</span>
+      <li
+        v-for="(issue, index) in report.issues.slice(0, 4)"
+        :key="`${index}-${issue.message}`"
+        class="rp__issue"
+        :title="issue.code === null ? undefined : `技术支持需要时可提供错误码：${issue.code}`"
+      >
+        <span class="rp__issue-text">{{ humanReason(issue.reason) }}</span>
       </li>
       <li v-if="report.issues.length > 4" class="rp__issue">
         <span class="rp__issue-text">… 还有 {{ report.issues.length - 4 }} 条</span>
@@ -128,6 +137,28 @@ const report = computed<RuleReport>(() => {
     ruleId: RULE_ID,
   });
 });
+
+/**
+ * 去掉后端规则 id：`第 1 条规则（r_1）的审批人不能为空` → `第 1 条规则的审批人不能为空`。
+ *
+ * `r_1` 是后端表达式里的内部 id（`expression.rules[].id`），业务人员看不懂，
+ * 属于「技术上没必要出现在界面上」的那一类。**只动展示**：
+ * `rule-validation.ts` / `flow-error-codes.ts`（与后端逐字对齐的模板）一个字没改，
+ * 单测照旧比对原文。
+ */
+function humanReason(text: string): string {
+  return text.replace(/（r_\d+）/g, '');
+}
+
+/**
+ * 错误码提示：只在 `title`（悬停）里出现。
+ * 可视文案里不出现 `65016 / 65033` —— 业务人员看不懂，技术支持需要时悬停即可取。
+ */
+const codeHint = computed<string | undefined>(() =>
+  report.value.codes.length > 0
+    ? `技术支持需要时可提供错误码：${report.value.codes.join(' / ')}`
+    : undefined,
+);
 
 /** 人话预览 */
 const preview = computed<RulePreviewModel>(() =>
@@ -206,12 +237,6 @@ defineExpose({ report, preview, counts });
 
   &__spacer {
     flex: 1;
-  }
-
-  &__codes {
-    font-family: var(--td-font-family-mono, monospace);
-    font-size: 11px;
-    color: var(--td-text-color-placeholder);
   }
 
   &__body {

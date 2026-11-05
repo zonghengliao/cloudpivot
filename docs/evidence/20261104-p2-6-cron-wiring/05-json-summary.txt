@@ -1,0 +1,24 @@
+$ ls -l /var/log/cloudpivot/snapshot-audit.latest.json
+-rw-r--r-- 1 root root 13227 Nov  4 18:06 /var/log/cloudpivot/snapshot-audit.latest.json
+
+$ python3 - 打印 generated_at / database / summary
+{
+  "generated_at": "2026-11-04T18:06:03+08:00",
+  "database": {
+    "host": "127.0.0.1",
+    "port": "5432",
+    "name": "cloudpivot",
+    "user": "cloudpivot"
+  },
+  "summary": {
+    "blocker": 0,
+    "warn": 0,
+    "info": 80,
+    "checks_total": 25,
+    "checks_checked": 25,
+    "checks_skipped": 0,
+    "checks_failed": 0,
+    "checks_passed": 22,
+    "exit_code": 0
+  }
+}

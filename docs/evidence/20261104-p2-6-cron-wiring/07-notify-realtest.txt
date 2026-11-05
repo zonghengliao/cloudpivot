@@ -1,0 +1,28 @@
+── 真发（2026-11-04 18:05 / 18:06 实测，均为「接线自测·非告警」）──
+第一次（sender 直调，暴露回读校验过严）：
+  回读校验未命中关键词（飞书把 markdown ** 去掉了）→ 之后修 sender 的回读逻辑
+  只读回查该消息 om_x100b61847b8dd0b4dd5c12a5ca7f2cd 命中=True（未再发消息）
+
+第二次（走 hook 全链路）：
+$ SNAPSHOT_AUDIT_BLOCKERS=0 SNAPSHOT_AUDIT_SUMMARY="【接线自测#2·非告警】通知钩子全链路复验（发送+回读）..." bash /opt/cloudpivot/scripts/cron/snapshot_audit_notify.sh
+✅ 已发送 feishu:oc_cfb6324… message_id=om_x100b6184790bb0acde4563fe38f6512
+hook_exit=0
+
+── 只读回查频道最近消息见本文件末尾（由 172.18.10.99 侧的 feishu_probe_messages.py 现场拉取）──
+code = 0 success
+----------------------------------------------------------------------
+msg_id   : om_x100b6184790bb0acde4563fe38f6512
+msg_type : interactive | create_time: 1793786748804 | deleted: False
+content[:400]: {"title":"【云枢·快照巡检】生产快照巡检 BLOCKER 0","elements":[[{"tag":"text","text":"【接线自测#2·非告警】通知钩子全链路复验（发送+回读），之后不再有自测消息"},{"tag":"text","text":"\n\n- 主机：172.18.10.144（生产）\n- BLOCKER：0\n- 结果文件：/var/log/cloudpivot/snapshot-audit.latest.json\n- 全量日志：/var/log/cloudpivot/snapshot-audit.log\n- 处置：按《快照一致性巡检与告警设计》AP-8 —— 巡检只报不修，人工看图后决定改数据还是改口径；\n  确认是「历史正常」就走 DI 豁免台账（精确到行 id + 期限），"},{"tag":"text","text":"不要停 cron
+
+- ä¸»æºï¼172.18.10.144ï¼çäº§ï¼
+- BLOCKERï¼0
+- ç»ææä»¶
+----------------------------------------------------------------------
+msg_id   : om_x100b61847b8dd0b4dd5c12a5ca7f2cd
+msg_type : interactive | create_time: 1793786708489 | deleted: False
+content[:400]: {"title":"【云枢·快照巡检】生产快照巡检 BLOCKER 0","elements":[[{"tag":"text","text":"【接线自测·非告警】快照巡检通知钩子通道验证（2026-11-04 18:0x，只此一条）"},{"tag":"text","text":"\n\n- 主机：172.18.10.144（生产）\n- BLOCKER：0\n- 结果文件：/var/log/cloudpivot/snapshot-audit.latest.json\n- 全量日志：/var/log/cloudpivot/snapshot-audit.log\n- 处置：按《快照一致性巡检与告警设计》AP-8 —— 巡检只报不修，人工看图后决定改数据还是改口径；\n  确认是「历史正常」就走 DI 豁免台账（精确到行 id + 期限），"},{"tag":"text","text":"不
+
+- ä¸»æºï¼172.18.10.144ï¼çäº§ï¼
+- BLOCKERï¼0
+- ç»ææä»¶ï¼/v

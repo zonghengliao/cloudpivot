@@ -49,14 +49,35 @@
           </div>
           <div class="head__actions">
             <t-button variant="outline" size="small" :loading="loading" @click="loadDetail()">刷新</t-button>
-            <t-button
-              v-if="detail.instance.biz_id"
-              variant="outline"
-              size="small"
-              @click="router.push(`/task?keyword=${detail.instance.biz_no}`)"
+            <!--
+              关联业务（卡 t_3e59cb01）：按 biz_type 跳到**对应业务详情**，不再一律跳任务列表。
+              - 未登记的类型 / 没有 biz_id ⇒ bizLink 为 null，整个按钮不渲染；
+              - 目标已清场 / 没权限 / 探测失败 ⇒ 置灰 + tooltip，点了不跳转、不弹红条。
+            -->
+            <t-tooltip
+              v-if="bizLink"
+              :content="bizLinkTipText"
+              :disabled="bizLinkState === 'alive'"
+              placement="bottom-right"
             >
-              关联业务 {{ detail.instance.biz_no }}
-            </t-button>
+              <!-- 置灰的 t-button 不派发鼠标事件，外面包一层 span 接住 hover，tooltip 才有落点 -->
+              <span
+                class="head__biz-link"
+                :class="{ 'head__biz-link--dead': bizLinkState !== 'alive' }"
+                data-testid="flow-biz-link-wrap"
+              >
+                <t-button
+                  variant="outline"
+                  size="small"
+                  :disabled="bizLinkState !== 'alive'"
+                  :loading="bizLinkState === 'probing'"
+                  data-testid="flow-biz-link"
+                  @click="openBizLink"
+                >
+                  关联{{ bizLink.label }} {{ detail.instance.biz_no }}
+                </t-button>
+              </span>
+            </t-tooltip>
           </div>
         </div>
 
@@ -293,7 +314,7 @@
  * 只有后端下发 `my_task`（我在本单上的 PENDING 待办）时才出现；
  * 发起人且在跑 → 显示「撤回」（行级判定仍在后端）。
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { MessagePlugin } from 'tdesign-vue-next';
 import {
@@ -330,6 +351,8 @@ import {
   type MasterNameMaps,
 } from '@/views/business/flow/use-flow-master-names';
 import { readItemSnapshot } from '@/views/business/flow/flow-business-items';
+import { bizLinkRouteOf, bizLinkTip, resolveBizLink, type BizLinkState } from './biz-link';
+import { probeBizLink } from './biz-link-probe';
 import type { FlowProgressNode } from '@/views/business/flow/components/FlowProgress.vue';
 import StatusBadge from '@/views/business/task/components/StatusBadge.vue';
 import UserSelect from '@/views/business/task/components/UserSelect.vue';
@@ -845,6 +868,84 @@ async function onWithdraw(): Promise<void> {
   }
 }
 
+// ==================== 关联业务（卡 t_3e59cb01） ====================
+
+/**
+ * 「关联业务」的落点。
+ *
+ * 映射表在 `./biz-link.ts`（`biz_type` → 详情页路由 + 探测方案），这里只取当前实例的一份：
+ * 未登记的业务类型 / 没有 `biz_id` → `null`（按钮不渲染）。
+ */
+const bizLink = computed(() => {
+  const instance = detail.value?.instance;
+  if (!instance) {
+    return null;
+  }
+  return resolveBizLink(instance.biz_type, { id: instance.biz_id, no: instance.biz_no });
+});
+
+/** 探测结论（只有 `alive` 允许点击跳转） */
+const bizLinkState = ref<BizLinkState>('idle');
+
+/** 置灰时的提示（人话，不出现 biz_type / entity_id 这类词） */
+const bizLinkTipText = computed(() => bizLinkTip(bizLinkState.value));
+
+/** 探测序号：晚到的响应不许覆盖新结论（详情轮询 / 刷新会重放探测） */
+let bizLinkProbeSeq = 0;
+
+/**
+ * 探测关联业务还在不在。
+ *
+ * 卡片红线：**必须打真接口**，不许前端猜。403（审批岗常没有 ERP 权限）单独一条分支，
+ * 不能静默什么都不做 —— 三种失败态都给不同的提示文案，但都不跳转、不弹红条。
+ */
+async function probeBizObject(): Promise<void> {
+  const instance = detail.value?.instance;
+  const target = bizLink.value;
+  if (!instance || !target) {
+    bizLinkState.value = 'idle';
+    return;
+  }
+  const biz = { id: instance.biz_id, no: instance.biz_no };
+  if (!bizLinkRouteOf(target, biz)) {
+    // 目标页只认单号（如应付 / 凭证 / 调拨），而这单没记单号 → 跳过去只会是空列表
+    bizLinkState.value = 'noref';
+    return;
+  }
+  const seq = ++bizLinkProbeSeq;
+  bizLinkState.value = 'probing';
+  const state = await probeBizLink(target, biz);
+  if (seq === bizLinkProbeSeq) {
+    bizLinkState.value = state;
+  }
+}
+
+// 详情（重）加载后重新探测；`refresh` / 轮询 / 手动刷新都会走到这里
+watch(
+  () => {
+    const instance = detail.value?.instance;
+    return instance
+      ? [instance.id, instance.biz_type, instance.biz_id, instance.biz_no].join('|')
+      : '';
+  },
+  () => {
+    void probeBizObject();
+  },
+);
+
+/** 点击「关联业务」：只有探测结论是 alive 才跳（其余状态按钮本来就是置灰的） */
+function openBizLink(): void {
+  const instance = detail.value?.instance;
+  const target = bizLink.value;
+  if (!instance || !target || bizLinkState.value !== 'alive') {
+    return;
+  }
+  const route = bizLinkRouteOf(target, { id: instance.biz_id, no: instance.biz_no });
+  if (route) {
+    void router.push(route);
+  }
+}
+
 onMounted(() => {
   void loadDetail();
 });
@@ -934,6 +1035,18 @@ onBeforeUnmount(() => {
     display: flex;
     flex: none;
     gap: 8px;
+  }
+
+  /*
+   * 「关联业务」按钮的包裹层：置灰的 t-button 不派发鼠标事件，
+   * tooltip 要靠这一层接住 hover（否则用户永远看不到「为什么点不了」）。
+   */
+  &__biz-link {
+    display: inline-flex;
+
+    &--dead {
+      cursor: not-allowed;
+    }
   }
 }
 

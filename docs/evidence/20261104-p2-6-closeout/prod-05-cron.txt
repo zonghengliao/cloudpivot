@@ -1,0 +1,59 @@
+########## 1. crontab 现状 ##########
+0 2 * * * /opt/cloudpivot/scripts/erp-health-daily.sh >/dev/null 2>&1
+0 2 * * * /opt/cloudpivot/scripts/cron/snapshot_audit.sh >> /var/log/cloudpivot/snapshot-audit.cron.log 2>&1
+-- grep snapshot --
+0 2 * * * /opt/cloudpivot/scripts/cron/snapshot_audit.sh >> /var/log/cloudpivot/snapshot-audit.cron.log 2>&1
+-- 原 erp-health-daily 是否还在 --
+1
+-- cron 服务 --
+active
+
+########## 2. env 文件权限 ##########
+-rw------- 1 root root 1208 Nov  4 18:04 /etc/cloudpivot/snapshot-audit.env
+600 root:root
+-- 变量名（不回显口令）--
+NIK_DATABASE_HOST=<set>
+NIK_DATABASE_PORT=<set>
+NIK_DATABASE_USER=<set>
+NIK_DATABASE_NAME=<set>
+NIK_DATABASE_PASSWORD=<set>
+SNAPSHOT_AUDIT_LOG_DIR=<set>
+SNAPSHOT_AUDIT_KEEP_DAYS=<set>
+SNAPSHOT_AUDIT_NOTIFY_CMD=<set>
+
+########## 3. 手工跑一次（卡面命令）##########
+before_lines=251
+exit=0
+after_lines=332
+-- 本轮新增日志（BLOCKER 行 + 汇总）--
+[2026-11-04 18:15:04] 开始：db=cloudpivot@127.0.0.1 配置=/etc/cloudpivot/snapshot-audit.env
+[2026-11-04T18:15:04+08:00] db=cloudpivot@127.0.0.1 BLOCKER=0 WARN=0 INFO=80 checks=25(passed=22 skipped=0 failed=0) exit=0
+汇总: BLOCKER 0 / WARN 0 / INFO 80   巡检项 25（通过 22、有命中 3、跳过 0、失败 0）
+退出码: 0
+[2026-11-04 18:15:05] 结束：exit=0  日志保留 30 天  轮转归档：0 份
+-- 本轮 BLOCKER= 出现次数 --
+1
+
+########## 4. JSON 结果文件三计数 ##########
+-rw-r--r-- 1 root root 13227 Nov  4 18:15 /var/log/cloudpivot/snapshot-audit.latest.json
+summary= {'blocker': 0, 'warn': 0, 'info': 80, 'checks_total': 25, 'checks_checked': 25, 'checks_skipped': 0, 'checks_failed': 0, 'checks_passed': 22, 'exit_code': 0}
+generated_at= 2026-11-04T18:15:04+08:00
+db= {'host': '127.0.0.1', 'port': '5432', 'name': 'cloudpivot', 'user': 'cloudpivot'}
+
+########## 5. cron 最小环境复跑（env -i）##########
+exit=0
+after env -i summary= {'blocker': 0, 'warn': 0, 'info': 80, 'checks_total': 25, 'checks_checked': 25, 'checks_skipped': 0, 'checks_failed': 0, 'checks_passed': 22, 'exit_code': 0}
+
+########## 6. 日志尾部 ##########
+       … 另有 26 条未展开（详见 --json 或库内视图）
+  ✓ DI-21  序列号来源悬空 / 未记录（source_type 指出的收货单/调拨单已软删，或有类型无 id）  通过
+  ✓ DI-22  多态引用登记缺口（数据里出现 di.v_poly_ref_map 未登记的类型）  通过
+  ✓ DI-23  单据附件指向的单据悬空（doc_type 指出的单据已软删/不存在）  通过
+  ✓ DI-24  业务提醒台账指向的单据悬空  通过
+  ✓ DI-25  流程抄送来源悬空 / 缺来源 id（角色/部门被删，或角色来源没记 source_ref）  通过
+
+====================================================================================
+汇总: BLOCKER 0 / WARN 0 / INFO 80   巡检项 25（通过 22、有命中 3、跳过 0、失败 0）
+退出码: 0
+====================================================================================
+[2026-11-04 18:15:06] 结束：exit=0  日志保留 30 天  轮转归档：0 份

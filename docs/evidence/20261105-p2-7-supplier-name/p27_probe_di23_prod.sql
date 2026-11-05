@@ -1,5 +1,5 @@
 \pset footer off
-\echo '== DI-23 六个分支在生产库的等价只读计数（不装 di 视图，直接对业务表）=='
+\echo '== DI-26 六个分支在生产库的等价只读计数（不装 di 视图，直接对业务表）=='
 SELECT
   (SELECT count(*) FROM (
       SELECT lower(btrim(supplier_name)) k FROM biz_supplier

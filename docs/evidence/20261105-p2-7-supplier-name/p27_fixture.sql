@@ -1,9 +1,9 @@
--- P2-7 DI-23 夹具：在**一个事务里**造齐 6 类命中，跑完 ROLLBACK（库侧零残留）
+-- P2-7 DI-26 夹具：在**一个事务里**造齐 6 类命中，跑完 ROLLBACK（库侧零残留）
 \set ON_ERROR_STOP on
 BEGIN;
 
 \echo == 夹具前基线（干净库上只有存量快照 NULL 一类）==
-SELECT drift_kind, severity, count(*) AS n FROM di.c_di23 GROUP BY 1, 2 ORDER BY 1, 2;
+SELECT drift_kind, severity, count(*) AS n FROM di.c_di26 GROUP BY 1, 2 ORDER BY 1, 2;
 
 -- ① NAME_DUP：两个活跃供应商同名（只有首尾空格不同 → 归一后同名）
 INSERT INTO biz_supplier (supplier_code, supplier_name, short_name, status, credit_days, credit_limit)
@@ -39,7 +39,7 @@ UPDATE biz_flow_instance
 
 \echo == 夹具后：逐条明细 ==
 SELECT entity_type, entity_no, field_name, snapshot_value, truth_value, drift_kind, severity, affected_count
-  FROM di.c_di23 ORDER BY drift_kind, severity, entity_type, entity_no;
+  FROM di.c_di26 ORDER BY drift_kind, severity, entity_type, entity_no;
 
 \echo == 断言：6 类分支命中数（期望 NAME_DUP=1 SHORT_DUP=1 SHORT_SHADOWS_NAME=1 LATE_WRITE=1 DRIFT=2 MISSING=3）==
 WITH b AS (
@@ -53,7 +53,7 @@ WITH b AS (
              WHEN drift_kind = 'SNAPSHOT'                                   THEN 'SNAPSHOT_DRIFT'
              ELSE 'UNKNOWN'
            END AS branch
-      FROM di.c_di23
+      FROM di.c_di26
 )
 SELECT k.branch, k.expected, coalesce(b.actual, 0) AS actual,
        coalesce(b.actual, 0) = k.expected AS ok
@@ -64,14 +64,14 @@ SELECT k.branch, k.expected, coalesce(b.actual, 0) AS actual,
  ORDER BY k.branch;
 
 \echo == 断言：无 UNKNOWN 分支 / WARN 总计 4 条 ==
-SELECT (SELECT count(*) FROM di.c_di23 WHERE drift_kind = 'DEFECT') AS defect_warn_total,
-       (SELECT count(*) FROM di.c_di23 WHERE severity = 'ERROR')     AS error_total;
+SELECT (SELECT count(*) FROM di.c_di26 WHERE drift_kind = 'DEFECT') AS defect_warn_total,
+       (SELECT count(*) FROM di.c_di26 WHERE severity = 'ERROR')     AS error_total;
 
 ROLLBACK;
 
 \echo == 回滚后：夹具残留必须 0，命中数回到基线，快照恢复 NULL ==
 SELECT (SELECT count(*) FROM biz_supplier WHERE supplier_code LIKE 'P27-%') AS residual_supplier,
-       (SELECT count(*) FROM di.c_di23) AS hits_after_rollback,
+       (SELECT count(*) FROM di.c_di26) AS hits_after_rollback,
        (SELECT count(*) FROM biz_purchase_order
          WHERE order_no = 'W1B-PO-0001' AND supplier_name_snapshot IS NOT NULL) AS residual_po_snapshot,
        (SELECT count(*) FROM biz_flow_instance

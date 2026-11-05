@@ -1,0 +1,102 @@
+==============================================================
+ E2ERES2 演练：cloudpivot_e2eres2_pre (只读快照) → cloudpivot_e2eres2_drill2
+ 临时目录：/tmp/e2eres2-drill-20261104-173206
+==============================================================
+==> ① 建演练库 cloudpivot_e2eres2_drill2（从 cloudpivot_e2eres2_pre 全量 dump 还原）
+==> ①b 清掉副本里的 datafix_e2eres2_* 残留（演练从零开始）
+==> ② 演练前指纹 / 行数（副本）
+    asg=804779c874f163fe265ee5413cd651f7 cc=(empty) def=610b26b207d637da4758dcae6bedf5f3 edge=d934632e014c166780a8c4e5fd35dbb5 inode=7e21fde14dba5ccab05aa7af9d3eff56 inst=632163317396f26d68924aa981be4494 node=1799cec93238f598da013a6ab3f1d3cf slog=d3d2fe21eba65c198133873f2db66845 task=cb21f9878c401be4a7f34635aa45e033 ver=75d7b0a28e07261e3c9615664a4f32c6
+    asg=48
+    cc=0
+    def=58
+    edge=167
+    inode=369
+    inst=128
+    node=217
+    slog=113
+    task=154
+    ver=66
+==> ③ 演练库也走一遍 00_backup.sh（apply 的备份闸要有本库备份）
+    /root/datafix-backup-e2eres2-20261104-173207
+==> ④ up #1（真删）
+PASS|target_biz_flow_instance_gone|钉住的 16 条实例里还剩 0 条
+PASS|orphan_biz_flow_def_version|0 个版本没有父定义
+PASS|orphan_biz_flow_node|0 个节点没有父版本
+PASS|orphan_biz_flow_edge|0 条边没有父版本
+PASS|orphan_biz_flow_node_assignee|0 条节点审批人没有父节点
+PASS|orphan_biz_flow_instance_phys|0 个实例的父定义**物理**不存在
+PASS|orphan_biz_flow_instance_softdel|0 条活实例的父定义已软删（本卡要消灭的就是这类）
+PASS|orphan_biz_flow_instance_node|0 个实例节点没有父实例
+PASS|orphan_biz_flow_task|0 条待办没有父实例
+PASS|orphan_biz_flow_cc|0 条抄送没有父实例
+PASS|keeper_alive_count|实际 11 条（基线 11）
+PASS|keeper_fingerprint|7fcb32a38a193135a8a7e370db1839d5
+PASS|keeper_versions|16 行（基线 16）
+PASS|keeper_nodes|87 行（基线 87）
+PASS|keeper_edges|89 行（基线 89）
+PASS|count_biz_flow_def|actual=22 expected=22
+PASS|count_biz_flow_def_version|actual=27 expected=27
+PASS|count_biz_flow_node|actual=119 expected=119
+PASS|count_biz_flow_edge|actual=112 expected=112
+PASS|count_biz_flow_node_assignee|actual=36 expected=36
+PASS|count_biz_flow_instance|actual=112 expected>=112
+PASS|count_biz_flow_instance_node|actual=332 expected>=332
+PASS|count_biz_flow_task|actual=146 expected>=146
+PASS|count_biz_flow_cc|actual=0 expected>=0
+PASS|biz_status_log_untouched|实际 113 行（基线 113）
+PASS|biz_status_log_fingerprint|a89a6d64ca6e47e5852526d5bb51772f
+PASS|out_of_scope_prefix_defs|0 条软删定义仍命中前缀判据（新冒出来的，或本卡没钉住的）
+WARN|out_of_scope_test_account_defs|11 条软删定义是测试账号 laoliu_test 建的、0 实例、但 flow_code 不在卡面前缀枚举内（同性质，未授权不动）
+---- 自检：无 FAIL（WARN 见上）----
+---- 现状快照 ----
+alive_flow_def            = 11
+soft_deleted_flow_def      = 11
+SET_A1_def(前缀判据)       = 0
+SET_A2_inst(孤儿实例)      = 0
+soft_deleted_laoliu_test   = 11
+instance PENDING(全库)     = 1
+flow_task PENDING          = 1
+biz_status_log             = 113
+各表总量 def/ver/node/edge/asg/inst/inode/task/cc = 22/27/119/112/36/112/332/146/0
+==> E2ERES2 apply 结束（2026-11-04 17:32:08）
+    删除后指纹：asg=40fd628c60ca38e7d0c51d5c0aa95de4 cc=(empty) def=f8850964a38a38e228242e8f03e9d9a8 edge=fe90e6a42a0d89c0e51fc7bb46cc0ec5 inode=a87c15d9dec2f3a891901261d82d25c1 inst=608e17fbe6f11da0995605364b220b85 node=c29742ecf0c5f22e5865268f749616ce slog=d3d2fe21eba65c198133873f2db66845 task=495be8bc90ce896b64cb8e6675f2994e ver=5298fed4a263126e0048538067107082
+    asg=36
+    cc=0
+    def=22
+    edge=112
+    inode=332
+    inst=112
+    node=119
+    slog=113
+    task=146
+    ver=27
+==> ⑤ up #2（幂等：应 0 行受影响）
+    up #2 幂等 OK
+==> ⑥ down（按快照整行写回）
+    回滚后指纹：asg=804779c874f163fe265ee5413cd651f7 cc=(empty) def=610b26b207d637da4758dcae6bedf5f3 edge=d934632e014c166780a8c4e5fd35dbb5 inode=7e21fde14dba5ccab05aa7af9d3eff56 inst=632163317396f26d68924aa981be4494 node=1799cec93238f598da013a6ab3f1d3cf slog=d3d2fe21eba65c198133873f2db66845 task=cb21f9878c401be4a7f34635aa45e033 ver=75d7b0a28e07261e3c9615664a4f32c6
+    asg=48
+    cc=0
+    def=58
+    edge=167
+    inode=369
+    inst=128
+    node=217
+    slog=113
+    task=154
+    ver=66
+    回滚指纹 + 逐表行数一致（9 张 flow 表 + biz_status_log）
+==> ⑥b 回滚后软删状态必须原样（这 36 条是软删行，不能变成活定义）
+alive=0 soft_deleted=36
+==> ⑦ 再 up 一次（证明回滚后还能重来）
+    up #3 OK
+==> ⑧ 清掉演练库 cloudpivot_e2eres2_drill2
+
+================ 演练结论 ================
+① up 生效            ：指纹已变化（副本上删掉了 36 定义 + 16 实例及其 265 子行）
+② up 幂等            ：第二次 0 行受影响
+③ down 原样恢复      ：9 张 flow 表 + biz_status_log 指纹逐字节 + 逐表行数等于演练前
+④ 软删状态保持       ：写回的 36 条定义仍是 deleted_at 非空（没有被「复活」成活定义）
+⑤ 回滚后可重来       ：up #3 自检无 FAIL
+日志：/tmp/e2eres2-drill-20261104-173206
+演练库备份：/root/datafix-backup-e2eres2-20261104-173207（确认不需要后可删）
+EXIT=0

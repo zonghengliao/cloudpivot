@@ -272,9 +272,11 @@ function onOpChange(value: unknown): void {
 
 <style scoped lang="less">
 .ctn {
+  /* 一行放不下就换行（面板可拖到 280px）：宁可「右值掉到第二行」，也不把它压成 40px 宽 */
   &__row,
   &__head {
     display: flex;
+    flex-wrap: wrap;
     gap: 6px;
     align-items: center;
     padding: 4px 0;
@@ -293,17 +295,17 @@ function onOpChange(value: unknown): void {
   }
 
   &__field {
-    flex: 1 1 46%;
+    flex: 1 1 120px;
     min-width: 0;
   }
 
   &__cmp {
     flex: none;
-    width: 118px;
+    width: 112px;
   }
 
   &__value {
-    flex: 1 1 34%;
+    flex: 1 1 96px;
     min-width: 0;
   }
 

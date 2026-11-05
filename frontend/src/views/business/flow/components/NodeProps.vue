@@ -262,25 +262,26 @@
           />
         </t-form-item>
         <t-form-item label="条件表达式">
+          <!-- 说明文案（留空=无条件 / 上限 / 高级原始表达式）已收进 ConditionTree 底部的说明区：
+               t-form-item 的内容列在窄面板里只有 200px 上下，放在这里会被压成左右两栏、
+               中文一行只剩几个字（用户原话：「积压的不方便看」）。 -->
           <div class="node-props__rule" :class="{ 'node-props__rule--error': ruleReport && !ruleReport.ok }">
             <ConditionTree
               :model-value="edge.condition ?? null"
               :readonly="readonly"
               @update:model-value="onConditionChange"
-            />
-            <!-- 规则预览（P1-B3）：人话翻译 + 三条闸的计数，与红框同一份体检结果 -->
-            <RulePreview
-              :condition="edge.condition ?? null"
-              :targets="thenTargets"
-              :edge="edge"
-              :node="targetNode"
-              :report="ruleReport"
-            />
+            >
+              <!-- 规则预览（P1-B3）：人话翻译 + 三条闸的计数，与红框同一份体检结果。
+                   走 ConditionTree 的默认插槽 → 渲染在条件树与底部说明区之间。 -->
+              <RulePreview
+                :condition="edge.condition ?? null"
+                :targets="thenTargets"
+                :edge="edge"
+                :node="targetNode"
+                :report="ruleReport"
+              />
+            </ConditionTree>
           </div>
-          <p class="node-props__tip">
-            留空表示无条件。结构上限（深度 8 / 节点 64 / 规则 32）与字段白名单在编辑期就拦，
-            文案与后端 65016 / 65033 逐字一致。
-          </p>
         </t-form-item>
       </t-form>
 

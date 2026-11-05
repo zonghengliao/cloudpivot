@@ -256,6 +256,13 @@ async fn serial_material_generates_serials_in_receipt_warehouse() {
         assert_eq!(status, "IN_STOCK");
         let source_type: String = row.get_typed("source_type").unwrap();
         assert_eq!(source_type, "PURCHASE");
+        // P2-6b：来源 id 必须回指本收货单（写入点补 id 的验收点）
+        let source_id: Option<Uuid> = row.get_typed("source_id").unwrap();
+        assert_eq!(
+            source_id,
+            Some(id),
+            "序列号必须回指本收货单（source_type=PURCHASE ⇒ source_id = biz_stock_in.id）"
+        );
     }
     // 账面数量与序列号件数一致（不变式①）
     let (qty, _, _) = inventory_of(MATERIAL_SN).await;

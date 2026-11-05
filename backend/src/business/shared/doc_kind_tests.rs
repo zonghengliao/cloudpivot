@@ -691,3 +691,180 @@ fn test_residue_predicate_matches_python_and_sql() {
         }
     }
 }
+
+// ==================== 巡检登记表（di.v_poly_ref_map）机械核对 ====================
+
+/// 读巡检 SQL（`docs/architecture/snapshot-drift/10_checks.sql`）。
+///
+/// 登记的「类型 → 目标表」在这份 SQL 里写了一遍、在 Rust 枚举里又写了一遍 ——
+/// 两份不一致时，代码会写一种映射、巡检按另一种查（**静默漏报**）。
+/// 所以这里把 SQL 当数据解析，逐行与 Rust 比对（P2-6b）。
+fn read_snapshot_checks_sql() -> String {
+    let path = repo_root().join("docs/architecture/snapshot-drift/10_checks.sql");
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("读不到巡检 SQL {}：{err}", path.display()))
+}
+
+/// 从一个 VALUES 行里抠出前几个字段（`'字符串'` 或裸 `NULL`）。
+fn scan_sql_tuple(text: &str) -> Vec<Option<String>> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < chars.len() && out.len() < 4 {
+        match chars[i] {
+            '\'' => {
+                let mut buf = String::new();
+                let mut j = i + 1;
+                while j < chars.len() {
+                    if chars[j] == '\'' {
+                        // `''` 是转义的单引号
+                        if j + 1 < chars.len() && chars[j + 1] == '\'' {
+                            buf.push('\'');
+                            j += 2;
+                            continue;
+                        }
+                        break;
+                    }
+                    buf.push(chars[j]);
+                    j += 1;
+                }
+                out.push(Some(buf));
+                i = j + 1;
+            }
+            c if c.is_ascii_alphanumeric() || c == '_' => {
+                let mut buf = String::new();
+                let mut j = i;
+                while j < chars.len() && (chars[j].is_ascii_alphanumeric() || chars[j] == '_') {
+                    buf.push(chars[j]);
+                    j += 1;
+                }
+                out.push(if buf == "NULL" { None } else { Some(buf) });
+                i = j;
+            }
+            _ => i += 1,
+        }
+    }
+    out
+}
+
+/// 登记表里某个域的全部 (类型, 目标表) 行。
+fn registry_rows(sql: &str, domain: &str) -> Vec<(String, Option<String>)> {
+    let mut out = Vec::new();
+    for line in sql.lines() {
+        let text = line.trim();
+        if !text.starts_with("('") {
+            continue;
+        }
+        let fields = scan_sql_tuple(text);
+        if fields.len() < 3 {
+            continue;
+        }
+        if fields[0].as_deref() != Some(domain) {
+            continue;
+        }
+        out.push((fields[1].clone().unwrap_or_default(), fields[2].clone()));
+    }
+    out
+}
+
+/// 序列号来源的「类型 → 目标表」：Rust 与巡检登记表逐行一致。
+#[test]
+fn serial_source_map_matches_snapshot_registry() {
+    let sql = read_snapshot_checks_sql();
+    let rows = registry_rows(&sql, "SERIAL_SOURCE");
+    assert_eq!(
+        rows.len(),
+        SerialSourceType::ALL.len(),
+        "di.v_poly_ref_map 的 SERIAL_SOURCE 行数必须 = 枚举成员数（实际 {rows:?}）"
+    );
+    for kind in SerialSourceType::ALL {
+        let row = rows
+            .iter()
+            .find(|(ref_type, _)| ref_type == kind.as_str())
+            .unwrap_or_else(|| panic!("登记表缺 SERIAL_SOURCE.{}", kind.as_str()));
+        assert_eq!(
+            row.1.as_deref(),
+            kind.target_table(),
+            "SERIAL_SOURCE.{} 的目标表：Rust={:?} / SQL={:?}",
+            kind.as_str(),
+            kind.target_table(),
+            row.1
+        );
+    }
+}
+
+/// 单据类型轴的三个 `doc_type` 列（附件 / 提醒 / 状态日志）：登记表 = `DocKind::table()`。
+#[test]
+fn doc_kind_registries_match_doc_kind_table() {
+    let sql = read_snapshot_checks_sql();
+    let cases: [(&str, &[DocKind]); 3] = [
+        ("ATTACHMENT_DOC", &ATTACHMENT_DOC_KINDS),
+        ("REMINDER_DOC", &REMINDER_DOC_KINDS),
+        ("STATUS_ENTITY", &DocKind::ALL),
+    ];
+    for (domain, kinds) in cases {
+        let rows = registry_rows(&sql, domain);
+        // 登记表必须**覆盖该域的全部取值**（无实体表的写 NULL 也要登记一行，
+        // 否则 DI-22 会把「没登记」当成漏报 —— ACCOUNTING_YEAR 就是这种虚拟对象）。
+        let expected: Vec<(String, Option<String>)> = kinds
+            .iter()
+            .map(|kind| (kind.as_str().to_string(), kind.table().map(str::to_string)))
+            .collect();
+        assert_eq!(
+            rows.len(),
+            expected.len(),
+            "{domain} 登记行数不符（SQL {rows:?} / Rust {expected:?}）"
+        );
+        for (ref_type, table) in &expected {
+            let row = rows
+                .iter()
+                .find(|(registered, _)| registered == ref_type)
+                .unwrap_or_else(|| panic!("登记表缺 {domain}.{ref_type}"));
+            assert_eq!(
+                row.1.as_deref(),
+                table.as_deref(),
+                "{domain}.{ref_type} 的目标表：Rust={table:?} / SQL={:?}",
+                row.1
+            );
+        }
+    }
+}
+
+/// 抄送来源（`biz_flow_cc.source_type` + `source_ref`）：只有角色/部门会带 ref。
+#[test]
+fn flow_cc_source_map_matches_snapshot_registry() {
+    let sql = read_snapshot_checks_sql();
+    let rows = registry_rows(&sql, "FLOW_CC_SOURCE");
+    // ROLE / ADMIN → sys_role；DEPT_LEADER / INITIATOR_SUPERIOR → sys_dept；
+    // 其余来源（USER / INITIATOR / TASK_* / FORM_VAR / EXPRESSION）不带 source_ref。
+    let expected = [
+        ("ROLE", Some("sys_role")),
+        ("ADMIN", Some("sys_role")),
+        ("DEPT_LEADER", Some("sys_dept")),
+        ("INITIATOR_SUPERIOR", Some("sys_dept")),
+        ("USER", None),
+        ("INITIATOR", None),
+        ("TASK_OWNER", None),
+        ("TASK_CREATOR", None),
+        ("TASK_ASSIGNER", None),
+        ("FORM_VAR", None),
+        ("EXPRESSION", None),
+    ];
+    assert_eq!(
+        rows.len(),
+        expected.len(),
+        "FLOW_CC_SOURCE 登记行数不符：{rows:?}"
+    );
+    for (ref_type, table) in expected {
+        let row = rows
+            .iter()
+            .find(|(registered, _)| registered == ref_type)
+            .unwrap_or_else(|| panic!("登记表缺 FLOW_CC_SOURCE.{ref_type}"));
+        assert_eq!(
+            row.1.as_deref(),
+            table,
+            "FLOW_CC_SOURCE.{ref_type} 的目标表：SQL={:?} / 期望={table:?}",
+            row.1
+        );
+    }
+}
