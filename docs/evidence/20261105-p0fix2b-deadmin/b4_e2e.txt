@@ -1,0 +1,40 @@
+## 0) 夹具（只在副本库 cloudpivot_deadmin，生产一个字节不动）
+- 新建夹具账号 qa.fd_p0fix2b（FINANCE_DIRECTOR 成员、非超管；**仅副本库**）
+- 角色在用成员数：
+   · DEPT_LEADER        1 人  henry.liao
+   · FINANCE_DIRECTOR   1 人  qa.fd_p0fix2b
+   · FINANCE_MANAGER    0 人  （0 人）
+   · GENERAL_MANAGER    1 人  henry.liao
+   · SUPER_ADMIN        3 人  admin,henry.liao,laoliu
+   · WAREHOUSE_MANAGER  1 人  henry.liao
+
+## 1) payable_pay 20 万 → n_board 双角色会签（财务总监 + 总经理）
+- 实例 FLW-20261105-94DF85E3（v2，status=PENDING），biz_flow_task：
+   · n_board    PENDING  → henry.liao         source=ROLE ref_role=GENERAL_MANAGER
+   · n_board    PENDING  → qa.fd_p0fix2b      source=ROLE ref_role=FINANCE_DIRECTOR
+  [PASS] 会签候选 = ['henry.liao', 'qa.fd_p0fix2b']（2 人；不是 4 个超管会签）
+- 财务总监批一票：HTTP 200 code=0 ok 已批=1/应到=2
+  [PASS] 批一票后实例 PENDING，仍待办 1 条 → 会签没齐不结束
+- 总经理批第二票：HTTP 200 code=0 ok
+  [PASS] 两票齐 → 实例 APPROVED
+
+## 2) 删掉财务总监夹具 → 同一节点只剩总经理一档（**不落 FALLBACK_ADMIN**）
+   · n_board    PENDING  → henry.liao         source=ROLE ref_role=GENERAL_MANAGER
+  [PASS] 候选 = ['henry.liao']，source=['ROLE'] → 只剩总经理档，**没有**回退成超管/FALLBACK
+
+## 3) 空角色兜底对照：n_fin 的 FINANCE_MANAGER 0 成员 → FALLBACK_ADMIN（assignee_source=ADMIN）
+- 兜底前 FINANCE_MANAGER 在用成员数 = 0
+   · n_fin      PENDING  → henry.liao         source=ADMIN ref_role=SUPER_ADMIN
+   · n_fin      PENDING  → laoliu             source=ADMIN ref_role=SUPER_ADMIN
+   · n_fin      PENDING  → laoliu_test        source=ADMIN ref_role=SUPER_ADMIN
+  [PASS] 节点 n_fin 角色 0 人 → 兜底派给超管（source=ADMIN），**不是 SKIP 自动通过**
+
+## 4) stock_transfer → n_approve 审批人 = WAREHOUSE_MANAGER
+- 仓管主管在用成员：henry.liao
+   · n_approve  PENDING  → henry.liao         source=ROLE ref_role=WAREHOUSE_MANAGER
+- 仓管主管审批：HTTP 200，实例 APPROVED
+  [PASS] 审批人来自 WAREHOUSE_MANAGER 角色且链路走通
+
+- 已删除夹具账号（副本库不留成员归属）
+
+==== FAIL=0 ====

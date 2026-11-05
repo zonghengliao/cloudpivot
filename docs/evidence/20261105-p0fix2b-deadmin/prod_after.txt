@@ -1,0 +1,38 @@
+## 生成时间（prod）: 2026-11-05T15:52:47+08:00
+
+### 1) B1 已发布流程里 assignee_type=ADMIN 节点数
+count
+0
+(1 row)
+
+### 2) 5 个节点的最终配置 + 绑定
+flow_code|node_key|node_name|assignee_type|coalesce|empty_assignee|self_approval|coalesce
+payable_pay|n_board|财务总监+总经理会签|ROLE|ALL|FALLBACK_ADMIN|ALLOW|FINANCE_DIRECTOR,GENERAL_MANAGER
+payable_pay|n_dept|部门主管审批|ROLE|-|FALLBACK_ADMIN|ALLOW|DEPT_LEADER
+payable_pay|n_fin|财务经理审批|ROLE|-|FALLBACK_ADMIN|ALLOW|FINANCE_MANAGER
+stock_in_cancel|n_review|作废复核|ROLE|-|ERROR|FORBID|WAREHOUSE_MANAGER
+stock_transfer|n_approve|仓管主管审批|ROLE|-|FALLBACK_ADMIN|ALLOW|WAREHOUSE_MANAGER
+(5 rows)
+
+### 3) 版本与 hash
+flow_code|current_version_no|version_no|version_status|is_current|btrim
+payable_pay|2|1|ARCHIVED|f|8341eac726949864d2a9fdb562a34154d8b7eb611a265fc6adc2c1c9e8e5c1c5
+payable_pay|2|2|PUBLISHED|t|5059115327e291c6e1861fa434f7e74d8ccc50e133e79b802cde6f074e2c65d3
+stock_in_cancel|2|1|ARCHIVED|f|78d34c4557630fd8a57c45f901b427649db06ee380baf1868d257813f6e4e56c
+stock_in_cancel|2|2|PUBLISHED|t|80cd6c9c76c165a7b75e0be29f163482825dc31eef1f195e0602cd98d3ca4cb1
+stock_transfer|2|1|ARCHIVED|f|e1947064684e326c4ad4248e354d0215f1a3f3a7f668fb467aefe854adbd90da
+stock_transfer|2|2|PUBLISHED|t|7211229eeec38dca63ee28cd0fceb5a13b11ab5e12c94adb87465ad178901ef6
+(6 rows)
+
+### 4) B3 两张 PENDING 实例待办（after）
+instance_no|flow_code|status|id|node_key|status|assignee_id|assignee_name|assignee_source|created_at
+FLW-20261102-94417B93|po_approve|PENDING|01a19c2b-0778-7016-b599-cdd03e1b5abd|n_dept|APPROVED|01a18171-e94a-7537-b822-d75e6566845c|Henry.Liao|ROLE|2026-11-02 20:10:28.079604+08
+FLW-20261102-94417B93|po_approve|PENDING|01a19c2b-077a-75c0-b676-e97d1ab7f818|n_dept|PENDING|c45e5728-2ca6-458a-9610-88bc4ed7b0e8|老六测试号|ROLE|2026-11-02 20:10:28.079604+08
+FLW-20261105-5D6B0905|stock_take_post|PENDING|01a1a9aa-97ed-7366-8a71-27889aaa8b54|n_wh|PENDING|01a18171-e94a-7537-b822-d75e6566845c|Henry.Liao|ROLE|2026-11-05 11:04:51.92864+08
+FLW-20261105-5D6B0905|stock_take_post|PENDING|01a1a9aa-97f0-77e3-af45-4c9e95409d23|n_wh|PENDING|c45e5728-2ca6-458a-9610-88bc4ed7b0e8|老六测试号|ROLE|2026-11-05 11:04:51.92864+08
+(4 rows)
+
+### 5) 计数
+tasks|instances|pending|user_roles
+148|113|2|16
+(1 row)

@@ -1,0 +1,29 @@
+## 生成时间（prod）: 2026-11-05T15:47:05+08:00
+
+### 1) 已发布流程的 ADMIN 节点（B1 before）
+flow_code|node_key|node_name|assignee_type|coalesce|empty_assignee|self_approval|version_no
+payable_pay|n_board|财务总监+总经理会签|ADMIN|ALL|FALLBACK_ADMIN|ALLOW|1
+payable_pay|n_dept|部门主管审批|ADMIN|-|FALLBACK_ADMIN|ALLOW|1
+payable_pay|n_fin|财务经理审批|ADMIN|-|FALLBACK_ADMIN|ALLOW|1
+stock_in_cancel|n_review|作废复核|ADMIN|-|FALLBACK_ADMIN|FORBID|1
+stock_transfer|n_approve|超管审批|ADMIN|-|FALLBACK_ADMIN|ALLOW|1
+(5 rows)
+
+### 2) 两张 PENDING 实例的待办（B3 before）
+instance_no|flow_code|inst_status|task_id|node_key|task_status|assignee_id|assignee_name|assignee_source|is_self_approval|created_at
+FLW-20261102-94417B93|po_approve|PENDING|01a19c2b-0778-7016-b599-cdd03e1b5abd|n_dept|APPROVED|01a18171-e94a-7537-b822-d75e6566845c|Henry.Liao|ROLE|f|2026-11-02 20:10:28.079604+08
+FLW-20261102-94417B93|po_approve|PENDING|01a19c2b-077a-75c0-b676-e97d1ab7f818|n_dept|PENDING|c45e5728-2ca6-458a-9610-88bc4ed7b0e8|老六测试号|ROLE|f|2026-11-02 20:10:28.079604+08
+FLW-20261105-5D6B0905|stock_take_post|PENDING|01a1a9aa-97ed-7366-8a71-27889aaa8b54|n_wh|PENDING|01a18171-e94a-7537-b822-d75e6566845c|Henry.Liao|ROLE|f|2026-11-05 11:04:51.92864+08
+FLW-20261105-5D6B0905|stock_take_post|PENDING|01a1a9aa-97f0-77e3-af45-4c9e95409d23|n_wh|PENDING|c45e5728-2ca6-458a-9610-88bc4ed7b0e8|老六测试号|ROLE|f|2026-11-05 11:04:51.92864+08
+(4 rows)
+
+### 3) 这些实例钉的版本
+instance_no|flow_code|version_id|version_no|status
+FLW-20261102-94417B93|po_approve|20000000-0000-4000-8000-0000000a0183|1|PENDING
+FLW-20261105-5D6B0905|stock_take_post|20000000-0000-4000-8000-0000000c2111|1|PENDING
+(2 rows)
+
+### 4) 全库 biz_flow_task / biz_flow_instance 计数（B3 判据用）
+tasks|instances|pending
+148|113|2
+(1 row)

@@ -1,0 +1,37 @@
+# B2 解析人集合 before/after（应用内 preview，与运行期同一个 assignee::resolve）
+
+> 隔离副本库 cloudpivot_deadmin（= 生产数据 + v2 已发布）；角色成员按**生产现状**：
+> SUPER_ADMIN=4（admin/henry.liao/laoliu/laoliu_test）、GENERAL_MANAGER=2（henry.liao/laoliu_test，后者停用）、
+> WAREHOUSE_MANAGER=2（同上）、DEPT_LEADER=2（同上）、FINANCE_MANAGER=0、FINANCE_DIRECTOR=0
+
+## payable_pay.n_dept —— 部门主管审批
+- 配置：v2 `assignee_type=ROLE`、绑定 `DEPT_LEADER`、`empty_assignee=FALLBACK_ADMIN`、`approval_mode=（缺省）`
+- **before**（ADMIN）：HTTP 200 → ['超级管理员(ADMIN)', 'Henry.Liao(ADMIN)', '老六(ADMIN)']
+    · trace：ADMIN 命中 4 行
+- **after**（ROLE DEPT_LEADER）：HTTP 200 → ['Henry.Liao(ROLE)']
+
+## payable_pay.n_fin —— 财务经理审批
+- 配置：v2 `assignee_type=ROLE`、绑定 `FINANCE_MANAGER`、`empty_assignee=FALLBACK_ADMIN`、`approval_mode=（缺省）`
+- **before**（ADMIN）：HTTP 200 → ['超级管理员(ADMIN)', 'Henry.Liao(ADMIN)', '老六(ADMIN)']
+    · trace：ADMIN 命中 4 行
+- **after**（ROLE FINANCE_MANAGER）：HTTP 200 → ['超级管理员(ADMIN)', 'Henry.Liao(ADMIN)', '老六(ADMIN)', '老六测试号(ADMIN)']
+    · trace：FALLBACK_ADMIN 命中 4 个超管
+
+## payable_pay.n_board —— 财务总监+总经理会签
+- 配置：v2 `assignee_type=ROLE`、绑定 `FINANCE_DIRECTOR,GENERAL_MANAGER`、`empty_assignee=FALLBACK_ADMIN`、`approval_mode=ALL`
+- **before**（ADMIN）：HTTP 200 → ['超级管理员(ADMIN)', 'Henry.Liao(ADMIN)', '老六(ADMIN)']
+    · trace：ADMIN 命中 4 行
+- **after**（ROLE FINANCE_DIRECTOR,GENERAL_MANAGER）：HTTP 200 → ['Henry.Liao(ROLE)']
+
+## stock_in_cancel.n_review —— 作废复核
+- 配置：v2 `assignee_type=ROLE`、绑定 `WAREHOUSE_MANAGER`、`empty_assignee=ERROR`、`approval_mode=（缺省）`
+- **before**（ADMIN）：HTTP 200 → ['超级管理员(ADMIN)', 'Henry.Liao(ADMIN)', '老六(ADMIN)']
+    · trace：ADMIN 命中 4 行
+- **after**（ROLE WAREHOUSE_MANAGER）：HTTP 200 → ['Henry.Liao(ROLE)']
+
+## stock_transfer.n_approve —— 仓管主管审批
+- 配置：v2 `assignee_type=ROLE`、绑定 `WAREHOUSE_MANAGER`、`empty_assignee=FALLBACK_ADMIN`、`approval_mode=（缺省）`
+- **before**（ADMIN）：HTTP 200 → ['超级管理员(ADMIN)', 'Henry.Liao(ADMIN)', '老六(ADMIN)']
+    · trace：ADMIN 命中 4 行
+- **after**（ROLE WAREHOUSE_MANAGER）：HTTP 200 → ['Henry.Liao(ROLE)']
+
