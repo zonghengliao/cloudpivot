@@ -37,8 +37,17 @@ pub struct ExportSyncQuery {
     pub biz_type: String,
     /// 关键词（业务自定义解释）。
     pub keyword: Option<String>,
-    /// 状态过滤（1 启用 / 0 停用）。
+    /// 启用 / 停用过滤（1 启用 / 0 停用）。
+    ///
+    /// **只对 `system.dict_item` / `system.user` 有效**；ERP 单据
+    /// （`erp.stock_in` / `erp.payable` / `erp.voucher`）的状态是文本码，
+    /// 对它们传这个字段会 **422**（提示改用 `status_code`），不会静默返回全量。
     pub status: Option<i16>,
+    /// 单据状态码过滤（`POSTED` / `SETTLED` / `CANCELLED` …，不区分大小写）。
+    ///
+    /// **只对声明了状态码白名单的定义有效**（三个 ERP 单据导出）；非法码 → 422，
+    /// 消息里点名该 `biz_type` 的合法码。不传 = 不过滤（全量，与修复前一致）。
+    pub status_code: Option<String>,
 }
 
 /// 导入任务分页查询。
@@ -209,8 +218,12 @@ pub struct ExportCreateReq {
     pub biz_type: String,
     /// 关键词（业务自定义解释）。
     pub keyword: Option<String>,
-    /// 状态过滤（1 启用 / 0 停用）。
+    /// 启用 / 停用过滤（1 启用 / 0 停用）：只对 `system.dict_item` / `system.user` 有效，
+    /// 对 ERP 单据传这个字段 → 422（它们的状态是文本码，用 `status_code`）。
     pub status: Option<i16>,
+    /// 单据状态码过滤（`POSTED` / `SETTLED` …，不区分大小写）：只对三个 ERP 单据导出有效，
+    /// 非法码 → 422 且消息点名合法码。快照进任务，worker 执行时再校验一次。
+    pub status_code: Option<String>,
     /// 格式（`XLSX` / `CSV`；缺省按行数自动选：≤ 20 万行 XLSX，超过 CSV）。
     pub format: Option<String>,
     /// 导出文件名（不含扩展名；缺省 `业务名_时间戳`）。

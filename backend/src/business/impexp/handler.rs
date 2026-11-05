@@ -51,7 +51,7 @@ use sha2::{Digest, Sha256};
 use tokio_util::io::ReaderStream;
 
 use crate::business::impexp::definition::{
-    DuplicateStrategy, ExportFilter, ImportCtx, ImportDefinition, ImportMode, RowIssue,
+    self, DuplicateStrategy, ExportFilter, ImportCtx, ImportDefinition, ImportMode, RowIssue,
 };
 use crate::business::impexp::dto::{
     ConfirmRes, ErrorPageQuery, ExportCreateReq, ExportPageQuery, ExportSyncQuery, ExportTaskRes,
@@ -738,6 +738,8 @@ pub async fn import_confirm(
 /// - 401 + `20005`：令牌缺少用户标识（无法判定脱敏规则，拒绝导出）；
 /// - 404 + `60011`：定义未注册；
 /// - 409 + `60015`：命中行数超过同步上限（异步导出属 A4）；
+/// - 422 + `10001`：状态过滤参数与定义不匹配（ERP 单据传了 `status` / 传了非法
+///   `status_code`）—— **绝不静默返回全量**；
 /// - 422：命中 0 行（E-EXP-10）；422 + `61008`：敏感列没有生效规则（fail-closed）。
 #[nik::permission(
     path = "/business/impexp/export/sync",
@@ -767,11 +769,15 @@ async fn export_sync_response(
     let definition = global_registry()
         .export_definition(query.biz_type.trim())
         .ok_or_else(|| def_not_found(&query.biz_type))?;
-    let filter = ExportFilter {
+    let mut filter = ExportFilter {
         keyword: utils::trimmed(query.keyword.as_deref()).map(str::to_string),
         status: query.status,
+        status_code: query.status_code.clone(),
         ..Default::default()
     };
+    // 状态过滤的契约校验（卡 t_93cba3f4）：传了本定义不认的状态条件 → 422，
+    // 绝不静默返回全量。放在 count 之前，连「命中行数」都不给错误口径。
+    definition::check_export_filter(definition.as_ref(), &mut filter)?;
     // 批次 B · B6：数据范围 + 脱敏规则都必须来自**发起人**。令牌里没有用户标识时
     // 直接拒绝导出——无法判定脱敏规则就等于无法保证不出明文（fail-closed）。
     let principal = principal::resolve_for_claims(claims).await?;
@@ -1082,6 +1088,7 @@ fn resolve_export_format(raw: Option<&str>, total: i64) -> std::result::Result<S
 /// # 异常情况
 ///
 /// - 404 + `60011`：定义未注册；
+/// - 422 + `10001`：状态过滤参数与定义不匹配（ERP 单据传了 `status` / 非法 `status_code`）；
 /// - 422：过滤后 0 行 / 格式非法；
 /// - 500：数据库异常。
 #[nik::permission(
@@ -1101,11 +1108,15 @@ pub async fn export_create(
     let definition = global_registry()
         .export_definition(&biz_type)
         .ok_or_else(|| def_not_found(&biz_type))?;
-    let filter = ExportFilter {
+    let mut filter = ExportFilter {
         keyword: utils::trimmed(req.keyword.as_deref()).map(str::to_string),
         status: req.status,
+        status_code: req.status_code.clone(),
         ..Default::default()
     };
+    // 卡 t_93cba3f4：建任务前就把状态过滤校验掉（非法码 / 用错字段当场 422），
+    // 别让用户等任务跑完才发现「筛选参数根本没生效」。
+    definition::check_export_filter(definition.as_ref(), &mut filter)?;
     // 批次 B · B6：建任务时的「命中行数」也必须按**发起人的数据范围**统计（复用上面
     // B5 解析好的 `principal`），否则会出现「列表只看得到 5 个人、导出任务却报 5000 行、
     // 产物却是 5 行」的口径错位（更糟的是：不过滤范围时，这个行数本身就是一次越权侦察）。
@@ -1137,6 +1148,7 @@ pub async fn export_create(
     let query_params = serde_json::json!({
         "keyword": filter.keyword,
         "status": filter.status,
+        "status_code": filter.status_code,
     })
     .to_string();
     let columns_snapshot = serde_json::to_string(

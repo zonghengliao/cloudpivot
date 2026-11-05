@@ -91,12 +91,18 @@ pub struct BatchStatusReq {
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 #[serde(default)]
 pub struct BatchExportReq {
-    /// 勾选的主键；空 = 按 `keyword` / `status` 导「当前筛选结果」。
+    /// 勾选的主键；空 = 按 `keyword` / `status_code` 导「当前筛选结果」。
     pub ids: Vec<String>,
     /// 关键词（与列表页同一个过滤口径）。
     pub keyword: Option<String>,
-    /// 状态过滤（1 启用 / 0 停用这类整型码；ERP 单据传 `None`）。
+    /// 启用 / 停用过滤（1 启用 / 0 停用这类整型码）：**ERP 单据传这个字段 → 422**，
+    /// 它们的状态是文本码，用 `status_code`（本卡 t_93cba3f4 前它会静默失效）。
     pub status: Option<i16>,
+    /// 单据状态码（`POSTED` / `SETTLED` / `CANCELLED` …，与列表页 `status` 同一个值域）。
+    ///
+    /// 白名单来自导出定义的 `status_codes()`（就是导出列里 `status` 那份 `EnumItem`），
+    /// 非法码 → 422 且消息点名合法码。
+    pub status_code: Option<String>,
 }
 
 // ==================== 业务实现（单测直接调这一层） ====================
@@ -266,15 +272,17 @@ pub async fn batch_export_doc(
         batch::parse_ids(&req.ids)?
     };
     let keyword = utils::trimmed(req.keyword.as_deref()).map(str::to_string);
-    if ids.is_empty() && keyword.is_none() && req.status.is_none() {
+    let status_code = utils::trimmed(req.status_code.as_deref()).map(str::to_string);
+    if ids.is_empty() && keyword.is_none() && req.status.is_none() && status_code.is_none() {
         return Err(ApiError::bad_request(
-            "ids 为空时必须带上当前筛选条件（keyword / status）：\
+            "ids 为空时必须带上当前筛选条件（keyword / status_code）：\
              否则「全选」会变成「全表」，导出前请先在列表页筛一下或直接勾选",
         ));
     }
     let filter = ExportFilter {
         keyword,
         status: req.status,
+        status_code,
         ids: Vec::new(),
     };
     batch_export::create_by_ids(

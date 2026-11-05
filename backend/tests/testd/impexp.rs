@@ -612,6 +612,7 @@ async fn i07_export_sync_content() {
                 biz_type: DICT_BIZ.to_string(),
                 keyword: Some(ctx.key("已")),
                 status: None,
+                status_code: None,
             }),
         )
         .await;

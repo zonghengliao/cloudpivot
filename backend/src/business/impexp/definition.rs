@@ -24,6 +24,8 @@ use async_trait::async_trait;
 use chrono::{NaiveDate, NaiveDateTime};
 use nik::prelude::*;
 
+use crate::shared::error_code;
+
 // ==================== 错误分类 ====================
 
 /// 校验错误的分类（落库 `sys_import_task_error.error_code`）。
@@ -841,12 +843,32 @@ pub trait ImportDefinition: Send + Sync {
 }
 
 /// 导出的过滤条件（由 handler 从查询串解析，业务方自解释）。
+///
+/// # 状态过滤的两种口径（卡 `t_93cba3f4`）
+///
+/// 状态有两个**互不相通**的表达方式，定义必须显式声明自己认哪一种；两样都不认的定义
+/// （比如没有状态列的导出）收到任何状态过滤都会被 [`check_export_filter`] 判 **422**：
+///
+/// | 字段 | 语义 | 谁支持 | 落库形态 |
+/// |------|------|--------|----------|
+/// | [`Self::status`] | 启用 / 停用（`1` / `0`） | `system.dict_item` / `system.user` | `smallint` |
+/// | [`Self::status_code`] | 单据状态文本码（`POSTED` / `SETTLED` …） | `erp.stock_in` / `erp.payable` / `erp.voucher` | `varchar` + `CHECK` |
+///
+/// **两种都不许静默忽略**：用户传了筛不掉的条件，却拿到全量文件，比报错危险得多。
 #[derive(Debug, Clone, Default)]
 pub struct ExportFilter {
     /// 关键词。
     pub keyword: Option<String>,
-    /// 状态过滤（1 启用 / 0 停用；`None` 表示不过滤）。
+    /// 启用 / 停用过滤（1 启用 / 0 停用；`None` = 不过滤）。
+    ///
+    /// 只对 [`ExportDefinition::supports_status_flag`] 为 `true` 的定义有效；
+    /// ERP 单据的状态是文本码，对它们传这个字段 → 422（提示改用 `status_code`）。
     pub status: Option<i16>,
+    /// 单据状态码过滤（`POSTED` / `SETTLED` 这类文本码；`None` = 不过滤）。
+    ///
+    /// 合法码 = [`ExportDefinition::status_codes`]（与导出列定义里 `status` 列的
+    /// `EnumItem` **同一份**，不另抄白名单）。不区分大小写；非法码 → 422 且点名合法码。
+    pub status_code: Option<String>,
     /// 只导这些主键（D7 批量导出；空 = 不按主键收窄）。
     ///
     /// 只有声明了 `ids` 语义的定义（见 `builtin::erp_doc`）会在 SQL 里消费它；
@@ -863,6 +885,21 @@ pub trait ExportDefinition: Send + Sync {
     fn biz_name(&self) -> &'static str;
     /// 列定义。
     fn columns(&self) -> &'static [ExportColumn];
+    /// 是否支持「启用 / 停用」整型状态过滤（[`ExportFilter::status`]）。
+    ///
+    /// 默认 `false`：**没人认的过滤条件必须报错**（否则就是「用户以为筛了、实际拿了全量」）。
+    /// 支持的定义（`system.dict_item` / `system.user`，状态列就是 `1` / `0`）显式覆盖成 `true`。
+    fn supports_status_flag(&self) -> bool {
+        false
+    }
+    /// 本定义的单据状态码白名单（[`ExportFilter::status_code`] 的合法取值）。
+    ///
+    /// 默认空 = 不支持按文本状态码过滤。ERP 单据（`builtin::erp_doc`）从导出列定义里
+    /// `key == "status"` 的 [`ColumnKind::Enum`] 取码 —— **与导出回显同一份 `EnumItem`**，
+    /// 列定义里改了码，白名单自动跟着改（不会出现「中文对、过滤的码不对」）。
+    fn status_codes(&self) -> Vec<&'static str> {
+        Vec::new()
+    }
     /// 同步导出的行数上限（超过报 E-EXP-01，异步导出由 A4 提供）。
     fn sync_max_rows(&self) -> usize {
         10_000
@@ -917,6 +954,92 @@ pub trait ExportDefinition: Send + Sync {
         let _ = principal;
         self.fetch(filter, after_id, limit).await
     }
+}
+
+/// 校验「导出状态过滤」是否符合本定义的契约（卡 `t_93cba3f4`）。
+///
+/// 三个入口都必须先过这一关：同步导出（`handler::export_sync`）、异步建任务
+/// （`handler::export_create` / `batch_export::create_by_ids`）、worker 执行（`worker::do_export`）。
+///
+/// # 为什么必须报错而不是忽略
+///
+/// `status` 是给「启用 / 停用」设计的 `i16`，而 ERP 单据的状态是**文本码**
+/// （`POSTED` / `SETTLED` / `CANCELLED` …）。旧代码在 ERP 单据分支里根本没有 status 子句，
+/// 于是 `?status=1` 静默返回**全量**：用户以为筛过，实际拿到全公司数据。
+/// 宁可直接 422，也不能给一份口径不同的文件。
+///
+/// # 参数
+///
+/// - `definition`：目标导出定义（决定它认哪一种状态过滤）；
+/// - `filter`：业务过滤条件。`status_code` 会被**原地规范化**（去空白 + 转大写），
+///   保证下游 SQL 绑定的值与这里校验过的值逐字一致；空串按「不过滤」处理。
+///
+/// # 异常情况
+///
+/// - `422 + 10001`：契约不匹配 —— `status` 传给了文本码定义、`status_code` 传给了
+///   没有白名单的定义、码不在白名单、或启用 / 停用值不是 `0` / `1`。
+pub fn check_export_filter(
+    definition: &dyn ExportDefinition,
+    filter: &mut ExportFilter,
+) -> std::result::Result<(), ApiError> {
+    let biz_type = definition.biz_type();
+    let codes = definition.status_codes();
+
+    if let Some(raw) = filter.status_code.take() {
+        let code = raw.trim().to_ascii_uppercase();
+        if !code.is_empty() {
+            if codes.is_empty() {
+                return Err(ApiError::new(
+                    422,
+                    error_code::PARAM_INVALID,
+                    format!(
+                        "导出定义「{biz_type}」不支持按状态码过滤（status_code）：\
+                         它没有状态码白名单；只有单据状态是文本码的导出（如 erp.voucher）才支持"
+                    ),
+                ));
+            }
+            if !codes.iter().any(|allowed| *allowed == code) {
+                return Err(ApiError::new(
+                    422,
+                    error_code::PARAM_INVALID,
+                    format!(
+                        "状态码「{code}」不是「{biz_type}」的合法取值，只允许：{}（不区分大小写）",
+                        codes.join(" / ")
+                    ),
+                ));
+            }
+            filter.status_code = Some(code);
+        }
+    }
+
+    if let Some(status) = filter.status
+        && !definition.supports_status_flag()
+    {
+        let hint = if codes.is_empty() {
+            "；该定义也不支持 status（启用 / 停用），可用的过滤条件只有 keyword / ids".to_string()
+        } else {
+            format!(
+                "；它的状态是文本码，请改用 status_code=…（合法码：{}）",
+                codes.join(" / ")
+            )
+        };
+        return Err(ApiError::new(
+            422,
+            error_code::PARAM_INVALID,
+            format!("导出定义「{biz_type}」不支持 status={status} 过滤{hint}"),
+        ));
+    }
+
+    if let Some(status) = filter.status
+        && !matches!(status, 0 | 1)
+    {
+        return Err(ApiError::new(
+            422,
+            error_code::PARAM_INVALID,
+            format!("status 只允许 1（启用）/ 0（停用），收到「{status}」"),
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1208,5 +1331,71 @@ mod tests {
             remark: "字母+数字",
         };
         assert_eq!(column.template_header(), "物料编码*");
+    }
+
+    // ---------- 导出状态过滤的契约（卡 t_93cba3f4） ----------
+
+    /// 最小导出定义：既没有状态列、也不认整型 `status`
+    /// （用来钉「两样都不认的定义，收到任何状态过滤都必须 422」）。
+    struct NoStatusExport;
+
+    #[async_trait::async_trait]
+    impl ExportDefinition for NoStatusExport {
+        fn biz_type(&self) -> &'static str {
+            "test.no_status"
+        }
+        fn biz_name(&self) -> &'static str {
+            "无状态导出"
+        }
+        fn columns(&self) -> &'static [ExportColumn] {
+            &[]
+        }
+        async fn count(&self, _filter: &ExportFilter) -> std::result::Result<i64, DbError> {
+            Ok(0)
+        }
+        async fn fetch(
+            &self,
+            _filter: &ExportFilter,
+            _after_id: Option<&str>,
+            _limit: u32,
+        ) -> std::result::Result<Vec<(String, HashMap<&'static str, String>)>, DbError> {
+            Ok(Vec::new())
+        }
+    }
+
+    #[test]
+    fn unsupported_status_filters_are_rejected_not_ignored() {
+        let definition = NoStatusExport;
+
+        // 整型 status：没人认 → 422（静默忽略就是「用户以为筛了、实际拿了全量」）
+        let mut filter = ExportFilter {
+            status: Some(1),
+            ..Default::default()
+        };
+        let error = check_export_filter(&definition, &mut filter).expect_err("不支持必须报错");
+        assert_eq!(error.status, 422);
+        assert_eq!(error.code, error_code::PARAM_INVALID);
+        assert!(
+            error.msg.contains("test.no_status") && error.msg.contains("keyword"),
+            "报错要说明是哪个定义、还能用什么过滤：{}",
+            error.msg
+        );
+
+        // 文本码：没有白名单 → 同样 422
+        let mut filter = ExportFilter {
+            status_code: Some("POSTED".to_string()),
+            ..Default::default()
+        };
+        let error = check_export_filter(&definition, &mut filter).expect_err("没有白名单必须报错");
+        assert_eq!(error.status, 422);
+        assert!(error.msg.contains("status_code"), "{}", error.msg);
+
+        // 什么都不传 → 通过（行为与修复前一致）
+        let mut filter = ExportFilter::default();
+        check_export_filter(&definition, &mut filter).expect("不传状态不是错误");
+
+        // 默认实现：两种状态过滤都不支持（第三方定义不该默认「看起来支持」）
+        assert!(!definition.supports_status_flag());
+        assert!(definition.status_codes().is_empty());
     }
 }

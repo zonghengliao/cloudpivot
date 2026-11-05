@@ -30,7 +30,7 @@ use crate::utils;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::impexp::definition::ExportFilter;
+use crate::business::impexp::definition::{self, ExportFilter};
 use crate::business::impexp::model::{self, NewExportTask};
 use crate::business::impexp::registry::global_registry;
 use crate::business::impexp::worker;
@@ -62,13 +62,14 @@ pub struct BatchExportTask {
 ///
 /// - `biz_type`：导出定义编码（必须已在注册表里）；
 /// - `ids`：勾中的主键（空 = 按 `filter` 导「当前筛选结果」）；
-/// - `filter`：筛选快照（`keyword` / `status`，会被原样写进任务，可追溯）；
+/// - `filter`：筛选快照（`keyword` / `status` / `status_code`，会被原样写进任务，可追溯）；
 /// - `operator`：发起人（落 `create_by`，导入导出页「只看自己的」靠它）；
 /// - `export_name`：自定义文件名（空 = 「业务名_时间戳」）。
 ///
 /// # 异常情况
 ///
 /// - `404 + 60011`：`biz_type` 未注册；
+/// - `422 + 10001`：状态过滤与定义不匹配（见 [`definition::check_export_filter`]）；
 /// - `422`：命中 0 行（勾中的行都被删了 / 筛选条件太窄）；
 /// - `500`：写任务行失败。
 pub async fn create_by_ids(
@@ -89,6 +90,9 @@ pub async fn create_by_ids(
             )
         })?;
     filter.ids = ids.to_vec();
+    // 卡 t_93cba3f4：批量导出同样过状态过滤契约（非法 `status_code` / 给 ERP 单据传
+    // `status` → 422），别让「勾选后导出」成为绕过校验的后门。
+    definition::check_export_filter(definition.as_ref(), &mut filter)?;
 
     // 建任务时就按**同一口径**数一遍：0 行直接 422，别让用户等到任务跑完才发现是空文件。
     let total = definition
@@ -122,6 +126,7 @@ pub async fn create_by_ids(
     let query_params = serde_json::json!({
         "keyword": filter.keyword,
         "status": filter.status,
+        "status_code": filter.status_code,
         "ids": filter.ids.iter().map(Uuid::to_string).collect::<Vec<_>>(),
     })
     .to_string();

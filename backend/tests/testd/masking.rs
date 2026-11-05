@@ -119,6 +119,7 @@ async fn x03_sync_export_masked() {
                 biz_type: "system.user".to_string(),
                 keyword: Some(format!("%{}%", ctx.key("target"))),
                 status: None,
+                status_code: None,
             }),
         )
         .await;
@@ -241,6 +242,7 @@ async fn x04_missing_rule_fails_closed() {
                 biz_type: "system.user".to_string(),
                 keyword: Some(format!("%{}%", ctx.key("target"))),
                 status: None,
+                status_code: None,
             }),
         )
         .await;
@@ -301,6 +303,7 @@ async fn x05_plain_permission_exempt_and_audited() {
                 biz_type: "system.user".to_string(),
                 keyword: Some(format!("%{}%", ctx.key("target"))),
                 status: None,
+                status_code: None,
             }),
         )
         .await;

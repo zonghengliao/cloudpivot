@@ -22,6 +22,16 @@
 //! | [`cleanup`] | 僵尸任务回收（30 min 无心跳）+ 过期产物清理（下载 410） |
 //! | [`builtin`] | 内置真实业务定义（`sys_dict_item`） |
 //!
+//! # 导出状态过滤的契约（卡 `t_93cba3f4`）
+//!
+//! 状态有两种互不相通的表达：`status`（`1` 启用 / `0` 停用，只对 `system.dict_item` /
+//! `system.user` 有效）与 `status_code`（`POSTED` 这类单据文本码，只对三个 ERP 单据导出有效）。
+//! 定义必须在 [`definition::ExportDefinition::supports_status_flag`] /
+//! [`definition::ExportDefinition::status_codes`] 里显式声明自己认哪一种；
+//! **两边都不认的过滤条件一律由 [`definition::check_export_filter`] 判 422**，
+//! 绝不「静默返回全量」（那比报错更危险：用户以为筛过，实际带走全表）。
+//! 新增导出入口时，别忘在 `count` / `fetch` 之前调一次这个校验。
+//!
 //! # 交付边界（A3 + A4 合并后的现状）
 //!
 //! - **异步导出**（`worker` / `cleanup` / 接口层取消重试下载）：A4 已交付；

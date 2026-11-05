@@ -46,7 +46,7 @@ use std::path::{Path, PathBuf};
 use nik::prelude::*;
 use sha2::{Digest, Sha256};
 
-use crate::business::impexp::definition::{ColumnKind, ExportFilter};
+use crate::business::impexp::definition::{self, ColumnKind, ExportFilter};
 use crate::business::impexp::engine;
 use crate::business::impexp::model::{self, ExportTask};
 use crate::business::impexp::registry::global_registry;
@@ -522,7 +522,16 @@ async fn do_export(
             ))
         })?;
 
-    let filter = filter_from_params(task.query_params.as_deref());
+    let mut filter = filter_from_params(task.query_params.as_deref());
+    // 卡 t_93cba3f4：快照里的状态条件可能已经与当前定义不符（码被下线 / 定义改版），
+    // 这时必须**失败**而不是回落全量 —— 用户要的是「筛过的那些」，给全量等于静默错导。
+    if let Err(error) = definition::check_export_filter(definition.as_ref(), &mut filter) {
+        return Err(ExportFailure::Terminal(format!(
+            "导出条件与「{}」的过滤契约不一致，已终止本次导出（不回落全量）：{}",
+            definition.biz_type(),
+            error.msg
+        )));
+    }
     // 批次 B · B6（架构 §3.7 第 3 条）：异步导出的身份来自 `sys_export_task.create_by`，
     // 并且**每次执行都重新解析**规则——任务可能跑 10 分钟，期间管理员可能收紧了规则；
     // 用当前规则宁可在任务完成前改变结果，也不要出一份「按旧规则」的明文文件。
@@ -699,6 +708,14 @@ pub fn filter_from_params(raw: Option<&str>) -> ExportFilter {
             .get("status")
             .and_then(|item| item.as_i64())
             .map(|item| item as i16),
+        // 卡 t_93cba3f4：单据状态码（`POSTED` 这类文本码）。任务创建时已校验过白名单，
+        // 这里还原成同一个值；worker 执行前还会再校验一次（定义可能已改版）。
+        status_code: value
+            .get("status_code")
+            .and_then(|item| item.as_str())
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+            .map(str::to_string),
         // D7：批量导出只导勾中的行。非法 / 缺失 / 空数组都按「不按主键收窄」处理
         // （快照是任务创建时自己写的，宁可多导也不要让任务卡在失败重试里）。
         ids: value
@@ -983,6 +1000,24 @@ mod tests {
         let filter = filter_from_params(Some("{\"keyword\":\"  物料 \",\"status\":1}"));
         assert_eq!(filter.keyword.as_deref(), Some("物料"));
         assert_eq!(filter.status, Some(1));
+    }
+
+    #[test]
+    fn filter_from_params_parses_status_code() {
+        // 卡 t_93cba3f4：异步任务的快照必须带着文本状态码回来，
+        // 否则 worker 执行时会「按无过滤」导全量（正是本卡的静默错导）
+        let filter = filter_from_params(Some(
+            "{\"keyword\":\"\",\"status\":null,\"status_code\":\" POSTED \"}",
+        ));
+        assert_eq!(filter.status_code.as_deref(), Some("POSTED"));
+        assert!(filter.keyword.is_none());
+        assert!(filter.status.is_none());
+
+        // 空串 / 缺字段都按「不过滤」
+        let filter = filter_from_params(Some("{\"status_code\":\"   \"}"));
+        assert!(filter.status_code.is_none());
+        let filter = filter_from_params(Some("{\"keyword\":\"x\"}"));
+        assert!(filter.status_code.is_none());
     }
 
     #[test]

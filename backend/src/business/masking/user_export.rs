@@ -146,6 +146,12 @@ impl ExportDefinition for UserExport {
         EXPORT_COLUMNS
     }
 
+    /// 用户的状态就是 `1` 启用 / `0` 停用 → 认整型 `status`（本卡不改这个口径）。
+    /// `status_code`（文本码）没有白名单 → 422，不做静默映射。
+    fn supports_status_flag(&self) -> bool {
+        true
+    }
+
     async fn count(&self, filter: &ExportFilter) -> std::result::Result<i64, DbError> {
         // 无 principal 的调用只可能是「没有调用方身份的旧路径」：按拒绝全部处理
         self.count_scoped(filter, None).await
@@ -237,5 +243,32 @@ mod tests {
         let (sql, params) = UserExport::build_where(&ExportFilter::default(), None);
         assert!(sql.contains("AND 1 = 0"), "无身份必须拒绝全部行：{sql}");
         assert!(params.is_empty());
+    }
+
+    /// 回归（卡 `t_93cba3f4`）：用户导出的 `status`（1 启用 / 0 停用）口径不变。
+    #[test]
+    fn status_filter_contract_is_unchanged_for_user_export() {
+        use crate::business::impexp::definition::check_export_filter;
+
+        let definition = UserExport;
+        assert!(definition.supports_status_flag());
+        assert!(definition.status_codes().is_empty(), "用户没有文本状态码");
+
+        let mut filter = ExportFilter {
+            status: Some(1),
+            ..Default::default()
+        };
+        check_export_filter(&definition, &mut filter).expect("status=1 必须继续可用");
+        // SQL 侧照旧：`AND u.status = ?`、参数 1
+        let (sql, params) = UserExport::build_where(&filter, None);
+        assert!(sql.contains("AND u.status = ?"), "{sql}");
+        assert_eq!(params.len(), 1);
+
+        let mut filter = ExportFilter {
+            status_code: Some("POSTED".to_string()),
+            ..Default::default()
+        };
+        let error = check_export_filter(&definition, &mut filter).expect_err("没有白名单");
+        assert_eq!(error.status, 422);
     }
 }

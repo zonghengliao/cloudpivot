@@ -792,5 +792,6 @@ fn _unused() -> ExportSyncQuery {
         biz_type: String::new(),
         keyword: None,
         status: None,
+        status_code: None,
     }
 }

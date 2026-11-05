@@ -324,6 +324,12 @@ impl ExportDefinition for DictItemExport {
         EXPORT_COLUMNS
     }
 
+    /// 字典项的状态就是 `1` 启用 / `0` 停用 → 认整型 `status`（本卡不改这个口径）。
+    /// 反过来，`status_code`（文本码）对它没有白名单 → 422，不做「猜一下」的静默映射。
+    fn supports_status_flag(&self) -> bool {
+        true
+    }
+
     async fn count(&self, filter: &ExportFilter) -> std::result::Result<i64, DbError> {
         let mut sql = String::from(
             "SELECT COUNT(*) FROM sys_dict_item i \
@@ -478,6 +484,49 @@ mod tests {
         let filter = ExportFilter::default();
         assert!(filter.keyword.is_none());
         assert!(filter.status.is_none());
+        assert!(filter.status_code.is_none());
         assert_eq!(ImportMode::Strict.as_str(), "STRICT");
+    }
+
+    /// 回归（卡 `t_93cba3f4`）：字典项的「1 启用 / 0 停用」口径**一个字都没改**，
+    /// 而它不认的文本状态码必须 422（不许静默忽略）。
+    #[test]
+    fn status_filter_contract_is_unchanged_for_dict_item() {
+        use crate::business::impexp::definition::check_export_filter;
+
+        let definition = DictItemExport;
+        assert!(definition.supports_status_flag());
+        assert!(definition.status_codes().is_empty(), "字典项没有文本状态码");
+
+        let mut filter = ExportFilter {
+            status: Some(1),
+            ..Default::default()
+        };
+        check_export_filter(&definition, &mut filter).expect("status=1 必须继续可用");
+        assert_eq!(filter.status, Some(1));
+
+        let mut filter = ExportFilter {
+            status: Some(0),
+            ..Default::default()
+        };
+        check_export_filter(&definition, &mut filter).expect("status=0 必须继续可用");
+
+        // 越界值 / 文本码：都是 422，而不是「悄悄不过滤」
+        let mut filter = ExportFilter {
+            status: Some(2),
+            ..Default::default()
+        };
+        assert!(check_export_filter(&definition, &mut filter).is_err());
+
+        let mut filter = ExportFilter {
+            status_code: Some("POSTED".to_string()),
+            ..Default::default()
+        };
+        let error = check_export_filter(&definition, &mut filter).expect_err("没有白名单");
+        assert_eq!(error.status, 422);
+
+        // 空过滤条件照旧放行
+        let mut filter = ExportFilter::default();
+        check_export_filter(&definition, &mut filter).expect("不传状态不是错误");
     }
 }
