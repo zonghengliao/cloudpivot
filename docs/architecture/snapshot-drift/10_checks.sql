@@ -428,6 +428,11 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('VOUCHER_SOURCE', 'OPENING',       NULL,                   NULL,         '期初结转：无 id，期间写在 source_no'),
     ('VOUCHER_SOURCE', 'YEAR_END',      NULL,                   NULL,         '年度损益结转：无 id，年度写在 source_no'),
     ('VOUCHER_SOURCE', 'MANUAL',        NULL,                   NULL,         '手工凭证：本来就没有来源单据'),
+    -- FIN-2 新增的三个来源：`VoucherSourceType::ALL` 已包含，登记表必须同步，
+    -- 否则 DI-17 的「凭证来源悬空」永远看不到固定资产购入 / 处置 / 折旧三类凭证
+    ('VOUCHER_SOURCE', 'FIXED_ASSET_ACQ',      'biz_fixed_asset',        'deleted_at', '固定资产购入生成（FIN-2）：source_id = 资产卡片 id，见 asset_handler 购入凭证'),
+    ('VOUCHER_SOURCE', 'FIXED_ASSET_DISPOSAL', 'biz_fixed_asset',        'deleted_at', '固定资产处置生成（FIN-2）：source_id = 资产卡片 id，见 asset_bridge::post_disposal_vouchers'),
+    ('VOUCHER_SOURCE', 'DEPRECIATION',         'biz_depreciation_batch', NULL,         '折旧计提生成（FIN-2）：source_id = 折旧批次 id（批次行无软删）'),
     -- ② 库存流水来源单据：biz_inventory_txn.doc_type + doc_id
     ('TXN_DOC', 'STOCK_IN',        'biz_stock_in',        'deleted_at', '收货过账的流水'),
     ('TXN_DOC', 'STOCK_OUT',       'biz_stock_out',       'deleted_at', '出库过账的流水'),
@@ -451,6 +456,10 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('FLOW_BIZ', 'TASK_ACCEPT',      'biz_task',           'deleted_at', '任务验收：biz_id = 任务 id（assignee.rs 解析 TASK_OWNER 用的就是它）'),
     ('FLOW_BIZ', 'EXPENSE',          NULL,                 NULL,         '费用审批：不对应 ERP 实体表'),
     ('FLOW_BIZ', 'OTHER',            NULL,                 NULL,         '客户端自建流程兜底类型：设计上不参与自检'),
+    -- FIN-1 / FIN-2 新增的两个审批动作：`FlowBizType::ALL` 已包含，登记表必须同步，
+    -- 否则 DI-19 的「流程实例业务单据悬空」永远看不到预算审批 / 资产处置审批
+    ('FLOW_BIZ', 'BUDGET_APPROVE',   'biz_budget',         'deleted_at', '预算审批（FIN-1）：biz_id = 预算行 id（budget_bridge 按 biz_budget.id 取制单人）'),
+    ('FLOW_BIZ', 'ASSET_DISPOSAL',   'biz_fixed_asset',    'deleted_at', '资产处置审批（FIN-2）：biz_id = 资产卡片 id（一张卡同时只能有一个在跑处置单）'),
     -- ④ 状态日志实体：biz_status_log.entity_type + entity_id（取值域 = DocKind）
     ('STATUS_ENTITY', 'PURCHASE_ORDER',    'biz_purchase_order',    'deleted_at', '采购单'),
     ('STATUS_ENTITY', 'STOCK_IN',          'biz_stock_in',          'deleted_at', '收货单'),
@@ -596,6 +605,27 @@ SELECT m.ref_domain, 'biz_voucher', v.id, v.voucher_no::text, 'source_id', m.ref
  WHERE v.deleted_at IS NULL AND v.source_id IS NOT NULL
    AND v.source_type IN ('SERIAL_BATCH', 'SERIAL_OUT', 'SERIAL_SCRAP')
    AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+-- FIN-2：购入 / 处置凭证都挂在资产卡片上（source_id = biz_fixed_asset.id）
+UNION ALL
+SELECT m.ref_domain, 'biz_voucher', v.id, v.voucher_no::text, 'source_id', m.ref_type, v.source_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_voucher v
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'VOUCHER_SOURCE' AND m.ref_type = v.source_type
+  LEFT JOIN biz_fixed_asset t ON t.id = v.source_id
+ WHERE v.deleted_at IS NULL AND v.source_id IS NOT NULL
+   AND v.source_type IN ('FIXED_ASSET_ACQ', 'FIXED_ASSET_DISPOSAL')
+   AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+-- FIN-2：折旧凭证挂折旧批次（批次行无软删，只判存在）
+UNION ALL
+SELECT m.ref_domain, 'biz_voucher', v.id, v.voucher_no::text, 'source_id', m.ref_type, v.source_id,
+       m.target_table, 'DANGLING', 'ROW_MISSING', (m.target_table || '.id')::text
+  FROM biz_voucher v
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'VOUCHER_SOURCE' AND m.ref_type = v.source_type
+  LEFT JOIN biz_depreciation_batch t ON t.id = v.source_id
+ WHERE v.deleted_at IS NULL AND v.source_id IS NOT NULL
+   AND v.source_type = 'DEPRECIATION' AND t.id IS NULL
 -- 凭证「有类型没 id」：回跳不了来源单
 UNION ALL
 SELECT m.ref_domain, 'biz_voucher', v.id, v.voucher_no::text, 'source_id', m.ref_type, NULL,
@@ -749,6 +779,28 @@ SELECT m.ref_domain, 'biz_flow_instance', i.id, i.instance_no::text, 'biz_id', m
   LEFT JOIN biz_task t ON t.id = i.biz_id
  WHERE i.deleted_at IS NULL AND i.biz_id IS NOT NULL
    AND i.biz_type = 'TASK_ACCEPT' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+-- FIN-1：预算审批的 biz_id = 预算行 id
+UNION ALL
+SELECT m.ref_domain, 'biz_flow_instance', i.id, i.instance_no::text, 'biz_id', m.ref_type, i.biz_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_flow_instance i
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'FLOW_BIZ' AND m.ref_type = i.biz_type
+  LEFT JOIN biz_budget t ON t.id = i.biz_id
+ WHERE i.deleted_at IS NULL AND i.biz_id IS NOT NULL
+   AND i.biz_type = 'BUDGET_APPROVE' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+-- FIN-2：资产处置审批的 biz_id = 资产卡片 id
+UNION ALL
+SELECT m.ref_domain, 'biz_flow_instance', i.id, i.instance_no::text, 'biz_id', m.ref_type, i.biz_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_flow_instance i
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'FLOW_BIZ' AND m.ref_type = i.biz_type
+  LEFT JOIN biz_fixed_asset t ON t.id = i.biz_id
+ WHERE i.deleted_at IS NULL AND i.biz_id IS NOT NULL
+   AND i.biz_type = 'ASSET_DISPOSAL' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
 -- 流程实例「有类型没 biz_id」
 UNION ALL
 SELECT m.ref_domain, 'biz_flow_instance', i.id, i.instance_no::text, 'biz_id', m.ref_type, NULL,
@@ -868,6 +920,33 @@ SELECT m.ref_domain, 'biz_status_log', l.id, l.entity_no::text, 'entity_id', m.r
   JOIN di.v_poly_ref_map m ON m.ref_domain = 'STATUS_ENTITY' AND m.ref_type = l.entity_type
   LEFT JOIN biz_flow_linkage_rule t ON t.id = l.entity_id
  WHERE l.entity_type = 'FLOW_LINKAGE_CFG' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+-- FIN-1 / FIN-2：登记表早有 BUDGET / FIXED_ASSET / DEPRECIATION 三行，
+-- 但**没有分支**时 DI-20 一行都看不到（「登记了但不查」= 比不登记更糟）
+UNION ALL
+SELECT m.ref_domain, 'biz_status_log', l.id, l.entity_no::text, 'entity_id', m.ref_type, l.entity_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_status_log l
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'STATUS_ENTITY' AND m.ref_type = l.entity_type
+  LEFT JOIN biz_budget t ON t.id = l.entity_id
+ WHERE l.entity_type = 'BUDGET' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+UNION ALL
+SELECT m.ref_domain, 'biz_status_log', l.id, l.entity_no::text, 'entity_id', m.ref_type, l.entity_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_status_log l
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'STATUS_ENTITY' AND m.ref_type = l.entity_type
+  LEFT JOIN biz_fixed_asset t ON t.id = l.entity_id
+ WHERE l.entity_type = 'FIXED_ASSET' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+UNION ALL
+SELECT m.ref_domain, 'biz_status_log', l.id, l.entity_no::text, 'entity_id', m.ref_type, l.entity_id,
+       m.target_table, 'DANGLING', 'ROW_MISSING', (m.target_table || '.id')::text
+  FROM biz_status_log l
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'STATUS_ENTITY' AND m.ref_type = l.entity_type
+  LEFT JOIN biz_depreciation_batch t ON t.id = l.entity_id
+ WHERE l.entity_type = 'DEPRECIATION' AND t.id IS NULL
 -- ========== ⑤ 序列号来源 ==========
 -- 序列号：PURCHASE / RETURN → 收货单（同一张表，靠 source_type 区分）
 UNION ALL
