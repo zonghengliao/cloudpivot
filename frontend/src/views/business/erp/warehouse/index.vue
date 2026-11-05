@@ -34,6 +34,12 @@
             <template #icon><t-icon name="refresh" /></template>
             刷新
           </t-button>
+          <!-- 批量导入入口：一键下载模板 + 字段说明（不必先去导入向导找） -->
+          <ImportEntryButton
+            biz-type="business.erp.warehouse"
+            biz-label="仓库"
+            testid="btn-import-warehouse"
+          />
         </t-space>
         <t-input
           v-model="keyword"
@@ -221,6 +227,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol, type TableProps, type TreeOptionData } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
+import ImportEntryButton from '@/components/ImportEntryButton.vue';
 import {
   deleteLocation,
   fetchLocationList,

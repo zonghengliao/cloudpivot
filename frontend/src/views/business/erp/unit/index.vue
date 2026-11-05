@@ -29,6 +29,8 @@
 
         <span class="filter-row__spacer" />
 
+        <ImportEntryButton biz-type="business.erp.unit" biz-label="计量单位" testid="btn-import-unit" />
+
         <t-tooltip :content="canWrite ? '新建一个计量单位' : '当前账号没有 business:erp:unit:create 权限'" placement="top-right">
           <span class="gate-wrap">
             <t-button
@@ -362,6 +364,7 @@ import {
   type UnitRow,
 } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
+import ImportEntryButton from '@/components/ImportEntryButton.vue';
 import {
   UNIT_COLUMNS,
   UNIT_PAGE_SIZE,

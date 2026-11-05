@@ -5,6 +5,7 @@
 //! | 方法 | 路径 | 权限码 | 说明 |
 //! |------|------|--------|------|
 //! | GET | `/impexp/def/list` | `business:impexp:def:list` | 已注册定义（前端下拉） |
+//! | GET | `/impexp/def/columns` | `business:impexp:def:list` | 字段说明（页面「字段表」/模板中心，与模板 sheet 同源） |
 //! | GET | `/impexp/import/template` | `business:impexp:import:template` | 下载导入模板（三要素 xlsx） |
 //! | POST | `/impexp/import/upload` | `business:impexp:import:upload` | 上传 + 同步预检，返回任务与报告 |
 //! | GET | `/impexp/import/page` | `business:impexp:import:list` | 导入任务分页 |
@@ -54,9 +55,9 @@ use crate::business::impexp::definition::{
     self, DuplicateStrategy, ExportFilter, ImportCtx, ImportDefinition, ImportMode, RowIssue,
 };
 use crate::business::impexp::dto::{
-    ConfirmRes, ErrorPageQuery, ExportCreateReq, ExportPageQuery, ExportSyncQuery, ExportTaskRes,
-    ImportErrorRes, ImportPageQuery, ImportTaskRes, TaskActionRes, TemplateQuery, UploadQuery,
-    UploadRes,
+    ColumnQuery, ConfirmRes, ErrorPageQuery, ExportCreateReq, ExportPageQuery, ExportSyncQuery,
+    ExportTaskRes, ImportColumnRes, ImportColumnsRes, ImportErrorRes, ImportPageQuery,
+    ImportTaskRes, TaskActionRes, TemplateQuery, UploadQuery, UploadRes,
 };
 use crate::business::impexp::model::{
     self, ExportTaskFilter, ImportTaskFilter, NewExportTask, NewImportTask,
@@ -97,6 +98,71 @@ const SUMMARY_LIMIT: usize = 100;
 #[nik::get("/business/impexp/def/list")]
 pub async fn def_list() -> ResResult<Vec<DefinitionBrief>> {
     Ok(Res::ok(global_registry().briefs()))
+}
+
+// ==================== 字段说明 ====================
+
+/// 某个导入业务的字段说明（页面「字段说明」表 / 模板中心）。
+///
+/// # 参数
+///
+/// - `query`：`biz_type`（业务编码）。
+///
+/// # 返回值
+///
+/// 业务摘要 + 列清单（表头 / 必填 / 类型 / 范围 / 可选值 / 说明 / 示例）。
+///
+/// # 异常情况
+///
+/// 404 + `60011`：业务编码未注册（或该定义不支持导入）。
+#[nik::permission(
+    path = "/business/impexp/def/columns",
+    method = "GET",
+    permission = "business:impexp:def:list"
+)]
+#[nik::get("/business/impexp/def/columns")]
+pub async fn def_columns(Query(query): Query<ColumnQuery>) -> ResResult<ImportColumnsRes> {
+    let definition = global_registry()
+        .import_definition(query.biz_type.trim())
+        .ok_or_else(|| def_not_found(&query.biz_type))?;
+    Ok(Res::ok(columns_of(definition.as_ref())))
+}
+
+/// 把定义摊平成前端要的字段说明（与模板「字段说明」sheet 同源）。
+///
+/// # 参数
+///
+/// - `definition`：导入定义。
+///
+/// # 返回值
+///
+/// 业务摘要 + 逐列说明，顺序即模板列顺序。
+fn columns_of(definition: &dyn ImportDefinition) -> ImportColumnsRes {
+    let columns = definition
+        .columns()
+        .iter()
+        .map(|column| ImportColumnRes {
+            key: column.key,
+            header: column.header,
+            template_header: column.template_header(),
+            required: column.required,
+            type_label: column.kind.type_label().to_string(),
+            rule_text: column.kind.rule_text(),
+            option_text: column.kind.option_text(),
+            remark: column.remark,
+            example: column.example,
+            unique_key: column.unique_key,
+            fk_label: column.fk.map(|fk| fk.label),
+        })
+        .collect::<Vec<_>>();
+    ImportColumnsRes {
+        biz_type: definition.biz_type(),
+        biz_name: definition.biz_name(),
+        template_version: definition.template_version(),
+        max_rows: definition.max_rows(),
+        allow_partial: definition.allow_partial(),
+        columns,
+    }
 }
 
 // ==================== 模板下载 ====================
@@ -1806,5 +1872,42 @@ mod tests {
         let error = def_not_found("nope.nope");
         assert_eq!(error.status, 404);
         assert_eq!(error.code, error_code::IMPORT_DEF_NOT_FOUND);
+    }
+
+    #[test]
+    fn columns_of_matches_the_template_definition() {
+        let definition = global_registry()
+            .import_definition(crate::business::impexp::builtin::master_data::MATERIAL_BIZ_TYPE)
+            .expect("物料导入定义应已注册");
+        let res = columns_of(definition.as_ref());
+        assert_eq!(res.biz_type, definition.biz_type());
+        assert_eq!(res.biz_name, "物料");
+        assert_eq!(res.columns.len(), definition.columns().len());
+        assert!(!res.columns.is_empty());
+
+        // 逐列与定义同源：表头 / 必填 / 星标 / 说明 / 示例
+        for (index, column) in definition.columns().iter().enumerate() {
+            let item = &res.columns[index];
+            assert_eq!(item.key, column.key);
+            assert_eq!(item.header, column.header);
+            assert_eq!(item.template_header, column.template_header());
+            assert_eq!(item.required, column.required);
+            assert_eq!(item.remark, column.remark);
+            assert_eq!(item.example, column.example);
+            assert_eq!(item.type_label, column.kind.type_label());
+            assert_eq!(item.rule_text, column.kind.rule_text());
+            assert_eq!(item.option_text, column.kind.option_text());
+        }
+
+        // 必填列带星标、外键列给出引用目标（前端据此提示「先维护计量单位」）
+        let code = &res.columns[0];
+        assert_eq!(code.template_header, "物料编码*");
+        let unit = res
+            .columns
+            .iter()
+            .find(|item| item.key == "unit_code")
+            .expect("物料必须有基本单位列");
+        assert_eq!(unit.fk_label, Some("计量单位"));
+        assert!(!unit.rule_text.is_empty());
     }
 }

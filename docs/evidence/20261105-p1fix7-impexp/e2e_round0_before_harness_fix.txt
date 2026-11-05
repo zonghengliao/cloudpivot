@@ -1,0 +1,343 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+[e2e-target] OK 隔离实例：http://127.0.0.1:5141（回环 + 隔离端口 5141）
+[e2e-target] OK 隔离实例：http://127.0.0.1:5141（回环 + 隔离端口 5141）
+
+Running 34 tests using 1 worker
+
+[e2e-target] OK 隔离实例：http://127.0.0.1:5141（回环 + 隔离端口 5141）
+
+[1/34] [chromium] › e2e/11-erp-master-data.spec.ts:64:1 › ① 计量单位页：路由不再 404，列表渲染种子数据，状态/单位类型 tag 正确
+  1) [chromium] › e2e/11-erp-master-data.spec.ts:64:1 › ① 计量单位页：路由不再 404，列表渲染种子数据，状态/单位类型 tag 正确 ───
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: locator('[data-testid="unit-meta"]')
+    Expected substring: "3"
+    Received string:    " 共 28 条 · 本页 19 个基础单位"
+    Timeout: 15000ms
+
+    Call log:
+      - Expect "toContainText" locator('[data-testid="unit-meta"]') with timeout 15000ms
+      - waiting for locator('[data-testid="unit-meta"]')
+        33 × locator resolved to <span data-v-3530388e="" data-testid="unit-meta" class="panel-head__meta"> 共 28 条 · 本页 19 个基础单位</span>
+           - unexpected value " 共 28 条 · 本页 19 个基础单位"
+
+
+      73 |   await expect(page.locator('.panel-head__title')).toHaveText('计量单位');
+      74 |   await expect(page.locator('[data-testid="unit-meta"]')).toContainText('共');
+    > 75 |   await expect(page.locator('[data-testid="unit-meta"]')).toContainText('3');
+         |                                                           ^
+      76 |
+      77 |   // 种子行：PCS 个（基础单位）、BOX 箱（折算 12 个）
+      78 |   const rows = page.locator('[data-testid="unit-table"] tbody tr');
+        at /opt/cloudpivot/frontend/e2e/11-erp-master-data.spec.ts:75:59
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/11-erp-master-data-①-计量单位页：路由不再-404，列表渲染种子数据，状态-单位类型-tag-正确-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/11-erp-master-data-①-计量单位页：路由不再-404，列表渲染种子数据，状态-单位类型-tag-正确-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/11-erp-master-data-①-计量单位页：路由不再-404，列表渲染种子数据，状态-单位类型-tag-正确-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/11-erp-master-data-①-计量单位页：路由不再-404，列表渲染种子数据，状态-单位类型-tag-正确-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[e2e-target] OK 隔离实例：http://127.0.0.1:5141（回环 + 隔离端口 5141）
+
+[2/34] [chromium] › e2e/11-erp-master-data.spec.ts:97:1 › ② 供应商页：路由不再 404，列表渲染种子数据，联系人/账期列有值
+[3/34] [chromium] › e2e/11-erp-master-data.spec.ts:123:1 › ③ 计量单位：关键词筛选走真接口，查不到时是友好空态（不是白屏）
+  2) [chromium] › e2e/11-erp-master-data.spec.ts:123:1 › ③ 计量单位：关键词筛选走真接口，查不到时是友好空态（不是白屏） ──────────
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: locator('[data-testid="unit-meta"]')
+    Expected substring: "3"
+    Received string:    " 共 28 条 · 本页 19 个基础单位"
+    Timeout: 15000ms
+
+    Call log:
+      - Expect "toContainText" locator('[data-testid="unit-meta"]') with timeout 15000ms
+      - waiting for locator('[data-testid="unit-meta"]')
+        33 × locator resolved to <span data-v-3530388e="" data-testid="unit-meta" class="panel-head__meta"> 共 28 条 · 本页 19 个基础单位</span>
+           - unexpected value " 共 28 条 · 本页 19 个基础单位"
+
+
+      124 |   const audit = auditNetwork(page);
+      125 |   await openAuthed(page, '/business/erp/unit');
+    > 126 |   await expect(page.locator('[data-testid="unit-meta"]')).toContainText('3');
+          |                                                           ^
+      127 |
+      128 |   // 命中：搜 BOX
+      129 |   await page.fill('[data-testid="unit-keyword"] input', 'BOX');
+        at /opt/cloudpivot/frontend/e2e/11-erp-master-data.spec.ts:126:59
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/11-erp-master-data-③-计量单位：关键词筛选走真接口，查不到时是友好空态（不是白屏）-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/11-erp-master-data-③-计量单位：关键词筛选走真接口，查不到时是友好空态（不是白屏）-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/11-erp-master-data-③-计量单位：关键词筛选走真接口，查不到时是友好空态（不是白屏）-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/11-erp-master-data-③-计量单位：关键词筛选走真接口，查不到时是友好空态（不是白屏）-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[e2e-target] OK 隔离实例：http://127.0.0.1:5141（回环 + 隔离端口 5141）
+
+[4/34] [chromium] › e2e/11-erp-master-data.spec.ts:147:1 › ④ 两页详情抽屉：走 GET /erp/{unit,supplier}/{id}，字段与列表一致
+[5/34] [chromium] › e2e/_pagerunner.ts:67:7 › 页面: 导入任务（/business/impexp/import-task｜列表页） › ① 页面能打开：HTTP 200、不是 404 页、无 JS 异常、无 4xx/5xx 接口
+  3) [chromium] › e2e/_pagerunner.ts:67:7 › 页面: 导入任务（/business/impexp/import-task｜列表页） › ① 页面能打开：HTTP 200、不是 404 页、无 JS 异常、无 4xx/5xx 接口 
+
+    "beforeAll" hook timeout of 120000ms exceeded.
+
+      44 |       let obs: Observation;
+      45 |
+    > 46 |       test.beforeAll(async ({ browser }) => {
+         |            ^
+      47 |         const page = await browser.newPage();
+      48 |         try {
+      49 |           obs = await observePage(page, spec);
+        at /opt/cloudpivot/frontend/e2e/_pagerunner.ts:46:12
+
+    Error: browserContext.close: Protocol error (Target.disposeBrowserContext): Failed to find context with id A17B19F957A8DEB1F4E713177E81F77C
+
+      61 |           }
+      62 |         } finally {
+    > 63 |           await page.context().close();
+         |           ^
+      64 |         }
+      65 |       });
+      66 |
+        at /opt/cloudpivot/frontend/e2e/_pagerunner.ts:63:11
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/26-pages-impexp-storage-页面-98edb--404-页、无-JS-异常、无-4xx-5xx-接口-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/26-pages-impexp-storage-页面-98edb--404-页、无-JS-异常、无-4xx-5xx-接口-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/26-pages-impexp-storage-页面-98edb--404-页、无-JS-异常、无-4xx-5xx-接口-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/26-pages-impexp-storage-页面-98edb--404-页、无-JS-异常、无-4xx-5xx-接口-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[6/34] [chromium] › e2e/_pagerunner.ts:81:7 › 页面: 导入任务（/business/impexp/import-task｜列表页） › ② 内容能渲染：表格有数据行或明确空态文案
+[7/34] [chromium] › e2e/_pagerunner.ts:103:7 › 页面: 导入任务（/business/impexp/import-task｜列表页） › ③ 接口自洽：/api/business/impexp/import/page 返回 200，total 与行数一致
+[8/34] [chromium] › e2e/_pagerunner.ts:140:7 › 页面: 导入任务（/business/impexp/import-task｜列表页） › ④ 按钮可达：内容区每个按钮都有文案（或图标）、有尺寸、可点（禁用的要能说出理由）
+[9/34] [chromium] › e2e/_pagerunner.ts:169:7 › 页面: 导入任务（/business/impexp/import-task｜列表页） › ⑤ 核心按钮点了有反应（弹窗/抽屉/请求/Toast 至少一种）
+[10/34] [chromium] › e2e/_pagerunner.ts:179:7 › 页面: 导入任务（/business/impexp/import-task｜列表页） › ⑥ 表单必填校验生效（空提交被拦，且没有真的写库）
+[e2e-target] OK 隔离实例：http://127.0.0.1:5141（回环 + 隔离端口 5141）
+
+[11/34] [chromium] › e2e/_pagerunner.ts:67:7 › 页面: 导出任务（/business/impexp/export-task｜列表页） › ① 页面能打开：HTTP 200、不是 404 页、无 JS 异常、无 4xx/5xx 接口
+  4) [chromium] › e2e/_pagerunner.ts:67:7 › 页面: 导出任务（/business/impexp/export-task｜列表页） › ① 页面能打开：HTTP 200、不是 404 页、无 JS 异常、无 4xx/5xx 接口 
+
+    "beforeAll" hook timeout of 120000ms exceeded.
+
+      44 |       let obs: Observation;
+      45 |
+    > 46 |       test.beforeAll(async ({ browser }) => {
+         |            ^
+      47 |         const page = await browser.newPage();
+      48 |         try {
+      49 |           obs = await observePage(page, spec);
+        at /opt/cloudpivot/frontend/e2e/_pagerunner.ts:46:12
+
+    Error: browserContext.close: Target page, context or browser has been closed
+
+      61 |           }
+      62 |         } finally {
+    > 63 |           await page.context().close();
+         |           ^
+      64 |         }
+      65 |       });
+      66 |
+        at /opt/cloudpivot/frontend/e2e/_pagerunner.ts:63:11
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/26-pages-impexp-storage-页面-82569--404-页、无-JS-异常、无-4xx-5xx-接口-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/26-pages-impexp-storage-页面-82569--404-页、无-JS-异常、无-4xx-5xx-接口-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/26-pages-impexp-storage-页面-82569--404-页、无-JS-异常、无-4xx-5xx-接口-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/26-pages-impexp-storage-页面-82569--404-页、无-JS-异常、无-4xx-5xx-接口-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[12/34] [chromium] › e2e/_pagerunner.ts:81:7 › 页面: 导出任务（/business/impexp/export-task｜列表页） › ② 内容能渲染：表格有数据行或明确空态文案
+[13/34] [chromium] › e2e/_pagerunner.ts:103:7 › 页面: 导出任务（/business/impexp/export-task｜列表页） › ③ 接口自洽：/api/business/impexp/export/page 返回 200，total 与行数一致
+[14/34] [chromium] › e2e/_pagerunner.ts:140:7 › 页面: 导出任务（/business/impexp/export-task｜列表页） › ④ 按钮可达：内容区每个按钮都有文案（或图标）、有尺寸、可点（禁用的要能说出理由）
+[15/34] [chromium] › e2e/_pagerunner.ts:169:7 › 页面: 导出任务（/business/impexp/export-task｜列表页） › ⑤ 核心按钮点了有反应（弹窗/抽屉/请求/Toast 至少一种）
+[16/34] [chromium] › e2e/_pagerunner.ts:179:7 › 页面: 导出任务（/business/impexp/export-task｜列表页） › ⑥ 表单必填校验生效（空提交被拦，且没有真的写库）
+[e2e-target] OK 隔离实例：http://127.0.0.1:5141（回环 + 隔离端口 5141）
+
+[17/34] [chromium] › e2e/_pagerunner.ts:67:7 › 页面: 导入向导（/business/impexp/import｜非表格页） › ① 页面能打开：HTTP 200、不是 404 页、无 JS 异常、无 4xx/5xx 接口
+  5) [chromium] › e2e/_pagerunner.ts:67:7 › 页面: 导入向导（/business/impexp/import｜非表格页） › ① 页面能打开：HTTP 200、不是 404 页、无 JS 异常、无 4xx/5xx 接口 
+
+    "beforeAll" hook timeout of 120000ms exceeded.
+
+      44 |       let obs: Observation;
+      45 |
+    > 46 |       test.beforeAll(async ({ browser }) => {
+         |            ^
+      47 |         const page = await browser.newPage();
+      48 |         try {
+      49 |           obs = await observePage(page, spec);
+        at /opt/cloudpivot/frontend/e2e/_pagerunner.ts:46:12
+
+    Error: browserContext.close: Target page, context or browser has been closed
+
+      61 |           }
+      62 |         } finally {
+    > 63 |           await page.context().close();
+         |           ^
+      64 |         }
+      65 |       });
+      66 |
+        at /opt/cloudpivot/frontend/e2e/_pagerunner.ts:63:11
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/26-pages-impexp-storage-页面-3fd75--404-页、无-JS-异常、无-4xx-5xx-接口-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/26-pages-impexp-storage-页面-3fd75--404-页、无-JS-异常、无-4xx-5xx-接口-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/26-pages-impexp-storage-页面-3fd75--404-页、无-JS-异常、无-4xx-5xx-接口-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/26-pages-impexp-storage-页面-3fd75--404-页、无-JS-异常、无-4xx-5xx-接口-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[18/34] [chromium] › e2e/_pagerunner.ts:81:7 › 页面: 导入向导（/business/impexp/import｜非表格页） › ② 内容能渲染：主内容区有实质内容
+[19/34] [chromium] › e2e/_pagerunner.ts:103:7 › 页面: 导入向导（/business/impexp/import｜非表格页） › ③ 接口自洽：/api/business/impexp/def/list 返回 200，total 与行数一致
+[20/34] [chromium] › e2e/_pagerunner.ts:140:7 › 页面: 导入向导（/business/impexp/import｜非表格页） › ④ 按钮可达：内容区每个按钮都有文案（或图标）、有尺寸、可点（禁用的要能说出理由）
+[21/34] [chromium] › e2e/_pagerunner.ts:169:7 › 页面: 导入向导（/business/impexp/import｜非表格页） › ⑤ 核心按钮点了有反应（弹窗/抽屉/请求/Toast 至少一种）
+[22/34] [chromium] › e2e/_pagerunner.ts:179:7 › 页面: 导入向导（/business/impexp/import｜非表格页） › ⑥ 表单必填校验生效（空提交被拦，且没有真的写库）
+[e2e-target] OK 隔离实例：http://127.0.0.1:5141（回环 + 隔离端口 5141）
+
+[23/34] [chromium] › e2e/_pagerunner.ts:67:7 › 页面: 文件管理（存储）（/business/storage/file｜列表页） › ① 页面能打开：HTTP 200、不是 404 页、无 JS 异常、无 4xx/5xx 接口
+  6) [chromium] › e2e/_pagerunner.ts:67:7 › 页面: 文件管理（存储）（/business/storage/file｜列表页） › ① 页面能打开：HTTP 200、不是 404 页、无 JS 异常、无 4xx/5xx 接口 
+
+    "beforeAll" hook timeout of 120000ms exceeded.
+
+      44 |       let obs: Observation;
+      45 |
+    > 46 |       test.beforeAll(async ({ browser }) => {
+         |            ^
+      47 |         const page = await browser.newPage();
+      48 |         try {
+      49 |           obs = await observePage(page, spec);
+        at /opt/cloudpivot/frontend/e2e/_pagerunner.ts:46:12
+
+    Error: browserContext.close: Target page, context or browser has been closed
+
+      61 |           }
+      62 |         } finally {
+    > 63 |           await page.context().close();
+         |           ^
+      64 |         }
+      65 |       });
+      66 |
+        at /opt/cloudpivot/frontend/e2e/_pagerunner.ts:63:11
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/26-pages-impexp-storage-页面-49088--404-页、无-JS-异常、无-4xx-5xx-接口-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/26-pages-impexp-storage-页面-49088--404-页、无-JS-异常、无-4xx-5xx-接口-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/26-pages-impexp-storage-页面-49088--404-页、无-JS-异常、无-4xx-5xx-接口-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/26-pages-impexp-storage-页面-49088--404-页、无-JS-异常、无-4xx-5xx-接口-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[24/34] [chromium] › e2e/_pagerunner.ts:81:7 › 页面: 文件管理（存储）（/business/storage/file｜列表页） › ② 内容能渲染：表格有数据行或明确空态文案
+[25/34] [chromium] › e2e/_pagerunner.ts:103:7 › 页面: 文件管理（存储）（/business/storage/file｜列表页） › ③ 接口自洽：/api/business/storage/file/page 返回 200，total 与行数一致
+[26/34] [chromium] › e2e/_pagerunner.ts:140:7 › 页面: 文件管理（存储）（/business/storage/file｜列表页） › ④ 按钮可达：内容区每个按钮都有文案（或图标）、有尺寸、可点（禁用的要能说出理由）
+[27/34] [chromium] › e2e/_pagerunner.ts:169:7 › 页面: 文件管理（存储）（/business/storage/file｜列表页） › ⑤ 核心按钮点了有反应（弹窗/抽屉/请求/Toast 至少一种）
+[28/34] [chromium] › e2e/_pagerunner.ts:179:7 › 页面: 文件管理（存储）（/business/storage/file｜列表页） › ⑥ 表单必填校验生效（空提交被拦，且没有真的写库）
+[e2e-target] OK 隔离实例：http://127.0.0.1:5141（回环 + 隔离端口 5141）
+
+[29/34] [chromium] › e2e/_pagerunner.ts:67:7 › 页面: 存储后端（/business/storage/backend｜列表页） › ① 页面能打开：HTTP 200、不是 404 页、无 JS 异常、无 4xx/5xx 接口
+  7) [chromium] › e2e/_pagerunner.ts:67:7 › 页面: 存储后端（/business/storage/backend｜列表页） › ① 页面能打开：HTTP 200、不是 404 页、无 JS 异常、无 4xx/5xx 接口 
+
+    "beforeAll" hook timeout of 120000ms exceeded.
+
+      44 |       let obs: Observation;
+      45 |
+    > 46 |       test.beforeAll(async ({ browser }) => {
+         |            ^
+      47 |         const page = await browser.newPage();
+      48 |         try {
+      49 |           obs = await observePage(page, spec);
+        at /opt/cloudpivot/frontend/e2e/_pagerunner.ts:46:12
+
+    Error: page.title: Target page, context or browser has been closed
+
+       at _pagecheck.ts:305
+
+      303 |   await Promise.all(pending);
+      304 |
+    > 305 |   const pageTitle = await page.title();
+          |                                ^
+      306 |   const dom = await page.evaluate(() => {
+      307 |     const txt = (el: Element | null) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
+      308 |     const content = document.querySelector('.basic-layout__content') ?? document.querySelector('.t-result, .result-page') ?? document.body;
+        at observePage (/opt/cloudpivot/frontend/e2e/_pagecheck.ts:305:32)
+        at /opt/cloudpivot/frontend/e2e/_pagerunner.ts:49:17
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/26-pages-impexp-storage-页面-ec1b4--404-页、无-JS-异常、无-4xx-5xx-接口-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/26-pages-impexp-storage-页面-ec1b4--404-页、无-JS-异常、无-4xx-5xx-接口-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/26-pages-impexp-storage-页面-ec1b4--404-页、无-JS-异常、无-4xx-5xx-接口-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/26-pages-impexp-storage-页面-ec1b4--404-页、无-JS-异常、无-4xx-5xx-接口-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[30/34] [chromium] › e2e/_pagerunner.ts:81:7 › 页面: 存储后端（/business/storage/backend｜列表页） › ② 内容能渲染：表格有数据行或明确空态文案
+[31/34] [chromium] › e2e/_pagerunner.ts:103:7 › 页面: 存储后端（/business/storage/backend｜列表页） › ③ 接口自洽：/api/business/storage/config/page 返回 200，total 与行数一致
+[32/34] [chromium] › e2e/_pagerunner.ts:140:7 › 页面: 存储后端（/business/storage/backend｜列表页） › ④ 按钮可达：内容区每个按钮都有文案（或图标）、有尺寸、可点（禁用的要能说出理由）
+[33/34] [chromium] › e2e/_pagerunner.ts:169:7 › 页面: 存储后端（/business/storage/backend｜列表页） › ⑤ 核心按钮点了有反应（弹窗/抽屉/请求/Toast 至少一种）
+[34/34] [chromium] › e2e/_pagerunner.ts:179:7 › 页面: 存储后端（/business/storage/backend｜列表页） › ⑥ 表单必填校验生效（空提交被拦，且没有真的写库）
+  7 failed
+    [chromium] › e2e/11-erp-master-data.spec.ts:64:1 › ① 计量单位页：路由不再 404，列表渲染种子数据，状态/单位类型 tag 正确 ────
+    [chromium] › e2e/11-erp-master-data.spec.ts:123:1 › ③ 计量单位：关键词筛选走真接口，查不到时是友好空态（不是白屏） ───────────
+    [chromium] › e2e/_pagerunner.ts:67:7 › 页面: 导入任务（/business/impexp/import-task｜列表页） › ① 页面能打开：HTTP 200、不是 404 页、无 JS 异常、无 4xx/5xx 接口 
+    [chromium] › e2e/_pagerunner.ts:67:7 › 页面: 导出任务（/business/impexp/export-task｜列表页） › ① 页面能打开：HTTP 200、不是 404 页、无 JS 异常、无 4xx/5xx 接口 
+    [chromium] › e2e/_pagerunner.ts:67:7 › 页面: 导入向导（/business/impexp/import｜非表格页） › ① 页面能打开：HTTP 200、不是 404 页、无 JS 异常、无 4xx/5xx 接口 
+    [chromium] › e2e/_pagerunner.ts:67:7 › 页面: 文件管理（存储）（/business/storage/file｜列表页） › ① 页面能打开：HTTP 200、不是 404 页、无 JS 异常、无 4xx/5xx 接口 
+    [chromium] › e2e/_pagerunner.ts:67:7 › 页面: 存储后端（/business/storage/backend｜列表页） › ① 页面能打开：HTTP 200、不是 404 页、无 JS 异常、无 4xx/5xx 接口 
+  25 did not run
+  2 passed (10.7m)
+E2E_EXIT=1

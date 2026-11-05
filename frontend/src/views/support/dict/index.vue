@@ -1,5 +1,13 @@
 <template>
   <div class="dict-page">
+    <!-- 页级工具条：字典项批量导入入口（不依赖先选中某个字典类型） -->
+    <div class="dict-page__toolbar">
+      <span class="dict-page__hint">
+        批量建字典项：下载模板按「字段说明」填写（模板内含「所属字典类型编码」列，可一次导入多个类型）
+      </span>
+      <ImportEntryButton biz-type="system.dict_item" biz-label="字典项" testid="btn-import-dict-item" />
+    </div>
+
     <div class="dict-layout">
       <!-- 左侧：字典类型列表 -->
       <div class="dict-left">
@@ -224,6 +232,7 @@ import {
 } from '@/api/support/dict-api';
 import type { StatusValue } from '@/api/system/user-api';
 import { ApiError } from '@/api/request';
+import ImportEntryButton from '@/components/ImportEntryButton.vue';
 import { useDictStore } from '@/stores/dict';
 import { formatDateTime } from '@/utils/format';
 
@@ -601,11 +610,25 @@ onMounted(() => {
 <style scoped lang="less">
 .dict-page {
   padding: 16px;
+
+  &__toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  &__hint {
+    font-size: 12px;
+    color: var(--td-text-color-secondary);
+  }
 }
 
 .dict-layout {
   display: flex;
-  height: calc(100vh - 172px);
+  /* 100vh 减去顶栏/面包屑/内边距 + 新增页级工具条（约 48px） */
+  height: calc(100vh - 220px);
   overflow: hidden;
 }
 

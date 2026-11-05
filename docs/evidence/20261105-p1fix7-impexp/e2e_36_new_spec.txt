@@ -1,0 +1,14 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+[e2e-target] OK 隔离实例：http://127.0.0.1:5141（回环 + 隔离端口 5141）
+[e2e-target] OK 隔离实例：http://127.0.0.1:5141（回环 + 隔离端口 5141）
+
+Running 4 tests using 1 worker
+
+[e2e-target] OK 隔离实例：http://127.0.0.1:5141（回环 + 隔离端口 5141）
+
+[1/4] [chromium] › e2e/36-impexp-template-center.spec.ts:37:1 › ① 7 个可导入业务页都有「导入」入口
+[2/4] [chromium] › e2e/36-impexp-template-center.spec.ts:44:1 › ② 物料页导入弹窗：字段说明表有内容 + 表头带星标 + 模板能下载
+[3/4] [chromium] › e2e/36-impexp-template-center.spec.ts:67:1 › ③ 向导模板中心逐行下载 + ?biz_type 预选 + 字段说明抽屉
+[4/4] [chromium] › e2e/36-impexp-template-center.spec.ts:96:1 › ④ 上传非 xlsx 文件：页面给出错误提示（不白屏、不静默）
+  4 passed (9.2s)
+E2E4_EXIT=0

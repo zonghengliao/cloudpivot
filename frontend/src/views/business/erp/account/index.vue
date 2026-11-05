@@ -39,6 +39,12 @@
         />
         <t-button theme="primary" data-testid="btn-account-search" @click="applyFilter">查询</t-button>
         <t-button variant="outline" data-testid="btn-account-reset" @click="handleReset">重置</t-button>
+        <!-- 本页只读：批量导入是唯一「成批建科目」的入口，直接给模板下载 -->
+        <ImportEntryButton
+          biz-type="business.erp.account"
+          biz-label="会计科目"
+          testid="btn-import-account"
+        />
       </div>
     </t-card>
 
@@ -203,6 +209,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import type { PrimaryTableCol } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
+import ImportEntryButton from '@/components/ImportEntryButton.vue';
 import { fetchAccountPage, type AccountRow } from '@/api/business/erp';
 import {
   ACCOUNT_CATEGORY_OPTIONS,

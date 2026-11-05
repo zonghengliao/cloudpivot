@@ -16,6 +16,56 @@ pub struct TemplateQuery {
     pub biz_type: String,
 }
 
+/// 字段说明查询（与模板下载共用 `biz_type` 参数）。
+pub type ColumnQuery = TemplateQuery;
+
+/// 单列的字段说明（前端「模板中心 / 字段说明」表格的一行）。
+///
+/// 与模板 xlsx 的「字段说明」sheet 同源（`ImportColumn` + `ColumnKind`），
+/// 保证页面看到的说明与下载到的模板**不可能不一致**。
+#[derive(Debug, Serialize)]
+pub struct ImportColumnRes {
+    /// 列键（`RowValues` 与错误明细的 `column_key`）。
+    pub key: &'static str,
+    /// 中文表头（不带 `*`）。
+    pub header: &'static str,
+    /// 模板表头（必填列带 `*`）。
+    pub template_header: String,
+    /// 是否必填。
+    pub required: bool,
+    /// 类型（文本 / 整数 / 小数 / 日期 / 枚举 / 字典 / 布尔）。
+    pub type_label: String,
+    /// 长度 / 取值范围。
+    pub rule_text: String,
+    /// 可选值（枚举列逐个列出，字典列给字典编码）。
+    pub option_text: String,
+    /// 字段说明（与模板「说明」列同一段文案）。
+    pub remark: &'static str,
+    /// 示例值（模板示例行用的就是它）。
+    pub example: &'static str,
+    /// 是否参与文件内唯一校验。
+    pub unique_key: bool,
+    /// 外键引用目标的展示名（如「计量单位」），无外键为 `None`。
+    pub fk_label: Option<&'static str>,
+}
+
+/// 某个导入业务的字段说明响应（`GET /business/impexp/def/columns`）。
+#[derive(Debug, Serialize)]
+pub struct ImportColumnsRes {
+    /// 业务编码。
+    pub biz_type: &'static str,
+    /// 业务名称。
+    pub biz_name: &'static str,
+    /// 模板版本（可下载的 xlsx 与说明表都跟着它走）。
+    pub template_version: u32,
+    /// 单次导入行数上限。
+    pub max_rows: usize,
+    /// 是否允许部分导入。
+    pub allow_partial: bool,
+    /// 列清单（顺序即模板列顺序）。
+    pub columns: Vec<ImportColumnRes>,
+}
+
 /// 上传预检查询。
 #[derive(Debug, Deserialize)]
 pub struct UploadQuery {

@@ -48,6 +48,8 @@
 
         <span class="filter-row__spacer" />
 
+        <ImportEntryButton biz-type="business.erp.location" biz-label="库位" testid="btn-import-location" />
+
         <t-button
           v-privilege="[PERM.locationCreate]"
           theme="primary"
@@ -215,6 +217,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
+import ImportEntryButton from '@/components/ImportEntryButton.vue';
 import {
   fetchLocationDetail,
   fetchLocationPage,

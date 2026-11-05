@@ -1,0 +1,88 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+[e2e-target] OK 隔离实例：http://127.0.0.1:5141（回环 + 隔离端口 5141）
+[e2e-target] OK 隔离实例：http://127.0.0.1:5141（回环 + 隔离端口 5141）
+
+Running 34 tests using 1 worker
+
+[e2e-target] OK 隔离实例：http://127.0.0.1:5141（回环 + 隔离端口 5141）
+
+[1/34] [chromium] › e2e/_pagerunner.ts:67:7 › 页面: 导入任务（/business/impexp/import-task｜列表页） › ① 页面能打开：HTTP 200、不是 404 页、无 JS 异常、无 4xx/5xx 接口
+[2/34] [chromium] › e2e/_pagerunner.ts:81:7 › 页面: 导入任务（/business/impexp/import-task｜列表页） › ② 内容能渲染：表格有数据行或明确空态文案
+[3/34] [chromium] › e2e/_pagerunner.ts:103:7 › 页面: 导入任务（/business/impexp/import-task｜列表页） › ③ 接口自洽：/api/business/impexp/import/page 返回 200，total 与行数一致
+[4/34] [chromium] › e2e/_pagerunner.ts:140:7 › 页面: 导入任务（/business/impexp/import-task｜列表页） › ④ 按钮可达：内容区每个按钮都有文案（或图标）、有尺寸、可点（禁用的要能说出理由）
+[5/34] [chromium] › e2e/_pagerunner.ts:169:7 › 页面: 导入任务（/business/impexp/import-task｜列表页） › ⑤ 核心按钮点了有反应（弹窗/抽屉/请求/Toast 至少一种）
+[6/34] [chromium] › e2e/_pagerunner.ts:179:7 › 页面: 导入任务（/business/impexp/import-task｜列表页） › ⑥ 表单必填校验生效（空提交被拦，且没有真的写库）
+[7/34] [chromium] › e2e/_pagerunner.ts:67:7 › 页面: 导出任务（/business/impexp/export-task｜列表页） › ① 页面能打开：HTTP 200、不是 404 页、无 JS 异常、无 4xx/5xx 接口
+[8/34] [chromium] › e2e/_pagerunner.ts:81:7 › 页面: 导出任务（/business/impexp/export-task｜列表页） › ② 内容能渲染：表格有数据行或明确空态文案
+[9/34] [chromium] › e2e/_pagerunner.ts:103:7 › 页面: 导出任务（/business/impexp/export-task｜列表页） › ③ 接口自洽：/api/business/impexp/export/page 返回 200，total 与行数一致
+[10/34] [chromium] › e2e/_pagerunner.ts:140:7 › 页面: 导出任务（/business/impexp/export-task｜列表页） › ④ 按钮可达：内容区每个按钮都有文案（或图标）、有尺寸、可点（禁用的要能说出理由）
+[11/34] [chromium] › e2e/_pagerunner.ts:169:7 › 页面: 导出任务（/business/impexp/export-task｜列表页） › ⑤ 核心按钮点了有反应（弹窗/抽屉/请求/Toast 至少一种）
+[12/34] [chromium] › e2e/_pagerunner.ts:179:7 › 页面: 导出任务（/business/impexp/export-task｜列表页） › ⑥ 表单必填校验生效（空提交被拦，且没有真的写库）
+[13/34] [chromium] › e2e/_pagerunner.ts:67:7 › 页面: 导入向导（/business/impexp/import｜非表格页） › ① 页面能打开：HTTP 200、不是 404 页、无 JS 异常、无 4xx/5xx 接口
+[14/34] [chromium] › e2e/_pagerunner.ts:81:7 › 页面: 导入向导（/business/impexp/import｜非表格页） › ② 内容能渲染：主内容区有实质内容
+[15/34] [chromium] › e2e/_pagerunner.ts:103:7 › 页面: 导入向导（/business/impexp/import｜非表格页） › ③ 接口自洽：/api/business/impexp/def/list 返回 200，total 与行数一致
+[16/34] [chromium] › e2e/_pagerunner.ts:140:7 › 页面: 导入向导（/business/impexp/import｜非表格页） › ④ 按钮可达：内容区每个按钮都有文案（或图标）、有尺寸、可点（禁用的要能说出理由）
+[17/34] [chromium] › e2e/_pagerunner.ts:169:7 › 页面: 导入向导（/business/impexp/import｜非表格页） › ⑤ 核心按钮点了有反应（弹窗/抽屉/请求/Toast 至少一种）
+[18/34] [chromium] › e2e/_pagerunner.ts:179:7 › 页面: 导入向导（/business/impexp/import｜非表格页） › ⑥ 表单必填校验生效（空提交被拦，且没有真的写库）
+[19/34] [chromium] › e2e/_pagerunner.ts:67:7 › 页面: 文件管理（存储）（/business/storage/file｜列表页） › ① 页面能打开：HTTP 200、不是 404 页、无 JS 异常、无 4xx/5xx 接口
+[20/34] [chromium] › e2e/_pagerunner.ts:81:7 › 页面: 文件管理（存储）（/business/storage/file｜列表页） › ② 内容能渲染：表格有数据行或明确空态文案
+[21/34] [chromium] › e2e/_pagerunner.ts:103:7 › 页面: 文件管理（存储）（/business/storage/file｜列表页） › ③ 接口自洽：/api/business/storage/file/page 返回 200，total 与行数一致
+[22/34] [chromium] › e2e/_pagerunner.ts:140:7 › 页面: 文件管理（存储）（/business/storage/file｜列表页） › ④ 按钮可达：内容区每个按钮都有文案（或图标）、有尺寸、可点（禁用的要能说出理由）
+[23/34] [chromium] › e2e/_pagerunner.ts:169:7 › 页面: 文件管理（存储）（/business/storage/file｜列表页） › ⑤ 核心按钮点了有反应（弹窗/抽屉/请求/Toast 至少一种）
+[24/34] [chromium] › e2e/_pagerunner.ts:179:7 › 页面: 文件管理（存储）（/business/storage/file｜列表页） › ⑥ 表单必填校验生效（空提交被拦，且没有真的写库）
+[25/34] [chromium] › e2e/_pagerunner.ts:67:7 › 页面: 存储后端（/business/storage/backend｜列表页） › ① 页面能打开：HTTP 200、不是 404 页、无 JS 异常、无 4xx/5xx 接口
+[26/34] [chromium] › e2e/_pagerunner.ts:81:7 › 页面: 存储后端（/business/storage/backend｜列表页） › ② 内容能渲染：表格有数据行或明确空态文案
+[27/34] [chromium] › e2e/_pagerunner.ts:103:7 › 页面: 存储后端（/business/storage/backend｜列表页） › ③ 接口自洽：/api/business/storage/config/page 返回 200，total 与行数一致
+[28/34] [chromium] › e2e/_pagerunner.ts:140:7 › 页面: 存储后端（/business/storage/backend｜列表页） › ④ 按钮可达：内容区每个按钮都有文案（或图标）、有尺寸、可点（禁用的要能说出理由）
+[29/34] [chromium] › e2e/_pagerunner.ts:169:7 › 页面: 存储后端（/business/storage/backend｜列表页） › ⑤ 核心按钮点了有反应（弹窗/抽屉/请求/Toast 至少一种）
+[30/34] [chromium] › e2e/_pagerunner.ts:179:7 › 页面: 存储后端（/business/storage/backend｜列表页） › ⑥ 表单必填校验生效（空提交被拦，且没有真的写库）
+[31/34] [chromium] › e2e/36-impexp-template-center.spec.ts:37:1 › ① 7 个可导入业务页都有「导入」入口
+  1) [chromium] › e2e/36-impexp-template-center.spec.ts:37:1 › ① 7 个可导入业务页都有「导入」入口 ─────────────────
+
+    Error: /support/dict 缺导入入口
+
+    expect(locator).toBeVisible() failed
+
+    Locator: locator('[data-testid="btn-import-dict-item"]')
+    Expected: visible
+    Timeout: 15000ms
+    Error: element(s) not found
+
+    Call log:
+      - /support/dict 缺导入入口 locator('[data-testid="btn-import-dict-item"]') with timeout 15000ms
+      - waiting for locator('[data-testid="btn-import-dict-item"]')
+
+
+      38 |   for (const entry of ENTRIES) {
+      39 |     await openAuthed(page, entry.path);
+    > 40 |     await expect(page.locator(`[data-testid="${entry.testid}"]`), `${entry.path} 缺导入入口`).toBeVisible();
+         |                                                                                          ^
+      41 |   }
+      42 | });
+      43 |
+        at /opt/cloudpivot/frontend/e2e/36-impexp-template-center.spec.ts:40:90
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/36-impexp-template-center-①-7-个可导入业务页都有「导入」入口-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/36-impexp-template-center-①-7-个可导入业务页都有「导入」入口-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/36-impexp-template-center-①-7-个可导入业务页都有「导入」入口-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/36-impexp-template-center-①-7-个可导入业务页都有「导入」入口-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[e2e-target] OK 隔离实例：http://127.0.0.1:5141（回环 + 隔离端口 5141）
+
+[32/34] [chromium] › e2e/36-impexp-template-center.spec.ts:44:1 › ② 物料页导入弹窗：字段说明表有内容 + 表头带星标 + 模板能下载
+[33/34] [chromium] › e2e/36-impexp-template-center.spec.ts:67:1 › ③ 向导模板中心逐行下载 + ?biz_type 预选 + 字段说明抽屉
+[34/34] [chromium] › e2e/36-impexp-template-center.spec.ts:96:1 › ④ 上传非 xlsx 文件：页面给出错误提示（不白屏、不静默）
+  1 failed
+    [chromium] › e2e/36-impexp-template-center.spec.ts:37:1 › ① 7 个可导入业务页都有「导入」入口 ──────────────────
+  33 passed (1.4m)
+E2E3_EXIT=1

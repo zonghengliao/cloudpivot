@@ -1,0 +1,8 @@
+     task_no      |       biz_type        |  status   | total_rows | valid_rows | error_rows | imported_rows 
+------------------+-----------------------+-----------+------------+------------+------------+---------------
+ IMP20261105-C5C4 | business.erp.material | VALIDATED |          6 |          1 |          5 |             0
+ IMP20261105-D6E7 | business.erp.material | VALIDATED |          6 |          1 |          5 |             0
+ IMP20261105-3C40 | business.erp.material | VALIDATED |          6 |          1 |          5 |             0
+ IMP20261105-4C0D | business.erp.material | VALIDATED |          6 |          1 |          5 |             0
+(4 rows)
+

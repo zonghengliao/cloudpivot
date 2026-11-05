@@ -1,0 +1,14 @@
+TEMPLATE status = 200 bytes = 8239
+HEADERS = ['物料编码*', '物料名称*', '规格型号', '基本单位*', '分类', '成本法', '安全库存', '状态']
+BAD FILE = /tmp/imp7-bad-r3/bad.xlsx 7818 bytes; data rows = 6
+UPLOAD status = 200
+code = 0 msg = ok
+task_id = 01a1ac32-115b-7442-b381-ad039bfb4c0d task_no = IMP20261105-4C0D status = VALIDATED
+REPORT total=6 valid=1 error=5 skipped_example=0 skipped_blank=0 truncated=False
+WARNINGS: []
+ERRORS:
+  行3   列=物料名称       值=                 码=REQUIRED 原因=必填项为空
+  行4   列=成本法        值=先进先出             码=ENUM     原因=值「先进先出」不在可选范围内（移动加权平均）
+  行5   列=安全库存       值=abc              码=TYPE     原因=应为数字，实际为「abc」
+  行6   列=物料编码       值=IMP-TEST-XXXXXXX 码=LENGTH   原因=长度超限（最多 40 个字符，实际 49 个）
+  行7   列=基本单位       值=NOPE             码=FK_NOT_FOUND 原因=基本单位「NOPE」不存在，请先在计量单位中维护

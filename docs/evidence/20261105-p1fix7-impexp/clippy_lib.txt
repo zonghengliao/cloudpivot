@@ -1,0 +1,10 @@
+    Checking nik-config v0.4.2 (/opt/cloudpivot/backend/vendor/nik-config)
+    Checking nik-cache v0.4.2 (/opt/cloudpivot/backend/vendor/nik-cache)
+    Checking nik-log v0.4.2 (/opt/cloudpivot/backend/vendor/nik-log)
+    Checking nik-web v0.4.2 (/opt/cloudpivot/backend/vendor/nik-web)
+    Checking nik-plugin v0.4.2 (/opt/cloudpivot/backend/vendor/nik-plugin)
+    Checking nik-fs v0.4.2 (/opt/cloudpivot/backend/vendor/nik-fs)
+    Checking nik v0.4.2 (/opt/cloudpivot/backend/vendor/nik)
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 35.05s
+CLIPPY_EXIT=0

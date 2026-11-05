@@ -35,6 +35,12 @@
 
         <span class="filter-row__spacer" />
 
+        <ImportEntryButton
+          biz-type="business.erp.material"
+          biz-label="物料"
+          testid="btn-import-material"
+        />
+
         <t-button
           v-privilege="[PERM.materialCreate]"
           theme="primary"
@@ -239,6 +245,7 @@ import {
   type UnitRow,
 } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
+import ImportEntryButton from '@/components/ImportEntryButton.vue';
 import {
   COSTING_METHOD_HINT,
   MATERIAL_PAGE_SIZE,

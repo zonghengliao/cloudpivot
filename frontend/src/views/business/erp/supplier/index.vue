@@ -29,6 +29,12 @@
 
         <span class="filter-row__spacer" />
 
+        <ImportEntryButton
+          biz-type="business.erp.supplier"
+          biz-label="供应商"
+          testid="btn-import-supplier"
+        />
+
         <t-tooltip
           :content="canWrite ? '新建一个供应商' : '当前账号没有 business:erp:supplier:create 权限'"
           placement="top-right"
@@ -359,6 +365,7 @@ import {
   type Supplier,
 } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
+import ImportEntryButton from '@/components/ImportEntryButton.vue';
 import {
   SUPPLIER_COLUMNS,
   SUPPLIER_PAGE_SIZE,

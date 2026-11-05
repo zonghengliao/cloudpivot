@@ -233,9 +233,60 @@ export type ExportPageQuery = {
   biz_type?: string;
 };
 
+/** 单列字段说明（对应后端 `ImportColumnRes`，与模板「字段说明」sheet 同源） */
+export interface ImportColumnRes {
+  /** 列键（错误明细里的 `column_key`） */
+  key: string;
+  /** 中文表头（不带 `*`） */
+  header: string;
+  /** 模板表头（必填列带 `*`） */
+  template_header: string;
+  /** 是否必填 */
+  required: boolean;
+  /** 类型（文本 / 整数 / 小数 / 日期 / 枚举 / 字典 / 布尔） */
+  type_label: string;
+  /** 长度 / 取值范围 */
+  rule_text: string;
+  /** 可选值（枚举列逐个列出） */
+  option_text: string;
+  /** 字段说明（与模板「说明」列同一段文案） */
+  remark: string;
+  /** 示例值（模板示例行用的就是它） */
+  example: string;
+  /** 是否参与文件内唯一校验 */
+  unique_key: boolean;
+  /** 外键引用目标的展示名（如「计量单位」），无外键为 null */
+  fk_label?: string | null;
+}
+
+/** 某个导入业务的字段说明（对应后端 `ImportColumnsRes`） */
+export interface ImportColumnsRes {
+  /** 业务编码 */
+  biz_type: string;
+  /** 业务名称 */
+  biz_name: string;
+  /** 模板版本 */
+  template_version: number;
+  /** 单次导入行数上限 */
+  max_rows: number;
+  /** 是否允许部分导入 */
+  allow_partial: boolean;
+  /** 列清单（顺序即模板列顺序） */
+  columns: ImportColumnRes[];
+}
+
 /** 查询已注册的导入 / 导出定义 */
 export function listDefinitions(): Promise<DefinitionBrief[]> {
   return get<DefinitionBrief[]>('/api/business/impexp/def/list');
+}
+
+/**
+ * 查询某个业务的字段说明（页面「字段说明」表 / 模板中心）。
+ *
+ * 与模板 xlsx 的「字段说明」sheet 同源，页面看到的说明不会与模板不一致。
+ */
+export function getImportColumns(bizType: string): Promise<ImportColumnsRes> {
+  return get<ImportColumnsRes>('/api/business/impexp/def/columns', { biz_type: bizType });
 }
 
 /** 下载导入模板（xlsx 二进制） */
@@ -374,6 +425,7 @@ export function deleteExport(id: string): Promise<null> {
 /** 导入导出模块接口集合 */
 export const impexpApi = {
   listDefinitions,
+  getImportColumns,
   downloadImportTemplate,
   uploadImportFile,
   pageImportTasks,

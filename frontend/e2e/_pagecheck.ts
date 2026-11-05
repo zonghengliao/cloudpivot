@@ -225,6 +225,17 @@ export async function observePage(page: Page, spec: PageSpec): Promise<Observati
     if (size) {
       call.pageSize = Number(size);
     }
+    // 只解析 JSON 响应的体。
+    //
+    // **流式响应（SSE / 导出流）不能进 pending**：`res.json()` 要等响应对应流结束，
+    // 而 `/business/notice/stream` 这类 SSE 连接**永不结束**（P1-FIX-6 起实时推送改走
+    // fetch + ReadableStream），于是 `await Promise.all(pending)` 永远不返回，
+    // 整套 pagerunner 的 beforeAll 在 120s 超时变红 —— 2026-11-05 P1-FIX-7 复验时实测
+    // 「导入任务 / 导出任务 / 文件管理 / 存储后端」全部 beforeAll 超时、25 条用例没跑。
+    const contentType = res.headers()['content-type'] ?? '';
+    if (!contentType.includes('json')) {
+      return;
+    }
     // 响应体解析是异步的：先排进 pending，等页面稳定后统一 await，避免竞态
     pending.push(
       res

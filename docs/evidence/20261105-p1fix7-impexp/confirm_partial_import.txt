@@ -1,0 +1,6 @@
+=== 确认前任务详情 ===
+200 {"code": 0, "msg": "ok", "data": {"id": "01a1ac32-115b-7442-b381-ad039bfb4c0d", "task_no": "IMP20261105-4C0D", "biz_type": "business.erp.material", "biz_name": "物料", "file_name": "bad.xlsx", "file_size": 7818, "mode": "PARTIAL", "status": "VALIDATED", "total_rows": 6, "valid_rows": 1, "error_rows": 5, "imported_rows": 0, "progress": 100, "message": null, "error_summary": [{"column_header": "物料名称",
+=== 确认入库 ===
+200 {"code": 0, "msg": "ok", "data": {"task_id": "01a1ac32-115b-7442-b381-ad039bfb4c0d", "status": "PARTIAL", "imported_rows": 1, "message": "共 1 批，入库 1 行（校验失败 5 行已跳过）"}}
+=== 确认后任务详情 ===
+200 {"code": 0, "msg": "ok", "data": {"id": "01a1ac32-115b-7442-b381-ad039bfb4c0d", "task_no": "IMP20261105-4C0D", "biz_type": "business.erp.material", "biz_name": "物料", "file_name": "bad.xlsx", "file_size": 7818, "mode": "PARTIAL", "status": "PARTIAL", "total_rows": 6, "valid_rows": 1, "error_rows": 5, "imported_rows": 1, "progress": 100, "message": "共 1 批，入库 1 行（校验失败 5 行已跳过）", "error_summary": [{"column_header": "物料名称", "column_key": "material_name", "error_code": "REQUIRED", "message": "必填项为空", "row_no": 3}, {"column_header": "成本法", "column_key": "costing_method", "error_code": "ENUM", "message

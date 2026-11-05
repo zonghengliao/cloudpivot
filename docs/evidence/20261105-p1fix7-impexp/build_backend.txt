@@ -1,0 +1,4 @@
+   Compiling nik-web v0.4.2 (/opt/cloudpivot/backend/vendor/nik-web)
+   Compiling nik v0.4.2 (/opt/cloudpivot/backend/vendor/nik)
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 25s
