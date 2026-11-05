@@ -117,8 +117,24 @@ business::flow::internal_control::db_tests`（那组按设计要求独占库）�
 | `05-p17-residue-before.log.txt` | 修前：P17 模块从空库起跑，跑完留 3 个在职夹具账号 |
 | `06-chain-46-green.log.txt` | 修后：同进程串跑 P17 + flow → **46/46 绿** + 库侧 0 残留 |
 | `07-check-with-db-negative.log.txt` | 闸⓪ 负样本：缺 `P0FIX_DB_URL` → 判「假绿」exit 1 |
-| `08-full-lib-db.log.txt` | 修后全量 lib 真库（`--test-threads=1`）结果 |
+| `08-full-lib-db.log.txt` | 修后全量 lib 真库（`--test-threads=1 --nocapture`，HEAD `8958246` + 本卡改动）：**2675 passed / 1 failed** |
 | `09-db-side-check.txt` | 库侧 psql 复查（不经测试代码）：超管名单 / 复核岗 / 图指纹 / 残留计数 |
+
+## 4.1 全量那 1 条红**不是本卡**（已定性、已开卡）
+
+`08` 里唯一的失败是 `system::menu::permission_audit_tests::n16_every_route_has_permission_gate_or_documented_exception`：
+
+```
+POST /business/flow/linkage/preview（business/flow/linkage/admin.rs:682）
+```
+
+- 该路由**有** `#[nik::permission(...)]`，但属性顺序写成「`#[nik::post]` 在前、permission 在后」，
+  而扫描器 `permission_above()` 只**从 `#[nik::post` 往上**找（注释明写「本仓声明顺序恒为
+  permission → get → fn」）⇒ 判成裸路由。全仓其余路由都是 permission 在前。
+- 与本卡改动无关：本卡只改 `flow/edge_admin_tests.rs` / `erp/payable_bridge.rs`（测试代码），
+  `linkage/admin.rs` 在改动前后**逐字节相同**（`git show b75ccc8:…` 同样是这个顺序）。
+- 它一直没被发现，正是本卡第 3 项要解决的问题：`n16` 在 `ensure_db()` 为假时打印 SKIP 后 return，
+  libtest 记 passed ⇒ 默认门禁「全绿」。已开卡 **t_1b5391e7**（backend-developer）。
 
 ## 5. 口径说明（没做的事，别误解）
 
