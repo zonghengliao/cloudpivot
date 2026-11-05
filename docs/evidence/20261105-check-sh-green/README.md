@@ -36,14 +36,20 @@
 
 **没有**用 `BATCHB_GATE=warn` 绕行：那是取后续闸结论的临时手段，不是收口方案。
 
-## 3. 修复后复验（47043b6，`git clone` 隔离树，0 未提交文件）
+## 3. 修复后复验（隔离 `git clone`，0 未提交文件）
 
 ```
 cd backend && cargo fmt -- --check        → exit 0
 bash scripts/check.sh                     → exit 0「==> 全部检查通过」
 ```
 
-完整日志 `check-sh-clean-47043b6.log.txt`（103 行）。逐闸结果：
+两份日志：
+- `check-sh-clean-47043b6.log.txt`（103 行）—— 修复提交本身的首次全链复验（私有 target，
+  clippy 因换了工作区路径要从头编 vendor 依赖）。
+- `check-sh-clean-71dcaca.log.txt`（84 行）—— **最终 HEAD**（47043b6 + 证据提交）再跑一次
+  的全链复验，target 已热，exit 0。
+
+逐闸结果：
 
 | 闸 | 结果 |
 | --- | --- |
