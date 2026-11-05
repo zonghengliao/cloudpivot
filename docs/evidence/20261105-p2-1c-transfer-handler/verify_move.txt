@@ -1,0 +1,8 @@
+==============================================================================
+backend/src/business/erp/transfer_handler.rs   （拆分前 ref = ea4d2c5）
+  条目多重集                前=  148 后=  148  MISSING=none  ADDED=none
+  SQL 字面量              前=   88 后=   88  MISSING=none  ADDED=none
+  用例名                  前=   56 后=   56  MISSING=none  ADDED=none
+  代码 token 多重集         前=26666 后=26666  MISSING=none  ADDED=none
+==============================================================================
+结论： PASS（条目 / SQL / 用例名 / 代码 token 四重多重集全部一一对应，只搬不移）

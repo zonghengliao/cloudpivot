@@ -1,0 +1,74 @@
+==> 1. 清理上一轮 e2e 残留（先撤审批实例/待办，再删单据；只动 W3C-E2E 固定夹具）
+[cleanup] 终止：PENDING 待办 0 条（CANCELLED+completed_at）/ 活动节点 0 条 / PENDING 实例 0 条（CANCELLED+ended_at）
+[cleanup] 删除：实例（级联待办/节点/抄送）+ 明细 + 主单后残留 = 单据 0 / 实例 0 / 明细 0 / 序列号 0
+[PASS] 清掉上一轮夹具（审批实例 / 待办 / 单据 / 仓 / 物料 / 序列号 / 库存）
+==> 2. 造夹具（成品D：一物一码；分仓 5 件 @10，总仓 2 件 @20）
+[PASS] 夹具：分仓库位账 5（与成本账一致）（5.0000）
+[PASS] 夹具：总仓库位账 2（与成本账一致）（2.0000）
+[PASS] 夹具：分仓库存 5（5.0000）
+[PASS] 夹具：总仓库存 2（2.0000）
+==> 3. 登录 admin
+[PASS] 登录 admin（首登，需改密）
+[PASS] 首登改密（200）
+[PASS] 用新口令重登（200）
+==> 4. 建单
+[PASS] 建单 200（200）
+[PASS] 建单后是 DRAFT（DRAFT）
+==> 5. 状态链 PENDING → APPROVED → IN_TRANSIT → DONE
+[PASS] 提交审批 PENDING（200）
+[PASS] 提交后真的发起了 STOCK_TRANSFER 审批实例（STOCK_TRANSFER）
+[PASS] 审批中心同意（待办 01a1ac01-002b-759f-8d56-5e5ae0b8c711）（200）
+[PASS] 审批回调把调拨单推到 APPROVED（caller=admin）
+[PASS] 发货 IN_TRANSIT（200）
+[PASS] 发货不动库存（结算在 DONE）（5.0000）
+[PASS] 发货不写流水（0）
+[PASS] 收货 DONE（触发库存双写 + 成本转移）（200）
+[PASS] 单据终态 DONE（DONE）
+==> 6. DB 直查验证（数量 / 金额 / 均价 / 序列号 / 流水）
+[PASS] 分仓 qty 5 → 0（0.0000）
+[PASS] 分仓 amount 50 → 0（0.0000）
+[PASS] 总仓 qty 2 → 7（7.0000）
+[PASS] 总仓 amount 40 → 90（原价 10 × 5 转入）（90.0000）
+[PASS] 总仓 avg_cost = 90 / 7（移动加权）（12.857143）
+[PASS] 总仓在库序列号 2 + 5 = 7（7）
+[PASS] 分仓在库序列号 5 → 0（0）
+[PASS] 本次调拨的 5 个序列号 warehouse_id 全部到总仓（5）
+[PASS] 流水 2 条（OUT + IN）（2）
+[PASS] 调出流水 OUT / TRANSFER_OUT / 数量 5 / 金额 50（OUT~TRANSFER_OUT~5.0000~50.0000）
+[PASS] 调入流水 IN / TRANSFER_IN / 数量 5 / 金额 50（IN~TRANSFER_IN~5.0000~50.0000）
+[PASS] 金额守恒（OUT 合计 - IN 合计 = 0）（0.0000）
+[PASS] 流水挂的是调拨单号（TK-20261105-000001）
+[PASS] 明细回填 shipped/received/原价/金额（5.0000~5.0000~10.000000~50.0000）
+[PASS] 单据头 total_amount = 明细金额合计（50.0000）
+[PASS] received_at 已写（true）
+==> 7. 幂等与回滚
+[PASS] DONE 之后重复推 DONE → 409（409）
+[PASS] 409 文案点名非法流转
+[PASS] 重复推 DONE 不重复扣（总仓仍 7）（7.0000）
+[PASS] 重复推 DONE 不重复写流水（仍 2 条）（2）
+==> 8. 库存不足回滚
+[PASS] 一物一码物料没选序列号 → 建单放行（W3b 不校验个数）（200）
+[PASS] 库存不足用例：提交审批 PENDING（200）
+[PASS] 审批中心同意（待办 01a1ac01-030b-77f0-b906-4b875bb11d44）（200）
+[PASS] 审批回调把调拨单推到 APPROVED（caller=admin）
+[PASS] 发货 IN_TRANSIT（200）
+[PASS] 一物一码物料序列号个数 0 != 数量 3 → 结算 400（400）
+[PASS] 400 文案点名序列号
+[PASS] 序列号不符时单据仍 IN_TRANSIT（校验先于任何库存写入）（IN_TRANSIT）
+[PASS] 序列号不符时一条流水都不写（0）
+[PASS] 按数量物料建单 9 件（分仓只有 1）（200）
+[PASS] 库存不足用例：提交审批 PENDING（200）
+[PASS] 审批中心同意（待办 01a1ac01-0441-71a9-88f5-82d35e6eaf6e）（200）
+[PASS] 审批回调把调拨单推到 APPROVED（caller=admin）
+[PASS] 发货 IN_TRANSIT（200）
+[PASS] 库存 1 调 9 → 409（409）
+[PASS] 409 文案点名库存不足
+[PASS] 结算失败后单据仍 IN_TRANSIT（整笔回滚）（IN_TRANSIT）
+[PASS] 库存没被扣（1.0000）
+[PASS] 没有流水（0）
+==> 9. 收尾：先撤审批实例/待办，再删单据，最后核对残留
+[cleanup] 终止：PENDING 待办 0 条（CANCELLED+completed_at）/ 活动节点 0 条 / PENDING 实例 0 条（CANCELLED+ended_at）
+[cleanup] 删除：实例（级联待办/节点/抄送）+ 明细 + 主单后残留 = 单据 0 / 实例 0 / 明细 0 / 序列号 0
+[PASS] 收尾核对：夹具单据 0 / 审批实例 0 / PENDING 待办 0（不再钉死任何夹具用户）
+[cleanup] 全库 KPI：PENDING 待办钉住的 tc_[ru]_op_ 夹具用户 = 0 条（应为 0）
+==> 汇总：PASS=59 FAIL=0

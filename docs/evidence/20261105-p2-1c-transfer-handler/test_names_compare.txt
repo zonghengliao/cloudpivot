@@ -1,0 +1,8 @@
+baseline  用例数= 56  结果分布={'ok': 56}
+split_r1  用例数= 56  结果分布={'ok': 56}
+split_r2  用例数= 56  结果分布={'ok': 56}
+split_r1  MISSING=none  ADDED=none  结果不同=none  非ok=none
+split_r2  MISSING=none  ADDED=none  结果不同=none  非ok=none
+baseline 模块分布: {'db_tests': 54, 'tests': 2}
+split    模块分布: {'db_books': 4, 'db_create': 10, 'db_query': 2, 'db_settle': 21, 'db_status': 17, 'tests': 2}
+结论： PASS（拆分前后 56 条用例名逐条相同、结果全 ok，两轮一致）

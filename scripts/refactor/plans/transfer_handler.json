@@ -1,0 +1,313 @@
+{
+  "src": "src/business/erp/transfer_handler.rs",
+  "parts": [
+    {
+      "name": "transfer_handler_common",
+      "note": "底座：错误出口（409/404/写库映射）/ 入参解析 / 明细预处理（行校验 + 单位与序列号）",
+      "items": [
+        "parse_uuid",
+        "optional_uuid",
+        "operator_of",
+        "not_found",
+        "conflict",
+        "reference_missing",
+        "is_biz_active_duplicate",
+        "approval_in_progress",
+        "write_error",
+        "settle_error",
+        "prepare_items"
+      ]
+    },
+    {
+      "name": "transfer_handler_create",
+      "note": "建单 / 复制 / 改单：取号 + 明细落库 + 草稿态校验（建单口径，纯搬迁）",
+      "items": [
+        "create_transfer",
+        "transfer_create",
+        "COPY_PERMISSION",
+        "copy_transfer",
+        "transfer_copy",
+        "update_transfer",
+        "transfer_update"
+      ]
+    },
+    {
+      "name": "transfer_handler_query",
+      "note": "只读入口：分页 / 详情 / 涉及序列号分组 / 在途超期汇总",
+      "items": [
+        "transfer_page",
+        "detail_of",
+        "transfer_detail",
+        "transfer_overdue_summary",
+        "serials_of_transfer",
+        "transfer_serials"
+      ]
+    },
+    {
+      "name": "transfer_handler_status",
+      "note": "状态流转（六态状态机）：审核 PENDING / 发出 APPROVED→IN_TRANSIT / 在途 IN_TRANSIT / 收货 DONE（含结算）/ 作废 CANCELLED —— 六个目标态都在 change_transfer_status 一张函数里，按目标态切函数会改逻辑，故整条状态机落在本部件",
+      "items": [
+        "TransitionContext",
+        "apply_transition",
+        "prepare_start",
+        "transfer_form_data",
+        "change_transfer_status",
+        "transfer_change_status",
+        "_"
+      ]
+    },
+    {
+      "name": "transfer_handler_delete",
+      "note": "软删：仅 DRAFT / CANCELLED 可删（与作废 CANCELLED 区分：本部件只做删除标记）",
+      "items": [
+        "delete_transfer",
+        "transfer_delete"
+      ]
+    },
+    {
+      "name": "transfer_handler_test_support",
+      "note": "测试支撑：走生产审批路径把审批实例批到终态（`#[cfg(test)]`，两套真库用例共用）",
+      "items": [
+        "approve_flow_instance"
+      ]
+    }
+  ],
+  "tests": [
+    {
+      "mod": "tests",
+      "file": "transfer_handler_tests.rs",
+      "note": "单测（不连库）：权限码导出与审批冲突 409 文案"
+    },
+    {
+      "inner_of": "db_tests",
+      "into": [
+        {
+          "name": "db_tests_fixtures",
+          "file": "transfer_handler_db_tests_fixtures.rs",
+          "note": "测试夹具：夹具 UUID / 建库连接 / 串行锁 / 准备与清理 / 取单小工具",
+          "items": [
+            "__head__",
+            "U_APPLICANT",
+            "U_APPROVER",
+            "WH_FROM",
+            "WH_TO",
+            "UNIT",
+            "U_BOX",
+            "M_BOX",
+            "M_PLAIN",
+            "M_SN",
+            "SERIAL_1",
+            "SERIAL_2",
+            "LOC_FROM",
+            "LOC_TO",
+            "LOC_SN",
+            "DEF_ID",
+            "VER_ID",
+            "DB_LOCK",
+            "uuid",
+            "ensure_db",
+            "exec",
+            "fixture_instance_where",
+            "fixture_doc_where",
+            "cleanup",
+            "array_param",
+            "prepare",
+            "ensure_seed_flow",
+            "item",
+            "body",
+            "status_req",
+            "refresh",
+            "hex_sha256",
+            "inventory_qty",
+            "inventory_amount",
+            "assert_dec_eq",
+            "approve_instance",
+            "transfer_in_status",
+            "dec",
+            "query",
+            "bucket_qty",
+            "bucket_amount",
+            "bucket_avg_cost",
+            "needed",
+            "txns_of",
+            "row_text",
+            "txn_text",
+            "serial_warehouse",
+            "serial_in_stock_count",
+            "create_and_ship",
+            "create_and_ship_with",
+            "receive",
+            "receive_ok",
+            "cost_book",
+            "location_book",
+            "location_row",
+            "assert_two_books",
+            "copy_claims",
+            "count_of"
+          ],
+          "publish_all": true,
+          "extra_uses": []
+        },
+        {
+          "name": "db_create",
+          "file": "transfer_handler_db_tests_create.rs",
+          "note": "真库：建单 / 改单 / 复制 / 校验（含同仓拒绝、序列号归属）",
+          "items": [
+            "non_base_unit_item_is_rejected",
+            "create_returns_draft_with_card_no_format",
+            "db_check_rejects_same_warehouse",
+            "create_validation_rejects_bad_qty_and_empty_items",
+            "create_rejects_foreign_or_outbound_serial",
+            "update_rebuilds_items_for_draft",
+            "update_pending_conflicts",
+            "permission_codes_are_six_and_stable",
+            "d9_transfer_copy_keeps_header_and_items_but_resets_state",
+            "d9_transfer_copy_requires_create_permission"
+          ],
+          "extra_uses": [
+            "use super::*;\n",
+            "use crate::business::erp::stockin_model;\n",
+            "use crate::business::erp::transfer_dto::{TRANSFER_PERMISSIONS, TransferItemReq};\n",
+            "use crate::business::erp::transfer_model::{\n",
+            "    STATUS_APPROVED, STATUS_CANCELLED, STATUS_DONE, STATUS_DRAFT, STATUS_IN_TRANSIT,\n",
+            "    STATUS_PENDING,\n",
+            "};\n",
+            "use crate::business::flow::graph::{canonical_json, parse_snapshot};\n",
+            "use nik::prelude::rust_decimal::Decimal;\n",
+            "use std::str::FromStr;\n",
+            "use super::transfer_handler_db_fixtures::*;\n"
+          ],
+          "publish_all": false
+        },
+        {
+          "name": "db_status",
+          "file": "transfer_handler_db_tests_status.rs",
+          "note": "真库：六态状态机 — 审核（待审批→通过/驳回）/ 发出 / 在途 / 收货 / 作废 + 审批发起与回调",
+          "items": [
+            "draft_to_pending_writes_submitted_at",
+            "draft_to_done_is_rejected",
+            "pending_to_approved_writes_approved_at",
+            "pending_to_cancelled_requires_reason",
+            "approved_to_in_transit_fills_transit_warehouse",
+            "in_transit_to_done_writes_received_at",
+            "done_rejects_every_transition",
+            "delete_allows_draft_and_rejects_in_transit",
+            "submit_starts_approval_instance_when_flow_published",
+            "approval_callback_moves_transfer",
+            "seed_flow_is_published_with_self_consistent_hash",
+            "submit_creates_pending_todo_for_seed_assignee",
+            "manual_approve_blocked_while_approval_pending",
+            "submit_without_flow_degrades_to_manual_approve",
+            "withdraw_cancels_running_approval_instance",
+            "submit_twice_is_409_with_transfer_no_not_500",
+            "zz_teardown_purges_fixture_residue"
+          ],
+          "extra_uses": [
+            "use super::*;\n",
+            "use crate::business::erp::stockin_model;\n",
+            "use crate::business::erp::transfer_dto::{TRANSFER_PERMISSIONS, TransferItemReq};\n",
+            "use crate::business::erp::transfer_model::{\n",
+            "    STATUS_APPROVED, STATUS_CANCELLED, STATUS_DONE, STATUS_DRAFT, STATUS_IN_TRANSIT,\n",
+            "    STATUS_PENDING,\n",
+            "};\n",
+            "use crate::business::flow::graph::{canonical_json, parse_snapshot};\n",
+            "use nik::prelude::rust_decimal::Decimal;\n",
+            "use std::str::FromStr;\n",
+            "use super::transfer_handler_db_fixtures::*;\n"
+          ],
+          "publish_all": false
+        },
+        {
+          "name": "db_settle",
+          "file": "transfer_handler_db_tests_settle.rs",
+          "note": "真库：收货结算（W3c）— 库存双仓移动 / 流水 / 序列号 / 成本守恒 / 并发与幂等 + 在途→完成全链路",
+          "items": [
+            "settle_rejects_non_base_unit_material",
+            "approved_transfer_continues_to_done_and_settles_inventory",
+            "w3c_settle_moves_qty_between_warehouses",
+            "w3c_settle_moves_serials_to_target_warehouse",
+            "w3c_settle_writes_out_txn_row",
+            "w3c_settle_writes_in_txn_row",
+            "w3c_settle_keeps_cost_conserved",
+            "w3c_settle_recomputes_target_avg_cost",
+            "w3c_settle_creates_missing_target_row",
+            "w3c_settle_handles_three_lines_in_one_doc",
+            "w3c_settle_concurrent_transfers_only_one_wins",
+            "w3c_settle_insufficient_stock_rolls_back_to_in_transit",
+            "w3c_settle_keeps_serial_invariant",
+            "w3c_settle_does_not_touch_serials_of_quantity_material",
+            "w3c_settle_rejects_serial_count_mismatch",
+            "w3c_settle_twice_is_idempotent",
+            "w3c_done_is_sticky_and_other_states_rejected",
+            "w3c_settle_rejects_serial_outside_source",
+            "w3c_settle_fills_item_shipped_received_and_cost",
+            "w3c_settle_uses_location_row_when_no_bucket",
+            "w3c_settle_amount_rounding_matches_txn"
+          ],
+          "extra_uses": [
+            "use super::*;\n",
+            "use crate::business::erp::stockin_model;\n",
+            "use crate::business::erp::transfer_dto::{TRANSFER_PERMISSIONS, TransferItemReq};\n",
+            "use crate::business::erp::transfer_model::{\n",
+            "    STATUS_APPROVED, STATUS_CANCELLED, STATUS_DONE, STATUS_DRAFT, STATUS_IN_TRANSIT,\n",
+            "    STATUS_PENDING,\n",
+            "};\n",
+            "use crate::business::flow::graph::{canonical_json, parse_snapshot};\n",
+            "use nik::prelude::rust_decimal::Decimal;\n",
+            "use std::str::FromStr;\n",
+            "use super::transfer_handler_db_fixtures::*;\n"
+          ],
+          "publish_all": false
+        },
+        {
+          "name": "db_books",
+          "file": "transfer_handler_db_tests_books.rs",
+          "note": "真库：成本账与库位账两本账始终相等（U1–U4）",
+          "items": [
+            "u1_plain_transfer_keeps_two_books_equal",
+            "u2_transfer_with_location_rows_moves_both_books",
+            "u3_interleaved_inbound_outbound_keep_two_books_equal",
+            "u4_settle_rejects_dirty_location_book"
+          ],
+          "extra_uses": [
+            "use super::*;\n",
+            "use crate::business::erp::stockin_model;\n",
+            "use crate::business::erp::transfer_dto::{TRANSFER_PERMISSIONS, TransferItemReq};\n",
+            "use crate::business::erp::transfer_model::{\n",
+            "    STATUS_APPROVED, STATUS_CANCELLED, STATUS_DONE, STATUS_DRAFT, STATUS_IN_TRANSIT,\n",
+            "    STATUS_PENDING,\n",
+            "};\n",
+            "use crate::business::flow::graph::{canonical_json, parse_snapshot};\n",
+            "use nik::prelude::rust_decimal::Decimal;\n",
+            "use std::str::FromStr;\n",
+            "use super::transfer_handler_db_fixtures::*;\n"
+          ],
+          "publish_all": false
+        },
+        {
+          "name": "db_query",
+          "file": "transfer_handler_db_tests_query.rs",
+          "note": "真库：详情（明细 + 序列号分组）与分页过滤",
+          "items": [
+            "detail_and_serials_are_grouped_by_line",
+            "page_filters_by_status_and_warehouse"
+          ],
+          "extra_uses": [
+            "use super::*;\n",
+            "use crate::business::erp::stockin_model;\n",
+            "use crate::business::erp::transfer_dto::{TRANSFER_PERMISSIONS, TransferItemReq};\n",
+            "use crate::business::erp::transfer_model::{\n",
+            "    STATUS_APPROVED, STATUS_CANCELLED, STATUS_DONE, STATUS_DRAFT, STATUS_IN_TRANSIT,\n",
+            "    STATUS_PENDING,\n",
+            "};\n",
+            "use crate::business::flow::graph::{canonical_json, parse_snapshot};\n",
+            "use nik::prelude::rust_decimal::Decimal;\n",
+            "use std::str::FromStr;\n",
+            "use super::transfer_handler_db_fixtures::*;\n"
+          ],
+          "publish_all": false
+        }
+      ]
+    }
+  ]
+}

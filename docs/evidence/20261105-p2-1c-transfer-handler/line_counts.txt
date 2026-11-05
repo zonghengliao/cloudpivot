@@ -1,0 +1,19 @@
+# P2-1C transfer_handler 拆分后各文件行数（拆分前 4676 行）
+# git show HEAD:backend/src/business/erp/transfer_handler.rs | wc -l
+before	4676
+
+    57 backend/src/business/erp/transfer_handler_test_support.rs
+    61 backend/src/business/erp/transfer_handler_delete.rs
+    82 backend/src/business/erp/transfer_handler_tests.rs
+   102 backend/src/business/erp/transfer_handler_db_tests_query.rs
+   114 backend/src/business/erp/transfer_handler.rs
+   218 backend/src/business/erp/transfer_handler_query.rs
+   278 backend/src/business/erp/transfer_handler_db_tests_books.rs
+   296 backend/src/business/erp/transfer_handler_common.rs
+   321 backend/src/business/erp/transfer_handler_create.rs
+   329 backend/src/business/erp/transfer_handler_db_tests_create.rs
+   420 backend/src/business/erp/transfer_handler_status.rs
+   844 backend/src/business/erp/transfer_handler_db_tests_settle.rs
+   845 backend/src/business/erp/transfer_handler_db_tests_status.rs
+   885 backend/src/business/erp/transfer_handler_db_tests_fixtures.rs
+  4852 total

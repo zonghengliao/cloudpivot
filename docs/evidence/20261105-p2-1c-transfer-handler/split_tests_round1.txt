@@ -1,0 +1,68 @@
+   Compiling nik-db v0.4.2 (/opt/cloudpivot/backend/vendor/nik-db)
+   Compiling nik-web v0.4.2 (/opt/cloudpivot/backend/vendor/nik-web)
+   Compiling nik v0.4.2 (/opt/cloudpivot/backend/vendor/nik)
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 29s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 56 tests
+test business::erp::transfer_handler::db_books::u1_plain_transfer_keeps_two_books_equal ... ok
+test business::erp::transfer_handler::db_books::u2_transfer_with_location_rows_moves_both_books ... ok
+test business::erp::transfer_handler::db_books::u3_interleaved_inbound_outbound_keep_two_books_equal ... ok
+test business::erp::transfer_handler::db_books::u4_settle_rejects_dirty_location_book ... ok
+test business::erp::transfer_handler::db_create::create_rejects_foreign_or_outbound_serial ... ok
+test business::erp::transfer_handler::db_create::create_returns_draft_with_card_no_format ... ok
+test business::erp::transfer_handler::db_create::create_validation_rejects_bad_qty_and_empty_items ... ok
+test business::erp::transfer_handler::db_create::d9_transfer_copy_keeps_header_and_items_but_resets_state ... ok
+test business::erp::transfer_handler::db_create::d9_transfer_copy_requires_create_permission ... ok
+test business::erp::transfer_handler::db_create::db_check_rejects_same_warehouse ... ok
+test business::erp::transfer_handler::db_create::non_base_unit_item_is_rejected ... ok
+test business::erp::transfer_handler::db_create::permission_codes_are_six_and_stable ... ok
+test business::erp::transfer_handler::db_create::update_pending_conflicts ... ok
+test business::erp::transfer_handler::db_create::update_rebuilds_items_for_draft ... ok
+test business::erp::transfer_handler::db_query::detail_and_serials_are_grouped_by_line ... ok
+test business::erp::transfer_handler::db_query::page_filters_by_status_and_warehouse ... ok
+test business::erp::transfer_handler::db_settle::approved_transfer_continues_to_done_and_settles_inventory ... ok
+test business::erp::transfer_handler::db_settle::settle_rejects_non_base_unit_material ... ok
+test business::erp::transfer_handler::db_settle::w3c_done_is_sticky_and_other_states_rejected ... ok
+test business::erp::transfer_handler::db_settle::w3c_settle_amount_rounding_matches_txn ... ok
+test business::erp::transfer_handler::db_settle::w3c_settle_concurrent_transfers_only_one_wins ... ok
+test business::erp::transfer_handler::db_settle::w3c_settle_creates_missing_target_row ... ok
+test business::erp::transfer_handler::db_settle::w3c_settle_does_not_touch_serials_of_quantity_material ... ok
+test business::erp::transfer_handler::db_settle::w3c_settle_fills_item_shipped_received_and_cost ... ok
+test business::erp::transfer_handler::db_settle::w3c_settle_handles_three_lines_in_one_doc ... ok
+test business::erp::transfer_handler::db_settle::w3c_settle_insufficient_stock_rolls_back_to_in_transit ... ok
+test business::erp::transfer_handler::db_settle::w3c_settle_keeps_cost_conserved ... ok
+test business::erp::transfer_handler::db_settle::w3c_settle_keeps_serial_invariant ... ok
+test business::erp::transfer_handler::db_settle::w3c_settle_moves_qty_between_warehouses ... ok
+test business::erp::transfer_handler::db_settle::w3c_settle_moves_serials_to_target_warehouse ... ok
+test business::erp::transfer_handler::db_settle::w3c_settle_recomputes_target_avg_cost ... ok
+test business::erp::transfer_handler::db_settle::w3c_settle_rejects_serial_count_mismatch ... ok
+test business::erp::transfer_handler::db_settle::w3c_settle_rejects_serial_outside_source ... ok
+test business::erp::transfer_handler::db_settle::w3c_settle_twice_is_idempotent ... ok
+test business::erp::transfer_handler::db_settle::w3c_settle_uses_location_row_when_no_bucket ... ok
+test business::erp::transfer_handler::db_settle::w3c_settle_writes_in_txn_row ... ok
+test business::erp::transfer_handler::db_settle::w3c_settle_writes_out_txn_row ... ok
+test business::erp::transfer_handler::db_status::approval_callback_moves_transfer ... ok
+test business::erp::transfer_handler::db_status::approved_to_in_transit_fills_transit_warehouse ... ok
+test business::erp::transfer_handler::db_status::delete_allows_draft_and_rejects_in_transit ... ok
+test business::erp::transfer_handler::db_status::done_rejects_every_transition ... ok
+test business::erp::transfer_handler::db_status::draft_to_done_is_rejected ... ok
+test business::erp::transfer_handler::db_status::draft_to_pending_writes_submitted_at ... ok
+test business::erp::transfer_handler::db_status::in_transit_to_done_writes_received_at ... ok
+test business::erp::transfer_handler::db_status::manual_approve_blocked_while_approval_pending ... ok
+test business::erp::transfer_handler::db_status::pending_to_approved_writes_approved_at ... ok
+test business::erp::transfer_handler::db_status::pending_to_cancelled_requires_reason ... ok
+test business::erp::transfer_handler::db_status::seed_flow_is_published_with_self_consistent_hash ... ok
+test business::erp::transfer_handler::db_status::submit_creates_pending_todo_for_seed_assignee ... ok
+test business::erp::transfer_handler::db_status::submit_starts_approval_instance_when_flow_published ... ok
+test business::erp::transfer_handler::db_status::submit_twice_is_409_with_transfer_no_not_500 ... ok
+test business::erp::transfer_handler::db_status::submit_without_flow_degrades_to_manual_approve ... ok
+test business::erp::transfer_handler::db_status::withdraw_cancels_running_approval_instance ... ok
+test business::erp::transfer_handler::db_status::zz_teardown_purges_fixture_residue ... ok
+test business::erp::transfer_handler::tests::biz_active_conflict_maps_to_409_with_transfer_no ... ok
+test business::erp::transfer_handler::tests::permission_reexport_is_same_list ... ok
+
+test result: ok. 56 passed; 0 failed; 0 ignored; 0 measured; 2601 filtered out; finished in 145.83s
+
+EXIT=0

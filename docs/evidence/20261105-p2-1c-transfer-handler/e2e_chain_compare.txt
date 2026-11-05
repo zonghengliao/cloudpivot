@@ -1,0 +1,5 @@
+split 断言=59 (PASS=59 FAIL=0)
+base  断言=59 (PASS=59 FAIL=0)
+base 有而 split 无： none
+split 有而 base 无： none
+结论： PASS（两边断言集合逐条一致，全 PASS）

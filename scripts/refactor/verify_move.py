@@ -159,6 +159,14 @@ def main():
              "tests_fixtures", "tests_helpers", "tests_posting", "tests_update",
              "tests_location", "tests_cancel", "tests_p10_locked", "tests_dc03", "tests_p16",
              "tests_d4_purchase", "tests_pflow3a", "tests_d9_copy", "tests_a4"]]),
+        # P2-1C：erp/transfer_handler.rs（4676 行，含 3249 行测试）按职责拆成
+        # 6 个代码部件 + 7 个测试部件
+        ("backend/src/business/erp/transfer_handler.rs",
+         ["backend/src/business/erp/transfer_handler.rs"] +
+         [f"backend/src/business/erp/transfer_handler_{n}.rs" for n in [
+             "common", "create", "query", "status", "delete", "test_support",
+             "tests", "db_tests_fixtures", "db_tests_create", "db_tests_status",
+             "db_tests_settle", "db_tests_books", "db_tests_query"]]),
     ]
     ok = True
     for src_path, new_paths in targets:

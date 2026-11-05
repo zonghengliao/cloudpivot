@@ -217,6 +217,17 @@ mod stockin_handler_query; // 只读入口：分页 / 详情
 mod stockin_handler_status; // 状态流转与其余 HTTP 入口
 mod stockin_handler_write; // 写入：建单 / 复制 / 编辑 / 删除
 
+// `transfer_handler.rs`（4676 行，含 3249 行测试）按职责拆成 6 个代码部件 + 7 个测试部件，
+// 公开 API 由 `transfer_handler` facade 用 `pub use super::<部件>::*;` 重导出，调用方路径不变。
+// 拆法见 `docs/refactor-methodology.md`（TD-2 章节）。
+mod transfer_handler_common; // 底座：错误出口（409/404/写库映射）/ 入参解析 / 明细预处理
+mod transfer_handler_create; // 建单 / 复制 / 改单（取号 + 明细落库 + 草稿态校验）
+mod transfer_handler_delete; // 软删（仅 DRAFT / CANCELLED）
+mod transfer_handler_query; // 只读：分页 / 详情 / 涉及序列号 / 在途超期汇总
+mod transfer_handler_status; // 六态状态机：审核 / 发出 / 在途 / 收货（含结算）/ 作废 + 审批发起
+#[cfg(test)]
+mod transfer_handler_test_support; // 测试支撑：把审批实例批到终态（真库用例共用）
+
 /// R-P1-5 的真库单测（联动作废：影响分析 / 执行顺序 / 中途失败回滚 / 无下游直接作废）。
 /// 只在 `cargo test` 时编译。
 #[cfg(test)]

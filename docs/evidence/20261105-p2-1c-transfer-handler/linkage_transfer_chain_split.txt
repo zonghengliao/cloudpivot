@@ -1,0 +1,21 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 32s
+     Running tests/linkage.rs (target/debug/deps/linkage-b6ef85419c0c306d)
+
+running 12 tests
+test linkage::transfer_chain::f01_submit_creates_pending_instance ... ok
+test linkage::transfer_chain::f02_approval_moves_to_approved ... ok
+test linkage::transfer_chain::f03_ship_records_transit_warehouse_without_touching_stock ... ok
+test linkage::transfer_chain::f04_receive_moves_qty_between_warehouses ... ok
+test linkage::transfer_chain::f05_total_qty_and_cost_conserved_after_done ... ok
+test linkage::transfer_chain::f06_draft_cancel_leaves_stock_untouched ... ok
+test linkage::transfer_chain::f07_pending_cancel_terminates_running_instance ... ok
+test linkage::transfer_chain::f08_manual_approve_while_pending_is_blocked ... ok
+test linkage::transfer_chain::f09_over_issue_is_rejected_at_settlement ... ok
+test linkage::transfer_chain::f10_concurrent_transfers_do_not_deadlock ... ok
+test linkage::transfer_chain::f11_serials_follow_the_transfer ... ok
+test linkage::transfer_chain::f12_in_transit_stuck_shipment_should_alert ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 50 filtered out; finished in 81.40s
+
+EXIT=0
