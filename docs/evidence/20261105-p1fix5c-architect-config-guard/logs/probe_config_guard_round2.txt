@@ -1,0 +1,19 @@
+登录成功（http://127.0.0.1:18132）
+
+[PASS] A1 触发点字典 15 条全部下发  —— HTTP 200 count=15
+[PASS] A2 已接线恰好 3 个且与 spec::TRIGGER_SPECS 一致  —— wired=['STOCK_IN', 'STOCK_OUT', 'TASK']
+[PASS] A3 未接线 12 个（配了也不会触发）  —— unwired=['STOCK_TRANSFER', 'PURCHASE_ORDER', 'PAYABLE', 'VOUCHER', 'ACCOUNTING_PERIOD', 'ACCOUNTING_YEAR', 'CONTRACT', 'STOCK_TAKE', 'FIXED_ASSET', 'DEPRECIATION', 'EXPENSE_REPORT', 'FLOW_INSTANCE']
+[PASS] A4 每个触发点都下发「接线位置 / 未接线原因」（前端不自己编文案）  —— 示例：STOCK_IN → 已接线：erp/stockin_handler_post.rs::post_in_tx 第 ⑦ 步走凭证专用路由 (li…
+[PASS] A5 STOCK_OUT 标注已接线并点明调用点  —— 已接线：erp/stockout_handler.rs::post_out_tx 第 ⑥ 步跑通用引擎 run_excluding(spec::STOCKOUT
+       · 未接线示例 STOCK_TRANSFER: 未接线：状态变更点在 erp/transfer_handler_status.rs（调 state_machine::transition + transfer_write::apply_st…
+       · 未接线示例 PURCHASE_ORDER: 未接线：采购单状态在 purchase_model::apply_status（部分收货由 erp/stockin_purchase.rs 用 transition_if_changed 推进…
+[PASS] A6 已接管动作 4 个（CREATE_TASK 已从占位转真实现，下拉可选）  —— implemented=['GENERATE_VOUCHER', 'UPDATE_RECEIVED_QTY', 'CREATE_TASK', 'SEND_NOTICE']
+[PASS] B1 在未接线触发点（STOCK_TRANSFER/DRAFT）上保存被 400 拒绝（不是静默成功）  —— HTTP 400 msg=触发点 STOCK_TRANSFER/DRAFT 尚未接线：引擎在这个状态变更点不会被执行，规则保存后永远不会触发。未接线：状态变更点在 erp/transfer_handler_status.rs（调 state_machine::tra
+[PASS] B2 显式 allow_unwired=true（页面上第二道勾选）才允许「预置配置」  —— HTTP 200 id=01a1ac07-6ec2-77c0-b38f-deffd54cd9ef
+[PASS] B3 未带 allow_unwired 的「启用」同样被拒（停用不属于变更，放行）  —— HTTP 400 msg=触发点 STOCK_TRANSFER/DRAFT 尚未接线：引擎在这个状态变更点不会被执行，规则保存后永远不会触发。未接线：状态变更点在 erp/transfer_handler_status.rs（
+[PASS] B4 探针规则已清理（可重复跑）  —— HTTP 200
+[PASS] C1 未接线触发点（STOCK_TRANSFER）的影响预览带 trigger_wired=false  —— HTTP 200 trigger_wired=False
+[PASS] C2 预览 warnings 里点名「未接线」  —— ["【未接线】STOCK_TRANSFER 的「DRAFT」变更点还没有调用联动引擎：这里的规则配了也不会触发。未接线：状态变更点在 erp/transfer_handler_status.rs（调 state_machine::trans
+[PASS] C3 已接线触发点（STOCK_IN/POSTED）的预览 trigger_wired=true（对照组）  —— HTTP 200 enabled_rules=2
+
+PASS=13 FAIL=0

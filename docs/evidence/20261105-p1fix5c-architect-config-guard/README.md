@@ -76,7 +76,21 @@ cd frontend && pnpm typecheck && npx tsx --test tests/unit/flow-linkage.test.ts
 BACKEND_ORIGIN=http://127.0.0.1:18132 pnpm dev   # 浏览器开 /flow/linkage 看截图里的三处提示
 ```
 
-## 5. 诚实边界
+## 6. 第二轮复测（commit `072b614`，收尾时在本卡提交树上复算）
+
+| 项 | 结果 | 日志 |
+|----|------|------|
+| 配置面探针（重跑，实例 18132） | **PASS=13 FAIL=0** | `logs/probe_config_guard_round2.txt` |
+| 后端 linkage 单测（真库，重跑） | **59 passed / 0 failed，EXIT=0** | `logs/linkage_unit_round2.txt` |
+| 前端 typecheck（独立 worktree `072b614`） | **EXIT=0** | `logs/frontend_typecheck_round2_worktree.txt` |
+| 前端逻辑单测（同一 worktree） | **9/9 pass，EXIT=0** | 同上 |
+| 截图目视复核（01 / 03） | 下拉 12 项带「· 未接线」；第二道勾选未勾 ⇒「创建规则」disabled | `shots/` |
+
+> 共享工作区同一时刻的 `pnpm typecheck` 是 RED，但报错全在**另一个卡未提交的**
+> `src/api/business/notice/index.ts`（`TS6133` / `TS2552`），与本卡无关；原文留档
+> `logs/frontend_typecheck_shared_tree_polluted.txt`，判据用本卡提交树的 EXIT=0。
+
+## 7. 诚实边界
 
 1. **只接 3 个，不是 15 个**：本卡不补接线（那是实现卡与后续分批卡的事），只保证「未接线的不会骗人」。
    12 个未接线触发点的接线动刀点逐条写在清单文档 §3.3。

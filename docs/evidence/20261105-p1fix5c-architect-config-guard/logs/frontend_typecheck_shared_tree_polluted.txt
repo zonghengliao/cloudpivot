@@ -1,0 +1,9 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> vue-tsc --noEmit
+
+src/api/business/notice/index.ts(20,31): error TS6133: 'TOKEN_KEY' is declared but its value is never read.
+src/api/business/notice/index.ts(418,3): error TS2552: Cannot find name 'buildNoticeSseUrl'. Did you mean 'buildNoticeStreamUrl'?
+ ELIFECYCLE  Command failed with exit code 2.
+TYPECHECK_EXIT=2

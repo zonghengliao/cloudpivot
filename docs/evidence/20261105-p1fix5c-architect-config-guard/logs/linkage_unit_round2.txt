@@ -1,0 +1,68 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 52s
+     Running unittests src/lib.rs (/root/p1fix5c-target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 59 tests
+test business::flow::linkage::admin::tests::catalog_covers_every_action_and_trigger ... ok
+test business::flow::linkage::admin::tests::catalog_implemented_flags_match_spec ... ok
+test business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag ... ok
+test business::flow::linkage::admin::tests::draft_check_rejects_bad_input ... ok
+test business::flow::linkage::admin::tests::draft_check_rejects_unwired_trigger ... ok
+test business::flow::linkage::admin::tests::unknown_trigger_and_status_are_rejected ... ok
+test business::flow::linkage::tests::after_commit_actions_are_never_critical ... ok
+test business::flow::linkage::tests::engine_critical_failure_rolls_back ... ok
+test business::flow::linkage::tests::engine_is_fail_safe_when_table_missing ... ok
+test business::flow::linkage::tests::engine_runs_in_seq_order ... ok
+test business::flow::linkage::tests::engine_skips_disabled_rules ... ok
+test business::flow::linkage::tests::engine_skips_missing_target ... ok
+test business::flow::linkage::tests::engine_skips_placeholder_action ... ok
+test business::flow::linkage::tests::forbidden_sql_keys_are_rejected ... ok
+test business::flow::linkage::tests::migration_check_covers_every_action_code ... ok
+test business::flow::linkage::tests::notice_setting_parsing ... ok
+test business::flow::linkage::tests::param_types_are_enforced ... ok
+test business::flow::linkage::tests::params_must_be_object ... ok
+test business::flow::linkage::tests::required_params_are_enforced ... ok
+test business::flow::linkage::tests::shape_notice_defaults_are_identical ... ok
+test business::flow::linkage::tests::status_notice_bad_params_fall_back_to_legacy ... ok
+test business::flow::linkage::tests::status_notice_shadow_keeps_legacy ... ok
+test business::flow::linkage::tests::status_notice_takeover_sends_configured_notice ... ok
+test business::flow::linkage::tests::status_notice_without_rule_is_legacy ... ok
+test business::flow::linkage::tests::triggers_cover_state_machine_entities ... ok
+test business::flow::linkage::tests::unknown_param_key_is_rejected ... ok
+test business::flow::linkage::tests::upsert_rejects_not_implemented_action ... ok
+test business::flow::linkage::tests::upsert_rejects_params_with_sql_key ... ok
+test business::flow::linkage::tests::upsert_rejects_unknown_action_code ... ok
+test business::flow::linkage::tests::upsert_rejects_unknown_trigger ... ok
+test business::flow::linkage::tests::upsert_requires_super_admin_and_confirm ... ok
+test business::flow::linkage::tests::upsert_then_load_roundtrip ... ok
+test business::flow::linkage::tests::uuid_list_kind_validates_items ... ok
+test business::flow::linkage::tests::voucher_action_fails_and_rolls_back_when_period_closed ... ok
+test business::flow::linkage::tests::voucher_action_params_are_validated_on_write ... ok
+test business::flow::linkage::tests::voucher_action_skips_inactive_template ... ok
+test business::flow::linkage::tests::voucher_action_skips_missing_target ... ok
+test business::flow::linkage::tests::voucher_action_skips_zero_amount_doc ... ok
+test business::flow::linkage::tests::voucher_new_path_matches_legacy_field_by_field ... ok
+test business::flow::linkage::tests::voucher_shadow_rolls_back_and_compares ... ok
+test business::flow::linkage::tests::whitelist_has_eight_or_more_actions ... ok
+test business::flow::linkage::tests_presets::engine_skips_only_actions_routed_elsewhere ... ok
+test business::flow::linkage::tests_presets::every_preset_action_is_implemented ... ok
+test business::flow::linkage::tests_presets::every_preset_params_have_no_sql_key ... ok
+test business::flow::linkage::tests_presets::every_preset_params_pass_layer2_validation ... ok
+test business::flow::linkage::tests_presets::every_preset_status_is_reachable ... ok
+test business::flow::linkage::tests_presets::every_preset_trigger_is_whitelisted ... ok
+test business::flow::linkage::tests_presets::migration_down_removes_the_same_keys ... ok
+test business::flow::linkage::tests_presets::migration_seeds_every_preset_row ... ok
+test business::flow::linkage::tests_presets::preset_keys_are_unique ... ok
+test business::flow::linkage::tests_presets::presets_are_exactly_three ... ok
+test business::flow::linkage::tests_presets::presets_are_takeover_not_shadow ... ok
+test business::flow::linkage::tests_presets::presets_cover_both_execution_entries ... ok
+test business::flow::linkage::tests_presets::stockin_post_wires_generic_engine_and_excludes_voucher ... ok
+test business::flow::linkage::tests_wiring::every_trigger_declares_wired_and_reason ... ok
+test business::flow::linkage::tests_wiring::stockout_post_wires_generic_engine_and_excludes_dedicated_actions ... ok
+test business::flow::linkage::tests_wiring::trigger_specs_cover_whitelist_in_order ... ok
+test business::flow::linkage::tests_wiring::wired_trigger_proofs_exist_in_source ... ok
+test business::flow::linkage::tests_wiring::wired_triggers_match_call_sites ... ok
+
+test result: ok. 59 passed; 0 failed; 0 ignored; 0 measured; 2605 filtered out; finished in 15.08s
+
+EXIT=0

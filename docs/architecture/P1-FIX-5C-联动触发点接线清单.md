@@ -456,6 +456,24 @@ EXIT=0
 3. 生产 144 未部署：本卡与实现卡均无迁移，发布只换二进制 + 前端。
 <!-- VERIFY:END -->
 
+### 10.1 第二轮复测（commit `072b614`，本卡收尾时独立复算）
+
+> 为什么要有第二轮：第一轮（上表）打在**共享工作区当时那棵树**上；同一仓库还有别的卡在并行改文件。
+> 所以收尾时在**本卡提交的树**（独立 worktree `/root/p1fix5c-arch-wt`，`HEAD=072b614`）上重算一遍。
+
+| # | 项 | 命令 | 结果 | 日志 |
+|---|----|------|------|------|
+| 1 | 配置面探针（重跑） | `LNK_PORT=18132 python3 scripts/probe_config_guard.py` | **PASS=13 FAIL=0**（与第一轮逐条一致：wired 3 / unwired 12、未接线保存 400、`allow_unwired` 才放行、启用同拦、预览 `trigger_wired`） | `logs/probe_config_guard_round2.txt` |
+| 2 | 后端 linkage 单测（重跑，真库） | `ERP_DB_URL=…/cloudpivot_lnk5c_arch_ut cargo test --lib business::flow::linkage -- --test-threads=1` | **59 passed / 0 failed，EXIT=0**（含 5 条 `tests_wiring` 守卫） | `logs/linkage_unit_round2.txt` |
+| 3 | 前端类型检查（**本卡提交树**） | `git worktree add /root/p1fix5c-arch-wt 072b614` → `frontend && ./node_modules/.bin/vue-tsc --noEmit` | **EXIT=0** | `logs/frontend_typecheck_round2_worktree.txt` |
+| 4 | 前端逻辑单测（同一 worktree） | `npx tsx --test tests/unit/flow-linkage.test.ts` | **9/9 pass，EXIT=0** | 同上 |
+| 5 | 截图目视复核 | 人工读 `shots/01`、`shots/03` | 01：下拉 `STOCK_IN`/`STOCK_OUT` 无标注、`STOCK_TRANSFER`…`STOCK_TAKE` 逐项带「· 未接线」；03：第一道勾选已勾、第二道未勾 ⇒ 「创建规则」**灰化不可点** | `shots/` |
+
+**一条必须记下来的现场**：收尾时共享工作区的 `pnpm typecheck` 是 **RED**，报的是
+`src/api/business/notice/index.ts` 的 `TS6133` / `TS2552`（另一个卡未提交的 notice SSE 改动），
+**与联动配置页无关**。同一条命令在本卡提交树上 EXIT=0（上表第 3 行），因此判本卡前端无类型问题；
+被污染的那次输出也原文留档（`logs/frontend_typecheck_shared_tree_polluted.txt`），避免下次有人把它当成本卡的锅。
+
 ---
 
 ## 11. 风险、回滚与观测

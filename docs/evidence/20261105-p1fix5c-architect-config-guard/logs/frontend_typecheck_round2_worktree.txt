@@ -1,0 +1,69 @@
+# commit 072b614（本卡提交树）独立复测：/root/p1fix5c-arch-wt worktree，node_modules 复用主树
+$ ./node_modules/.bin/vue-tsc --noEmit
+TYPECHECK_EXIT=0
+
+$ npx tsx --test tests/unit/flow-linkage.test.ts
+TAP version 13
+# Subtest: 动作下拉：未接管动作置灰，文案带事务归属
+ok 1 - 动作下拉：未接管动作置灰，文案带事务归属
+  ---
+  duration_ms: 4.711906
+  type: 'test'
+  ...
+# Subtest: 触发点 / 状态下拉：状态集来自后端下发，前端不自己维护
+ok 2 - 触发点 / 状态下拉：状态集来自后端下发，前端不自己维护
+  ---
+  duration_ms: 2.546286
+  type: 'test'
+  ...
+# Subtest: 参数拼装：必填空值报错，可选空值不写进 payload
+ok 3 - 参数拼装：必填空值报错，可选空值不写进 payload
+  ---
+  duration_ms: 0.793915
+  type: 'test'
+  ...
+# Subtest: 参数拼装：键集合只能来自动作声明（禁配 SQL 的结构性保证）
+ok 4 - 参数拼装：键集合只能来自动作声明（禁配 SQL 的结构性保证）
+  ---
+  duration_ms: 0.324124
+  type: 'test'
+  ...
+# Subtest: 参数拼装：整数 / 区间 / 十进制 / 枚举 / UUID 列表
+ok 5 - 参数拼装：整数 / 区间 / 十进制 / 枚举 / UUID 列表
+  ---
+  duration_ms: 0.358249
+  type: 'test'
+  ...
+# Subtest: 表单回填：布尔 → boolean，UUID 列表 → 逗号串，声明外的键忽略
+ok 6 - 表单回填：布尔 → boolean，UUID 列表 → 逗号串，声明外的键忽略
+  ---
+  duration_ms: 0.105666
+  type: 'test'
+  ...
+# Subtest: 列表筛选：实体 / 只看启用 / 关键词（大小写不敏感）
+ok 7 - 列表筛选：实体 / 只看启用 / 关键词（大小写不敏感）
+  ---
+  duration_ms: 0.678749
+  type: 'test'
+  ...
+# Subtest: 参数摘要 / 事务与等级文案 / 健康判定
+ok 8 - 参数摘要 / 事务与等级文案 / 健康判定
+  ---
+  duration_ms: 0.997748
+  type: 'test'
+  ...
+# Subtest: 预览提醒：空执行链 / 回滚风险 / 全部提交后执行
+ok 9 - 预览提醒：空执行链 / 回滚风险 / 全部提交后执行
+  ---
+  duration_ms: 1.501163
+  type: 'test'
+  ...
+1..9
+# tests 9
+# suites 0
+# pass 9
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 364.384283
