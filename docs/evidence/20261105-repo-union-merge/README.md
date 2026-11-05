@@ -100,16 +100,48 @@ diff <(grep -oE 'VIEW di\.c_di[0-9]+' docs/architecture/snapshot-drift/10_checks
 ```
 两侧均为 `01…26`，无重复、无缺口。
 
-## 4. 执行顺序（含退路）
+## 4. 执行实录（含退路）
 
-1. **留退路（144 bare，先做）**：`tag backup/20261105-pre-union-9ed4bf8` 指向 `9ed4bf8`，
-   并建 `branch backup/main-9ed4bf8`——两条 ref 都指向合并前的远端 main，随时可 `reset --hard` 回滚。
-2. 在**独立 worktree**（不入共享工作树，避免碰到其他人未提交改动）里完成合并、解冲突、自检。
-3. 推 144：`git push origin merge/union-20261105:main` —— 因为合并提交的父包含 `9ed4bf8`，
-   对 bare 是**快进**，不是 force push。
-4. 共享工作树 `/opt/cloudpivot` 的 `main` 再快进到合并提交（`reset --mixed` 方式，保留他人未提交改动内容）。
-5. 校验：`git -C /opt/git/cloudpivot.git log --oneline -3`、`git status -sb`（不再是 ahead/behind）、
-   `git ls-remote origin main`。
+1. **留退路（144 bare，先做）**：
+   ```
+   git -C /opt/git/cloudpivot.git tag -f backup/20261105-pre-union 9ed4bf8
+   git -C /opt/git/cloudpivot.git branch -f backup/main-9ed4bf8 9ed4bf8
+   ```
+   两条 ref 都指向合并前的远端 main，随时可回滚。
+2. 在**独立 worktree**（`git worktree add ... -b merge/union-20261105`）里完成合并、解冲突、自检
+   —— 全程不碰共享工作树 `/opt/cloudpivot` 上其他人的未提交改动。
+3. 自检（真实输出见本目录 `sql-install-check.txt`）：
+   - `cargo check --all-targets`：**通过**（1m07s，0 error）；
+   - `cargo test --test invariant_registry`：**1 passed**
+     （`n01_check_view_and_registry_are_bijective`，视图 ↔ CHECKS 双向一一对应）；
+   - `snapshot_audit.py --dry-run`：合计 **26 项**；`py_compile` 通过；
+   - **SQL 真机安装**：在 144 上建一次性库 `cp_union_check_20261105`（`createdb -O cloudpivot`），
+     `pg_dump --schema-only` 灌生产表结构，再 `psql -v ON_ERROR_STOP=1` 装
+     `00_install_compat.sql` + `10_checks.sql` → **两文件均 OK**；`di.c_di01…c_di26` 共 **26 个视图**，
+     `c_di23/24/25/26` 均可查询、`c_di26` 输出 **11 列**、`di.v_poly_ref_waiver` 返回
+     `DI-18|biz_inventory_txn|manong|2027-02-04`。验证后已 `dropdb` 清理，生产库未动。
+4. 推 144：`git push origin merge/union-20261105:main` → `9ed4bf8..a9bdcd1`（**快进**，不是 force push）。
+5. **合并期间本地 main 又落了 1 条**（`97440ca` docs(manual) 菜单路径）⇒ 立刻做第二次 union merge
+   `merge a9bdcd1 ← 97440ca` → `37e0549`，同样快进推送 `a9bdcd1..37e0549`。
+   （这就是分叉的复发机制：只要有人在本地提交、有人往 bare 推，就会再次 ahead/behind。）
+6. 共享工作树 `/opt/cloudpivot`：`HEAD` 已指向 `37e0549`，工作树用
+   `git checkout 37e0549 -- .` 物化成合并树（合并无文件删除，故无需 `reset --hard`），
+   再**逐个恢复**他人未提交的改动 —— 覆盖前先 `git stash create` 存了一份整树快照
+   (`631331a`)，并把 17 个 WIP 文件按原样备份。
+   - 与合并**有交叠**的只有 2 个文件：
+     - `backend/src/business/erp/serial_handler.rs`：做 3-way merge（base=`97440ca` 原版、
+       ours=WIP、theirs=合并版）→ **0 冲突**，两边改动都在；
+     - `docs/architecture/snapshot-drift/10_checks.sql`：WIP 是「P2-6 收口（DI-19 分级 + DI-18 豁免）」
+       的**并行另一份实现**，与已提交的 `7f0fe5c` 内容等价（只差一句注释措辞）⇒ **以已提交版为准**，
+       WIP 那份不再恢复（已在卡面 comment 里告知）。
+   - 6 个 flow 前端文件 + `snapshot_audit.py` 的 WIP 与合并树**逐字节相同**（本来就是同一条 FLOW-PANEL-UX /
+     P2-6 工作的未提交副本）⇒ 自然变为 clean，无需恢复。
+   - 其余 9 个 WIP 文件（bootstrap / payable_payment / flow.handler / internal_control / startup_guard /
+     2 份 p2-8 证据时间戳 / verify README）+ 7 个 untracked 全部原样保留。
+7. 校验：`git status -sb` → `## main...origin/main`（无 ahead/behind）；
+   144 侧 `git log --oneline -3 main` = `37e0549 ← 97440ca ← a9bdcd1 ← 4f8230a/9ed4bf8`；
+   `git merge-base --is-ancestor` 对 `4f8230a` 与 `9ed4bf8` 均 OK；备份 ref 仍在。
+   `git ls-remote origin main` = `37e0549…`。
 
 ## 5. `post-commit` 钩子：**不做 ssh 自动推**
 
@@ -125,7 +157,8 @@ diff <(grep -oE 'VIEW di\.c_di[0-9]+' docs/architecture/snapshot-drift/10_checks
 ## 6. 没做的事（诚实清单）
 
 - 没有 `push -f`、没有 `rebase` 任何一条已有历史、没有删除 144 上的任何分支或提交。
-- 没有跑后端全量 `cargo test` / 前端全量 `vitest`（合并只涉及文档/巡检 SQL/路由/单测文件的冲突裁定，
-  业务代码两侧是不同文件的增量合并；已做的是编译级 + 静态一致性自检，见 §3.2 与卡面 handoff）。
+- 没有跑后端全量 `cargo test` / 前端全量 `vitest`（合并的冲突裁定集中在文档 / 巡检 SQL / 路由 / 单测文件；
+  做的是 `cargo check --all-targets` + `invariant_registry` 单测 + 巡检 SQL 真机安装 + 视图/登记集合比对，
+  见 §4.3。全量回归仍应在下一条功能卡之前补跑一次）。
 - 没有把 `github` 远端（`zonghengliao/cloudpivot`，main 同为 `9ed4bf8`）一起同步——本次口径只在 144；
   github 镜像是否跟进另开卡决定。
