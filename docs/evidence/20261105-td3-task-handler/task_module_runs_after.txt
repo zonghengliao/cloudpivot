@@ -1,15 +1,12 @@
 库：postgres://alun:alun@127.0.0.1:5432/cp_libtest_task   P0FIX：postgres://alun:alun@127.0.0.1:5432/cp_libtest_task_p0fix
-HEAD(工作树)：d51889e + 未提交拆分
-preflight[task] ERROR:  relation "task_flow_instance" does not exist
-LINE 1: select 'instances='||(select count(*) from task_flow_instanc...
-                                                   ^
+HEAD：bae90c0（已提交，工作树代码与提交一致）
+preflight[task] instances=0 tasks=39 users=8（上一版日志里那行 ERROR 是取数 SQL 写错了表名 task_flow_instance，正确表名 biz_flow_instance；不影响任何用例，此处为正确表名的实测输出）
 
 ===================================================================
-[task=business::task::] 第 1 轮  2026-11-05T15:42:41+08:00
+[task=business::task::] 第 1 轮  2026-11-05T15:47:15+08:00
 命令：cargo test --lib 'business::task::' -- --test-threads=1
 ===================================================================
-   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 43.35s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.25s
      Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
 
 running 226 tests
@@ -240,15 +237,15 @@ test business::task::workspace_files::tests::resolve_readable_blocks_escape_and_
 test business::task::workspace_files::tests::resolve_readable_blocks_symlink_escape ... ok
 test business::task::workspace_files::tests::resolve_readable_rejects_oversized_file ... ok
 
-test result: ok. 226 passed; 0 failed; 0 ignored; 0 measured; 2395 filtered out; finished in 34.16s
+test result: ok. 226 passed; 0 failed; 0 ignored; 0 measured; 2395 filtered out; finished in 31.62s
 
 ROUND1_EXIT=0
 
 ===================================================================
-[task=business::task::] 第 2 轮  2026-11-05T15:43:58+08:00
+[task=business::task::] 第 2 轮  2026-11-05T15:47:47+08:00
 命令：cargo test --lib 'business::task::' -- --test-threads=1
 ===================================================================
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.27s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
      Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
 
 running 226 tests
@@ -479,7 +476,7 @@ test business::task::workspace_files::tests::resolve_readable_blocks_escape_and_
 test business::task::workspace_files::tests::resolve_readable_blocks_symlink_escape ... ok
 test business::task::workspace_files::tests::resolve_readable_rejects_oversized_file ... ok
 
-test result: ok. 226 passed; 0 failed; 0 ignored; 0 measured; 2395 filtered out; finished in 32.12s
+test result: ok. 226 passed; 0 failed; 0 ignored; 0 measured; 2395 filtered out; finished in 31.88s
 
 ROUND2_EXIT=0
-DONE 2026-11-05T15:44:31+08:00
+DONE 2026-11-05T15:48:19+08:00

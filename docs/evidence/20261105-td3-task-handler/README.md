@@ -46,7 +46,10 @@
 | 拆成 ≥4 个文件，每个 <1500 行 | ✅ 15 个文件（11 代码 + 3 测试 + facade），最大 932 行 | `line_counts.txt` |
 | 行为零变化（全量测试前后同一结果） | ✅ 前 226 passed×2 ／ 后 226 passed×2，用例名单 226 条逐条相同 | `task_run1_before.txt` / `task_run2_before.txt` / `task_module_runs_after.txt` / `test_names_diff.txt` |
 | 无新增 dead_code 警告 | ✅ `cargo check --lib` 0 警告；`cargo clippy --lib --tests -D warnings` 通过 | `static_checks.txt` |
-| git commit（纯 refactor） | ✅ 单提交，仅 `backend/src/business/task/*` + 证据 + 拆分工具 | `git show --stat` |
+| git commit（纯 refactor） | ✅ 单提交 `bae90c0`，仅 `backend/src/business/task/*` + 证据 + 拆分工具 | `git show --stat bae90c0` |
+
+> 回归是**提交后**（`bae90c0`，工作树与提交一致）跑的第二组两轮，日志见
+> `task_module_runs_after.txt`；提交前在同样的工作树上也跑过两轮，结果相同。
 
 ### 3.1 「只搬不移」的机械证明（`verify_move.txt`）
 
