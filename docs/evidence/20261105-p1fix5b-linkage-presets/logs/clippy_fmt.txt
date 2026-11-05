@@ -1,0 +1,6 @@
+== cargo clippy --lib --tests -- -D warnings（树 /root/lnk5b-wt，target /root/p1fix4-target）==
+    Checking cloudpivot v0.1.0 (/root/lnk5b-wt/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 01s
+
+== cargo fmt --check ==
+fmt EXIT=0 (0 = 无 diff)

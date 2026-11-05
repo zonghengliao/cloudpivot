@@ -1,0 +1,57 @@
+== P1-FIX-5B 跨单据联动 · 3 条预置规则端到端验收 ==
+   BASE=http://127.0.0.1:18130  DB=cloudpivot_lnk5b  LOG=/root/p1fix5b-server.log
+[PASS] A1 表 biz_flow_linkage_rule 已建  —— pg_tables=1
+[PASS] A2 V0254 迁移已记账（flow_linkage_presets）  —— rows=1
+[PASS] A3 admin 登录成功
+[PASS] A3b 超管持有 linkage 的 list/manage 授权（3 个菜单节点），重复补齐幂等  —— first_added=0 second_added=0 granted=3
+[PASS] A4 标准主数据就位（M-W1A-001 / WH01 / SUP-0001）
+[PASS] A5 规则表恰好 3 行（含迁移种的 3 条预置）  —— rows=3
+[PASS] A6 配置页 API 读到 3 条规则，键与预置一致  —— total=3 keys=[('STOCK_IN', 'POSTED', 'GENERATE_VOUCHER'), ('STOCK_IN', 'POSTED', 'SEND_NOTICE'), ('TASK', 'DOING', 'SEND_NOTICE')]
+[PASS] A7 3 条规则全部 enabled  —— [('SEND_NOTICE', True), ('GENERATE_VOUCHER', True), ('SEND_NOTICE', True)]
+[PASS] A8 3 条规则参数 mode=TAKEOVER（真生效，非影子）  —— [('SEND_NOTICE', 'TAKEOVER'), ('GENERATE_VOUCHER', 'TAKEOVER'), ('SEND_NOTICE', 'TAKEOVER')]
+[PASS] A9 按触发点筛选（STOCK_IN）→ 2 条  —— total=2
+[PASS] B1 源单据过账成功（收货单）  —— code=200 ok
+[PASS] B2 源单据状态 = POSTED  —— IN-20261105-000013 status=POSTED
+[PASS] B3 目标单据：凭证恰好 1 张（接管不双发）  —— rows=1
+[PASS] B4 凭证 3 行分录（存货 / 进项税 / 应付）  —— 3
+[PASS] B5 借 = 贷 = 价税合计 113  —— 113.0000/113.0000
+[PASS] B6 源单据回写了 voucher_id  —— voucher_id=0e126ff2-d378-4c29-80c6-dee51a3bfe3d voucher_no=PZ-20261105-000013
+[PASS] B7 日志：凭证由**联动配置**生成（旧路径本次不生成）  —— 2026-11-05T13:12:11.943248Z  INFO cloudpivot::business::flow::linkage::engine: 收货过账的凭证已由联动配置接管（旧路径本次不生成） rule_id=55cd133f-4b5b-4043-ac73-bfd91f1c1577 
+[PASS] B8 日志：本次不是影子模式（没有试算回滚）
+[PASS] C1 目标单据：这条收货单的通知恰好 1 条（旧逻辑根本不发，存在即接管）  —— rows=1
+[PASS] C2 通知标题 = 收货单已过账  —— 收货单已过账
+[PASS] C3 通知 biz_type = STOCK_IN（可按单据反查）  —— STOCK_IN
+[PASS] C4 收件人 = 制单人（admin，recipient=CREATOR）  —— admin
+[PASS] C5 日志：提交后动作（SEND_NOTICE）outcome=SUCCESS  —— 2026-11-05T13:12:11.951734Z  INFO cloudpivot::business::erp::stockin_handler_post: 收货过账：提交后的联动动作执行结果 stock_in_id=01a1abd6-9f7a-7401-9c9b-acd637b1b096 in_no=IN-20261105-000013 rule_
+[PASS] D1 源单据动作：任务 TODO → DOING（开工）  —— code=200 ok
+[PASS] D2 目标单据：任务开工通知 1 条  —— rows=1
+[PASS] D3 通知标题 = 任务状态变更（沿用触发点文案）  —— 任务状态变更
+[PASS] D4 收件人 = 创建人（操作人 admin 不在收件人里，与旧逻辑同口径）  —— lnk5b_creator
+[PASS] D5 反证：预置规则没有把通知改发给负责人（负责人=admin 是操作人）  —— lnk5b_creator
+[PASS] D6 日志：通知由配置发出（旧逻辑本次不发）  —— 2026-11-05T13:12:12.962535Z  INFO cloudpivot::business::flow::linkage::engine: 联动已接管通知：配置发出（旧逻辑本次不发） rule_id=1d296ca7-cbef-4930-b849-36ce4be1885e notice_id=01a1abd6-a39f-762e-af45-
+[PASS] D7 日志里的 rule_id = 规则 3 的主键  —— rule_id=1d296ca7-cbef-4930-b849-36ce4be1885e
+[PASS] E1 停用规则 2（收货过账→通知制单人）  —— code=200
+[PASS] E2 规则 2 落库 enabled=false  —— false|{"mode": "TAKEOVER", "recipient": "CREATOR"}
+[PASS] E3 规则 2 停用后仍能过账  —— code=200 IN-20261105-000014
+[PASS] E4 **停用生效**：该单没有任何通知（联动不再触发）  —— notices=[]
+[PASS] E5 日志：没有提交后联动动作执行记录
+[PASS] E6 规则 1 仍启用 → 该单凭证照常生成  —— rows=1
+[PASS] E7 停用规则 1（收货过账→生成凭证）  —— code=200
+[PASS] E8 规则 1 停用后过账成功（退回旧路径）  —— code=200 IN-20261105-000015
+[PASS] E9 **停用生效**：凭证仍由旧逻辑生成，恰好 1 张（不漏记）  —— rows=1
+[PASS] E10 日志：凭证走旧逻辑（联动未接管）  —— 2026-11-05T13:12:14.875286Z DEBUG cloudpivot::business::erp::stockin_handler_post: 收货过账：凭证仍走旧逻辑（联动未接管） reason=没有 GENERATE_VOUCHER 规则
+[PASS] E11 日志：没有「由联动配置接管」
+[PASS] E12 停用规则 3（任务开工通知）  —— code=200
+[PASS] E13 **停用生效**：通知仍由旧逻辑发（不漏发），但不是联动发的  —— rows=1
+[PASS] E14 日志：没有「联动已接管通知」（规则 3 未触发）
+[PASS] E15 三条规则重新启用（恢复预置）  —— [('SEND_NOTICE', True), ('GENERATE_VOUCHER', True), ('SEND_NOTICE', True)]
+[PASS] F1 改规则 3 参数：收件人 LEGACY → OWNER（走配置页 API）  —— code=200
+[PASS] F2 **改规则生效**：通知改发负责人（负责人=admin；预置口径是负责人+创建人−操作人=创建人）  —— receivers=admin
+[PASS] F3 改规则 1 参数：TAKEOVER → SHADOW（走配置页 API）  —— code=200
+[PASS] F4 SHADOW 下过账成功  —— code=200 IN-20261105-000016
+[PASS] F5 SHADOW 只试算 → 库里仍只有 1 张（旧路径落账）  —— rows=1
+[PASS] F6 **改规则生效**：日志出现影子试算（已回滚）  —— 2026-11-05T13:12:17.610648Z  INFO cloudpivot::business::flow::linkage::engine: 联动凭证影子试算完成（已回滚，库里不会多出这张凭证；生成权仍在旧逻辑） rule_id=55cd133f-4b5b-4043-ac73-bfd
+[PASS] G1 3 条规则恢复预置（enabled + TAKEOVER + 原参数）  —— [('SEND_NOTICE', {'mode': 'TAKEOVER'}), ('GENERATE_VOUCHER', {'biz_type': 'PURCHASE_IN', 'mode': 'TAKEOVER'}), ('SEND_NOTICE', {'mode': 'TAKEOVER', 'recipient': 'CREATOR'})]
+[PASS] G2 规则表最终仍是 3 行（没有多出版本）  —— rows=3
+
+==> SUMMARY PASS=53 FAIL=0

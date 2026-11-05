@@ -1,0 +1,22 @@
+== V0254 down → up 往返（库 cloudpivot_lnk5b，最终提交内容）==
+-- down 21:12:22 V0254__flow_linkage_presets.down.sql
+NOTICE:  V0254 回滚完成：3 条预置联动规则已删除（引擎回到「读不到规则 = 不接管」）
+DO
+   规则行数=0
+-- up 21:12:22 V0254__flow_linkage_presets.up.sql
+NOTICE:  V0254 完成：跨单据联动预置 3 条规则（收货过账→生成凭证 / 收货过账→通知制单人 / 任务开工(TODO→DOING)→通知负责人与创建人），全部 enabled + TAKEOVER
+DO
+   规则行数=3
+-- up 21:12:22 V0254__flow_linkage_presets.up.sql
+NOTICE:  V0254 完成：跨单据联动预置 3 条规则（收货过账→生成凭证 / 收货过账→通知制单人 / 任务开工(TODO→DOING)→通知负责人与创建人），全部 enabled + TAKEOVER
+DO
+   规则行数=3
+
+== 最终配置（= 卡面「3 条规则配好」的证据）==
+              name               | trigger_entity | trigger_status |   action_code    |                  action_params                  | enabled | seq 
+---------------------------------+----------------+----------------+------------------+-------------------------------------------------+---------+-----
+ 收货过账 → 生成凭证（联动接管） | STOCK_IN       | POSTED         | GENERATE_VOUCHER | {"mode": "TAKEOVER", "biz_type": "PURCHASE_IN"} | t       |  10
+ 收货过账 → 通知制单人           | STOCK_IN       | POSTED         | SEND_NOTICE      | {"mode": "TAKEOVER", "recipient": "CREATOR"}    | t       |  20
+ 任务开工 → 通知负责人与创建人   | TASK           | DOING          | SEND_NOTICE      | {"mode": "TAKEOVER"}                            | t       |  10
+(3 rows)
+

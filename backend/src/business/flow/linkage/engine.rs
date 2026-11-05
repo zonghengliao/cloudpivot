@@ -199,11 +199,44 @@ impl LinkageRun {
 /// - `Ok(run)`：全部非关键动作已完成/跳过；`run.deferred` 待提交后交给 [`run_deferred`]。
 /// - `Err(ApiError)`：**关键动作执行失败**——调用方必须回滚当前事务。
 pub async fn run(ex: &impl SqlExecutor, ctx: &LinkageContext<'_>) -> Result<LinkageRun, ApiError> {
+    run_excluding(ex, ctx, &[]).await
+}
+
+/// 该动作码是否被调用方声明为「由专用路由执行、通用引擎不要碰」。
+///
+/// 目前唯一的用途是 `GENERATE_VOUCHER`：它在收货过账里有一条件专用路由
+/// （[`stockin_voucher`]，需要「先影子试算再回滚 → 旧路径照旧 → 事后逐字段对比」），
+/// 通用引擎做不出那个顺序。同一触发点上两条路都跑 ⇒ 一张单两张凭证，
+/// 所以**调用方**显式把它排除，而不是在引擎里写死（换个触发点仍可用通用路径）。
+pub fn is_routed_elsewhere(skip_actions: &[&str], code: &str) -> bool {
+    skip_actions.contains(&code)
+}
+
+/// 同 [`run`]，但跳过 `skip_actions` 里的动作码（由专用路由负责，防重复执行）。
+///
+/// 被跳过的规则**不产生** [`RuleRun`]（它不是「跳过了一次执行」，而是「这次不归通用引擎管」），
+/// 只打一条 `debug` 日志，避免把正常的路由分工写成 ERROR 噪音。
+pub async fn run_excluding(
+    ex: &impl SqlExecutor,
+    ctx: &LinkageContext<'_>,
+    skip_actions: &[&str],
+) -> Result<LinkageRun, ApiError> {
     let rules = model::rules_for(ex, ctx.entity, ctx.status).await;
     let mut runs: Vec<RuleRun> = Vec::with_capacity(rules.len());
     let mut deferred: Vec<LinkageRuleRow> = Vec::new();
 
     for rule in rules {
+        if is_routed_elsewhere(skip_actions, &rule.action_code) {
+            tracing::debug!(
+                trigger_entity = ctx.entity,
+                trigger_status = ctx.status,
+                doc_id = %ctx.doc_id,
+                rule_id = %rule.id,
+                action_code = rule.action_code,
+                "联动动作由专用路由执行，通用引擎本次不重复执行"
+            );
+            continue;
+        }
         let Some(action) = rule.spec() else {
             runs.push(record(
                 &rule,

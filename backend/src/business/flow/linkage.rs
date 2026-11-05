@@ -59,6 +59,9 @@ pub mod spec;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod tests_presets;
+
 pub use engine::{LinkageContext, LinkageRun, NoticeRoute, Outcome, RuleRun, ShadowCompare};
 pub use model::{LinkageRuleRow, RulePatch};
 pub use spec::{ActionSpec, ParamKind, ParamSpec, Phase, Severity};

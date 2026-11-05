@@ -405,7 +405,7 @@ pub async fn post_after_approval(
     )
     .await;
     match outcome {
-        Ok(()) => {
+        Ok(linkage) => {
             tx.commit()
                 .await
                 .map_err(|error| utils::db_error(error, "提交审批过账事务"))?;
@@ -414,6 +414,7 @@ pub async fn post_after_approval(
                 in_no = %row.in_no,
                 "过账审批通过：库存/库位账/流水/序列号/凭证/应付已在一个事务里落库"
             );
+            run_stockin_deferred_linkage(&row, &op, linkage).await;
             Ok(())
         }
         Err(error) => {
@@ -525,11 +526,12 @@ pub(super) async fn post_stock_in(
     )
     .await;
     match outcome {
-        Ok(()) => {
+        Ok(linkage) => {
             // 逐行写失败时由 drop 回滚（不 commit 就等于回滚），但显式 rollback 更清楚
             tx.commit()
                 .await
                 .map_err(|error| utils::db_error(error, "提交过账事务"))?;
+            run_stockin_deferred_linkage(header, operator, linkage).await;
             Ok(())
         }
         Err(error) => {
@@ -550,6 +552,10 @@ pub(super) async fn post_stock_in(
 /// `STOCK_IN_LOCKED`（PENDING_POST 锁单据）兜住。
 ///
 /// P2-3：`po_snapshot` 参数（采购未收快照，只服务于已删除的回写步骤）一并去掉。
+///
+/// 返回值是第 ⑧ 步「跨单据联动」的执行结果：`InTx` 动作已在事务里跑完，
+/// `deferred`（提交后动作，如发通知）必须由**调用方在 `commit` 之后**交给
+/// [`linkage::engine::run_deferred`]——那一步失败只记日志，不回滚已经落定的账。
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn post_in_tx(
     ex: &impl SqlExecutor,
@@ -562,7 +568,7 @@ pub(super) async fn post_in_tx(
     from_status: &str,
     reason: Option<&str>,
     now: DateTime<Utc>,
-) -> std::result::Result<(), ApiError> {
+) -> std::result::Result<linkage::LinkageRun, ApiError> {
     // ① 锁单头（并发重复过账在这里串行化）
     let locked = stockin_model::lock_stock_in(ex, id)
         .await
@@ -829,7 +835,96 @@ pub(super) async fn post_in_tx(
         total_with_tax = %locked.total_with_tax,
         "收货过账：已生成应付单与凭证（借存货 + 借进项税 / 贷应付）"
     );
-    Ok(())
+
+    // ⑧ 跨单据联动（通用引擎，P1-FIX-5B）：触发点 = `STOCK_IN/POSTED`。
+    //
+    // ⑦ 的 `GENERATE_VOUCHER` 走**专用路由**（`stockin_voucher`：先影子试算并回滚、
+    // 旧路径照账、事后逐字段对比），通用引擎做不出那个顺序；同一触发点两条路都跑
+    // = 一张单两张凭证。所以这里显式把 `GENERATE_VOUCHER` 排除，只执行其余
+    // 事务内动作（`UPDATE_RECEIVED_QTY` 这类校验），提交后动作（发通知）放进
+    // `deferred` 由调用方 commit 之后再跑。
+    //
+    // 读规则失败 = 空规则集 = 行为与配置前逐字相同（`model::rules_for` fail-safe）；
+    // 关键动作失败 → `Err` → 调用方整笔回滚（与本函数其它步骤同一口径）。
+    let linkage_ctx = stockin_post_linkage_ctx(&locked, operator);
+    let linkage_run =
+        linkage::engine::run_excluding(ex, &linkage_ctx, &[linkage::spec::ACTION_GENERATE_VOUCHER])
+            .await?;
+    if !linkage_run.runs.is_empty() || !linkage_run.deferred.is_empty() {
+        tracing::info!(
+            stock_in_id = %id,
+            in_no = %locked.in_no,
+            in_tx_rules = linkage_run.runs.len(),
+            deferred_rules = linkage_run.deferred.len(),
+            "收货过账：跨单据联动已执行（事务内动作已落库，提交后动作待 commit）"
+        );
+    }
+    Ok(linkage_run)
+}
+
+/// 收货过账触发点（`STOCK_IN/POSTED`）的联动上下文。
+///
+/// 构造两处（事务内 ⑧、提交后 `run_deferred`）必须同形，所以收成一个函数：
+/// 收件人 / 文案 / 幂等键都取自单据本身，配置只需要在 `action_params` 里说
+/// 「发不发、发给谁、覆盖哪些字段」，不重复维护第二份文案。
+fn stockin_post_linkage_ctx<'a>(
+    row: &'a stockin_model::StockInRow,
+    operator: &state_machine::Operator,
+) -> linkage::LinkageContext<'a> {
+    let mut draft = crate::business::notice::NoticeDraft::text(
+        crate::business::notice::dto::NoticeType::Todo,
+        crate::business::notice::dto::NoticeLevel::Info,
+        "收货单已过账",
+        format!(
+            "收货单「{}」已过账：库存、凭证与应付已在同一事务里落库",
+            row.in_no
+        ),
+        crate::business::notice::NoticeTarget::User(row.create_by.into_iter().collect()),
+    );
+    draft.link_url = Some(format!("/business/erp/stock-in?id={}", row.id));
+    draft.biz_type = Some("STOCK_IN".to_string());
+    draft.biz_id = Some(row.id.to_string());
+    draft.sender_name = Some("收货入库".to_string());
+    // 「已过账」是知情类通知，尊重 notify.inbox（漏看不造成损失）
+    draft.force = false;
+    draft.idempotency_key = Some(format!("LNK:STOCK_IN:POSTED:{}", row.id));
+    linkage::LinkageContext::new(
+        state_machine::ENTITY_STOCK_IN,
+        STATUS_POSTED,
+        row.id,
+        &row.in_no,
+        operator.id,
+    )
+    .with_people(operator.id, row.create_by, None)
+    .with_notice(draft)
+}
+
+/// 提交**之后**执行联动的 `AfterCommit` 动作（发通知这类）。
+///
+/// 铁律：这里**永不返回 Err**、永不回滚业务——账已经在库里落定，因为一封站内信
+/// 写失败就把「已经过账」回滚掉，用户点第二次还会失败第二次（与 `flow::notify`
+/// 「通知失败不回滚业务」同一口径）。
+async fn run_stockin_deferred_linkage(
+    row: &stockin_model::StockInRow,
+    operator: &state_machine::Operator,
+    run: linkage::LinkageRun,
+) {
+    if run.deferred.is_empty() {
+        return;
+    }
+    let ctx = stockin_post_linkage_ctx(row, operator);
+    let results = linkage::engine::run_deferred(&ctx, run.deferred).await;
+    for item in results {
+        tracing::info!(
+            stock_in_id = %row.id,
+            in_no = %row.in_no,
+            rule_id = %item.rule_id,
+            action_code = %item.action_code,
+            outcome = item.outcome.label(),
+            reason = item.outcome.detail(),
+            "收货过账：提交后的联动动作执行结果"
+        );
+    }
 }
 
 /// 校验 PATCH body 里的序列号（`line_no → 号码`），并把数量与明细 qty 对齐（卡面 ⑩）。

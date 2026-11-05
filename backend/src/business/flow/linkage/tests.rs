@@ -892,8 +892,14 @@ async fn engine_skips_disabled_rules() {
         None,
     );
     let run = engine::run(&tx, &ctx).await.expect("引擎不该报错");
-    assert!(run.runs.is_empty(), "禁用规则不该产生执行记录");
-    assert!(run.deferred.is_empty());
+    assert!(
+        run.runs.iter().all(|item| item.rule_id != rule.id),
+        "禁用规则不该产生执行记录"
+    );
+    assert!(
+        run.deferred.iter().all(|item| item.id != rule.id),
+        "禁用规则不该进入提交后队列"
+    );
 
     let received: DbResult<String> = tx
         .scalar_sql(
@@ -1320,10 +1326,14 @@ async fn status_notice_takeover_sends_configured_notice() {
 async fn status_notice_bad_params_fall_back_to_legacy() {
     let Some(_guard) = setup().await else { return };
     // 直接写库：CHECK 会拦住 sql 键，所以用一个「类型不对」的合法键（runtime 第 3 层要拦）
+    //
+    // 触发点用 TASK/REVIEW（不是 TASK/DOING）：V0254 的预置规则占了
+    // `TASK/DOING/SEND_NOTICE`（唯一键），在带预置数据的库上直插同一键会撞唯一约束。
+    // 本用例只关心「脏参数能不能退回旧逻辑」，换一个没被预置占用的合法状态即可。
     db().execute_with_params(
         "INSERT INTO biz_flow_linkage_rule \
             (id, name, trigger_entity, trigger_status, action_code, action_params, enabled, seq) \
-         VALUES (gen_random_uuid(), 'D2L-bad-params', 'TASK', 'DOING', 'SEND_NOTICE', \
+         VALUES (gen_random_uuid(), 'D2L-bad-params', 'TASK', 'REVIEW', 'SEND_NOTICE', \
                  '{\"mode\": \"TAKEOVER_XXX\"}'::jsonb, true, 1)",
         vec![],
     )
@@ -1332,7 +1342,7 @@ async fn status_notice_bad_params_fall_back_to_legacy() {
 
     let ctx = LinkageContext::new(
         spec::TRIGGER_TASK,
-        "DOING",
+        "REVIEW",
         fixture_doc_b(),
         "D2L-T-2",
         None,

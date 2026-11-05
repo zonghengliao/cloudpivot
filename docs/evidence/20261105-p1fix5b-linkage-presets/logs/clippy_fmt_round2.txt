@@ -1,0 +1,9 @@
+== cargo clippy --lib --tests -- -D warnings ==
+   Compiling nik-db v0.4.2 (/root/lnk5b-wt/backend/vendor/nik-db)
+    Checking nik-web v0.4.2 (/root/lnk5b-wt/backend/vendor/nik-web)
+    Checking nik v0.4.2 (/root/lnk5b-wt/backend/vendor/nik)
+    Checking cloudpivot v0.1.0 (/root/lnk5b-wt/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 09s
+CLIPPY_EXIT=0
+== cargo fmt --check ==
+FMT_EXIT=0
