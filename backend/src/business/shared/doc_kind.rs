@@ -651,9 +651,9 @@ impl TxnBizType {
             | TxnBizType::OtherOut
             | TxnBizType::StockOutCancel => DocKind::StockOut,
             TxnBizType::AdjustIn | TxnBizType::AdjustOut => DocKind::StockTake,
-            TxnBizType::StockTakeGain
-            | TxnBizType::StockTakeLoss
-            | TxnBizType::StockTakeCancel => DocKind::StockTake,
+            TxnBizType::StockTakeGain | TxnBizType::StockTakeLoss | TxnBizType::StockTakeCancel => {
+                DocKind::StockTake
+            }
             TxnBizType::TransferOut | TxnBizType::TransferIn => DocKind::StockTransfer,
             TxnBizType::Opening => DocKind::Inventory,
         }

@@ -1,0 +1,30 @@
+# 命令: cargo test --lib business::shared::doc_kind
+# 时间: 2026-11-06 01:50:17 CST  HEAD: c097b98
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 21 tests
+test business::shared::doc_kind::doc_kind_tests::cross_axis_mappings_are_consistent ... ok
+test business::shared::doc_kind::doc_kind_tests::approval_entries_use_registered_biz_types ... ok
+test business::shared::doc_kind::doc_kind_tests::attachment_doc_types_match_rust ... ok
+test business::shared::doc_kind::doc_kind_tests::domain_consts_match_enums ... ok
+test business::shared::doc_kind::doc_kind_tests::entity_registry_is_covered_by_doc_kind ... ok
+test business::shared::doc_kind::doc_kind_tests::every_axis_value_is_uppercase_underscore ... ok
+test business::shared::doc_kind::doc_kind_tests::every_enum_has_a_label ... ok
+test business::shared::doc_kind::doc_kind_tests::domain_columns_exist_and_cover_all_axes ... ok
+test business::shared::doc_kind::doc_kind_tests::frontend_ts_labels_match_rust ... ok
+test business::shared::doc_kind::doc_kind_tests::flow_health_list_matches_registry ... ok
+test business::shared::doc_kind::doc_kind_tests::flow_cc_source_map_matches_snapshot_registry ... ok
+test business::shared::doc_kind::doc_kind_tests::no_legacy_transfer_entity_type ... ok
+test business::shared::doc_kind::doc_kind_tests::parse_is_strict ... ok
+test business::shared::doc_kind::doc_kind_tests::routes_are_unique_and_round_trip ... ok
+test business::shared::doc_kind::doc_kind_tests::test_residue_predicate_matches_python_and_sql ... ok
+test business::shared::doc_kind::doc_kind_tests::frontend_ts_mirror_matches_rust ... ok
+test business::shared::doc_kind::doc_kind_tests::values_are_unique_per_axis ... ok
+test business::shared::doc_kind::doc_kind_tests::serial_source_map_matches_snapshot_registry ... ok
+test business::shared::doc_kind::doc_kind_tests::doc_kind_registries_match_doc_kind_table ... ok
+test business::shared::doc_kind::doc_kind_tests::txn_doc_map_matches_snapshot_registry ... ok
+test business::shared::doc_kind::doc_kind_tests::voucher_source_map_matches_snapshot_registry ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 2660 filtered out; finished in 0.01s
+

@@ -844,7 +844,9 @@ fn txn_doc_target_table(value: &str) -> Option<&'static str> {
         "STOCK_TAKE" => "biz_stock_take",
         "SERIAL_BATCH" | "MATERIAL_SERIAL" => "biz_material_serial",
         "OPENING" | "ADJUST" => return None,
-        other => panic!("TXN_DOC 取值 {other} 没登记目标表：改了 TxnDocType 要同步 di.v_poly_ref_map"),
+        other => {
+            panic!("TXN_DOC 取值 {other} 没登记目标表：改了 TxnDocType 要同步 di.v_poly_ref_map")
+        }
     })
 }
 
@@ -860,7 +862,9 @@ fn voucher_source_target_table(value: &str) -> Option<&'static str> {
         "FIXED_ASSET_ACQ" | "FIXED_ASSET_DISPOSAL" => "biz_fixed_asset",
         "DEPRECIATION" => "biz_depreciation_batch",
         "EXPENSE_REPORT" | "EXPENSE_PAYMENT" => "biz_expense_report",
-        other => panic!("VOUCHER_SOURCE 取值 {other} 没登记目标表：改了 VoucherSourceType 要同步 di.v_poly_ref_map"),
+        other => panic!(
+            "VOUCHER_SOURCE 取值 {other} 没登记目标表：改了 VoucherSourceType 要同步 di.v_poly_ref_map"
+        ),
     })
 }
 
