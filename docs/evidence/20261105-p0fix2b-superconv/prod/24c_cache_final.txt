@@ -1,0 +1,25 @@
+== 1) epoch（应用读的是带前缀的键）==
+  cloudpivot:perm:user_scope_epoch before = 1
+2
+  cloudpivot:perm:user_scope_epoch after  = 2
+  perm:user_scope_epoch（裸名，历史兼容）before = 9
+10
+  perm:user_scope_epoch（裸名）after  = 10
+== 2) 逐账号删 会话/权限/角色/菜单 缓存 ==
+  DEL cloudpivot:uv:01a18bc8-bd0c-7792-9118-90fccc9ef0a2 → 1
+  DEL cloudpivot:perm:user_perms:01a18bc8-bd0c-7792-9118-90fccc9ef0a2 → 1
+  DEL cloudpivot:perm:user_roles:01a18bc8-bd0c-7792-9118-90fccc9ef0a2 → 1
+  DEL cloudpivot:perm:user_menus:01a18bc8-bd0c-7792-9118-90fccc9ef0a2 → 1
+  DEL cloudpivot:uv:c45e5728-2ca6-458a-9610-88bc4ed7b0e8 → 1
+  DEL cloudpivot:perm:user_perms:c45e5728-2ca6-458a-9610-88bc4ed7b0e8 → 1
+  DEL cloudpivot:perm:user_roles:c45e5728-2ca6-458a-9610-88bc4ed7b0e8 → 1
+  DEL cloudpivot:perm:user_menus:c45e5728-2ca6-458a-9610-88bc4ed7b0e8 → 1
+  DEL cloudpivot:uv:01a18171-e94a-7537-b822-d75e6566845c → 1
+  DEL cloudpivot:perm:user_perms:01a18171-e94a-7537-b822-d75e6566845c → 1
+  DEL cloudpivot:perm:user_roles:01a18171-e94a-7537-b822-d75e6566845c → 1
+  DEL cloudpivot:perm:user_menus:01a18171-e94a-7537-b822-d75e6566845c → 1
+== 3) 复核：残留的 scope 键（旧 epoch 的会自动失配）==
+cloudpivot:perm:user_scope:0:01a18171-e94a-7537-b822-d75e6566845c
+cloudpivot:perm:user_scope:1:01a17bb9-7d99-76c3-b362-58d3a284c270
+cloudpivot:perm:user_scope:0:01a18bc8-bd0c-7792-9118-90fccc9ef0a2
+cloudpivot:perm:user_scope:0:01a17bb9-7d99-76c3-b362-58d3a284c270

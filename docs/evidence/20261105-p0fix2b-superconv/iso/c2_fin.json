@@ -1,1 +1,0 @@
-{"label": "dept_id=FIN", "base": "http://127.0.0.1:18097", "http": {"me": 200, "biz_task": 200, "biz_project": 200, "sys_user": 403}, "roles": ["DEPT_LEADER", "PURCHASE_MANAGER", "WAREHOUSE_MANAGER", "SCOPE_PROBE_TMP"], "perms": 51, "biz_task": 0, "biz_project": 0, "sys_user": null}

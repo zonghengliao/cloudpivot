@@ -1,0 +1,25 @@
+== C2 演练 · cloudpivot_superconv_c3 @ http://127.0.0.1:18098 ==
+
+[1] 目标态（摘权后）真登录：laoliu_test 能看见什么
+{"label": "after(3 个 3 档角色)", "base": "http://127.0.0.1:18098", "http": {"me": 200, "biz_task": 403, "biz_project": 403, "sys_user": 403}, "roles": ["DEPT_LEADER", "PURCHASE_MANAGER", "WAREHOUSE_MANAGER"], "perms": 49, "biz_task": null, "biz_project": null, "sys_user": null}
+  [PASS] after: /task/page 被拒 = 403
+
+[2] 临时探针角色（data_scope=3 + task/project 读码，仅副本）
+  探针角色权限码 = 8
+  探针任务 = d6b48587-57e8-4895-bd34-eb1fa695231c（dept 依次 NULL → TECH → FIN）
+
+[3] 反向对照：改 dept_id，看可见行数是否跟着变
+  dept=NULL → task/project total = 0 0
+  dept=TECH → task/project total = 1 0
+  dept=FIN  → task/project total = 0 0
+  dept=NULL(还原) → task/project total = 0 0
+  [PASS] NULL → 0 行（历史任务 dept_id 全 NULL） = 0 0
+  [PASS] TECH → 该任务可见（1 行） = 1 0
+  [PASS] FIN → 0 行（子树外不可见） = 0 0
+
+[4] 拆探针（副本净零）
+  [PASS] probe 残留行 = 0
+  [PASS] biz_task.dept_id 非空（还原后） = 0
+
+== C2 演练结果：FAIL=0 ==
+EXIT=0

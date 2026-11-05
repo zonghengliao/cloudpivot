@@ -1,24 +1,45 @@
-== SUPERCONV 四步演练 · cloudpivot_superconv_c1 ==
-起始：ur_rows=15 snap=5 SUPER=admin,henry.liao laoliu_test_scopes=1:3
-归一后：ur_rows=16 SUPER=admin,henry.liao,laoliu,laoliu_test
+== SUPERCONV 四步演练 · cloudpivot_superconv_c3 ==
+归一（全回退）后：sys_user_role=16 sys_role_menu=594 SUPER=admin,henry.liao,laoliu,laoliu_test henry.dept=NULL
+  [PASS] 归一后超管成员 = admin,henry.liao,laoliu,laoliu_test
+  [PASS] 归一后 henry.liao 无部门 = NULL
 
-[1] 10 up（建角色 + 授权 + 绑定）
-  [PASS] grant 后 sys_user_role = 18
-[2] 10 up 再跑一次（幂等）
-  [PASS] 幂等重放后 sys_user_role 不变 = 18
-[3] 20 up（摘 3 行）
-  [PASS] revoke 后 sys_user_role = 15
-  [PASS] revoke 后 SUPER_ADMIN 成员 = admin,henry.liao
-  [PASS] revoke 后 laoliu_test 只剩 3 档 = 1:3
-[4] 20 up 再跑一次（幂等）
-  [PASS] 幂等重放后 sys_user_role 不变 = 15
-  [PASS] 快照行数（3 绑定 + 2 账号） = 5
-[5] 20 down（回滚：3 行加回去）
-  [PASS] 回滚后 sys_user_role = 18
-  [PASS] 回滚后 SUPER_ADMIN 成员 = admin,henry.liao,laoliu,laoliu_test
-[6] 20 up 再上一次（回到目标态）
-  [PASS] 二次 revoke 后 sys_user_role = 15
-  [PASS] 二次 revoke 后 SUPER_ADMIN 成员 = admin,henry.liao
+[1] --grant（05 落位 + 15 补 9 行目录 + 10 绑 5 个业务角色）
+  [PASS] grant 后 sys_user_role（+5） = 21
+  [PASS] grant 后 sys_role_menu（+9） = 603
+  [PASS] grant 后 laoliu 角色数（5 业务 + 仍是超管） = 6
+  [PASS] grant 后 henry.liao 部门 = HQ
+  [PASS] grant 后超管成员未变 = admin,henry.liao,laoliu,laoliu_test
+
+[2] --grant 再跑一次（幂等）
+  [PASS] 幂等重放后 sys_user_role 不变 = 21
+  [PASS] 幂等重放后 sys_role_menu 不变 = 603
+
+[3] --revoke（摘 4 行）
+  [PASS] revoke 后 sys_user_role（-4） = 17
+  [PASS] revoke 后超管成员 = admin
+  [PASS] revoke 后 laoliu 角色数 = 5
+
+[4] --revoke 再跑一次（幂等）
+  [PASS] 幂等重放后 sys_user_role 不变 = 17
+  [PASS] 阶段 2 快照（4 绑定 + 3 账号） = 7
+  [PASS] 阶段 1 快照（5 业务角色绑定） = 5
+  [PASS] 阶段 1.5 快照 ≥ 9 行
+
+[5] --rollback-revoke（20.down：4 行超管绑定加回）
+  [PASS] 回滚阶段 2 后 sys_user_role = 21
+  [PASS] 回滚阶段 2 后超管成员 = admin,henry.liao,laoliu,laoliu_test
+
+[6] 再 --revoke（回到目标态）
+  [PASS] 二次 revoke 后 sys_user_role = 17
+  [PASS] 二次 revoke 后超管成员 = admin
+
+[7] --rollback 全退（20.down → 10.down → 15.down → 05.down）
+  [PASS] 全回退后 sys_user_role = 16
+  [PASS] 全回退后 sys_role_menu = 594
+  [PASS] 全回退后超管成员 = admin,henry.liao,laoliu,laoliu_test
+  [PASS] 全回退后 henry.liao 无部门 = NULL
+  [PASS] 全回退后 laoliu 角色数 = 1
 
 == 四步演练结果：FAIL=0 ==
-✓ up→up→down→up 全绿
+✓ up→up→down→up→down 全绿
+drill exit=0

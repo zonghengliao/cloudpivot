@@ -1,0 +1,11 @@
+== 目标库：cloudpivot @ 127.0.0.1:5432（--check）==
+---- 现状（16:54:05）----
+  SUPER_ADMIN 成员 = admin,henry.liao,laoliu,laoliu_test（4 个）
+  admin        → dept=云枢总部     status=1 roles=SUPER_ADMIN
+  henry.liao   → dept=NULL     status=1 roles=DEPT_LEADER,GENERAL_MANAGER,PURCHASE_MANAGER,SUPER_ADMIN,WAREHOUSE_MANAGER
+  laoliu       → dept=云枢总部     status=1 roles=SUPER_ADMIN
+  laoliu_test  → dept=技术部      status=0 roles=DEPT_LEADER,GENERAL_MANAGER,PURCHASE_MANAGER,SUPER_ADMIN,WAREHOUSE_MANAGER
+  sys_user_role 行数 = 16
+  业务角色缺祖先目录（处） = 9
+  biz_flow_task PENDING = 3
+  datafix_superconv_snapshot = (表还没建；本库还没跑过 apply)

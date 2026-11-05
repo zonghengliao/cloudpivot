@@ -1,1 +1,0 @@
-{"label": "after(摘超管)", "base": "http://127.0.0.1:18097", "http": {"me": 200, "biz_task": 403, "biz_project": 403, "sys_user": 403}, "roles": ["DEPT_LEADER", "PURCHASE_MANAGER", "WAREHOUSE_MANAGER"], "perms": 49, "biz_task": null, "biz_project": null, "sys_user": null}

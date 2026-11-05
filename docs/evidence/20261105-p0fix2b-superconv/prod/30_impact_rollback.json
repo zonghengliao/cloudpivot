@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-11-05T16:08:53+08:00",
-  "db": "cloudpivot_superconv_c1",
+  "generated_at": "2026-11-05T16:55:39+08:00",
+  "db": "cloudpivot",
   "host": "127.0.0.1",
   "users": [
     {
@@ -42,7 +42,7 @@
       "user_type": "HUMAN",
       "status": "1",
       "is_locked": "false",
-      "own_dept_id": null,
+      "own_dept_id": "01a18381-b7c4-753c-8fe6-d39684ead5cd",
       "kind": "All",
       "dept_ids": [],
       "self_only": false,

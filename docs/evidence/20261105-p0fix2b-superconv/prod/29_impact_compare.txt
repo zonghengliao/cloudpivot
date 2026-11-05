@@ -1,0 +1,20 @@
+
+== 逐账号对照（落位前 → 落位后）==
+账号            kind                      dept_ids      self            sys_user              task                  project               budget                expense_report        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+admin         All                       0             False           9                     71                    3                     0                     0                     
+cl_43870      SelfOnly                  0             True            1                     0                     0                     0                     0                     
+henry.liao    All                       0             False           9                     71                    3                     0                     0                     
+laoliu        All                       0             False           9                     71                    3                     0                     0                     
+laoliu_test   All → DeptAndChild        0→1           False           9→2                 71→0                 3→0                 0                     0                     
+qa.limited    SelfOnly                  0             True            1                     0                     0                     0                     0                     
+qa.mutex      SelfOnly                  0             True            1                     0                     0                     0                     0                     
+qa.viewer     SelfOnly                  0             True            1                     0                     0                     0                     0                     
+verify-ai     SelfOnly                  0             True            1                     1                     0                     0                     0                     
+
+🚨 影响面发生了变化（落位改到了不该改的东西，停手）：
+  · laoliu_test: kind All → DeptAndChild
+  · laoliu_test: dept_ids [] → ['01a18381-b7d4-76ef-a290-8aa40bd4fd37']
+  · laoliu_test: sys_user 可见行数 9 → 2
+  · laoliu_test: biz_task 可见行数 71 → 0
+  · laoliu_test: biz_project 可见行数 3 → 0

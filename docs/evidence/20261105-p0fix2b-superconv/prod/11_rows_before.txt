@@ -1,0 +1,103 @@
+===== C1 · SUPER_ADMIN 成员（目标 = 只有 admin）=====
++-------------+--------+-------------+
+|  username   | status | expire_time |
++-------------+--------+-------------+
+| admin       |      1 |             |
+| henry.liao  |      1 |             |
+| laoliu      |      1 |             |
+| laoliu_test |      0 |             |
++-------------+--------+-------------+
+(4 rows)
+
+===== C1 · 逐账号角色（施工前后对照）=====
++-------------+------+--------+-----------------------------------------------------------------------------------------------+
+|  username   | dept | status |                                             roles                                             |
++-------------+------+--------+-----------------------------------------------------------------------------------------------+
+| admin       | HQ   |      1 | SUPER_ADMIN(1)                                                                                |
+| henry.liao  | NULL |      1 | DEPT_LEADER(3), GENERAL_MANAGER(1), PURCHASE_MANAGER(3), SUPER_ADMIN(1), WAREHOUSE_MANAGER(3) |
+| laoliu      | HQ   |      1 | SUPER_ADMIN(1)                                                                                |
+| laoliu_test | TECH |      0 | DEPT_LEADER(3), GENERAL_MANAGER(1), PURCHASE_MANAGER(3), SUPER_ADMIN(1), WAREHOUSE_MANAGER(3) |
++-------------+------+--------+-----------------------------------------------------------------------------------------------+
+(4 rows)
+
+===== 快照（batch → 行数；down 靠它精确回退）=====
+（快照表还没建 —— 本库还没跑过 apply，这是「施工前」的正常状态）
+===== 业务角色缺祖先目录（处，目标 = 0）=====
++-------------+
+| orphan_dirs |
++-------------+
+|           9 |
++-------------+
+(1 row)
+
+===== 各账号可见业务页（与接口 /system/auth/menus 同口径：menu_type=2 且已授权）=====
++-------------+-------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+|  username   | pages |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             page_list                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
++-------------+-------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| henry.liao  |    61 | /announcement, /business/announcement, /business/erp/account, /business/erp/asset, /business/erp/asset-category, /business/erp/budget, /business/erp/budget/mapping, /business/erp/budget/report, /business/erp/contract, /business/erp/depreciation, /business/erp/expense, /business/erp/expense/pay, /business/erp/expense-type, /business/erp/inventory, /business/erp/inventory-location, /business/erp/inventory-txn, /business/erp/ledger, /business/erp/location, /business/erp/material, /business/erp/opening, /business/erp/payable, /business/erp/period, /business/erp/purchase, /business/erp/purchase-order-item, /business/erp/report/balance-sheet, /business/erp/report/cash-flow, /business/erp/report/income-statement, /business/erp/seq, /business/erp/serial, /business/erp/stock-in, /business/erp/stock-out, /business/erp/stock-take, /business/erp/supplier, /business/erp/transfer, /business/erp/unit, /business/erp/voucher, /business/erp/warehouse, /business/erp/year-end, /business/impexp/export-task, /business/impexp/import, /business/impexp/import-task, /business/notice/message, /business/notice/send, /business/notice/template, /business/storage/backend, /business/storage/file, /dashboard, /flow/start, /flow/task, /help, /project, /support/invariant, /system/change-log, /system/data-scope, /system/field-mask, /system/role-mutex, /task/board, /task/gantt, /task/list, /task/templates, /user/preference |
+| laoliu      |    61 | /announcement, /business/announcement, /business/erp/account, /business/erp/asset, /business/erp/asset-category, /business/erp/budget, /business/erp/budget/mapping, /business/erp/budget/report, /business/erp/contract, /business/erp/depreciation, /business/erp/expense, /business/erp/expense/pay, /business/erp/expense-type, /business/erp/inventory, /business/erp/inventory-location, /business/erp/inventory-txn, /business/erp/ledger, /business/erp/location, /business/erp/material, /business/erp/opening, /business/erp/payable, /business/erp/period, /business/erp/purchase, /business/erp/purchase-order-item, /business/erp/report/balance-sheet, /business/erp/report/cash-flow, /business/erp/report/income-statement, /business/erp/seq, /business/erp/serial, /business/erp/stock-in, /business/erp/stock-out, /business/erp/stock-take, /business/erp/supplier, /business/erp/transfer, /business/erp/unit, /business/erp/voucher, /business/erp/warehouse, /business/erp/year-end, /business/impexp/export-task, /business/impexp/import, /business/impexp/import-task, /business/notice/message, /business/notice/send, /business/notice/template, /business/storage/backend, /business/storage/file, /dashboard, /flow/start, /flow/task, /help, /project, /support/invariant, /system/change-log, /system/data-scope, /system/field-mask, /system/role-mutex, /task/board, /task/gantt, /task/list, /task/templates, /user/preference |
+| laoliu_test |    61 | /announcement, /business/announcement, /business/erp/account, /business/erp/asset, /business/erp/asset-category, /business/erp/budget, /business/erp/budget/mapping, /business/erp/budget/report, /business/erp/contract, /business/erp/depreciation, /business/erp/expense, /business/erp/expense/pay, /business/erp/expense-type, /business/erp/inventory, /business/erp/inventory-location, /business/erp/inventory-txn, /business/erp/ledger, /business/erp/location, /business/erp/material, /business/erp/opening, /business/erp/payable, /business/erp/period, /business/erp/purchase, /business/erp/purchase-order-item, /business/erp/report/balance-sheet, /business/erp/report/cash-flow, /business/erp/report/income-statement, /business/erp/seq, /business/erp/serial, /business/erp/stock-in, /business/erp/stock-out, /business/erp/stock-take, /business/erp/supplier, /business/erp/transfer, /business/erp/unit, /business/erp/voucher, /business/erp/warehouse, /business/erp/year-end, /business/impexp/export-task, /business/impexp/import, /business/impexp/import-task, /business/notice/message, /business/notice/send, /business/notice/template, /business/storage/backend, /business/storage/file, /dashboard, /flow/start, /flow/task, /help, /project, /support/invariant, /system/change-log, /system/data-scope, /system/field-mask, /system/role-mutex, /task/board, /task/gantt, /task/list, /task/templates, /user/preference |
++-------------+-------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+(3 rows)
+
+===== C5 · D13：2 张 PENDING 实例的待办（施工前后必须逐字一致）=====
++--------------------------------------+-----------------------+----------+----------+-------------+-------------------------------+
+|                  id                  |      instance_no      | node_key |  status  |  assignee   |          created_at           |
++--------------------------------------+-----------------------+----------+----------+-------------+-------------------------------+
+| 01a19c2b-0778-7016-b599-cdd03e1b5abd | FLW-20261102-94417B93 | n_dept   | APPROVED | henry.liao  | 2026-11-02 20:10:28.079604+08 |
+| 01a19c2b-077a-75c0-b676-e97d1ab7f818 | FLW-20261102-94417B93 | n_dept   | PENDING  | laoliu_test | 2026-11-02 20:10:28.079604+08 |
+| 01a1a9aa-97ed-7366-8a71-27889aaa8b54 | FLW-20261105-5D6B0905 | n_wh     | PENDING  | henry.liao  | 2026-11-05 11:04:51.92864+08  |
+| 01a1a9aa-97f0-77e3-af45-4c9e95409d23 | FLW-20261105-5D6B0905 | n_wh     | PENDING  | laoliu_test | 2026-11-05 11:04:51.92864+08  |
++--------------------------------------+-----------------------+----------+----------+-------------+-------------------------------+
+(4 rows)
+
+===== 不该变的计数（施工前后必须完全相同）=====
++----------------------------------+
+|             ?column?             |
++----------------------------------+
+| sys_user 行数               = 26 |
++----------------------------------+
+(1 row)
+
++----------------------------------+
+|             ?column?             |
++----------------------------------+
+| sys_user_role 行数          = 16 |
++----------------------------------+
+(1 row)
+
++---------------------------------+
+|            ?column?             |
++---------------------------------+
+| biz_task.dept_id 非空       = 0 |
++---------------------------------+
+(1 row)
+
++---------------------------------+
+|            ?column?             |
++---------------------------------+
+| biz_project.dept_id 非空    = 0 |
++---------------------------------+
+(1 row)
+
++---------------------------------+
+|            ?column?             |
++---------------------------------+
+| sys_dept.leader_id 非空     = 0 |
++---------------------------------+
+(1 row)
+
++---------------------------------+
+|            ?column?             |
++---------------------------------+
+| biz_flow_task PENDING       = 3 |
++---------------------------------+
+(1 row)
+
++---------------------------------+
+|            ?column?             |
++---------------------------------+
+| status/expire 未被停用      = 3 |
++---------------------------------+
+(1 row)
+

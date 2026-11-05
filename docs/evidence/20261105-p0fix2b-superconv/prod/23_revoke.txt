@@ -1,0 +1,26 @@
+== 目标库：cloudpivot @ 127.0.0.1:5432（--revoke）==
+---- 现状（16:55:15）----
+  SUPER_ADMIN 成员 = admin（1 个）
+  admin        → dept=云枢总部     status=1 roles=SUPER_ADMIN
+  henry.liao   → dept=云枢总部     status=1 roles=DEPT_LEADER,GENERAL_MANAGER,PURCHASE_MANAGER,WAREHOUSE_MANAGER
+  laoliu       → dept=云枢总部     status=1 roles=DEPT_LEADER,FINANCE_MANAGER,GENERAL_MANAGER,PURCHASE_MANAGER,WAREHOUSE_MANAGER
+  laoliu_test  → dept=技术部      status=0 roles=DEPT_LEADER,PURCHASE_MANAGER,WAREHOUSE_MANAGER
+  sys_user_role 行数 = 17
+  业务角色缺祖先目录（处） = 0
+  biz_flow_task PENDING = 3
+  快照行数：SUPERCONV-20261105=7, SUPERCONV-20261105-DIRS=9, SUPERCONV-20261105-LAND=1, SUPERCONV-20261105-ROLES=5
+==> 使用备份：/root/datafix-backup-superconv-20261105-165410
+==> 20_revoke_super.up.sql
+psql:/root/superconv-run2/scripts/20_revoke_super.up.sql:38: NOTICE:  relation "datafix_superconv_snapshot" already exists, skipping
+psql:/root/superconv-run2/scripts/20_revoke_super.up.sql:200: NOTICE:  已摘过（目标 0 行），本脚本无变更（幂等重放）
+---- 现状（16:55:16）----
+  SUPER_ADMIN 成员 = admin（1 个）
+  admin        → dept=云枢总部     status=1 roles=SUPER_ADMIN
+  henry.liao   → dept=云枢总部     status=1 roles=DEPT_LEADER,GENERAL_MANAGER,PURCHASE_MANAGER,WAREHOUSE_MANAGER
+  laoliu       → dept=云枢总部     status=1 roles=DEPT_LEADER,FINANCE_MANAGER,GENERAL_MANAGER,PURCHASE_MANAGER,WAREHOUSE_MANAGER
+  laoliu_test  → dept=技术部      status=0 roles=DEPT_LEADER,PURCHASE_MANAGER,WAREHOUSE_MANAGER
+  sys_user_role 行数 = 17
+  业务角色缺祖先目录（处） = 0
+  biz_flow_task PENDING = 3
+  快照行数：SUPERCONV-20261105=7, SUPERCONV-20261105-DIRS=9, SUPERCONV-20261105-LAND=1, SUPERCONV-20261105-ROLES=5
+== 完成（--revoke）==（别忘了：INCR perm:user_scope_epoch 与 DEL perm:user_perms:* —— 见 README §缓存失效）

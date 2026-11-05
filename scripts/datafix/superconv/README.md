@@ -1,82 +1,65 @@
-# SUPERCONV — 超管收敛数据修复（【P0-FIX-2B-C】`t_db2506d2`）
+# SUPERCONV · 超管收敛数据修复脚本（P0-FIX-2B-C / `t_db2506d2`）
 
-> 走 `docs/architecture/数据修复与清场SOP.md` 的固定顺序：
-> 只读复现 → 行级快照 → 幂等 DML → 对平 → 巡检 → 留档。
-> 目标态（决策 D-2）：**生产只有 `admin` 一个真超管**。
+> 走 `docs/architecture/数据修复与清场SOP.md`：只读复现 → 行级快照 → 幂等 DML → 对平 → 巡检 → 留档。
+> **执行证据与结论在 `docs/evidence/20261105-p0fix2b-superconv/`（README + prod/ 35 份 + iso/ 6 份）。**
 
-## 这张卡改什么（三个阶段，顺序不可颠倒）
+## 目标态
+生产只剩 `admin` 一个真超管（决策 D-2）：
 
-| 阶段 | 脚本 | 动什么 | 为什么必须在这个顺序 |
-|---|---|---|---|
-| 1 | `10_grant_ops_admin.up.sql` | 建 `OPS_ADMIN` 角色 + 授权 72 行 + 绑 `laoliu`；顺带把 `GENERAL_MANAGER` 也绑给 `laoliu` | 先建后摘。摘权之后才建角色 = 有一个「他既没有超管也没有运维角色」的窗口 |
-| 2 | `20_revoke_super.up.sql` | 删 3 行 `sys_user_role`：`laoliu_test` 的 `SUPER_ADMIN` + `GENERAL_MANAGER`、`laoliu` 的 `SUPER_ADMIN`；推进 2 个账号的 `token_version` | A 卡（组织落位）与 B 卡（流程去 ADMIN 化）必须先 done，否则摘权会静默改写审批人集合/让他只看自己 |
-| 3 | `probe_ops.py` / `probe_scope_c2.py` | 只读 + 一次建完即删的写 | 摘权后立刻验证「还能干活」「看不到不该看的」；任一条失败 → 回退绑定 |
-
-## 文件
-
-| 文件 | 作用 |
+| 账号 | 处理 |
 |---|---|
-| `00_backup.sh` | 备份到 `/root/datafix-backup-superconv-<ts>/`（full.dump + 5 张表 + 逐行快照 + MANIFEST 含库名） |
-| `10_grant_ops_admin.{up,down}.sql` | 阶段 1 / 撤销阶段 1（删角色，物理删：down→up 要能往返） |
-| `20_revoke_super.{up,down}.sql` | 阶段 2 / 按快照把 3 行绑定加回去 |
-| `apply.sh` | `--check` / `--grant` / `--revoke` / `--probe` / `--rollback-revoke` / `--rollback-grant` / `--rollback` |
-| `probe_ops.py` | C3 运维动作清单（6 个读 + 1 个写 + 1 个反向 403） |
-| `probe_scope_c2.py` | C2 可见行数探针（任务 / 项目 / 用户） |
-| `verify_c2_scope.sh` | C2 演练（**只许隔离副本**）：before/after + 子树因果反向对照 |
-| `verify_drill.sh` | SOP §9 四步演练（**只许隔离副本**）：up → up（幂等）→ down → up |
-| `proof_rows.sql` | 留档用只读核对（逐账号绑定 / 超管成员 / 快照 / 角色 remark / D13 待办） |
+| `admin` | 不动（唯一超管） |
+| `laoliu` | 摘 `SUPER_ADMIN`，补 5 个业务角色（用户 16:36 批准方案） |
+| `laoliu_test` | 摘 `SUPER_ADMIN` + `GENERAL_MANAGER`，留 3 个 3 档角色（范围 = TECH 子树） |
+| `henry.liao` | 落位 HQ + 摘 `SUPER_ADMIN`，留 4 个业务角色（用户 16:45 确认是测试号） |
 
-## 怎么跑
+## 阶段（顺序不可颠倒）
+
+| 阶段 | 文件 | 干什么 | 为什么必须在这个位置 |
+|---|---|---|---|
+| 0 | `05_land_henry_hq.up.sql` | `henry.liao.dept_id → HQ` | 不落位 ⇒ N2 巡检永远 WARN、且他一旦丢掉 `GENERAL_MANAGER` 会被降级 SelfOnly |
+| 1.5 | `15_grant_menu_dirs.up.sql` | 5 个业务角色补 **9 行祖先目录** | 生产上 `财务管理`/`采购管理`/`support` 三个目录只授给了超管；不补则摘权后侧边栏是空的（`build_tree` 丢孤儿） |
+| 1 | `10_grant_laoliu_roles.up.sql` | `laoliu` 绑 5 个业务角色 | 先授后摘，避免「既没超管也没业务角色」的窗口 |
+| 2 | `20_revoke_super.up.sql` | 摘 4 行绑定 + 推进 3 个 `token_version` | 前置硬断言阶段 0/1 已落地，缺一条就 RAISE 回滚 |
+
+## 用法
 
 ```bash
 # 生产（144）
-cd /opt/cloudpivot
-bash scripts/datafix/superconv/00_backup.sh                 # 0) 备份，确认 full.dump 非空
-bash scripts/datafix/superconv/apply.sh --check             # 1) 只读现状
-bash scripts/datafix/superconv/apply.sh --grant             # 2) 阶段 1
-python3 scripts/datafix/superconv/probe_ops.py --token ...  # 3) 阶段 3a：运维清单（摘权前后各一次）
-bash scripts/datafix/superconv/apply.sh --revoke            # 4) 阶段 2
-python3 scripts/datafix/superconv/probe_ops.py --token ...  # 5) 阶段 3b：再跑一遍清单
-INCR perm:user_scope_epoch；DEL perm:user_perms:{uid} / perm:user_roles:{uid}   # 6) 见下
-bash scripts/datafix/superconv/apply.sh --rollback-revoke   # 7) 回滚演练（C6）后再 --revoke
+bash 00_backup.sh                      # 备份（apply 会校验 MANIFEST 里的库名）
+bash apply.sh --check                  # 只读现状
+bash apply.sh --grant                  # 05 → 15 → 10
+bash apply.sh --revoke                 # 20
+bash cache_invalidate.sh               # 缓存失效（键名见下，别用裸名）
+bash apply.sh --rollback-revoke        # 只回退阶段 2（C6 可逆演练）
+bash apply.sh --rollback               # 全退：20.down → 10.down → 15.down → 05.down
+
+# 隔离副本（演练专用）
+SUPERCONV_ISO_DB=<副本库> bash verify_drill.sh        # SOP §9 四步演练
+SUPERCONV_ISO_DB=<副本库> bash verify_c2_subtree.sh   # C2 子树因果对照（末尾净零）
 ```
 
-## 缓存失效（**直改库不走 app 写点，这一步不能省**）
+`--grant/--revoke` 要求存在 `/root/datafix-backup-superconv-*/full.dump` 且 MANIFEST 里是本库
+（`FORCE=1` 可跳过，仅限演练库）。
 
-```bash
-redis-cli -n 0 INCR perm:user_scope_epoch              # 数据范围缓存（300s TTL，卡面要求）
-redis-cli -n 0 DEL "perm:user_perms:<uid>" "perm:user_roles:<uid>"   # 权限码 / 角色缓存（P1-FIX-3）
-```
+## 缓存失效：键名带实例前缀（卡面口径是错的）
 
-`<uid>` 从 `SELECT id FROM sys_user WHERE username IN ('laoliu','laoliu_test')` 取。
-另外 `20_` 会推进两个账号的 `sys_user.token_version` —— 路由闸只认**令牌里的权限码快照**，
-不推进版本号的话，他手上已签发的令牌在有效期内仍然带着 274 个码（app 自己改角色授权时也是这么做的，
-见 `system/user/model.rs::bump_token_version_of_role_holders_in`）。
+应用侧缓存键是 **`cloudpivot:` 前缀**（`cloudpivot:uv:{uid}`、`cloudpivot:perm:user_scope:{epoch}:{uid}`、
+`cloudpivot:perm:user_perms|user_roles|user_menus:{uid}`）；裸名 `perm:user_scope_epoch` 应用根本读不到
+（存量 scope 键全是 `...:user_scope:0:<uid>` 即证据）。`cache_invalidate.sh` 两个 epoch 都推进，
+并删掉三个账号的 `uv:` / `perm:` 四类键 —— **不删 `cloudpivot:uv:{uid}` 的话，推进 `token_version`
+后 60s 内连重新登录都会 401/20008**。
 
-## 与卡面的一处口径修正（**必须知道**）
+## 探针
 
-卡面写「从 `SUPER_ADMIN` 的 274 个码里取 `system/*` 与 `support/*`（用户/角色/菜单/部门/字典/配置/…）」。
-**按字面取会得到一个不可用的角色**：生产实测 `SUPER_ADMIN` 名下只有 30 行 `sys_role_menu`
-（`change-log` / `field-mask` / `help` / `preference` / `role-mutex` / `dashboard` / `invariant`），
-`system:user:*`、`system:role:*`、`system:dept:*`、`system:menu:*`、`support:dict:*`、`support:config:*`、
-`support:file:*`、`support:log:*`、`support:online:*`、`support:job:*` **一行都没有** ——
-因为 `SUPER_ADMIN` 走的是通配短路（`TokenClaims::is_super_admin()`），不靠授权行。
+- `mint_token.py`：按库内真值自签访问令牌（生产口令不可猜）；`ver` 逐请求与库比对、
+  通配声明还要过库侧复核（BUG-SYS-04）⇒ **伪造不出超管**，只能复现「该账号当前真有什么」。
+- `probe_conv.py`：逐账号断言（角色集 / 权限码数 / 菜单树业务页 / 6 个系统页 / 2 个业务页）；
+  隔离副本里加 `--password` 走真登录。
+- `probe_scope_c2.py`：任务 / 项目 / 用户的可见行数。
 
-所以本批次按卡面的**语义**取 `sys_menu` 全量的 `system:*` + `support:*`：
-70 行带码菜单（42 个 system: 码 + 23 个 support: 码 = 65 个 distinct 码）+ `system`/`support` 两个目录节点 = **72 行**。
-少了目录节点，前端侧边栏树是孤儿（`auth/model.rs::load_user_menus_uncached` 不做父级自动补全）。
+## 边界
 
-## 边界（本批次明确不碰）
-
-- 不删号、不停用、不动 `expire_time`；
-- 不动 `qa.*` / `verify-ai` / `cl_43870`；
-- 不动流程定义（B 卡已做）、不回填 `biz_task` / `biz_project` 的历史 `dept_id`（D-3）；
-- `henry.liao` 原样保留，直到老大回答「内部业务同学 / 客户演示号」（那一支另写 `30_henry_*.sql`）；
-- 摘权**不回收**已生成的待办（D13：`biz_flow_task.assignee_id` 是 user_id，不是角色）。
-
-## 回滚
-
-```bash
-bash scripts/datafix/superconv/apply.sh --rollback          # 阶段 2 → 阶段 1 依次退
-# 兜底：pg_restore -d cloudpivot <backup>/full.dump
-```
+不删号、不停用、不动 `expire_time`；不动 `qa.*` / `verify-ai` / `cl_43870`；
+不改流程定义；不回填 `biz_task` / `biz_project` 历史 `dept_id`（D-3）；
+摘权不回收已生成的待办（D13：`biz_flow_task.assignee_id` 是 user_id）。

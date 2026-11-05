@@ -1,0 +1,12 @@
+time      : 2026-11-05T16:54:10+08:00
+database  : cloudpivot on 127.0.0.1:5432 (user cloudpivot)
+created by: scripts/datafix/superconv/00_backup.sh
+
+== md5 ==
+86642d0a10a4f86e595511841c36c53c  ./affected_rows.txt
+5622cafaba74ff262859c3ae9a185446  ./full.dump
+70133f75320992c405ff8fdffcf6b6ef  ./MANIFEST.txt
+3e4e8f0fde0b991a399a52de994316ab  ./schema.sql
+a408d38069deadd1f078d49450a353eb  ./sys_menu.sql
+efa5c2f5f390994d632d26d821f2f2dc  ./sys_role_menu.sql
+目录：/root/datafix-backup-superconv-20261105-165410

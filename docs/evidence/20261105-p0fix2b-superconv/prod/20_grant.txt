@@ -1,0 +1,31 @@
+== 目标库：cloudpivot @ 127.0.0.1:5432（--grant）==
+---- 现状（16:54:11）----
+  SUPER_ADMIN 成员 = admin,henry.liao,laoliu,laoliu_test（4 个）
+  admin        → dept=云枢总部     status=1 roles=SUPER_ADMIN
+  henry.liao   → dept=NULL     status=1 roles=DEPT_LEADER,GENERAL_MANAGER,PURCHASE_MANAGER,SUPER_ADMIN,WAREHOUSE_MANAGER
+  laoliu       → dept=云枢总部     status=1 roles=SUPER_ADMIN
+  laoliu_test  → dept=技术部      status=0 roles=DEPT_LEADER,GENERAL_MANAGER,PURCHASE_MANAGER,SUPER_ADMIN,WAREHOUSE_MANAGER
+  sys_user_role 行数 = 16
+  业务角色缺祖先目录（处） = 9
+  biz_flow_task PENDING = 3
+  datafix_superconv_snapshot = (表还没建；本库还没跑过 apply)
+==> 使用备份：/root/datafix-backup-superconv-20261105-165410
+==> 05_land_henry_hq.up.sql
+psql:/root/superconv-run2/scripts/05_land_henry_hq.up.sql:96: NOTICE:  阶段 0 完成：henry.liao → HQ（dept_id=01a18381-b7c4-753c-8fe6-d39684ead5cd），快照 1 行
+==> 15_grant_menu_dirs.up.sql
+psql:/root/superconv-run2/scripts/15_grant_menu_dirs.up.sql:36: NOTICE:  relation "datafix_superconv_snapshot" already exists, skipping
+psql:/root/superconv-run2/scripts/15_grant_menu_dirs.up.sql:103: NOTICE:  阶段 1.5 完成：补 9 行目录授权（DEPT_LEADER→support, DEPT_LEADER→财务管理, FINANCE_MANAGER→support, FINANCE_MANAGER→财务管理, FINANCE_MANAGER→采购管理, GENERAL_MANAGER→support, PURCHASE_MANAGER→support, WAREHOUSE_MANAGER→support, WAREHOUSE_MANAGER→采购管理）
+==> 10_grant_laoliu_roles.up.sql
+psql:/root/superconv-run2/scripts/10_grant_laoliu_roles.up.sql:29: NOTICE:  relation "datafix_superconv_snapshot" already exists, skipping
+psql:/root/superconv-run2/scripts/10_grant_laoliu_roles.up.sql:154: NOTICE:  阶段 1 完成：laoliu 绑定 5 个业务角色；并集权限码 49 个；快照 5 行
+---- 现状（16:54:11）----
+  SUPER_ADMIN 成员 = admin,henry.liao,laoliu,laoliu_test（4 个）
+  admin        → dept=云枢总部     status=1 roles=SUPER_ADMIN
+  henry.liao   → dept=云枢总部     status=1 roles=DEPT_LEADER,GENERAL_MANAGER,PURCHASE_MANAGER,SUPER_ADMIN,WAREHOUSE_MANAGER
+  laoliu       → dept=云枢总部     status=1 roles=DEPT_LEADER,FINANCE_MANAGER,GENERAL_MANAGER,PURCHASE_MANAGER,SUPER_ADMIN,WAREHOUSE_MANAGER
+  laoliu_test  → dept=技术部      status=0 roles=DEPT_LEADER,GENERAL_MANAGER,PURCHASE_MANAGER,SUPER_ADMIN,WAREHOUSE_MANAGER
+  sys_user_role 行数 = 21
+  业务角色缺祖先目录（处） = 0
+  biz_flow_task PENDING = 3
+  快照行数：SUPERCONV-20261105-DIRS=9, SUPERCONV-20261105-LAND=1, SUPERCONV-20261105-ROLES=5
+== 完成（--grant）==（别忘了：INCR perm:user_scope_epoch 与 DEL perm:user_perms:* —— 见 README §缓存失效）

@@ -1,0 +1,26 @@
+   （身份来自真登录 /api/system/auth/login）
+== 超管收敛验收 · laoliu / mode=laoliu · http://127.0.0.1:18098 ==
+   label=iso 目标态（真登录）
+  [PASS] auth/me                            期望=200                    实际=200
+  [PASS] auth/me roles                      期望=5                      实际=5:DEPT_LEADER,FINANCE_MANAGER,WAREHOUSE_MANAGER,PURCHASE_MANAGER,GENERAL_MANAGER
+  [PASS] auth/me perms                      期望=记录                     实际=49
+  [PASS] 必含角色 DEPT_LEADER                   期望=含                      实际=含
+  [PASS] 必含角色 FINANCE_MANAGER               期望=含                      实际=含
+  [PASS] 必含角色 WAREHOUSE_MANAGER             期望=含                      实际=含
+  [PASS] 必含角色 PURCHASE_MANAGER              期望=含                      实际=含
+  [PASS] 必含角色 GENERAL_MANAGER               期望=含                      实际=含
+  [PASS] 必不含角色 SUPER_ADMIN                  期望=不含                     实际=不含
+  [PASS] auth/menus                         期望=200                    实际=200
+  [PASS] 菜单树·可见业务页                          期望=>= 12                  实际=12
+  [PASS] 菜单树·可见系统页                          期望=记录                     实际=1
+  [PASS] 菜单树·节点总数                           期望=记录                     实际=20
+  [PASS] system:user                        期望=403                    实际=403
+  [PASS] system:role                        期望=403                    实际=403
+  [PASS] system:dept                        期望=403                    实际=403
+  [PASS] system:menu                        期望=403                    实际=403
+  [PASS] support:config                     期望=403                    实际=403
+  [PASS] support:log                        期望=403                    实际=403
+  [PASS] business:task                      期望=记录                     实际=403
+  [PASS] business:project                   期望=记录                     实际=403
+
+JSON {"username": "laoliu", "mode": "laoliu", "base": "http://127.0.0.1:18098", "label": "iso 目标态（真登录）", "roles": ["DEPT_LEADER", "FINANCE_MANAGER", "WAREHOUSE_MANAGER", "PURCHASE_MANAGER", "GENERAL_MANAGER"], "perm_count": 49, "menus_total": 20, "menus_business_pages": 12, "menus_system_pages": 1, "business_pages": ["/flow/start", "/flow/task", "/business/erp/stock-take", "/business/erp/budget", "/business/erp/budget/report", "/business/erp/budget/mapping", "/business/erp/expense", "/business/erp/expense/pay", "/business/erp/expense-type", "/business/erp/asset", "/business/erp/asset-category", "/business/erp/depreciation"], "fail": 0, "checks": [{"check": "auth/me", "expect": "200", "actual": "200", "ok": true}, {"check": "auth/me roles", "expect": "5", "actual": "5:DEPT_LEADER,FINANCE_MANAGER,WAREHOUSE_MANAGER,PURCHASE_MANAGER,GENERAL_MANAGER", "ok": true}, {"check": "auth/me perms", "expect": "记录", "actual": "49", "ok": true}, {"check": "必含角色 DEPT_LEADER", "expect": "含", "actual": "含", "ok": true}, {"check": "必含角色 FINANCE_MANAGER", "expect": "含", "actual": "含", "ok": true}, {"check": "必含角色 WAREHOUSE_MANAGER", "expect": "含", "actual": "含", "ok": true}, {"check": "必含角色 PURCHASE_MANAGER", "expect": "含", "actual": "含", "ok": true}, {"check": "必含角色 GENERAL_MANAGER", "expect": "含", "actual": "含", "ok": true}, {"check": "必不含角色 SUPER_ADMIN", "expect": "不含", "actual": "不含", "ok": true}, {"check": "auth/menus", "expect": "200", "actual": "200", "ok": true}, {"check": "菜单树·可见业务页", "expect": ">= 12", "actual": "12", "ok": true}, {"check": "菜单树·可见系统页", "expect": "记录", "actual": "1", "ok": true}, {"check": "菜单树·节点总数", "expect": "记录", "actual": "20", "ok": true}, {"check": "system:user", "expect": "403", "actual": "403", "ok": true}, {"check": "system:role", "expect": "403", "actual": "403", "ok": true}, {"check": "system:dept", "expect": "403", "actual": "403", "ok": true}, {"check": "system:menu", "expect": "403", "actual": "403", "ok": true}, {"check": "support:config", "expect": "403", "actual": "403", "ok": true}, {"check": "support:log", "expect": "403", "actual": "403", "ok": true}, {"check": "business:task", "expect": "记录", "actual": "403", "ok": true}, {"check": "business:project", "expect": "记录", "actual": "403", "ok": true}]}

@@ -1,0 +1,85 @@
+--- laoliu (mode=laoliu) ---
+  [PASS] auth/me                            期望=200                    实际=200
+  [PASS] auth/me roles                      期望=5                      实际=5:DEPT_LEADER,FINANCE_MANAGER,GENERAL_MANAGER,PURCHASE_MANAGER,WAREHOUSE_MANAGER
+  [PASS] auth/me perms                      期望=记录                     实际=49
+  [PASS] 必含角色 DEPT_LEADER                   期望=含                      实际=含
+  [PASS] 必含角色 FINANCE_MANAGER               期望=含                      实际=含
+  [PASS] 必含角色 WAREHOUSE_MANAGER             期望=含                      实际=含
+  [PASS] 必含角色 PURCHASE_MANAGER              期望=含                      实际=含
+  [PASS] 必含角色 GENERAL_MANAGER               期望=含                      实际=含
+  [PASS] 必不含角色 SUPER_ADMIN                  期望=不含                     实际=不含
+  [PASS] auth/menus                         期望=200                    实际=200
+  [PASS] 菜单树·可见业务页                          期望=>= 12                  实际=12
+  [PASS] 菜单树·可见系统页                          期望=记录                     实际=1
+  [PASS] 菜单树·节点总数                           期望=记录                     实际=20
+  [PASS] system:user                        期望=403                    实际=403
+  [PASS] system:role                        期望=403                    实际=403
+  [PASS] system:dept                        期望=403                    实际=403
+  [PASS] system:menu                        期望=403                    实际=403
+  [PASS] support:config                     期望=403                    实际=403
+  [PASS] support:log                        期望=403                    实际=403
+  [PASS] business:task                      期望=记录                     实际=403
+  [PASS] business:project                   期望=记录                     实际=403
+JSON {"username": "laoliu", "mode": "laoliu", "base": "http://127.0.0.1:8023", "label": "prod after(摘超管)", "roles": ["DEPT_LEADER", "FINANCE_MANAGER", "GENERAL_MANAGER", "PURCHASE_MANAGER", "WAREHOUSE_MANAGER"], "perm_count": 49, "menus_total": 20, "menus_business_pages": 12, "menus_system_pages": 1, "business_pages": ["/flow/start", "/flow/task", "/business/erp/stock-take", "/business/erp/budget", "/business/erp/budget/report", "/business/erp/budget/mapping", "/business/erp/expense", "/business/erp/expense/pay", "/business/erp/expense-type", "/business/erp/asset", "/business/erp/asset-category", "/business/erp/depreciation"], "fail": 0, "checks": [{"check": "auth/me", "expect": "200", "actual": "200", "ok": true}, {"check": "auth/me roles", "expect": "5", "actual": "5:DEPT_LEADER,FINANCE_MANAGER,GENERAL_MANAGER,PURCHASE_MANAGER,WAREHOUSE_MANAGER", "ok": true}, {"check": "auth/me perms", "expect": "记录", "actual": "49", "ok": true}, {"check": "必含角色 DEPT_LEADER", "expect": "含", "actual": "含", "ok": true}, {"check": "必含角色 FINANCE_MANAGER", "expect": "含", "actual": "含", "ok": true}, {"check": "必含角色 WAREHOUSE_MANAGER", "expect": "含", "actual": "含", "ok": true}, {"check": "必含角色 PURCHASE_MANAGER", "expect": "含", "actual": "含", "ok": true}, {"check": "必含角色 GENERAL_MANAGER", "expect": "含", "actual": "含", "ok": true}, {"check": "必不含角色 SUPER_ADMIN", "expect": "不含", "actual": "不含", "ok": true}, {"check": "auth/menus", "expect": "200", "actual": "200", "ok": true}, {"check": "菜单树·可见业务页", "expect": ">= 12", "actual": "12", "ok": true}, {"check": "菜单树·可见系统页", "expect": "记录", "actual": "1", "ok": true}, {"check": "菜单树·节点总数", "expect": "记录", "actual": "20", "ok": true}, {"check": "system:user", "expect": "403", "actual": "403", "ok": true}, {"check": "system:role", "expect": "403", "actual": "403", "ok": true}, {"check": "system:dept", "expect": "403", "actual": "403", "ok": true}, {"check": "system:menu", "expect": "403", "actual": "403", "ok": true}, {"check": "support:config", "expect": "403", "actual": "403", "ok": true}, {"check": "support:log", "expect": "403", "actual": "403", "ok": true}, {"check": "business:task", "expect": "记录", "actual": "403", "ok": true}, {"check": "business:project", "expect": "记录", "actual": "403", "ok": true}]}
+--- henry.liao (mode=henry) ---
+  [PASS] auth/me                            期望=200                    实际=200
+  [PASS] auth/me roles                      期望=4                      实际=4:DEPT_LEADER,GENERAL_MANAGER,PURCHASE_MANAGER,WAREHOUSE_MANAGER
+  [PASS] auth/me perms                      期望=记录                     实际=49
+  [PASS] 必含角色 DEPT_LEADER                   期望=含                      实际=含
+  [PASS] 必含角色 GENERAL_MANAGER               期望=含                      实际=含
+  [PASS] 必含角色 PURCHASE_MANAGER              期望=含                      实际=含
+  [PASS] 必含角色 WAREHOUSE_MANAGER             期望=含                      实际=含
+  [PASS] 必不含角色 SUPER_ADMIN                  期望=不含                     实际=不含
+  [PASS] auth/menus                         期望=200                    实际=200
+  [PASS] 菜单树·可见业务页                          期望=>= 12                  实际=12
+  [PASS] 菜单树·可见系统页                          期望=记录                     实际=1
+  [PASS] 菜单树·节点总数                           期望=记录                     实际=20
+  [PASS] system:user                        期望=403                    实际=403
+  [PASS] system:role                        期望=403                    实际=403
+  [PASS] system:dept                        期望=403                    实际=403
+  [PASS] system:menu                        期望=403                    实际=403
+  [PASS] support:config                     期望=403                    实际=403
+  [PASS] support:log                        期望=403                    实际=403
+  [PASS] business:task                      期望=记录                     实际=403
+  [PASS] business:project                   期望=记录                     实际=403
+JSON {"username": "henry.liao", "mode": "henry", "base": "http://127.0.0.1:8023", "label": "prod after(摘超管)", "roles": ["DEPT_LEADER", "GENERAL_MANAGER", "PURCHASE_MANAGER", "WAREHOUSE_MANAGER"], "perm_count": 49, "menus_total": 20, "menus_business_pages": 12, "menus_system_pages": 1, "business_pages": ["/flow/start", "/flow/task", "/business/erp/stock-take", "/business/erp/budget", "/business/erp/budget/report", "/business/erp/budget/mapping", "/business/erp/expense", "/business/erp/expense/pay", "/business/erp/expense-type", "/business/erp/asset", "/business/erp/asset-category", "/business/erp/depreciation"], "fail": 0, "checks": [{"check": "auth/me", "expect": "200", "actual": "200", "ok": true}, {"check": "auth/me roles", "expect": "4", "actual": "4:DEPT_LEADER,GENERAL_MANAGER,PURCHASE_MANAGER,WAREHOUSE_MANAGER", "ok": true}, {"check": "auth/me perms", "expect": "记录", "actual": "49", "ok": true}, {"check": "必含角色 DEPT_LEADER", "expect": "含", "actual": "含", "ok": true}, {"check": "必含角色 GENERAL_MANAGER", "expect": "含", "actual": "含", "ok": true}, {"check": "必含角色 PURCHASE_MANAGER", "expect": "含", "actual": "含", "ok": true}, {"check": "必含角色 WAREHOUSE_MANAGER", "expect": "含", "actual": "含", "ok": true}, {"check": "必不含角色 SUPER_ADMIN", "expect": "不含", "actual": "不含", "ok": true}, {"check": "auth/menus", "expect": "200", "actual": "200", "ok": true}, {"check": "菜单树·可见业务页", "expect": ">= 12", "actual": "12", "ok": true}, {"check": "菜单树·可见系统页", "expect": "记录", "actual": "1", "ok": true}, {"check": "菜单树·节点总数", "expect": "记录", "actual": "20", "ok": true}, {"check": "system:user", "expect": "403", "actual": "403", "ok": true}, {"check": "system:role", "expect": "403", "actual": "403", "ok": true}, {"check": "system:dept", "expect": "403", "actual": "403", "ok": true}, {"check": "system:menu", "expect": "403", "actual": "403", "ok": true}, {"check": "support:config", "expect": "403", "actual": "403", "ok": true}, {"check": "support:log", "expect": "403", "actual": "403", "ok": true}, {"check": "business:task", "expect": "记录", "actual": "403", "ok": true}, {"check": "business:project", "expect": "记录", "actual": "403", "ok": true}]}
+--- laoliu_test (mode=laoliu_test) ---
+  [PASS] auth/me                            期望=200                    实际=200
+  [PASS] auth/me roles                      期望=3                      实际=3:DEPT_LEADER,PURCHASE_MANAGER,WAREHOUSE_MANAGER
+  [PASS] auth/me perms                      期望=记录                     实际=49
+  [PASS] 必含角色 DEPT_LEADER                   期望=含                      实际=含
+  [PASS] 必含角色 PURCHASE_MANAGER              期望=含                      实际=含
+  [PASS] 必含角色 WAREHOUSE_MANAGER             期望=含                      实际=含
+  [PASS] 必不含角色 SUPER_ADMIN                  期望=不含                     实际=不含
+  [PASS] 必不含角色 GENERAL_MANAGER              期望=不含                     实际=不含
+  [PASS] auth/menus                         期望=200                    实际=200
+  [PASS] 菜单树·可见业务页                          期望=>= 12                  实际=12
+  [PASS] 菜单树·可见系统页                          期望=记录                     实际=1
+  [PASS] 菜单树·节点总数                           期望=记录                     实际=20
+  [PASS] system:user                        期望=403                    实际=403
+  [PASS] system:role                        期望=403                    实际=403
+  [PASS] system:dept                        期望=403                    实际=403
+  [PASS] system:menu                        期望=403                    实际=403
+  [PASS] support:config                     期望=403                    实际=403
+  [PASS] support:log                        期望=403                    实际=403
+  [PASS] business:task                      期望=记录                     实际=403
+  [PASS] business:project                   期望=记录                     实际=403
+JSON {"username": "laoliu_test", "mode": "laoliu_test", "base": "http://127.0.0.1:8023", "label": "prod after(摘超管)", "roles": ["DEPT_LEADER", "PURCHASE_MANAGER", "WAREHOUSE_MANAGER"], "perm_count": 49, "menus_total": 20, "menus_business_pages": 12, "menus_system_pages": 1, "business_pages": ["/flow/start", "/flow/task", "/business/erp/stock-take", "/business/erp/budget", "/business/erp/budget/report", "/business/erp/budget/mapping", "/business/erp/expense", "/business/erp/expense/pay", "/business/erp/expense-type", "/business/erp/asset", "/business/erp/asset-category", "/business/erp/depreciation"], "fail": 0, "checks": [{"check": "auth/me", "expect": "200", "actual": "200", "ok": true}, {"check": "auth/me roles", "expect": "3", "actual": "3:DEPT_LEADER,PURCHASE_MANAGER,WAREHOUSE_MANAGER", "ok": true}, {"check": "auth/me perms", "expect": "记录", "actual": "49", "ok": true}, {"check": "必含角色 DEPT_LEADER", "expect": "含", "actual": "含", "ok": true}, {"check": "必含角色 PURCHASE_MANAGER", "expect": "含", "actual": "含", "ok": true}, {"check": "必含角色 WAREHOUSE_MANAGER", "expect": "含", "actual": "含", "ok": true}, {"check": "必不含角色 SUPER_ADMIN", "expect": "不含", "actual": "不含", "ok": true}, {"check": "必不含角色 GENERAL_MANAGER", "expect": "不含", "actual": "不含", "ok": true}, {"check": "auth/menus", "expect": "200", "actual": "200", "ok": true}, {"check": "菜单树·可见业务页", "expect": ">= 12", "actual": "12", "ok": true}, {"check": "菜单树·可见系统页", "expect": "记录", "actual": "1", "ok": true}, {"check": "菜单树·节点总数", "expect": "记录", "actual": "20", "ok": true}, {"check": "system:user", "expect": "403", "actual": "403", "ok": true}, {"check": "system:role", "expect": "403", "actual": "403", "ok": true}, {"check": "system:dept", "expect": "403", "actual": "403", "ok": true}, {"check": "system:menu", "expect": "403", "actual": "403", "ok": true}, {"check": "support:config", "expect": "403", "actual": "403", "ok": true}, {"check": "support:log", "expect": "403", "actual": "403", "ok": true}, {"check": "business:task", "expect": "记录", "actual": "403", "ok": true}, {"check": "business:project", "expect": "记录", "actual": "403", "ok": true}]}
+--- admin（真登录，口令来自 NIK_ADMIN_PASSWORD）---
+  [PASS] auth/me                            期望=200                    实际=200
+  [PASS] auth/me roles                      期望=含 SUPER_ADMIN          实际=1:SUPER_ADMIN
+  [PASS] auth/me perms                      期望=记录                     实际=1
+  [PASS] 必含角色 SUPER_ADMIN                   期望=含                      实际=含
+  [PASS] auth/menus                         期望=200                    实际=200
+  [PASS] 菜单树·可见业务页                          期望=记录                     实际=55
+  [PASS] 菜单树·可见系统页                          期望=记录                     实际=17
+  [PASS] 菜单树·节点总数                           期望=记录                     实际=86
+  [PASS] system:user                        期望=200                    实际=200 total=9
+  [PASS] system:role                        期望=200                    实际=200 total=12
+  [PASS] system:dept                        期望=200                    实际=200 total=1
+  [PASS] system:menu                        期望=200                    实际=200 total=16
+  [PASS] support:config                     期望=200                    实际=200 total=19
+  [PASS] support:log                        期望=200                    实际=200 total=6772
+  [PASS] business:task                      期望=记录                     实际=200 total=71
+  [PASS] business:project                   期望=记录                     实际=200 total=3
+JSON {"username": "admin", "mode": "admin", "base": "http://127.0.0.1:8023", "label": "prod after(唯一超管)", "roles": ["SUPER_ADMIN"], "perm_count": 1, "menus_total": 86, "menus_business_pages": 55, "menus_system_pages": 17, "business_pages": ["/system/data-scope", "/announcement", "/business/notice/message", "/business/announcement", "/business/notice/template", "/business/notice/send", "/flow/start", "/flow/task", "/flow/def", "/task/list", "/task/board", "/task/gantt", "/task/templates", "/business/erp/purchase", "/business/erp/stock-out", "/business/erp/stock-in", "/business/erp/payable", "/business/erp/supplier", "/business/erp/purchase-order-item", "/business/erp/stock-take", "/project", "/business/erp/warehouse", "/business/erp/location", "/business/erp/serial", "/business/erp/inventory", "/business/erp/transfer", "/business/erp/inventory-location", "/business/erp/inventory-txn", "/business/erp/account", "/business/erp/period", "/business/erp/opening", "/business/erp/year-end", "/business/erp/budget", "/business/erp/budget/report", "/business/erp/budget/mapping", "/business/erp/expense", "/business/erp/expense/pay", "/business/erp/expense-type", "/business/erp/asset", "/business/erp/asset-category", "/business/erp/depreciation", "/business/erp/voucher", "/business/erp/ledger", "/business/erp/report/balance-sheet", "/business/erp/report/income-statement", "/business/erp/report/cash-flow", "/business/erp/seq", "/business/storage/backend", "/business/storage/file", "/business/impexp/import", "/business/impexp/import-task", "/business/impexp/export-task", "/business/erp/contract", "/business/erp/material", "/business/erp/unit"], "fail": 0, "checks": [{"check": "auth/me", "expect": "200", "actual": "200", "ok": true}, {"check": "auth/me roles", "expect": "含 SUPER_ADMIN", "actual": "1:SUPER_ADMIN", "ok": true}, {"check": "auth/me perms", "expect": "记录", "actual": "1", "ok": true}, {"check": "必含角色 SUPER_ADMIN", "expect": "含", "actual": "含", "ok": true}, {"check": "auth/menus", "expect": "200", "actual": "200", "ok": true}, {"check": "菜单树·可见业务页", "expect": "记录", "actual": "55", "ok": true}, {"check": "菜单树·可见系统页", "expect": "记录", "actual": "17", "ok": true}, {"check": "菜单树·节点总数", "expect": "记录", "actual": "86", "ok": true}, {"check": "system:user", "expect": "200", "actual": "200", "ok": true}, {"check": "system:role", "expect": "200", "actual": "200", "ok": true}, {"check": "system:dept", "expect": "200", "actual": "200", "ok": true}, {"check": "system:menu", "expect": "200", "actual": "200", "ok": true}, {"check": "support:config", "expect": "200", "actual": "200", "ok": true}, {"check": "support:log", "expect": "200", "actual": "200", "ok": true}, {"check": "business:task", "expect": "记录", "actual": "200 total=71", "ok": true}, {"check": "business:project", "expect": "记录", "actual": "200 total=3", "ok": true}]}

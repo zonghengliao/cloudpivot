@@ -1,1 +1,0 @@
-{"label": "before(超管)", "base": "http://127.0.0.1:18097", "http": {"me": 200, "biz_task": 200, "biz_project": 200, "sys_user": 200}, "roles": ["SUPER_ADMIN", "GENERAL_MANAGER", "DEPT_LEADER", "PURCHASE_MANAGER", "WAREHOUSE_MANAGER"], "perms": 1, "biz_task": 71, "biz_project": 3, "sys_user": 9}

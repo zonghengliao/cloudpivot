@@ -1,0 +1,39 @@
+== 目标库：cloudpivot @ 127.0.0.1:5432（--rollback-revoke）==
+---- 现状（16:55:38）----
+  SUPER_ADMIN 成员 = admin（1 个）
+  admin        → dept=云枢总部     status=1 roles=SUPER_ADMIN
+  henry.liao   → dept=云枢总部     status=1 roles=DEPT_LEADER,GENERAL_MANAGER,PURCHASE_MANAGER,WAREHOUSE_MANAGER
+  laoliu       → dept=云枢总部     status=1 roles=DEPT_LEADER,FINANCE_MANAGER,GENERAL_MANAGER,PURCHASE_MANAGER,WAREHOUSE_MANAGER
+  laoliu_test  → dept=技术部      status=0 roles=DEPT_LEADER,PURCHASE_MANAGER,WAREHOUSE_MANAGER
+  sys_user_role 行数 = 17
+  业务角色缺祖先目录（处） = 0
+  biz_flow_task PENDING = 3
+  快照行数：SUPERCONV-20261105=7, SUPERCONV-20261105-DIRS=9, SUPERCONV-20261105-LAND=1, SUPERCONV-20261105-ROLES=5
+==> 20_revoke_super.down.sql
+psql:/root/superconv-run2/scripts/20_revoke_super.down.sql:56: NOTICE:  阶段 2 已回退：补回 4 行绑定，还原 3 个账号 token_version
+---- 现状（16:55:39）----
+  SUPER_ADMIN 成员 = admin,henry.liao,laoliu,laoliu_test（4 个）
+  admin        → dept=云枢总部     status=1 roles=SUPER_ADMIN
+  henry.liao   → dept=云枢总部     status=1 roles=DEPT_LEADER,GENERAL_MANAGER,PURCHASE_MANAGER,SUPER_ADMIN,WAREHOUSE_MANAGER
+  laoliu       → dept=云枢总部     status=1 roles=DEPT_LEADER,FINANCE_MANAGER,GENERAL_MANAGER,PURCHASE_MANAGER,SUPER_ADMIN,WAREHOUSE_MANAGER
+  laoliu_test  → dept=技术部      status=0 roles=DEPT_LEADER,GENERAL_MANAGER,PURCHASE_MANAGER,SUPER_ADMIN,WAREHOUSE_MANAGER
+  sys_user_role 行数 = 21
+  业务角色缺祖先目录（处） = 0
+  biz_flow_task PENDING = 3
+  快照行数：SUPERCONV-20261105=7, SUPERCONV-20261105-DIRS=9, SUPERCONV-20261105-LAND=1, SUPERCONV-20261105-ROLES=5
+== 完成（--rollback-revoke）==（别忘了：INCR perm:user_scope_epoch 与 DEL perm:user_perms:* —— 见 README §缓存失效）
+SUPER_ADMIN 成员 = admin,henry.liao,laoliu,laoliu_test
+== 快照已写入 /root/superconv-evidence/30_impact_rollback.json
+
+库 cloudpivot@127.0.0.1  快照 2026-11-05T16:55:39+08:00
+账号            类型     kind          self  dept_ids    sys_user            task                project             budget              expense_report      
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+admin         HUMAN  All           False 0           9                   71                  3                   0                   0                   
+cl_43870      HUMAN  SelfOnly      True  0           1                   0                   0                   0                   0                   
+henry.liao    HUMAN  All           False 0           9                   71                  3                   0                   0                   
+laoliu        HUMAN  All           False 0           9                   71                  3                   0                   0                   
+laoliu_test   HUMAN  All           False 0           9                   71                  3                   0                   0                   
+qa.limited    HUMAN  SelfOnly      True  0           1                   0                   0                   0                   0                   
+qa.mutex      HUMAN  SelfOnly      True  0           1                   0                   0                   0                   0                   
+qa.viewer     HUMAN  SelfOnly      True  0           1                   0                   0                   0                   0                   
+verify-ai     ROBOT  SelfOnly      True  0           1                   1                   0                   0                   0                   
