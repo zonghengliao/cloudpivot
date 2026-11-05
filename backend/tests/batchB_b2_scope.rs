@@ -31,7 +31,7 @@
 //!
 //! # 一个用例，串行执行
 //!
-//! 埋点是进程内全局计数、而且断言依赖「用户总数 = 12」这个精确数字，所以本文件只有
+//! 埋点是进程内全局计数、而且断言依赖「可见用户数 = 库里实际未软删用户数」这个基线，所以本文件只有
 //! **一个** `#[tokio::test]`（配合 `--test-threads=1` 使用，与其他集成测试文件互不干扰）。
 
 use std::collections::BTreeSet;
@@ -164,6 +164,20 @@ async fn count_users(principal: &ScopedPrincipal) -> u64 {
     page.total
 }
 
+/// 库里未软删的用户总数（`BASE_USER_SQL` 的无范围基线）。
+///
+/// 「超管 / ALL 范围看到全部用户」的判据是**等于库里的实际总人数**，不是等于某个常量。
+async fn all_users_in_db() -> u64 {
+    let count: i64 = db()
+        .scalar_with_params(
+            "SELECT count(*) FROM sys_user WHERE deleted_at IS NULL",
+            vec![],
+        )
+        .await
+        .expect("统计 sys_user 总数失败");
+    count as u64
+}
+
 #[tokio::test]
 async fn b2_real_database_acceptance() {
     if !ensure_db().await {
@@ -175,6 +189,19 @@ async fn b2_real_database_acceptance() {
 
     println!("\n================ B2 真库验收：五种范围 + 并集 + 降级 ================");
     principal::reset_cache_stats();
+
+    // 「全部用户」的正确基线 = **库里实际还有多少个未软删用户**。
+    //
+    // 不能硬编码 `fixture::TOTAL_USERS`：本 target 的库即使专用，也逃不过
+    // ①上一轮用例残留 ②同机别的卡借用同名库 —— 只要多一行用户，「超管看到全部用户」
+    // 就会红成 `left: 36 right: 12`（9867fbe 实测）。改成比「实际总人数」是**更强**的断言：
+    // 它同时证明「范围过滤一行都没漏、也没多」。
+    let all_users = all_users_in_db().await;
+    assert!(
+        all_users >= fixture::TOTAL_USERS,
+        "夹具至少要落在库里：期望 ≥ {} 个用户，实际 {all_users}（先看 seed() 是否成功）",
+        fixture::TOTAL_USERS
+    );
 
     // ---------- ① 超管（SUPER_ADMIN）短路 ----------
     let admin_rows: i64 = db()
@@ -198,8 +225,8 @@ async fn b2_real_database_acceptance() {
     assert_eq!(admin.kind(), ScopeKind::All);
     assert_eq!(
         count_users(&admin).await,
-        fixture::TOTAL_USERS,
-        "超管看到全部用户"
+        all_users,
+        "超管看到全部用户（必须恰好等于库里 {all_users} 个未软删用户）"
     );
 
     // ---------- ② 五种范围 ----------
@@ -207,7 +234,7 @@ async fn b2_real_database_acceptance() {
     let u_all = resolve_and_log("u_all", fixture::U_ALL).await;
     assert_eq!(u_all.kind(), ScopeKind::All);
     assert!(u_all.dept_ids().is_empty(), "ALL 短路后部门集合必须清空");
-    assert_eq!(count_users(&u_all).await, fixture::TOTAL_USERS);
+    assert_eq!(count_users(&u_all).await, all_users, "ALL 范围 = 全库用户");
 
     // 2.2 DEPT（本部门，不含下级）
     let u_dept = resolve_and_log("u_dept", fixture::U_DEPT).await;
@@ -400,7 +427,14 @@ async fn b2_real_database_acceptance() {
     let report = guard::preflight_permission().await.expect("自检查库失败");
     println!("\n[自检] {}", report.summary());
     assert!(report.is_ok(), "登记表与超管角色必须齐备：{report:?}");
-    assert_eq!(report.checked_tables, 10);
+    // 登记表是**开放清单**（新增数据权限表只需加一行常量），所以这里是「自检必须覆盖
+    // 登记表的每一行」而不是硬编码条数 —— 写死 10 会在任何新表接进来时假红（实测 11）。
+    assert_eq!(
+        report.checked_tables,
+        cloudpivot::business::shared::scope::SCOPED_TABLES.len(),
+        "自检必须覆盖登记表的每一行（当前 {} 张）",
+        cloudpivot::business::shared::scope::SCOPED_TABLES.len()
+    );
 
     // ---------- ⑩ 范围上限（S14）：真解析出的操作者 + 越界部门 ----------
     let allowed = guard::ensure_scope_grant_allowed(&u_child, &[uuid(fixture::DEPT_D1_1_1)]);

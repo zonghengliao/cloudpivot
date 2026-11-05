@@ -116,6 +116,22 @@ async fn clear_pending() {
         .await;
 }
 
+/// 进程级串行闸：本文件所有用例共用**同一个库里的同一条 PENDING 队列**。
+///
+/// # 为什么必须串行
+///
+/// `worker::run_once_with` 认领的是「全表最老的 PENDING」，**不认 id**。libtest 默认多线程，
+/// 并行时别的用例刚 `insert_export_task`（还停在 PENDING 的那一小段窗口）就会被 worker 抢走：
+/// 实测 `worker_marks_failed_when_definition_missing` 报 `failed=1`，但它自己那条行仍是
+/// `PENDING / attempt=0`（被抢走的是别人的任务）。同理，僵尸用例把行从 PENDING 改成 RUNNING
+/// 的那一步也可能被插进来。
+///
+/// 串行跑时零开销；并发跑时等价于 `--test-threads=1`，命令怎么写都不会漂。
+async fn serial() -> tokio::sync::MutexGuard<'static, ()> {
+    static GATE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    GATE.lock().await
+}
+
 // ==================== 验收 2：并发认领互斥 ====================
 
 /// 两个进程在同一时刻认领同一条任务：只有一个拿到。
@@ -131,6 +147,8 @@ async fn claim_is_exclusive_across_processes() {
     if !ensure_db().await {
         return;
     }
+    // 本文件用例共用同一条 PENDING 队列，必须串行（见 `serial()`）
+    let _gate = serial().await;
     let Some(task_id) = std::env::var("A4_TASK_ID").ok() else {
         println!("SKIP: 未设置 A4_TASK_ID（本用例由 verify_a4_worker.sh 起两个进程跑）");
         return;
@@ -196,6 +214,8 @@ async fn zombie_running_task_is_reclaimed() {
     if !ensure_db().await {
         return;
     }
+    // 本文件用例共用同一条 PENDING 队列，必须串行（见 `serial()`）
+    let _gate = serial().await;
     drop_tasks("A4-zombie").await;
     let id = insert_task("system.dict_item", "A4-zombie-回收用例").await;
     // 手工造成「进程已死」：RUNNING + 31 分钟前的心跳
@@ -274,6 +294,8 @@ async fn zombie_reclaim_marks_failed_when_attempts_exhausted() {
     if !ensure_db().await {
         return;
     }
+    // 本文件用例共用同一条 PENDING 队列，必须串行（见 `serial()`）
+    let _gate = serial().await;
     drop_tasks("A4-zombie-max").await;
     let id = insert_task("system.dict_item", "A4-zombie-max-终态用例").await;
     db().execute_with_params(
@@ -306,6 +328,8 @@ async fn fresh_running_task_is_not_reclaimed() {
     if !ensure_db().await {
         return;
     }
+    // 本文件用例共用同一条 PENDING 队列，必须串行（见 `serial()`）
+    let _gate = serial().await;
     drop_tasks("A4-alive").await;
     let id = insert_task("system.dict_item", "A4-alive-新鲜心跳用例").await;
     db().execute_with_params(
@@ -333,6 +357,8 @@ async fn expired_artifact_file_is_purged() {
     if !ensure_db().await {
         return;
     }
+    // 本文件用例共用同一条 PENDING 队列，必须串行（见 `serial()`）
+    let _gate = serial().await;
     drop_tasks("A4-expire").await;
     let id = insert_task("system.dict_item", "A4-expire-过期用例").await;
     let dir = std::env::temp_dir().join("a4-expire-test");
@@ -397,6 +423,8 @@ async fn worker_marks_failed_when_definition_missing() {
     if !ensure_db().await {
         return;
     }
+    // 本文件用例共用同一条 PENDING 队列，必须串行（见 `serial()`）
+    let _gate = serial().await;
     // 认领是「按 created_at 取最老的一条」，先清掉本用例以外可能存在的 PENDING 行
     clear_pending().await;
     let id = insert_task("a4.no_such_definition", "A4-nodef-未注册定义用例").await;
@@ -439,6 +467,8 @@ async fn failure_schedules_backoff_and_stays_pending() {
     if !ensure_db().await {
         return;
     }
+    // 本文件用例共用同一条 PENDING 队列，必须串行（见 `serial()`）
+    let _gate = serial().await;
     drop_tasks("A4-backoff").await;
     let id = insert_task("system.dict_item", "A4-backoff-退避用例").await;
     db().execute_with_params(

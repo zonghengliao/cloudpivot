@@ -418,10 +418,17 @@ async fn publish_regression_keeps_graph_hash() {
         return;
     }
     // 存量已发布流程（§6.4 SQL ③ 的口径：`deleted_at IS NULL` 且状态 PUBLISHED）
+    //
+    // ★ 必须再按 `is_system = TRUE` 过滤：本用例要证的是「**内置模板**重新发布后 hash 不变」，
+    //   而 `biz_flow_def` 里同时躺着同库其它用例（以及本套其它用例）用 `create_draft` 造出来的
+    //   客户副本（`is_system = FALSE`）。那些副本会在本用例遍历期间被自己的用例软删 ——
+    //   按全库口径取快照就是 TOCTOU：外面 SELECT 到它，`find_def` 时已经没了，
+    //   报「流程 pflow_aprd_03be0414 不存在」（9867fbe / 9ed4bf8 实测同一条）。
     let defs = db()
         .find_with_params(
             "SELECT id, flow_code FROM biz_flow_def \
-              WHERE deleted_at IS NULL AND status = 'PUBLISHED' ORDER BY flow_code",
+              WHERE deleted_at IS NULL AND status = 'PUBLISHED' AND is_system = TRUE \
+              ORDER BY flow_code",
             Vec::new(),
         )
         .await

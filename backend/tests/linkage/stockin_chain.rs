@@ -31,6 +31,8 @@ use cloudpivot::business::erp::stockin_dto::{
     CreateStockInReq, StockInItemReq, StockInLineSerials, StockInStatusReq,
 };
 use cloudpivot::business::erp::stockin_handler::{change_stock_in_status, create_stock_in};
+use cloudpivot::business::flow::dto as flow_dto;
+use cloudpivot::business::flow::handler as flow_handler;
 
 use crate::linkage::common::{self, Ctx};
 
@@ -136,6 +138,92 @@ async fn status_of(id: Uuid) -> String {
     )
     .await
     .unwrap_or_else(|| panic!("收货单 {id} 不存在"))
+}
+
+/// 本单在跑的作废审批实例 id（`biz_type = 'STOCK_IN_CANCEL'`）。
+async fn cancel_instance_of(stock_in_id: Uuid) -> Option<Uuid> {
+    let rows = db()
+        .find_with_params(
+            "SELECT id FROM biz_flow_instance \
+              WHERE biz_type = 'STOCK_IN_CANCEL' AND biz_id = ?::uuid AND status = 'PENDING' \
+                AND deleted_at IS NULL \
+              ORDER BY started_at DESC LIMIT 1",
+            vec![Value::from(&stock_in_id)],
+        )
+        .await
+        .unwrap_or_else(|error| panic!("查作废审批实例失败：{error}"));
+    rows.first()
+        .map(|row| row.get_typed::<Uuid>("id").expect("实例 id"))
+}
+
+/// 走**生产路径**让作废审批落终态：把 PENDING 待办逐条「同意」，直到实例不再 PENDING。
+///
+/// # 为什么要遍历而不是投一票
+///
+/// 种子流程 `stock_in_cancel` 的复核节点是 `assignee_type = 'ADMIN'`，引擎在发起时把它展开成
+/// **库里全部 SUPER_ADMIN 用户**；`cloudpivot_test*` 是共享库，别的卡片会造更多超管账号。
+/// 只投一票不会落终态（实例停在 PENDING，六本账也就不会回滚）。所以这里循环投到没有
+/// PENDING 待办为止，每票都用**该待办真正的受派人**身份（与 `transfer_chain::approve_instance` 同法）。
+async fn approve_cancel_instance(instance_id: Uuid) {
+    for _ in 0..64 {
+        let rows = db()
+            .find_with_params(
+                "SELECT id, assignee_id FROM biz_flow_task \
+                  WHERE instance_id = ?::uuid AND status = 'PENDING' ORDER BY created_at",
+                vec![Value::from(&instance_id)],
+            )
+            .await
+            .expect("查作废审批待办");
+        let Some(row) = rows.first() else { return };
+        let task_id: Uuid = row.get_typed("id").expect("待办 id");
+        let assignee: Uuid = row.get_typed("assignee_id").expect("受派人");
+        let body = flow_dto::ApproveReq {
+            comment: Some("同意（收货单作废复核，联动测试）".to_string()),
+        };
+        flow_handler::approve_task(
+            common::claims(assignee, "cancel-approver"),
+            axum::extract::Path(task_id.to_string()),
+            Some(axum::Json(body)),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("作废复核同意失败 {} {}", error.code, error.msg));
+    }
+    panic!("实例 {instance_id} 的待办超过 64 条仍没落终态（疑似死循环）");
+}
+
+/// 作废 = **两步**（P16 / ARCH-3 DC-01）：发起送审 → 复核通过。
+///
+/// # 为什么不用「一步作废」
+///
+/// 实现自 P16 起，已过账单据的作废必须先走 `stock_in_cancel` 复核：
+/// `POSTED → PENDING_CANCEL`（六本账**一动没动**），审批通过的回调才执行真作废
+/// （`stockin_bridge` 的 `STOCK_IN_CANCEL` 终态回调 → 复用 P9 的 `cancel_in_tx`，
+/// 六本账 + 凭证 + 应付 + 序列号一起回滚）。没配流程时是 409，不是旧版的静默直作废。
+///
+/// 所以本函数**既断言了「送审后账不动」这一新语义**，又通过真审批把链路走完；
+/// 返回时六本账已经回滚，调用方照旧直接断言各账即可 —— 判据强度没有降低。
+async fn cancel_with_approval(ctx: &Ctx, id: Uuid, reason: &str) {
+    change_stock_in_status(id, &cancel_req(Some(reason)), Some(ctx.worker))
+        .await
+        .unwrap_or_else(|error| {
+            panic!("{}：发起作废审批失败 {} {}", ctx.tag, error.code, error.msg)
+        });
+    assert_eq!(
+        status_of(id).await,
+        "PENDING_CANCEL",
+        "{}：作废必须先送审（P16）：发起后应停在 PENDING_CANCEL",
+        ctx.tag
+    );
+    let instance = cancel_instance_of(id)
+        .await
+        .unwrap_or_else(|| panic!("{}：作废送审后必须挂一个在跑的审批实例", ctx.tag));
+    approve_cancel_instance(instance).await;
+    assert_eq!(
+        status_of(id).await,
+        "CANCELLED",
+        "{}：作废审批通过后必须真作废（六本账由回调回滚）",
+        ctx.tag
+    );
 }
 
 /// 价税合计（库里口径）。
@@ -448,13 +536,8 @@ async fn s06_cancel_rolls_back_inventory() {
     let ctx = Ctx::new("S06").await;
     let l = line(&ctx, ctx.mat, "10", "2", "13").await;
     let id = posted(&ctx, vec![l]).await;
-    change_stock_in_status(
-        id,
-        &cancel_req(Some("S06 作废：供应商发错货")),
-        Some(ctx.worker),
-    )
-    .await
-    .unwrap_or_else(|error| panic!("S06：作废失败 {} {}", error.code, error.msg));
+    // 作废走审批（P16）：发起 → PENDING_CANCEL → 复核通过 → 六本账回滚
+    cancel_with_approval(&ctx, id, "S06 作废：供应商发错货").await;
     assert_eq!(status_of(id).await, "CANCELLED");
     let (inv, _, _, _) = common::four_ledger_snapshot(ctx.mat, ctx.wh_from).await;
     common::assert_dec(inv, common::dec("0"), "S06：作废后库存必须回到 0");
@@ -472,9 +555,7 @@ async fn s07_cancel_rolls_back_location_ledger() {
     let ctx = Ctx::new("S07").await;
     let l = line(&ctx, ctx.mat, "8", "2", "0").await;
     let id = posted(&ctx, vec![l]).await;
-    change_stock_in_status(id, &cancel_req(Some("S07 作废")), Some(ctx.worker))
-        .await
-        .unwrap_or_else(|error| panic!("S07：作废失败 {} {}", error.code, error.msg));
+    cancel_with_approval(&ctx, id, "S07 作废").await;
     let (inv, loc, _, _) = common::four_ledger_snapshot(ctx.mat, ctx.wh_from).await;
     common::assert_dec(loc, common::dec("0"), "S07：作废后库位账必须回到 0");
     common::assert_dec(loc, inv, "S07：作废后 B1 仍必须成立（0 = 0）");
@@ -494,9 +575,7 @@ async fn s08_cancel_writes_reverse_txn() {
     let id = posted(&ctx, vec![l]).await;
     let txn_before = txn_count_of(id).await;
     assert_eq!(txn_before, 1, "S08 前置：过账先写 1 条入库流水");
-    change_stock_in_status(id, &cancel_req(Some("S08 作废")), Some(ctx.worker))
-        .await
-        .unwrap_or_else(|error| panic!("S08：作废失败 {} {}", error.code, error.msg));
+    cancel_with_approval(&ctx, id, "S08 作废").await;
 
     assert_eq!(
         cancel_txn_count_of(id).await,
@@ -533,9 +612,7 @@ async fn s09_cancel_reverses_voucher() {
     assert_eq!(vouchers.len(), 1);
     let blue = vouchers[0];
 
-    change_stock_in_status(id, &cancel_req(Some("S09 作废")), Some(ctx.worker))
-        .await
-        .unwrap_or_else(|error| panic!("S09：作废失败 {} {}", error.code, error.msg));
+    cancel_with_approval(&ctx, id, "S09 作废").await;
 
     let after = voucher_ids_of(id).await;
     assert_eq!(
@@ -621,9 +698,7 @@ async fn s10_cancel_cancels_payable() {
         Some("OPEN"),
         "S10 前置：过账后应付必须 OPEN"
     );
-    change_stock_in_status(id, &cancel_req(Some("S10 作废")), Some(ctx.worker))
-        .await
-        .unwrap_or_else(|error| panic!("S10：作废失败 {} {}", error.code, error.msg));
+    cancel_with_approval(&ctx, id, "S10 作废").await;
     let (_, status, amount, paid) = payable_of(id).await.expect("S10：应付单不该消失");
     assert_eq!(
         status, "CANCELLED",
@@ -660,9 +735,7 @@ async fn s11_cancel_voids_serials() {
         .unwrap_or_else(|error| panic!("S11：过账失败 {} {}", error.code, error.msg));
     assert_eq!(serial_count_of(id).await, 2);
 
-    change_stock_in_status(id, &cancel_req(Some("S11 作废")), Some(ctx.worker))
-        .await
-        .unwrap_or_else(|error| panic!("S11：作废失败 {} {}", error.code, error.msg));
+    cancel_with_approval(&ctx, id, "S11 作废").await;
 
     assert_eq!(
         serial_count_of(id).await,
@@ -713,13 +786,8 @@ async fn s12_cancel_returns_all_four_ledgers_to_baseline() {
     assert_eq!(posted_snapshot.2, 1, "S12 中途：1 条入库流水");
     assert_eq!(posted_snapshot.3, 1, "S12 中途：1 张凭证");
 
-    change_stock_in_status(
-        id,
-        &cancel_req(Some("S12 作废：整链回基线")),
-        Some(ctx.worker),
-    )
-    .await
-    .unwrap_or_else(|error| panic!("S12：作废失败 {} {}", error.code, error.msg));
+    // 作废走审批（P16）：发起 → 复核通过后才回滚六本账，返回时账已回基线
+    cancel_with_approval(&ctx, id, "S12 作废：整链回基线").await;
 
     let after = common::four_ledger_snapshot(ctx.mat, ctx.wh_from).await;
     common::assert_dec(after.0, baseline.0, "S12：库存必须回到基线");
@@ -834,9 +902,7 @@ async fn s15_double_cancel_is_conflict() {
     let ctx = Ctx::new("S15").await;
     let l = line(&ctx, ctx.mat, "10", "2", "0").await;
     let id = posted(&ctx, vec![l]).await;
-    change_stock_in_status(id, &cancel_req(Some("S15 首次作废")), Some(ctx.worker))
-        .await
-        .unwrap_or_else(|error| panic!("S15：首次作废失败 {} {}", error.code, error.msg));
+    cancel_with_approval(&ctx, id, "S15 首次作废").await;
     let after_first = common::four_ledger_snapshot(ctx.mat, ctx.wh_from).await;
 
     let error = change_stock_in_status(id, &cancel_req(Some("S15 二次作废")), Some(ctx.worker))

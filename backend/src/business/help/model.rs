@@ -120,6 +120,28 @@ impl HelpError {
             Self::VersionNotFound => "指定的历史版本不存在",
         }
     }
+
+    /// 按文案反查领域变体（[`help_error_from_db`] 用的反向映射；`Db` 空文案不参与）。
+    ///
+    /// # 返回值
+    ///
+    /// 命中返回对应变体；不是本模块的业务文案（真正的数据库异常）返回 `None`。
+    fn from_message(message: &str) -> Option<Self> {
+        Some(match message {
+            "分类层级超过 3 层" => Self::DepthExceeded,
+            "分类下仍有文档，不可删除" => Self::CategoryNotEmpty,
+            "分类下仍有子分类，不可删除" => Self::CategoryHasChildren,
+            "分类不存在或已删除" => Self::CategoryNotFound,
+            "分类编码已存在" => Self::CategoryCodeConflict,
+            "不能把分类移动到自己的子树下" => Self::CategoryMoveCycle,
+            "文档不存在或已删除" => Self::DocNotFound,
+            "文档 slug 已存在" => Self::DocSlugConflict,
+            "当前状态不允许该操作" => Self::DocStatusConflict,
+            "文档标题 / 正文 / slug 格式或长度不合法" => Self::DocContentInvalid,
+            "指定的历史版本不存在" => Self::VersionNotFound,
+            _ => return None,
+        })
+    }
 }
 
 // ==================== 行结构 ====================
@@ -1223,7 +1245,8 @@ pub async fn create_doc(
                 .await
                 .map_err(help_error_to_db)
         })
-        .await?;
+        .await
+        .map_err(help_error_from_db)?;
     find_doc(&id).await?.ok_or(HelpError::DocNotFound)
 }
 
@@ -1316,7 +1339,8 @@ pub async fn save_doc(
             .await
             .map_err(help_error_to_db)
     })
-    .await?;
+    .await
+    .map_err(help_error_from_db)?;
     find_doc(id).await?.ok_or(HelpError::DocNotFound)
 }
 
@@ -1372,7 +1396,8 @@ pub async fn publish_doc(
             .await
             .map_err(help_error_to_db)
     })
-    .await?;
+    .await
+    .map_err(help_error_from_db)?;
     find_doc(id).await?.ok_or(HelpError::DocNotFound)
 }
 
@@ -1447,7 +1472,8 @@ pub async fn rollback_doc(
             .await
             .map_err(help_error_to_db)
     })
-    .await?;
+    .await
+    .map_err(help_error_from_db)?;
     find_doc(id).await?.ok_or(HelpError::DocNotFound)
 }
 
@@ -1477,7 +1503,8 @@ pub async fn delete_doc(id: &uuid::Uuid) -> std::result::Result<(), HelpError> {
     db().transaction(
         |tx| async move { delete_doc_in(&tx, &doc_id).await.map_err(help_error_to_db) },
     )
-    .await?;
+    .await
+    .map_err(help_error_from_db)?;
     Ok(())
 }
 
@@ -1775,18 +1802,80 @@ fn doc_detail_from_row(row: &Row) -> DbResult<DocDetailRow> {
 ///
 /// 事务闭包的返回类型是 `DbResult<T>`，`?` 只能传播 [`DbError`]；而本模块的错误类型是
 /// [`HelpError`]。这个折叠只用于「闭包内的传播」：非数据库错误（层级超限、slug 冲突……）
-/// 折成 `InvalidValue`，文案原样保留，最终仍由 `handler::help_error` 给状态码 ——
-/// 因为那些校验都发生在**进入事务之前**，走到这条路的只有真正的数据库异常。
+/// 折成 `InvalidValue`，文案带前缀、**事务提交后必须用 [`help_error_from_db`] 反解**，
+/// 否则领域变体会被压成 `HelpError::Db`，HTTP 层只能给 500（H-03 实测：重复 slug 给 500
+/// 而不是契约要求的 409）。
 pub fn help_error_to_db(error: HelpError) -> DbError {
     match error {
         HelpError::Db(inner) => inner,
-        other => DbError::InvalidValue(format!("帮助文档：{}", other.message())),
+        other => DbError::InvalidValue(format!("{HELP_ERROR_PREFIX}{}", other.message())),
     }
+}
+
+/// 领域错误穿过事务时的编码前缀（[`help_error_to_db`] 写、[`help_error_from_db`] 读）。
+pub const HELP_ERROR_PREFIX: &str = "帮助文档：";
+
+/// 反解 [`help_error_to_db`]：把「`帮助文档：<文案>`」形态的 `InvalidValue` 还原成领域错误。
+///
+/// # 为什么必须反解
+///
+/// 事务闭包的错误通道只有 `DbError`，领域错误只能编码成 `InvalidValue` 才穿得过去；
+/// 提交后不反解，`HelpError::DocSlugConflict` 就变成 `HelpError::Db(InvalidValue(..))` ——
+/// `handler::help_error` 只能按数据库异常给 **500**，而契约是 **409 + 62016**。
+///
+/// 编码用「文案」而不是新加机器码，是为了让日志里的错误文案保持人类可读；
+/// 文案与变体的一一对应由 `tests::help_error_round_trips_through_transaction` 守住。
+pub fn help_error_from_db(error: DbError) -> HelpError {
+    if let DbError::InvalidValue(message) = &error
+        && let Some(rest) = message.strip_prefix(HELP_ERROR_PREFIX)
+        && let Some(decoded) = HelpError::from_message(rest)
+    {
+        return decoded;
+    }
+    HelpError::Db(error)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// H-03 的回归闸：领域错误穿过事务后必须**原样还原**（否则 409 会被压成 500）。
+    ///
+    /// 事务闭包的错误通道只有 `DbError`，`help_error_to_db` 把领域错误编码成
+    /// `InvalidValue("帮助文档：<文案>")`；如果出口忘了反解，`DocSlugConflict` 就退化成
+    /// `HelpError::Db`，HTTP 只会给 500。本用例锁住「文案 ↔ 变体」的一一对应，
+    /// 以后新增变体却忘了往 `from_message` 加一行时会在这里红。
+    #[test]
+    fn help_error_round_trips_through_transaction() {
+        for error in [
+            HelpError::DepthExceeded,
+            HelpError::CategoryNotEmpty,
+            HelpError::CategoryHasChildren,
+            HelpError::CategoryNotFound,
+            HelpError::CategoryCodeConflict,
+            HelpError::CategoryMoveCycle,
+            HelpError::DocNotFound,
+            HelpError::DocSlugConflict,
+            HelpError::DocStatusConflict,
+            HelpError::DocContentInvalid,
+            HelpError::VersionNotFound,
+        ] {
+            let expected = error.message();
+            assert!(!expected.is_empty(), "领域错误必须有非空文案");
+            let decoded = help_error_from_db(help_error_to_db(error));
+            assert_eq!(
+                decoded.message(),
+                expected,
+                "事务编码/反解必须一一对应（文案漂移会让 409 变成 500）"
+            );
+        }
+        // 反过来：真正来自数据库的 `InvalidValue` 不许被误判成领域错误
+        let raw = help_error_from_db(DbError::InvalidValue("别的模块：坏值".to_string()));
+        assert!(
+            matches!(raw, HelpError::Db(_)),
+            "非本模块文案必须保持 Db 变体（否则 500 会被伪装成业务错误）"
+        );
+    }
 
     /// H-08：`%` / `_` / `\` 必须转义，否则 `ILIKE` 语义漂移。
     #[test]

@@ -303,7 +303,7 @@ pub async fn doc_create(
             Ok(doc_id)
         })
         .await
-        .map_err(|error| utils::db_error(error, "新建帮助文档"))?;
+        .map_err(|error| db_or_domain(error, "新建帮助文档"))?;
     let row = load_doc(&doc_id.to_string(), true).await?;
     Ok(Res::ok(detail_res(&row)))
 }
@@ -370,7 +370,7 @@ pub async fn doc_update(
         Ok(())
     })
     .await
-    .map_err(|error| utils::db_error(error, "保存帮助文档"))?;
+    .map_err(|error| db_or_domain(error, "保存帮助文档"))?;
     let row = load_doc(&doc_id.to_string(), true).await?;
     Ok(Res::ok(detail_res(&row)))
 }
@@ -412,7 +412,7 @@ pub async fn doc_delete(
         Ok(())
     })
     .await
-    .map_err(|error| utils::db_error(error, "删除帮助文档"))?;
+    .map_err(|error| db_or_domain(error, "删除帮助文档"))?;
     Ok(Res::ok(()))
 }
 
@@ -468,7 +468,7 @@ pub async fn doc_publish(
         Ok(())
     })
     .await
-    .map_err(|error| utils::db_error(error, "发布帮助文档"))?;
+    .map_err(|error| db_or_domain(error, "发布帮助文档"))?;
     let row = load_doc(&doc_id.to_string(), true).await?;
     Ok(Res::ok(detail_res(&row)))
 }
@@ -538,7 +538,7 @@ pub async fn doc_rollback(
         Ok(())
     })
     .await
-    .map_err(|error| utils::db_error(error, "回滚帮助文档"))?;
+    .map_err(|error| db_or_domain(error, "回滚帮助文档"))?;
     let row = load_doc(&doc_id.to_string(), true).await?;
     Ok(Res::ok(detail_res(&row)))
 }
@@ -749,6 +749,21 @@ fn help_error(error: HelpError) -> ApiError {
         HelpError::VersionNotFound => {
             ApiError::new(404, error_code::HELP_DOC_VERSION_NOT_FOUND, message)
         }
+    }
+}
+
+/// 事务错误出口：先反解领域错误（409 / 400 / 404），再把真正的数据库异常按 500 兜底。
+///
+/// # 为什么需要它
+///
+/// `db().transaction(..)` 的错误通道只有 `DbError`：闭包里的业务校验错误被
+/// [`model::help_error_to_db`] 编码成 `InvalidValue("帮助文档：<文案>")`。如果出口直接
+/// `utils::db_error(..)`，重复 slug 这种**契约已定义**的冲突就会变成 500，而 H-03 要求
+/// **409 + 62016**（[`model::help_error_from_db`] 负责把变体还原回来）。
+fn db_or_domain(error: DbError, what: &str) -> ApiError {
+    match model::help_error_from_db(error) {
+        HelpError::Db(inner) => utils::db_error(inner, what),
+        domain => help_error(domain),
     }
 }
 

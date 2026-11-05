@@ -80,6 +80,21 @@ async fn ready() -> Option<()> {
     if ensure_db().await { Some(()) } else { None }
 }
 
+/// 进程级串行闸：本文件有 **全局状态** 用例（把种子的 `task_accept` 流程临时置 DISABLED，
+/// 模拟「没配验收审批」的两级降级），而 libtest 默认多线程。
+///
+/// 并行跑时的两个假红（9867fbe / 9ed4bf8 实测）：
+/// * `task_accept_approval_advances_node`：刚把流程恢复成 PUBLISHED，隔壁用例立刻又停用 →
+///   `prepare_accept` 读不到默认流程，返回 None，「提交验收必须自动发起审批单」红；
+/// * `concurrent_complete_only_one_advances`：在「建流程 → 存图 → 发布」的窗口里被别的用例
+///   的夹具清场打断，publish 读到空图（65010）。
+///
+/// 串行跑零开销；并发跑等价于 `--test-threads=1`，卡面给的命令怎么写都不会漂。
+async fn serial() -> tokio::sync::MutexGuard<'static, ()> {
+    static GATE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    GATE.lock().await
+}
+
 fn claims(user: Uuid, name: &str) -> Extension<AuthClaims> {
     Extension(AuthClaims(TokenClaims {
         jti: None,
@@ -565,6 +580,8 @@ async fn complete_without_review_advances_flow() {
     if ready().await.is_none() {
         return;
     }
+    // 全局状态用例（task_accept 流程开/关）必须串行，见 `serial()`
+    let _gate = serial().await;
     let f = Fixture::new("s1").await;
     let graph = chain_task_graph(
         task_cfg(false, "STAY", "TERMINATE"),
@@ -622,6 +639,8 @@ async fn review_pass_approves_node() {
     if ready().await.is_none() {
         return;
     }
+    // 全局状态用例（task_accept 流程开/关）必须串行，见 `serial()`
+    let _gate = serial().await;
     let suspended = suspend_task_accept_flow().await;
     let f = Fixture::new("s2").await;
     let def_id = create_and_publish(
@@ -676,6 +695,8 @@ async fn reject_stay_keeps_node_active() {
     if ready().await.is_none() {
         return;
     }
+    // 全局状态用例（task_accept 流程开/关）必须串行，见 `serial()`
+    let _gate = serial().await;
     let suspended = suspend_task_accept_flow().await;
     let f = Fixture::new("s3").await;
     let def_id = create_and_publish(
@@ -724,6 +745,8 @@ async fn reject_back_to_prev_reopens_previous() {
     if ready().await.is_none() {
         return;
     }
+    // 全局状态用例（task_accept 流程开/关）必须串行，见 `serial()`
+    let _gate = serial().await;
     let suspended = suspend_task_accept_flow().await;
     let f = Fixture::new("s4").await;
     let graph = chain_task_graph(
@@ -780,6 +803,8 @@ async fn cancel_task_terminates_instance() {
     if ready().await.is_none() {
         return;
     }
+    // 全局状态用例（task_accept 流程开/关）必须串行，见 `serial()`
+    let _gate = serial().await;
     let f = Fixture::new("s5").await;
     let graph = chain_task_graph(
         task_cfg(false, "STAY", "TERMINATE"),
@@ -830,6 +855,8 @@ async fn withdraw_instance_cancels_unfinished_tasks() {
     if ready().await.is_none() {
         return;
     }
+    // 全局状态用例（task_accept 流程开/关）必须串行，见 `serial()`
+    let _gate = serial().await;
     let f = Fixture::new("s6").await;
     let def_id = create_and_publish(
         &f,
@@ -877,6 +904,8 @@ async fn approve_mode_full_chain() {
     if ready().await.is_none() {
         return;
     }
+    // 全局状态用例（task_accept 流程开/关）必须串行，见 `serial()`
+    let _gate = serial().await;
     let f = Fixture::new("s7").await;
     // 先造「审批流本体」（biz_type = PFLOWB_APPROVE，默认 + 已发布）
     create_and_publish(&f, "s7appr", &approval_graph(), "PFLOWB_APPROVE", true).await;
@@ -966,6 +995,8 @@ async fn approve_mode_reject_follows_on_reject() {
     if ready().await.is_none() {
         return;
     }
+    // 全局状态用例（task_accept 流程开/关）必须串行，见 `serial()`
+    let _gate = serial().await;
     let f = Fixture::new("s8").await;
     create_and_publish(&f, "s8appr", &approval_graph(), "PFLOWB_APPROVE", true).await;
     let graph = chain_task_graph(
@@ -1038,6 +1069,8 @@ async fn conflict_when_instance_already_cancelled() {
     if ready().await.is_none() {
         return;
     }
+    // 全局状态用例（task_accept 流程开/关）必须串行，见 `serial()`
+    let _gate = serial().await;
     let f = Fixture::new("s9").await;
     let def_id = create_and_publish(
         &f,
@@ -1097,6 +1130,8 @@ async fn concurrent_complete_only_one_advances() {
     if ready().await.is_none() {
         return;
     }
+    // 全局状态用例（task_accept 流程开/关）必须串行，见 `serial()`
+    let _gate = serial().await;
     let f = Fixture::new("s10").await;
     let def_id = create_and_publish(
         &f,
@@ -1173,6 +1208,8 @@ async fn flow_task_outcome_four_branches() {
     if ready().await.is_none() {
         return;
     }
+    // 全局状态用例（task_accept 流程开/关）必须串行，见 `serial()`
+    let _gate = serial().await;
     let f = Fixture::new("s11").await;
     let def_id = create_and_publish(
         &f,
@@ -1318,6 +1355,8 @@ async fn task_accept_approval_advances_node() {
     if ready().await.is_none() {
         return;
     }
+    // 全局状态用例（task_accept 流程开/关）必须串行，见 `serial()`
+    let _gate = serial().await;
     // 本用例**必须**有 TASK_ACCEPT 流程（上一批用例会临时停用它，这里确保是开着的）
     let suspended = suspend_task_accept_flow().await;
     restore_task_accept_flow(&suspended).await;
@@ -1391,6 +1430,8 @@ async fn plain_task_is_untouched() {
     if ready().await.is_none() {
         return;
     }
+    // 全局状态用例（task_accept 流程开/关）必须串行，见 `serial()`
+    let _gate = serial().await;
     let f = Fixture::new("s12").await;
     let req = task_dto::TaskCreateReq {
         title: "PFLOWB 普通任务（非流程）".to_string(),
@@ -1450,6 +1491,8 @@ async fn publish_rejects_missing_approve_biz_type() {
     if ready().await.is_none() {
         return;
     }
+    // 全局状态用例（task_accept 流程开/关）必须串行，见 `serial()`
+    let _gate = serial().await;
     let f = Fixture::new("s13").await;
     // 直接建流程 + 存图，不发布（publish 要报错）
     let graph = single_task_graph(approve_task_cfg("STAY", "PFLOWB_NOT_EXIST"));
