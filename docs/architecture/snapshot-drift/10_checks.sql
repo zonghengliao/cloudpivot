@@ -433,10 +433,16 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('VOUCHER_SOURCE', 'FIXED_ASSET_ACQ',      'biz_fixed_asset',        'deleted_at', '固定资产购入生成（FIN-2）：source_id = 资产卡片 id，见 asset_handler 购入凭证'),
     ('VOUCHER_SOURCE', 'FIXED_ASSET_DISPOSAL', 'biz_fixed_asset',        'deleted_at', '固定资产处置生成（FIN-2）：source_id = 资产卡片 id，见 asset_bridge::post_disposal_vouchers'),
     ('VOUCHER_SOURCE', 'DEPRECIATION',         'biz_depreciation_batch', NULL,         '折旧计提生成（FIN-2）：source_id = 折旧批次 id（批次行无软删）'),
+    -- FIN-3 报销的两个来源（expense_bridge::SOURCE_REPORT / SOURCE_PAYMENT）：
+    -- 入账与付款两张凭证都挂在**报销单**上（source_id = biz_expense_report.id，
+    -- 付款记录不是独立业务对象），漏登记 DI-22 会报登记缺口、DI-17 查不到悬空。
+    ('VOUCHER_SOURCE', 'EXPENSE_REPORT',       'biz_expense_report',     'deleted_at', '费用报销入账生成（FIN-3）：source_id = 报销单 id'),
+    ('VOUCHER_SOURCE', 'EXPENSE_PAYMENT',      'biz_expense_report',     'deleted_at', '费用报销付款生成（FIN-3）：source_id = 报销单 id（付款挂在报销单上）'),
     -- ② 库存流水来源单据：biz_inventory_txn.doc_type + doc_id
     ('TXN_DOC', 'STOCK_IN',        'biz_stock_in',        'deleted_at', '收货过账的流水'),
     ('TXN_DOC', 'STOCK_OUT',       'biz_stock_out',       'deleted_at', '出库过账的流水'),
     ('TXN_DOC', 'STOCK_TRANSFER',  'biz_stock_transfer',  'deleted_at', '调拨发出的流水'),
+    ('TXN_DOC', 'STOCK_TAKE',      'biz_stock_take',      'deleted_at', '盘点过账的流水（doc_id = 盘点单 id；TxnDocType::StockTake，P1-FIX-9 补登记，漏一行 DI-18 就查不到盘点流水悬空）'),
     ('TXN_DOC', 'SERIAL_BATCH',    'biz_material_serial', 'deleted_at', '序列号批量生成：doc_id = 批次首个序列号 id'),
     ('TXN_DOC', 'MATERIAL_SERIAL', 'biz_material_serial', 'deleted_at', '序列号出库/报废：doc_id = 序列号 id'),
     ('TXN_DOC', 'PURCHASE_ORDER',  'biz_purchase_order',  'deleted_at', '遗留值（TxnDocType 已无此值，存量直接挂采购单）'),

@@ -17,6 +17,8 @@
 //! | [`routes_are_unique_and_round_trip`] | REST 路径段唯一且能反解 |
 //! | [`cross_axis_mappings_are_consistent`] | 审批/动账轴映射到的对象必须真是单据 |
 //! | [`every_enum_has_a_label`] | 每个取值都有中文名 |
+//! | [`txn_doc_map_matches_snapshot_registry`] | 巡检登记表 `TXN_DOC` ↔ `TXN_DOC_TYPE_VALUES`（+遗留 `PURCHASE_ORDER`） |
+//! | [`voucher_source_map_matches_snapshot_registry`] | 巡检登记表 `VOUCHER_SOURCE` ↔ `VOUCHER_SOURCE_VALUES` |
 
 use super::*;
 use crate::business::erp::approval_gate;
@@ -827,6 +829,116 @@ fn doc_kind_registries_match_doc_kind_table() {
                 row.1
             );
         }
+    }
+}
+
+/// `TXN_DOC` 登记域：`doc_type` → 目标表（测试侧的期望，与 SQL 登记表逐行核对）。
+///
+/// 未知取值直接 panic —— 这是给「新增了 `TxnDocType` 却忘了往巡检登记表补一行」
+/// 设的绊索：`domain_consts_match_enums` 只管 Rust 内部一致，这里管 Rust ↔ 巡检。
+fn txn_doc_target_table(value: &str) -> Option<&'static str> {
+    Some(match value {
+        "STOCK_IN" => "biz_stock_in",
+        "STOCK_OUT" => "biz_stock_out",
+        "STOCK_TRANSFER" => "biz_stock_transfer",
+        "STOCK_TAKE" => "biz_stock_take",
+        "SERIAL_BATCH" | "MATERIAL_SERIAL" => "biz_material_serial",
+        "OPENING" | "ADJUST" => return None,
+        other => panic!("TXN_DOC 取值 {other} 没登记目标表：改了 TxnDocType 要同步 di.v_poly_ref_map"),
+    })
+}
+
+/// `VOUCHER_SOURCE` 登记域：`source_type` → 目标表（报销两值都挂在报销单上）。
+fn voucher_source_target_table(value: &str) -> Option<&'static str> {
+    Some(match value {
+        "STOCK_IN" => "biz_stock_in",
+        "STOCK_OUT" => "biz_stock_out",
+        "PAYMENT" => "biz_payment",
+        "STOCK_TAKE" => "biz_stock_take",
+        "SERIAL_BATCH" | "SERIAL_OUT" | "SERIAL_SCRAP" => "biz_material_serial",
+        "OPENING" | "YEAR_END" | "MANUAL" => return None,
+        "FIXED_ASSET_ACQ" | "FIXED_ASSET_DISPOSAL" => "biz_fixed_asset",
+        "DEPRECIATION" => "biz_depreciation_batch",
+        "EXPENSE_REPORT" | "EXPENSE_PAYMENT" => "biz_expense_report",
+        other => panic!("VOUCHER_SOURCE 取值 {other} 没登记目标表：改了 VoucherSourceType 要同步 di.v_poly_ref_map"),
+    })
+}
+
+/// 库存流水来源单据（`biz_inventory_txn.doc_type` + `doc_id`）：登记表 = `TXN_DOC_TYPE_VALUES`。
+///
+/// 与 [`doc_kind_registries_match_doc_kind_table`] 同一把尺子：登记表漏一行 ⇒
+/// DI-22 报「覆盖缺口」、DI-18 根本查不到这类流水的悬空（**静默漏报**，比漏数据更危险）。
+/// 本域多一个**遗留值** `PURCHASE_ORDER`（`TxnDocType` 已无此值，存量直接挂采购单），
+/// 所以期望行 = 枚举成员 + 该遗留值。
+#[test]
+fn txn_doc_map_matches_snapshot_registry() {
+    let sql = read_snapshot_checks_sql();
+    let rows = registry_rows(&sql, "TXN_DOC");
+    let mut expected: Vec<(String, Option<String>)> = TXN_DOC_TYPE_VALUES
+        .iter()
+        .map(|value| {
+            (
+                (*value).to_string(),
+                txn_doc_target_table(value).map(str::to_string),
+            )
+        })
+        .collect();
+    expected.push((
+        "PURCHASE_ORDER".to_string(),
+        Some("biz_purchase_order".to_string()),
+    ));
+    assert_eq!(
+        rows.len(),
+        expected.len(),
+        "TXN_DOC 登记行数不符（SQL {rows:?} / 期望 {expected:?}）"
+    );
+    for (ref_type, table) in &expected {
+        let row = rows
+            .iter()
+            .find(|(registered, _)| registered == ref_type)
+            .unwrap_or_else(|| panic!("登记表缺 TXN_DOC.{ref_type}"));
+        assert_eq!(
+            row.1.as_deref(),
+            table.as_deref(),
+            "TXN_DOC.{ref_type} 的目标表：SQL={:?} / 期望={table:?}",
+            row.1
+        );
+    }
+}
+
+/// 凭证来源（`biz_voucher.source_type` + `source_id`）：登记表 = `VOUCHER_SOURCE_VALUES`。
+///
+/// 漏登记一行 = 这类凭证的悬空永远不被 DI-17 看到；FIN-3 报销的
+/// `EXPENSE_REPORT` / `EXPENSE_PAYMENT` 就是曾漏掉的两个值。
+#[test]
+fn voucher_source_map_matches_snapshot_registry() {
+    let sql = read_snapshot_checks_sql();
+    let rows = registry_rows(&sql, "VOUCHER_SOURCE");
+    let expected: Vec<(String, Option<String>)> = VOUCHER_SOURCE_VALUES
+        .iter()
+        .map(|value| {
+            (
+                (*value).to_string(),
+                voucher_source_target_table(value).map(str::to_string),
+            )
+        })
+        .collect();
+    assert_eq!(
+        rows.len(),
+        expected.len(),
+        "VOUCHER_SOURCE 登记行数不符（SQL {rows:?} / 期望 {expected:?}）"
+    );
+    for (ref_type, table) in &expected {
+        let row = rows
+            .iter()
+            .find(|(registered, _)| registered == ref_type)
+            .unwrap_or_else(|| panic!("登记表缺 VOUCHER_SOURCE.{ref_type}"));
+        assert_eq!(
+            row.1.as_deref(),
+            table.as_deref(),
+            "VOUCHER_SOURCE.{ref_type} 的目标表：SQL={:?} / 期望={table:?}",
+            row.1
+        );
     }
 }
 

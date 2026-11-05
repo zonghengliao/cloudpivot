@@ -239,6 +239,9 @@ export const TXN_BIZ_TYPES = [
   'SERIAL_OUT',
   'SERIAL_SCRAP',
   'OPENING',
+  'STOCK_TAKE_GAIN',
+  'STOCK_TAKE_LOSS',
+  'STOCK_TAKE_CANCEL',
 ] as const;
 
 /** 库存流水业务动作（联合类型）。 */
@@ -265,6 +268,9 @@ export const TXN_BIZ_TYPE_LABELS: Readonly<Record<TxnBizType, string>> = {
   SERIAL_OUT: '序列号出库',
   SERIAL_SCRAP: '序列号报废',
   OPENING: '期初导入',
+  STOCK_TAKE_GAIN: '盘点盘盈',
+  STOCK_TAKE_LOSS: '盘点盘亏',
+  STOCK_TAKE_CANCEL: '盘点作废回补',
 };
 
 // ==================== ④ 流水来源单据 ====================
@@ -274,6 +280,7 @@ export const TXN_DOC_TYPES = [
   'STOCK_IN',
   'STOCK_OUT',
   'STOCK_TRANSFER',
+  'STOCK_TAKE',
   'SERIAL_BATCH',
   'MATERIAL_SERIAL',
   'OPENING',
@@ -288,6 +295,7 @@ export const TXN_DOC_TYPE_LABELS: Readonly<Record<TxnDocType, string>> = {
   STOCK_IN: '收货入库单',
   STOCK_OUT: '出库单',
   STOCK_TRANSFER: '库存调拨单',
+  STOCK_TAKE: '盘点单',
   SERIAL_BATCH: '序列号批次',
   MATERIAL_SERIAL: '序列号',
   OPENING: '期初导入',

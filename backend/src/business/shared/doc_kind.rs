@@ -492,6 +492,16 @@ impl FlowBizType {
 ///
 /// 一次调拨产生 `TRANSFER_OUT` + `TRANSFER_IN` 两条流水，一次收货产生
 /// `PURCHASE_IN` / `PURCHASE_IN_CANCEL` —— 动账轴天生比对象轴细。
+///
+/// # 盘点的两条来源（别混：`ADJUST_*` 是调整动作，`STOCK_TAKE_*` 是盘点单）
+///
+/// * `ADJUST_IN` / `ADJUST_OUT`：泛化的「调整」动作（历史值，现行代码 /
+///   `scripts/` 里已无写入点，保留在域内以容纳存量）；
+/// * `STOCK_TAKE_GAIN` / `STOCK_TAKE_LOSS` / `STOCK_TAKE_CANCEL`：**盘点单过账**写的三个值
+///   （`stocktake_model::BIZ_TYPE_GAIN/LOSS/CANCEL`，`doc_type='STOCK_TAKE'`）。
+///   三态是盘点业务的事实（盘盈 / 盘亏 / 作废回补方向与正向相反），
+///   与 `ADJUST_*` 不是同义词 —— 收敛成两个值会让「这张流水是哪张盘点单造成的」
+///   与「方向」两件事挤在一个字段里。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum TxnBizType {
     /// 采购入库（收货过账）。
@@ -532,11 +542,17 @@ pub enum TxnBizType {
     SerialScrap,
     /// 期初余额导入。
     Opening,
+    /// 盘点盘盈（盘点单过账，`txn_type='IN'`）。
+    StockTakeGain,
+    /// 盘点盘亏（盘点单过账，`txn_type='OUT'`）。
+    StockTakeLoss,
+    /// 盘点作废回补（已过账盘点单作废，方向与正向相反）。
+    StockTakeCancel,
 }
 
 impl TxnBizType {
     /// 全部动账类型（顺序 = 声明顺序）。
-    pub const ALL: [TxnBizType; 19] = [
+    pub const ALL: [TxnBizType; 22] = [
         TxnBizType::PurchaseIn,
         TxnBizType::PurchaseInCancel,
         TxnBizType::PurchaseReturn,
@@ -556,6 +572,9 @@ impl TxnBizType {
         TxnBizType::SerialOut,
         TxnBizType::SerialScrap,
         TxnBizType::Opening,
+        TxnBizType::StockTakeGain,
+        TxnBizType::StockTakeLoss,
+        TxnBizType::StockTakeCancel,
     ];
 
     /// 落库值（大写下划线）。**唯一拼写**。
@@ -580,6 +599,9 @@ impl TxnBizType {
             TxnBizType::SerialOut => "SERIAL_OUT",
             TxnBizType::SerialScrap => "SERIAL_SCRAP",
             TxnBizType::Opening => "OPENING",
+            TxnBizType::StockTakeGain => "STOCK_TAKE_GAIN",
+            TxnBizType::StockTakeLoss => "STOCK_TAKE_LOSS",
+            TxnBizType::StockTakeCancel => "STOCK_TAKE_CANCEL",
         }
     }
 
@@ -605,6 +627,9 @@ impl TxnBizType {
             TxnBizType::SerialOut => "序列号出库",
             TxnBizType::SerialScrap => "序列号报废",
             TxnBizType::Opening => "期初导入",
+            TxnBizType::StockTakeGain => "盘点盘盈",
+            TxnBizType::StockTakeLoss => "盘点盘亏",
+            TxnBizType::StockTakeCancel => "盘点作废回补",
         }
     }
 
@@ -626,6 +651,9 @@ impl TxnBizType {
             | TxnBizType::OtherOut
             | TxnBizType::StockOutCancel => DocKind::StockOut,
             TxnBizType::AdjustIn | TxnBizType::AdjustOut => DocKind::StockTake,
+            TxnBizType::StockTakeGain
+            | TxnBizType::StockTakeLoss
+            | TxnBizType::StockTakeCancel => DocKind::StockTake,
             TxnBizType::TransferOut | TxnBizType::TransferIn => DocKind::StockTransfer,
             TxnBizType::Opening => DocKind::Inventory,
         }
@@ -654,6 +682,8 @@ pub enum TxnDocType {
     StockOut,
     /// 调拨单。
     StockTransfer,
+    /// 盘点单（`stocktake_model::DOC_TYPE`）。
+    StockTake,
     /// 一物一码批次（`SERIAL_BATCH`）。
     SerialBatch,
     /// 单个序列号记录（`MATERIAL_SERIAL`）。
@@ -666,10 +696,11 @@ pub enum TxnDocType {
 
 impl TxnDocType {
     /// 全部来源类型（顺序 = 声明顺序）。
-    pub const ALL: [TxnDocType; 7] = [
+    pub const ALL: [TxnDocType; 8] = [
         TxnDocType::StockIn,
         TxnDocType::StockOut,
         TxnDocType::StockTransfer,
+        TxnDocType::StockTake,
         TxnDocType::SerialBatch,
         TxnDocType::MaterialSerial,
         TxnDocType::Opening,
@@ -682,6 +713,7 @@ impl TxnDocType {
             TxnDocType::StockIn => "STOCK_IN",
             TxnDocType::StockOut => "STOCK_OUT",
             TxnDocType::StockTransfer => "STOCK_TRANSFER",
+            TxnDocType::StockTake => "STOCK_TAKE",
             TxnDocType::SerialBatch => "SERIAL_BATCH",
             TxnDocType::MaterialSerial => "MATERIAL_SERIAL",
             TxnDocType::Opening => "OPENING",
@@ -695,6 +727,7 @@ impl TxnDocType {
             TxnDocType::StockIn => "收货入库单",
             TxnDocType::StockOut => "出库单",
             TxnDocType::StockTransfer => "库存调拨单",
+            TxnDocType::StockTake => "盘点单",
             TxnDocType::SerialBatch => "序列号批次",
             TxnDocType::MaterialSerial => "序列号",
             TxnDocType::Opening => "期初导入",
@@ -708,6 +741,7 @@ impl TxnDocType {
             TxnDocType::StockIn => DocKind::StockIn,
             TxnDocType::StockOut => DocKind::StockOut,
             TxnDocType::StockTransfer => DocKind::StockTransfer,
+            TxnDocType::StockTake => DocKind::StockTake,
             TxnDocType::SerialBatch | TxnDocType::MaterialSerial => DocKind::Inventory,
             TxnDocType::Opening | TxnDocType::Adjust => DocKind::Inventory,
         }
@@ -1105,7 +1139,7 @@ const FLOW_BIZ_TYPE_VALUES: [&str; 15] = [
     "ASSET_DISPOSAL",
 ];
 
-const TXN_BIZ_TYPE_VALUES: [&str; 19] = [
+const TXN_BIZ_TYPE_VALUES: [&str; 22] = [
     "PURCHASE_IN",
     "PURCHASE_IN_CANCEL",
     "PURCHASE_RETURN",
@@ -1125,12 +1159,16 @@ const TXN_BIZ_TYPE_VALUES: [&str; 19] = [
     "SERIAL_OUT",
     "SERIAL_SCRAP",
     "OPENING",
+    "STOCK_TAKE_GAIN",
+    "STOCK_TAKE_LOSS",
+    "STOCK_TAKE_CANCEL",
 ];
 
-const TXN_DOC_TYPE_VALUES: [&str; 7] = [
+const TXN_DOC_TYPE_VALUES: [&str; 8] = [
     "STOCK_IN",
     "STOCK_OUT",
     "STOCK_TRANSFER",
+    "STOCK_TAKE",
     "SERIAL_BATCH",
     "MATERIAL_SERIAL",
     "OPENING",
@@ -1213,12 +1251,14 @@ const EXPENSE_PAYMENT_STATUS_VALUES: [&str; 2] = ["PAID", "CANCELLED"];
 /// * FIN-2 起的固资 / 折旧规则用的是**凭证来源轴**（`VoucherSourceType`），
 ///   因为 ARCH-6 §6.4 要求「规则的 `biz_type` 必须与 `VoucherSourceType::as_str()`
 ///   逐字一致」；折旧与处置的凭证来源本来就是 `DEPRECIATION` /
-///   `FIXED_ASSET_ACQ` / `FIXED_ASSET_DISPOSAL`。
+///   `FIXED_ASSET_ACQ` / `FIXED_ASSET_DISPOSAL`；
+/// * FIN-3 报销的 `EXPENSE_REPORT` / `EXPENSE_PAYMENT` 同理（`expense_bridge::SOURCE_*`），
+///   它们只属于凭证来源轴，**不在** txn 轴上（报销不产生库存流水）。
 ///
 /// 所以域是两轴的并集（去重），不是「随便放宽」：任何既不在 txn 轴、也不在
 /// voucher-source 轴上的值仍然是 FAIL。
-const VOUCHER_RULE_BIZ_TYPE_VALUES: [&str; 29] = [
-    // txn 轴（19）
+const VOUCHER_RULE_BIZ_TYPE_VALUES: [&str; 34] = [
+    // txn 轴（22）
     "PURCHASE_IN",
     "PURCHASE_IN_CANCEL",
     "PURCHASE_RETURN",
@@ -1238,7 +1278,11 @@ const VOUCHER_RULE_BIZ_TYPE_VALUES: [&str; 29] = [
     "SERIAL_OUT",
     "SERIAL_SCRAP",
     "OPENING",
-    // voucher-source 轴（13，去重后 10 个新值）
+    "STOCK_TAKE_GAIN",
+    "STOCK_TAKE_LOSS",
+    "STOCK_TAKE_CANCEL",
+    // voucher-source 轴（15，去重后 12 个新值；
+    // FIN-3 报销的 EXPENSE_REPORT / EXPENSE_PAYMENT 只在这根轴上，不在 txn 轴）
     "STOCK_IN",
     "STOCK_OUT",
     "PAYMENT",
@@ -1249,6 +1293,8 @@ const VOUCHER_RULE_BIZ_TYPE_VALUES: [&str; 29] = [
     "FIXED_ASSET_ACQ",
     "FIXED_ASSET_DISPOSAL",
     "DEPRECIATION",
+    "EXPENSE_REPORT",
+    "EXPENSE_PAYMENT",
 ];
 
 /// 需要值域巡检的全部列（**唯一**清单；巡检脚本与 `doc_kind_tests` 按它逐列核对）。

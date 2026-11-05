@@ -44,10 +44,12 @@ RESULT = []
 #  既误伤 check.sh 闸③，又把真正的「作废没退库存」淹掉）。
 #
 # 取值域来源（代码里改 biz_type 必须同步这张表；漏登记由两道闸兜住）：
-#   ① `backend/src/business/shared/doc_kind.rs::TxnBizType::ALL`（19 个，唯一拼写）
+#   ① `backend/src/business/shared/doc_kind.rs::TxnBizType::ALL`（22 个，唯一拼写；含盘点三态）
 #   ② `backend/src/business/erp/stocktake_model.rs`
-#      （STOCK_TAKE_GAIN / STOCK_TAKE_LOSS / STOCK_TAKE_CANCEL —— 盘点轴；
-#       ①② 的枚举与 `TXN_BIZ_TYPE_VALUES` 里**没有**这三个，属已知漂移，故登记在此）
+#      （STOCK_TAKE_GAIN / STOCK_TAKE_LOSS / STOCK_TAKE_CANCEL 的写入常量 —— 盘点轴。
+#       这三个曾**只**以常量形式存在、词表里没有（已知漂移），t_6a667db8 已补进 ① 的
+#       枚举与 TXN_BIZ_TYPE_VALUES；仍在此登记是因为「写入点 ≠ 词表」两件事要分开看：
+#       常量在哪个模块写，与它属于哪根轴，是不同的问题）
 #   闸一：本套件 E4b 在运行期把库里出现、但此处未登记的 biz_type 直接判 BLOCKER；
 #   闸二：`scripts/verify/regression/erp_invariants_e4_regression.py` 静态逐字比对
 #         上面两处代码常量，代码新增 biz_type 而这里没跟上 → 回归红。

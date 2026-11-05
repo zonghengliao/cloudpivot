@@ -79,9 +79,14 @@ def one(sql):
 
 # ── 闸①：静态漂移（代码 biz_type 字面量 ⊆ 登记表）──────────────────────────
 # 动账 biz_type 的取值域只有两处来源（写入唯一入口是 inventory_writer::insert_txn）：
-#   ① doc_kind.rs `impl TxnBizType` 的 as_str() 落库字面量（19 个）
+#   ① doc_kind.rs `impl TxnBizType` 的 as_str() 落库字面量
+#      + 同文件 `TXN_BIZ_TYPE_VALUES`（域清单，两者逐字同序，由
+#        `cargo test --lib business::shared::doc_kind::domain_consts_match_enums` 盯着）
 #   ② 读写库存流水的 ERP 模块里的 `pub const BIZ_TYPE_*: &str = "LITERAL"`
-#      （盘点三态 STOCK_TAKE_GAIN/LOSS/CANCEL 只在这里，枚举里没有 —— 已知漂移）
+#      （盘点三态曾只以常量形式存在于 stocktake_model.rs，已补进 ① 的枚举词表，见 t_6a667db8）
+#
+# 数量判据**不写死**：期望集合从 `TXN_BIZ_TYPE_VALUES` 解析（唯一真相），
+# 枚举解析结果必须与之逐字一致 —— 否则一旦词表扩容（如 19 → 22）这条闸会拿旧数字误判。
 E4_TXN_WRITER_MODULES = (
     "stockin_base.rs", "stockin_write.rs", "stockin_cancel.rs", "opening.rs",
     "transfer_settle.rs", "serial_model.rs", "stockout_base.rs", "stockout_model.rs",
@@ -107,8 +112,17 @@ def static_registry_gate():
                      impl.group(1), re.S) if impl else None
     free_of(bool(body), "TxnBizType::as_str() 可解析")
     enum_vals = set(re.findall(r'=>\s*"([A-Z0-9_]+)"', body.group(1))) if body else set()
-    free_of(len(enum_vals) == 19, f"doc_kind 枚举解析到 {len(enum_vals)} 个 biz_type（应 19）",
-            str(sorted(enum_vals)))
+    # 期望集合 = `TXN_BIZ_TYPE_VALUES`（doc_kind.rs 的域清单，唯一真相）。不写死数字：
+    # 词表扩容（19→22 补盘点三态）时，这条闸只看「枚举 ↔ 域清单是否一致」，不拿旧数字误判。
+    domain = re.search(r"const TXN_BIZ_TYPE_VALUES: \[&str; (\d+)\] = \[(.*?)\n\];", doc_kind, re.S)
+    free_of(bool(domain), "doc_kind.rs 的 TXN_BIZ_TYPE_VALUES 可解析")
+    domain_vals = set(re.findall(r'"([A-Z0-9_]+)"', domain.group(2))) if domain else set()
+    free_of(bool(domain_vals),
+            f"TXN_BIZ_TYPE_VALUES 解析到 {len(domain_vals)} 个 biz_type",
+            str(sorted(domain_vals)))
+    free_of(enum_vals == domain_vals,
+            f"TxnBizType::as_str() 与 TXN_BIZ_TYPE_VALUES 一致（枚举 {len(enum_vals)} / 域 {len(domain_vals)}）",
+            f"枚举独有 {sorted(enum_vals - domain_vals)} / 域独有 {sorted(domain_vals - enum_vals)}")
 
     # 来源 ②：动账写入模块里的 BIZ_TYPE_* 常量字面量
     const_vals = set()
