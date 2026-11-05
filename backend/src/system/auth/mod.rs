@@ -32,3 +32,6 @@ pub mod cleanup;
 pub mod dto;
 pub mod handler;
 pub(crate) mod model;
+
+#[cfg(test)]
+mod cache_tests;

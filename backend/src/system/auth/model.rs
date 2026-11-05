@@ -35,6 +35,44 @@ fn cache_key_user_menus(user_id: &uuid::Uuid) -> String {
     format!("{}{}", constants::CACHE_KEY_PREFIX_USER_MENUS, user_id)
 }
 
+/// 用户的三个主体上下文缓存键（角色 / 权限码 / 可见菜单）。
+///
+/// 抽成数组是为了让「按用户清理」与「按前缀批量清理」共用同一份键定义 ——
+/// 少写一个键就是「漏失效 ⇒ 授权后仍然 403」，必须只有一处真值源。
+///
+/// # 参数
+///
+/// - `user_id`：用户 ID。
+fn principal_keys(user_id: &uuid::Uuid) -> [String; 3] {
+    [
+        cache_key_user_roles(user_id),
+        cache_key_user_perms(user_id),
+        cache_key_user_menus(user_id),
+    ]
+}
+
+/// [`principal_keys`] 的只读别名：单测在兄弟模块里，需要能直接断言「三个键都清到了」。
+#[cfg(test)]
+pub(crate) fn principal_keys_for(user_id: &uuid::Uuid) -> [String; 3] {
+    principal_keys(user_id)
+}
+
+/// 主体上下文缓存的三条通配模式（批量兜底清理用）。
+///
+/// 只在「反查持有者失败」或「无法枚举持有者」时使用：`delete_pattern` 在 Redis 上是
+/// `KEYS` 语义的重操作，键空间却只有最近 300 s 活跃过的用户，低频管理动作可以承受。
+///
+/// # 返回值
+///
+/// 三个「前缀 + `*`」模式，与 [`principal_keys`] 的前缀一一对应。
+pub(crate) fn principal_patterns() -> [String; 3] {
+    [
+        format!("{}*", constants::CACHE_KEY_PREFIX_USER_ROLES),
+        format!("{}*", constants::CACHE_KEY_PREFIX_USER_PERMS),
+        format!("{}*", constants::CACHE_KEY_PREFIX_USER_MENUS),
+    ]
+}
+
 /// 缓存里承载的「用户角色精简投影」。
 ///
 /// `SysRoleModel` 未派生 serde（枚举字段仅实现 `TypeMapper`），不宜直接入缓存；
@@ -92,11 +130,7 @@ pub(crate) async fn invalidate_user_principal(user_id: &uuid::Uuid) {
     let Some(store) = try_cache() else {
         return;
     };
-    for key in [
-        cache_key_user_roles(user_id),
-        cache_key_user_perms(user_id),
-        cache_key_user_menus(user_id),
-    ] {
+    for key in principal_keys(user_id) {
         if let Err(e) = Cache::del(store, &key).await {
             tracing::warn!(key, error = %e, "失效主体上下文缓存失败");
         }
@@ -114,6 +148,98 @@ pub(crate) async fn invalidate_users_principal(user_ids: &[uuid::Uuid]) {
     }
 }
 
+/// 按前缀批量失效**全部**用户的主体上下文缓存，返回删除的键数。
+///
+/// # 为什么需要一条「全清」通道
+///
+/// 按持有者精确清理依赖「先反查、后删除」两步：反查一旦失败（库抖动 / 连接被占满），
+/// 缓存里的旧权限码就会一直留到 TTL（300 s）——表现正是「授权了但接口还是 403」。
+/// 反查失败时唯一安全的做法是退化成整命名空间清理（宁可多清，不可漏清）。
+///
+/// 无缓存（启动降级 / 单测）时直接返回 `0`：没有旧值可残留。
+///
+/// # 返回值
+///
+/// 累计删除的键数（仅用于日志与验收断言）。
+pub(crate) async fn invalidate_all_principals() -> u64 {
+    let Some(store) = try_cache() else {
+        return 0;
+    };
+    let mut deleted = 0u64;
+    for pattern in principal_patterns() {
+        match Cache::delete_pattern(store, &pattern).await {
+            Ok(n) => deleted += n,
+            Err(e) => tracing::warn!(
+                pattern = %pattern,
+                error = %e,
+                cache_invalidation_pending = true,
+                "批量失效主体上下文缓存失败（授权已落库，最长 300 s 后由 TTL 兜底）"
+            ),
+        }
+    }
+    deleted
+}
+
+/// 反查「持有某角色 / 被授予某菜单」的用户 ID 列表。
+///
+/// # 参数
+///
+/// - `sql`：反查用的常量 SQL（只允许本文件的四条常量，不接收外部输入）。
+/// - `id`：角色 ID 或菜单 ID。
+/// - `label`：日志标签（`role` / `menu`）。
+///
+/// # 返回值
+///
+/// 去重后的用户 ID。`None` 表示**反查失败**（库抖动 / 连接不可用）——调用方必须据此
+/// 退化为 [`invalidate_all_principals`]；`Some(vec![])` 表示「确实没有持有者」，
+/// 此时没有任何缓存需要清理（不要为此触发一次 `KEYS` 扫描）。
+///
+/// SCOPE-EXEMPT: 查的是**关联表** `sys_user_role` / `sys_role_menu`（门禁按子串匹配
+/// `FROM sys_user` 会把它算成 `sys_user`），用途是「哪些主体的缓存要失效」——
+/// 系统内部的缓存维护，与「当前用户能看到哪些数据」无关；注入范围会导致漏失效（越权）。
+async fn holder_ids_by(
+    sql: &'static str,
+    id: &uuid::Uuid,
+    label: &'static str,
+) -> Option<Vec<uuid::Uuid>> {
+    let rows = match db().find_with_params(sql, vec![Value::from(id)]).await {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!(?id, holder = label, error = %e, "反查缓存持有者失败");
+            return None;
+        }
+    };
+    let mut user_ids: Vec<uuid::Uuid> = Vec::with_capacity(rows.len());
+    for row in rows {
+        match row.get_typed::<uuid::Uuid>("user_id") {
+            Ok(id) => user_ids.push(id),
+            Err(e) => tracing::warn!(?id, holder = label, error = %e, "解析持有者 ID 失败，跳过"),
+        }
+    }
+    Some(user_ids)
+}
+
+/// 反查持有某角色的用户 ID（角色授权变更 / 角色启停后清理缓存）。
+pub(crate) async fn role_holder_ids(role_id: &uuid::Uuid) -> Option<Vec<uuid::Uuid>> {
+    holder_ids_by(ROLE_HOLDER_SQL, role_id, "role").await
+}
+
+/// 反查被授予了某菜单的用户 ID（菜单权限码 / 状态变更后清理缓存）。
+///
+/// 语义是「用户 → 角色 → 菜单」两跳：改一条菜单的 `auth_code`，命中的不是一两个用户，
+/// 而是所有经角色拿到这条菜单的人。
+pub(crate) async fn menu_holder_ids(menu_id: &uuid::Uuid) -> Option<Vec<uuid::Uuid>> {
+    holder_ids_by(MENU_HOLDER_SQL, menu_id, "menu").await
+}
+
+/// 持有某角色的用户。
+const ROLE_HOLDER_SQL: &str = "SELECT DISTINCT user_id FROM sys_user_role WHERE role_id = ?";
+
+/// 经角色被授予某菜单的用户。
+const MENU_HOLDER_SQL: &str = "SELECT DISTINCT ur.user_id FROM sys_user_role ur \
+                               INNER JOIN sys_role_menu rm ON rm.role_id = ur.role_id \
+                               WHERE rm.menu_id = ?";
+
 /// 按角色 ID 失效持有该角色的**全部**用户的主体上下文缓存。
 ///
 /// 角色菜单授权变化后，受影响的不是单个用户，而是所有持有该角色的用户。
@@ -128,35 +254,56 @@ pub(crate) async fn invalidate_users_principal(user_ids: &[uuid::Uuid]) {
 ///
 /// - `role_id`：角色 ID。
 pub(crate) async fn invalidate_role_holders(role_id: &uuid::Uuid) {
-    let rows = match db()
-        .find_with_params(
-            "SELECT DISTINCT user_id FROM sys_user_role WHERE role_id = ?",
-            vec![Value::from(role_id)],
-        )
-        .await
-    {
-        Ok(rows) => rows,
-        Err(e) => {
-            tracing::warn!(?role_id, error = %e, "反查角色持有者以失效缓存失败");
-            return;
+    match role_holder_ids(role_id).await {
+        // 反查失败：宁可整命名空间全清，也不能让旧权限码留到 TTL ——
+        // 「授权后仍 403」的根子就在这里。
+        None => {
+            tracing::warn!(?role_id, "反查角色持有者失败，退化为整命名空间失效主体缓存");
+            invalidate_all_principals().await;
         }
-    };
+        // 角色确实没有持有者：没有缓存需要清（别为此触发一次 KEYS 扫描）。
+        Some(user_ids) if user_ids.is_empty() => {
+            tracing::debug!(?role_id, "角色无持有者，无需失效主体缓存");
+        }
+        Some(user_ids) => {
+            tracing::debug!(
+                ?role_id,
+                users = user_ids.len(),
+                "失效角色持有者的主体上下文缓存"
+            );
+            invalidate_users_principal(&user_ids).await;
+        }
+    }
+}
 
-    let mut user_ids: Vec<uuid::Uuid> = Vec::with_capacity(rows.len());
-    for row in rows {
-        match row.get_typed::<uuid::Uuid>("user_id") {
-            Ok(id) => user_ids.push(id),
-            Err(e) => tracing::warn!(?role_id, error = %e, "解析角色持有者 ID 失败，跳过"),
+/// 按菜单 ID 失效「经角色拿到这条菜单」的全部用户的主体上下文缓存。
+///
+/// 菜单是权限来源：改 `auth_code` / 停用 / 删除都会改变一批人的权限码集合。
+/// 这条清理必须与 [`crate::system::user::model::bump_token_version_of_menu_holders_in`]
+/// 的库侧作废配对 —— 只推进 `token_version` 不清缓存的话，用户被迫重新登录后
+/// 仍会从缓存里读到旧权限码，最长 300 s 继续 403。
+///
+/// # 参数
+///
+/// - `menu_id`：菜单 ID。
+pub(crate) async fn invalidate_menu_holders(menu_id: &uuid::Uuid) {
+    match menu_holder_ids(menu_id).await {
+        None => {
+            tracing::warn!(?menu_id, "反查菜单持有者失败，退化为整命名空间失效主体缓存");
+            invalidate_all_principals().await;
+        }
+        Some(user_ids) if user_ids.is_empty() => {
+            tracing::debug!(?menu_id, "菜单无持有者，无需失效主体缓存");
+        }
+        Some(user_ids) => {
+            tracing::debug!(
+                ?menu_id,
+                users = user_ids.len(),
+                "失效菜单持有者的主体上下文缓存"
+            );
+            invalidate_users_principal(&user_ids).await;
         }
     }
-    if !user_ids.is_empty() {
-        tracing::debug!(
-            ?role_id,
-            users = user_ids.len(),
-            "失效角色持有者的主体上下文缓存"
-        );
-    }
-    invalidate_users_principal(&user_ids).await;
 }
 
 /// 查询用户当前生效的角色编码（仅启用角色），带缓存。
@@ -289,6 +436,75 @@ async fn load_permissions_uncached(
     // 仍在用的 `erp:contract:*` 因此继续放行。收口只此一处（见 `shared::permission_alias`）。
     crate::shared::permission_alias::expand(&mut permissions);
     Ok(permissions)
+}
+
+/// 登录 / 刷新签发令牌时使用的**新鲜**权限快照。
+///
+/// # 为什么签发路径必须绕过缓存（P1-FIX-3）
+///
+/// 接口级 403 只认**令牌里的权限快照**（`nik-web` 的 `has_permission` 不查库），
+/// 而令牌是登录 / 刷新时签发的。若签发时读的是 `perm:user_perms:{uid}` 缓存：
+/// 授权写库后**没人删这个键**（例如运维直连 SQL 补授权、或别的实例写的），
+/// 用户重新登录拿到的仍是旧权限码 → 继续 403，直到 TTL（300 s）过期；
+/// 单机部署时运维只能「重启实例」清进程内缓存 —— 这就是本卡的现象。
+///
+/// 因此签发路径直读库（库是唯一真源），并把读到的真值**写穿**回缓存，
+/// 让随后的 `me` / `menus` 与令牌快照保持一致（不会出现「按钮出现但接口 403」）。
+///
+/// 代价：登录 / 刷新各多两条查询（本来就在同一张表上，且这两个接口不在热路径）。
+#[derive(Debug, Clone)]
+pub(crate) struct PrincipalSnapshot {
+    /// 启用角色的编码（决定是否超管）。
+    pub role_codes: Vec<String>,
+    /// 是否超级管理员（持有 `SUPER_ADMIN` 角色）。
+    pub super_admin: bool,
+    /// 权限码集合（超管为通配 `*:*:*`）。
+    pub permissions: Vec<String>,
+}
+
+/// 直读库组装签发用的权限快照，并把结果写穿到主体上下文缓存。
+///
+/// # 参数
+///
+/// - `user_id`：用户 ID。
+///
+/// # 返回值
+///
+/// [`PrincipalSnapshot`]。
+///
+/// # 异常情况
+///
+/// 数据库异常返回 [`DbError`]（调用方回 500，不签发携带空权限的令牌）。
+pub(crate) async fn load_principal_snapshot(
+    user_id: &uuid::Uuid,
+) -> std::result::Result<PrincipalSnapshot, DbError> {
+    let roles = load_roles_uncached(user_id).await?;
+    let projection: Vec<CachedRole> = roles.iter().map(CachedRole::from_model).collect();
+    let role_codes: Vec<String> = projection
+        .iter()
+        .filter(|r| r.enabled)
+        .map(|r| r.role_code.clone())
+        .collect();
+    let super_admin = is_super_admin(&role_codes);
+    let permissions = if super_admin {
+        vec!["*:*:*".to_string()]
+    } else {
+        load_permissions_uncached(user_id).await?
+    };
+
+    // 写穿：让 me / menus 与本次签发的快照一致。
+    // 超管的通配码**不入缓存** —— 一旦他后来被摘掉超管角色，缓存里的 `*:*:*`
+    // 会被非超管分支读到，那就是提权（缓存键是同一个）。
+    cache_set(&cache_key_user_roles(user_id), &projection).await;
+    if !super_admin {
+        cache_set(&cache_key_user_perms(user_id), &permissions).await;
+    }
+
+    Ok(PrincipalSnapshot {
+        role_codes,
+        super_admin,
+        permissions,
+    })
 }
 
 /// 查询用户可见菜单（仅目录与菜单，不含按钮），超级管理员为全部启用菜单，带缓存。

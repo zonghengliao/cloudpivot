@@ -1072,14 +1072,23 @@ async fn issue_token(
         }
     };
 
-    let codes = model::load_role_codes(&user.id)
+    // P1-FIX-3：签发路径**直读库**取权限快照（不经缓存），并把真值写穿回缓存。
+    // 否则「授权写库后重新登录仍是旧权限码 → 403，只能重启实例」——见
+    // [`model::load_principal_snapshot`] 的说明。
+    let snapshot = model::load_principal_snapshot(&user.id)
         .await
         .map_err(|e| utils::db_error(e, "查询用户角色"))?;
     mark_stage("load_roles");
-    let super_admin = model::is_super_admin(&codes);
-    let permissions = model::load_permissions(&user.id, super_admin)
-        .await
-        .map_err(|e| utils::db_error(e, "查询用户权限"))?;
+    let codes = snapshot.role_codes;
+    let permissions = snapshot.permissions;
+    // 排障口径：授权后「为什么还是 403」第一眼要看的就是这里 —— 签发时到底装到了什么。
+    tracing::debug!(
+        user_id = %user.id,
+        super_admin = snapshot.super_admin,
+        perms = permissions.len(),
+        roles = codes.len(),
+        "签发令牌：权限快照（直读库，未走缓存）"
+    );
     mark_stage("load_permissions");
 
     let jwt = JWT::from_config();

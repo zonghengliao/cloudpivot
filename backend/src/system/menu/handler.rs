@@ -224,6 +224,10 @@ pub async fn update(
     // FIX-05：批量推进的是一批用户的版本号，模型层在事务里只拿到行数，
     // 因此这里整命名空间清空 `uv:*`（低频管理动作，语义最安全）。
     crate::shared::session_cache::invalidate_all().await;
+    // P1-FIX-3：库侧 `token_version` 推进只让旧令牌作废（下次请求 401 逼重登），
+    // 但**重登时读的是 `perm:user_perms:{uid}` 缓存** —— 不清它，用户重登后
+    // 仍拿到旧权限码，最长 300 s 继续 403。这两条必须配对出现。
+    crate::system::auth::model::invalidate_menu_holders(&to_save.id).await;
     crate::support::online::model::revoke_after_permission_change(
         "menu_update",
         &[constants::ADMIN_USERNAME],
@@ -308,6 +312,11 @@ pub async fn delete(
     // 事务：先把「被授权了这条菜单的用户」的 `token_version` 推进（BUG-SYS-03 的库侧
     // 兜底：菜单删了，令牌里固化的权限码必须立刻失效，且这一步不依赖 Redis），
     // 再清理角色-菜单授权绑定，最后软删菜单。顺序不能反 —— 绑定被删除后就反查不到持有者了。
+    //
+    // P1-FIX-3：持有者必须在事务**之前**反查（绑定删在事务里，提交后就查不到了），
+    // 提交后再清它们的主体缓存。否则用户被迫重登时仍从 `perm:user_perms` 读到
+    // 已删除菜单的旧权限码，最长 300 s 继续 403。
+    let menu_holders = crate::system::auth::model::menu_holder_ids(&id).await;
     db().transaction(|tx| async move {
         crate::system::user::model::bump_token_version_of_menu_holders_in(
             &tx,
@@ -332,6 +341,14 @@ pub async fn delete(
     //
     // FIX-05：同 `update`——批量推进版本号后整命名空间清空会话字段缓存。
     crate::shared::session_cache::invalidate_all().await;
+    // P1-FIX-3：清「被删菜单的持有者」的主体缓存（持有者已在事务前反查）。
+    // 反查失败（None）时退化为整命名空间全清，宁可多清不可漏清。
+    match menu_holders {
+        Some(user_ids) => crate::system::auth::model::invalidate_users_principal(&user_ids).await,
+        None => {
+            crate::system::auth::model::invalidate_all_principals().await;
+        }
+    }
     crate::support::online::model::revoke_after_permission_change(
         "menu_delete",
         &[constants::ADMIN_USERNAME],
