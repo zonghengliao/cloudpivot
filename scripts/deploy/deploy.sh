@@ -40,6 +40,7 @@ BACKEND_DIR="$REPO/backend"
 FRONTEND_DIR="$REPO/frontend"
 MIG_ROOT="$REPO/backend/migrations"   # 引擎口径：递归全部子目录（business/system/support/…）
 MIGRATE_TOOL="$REPO/scripts/verify/deploya_migrate.sh"
+MIG_PLAN_LIB="$REPO/scripts/deploy/migrate_plan.sh"   # 待迁移判定唯一实现（deploy.sh 与自测共用）
 HEALTH_URL="http://127.0.0.1:8023/health"
 WEB_URL="http://127.0.0.1/"
 TAG="$(date +%Y%m%d-%H%M%S)"
@@ -128,29 +129,19 @@ export PGPASSWORD="${NIK_DATABASE_PASSWORD:?环境变量里没有 NIK_DATABASE_P
 export PATH="/root/.cargo/bin:$PATH"
 PSQL="psql -h $DB_HOST -U $DB_USER -d $DB_NAME -Atq"
 
-# 磁盘上（$NEW_HEAD 的树）**全部子目录**里的版本化 up 脚本（仓库相对路径）。
-# 引擎读 `[database.migration] path = "migrations"` 是递归装载，business/ system/ support/
-# 全在扫描范围内 —— 这里必须用同一条口径。只扫 business 会漏 system/support：
-# 2026-11-05 发版实测漏掉 `system/V0235__create_sys_invariant_result`，旧版只在启动期由
-# 引擎补跑，于是「应用 0 个迁移」自检失效而脚本只 warning —— 记账铁律被静默降级。
-disk_mig_files() {
-  git ls-tree -r --name-only "$NEW_HEAD" backend/migrations/ \
-    | grep -E '^backend/migrations/[A-Za-z0-9_.-]+/V[0-9]+__[A-Za-z0-9_]+\.up\.sql$'
-}
-# 磁盘侧版本号全集（升序去重，逗号分隔）
-disk_mig_versions() {
-  disk_mig_files | sed -E 's#.*/V0*([0-9]+)__.*#\1#' | sort -n | paste -sd, -
-}
-# 磁盘上有、库里没记账（success=true）的版本 —— **集合口径**，gap 也能抓出来（不只是 > max）
-pending_versions_in_db() {
-  local vers
-  vers=$(disk_mig_versions)
-  [ -n "$vers" ] || return 0        # 盘上没有任何版本化迁移（异常由别处报）：不做集合差
-  $PSQL -c "select coalesce(string_agg(v::text, ',' order by v), '') from unnest(array[$vers]) as v
-             where not exists (select 1 from schema_migrations m
-                               where m.kind = 'versioned' and m.success
-                                 and m.version ~ '^[0-9]+\$' and m.version::int = v)"
-}
+# 迁移清单口径的唯一实现在 scripts/deploy/migrate_plan.sh（source 复用，避免 deploy.sh /
+# 自测脚本 / 迁移工具三份实现各说各话）。这里只提供它需要的 mp_q（查库）。
+# 关键：pending 是**集合差**（磁盘文件名 - 库内 kind='versioned' 且 success 的 name），
+#       键是 (kind,name)，**与版本号大小无关**（vendor/nik-db/src/migrate/mod.rs:1263-1275）。
+# 旧版用 `version > max(applied)` 比大小 ⇒ 库内最大版本以下的 gap 永远挑不出来：
+# 2026-11-05 发版漏掉 V0220/V0221/V0226..V0234（11 条），V0240 依赖的
+# biz_budget_subject_map（V0227 建）不存在 → [5/8] 失败、部署中断。详见库文件头注释。
+[ -f "$MIG_PLAN_LIB" ] || die "找不到待迁移判定库 $MIG_PLAN_LIB"
+mp_q() { $PSQL -c "$1"; }
+MP_REPO="$REPO"
+export MP_REPO
+# shellcheck source=scripts/deploy/migrate_plan.sh
+. "$MIG_PLAN_LIB"
 
 say "仓库 $REPO，库 $DB_NAME，服务 $SERVICE，标签 $TAG"
 [ "$DRY_RUN" = "1" ] && say ">>> dry-run：只体检与打印计划，不写文件、不动服务 <<<"
@@ -174,31 +165,45 @@ if [ "$NCOMMITS" != "0" ]; then
 fi
 
 # --- 待应用迁移 -----------------------------------------------------------------
-# 口径：**磁盘上（$NEW_HEAD 的树）**、**全部子目录**（business/ system/ support/ …）里
-#       版本号 > 库里已应用最大版本 的 up 脚本，按版本升序。
+# 口径（= 迁移引擎的 pending 语义，唯一实现在 scripts/deploy/migrate_plan.sh）：
+#   disk = $NEW_HEAD 的树里 backend/migrations/**/V<n>__<name>.up.sql（全部子目录；
+#          引擎 `[database.migration] path = "migrations"` 是递归装载）
+#   done = 库内 kind='versioned' 且 success 的 name 集合
+#   todo = disk - done，按版本号数值升序（版本号只用于排序/展示）
 #
-# 为什么必须递归扫全部分目录（2026-11-05 的缺陷）：
-#   引擎读 `config.toml` 的 `[database.migration] path = "migrations"`，装载是**递归**的，
-#   business/（152 条）、system/（13 条）、support/（11 条）全在引擎范围内。
-#   旧版只 `git ls-tree backend/migrations/business/`，于是 `system/V0235__create_sys_invariant_result`
-#   被漏掉：启动期引擎按**集合语义**把 gap 补跑（只打 out_of_order WARN，不炸启动），
-#   第 6 步的「应用 0 个迁移」自检于是不成立 —— 脚本当时只 `say ⚠️` 不 die，
-#   「记账与引擎一致」这条铁律被静默降级。
+# 为什么必须是「集合差」而不是「> 库内最大版本」（2026-11-05 发版中断的真因）：
+#   旧版 L184 取 max(version::int) 当游标，L189 用 `(v+0) > applied` 过滤，L228 再按
+#   `-le APPLIED_MAX` 二次跳过 —— 三处都是「比大小」。库内最大版本是 V0235 时，
+#   gap 里的 V0220/V0221/V0226..V0234（11 条）永远进不了清单；而 V0240 要的
+#   biz_budget_subject_map 是 V0227 建的 ⇒ [5/8] 报 relation does not exist，部署中断。
+#   引擎不这么判：needs_apply（vendor/nik-db/src/migrate/mod.rs:1263-1275）只看
+#   (kind,name) 有没有 success 记录，低版本照样执行（只打 out_of_order WARN，mod.rs:876-888）。
 #
-# 为什么不再用 `git diff --diff-filter=A $OLD_HEAD..$NEW_HEAD`：
-# 那个口径只看「这次同步新加的迁移文件」。一旦主仓只同步了代码、迁移没对库跑过
-# （实操里发生过：prod 工作区已到 V0217 的文件，库还停在 V0211），待跑迁移根本
-# 不在 diff 里 ⇒ 脚本报「本次无新迁移」，库与二进制长期不一致，而 v1 检测脚本
-# 又只看 git 落后数，两边都显示"已部署"。按「库 vs 磁盘」比才是生产是否真生效。
-APPLIED_MAX=$($PSQL -c "select coalesce(max(version::int),0) from schema_migrations where kind='versioned' and version ~ '^[0-9]+\$'")
-say "库里已应用的最大迁移版本：V$(printf '%04d' "$APPLIED_MAX")"
+# 也不再信 `git diff --diff-filter=A $OLD_HEAD..$NEW_HEAD`：那只认「本次同步新加的迁移」，
+# 主仓同步了代码但迁移没对库跑过时，待跑迁移根本不在 diff 里 ⇒ 会报「本次无新迁移」。
+# 按「库 vs 磁盘」比才是生产是否真生效。
+MP_REF="$NEW_HEAD"
+export MP_REF
+# 清单构造只有一份实现（migrate_plan.sh: mp_build_pending），自测脚本调的是同一个函数
+mp_build_pending
+APPLIED_MAX="$MP_APPLIED_MAX"
+APPLIED_BEFORE="$MP_DB_APPLIED_COUNT"
+PENDING_PAIRS=("${MP_PENDING_PAIRS[@]}")
+PENDING_FILES=("${MP_PENDING_FILES[@]}")
+PENDING_LOW="$MP_PENDING_LOW"
+PENDING_LOW_N="$MP_PENDING_LOW_N"
+say "库内已应用 versioned 迁移：$APPLIED_BEFORE 条，最大版本 V$(printf '%04d' "$APPLIED_MAX")"
 
-mapfile -t MIG_FILES < <(
-  disk_mig_files \
-    | awk -F'/' -v applied="$APPLIED_MAX" '{ v=substr($NF,2); sub(/__.*/,"",v); if ((v+0) > applied) printf "%010d\t%s\n", v+0, $0 }' \
-    | sort -k1,1 -k2,2 \
-    | cut -f2-
-)
+# 记录表合法性预检（动任何东西之前）：非法 applied_via 会让服务**启动期 FATAL**
+BAD_VIA=$(mp_bad_applied_via)
+if [ -n "$BAD_VIA" ]; then
+  die "schema_migrations.applied_via 出现引擎不认识的值：$(echo "$BAD_VIA" | paste -sd' ' -)（引擎只认 $MP_ALLOWED_APPLIED_VIA，见 vendor/nik-db/src/migrate/kind.rs:95-111；非法值会让服务启动 FATAL，history.rs:219-221）。修法：update schema_migrations set applied_via='imported' where applied_via='<非法值>';"
+fi
+BAD_FILES=$(mp_bad_disk_names)
+[ -z "$BAD_FILES" ] || die "迁移目录里有不符合引擎命名规则的 up 脚本（引擎永远装不到，等于没写）：$(echo "$BAD_FILES" | paste -sd' ' -)"
+DUP_NAMES=$(mp_dup_names)
+[ -z "$DUP_NAMES" ] || die "同名迁移出现在多个目录（引擎按 (kind,name) 记账会互相覆盖，必须先改名）：$(echo "$DUP_NAMES" | paste -sd' ' -)"
+say "预检通过：applied_via 取值合法、迁移文件名可被引擎识别"
 
 # --- 后端/前端是否要重做 ---------------------------------------------------------
 # 判据不只是「本次 diff 有没有碰这个目录」，还要看**产物是否比最近一次提交旧**：
@@ -223,24 +228,14 @@ fi
 
 [ "$SKIP_BACKEND" = "1" ] && BE_CHANGED="" && say "（--skip-backend：忽略后端改动）"
 [ "$SKIP_FRONTEND" = "1" ] && FE_CHANGED="" && say "（--skip-frontend：忽略前端改动）"
-say "后端改动：$([ -n "$BE_CHANGED" ] && echo 有 || echo 无)　　前端改动：$([ -n "$FE_CHANGED" ] && echo 有 || echo 无)　　待应用迁移：${#MIG_FILES[@]} 个"
-for f in "${MIG_FILES[@]:-}"; do [ -n "${f:-}" ] && say "    + $f ($(git show "$NEW_HEAD:$f" >/dev/null 2>&1 || echo '⚠ 不在工作区'))"; done
-
-PENDING_PAIRS=()
-PENDING_NUMS=""
-for f in "${MIG_FILES[@]:-}"; do
-  [ -n "${f:-}" ] || continue
-  base="$(basename "$f")"                                   # V0207__erp_period_remind.up.sql
-  ver="${base%%__*}"; ver="${ver#V}"; ver=$((10#$ver))       # 207
-  [ -n "$ver" ] || continue
-  name="$(echo "$base" | sed -E 's/^V[0-9]+__(.*)\.up\.sql$/\1/')"
-  if [ "$ver" -le "$APPLIED_MAX" ]; then
-    say "    跳过 V$(printf '%04d' "$ver")（库里已应用）"
-    continue
-  fi
-  PENDING_PAIRS+=("$ver:$name")
-  PENDING_NUMS="$PENDING_NUMS $ver"
+say "后端改动：$([ -n "$BE_CHANGED" ] && echo 有 || echo 无)　　前端改动：$([ -n "$FE_CHANGED" ] && echo 有 || echo 无)　　待应用迁移：${#PENDING_PAIRS[@]} 个（口径：磁盘全部 up.sql − 库内 success 记录）"
+for i in "${!PENDING_PAIRS[@]}"; do
+  say "    + ${PENDING_FILES[$i]}  [V$(printf '%04d' "${PENDING_PAIRS[$i]%%:*}")]"
 done
+if [ "$PENDING_LOW_N" -gt 0 ]; then
+  say "  ⚠ 其中 $PENDING_LOW_N 条版本号低于库内最大已应用 V$(printf '%04d' "$APPLIED_MAX")：$PENDING_LOW"
+  say "     这是引擎允许的乱序补迁（启动期只打 out_of_order WARN）；旧版 deploy.sh 正是把这些 gap 整批丢掉才炸的"
+fi
 
 # ----------------------------------------------------------------------------
 step "[2/8] 备份（库 dump + 线上二进制 + 现有 dist）"
@@ -323,33 +318,49 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-step "[5/8] 数据库迁移（逐条跑 + 按引擎口径记账）"
+step "[5/8] 数据库迁移（逐条跑 + 按引擎口径记账 + 跑完对账）"
 if [ "$SKIP_MIGRATE" = "1" ]; then
   say "--skip-migrate：跳过"
 elif [ "${#PENDING_PAIRS[@]}" -eq 0 ]; then
-  ok "无待应用迁移（库里已是 V$(printf '%04d' "$APPLIED_MAX")）"
+  ok "无待应用迁移（磁盘上全部 up.sql 都已记账；库内最大版本 V$(printf '%04d' "$APPLIED_MAX")）"
 elif [ "$DRY_RUN" = "1" ]; then
   say "dry-run：将依次应用 ${#PENDING_PAIRS[@]} 条：${PENDING_PAIRS[*]}"
 else
-  bash "$MIGRATE_TOOL" "$DB_NAME" "${PENDING_PAIRS[@]}" || die "迁移应用失败（上面的 APPLY_FAILED 行）"
+  TODO_COUNT=${#PENDING_PAIRS[@]}
+  # 对账基线压到迁移前一刻（[1/8] 那次读数是给人看的计划，这里才是判据）
+  APPLIED_BEFORE=$(mp_db_applied_count)
+  say "迁移前已记账 $APPLIED_BEFORE 条，本次待跑 $TODO_COUNT 条"
+  # --assert-pending：让迁移工具用它自己独立算出的待跑集合对本清单做双向校验，
+  # 不一致就拒跑（防止 deploy.sh 少给 / 多给 / 顺序错）
+  bash "$MIGRATE_TOOL" "$DB_NAME" --assert-pending "${PENDING_PAIRS[@]}" \
+    || die "迁移应用失败（上面的 APPLY_FAILED 行）"
   DID_MIGRATE=1
   APPLIED_MIGS="${PENDING_PAIRS[*]}"
-  NEW_MAX=$($PSQL -c "select coalesce(max(version::int),0) from schema_migrations where kind='versioned' and version ~ '^[0-9]+\$'")
-  EXPECT_MAX=0
-  for f in "${MIG_FILES[@]:-}"; do
-    [ -n "${f:-}" ] || continue
-    b="$(basename "$f")"; v="${b%%__*}"; v="${v#V}"; v=$((10#$v))
-    [ "$v" -gt "$EXPECT_MAX" ] && EXPECT_MAX="$v"
-  done
-  if [ "$NEW_MAX" = "$EXPECT_MAX" ]; then
-    ok "迁移后最大版本：V$(printf '%04d' "$NEW_MAX")（= 清单最大版本）"
+
+  # ---- 自检 1：对账（增量记账 == 待跑条数），不相等不许静默通过 ----
+  APPLIED_AFTER=$(mp_db_applied_count)
+  DELTA=$((APPLIED_AFTER - APPLIED_BEFORE))
+  if [ "$DELTA" = "$TODO_COUNT" ]; then
+    ok "对账通过：新增记账 $DELTA 条 == 待跑 $TODO_COUNT 条（$APPLIED_BEFORE → $APPLIED_AFTER）"
   else
-    die "迁移后库内最大版本 V$NEW_MAX ≠ 清单最大版本 V$EXPECT_MAX：记账与磁盘不一致"
+    die "对账失败：待跑 $TODO_COUNT 条，实际新增记账 $DELTA 条（$APPLIED_BEFORE → $APPLIED_AFTER）—— 有迁移没跑到，或有别的写入"
   fi
-  MISSING_MIG=$(pending_versions_in_db)
-  [ -z "$MISSING_MIG" ] \
-    && ok "集合口径复核：磁盘上的版本化迁移全部已记账（含 system/support 目录）" \
-    || die "迁移后仍有未记账的版本化迁移：V$MISSING_MIG（磁盘有、库里没有 success 记录）"
+
+  # ---- 自检 2：applied_via 必须全部是引擎认可的值（非法值 = 服务启动 FATAL）----
+  BAD_VIA_AFTER=$(mp_bad_applied_via)
+  if [ -n "$BAD_VIA_AFTER" ]; then
+    die "记账后出现非法 applied_via：$(echo "$BAD_VIA_AFTER" | paste -sd' ' -)（引擎只认 $MP_ALLOWED_APPLIED_VIA；不修就会在下一步启动时 FATAL）"
+  fi
+  ok "applied_via 合法（全部 ∈ $MP_ALLOWED_APPLIED_VIA）"
+
+  # ---- 自检 3：集合复核（磁盘 - 库 = 空），gap 与 system/support 一起覆盖 ----
+  mp_db_applied_load
+  MISSING_MIG=$(mp_missing_names)
+  if [ -z "$MISSING_MIG" ]; then
+    ok "集合复核：磁盘上的版本化迁移全部已记账（含 business/system/support 全部分目录）"
+  else
+    die "迁移后仍有未记账的迁移：$MISSING_MIG（磁盘有、库里没有 success 记录）"
+  fi
 fi
 
 # ----------------------------------------------------------------------------
@@ -394,11 +405,17 @@ else
   # 铁律（硬判据，不能用日志文本代替）：重启后「磁盘上有、库里没记账」的版本化迁移必须为空。
   # 引擎判定是集合语义、gap 补迁只打 out_of_order WARN 不报错 ⇒「启动期补跑了漏记的迁移」
   # 不会以任何失败形式暴露，只能在这里用集合差揪出来（2026-11-05 的 V0235 正是这么漏的）。
-  MISSING_AFTER=$(pending_versions_in_db)
+  mp_db_applied_load
+  MISSING_AFTER=$(mp_missing_names)
   if [ -n "$MISSING_AFTER" ]; then
-    die "重启后仍有未记账的版本化迁移：V$MISSING_AFTER —— 启动期被引擎补跑了，记账与引擎不一致（铁律被破坏）"
+    die "重启后仍有未记账的迁移：$MISSING_AFTER —— 启动期被引擎补跑了，记账与引擎不一致（铁律被破坏）"
   fi
-  ok "集合口径复核：重启后无未记账版本化迁移（含 system/support 目录）"
+  ok "集合复核：重启后无未记账的版本化迁移（含 business/system/support 全部分目录）"
+
+  # applied_via 再查一次：非法值会让服务起来就 FATAL，这里挡住比上线后查日志快
+  BAD_VIA_START=$(mp_bad_applied_via)
+  [ -z "$BAD_VIA_START" ] && ok "applied_via 合法（全部 ∈ $MP_ALLOWED_APPLIED_VIA）" \
+    || die "启动后 applied_via 出现非法值：$(echo "$BAD_VIA_START" | paste -sd' ' -)"
 
   NMIG=$(journalctl -u "$SERVICE" --since "-3min" --no-pager | grep -c "数据库迁移完成: 应用 0 个迁移" || true)
   if [ "${NMIG:-0}" -ge 1 ]; then
@@ -458,7 +475,14 @@ BARE=$(git --git-dir="$REPO/../git/cloudpivot.git" rev-parse main 2>/dev/null ||
 say "主仓 HEAD          $(git rev-parse --short HEAD)  $(git log -1 --format=%s)"
 say "origin/main        $(git rev-parse --short origin/main)"
 [ "$FINAL_HEAD" = "$(git rev-parse origin/main)" ] && ok "主仓 HEAD == origin/main" || bad "主仓 HEAD ≠ origin/main"
-say "迁移最大版本       V$(printf '%04d' "$($PSQL -c "select coalesce(max(version::int),0) from schema_migrations where kind='versioned' and version ~ '^[0-9]+\$'")")"
+say "迁移记账           $(mp_db_applied_count) 条，最大版本 V$(printf '%04d' "$(mp_db_max_version)")"
+mp_db_applied_load
+FINAL_MISSING=$(mp_missing_names)
+if [ -z "$FINAL_MISSING" ]; then
+  ok "磁盘迁移全部已记账（磁盘 - 库 = 空）"
+else
+  bad "仍有未记账迁移：$FINAL_MISSING —— 库与磁盘不一致，下一次启动引擎会静默补跑（先跑 --skip-backend 只补迁移）"
+fi
 say "服务状态           $(systemctl is-active "$SERVICE")"
 say "/health            $(curl -s -m 5 "$HEALTH_URL")"
 PID=$(systemctl show -p MainPID --value "$SERVICE")

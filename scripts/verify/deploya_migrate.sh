@@ -18,13 +18,18 @@
 #   —— 2026-11-05 发版漏掉 `system/V0235__create_sys_invariant_result` 就是这个原因。
 #   现在递归扫全部子目录，`source` 按文件**真实路径**记账。
 #
-# 记账口径（照 vendor/nik-db/src/migrate/{exec,history}.rs）：
+# 记账口径（照 vendor/nik-db/src/migrate/{exec,history,kind}.rs）：
 #   kind         = 'versioned'
 #   name         = 文件名里 `__` 之后、去掉 `.up.sql`
 #   version      = 文件名里的数字原样（**不补零**，库里存的是 '195'）
 #   checksum     = sha256(文件内容，行尾统一 \n 后)
 #                  ⇒ 对 LF + 单个结尾换行的文件，等价于 `sha256sum`
 #   applied_via  = 'imported'（内容确被执行过，但不是引擎自己跑的）
+#                  ⚠ 引擎**只认三个值**：executed / baseline / imported
+#                  （vendor/nik-db/src/migrate/kind.rs:95-111）。写别的值（曾有人用
+#                  'deploy-backfill'）→ 服务启动期读记录表直接
+#                  FATAL: unknown applied_via '...' in record table（history.rs:219-221）。
+#                  本工具只写 'imported'，并在跑前/跑后校验全表取值合法。
 #   applied_seq  = max(applied_seq)+1
 #   source       = 文件相对 backend/ 的真实路径，**保留子目录**：
 #                  'migrations/business/V0195__xxx.up.sql'
@@ -34,7 +39,14 @@
 #   set -a; . /etc/cloudpivot/cloudpivot.env; set +a
 #   bash scripts/verify/deploya_migrate.sh <db> 195:erp_contract 196:...
 #   bash scripts/verify/deploya_migrate.sh <db> --from 195      # 自动取仓内 ≥195 的 up 脚本
+#   bash scripts/verify/deploya_migrate.sh <db> --assert-pending 195:x 196:y
+#       给 deploy.sh 用：先用它自己独立算出的「磁盘 - 库」待跑集合校验传入清单，
+#       不一致就拒跑（防 deploy.sh 少给/多给/乱序）
 #   DEPLOY_ENV_FILE=/path/to/env bash scripts/verify/deploya_migrate.sh …   # 演练/复现时换环境变量文件
+#
+# 跑完两道自检（2026-11-05「只跑 4 个漏 13 个」之后加，缺一不可）：
+#   ① 对账：applied 增量 == 本次条数
+#   ② 集合复核：磁盘 - 库 = 空（gap 与 system/support 一起覆盖）
 # =============================================================================
 set -uo pipefail
 ENV_FILE="${DEPLOY_ENV_FILE:-/etc/cloudpivot/cloudpivot.env}"
@@ -49,6 +61,10 @@ DB="${1:?用法: deploya_migrate.sh <db> [<version>:<name> ... | --from <n>]}"
 shift
 
 Q() { psql -h "$DBHOST" -U "$DBUSER" -d "$DB" -Atq -c "$1"; }
+
+# 引擎认可的 applied_via（kind.rs:95-111）——写死在这里，别用自造值
+ALLOWED_APPLIED_VIA="executed imported baseline"
+WRITE_APPLIED_VIA="imported"
 
 # -----------------------------------------------------------------------------
 # 迁移清单：<version>\t<name>\t<绝对路径>，跨子目录一起按版本升序。
@@ -84,6 +100,34 @@ done < <(
 )
 [ "${#MIG_ROWS[@]}" -gt 0 ] || { echo "FAIL: $MIGROOT 下没找到任何版本化迁移"; exit 2; }
 
+# 库里已记账（success）的迁移 name 集合 —— 引擎判定用的键是 (kind,name)，不是版本号大小
+declare -A APPLIED_DB=()
+reload_applied() {
+  APPLIED_DB=()
+  local n
+  while IFS= read -r n; do [ -n "$n" ] && APPLIED_DB["$n"]=1; done \
+    < <(Q "select name from schema_migrations where kind='versioned' and success")
+}
+# 独立算出的待跑集合（磁盘 - 库），沿用 MIG_ROWS 的版本升序
+pending_list() {
+  local k name
+  for k in "${MIG_ROWS[@]}"; do
+    name="${k#*:}"
+    [ -n "${APPLIED_DB[$name]:-}" ] || printf '%s\n' "$k"
+  done
+}
+
+ASSERT_PENDING=0
+ALLOW_PARTIAL=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --assert-pending) ASSERT_PENDING=1; shift ;;
+    --allow-partial)  ALLOW_PARTIAL=1; shift ;;
+    --) shift; break ;;
+    *) break ;;
+  esac
+done
+
 if [ "${1:-}" = "--from" ]; then
   START="${2:?--from 需要版本号}"
   [[ "$START" =~ ^[0-9]+$ ]] || { echo "FAIL: --from 需要数字版本号（收到 $START）"; exit 2; }
@@ -95,6 +139,34 @@ else
   PAIRS=( "$@" )
 fi
 [ "${#PAIRS[@]}" -gt 0 ] || { echo "没有待应用的迁移"; exit 0; }
+
+reload_applied
+
+# ---- 预检 1：applied_via 取值合法（非法值 = 服务启动 FATAL，先拦住，别带病上线）----
+BAD_VIA=$(Q "select applied_via || '|' || count(*) from schema_migrations
+              where applied_via not in ('executed','imported','baseline') group by applied_via")
+if [ -n "$BAD_VIA" ]; then
+  echo "FAIL: schema_migrations.applied_via 出现引擎不认识的值：$(echo "$BAD_VIA" | paste -sd' ' -)" >&2
+  echo "      引擎只认 $ALLOWED_APPLIED_VIA（vendor/nik-db/src/migrate/kind.rs:95-111）；" >&2
+  echo "      非法值会让服务启动期 FATAL: unknown applied_via '...' in record table（history.rs:219-221）。" >&2
+  echo "      修法：update schema_migrations set applied_via='$WRITE_APPLIED_VIA' where applied_via='<非法值>';" >&2
+  exit 2
+fi
+
+# ---- 预检 2：传入清单 == 本工具独立算出的待跑集合（不对称就拒跑，别赌）----
+if [ "$ASSERT_PENDING" = "1" ]; then
+  mapfile -t EXPECT_PAIRS < <(pending_list)
+  if ! diff -u <(printf '%s\n' "${EXPECT_PAIRS[@]:-}") <(printf '%s\n' "${PAIRS[@]}") > /tmp/pending-diff.txt 2>&1; then
+    echo "FAIL: 传入的迁移清单 ≠ 磁盘-库 的待跑集合（- 是漏给、+ 是多给，详见 /tmp/pending-diff.txt）" >&2
+    sed 's/^/      /' /tmp/pending-diff.txt >&2
+    echo "      期望 ${#EXPECT_PAIRS[@]} 条，收到 ${#PAIRS[@]} 条" >&2
+    exit 2
+  fi
+  echo "PENDING_ASSERT_OK 传入清单 == 独立算出的待跑集合（${#PAIRS[@]} 条，按版本升序）"
+fi
+
+COUNT_BEFORE=$(Q "select count(*) from schema_migrations where kind='versioned' and success")
+echo "RUN_START 待跑 ${#PAIRS[@]} 条，迁移前已记账 $COUNT_BEFORE 条"
 
 apply_one() { # <version>:<name>
   local key="$1" ver name file rel log t0 t1 ms rc cksum seq after
@@ -121,7 +193,7 @@ apply_one() { # <version>:<name>
   psql -h "$DBHOST" -U "$DBUSER" -d "$DB" -q -v ON_ERROR_STOP=1 -c "
     INSERT INTO schema_migrations
       (kind, name, version, checksum, applied_via, applied_at, applied_seq, execution_ms, success, source)
-    VALUES ('versioned','$name','$ver','$cksum','imported', $(date +%s), $seq, $ms, true, '$rel')
+    VALUES ('versioned','$name','$ver','$cksum','$WRITE_APPLIED_VIA', $(date +%s), $seq, $ms, true, '$rel')
     ON CONFLICT (kind, name) DO UPDATE SET
       version = excluded.version, checksum = excluded.checksum, applied_via = excluded.applied_via,
       applied_at = excluded.applied_at, applied_seq = excluded.applied_seq,
@@ -135,4 +207,37 @@ apply_one() { # <version>:<name>
 for key in "${PAIRS[@]}"; do
   apply_one "$key" || { echo "!!! 停止：V${key%%:*} 失败"; exit 1; }
 done
+
+# ---- 自检 1：对账（applied 增量 == 本次条数），不相等就是有迁移没跑到或跑重了 ----
+COUNT_AFTER=$(Q "select count(*) from schema_migrations where kind='versioned' and success")
+DELTA=$((COUNT_AFTER - COUNT_BEFORE))
+if [ "$DELTA" -ne "${#PAIRS[@]}" ]; then
+  echo "FAIL: 对账失败：本次待跑 ${#PAIRS[@]} 条，实际新增记账 $DELTA 条（$COUNT_BEFORE → $COUNT_AFTER）"
+  exit 1
+fi
+echo "RECON_OK applied 增量 $DELTA == 本次条数 ${#PAIRS[@]}（$COUNT_BEFORE → $COUNT_AFTER）"
+
+# ---- 自检 2：applied_via 全表合法（引擎只认 executed/imported/baseline）----
+BAD_VIA_AFTER=$(Q "select applied_via || '|' || count(*) from schema_migrations
+                    where applied_via not in ('executed','imported','baseline') group by applied_via")
+[ -z "$BAD_VIA_AFTER" ] || { echo "FAIL: 记账后出现非法 applied_via：$(echo "$BAD_VIA_AFTER" | paste -sd' ' -)"; exit 1; }
+echo "VIA_OK applied_via 全部合法（$ALLOWED_APPLIED_VIA）"
+
+# ---- 自检 3：集合复核（磁盘 - 库 = 空），gap 与 system/support 一并覆盖 ----
+# --allow-partial 只给「预演库建基线 / 复现事故现场」用（那时本来就该剩下一堆待跑），
+# 部署与补迁移一律不许带它。
+reload_applied
+LEFT=$(pending_list)
+if [ -n "$LEFT" ]; then
+  if [ "$ALLOW_PARTIAL" = "1" ]; then
+    echo "PARTIAL_OK（--allow-partial）本次后仍待跑 $(echo "$LEFT" | wc -l) 条，已跳过集合复核"
+  else
+    echo "FAIL: 仍有未应用的迁移（磁盘有、库里没有 success 记录）："
+    echo "$LEFT" | sed 's/^/      /'
+    exit 1
+  fi
+else
+  echo "SET_OK 磁盘上的版本化迁移全部已记账（${#MIG_ROWS[@]} 条）"
+fi
+
 echo "===== 本次应用 ${#PAIRS[@]} 条：$(Q "select string_agg(version, ',' order by version::int) from schema_migrations where kind='versioned' and version ~ '^[0-9]+\$' and version::int >= ${PAIRS[0]%%:*}") ====="

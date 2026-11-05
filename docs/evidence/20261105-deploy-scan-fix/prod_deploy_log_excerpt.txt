@@ -1,0 +1,72 @@
+
+==============================================================
+== [0/8] 前置检查
+==============================================================
+[10:51:49] 仓库 /opt/cloudpivot，库 cloudpivot，服务 cloudpivot，标签 20261105-release
+
+==============================================================
+== [1/8] 查清待上线内容（git fetch + 差异清单）
+==============================================================
+[10:51:49] 当前 HEAD      47043b6004f9a0b6be77c77ebf9b09bd5bbb2b6e  fix(gate): check.sh 在干净 HEAD 上首闸即红 —— rustfmt 2 文件 + 批次B 闸②
+[10:51:49] origin/main    47043b6004f9a0b6be77c77ebf9b09bd5bbb2b6e  fix(gate): check.sh 在干净 HEAD 上首闸即红 —— rustfmt 2 文件 + 批次B 闸②
+[10:51:49] 落后提交数：0
+[10:51:49] 库里已应用的最大迁移版本：V0235
+[10:51:49] 二进制过期：线上二进制 2026-11-04 21:54:18 早于最近后端提交 2026-11-05 10:50:17 ⇒ 重编译
+[10:51:49] dist 过期：线上 dist 2026-11-04 18:34:01 早于最近前端提交 2026-11-05 08:11:51 ⇒ 重构建
+[10:51:49] 后端改动：有　　前端改动：有　　待应用迁移：6 个
+[10:51:49]     + backend/migrations/business/V0236__erp_finance_menu_reparent.up.sql ()
+[10:51:49]     + backend/migrations/business/V0237__erp_po_project_link.up.sql ()
+[10:51:49]     + backend/migrations/business/V0238__task_doc_link_and_po_warehouse_snapshot.up.sql ()
+[10:51:49]     + backend/migrations/business/V0239__flow_approver_role_grants.up.sql ()
+[10:51:49]     + backend/migrations/business/V0240__erp_budget_mapping_material_type.up.sql ()
+[10:51:49]     + backend/migrations/business/V0241__erp_contract_permission_prefix_unify.up.sql ()
+
+==============================================================
+== [2/8] 备份（库 dump + 线上二进制 + 现有 dist）
+==============================================================
+[10:51:49] pg_dump …
+  ✅ db.dump                           1959041 字节
+  ✅ cloudpivot                       54247488 字节
+  ✅ dist/                                 30M
+
+==============================================================
+== [5/8] 数据库迁移（逐条跑 + 按引擎口径记账）
+==============================================================
+-----------------------------------------------------------------
+==> [V0236] V0236__erp_finance_menu_reparent.up.sql
+    DO
+    UPDATE 1
+    UPDATE 1
+    DO
+APPLY_OK V236 checksum=da921c1e6ce473b0… seq=171 ms=77ms 记录数=1
+-----------------------------------------------------------------
+==> [V0237] V0237__erp_po_project_link.up.sql
+    ALTER TABLE
+    COMMENT
+    CREATE INDEX
+    psql:/opt/cloudpivot/backend/migrations/business/V0239__flow_approver_role_grants.up.sql:239: NOTICE:  V0239 自检通过：审批角色 approve 授权 7 行；8 个实例侧节点合计授权 80 行
+    DO
+APPLY_OK V239 checksum=bec2fa18112d4578… seq=174 ms=46ms 记录数=1
+-----------------------------------------------------------------
+==> [V0240] V0240__erp_budget_mapping_material_type.up.sql
+    psql:/opt/cloudpivot/backend/migrations/business/V0240__erp_budget_mapping_material_type.up.sql:85: ERROR:  relation "biz_budget_subject_map" does not exist
+    LINE 2:                             FROM biz_budget_subject_map
+                                             ^
+    QUERY:  SELECT count(*), string_agg(DISTINCT map_type, ', ')
+                                FROM biz_budget_subject_map
+         WHERE NOT (
+                  (map_type = 'DEFAULT' AND ref_id IS NULL)
+               OR (map_type = 'MATERIAL_TYPE'
+                   AND ref_id IS NULL AND ref_code IS NOT NULL AND btrim(ref_code) <> '')
+               OR (map_type IN ('MATERIAL', 'WAREHOUSE') AND ref_id IS NOT NULL)
+              )
+    CONTEXT:  PL/pgSQL function inline_code_block line 6 at SQL statement
+APPLY_FAILED V240 rc=3（完整输出 /tmp/deploya-apply-V240.log）
+!!! 停止：V240 失败
+
+############ 部署失败：迁移应用失败（上面的 APPLY_FAILED 行） ############
+日志：/var/log/cloudpivot-deploy-20261105-release.log
+
+—— 按当前进度给出的回滚/排查命令 ——
+  数据库整库回滚（慎用，会丢部署后写入）：
+    systemctl stop cloudpivot

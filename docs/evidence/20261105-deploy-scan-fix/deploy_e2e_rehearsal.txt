@@ -1,0 +1,308 @@
+
+==============================================================
+== [0/8] 前置检查
+==============================================================
+[15:21:18] 仓库 /tmp/cp-dryrun2，库 cloudpivot_rehearsal_deploy，服务 cloudpivot，标签 20261105-152118
+
+==============================================================
+== [1/8] 查清待上线内容（git fetch + 差异清单）
+==============================================================
+[15:21:18] 当前 HEAD      87c6b60b481569e194ab16b328cb1687f562d205  dry-run: 带上修复后的 deploy.sh / migrate_plan.sh / deploya_migrate.sh
+[15:21:18] origin/main    87c6b60b481569e194ab16b328cb1687f562d205  dry-run: 带上修复后的 deploy.sh / migrate_plan.sh / deploya_migrate.sh
+[15:21:18] 落后提交数：0
+[15:21:18] 库内已应用 versioned 迁移：169 条，最大版本 V0250
+[15:21:18] 预检通过：applied_via 取值合法、迁移文件名可被引擎识别
+[15:21:18] dist 过期：线上 dist 1970-01-01 08:00:00 早于最近前端提交 2026-11-05 15:01:00 ⇒ 重构建
+[15:21:18] （--skip-backend：忽略后端改动）
+[15:21:18] （--skip-frontend：忽略前端改动）
+[15:21:18] 后端改动：无　　前端改动：无　　待应用迁移：13 个（口径：磁盘全部 up.sql − 库内 success 记录）
+[15:21:18]     + backend/migrations/business/V0220__flow_standard_flag_fix.up.sql  [V0220]
+[15:21:18]     + backend/migrations/business/V0221__erp_seed_accounting_period_year.up.sql  [V0221]
+[15:21:18]     + backend/migrations/business/V0226__erp_budget_subjects_and_config.up.sql  [V0226]
+[15:21:18]     + backend/migrations/business/V0227__erp_budget_tables.up.sql  [V0227]
+[15:21:18]     + backend/migrations/business/V0228__erp_budget_approval_flow.up.sql  [V0228]
+[15:21:18]     + backend/migrations/business/V0229__erp_asset_tables.up.sql  [V0229]
+[15:21:18]     + backend/migrations/business/V0230__erp_depreciation_tables.up.sql  [V0230]
+[15:21:18]     + backend/migrations/business/V0231__erp_asset_disposal_flow.up.sql  [V0231]
+[15:21:18]     + backend/migrations/business/V0232__erp_asset_voucher_rules.up.sql  [V0232]
+[15:21:18]     + backend/migrations/business/V0233__flow_seed_is_system_fix2.up.sql  [V0233]
+[15:21:18]     + backend/migrations/business/V0234__flow_template_menu_retire.up.sql  [V0234]
+[15:21:18]     + backend/migrations/business/V0240__erp_budget_mapping_material_type.up.sql  [V0240]
+[15:21:19]     + backend/migrations/business/V0241__erp_contract_permission_prefix_unify.up.sql  [V0241]
+[15:21:19]   ⚠ 其中 13 条版本号低于库内最大已应用 V0250： V0220 V0221 V0226 V0227 V0228 V0229 V0230 V0231 V0232 V0233 V0234 V0240 V0241
+[15:21:19]      这是引擎允许的乱序补迁（启动期只打 out_of_order WARN）；旧版 deploy.sh 正是把这些 gap 整批丢掉才炸的
+
+==============================================================
+== [2/8] 备份（库 dump + 线上二进制 + 现有 dist）
+==============================================================
+[15:21:19] pg_dump …
+[15:21:19] （/tmp/cp-dryrun2/frontend/dist 不存在，跳过 dist 备份）
+  ✅ db.dump                            732522 字节
+  ✅ cloudpivot                       42658864 字节
+[15:21:19] 备份目录：/root/deploy-backup-20261105-152118
+
+==============================================================
+== [3/8] 同步代码（git merge --ff-only）
+==============================================================
+[15:21:19] 已是最新，无需同步
+
+==============================================================
+== [4/8] 后端编译（只编译不重启）
+==============================================================
+[15:21:19] 无后端改动，跳过编译
+
+==============================================================
+== [5/8] 数据库迁移（逐条跑 + 按引擎口径记账 + 跑完对账）
+==============================================================
+[15:21:19] 迁移前已记账 169 条，本次待跑 13 条
+PENDING_ASSERT_OK 传入清单 == 独立算出的待跑集合（13 条，按版本升序）
+RUN_START 待跑 13 条，迁移前已记账 169 条
+-----------------------------------------------------------------
+==> [V0220] migrations/business/V0220__flow_standard_flag_fix.up.sql
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0220__flow_standard_flag_fix.up.sql:93: NOTICE:  V0220：is_system 打标 0 行（contract_approve / stock_take_post），残留错标 0 行（应为 0）
+    DO
+APPLY_OK V220 checksum=9b36239194213536… seq=183 ms=40ms 记录数=1 source=migrations/business/V0220__flow_standard_flag_fix.up.sql
+-----------------------------------------------------------------
+==> [V0221] migrations/business/V0221__erp_seed_accounting_period_year.up.sql
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0221__erp_seed_accounting_period_year.up.sql:83: NOTICE:  V0221：当年 2026 年会计期间 —— 新建 0 期，已存在 12 期（共 12 期）
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0221__erp_seed_accounting_period_year.up.sql:83: NOTICE:  V0221：按 CURRENT_DATE = 2026-11-05 判定，当月 = 11
+    DO
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0221__erp_seed_accounting_period_year.up.sql:126: NOTICE:  V0221 自检通过：当年 2026 的 12 期齐备
+    DO
+APPLY_OK V221 checksum=f27321bc42c503a1… seq=184 ms=32ms 记录数=1 source=migrations/business/V0221__erp_seed_accounting_period_year.up.sql
+-----------------------------------------------------------------
+==> [V0226] migrations/business/V0226__erp_budget_subjects_and_config.up.sql
+    INSERT 0 0
+    INSERT 0 0
+    UPDATE 0
+    UPDATE 0
+    INSERT 0 0
+    DO
+APPLY_OK V226 checksum=57ee3e43dde81942… seq=185 ms=33ms 记录数=1 source=migrations/business/V0226__erp_budget_subjects_and_config.up.sql
+-----------------------------------------------------------------
+==> [V0227] migrations/business/V0227__erp_budget_tables.up.sql
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0227__erp_budget_tables.up.sql:81: NOTICE:  relation "biz_budget" already exists, skipping
+    CREATE TABLE
+    COMMENT
+    COMMENT
+    COMMENT
+    COMMENT
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0227__erp_budget_tables.up.sql:89: NOTICE:  relation "uk_biz_budget_no" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0227__erp_budget_tables.up.sql:92: NOTICE:  relation "uk_biz_budget_slot_active" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0227__erp_budget_tables.up.sql:95: NOTICE:  relation "uk_biz_budget_slot_version" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0227__erp_budget_tables.up.sql:97: NOTICE:  relation "idx_biz_budget_year_dept" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0227__erp_budget_tables.up.sql:99: NOTICE:  relation "idx_biz_budget_status" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0227__erp_budget_tables.up.sql:101: NOTICE:  relation "idx_biz_budget_account" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0227__erp_budget_tables.up.sql:104: NOTICE:  relation "idx_biz_budget_approval" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0227__erp_budget_tables.up.sql:123: NOTICE:  relation "biz_budget_period" already exists, skipping
+    CREATE TABLE
+    COMMENT
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0227__erp_budget_tables.up.sql:127: NOTICE:  relation "idx_biz_budget_period_budget" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0227__erp_budget_tables.up.sql:128: NOTICE:  relation "idx_biz_budget_period_code" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0227__erp_budget_tables.up.sql:171: NOTICE:  relation "biz_budget_usage" already exists, skipping
+    CREATE TABLE
+    COMMENT
+    COMMENT
+    COMMENT
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0227__erp_budget_tables.up.sql:182: NOTICE:  relation "uk_biz_budget_usage_source" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0227__erp_budget_tables.up.sql:185: NOTICE:  relation "idx_biz_budget_usage_slot" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0227__erp_budget_tables.up.sql:188: NOTICE:  relation "idx_biz_budget_usage_slot_period" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0227__erp_budget_tables.up.sql:190: NOTICE:  relation "idx_biz_budget_usage_source_id" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0227__erp_budget_tables.up.sql:213: NOTICE:  relation "biz_budget_subject_map" already exists, skipping
+    CREATE TABLE
+    COMMENT
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0227__erp_budget_tables.up.sql:220: NOTICE:  relation "uk_biz_bsm_target" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0227__erp_budget_tables.up.sql:221: NOTICE:  relation "idx_biz_bsm_account" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0227__erp_budget_tables.up.sql:222: NOTICE:  relation "idx_biz_bsm_dept" already exists, skipping
+    CREATE INDEX
+    INSERT 0 0
+    INSERT 0 0
+    DO
+APPLY_OK V227 checksum=280f84197c063b08… seq=186 ms=39ms 记录数=1 source=migrations/business/V0227__erp_budget_tables.up.sql
+-----------------------------------------------------------------
+==> [V0228] migrations/business/V0228__erp_budget_approval_flow.up.sql
+    INSERT 0 0
+    INSERT 0 0
+    INSERT 0 0
+    INSERT 0 0
+    INSERT 0 0
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0228__erp_budget_approval_flow.up.sql:203: NOTICE:  V0228 OK：budget_approve 已发布（11 节点 / 13 边 / hash 19b84d031306）
+    DO
+APPLY_OK V228 checksum=c199358b475c414a… seq=187 ms=55ms 记录数=1 source=migrations/business/V0228__erp_budget_approval_flow.up.sql
+-----------------------------------------------------------------
+==> [V0229] migrations/business/V0229__erp_asset_tables.up.sql
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0229__erp_asset_tables.up.sql:67: NOTICE:  relation "biz_asset_category" already exists, skipping
+    CREATE TABLE
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0229__erp_asset_tables.up.sql:70: NOTICE:  relation "uk_biz_asset_cat_code" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0229__erp_asset_tables.up.sql:72: NOTICE:  relation "idx_biz_asset_cat_status" already exists, skipping
+    CREATE INDEX
+    COMMENT
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0229__erp_asset_tables.up.sql:148: NOTICE:  relation "biz_fixed_asset" already exists, skipping
+    CREATE TABLE
+    COMMENT
+    COMMENT
+    COMMENT
+    COMMENT
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0229__erp_asset_tables.up.sql:160: NOTICE:  relation "uk_biz_fa_no" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0229__erp_asset_tables.up.sql:164: NOTICE:  relation "uk_biz_fa_source" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0229__erp_asset_tables.up.sql:165: NOTICE:  relation "idx_biz_fa_category" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0229__erp_asset_tables.up.sql:166: NOTICE:  relation "idx_biz_fa_dept" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0229__erp_asset_tables.up.sql:167: NOTICE:  relation "idx_biz_fa_custodian" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0229__erp_asset_tables.up.sql:168: NOTICE:  relation "idx_biz_fa_status" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0229__erp_asset_tables.up.sql:172: NOTICE:  relation "idx_biz_fa_dep_scan" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0229__erp_asset_tables.up.sql:174: NOTICE:  relation "idx_biz_fa_voucher" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0229__erp_asset_tables.up.sql:205: NOTICE:  relation "biz_fixed_asset_change" already exists, skipping
+    CREATE TABLE
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0229__erp_asset_tables.up.sql:207: NOTICE:  relation "idx_biz_fa_chg_asset" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0229__erp_asset_tables.up.sql:208: NOTICE:  relation "idx_biz_fa_chg_type" already exists, skipping
+    CREATE INDEX
+    COMMENT
+    INSERT 0 0
+    INSERT 0 0
+    INSERT 0 0
+    DO
+APPLY_OK V229 checksum=419f6b987be795f1… seq=188 ms=48ms 记录数=1 source=migrations/business/V0229__erp_asset_tables.up.sql
+-----------------------------------------------------------------
+==> [V0230] migrations/business/V0230__erp_depreciation_tables.up.sql
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0230__erp_depreciation_tables.up.sql:64: NOTICE:  relation "biz_depreciation_batch" already exists, skipping
+    CREATE TABLE
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0230__erp_depreciation_tables.up.sql:67: NOTICE:  relation "uk_biz_dep_batch_period" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0230__erp_depreciation_tables.up.sql:68: NOTICE:  relation "uk_biz_dep_batch_no" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0230__erp_depreciation_tables.up.sql:69: NOTICE:  relation "idx_biz_dep_batch_status" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0230__erp_depreciation_tables.up.sql:71: NOTICE:  relation "idx_biz_dep_batch_voucher" already exists, skipping
+    CREATE INDEX
+    COMMENT
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0230__erp_depreciation_tables.up.sql:106: NOTICE:  relation "biz_depreciation" already exists, skipping
+    CREATE TABLE
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0230__erp_depreciation_tables.up.sql:108: NOTICE:  relation "idx_biz_dep_batch" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0230__erp_depreciation_tables.up.sql:109: NOTICE:  relation "idx_biz_dep_asset" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0230__erp_depreciation_tables.up.sql:110: NOTICE:  relation "idx_biz_dep_period" already exists, skipping
+    CREATE INDEX
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0230__erp_depreciation_tables.up.sql:111: NOTICE:  relation "idx_biz_dep_dept" already exists, skipping
+    CREATE INDEX
+    COMMENT
+    INSERT 0 0
+    INSERT 0 0
+    INSERT 0 0
+    DO
+APPLY_OK V230 checksum=7047dbc6de2d2e9c… seq=189 ms=34ms 记录数=1 source=migrations/business/V0230__erp_depreciation_tables.up.sql
+-----------------------------------------------------------------
+==> [V0231] migrations/business/V0231__erp_asset_disposal_flow.up.sql
+    INSERT 0 0
+    INSERT 0 0
+    INSERT 0 0
+    INSERT 0 0
+    INSERT 0 0
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0231__erp_asset_disposal_flow.up.sql:153: NOTICE:  V0231 OK：asset_disposal 已发布（3 节点 / 2 边 / hash b4bef2fc227d）
+    DO
+APPLY_OK V231 checksum=c809b57f5a138551… seq=190 ms=33ms 记录数=1 source=migrations/business/V0231__erp_asset_disposal_flow.up.sql
+-----------------------------------------------------------------
+==> [V0232] migrations/business/V0232__erp_asset_voucher_rules.up.sql
+    INSERT 0 0
+    ALTER TABLE
+    ALTER TABLE
+    DO
+APPLY_OK V232 checksum=c4ab15196108033e… seq=191 ms=42ms 记录数=1 source=migrations/business/V0232__erp_asset_voucher_rules.up.sql
+-----------------------------------------------------------------
+==> [V0233] migrations/business/V0233__flow_seed_is_system_fix2.up.sql
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0233__flow_seed_is_system_fix2.up.sql:123: NOTICE:  V0233：is_system 打标 0 行（budget_approve / asset_disposal），预置白名单 13 个编码全部为系统流程
+    DO
+APPLY_OK V233 checksum=dad06ebf202885e8… seq=192 ms=35ms 记录数=1 source=migrations/business/V0233__flow_seed_is_system_fix2.up.sql
+-----------------------------------------------------------------
+==> [V0234] migrations/business/V0234__flow_template_menu_retire.up.sql
+    UPDATE 0
+    DO
+APPLY_OK V234 checksum=4b77fb2d797527f0… seq=193 ms=31ms 记录数=1 source=migrations/business/V0234__flow_template_menu_retire.up.sql
+-----------------------------------------------------------------
+==> [V0240] migrations/business/V0240__erp_budget_mapping_material_type.up.sql
+    DO
+    DO
+    ALTER TABLE
+    ALTER TABLE
+    DROP INDEX
+    CREATE INDEX
+    COMMENT
+    COMMENT
+    COMMENT
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0240__erp_budget_mapping_material_type.up.sql:183: NOTICE:  V0240 ✓ MATERIAL_TYPE 可落库：ck_biz_bsm_ref 三档 + uk_biz_bsm_target 目标键 = coalesce(ref_id, upper(btrim(ref_code)))
+    DO
+APPLY_OK V240 checksum=32664aa3a579fc7a… seq=194 ms=36ms 记录数=1 source=migrations/business/V0240__erp_budget_mapping_material_type.up.sql
+-----------------------------------------------------------------
+==> [V0241] migrations/business/V0241__erp_contract_permission_prefix_unify.up.sql
+    psql:/tmp/cp-dryrun2/backend/migrations/business/V0241__erp_contract_permission_prefix_unify.up.sql:182: NOTICE:  V0241 自检通过：5 个 business:erp:contract:* 就位，旧码 0 残留，授权行 0 → 0（零丢失），在途令牌升级 0 人
+    DO
+APPLY_OK V241 checksum=1928680c203dee07… seq=195 ms=33ms 记录数=1 source=migrations/business/V0241__erp_contract_permission_prefix_unify.up.sql
+RECON_OK applied 增量 13 == 本次条数 13（169 → 182）
+VIA_OK applied_via 全部合法（executed imported baseline）
+SET_OK 磁盘上的版本化迁移全部已记账（182 条）
+===== 本次应用 13 条：220,221,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,242,243,244,245,246,247,248,249,250 =====
+  ✅ 对账通过：新增记账 13 条 == 待跑 13 条（169 → 182）
+  ✅ applied_via 合法（全部 ∈ executed imported baseline）
+  ✅ 集合复核：磁盘上的版本化迁移全部已记账（含 business/system/support 全部分目录）
+
+==============================================================
+== [6/8] 启用新二进制（换文件 → 重启 → /health → 进程==磁盘 → 记账自检）
+==============================================================
+[15:21:21] 无后端改动，不动服务
+
+==============================================================
+== [7/8] 前端（只在有前端改动时 typecheck + build，并比对入口指纹）
+==============================================================
+[15:21:21] 无前端改动，跳过 dist 构建
+
+==============================================================
+== [8/8] 收口核对
+==============================================================
+[15:21:21] 主仓 HEAD          87c6b60  dry-run: 带上修复后的 deploy.sh / migrate_plan.sh / deploya_migrate.sh
+[15:21:21] origin/main        87c6b60
+  ✅ 主仓 HEAD == origin/main
+[15:21:21] 迁移记账           182 条，最大版本 V0250
+  ✅ 磁盘迁移全部已记账（磁盘 - 库 = 空）
+stub-systemctl: 干跑不应调用 systemctl is-active cloudpivot
+[15:21:21] 服务状态           
+[15:21:21] /health            
+stub-systemctl: 干跑不应调用 systemctl show -p MainPID --value cloudpivot
+[15:21:21] 进程==磁盘         NO
+grep: /tmp/cp-dryrun2/frontend/dist/index.html: No such file or directory
+[15:21:21] 线上前端入口       （dist/index.html: ）
+[15:21:21] 备份目录           /root/deploy-backup-20261105-152118
+
+================= 部署完成 =================
+  发布提交   87c6b60
+  备份        /root/deploy-backup-20261105-152118（db.dump / cloudpivot / dist）
+  日志        /var/log/cloudpivot-deploy-20261105-152118.log
+  回滚：见 /tmp/cp-dryrun2/scripts/deploy/README.md「回滚」一节（三件套：二进制 / dist / 库 dump）
+        二进制  systemctl stop cloudpivot && cp /root/deploy-backup-20261105-152118/cloudpivot /tmp/cp-dryrun2/backend/target/release/cloudpivot.rollback && mv -f /tmp/cp-dryrun2/backend/target/release/cloudpivot.rollback /tmp/cp-dryrun2/backend/target/release/cloudpivot && systemctl start cloudpivot
+        前端    mv /tmp/cp-dryrun2/frontend/dist /tmp/cp-dryrun2/frontend/dist-failed-20261105-152118 && mv /tmp/cp-dryrun2/frontend/dist-prev-20261105-152118 /tmp/cp-dryrun2/frontend/dist
+        代码    git -C /tmp/cp-dryrun2 reset --hard 87c6b60b481569e194ab16b328cb1687f562d205
+============================================

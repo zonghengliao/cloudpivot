@@ -1,0 +1,84 @@
+
+==============================================================
+== ① 建预演库 cloudpivot_rehearsal_deploy 并铺基线（≤V0219 全部 up.sql）
+==============================================================
+  预演库已建：127.0.0.1/cloudpivot_rehearsal_deploy（owner alun）
+  schema_migrations 已按引擎 DDL 建好（kind/name/version/checksum/applied_via/applied_at/applied_seq/execution_ms/success/source）
+  基线迁移 155 条（最早..V0219）
+    RECON_OK applied 增量 155 == 本次条数 155（0 → 155）
+    VIA_OK applied_via 全部合法（executed imported baseline）
+    PARTIAL_OK（--allow-partial）本次后仍待跑 27 条，已跳过集合复核
+  PASS 基线记账条数 == 基线文件数（155）
+  PASS 基线后待跑条数 == 磁盘总数 - 基线数（27）
+
+==============================================================
+== ② 复现事故现场：只补跑 V0235..V0239（旧版当时挑中的那几条）
+==============================================================
+  模拟旧版实际跑过：235:create_sys_invariant_result 236:erp_finance_menu_reparent 237:erp_po_project_link 238:task_doc_link_and_po_warehouse_snapshot 239:flow_approver_role_grants
+    RECON_OK applied 增量 5 == 本次条数 5（155 → 160）
+    VIA_OK applied_via 全部合法（executed imported baseline）
+    PARTIAL_OK（--allow-partial）本次后仍待跑 22 条，已跳过集合复核
+  PASS 现场库内最大已应用版本 == 旧版跑到的那条（239）
+
+==============================================================
+== ③ 对比两种选法（同一时刻、同一个库）
+==============================================================
+  旧法（max 比大小）挑出 11 条：240:erp_budget_mapping_material_type 241:erp_contract_permission_prefix_unify 242:erp_expense_tables 243:erp_expense_approval_flow 244:erp_expense_voucher_rules 245:erp_reminder_jobs_enabled 246:flow_stock_take_snapshot_canonical 247:data_scope_minimal_grants 248:stock_in_cancel_reviewer_role 249:qa_fixture_role_scope_self_only 250:erp_voucher_three_state
+  新法（mp_build_pending，= deploy.sh 的清单）挑出 22 条：220:flow_standard_flag_fix 221:erp_seed_accounting_period_year 226:erp_budget_subjects_and_config 227:erp_budget_tables 228:erp_budget_approval_flow 229:erp_asset_tables 230:erp_depreciation_tables 231:erp_asset_disposal_flow 232:erp_asset_voucher_rules 233:flow_seed_is_system_fix2 234:flow_template_menu_retire 240:erp_budget_mapping_material_type 241:erp_contract_permission_prefix_unify 242:erp_expense_tables 243:erp_expense_approval_flow 244:erp_expense_voucher_rules 245:erp_reminder_jobs_enabled 246:flow_stock_take_snapshot_canonical 247:data_scope_minimal_grants 248:stock_in_cancel_reviewer_role 249:qa_fixture_role_scope_self_only 250:erp_voucher_three_state
+  新法标记的乱序补迁（版本号 < max）：11 条 →  V0220 V0221 V0226 V0227 V0228 V0229 V0230 V0231 V0232 V0233 V0234
+  PASS 新法把 11 条 gap 标成「乱序补迁」（旧法连标都没标，直接丢）（11）
+  PASS 新法：磁盘全部未记账的都在清单里（22）
+  其中版本号低于库内最大已应用 V0239 的 gap：11 条（旧法一条都挑不出来）
+  PASS 新法把 gap 也纳入了清单（11）
+  PASS 旧法确实漏跑（11 < 22）
+  PASS 卡面点名的 13 条漏跑迁移全部进入新法清单（13）
+  PASS 旧法只挑到 240/241 两条（13 条里的其余 11 条 gap 全被丢掉）（2）
+
+==============================================================
+== ④ 旧法真跑一遍：V0240 必须失败（依赖 V0227 建的 biz_budget_subject_map）
+==============================================================
+  PASS 跑 V0240 前 biz_budget_subject_map 不存在（0）
+        psql:/opt/cloudpivot/backend/migrations/business/V0240__erp_budget_mapping_material_type.up.sql:85: ERROR:  relation "biz_budget_subject_map" does not exist
+    APPLY_FAILED V240 rc=3（完整输出 /tmp/deploya-apply-V240.log）
+  PASS 旧法在 V0240 失败，报错点名 biz_budget_subject_map（与 2026-11-05 生产日志一致）
+  PASS 旧法失败后待跑条数不变（V0240 是单事务，失败不落账）（22）
+
+==============================================================
+== ⑤ 新法 + --assert-pending：先验「少给一条会被拒跑」，再把清单跑完
+==============================================================
+  故意少给一条（21/22）…
+    FAIL: 传入的迁移清单 ≠ 磁盘-库 的待跑集合（- 是漏给、+ 是多给，详见 /tmp/pending-diff.txt）
+  PASS 少给一条 → 迁移工具拒跑（exit 2）
+  PASS 被拒跑后库内记账条数不变（没跑半截）（160）
+  跑完整清单 22 条 …
+    PENDING_ASSERT_OK 传入清单 == 独立算出的待跑集合（22 条，按版本升序）
+    RECON_OK applied 增量 22 == 本次条数 22（160 → 182）
+    VIA_OK applied_via 全部合法（executed imported baseline）
+    SET_OK 磁盘上的版本化迁移全部已记账（182 条）
+  PASS 自检①：对账 applied 增量 == 本次条数
+  PASS 自检②：applied_via 全表合法
+  PASS 自检③：磁盘 - 库 = 空
+  PASS 对账（外部复算）：新增记账 == 待跑条数（22）
+  PASS 集合复核（外部复算）：磁盘上没有未记账的迁移（）
+  PASS V0240 跑通的前提表 biz_budget_subject_map 已被 V0227 建好（1）
+  PASS V0240 已记账（1）
+  PASS V0241 已记账（旧版根本没跑到）（1）
+  PASS 库内最大已应用版本 == 磁盘最大版本（V0250）（250）
+
+==============================================================
+== ⑥ 负样本：非法 applied_via 必须被拦住（服务启动 FATAL 的那一类）
+==============================================================
+  PASS mp_bad_applied_via 报出非法值：deploy-backfill|1
+    FAIL: schema_migrations.applied_via 出现引擎不认识的值：deploy-backfill|1
+          引擎只认 executed imported baseline（vendor/nik-db/src/migrate/kind.rs:95-111）；
+  PASS 迁移工具在预检阶段拒跑（exit 2）
+  PASS 清理后 applied_via 恢复全合法（）
+
+==============================================================
+== 汇总
+==============================================================
+  预演库：cloudpivot_rehearsal_deploy（127.0.0.1/alun）
+  基线：V0219　回归目标：V0241　本次清单：22 条
+  PASS=26  FAIL=0
+  ✅ 全部断言通过
+（已删除预演库 cloudpivot_rehearsal_deploy）
