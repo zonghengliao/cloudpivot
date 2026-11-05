@@ -3,7 +3,13 @@
 > 卡：`t_54ad4c5f`【P2-7】供应商三名不一致（盘点 + 定规则 + 补巡检）
 > 日期：2026-11-05 · 主机 99（Hermes）→ 生产 144 只读实测
 > 结论文档：`docs/architecture/P2-7-供应商名口径盘点.md`（盘点表 / 口径 S1–S6 / 偏离项）
-> 巡检落地：`docs/architecture/snapshot-drift/10_checks.sql` **DI-23** + `scripts/verify/snapshot_audit.py`
+> 巡检落地：`docs/architecture/snapshot-drift/10_checks.sql` **DI-26** + `scripts/verify/snapshot_audit.py`
+>
+> ⚠ **编号变更（2026-11-05 合并历史分叉时）**：本条巡检原编号 **DI-23**，与 144 bare 侧的
+> 「DI-23 单据附件悬空」（P2-6b）撞号，合并时让到 **DI-26**。本目录内的原始输出/JSON
+> （`audit-*.txt` / `audit-*.json` / `p27_probe_di23_prod.sql`）保留当时的 `DI-23` 字样不动
+> —— 那是当次运行的真实记录。现状以 `10_checks.sql` 的 `di.c_di26` 为准，见
+> `docs/evidence/20261105-repo-union-merge/README.md`。
 
 ## 0. 一页结论
 

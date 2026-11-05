@@ -1,0 +1,52 @@
+=== A) 提交回读：git show HEAD（提交本体 + 改动的文件清单）===
+7f0fe5c fix(verify): DI-19 按实例状态分级（PENDING=WARN/终态=INFO）+ DI-18 精确豁免台账（t_237f1caa）
+7f0fe5c fix(verify): DI-19 按实例状态分级（PENDING=WARN/终态=INFO）+ DI-18 精确豁免台账（t_237f1caa）
+ docs/architecture/snapshot-drift/10_checks.sql     | 86 +++++++++++++++++++---
+ ...221\212\350\255\246\350\256\276\350\256\241.md" | 75 +++++++++++++++++--
+ scripts/verify/snapshot_audit.py                   | 12 ++-
+ 3 files changed, 153 insertions(+), 20 deletions(-)
+--- 关键代码行回读（git 里的本体，不是工作区）---
+511:--           AND w.src_id = d.src_id::text AND w.expires_on > current_date
+1047:--   且**未过期**的登记 ⇒ 降 INFO，并在 snapshot_value 前缀 `已核查豁免#<checked_on>：`
+1055:             THEN '已核查豁免#' || to_char(w.checked_on, 'YYYY-MM-DD') || '：'
+1070:        AND w.expires_on > current_date
+1101:            WHEN i.status = 'PENDING'    THEN 'WARN'   -- 活待办挂在死对象上
+--- HEAD 与工作区是否一致（空 diff = 一致）---
+
+=== B) 生产库已安装的口径（只读）===
+di.c_di18 定义含豁免 JOIN: true
+di.c_di19 定义按 status 分级: true
+豁免台账行数: 1（到期日 2027-02-04）
+
+=== C) DI-19 命中按实例状态分布（证明 47 条全为终态、PENDING=0）===
+  status   | hits | earliest_end 
+-----------+------+--------------
+ APPROVED  |   27 | 2026-10-30
+ CANCELLED |   16 | 2026-10-30
+ WITHDRAWN |    3 | 2026-11-03
+ REJECTED  |    1 | 2026-11-03
+(4 rows)
+
+ severity | count 
+----------+-------
+ INFO     |    47
+(1 row)
+
+=== D) DI-18 命中明细（severity + snapshot_value 前缀）===
+              entity_id               | drift_kind | severity |                      snapshot_value                       
+--------------------------------------+------------+----------+-----------------------------------------------------------
+ 01a19108-ee53-73c6-bdaa-0109614ea963 | DEFECT     | INFO     | 已核查豁免#2026-11-04：SERIAL_BATCH → biz_material_serial
+ 01a1f140-0000-4000-8000-000000000001 | DEFECT     | INFO     | ADJUST → (无实体表)
+(2 rows)
+
+ severity | count 
+----------+-------
+ INFO     |     2
+(1 row)
+
+=== E) 生产库仍未改动任何业务数据（抽验豁免那一行原样在）===
+                  id                  |   doc_type   |                doc_id                |       doc_no       |   qty   | amount |                 remark                  
+--------------------------------------+--------------+--------------------------------------+--------------------+---------+--------+-----------------------------------------
+ 01a19108-ee53-73c6-bdaa-0109614ea963 | SERIAL_BATCH | 01a19108-ee51-713b-aaf0-7e8309199f4d | SN-20261031-000011 | 10.0000 | 0.0000 | 批量生成 10 件（SN-20261031-000011 起）
+(1 row)
+

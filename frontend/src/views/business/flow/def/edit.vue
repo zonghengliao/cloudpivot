@@ -164,19 +164,33 @@
         </div>
       </main>
 
-      <!-- 右：属性面板 -->
-      <aside class="flow-editor__props">
-        <NodeProps
-          :node="selectedNode"
-          :edge="selectedEdge"
-          :target-node="selectedEdgeTarget"
-          :readonly="readonly"
-          :biz-type="defDetail?.biz_type ?? null"
-          :form-fields="formFields"
-          @patch-node="onPatchNode"
-          @patch-edge="onPatchEdge"
+      <!-- 右：属性面板（可拖拽调宽：手柄在面板左边缘，画布是 flex:1 自动让位、不重叠） -->
+      <div class="flow-editor__props-wrap" :style="{ width: `${propsWidth}px` }">
+        <div
+          class="flow-editor__resizer"
+          :class="{ 'is-dragging': propsResizing }"
+          role="separator"
+          aria-orientation="vertical"
+          :aria-valuenow="propsWidth"
+          aria-valuemin="280"
+          aria-valuemax="640"
+          title="拖动调整属性面板宽度（双击回到默认）"
+          @pointerdown="onResizeStart"
+          @dblclick="resetPropsWidth"
         />
-      </aside>
+        <aside class="flow-editor__props">
+          <NodeProps
+            :node="selectedNode"
+            :edge="selectedEdge"
+            :target-node="selectedEdgeTarget"
+            :readonly="readonly"
+            :biz-type="defDetail?.biz_type ?? null"
+            :form-fields="formFields"
+            @patch-node="onPatchNode"
+            @patch-edge="onPatchEdge"
+          />
+        </aside>
+      </div>
     </div>
 
     <!-- 拖入节点的跟随幽灵 -->
@@ -233,7 +247,7 @@
  * 「校验」和「发布」都会**先保存**：`validate` 校验的是库里已保存的图，
  * 不先保存就会出现「画布上是新的、校验的是旧的」。
  */
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next';
 import {
@@ -378,6 +392,115 @@ const selectedEdgeTarget = computed(() => {
   const edge = selectedEdge.value;
   if (!edge) return null;
   return graph.nodes.find((node) => node.key === edge.to) ?? null;
+});
+
+// ==================== 属性面板宽度（可拖拽） ====================
+/**
+ * 面板宽度为什么是「拖动改宽度」而不是「拖动改 position: absolute 的 left」：
+ * 三栏（左面板 / 画布 / 右面板）本来就是一个 flex 行，右面板 `flex: none` + 固定宽度，
+ * 拖动只改这一个宽度值，画布 `flex: 1` 自动让位 —— 不需要任何重叠或遮罩，
+ * 窄屏下也不会出现「面板盖住画布」的假象。
+ *
+ * 宽度持久化在 `localStorage['flow-editor-props-width']`：用户把面板拖到 600 以后，
+ * 下次进编辑器还是 600（这个偏好在不同流程之间是通用的）。
+ */
+const PROPS_WIDTH_KEY = 'flow-editor-props-width';
+/** 默认宽度：320（再窄条件规则的输入框就挤成一列几个字） */
+const PROPS_WIDTH_DEFAULT = 320;
+/** 下限：280，保证「添加条件」那一行的两个按钮还能横排 */
+const PROPS_WIDTH_MIN = 280;
+/** 上限：640，再宽就没画布可看了 */
+const PROPS_WIDTH_MAX = 640;
+
+/** 读持久化宽度（脏值 / 隐私模式 -> 默认） */
+function readPropsWidth(): number {
+  try {
+    const raw = Math.round(Number(localStorage.getItem(PROPS_WIDTH_KEY)));
+    if (Number.isFinite(raw) && raw >= PROPS_WIDTH_MIN && raw <= PROPS_WIDTH_MAX) {
+      return raw;
+    }
+  } catch {
+    // localStorage 不可用（隐私模式 / 被策略禁用）：用默认宽度，不影响编辑
+  }
+  return PROPS_WIDTH_DEFAULT;
+}
+
+/** 写持久化宽度（写不进去就算了，不阻断拖拽） */
+function savePropsWidth(width: number): void {
+  try {
+    localStorage.setItem(PROPS_WIDTH_KEY, String(width));
+  } catch {
+    // 同上
+  }
+}
+
+/** 属性面板宽度（px） */
+const propsWidth = ref<number>(readPropsWidth());
+/** 是否正在拖动（手柄高亮 + 全局 cursor 用） */
+const propsResizing = ref(false);
+
+/** 拖动期的锚点：面板**右边缘**的屏幕坐标（面板贴右边，宽度 = 右边缘 - 指针 x） */
+let resizeAnchorRight: number | null = null;
+
+/** 按下手柄：记锚点，开始在 window 上跟指针 */
+function onResizeStart(event: PointerEvent): void {
+  if (event.button !== 0) {
+    return;
+  }
+  // 阻止浏览器把这次按下当成文本选择 / 滚动手势的起点
+  event.preventDefault();
+  const wrap = (event.currentTarget as HTMLElement).parentElement;
+  resizeAnchorRight = wrap?.getBoundingClientRect().right ?? window.innerWidth;
+  propsResizing.value = true;
+  window.addEventListener('pointermove', onResizeMove);
+  window.addEventListener('pointerup', onResizeEnd);
+  window.addEventListener('pointercancel', onResizeEnd);
+}
+
+/** 拖动中：实时改宽度（夹在 280–640） */
+function onResizeMove(event: PointerEvent): void {
+  if (resizeAnchorRight === null) {
+    return;
+  }
+  const next = resizeAnchorRight - event.clientX;
+  propsWidth.value = Math.min(PROPS_WIDTH_MAX, Math.max(PROPS_WIDTH_MIN, Math.round(next)));
+}
+
+/** 松手：收监听 + 落盘（拖动中不写 localStorage，避免每帧一次写） */
+function onResizeEnd(): void {
+  window.removeEventListener('pointermove', onResizeMove);
+  window.removeEventListener('pointerup', onResizeEnd);
+  window.removeEventListener('pointercancel', onResizeEnd);
+  const wasResizing = propsResizing.value;
+  propsResizing.value = false;
+  resizeAnchorRight = null;
+  if (wasResizing) {
+    savePropsWidth(propsWidth.value);
+  }
+}
+
+/** 双击手柄：回到默认宽度（并记住） */
+function resetPropsWidth(): void {
+  propsWidth.value = PROPS_WIDTH_DEFAULT;
+  savePropsWidth(PROPS_WIDTH_DEFAULT);
+}
+
+/**
+ * 拖动中全局 `cursor: col-resize` + 禁止选中文本。
+ *
+ * 为什么动 `body.style` 而不是靠 CSS 类：拖到画布上方时，指针下的元素会换成画布自己的
+ * cursor（grab / crosshair），只给手柄写样式挡不住；`body` 上写 inline 样式优先级最高，
+ * 且 `user-select: none` 在 body 上会继承给全部后代（拖动时不会把画布里的文字选中一片）。
+ */
+watch(propsResizing, (resizing) => {
+  const style = document.body.style;
+  style.cursor = resizing ? 'col-resize' : '';
+  style.userSelect = resizing ? 'none' : '';
+});
+
+// 拖到一半切走页面（路由离开 / 版本重载）时把 window 上的监听与全局样式收掉
+onBeforeUnmount(() => {
+  onResizeEnd();
 });
 
 /** 版本下拉选项 */
@@ -1175,13 +1298,52 @@ onMounted(() => {
     min-width: 0;
   }
 
-  &__props {
-    width: 320px;
+  /* 属性面板外壳：宽度由脚本控制（拖拽 / localStorage），高度撑满三栏行 */
+  &__props-wrap {
+    position: relative;
+    display: flex;
     flex: none;
+    min-height: 0;
+  }
+
+  &__props {
+    flex: 1;
+    min-width: 0;
     background: var(--td-bg-color-container);
     border: 1px solid var(--td-component-stroke);
     border-radius: 8px;
     overflow: hidden;
+  }
+
+  /* 拖拽手柄：平时完全透明，hover / 拖动时中间露一条 2px 主色条。
+     命中区 8px（比看见的条宽，好抓）；向左探出 4px 落进两栏之间的间隙，
+     不占画布宽度、也不遮面板内容。 */
+  &__resizer {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -4px;
+    z-index: 5;
+    width: 8px;
+    cursor: col-resize;
+    touch-action: none;
+
+    &::after {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 3px;
+      width: 2px;
+      content: '';
+      background: transparent;
+      border-radius: 1px;
+      transition: background-color 0.12s ease;
+    }
+
+    &:hover::after,
+    &.is-dragging::after {
+      background: var(--td-brand-color);
+    }
   }
 
   &__ghost {

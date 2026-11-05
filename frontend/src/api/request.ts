@@ -55,11 +55,21 @@ type RetriableConfig = AxiosRequestConfig & { /** 是否已经因 401 重放过 
 export class ApiError extends Error {
   /** 业务状态码；网络层失败时为 0 */
   readonly code: number;
+  /**
+   * HTTP 状态码（`undefined` = 网络层失败 / 超时 / 没拿到响应）。
+   *
+   * 为什么需要它：**业务「不存在」的码按域散落**（任务 `63001`、合同 `66014`、
+   * 盘点/边配置 `65005` …），而且新增业务类型还会继续加码 —— 调用方要判
+   * 「这条记录没了」只能看 HTTP 404，不能背一张越来越长的码表。
+   * 可选字段：老调用方一个都不用改。
+   */
+  readonly status?: number;
 
-  constructor(code: number, message: string) {
+  constructor(code: number, message: string, status?: number) {
     super(message);
     this.name = 'ApiError';
     this.code = code;
+    this.status = status;
   }
 }
 
@@ -167,14 +177,14 @@ function toApiError(error: AxiosError<ApiResult>): ApiError {
     if (status === 401) {
       clearTokens();
     }
-    return new ApiError(typeof body.code === 'number' ? body.code : -1, body.msg);
+    return new ApiError(typeof body.code === 'number' ? body.code : -1, body.msg, status);
   }
   if (status === 401) {
     clearTokens();
-    return new ApiError(-1, '登录状态已失效，请重新登录');
+    return new ApiError(-1, '登录状态已失效，请重新登录', status);
   }
   if (status === 403) {
-    return new ApiError(-1, '权限不足');
+    return new ApiError(-1, '权限不足', status);
   }
   if (error.code === 'ECONNABORTED') {
     return new ApiError(-1, '请求超时，请稍后重试');

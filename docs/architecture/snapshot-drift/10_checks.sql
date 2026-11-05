@@ -1,7 +1,10 @@
 -- ============================================================
--- 10_checks.sql —— 巡检项定义（DI-01…DI-23，其中 DI-14 是护栏自检，
---                    DI-17…DI-22 是多态引用巡检（类型列 + id 列，见 ARCH-3 DC-08），
---                    DI-23 是供应商 ID→名字映射唯一性（见 ARCH-3 DC-07 / 卡 P2-7））
+-- 10_checks.sql —— 巡检项定义（DI-01…DI-26，其中 DI-14 是护栏自检，
+--                    DI-17…DI-25 是多态引用巡检（类型列 + id 列，见 ARCH-3 DC-08））
+--                    P2-6b 补齐 DI-21 的目标表，并新增 DI-23/24/25（附件 / 提醒 / 抄送）
+--                    DI-26 = 供应商 ID→名字映射唯一性（P2-7；合并历史分叉时与 DI-23
+--                    附件巡检撞号，故让到 26 —— DI-23/24/25 已在 144 生产口径与证据里，
+--                    编号不动，见 docs/evidence/20261105-repo-union-merge/）
 --
 -- 每个巡检项 = 一个只读视图 di.c_diNN，输出统一 11 列：
 --   issue_code / entity_type / entity_id / entity_no / field_name
@@ -377,7 +380,7 @@ COMMENT ON VIEW di.c_di16 IS
   'DI-16 已过账收货单的来源采购单已不可收（含软删/悬空）：DEFECT/ERROR —— 库存、应付、进项凭证没有上游依据（ARCH-3 DC-03）';
 
 -- ============================================================
--- DI-17…DI-22 多态引用巡检（ARCH-3 §5 DC-08 / 卡 P2-6）
+-- DI-17…DI-25 多态引用巡检（ARCH-3 §5 DC-08 / 卡 P2-6 / P2-6b 补口）
 --
 -- 「多态引用」= 一个**类型列** + 一个 **id 列**，id 指向哪张表由类型列决定
 -- （如 `biz_voucher.source_type` + `source_id`）。这类引用**无法用外键表达**
@@ -463,12 +466,70 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('STATUS_ENTITY', 'FLOW_EDGE_CFG',     'biz_flow_edge',         NULL,         '状态机边配置（配置行无软删）'),
     ('STATUS_ENTITY', 'FLOW_LINKAGE_CFG',  'biz_flow_linkage_rule', 'deleted_at', '联动规则配置'),
     ('STATUS_ENTITY', 'ACCOUNTING_YEAR',   NULL,                    NULL,         '年结：无实体表，entity_id 存结转凭证 id'),
-    -- ⑤ 序列号来源：biz_material_serial.source_type + source_id
-    ('SERIAL_SOURCE', 'PURCHASE', NULL, NULL, '**目标表未定义**：source_id 写入点恒为 None（serial_handler 4 处）'),
-    ('SERIAL_SOURCE', 'TRANSFER', NULL, NULL, '**目标表未定义**：同上'),
-    ('SERIAL_SOURCE', 'PRODUCE',  NULL, NULL, '**目标表未定义**：同上'),
-    ('SERIAL_SOURCE', 'RETURN',   NULL, NULL, '**目标表未定义**：同上')
+    -- ⑤ 序列号来源：biz_material_serial.source_type + source_id（P2-6b 补全映射）
+    ('SERIAL_SOURCE', 'PURCHASE', 'biz_stock_in',       'deleted_at', '收货过账生成（in_type=PURCHASE），source_id = 收货单 id'),
+    ('SERIAL_SOURCE', 'RETURN',   'biz_stock_in',       'deleted_at', '退货入库生成（in_type=RETURN，同一张收货单表），source_id = 收货单 id'),
+    ('SERIAL_SOURCE', 'TRANSFER', 'biz_stock_transfer', 'deleted_at', '调拨入库单；目前调拨只搬已有序列号、不新建号，本条登记备查'),
+    ('SERIAL_SOURCE', 'PRODUCE',  NULL,                 NULL,         '生产入库：生产模块未落地，没有单据表 ⇒ 只允许「有类型、无 id」'),
+    -- ⑥ 单据附件：biz_doc_attachment.doc_type + doc_id（P2-6b，取值域 = ATTACHMENT_DOC_KINDS）
+    ('ATTACHMENT_DOC', 'CONTRACT',       'biz_contract',       'deleted_at', '合同扫描件 / 签署回执'),
+    ('ATTACHMENT_DOC', 'PURCHASE_ORDER', 'biz_purchase_order', 'deleted_at', '采购单附件'),
+    ('ATTACHMENT_DOC', 'STOCK_IN',       'biz_stock_in',       'deleted_at', '收货单附件（发票 / 签收单）'),
+    ('ATTACHMENT_DOC', 'PAYABLE',        'biz_payable',        'deleted_at', '应付单附件'),
+    ('ATTACHMENT_DOC', 'PAYMENT',        'biz_payment',        'deleted_at', '付款单附件'),
+    -- ⑦ 业务提醒台账：biz_reminder_log.doc_type + doc_id（P2-6b，取值域 = REMINDER_DOC_KINDS）
+    ('REMINDER_DOC', 'PAYABLE',        'biz_payable',        'deleted_at', '应付到期提醒'),
+    ('REMINDER_DOC', 'PURCHASE_ORDER', 'biz_purchase_order', 'deleted_at', '采购超期提醒'),
+    ('REMINDER_DOC', 'CONTRACT',       'biz_contract',       'deleted_at', '合同到期提醒'),
+    ('REMINDER_DOC', 'INVENTORY',      'biz_inventory',      NULL,         '低库存提醒（库存行无软删）'),
+    -- ⑧ 流程抄送来源：biz_flow_cc.source_type + source_ref（P2-6b，取值域 = flow::graph::AssigneeKind）
+    --    只有「角色 / 部门」两类会把来源 id 落进 source_ref；人本身记在 receiver_id。
+    ('FLOW_CC_SOURCE', 'ROLE',               'sys_role', 'deleted_at', '角色展开的抄送，source_ref = 角色 id'),
+    ('FLOW_CC_SOURCE', 'ADMIN',              'sys_role', 'deleted_at', '超管兜底（role_code=SUPER_ADMIN），source_ref = 角色 id'),
+    ('FLOW_CC_SOURCE', 'DEPT_LEADER',        'sys_dept', 'deleted_at', '部门负责人，source_ref = 部门 id'),
+    ('FLOW_CC_SOURCE', 'INITIATOR_SUPERIOR', 'sys_dept', 'deleted_at', '发起人上级部门负责人，source_ref = 部门 id'),
+    ('FLOW_CC_SOURCE', 'USER',               NULL, NULL, '点名用户：人写在 receiver_id，source_ref 为空'),
+    ('FLOW_CC_SOURCE', 'INITIATOR',          NULL, NULL, '发起人本人：没有来源对象'),
+    ('FLOW_CC_SOURCE', 'TASK_OWNER',         NULL, NULL, '任务负责人（运行期从 biz_task 解析）'),
+    ('FLOW_CC_SOURCE', 'TASK_CREATOR',       NULL, NULL, '任务创建人（运行期从 biz_task 解析）'),
+    ('FLOW_CC_SOURCE', 'TASK_ASSIGNER',      NULL, NULL, '任务分派人（运行期从 biz_task 解析）'),
+    ('FLOW_CC_SOURCE', 'FORM_VAR',           NULL, NULL, '表单变量点名：来源是发起人填的值'),
+    ('FLOW_CC_SOURCE', 'EXPRESSION',         NULL, NULL, '规则树求值（本身不落库，落到具体来源）')
   ) AS t(ref_domain, ref_type, target_table, soft_delete_col, note);
+
+-- ------------------------------------------------------------
+-- 已核查豁免台账：**精确到行**的「这条已核对过、不必再报」清单
+--   为什么是视图 + VALUES 而不是一张表（关键设计，别改成表）：
+--   豁免会永久关掉一条真实告警，所以它必须**走 git review + 发版**——
+--   改一行 = 一次提交 = 有人签字；而库里的一张表谁都能加一行（写行不用过 review），
+--   「谁能悄悄关掉告警」就等于「巡检守不住的东西」，这种口子不能开。
+--   三条硬约束（缺一不可，见设计文档 §2.4c）：
+--     ① 精确三元组 (check_id, src_table, src_id)：**禁止**按 doc_type / 表名 /
+--        前缀 / 通配豁免（那样一次豁免会顺手盖住未来所有同类真问题）；
+--     ② 必须写 reason（为什么可以不管）+ checked_by（谁核对的）+ checked_on（哪天）；
+--     ③ 必须写 expires_on：**到期自然失效、自动回红**，不靠人记得回来删。
+--   使用方式（其它巡检要豁免时照抄，把 check_id 换成自己的）：
+--     LEFT JOIN di.v_poly_ref_waiver w
+--            ON w.check_id = 'DI-xx' AND w.src_table = d.src_table
+--           AND w.src_id = d.src_id::text AND w.expires_on > current_date
+-- ------------------------------------------------------------
+CREATE OR REPLACE VIEW di.v_poly_ref_waiver AS
+SELECT check_id, src_table, src_id, reason, checked_by, checked_on, expires_on
+  FROM (VALUES
+    -- ① DI-18 / biz_inventory_txn / 01a19108-ee53-73c6-bdaa-0109614ea963
+    --    DATAFIX-20261101-P14：该批次 +10（2026-10-31 16:17:24 本行 IN）与修数 −10
+    --    （2026-11-01 00:20:44 doc_no=DATAFIX-20261101-P14 的 OUT）对平，
+    --    biz_inventory 该物料该仓现存 qty=0 / amount=0 / avg_cost=0，
+    --    修数前快照在 datafix_p14_snapshot（10 条序列号 + 1 条库存行）。
+    --    流水**必须保留**（审计证据），序列号软删是修数本意 ⇒ 它指向的序列号
+    --    永远「悬空」，属历史正常；到期（2027-02-04）自动回 ERROR 再复核一次。
+    ('DI-18', 'biz_inventory_txn', '01a19108-ee53-73c6-bdaa-0109614ea963',
+     'DATAFIX-20261101-P14 修数留档：+10/-10 对平、库存净 0、成本 0、修数前快照在 datafix_p14_snapshot；流水保留作审计证据',
+     'manong', DATE '2026-11-04', DATE '2027-02-04')
+  ) AS t(check_id, src_table, src_id, reason, checked_by, checked_on, expires_on);
+
+COMMENT ON VIEW di.v_poly_ref_waiver IS
+  '已核查豁免台账（精确到行 id + 带期限）：只允许 (check_id, src_table, src_id) 三元组全等匹配，到期（expires_on <= current_date）自动失效回红；豁免变更必须走 git review + 发版';
 
 -- ------------------------------------------------------------
 -- 悬空引用明细（本组 5 条巡检的公共取数层）
@@ -802,20 +863,159 @@ SELECT m.ref_domain, 'biz_status_log', l.id, l.entity_no::text, 'entity_id', m.r
   LEFT JOIN biz_flow_linkage_rule t ON t.id = l.entity_id
  WHERE l.entity_type = 'FLOW_LINKAGE_CFG' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
 -- ========== ⑤ 序列号来源 ==========
--- 序列号：类型有、id 恒空（写入点 serial_handler 4 处全是 None）⇒ MISSING_ID
+-- 序列号：PURCHASE / RETURN → 收货单（同一张表，靠 source_type 区分）
+UNION ALL
+SELECT m.ref_domain, 'biz_material_serial', s.id, s.serial_no::text, 'source_id', m.ref_type, s.source_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_material_serial s
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'SERIAL_SOURCE' AND m.ref_type = s.source_type
+  LEFT JOIN biz_stock_in t ON t.id = s.source_id
+ WHERE s.deleted_at IS NULL AND s.source_id IS NOT NULL
+   AND s.source_type IN ('PURCHASE', 'RETURN')
+   AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+-- 序列号：TRANSFER → 调拨单
+UNION ALL
+SELECT m.ref_domain, 'biz_material_serial', s.id, s.serial_no::text, 'source_id', m.ref_type, s.source_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_material_serial s
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'SERIAL_SOURCE' AND m.ref_type = s.source_type
+  LEFT JOIN biz_stock_transfer t ON t.id = s.source_id
+ WHERE s.deleted_at IS NULL AND s.source_id IS NOT NULL AND s.source_type = 'TRANSFER'
+   AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+-- 序列号：有实体单据表的类型却没 id（P2-6b：PRODUCE 没有单据表，不算缺）
 UNION ALL
 SELECT m.ref_domain, 'biz_material_serial', s.id, s.serial_no::text, 'source_id', m.ref_type, NULL,
        m.target_table, 'MISSING_ID', 'SOURCE_ID_REQUIRED', 'biz_material_serial.source_id'::text
   FROM biz_material_serial s
   JOIN di.v_poly_ref_map m ON m.ref_domain = 'SERIAL_SOURCE' AND m.ref_type = s.source_type
- WHERE s.deleted_at IS NULL AND s.source_id IS NULL
--- 序列号：填了 source_id 但类型没有目标表（映射未定义）⇒ NO_TARGET
+ WHERE s.deleted_at IS NULL AND s.source_id IS NULL AND m.target_table IS NOT NULL
+-- 序列号：填了 source_id 但类型没有目标表 ⇒ NO_TARGET
 UNION ALL
 SELECT m.ref_domain, 'biz_material_serial', s.id, s.serial_no::text, 'source_id', m.ref_type, s.source_id,
        m.target_table, 'NO_TARGET', 'NO_TARGET_TABLE', 'README:source_type=' || m.ref_type
   FROM biz_material_serial s
   JOIN di.v_poly_ref_map m ON m.ref_domain = 'SERIAL_SOURCE' AND m.ref_type = s.source_type
- WHERE s.deleted_at IS NULL AND s.source_id IS NOT NULL AND m.target_table IS NULL;
+ WHERE s.deleted_at IS NULL AND s.source_id IS NOT NULL AND m.target_table IS NULL
+-- ========== ⑥ 单据附件（P2-6b） ==========
+UNION ALL
+SELECT m.ref_domain, 'biz_doc_attachment', a.id, a.id::text, 'doc_id', m.ref_type, a.doc_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_doc_attachment a
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'ATTACHMENT_DOC' AND m.ref_type = a.doc_type
+  LEFT JOIN biz_contract t ON t.id = a.doc_id
+ WHERE a.deleted_at IS NULL AND a.doc_type = 'CONTRACT' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+UNION ALL
+SELECT m.ref_domain, 'biz_doc_attachment', a.id, a.id::text, 'doc_id', m.ref_type, a.doc_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_doc_attachment a
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'ATTACHMENT_DOC' AND m.ref_type = a.doc_type
+  LEFT JOIN biz_purchase_order t ON t.id = a.doc_id
+ WHERE a.deleted_at IS NULL AND a.doc_type = 'PURCHASE_ORDER' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+UNION ALL
+SELECT m.ref_domain, 'biz_doc_attachment', a.id, a.id::text, 'doc_id', m.ref_type, a.doc_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_doc_attachment a
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'ATTACHMENT_DOC' AND m.ref_type = a.doc_type
+  LEFT JOIN biz_stock_in t ON t.id = a.doc_id
+ WHERE a.deleted_at IS NULL AND a.doc_type = 'STOCK_IN' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+UNION ALL
+SELECT m.ref_domain, 'biz_doc_attachment', a.id, a.id::text, 'doc_id', m.ref_type, a.doc_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_doc_attachment a
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'ATTACHMENT_DOC' AND m.ref_type = a.doc_type
+  LEFT JOIN biz_payable t ON t.id = a.doc_id
+ WHERE a.deleted_at IS NULL AND a.doc_type = 'PAYABLE' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+UNION ALL
+SELECT m.ref_domain, 'biz_doc_attachment', a.id, a.id::text, 'doc_id', m.ref_type, a.doc_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_doc_attachment a
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'ATTACHMENT_DOC' AND m.ref_type = a.doc_type
+  LEFT JOIN biz_payment t ON t.id = a.doc_id
+ WHERE a.deleted_at IS NULL AND a.doc_type = 'PAYMENT' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+-- ========== ⑦ 业务提醒台账（P2-6b） ==========
+--   `biz_reminder_log` 是幂等台账（只增不改）：单据被删是正常生命周期，
+--   所以这里只报 DANGLING，不加 MISSING_ID（`doc_id` 列 NOT NULL，缺 id 写不进来）。
+UNION ALL
+SELECT m.ref_domain, 'biz_reminder_log', r.id, coalesce(r.doc_no, r.id::text), 'doc_id', m.ref_type, r.doc_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_reminder_log r
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'REMINDER_DOC' AND m.ref_type = r.doc_type
+  LEFT JOIN biz_payable t ON t.id = r.doc_id
+ WHERE r.doc_type = 'PAYABLE' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+UNION ALL
+SELECT m.ref_domain, 'biz_reminder_log', r.id, coalesce(r.doc_no, r.id::text), 'doc_id', m.ref_type, r.doc_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_reminder_log r
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'REMINDER_DOC' AND m.ref_type = r.doc_type
+  LEFT JOIN biz_purchase_order t ON t.id = r.doc_id
+ WHERE r.doc_type = 'PURCHASE_ORDER' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+UNION ALL
+SELECT m.ref_domain, 'biz_reminder_log', r.id, coalesce(r.doc_no, r.id::text), 'doc_id', m.ref_type, r.doc_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_reminder_log r
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'REMINDER_DOC' AND m.ref_type = r.doc_type
+  LEFT JOIN biz_contract t ON t.id = r.doc_id
+ WHERE r.doc_type = 'CONTRACT' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+UNION ALL
+SELECT m.ref_domain, 'biz_reminder_log', r.id, coalesce(r.doc_no, r.id::text), 'doc_id', m.ref_type, r.doc_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_reminder_log r
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'REMINDER_DOC' AND m.ref_type = r.doc_type
+  LEFT JOIN biz_inventory t ON t.id = r.doc_id
+ WHERE r.doc_type = 'INVENTORY' AND t.id IS NULL
+-- ========== ⑧ 流程抄送来源（P2-6b） ==========
+--   角色（ROLE / ADMIN）→ sys_role；部门（DEPT_LEADER / INITIATOR_SUPERIOR）→ sys_dept。
+--   其余来源本来就不写 source_ref（人写在 receiver_id），登记表 target_table 为空。
+UNION ALL
+SELECT m.ref_domain, 'biz_flow_cc', c.id, (c.node_key || '#' || c.round)::text, 'source_ref', m.ref_type, c.source_ref,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_flow_cc c
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'FLOW_CC_SOURCE' AND m.ref_type = c.source_type
+  LEFT JOIN sys_role t ON t.id = c.source_ref
+ WHERE c.source_type IN ('ROLE', 'ADMIN') AND c.source_ref IS NOT NULL
+   AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+UNION ALL
+SELECT m.ref_domain, 'biz_flow_cc', c.id, (c.node_key || '#' || c.round)::text, 'source_ref', m.ref_type, c.source_ref,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_flow_cc c
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'FLOW_CC_SOURCE' AND m.ref_type = c.source_type
+  LEFT JOIN sys_dept t ON t.id = c.source_ref
+ WHERE c.source_type IN ('DEPT_LEADER', 'INITIATOR_SUPERIOR') AND c.source_ref IS NOT NULL
+   AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+-- 抄送：角色/部门来源却没记 source_ref ⇒ 不知道抄送对象是谁（追溯断链）
+UNION ALL
+SELECT m.ref_domain, 'biz_flow_cc', c.id, (c.node_key || '#' || c.round)::text, 'source_ref', m.ref_type, NULL,
+       m.target_table, 'MISSING_ID', 'SOURCE_REF_REQUIRED',
+       ('biz_flow_cc.source_ref / ' || m.target_table)::text
+  FROM biz_flow_cc c
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'FLOW_CC_SOURCE' AND m.ref_type = c.source_type
+ WHERE c.source_ref IS NULL AND m.target_table IS NOT NULL;
 
 -- ============================================================
 -- DI-17 凭证来源悬空 / 缺 id（BLOCKER）
@@ -841,33 +1041,56 @@ COMMENT ON VIEW di.c_di17 IS
   'DI-17 凭证来源悬空（BLOCKER，悬空=ERROR/缺 id=WARN）：source_type 指出的单据已软删/不存在，或类型有而 source_id 空 —— 审计证据链断了（ARCH-3 DC-08）';
 
 -- ============================================================
--- DI-18 库存流水单据悬空（BLOCKER）
+-- DI-18 库存流水单据悬空（BLOCKER，**已核查豁免可降级**）
 --   为什么是 BLOCKER：库存流水是「账动了多少」的唯一审计证据，必须能回跳到造成它的单据
 --   （收货 / 出库 / 调拨 / 序列号）。流水无源 ⇒ 账实不符时说不出「谁动的」。
 --   分级：悬空 = ERROR；doc_type 本来没有实体表（OPENING/ADJUST）却填了 doc_id = INFO
 --         （手工修数的痕迹，账本身是完整的，只是来源栏位填了个不存在的 id）。
+--   已核查豁免（D-1 收口口径）：命中行若在 di.v_poly_ref_waiver 里有**精确到行 id**
+--   且**未过期**的登记 ⇒ 降 INFO，并在 snapshot_value 前缀 `已核查豁免#<checked_on>：`
+--   （原值保留，可见性不能丢）。expires_on <= current_date 的那一刻，JOIN 不再命中，
+--   本行**自动回到 ERROR** —— 没有任何额外逻辑，也不靠人记得回来删豁免。
 -- ============================================================
 CREATE OR REPLACE VIEW di.c_di18 AS
 SELECT 'DI-18'::text AS issue_code, 'INVENTORY_TXN'::text AS entity_type,
        d.src_id AS entity_id, d.src_no AS entity_no, d.ref_field AS field_name,
-       (d.ref_type || ' → ' || coalesce(d.target_table, '(无实体表)'))::text AS snapshot_value,
+       (CASE WHEN w.src_id IS NOT NULL
+             THEN '已核查豁免#' || to_char(w.checked_on, 'YYYY-MM-DD') || '：'
+             ELSE '' END
+        || d.ref_type || ' → ' || coalesce(d.target_table, '(无实体表)'))::text AS snapshot_value,
        d.miss_kind::text AS truth_value,
        d.truth_source,
        'DEFECT'::text AS drift_kind,
-       CASE WHEN d.ref_shape = 'NO_TARGET' THEN 'INFO' ELSE 'ERROR' END::text AS severity,
+       CASE WHEN w.src_id IS NOT NULL    THEN 'INFO'   -- 已核对并留档（带期限）
+            WHEN d.ref_shape = 'NO_TARGET' THEN 'INFO'  -- 本来没有实体表却填了 id
+            ELSE 'ERROR' END::text AS severity,
        1 AS affected_count
   FROM di.v_poly_ref_dangling d
+  LEFT JOIN di.v_poly_ref_waiver w
+         ON w.check_id = 'DI-18'
+        AND w.src_table = d.src_table
+        AND w.src_id = d.src_id::text
+        AND w.expires_on > current_date
  WHERE d.ref_domain = 'TXN_DOC';
 
 COMMENT ON VIEW di.c_di18 IS
-  'DI-18 库存流水单据悬空（BLOCKER，悬空=ERROR/无实体表的 doc_type=INFO）：doc_type 指出的单据已软删/不存在（ARCH-3 DC-08）';
+  'DI-18 库存流水单据悬空（BLOCKER，悬空=ERROR/无实体表的 doc_type=INFO/已核查豁免=INFO）：doc_type 指出的单据已软删/不存在（ARCH-3 DC-08）；豁免只认 di.v_poly_ref_waiver 里精确到行 id 且未过期的登记，到期自动回 ERROR';
 
 -- ============================================================
--- DI-19 流程实例业务单据悬空（WARN）
---   为什么是 WARN 而不是 BLOCKER：审批实例可能因为「单据归档 / 测试清场 / 历史清理」
---   而指向已消失的单据，账与库存都不受影响；但它会让审批中心点进去 404、
---   任务归属解析不到（TASK_OWNER 等变量渲染成空）。
---   分级：悬空 = WARN；有类型无 biz_id = WARN（审批对象不明，审批人无法判断在批什么）。
+-- DI-19 流程实例业务单据悬空（**按实例状态分级**：PENDING=WARN / 终态=INFO）
+--   为什么不再一律 WARN：审批实例**不随业务对象删除而删**——
+--   任务删除只终止 PENDING 的那张审批（task_bridge.rs:650「任务已删除，审批单自动终止」），
+--   合同删除同理（contract_handler.rs::cancel_approval_of）。终态实例是**审计证据**
+--   （谁在什么时候批的），永远保留，所以「终态实例指向已删对象」是**历史正常**
+--   （与 T12 / R-P1-1 口径一致：审批终态 = 审批链的终点，可回溯，不随业务清场消失）。
+--   反之「PENDING 实例指向已删对象」= 活待办挂在死对象上，审批人批的是一个不存在的东西
+--   ⇒ 这才是需要人看的（WARN）。
+--   分级：DANGLING + 实例 status='PENDING' ⇒ WARN；
+--         DANGLING + 其它终态（APPROVED / CANCELLED / WITHDRAWN / REJECTED / 将来新增的）
+--         ⇒ INFO（**仍然列出**，可见性不能丢，只是不进告警队列）；
+--         MISSING_ID / NO_TARGET（有 biz_type 没 biz_id、或类型本无实体表）⇒ 保持 WARN
+--         （这类与实例状态无关，无法用「终态」解释）。
+--   注：实例行读不到（LEFT JOIN 落空，正常不会发生）⇒ 无法判断状态 ⇒ 宁可报 WARN。
 -- ============================================================
 CREATE OR REPLACE VIEW di.c_di19 AS
 SELECT 'DI-19'::text AS issue_code, 'FLOW_INSTANCE'::text AS entity_type,
@@ -875,12 +1098,19 @@ SELECT 'DI-19'::text AS issue_code, 'FLOW_INSTANCE'::text AS entity_type,
        (d.ref_type || ' → ' || coalesce(d.target_table, '(无实体表)'))::text AS snapshot_value,
        d.miss_kind::text AS truth_value,
        d.truth_source,
-       'DEFECT'::text AS drift_kind, 'WARN'::text AS severity, 1 AS affected_count
+       'DEFECT'::text AS drift_kind,
+       CASE WHEN d.ref_shape <> 'DANGLING' THEN 'WARN'  -- 缺 id / 无实体表：与实例状态无关
+            WHEN i.id IS NULL            THEN 'WARN'   -- 判不出状态就不降级
+            WHEN i.status = 'PENDING'    THEN 'WARN'   -- 活待办挂在死对象上
+            ELSE 'INFO' END::text AS severity,         -- 终态实例：审计证据，历史正常
+       1 AS affected_count
   FROM di.v_poly_ref_dangling d
+  LEFT JOIN biz_flow_instance i
+         ON d.src_table = 'biz_flow_instance' AND i.id = d.src_id
  WHERE d.ref_domain = 'FLOW_BIZ';
 
 COMMENT ON VIEW di.c_di19 IS
-  'DI-19 流程实例绑定的业务单据悬空/缺 id（WARN）：审批挂在不存在的单据上，账不受影响但审批中心点进去 404（ARCH-3 DC-08）';
+  'DI-19 流程实例业务单据悬空（按实例状态分级：PENDING=WARN/终态=INFO，缺 biz_id 仍 WARN）：终态实例是审计证据、不随业务对象删除（T12/R-P1-1）；只有「活待办指向已删对象」才需要人看（ARCH-3 DC-08）';
 
 -- ============================================================
 -- DI-20 状态日志实体悬空（INFO，**故意不告警**）
@@ -904,13 +1134,16 @@ COMMENT ON VIEW di.c_di20 IS
   'DI-20 状态日志实体悬空（INFO，只记录不告警）：日志是只增不改的历史，实体被删是正常生命周期（ARCH-3 DC-08）';
 
 -- ============================================================
--- DI-21 序列号来源未记录（WARN / INFO）
+-- DI-21 序列号来源未记录 / 悬空（WARN / INFO）
 --   为什么不是 BLOCKER：序列号的价值主要在「一物一码」的库存与成本（C5 巡检盯着件数），
 --   来源单据缺失不影响账面数量与金额，只影响「这件货是哪张单进来的」的追责。
---   现状（实测）：`biz_material_serial.source_type` 有值 31 行、`source_id` **0 行有值**
---   —— 写入点 `serial_handler` 4 处全是 `source_id: None`，且四种来源类型
---   （PURCHASE/TRANSFER/PRODUCE/RETURN）**没有登记任何目标表**。
---   所以本项实际输出的是 MISSING_ID（有类型无 id）与 NO_TARGET（无表映射却填了 id）。
+--   P2-6b 起四种来源**都有明确目标表**（见 di.v_poly_ref_map ⑤）：
+--     PURCHASE / RETURN → biz_stock_in、TRANSFER → biz_stock_transfer、PRODUCE → 无单据表。
+--   写入点也补上了：收货过账按 `in_type` 写 `source_type` + `source_id`（= 收货单 id），
+--   批量生成走 `serial_model::ensure_source_pair` 拒绝「半个来源」。
+--   所以本项现在能查出**真正的悬空**，不再只是「有类型无 id」的残缺报告。
+--   分级：悬空（DANGLING）= WARN；有类型无 id（MISSING_ID）= INFO（历史残缺，可人工补）；
+--        无表映射却填了 id（NO_TARGET，只剩 PRODUCE）= WARN（指向不明）。
 -- ============================================================
 CREATE OR REPLACE VIEW di.c_di21 AS
 SELECT 'DI-21'::text AS issue_code, 'MATERIAL_SERIAL'::text AS entity_type,
@@ -919,13 +1152,13 @@ SELECT 'DI-21'::text AS issue_code, 'MATERIAL_SERIAL'::text AS entity_type,
        d.miss_kind::text AS truth_value,
        d.truth_source,
        'DEFECT'::text AS drift_kind,
-       CASE WHEN d.ref_shape = 'NO_TARGET' THEN 'WARN' ELSE 'INFO' END::text AS severity,
+       CASE WHEN d.ref_shape = 'MISSING_ID' THEN 'INFO' ELSE 'WARN' END::text AS severity,
        1 AS affected_count
   FROM di.v_poly_ref_dangling d
  WHERE d.ref_domain = 'SERIAL_SOURCE';
 
 COMMENT ON VIEW di.c_di21 IS
-  'DI-21 序列号来源未记录（INFO=有类型无 id / WARN=无表映射却填了 id）：serial_handler 从不写 source_id（ARCH-3 DC-08 附项）';
+  'DI-21 序列号来源悬空/未记录（WARN=悬空或无表映射却有 id / INFO=有类型无 id）：P2-6b 起四种来源都有登记表，能查真悬空（ARCH-3 DC-08 附项）';
 
 -- ============================================================
 -- DI-22 多态引用登记缺口（INFO，**本组巡检的可信度护栏**）
@@ -961,6 +1194,21 @@ WITH observed AS (
       FROM biz_material_serial
      WHERE deleted_at IS NULL AND coalesce(trim(source_type), '') <> ''
      GROUP BY 2
+    UNION ALL
+    SELECT 'ATTACHMENT_DOC', doc_type::text, 'biz_doc_attachment', count(*)
+      FROM biz_doc_attachment
+     WHERE deleted_at IS NULL AND coalesce(trim(doc_type), '') <> ''
+     GROUP BY 2
+    UNION ALL
+    SELECT 'REMINDER_DOC', doc_type::text, 'biz_reminder_log', count(*)
+      FROM biz_reminder_log
+     WHERE coalesce(trim(doc_type), '') <> ''
+     GROUP BY 2
+    UNION ALL
+    SELECT 'FLOW_CC_SOURCE', source_type::text, 'biz_flow_cc', count(*)
+      FROM biz_flow_cc
+     WHERE coalesce(trim(source_type), '') <> ''
+     GROUP BY 2
 )
 SELECT 'DI-22'::text AS issue_code, 'POLY_REF_MAP'::text AS entity_type,
        NULL::uuid AS entity_id,
@@ -977,11 +1225,73 @@ SELECT 'DI-22'::text AS issue_code, 'POLY_REF_MAP'::text AS entity_type,
  WHERE m.ref_type IS NULL;
 
 COMMENT ON VIEW di.c_di22 IS
-  'DI-22 多态引用登记缺口（INFO）：数据里出现 di.v_poly_ref_map 未登记的类型 ⇒ 该类型的悬空不会被 DI-17…DI-21 查到（护栏自检）';
-
+  'DI-22 多态引用登记缺口（INFO）：数据里出现 di.v_poly_ref_map 未登记的类型 ⇒ 该类型的悬空不会被 DI-17…DI-25 查到（护栏自检）';
 
 -- ============================================================
--- DI-23 供应商 ID→名字 映射唯一性 / 快照名 vs 现名（WARN / INFO）
+-- DI-23 单据附件指向的单据悬空（WARN）· P2-6b 补口
+--   依赖：V0212（biz_doc_attachment）
+--   为什么是 WARN 而不是 BLOCKER：附件是**证据的副本**（发票扫描件 / 签收单），
+--   账、库存、凭证都不依赖它；但单据软删后附件还在 ⇒ 点「查看附件」跳到 404，
+--   归档时也不知道这些文件归属谁（DC-17 的存量形态）。
+--   生产当前 0 行（附件功能刚上线），本项上线后**从第一条附件起就有人在看**。
+-- ============================================================
+CREATE OR REPLACE VIEW di.c_di23 AS
+SELECT 'DI-23'::text AS issue_code, 'DOC_ATTACHMENT'::text AS entity_type,
+       d.src_id AS entity_id, d.src_no AS entity_no, d.ref_field AS field_name,
+       (d.ref_type || ' → ' || coalesce(d.target_table, '(无实体表)'))::text AS snapshot_value,
+       d.miss_kind::text AS truth_value,
+       d.truth_source,
+       'DEFECT'::text AS drift_kind, 'WARN'::text AS severity, 1 AS affected_count
+  FROM di.v_poly_ref_dangling d
+ WHERE d.ref_domain = 'ATTACHMENT_DOC';
+
+COMMENT ON VIEW di.c_di23 IS
+  'DI-23 单据附件指向的单据悬空（WARN）：doc_type 指出的单据已软删/不存在 ⇒ 附件点开 404、归档不知归属（ARCH-3 DC-17 / P2-6b）';
+
+-- ============================================================
+-- DI-24 业务提醒台账指向的单据悬空（INFO）· P2-6b 补口
+--   依赖：V0205（biz_reminder_log）
+--   为什么是 INFO：提醒台账是**只增不改的发送历史**（「这单在 11-01 已经提醒过谁」）。
+--   单据被删是正常生命周期，台账必须留着 —— 要求它跟着删才是销毁审计证据
+--   （与 DI-20 同一口径）。生产当前 0 行。
+-- ============================================================
+CREATE OR REPLACE VIEW di.c_di24 AS
+SELECT 'DI-24'::text AS issue_code, 'REMINDER_LOG'::text AS entity_type,
+       d.src_id AS entity_id, d.src_no AS entity_no, d.ref_field AS field_name,
+       (d.ref_type || ' → ' || coalesce(d.target_table, '(无实体表)'))::text AS snapshot_value,
+       d.miss_kind::text AS truth_value,
+       d.truth_source,
+       'DEFECT'::text AS drift_kind, 'INFO'::text AS severity, 1 AS affected_count
+  FROM di.v_poly_ref_dangling d
+ WHERE d.ref_domain = 'REMINDER_DOC';
+
+COMMENT ON VIEW di.c_di24 IS
+  'DI-24 业务提醒台账指向的单据悬空（INFO，只记录不告警）：提醒历史是只增不改的台账，单据被删是正常生命周期（ARCH-3 DC-06/DC-12 / P2-6b）';
+
+-- ============================================================
+-- DI-25 流程抄送来源悬空 / 缺来源 id（INFO）· P2-6b 补口
+--   依赖：V0156（biz_flow_cc）
+--   为什么是 INFO：抄送是**通知侧**行为，审批结论与账都不依赖它；
+--   角色/部门被删后历史抄送记录仍然真实（当时确实抄给了那个角色的人）。
+--   但「角色来源却没记 source_ref」是写入缺陷（无法解释抄送对象是怎么来的），
+--   同一条巡检里报出来，级别一致（都是追溯信息）。
+--   生产当前 0 行。
+-- ============================================================
+CREATE OR REPLACE VIEW di.c_di25 AS
+SELECT 'DI-25'::text AS issue_code, 'FLOW_CC'::text AS entity_type,
+       d.src_id AS entity_id, d.src_no AS entity_no, d.ref_field AS field_name,
+       (d.ref_type || ' → ' || coalesce(d.target_table, '(无实体表)'))::text AS snapshot_value,
+       d.miss_kind::text AS truth_value,
+       d.truth_source,
+       'DEFECT'::text AS drift_kind, 'INFO'::text AS severity, 1 AS affected_count
+  FROM di.v_poly_ref_dangling d
+ WHERE d.ref_domain = 'FLOW_CC_SOURCE';
+
+COMMENT ON VIEW di.c_di25 IS
+  'DI-25 流程抄送来源悬空/缺来源 id（INFO）：source_type 指出的角色/部门已删，或角色来源没记 source_ref（ARCH-3 DC-08 / P2-6b）';
+
+-- ============================================================
+-- DI-26 供应商 ID→名字 映射唯一性 / 快照名 vs 现名（WARN / INFO）
 --   为什么需要这条（ARCH-3 §5 DC-07 / 卡 P2-7）：
 --     同一个供应商在系统里有**三套名字**：`biz_supplier.supplier_name`（全名，主档现值）、
 --     `biz_supplier.short_name`（简称，只用于检索/导入）、以及各处**冻结的快照名**
@@ -1010,7 +1320,7 @@ COMMENT ON VIEW di.c_di22 IS
 --        CONTRACT 采购单**不在此列**：它的快照名按设计来自合同乙方（签约名），
 --        与主档现名不同是合法的（那一段由 DI-01 盯 PO↔合同）。
 -- ============================================================
-CREATE OR REPLACE VIEW di.c_di23 AS
+CREATE OR REPLACE VIEW di.c_di26 AS
 WITH act AS (
     SELECT s.id, s.supplier_code,
            btrim(s.supplier_name) AS full_name,
@@ -1111,7 +1421,7 @@ snap_missing AS (
        -- 那种阶段「快照缺失」不是缺陷而是「还没这列」，不能报（0 行 ≠ 无缺陷的反面）
        AND (SELECT d.has_po_contract_id FROM di.di_capability d)
 )
-SELECT 'DI-23'::text AS issue_code, 'SUPPLIER'::text AS entity_type,
+SELECT 'DI-26'::text AS issue_code, 'SUPPLIER'::text AS entity_type,
        d.entity_id, d.entity_no, 'supplier_name'::text AS field_name,
        d.display_name AS snapshot_value,
        '活跃供应商里这个名字只能出现一次'::text AS truth_value,
@@ -1119,27 +1429,27 @@ SELECT 'DI-23'::text AS issue_code, 'SUPPLIER'::text AS entity_type,
        'DEFECT'::text AS drift_kind, 'WARN'::text AS severity, d.n AS affected_count
   FROM name_dup d
 UNION ALL
-SELECT 'DI-23', 'SUPPLIER', d.entity_id, d.entity_no, 'short_name',
+SELECT 'DI-26', 'SUPPLIER', d.entity_id, d.entity_no, 'short_name',
        d.display_name, '活跃供应商里这个简称只能出现一次',
        'biz_supplier.short_name 归一 lower(btrim()) + deleted_at IS NULL',
        'DEFECT', 'WARN', d.n
   FROM short_dup d
 UNION ALL
-SELECT 'DI-23', 'SUPPLIER', d.entity_id, d.entity_no, 'short_name',
+SELECT 'DI-26', 'SUPPLIER', d.entity_id, d.entity_no, 'short_name',
        ('简称「' || d.short_name || '」= 供应商 ' || d.clashes_with || ' 的全名'),
        '简称不得与任何其它活跃供应商的全名相同',
        'biz_supplier.short_name vs biz_supplier.supplier_name（归一 lower(btrim())）',
        'DEFECT', 'WARN', d.n
   FROM short_shadow d
 UNION ALL
-SELECT 'DI-23', d.entity_type, d.entity_id, d.entity_no, d.field_name,
+SELECT 'DI-26', d.entity_type, d.entity_id, d.entity_no, d.field_name,
        d.snap_name,
        d.cur_name,
        ('biz_supplier.supplier_name (id=' || d.supplier_id::text || ')'),
        'SNAPSHOT', 'INFO', 1
   FROM snap_drift d
 UNION ALL
-SELECT 'DI-23', p.entity_type, p.entity_id, p.entity_no, p.field_name,
+SELECT 'DI-26', p.entity_type, p.entity_id, p.entity_no, p.field_name,
        p.snap_name, p.cur_name,
        ('biz_supplier.supplier_name (id=' || p.supplier_id::text || ') 主档最后修改='
         || to_char(p.master_at, 'YYYY-MM-DD HH24:MI:SS') || '，本单创建='
@@ -1147,13 +1457,13 @@ SELECT 'DI-23', p.entity_type, p.entity_id, p.entity_no, p.field_name,
        'DEFECT', 'WARN', 1
   FROM snap_late p
 UNION ALL
-SELECT 'DI-23', 'PURCHASE_ORDER', m.entity_id, m.entity_no, 'supplier_name_snapshot',
+SELECT 'DI-26', 'PURCHASE_ORDER', m.entity_id, m.entity_no, 'supplier_name_snapshot',
        '(快照 NULL：存量行 V0198 未回填)', m.cur_name,
        ('biz_supplier.supplier_name (id=' || m.supplier_id::text || ')'),
        'SNAPSHOT', 'INFO', 1
   FROM snap_missing m;
 
-COMMENT ON VIEW di.c_di23 IS
-  'DI-23 供应商 ID→名字映射唯一性（WARN=同名/同简称/简称撞他人全名/建单晚于改名却写旧名；INFO=快照名≠现名、存量快照 NULL）：关联键只认 id，名字用于显示，快照漂移只报不修（ARCH-3 DC-07 / 卡 P2-7）';
+COMMENT ON VIEW di.c_di26 IS
+  'DI-26 供应商 ID→名字映射唯一性（WARN=同名/同简称/简称撞他人全名/建单晚于改名却写旧名；INFO=快照名≠现名、存量快照 NULL）：关联键只认 id，名字用于显示，快照漂移只报不修（ARCH-3 DC-07 / 卡 P2-7）';
 
 COMMIT;

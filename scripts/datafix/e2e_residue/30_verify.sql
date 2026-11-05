@@ -13,6 +13,12 @@
 --     —— 那是清场后有人正常发起了审批（不是数据修复动过）
 --   * 库里还有其它非本卡口径的测试痕迹（flow_code 带 e2e/diag/vrf 前缀的软删定义、
 --     孤儿实例）—— 本卡范围外，已在卡面点名跟进
+-- 跨批次对账（2026-11-04，卡 t_142317a2 / datafix/e2e_residue2）：
+--   本卡的 85/37 之后，E2ERES2 又删了 36 定义 / 39 版本 / 98 节点 / 55 边 / 12 审批人 /
+--   16 实例 / 37 实例节点 / 8 待办 / 0 抄送。下面 ⑤ / ⑤b 的 expected 因此多减一项
+--   `followup_deleted_<表名>`（E2ERES2 的 up 写进本表，down 时归零）。
+--   没有这一项，本脚本在 E2ERES2 之后就会永久 FAIL（假红），哨兵就废了。
+-- ============================================================================
 -- ============================================================================
 \pset tuples_only on
 \pset format unaligned
@@ -112,35 +118,45 @@ select case when actual = expected then 'PASS' else 'FAIL' end, 'count_biz_flow_
        'actual=' || actual || ' expected=' || expected
   from (select (select count(*) from biz_flow_def) as actual,
                (select val::int - coalesce((select val::int from datafix_e2e_residue_guard
-                                             where batch='E2ERES-20261104' and item='deleted_biz_flow_def'), 0)
+                                where batch='E2ERES-20261104' and item='deleted_biz_flow_def'), 0)
+                  - coalesce((select val::int from datafix_e2e_residue_guard
+                                where batch='E2ERES-20261104' and item='followup_deleted_biz_flow_def'), 0)
                   from datafix_e2e_residue_guard where batch='E2ERES-20261104' and item='table_biz_flow_def_before') as expected) s;
 
 select case when actual = expected then 'PASS' else 'FAIL' end, 'count_biz_flow_def_version',
        'actual=' || actual || ' expected=' || expected
   from (select (select count(*) from biz_flow_def_version) as actual,
                (select val::int - coalesce((select val::int from datafix_e2e_residue_guard
-                                             where batch='E2ERES-20261104' and item='deleted_biz_flow_def_version'), 0)
+                                where batch='E2ERES-20261104' and item='deleted_biz_flow_def_version'), 0)
+                  - coalesce((select val::int from datafix_e2e_residue_guard
+                                where batch='E2ERES-20261104' and item='followup_deleted_biz_flow_def_version'), 0)
                   from datafix_e2e_residue_guard where batch='E2ERES-20261104' and item='table_biz_flow_def_version_before') as expected) s;
 
 select case when actual = expected then 'PASS' else 'FAIL' end, 'count_biz_flow_node',
        'actual=' || actual || ' expected=' || expected
   from (select (select count(*) from biz_flow_node) as actual,
                (select val::int - coalesce((select val::int from datafix_e2e_residue_guard
-                                             where batch='E2ERES-20261104' and item='deleted_biz_flow_node'), 0)
+                                where batch='E2ERES-20261104' and item='deleted_biz_flow_node'), 0)
+                  - coalesce((select val::int from datafix_e2e_residue_guard
+                                where batch='E2ERES-20261104' and item='followup_deleted_biz_flow_node'), 0)
                   from datafix_e2e_residue_guard where batch='E2ERES-20261104' and item='table_biz_flow_node_before') as expected) s;
 
 select case when actual = expected then 'PASS' else 'FAIL' end, 'count_biz_flow_edge',
        'actual=' || actual || ' expected=' || expected
   from (select (select count(*) from biz_flow_edge) as actual,
                (select val::int - coalesce((select val::int from datafix_e2e_residue_guard
-                                             where batch='E2ERES-20261104' and item='deleted_biz_flow_edge'), 0)
+                                where batch='E2ERES-20261104' and item='deleted_biz_flow_edge'), 0)
+                  - coalesce((select val::int from datafix_e2e_residue_guard
+                                where batch='E2ERES-20261104' and item='followup_deleted_biz_flow_edge'), 0)
                   from datafix_e2e_residue_guard where batch='E2ERES-20261104' and item='table_biz_flow_edge_before') as expected) s;
 
 select case when actual = expected then 'PASS' else 'FAIL' end, 'count_biz_flow_node_assignee',
        'actual=' || actual || ' expected=' || expected
   from (select (select count(*) from biz_flow_node_assignee) as actual,
                (select val::int - coalesce((select val::int from datafix_e2e_residue_guard
-                                             where batch='E2ERES-20261104' and item='deleted_biz_flow_node_assignee'), 0)
+                                where batch='E2ERES-20261104' and item='deleted_biz_flow_node_assignee'), 0)
+                  - coalesce((select val::int from datafix_e2e_residue_guard
+                                where batch='E2ERES-20261104' and item='followup_deleted_biz_flow_node_assignee'), 0)
                   from datafix_e2e_residue_guard where batch='E2ERES-20261104' and item='table_biz_flow_node_assignee_before') as expected) s;
 
 -- ⑤b 运行期表：只允许「比预期多」（清场后有人正常发起审批），少了才 FAIL
@@ -148,21 +164,27 @@ select case when actual >= expected then 'PASS' else 'FAIL' end, 'count_biz_flow
        'actual=' || actual || ' expected>=' || expected
   from (select (select count(*) from biz_flow_instance) as actual,
                (select val::int - coalesce((select val::int from datafix_e2e_residue_guard
-                                             where batch='E2ERES-20261104' and item='deleted_biz_flow_instance'), 0)
+                                where batch='E2ERES-20261104' and item='deleted_biz_flow_instance'), 0)
+                  - coalesce((select val::int from datafix_e2e_residue_guard
+                                where batch='E2ERES-20261104' and item='followup_deleted_biz_flow_instance'), 0)
                   from datafix_e2e_residue_guard where batch='E2ERES-20261104' and item='table_biz_flow_instance_before') as expected) s;
 
 select case when actual >= expected then 'PASS' else 'FAIL' end, 'count_biz_flow_instance_node',
        'actual=' || actual || ' expected>=' || expected
   from (select (select count(*) from biz_flow_instance_node) as actual,
                (select val::int - coalesce((select val::int from datafix_e2e_residue_guard
-                                             where batch='E2ERES-20261104' and item='deleted_biz_flow_instance_node'), 0)
+                                where batch='E2ERES-20261104' and item='deleted_biz_flow_instance_node'), 0)
+                  - coalesce((select val::int from datafix_e2e_residue_guard
+                                where batch='E2ERES-20261104' and item='followup_deleted_biz_flow_instance_node'), 0)
                   from datafix_e2e_residue_guard where batch='E2ERES-20261104' and item='table_biz_flow_instance_node_before') as expected) s;
 
 select case when actual >= expected then 'PASS' else 'FAIL' end, 'count_biz_flow_task',
        'actual=' || actual || ' expected>=' || expected
   from (select (select count(*) from biz_flow_task) as actual,
                (select val::int - coalesce((select val::int from datafix_e2e_residue_guard
-                                             where batch='E2ERES-20261104' and item='deleted_biz_flow_task'), 0)
+                                where batch='E2ERES-20261104' and item='deleted_biz_flow_task'), 0)
+                  - coalesce((select val::int from datafix_e2e_residue_guard
+                                where batch='E2ERES-20261104' and item='followup_deleted_biz_flow_task'), 0)
                   from datafix_e2e_residue_guard where batch='E2ERES-20261104' and item='table_biz_flow_task_before') as expected) s;
 
 -- ⑥ 审计证据表：行数与基线一致（本卡一行不删）

@@ -1,0 +1,10 @@
+$ grep -cwE "UPDATE|INSERT|DELETE" scripts/verify/snapshot_audit.py
+0
+$ sed -n '22,$p' docs/architecture/snapshot-drift/10_checks.sql | grep -cwE 'UPDATE|INSERT|DELETE'
+0
+# 全文（含文件头注释）同一口径，用于说明那 1 处是什么：
+$ grep -nwE "UPDATE|INSERT|DELETE" docs/architecture/snapshot-drift/10_checks.sql
+12:--   ② 巡检任务只需一条 INSERT ... SELECT（见 20_upsert_converge.sql）；
+# 演练夹具（刻意放 docs/evidence/，不在 scripts/verify/）里当然有 DML：
+$ grep -cwE "UPDATE|INSERT|DELETE" docs/evidence/20261104-p2-6b/drill.sh
+20

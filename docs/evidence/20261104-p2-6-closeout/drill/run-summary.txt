@@ -1,0 +1,47 @@
+
+########## 0. 基线：干净隔离库 ##########
+[00-baseline-full] EXIT=0  BLOCKER 0 / WARN 0 / INFO 0   巡检项 25（通过 25、有命中 0、跳过 0、失败 0）
+
+########## 形态①a：软删已过账收货单 IN-20261104-000001（真悬空，非豁免行） ##########
+in_no=IN-20261104-000001 status=POSTED deleted_at=2026-11-04 18:18:02.98108+08
+[01a-dirty-real-receipt      ] EXIT=1  B/W/I=3/0/4  PASS
+
+########## 还原：撤销形态①a 的软删 ##########
+还原后: in_no=IN-20261104-000001 status=POSTED deleted_at=NULL
+[01a-restored-green          ] EXIT=0  B/W/I=0/0/0  PASS
+
+########## 形态①b：豁免精确性反证（同 doc_type=SERIAL_BATCH，行 id 未登记） ##########
+夹具行: 01a1f900-0000-7000-8000-0000000000e2 doc_no=D4-DI18-NOWAIVER doc_type=SERIAL_BATCH doc_id=01a1f900-0000-7000-8000-0000000000d1  目标已软删=true  在豁免台账=false
+夹具行: 01a19108-ee53-73c6-bdaa-0109614ea963 doc_no=D4-DI18-WAIVER-0001 doc_type=SERIAL_BATCH doc_id=01a1f900-0000-7000-8000-0000000000d1  目标已软删=true  在豁免台账=true
+[01b-waived-plus-nowaiver    ] EXIT=1  B/W/I=1/0/1  PASS
+
+########## 形态④-1：删掉未登记的反证行，只留被豁免行（有效期内 ⇒ INFO） ##########
+豁免台账: DI-18 src_id=01a19108-ee53-73c6-bdaa-0109614ea963 expires_on=2027-02-04 未过期=true
+[04a-waiver-active-info      ] EXIT=0  B/W/I=0/0/1  PASS
+
+########## 形态④-2：豁免 expires_on = current_date - 1 ⇒ DI-18 回 ERROR ##########
+改前: expires_on=2027-02-04  未过期=true
+过期后: expires_on=2026-11-03  未过期=false
+[04c-waiver-expired-error    ] EXIT=1  B/W/I=1/0/0  PASS
+
+########## 形态④-3：--install-views 从仓库 SQL 还原台账 ⇒ 回 INFO ##########
+[04d-waiver-restored-info    ] EXIT=0  B/W/I=0/0/1  PASS
+
+########## 清场：形态④夹具 ##########
+残留: txn=0 serial=0
+
+########## 形态②：软删任务 + 审批实例 PENDING（活待办指向死对象） ##########
+实例: FLW-D4-0001 status=PENDING biz_id=01a1f900-0000-7000-8000-000000000001  任务已软删=true
+实例: FLW-D4-0002 status=APPROVED biz_id=01a1f900-0000-7000-8000-000000000002  任务已软删=true
+[02-di19-pending-warn        ] EXIT=0  B/W/I=0/1/1  PASS
+
+########## 形态③：把实例 ① 的 status 改成 APPROVED（终态）⇒ 降 INFO ##########
+实例: FLW-D4-0001 status=APPROVED
+实例: FLW-D4-0002 status=APPROVED
+[03-di19-approved-info       ] EXIT=0  B/W/I=0/0/2  PASS
+
+########## 形态⑤：全清场 ⇒ 全量复跑 ##########
+残留: txn=0 inst=0 task=0 serial=0 stock_in_del=0
+[05-final-full-green] EXIT=0  BLOCKER 0 / WARN 0 / INFO 0   巡检项 25（通过 25、有命中 0、跳过 0、失败 0）
+
+输出目录：/root/.hermes/kanban/boards/dev/workspaces/t_485a84dd/repo/docs/evidence/20261104-p2-6-closeout/drill

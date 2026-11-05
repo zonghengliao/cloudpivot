@@ -1,0 +1,1 @@
+夹具行数: txn=1 inst=2 task=2 serial=1  (实例状态: FLW-ISO-0001=PENDING, FLW-ISO-0002=CANCELLED)
