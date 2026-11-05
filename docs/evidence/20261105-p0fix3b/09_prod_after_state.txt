@@ -1,0 +1,54 @@
+---- run_sql: /opt/qa4/scripts/datafix/qa_role_scope4/60_prod_after_state.sql -> cloudpivot @ 127.0.0.1:5432 (user=cloudpivot) ----
+Pager usage is off.
+=== ① 4 个夹具角色（应用后：data_scope / status / 是否存活 / 活跃持有者）===
+ role_code  | data_scope | status | alive | active_holders 
+------------+------------+--------+-------+----------------
+ MUTEX_A    |          4 |      1 | t     |              0
+ MUTEX_B    |          4 |      1 | t     |              0
+ QA_LIMITED |          4 |      1 | t     |              0
+ QA_VIEWER  |          4 |      1 | t     |              0
+(4 rows)
+
+
+=== ② 生产全部角色（12 个：业务角色范围未变 / 夹具角色=4）===
+      role_code       | data_scope | status | active_holders 
+----------------------+------------+--------+----------------
+ FINANCE_DIRECTOR     |          5 |      1 |              0
+ FINANCE_MANAGER      |          5 |      1 |              0
+ MUTEX_A              |          4 |      1 |              0
+ MUTEX_B              |          4 |      1 |              0
+ QA_LIMITED           |          4 |      1 |              0
+ QA_VIEWER            |          4 |      1 |              0
+ DEPT_LEADER          |          3 |      1 |              1
+ PURCHASE_MANAGER     |          3 |      1 |              1
+ WAREHOUSE_MANAGER    |          3 |      1 |              1
+ FLOW_CONFIG_APPROVER |          1 |      1 |              0
+ GENERAL_MANAGER      |          1 |      1 |              1
+ SUPER_ADMIN          |          1 |      1 |              3
+(12 rows)
+
+
+=== ③ 迁移记账尾部（246 之后）===
+ version |                name                | applied_via |                             checksum                             | applied_seq | success 
+---------+------------------------------------+-------------+------------------------------------------------------------------+-------------+---------
+ 246     | flow_stock_take_snapshot_canonical | executed    | ddd97be1a188437dfc51b42458d51ca64fbf17061a78cf9bb4fcdd54f376f06e |         193 | t
+ 247     | data_scope_minimal_grants          | imported    | dda0287e0892c74810b5fb7b9665111a584a50e581084d0a1812437e64a021dc |         194 | t
+ 249     | qa_fixture_role_scope_self_only    | imported    | 5962afa3bb37e312fe01e714736e1f3b1533a1cd1a3cbc5cdcd10c82f3efab61 |         195 | t
+(3 rows)
+
+
+=== ④ 本卡新增的对象只有一个迁移文件（无遗留 view/表）===
+ leftover_qa4_objects 
+----------------------
+                    0
+(1 row)
+
+
+=== ⑤ Redis 范围缓存 epoch（INCR 使旧键不可达）
+perm:user_scope_epoch=2
+残留 perm:user_scope:* 键数=0
+
+=== ⑥ 服务与健康检查
+active
+health_8023=200
+health_80=200

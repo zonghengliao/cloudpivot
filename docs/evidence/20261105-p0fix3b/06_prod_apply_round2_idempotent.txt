@@ -1,0 +1,50 @@
+==============================================================
+ QA4  目标库：cloudpivot @ 127.0.0.1:5432 (user=cloudpivot)  模式：apply
+ 时间：2026-11-05 13:57:37 CST
+==============================================================
+⚠️  生产写放行：reason=t_b2d339ab P0-FIX-3B 第二轮：验证幂等（应为 0 行变更）
+→ 备份到 /root/datafix-backup-qa4/20261105-135737-apply
+✅ 备份闸：/root/datafix-backup-qa4/20261105-135737-apply（8.8M）
+
+---- 现状（应用前）----
+    MUTEX_A|4|1|0
+    MUTEX_B|4|1|0
+    QA_LIMITED|4|1|0
+    QA_VIEWER|4|1|0
+
+---- 执行 V0249 up ----
+    psql:/opt/qa4/backend/migrations/business/V0249__qa_fixture_role_scope_self_only.up.sql:157: NOTICE:  V0249  MUTEX_A 已是 data_scope=4，跳过（幂等）
+    psql:/opt/qa4/backend/migrations/business/V0249__qa_fixture_role_scope_self_only.up.sql:157: NOTICE:  V0249  MUTEX_B 已是 data_scope=4，跳过（幂等）
+    psql:/opt/qa4/backend/migrations/business/V0249__qa_fixture_role_scope_self_only.up.sql:157: NOTICE:  V0249  QA_LIMITED 已是 data_scope=4，跳过（幂等）
+    psql:/opt/qa4/backend/migrations/business/V0249__qa_fixture_role_scope_self_only.up.sql:157: NOTICE:  V0249  QA_VIEWER 已是 data_scope=4，跳过（幂等）
+    psql:/opt/qa4/backend/migrations/business/V0249__qa_fixture_role_scope_self_only.up.sql:157: NOTICE:  V0249 ① 收紧完成：0 个角色 → 4；跳过（仍有活跃持有者）0 个 (无)
+    psql:/opt/qa4/backend/migrations/business/V0249__qa_fixture_role_scope_self_only.up.sql:157: NOTICE:  V0249 自检通过：无持有者的夹具角色已全部为 4 / SUPER_ADMIN 仍为 1
+
+---- 记账（schema_migrations：V0247 / V0249，applied_via=imported）----
+    Pager usage is off.
+    INSERT 0 0
+    INSERT 0 0
+    psql:/opt/qa4/scripts/datafix/qa_role_scope4/40_ledger_import.sql:57: NOTICE:  记账完成：V0247 / V0249 均已在 schema_migrations（applied_via=imported）
+    DO
+     version |              name               | applied_via |                             checksum                             | applied_seq 
+    ---------+---------------------------------+-------------+------------------------------------------------------------------+-------------
+     247     | data_scope_minimal_grants       | imported    | dda0287e0892c74810b5fb7b9665111a584a50e581084d0a1812437e64a021dc |         194
+     249     | qa_fixture_role_scope_self_only | imported    | 5962afa3bb37e312fe01e714736e1f3b1533a1cd1a3cbc5cdcd10c82f3efab61 |         195
+    (2 rows)
+    
+
+✅ 30_verify（exp=4, after_apply）零 FAIL（明细 /tmp/qa4_verify_after_apply.txt）
+
+---- 现状（写库后）----
+    MUTEX_A|4|1|0
+    MUTEX_B|4|1|0
+    QA_LIMITED|4|1|0
+    QA_VIEWER|4|1|0
+
+---- 迁移记账（尾部）----
+    245|erp_reminder_jobs_enabled|executed
+    246|flow_stock_take_snapshot_canonical|executed
+    247|data_scope_minimal_grants|imported
+    249|qa_fixture_role_scope_self_only|imported
+
+✅ 完成（apply）：备份在 /root/datafix-backup-qa4/20261105-135737-apply

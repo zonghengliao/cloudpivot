@@ -1,0 +1,45 @@
+==============================================================
+ P0-FIX-3B 演练库：cloudpivot_e2e_iso @ 127.0.0.1:5432 (user=e2erole)
+ 日志目录：/root/.hermes/profiles/backend-developer/cache/scratch/p0fix3b/drill3   时间：2026-11-05 13:57:27 CST
+==============================================================
+---- ⓪ 归位：跑一次 down，把库拉回基线 1（这样脚本可反复运行） ----
+    psql:/opt/cloudpivot/backend/migrations/business/V0249__qa_fixture_role_scope_self_only.down.sql:35: NOTICE:  V0249 down：4 个 QA 夹具角色 data_scope 4 → 1
+    psql:/opt/cloudpivot/backend/migrations/business/V0249__qa_fixture_role_scope_self_only.down.sql:35: NOTICE:  V0249 down 完成：夹具角色已回到基线 1（角色行与权限码未动）
+演练前夹具角色：
+MUTEX_A|1
+MUTEX_B|1
+QA_LIMITED|1
+QA_VIEWER|1
+✅ 30_verify（exp=1, before）零 FAIL
+
+---- ① up ----
+    psql:/opt/cloudpivot/backend/migrations/business/V0249__qa_fixture_role_scope_self_only.up.sql:157: NOTICE:  V0249  MUTEX_A data_scope 1 → 4（仅本人；无活跃持有者，见文件头理由）
+    psql:/opt/cloudpivot/backend/migrations/business/V0249__qa_fixture_role_scope_self_only.up.sql:157: NOTICE:  V0249  MUTEX_B data_scope 1 → 4（仅本人；无活跃持有者，见文件头理由）
+    psql:/opt/cloudpivot/backend/migrations/business/V0249__qa_fixture_role_scope_self_only.up.sql:157: NOTICE:  V0249  QA_LIMITED data_scope 1 → 4（仅本人；无活跃持有者，见文件头理由）
+    psql:/opt/cloudpivot/backend/migrations/business/V0249__qa_fixture_role_scope_self_only.up.sql:157: NOTICE:  V0249  QA_VIEWER data_scope 1 → 4（仅本人；无活跃持有者，见文件头理由）
+    psql:/opt/cloudpivot/backend/migrations/business/V0249__qa_fixture_role_scope_self_only.up.sql:157: NOTICE:  V0249 ① 收紧完成：4 个角色 → 4；跳过（仍有活跃持有者）0 个 (无)
+    psql:/opt/cloudpivot/backend/migrations/business/V0249__qa_fixture_role_scope_self_only.up.sql:157: NOTICE:  V0249 自检通过：无持有者的夹具角色已全部为 4 / SUPER_ADMIN 仍为 1
+✅ 30_verify（exp=4, after_up）零 FAIL
+
+---- ② up 再跑一次（幂等） ----
+    psql:/opt/cloudpivot/backend/migrations/business/V0249__qa_fixture_role_scope_self_only.up.sql:157: NOTICE:  V0249  MUTEX_A 已是 data_scope=4，跳过（幂等）
+    psql:/opt/cloudpivot/backend/migrations/business/V0249__qa_fixture_role_scope_self_only.up.sql:157: NOTICE:  V0249  MUTEX_B 已是 data_scope=4，跳过（幂等）
+    psql:/opt/cloudpivot/backend/migrations/business/V0249__qa_fixture_role_scope_self_only.up.sql:157: NOTICE:  V0249  QA_LIMITED 已是 data_scope=4，跳过（幂等）
+    psql:/opt/cloudpivot/backend/migrations/business/V0249__qa_fixture_role_scope_self_only.up.sql:157: NOTICE:  V0249  QA_VIEWER 已是 data_scope=4，跳过（幂等）
+    psql:/opt/cloudpivot/backend/migrations/business/V0249__qa_fixture_role_scope_self_only.up.sql:157: NOTICE:  V0249 ① 收紧完成：0 个角色 → 4；跳过（仍有活跃持有者）0 个 (无)
+    psql:/opt/cloudpivot/backend/migrations/business/V0249__qa_fixture_role_scope_self_only.up.sql:157: NOTICE:  V0249 自检通过：无持有者的夹具角色已全部为 4 / SUPER_ADMIN 仍为 1
+✅ 第二次 up 只打幂等跳过（4 个角色）
+✅ 幂等：up 两次后快照整串相等
+
+---- ③ down ----
+    psql:/opt/cloudpivot/backend/migrations/business/V0249__qa_fixture_role_scope_self_only.down.sql:35: NOTICE:  V0249 down：4 个 QA 夹具角色 data_scope 4 → 1
+    psql:/opt/cloudpivot/backend/migrations/business/V0249__qa_fixture_role_scope_self_only.down.sql:35: NOTICE:  V0249 down 完成：夹具角色已回到基线 1（角色行与权限码未动）
+✅ 30_verify（exp=1, after_down）零 FAIL
+✅ 可逆：down 后快照与演练前整串相等
+
+---- ④ up 复原 ----
+✅ 30_verify（exp=4, final）零 FAIL
+✅ 复原：第二次 up 后与第一次 up 后快照整串相等
+
+==============================================================
+ ✅ 演练全绿：up / up(幂等) / down(可逆) / up(复原)  日志：/root/.hermes/profiles/backend-developer/cache/scratch/p0fix3b/drill3

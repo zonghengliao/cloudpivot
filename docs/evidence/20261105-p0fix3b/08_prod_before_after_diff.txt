@@ -1,0 +1,36 @@
+=== 备份文件：/root/datafix-backup-qa4/20261105-135700-apply/tables.sql
+
+=== ① sys_role：role_code | data_scope | status | 是否软删（备份 = 应用前）===
+--- /tmp/qa4_role_before.txt	2026-11-05 13:57:57.544821571 +0800
++++ /tmp/qa4_role_after.txt	2026-11-05 13:57:57.569833145 +0800
+@@ -3,11 +3,11 @@
+ FINANCE_MANAGER|5|1|alive
+ FLOW_CONFIG_APPROVER|1|1|alive
+ GENERAL_MANAGER|1|1|alive
+-MUTEX_A|1|1|alive
+-MUTEX_B|1|1|alive
++MUTEX_A|4|1|alive
++MUTEX_B|4|1|alive
+ PURCHASE_MANAGER|3|1|alive
+-QA_LIMITED|1|1|alive
+-QA_VIEWER|1|1|alive
++QA_LIMITED|4|1|alive
++QA_VIEWER|4|1|alive
+ SUPER_ADMIN|1|1|alive
+ T7B_BOARDER|4|0|deleted
+ TASK_VIEW_ONLY|1|1|deleted
+
+=== ② 行数对比（应用前 → 应用后，应完全相同）===
+  ✅ sys_role: 16 → 16
+  ✅ sys_user: 26 → 26
+  ✅ sys_user_role: 16 → 16
+  ✅ sys_role_menu: 591 → 591
+  ✅ sys_role_dept: 3 → 3
+
+=== ③ 每个角色的绑定数（应用前后；备份列序 id,user_id,role_id → 取 $3）===
+  ✅ sys_user_role 绑定关系逐 role_id 完全一致（0 处差异）
+
+=== ④ 在用账号（status=1 且未软删）===
+admin|1
+henry.liao|1
+laoliu|1

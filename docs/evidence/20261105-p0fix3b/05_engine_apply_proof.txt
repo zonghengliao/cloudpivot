@@ -1,0 +1,13 @@
+=== 引擎实测（当前 main 构建的 backend/target/debug/cloudpivot，profile=test，库 cloudpivot_e2e_iso）===
+--- 迁移文件 sha256（与我 psql 放的同一份文件）
+dda0287e0892c74810b5fb7b9665111a584a50e581084d0a1812437e64a021dc  backend/migrations/business/V0247__data_scope_minimal_grants.up.sql
+5962afa3bb37e312fe01e714736e1f3b1533a1cd1a3cbc5cdcd10c82f3efab61  backend/migrations/business/V0249__qa_fixture_role_scope_self_only.up.sql
+
+--- 引擎启动日志（迁移段）
+[2m2026-11-05T05:55:53.083815Z[0m [34mDEBUG[0m [2mtokio_postgres::simple_query[0m[2m:[0m executing statement batch: INSERT INTO schema_migrations (kind, name, version, checksum, applied_via, applied_at, applied_seq, execution_ms, success, source) VALUES ('versioned', 'data_scope_minimal_grants', '247', 'dda0287e0892c74810b5fb7b9665111a584a50e581084d0a1812437e64a021dc', 'executed', 1793858153, 194, 3, TRUE, 'migrations/business/V0247__data_scope_minimal_grants.up.sql') ON CONFLICT (kind, name) DO UPDATE SET version = excluded.version, checksum = excluded.checksum, applied_via = excluded.applied_via, applied_at = excluded.applied_at, applied_seq = excluded.applied_seq, execution_ms = excluded.execution_ms, success = excluded.success, source = excluded.source;
+[2m2026-11-05T05:55:53.086763Z[0m [34mDEBUG[0m [2mtokio_postgres::simple_query[0m[2m:[0m executing statement batch: INSERT INTO schema_migrations (kind, name, version, checksum, applied_via, applied_at, applied_seq, execution_ms, success, source) VALUES ('versioned', 'qa_fixture_role_scope_self_only', '249', '5962afa3bb37e312fe01e714736e1f3b1533a1cd1a3cbc5cdcd10c82f3efab61', 'executed', 1793858153, 195, 1, TRUE, 'migrations/business/V0249__qa_fixture_role_scope_self_only.up.sql') ON CONFLICT (kind, name) DO UPDATE SET version = excluded.version, checksum = excluded.checksum, applied_via = excluded.applied_via, applied_at = excluded.applied_at, applied_seq = excluded.applied_seq, execution_ms = excluded.execution_ms, success = excluded.success, source = excluded.source;
+[2m2026-11-05T05:55:53.088399Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 2 个迁移
+
+--- 引擎写入的账（applied_via=executed，checksum 应与上面 sha256 逐字节相等）
+247|data_scope_minimal_grants|dda0287e0892c74810b5fb7b9665111a584a50e581084d0a1812437e64a021dc|executed|194|migrations/business/V0247__data_scope_minimal_grants.up.sql
+249|qa_fixture_role_scope_self_only|5962afa3bb37e312fe01e714736e1f3b1533a1cd1a3cbc5cdcd10c82f3efab61|imported|195|migrations/business/V0249__qa_fixture_role_scope_self_only.up.sql

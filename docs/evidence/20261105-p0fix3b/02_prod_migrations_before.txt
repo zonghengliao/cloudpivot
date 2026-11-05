@@ -1,0 +1,131 @@
+---- run_sql: /tmp/p0fix3b/11_migrations_state.sql -> cloudpivot @ 127.0.0.1:5432 (user=cloudpivot) ----
+Pager usage is off.
+=== schema_migrations 结构 ===
+ column_name  |     data_type     
+--------------+-------------------
+ kind         | character varying
+ name         | character varying
+ version      | character varying
+ checksum     | character varying
+ applied_via  | character varying
+ applied_at   | bigint
+ applied_seq  | bigint
+ execution_ms | bigint
+ success      | boolean
+ source       | character varying
+(10 rows)
+
+
+=== 最近 12 条已应用迁移 ===
+ version |   kind    | applied_via | applied_at | has_checksum 
+---------+-----------+-------------+------------+--------------
+         | seed      | executed    | 1793847751 | t
+         | seed      | executed    | 1793280120 | t
+         | seed      | executed    | 1793272724 | t
+         | seed      | executed    | 1793268021 | t
+         | seed      | executed    | 1793257744 | t
+         | seed      | executed    | 1793193252 | t
+         | seed      | executed    | 1793342266 | t
+         | seed      | executed    | 1793077116 | t
+         | seed      | executed    | 1793077116 | t
+ 91      | versioned | executed    | 1793246606 | t
+ 90      | versioned | executed    | 1793246606 | t
+ 9       | versioned | executed    | 1793077116 | t
+(12 rows)
+
+
+=== 计数 ===
+ total 
+-------
+   187
+(1 row)
+
+---- run_sql: /tmp/p0fix3b/12_migrations_recent.sql -> cloudpivot @ 127.0.0.1:5432 (user=cloudpivot) ----
+Pager usage is off.
+=== 最近 15 条（按 applied_at）===
+ version |                 name                 |   kind    | applied_via |  applied_at   
+---------+--------------------------------------+-----------+-------------+---------------
+ 156     | remove_erp_top_menu                  | versioned | imported    | 1793406672098
+ 155     | erp_menu_title_icon_fix              | versioned | imported    | 1793406164497
+ 154     | erp_menu_reorg_business_lines        | versioned | imported    | 1793405988797
+ 246     | flow_stock_take_snapshot_canonical   | versioned | executed    |    1793855461
+ 245     | erp_reminder_jobs_enabled            | versioned | executed    |    1793855461
+ 244     | erp_expense_voucher_rules            | versioned | executed    |    1793855460
+ 243     | erp_expense_approval_flow            | versioned | executed    |    1793855460
+ 242     | erp_expense_tables                   | versioned | executed    |    1793855460
+         | support_invariant_menu               | seed      | executed    |    1793847751
+ 241     | erp_contract_permission_prefix_unify | versioned | executed    |    1793847543
+ 240     | erp_budget_mapping_material_type     | versioned | executed    |    1793847543
+ 234     | flow_template_menu_retire            | versioned | executed    |    1793847543
+ 233     | flow_seed_is_system_fix2             | versioned | executed    |    1793847543
+ 232     | erp_asset_voucher_rules              | versioned | executed    |    1793847543
+ 231     | erp_asset_disposal_flow              | versioned | executed    |    1793847543
+(15 rows)
+
+
+=== 所有含 data_scope / role 的迁移记录 ===
+ version |             name              |   kind    | applied_via | applied_at 
+---------+-------------------------------+-----------+-------------+------------
+ 239     | flow_approver_role_grants     | versioned | imported    | 1793847499
+ 60      | alter_sys_role_add_data_scope | versioned | executed    | 1793209124
+ 61      | create_sys_role_dept          | versioned | executed    | 1793209124
+ 63      | create_sys_role_mutex         | versioned | executed    | 1793209124
+ 68      | role_mutex_conflict_perm      | versioned | executed    | 1793209124
+         | role_data                     | seed      | executed    | 1793193252
+ 3       | create_sys_user_role          | versioned | executed    | 1793077116
+ 5       | create_sys_role_menu          | versioned | executed    | 1793077116
+ 2       | create_sys_role               | versioned | executed    | 1793077116
+(9 rows)
+
+
+=== version 的形态分布（前 20）===
+ version |                 name                 
+---------+--------------------------------------
+ 156     | remove_erp_top_menu
+ 155     | erp_menu_title_icon_fix
+ 154     | erp_menu_reorg_business_lines
+ 245     | erp_reminder_jobs_enabled
+ 246     | flow_stock_take_snapshot_canonical
+ 244     | erp_expense_voucher_rules
+ 243     | erp_expense_approval_flow
+ 242     | erp_expense_tables
+         | support_invariant_menu
+ 231     | erp_asset_disposal_flow
+ 232     | erp_asset_voucher_rules
+ 233     | flow_seed_is_system_fix2
+ 234     | flow_template_menu_retire
+ 240     | erp_budget_mapping_material_type
+ 230     | erp_depreciation_tables
+ 241     | erp_contract_permission_prefix_unify
+ 221     | erp_seed_accounting_period_year
+ 226     | erp_budget_subjects_and_config
+ 227     | erp_budget_tables
+ 220     | flow_standard_flag_fix
+(20 rows)
+
+---- run_sql: /tmp/p0fix3b/13_migrations_tail.sql -> cloudpivot @ 127.0.0.1:5432 (user=cloudpivot) ----
+Pager usage is off.
+=== version >= 235 的全部记录（看 247/248 是否已在账）===
+ version |                  name                   |   kind    | applied_via | applied_at | success 
+---------+-----------------------------------------+-----------+-------------+------------+---------
+ 235     | create_sys_invariant_result             | versioned | imported    | 1793847105 | t
+ 236     | erp_finance_menu_reparent               | versioned | imported    | 1793847498 | t
+ 237     | erp_po_project_link                     | versioned | imported    | 1793847499 | t
+ 238     | task_doc_link_and_po_warehouse_snapshot | versioned | imported    | 1793847499 | t
+ 239     | flow_approver_role_grants               | versioned | imported    | 1793847499 | t
+ 240     | erp_budget_mapping_material_type        | versioned | executed    | 1793847543 | t
+ 241     | erp_contract_permission_prefix_unify    | versioned | executed    | 1793847543 | t
+ 242     | erp_expense_tables                      | versioned | executed    | 1793855460 | t
+ 243     | erp_expense_approval_flow               | versioned | executed    | 1793855460 | t
+ 244     | erp_expense_voucher_rules               | versioned | executed    | 1793855460 | t
+ 245     | erp_reminder_jobs_enabled               | versioned | executed    | 1793855461 | t
+ 246     | flow_stock_take_snapshot_canonical      | versioned | executed    | 1793855461 | t
+(12 rows)
+
+
+=== 有没有 247 / 248 ===
+ v247 | v248 | v246 
+------+------+------
+    0 |    0 |    1
+(1 row)
+

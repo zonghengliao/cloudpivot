@@ -1,0 +1,55 @@
+---- run_sql: /tmp/p0fix3b/10_precheck.sql -> cloudpivot @ 127.0.0.1:5432 (user=cloudpivot) ----
+Pager usage is off.
+=== ① 目标角色：范围 / 状态 / 活跃持有者数（deleted_at is null and status=1）===
+ role_code  | data_scope | status | active_holders | holder_rows_all 
+------------+------------+--------+----------------+-----------------
+ MUTEX_A    |          1 |      1 |              0 |               1
+ MUTEX_B    |          1 |      1 |              0 |               1
+ QA_LIMITED |          1 |      1 |              0 |               1
+ QA_VIEWER  |          1 |      1 |              0 |               1
+(4 rows)
+
+
+=== ② 目标角色的全部持有者明细（含已禁用/已软删账号）===
+ role_code  |  username  | user_status | user_deleted | expire_time 
+------------+------------+-------------+--------------+-------------
+ MUTEX_A    | qa.mutex   |           0 | f            | 
+ MUTEX_B    | qa.mutex   |           0 | f            | 
+ QA_LIMITED | qa.limited |           0 | f            | 
+ QA_VIEWER  | qa.viewer  |           0 | f            | 
+(4 rows)
+
+
+=== ③ 生产全部角色（确认业务角色范围，不许误伤）===
+      role_code       | data_scope | status | active_holders 
+----------------------+------------+--------+----------------
+ FINANCE_DIRECTOR     |          5 |      1 |              0
+ FINANCE_MANAGER      |          5 |      1 |              0
+ DEPT_LEADER          |          3 |      1 |              1
+ PURCHASE_MANAGER     |          3 |      1 |              1
+ WAREHOUSE_MANAGER    |          3 |      1 |              1
+ FLOW_CONFIG_APPROVER |          1 |      1 |              0
+ GENERAL_MANAGER      |          1 |      1 |              1
+ MUTEX_A              |          1 |      1 |              0
+ MUTEX_B              |          1 |      1 |              0
+ QA_LIMITED           |          1 |      1 |              0
+ QA_VIEWER            |          1 |      1 |              0
+ SUPER_ADMIN          |          1 |      1 |              3
+(12 rows)
+
+
+=== ④ 在用账号逐账号：持有的启用角色 + 有效范围（收紧前后对比用）===
+  username  | status |                                        roles                                         | is_super 
+------------+--------+--------------------------------------------------------------------------------------+----------
+ admin      |      1 | SUPER_ADMIN:1                                                                        | t
+ henry.liao |      1 | DEPT_LEADER:3,GENERAL_MANAGER:1,PURCHASE_MANAGER:3,SUPER_ADMIN:1,WAREHOUSE_MANAGER:3 | t
+ laoliu     |      1 | SUPER_ADMIN:1                                                                        | t
+(3 rows)
+
+
+=== ⑤ sys_role_dept 现状（4 个目标角色应 0 行；全库行数仅作基线）===
+ role_dept_total | target_role_dept_rows 
+-----------------+-----------------------
+               3 |                     0
+(1 row)
+
