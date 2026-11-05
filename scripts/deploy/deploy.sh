@@ -145,7 +145,7 @@ disk_mig_versions() {
 pending_versions_in_db() {
   local vers
   vers=$(disk_mig_versions)
-  [ -n "$vers" ] || { echo "DISK_EMPTY"; return 0; }
+  [ -n "$vers" ] || return 0        # 盘上没有任何版本化迁移（异常由别处报）：不做集合差
   $PSQL -c "select coalesce(string_agg(v::text, ',' order by v), '') from unnest(array[$vers]) as v
              where not exists (select 1 from schema_migrations m
                                where m.kind = 'versioned' and m.success
