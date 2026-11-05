@@ -1,0 +1,11 @@
+实例: http://127.0.0.1:5180  账号: admin  时间: 2026-11-05T00:06:47.244Z
+
+[API] 应付单（/business/erp/payable）→ 父链 采购管理  menu_type=2  PASS
+[API] 即时库存（/business/erp/inventory）→ 父链 仓库管理  menu_type=2  PASS
+[API] 库存调拨（/business/erp/transfer）→ 父链 仓库管理  menu_type=2  PASS
+[API] 出库单（/business/erp/stock-out）→ 父链 采购管理 → 采购订单  menu_type=2  PASS
+[API] 盘点单（/business/erp/stock-take）→ 父链 采购管理  menu_type=2  （仅取证）
+
+[API] 分组 采购管理 子节点 = 收货入库 / 应付单 / 采购订单 / 供应商 / 采购明细 / 盘点单
+[API] 分组 仓库管理 子节点 = 仓库管理 / 库位管理 / 序列号管理 / 即时库存 / 库存调拨 / 库位库存 / 库存流水
+[API] 分组 财务管理 子节点 = 会计科目 / 会计期间 / 期初余额 / 年度结转 / 预算管理（编制 / 执行 / 科目映射） / 固定资产（卡片 / 分类 / 折旧） / 凭证查询 / 总账 / 科目余额表 / 资产负债表 / 利润表 / 现金流量表 / 单号序列
