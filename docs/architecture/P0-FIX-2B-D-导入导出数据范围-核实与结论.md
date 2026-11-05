@@ -22,7 +22,7 @@
    导出 `erp.voucher` 会返回 **21 张全公司凭证** —— 这是权限绕过，不只是范围问题。
 3. **"补几行 scope 过滤"在这里做不出来**：`biz_stock_in` / `biz_payable` / `biz_voucher` 三张表
    **没有 `dept_id`**（实测 `information_schema`，只有 `create_by`）。给它们强行按 `create_by` 注入，
-   会退化成"仅本人"（`scope.rs:459-470` 的降级分支），于是**列表 14 行、导出 5 行**，口径分叉比不注入更糟。
+   会退化成"仅本人"（`scope.rs:460-470` 的降级分支），于是**列表 14 行、导出 5 行**，口径分叉比不注入更糟。
    真要部门隔离 = 数据模型改造（加列 + 回填 + 列表与导出同时切换 + 权限矩阵重评），已在
    `docs/待决策.md` ④ 作为产品事项登记，本卡不夹带。
 
@@ -141,7 +141,7 @@ ERP 单据的状态是文本枚举（`POSTED` / `DRAFT` / `OPEN` …），`push_
 ```
 SCOPE-EXEMPT: biz_voucher / biz_purchase_order / biz_stock_in / biz_stock_transfer /
 biz_inventory 都是按「会计期间」取的全局台账（无 dept_id 与归属人列）…
-                                        —— backend/src/business/erp/period_items.rs:75-79
+                                        —— backend/src/business/erp/period_items.rs:77-81
 SCOPE-EXEMPT: 凭证 / 分录 / 科目映射规则是会计台账（V0149 建表，无 dept_id / 归属人列）…
                                         —— backend/src/business/erp/voucher.rs:70-72
 ```
@@ -275,7 +275,7 @@ SCOPE-EXEMPT: 凭证 / 分录 / 科目映射规则是会计台账（V0149 建表
 
 | 分支 | 是否成立 | 判定依据 |
 |---|---|---|
-| A「已注入 / 可注入」 | **不成立** | 4/5 导出定义未注入（`definition.rs:893/910` 默认实现）；且源表**没有部门列**（证据 03 §D），"补几行 scope 过滤"只能按 `create_by` 降级成"仅本人"（`scope.rs:459-470`），造成列表 14 / 导出 5 的口径分叉 |
+| A「已注入 / 可注入」 | **不成立** | 4/5 导出定义未注入（`definition.rs:893/910` 默认实现）；且源表**没有部门列**（证据 03 §D），"补几行 scope 过滤"只能按 `create_by` 降级成"仅本人"（`scope.rs:460-470`），造成列表 14 / 导出 5 的口径分叉 |
 | B「没注入且改造量大」 | **成立** | 改造 = ①导出通道加 biz_type→模块权限码映射 ②ERP 单据表加 `dept_id`+回填 ③列表/导出/权限矩阵同步改。三项都要设计卡，不是本卡范围 |
 
 **因此：**
