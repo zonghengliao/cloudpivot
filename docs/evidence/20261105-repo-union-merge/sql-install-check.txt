@@ -1,0 +1,13 @@
+=== di views (expect 26):
+26
+=== view list:
+c_di01 c_di02 c_di03 c_di04 c_di05 c_di06 c_di07 c_di08 c_di09 c_di10 c_di11 c_di12 c_di13 c_di14 c_di15 c_di16 c_di17 c_di18 c_di19 c_di20 c_di21 c_di22 c_di23 c_di24 c_di25 c_di26
+=== new views runnable (row counts on empty copy):
+  c_di23: 0
+  c_di24: 0
+  c_di25: 0
+  c_di26: 0
+=== c_di26 columns:
+11
+=== waiver view:
+DI-18|biz_inventory_txn|manong|2027-02-04

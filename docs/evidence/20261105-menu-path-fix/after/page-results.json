@@ -1,0 +1,63 @@
+[
+  {
+    "path": "/business/erp/payable",
+    "name": "应付单",
+    "chain": [
+      "采购管理"
+    ],
+    "domExpanded": null,
+    "crumb": "首页 应付单",
+    "shot": "docs/evidence/20261105-menu-path-fix/after/03-sidebar-payable.png",
+    "sidebarGroup": "采购管理",
+    "fullShot": "docs/evidence/20261105-menu-path-fix/after/04-page-payable.png"
+  },
+  {
+    "path": "/business/erp/inventory",
+    "name": "即时库存",
+    "chain": [
+      "仓库管理"
+    ],
+    "domExpanded": null,
+    "crumb": "首页 即时库存",
+    "shot": "docs/evidence/20261105-menu-path-fix/after/03-sidebar-inventory.png",
+    "sidebarGroup": "仓库管理",
+    "fullShot": "docs/evidence/20261105-menu-path-fix/after/04-page-inventory.png"
+  },
+  {
+    "path": "/business/erp/transfer",
+    "name": "库存调拨",
+    "chain": [
+      "仓库管理"
+    ],
+    "domExpanded": null,
+    "crumb": "首页 调拨管理",
+    "shot": "docs/evidence/20261105-menu-path-fix/after/03-sidebar-transfer.png",
+    "sidebarGroup": "仓库管理",
+    "fullShot": "docs/evidence/20261105-menu-path-fix/after/04-page-transfer.png"
+  },
+  {
+    "path": "/business/erp/stock-out",
+    "name": "出库单",
+    "chain": [
+      "采购管理",
+      "采购订单"
+    ],
+    "domExpanded": null,
+    "crumb": "首页 采购订单",
+    "shot": "docs/evidence/20261105-menu-path-fix/after/03-sidebar-stock-out.png",
+    "sidebarGroup": "采购管理",
+    "fullShot": "docs/evidence/20261105-menu-path-fix/after/04-page-stock-out.png"
+  },
+  {
+    "path": "/business/erp/stock-take",
+    "name": "盘点单",
+    "chain": [
+      "采购管理"
+    ],
+    "domExpanded": null,
+    "crumb": "首页 盘点单",
+    "shot": "docs/evidence/20261105-menu-path-fix/after/03-sidebar-stock-take.png",
+    "sidebarGroup": "采购管理",
+    "fullShot": "docs/evidence/20261105-menu-path-fix/after/04-page-stock-take.png"
+  }
+]

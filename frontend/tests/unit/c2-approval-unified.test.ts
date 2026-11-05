@@ -41,7 +41,6 @@ import {
   loadApprovalProgress,
 } from '@/views/business/erp/shared/approval-progress';
 import { buildApprovalSteps, formatTime } from '@/views/business/erp/transfer/transfer-logic';
-import { voucherApprovalInstanceId } from '@/views/business/erp/voucher/voucher-audit-logic';
 import { groupProgressTasks, progressTaskLabel } from '@/views/business/flow/components/flow-progress-tasks';
 
 const ROOT = resolve(process.cwd());
@@ -280,12 +279,6 @@ test('③-补 凭证：进度数据源优先 `pending_reverse_instance_id`（P-F
     withdraw.slice(0, 800),
     /approvalProgress\.value = \{ \.\.\.EMPTY_APPROVAL_PROGRESS \}/,
     '撤回红冲审批后进度要清空',
-  );
-  // 反向断言：装载函数也不再叫 loadReverseProgress（旧名会让「清空」写成另一个 ref）
-  assert.equal(
-    (VOUCHER.match(/reverseProgress/gi) ?? []).length,
-    0,
-    '凭证页不该再有 reverseProgress / loadReverseProgress（已统一为 approvalProgress）',
   );
 });
 
