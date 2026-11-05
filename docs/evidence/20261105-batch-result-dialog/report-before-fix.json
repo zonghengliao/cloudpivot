@@ -1,0 +1,14 @@
+{
+  "dialogShown": false,
+  "barMounted": false,
+  "barVisible": false,
+  "messageToast": [],
+  "requests": [
+    {
+      "url": "http://127.0.0.1:5212/api/business/erp/payable/batch-export",
+      "status": 200,
+      "task_no": "EXP20261105-7151",
+      "total": 1
+    }
+  ]
+}

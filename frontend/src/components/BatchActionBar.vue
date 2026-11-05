@@ -16,7 +16,8 @@
   | 高危（作废/删除） | 弹二次确认，**正文带影响条数**；要原因的再给输入框 |
   | 执行中 | 进度条 N/M（前端按 20 条一批，批与批之间刷新） |
   | 结束 | 结果弹窗：成功 X / 失败 Y + 失败清单「单号：原因」，可整段复制 |
-  | 结束后 | 清空勾选（**刷新不保持勾选**：避免误点第二次批量） |
+  | 结束后 | 清空勾选（**刷新不保持勾选**：避免误点第二次批量）；工具栏要一直留到结果弹窗被关掉—— 弹窗是根节点的子节点，`visible` 必须把 `resultVisible` 算进去，否则勾选一清空整个根节点就被 `v-if` 卸掉，结果永远看不到 |
+  | 关掉结果弹窗 | 清掉本次 outcome（结果是一次性的，下次动作不许残留上一次的成功/失败清单） |
 
   # 事件
 
@@ -120,12 +121,14 @@
     </t-dialog>
 
     <!-- 结果：成功 X / 失败 Y + 可复制的失败清单 -->
+    <!-- 显隐自己接管（不用 v-model:visible）：关掉时要顺手清掉本次 outcome，见 onResultVisibleChange -->
     <t-dialog
-      v-model:visible="resultVisible"
+      :visible="resultVisible"
       :header="headline"
       :footer="false"
       :width="640"
       :data-testid="`${testid}-result`"
+      @update:visible="onResultVisibleChange"
     >
       <p class="batch-bar__hint" :data-testid="`${testid}-result-hint`">{{ hint }}</p>
       <div v-if="failures.length > 0" class="batch-bar__failures">
@@ -214,7 +217,19 @@ const ownerId = ref('');
 const resultVisible = ref(false);
 const outcome = ref<BatchOutcome>();
 
-const visible = computed(() => props.selected.length > 0 || running.value);
+/**
+ * 整条工具栏（含两个弹窗）的挂载判据。
+ *
+ * **必须把 `resultVisible` 也算进来**：`execute()` 成功收尾会
+ * `resultVisible = true` 然后 `emit('update:selected', [])` 清空勾选，
+ * 只判「有勾选 / 正在跑」的话这里立刻变 false → 根节点 `v-if` 把结果弹窗
+ * 一起卸掉，用户永远看不到「成功 X / 失败 Y」（t_cea00ecf 的根因）。
+ * 结果弹窗是根节点的子节点，所以「结果还没被用户关掉」等于「根节点必须还在」。
+ * 关掉弹窗后 `resultVisible=false` 且勾选为空 → 工具栏照常隐藏。
+ */
+const visible = computed(
+  () => props.selected.length > 0 || running.value || resultVisible.value
+);
 const countText = computed(() =>
   selectionText(props.selected.length, scope.value, props.filteredTotal)
 );
@@ -321,6 +336,21 @@ async function execute(
 function clearSelection(): void {
   emit('update:selected', []);
   scope.value = 'page';
+}
+
+/**
+ * 结果弹窗的显隐回写（用户点右上角 × / 遮罩 / Esc 都会走到这里）。
+ *
+ * 关掉时**同步清掉 `outcome`**：结果是一次性的，留着会让下一次批量动作
+ * （或页面复用同一实例）在弹窗刚打开的那一帧闪出上一次的成功/失败清单。
+ * 清空不影响关闭动画——勾选此时已清空，`visible=false` 会让整条工具栏
+ * 连同弹窗一起消失（没有残留的淡出画面）。
+ */
+function onResultVisibleChange(value: boolean): void {
+  resultVisible.value = value;
+  if (!value) {
+    outcome.value = undefined;
+  }
 }
 
 /** 选中全部筛选结果（父组件负责取全部行）。 */
