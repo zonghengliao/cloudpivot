@@ -1,0 +1,11 @@
+test result: FAILED. 2628 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1124.88s
+test business::erp::payable_bridge::tests::p17_amount_500000_routes_to_countersign ... FAILED
+test business::erp::payable_bridge::tests::p17_countersign_needs_every_vote ... FAILED
+test business::erp::payable_bridge::tests::p17_creator_cannot_approve_own_payment ... FAILED
+test result: FAILED. 2628 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1124.88s
+thread 'business::erp::payable_bridge::tests::p17_amount_500000_routes_to_countersign' (1713883) panicked at src/business/erp/payable_bridge.rs:1744:9:
+会签节点必须给每个审批人一条待办（实测 1 条）
+thread 'business::erp::payable_bridge::tests::p17_countersign_needs_every_vote' (1714702) panicked at src/business/erp/payable_bridge.rs:1767:9:
+会签至少要两个审批人：1
+thread 'business::erp::payable_bridge::tests::p17_creator_cannot_approve_own_payment' (1714798) panicked at src/business/erp/payable_bridge.rs:2076:14:
+超管制单人必须有留痕行（否则审计回答不了「他没批、为什么」）
