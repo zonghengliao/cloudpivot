@@ -1,0 +1,9 @@
+# 库内证据（cloudpivot_fix11b，隔离库）
+## biz_voucher
+PZ-20261103-000540 | POSTED | 0 | 01a1acb0-40f8-7308-a4f7-09b14c5e587c | P1-FIX-11 红冲审批进度验收（隔离库 cloudpivot_fix11b）
+
+## biz_flow_instance
+01a1acb0-40f8-7308-a4f7-09b14c5e587c | VOUCHER_REVERSE | b69ff692-12ca-4f29-bf3a-abe4a085f754 | PENDING
+
+## biz_flow_task（待办人=真角色成员，不是 FALLBACK_ADMIN）
+n_fm | PENDING | pc_demo_li | 李四 | ROLE

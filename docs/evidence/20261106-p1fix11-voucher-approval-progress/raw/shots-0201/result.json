@@ -1,0 +1,10 @@
+{
+  "base": "http://127.0.0.1:5186",
+  "voucher": "0201",
+  "control": "PZ-20261102-001579",
+  "instance": "01a1acb8-aed0-70e2-a0e8-9b3229bfc30f",
+  "pass": 15,
+  "fail": 0,
+  "failures": [],
+  "progressText": "开始\n已通过\n金额分级（> 1 万会签）\n已通过\n3\n财务经理审批\n处理中\n财务经理审批\n李四\n待处理\n2026-11-06 01:19:06"
+}

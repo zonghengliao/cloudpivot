@@ -1,0 +1,20 @@
+# 环境（全部隔离，未碰生产）
+
+## 后端进程 pid=2822700
+  NIK_DATABASE_NAME=cloudpivot_fix11b
+  NIK_SERVER_LISTEN=127.0.0.1:18156
+  NIK_PROFILE=test
+  exe -> /opt/cloudpivot/backend/target/debug/cloudpivot
+  二进制时间: 2026-11-06 00:48:54.664815576 +0800
+
+## 库 cloudpivot_fix11b
+  迁移: max(version::int)=257，成功 199 条（磁盘 V0258 属别的卡在途，未应用）
+  库大小: 30 MB
+
+## 前端
+  vite dev（源码即产物，不是 dist、不在 /opt/cloudpivot/frontend 里 build）:
+  cd /opt/cloudpivot/frontend && BACKEND_ORIGIN=http://127.0.0.1:18156 ./node_modules/.bin/vite --port 5186
+  git HEAD: 80e05a1 2026-11-06 01:01:08 +0800
+
+## 账号
+  admin（超管，口令只在启动脚本 env 里，未写进仓库）

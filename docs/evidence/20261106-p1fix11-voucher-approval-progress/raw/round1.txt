@@ -1,0 +1,19 @@
+PASS  列表行显示「红冲审批中」徽标  {"text":"红冲审批中","visible":true}
+PASS  红冲凭证详情出现「审批进度」块  {"count":1,"visible":true}
+PASS  抽屉里有「审批进度」标题  
+PASS  抽屉里有「红冲审批中」提示  
+  progress.innerText = "开始\n已通过\n金额分级（> 1 万会签）\n已通过\n3\n财务经理审批\n处理中\n财务经理审批\n李四\n待处理\n2026-11-06 01:09:54"
+PASS  进度块含「开始」  
+PASS  进度块含「金额分级」  
+PASS  进度块含「财务经理审批」  
+PASS  进度块含「李四」  
+PASS  进度块含「处理中」  
+PASS  进度块在视口内（截图能拍到）  {"y":610,"h":131}
+PASS  详情请求了本凭证的审批实例  ["GET /api/business/flow/instance/01a1acb0-40f8-7308-a4f7-09b14c5e587c"]
+PASS  详情状态仍是「已记账」（红冲审批不落业务态）  "已记账"
+PASS  对照凭证（无审批实例）不渲染进度块  {"count":0}
+PASS  对照凭证抽屉里没有「审批进度」标题  
+PASS  对照凭证不发 flow/instance 请求（省一次空请求）  []
+
+=== SUMMARY ===
+{"pass":15,"fail":0,"failures":[]}

@@ -1,0 +1,49 @@
+# 造数：真链路 POST /erp/voucher/{id}/submit-reverse
+## 响应（outcome=PENDING_APPROVAL）
+{
+  "code": 0,
+  "msg": "ok",
+  "outcome": "PENDING_APPROVAL",
+  "pending_reverse_instance_id": "01a1acb0-40f8-7308-a4f7-09b14c5e587c",
+  "voucher_no": "PZ-20261103-000540",
+  "status": "POSTED"
+}
+
+## 凭证详情（pending_reverse_instance_id 恒下发）
+{
+  "code": 0,
+  "voucher_no": "PZ-20261103-000540",
+  "status": "POSTED",
+  "pending_reverse_instance_id": "01a1acb0-40f8-7308-a4f7-09b14c5e587c",
+  "reverse_reason": "P1-FIX-11 红冲审批进度验收（隔离库 cloudpivot_fix11b）"
+}
+
+## 审批实例（GET /business/flow/instance/{id}）
+{
+  "code": 0,
+  "status": null,
+  "nodes": [
+    {
+      "node_key": "c_amt",
+      "node_name": "金额分级（> 1 万会签）",
+      "status": "APPROVED"
+    },
+    {
+      "node_key": "n_fm",
+      "node_name": "财务经理审批",
+      "status": "ACTIVE"
+    },
+    {
+      "node_key": "s",
+      "node_name": "开始",
+      "status": "APPROVED"
+    }
+  ],
+  "timeline": [
+    {
+      "node": "财务经理审批",
+      "assignee_name": "李四",
+      "status": "PENDING"
+    }
+  ]
+}

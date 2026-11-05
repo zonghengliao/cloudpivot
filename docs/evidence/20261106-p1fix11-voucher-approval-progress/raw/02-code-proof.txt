@@ -1,0 +1,37 @@
+# 代码证据：P1-FIX-11 是否已由 P0-FIX-4B 覆盖
+
+## 引入提交（git log -S voucherApprovalInstanceId）
+7f243d4 feat(erp): 凭证审核链前端（审核/反审核/记账按钮 + 状态列 + 审批进度）(t_c6ff9249)
+d37302d feat(erp): 凭证审核链前端（审核/反审核/记账按钮 + 状态列 + 审批进度）(t_c6ff9249)
+
+## 7f243d4 2026-11-04 22:26:14 +0800 feat(erp): 凭证审核链前端（审核/反审核/记账按钮 + 状态列 + 审批进度）(t_c6ff9249)
+
+## 判据函数 frontend/src/views/business/erp/voucher/voucher-audit-logic.ts
+232:export function voucherApprovalInstanceId(
+233-  row:
+234-    | {
+235-        pending_reverse_instance_id?: string | null;
+236-        approval_instance_id?: string | null;
+237-      }
+238-    | null
+239-    | undefined,
+240-): string | null {
+241-  if (!row) {
+242-    return null;
+243-  }
+244-  const pending = (row.pending_reverse_instance_id ?? '').trim();
+
+## 页面接线（views/business/erp/voucher/index.vue）
+468:          <template v-if="hasApprovalProgress(approvalProgress)">
+469:            <div class="section-title">{{ APPROVAL_PROGRESS_TITLE }}</div>
+471:              :nodes="approvalProgress.nodes"
+472:              :tasks="approvalProgress.tasks"
+473:              data-testid="voucher-approval-progress"
+756:  APPROVAL_PROGRESS_TITLE,
+776:  voucherApprovalInstanceId,
+1031: * `voucher-audit-logic.ts::voucherApprovalInstanceId`，单测覆盖四种组合）：
+1039:const approvalProgress = ref<ApprovalProgress>({ ...EMPTY_APPROVAL_PROGRESS });
+1043:  approvalProgress.value = await loadApprovalProgress(voucherApprovalInstanceId(row), getFlowInstance);
+1079:  approvalProgress.value = { ...EMPTY_APPROVAL_PROGRESS };
+1357:      approvalProgress.value = { ...EMPTY_APPROVAL_PROGRESS };
+1409:      approvalProgress.value = { ...EMPTY_APPROVAL_PROGRESS };

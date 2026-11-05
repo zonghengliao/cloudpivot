@@ -1,0 +1,5 @@
+# vue-tsc --noEmit（前端全量类型检查，只跑受影响的这份前端工程）
+# cmd: cd frontend && ./node_modules/.bin/vue-tsc --noEmit
+# date: 2026-11-06 01:16:35 +0800
+# exit_code=0 （0 = 无类型错误；vue-tsc 成功时不打印任何内容）
+# 说明：空白是正常输出，不是日志丢失

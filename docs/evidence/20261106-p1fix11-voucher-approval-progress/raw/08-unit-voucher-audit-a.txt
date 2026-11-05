@@ -1,0 +1,82 @@
+TAP version 13
+# Subtest: 状态 → 允许的动作：草稿只有审核
+ok 1 - 状态 → 允许的动作：草稿只有审核
+  ---
+  duration_ms: 1.258001
+  type: 'test'
+  ...
+# Subtest: 状态 → 允许的动作：已审核有反审核 + 记账（顺序即界面顺序）
+ok 2 - 状态 → 允许的动作：已审核有反审核 + 记账（顺序即界面顺序）
+  ---
+  duration_ms: 0.084884
+  type: 'test'
+  ...
+# Subtest: 状态 → 允许的动作：已记账 / 已作废 / 未知状态一个都没有
+ok 3 - 状态 → 允许的动作：已记账 / 已作废 / 未知状态一个都没有
+  ---
+  duration_ms: 0.090926
+  type: 'test'
+  ...
+# Subtest: 动作声明：权限码与后端 \#[alun::permission] 同名，且只有反审核要求原因
+ok 4 - 动作声明：权限码与后端 \#[alun::permission] 同名，且只有反审核要求原因
+  ---
+  duration_ms: 0.098052
+  type: 'test'
+  ...
+# Subtest: 按钮清单：全权限 + 无自审 → 都可点且无置灰原因
+ok 5 - 按钮清单：全权限 + 无自审 → 都可点且无置灰原因
+  ---
+  duration_ms: 0.280987
+  type: 'test'
+  ...
+# Subtest: 按钮清单：没权限 → 置灰并点名缺哪个权限码（不隐藏）
+ok 6 - 按钮清单：没权限 → 置灰并点名缺哪个权限码（不隐藏）
+  ---
+  duration_ms: 0.149265
+  type: 'test'
+  ...
+# Subtest: 按钮清单：制单人自审 → 审核置灰（内控），反审核/记账不受影响
+ok 7 - 按钮清单：制单人自审 → 审核置灰（内控），反审核/记账不受影响
+  ---
+  duration_ms: 0.153516
+  type: 'test'
+  ...
+# Subtest: 自审判定：两个 id 任一未知 → 不拦（宁可不拦，也不误拦）
+ok 8 - 自审判定：两个 id 任一未知 → 不拦（宁可不拦，也不误拦）
+  ---
+  duration_ms: 0.083008
+  type: 'test'
+  ...
+# Subtest: 反审核原因必填：空白 / 只有空格 / null / undefined 全部拦下
+ok 9 - 反审核原因必填：空白 / 只有空格 / null / undefined 全部拦下
+  ---
+  duration_ms: 0.390456
+  type: 'test'
+  ...
+# Subtest: 审核链说明文案：每个状态都说清「为什么没有按钮 / 下一步走哪」
+ok 10 - 审核链说明文案：每个状态都说清「为什么没有按钮 / 下一步走哪」
+  ---
+  duration_ms: 0.361952
+  type: 'test'
+  ...
+# Subtest: 动作回执 / 确认文案：记账要写明「不可再反审核」
+ok 11 - 动作回执 / 确认文案：记账要写明「不可再反审核」
+  ---
+  duration_ms: 0.169975
+  type: 'test'
+  ...
+# Subtest: 审批实例 id：红冲实例优先，其次审核实例，都没有 → null（进度块不渲染）
+ok 12 - 审批实例 id：红冲实例优先，其次审核实例，都没有 → null（进度块不渲染）
+  ---
+  duration_ms: 0.086509
+  type: 'test'
+  ...
+1..12
+# tests 12
+# suites 0
+# pass 12
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 111.213648
