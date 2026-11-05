@@ -1,0 +1,9 @@
+==============================================================================
+backend/src/business/task/handler.rs   （拆分前 ref = bae90c0^）
+  条目多重集                前=  137 后=  137  MISSING=none  ADDED=none
+  SQL 字面量              前=   24 后=   24  MISSING=none  ADDED=none
+  用例名                  前=   24 后=   24  MISSING=none  ADDED=none
+  代码 token 多重集         前=28013 后=28013  MISSING=none  ADDED=none
+==============================================================================
+结论： PASS（条目 / SQL / 用例名 / 代码 token 四重多重集全部一一对应，只搬不移）
+VERIFY_EXIT=0

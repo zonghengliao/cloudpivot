@@ -1,0 +1,2 @@
+/root/p21a_verify/round1.log:test result: ok. 226 passed; 0 failed; 0 ignored; 0 measured; 2405 filtered out; finished in 33.39s
+/root/p21a_verify/round2.log:test result: ok. 226 passed; 0 failed; 0 ignored; 0 measured; 2405 filtered out; finished in 33.32s
