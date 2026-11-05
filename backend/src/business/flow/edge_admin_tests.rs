@@ -33,6 +33,7 @@ use crate::business::flow::edge_admin::{
     self, ChangeVerdict, EdgeChange, EdgeChangeRes, EdgeDeleteQuery, EdgeUpsertReq, StateEdgeQuery,
 };
 use crate::business::shared::state_machine::{self, Entity};
+use crate::shared::error_code;
 
 /// 用例串行锁（改全局配置的用例必须排队）。
 static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -918,4 +919,364 @@ async fn approve_all(instance_id: Uuid) {
         edge_admin::on_settled(out.instance_id, &out.instance_status).await;
     }
     crate::business::flow::test_support::assert_instance_status(instance_id, "APPROVED").await;
+}
+
+// ==================== 批量审批端点与落边（P1-FIX-4） ====================
+//
+// 旧批量端点 `POST /business/flow/task/batch`（`flow::handler::batch_task`）曾经自己写了一套
+// 循环：开事务 → `engine::approve` → `drain(effects)` → 记结果。**它不跑任何业务回调**，
+// 于是「批量同意」一张 `FLOW_EDGE_CFG` 单：审批单落 `APPROVED`，`biz_flow_state_edge`
+// 一行不写（配置一分没生效），另外 13 个业务回调和 9 道内控闸也一起被绕过。
+//
+// 修法：批量层改成**逐条委托** `flow::batch::batch_approve`（它调 `approve_task` /
+// `reject_task` 本体）。下面这组用例把「批量 = 单条」钉死。
+
+/// 按边生成一条「禁用这条可选边」的请求（与 [`disable_stock_out_post`] 同口径）。
+fn disable_edge(entity: &str, from: &str, to: &str) -> EdgeUpsertReq {
+    EdgeUpsertReq {
+        entity: entity.to_string(),
+        from_status: from.to_string(),
+        to_status: to.to_string(),
+        enabled: false,
+        requires_reason: false,
+        label: None,
+        auth_code: None,
+        confirm: true,
+        reason: Some("P1-FIX-4 单测：批量审批也必须落边".to_string()),
+        skip: crate::business::erp::approval_gate::SkipApprovalReq::default(),
+    }
+}
+
+/// 走真 handler 提交一条配置变更 → 审批单 id（断言「必须送审」）。
+async fn submit_change(entity: &str, from: &str, to: &str) -> Uuid {
+    let res = edge_admin::upsert_state_edge(
+        Extension(AuthClaims(super_claims().await)),
+        Json(disable_edge(entity, from, to)),
+    )
+    .await
+    .unwrap_or_else(|err| panic!("提交失败：{} {}", err.code, err.msg));
+    let change = res.data.expect("响应必须带 data");
+    assert!(!change.applied, "有已发布流程时必须送审，不能直接生效");
+    change
+        .instance_id
+        .expect("必须回审批单 id")
+        .parse()
+        .expect("instance id")
+}
+
+/// 调旧批量端点（`handler::batch_task`）。
+async fn batch_tasks(
+    claims: TokenClaims,
+    ids: Vec<String>,
+    action: &str,
+    comment: Option<&str>,
+) -> std::result::Result<crate::business::flow::dto::BatchRes, ApiError> {
+    batch_tasks_with_return(claims, ids, action, comment, None).await
+}
+
+/// 同上，带驳回退回目标（`NONE` = 驳回并终止 → 实例直接落 REJECTED）。
+async fn batch_tasks_with_return(
+    claims: TokenClaims,
+    ids: Vec<String>,
+    action: &str,
+    comment: Option<&str>,
+    return_to: Option<&str>,
+) -> std::result::Result<crate::business::flow::dto::BatchRes, ApiError> {
+    crate::business::flow::handler::batch_task(
+        Extension(AuthClaims(claims)),
+        Json(crate::business::flow::dto::BatchReq {
+            task_ids: ids,
+            action: action.to_string(),
+            comment: comment.map(str::to_string),
+            return_to: return_to.map(str::to_string),
+        }),
+    )
+    .await
+    .map(|res| res.data.expect("批量响应必须带 data"))
+}
+
+/// 存活配置行数。
+async fn live_config_rows(entity: &str, from: &str, to: &str) -> i64 {
+    db().scalar_with_params::<i64>(
+        "SELECT count(*) AS v FROM biz_flow_state_edge \
+              WHERE entity = ? AND from_status = ? AND to_status = ? AND deleted_at IS NULL",
+        vec![
+            Value::Text(entity.to_string()),
+            Value::Text(from.to_string()),
+            Value::Text(to.to_string()),
+        ],
+    )
+    .await
+    .expect("数配置行")
+}
+
+/// ⑫ 批量同意 = 单条同意：**审批通过必须真正落边**（P1-FIX-4 的核心回归）。
+#[tokio::test]
+async fn batch_task_writes_edge_after_approval() {
+    if !ensure_db().await {
+        return;
+    }
+    let _guard = DB_LOCK.lock().await;
+    purge().await;
+    assert!(stock_out_allows_direct_post().await, "基线：允许直接过账");
+
+    let instance_id = submit_change("STOCK_OUT", "DRAFT", "POSTED").await;
+    let task_id = pending_task_of(instance_id).await;
+    assert_eq!(live_config_rows("STOCK_OUT", "DRAFT", "POSTED").await, 0);
+
+    let out = batch_tasks(
+        super_claims().await,
+        vec![task_id.to_string()],
+        "APPROVE",
+        None,
+    )
+    .await
+    .unwrap_or_else(|err| panic!("批量同意失败：{} {}", err.code, err.msg));
+    assert_eq!(out.total, 1);
+    assert_eq!(out.succeeded, 1, "逐条结果：{:?}", out.items);
+    assert!(out.items[0].ok, "这一条必须成功：{:?}", out.items[0]);
+
+    crate::business::flow::test_support::assert_instance_status(instance_id, "APPROVED").await;
+    assert_eq!(
+        live_config_rows("STOCK_OUT", "DRAFT", "POSTED").await,
+        1,
+        "批量同意后必须落一行配置（修复前这里是 0：审批单 APPROVED 但配置不生效）"
+    );
+    assert!(
+        !stock_out_allows_direct_post().await,
+        "落边之后 DRAFT → POSTED 必须从有效边里消失"
+    );
+    purge().await;
+}
+
+/// ⑬ 批量驳回 = 单条驳回：配置一分不动，只留一条审计。
+#[tokio::test]
+async fn batch_task_reject_keeps_edge_config_untouched() {
+    if !ensure_db().await {
+        return;
+    }
+    let _guard = DB_LOCK.lock().await;
+    purge().await;
+
+    let instance_id = submit_change("STOCK_OUT", "DRAFT", "POSTED").await;
+    let task_id = pending_task_of(instance_id).await;
+    let out = batch_tasks_with_return(
+        super_claims().await,
+        vec![task_id.to_string()],
+        "REJECT",
+        Some("不同意：这条捷径要保留"),
+        Some("NONE"),
+    )
+    .await
+    .expect("批量驳回");
+    assert_eq!(out.succeeded, 1, "逐条结果：{:?}", out.items);
+    crate::business::flow::test_support::assert_instance_status(instance_id, "REJECTED").await;
+    assert_eq!(
+        live_config_rows("STOCK_OUT", "DRAFT", "POSTED").await,
+        0,
+        "驳回不该留下任何配置行"
+    );
+    assert!(stock_out_allows_direct_post().await, "驳回后这条边必须还在");
+    let audits: i64 = db()
+        .scalar_sql(
+            "SELECT count(*) AS v FROM biz_status_log \
+              WHERE entity_type = 'FLOW_EDGE_CFG' AND to_status = 'REJECTED'"
+                .to_string(),
+            vec![],
+        )
+        .await
+        .expect("数审计行");
+    assert!(audits >= 1, "批量驳回也要留痕");
+    purge().await;
+}
+
+/// ⑭ 非法主键只让**那一条**失败：其余照常执行，且结果按入参顺序回填。
+#[tokio::test]
+async fn batch_task_invalid_uuid_only_fails_that_item() {
+    if !ensure_db().await {
+        return;
+    }
+    let _guard = DB_LOCK.lock().await;
+    purge().await;
+
+    let instance_id = submit_change("PURCHASE_ORDER", "SUBMITTED", "CLOSED").await;
+    let task_id = pending_task_of(instance_id).await;
+    let out = batch_tasks(
+        super_claims().await,
+        vec![task_id.to_string(), "not-a-uuid".to_string(), String::new()],
+        "APPROVE",
+        None,
+    )
+    .await
+    .expect("批量同意");
+    assert_eq!(out.total, 3);
+    assert_eq!(out.succeeded, 1, "只有第一条是合法待办：{:?}", out.items);
+    assert_eq!(out.failed, 2);
+    assert_eq!(out.items[0].task_id, task_id.to_string());
+    assert!(out.items[0].ok, "合法的那条必须成功");
+    assert!(!out.items[1].ok);
+    assert_eq!(out.items[1].code, error_code::FLOW_FIELD_INVALID);
+    assert!(
+        out.items[1].message.contains("格式非法"),
+        "{:?}",
+        out.items[1]
+    );
+    assert!(!out.items[2].ok, "空串也算格式非法");
+    assert_eq!(out.items[2].code, error_code::FLOW_FIELD_INVALID);
+    assert_eq!(
+        live_config_rows("PURCHASE_ORDER", "SUBMITTED", "CLOSED").await,
+        1,
+        "合法的那条已经批完 → 必须落边（一条坏 id 不该拖垮整批）"
+    );
+    purge().await;
+}
+
+/// ⑮ 同一条待办批两次：引擎按幂等成功返回，**配置不会写成两行**。
+#[tokio::test]
+async fn batch_task_repeated_approval_keeps_single_row() {
+    if !ensure_db().await {
+        return;
+    }
+    let _guard = DB_LOCK.lock().await;
+    purge().await;
+
+    let instance_id = submit_change("STOCK_OUT", "DRAFT", "POSTED").await;
+    let task_id = pending_task_of(instance_id).await;
+    let claims = super_claims().await;
+    let first = batch_tasks(claims.clone(), vec![task_id.to_string()], "APPROVE", None)
+        .await
+        .expect("第一次批量同意");
+    assert_eq!(first.succeeded, 1);
+    let second = batch_tasks(claims, vec![task_id.to_string()], "APPROVE", None)
+        .await
+        .expect("第二次调用本身成功（引擎幂等）");
+    assert_eq!(second.total, 1);
+    assert_eq!(
+        live_config_rows("STOCK_OUT", "DRAFT", "POSTED").await,
+        1,
+        "重复审批不能把配置写成两行（第二次必须幂等，不是又落一次）"
+    );
+    crate::business::flow::test_support::assert_instance_status(instance_id, "APPROVED").await;
+    purge().await;
+}
+
+/// ⑯ 批量与单条**同口径**：同一个不存在的待办，两条路给出同一个业务码。
+#[tokio::test]
+async fn batch_task_error_code_matches_single_approve() {
+    if !ensure_db().await {
+        return;
+    }
+    let _guard = DB_LOCK.lock().await;
+    purge().await;
+
+    let claims = super_claims().await;
+    let ghost = Uuid::now_v7();
+    let single = crate::business::flow::handler::approve_task(
+        Extension(AuthClaims(claims.clone())),
+        axum::extract::Path(ghost.to_string()),
+        Some(Json(crate::business::flow::dto::ApproveReq {
+            comment: None,
+        })),
+    )
+    .await
+    .expect_err("不存在的待办必须报错");
+    let batched = batch_tasks(claims, vec![ghost.to_string()], "APPROVE", None)
+        .await
+        .expect("批量本身成功（逐条失败）");
+    assert_eq!(batched.failed, 1);
+    assert!(!batched.items[0].ok);
+    assert_eq!(
+        batched.items[0].code, single.code,
+        "批量必须与单条同一个业务码（批量层只是薄壳）：single={} batch={}",
+        single.code, batched.items[0].code
+    );
+    assert_eq!(
+        batched.items[0].message, single.msg,
+        "失败文案也要与单条逐字一致（直接取自单条接口的 msg）"
+    );
+    purge().await;
+}
+
+/// ⑰ 批量驳回的意见门槛与单条一致（< 5 字 → 400 + 65005，且不动配置）。
+#[tokio::test]
+async fn batch_task_reject_requires_five_char_comment() {
+    if !ensure_db().await {
+        return;
+    }
+    let _guard = DB_LOCK.lock().await;
+    purge().await;
+
+    let instance_id = submit_change("STOCK_OUT", "DRAFT", "POSTED").await;
+    let task_id = pending_task_of(instance_id).await;
+    let error = batch_tasks(
+        super_claims().await,
+        vec![task_id.to_string()],
+        "REJECT",
+        Some("不行"),
+    )
+    .await
+    .expect_err("驳回意见不足 5 字必须被拒");
+    assert_eq!(error.status, 400);
+    assert_eq!(error.code, error_code::FLOW_FIELD_INVALID);
+    assert_eq!(live_config_rows("STOCK_OUT", "DRAFT", "POSTED").await, 0);
+    crate::business::flow::test_support::assert_instance_status(instance_id, "PENDING").await;
+    purge().await;
+}
+
+/// ⑱ 没有 `business:flow:approve` 的账号：整批 403（不是「默默 0 条」）。
+#[tokio::test]
+async fn batch_task_requires_approve_permission() {
+    if !ensure_db().await {
+        return;
+    }
+    let _guard = DB_LOCK.lock().await;
+    let error = batch_tasks(
+        plain_claims(),
+        vec![Uuid::now_v7().to_string()],
+        "APPROVE",
+        None,
+    )
+    .await
+    .expect_err("缺权限码必须 403");
+    assert_eq!(error.status, 403, "报文：{}", error.msg);
+}
+
+/// ⑲ 老契约的上限与动作白名单仍在（50 条 / APPROVE|REJECT）。
+#[tokio::test]
+async fn batch_task_rejects_oversized_batch_and_illegal_action() {
+    if !ensure_db().await {
+        return;
+    }
+    let _guard = DB_LOCK.lock().await;
+    let ids: Vec<String> = (0..51).map(|_| Uuid::now_v7().to_string()).collect();
+    let too_many = batch_tasks(super_claims().await, ids, "APPROVE", None)
+        .await
+        .expect_err("超过 50 条必须 400");
+    assert_eq!(too_many.status, 400);
+    assert_eq!(too_many.code, error_code::FLOW_FIELD_INVALID);
+
+    let illegal = batch_tasks(
+        super_claims().await,
+        vec![Uuid::now_v7().to_string()],
+        "DELETE",
+        None,
+    )
+    .await
+    .expect_err("动作非法必须 400");
+    assert_eq!(illegal.status, 400);
+    assert_eq!(illegal.code, error_code::FLOW_FIELD_INVALID);
+}
+
+/// ⑳ 空 `task_ids` 仍然 400（老契约不变）。
+#[tokio::test]
+async fn batch_task_empty_ids_is_rejected() {
+    if !ensure_db().await {
+        return;
+    }
+    let _guard = DB_LOCK.lock().await;
+    let error = batch_tasks(super_claims().await, vec![], "APPROVE", None)
+        .await
+        .expect_err("空列表必须 400");
+    assert_eq!(error.status, 400);
+    assert_eq!(error.code, error_code::FLOW_FIELD_INVALID);
 }

@@ -1,0 +1,18 @@
+== 1) FLOW_EDGE_CFG 审批单（全部）
+      instance_no      |  status   |         biz_no         |  started   |   ended    
+-----------------------+-----------+------------------------+------------+------------
+ FLW-20261103-E0719F70 | WITHDRAWN | STOCK_OUT DRAFT>POSTED | 2026-11-03 | 2026-11-03
+ FLW-20261103-32DBADFD | WITHDRAWN | STOCK_OUT DRAFT>POSTED | 2026-11-03 | 2026-11-03
+ FLW-20261103-4C65B63B | WITHDRAWN | STOCK_OUT DRAFT>POSTED | 2026-11-03 | 2026-11-03
+ FLW-20261103-B8005F58 | REJECTED  | STOCK_IN DRAFT>POSTED  | 2026-11-03 | 2026-11-03
+
+== 2) FLOW_EDGE_CFG 审计行（from_status -> to_status 计数）
+ from_status | to_status | count 
+-------------+-----------+-------
+ REJECTED    | REJECTED  |     4
+
+== 3) biz_flow_state_edge 行数（存活 / 全部）
+ alive | all_rows 
+-------+----------
+     0 |        0
+

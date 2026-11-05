@@ -1,0 +1,40 @@
+==> 表 owner = alun
+==> created: cloudpivot_p1fix4 (owner=alun)
+==> 启动 pid=1912542 库=cloudpivot_p1fix4 端口=18119 日志=/root/p1fix4-cleandb.log（跑迁移 + bootstrap）
+==> 启动日志尾部
+[2m2026-11-05T11:10:39.877597Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 help_version_cleanup 调度循环已停止
+[2m2026-11-05T11:10:39.877593Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 business_task_recurring 调度循环已停止
+[2m2026-11-05T11:10:39.877654Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务插件: 已停止
+[2m2026-11-05T11:10:39.877666Z[0m [32m INFO[0m [2mnik_core::plugin[0m[2m:[0m 停止插件: x-log-bus
+[2m2026-11-05T11:10:39.877793Z[0m [32m INFO[0m [2mnik_core::plugin[0m[2m:[0m 停止插件: startup-auth-secret-guard
+==> 库指纹
+    schema_migrations(max|count) = 251|193
+    超管人数（= assignee_type=ADMIN 节点的会签人数） = 1
+    asset_disposal / n_gm / ROLE / self_approval=ALLOW / AND
+    budget_approve / n_dept / ROLE / self_approval=ALLOW / AND
+    budget_approve / n_fin_adj / ROLE / self_approval=ALLOW / AND
+    budget_approve / n_fin / ROLE / self_approval=ALLOW / AND
+    budget_approve / n_gm / ROLE / self_approval=ALLOW / AND
+    contract_approve / n_gm / ROLE / self_approval=ALLOW / AND
+    contract_approve / n_pm_hi / ROLE / self_approval=ALLOW / AND
+    contract_approve / n_pm / ROLE / self_approval=ALLOW / AND
+    expense / n_fin / ROLE / self_approval=ALLOW / AND
+    expense / n_sup / INITIATOR_SUPERIOR / self_approval=ALLOW / AND
+    flow_edge_config / n_cfg / ROLE / self_approval=ALLOW / AND
+    payable_cancel / n_fm / ROLE / self_approval=ALLOW / AND
+    payable_pay / n_dept / ROLE / self_approval=ALLOW / AND
+    payable_pay / n_fin / ROLE / self_approval=ALLOW / AND
+    po_approve / n_dept / ROLE / self_approval=ALLOW / AND
+    po_approve / n_fin / ROLE / self_approval=ALLOW / AND
+    po_approve / n_pm / ROLE / self_approval=ALLOW / AND
+    stock_in_cancel / n_review / ROLE / self_approval=FORBID / AND
+    stock_in_post / n_wh / ROLE / self_approval=ALLOW / AND
+    stock_take_post / n_fin / ROLE / self_approval=ALLOW / AND
+    stock_take_post / n_gm / ROLE / self_approval=ALLOW / AND
+    stock_take_post / n_wh / ROLE / self_approval=ALLOW / AND
+    stock_transfer / n_approve / ROLE / self_approval=ALLOW / AND
+    task_accept / n_creator / TASK_CREATOR / self_approval=ALLOW / AND
+    voucher_reverse / n_fm / ROLE / self_approval=ALLOW / AND
+==> 完成。下一步：
+    export ERP_DB_URL='postgres://alun:alun@127.0.0.1:5432/cloudpivot_p1fix4'
+    cd /opt/cloudpivot/backend && cargo test -j 1

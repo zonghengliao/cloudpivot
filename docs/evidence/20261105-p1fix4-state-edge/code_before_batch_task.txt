@@ -1,0 +1,129 @@
+// ==================== 20. 批量审批 ====================
+
+/// 批量同意 / 驳回（**逐条独立事务**，单条失败不影响其它条，架构 §10.1.3 #28）。
+///
+/// # 异常情况
+///
+/// - 400 + `65005`：`task_ids` 为空 / 超过 50 条 / 动作非法 / 驳回意见不足 5 字。
+#[nik::permission(
+    path = "/business/flow/task/batch",
+    method = "POST",
+    permission = "business:flow:approve"
+)]
+#[nik::post("/business/flow/task/batch")]
+pub async fn batch_task(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Json(req): Json<dto::BatchReq>,
+) -> ResResult<dto::BatchRes> {
+    let operator = me_of(&claims)?;
+    if req.task_ids.is_empty() {
+        return Err(field_invalid("task_ids 不能为空"));
+    }
+    if req.task_ids.len() > dto::MAX_BATCH_TASKS {
+        return Err(field_invalid(format!(
+            "单次批量审批最多 {} 条",
+            dto::MAX_BATCH_TASKS
+        )));
+    }
+    let approve = match req.action.trim().to_ascii_uppercase().as_str() {
+        "APPROVE" => true,
+        "REJECT" => false,
+        other => {
+            return Err(field_invalid(format!(
+                "动作 {other} 非法（只允许 APPROVE / REJECT）"
+            )));
+        }
+    };
+    let comment = if approve {
+        dto::normalize_comment(req.comment.as_deref()).map_err(field_invalid)?
+    } else {
+        Some(
+            dto::normalize_reject_comment(req.comment.as_deref().unwrap_or(""))
+                .map_err(field_invalid)?,
+        )
+    };
+    let return_to = engine::ReturnTo::parse(req.return_to.as_deref().unwrap_or(""));
+    if !approve && return_to.needs_admin() && !claims.has_permission("business:flow:admin") {
+        return Err(ApiError::new(
+            403,
+            error_code::FLOW_FORBIDDEN,
+            "批量驳回并终止 / 退任意节点需要流程管理员权限",
+        ));
+    }
+
+    let mut items = Vec::with_capacity(req.task_ids.len());
+    let mut succeeded = 0usize;
+    for raw in &req.task_ids {
+        let task_id = match Uuid::parse_str(raw.trim()) {
+            Ok(id) => id,
+            Err(_) => {
+                items.push(dto::BatchItemRes {
+                    task_id: raw.clone(),
+                    ok: false,
+                    code: error_code::FLOW_FIELD_INVALID,
+                    message: "待办 id 格式非法".to_string(),
+                });
+                continue;
+            }
+        };
+        let comment = comment.clone();
+        let return_to = return_to.clone();
+        // 逐条独立事务：一条 409 不影响另外 49 条
+        let result = db()
+            .transaction(|tx| async move {
+                if approve {
+                    engine::approve(&tx, task_id, operator, comment.as_deref()).await
+                } else {
+                    engine::reject(
+                        &tx,
+                        task_id,
+                        operator,
+                        comment.as_deref().unwrap_or("批量驳回"),
+                        return_to,
+                    )
+                    .await
+                }
+            })
+            .await;
+        match result {
+            Ok(mut out) => {
+                let rejected = drain(&mut out).await;
+                match rejected {
+                    None => {
+                        succeeded += 1;
+                        items.push(dto::BatchItemRes {
+                            task_id: raw.clone(),
+                            ok: true,
+                            code: 0,
+                            message: String::new(),
+                        });
+                    }
+                    Some(error) => items.push(dto::BatchItemRes {
+                        task_id: raw.clone(),
+                        ok: false,
+                        code: error.code,
+                        message: error.msg,
+                    }),
+                }
+            }
+            Err(error) => {
+                let api = utils::db_error(error, "批量审批");
+                items.push(dto::BatchItemRes {
+                    task_id: raw.clone(),
+                    ok: false,
+                    code: api.code,
+                    message: api.msg,
+                });
+            }
+        }
+    }
+    let failed = items.len() - succeeded;
+    Ok(Res::ok(dto::BatchRes {
+        total: items.len(),
+        succeeded,
+        failed,
+        items,
+    }))
+}
+
+// ==================== 21–23. 我的待办 / 已办 / 抄送 ====================

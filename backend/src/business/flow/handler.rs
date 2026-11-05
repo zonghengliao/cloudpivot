@@ -1107,7 +1107,8 @@ pub async fn create_draft(
 // | 17 | POST | `/business/flow/task/{id}/reject` | `business:flow:approve` |
 // | 18 | POST | `/business/flow/task/{id}/transfer` | `business:flow:approve` |
 // | 19 | POST | `/business/flow/task/{id}/add-sign` | `business:flow:approve` |
-// | 20 | POST | `/business/flow/task/batch` | `business:flow:approve` |
+// | 20 | POST | `/business/flow/task/batch` | `business:flow:approve` |（兼容层：逐条委托 `/task/batch-approve`，语义与单条完全一致）
+// | 20b | POST | `/business/flow/task/batch-approve` | `business:flow:approve` |（`flow::batch`，D7 之后的唯一实现）
 // | 21 | GET | `/business/flow/task/todo` | `business:flow:instance:read` |
 // | 22 | GET | `/business/flow/task/done` | `business:flow:instance:read` |
 // | 23 | GET | `/business/flow/task/cc` | `business:flow:instance:read` |
@@ -1999,9 +2000,25 @@ pub async fn add_sign_task(
 
 /// 批量同意 / 驳回（**逐条独立事务**，单条失败不影响其它条，架构 §10.1.3 #28）。
 ///
+/// # 为什么这一层只是「薄壳」（P1-FIX-4 的修复点）
+///
+/// 批量与单条必须**同一套语义**：内控闸（制单人 ≠ 审批人）、审批事务、以及**落终态之后的
+/// 全部业务回调**（任务 / 调拨 / 收货作废 / 收货过账 / 采购 / 预算 / 资产 / 报销 / 合同 /
+/// 盘点 / 应付付款 / 应付作废 / 凭证红冲 / 状态机配置）。
+///
+/// 本函数原来自己写了一套循环，只 `drain` 引擎副作用就返回 —— 于是「批量同意」一张
+/// `FLOW_EDGE_CFG` 单，审批单落 `APPROVED` 但 `biz_flow_state_edge` 一行不写
+/// （配置一分没生效），另外 13 个业务回调与 9 道内控闸也一起被绕过。
+/// 现在改成**逐条委托** [`crate::business::flow::batch::batch_approve`]（它逐条调
+/// `approve_task` / `reject_task` 本体），批量与单条不可能再分叉。
+///
+/// 响应形状（`BatchRes`）与失败码保持老契约：`task_id` / `ok` / `code` / `message`
+/// 逐条、按**入参顺序**；非法 UUID 仍然只让那一条失败（不整请求 400）。
+///
 /// # 异常情况
 ///
-/// - 400 + `65005`：`task_ids` 为空 / 超过 50 条 / 动作非法 / 驳回意见不足 5 字。
+/// - 400 + `65005`：`task_ids` 为空 / 超过 50 条 / 动作非法 / 驳回意见不足 5 字；
+/// - 403 + `65004`：驳回并终止 / 退任意节点但缺 `business:flow:admin`。
 #[nik::permission(
     path = "/business/flow/task/batch",
     method = "POST",
@@ -2012,7 +2029,8 @@ pub async fn batch_task(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Json(req): Json<dto::BatchReq>,
 ) -> ResResult<dto::BatchRes> {
-    let operator = me_of(&claims)?;
+    // 401 兜底：令牌里没有用户标识不该走到批量层
+    let _operator = me_of(&claims)?;
     if req.task_ids.is_empty() {
         return Err(field_invalid("task_ids 不能为空"));
     }
@@ -2048,71 +2066,68 @@ pub async fn batch_task(
         ));
     }
 
+    // ① 主键形态逐条校验（老契约：非法 UUID 只让那一条失败，不整请求 400）
+    let mut valid: Vec<String> = Vec::new();
+    let mut invalid: Vec<(String, String)> = Vec::new();
+    for raw in &req.task_ids {
+        let text = raw.trim();
+        match Uuid::parse_str(text) {
+            Ok(_) => {
+                if !valid.iter().any(|item| item == text) {
+                    valid.push(text.to_string());
+                }
+            }
+            Err(_) => invalid.push((raw.clone(), "待办 id 格式非法".to_string())),
+        }
+    }
+
+    // ② 真正的批量：逐条委托单条 handler（内控闸 + 事务 + 全部业务回调都走同一条路）
+    let mut results: std::collections::HashMap<String, (bool, i32, String)> =
+        std::collections::HashMap::new();
+    if !valid.is_empty() {
+        let outcome = crate::business::flow::batch::batch_approve(
+            &claims,
+            &crate::business::flow::batch::BatchApproveReq {
+                ids: valid.clone(),
+                decision: Some(if approve { "APPROVE" } else { "REJECT" }.to_string()),
+                comment: comment.clone(),
+                return_to: req.return_to.clone(),
+            },
+        )
+        .await?;
+        for item in &outcome.succeeded {
+            results.insert(item.id.clone(), (true, 0, String::new()));
+        }
+        for item in &outcome.failed {
+            results.insert(item.id.clone(), (false, item.code, item.error.clone()));
+        }
+    }
+
+    // ③ 按入参顺序回填（同一 id 重复出现 → 复用同一条结果，不重复执行）
     let mut items = Vec::with_capacity(req.task_ids.len());
     let mut succeeded = 0usize;
     for raw in &req.task_ids {
-        let task_id = match Uuid::parse_str(raw.trim()) {
-            Ok(id) => id,
-            Err(_) => {
-                items.push(dto::BatchItemRes {
-                    task_id: raw.clone(),
-                    ok: false,
-                    code: error_code::FLOW_FIELD_INVALID,
-                    message: "待办 id 格式非法".to_string(),
-                });
-                continue;
-            }
+        let text = raw.trim();
+        let (ok, code, message) = if let Some(hit) = results.get(text) {
+            (hit.0, hit.1, hit.2.clone())
+        } else if let Some((_, msg)) = invalid.iter().find(|(key, _)| key == raw) {
+            (false, error_code::FLOW_FIELD_INVALID, msg.clone())
+        } else {
+            (
+                false,
+                error_code::FLOW_FIELD_INVALID,
+                "待办 id 格式非法".to_string(),
+            )
         };
-        let comment = comment.clone();
-        let return_to = return_to.clone();
-        // 逐条独立事务：一条 409 不影响另外 49 条
-        let result = db()
-            .transaction(|tx| async move {
-                if approve {
-                    engine::approve(&tx, task_id, operator, comment.as_deref()).await
-                } else {
-                    engine::reject(
-                        &tx,
-                        task_id,
-                        operator,
-                        comment.as_deref().unwrap_or("批量驳回"),
-                        return_to,
-                    )
-                    .await
-                }
-            })
-            .await;
-        match result {
-            Ok(mut out) => {
-                let rejected = drain(&mut out).await;
-                match rejected {
-                    None => {
-                        succeeded += 1;
-                        items.push(dto::BatchItemRes {
-                            task_id: raw.clone(),
-                            ok: true,
-                            code: 0,
-                            message: String::new(),
-                        });
-                    }
-                    Some(error) => items.push(dto::BatchItemRes {
-                        task_id: raw.clone(),
-                        ok: false,
-                        code: error.code,
-                        message: error.msg,
-                    }),
-                }
-            }
-            Err(error) => {
-                let api = utils::db_error(error, "批量审批");
-                items.push(dto::BatchItemRes {
-                    task_id: raw.clone(),
-                    ok: false,
-                    code: api.code,
-                    message: api.msg,
-                });
-            }
+        if ok {
+            succeeded += 1;
         }
+        items.push(dto::BatchItemRes {
+            task_id: raw.clone(),
+            ok,
+            code,
+            message,
+        });
     }
     let failed = items.len() - succeeded;
     Ok(Res::ok(dto::BatchRes {

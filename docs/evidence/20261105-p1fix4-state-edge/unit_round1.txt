@@ -1,0 +1,31 @@
+   Compiling cloudpivot v0.1.0 (/root/p1fix4-wt/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 00s
+     Running unittests src/lib.rs (/root/p1fix4-target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 23 tests
+test business::flow::edge_admin_tests::bad_patch_is_rejected_before_any_approval ... ok
+test business::flow::edge_admin_tests::batch_task_empty_ids_is_rejected ... ok
+test business::flow::edge_admin_tests::batch_task_error_code_matches_single_approve ... ok
+test business::flow::edge_admin_tests::batch_task_invalid_uuid_only_fails_that_item ... ok
+test business::flow::edge_admin_tests::batch_task_reject_keeps_edge_config_untouched ... ok
+test business::flow::edge_admin_tests::batch_task_reject_requires_five_char_comment ... ok
+test business::flow::edge_admin_tests::batch_task_rejects_oversized_batch_and_illegal_action ... ok
+test business::flow::edge_admin_tests::batch_task_repeated_approval_keeps_single_row ... ok
+test business::flow::edge_admin_tests::batch_task_requires_approve_permission ... ok
+test business::flow::edge_admin_tests::batch_task_writes_edge_after_approval ... ok
+test business::flow::edge_admin_tests::biz_id_is_stable_per_edge ... ok
+test business::flow::edge_admin_tests::change_takes_effect_only_after_approval ... ok
+test business::flow::edge_admin_tests::change_verdict_maps_terminal_states ... ok
+test business::flow::edge_admin_tests::delete_config_also_goes_through_approval ... ok
+test business::flow::edge_admin_tests::form_data_rejects_dirty_payload ... ok
+test business::flow::edge_admin_tests::form_data_round_trips_both_actions ... ok
+test business::flow::edge_admin_tests::list_view_marks_configured_edges ... ok
+test business::flow::edge_admin_tests::list_view_reports_base_config_and_effective ... ok
+test business::flow::edge_admin_tests::offline_flow_falls_back_to_explicit_skip ... ok
+test business::flow::edge_admin_tests::rejected_change_does_not_take_effect ... ok
+test business::flow::edge_admin_tests::seed_flow_hash_matches_rows ... ok
+test business::flow::edge_admin_tests::seed_migration_matches_code_constants ... ok
+test business::flow::edge_admin_tests::summary_spells_out_the_change ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 2617 filtered out; finished in 30.91s
+

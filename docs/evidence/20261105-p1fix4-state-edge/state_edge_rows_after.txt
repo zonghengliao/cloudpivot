@@ -1,0 +1,21 @@
+== 1) biz_flow_state_edge 存活行（真机 E2E 跑完两轮后的实际数据）
+     entity     | from_status | to_status | enabled | requires_reason |   label    | deleted_at 
+----------------+-------------+-----------+---------+-----------------+------------+------------
+ PURCHASE_ORDER | SUBMITTED   | CLOSED    | f       | f               | (默认文案) | 
+ STOCK_IN       | DRAFT       | POSTED    | f       | f               | (默认文案) | 
+ STOCK_OUT      | DRAFT       | POSTED    | f       | f               | (默认文案) | 
+
+== 2) 每行的来源审批单（biz_status_log 的 APPLIED 行）
+            entity_no            |  state  | operator_name |                                   reason                                   
+---------------------------------+---------+---------------+----------------------------------------------------------------------------
+ STOCK_OUT DRAFT>POSTED          | APPLIED | 超级管理员    | 审批 FLW-20261105-0FDBA7D1 通过，配置已生效（STOCK_OUT DRAFT→POSTED 禁用）
+ STOCK_IN DRAFT>POSTED           | APPLIED | 超级管理员    | 审批 FLW-20261105-11DB0596 通过，配置已生效（STOCK_IN DRAFT→POSTED 禁用）
+ PURCHASE_ORDER SUBMITTED>CLOSED | APPLIED | 超级管理员    | 审批 FLW-20261105-635781A2 通过，配置已生效（PURCHASE_ORDER SUBMITTED→C
+
+== 3) 对应的审批单
+      instance_no      |  status  |             biz_no              | instance_status 
+-----------------------+----------+---------------------------------+-----------------
+ FLW-20261105-0FDBA7D1 | APPROVED | STOCK_OUT DRAFT>POSTED          | APPROVED
+ FLW-20261105-11DB0596 | APPROVED | STOCK_IN DRAFT>POSTED           | APPROVED
+ FLW-20261105-635781A2 | APPROVED | PURCHASE_ORDER SUBMITTED>CLOSED | APPROVED
+

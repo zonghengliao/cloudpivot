@@ -1,0 +1,53 @@
+夹具已清理（admin.must_change_password → FALSE）
+库指纹：biz_flow_state_edge 存活行 = 0
+
+===== 场景 single：STOCK_OUT DRAFT→POSTED（审批通道 approve_single）=====
+PASS  [single] 基线：这条边在 effective_edges 里（未配置前可用）
+PASS  [single] 基线：biz_flow_state_edge 0 行
+PASS  [single] 提交配置 → 必须送审不直接生效   [http=200 ok]
+PASS  [single] 审批单状态 PENDING   [FLW-20261105-D3E5408F]
+PASS  [single] 审批通过前：配置 0 行（没提前生效）
+PASS  [single] 审批人待办已生成（FALLBACK_ADMIN → 超管）
+PASS  [single] 审批通过 HTTP 200   [http=200 ok]
+PASS  [single] 审批单落终态 APPROVED
+PASS  [single] 审批通过后 biz_flow_state_edge 有 1 行（配置落库）   [count=1]
+PASS  [single] 落库行的 enabled=false   [enabled=f]
+PASS  [single] 审计里有 APPLIED 行（能回答「是哪张审批单让它生效」）   [rows=1]
+PASS  [single] 生效：effective_edges 里这条边消失
+PASS  [single] 管理面 configs 里能看到 enabled=false 的配置行
+
+===== 真单据证明：STOCK_OUT DRAFT→POSTED 被禁用后 =====
+PASS  建出库单草稿（HTTP 200）   [http=200 ok]
+PASS  非法转换 DRAFT→POSTED 被拒（配置禁用的边不能走）   [http=409 msg=出库单 OUT-20261105-000001 的流转「DRAFT → POSTED」已被状态机配置禁用（biz_flow_state_edge）：这条边在代码里合法，但管理员把它]
+PASS  拒绝原因指向「这条流转不允许」   [出库单 OUT-20261105-000001 的流转「DRAFT → POSTED」已被状态机配置禁用（biz_flow_state_edge）：这条边在代码里合法，但管理员把它]
+PASS  合法转换 DRAFT→PENDING_POST 通过（只禁了那一条边）   [http=200 ok]
+
+===== 场景 batch-new：STOCK_IN DRAFT→POSTED（审批通道 approve_batch_new）=====
+PASS  [batch-new] 基线：这条边在 effective_edges 里（未配置前可用）
+PASS  [batch-new] 基线：biz_flow_state_edge 0 行
+PASS  [batch-new] 提交配置 → 必须送审不直接生效   [http=200 ok]
+PASS  [batch-new] 审批单状态 PENDING   [FLW-20261105-1DF2A4B3]
+PASS  [batch-new] 审批通过前：配置 0 行（没提前生效）
+PASS  [batch-new] 审批人待办已生成（FALLBACK_ADMIN → 超管）
+PASS  [batch-new] 审批通过 HTTP 200   [http=200 ok]
+PASS  [batch-new] 审批单落终态 APPROVED
+PASS  [batch-new] 审批通过后 biz_flow_state_edge 有 1 行（配置落库）   [count=1]
+PASS  [batch-new] 落库行的 enabled=false   [enabled=f]
+PASS  [batch-new] 审计里有 APPLIED 行（能回答「是哪张审批单让它生效」）   [rows=1]
+PASS  [batch-new] 生效：effective_edges 里这条边消失
+PASS  [batch-new] 管理面 configs 里能看到 enabled=false 的配置行
+
+===== 场景 batch-old：PURCHASE_ORDER SUBMITTED→CLOSED（审批通道 approve_batch_old）=====
+PASS  [batch-old] 基线：这条边在 effective_edges 里（未配置前可用）
+PASS  [batch-old] 基线：biz_flow_state_edge 0 行
+PASS  [batch-old] 提交配置 → 必须送审不直接生效   [http=200 ok]
+PASS  [batch-old] 审批单状态 PENDING   [FLW-20261105-EDD7C3A1]
+PASS  [batch-old] 审批通过前：配置 0 行（没提前生效）
+PASS  [batch-old] 审批人待办已生成（FALLBACK_ADMIN → 超管）
+PASS  [batch-old] 审批通过 HTTP 200   [http=200 ok]
+PASS  [batch-old] 审批单落终态 APPROVED
+FAIL  [batch-old] 审批通过后 biz_flow_state_edge 有 1 行（配置落库）   [count=0]
+FAIL  [batch-old] 生效：effective_edges 里这条边消失
+FAIL  [batch-old] 管理面 configs 里能看到 enabled=false 的配置行
+
+===== 汇总：PASS=38 FAIL=3 =====

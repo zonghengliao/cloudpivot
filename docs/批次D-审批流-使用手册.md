@@ -296,8 +296,11 @@ POST /business/flow/task/{task_id}/transfer  {"to_user_id":"<用户id>","reason"
 # 加签（拉人一起审）
 POST /business/flow/task/{task_id}/add-sign  {"user_ids":["<用户id1>","<用户id2>"]}
 
-# 批量处理
+# 批量处理（兼容端点；内部逐条委托下面的 batch-approve，语义与单条完全一致）
 POST /business/flow/task/batch  {"task_ids":["<t1>","<t2>"],"action":"approve","comment":"同意"}
+
+# 批量处理（推荐：D7 之后的唯一实现，逐条走单条审批的全部业务回调与内控闸）
+POST /business/flow/task/batch-approve  {"ids":["<t1>","<t2>"],"decision":"APPROVE","comment":"同意"}
 
 # 发起人撤回整单（仅进行中、且尚未有人处理过时可撤；否则 65023）
 POST /business/flow/instance/{instance_id}/withdraw  {"reason":"填错了"}
@@ -467,7 +470,8 @@ GET  /business/flow/stats/node-bottleneck # 卡点（哪一步最堵）
 | 20 | POST | `/business/flow/task/{id}/reject` | 驳回 / 退回 |
 | 21 | POST | `/business/flow/task/{id}/transfer` | 转办 |
 | 22 | POST | `/business/flow/task/{id}/add-sign` | 加签 |
-| 23 | POST | `/business/flow/task/batch` | 批量处理 |
+| 23 | POST | `/business/flow/task/batch` | 批量处理（兼容层） |
+| 23b | POST | `/business/flow/task/batch-approve` | 批量处理（推荐） |
 | 24 | GET | `/business/flow/task/todo` | 我的待办 |
 | 25 | GET | `/business/flow/task/done` | 我已处理 |
 | 26 | GET | `/business/flow/task/cc` | 抄送我的 |
