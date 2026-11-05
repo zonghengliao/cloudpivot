@@ -1,0 +1,15 @@
+== pnpm build（命令：cd frontend && pnpm build，即 vue-tsc --noEmit && vite build） ==
+退出码：0（正常结束，无 error）
+
+尾部真实输出（vite 压缩体积报告）：
+dist/assets/index-CLHW8fgm.js.gz                        54.31kb / gzip: 17.25kb
+dist/assets/index-D5qDcTsz.js.gz                        51.42kb / gzip: 16.67kb
+dist/assets/index-CNC2Uck5.js.gz                       117.85kb / gzip: 43.53kb
+dist/assets/edit-CQKjhWaL.js.gz                        191.59kb / gzip: 65.09kb
+dist/assets/FlowCanvasVueFlow-DuzTwo2P.js.gz           225.87kb / gzip: 74.78kb
+dist/assets/tdesign-E5ATeBiM.css.gz                    437.80kb / gzip: 49.58kb
+dist/assets/echarts-CuV_skF0.js.gz                    1002.89kb / gzip: 331.52kb
+dist/assets/tdesign-B9Yx93ic.js.gz                    7994.62kb / gzip: 772.17kb
+
+说明：第一次 build 在 `expense/pay/index.vue` 的抽屉 import 路径（`./` 应为 `../`）上失败，
+修好后重跑通过。`vue-tsc` 对 `.vue` 相对路径不报错（shim 是 any），所以这类错误只有 build / 真机能兜住。

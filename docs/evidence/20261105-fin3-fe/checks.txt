@@ -1,0 +1,14 @@
+== pnpm typecheck（rc 取 pnpm 自身退出码） ==
+rc=0
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> vue-tsc --noEmit
+
+
+== pnpm test:unit ==
+rc=0
+# pass 807
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2843.508644

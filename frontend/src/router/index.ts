@@ -534,6 +534,32 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '预算科目映射', permission: 'business:erp:budget:mapping' },
       },
       {
+        // ==================== ERP 费用报销（FIN-3 / ARCH-6 §4.10） ====================
+        // `sys_menu` 种子（V0242 …1500/…1501/…1502/…1503）三条菜单 path 与 component 逐字对应：
+        //   `/business/erp/expense`       component `business/erp/expense/index`       （我的报销）
+        //   `/business/erp/expense/pay`   component `business/erp/expense/pay/index`   （待付款）
+        //   `/business/erp/expense-type`  component `business/erp/expense-type/index`  （费用类型）
+        // 目录节点（费用报销管理，…1500）也挂在 `/business/erp/expense` 上（menu_type=1 无组件），
+        // 所以第一条既是「点目录」的落点，也是「点我的报销」的落点 —— 只注册一条。
+        // **路由手工注册**（没有 views 自动扫描），漏了 = 菜单可见但点进去 404（FIN-1 的坑）。
+        path: 'business/erp/expense',
+        name: 'BusinessErpExpense',
+        component: () => import('@/views/business/erp/expense/index.vue'),
+        meta: { title: '我的报销', permission: 'business:erp:expense:list' },
+      },
+      {
+        path: 'business/erp/expense/pay',
+        name: 'BusinessErpExpensePay',
+        component: () => import('@/views/business/erp/expense/pay/index.vue'),
+        meta: { title: '待付款', permission: 'business:erp:expense:pay' },
+      },
+      {
+        path: 'business/erp/expense-type',
+        name: 'BusinessErpExpenseType',
+        component: () => import('@/views/business/erp/expense-type/index.vue'),
+        meta: { title: '费用类型', permission: 'business:erp:expense-type:list' },
+      },
+      {
         // ==================== ERP 应付单（P2-E2） ====================
         // `sys_menu` 里**还没有**这条菜单：V0148 只建了 `biz_payable`，既没种
         // `business:erp:payable:*` 权限码也没种菜单节点（`grep -rn 'erp/payable'
