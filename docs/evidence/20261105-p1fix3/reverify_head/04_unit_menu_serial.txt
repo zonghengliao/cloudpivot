@@ -1,0 +1,4 @@
+=== menu（串行，已知并行夹具互染见 README §5.3）19:04:28 ===
+test system::menu::permission_audit_tests::n19_approval_node_role_assignees_have_approve_permission ... FAILED
+test system::menu::tests::n10_annotated_permissions_have_menu_code ... FAILED
+test result: FAILED. 18 passed; 2 failed; 0 ignored; 0 measured; 2611 filtered out; finished in 4.88s

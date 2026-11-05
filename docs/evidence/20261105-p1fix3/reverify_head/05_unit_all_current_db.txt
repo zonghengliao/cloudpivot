@@ -1,0 +1,16 @@
+# 用**已迁移到最新**的库 cloudpivot_p1fix3_a（193 条迁移，含 V0251）跑，2026-11-05 19:05:38，HEAD=8def5d8
+=== round 1 system::auth::cache_tests ===
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 2624 filtered out; finished in 1.48s
+=== round 1 system::role:: ===
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 2618 filtered out; finished in 1.84s
+=== round 1 system::authz_tests ===
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 2616 filtered out; finished in 1.76s
+=== round 2 system::auth::cache_tests ===
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 2624 filtered out; finished in 1.48s
+=== round 2 system::role:: ===
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 2618 filtered out; finished in 1.85s
+=== round 2 system::authz_tests ===
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 2616 filtered out; finished in 1.74s
+=== menu（串行） ===
+test system::menu::tests::n09_menu_icons_exist_in_tdesign ... FAILED
+test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 2611 filtered out; finished in 5.05s

@@ -1,0 +1,18 @@
+=== round 1 2026-11-05 19:04:09 HEAD=8def5d8 ===
+test system::auth::cache_tests::c01_principal_keys_cover_three_namespaces ... ok
+test system::auth::cache_tests::c02_principal_patterns_are_prefix_wildcards ... ok
+test system::auth::cache_tests::c03_invalidation_degrades_without_cache ... ok
+test system::auth::cache_tests::c04_role_holder_ids_finds_holders ... ok
+test system::auth::cache_tests::c05_menu_holder_ids_follows_role_grant ... ok
+test system::auth::cache_tests::c06_issue_snapshot_reads_db_not_cache ... ok
+test system::auth::cache_tests::c07_super_admin_snapshot_is_wildcard ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 2624 filtered out; finished in 1.52s
+=== round 2 2026-11-05 19:04:11 HEAD=8def5d8 ===
+test system::auth::cache_tests::c01_principal_keys_cover_three_namespaces ... ok
+test system::auth::cache_tests::c02_principal_patterns_are_prefix_wildcards ... ok
+test system::auth::cache_tests::c03_invalidation_degrades_without_cache ... ok
+test system::auth::cache_tests::c04_role_holder_ids_finds_holders ... ok
+test system::auth::cache_tests::c05_menu_holder_ids_follows_role_grant ... ok
+test system::auth::cache_tests::c06_issue_snapshot_reads_db_not_cache ... ok
+test system::auth::cache_tests::c07_super_admin_snapshot_is_wildcard ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 2624 filtered out; finished in 1.65s

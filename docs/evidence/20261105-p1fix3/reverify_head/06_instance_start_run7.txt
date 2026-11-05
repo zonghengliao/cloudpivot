@@ -1,0 +1,3 @@
+启动 pid=1902281 库=cloudpivot_p1fix3_a 端口=18116 二进制=/opt/cloudpivot/backend/target/debug/cloudpivot
+健康检查通过（/health 200）
+[2m2026-11-05T11:05:56.859172Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移

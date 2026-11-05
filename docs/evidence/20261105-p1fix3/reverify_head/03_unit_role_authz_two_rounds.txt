@@ -1,0 +1,8 @@
+=== round 1 system::role:: 19:04:16 ===
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 2618 filtered out; finished in 2.02s
+=== round 1 system::authz_tests 19:04:19 ===
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 2616 filtered out; finished in 1.82s
+=== round 2 system::role:: 19:04:21 ===
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 2618 filtered out; finished in 2.13s
+=== round 2 system::authz_tests 19:04:23 ===
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 2616 filtered out; finished in 1.81s

@@ -1,0 +1,25 @@
+# n09 归属证据（本轮 run 709）
+## 1. 失败原文
+以下菜单图标在 tdesign-icons-vue-next 中不存在（侧栏渲染空白）： 我的报销 → invoice
+## 2. 种子出处（V0242，属 ERP 报销卡，不是本卡改动）
+39:    need_invoice_no   SMALLINT      NOT NULL DEFAULT 1,
+52:    CONSTRAINT ck_biz_exp_type_invoice CHECK (need_invoice_no IN (0,1)),
+172:    invoice_no      VARCHAR(50),
+173:    invoice_date    DATE,
+174:    invoice_type    VARCHAR(16),
+185:    CONSTRAINT ck_biz_exp_item_inv  CHECK (invoice_type IS NULL OR invoice_type IN
+236:    budget_controlled, need_invoice_no, amount_limit, sort_order, status, remark)
+263:     'business/erp/expense/index', 10, 1, 'invoice', '我的报销（新建 / 提交 / 撤回 / 作废）', TRUE, 'business'),
+## 3. 本卡 commit 的改动面（无 SQL/迁移/种子）
+（9daa73b 中 0 个 .sql / migrations 文件）
+## 4. cloudpivot_test 陈旧库证据
+cloudpivot_test 已应用迁移数=152
+cloudpivot_p1fix3_a 已应用迁移数=193
+## 5. 最新库上 7 个业务角色均持 business:flow:approve
+DEPT_LEADER has_approve=1
+FINANCE_DIRECTOR has_approve=1
+FINANCE_MANAGER has_approve=1
+FLOW_CONFIG_APPROVER has_approve=1
+GENERAL_MANAGER has_approve=1
+PURCHASE_MANAGER has_approve=1
+WAREHOUSE_MANAGER has_approve=1
