@@ -1,0 +1,83 @@
+## 改后盘点 2026-11-05 13:44:28 CST
+
+### 1. 逐表活跃标记命中（应为 0；total 列显示行还在 = 软删不是物理删）
+biz_flow_instance | 0 | 1
+biz_task | 0 | 355
+biz_task_comment | 0 | 221
+biz_warehouse | 0 | 4
+sys_announcement | 0 | 2
+sys_export_task | 0 | 2
+sys_file | 0 | 45
+sys_help_category | 0 | 2
+sys_notice | 0 | 108
+
+### 2. 9 个 E2E 任务改后状态（deleted_at 应有值，行仍在）
+01a18a6f-63b0-74eb-80a0-4be7e1edc50b | TSK-202610-000138 | [E2E]拖拽-正常-e2emvuarb76 | 2026-10-30 09:31:58.256401+08 | 2026-10-30 09:31:58.355093+08
+01a18a6f-63c1-73f8-991e-e0340792057e | TSK-202610-000139 | [E2E]拖拽-跳级-e2emvuarb76 | 2026-10-30 09:31:58.273779+08 | 2026-10-30 09:31:58.362418+08
+01a18a6f-e7f2-7489-813d-7d38017eea3d | TSK-202610-000140 | [E2E]已改名-e2emvuarz2z | 2026-10-30 09:32:32.114955+08 | 2026-10-30 09:32:34.002951+08
+01a18a6f-f13e-764f-86c7-68d684f70215 | TSK-202610-000141 | [E2E]拖拽-正常-e2emvuarz2z | 2026-10-30 09:32:34.494573+08 | 2026-10-30 09:32:35.640357+08
+01a18a6f-f14a-755c-a1dc-b9d46a3a669f | TSK-202610-000142 | [E2E]拖拽-跳级-e2emvuarz2z | 2026-10-30 09:32:34.506675+08 | 2026-10-30 09:32:35.648464+08
+01a18aad-9308-73c2-aaa4-6db91490ae94 | TSK-202610-000274 | [E2E]已改名-e2emvud6mfj | 2026-10-30 10:39:53.609067+08 | 2026-10-30 10:39:55.596828+08
+01a18aad-9d0a-73b2-9846-91d75479242f | TSK-202610-000275 | [E2E]拖拽-正常-e2emvud6mfj | 2026-10-30 10:39:56.170671+08 | 2026-10-30 10:39:57.778951+08
+01a18aad-9d16-76a5-b4db-8e349ab1cc03 | TSK-202610-000276 | [E2E]拖拽-跳级-e2emvud6mfj | 2026-10-30 10:39:56.182696+08 | 2026-10-30 10:39:57.788894+08
+01a18ab5-7ace-74d5-8f92-be928b87c994 | TSK-202610-000317 | [E2E]已改名-e2emvudhlrv | 2026-10-30 10:48:31.701542+08 | 2026-10-30 10:48:33.722074+08
+01a18ab5-9248-7712-8ef8-9881a41a2306 | TSK-202610-000318 | [E2E]拖拽-正常-e2emvudhlrv | 2026-10-30 10:48:37.704736+08 | 2026-10-30 10:48:39.823932+08
+01a18ab5-9253-74b7-bd23-d48b6a056046 | TSK-202610-000319 | [E2E]拖拽-跳级-e2emvudhlrv | 2026-10-30 10:48:37.715422+08 | 2026-10-30 10:48:39.833566+08
+01a18ab6-34bd-7182-bce5-c9b270213359 | TSK-202610-000320 | [E2E]已改名-e2emvudimao | 2026-10-30 10:49:19.293605+08 | 2026-10-30 10:49:21.255855+08
+
+### 3. 6 个测试账号改后（status=0，行还在，deleted_at 仍 null）
+cl_43870 | 0 | false | NULL | 2026-11-05 13:44:19.27849+08
+laoliu_test | 0 | false | NULL | 2026-11-05 13:44:19.27849+08
+qa.limited | 0 | true | NULL | 2026-11-05 13:44:19.27849+08
+qa.mutex | 0 | true | NULL | 2026-11-05 13:44:19.27849+08
+qa.viewer | 0 | true | NULL | 2026-11-05 13:44:19.27849+08
+verify-ai | 0 | false | NULL | 2026-11-05 13:44:19.27849+08
+
+### 4. 改后账务/审计行数（应与 01_before_state 第 6 节逐行相同）
+biz_accounting_period = 12
+biz_inventory = 3
+biz_inventory_txn = 25
+biz_opening_balance = 0
+biz_payable = 12
+biz_payment = 0
+biz_status_log = 115
+biz_task(全量) = 846
+biz_voucher = 21
+biz_voucher_entry = 55
+
+### 5. 账本（datafix_e2eres3_guard）
+applied_at = 2026-11-05 13:44:19
+before_biz_accounting_period = 12
+before_biz_inventory = 3
+before_biz_inventory_txn = 25
+before_biz_opening_balance = 0
+before_biz_payable = 12
+before_biz_payment = 0
+before_biz_status_log = 115
+before_biz_task_all = 846
+before_biz_voucher = 21
+before_biz_voucher_entry = 55
+deleted_biz_flow_instance = 1
+deleted_biz_task = 9
+deleted_biz_task_comment = 221
+deleted_biz_warehouse = 0
+deleted_sys_announcement = 1
+deleted_sys_export_task = 2
+deleted_sys_file = 43
+deleted_sys_help_category = 1
+deleted_sys_notice = 105
+deleted_total = 383
+disabled_users = 6
+verify_fail = 0
+warehouse_already_clean = true
+
+### 6. 快照（回滚依据）
+biz_flow_instance = 1
+biz_task = 9
+biz_task_comment = 221
+sys_announcement = 1
+sys_export_task = 2
+sys_file = 43
+sys_help_category = 1
+sys_notice = 105
+sys_user = 6

@@ -130,8 +130,9 @@ smoke=39  a=17  b=23  c=23  task=55  flow=28   →  PASS=185  FAIL=0  SKIP=0   �
 
 | 脚本 | 作用 | 退出码 |
 |---|---|---|
-| `erp_invariants.py` | 33 条不变量审计（会计恒等 / 账账 / 账实 / 单据链 / 状态 / 期间 / 闭环 / 审批闭环 / 标准标签订正）。**只认 `NIK_DATABASE_*`**，跑前必须 `set -a; . /etc/cloudpivot/cloudpivot.env; set +a` | 有 BLOCKER → 1 |
+| `erp_invariants.py` | 65 条不变量审计（会计恒等 / 账账 / 账实 / 单据链 / 状态 / 期间 / 闭环 / 审批闭环 / 标准标签订正 / 任务 / 权限 N1 / E2E 标记 O1）。**只认 `NIK_DATABASE_*`**，跑前必须 `set -a; . /etc/cloudpivot/cloudpivot.env; set +a` | 有 BLOCKER → 1 |
 | `e2e_fixture_residue.py` | 「批量生成零成本夹具」残留检查（只读）。这类行会让 B1（BLOCKER）/ C3（WARN）同时红，e2e 写完数据库建议挂一个后置检查。**判据见下面「语义变化」一节，ADR 落地后不再命中普通批量生成** | 有残留 → 1；连库失败 → 2 |
+| `e2e_marker.py` | **e2e 夹具标记的唯一判据源**：`[E2E]` 任务 / `E2E-` 仓库 / `e2e*` 上传件导出件 / 通知公告标题 / 挂着标记任务的评论，外加 6 个已知测试账号是否还在用。三处复用它：`erp_invariants.py` 的 **O1**、`datafix/e2e_residue3/apply.sh` 的收尾交叉断言、`frontend/e2e/target-guard.mjs` 的 prod 后置清单。`--self-test` 钉住「误伤反例」（正文提到 e2e 的真实汇报/通知）+ 前端 `E2E_MARK` 一致性 + 两处接线是否还在 | 有残留 → 1；连库失败 → 2 |
 | `p11f_fixture_residue_drill.sh` | 注入式演练：在 prod 副本库上重放「批量生成夹具」→ 检出 → 清理 → 全绿 → 幂等 → 回滚（31 条断言） | 有 FAIL → 1 |
 | `snapshot_audit.py` | **快照一致性巡检（16 项 `di.c_di01..c_di16`，只报不修）**：把 `docs/architecture/快照一致性巡检与告警设计.md` §2.4 的巡检项落地。合同链 / 实物链 / 资金链 / 主档 / 护栏五组；`--json` / `--group` / `--dry-run` / `--install-views`。只读事务（`BEGIN READ ONLY` + 会话级 `default_transaction_read_only=on`），**没有一行 DML**；发现漂移只写日志+JSON，绝不回写业务数据（AP-8） | 有 BLOCKER → 1；环境/用法错 → 2；上一轮在跑 → 3 |
 
@@ -326,3 +327,27 @@ MODULES="mymod=business::erp::contract_" bash scripts/verify/run_lib_tests_by_mo
 模板库 `cloudpivot_libtest_template` 不存在时，脚本会用后端二进制跑一次启动迁移 + 种子自动建出来
 （二进制不在就先 `cargo build --bin cloudpivot`）。`check.sh` 只跑 fmt/clippy/check/typecheck，
 **不跑**真库用例，两者互不替代。
+
+---
+
+## 真库全量的「隔离性」验收（`erp_full_suite_twice.sh` / `erp_module_concurrency_check.sh`）
+
+单跑一遍绿 ≠ 用隔离干净：真正的验收口径是**同一个库连跑两轮都 0 failed**（第二轮是在第一轮的残留上跑），
+以及**受影响模块在 `--test-threads=4` 下重复跑**。偶发假红的复现率约 1/2 轮，跑一遍看不见。
+
+```bash
+# ① 建干净库 + 全量两轮（任一轮非 0 failed → exit 1）
+ERP_DB=cloudpivot_ftwice bash scripts/verify/erp_full_suite_twice.sh
+ROUNDS=3 ERP_DB=... bash scripts/verify/erp_full_suite_twice.sh
+
+# ② 受影响模块并发自检（7 个付款/凭证/期次/合同模块 × 3 轮）
+ERP_DB_URL=postgres://alun:***@127.0.0.1:5432/cloudpivot_ftwice \
+  bash scripts/verify/erp_module_concurrency_check.sh 3
+
+# ③ 库侧复查（纯 psql，只读；夹具号段 / 夹具用户 / 状态日志孤儿 / 种子流程行 / 测试期次）
+DB=cloudpivot_ftwice bash scripts/verify/erp_fixture_residue_check.sh
+```
+
+口径与实证（含一条真跑的对照：改动前 2323 passed / 1 failed → 改动后两轮 0 failed）见
+[`docs/evidence/20261104-testfix-parallel/README.md`](../../docs/evidence/20261104-testfix-parallel/README.md)。
+铁律：**同一批全局行 = 同一把锁**；清场只许动「本用例造的行」；整库型断言必须能容忍别人正在删的瞬时窗口。

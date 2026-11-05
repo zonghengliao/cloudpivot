@@ -1,0 +1,98 @@
+==============================================================
+ E2ERES3  目标库：cloudpivot @ 127.0.0.1:5432  模式：apply
+ 时间：2026-11-05 13:44:49 CST
+==============================================================
+闸① 备份：/root/datafix-backup-e2eres3-20261105-134416（MANIFEST 里目标库 = cloudpivot）
+    # E2ERES3 备份清单
+    # 生成时刻: 2026-11-05 13:44:16 CST
+    # 目标库  : cloudpivot @ 127.0.0.1:5432 (user=cloudpivot)
+    # 口径    : scripts/verify/e2e_marker.py::TABLE_SPECS 的 SQL 镜像
+    #           （任务/评论/流程实例/通知/公告/文件/导出/帮助分类/仓库 九类标记行 + 6 个测试账号）
+    # git HEAD: 7d966925a0b528abb4cb5dc5099c95ee68c1eca9
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!! [db-guard] 已按 E2E_ALLOW_PROD=1 放行生产库：cloudpivot
+!! 脚本：scripts/datafix/e2e_residue3/apply.sh
+!! 原因：t_44766ab3 P0-FIX-3 生产幂等复核（第二遍，应为空转）
+!! 判据结论：库名 == 生产库名 cloudpivot（/etc/cloudpivot/cloudpivot.env）
+!! 跑完必须清掉自己造的夹具，并复跑：
+!!   python3 scripts/verify/biz_type_domain.py --strict
+!!   python3 scripts/verify/e2e_fixture_residue.py
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+---- 前置校验 + 判据 DDL（10_precheck.sql）
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/10_precheck.sql:67: NOTICE:  relation "datafix_e2eres3_snapshot" already exists, skipping
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/10_precheck.sql:78: NOTICE:  relation "datafix_e2eres3_guard" already exists, skipping
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/10_precheck.sql:162: NOTICE:  E2ERES3/10: 在用测试账号 0 个（将置 status=0，不删行）
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/10_precheck.sql:162: NOTICE:  ---- E2ERES3/10 现状 ----
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/10_precheck.sql:162: NOTICE:    biz_flow_instance     alive=0
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/10_precheck.sql:162: NOTICE:    biz_task              alive=0
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/10_precheck.sql:162: NOTICE:    biz_task_comment      alive=0
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/10_precheck.sql:162: NOTICE:    biz_warehouse         alive=0
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/10_precheck.sql:162: NOTICE:    sys_announcement      alive=0
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/10_precheck.sql:162: NOTICE:    sys_export_task       alive=0
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/10_precheck.sql:162: NOTICE:    sys_file              alive=0
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/10_precheck.sql:162: NOTICE:    sys_help_category     alive=0
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/10_precheck.sql:162: NOTICE:    sys_notice            alive=0
+     result     | spec_tables | voucher_before 
+----------------+-------------+----------------
+ 10_precheck OK |           9 | 21
+(1 row)
+
+---- 软删 + 禁用（单事务）（20_softdelete_e2e_residue.up.sql）
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete biz_flow_instance      0 行
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete biz_task               0 行
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete biz_task_comment       0 行
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete biz_warehouse          0 行
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete sys_announcement       0 行
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete sys_export_task        0 行
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete sys_file               0 行
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete sys_help_category      0 行
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete sys_notice             0 行
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    disable test accounts          0 个账号（status=0，不删行）
+   result   | deleted_total | disabled_users | snapshot_rows 
+------------+---------------+----------------+---------------
+ 20 up 完成 | 0             | 0              |           389
+(1 row)
+
+---- 自检（残留=0 / 账号已禁用 / 账务行数不变）（30_verify.sql）
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/30_verify.sql:15: NOTICE:  schema "pg_temp" does not exist, skipping
+
+---- E2ERES3 / 30 自检 ----
+ verdict |               item               |     expect      |     got      
+---------+----------------------------------+-----------------+--------------
+ PASS    | A 残留=0 biz_flow_instance       | 0               | 0
+ PASS    | A 残留=0 biz_task                | 0               | 0
+ PASS    | A 残留=0 biz_task_comment        | 0               | 0
+ PASS    | A 残留=0 biz_warehouse           | 0               | 0
+ PASS    | A 残留=0 sys_announcement        | 0               | 0
+ PASS    | A 残留=0 sys_export_task         | 0               | 0
+ PASS    | A 残留=0 sys_file                | 0               | 0
+ PASS    | A 残留=0 sys_help_category       | 0               | 0
+ PASS    | A 残留=0 sys_notice              | 0               | 0
+ PASS    | B 测试账号 status=0              | 6               | 6
+ PASS    | B 测试账号行仍在（未删）         | 6               | 6
+ PASS    | C 行数不变 biz_accounting_period | 12              | 12
+ PASS    | C 行数不变 biz_inventory         | 3               | 3
+ PASS    | C 行数不变 biz_inventory_txn     | 25              | 25
+ PASS    | C 行数不变 biz_opening_balance   | 0               | 0
+ PASS    | C 行数不变 biz_payable           | 12              | 12
+ PASS    | C 行数不变 biz_payment           | 0               | 0
+ PASS    | C 行数不变 biz_status_log        | 115             | 115
+ PASS    | C 行数不变 biz_task_all          | 846             | 846
+ PASS    | C 行数不变 biz_voucher           | 21              | 21
+ PASS    | C 行数不变 biz_voucher_entry     | 55              | 55
+ PASS    | D 快照覆盖本批改动               | deleted_total=0 | snapshot=383
+
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/30_verify.sql:107: NOTICE:  E2ERES3/30 ✓ 自检全部通过（22 条断言）
+    result    | assertions | passed 
+--------------+------------+--------
+ 30_verify OK |         22 |     22
+
+---- 闸② 判据交叉断言（e2e_marker.py --assert-clean；判据库 = cloudpivot）
+     ✅ e2e_marker 也认干净（两份独立实现同时通过）
+
+==============================================================
+ E2ERES3 完成。复跑同一条命令是幂等的（第二遍命中 0 行）。
+ 账务不变量：python3 /opt/cloudpivot/scripts/datafix/e2e_residue3/../../verify/erp_invariants.py
+==============================================================

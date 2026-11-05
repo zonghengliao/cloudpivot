@@ -1,0 +1,45 @@
+==============================================================
+ E2ERES3  目标库：cloudpivot @ 127.0.0.1:5432  模式：check
+ 时间：2026-11-05 13:44:42 CST
+==============================================================
+---- 现状（标记判据 e2e_marker.py，只读）
+======================================================================================
+e2e 夹具标记残留检查
+库: cloudpivot@127.0.0.1:5432    标记: [E2E]…
+======================================================================================
+  ✅ 干净：没有任何「活跃的 e2e 标记行」，也没有仍在启用的测试账号
+
+---- 账本 / 快照
+guard  applied_at = 2026-11-05 13:44:19
+guard  before_biz_accounting_period = 12
+guard  before_biz_inventory = 3
+guard  before_biz_inventory_txn = 25
+guard  before_biz_opening_balance = 0
+guard  before_biz_payable = 12
+guard  before_biz_payment = 0
+guard  before_biz_status_log = 115
+guard  before_biz_task_all = 846
+guard  before_biz_voucher = 21
+guard  before_biz_voucher_entry = 55
+guard  deleted_biz_flow_instance = 1
+guard  deleted_biz_task = 9
+guard  deleted_biz_task_comment = 221
+guard  deleted_biz_warehouse = 0
+guard  deleted_sys_announcement = 1
+guard  deleted_sys_export_task = 2
+guard  deleted_sys_file = 43
+guard  deleted_sys_help_category = 1
+guard  deleted_sys_notice = 105
+guard  deleted_total = 383
+guard  disabled_users = 6
+guard  verify_fail = 0
+guard  warehouse_already_clean = true
+snapshot biz_flow_instance = 1
+snapshot biz_task = 9
+snapshot biz_task_comment = 221
+snapshot sys_announcement = 1
+snapshot sys_export_task = 2
+snapshot sys_file = 43
+snapshot sys_help_category = 1
+snapshot sys_notice = 105
+snapshot sys_user = 6

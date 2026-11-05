@@ -1,0 +1,88 @@
+
+======== 0. 克隆生产库 → cloudpivot_e2eres3_drill ========
+ set_config 
+------------
+ 
+(1 row)
+
+  ✅ 克隆完成：32 MB
+  克隆库残留：383 行标记数据 / 6 个在用测试账号（应 > 0，否则炼不出东西）
+  ✅ 克隆库带着真实残留（演练有意义）
+
+======== 1. 00_backup.sh（演练库也走备份闸） ========
+  ✅ 备份完成：/root/datafix-backup-e2eres3-20261105-134349
+
+======== 2. apply（10 前置 → 20 up → 30 自检 → 判据交叉断言） ========
+  ✅ apply 通过（日志 /tmp/e2eres3_drill_apply1.log）
+    psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete biz_flow_instance-20s  1s 行
+    psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete biz_task-20s  9s 行
+    psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete biz_task_comment-20s  221s 行
+    psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete biz_warehouse-20s  0s 行
+    psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete sys_announcement-20s  1s 行
+    psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete sys_export_task-20s  2s 行
+    psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete sys_file-20s  43s 行
+    psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete sys_help_category-20s  1s 行
+    psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete sys_notice-20s  105s 行
+    psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    disable test accounts-23s  6s 个账号（status=0，不删行）
+       result   | deleted_total | disabled_users | snapshot_rows 
+     PASS    | A 残留=0 biz_flow_instance       | 0                 | 0
+     PASS    | A 残留=0 biz_task                | 0                 | 0
+     PASS    | A 残留=0 biz_task_comment        | 0                 | 0
+     PASS    | A 残留=0 biz_warehouse           | 0                 | 0
+     PASS    | A 残留=0 sys_announcement        | 0                 | 0
+     PASS    | A 残留=0 sys_export_task         | 0                 | 0
+     PASS    | A 残留=0 sys_file                | 0                 | 0
+     PASS    | A 残留=0 sys_help_category       | 0                 | 0
+     PASS    | A 残留=0 sys_notice              | 0                 | 0
+     PASS    | B 测试账号 status=0              | 6                 | 6
+     PASS    | B 测试账号行仍在（未删）         | 6                 | 6
+     PASS    | C 行数不变 biz_accounting_period | 12                | 12
+     PASS    | C 行数不变 biz_inventory         | 3                 | 3
+     PASS    | C 行数不变 biz_inventory_txn     | 25                | 25
+     PASS    | C 行数不变 biz_opening_balance   | 0                 | 0
+     PASS    | C 行数不变 biz_payable           | 12                | 12
+     PASS    | C 行数不变 biz_payment           | 0                 | 0
+     PASS    | C 行数不变 biz_status_log        | 115               | 115
+     PASS    | C 行数不变 biz_task_all          | 846               | 846
+     PASS    | C 行数不变 biz_voucher           | 21                | 21
+     PASS    | C 行数不变 biz_voucher_entry     | 55                | 55
+     PASS    | D 快照覆盖本批改动               | deleted_total=383 | snapshot=383
+    ---- 闸② 判据交叉断言（e2e_marker.py --assert-clean；判据库 = cloudpivot_e2eres3_drill）
+         ✅ e2e_marker 也认干净（两份独立实现同时通过）
+  ✅ 清后残留 = 0 行 / 0 个在用账号
+
+======== 3. 反向对照：30_verify 在「有残留」时**必须**失败 ========
+  ✅ 回滚后残留原样回来：383 行（改前 383）
+  ✅ 回滚后账号状态回来：6 个在用（改前 6）
+  ✅ 30_verify 在回滚后如期失败（负向对照成立，见 /tmp/e2eres3_drill_verify_neg.log）
+     FAIL    | A 残留=0 biz_flow_instance       | 0                 | 1
+     FAIL    | A 残留=0 biz_task                | 0                 | 9
+     FAIL    | A 残留=0 biz_task_comment        | 0                 | 221
+
+======== 4. 再跑一遍 apply：幂等（第二遍命中 0 行） ========
+  ✅ 第二次 apply 通过
+       result   | deleted_total | disabled_users | snapshot_rows 
+     PASS    | D 快照覆盖本批改动               | deleted_total=383 | snapshot=383
+     30_verify OK |         22 |     22
+    （注：回滚后重跑会再删一遍，属正常 —— 幂等要看同一状态连跑两次）
+  ✅ 第二遍结束后残留仍为 0
+
+======== 5. 幂等复核（同一状态连跑两次，第二遍必须全 0） ========
+  ✅ 第三次 apply 通过
+    psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete biz_flow_instance-20s  0s 行
+    psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete biz_task-20s  0s 行
+    psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete biz_task_comment-20s  0s 行
+    psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete biz_warehouse-20s  0s 行
+    psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete sys_announcement-20s  0s 行
+    psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete sys_export_task-20s  0s 行
+    psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete sys_file-20s  0s 行
+    psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete sys_help_category-20s  0s 行
+    psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    soft-delete sys_notice-20s  0s 行
+    psql:/opt/cloudpivot/scripts/datafix/e2e_residue3/20_softdelete_e2e_residue.up.sql:83: NOTICE:    disable test accounts-23s  0s 个账号（status=0，不删行）
+       result   | deleted_total | disabled_users | snapshot_rows 
+  ✅ 第三次全部命中 0 行（幂等成立）
+
+======== 6. 收尾 ========
+  ✅ 演练库已删除（cloudpivot_e2eres3_drill）
+
+★★★★ 演练全绿：可逆 / 幂等 / 断言有牙 ★★★★

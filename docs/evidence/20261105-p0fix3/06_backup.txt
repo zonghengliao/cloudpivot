@@ -1,0 +1,20 @@
+==> 备份目标：/root/datafix-backup-e2eres3-20261105-134416
+==> 目标库  ：cloudpivot @ 127.0.0.1:5432（user=cloudpivot）
+==> ① pg_dump 10 张表（整表兜底）
+    target_tables.dump  304838 bytes
+==> ② 逐表导出「即将被软删的行」
+COPY 383
+    target/residue_rows.csv  383 行
+COPY 6
+    users.csv  6 行
+==> ③ 改动前计数
+db=cloudpivot host=127.0.0.1 port=5432 user=cloudpivot ts=20261105-134416
+marker_rows_alive|9/221/105/43/1/2/1/1/0 (task/comment/notice/file/announce/export/help/flow/warehouse)
+test_accounts_enabled|6
+accounting|voucher=21 entry=55 payable=12 payment=0 inventory=3 txn=25 period=12 balance=0
+audit|status_log=115 operation_logs=6742 audit_logs=1241
+tables|task=846 user=26 notice=316 file=76
+==> ④ MANIFEST
+==> 备份完成：/root/datafix-backup-e2eres3-20261105-134416
+    回滚兜底：pg_restore -d cloudpivot --clean /root/datafix-backup-e2eres3-20261105-134416/target_tables.dump
+    之后执行：bash /opt/cloudpivot/scripts/datafix/e2e_residue3/apply.sh

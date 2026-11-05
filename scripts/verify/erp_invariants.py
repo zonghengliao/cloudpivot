@@ -1650,10 +1650,62 @@ def group_n():
               order by r.data_scope desc, r.role_code""")
 
 
+def group_o():
+    """E2E 夹具标记不变量 O1（【P0-FIX-3】）。
+
+    **只在生产库上判**：测试库 / 演练库 / e2e 隔离实例里的 `[E2E]` 行是用例的预期产物，
+    在那里报 WARN 就成了「永远亮的指标」。生产库上出现活跃标记行 = 有人把 e2e 打到
+    了线上（或历史残留没清），必须人看。
+    """
+    print("\n" + "=" * 92)
+    print("O. E2E 夹具标记（生产库不许有活跃标记行 / 不许有在用测试账号）")
+    print("=" * 92)
+
+    name = "O1 生产库无活跃 E2E 标记行、无在用测试账号"
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        import db_guard as _guard
+        identity = _guard.classify_db(DB["db"], DB["host"], DB["port"], _guard.prod_identity())
+    except Exception as exc:  # 判据缺失不能当成「干净」，但也不该把整套打红
+        check(name, "E2E", "INFO", True, f"生产身份判定不可用，本库跳过（{exc}）")
+        return
+    if not identity["prod"]:
+        # 跳过也要**看得见**：否则「绿」和「没查」在报告里长得一样
+        print(f"  · 跳过：库 {DB['db']} 不是生产库（{identity['reason']}）——"
+              "e2e 夹具在测试库/演练库是预期产物")
+        check(name, "E2E", "INFO", True)
+        return
+
+    try:
+        import e2e_marker as _marker  # 判据唯一实现，不在这里重抄谓词
+        hits = _marker.residue()
+        accounts = _marker.enabled_test_accounts()
+        locator = _marker.RESIDUE_SQL
+    except Exception as exc:
+        # 查不了 ≠ 干净：这条是生产库上的红/绿判据，失败必须说出来
+        check(name, "E2E", "WARN", False,
+              f"查不了（scripts/verify/e2e_marker.py 执行失败：{exc}）—— 查不了不等于干净")
+        return
+
+    total = sum(h["alive"] for h in hits)
+    ok = total == 0 and not accounts
+    lines = []
+    if hits:
+        lines.append(f"活跃标记行 {total} 条，分布在 {len(hits)} 张表：")
+        for h in hits:
+            lines.append(f"  · {h['table']} {h['alive']} 行  样例：{' | '.join(h['sample'])[:70]}")
+    if accounts:
+        lines.append(f"仍在用的测试账号 {len(accounts)} 个：{', '.join(accounts)}")
+    if not ok:
+        lines.append("处置：bash scripts/datafix/e2e_residue3/00_backup.sh && "
+                     "bash scripts/datafix/e2e_residue3/apply.sh（E2E 行软删、账号禁用）")
+    check(name, "E2E", "WARN", ok, "\n".join(lines), locator)
+
+
 GROUPS = {"会计": group_a, "账账": group_b, "账实": group_c,
           "单据链": group_d, "状态": group_e, "期间": group_f, "闭环": group_g,
           "审批": group_h, "盘点": group_i, "固资": group_k, "报销": group_l,
-          "任务": group_j, "权限": group_n}
+          "任务": group_j, "权限": group_n, "E2E": group_o}
 
 
 def main():

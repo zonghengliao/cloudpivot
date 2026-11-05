@@ -58,10 +58,11 @@ const NON_ISOLATED_PORTS = new Set(['5173', '8023', '80', '443', '3000', '8080']
 
 const PROD_POSTRUN_STEPS = [
   'set -a; . /etc/cloudpivot/cloudpivot.env; set +a',
+  'python3 scripts/verify/e2e_marker.py --assert-clean   # exit 1 = 生产上还有活跃 [E2E] 标记行 / 在用测试账号',
   'python3 scripts/verify/e2e_fixture_residue.py     # exit 1 = 有人造了零成本夹具',
   'bash    scripts/datafix/p10/00_backup.sh',
   'P10_GENERIC_APPLY=1 bash scripts/datafix/p10/apply.sh',
-  'python3 scripts/verify/erp_invariants.py          # 必须 32/32 / BLOCKER 0 / WARN 0',
+  'python3 scripts/verify/erp_invariants.py          # 必须 BLOCKER 0 / WARN 0（含 O1 E2E 标记不变量）',
 ];
 
 function inRange(port, [lo, hi]) {

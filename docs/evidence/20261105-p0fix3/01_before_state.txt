@@ -1,0 +1,72 @@
+## 改前盘点 2026-11-05 13:43:42 CST
+
+### 1. 逐表活跃标记命中（判据 = scripts/verify/e2e_marker.py::TABLE_SPECS）
+biz_flow_instance | 1 | 1
+biz_task | 9 | 355
+biz_task_comment | 221 | 221
+biz_warehouse | 0 | 4
+sys_announcement | 1 | 2
+sys_export_task | 2 | 2
+sys_file | 43 | 45
+sys_help_category | 1 | 2
+sys_notice | 105 | 108
+
+### 2. 9 个活跃 E2E 任务逐条（表/id/标题/创建时间/创建人/status）
+biz_task | 01a1901a-d6b9-769a-b9ce-202ccaa4c31a | TSK-202610-000880 | [E2E]详情-e2emvvvdf01 | 2026-10-31 11:57:20.444105+08 | c45e5728-2ca6-458a-9610-88bc4ed7b0e8 | DOING
+biz_task | 01a1901a-d6ca-7092-811b-349e073cfe51 | TSK-202610-000881 | [E2E]详情-e2emvvvdf01-子1 | 2026-10-31 11:57:20.459032+08 | c45e5728-2ca6-458a-9610-88bc4ed7b0e8 | TODO
+biz_task | 01a1901a-d6d7-75c3-b37f-914743d2c7cd | TSK-202610-000882 | [E2E]详情-e2emvvvdf01-子2 | 2026-10-31 11:57:20.471483+08 | c45e5728-2ca6-458a-9610-88bc4ed7b0e8 | TODO
+biz_task | 01a1901a-d6e1-70e4-9452-0ce951ba9c51 | TSK-202610-000883 | [E2E]详情-e2emvvvdf01-子3 | 2026-10-31 11:57:20.48171+08 | c45e5728-2ca6-458a-9610-88bc4ed7b0e8 | TODO
+biz_task | 01a1901a-e3c3-73a7-867d-c8ee81103422 | TSK-202610-000884 | [E2E]详情-e2emvvvdf01-UI追加 | 2026-10-31 11:57:23.779373+08 | c45e5728-2ca6-458a-9610-88bc4ed7b0e8 | TODO
+biz_task | 01a19022-8966-75b1-8879-ee94afae7056 | TSK-202610-000893 | [E2E]详情-e2emvvvox7o | 2026-10-31 12:05:44.934687+08 | c45e5728-2ca6-458a-9610-88bc4ed7b0e8 | TODO
+biz_task | 01a19022-897a-7114-9c95-6ecb36ad2242 | TSK-202610-000894 | [E2E]详情-e2emvvvox7o-子1 | 2026-10-31 12:05:44.954191+08 | c45e5728-2ca6-458a-9610-88bc4ed7b0e8 | TODO
+biz_task | 01a19022-8989-768b-881b-888bbede7f81 | TSK-202610-000895 | [E2E]详情-e2emvvvox7o-子2 | 2026-10-31 12:05:44.969548+08 | c45e5728-2ca6-458a-9610-88bc4ed7b0e8 | TODO
+biz_task | 01a19022-899d-71ef-acde-0b5274b848f3 | TSK-202610-000896 | [E2E]详情-e2emvvvox7o-子3 | 2026-10-31 12:05:44.989422+08 | c45e5728-2ca6-458a-9610-88bc4ed7b0e8 | TODO
+
+### 3. 其余活跃标记行逐条（每表最多 8 条样例，完整量见上表）
+sys_notice | 01a182b3-be5c-7342-88de-117a0466f5ed | NTS202610281329400466f5ed | E2E测试 | 2026-10-28 21:29:40.188977+08
+sys_notice | 01a18311-8bef-77ec-8889-017e2a08039f | NTS202610281512072a08039f | 定时通知E2E | 2026-10-28 23:12:07.664067+08
+sys_notice | 01a185a9-f4a7-779b-89f8-ca3de7addf1f | NTC20261029031750e7addf1f | E2E公告-43870 | 2026-10-29 11:17:50.375415+08
+sys_notice | 01a185aa-970c-700e-983f-13c94439d944 | NTC202610290318314439d944 | E2E2公告-43911 | 2026-10-29 11:18:31.948915+08
+sys_notice | 01a18a45-ac31-72e3-b8b7-5059285b909f | NTT20261030004624285b909f | 审批已通过：E2E单签实例 | 2026-10-30 08:46:24.306034+08
+sys_notice | 01a18a45-ac73-7761-b225-99c9743bab36 | NTT20261030004624743bab36 | 审批已通过：E2E驳回实例 | 2026-10-30 08:46:24.371595+08
+sys_notice | 01a18a45-b0b4-7451-aaf9-419b07ec6e3d | NTT2026103000462507ec6e3d | 审批已通过：E2E会签实例 | 2026-10-30 08:46:25.460961+08
+sys_notice | 01a18a45-f2e6-749a-bf1c-d1c0c83a7360 | NTT20261030004642c83a7360 | 审批已通过：E2E单签实例 | 2026-10-30 08:46:42.407012+08
+ERROR:  column "uploader_id" does not exist
+LINE 2: ...ect 'sys_file', id::text, original_name, coalesce(uploader_i...
+                                                             ^
+HINT:  Perhaps you meant to reference the column "sys_file.uploaded_by".
+sys_export_task | 01a18a4c-9f6c-76af-8cc3-10d5f348ddae | e2e_export | 2026-10-30 08:53:59.788965+08
+sys_export_task | 01a18a4c-edc7-73cd-ba2f-068fd6556a70 | e2e_export | 2026-10-30 08:54:19.847676+08
+biz_flow_instance | 01a18b18-036a-77fa-9ab2-15b2f8af5374 | TSK-202610-000508 [E2E]探针-parent_progress-5833 | CANCELLED | 2026-10-30 12:36:09.194347+08
+ERROR:  column "published_at" does not exist
+LINE 2: ...sys_announcement', id::text, title, status::text, published_...
+                                                             ^
+HINT:  Perhaps you meant to reference the column "sys_announcement.publish_at".
+sys_help_category | 01a18a4e-1d15-737e-88ac-f4a2f0f79113 | e2e_cat_085535 | E2E分类 085535 | 2026-10-30 08:55:37.493602+08
+biz_warehouse | 01a18c6e-d15e-73e7-b8bf-8c9c267b89af | E2E-W4A-MVUUPN1M-Q | E2E-W4A-MVUUPN1M-库区 | 2026-10-30 18:50:51.633449+08
+biz_warehouse | 01a18c6f-47b9-711b-9c0c-a6b9af5a9785 | E2E-W4A-MVUUQAHM-Q | E2E-W4A-MVUUQAHM-库区 | 2026-10-30 18:51:07.46776+08
+biz_warehouse | 01a18c70-93bd-7300-95d6-3ee4d43f11ce | E2E-W4A-MVUUS3SO-Q | E2E-W4A-MVUUS3SO-库区 | 2026-10-30 18:52:32.50225+08
+biz_warehouse | 01a18c72-d892-76be-b33c-b44ed6720370 | E2E-W4A-MVUUVALP-Q | E2E-W4A-MVUUVALP-库区 | 2026-10-30 18:55:01.290985+08
+
+### 4. 6 个测试账号（status / is_locked / 角色 / 最后登录）
+cl_43870 | 1 | false | (无角色) | - | 2026-10-29 11:17:50.504108+08
+laoliu_test | 1 | false | SUPER_ADMIN+GENERAL_MANAGER+DEPT_LEADER+PURCHASE_MANAGER+WAREHOUSE_MANAGER | 2026-11-05 11:07:25.795406+08 | 2026-10-29 13:47:28.769732+08
+qa.limited | 1 | true | QA_LIMITED | 2026-10-29 01:14:39.527264+08 | 2026-10-29 01:14:39.285433+08
+qa.mutex | 1 | true | MUTEX_B+MUTEX_A | 2026-10-29 01:14:39.401531+08 | 2026-10-29 01:14:39.375827+08
+qa.viewer | 1 | true | QA_VIEWER | 2026-10-29 01:14:39.507346+08 | 2026-10-29 01:14:39.05142+08
+verify-ai | 1 | false | (无角色) | - | 2026-10-29 17:13:53.688991+08
+
+### 5. 已软删测试账号（本包不动，仅统计）
+17
+
+### 6. 改前账务/审计基线行数
+biz_accounting_period = 12
+biz_inventory = 3
+biz_inventory_txn = 25
+biz_opening_balance = 0
+biz_payable = 12
+biz_payment = 0
+biz_status_log = 115
+biz_task(全量) = 846
+biz_voucher = 21
+biz_voucher_entry = 55

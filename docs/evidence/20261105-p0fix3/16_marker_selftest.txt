@@ -1,0 +1,12 @@
+[ok  ] 已带标记原样返回  got="[E2E]详情-e2emvvvdf01" want="[E2E]详情-e2emvvvdf01"
+[ok  ] 没带标记自动加前缀  got="[E2E]拖拽-正常-e2e123" want="[E2E]拖拽-正常-e2e123"
+[ok  ] 去首尾空格后不重复加  got="[E2E]前后空格" want="[E2E]前后空格"
+[ok  ] 空标题也有标记（后端会拒，但不会留下未标记行）  got="[E2E]" want="[E2E]"
+[ok  ] isMarkedTitle(markTitle(x)) 恒真  got=true want=true
+[ok  ] 仓库已带前缀原样返回  got="E2E-W4A-1" want="E2E-W4A-1"
+[ok  ] 仓库自动加前缀  got="E2E-W4A-1" want="E2E-W4A-1"
+[ok  ] 文件名已带前缀原样返回  got="e2e-a.txt" want="e2e-a.txt"
+[ok  ] 文件名自动加前缀  got="e2e-a.txt" want="e2e-a.txt"
+[ok  ] python 侧谓词 title like '[E2E]%' 命中：[E2E]详情-e2emvvvdf01  got=true want=true
+[ok  ] python 侧谓词 title like '[E2E]%' 命中：[E2E]随便什么  got=true want=true
+---- e2e-marker selftest：PASS ----

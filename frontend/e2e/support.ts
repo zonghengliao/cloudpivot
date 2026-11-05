@@ -9,6 +9,7 @@ import { resolve } from 'node:path';
  */
 import { expect, request, type APIRequestContext, type Page } from '@playwright/test';
 import { assertIsolatedTarget } from './target-guard.mjs';
+import { markTitle } from './e2e-marker';
 
 /** 被测站点（`E2E_BASE_URL` 覆盖；**默认隔离实例** `127.0.0.1:5189`，绝不默认 prod） */
 export const BASE_URL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:5189';
@@ -212,7 +213,12 @@ export async function newApi(): Promise<Api> {
 
   return {
     ctx,
-    createTask: (body) => call('post', '/api/business/task', body),
+    // 造数口径的唯一入口：标题一律过 `markTitle()`（幂等）。用例忘写 `[E2E]` 前缀
+    // 也造不出「像真实业务行」的残留 —— 2026-10-30/31 的 9 个活跃任务就是这么混进生产的。
+    createTask: (body) => {
+      const raw = typeof body.title === 'string' ? body.title.trim() : '';
+      return call('post', '/api/business/task', raw ? { ...body, title: markTitle(raw) } : body);
+    },
     listTasks: async (keyword, pageSize = 200) => {
       const query = new URLSearchParams({ page: '1', page_size: String(pageSize) });
       if (keyword) {
@@ -239,7 +245,8 @@ export async function newApi(): Promise<Api> {
     deleteFlowDef: async (id) => {
       await call('delete', `/api/business/flow/def/${id}`);
     },
-    createInstance: (defId, title) => call('post', '/api/business/flow/instance', { def_id: defId, title }),
+    createInstance: (defId, title) =>
+      call('post', '/api/business/flow/instance', { def_id: defId, title: markTitle(title) }),
     getInstance: async (id) => call('get', `/api/business/flow/instance/${id}`),
     withdrawInstance: async (id, reason) => {
       await call('post', `/api/business/flow/instance/${id}/withdraw`, { reason: reason ?? 'E2E 用例清理' });
