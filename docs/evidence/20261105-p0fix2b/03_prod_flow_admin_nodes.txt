@@ -1,0 +1,99 @@
+# 生产只读实测（144 / cloudpivot / 2026-11-05）—— 已发布流程节点的 assignee_type 分布 + ADMIN 节点逐条
+# SQL 见 sql/04_admin_nodes.sql（B4 段因列名猜测失败，已弃用，不影响结论）
+
+Pager usage is off.
+== B2. 已发布流程节点的 assignee_type 分布 ==
+assignee_type|node_type|approval_mode|cnt|empty_null
+ROLE|APPROVAL||19|0
+|END||14|0
+|CONDITION||14|0
+|START||14|0
+ROLE|COUNTERSIGN|ALL|5|0
+ADMIN|APPROVAL||4|0
+|NOTIFY_NODE||1|0
+ADMIN|COUNTERSIGN|ALL|1|0
+INITIATOR_SUPERIOR|APPROVAL||1|0
+TASK_CREATOR|APPROVAL||1|0
+(10 rows)
+== B3. ADMIN 类 / 指定人 / 空审批人兜底的节点明细 ==
+flow_code|node_key|node_name|assignee_type|mode|empty_assignee|allow_robot
+asset_disposal|s|开始||(空->ALL)|SKIP|f
+asset_disposal|n_gm|总经理审批（处置不分金额档）|ROLE|(空->ALL)|FALLBACK_ADMIN|f
+asset_disposal|e|结束||(空->ALL)|SKIP|f
+budget_approve|s|开始||(空->ALL)|SKIP|f
+budget_approve|c_change|编制 / 调整分流||(空->ALL)|SKIP|f
+budget_approve|n_dept|部门主管审批（编制）|ROLE|(空->ALL)|FALLBACK_ADMIN|f
+budget_approve|c_orig_amt|金额分级（编制 < 50 万）||(空->ALL)|SKIP|f
+budget_approve|n_fin|财务经理审批（编制）|ROLE|(空->ALL)|FALLBACK_ADMIN|f
+budget_approve|n_fin_gm|财务经理+总经理会签（编制）|ROLE|ALL|FALLBACK_ADMIN|f
+budget_approve|n_fin_adj|财务复核（调整前置）|ROLE|(空->ALL)|FALLBACK_ADMIN|f
+budget_approve|c_adj_amt|金额分级（调整 < 50 万）||(空->ALL)|SKIP|f
+budget_approve|n_gm|总经理审批（调整）|ROLE|(空->ALL)|FALLBACK_ADMIN|f
+budget_approve|n_gm_fd|总经理+财务总监会签（调整）|ROLE|ALL|FALLBACK_ADMIN|f
+budget_approve|e|结束||(空->ALL)|SKIP|f
+contract_approve|s|开始||(空->ALL)|SKIP|f
+contract_approve|c_amt|金额分级（< 10 万单级）||(空->ALL)|SKIP|f
+contract_approve|n_pm|采购经理审批（< 10 万）|ROLE|(空->ALL)|FALLBACK_ADMIN|f
+contract_approve|n_pm_hi|采购经理审批（≥ 10 万·第一级）|ROLE|(空->ALL)|FALLBACK_ADMIN|f
+contract_approve|n_gm|总经理审批（≥ 10 万·第二级）|ROLE|(空->ALL)|FALLBACK_ADMIN|f
+contract_approve|e|结束||(空->ALL)|SKIP|f
+expense|s|开始||(空->ALL)|SKIP|f
+expense|n_sup|直属上级审批|INITIATOR_SUPERIOR|(空->ALL)|FALLBACK_ADMIN|f
+expense|c_low|金额分级①（< 1000 元）||(空->ALL)|SKIP|f
+expense|c_mid|金额分级②（< 10000 元）||(空->ALL)|SKIP|f
+expense|n_fin|财务经理审批|ROLE|(空->ALL)|FALLBACK_ADMIN|f
+expense|n_board|财务经理 + 总经理会签|ROLE|ALL|FALLBACK_ADMIN|f
+expense|e|结束||(空->ALL)|SKIP|f
+flow_edge_config|s|开始||(空->ALL)|SKIP|f
+flow_edge_config|n_cfg|流程配置复核|ROLE|(空->ALL)|FALLBACK_ADMIN|f
+flow_edge_config|e|结束||(空->ALL)|SKIP|f
+payable_cancel|s|开始||(空->ALL)|SKIP|f
+payable_cancel|n_fm|财务经理审批|ROLE|(空->ALL)|FALLBACK_ADMIN|f
+payable_cancel|e|结束||(空->ALL)|SKIP|f
+payable_pay|s|开始||(空->ALL)|SKIP|f
+payable_pay|c_low|金额分级①（< 1 万）||(空->ALL)|SKIP|f
+payable_pay|n_dept|部门主管审批|ADMIN|(空->ALL)|FALLBACK_ADMIN|f
+payable_pay|c_mid|金额分级②（< 10 万）||(空->ALL)|SKIP|f
+payable_pay|n_fin|财务经理审批|ADMIN|(空->ALL)|FALLBACK_ADMIN|f
+payable_pay|n_board|财务总监+总经理会签|ADMIN|ALL|FALLBACK_ADMIN|f
+payable_pay|e|结束||(空->ALL)|SKIP|f
+po_approve|s|开始||(空->ALL)|SKIP|f
+po_approve|c_credit|超信用额度判定||(空->ALL)|SKIP|f
+po_approve|n_fin|财务复核（超信用额度）|ROLE|(空->ALL)|FALLBACK_ADMIN|f
+po_approve|c_low|金额分级①（< 1 万）||(空->ALL)|SKIP|f
+po_approve|n_dept|部门主管审批|ROLE|(空->ALL)|FALLBACK_ADMIN|f
+po_approve|c_mid|金额分级②（< 10 万）||(空->ALL)|SKIP|f
+po_approve|n_pm|采购经理审批|ROLE|(空->ALL)|FALLBACK_ADMIN|f
+po_approve|n_board|采购经理+总经理会签|ROLE|ALL|FALLBACK_ADMIN|f
+po_approve|e|结束||(空->ALL)|SKIP|f
+stock_in_cancel|s|开始||(空->ALL)|SKIP|f
+stock_in_cancel|n_review|作废复核|ADMIN|(空->ALL)|FALLBACK_ADMIN|f
+stock_in_cancel|e|结束||(空->ALL)|SKIP|f
+stock_in_post|s|开始||(空->ALL)|SKIP|f
+stock_in_post|c_small|金额分级（< 1000 免审）||(空->ALL)|SKIP|f
+stock_in_post|n_notify|通知仓管主管（免审知会）||(空->ALL)|SKIP|f
+stock_in_post|n_wh|仓管主管审批|ROLE|(空->ALL)|FALLBACK_ADMIN|f
+stock_in_post|e|结束||(空->ALL)|SKIP|f
+stock_take_post|s|开始||(空->ALL)|SKIP|f
+stock_take_post|c_amt|差异金额分级（< 1 万单级）||(空->ALL)|SKIP|f
+stock_take_post|n_wh|仓管主管审批（< 1 万）|ROLE|(空->ALL)|FALLBACK_ADMIN|f
+stock_take_post|n_fin|仓管主管审批（≥ 1 万·第一级）|ROLE|(空->ALL)|FALLBACK_ADMIN|f
+stock_take_post|n_gm|总经理审批（≥ 1 万·第二级）|ROLE|(空->ALL)|FALLBACK_ADMIN|f
+stock_take_post|e|结束||(空->ALL)|SKIP|f
+stock_transfer|s|开始||(空->ALL)|SKIP|f
+stock_transfer|n_approve|超管审批|ADMIN|(空->ALL)|FALLBACK_ADMIN|f
+stock_transfer|e|结束||(空->ALL)|SKIP|f
+task_accept|n_creator|创建人验收|TASK_CREATOR|(空->ALL)|SKIP|f
+task_accept|s|开始||(空->ALL)|SKIP|f
+task_accept|e|结束||(空->ALL)|SKIP|f
+voucher_reverse|s|开始||(空->ALL)|SKIP|f
+voucher_reverse|c_amt|金额分级（> 1 万会签）||(空->ALL)|SKIP|f
+voucher_reverse|n_fm|财务经理审批|ROLE|(空->ALL)|FALLBACK_ADMIN|f
+voucher_reverse|n_cs|财务经理+财务总监会签|ROLE|ALL|FALLBACK_ADMIN|f
+voucher_reverse|e|结束||(空->ALL)|SKIP|f
+(74 rows)
+== B4. biz_flow_node_assignee ==
+psql:<stdin>:27: ERROR:  column a.user_id does not exist
+LINE 6: left join sys_user u on u.id=a.user_id
+                                     ^
+HINT:  Perhaps you meant to reference the column "a.ref_id".

@@ -1,0 +1,91 @@
+# 生产只读实测（144 / cloudpivot / 2026-11-05）—— user_type · 存量审批实例 · 待办归属
+# SQL 见 sql/02_user_types_flow.sql
+
+Pager usage is off.
+== A. 账号 user_type / real_name / 建档人 / 备注 ==
+username|real_name|user_type|status|is_locked|created_by|remark|ai_agent_rows
+admin|超级管理员|HUMAN|1|f|-||0
+cl_43870|日志测试43870|HUMAN|1|f|admin||0
+henry.liao|Henry.Liao|HUMAN|1|f|admin||0
+laoliu|老六|HUMAN|1|f|admin|平台主助手（AI 总协调）|0
+laoliu_test|老六测试号|HUMAN|1|f|-||0
+qa.limited|受限管理员|HUMAN|1|t|admin||0
+qa.mutex|双持用户|HUMAN|1|t|admin||0
+qa.viewer|E2E改名 085535|HUMAN|1|t|admin||0
+verify-ai|验证AI|ROBOT|1|f|laoliu_test|云枢 × Hermes AI 用户（profile 自动创建）|1
+(9 rows)
+== B. 流程节点 assignee_type 分布（已发布版本） ==
+table_name
+biz_flow_cc
+biz_flow_def
+biz_flow_def_version
+biz_flow_edge
+biz_flow_instance
+biz_flow_instance_node
+biz_flow_linkage_rule
+biz_flow_node
+biz_flow_node_assignee
+biz_flow_state_edge
+biz_flow_task
+(11 rows)
+== C. 是否有 biz_flow_node 表 ==
+column_name|data_type
+id|uuid
+version_id|uuid
+node_key|character varying
+node_name|character varying
+node_type|character varying
+assignee_type|character varying
+superior_levels|smallint
+form_var_key|character varying
+approval_mode|character varying
+approve_ratio|numeric
+reject_veto|boolean
+empty_assignee|character varying
+self_approval|character varying
+allow_robot|boolean
+join_mode|character varying
+fork_mode|character varying
+timeout_hours|integer
+timeout_action|character varying
+remind_before_hours|integer
+max_remind_times|smallint
+cc_on_approved|boolean
+position_x|integer
+position_y|integer
+sort_order|integer
+config|jsonb
+created_at|timestamp with time zone
+(26 rows)
+== D. dept_path 现状 ==
+dept_code|dept_name|dept_path|is_root
+FIN|财务部|/01a18381-b7c4-753c-8fe6-d39684ead5cd/01a18381-b7f2-76f9-bc6d-bb2361207833/|f
+HQ|云枢总部|/01a18381-b7c4-753c-8fe6-d39684ead5cd/|t
+SALES|销售部|/01a18381-b7c4-753c-8fe6-d39684ead5cd/01a18381-b7e3-7770-90fc-c215cfb566e5/|f
+TECH|技术部|/01a18381-b7c4-753c-8fe6-d39684ead5cd/01a18381-b7d4-76ef-a290-8aa40bd4fd37/|f
+(4 rows)
+== E. 存量审批实例状态分布 ==
+status|count
+APPROVED|91
+CANCELLED|16
+WITHDRAWN|3
+PENDING|2
+REJECTED|1
+(5 rows)
+== F. 待办任务（未完成）归属人 ==
+assignee|status|count
+laoliu|APPROVED|73
+laoliu_test|CANCELLED|14
+admin|APPROVED|10
+henry.liao|CANCELLED|10
+laoliu|CANCELLED|9
+laoliu_test|APPROVED|7
+henry.liao|APPROVED|7
+laoliu|SKIPPED|5
+admin|SKIPPED|5
+admin|CANCELLED|3
+laoliu_test|PENDING|2
+admin|TRANSFERRED|1
+admin|REJECTED|1
+henry.liao|PENDING|1
+(14 rows)

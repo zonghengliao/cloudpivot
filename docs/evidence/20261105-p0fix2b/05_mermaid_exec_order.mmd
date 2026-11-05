@@ -1,0 +1,6 @@
+flowchart LR
+    A["A 卡：组织落位<br/>dept_id + N2 + 影响面核算<br/>（零生效变化断言）"] --> C
+    B["B 卡：流程去 ADMIN 化<br/>5 个节点 → ROLE + FALLBACK_ADMIN"] --> C
+    C["C 卡：超管收敛<br/>laoliu_test / henry.liao 摘权<br/>+ OPS_ADMIN 角色化 → laoliu 摘权"]
+    A -.->|"未落位就摘权<br/>⇒ 3 档角色降级 SELF（S11）"| X["❌ 反向：先摘权后落位"]
+    B -.->|"未去 ADMIN 化就摘权<br/>⇒ 会签 4 人静默变 1 人"| X

@@ -1,0 +1,25 @@
+# 生产只读实测（144 / cloudpivot / 2026-11-05）—— 2 张 PENDING 实例的待办归属
+# SQL 见 sql/03_pending_flow.sql（该文件内 JOIN 子句列名有误，未执行的部分已在 02 文件里用等价查询补齐）
+
+Pager usage is off.
+== B2. 当前已发布流程版本的节点 assignee_type 分布 ==
+== B3. 用 ADMIN 或空审批人兜底的节点（收敛超管的风险面） ==
+psql:<stdin>:8: ERROR:  column v.flow_def_id does not exist
+LINE 5: join biz_flow_def f on f.id=v.flow_def_id and f.deleted_at i...
+                                    ^
+== B4. biz_flow_node_assignee 具体指定 ==
+psql:<stdin>:17: ERROR:  column v.flow_def_id does not exist
+LINE 5: join biz_flow_def f on f.id=v.flow_def_id and f.deleted_at i...
+                                    ^
+== E2. 2 张 PENDING 实例 ==
+psql:<stdin>:24: ERROR:  column v.flow_def_id does not exist
+LINE 4: join biz_flow_def f on f.id=v.flow_def_id and f.current_vers...
+                                    ^
+instance_no|biz_type|biz_id|status|created_at|tasks
+FLW-20261105-5D6B0905|STOCK_TAKE_POST|01a1a9aa-5dff-734a-86a3-67a5f229c7f0|PENDING|2026-11-05|laoliu_test:PENDING henry.liao:PENDING
+FLW-20261102-94417B93|PO_APPROVE|01a19c2a-f654-774f-86a0-7e6ff8f95cdc|PENDING|2026-11-02|laoliu_test:PENDING henry.liao:APPROVED
+(2 rows)
+== G. 已发布流程版本数量 ==
+flows|published
+14|14
+(1 row)

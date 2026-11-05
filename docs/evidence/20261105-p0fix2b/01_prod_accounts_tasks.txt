@@ -1,0 +1,128 @@
+# 生产只读实测（144 / cloudpivot / 2026-11-05 13:2x CST）—— 账号 · 角色 · 部门 · 任务 · 项目 · 角色权限码
+# 原始输出未加工；SQL 见 sql/01_accounts_roles_projects.sql
+
+Pager usage is off.
+== A. 账号全景（含最近登录成功时间） ==
+username|is_locked|dept_code|dept_name|created_at|last_login_ok|login_cnt
+admin|f|-|(无部门)|2026-10-27|2026-11-05|678
+cl_43870|f|-|(无部门)|2026-10-29||0
+henry.liao|f|-|(无部门)|2026-10-28|2026-11-03|114
+laoliu|f|-|(无部门)|2026-10-30|2026-11-05|192
+laoliu_test|f|-|(无部门)|2026-10-29|2026-11-05|552
+qa.limited|t|TECH|技术部|2026-10-29|2026-10-29|2
+qa.mutex|t|SALES|销售部|2026-10-29|2026-10-29|1
+qa.viewer|t|-|(无部门)|2026-10-29|2026-10-29|2
+verify-ai|f|-|(无部门)|2026-10-29||0
+(9 rows)
+== B. 账号-角色-角色范围 ==
+username|role_code|role_name|data_scope|role_status|granted_on|expire_time
+admin|SUPER_ADMIN|超级管理员|1|1|2026-10-27|
+henry.liao|DEPT_LEADER|部门主管|3|1|2026-11-02|
+henry.liao|GENERAL_MANAGER|总经理|1|1|2026-11-02|
+henry.liao|PURCHASE_MANAGER|采购经理|3|1|2026-11-02|
+henry.liao|SUPER_ADMIN|超级管理员|1|1|2026-10-28|
+henry.liao|WAREHOUSE_MANAGER|仓管主管|3|1|2026-11-02|
+laoliu|SUPER_ADMIN|超级管理员|1|1|2026-10-30|
+laoliu_test|DEPT_LEADER|部门主管|3|1|2026-11-02|
+laoliu_test|GENERAL_MANAGER|总经理|1|1|2026-11-02|
+laoliu_test|PURCHASE_MANAGER|采购经理|3|1|2026-11-02|
+laoliu_test|SUPER_ADMIN|超级管理员|1|1|2026-10-29|
+laoliu_test|WAREHOUSE_MANAGER|仓管主管|3|1|2026-11-02|
+qa.limited|QA_LIMITED|测试受限管理员|1|1|2026-10-29|
+qa.mutex|MUTEX_A|制单员|1|1|2026-10-29|
+qa.mutex|MUTEX_B|审核员|1|1|2026-10-29|
+qa.viewer|QA_VIEWER|测试只读员|1|1|2026-10-29|
+(16 rows)
+== E. biz_project 行详情 ==
+project_no|project_name|dept_code|owner|creator|created_at|deleted
+T7C-PROD-DEMO|T7c 部署验收演示项目|-|admin|admin|2026-10-29|t
+CP-ITER|云枢平台迭代|-|admin|admin|2026-10-30|f
+DEMO-EC|示例：电商后台|-|admin|admin|2026-10-30|f
+CP-DEV|云枢平台开发|-|admin|admin|2026-10-30|f
+(4 rows)
+== E2. biz_project_member 行 ==
+member|role|project_no
+(0 rows)
+== D4. 存活任务（deleted_at is null）按负责人 + 参与人 ==
+owner|tasks|dept_null
+laoliu|67|67
+laoliu_test|9|9
+admin|2|2
+verify-ai|1|1
+henry.liao|1|1
+(5 rows)
+== D5. 存活任务的状态分布 ==
+status|count
+DONE|63
+TODO|13
+DOING|3
+REVIEW|1
+(4 rows)
+== D6. biz_task_member 关系（存活任务） ==
+member|role|count
+admin|COLLABORATOR|1
+(1 row)
+== G. 角色总表 ==
+role_code|role_name|data_scope|status
+FLOW_CONFIG_APPROVER|流程配置复核员|1|1
+GENERAL_MANAGER|总经理|1|1
+MUTEX_A|制单员|1|1
+MUTEX_B|审核员|1|1
+QA_LIMITED|测试受限管理员|1|1
+QA_VIEWER|测试只读员|1|1
+SUPER_ADMIN|超级管理员|1|1
+DEPT_LEADER|部门主管|3|1
+PURCHASE_MANAGER|采购经理|3|1
+WAREHOUSE_MANAGER|仓管主管|3|1
+FINANCE_DIRECTOR|财务总监|5|1
+FINANCE_MANAGER|财务经理|5|1
+(12 rows)
+== G2. 每个角色的账号数 ==
+role_code|data_scope|users
+SUPER_ADMIN|1|4
+DEPT_LEADER|3|2
+GENERAL_MANAGER|1|2
+PURCHASE_MANAGER|3|2
+WAREHOUSE_MANAGER|3|2
+MUTEX_A|1|1
+MUTEX_B|1|1
+QA_LIMITED|1|1
+QA_VIEWER|1|1
+FINANCE_DIRECTOR|5|0
+FINANCE_MANAGER|5|0
+FLOW_CONFIG_APPROVER|1|0
+(12 rows)
+== H. 30 天登录成功活跃度 ==
+username|dept|cnt|last_day
+admin|(无部门)|678|2026-11-05
+laoliu_test|(无部门)|552|2026-11-05
+laoliu|(无部门)|192|2026-11-05
+henry.liao|(无部门)|114|2026-11-03
+(已删用户)|(无部门)|9|2026-11-01
+bt_fin_34427|财务部|5|2026-10-29
+bt_sal_34427|销售部|4|2026-10-29
+qa.boarder|(无部门)|2|2026-10-29
+qa.viewer|(无部门)|2|2026-10-29
+qa.limited|技术部|2|2026-10-29
+vrf_a2_1030093013|(无部门)|1|2026-10-30
+qa.taskview|(无部门)|1|2026-10-29
+p25maker|(无部门)|1|2026-11-04
+vrf_a1_1030093013|(无部门)|1|2026-10-30
+qa.mutex|销售部|1|2026-10-29
+pref_new_46764|(无部门)|1|2026-10-29
+(16 rows)
+== J. 其余用户总数（含软删）/ 是否有其它用户 ==
+all_users|live_users|deleted_users
+26|9|17
+(1 row)
+== K. sys_dept.leader_id 是否已设 ==
+dept_code|dept_name|leader_id
+FIN|财务部|
+HQ|云枢总部|
+SALES|销售部|
+TECH|技术部|
+(4 rows)
+== L. biz_expense_report / biz_budget / biz_contract 的 dept 填充（决策影响面） ==
+t|cnt|?column?
+biz_contract|11|t
+(1 row)
