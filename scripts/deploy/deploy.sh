@@ -38,7 +38,7 @@ ENV_FILE="${DEPLOY_ENV_FILE:-/etc/cloudpivot/cloudpivot.env}"
 SERVICE="${DEPLOY_SERVICE:-cloudpivot}"
 BACKEND_DIR="$REPO/backend"
 FRONTEND_DIR="$REPO/frontend"
-MIG_DIR="$REPO/backend/migrations/business"
+MIG_ROOT="$REPO/backend/migrations"   # 引擎口径：递归全部子目录（business/system/support/…）
 MIGRATE_TOOL="$REPO/scripts/verify/deploya_migrate.sh"
 HEALTH_URL="http://127.0.0.1:8023/health"
 WEB_URL="http://127.0.0.1/"
@@ -62,9 +62,15 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-LOG="/var/log/cloudpivot-deploy-$TAG.log"
 BACKUP_DIR="/root/deploy-backup-$TAG"
-exec > >(tee -a "$LOG") 2>&1
+if [ "$DRY_RUN" = "1" ]; then
+  # --dry-run 承诺「不写任何文件」：连部署日志都不落盘。
+  # （旧版无条件 `tee -a /var/log/...`，dry-run 也会建出日志文件。）
+  LOG="（dry-run：不落盘，仅终端输出）"
+else
+  LOG="/var/log/cloudpivot-deploy-$TAG.log"
+  exec > >(tee -a "$LOG") 2>&1
+fi
 
 say()  { echo "[$(date +%H:%M:%S)] $*"; }
 step() { echo; echo "=============================================================="; echo "== $*"; echo "=============================================================="; }
@@ -91,7 +97,7 @@ die() {
     echo "  后端：systemctl stop $SERVICE && cp $BACKUP_DIR/cloudpivot $BACKEND_DIR/target/release/cloudpivot.rollback && mv -f $BACKEND_DIR/target/release/cloudpivot.rollback $BACKEND_DIR/target/release/cloudpivot && systemctl start $SERVICE"
   fi
   if [ "$DID_MIGRATE" = "1" ]; then
-    echo "  迁移：$APPLIED_MIGS 已应用（迁移不可逆，回滚要跑对应 .down.sql，见 $MIG_DIR）"
+    echo "  迁移：$APPLIED_MIGS 已应用（迁移不可逆，回滚要跑对应 .down.sql，见 $MIG_ROOT）"
   fi
   if [ "$DID_BACKUP" = "1" ]; then
     echo "  数据库整库回滚（慎用，会丢部署后写入）："
@@ -106,7 +112,8 @@ die() {
 
 # ----------------------------------------------------------------------------
 step "[0/8] 前置检查"
-[ -d "$REPO/.git" ] || die "找不到仓库 $REPO（本脚本要在生产机上跑）"
+# 用 rev-parse 而不是 [ -d "$REPO/.git" ]：worktree 里 .git 是文件不是目录
+git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1 || die "找不到 git 仓库 $REPO（本脚本要在生产机上跑）"
 [ -f "$ENV_FILE" ] || die "找不到生产环境变量 $ENV_FILE"
 [ -f "$MIGRATE_TOOL" ] || die "找不到迁移工具 $MIGRATE_TOOL"
 command -v git >/dev/null || die "缺 git"
@@ -120,6 +127,31 @@ DB_HOST="${NIK_DATABASE_HOST:-127.0.0.1}"
 export PGPASSWORD="${NIK_DATABASE_PASSWORD:?环境变量里没有 NIK_DATABASE_PASSWORD}"
 export PATH="/root/.cargo/bin:$PATH"
 PSQL="psql -h $DB_HOST -U $DB_USER -d $DB_NAME -Atq"
+
+# 磁盘上（$NEW_HEAD 的树）**全部子目录**里的版本化 up 脚本（仓库相对路径）。
+# 引擎读 `[database.migration] path = "migrations"` 是递归装载，business/ system/ support/
+# 全在扫描范围内 —— 这里必须用同一条口径。只扫 business 会漏 system/support：
+# 2026-11-05 发版实测漏掉 `system/V0235__create_sys_invariant_result`，旧版只在启动期由
+# 引擎补跑，于是「应用 0 个迁移」自检失效而脚本只 warning —— 记账铁律被静默降级。
+disk_mig_files() {
+  git ls-tree -r --name-only "$NEW_HEAD" backend/migrations/ \
+    | grep -E '^backend/migrations/[A-Za-z0-9_.-]+/V[0-9]+__[A-Za-z0-9_]+\.up\.sql$'
+}
+# 磁盘侧版本号全集（升序去重，逗号分隔）
+disk_mig_versions() {
+  disk_mig_files | sed -E 's#.*/V0*([0-9]+)__.*#\1#' | sort -n | paste -sd, -
+}
+# 磁盘上有、库里没记账（success=true）的版本 —— **集合口径**，gap 也能抓出来（不只是 > max）
+pending_versions_in_db() {
+  local vers
+  vers=$(disk_mig_versions)
+  [ -n "$vers" ] || return 0        # 盘上没有任何版本化迁移（异常由别处报）：不做集合差
+  $PSQL -c "select coalesce(string_agg(v::text, ',' order by v), '') from unnest(array[$vers]) as v
+             where not exists (select 1 from schema_migrations m
+                               where m.kind = 'versioned' and m.success
+                                 and m.version ~ '^[0-9]+\$' and m.version::int = v)"
+}
+
 say "仓库 $REPO，库 $DB_NAME，服务 $SERVICE，标签 $TAG"
 [ "$DRY_RUN" = "1" ] && say ">>> dry-run：只体检与打印计划，不写文件、不动服务 <<<"
 
@@ -142,7 +174,16 @@ if [ "$NCOMMITS" != "0" ]; then
 fi
 
 # --- 待应用迁移 -----------------------------------------------------------------
-# 口径：**磁盘上（$NEW_HEAD 的树）版本号 > 库里已应用最大版本** 的 business up 脚本。
+# 口径：**磁盘上（$NEW_HEAD 的树）**、**全部子目录**（business/ system/ support/ …）里
+#       版本号 > 库里已应用最大版本 的 up 脚本，按版本升序。
+#
+# 为什么必须递归扫全部分目录（2026-11-05 的缺陷）：
+#   引擎读 `config.toml` 的 `[database.migration] path = "migrations"`，装载是**递归**的，
+#   business/（152 条）、system/（13 条）、support/（11 条）全在引擎范围内。
+#   旧版只 `git ls-tree backend/migrations/business/`，于是 `system/V0235__create_sys_invariant_result`
+#   被漏掉：启动期引擎按**集合语义**把 gap 补跑（只打 out_of_order WARN，不炸启动），
+#   第 6 步的「应用 0 个迁移」自检于是不成立 —— 脚本当时只 `say ⚠️` 不 die，
+#   「记账与引擎一致」这条铁律被静默降级。
 #
 # 为什么不再用 `git diff --diff-filter=A $OLD_HEAD..$NEW_HEAD`：
 # 那个口径只看「这次同步新加的迁移文件」。一旦主仓只同步了代码、迁移没对库跑过
@@ -153,10 +194,10 @@ APPLIED_MAX=$($PSQL -c "select coalesce(max(version::int),0) from schema_migrati
 say "库里已应用的最大迁移版本：V$(printf '%04d' "$APPLIED_MAX")"
 
 mapfile -t MIG_FILES < <(
-  git ls-tree --name-only "$NEW_HEAD" backend/migrations/business/ \
-    | grep -E '^backend/migrations/business/V[0-9]+__[A-Za-z0-9_]+\.up\.sql$' \
-    | awk -F'/' -v applied="$APPLIED_MAX" '{ v=substr($NF,2); sub(/__.*/,"",v); if ((v+0) > applied) print }' \
-    | sort || true
+  disk_mig_files \
+    | awk -F'/' -v applied="$APPLIED_MAX" '{ v=substr($NF,2); sub(/__.*/,"",v); if ((v+0) > applied) printf "%010d\t%s\n", v+0, $0 }' \
+    | sort -k1,1 -k2,2 \
+    | cut -f2-
 )
 
 # --- 后端/前端是否要重做 ---------------------------------------------------------
@@ -294,7 +335,21 @@ else
   DID_MIGRATE=1
   APPLIED_MIGS="${PENDING_PAIRS[*]}"
   NEW_MAX=$($PSQL -c "select coalesce(max(version::int),0) from schema_migrations where kind='versioned' and version ~ '^[0-9]+\$'")
-  ok "迁移后最大版本：V$(printf '%04d' "$NEW_MAX")"
+  EXPECT_MAX=0
+  for f in "${MIG_FILES[@]:-}"; do
+    [ -n "${f:-}" ] || continue
+    b="$(basename "$f")"; v="${b%%__*}"; v="${v#V}"; v=$((10#$v))
+    [ "$v" -gt "$EXPECT_MAX" ] && EXPECT_MAX="$v"
+  done
+  if [ "$NEW_MAX" = "$EXPECT_MAX" ]; then
+    ok "迁移后最大版本：V$(printf '%04d' "$NEW_MAX")（= 清单最大版本）"
+  else
+    die "迁移后库内最大版本 V$NEW_MAX ≠ 清单最大版本 V$EXPECT_MAX：记账与磁盘不一致"
+  fi
+  MISSING_MIG=$(pending_versions_in_db)
+  [ -z "$MISSING_MIG" ] \
+    && ok "集合口径复核：磁盘上的版本化迁移全部已记账（含 system/support 目录）" \
+    || die "迁移后仍有未记账的版本化迁移：V$MISSING_MIG（磁盘有、库里没有 success 记录）"
 fi
 
 # ----------------------------------------------------------------------------
@@ -336,8 +391,22 @@ else
   DISK_MD5=$(md5sum target/release/cloudpivot | cut -d' ' -f1)
   [ "$PROC_MD5" = "$DISK_MD5" ] && ok "进程 == 磁盘（md5 $PROC_MD5，PID $PID）" || die "进程 md5($PROC_MD5) ≠ 磁盘 md5($DISK_MD5)：换了文件没重启？"
 
+  # 铁律（硬判据，不能用日志文本代替）：重启后「磁盘上有、库里没记账」的版本化迁移必须为空。
+  # 引擎判定是集合语义、gap 补迁只打 out_of_order WARN 不报错 ⇒「启动期补跑了漏记的迁移」
+  # 不会以任何失败形式暴露，只能在这里用集合差揪出来（2026-11-05 的 V0235 正是这么漏的）。
+  MISSING_AFTER=$(pending_versions_in_db)
+  if [ -n "$MISSING_AFTER" ]; then
+    die "重启后仍有未记账的版本化迁移：V$MISSING_AFTER —— 启动期被引擎补跑了，记账与引擎不一致（铁律被破坏）"
+  fi
+  ok "集合口径复核：重启后无未记账版本化迁移（含 system/support 目录）"
+
   NMIG=$(journalctl -u "$SERVICE" --since "-3min" --no-pager | grep -c "数据库迁移完成: 应用 0 个迁移" || true)
-  [ "${NMIG:-0}" -ge 1 ] && ok "启动日志确认「应用 0 个迁移」（记账与引擎一致）" || say "⚠️  启动日志里没看到「应用 0 个迁移」，请人工核对：journalctl -u $SERVICE -n 60"
+  if [ "${NMIG:-0}" -ge 1 ]; then
+    ok "启动日志确认「应用 0 个迁移」（记账与引擎一致）"
+  else
+    say "ℹ️  启动日志没出现「应用 0 个迁移」：版本化迁移已全部记账（上面集合差已校验为空），"
+    say "     通常是本次改动了 seed/可重复脚本被引擎重跑；人工核对：journalctl -u $SERVICE -n 60 | grep 迁移"
+  fi
 fi
 
 # ----------------------------------------------------------------------------

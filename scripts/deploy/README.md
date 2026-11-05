@@ -25,11 +25,11 @@ ssh root@172.18.10.144 'bash /opt/cloudpivot/scripts/deploy/deploy.sh --dry-run'
 
 | 步 | 动作 | 关键判据 |
 |---|---|---|
-| 1 | `git fetch` + 列全量待上线提交；**待跑迁移按「磁盘 vs 库」比**（磁盘版本号 > `max(version::int)`） | HEAD 必须是 origin/main 的祖先（分叉直接停） |
+| 1 | `git fetch` + 列全量待上线提交；**待跑迁移按「磁盘 vs 库」比**（`backend/migrations/` **递归全部子目录**：business/system/support 里版本号 > `max(version::int)` 的 up 脚本，按版本升序） | HEAD 必须是 origin/main 的祖先（分叉直接停） |
 | 2 | 备份三件套到 `/root/deploy-backup-<TAG>/`（`db.dump` / `cloudpivot` / `dist/`） | 每份 > 0 字节 |
 | 3 | `git merge --ff-only` | 生产工作区有**已跟踪**改动时**拒绝**执行（不替你 stash 别人的在途任务） |
 | 4 | **后端需重做时**（`backend/` 有 diff **或 二进制 mtime < 最近一次后端提交时间**）：`cargo build --release`（默认 `CARGO_BUILD_JOBS=1`）—— **只编译，不重启** | 编译失败即停（此时线上仍是旧二进制 + 旧 schema，一致状态） |
-| 5 | 待跑迁移逐条应用（调 `scripts/verify/deploya_migrate.sh`，按 nik-db 引擎口径记账） | 失败即停；末尾核对 `max(version::int)` |
+| 5 | 待跑迁移逐条应用（调 `scripts/verify/deploya_migrate.sh`，按 nik-db 引擎口径记账，`source` 记文件真实子目录） | 失败即停；末尾核对 `max(version::int)` == 清单最大版本，且**集合差为空**（磁盘上有、库里没记账的版本化迁移为 0） |
 | 6 | 换二进制（`cp → .new` + `mv -f`）→ `systemctl restart` → 轮询 `/health` | 失败自动回滚二进制；`/proc/<pid>/exe` 的 md5 必须等于磁盘二进制 |
 | 7 | **前端需重做时**（`frontend/` 有 diff **或 dist mtime < 最近一次前端提交时间**）：`pnpm typecheck`（0 错）→ `vite build --outDir dist-<TAG>` → 双 rename | 新 dist 入口 chunk 必须等于 `curl http://127.0.0.1/` 的入口 chunk；不等则自动回滚 dist |
 | 8 | 收口核对 | 主仓 HEAD == origin/main、迁移最大版本、服务 active、`/health`、进程==磁盘、线上入口 |
@@ -39,13 +39,15 @@ ssh root@172.18.10.144 'bash /opt/cloudpivot/scripts/deploy/deploy.sh --dry-run'
 > 能把「旧二进制 × 新 schema」的窗口从「编译耗时」压到「迁移耗时」（实测 ~0.2s/条），
 > 换二进制重启只隔几秒。
 
-日志：`/var/log/cloudpivot-deploy-<TAG>.log`（同时 tee 到终端）。
+日志：`/var/log/cloudpivot-deploy-<TAG>.log`（同时 tee 到终端）。**`--dry-run` 不落盘**：不写日志文件、不建备份目录、不动库（实测对比整棵树 + `/var/log` + `/root/deploy-backup-*` + 库内 `max(version)`/`applied_seq` 前后完全一致；只有 `git fetch` 会更新 `.git` 元数据）。
 
 ## 铁律（脚本已内置，别绕过）
 
 1. **绝不先 `mv dist` 再 build**：先 `vite build --outDir dist-<TAG>`，成功后 `dist → dist-prev-<TAG>`、`dist-<TAG> → dist` 双 rename。
 2. **换二进制用 `cp → .rollback/.new` + `mv -f`**，不要 `cp` 到正在运行的路径（ETXTBSY）。
-3. **迁移逐条跑 + 按引擎口径记账**（`version` 不补零、`checksum=sha256`、`applied_via='imported'`）；重启日志必须出现「数据库迁移完成: 应用 0 个迁移」，否则说明记账不一致，引擎会重放。
+3. **迁移逐条跑 + 按引擎口径记账**（`version` 不补零、`checksum=sha256`、`applied_via='imported'`、`source` 记文件真实子目录）。
+   硬判据是**集合差为空**：磁盘上（`backend/migrations/` 递归全部分目录）的每个版本化迁移在库里都有 `success=true` 记录（第 5 步迁移后、第 6 步重启后各校一次）。
+   重启日志「数据库迁移完成: 应用 0 个迁移」是**辅证**而非判据：改动过 `S__` 种子 / `R__` 可重复脚本时引擎按指纹变化会重跑，日志会出现 `应用 N 个迁移`（N>0）而版本化记账完全一致（2026-11-05 发版实测：`S__support_invariant_menu` 随 P2-7 改过，首启 N=1、次启 N=0），所以脚本对日志只做提示、对集合差才 `die`。
 4. **只在有改动时才动那一半**：后端没改不重启（避免无谓抖动），前端没改不 build。
 5. **`cargo test` / Playwright 与 `cargo build --release` 不要并发**：7 GB 机器会 OOM（`signal: 9`）。
 
@@ -81,6 +83,7 @@ git -C /opt/cloudpivot reset --hard <部署前 HEAD>
 
 ## 已知的坑（踩过的）
 
+- **漏扫 system/support 目录**（2026-11-05 发版实测）：旧版第 1 步只 `git ls-tree backend/migrations/business/`，而引擎的 `path = "migrations"` 是**递归**装载 ⇒ `system/V0235__create_sys_invariant_result` 不在清单里，启动期被引擎按集合语义补跑（只打 `out_of_order` WARN，不炸启动），「应用 0 个迁移」自检失效。现在两处都改成递归全部分目录 + `source` 按真实子目录记；再加集合差硬校验兜底。
 - **生产工作区脏了**（有未提交的已跟踪文件）→ 脚本直接停：生产上不该有人手改代码，先查清是谁。
 - **`/health` 排不到 60 s**：先看 `journalctl -u cloudpivot -n 60`，最常见是迁移/种子失败或端口被占。
 - **前端入口不一致**：nginx `root` 必须指向 `/opt/cloudpivot/frontend/dist`（`nginx -T | grep root`）；改过 nginx 配置记得 `nginx -s reload`。
