@@ -161,6 +161,12 @@ self-test 输出（`--self-test`，含跨语言/接线检查）：
 | 清理后再跑一轮 | 65/65，O1 ✅（连跑两轮结论一致） | `19_invariants_after_r2.txt` |
 | 非生产库（`cloudpivot_dummy_check`） | `· 跳过：库 … 不是生产库 …` + ✅（**不误报 WARN**，且「跳过」看得见） | `17_invariant_nonprod_branch.txt` |
 | 生产库单跑 `--group E2E` | 1/1 ✅ | `18_invariant_prod_o1.txt` |
+| **用已提交脚本（origin/main 379efa8）在 144 上做最终复核** | `e2e_marker.py` ✅ 干净 rc=0；`erp_invariants.py` **65/65 BLOCKER 0 WARN 0**，O1 ✅ | `20_final_verify_committed.txt` |
+
+> `20_final_verify_committed.txt` 里 `--self-test` 的 2 条 FAIL 是**预期**：144 的部署检出停在 `7d96692`，
+> `frontend/e2e/{support.ts,target-guard.mjs}` 还是旧版（没有本次接线），接线检查如实报红。
+> 同一条命令在 99 主干树（= origin/main）上 **12/12 通过**（`21_marker_selftest_full_tree.txt`），
+> 下次 `deploy.sh` 同步后 144 上也会变 12/12。判「生产数据是否干净」只看 marker + 不变量这两行。
 
 ---
 

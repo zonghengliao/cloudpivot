@@ -1,0 +1,33 @@
+## 用 origin/main(379efa8) 上的已提交脚本做最终复核 2026-11-05 13:48:59
+
+-- e2e_marker.py
+======================================================================================
+e2e 夹具标记残留检查
+库: cloudpivot@127.0.0.1:5432    标记: [E2E]…
+======================================================================================
+  ✅ 干净：没有任何「活跃的 e2e 标记行」，也没有仍在启用的测试账号
+rc=0
+
+-- erp_invariants.py 全量
+  ✅ [E2E] O1 生产库无活跃 E2E 标记行、无在用测试账号
+结果：65/65 通过   🚨 BLOCKER 0   ⚠️ WARN 0
+
+-- erp_invariants.py --group E2E
+  ✅ [E2E] O1 生产库无活跃 E2E 标记行、无在用测试账号
+结果：1/1 通过   🚨 BLOCKER 0   ⚠️ WARN 0
+
+-- e2e_marker.py --self-test
+[skip] 前端 e2e-marker.ts 不在本目录树，跳过跨语言一致性检查
+[FAIL] 接线在          support.ts::createTask/createInstance 过 markTitle()
+[FAIL] 接线在          target-guard.mjs 的 prod 后置清单含 --assert-clean
+---- self-test：9/11 项通过 ----
+
+==== 关于 self-test 的 2 条 FAIL ====
+144 的部署检出还在 7d96692，frontend/e2e/support.ts 与 target-guard.mjs 都是**旧版**（未含本次接线），
+所以「接线检查」在这里如实报 FAIL —— 这是对的：那个树里确实没有守卫接线。
+同一条命令在 99 主干树（= origin/main 379efa8）上 12/12 通过，见 21_marker_selftest_full_tree.txt。
+下次 deploy.sh 同步后，144 上也会变 12/12。
+
+判定生产数据是否干净，只看这两行（与前端检出无关）：
+  e2e_marker.py           -> ✅ 干净 rc=0
+  erp_invariants.py       -> 65/65  BLOCKER 0  WARN 0（O1 ✅）

@@ -1,0 +1,13 @@
+[ok  ] 应命中   biz_task           [E2E]详情-e2emvvvdf01
+[ok  ] 应命中   biz_task           [E9E2E]详情重构-e2emvufu76b
+[ok  ] 应命中   biz_warehouse      E2E-W4A-MVUUPN1M-Q
+[ok  ] 应命中   sys_file           e2e-e2emvugheec.txt
+[ok  ] 应命中   sys_export_task    e2e_export
+[ok  ] 应命中   sys_notice         待你审批：[E2E]审批单-e2emvumjhst
+[ok  ] 不应命中 biz_task_comment   8 层深度已完成并验证。commit 0f4cad3 … e2e 用例
+[ok  ] 不应命中 sys_notice         AI 需要人工协助
+[ok  ] 不应命中 biz_task           T8-A 任务父子深度 2 → 8 层
+[ok  ] 前端 TS 标记一致  E2E_MARK = [E2E]（Python 侧 [E2E]）
+[ok  ] 接线在          support.ts::createTask/createInstance 过 markTitle()
+[ok  ] 接线在          target-guard.mjs 的 prod 后置清单含 --assert-clean
+---- self-test：12/12 项通过 ----
