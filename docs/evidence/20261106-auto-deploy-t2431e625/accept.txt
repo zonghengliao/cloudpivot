@@ -1,7 +1,7 @@
 验收项                                                            结果
 ------------------------------------------------------------------
-主仓 HEAD / origin/main                                    81b89441 / 81b89441
-  ✅ HEAD == origin/main
+主仓 HEAD / origin/main                                    7645f7f2 / a6e15bee
+  ❌ 落后：1 个提交
 迁移：磁盘 up.sql = 190 ，库内 versioned success = 190
   ✅ 磁盘迁移全部已记账（差集为空）
 BIN_TS=1793898821  BE_TS(backend/src 最近改动)=1793898068
