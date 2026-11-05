@@ -1,0 +1,10 @@
+=== cargo clippy --lib -- -D warnings (backend/)
+EXIT 0（无 warning / 无 error）
+
+=== pnpm typecheck
+vue-tsc --noEmit  EXIT 0
+
+=== pnpm build (NODE_OPTIONS=--max-old-space-size=6144)
+dist//opt/cloudpivot/frontend/assets/tdesign-B9Yx93ic.js.gz                                                7994.62kb / gzip: 772.17kb
+
+

@@ -1,0 +1,22 @@
+ version |         name          |   kind    | success | applied_via 
+---------+-----------------------+-----------+---------+-------------
+ 256     | erp_report_item_admin | versioned | t       | executed
+(1 row)
+
+                  id                  |            auth_code            | menu_type |               path               
+--------------------------------------+---------------------------------+-----------+----------------------------------
+ 20000000-0000-0000-0000-000000001700 | business:erp:report-item:list   |         2 | /business/erp/report/report-item
+ 20000000-0000-0000-0000-000000001701 | business:erp:report-item:list   |         3 | 
+ 20000000-0000-0000-0000-000000001702 | business:erp:report-item:manage |         3 | 
+(3 rows)
+
+    role_code     |            auth_code            | count 
+------------------+---------------------------------+-------
+ FINANCE_DIRECTOR | business:erp:report-item:list   |     2
+ FINANCE_MANAGER  | business:erp:report-item:list   |     2
+ FINANCE_MANAGER  | business:erp:report-item:manage |     1
+ GENERAL_MANAGER  | business:erp:report-item:list   |     2
+ SUPER_ADMIN      | business:erp:report-item:list   |     2
+ SUPER_ADMIN      | business:erp:report-item:manage |     1
+(6 rows)
+

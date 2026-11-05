@@ -1,0 +1,22 @@
+[PASS] 列表行数 = 接口行数 = 42
+[PASS] 页头统计可见：共 42 项 · 启用 41 · 停用 1 · 未命中科目 0
+[PASS] 侧边栏能看到「报表项维护」（V0256 菜单 + 路由都在）
+[PASS] INVENTORY 编码单元格 = INVENTORY
+[PASS] INVENTORY 取数模式单元格 = 1401,1402,1403,1404,1405,1408,4001,4101
+[PASS] INVENTORY 命中科目数 = 命中 8 科
+[PASS] INVENTORY 排序号 = 70
+[PASS] 切到「利润表」页签只剩 12 行
+[PASS] 截图：/opt/cloudpivot/docs/evidence/20261105-p1fix8b-report-item/01-report-item-list.png
+[PASS] 弹窗回填名称 = 存货
+[PASS] 弹窗回填取数模式 = 1401,1402,1403,1404,1405,1408,4001,4101
+[PASS] 编辑态编码只读（引用键不可变）
+[PASS] 取数预览命中科目数 = 8
+[PASS] 取数预览列出了命中的 1405 库存商品
+[PASS] 保存后列表里已是新名字
+[PASS] 资产负债表立即显示改后的报表项名称（无需发版 / 无缓存）
+[PASS] 存货金额 = 1,000.00
+[PASS] 截图：/opt/cloudpivot/docs/evidence/20261105-p1fix8b-report-item/02-balance-sheet-after-rename.png
+[PASS] 改回原名后报表立即复原
+[PASS] 测试行 FIX8B_TEST_ROW 的启停开关可交互（当前停用）
+
+== DOM 断言 20 条，FAIL 0

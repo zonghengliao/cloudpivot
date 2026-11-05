@@ -639,6 +639,16 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '应付账龄分析', permission: 'business:erp:report:payable-aging' },
       },
       {
+        // ==================== ERP 报表项维护（P1-FIX-8B） ====================
+        // `sys_menu` 种子（V0256 …1700）path = `/business/erp/report/report-item`，
+        // component `business/erp/report/report-item/index`；写权限单列
+        // `business:erp:report-item:manage`（…1702）。**路由手工注册**，漏了 = 点菜单 404。
+        path: 'business/erp/report/report-item',
+        name: 'BusinessErpReportItem',
+        component: () => import('@/views/business/erp/report/report-item/index.vue'),
+        meta: { title: '报表项维护', permission: 'business:erp:report-item:list' },
+      },
+      {
         // ==================== ERP 会计科目（P4-C，只读树形） ====================
         // `sys_menu` 种子（V0141 …0946）path = `/business/erp/account`，component
         // `business/erp/account/index`；V0154 把菜单挂到了「财务管理」目录下，path 没变。
