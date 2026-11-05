@@ -1,0 +1,180 @@
+{
+  "cases": [
+    {
+      "case": "payable 有状态筛选",
+      "statusLabel": "未付",
+      "expectCode": "OPEN",
+      "listMeta": "共 9 条",
+      "selected": "已选 9 条（本页）",
+      "payload": {
+        "ids": [
+          "08e5a83a-bfc3-4360-8a35-a126cf8a387d",
+          "16de29c6-cd57-4376-95d2-55792f8fe6f4",
+          "0eb6c681-b9f4-4edb-b1cc-4efff451ada6",
+          "86e0b703-17a0-457f-afa3-b32dffc78140",
+          "b085222c-3c81-467e-bbb9-a7b0d29fe544",
+          "9b30a80d-2cb8-4e12-9278-27680ea1dc28",
+          "26a86686-ef91-4a62-81f3-f6dc7fc7bccf",
+          "d6ca3c0e-92ca-4784-b8eb-804317785491",
+          "e882c4e6-3f18-4ba0-9e2b-5ed8162dca63"
+        ],
+        "status_code": "OPEN"
+      },
+      "httpStatus": 200,
+      "taskNo": "EXP20261105-C01D",
+      "exportTotal": 9,
+      "successToast": null,
+      "resultDialogVisible": false,
+      "ok": true
+    },
+    {
+      "case": "payable 空筛选（全选）",
+      "payload": {
+        "ids": [
+          "08e5a83a-bfc3-4360-8a35-a126cf8a387d",
+          "16de29c6-cd57-4376-95d2-55792f8fe6f4",
+          "0eb6c681-b9f4-4edb-b1cc-4efff451ada6",
+          "86e0b703-17a0-457f-afa3-b32dffc78140",
+          "b085222c-3c81-467e-bbb9-a7b0d29fe544",
+          "9b30a80d-2cb8-4e12-9278-27680ea1dc28",
+          "b73cc6e8-e459-4ea3-8f35-a4b671744162",
+          "26a86686-ef91-4a62-81f3-f6dc7fc7bccf",
+          "ff16b8bc-4734-4163-af20-af9766c2b789",
+          "ce67f013-be17-4f54-a092-88f259a5560e",
+          "d6ca3c0e-92ca-4784-b8eb-804317785491",
+          "e882c4e6-3f18-4ba0-9e2b-5ed8162dca63"
+        ]
+      },
+      "httpStatus": 200,
+      "taskNo": "EXP20261105-1E36",
+      "ok": true
+    },
+    {
+      "case": "voucher 有状态筛选",
+      "statusLabel": "已记账",
+      "expectCode": "POSTED",
+      "listMeta": "共 21 条",
+      "selected": "已选 20 条（本页，共 21 条筛选结果）",
+      "payload": {
+        "ids": [
+          "f1aa166a-a91c-4eb6-a9f4-6e10034bc7e5",
+          "7e768e93-d8fa-4fa2-abdd-160c4ba2c229",
+          "e6f9050c-5e48-4fca-a43d-9bdf17252bb0",
+          "2ca98111-b416-4c91-86ff-9dde8236c637",
+          "d6c166a4-c1e2-4e36-8ac7-e384b54a57c7",
+          "ad84f6f7-39e0-482e-a93e-e1b08e600a72",
+          "f7fb00e8-a383-4988-95ea-e1b2a6143acf",
+          "c68bbcd1-d75d-4ae7-a930-f0303110630a",
+          "f64d4b5b-b133-4a81-be74-d29901341f7c",
+          "26f457c6-2a9c-4ba0-81fd-45d7acbd7ee2",
+          "7202f6cd-d59d-4867-80e7-d3520fc78c90",
+          "e668eb93-714c-4199-87ce-5866ca87d4c8",
+          "27fd9125-d776-4988-9d65-1d08914021b9",
+          "8b05c459-2c5d-41ef-83a8-a7aa16d3d785",
+          "c3024759-5add-48fc-a68f-cb3f71161a3d",
+          "15f8da8c-72f6-44f4-8f5b-242fd78dc274",
+          "b22f669a-ee7b-46f6-bb04-e12552069709",
+          "63cf4609-14c0-43c2-bfb6-6e6d7edc7153",
+          "f88a2cd1-58c3-45c4-af42-c2eafc317215",
+          "a5889e85-762f-4fe1-82cd-045e319999e2"
+        ],
+        "status_code": "POSTED"
+      },
+      "httpStatus": 200,
+      "taskNo": "EXP20261105-B69C",
+      "exportTotal": 20,
+      "successToast": null,
+      "resultDialogVisible": false,
+      "ok": true
+    },
+    {
+      "case": "voucher 空筛选（全选）",
+      "payload": {
+        "ids": [
+          "f1aa166a-a91c-4eb6-a9f4-6e10034bc7e5",
+          "7e768e93-d8fa-4fa2-abdd-160c4ba2c229",
+          "e6f9050c-5e48-4fca-a43d-9bdf17252bb0",
+          "2ca98111-b416-4c91-86ff-9dde8236c637",
+          "d6c166a4-c1e2-4e36-8ac7-e384b54a57c7",
+          "ad84f6f7-39e0-482e-a93e-e1b08e600a72",
+          "f7fb00e8-a383-4988-95ea-e1b2a6143acf",
+          "c68bbcd1-d75d-4ae7-a930-f0303110630a",
+          "f64d4b5b-b133-4a81-be74-d29901341f7c",
+          "26f457c6-2a9c-4ba0-81fd-45d7acbd7ee2",
+          "7202f6cd-d59d-4867-80e7-d3520fc78c90",
+          "e668eb93-714c-4199-87ce-5866ca87d4c8",
+          "27fd9125-d776-4988-9d65-1d08914021b9",
+          "8b05c459-2c5d-41ef-83a8-a7aa16d3d785",
+          "c3024759-5add-48fc-a68f-cb3f71161a3d",
+          "15f8da8c-72f6-44f4-8f5b-242fd78dc274",
+          "b22f669a-ee7b-46f6-bb04-e12552069709",
+          "63cf4609-14c0-43c2-bfb6-6e6d7edc7153",
+          "f88a2cd1-58c3-45c4-af42-c2eafc317215",
+          "a5889e85-762f-4fe1-82cd-045e319999e2"
+        ]
+      },
+      "httpStatus": 200,
+      "taskNo": "EXP20261105-B19B",
+      "ok": true
+    },
+    {
+      "case": "stockin 有状态筛选",
+      "statusLabel": "已过账",
+      "expectCode": "POSTED",
+      "listMeta": "共 9 条",
+      "selected": "已选 9 条（本页）",
+      "payload": {
+        "ids": [
+          "01a1a19e-6e7d-715f-8b5d-6ad51702de16",
+          "01a1a19d-da41-7111-81f7-cbd21dbe7a08",
+          "01a19c2b-1f41-7588-80b5-981f8098cb17",
+          "01a19a54-5a9e-7576-99c0-4d73f89bdff0",
+          "01a19559-59af-766e-a303-72e6f5e45933",
+          "01a19552-7e63-71a4-bef8-bd6d1c3628c9",
+          "01a18f91-3f54-7009-b6b0-e6e504a095c2",
+          "01a18dff-90f7-7167-92e9-b4cfae847961",
+          "01a18def-5111-7694-a9f9-03f3dd1f77e6"
+        ],
+        "status_code": "POSTED"
+      },
+      "httpStatus": 200,
+      "taskNo": "EXP20261105-73DB",
+      "exportTotal": 9,
+      "successToast": null,
+      "resultDialogVisible": false,
+      "ok": true
+    },
+    {
+      "case": "stockin 空筛选（全选）",
+      "payload": {
+        "ids": [
+          "01a1a19e-6e7d-715f-8b5d-6ad51702de16",
+          "01a1a19d-da41-7111-81f7-cbd21dbe7a08",
+          "01a19c2b-1f41-7588-80b5-981f8098cb17",
+          "01a19a54-5a9e-7576-99c0-4d73f89bdff0",
+          "01a19559-59af-766e-a303-72e6f5e45933",
+          "01a19552-7e63-71a4-bef8-bd6d1c3628c9",
+          "01a19073-3e84-75e3-9f67-0cf8d5740228",
+          "01a18f91-b0cb-718e-91e2-34e87a446eba",
+          "01a18f91-6fad-7064-8ef2-b4bf8a95f83b",
+          "01a18f91-3f54-7009-b6b0-e6e504a095c2",
+          "01a18dff-90f7-7167-92e9-b4cfae847961",
+          "01a18def-5111-7694-a9f9-03f3dd1f77e6",
+          "01a18def-1a33-72ed-9840-f454afbd78d0",
+          "01a18dee-80e6-739a-8fea-ad3e9960c212"
+        ]
+      },
+      "httpStatus": 200,
+      "taskNo": "EXP20261105-AC2B",
+      "ok": true
+    },
+    {
+      "case": "payable 非法码 → 后端 message 原样提示",
+      "httpStatus": 422,
+      "backendMessage": "状态码「NOPE」不是「erp.payable」的合法取值，只允许：OPEN / PARTIAL_PAID / SETTLED / CANCELLED / PENDING_CANCEL（不区分大小写）",
+      "toastText": "批量操作未执行：状态码「NOPE」不是「erp.payable」的合法取值，只允许：OPEN / PARTIAL_PAID / SETTLED / CANCELLED / PENDING_CANCEL（不区分大小写）",
+      "ok": true
+    }
+  ],
+  "allOk": true
+}

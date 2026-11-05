@@ -599,6 +599,7 @@ import BatchActionBar from '@/components/BatchActionBar.vue';
 import { useBatchSelection } from '@/composables/useBatchSelection';
 import { useUserStore } from '@/stores/user';
 import type { BatchActionSpec, BatchExportTask, BatchResult, BatchRow } from '@/utils/batch-action';
+import { exportFilterPayload } from '@/utils/batch-action';
 /**
  * 应付单页（P2-E2）——**只读**列表 + 详情抽屉。
  *
@@ -756,8 +757,13 @@ async function runBatchAction(
   ids: string[],
   _payload: { reason?: string },
 ): Promise<BatchResult | BatchExportTask> {
-  // 应付单没有「关键词」字段（列表按单号 / 供应商 / 到期日筛），导出沿用单号筛选口径
-  return payableBatchExport({ ids, keyword: filter.payable_no || undefined });
+  // 应付单没有「关键词」字段（列表按单号 / 供应商 / 到期日筛），导出沿用单号筛选口径；
+  // 卡 t_f83ae18f：状态筛选同样透传 —— ERP 单据的状态是**文本码**，走 `status_code`
+  // （传整型 `status` 会被后端 422+10001 拒掉，「导出当前筛选结果」会静默丢掉状态）。
+  return payableBatchExport({
+    ids,
+    ...exportFilterPayload({ keyword: filter.payable_no, statusCode: filter.status }),
+  });
 }
 
 /** 「选中全部 N 条筛选结果」：按当前筛选把全部主键拉回来（最多 1 万条）。 */

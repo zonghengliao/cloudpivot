@@ -904,6 +904,7 @@ import type {
   BatchResult,
   BatchRow,
 } from '@/utils/batch-action';
+import { exportFilterPayload } from '@/utils/batch-action';
 import { pickFields, resolveDefaults } from '@/composables/memory-core';
 import { useFormMemory } from '@/composables/useFormMemory';
 import { useListFilterMemory } from '@/composables/useListFilterMemory';
@@ -1141,7 +1142,12 @@ async function runBatchAction(
   payload: { reason?: string },
 ): Promise<BatchResult | BatchExportTask> {
   if (action.key === 'export') {
-    return stockInBatchExport({ ids, keyword: filter.keyword || undefined });
+    // 卡 t_f83ae18f：列表页的状态筛选必须进导出 payload —— ERP 单据的状态是**文本码**，
+    // 走 `status_code`（传整型 `status` 会被后端 422+10001 拒掉）。
+    return stockInBatchExport({
+      ids,
+      ...exportFilterPayload({ keyword: filter.keyword, statusCode: filter.status }),
+    });
   }
   if (action.key === 'delete') {
     return stockInBatchDelete(ids);

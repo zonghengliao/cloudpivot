@@ -37,12 +37,28 @@ export interface BatchStatusPayload {
 
 /** 批量导出入参。 */
 export interface BatchExportPayload {
-  /** 勾选的主键；空 = 按 `keyword` / `status` 导当前筛选结果。 */
+  /** 勾选的主键；空 = 按 `keyword` / `status_code` 导「当前筛选结果」。 */
   ids: string[];
   /** 关键词（与列表页同一口径）。 */
   keyword?: string;
-  /** 状态过滤码（整型；ERP 单据不传）。 */
+  /**
+   * 启用 / 停用过滤（整型 1 启用 / 0 停用）。
+   *
+   * 只给「字典项 / 用户」这类**开关型状态**的定义用；ERP 单据
+   * （`erp.stock_in` / `erp.payable` / `erp.voucher`）的状态是文本码，
+   * 传 `status` 会被后端 **422 + 10001** 拒掉（并提示改用 `status_code`），
+   * 所以那三张单据页**永远不传这个键**。
+   */
   status?: number;
+  /**
+   * 单据状态码（文本：`POSTED` / `SETTLED` / `CANCELLED` …）。
+   *
+   * 值与列表页 `filter.status` **同一个值域**（后端白名单就是导出列里那份
+   * `EnumItem`，见 `impexp::builtin::erp_doc` 的 `status_codes()`）；
+   * 不区分大小写，非法码 → 422 + 10001，`message` 点名该 biz_type 的全部合法码。
+   * 空串 = 不过滤：前端直接**不发这个键**（不发比发空串更不容易漂移）。
+   */
+  status_code?: string;
 }
 
 /** 批量审批入参。 */

@@ -321,7 +321,16 @@ export function createExport(data: {
   format?: string;
   columns?: string[];
   keyword?: string;
+  /**
+   * 启用 / 停用（1 启用 / 0 停用）：**字典项 / 用户**用这个键。
+   * ERP 单据传它会被后端 422（10001）——它们的状态是文本码，用 `status_code`。
+   */
   status?: number;
+  /**
+   * 单据状态码（文本：`POSTED` / `SETTLED` / `CANCELLED` …）：**ERP 单据**用这个键。
+   * 值与列表页 `filter.status` 同一值域，非法码 → 422 + 10001（消息点名合法码）。
+   */
+  status_code?: string;
 }): Promise<ExportTaskRes> {
   return post<ExportTaskRes>('/api/business/impexp/export', data);
 }

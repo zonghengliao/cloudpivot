@@ -110,6 +110,42 @@ export function chunk<T>(items: T[], size = BATCH_CHUNK): T[][] {
   return out
 }
 
+/**
+ * 批量导出的筛选条件（ERP 单据的状态是**文本码**，走 `status_code` 而不是 `status`）。
+ *
+ * # 为什么单独抽一个函数
+ *
+ * 三张单据页（收货 / 应付 / 凭证）的导出 payload 必须一模一样：
+ * `{ ids, keyword?, status_code? }`。以前它们各自拼 `{ ids, keyword }`，
+ * 列表页的状态筛选**被丢掉了** —— 「导出当前筛选结果」其实没按状态筛
+ * （后端 `status` 是 i16 开关语义，对 ERP 单据会 422，所以只能走 `status_code`）。
+ *
+ * # 口径
+ *
+ * - `statusCode` 为空串 / 纯空白 / `null` → **整键缺席**（不是 `status_code: ''`）：
+ *   后端的「不过滤」是没有这个键，发空串只是靠它再 trim 一次兜底，两边不必互相依赖；
+ * - `keyword` 同为空白时也不发（`'  '` 会让后端 LIKE `%  %` 变成筛不到任何行）；
+ * - 值原样透传**不做大写化**：后端 `check_export_filter` / `push_filters` 已统一
+ *   `trim + to_ascii_uppercase`，前端再改一遍就是第二份口径。
+ */
+export function exportFilterPayload(input: {
+  /** 关键词（列表页同一口径的单号 / 备注模糊）。 */
+  keyword?: string | null
+  /** 列表页 `filter.status`（`''` = 全部状态）。ERP 单据的**文本状态码**。 */
+  statusCode?: string | null
+}): { keyword?: string; status_code?: string } {
+  const out: { keyword?: string; status_code?: string } = {}
+  const keyword = (input.keyword ?? '').trim()
+  if (keyword !== '') {
+    out.keyword = keyword
+  }
+  const statusCode = (input.statusCode ?? '').trim()
+  if (statusCode !== '') {
+    out.status_code = statusCode
+  }
+  return out
+}
+
 /** 行状态的展示文案（有 `labelOf` 就用它，否则原样）。 */
 function statusOf(row: BatchRow): string | undefined {
   const raw = row.status
