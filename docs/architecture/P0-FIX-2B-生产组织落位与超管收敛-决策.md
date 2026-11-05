@@ -398,12 +398,15 @@ C 卡（超管收敛）：`SUPER_ADMIN` 成员数 = 1（`admin`）；`laoliu_tes
 
 | 卡 | 承做人 | 依赖 | 内容 |
 |---|---|---|---|
-| A | `backend-developer` | 本卡 | 落位脚本（幂等 + 快照 + 回滚）+ N2 巡检 + 影响面核算脚本 + 生产 apply（需 `待决策.md` 一句话） |
-| B | `backend-developer` | 本卡 | 5 个 ADMIN 节点改业务角色，发布新版本流程 |
-| C | `backend-developer` | **A + B** | 超管收敛：`laoliu_test`/`henry.liao` 摘权、`OPS_ADMIN` 角色化、`laoliu` 摘权 |
+| **A** `t_db82c38e` | `backend-developer` | 本卡 | 落位脚本（幂等 + 快照 + 回滚）+ 巡检 N2 + 影响面零变化核算 + 生产 apply（需 `待决策.md` 一句话） |
+| **B** `t_1e6a8431` | `backend-developer` | 本卡 | 5 个 `ADMIN` 节点改业务角色，发新版本流程（旧版本退位归档） |
+| **C** `t_db2506d2` | `backend-developer` | **A + B**（已用 parents 门控） | 超管收敛：`laoliu_test` 摘权、`henry.liao` 按确认分支、新建 `OPS_ADMIN` 后摘 `laoliu` |
+
+> A、B 可并行开工；C 由 A、B 的完成事件自动放行。三张卡的卡面都写足了本卡的决策与禁止项，
+> 不需要回头读本文才能施工（但 C 卡的「为什么不能先摘权」引用了 §1.4/§1.6）。
 
 > 生产写库统一遵循 `docs/architecture/数据修复与清场SOP.md`（先只读复现 → 同一事务快照 → 幂等 DML →
-> 对平 → 巡检 → 留档）。C 卡涉及 `docs/待决策.md` ①②，**执行前必须在卡上留老大书面一句话**；
+> 对平 → 巡检 → 留档）。A、C 涉及 `docs/待决策.md` 铁律，**执行前必须在卡上留老大书面一句话**；
 > 未留则 `kanban_block(kind='needs_input')`，不许「先斩后奏」。
 
 ---
