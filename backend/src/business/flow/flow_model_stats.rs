@@ -6,6 +6,13 @@
 // `model.rs` 用 `pub use` 重导出，调用方一行不用改。
 // ============================================================================
 
+// SCOPE-EXEMPT: 机制登记（**不是**放弃数据权限）—— 本文件的两条统计查询（`efficiency_rows` /
+// SCOPE-EXEMPT: `bottleneck_rows`）已经过滤可见性：它们调用 `instance_visibility()`（见
+// SCOPE-EXEMPT: `flow_model_inbox.rs:115`，内部用 `scope::filter_for(INSTANCE_TARGET)` 生成数据范围片段，
+// SCOPE-EXEMPT: 再与「我发起的 ∪ 我待办/已办」取并集 —— 与实例列表接口同一口径，架构 D16）。
+// SCOPE-EXEMPT: 闸② 是按**文件**搜 `scope::` 字面量，而片段在本文件拼进 SQL、字面量留在 inbox 部件里，
+// SCOPE-EXEMPT: 故按口径显式登记。真正违规的动作是删掉 `instance_visibility()` 调用，不是这条注释。
+
 // 可见性与待办列表同一口径（函数住在 inbox 部件，跨部件引用）
 use super::flow_model_inbox::instance_visibility;
 use nik::prelude::*;

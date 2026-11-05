@@ -6,6 +6,12 @@
 // `model.rs` 用 `pub use` 重导出，调用方一行不用改。
 // ============================================================================
 
+// SCOPE-EXEMPT: 节点行流转只按主键 / `instance_id` 取数：`find_node` / `lock_node` 是单行
+// SCOPE-EXEMPT: （`LIMIT 1` / `FOR UPDATE`），`max_round` / `node_arrived` 是 `max()` / `count(*)` 的单值判定，
+// SCOPE-EXEMPT: `nodes_of` 是按**已鉴权实例 id** 扇出的子行（不是独立的列表入口）；入参全部来自引擎内部，
+// SCOPE-EXEMPT: 没有查看者身份。可见性口径同 `flow_model_instance.rs`：inbox::page_instances 拼并集 +
+// SCOPE-EXEMPT: handler 单条鉴权。拆分前这些查询同样在 `model.rs` 的文件头豁免半径内。
+
 use super::flow_model_base::*;
 use nik::prelude::*;
 use nik::uuid::Uuid;

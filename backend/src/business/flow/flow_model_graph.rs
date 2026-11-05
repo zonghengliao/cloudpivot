@@ -6,6 +6,12 @@
 // `model.rs` 用 `pub use` 重导出，调用方一行不用改。
 // ============================================================================
 
+// SCOPE-EXEMPT: 图 / 快照 / 发布全是**定义侧**读写（`biz_flow_node` / `biz_flow_edge` /
+// SCOPE-EXEMPT: `biz_flow_node_assignee` / `biz_flow_def_version`），入参一律是 `version_id` / `def_id`
+// SCOPE-EXEMPT: 主键，没有面向用户的列表入口；定义是全局配置（批次D · D1 口径，同 `flow_model_def.rs`）。
+// SCOPE-EXEMPT: `has_running_instance()` 对运行侧 `biz_flow_instance` 只做 `count(*)` 存在性判定
+// SCOPE-EXEMPT: （返回 bool、不产出行集）—— 用于「已发布版本还有在跑实例 → 拒绝改图」，与查看者数据范围无关。
+
 use super::flow_model_base::*;
 use crate::business::flow::graph::{
     ApprovalMode, AssigneeKind, AssigneeRef, EdgeSpec, FlowGraph, GatewayMode, NodeSpec, NodeType,

@@ -1,0 +1,93 @@
+门禁脚本：/root/.hermes/profiles/manong/cache/scratch/scope_gate_HEAD.py
+登记 61 条；未登记但被跳过 18 条；登记了但未跳过 0 条
+
+backend/src/business/erp/expense_model_tests.rs
+  声明 /opt/cloudpivot/backend/src/business/erp/expense_model.rs:1323   cfg(test)=True
+  tests=16  pub_fn=0  被引用=['business/erp/expense_model.rs']
+  上下文: #[cfg(test)] ⏎ #[path = "expense_model_tests.rs"] ⏎ mod expense_model_tests; ⏎ 
+
+backend/src/business/erp/stockout_fifo_tests.rs
+  声明 /opt/cloudpivot/backend/src/business/erp/stockout_model.rs:1170   cfg(test)=True
+  tests=14  pub_fn=0  被引用=['business/erp/stockout_model.rs']
+  上下文: #[cfg(test)] ⏎ #[path = "stockout_fifo_tests.rs"] ⏎ mod fifo_tests;
+
+backend/src/business/erp/transfer_handler_db_tests_books.rs
+  声明 /opt/cloudpivot/backend/src/business/erp/transfer_handler.rs:110   cfg(test)=True
+  tests=4  pub_fn=0  被引用=['business/erp/transfer_handler.rs']
+  上下文: #[cfg(test)] ⏎ #[path = "transfer_handler_db_tests_books.rs"] ⏎ mod db_books; ⏎ 
+
+backend/src/business/erp/transfer_handler_db_tests_create.rs
+  声明 /opt/cloudpivot/backend/src/business/erp/transfer_handler.rs:97   cfg(test)=True
+  tests=10  pub_fn=0  被引用=['business/erp/transfer_handler.rs']
+  上下文: #[cfg(test)] ⏎ #[path = "transfer_handler_db_tests_create.rs"] ⏎ mod db_create; ⏎ 
+
+backend/src/business/erp/transfer_handler_db_tests_fixtures.rs
+  声明 /opt/cloudpivot/backend/src/business/erp/transfer_handler.rs:92   cfg(test)=True
+  tests=1  pub_fn=0  被引用=['business/erp/transfer_handler.rs']
+  上下文: #[cfg(test)] ⏎ #[path = "transfer_handler_db_tests_fixtures.rs"] ⏎ mod db_tests_fixtures; ⏎ 
+
+backend/src/business/erp/transfer_handler_db_tests_query.rs
+  声明 /opt/cloudpivot/backend/src/business/erp/transfer_handler.rs:114   cfg(test)=True
+  tests=2  pub_fn=0  被引用=['business/erp/transfer_handler.rs']
+  上下文: #[cfg(test)] ⏎ #[path = "transfer_handler_db_tests_query.rs"] ⏎ mod db_query;
+
+backend/src/business/erp/transfer_handler_db_tests_settle.rs
+  声明 /opt/cloudpivot/backend/src/business/erp/transfer_handler.rs:106   cfg(test)=True
+  tests=21  pub_fn=0  被引用=['business/erp/transfer_handler.rs']
+  上下文: #[cfg(test)] ⏎ #[path = "transfer_handler_db_tests_settle.rs"] ⏎ mod db_settle; ⏎ 
+
+backend/src/business/erp/transfer_handler_db_tests_status.rs
+  声明 /opt/cloudpivot/backend/src/business/erp/transfer_handler.rs:102   cfg(test)=True
+  tests=17  pub_fn=0  被引用=['business/erp/transfer_handler.rs']
+  上下文: #[cfg(test)] ⏎ #[path = "transfer_handler_db_tests_status.rs"] ⏎ mod db_status; ⏎ 
+
+backend/src/business/erp/transfer_handler_test_support.rs
+  声明 /opt/cloudpivot/backend/src/business/erp/mod.rs:235   cfg(test)=True
+  tests=0  pub_fn=0  被引用=['business/erp/mod.rs', 'business/erp/transfer_handler.rs']
+  上下文: mod transfer_handler_status; // 六态状态机：审核 / 发出 / 在途 / 收货（含结算）/ 作废 + 审批发起 ⏎ #[cfg(test)] ⏎ mod transfer_handler_test_support; // 测试支撑：把审批实例批到终态（真库用例共用） ⏎ 
+
+backend/src/business/erp/transfer_handler_tests.rs
+  声明 /opt/cloudpivot/backend/src/business/erp/transfer_handler.rs:87   cfg(test)=True
+  tests=2  pub_fn=0  被引用=['business/erp/transfer_handler.rs']
+  上下文: #[cfg(test)] ⏎ #[path = "transfer_handler_tests.rs"] ⏎ mod tests; ⏎ 
+
+backend/src/business/flow/flow_model_delete_tests.rs
+  声明 /opt/cloudpivot/backend/src/business/flow/model.rs:55   cfg(test)=True
+  tests=8  pub_fn=0  被引用=['business/flow/model.rs']
+  上下文: #[cfg(test)] ⏎ #[path = "flow_model_delete_tests.rs"] ⏎ mod t12_delete_flow_tests;
+
+backend/src/business/flow/flow_model_tests.rs
+  声明 /opt/cloudpivot/backend/src/business/flow/model.rs:51   cfg(test)=True
+  tests=6  pub_fn=0  被引用=['business/flow/model.rs']
+  上下文: #[cfg(test)] ⏎ #[path = "flow_model_tests.rs"] ⏎ mod tests; ⏎ 
+
+backend/src/business/flow/linkage/tests_presets.rs
+  声明 /opt/cloudpivot/backend/src/business/flow/linkage.rs:63   cfg(test)=True
+  tests=13  pub_fn=0  被引用=['business/flow/linkage.rs']
+  上下文:  ⏎ #[cfg(test)] ⏎ mod tests_presets; ⏎ 
+
+backend/src/business/flow/linkage/tests_wiring.rs
+  声明 /opt/cloudpivot/backend/src/business/flow/linkage.rs:66   cfg(test)=True
+  tests=5  pub_fn=0  被引用=['business/flow/linkage.rs', 'business/flow/linkage/spec.rs']
+  上下文:  ⏎ #[cfg(test)] ⏎ mod tests_wiring; ⏎ 
+
+backend/src/business/task/task_handler_copy_db_tests.rs
+  声明 /opt/cloudpivot/backend/src/business/task/handler.rs:127   cfg(test)=True
+  tests=3  pub_fn=0  被引用=['business/task/handler.rs']
+  上下文: #[cfg(test)] ⏎ #[path = "task_handler_copy_db_tests.rs"] ⏎ mod copy_db_tests;
+
+backend/src/business/task/task_handler_stats_tests.rs
+  声明 /opt/cloudpivot/backend/src/business/task/handler.rs:119   cfg(test)=True
+  tests=3  pub_fn=0  被引用=['business/task/handler.rs']
+  上下文: #[cfg(test)] ⏎ #[path = "task_handler_stats_tests.rs"] ⏎ mod stats_handler_tests; ⏎ 
+
+backend/src/business/task/task_handler_tests.rs
+  声明 /opt/cloudpivot/backend/src/business/task/handler.rs:123   cfg(test)=True
+  tests=18  pub_fn=0  被引用=['business/task/handler.rs']
+  上下文: #[cfg(test)] ⏎ #[path = "task_handler_tests.rs"] ⏎ mod tests; ⏎ 
+
+backend/src/system/auth/cache_tests.rs
+  声明 /opt/cloudpivot/backend/src/system/auth/mod.rs:37   cfg(test)=True
+  tests=7  pub_fn=0  被引用=['system/tests_support.rs', 'system/auth/mod.rs', 'system/menu/permission_audit_tests.rs']
+  上下文:  ⏎ #[cfg(test)] ⏎ mod cache_tests;
+

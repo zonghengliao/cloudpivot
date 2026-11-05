@@ -6,6 +6,13 @@
 // `model.rs` 用 `pub use` 重导出，调用方一行不用改。
 // ============================================================================
 
+// SCOPE-EXEMPT: 定义 / 版本侧是**全局配置**（不是谁的业务数据）—— 与拆分前 `model.rs` 文件头同一口径
+// SCOPE-EXEMPT: （批次D · D1，见 `scripts/check.sh` 的 `biz_flow_def …` 说明段）：按部门范围裁剪会让
+// SCOPE-EXEMPT: 「A 部门的人看不到自己的单据要走哪个流程」；写权限由 `business:flow:create/update/delete/publish`
+// SCOPE-EXEMPT: 隔离，可见范围由统一门禁 `business:flow:read` 控制。
+// SCOPE-EXEMPT: 本文件里唯一的**运行侧**表出现在 `templates()` 的 `LEFT JOIN biz_flow_instance`
+// SCOPE-EXEMPT: （每个流程定义聚合出「在跑实例数」一列，不返回实例行、不暴露任何实例字段），属聚合计数。
+
 use super::flow_model_base::*;
 use nik::prelude::*;
 use nik::uuid::Uuid;

@@ -6,6 +6,12 @@
 // `model.rs` 用 `pub use` 重导出，调用方一行不用改。
 // ============================================================================
 
+// SCOPE-EXEMPT: 运行侧**引擎内部**取数与写入：全部按主键（`id = ?::uuid`，锁行带 `FOR UPDATE`）
+// SCOPE-EXEMPT: 或事务内 `count(*)` 判定（`biz_instance_running` / `sync_auto_passed`），没有列表 / 分页查询，
+// SCOPE-EXEMPT: 也没有「查看者」这个入参 —— 把数据范围注入到这里只会打断已被授权的流转（引擎在事务里再裁一次
+// SCOPE-EXEMPT: 会让并行分支上由外部门审批的节点走不下去）。可见性判定在两处：`flow_model_inbox::page_instances`
+// SCOPE-EXEMPT: （`scope::filter_for(INSTANCE_TARGET)` 拼并集）与 handler 的单条鉴权（`instance_detail` 等）。
+
 use super::flow_model_base::*;
 use nik::prelude::*;
 use nik::uuid::Uuid;
