@@ -1,0 +1,48 @@
+库：cloudpivot@127.0.0.1:5432/cloudpivot
+
+== ① sys_role_dept 行数（病根） ==
+0
+
+== ② 全库角色 data_scope 分布 ==
+1 | 12
+
+== ③ 在用账号 9 个是谁 / 持什么角色 / 有无部门 ==
+admin | (无部门) | SUPER_ADMIN | 1 | f | 0 | f
+cl_43870 | (无部门) | (无角色) | 1 | f | 0 | f
+henry.liao | (无部门) | DEPT_LEADER,GENERAL_MANAGER,PURCHASE_MANAGER,SUPER_ADMIN,WAREHOUSE_MANAGER | 1 | f | 0 | f
+laoliu | (无部门) | SUPER_ADMIN | 1 | f | 0 | f
+laoliu_test | (无部门) | DEPT_LEADER,GENERAL_MANAGER,PURCHASE_MANAGER,SUPER_ADMIN,WAREHOUSE_MANAGER | 1 | f | 0 | f
+qa.limited | TECH/技术部 | QA_LIMITED | 1 | t | 5 | f
+qa.mutex | SALES/销售部 | MUTEX_A,MUTEX_B | 1 | t | 5 | f
+qa.viewer | (无部门) | QA_VIEWER | 1 | t | 5 | f
+verify-ai | (无部门) | (无角色) | 1 | f | 0 | f
+
+== ④ 受控表的数据规模 / dept_id 填充率 ==
+biz_task | 846 | 0 | 846
+biz_project | 4 | 0 | 4
+biz_budget | 0 | 0 | 0
+sys_user | 9 | 2 | 0
+
+== ⑤ 组织树 ==
+FIN | 财务部 | 01a18381-b7c4-753c-8fe6-d39684ead5cd
+HQ | 云枢总部 | (root)
+SALES | 销售部 | 01a18381-b7c4-753c-8fe6-d39684ead5cd
+TECH | 技术部 | 01a18381-b7c4-753c-8fe6-d39684ead5cd
+
+== ⑥ 迁移位点 ==
+246
+
+== ⑦ 有 dept_id 列但不参与行级范围的表（unscoped 清单证据） ==
+biz_budget
+biz_budget_subject_map
+biz_budget_usage
+biz_contract
+biz_depreciation
+biz_expense_report
+biz_project
+biz_task
+sys_role_dept
+sys_user
+
+== ⑧ redis 是否可用（数据范围缓存 epoch 键） ==
+(nil)

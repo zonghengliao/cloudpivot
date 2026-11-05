@@ -1,0 +1,32 @@
+== A. 逐个账号的生效范围（超管短路 > 角色 ALL > 部门级 > SELF 降级） ==
+    账号     |                                    角色                                    |              生效范围              |   部门   
+-------------+----------------------------------------------------------------------------+------------------------------------+----------
+ admin       | SUPER_ADMIN                                                                | ALL（超管短路：filter_for 恒 1=1） | (无部门)
+ cl_43870    | (无角色)                                                                   | SELF（仅本人——安全侧降级）         | (无部门)
+ henry.liao  | DEPT_LEADER,GENERAL_MANAGER,PURCHASE_MANAGER,SUPER_ADMIN,WAREHOUSE_MANAGER | ALL（超管短路：filter_for 恒 1=1） | (无部门)
+ laoliu      | SUPER_ADMIN                                                                | ALL（超管短路：filter_for 恒 1=1） | (无部门)
+ laoliu_test | DEPT_LEADER,GENERAL_MANAGER,PURCHASE_MANAGER,SUPER_ADMIN,WAREHOUSE_MANAGER | ALL（超管短路：filter_for 恒 1=1） | (无部门)
+ qa.limited  | QA_LIMITED                                                                 | ALL（角色 data_scope=1）           | 技术部
+ qa.mutex    | MUTEX_A,MUTEX_B                                                            | ALL（角色 data_scope=1）           | 销售部
+ qa.viewer   | QA_VIEWER                                                                  | ALL（角色 data_scope=1）           | (无部门)
+ verify-ai   | (无角色)                                                                   | SELF（仅本人——安全侧降级）         | (无部门)
+
+
+== B. 配置落地：角色范围 + 自定义集合 ==
+         角色         | 范围 |      含义      |       自定义集合       
+----------------------+------+----------------+------------------------
+ FINANCE_DIRECTOR     | 5    | 自定义部门集合 | FIN/财务部,HQ/云枢总部
+ FINANCE_MANAGER      | 5    | 自定义部门集合 | FIN/财务部
+ DEPT_LEADER          | 3    | 本部门及以下   | -
+ PURCHASE_MANAGER     | 3    | 本部门及以下   | -
+ WAREHOUSE_MANAGER    | 3    | 本部门及以下   | -
+ FLOW_CONFIG_APPROVER | 1    | 全部数据       | -
+ GENERAL_MANAGER      | 1    | 全部数据       | -
+ MUTEX_A              | 1    | 全部数据       | -
+ MUTEX_B              | 1    | 全部数据       | -
+ QA_LIMITED           | 1    | 全部数据       | -
+ QA_VIEWER            | 1    | 全部数据       | -
+ SUPER_ADMIN          | 1    | 全部数据       | -
+
+
+== C. 巡检 N1 同口径（有 dept_id 的受控表必须有部门级授权） ==

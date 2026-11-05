@@ -1,0 +1,18 @@
+########## ① 修复后（DEPT_LEADER=3 / 财务 CUSTOM）→ 期望 PASS ##########
+  ✅ [权限] N1 有 dept_id 的受控表必须有部门级授权
+结果：1/1 通过   🚨 BLOCKER 0   ⚠️ WARN 0
+
+########## ② 反向对照：回放 V0247 down（全库回到 data_scope=1）→ 期望 WARN ##########
+回放后：非 1 角色数 = 0，sys_role_dept = 0 行
+N. 数据权限（有 dept_id 的受控表必须真的有部门级授权，否则行级权限空转）
+  ⚠️ [权限] N1 有 dept_id 的受控表必须有部门级授权
+        没有任何启用角色的数据范围是部门级：5 张受控表（sys_user、biz_task、biz_project、biz_budget、biz_expense_report）的 dept_id 裁剪恒不生效，每个人拿到的片段都是 `AND 1 = 1` —— 行级数据权限空转
+        受控表 5 张在库：sys_user、biz_task、biz_project、biz_budget、biz_expense_report
+        超管占比：1/1 个在用账号持有 SUPER_ADMIN（超管在 scope.rs::filter_for 里短路恒真，不受数据范围限制——「所有人都能看全部」里有一部分是这件事，不是范围配置的锅）
+结果：0/1 通过   🚨 BLOCKER 0   ⚠️ WARN 1
+⚠️ 需要人看：
+  · [权限] N1 有 dept_id 的受控表必须有部门级授权  —  没有任何启用角色的数据范围是部门级：5 张受控表（sys_user、biz_task、biz_project、biz_budget、biz_expense_report）的 dept_id 裁剪恒不生
+
+########## ③ 恢复正常（回放 up）→ 期望再 PASS ##########
+  ✅ [权限] N1 有 dept_id 的受控表必须有部门级授权
+结果：1/1 通过   🚨 BLOCKER 0   ⚠️ WARN 0

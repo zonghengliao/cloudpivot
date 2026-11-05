@@ -1532,10 +1532,128 @@ def group_j():
           "与「定时任务」页 remark 一致")
 
 
+# ══════════════════════════════════════════════════════════════════
+# N. 数据权限（【P0-FIX-2】）：行级数据范围不能「空转」
+# ══════════════════════════════════════════════════════════════════
+#
+# 背景：库里「谁能看哪些行」只有两个载体 —— `sys_role.data_scope`
+# （1 全部 / 2 本部门 / 3 本部门及以下 / 4 仅本人 / 5 自定义集合）与
+# `sys_role_dept`（仅 5 生效）。解析链见 `business/shared/principal.rs::RESOLVE_SQL`
+# → `shared/scope.rs::filter_for`。全库都停在默认值 1 时，每个人拿到的片段都是
+# `AND 1 = 1`：功能没坏、接口没报错，**但「数据权限」这件事等于没做** —— 这是
+# 典型的静默失效（比报错更难发现，因为看板上一切正常）。
+#
+# 判据（WARN 级：配置缺失不该拦发布，但必须有人看见）：
+#   N1-a 库里至少有一个**启用的**角色是部门级范围（2/3，或 5 且有集合行）；
+#        一个都没有 ⇒ 所有 dept 受控表的行级裁剪恒不生效。
+#   N1-b 不许存在 `data_scope=5` 却 `sys_role_dept` 0 行的角色 —— 这种「配了却空」
+#        的 CUSTOM 会让持有者被 `merge_scope_rows` 静默降级成「仅本人」（S10），
+#        表现为「某人突然只看得到自己的单据」，报修时极难定位。
+# 附带信息（INFO，写在 detail 里，不单独占一条检查）：超管账号占比 ——
+# 「9 个用户都能看全部」里往往有相当一部分是**他们本来就持有 SUPER_ADMIN**。
+
+# 代码里真的会按 dept_id 收口的表（`ScopeTarget` 的 dept_col 非空的那些）。
+# 不在这里的 biz_* 表（采购/出入库/库存/付款/凭证/合同/固资…）走的是
+# `ScopeTarget::unscoped`，即**不受行级范围控制**（见卡内「哪些表受控」一节）。
+DEPT_SCOPED_TABLES = {
+    "sys_user": "人员列表（scope.rs::SYS_USER）",
+    "biz_task": "任务列表（task/task_model_base.rs::TASK_TARGET，范围 ∪ 参与关系）",
+    "biz_project": "项目列表（project/model.rs::PROJECT_TARGET）",
+    "biz_budget": "预算列表（erp/budget_model.rs::BUDGET_TARGET）",
+    "biz_expense_report": "报销单列表（erp/expense_model.rs::EXPENSE_TARGET）",
+}
+
+
+def group_n():
+    """数据权限不变量 N1（【P0-FIX-2】）。"""
+    print("\n" + "=" * 92)
+    print("N. 数据权限（有 dept_id 的受控表必须真的有部门级授权，否则行级权限空转）")
+    print("=" * 92)
+
+    if not table_exists("sys_role") or not table_exists("sys_role_dept"):
+        check("N1 有 dept_id 的受控表必须有部门级授权", "权限", "INFO", True,
+              "本库没有 sys_role / sys_role_dept（迁移未跑到数据权限模块），跳过")
+        return
+
+    # ---- N1-a：部门级授权是否真的存在 ----
+    dept_roles = q("""
+        select r.role_code,
+               r.data_scope::text,
+               (select count(*)::text from sys_role_dept rd where rd.role_id = r.id)
+          from sys_role r
+         where r.deleted_at is null
+           and r.status = 1
+           and (r.data_scope in (2, 3)
+                or (r.data_scope = 5
+                    and exists (select 1 from sys_role_dept rd where rd.role_id = r.id)))
+         order by r.role_code""")
+
+    # ---- N1-b：selector=5 却没有集合行（配错的 CUSTOM） ----
+    empty_custom = q("""
+        select r.role_code
+          from sys_role r
+         where r.deleted_at is null
+           and r.data_scope = 5
+           and not exists (select 1 from sys_role_dept rd where rd.role_id = r.id)
+         order by r.role_code""")
+
+    # ---- 受控表在本库的落地情况（只在存在的表上要求，缺表不算错） ----
+    present = [t for t in DEPT_SCOPED_TABLES if table_exists(t)]
+    absent = [t for t in DEPT_SCOPED_TABLES if t not in present]
+
+    # ---- INFO：超管占比（解释「看起来所有人都能看全部」） ----
+    total_users = one("select count(*) from sys_user where deleted_at is null") or "0"
+    super_users = one("""
+        select count(distinct u.id)
+          from sys_user u
+          join sys_user_role ur on ur.user_id = u.id
+              and (ur.expire_time is null or ur.expire_time > now())
+          join sys_role r on r.id = ur.role_id
+              and r.deleted_at is null and r.status = 1
+         where u.deleted_at is null and r.role_code = 'SUPER_ADMIN'""") or "0"
+    scope5_rows = one("select count(*) from sys_role_dept") or "0"
+
+    reasons = []
+    if not dept_roles:
+        reasons.append(
+            f"没有任何启用角色的数据范围是部门级：{len(present)} 张受控表"
+            f"（{'、'.join(present) or '无'}）的 dept_id 裁剪恒不生效，"
+            f"每个人拿到的片段都是 `AND 1 = 1` —— 行级数据权限空转")
+    if empty_custom:
+        reasons.append(
+            "data_scope=5 但没有 sys_role_dept 行的角色："
+            + "、".join(r[0] for r in empty_custom)
+            + "（持有者被静默降级为「仅本人」，会表现为突然只看得到自己的单据）")
+
+    ok = not reasons
+    detail_lines = []
+    if reasons:
+        detail_lines.extend(reasons)
+    detail_lines.append(
+        f"受控表 {len(present)} 张在库：{'、'.join(present) or '无'}"
+        + (f"（未建表、不计入：{'、'.join(absent)}）" if absent else ""))
+    detail_lines.append(
+        "部门级角色：" + ("、".join(f"{r[0]}(scope={r[1]}"
+                                    + (f", 集合={r[2]} 个部门" if r[1] == "5" else "") + ")"
+                                    for r in dept_roles) or "无")
+        + f"；sys_role_dept 共 {scope5_rows} 行")
+    detail_lines.append(
+        f"超管占比：{super_users}/{total_users} 个在用账号持有 SUPER_ADMIN"
+        "（超管在 scope.rs::filter_for 里短路恒真，不受数据范围限制——"
+        "「所有人都能看全部」里有一部分是这件事，不是范围配置的锅）")
+
+    check("N1 有 dept_id 的受控表必须有部门级授权", "权限", "WARN", ok,
+          "\n".join(detail_lines),
+          """select r.role_code as 角色, r.data_scope::text as 数据范围, r.status::text as 状态,
+                    (select count(*) from sys_role_dept rd where rd.role_id = r.id) as 自定义部门数
+               from sys_role r where r.deleted_at is null
+              order by r.data_scope desc, r.role_code""")
+
+
 GROUPS = {"会计": group_a, "账账": group_b, "账实": group_c,
           "单据链": group_d, "状态": group_e, "期间": group_f, "闭环": group_g,
           "审批": group_h, "盘点": group_i, "固资": group_k, "报销": group_l,
-          "任务": group_j}
+          "任务": group_j, "权限": group_n}
 
 
 def main():
