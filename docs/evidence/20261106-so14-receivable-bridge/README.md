@@ -170,4 +170,60 @@ cargo check --all-targets --features test-hooks                 → rc=0
 
 ## 八、全量回归与归因
 
-（见下方「全量回归」小节，跑完补齐）
+```
+ERP_DB_URL='postgres://alun:***@127.0.0.1:5432/cloudpivot_so14' \
+  cargo test --lib --features test-hooks -- --test-threads=1
+
+test result: FAILED. 2813 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1402.07s
+```
+
+两条失败**都不是本卡引入**，且与 SO-13 记录的既有缺陷逐字相同（同一 `so_approve` 流程、同一对 hash）：
+
+| # | 用例 | 现象 | 归因 / 处置 |
+|---|------|------|-------------|
+| 1 | `business::erp::sales_approval_bridge::db_tests::three_tiers_start_flow_and_approve_to_approved` | `assert left "" == right "APPROVED"`（订单状态没推进） | **既有缺陷**：`so_approve`（V0281 建的流程）图与代码不同源。单跑同样失败（见下），SO-13 父卡验收时已记录同一现象；本卡 diff **不碰** `business/flow/*`、不碰任何 `biz_flow_*` 定义 |
+| 2 | `business::erp::stockin_handler::stockin_handler_tests_p16::p16_graph_snapshot_selfcheck_is_clean` | `flow_graph_selfcheck: drifted=1 … flow_code "so_approve" kind RowsEdited stored_hash da3c2eed… ≠ recomputed 97fe9377…` | 同上（同一流程的图快照漂移）；单跑同样失败 |
+
+单跑证据（`--test-threads=1`，与全量同一库）：
+
+```
+cargo test --lib business::erp::sales_approval_bridge::db_tests::three_tiers_start_flow_and_approve_to_approved
+  → test result: FAILED. 0 passed; 1 failed   （left "" / right "APPROVED"）
+cargo test --lib business::erp::stockin_handler::stockin_handler_tests_p16::p16_graph_snapshot_selfcheck_is_clean
+  → test result: FAILED. 0 passed; 1 failed   （stored da3c2eed… / recomputed 97fe9377…）
+```
+
+本卡范围内的复跑（改了 `stockout_handler` 文档注释后重编）：
+
+```
+cargo test --lib business::erp::receivable_bridge business::erp::customer business::erp::shipment_posting
+  → test result: ok. 31 passed; 0 failed   （bridge 10 + customer 12 + 发货过账回归 9）
+```
+
+### 其它门禁
+
+```
+bash scripts/check.sh 的闸⑥（死权限码）
+  NIK_DATABASE_NAME=cloudpivot_so14 … python3 scripts/verify/perm_menu_gate.py
+  → PASS（本卡不新增接口 / 不新增权限码）
+
+scope 闸②（scripts/lint/scope_gate.py）
+  → 本卡的 7 处 SQL 全部带 // SCOPE-EXEMPT: <理由>
+  → 脚本报的一条 FAIL 是**既有**问题：business/erp/shipment_page_fill_tests.rs（SO-09 卡 4c2c1b0 新增）
+     未登记进 SKIP_MANIFEST，与本卡无关
+
+git commit 的 pre-commit 钩子（库存三本账唯一写入口闸）
+  → 扫描 392 非测试 .rs，「零越界：非测试代码里没有任何一处直写库存三本账」
+```
+
+---
+
+## 九、明确没做的（边界，别当成漏了）
+
+| 项 | 为什么不做 | 去处 |
+|----|-----------|------|
+| 出库单**作废** → 应收红冲/作废 | 应收状态域是 `OPEN/PARTIAL/SETTLED/WRITTEN_OFF`，`WRITTEN_OFF` 语义是坏账；作废需要先定语义（新增 CANCELLED 边表 vs 红字负金额单据，`ck_biz_ar_amount` 是 `amount > 0`） | 已开卡 `t_b33adc45`【SO-14 遗留】 |
+| 收入确认凭证（借 1122 / 贷 6001） | 与 SO-13 同口径：属「收入/减值凭证」那组卡，手搓分录过不了 `voucher::post_voucher` 的科目映射 | SO-22 / 收入凭证卡 |
+| 客户 FROZEN 拦截过账挂账 | 冻结语义是「禁开**新**单」，过账挂账是已审批单据的会计后果；过账因冻结失败会让「货已出、账挂不上」卡死。拦截应在建单入口（SO-09 守卫） | 有意不做，写在模块文档 |
+| 客户档案页面的「账期天数」输入框 | 属前端 customer 页（避免与并行前端卡抢同一文件） | 已开卡 `t_df9ec5e1` |
+
