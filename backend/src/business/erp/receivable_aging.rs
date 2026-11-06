@@ -6,7 +6,7 @@
 //!
 //! ```text
 //! 范围：biz_receivable WHERE deleted_at IS NULL
-//!                         AND status IN ('OPEN','PARTIAL')      -- 未收清（本表 4 值域里只有这两个有余额）
+//!                         AND status IN ('OPEN','PARTIAL')      -- 未收清（只有这两个状态有余额）
 //!                         AND unsettled_amount > 0              -- 一分不欠的不进表
 //!                         AND period_code <= 基准日所属期间       -- 基准日之后的单据不纳入
 //! 金额：unsettled_amount（= amount - received_amount，库层 ck_biz_ar_unsettled 兜死）
@@ -80,8 +80,12 @@ pub const CUSTOMER_TABLE: &str = "biz_customer";
 
 /// 纳入账龄的应收单状态：未收 / 部分已收。
 ///
-/// 排除 `SETTLED`（未收为 0，本来也进不了 `unsettled_amount > 0`）与
-/// `WRITTEN_OFF`（坏账已核销，不再是应收资产 —— 与应付排除 `CANCELLED` 同口径）。
+/// 排除 `SETTLED`（未收为 0，本来也进不了 `unsettled_amount > 0`）、
+/// `WRITTEN_OFF`（坏账已核销，不再是应收资产）与 `CANCELLED`（出库作废冲销，
+/// 这笔销售根本没发生 —— 与应付排除 `CANCELLED` 同口径）。
+///
+/// ⚠ 判据是**白名单**而不是「排除坏账」：以后应收再加终态时，漏改这里的后果是
+/// 「新终态混进账龄」（虚增欠款），而不是「少算一笔」—— 单测把这条钉死了。
 pub const AGING_STATUSES: [&str; 2] = [receivable::STATUS_OPEN, receivable::STATUS_PARTIAL];
 
 // ==================== 入参 ====================
@@ -816,6 +820,25 @@ mod tests {
             "payable 的域值不许出现在应收口径里"
         );
         assert!(!cte.contains("WRITTEN_OFF"), "坏账不应纳入账龄");
+        assert!(
+            !cte.contains("CANCELLED"),
+            "出库作废冲销（V0290）不进账龄：那笔销售根本没发生"
+        );
+        // 白名单钉死：账龄只认 OPEN / PARTIAL，不是「排除坏账」这种反向判据
+        assert_eq!(
+            AGING_STATUSES,
+            [receivable::STATUS_OPEN, receivable::STATUS_PARTIAL]
+        );
+        for terminal in [
+            receivable::STATUS_SETTLED,
+            receivable::STATUS_WRITTEN_OFF,
+            receivable::STATUS_CANCELLED,
+        ] {
+            assert!(
+                !AGING_STATUSES.contains(&terminal),
+                "`{terminal}` 是终态，不许纳入账龄"
+            );
+        }
     }
 
     /// ③ 逾期天数与基准日解析：全部复用应付账龄的实现（同一组断言值）。

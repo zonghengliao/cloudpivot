@@ -61,11 +61,25 @@
 // `biz_receivable.amount > 0` 是库层 CHECK，挂一张 0 元应收既过不了库层也没有业务含义。
 // 这是「跳过」而不是「报错」—— 不能因为一张赠品行把整笔过账打回去。
 //
-// # 未覆盖（属于后续卡）
+// # 出库作废 → 冲销应收（V0290 / `cancel_in_tx`）
 //
-// 出库单**作废**（`POSTED → CANCELLED`）现在只回滚三本账 + 出库红字凭证，**不红冲应收**：
-// 应收侧的作废语义（`WRITTEN_OFF` = 坏账，不是作废）还没有边，需要单独设计
-// （作废应收 / 红冲来源单号）。本文件不硬造一条边进来。
+// 作废是过账的**逆动作**，顺序与过账对称：
+//
+// ```text
+// 回滚三本账 + 冲销流水  →  出库红字凭证  →  ★ 应收作废（OPEN → CANCELLED）
+// ```
+//
+// 判据与过账侧完全相同（同一张出库单、`source_type` 必须是 `SALES`、按
+// `find_by_source('SALES_OUT', stock_out_id)` 找那张应收），所以「过账挂了应收」与
+// 「作废冲销那笔应收」永远指向同一行 —— 不会出现「挂了却没冲」或「冲了别的单」。
+//
+// 口径（为什么不是 `WRITTEN_OFF` / 不是软删 / 不做负金额红字，见 V0290 与
+// `receivable::cancel_for_stock_out` 的文档）：**只允许一分没收的 OPEN 被作废**；
+// `PARTIAL` / `SETTLED` / `WRITTEN_OFF` 一律 409，整笔出库作废回滚
+// （钱已经收了，要冲回必须走收款退款单 —— 那条路属后续卡，不在这里硬造）。
+//
+// 幂等：重复作废被出库单自己的状态机 CAS 挡在 409，根本进不到这里；
+// 万一进到了（同一事务里被重复调用），已是 `CANCELLED` 的应收按「已冲销」返回，不再写第二次。
 // ============================================================================
 
 use nik::prelude::chrono::{DateTime, NaiveDate, Utc};
@@ -436,6 +450,81 @@ pub async fn receivable_of(
     stock_out_id: Uuid,
 ) -> DbResult<Option<receivable::ReceivableRow>> {
     receivable::find_by_source(ex, SOURCE_TYPE_SALES_OUT, stock_out_id).await
+}
+
+/// 一次作废冲销的结果（供调用方打日志 / 供单测断言）。
+#[derive(Debug, Clone)]
+pub struct CancelOutcome {
+    /// 应收单 id。
+    pub receivable_id: Uuid,
+    /// 应收单号。
+    pub ar_no: String,
+    /// `true` = 本次真的把应收从 `OPEN` 改成了 `CANCELLED`；
+    /// `false` = 之前就已经是 `CANCELLED`（重复调用，幂等命中）。
+    pub cancelled: bool,
+}
+
+/// 销售出库**作废** → 冲销那张自动挂上的应收。**必须在作废事务里调用**（`ex` = 那个事务）。
+///
+/// * 非销售来源（`source_type` 为空 / 不是 `SALES`）→ `Ok(None)`，账一分不动；
+/// * 这张出库单当时没挂应收（零元 / 赠品 / SO-14 之前过账的老单）→ `Ok(None)` + info；
+/// * 应收已是 `CANCELLED` → `Ok(Some(cancelled = false))`（幂等，不重复写）；
+/// * 应收已收款 / 已核销 / 已结清 → `Err(409)`，调用方整笔回滚（三本账、红字凭证都不落地）；
+/// * 正常 → `Ok(Some(cancelled = true))`。
+pub async fn cancel_in_tx(
+    ex: &impl SqlExecutor,
+    stock_out_id: Uuid,
+    reason: &str,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> std::result::Result<Option<CancelOutcome>, ApiError> {
+    let Some(source) = out_source_of(ex, stock_out_id).await? else {
+        return Ok(None);
+    };
+    if source.source_type.as_deref() != Some(OUT_SOURCE_SALES) {
+        return Ok(None);
+    }
+    let Some(existing) = receivable::find_by_source(ex, SOURCE_TYPE_SALES_OUT, stock_out_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查这张出库单的应收"))?
+    else {
+        // 过账时含税金额 ≤ 0 或者 SO-14 之前就过账了：本来就没有应收，作废也不用冲。
+        tracing::info!(
+            stock_out_id = %stock_out_id,
+            out_no = %source.out_no,
+            "出库作废：这张单没有挂过应收（零元 / 老单），无需冲销"
+        );
+        return Ok(None);
+    };
+    if existing.status == receivable::STATUS_CANCELLED {
+        tracing::info!(
+            stock_out_id = %stock_out_id,
+            out_no = %source.out_no,
+            ar_no = %existing.ar_no,
+            "出库作废：应收已是已作废（幂等命中，不再重复冲销）"
+        );
+        return Ok(Some(CancelOutcome {
+            receivable_id: existing.id,
+            ar_no: existing.ar_no,
+            cancelled: false,
+        }));
+    }
+
+    let cancelled =
+        receivable::cancel_for_stock_out(ex, existing.id, reason, operator, now).await?;
+    tracing::info!(
+        stock_out_id = %stock_out_id,
+        out_no = %source.out_no,
+        ar_no = %cancelled.ar_no,
+        amount = %cancelled.amount,
+        reason,
+        "出库作废：应收已冲销（OPEN → CANCELLED，与三本账回滚 / 红字凭证同一事务）"
+    );
+    Ok(Some(CancelOutcome {
+        receivable_id: cancelled.id,
+        ar_no: cancelled.ar_no,
+        cancelled: true,
+    }))
 }
 
 // ==================== 单测 ====================
@@ -1091,5 +1180,232 @@ mod tests {
             "source_type 为空的出库单不许挂应收"
         );
         assert_eq!(cost_qty(MAT_A).await, dec("18"), "手工出库照常扣库存");
+    }
+
+    // ---------- 出库作废 → 应收冲销（V0290 / `cancel_in_tx`） ----------
+
+    /// 账龄明细里本单是否在册（走真正的账龄取数：`receivable_aging::load_totals_and_details`）。
+    async fn in_aging(ar_no: &str) -> bool {
+        use crate::business::erp::receivable_aging;
+        let today = voucher::today_cst(Utc::now());
+        let period = voucher::period_of(db(), today).await.expect("当前期间");
+        let tx = db().begin().await.expect("开只读快照事务");
+        let outcome = receivable_aging::load_totals_and_details(&tx, today, &period).await;
+        let _ = tx.rollback().await;
+        let (_, _, _, _, _, details) = outcome.expect("账龄取数");
+        details.iter().any(|row| row.ar_no == ar_no)
+    }
+
+    /// 作废销售出库单 → 应收 `OPEN → CANCELLED`、账龄不再计提、三本账回滚（同一事务）。
+    #[tokio::test]
+    async fn cancel_stock_out_cancels_receivable_and_restores_stock() {
+        let Some(_guard) = setup().await else { return };
+        let customer = fixture_customer(CUSTOMER_CODE, 30).await;
+        seed_stock(MAT_A, "20").await;
+        let (so_id, item_id) = fixture_order(customer, "10", "100", "13", "APPROVED").await;
+        let ship_id = fixture_shipment(customer, so_id, item_id, "10", 0).await;
+        post_shipment(ship_id)
+            .await
+            .unwrap_or_else(|error| panic!("过账应成功：{} {}", error.code, error.msg));
+
+        let out_id = stock_out_of(ship_id).await.expect("过账生成出库单");
+        let before = receivable_of(db(), out_id)
+            .await
+            .expect("查应收")
+            .expect("过账必须挂应收");
+        assert_eq!(before.status, STATUS_OPEN);
+        assert_eq!(before.amount, dec("1130"));
+        assert!(in_aging(&before.ar_no).await, "未收款的应收必须进账龄");
+        assert_eq!(cost_qty(MAT_A).await, dec("10"), "过账后库存 20 → 10");
+
+        const REASON: &str = "客户取消订单，货退回仓库";
+        crate::business::erp::stockout_handler::cancel_stock_out(out_id, REASON, None)
+            .await
+            .unwrap_or_else(|error| panic!("作废应成功：{} {}", error.code, error.msg));
+
+        let after = receivable_of(db(), out_id)
+            .await
+            .expect("查应收")
+            .expect("作废后应收行必须还在（终态留痕，不是软删）");
+        assert_eq!(after.id, before.id, "冲销的必须是同一张应收");
+        assert_eq!(
+            after.status,
+            receivable::STATUS_CANCELLED,
+            "作废后应收状态必须是 CANCELLED（不是 WRITTEN_OFF 坏账）"
+        );
+        assert_eq!(after.received_amount, Decimal::ZERO, "一分没收");
+        assert_eq!(
+            after.unsettled_amount,
+            dec("1130"),
+            "金额不动，恒等式仍成立"
+        );
+        assert!(
+            after.settled_at.is_some(),
+            "作废要落 settled_at（封账时间），台账才看得出什么时候终止的"
+        );
+        let remark = after.remark.clone().unwrap_or_default();
+        assert!(
+            remark.contains(receivable::CANCEL_REASON_PREFIX) && remark.contains(REASON),
+            "备注要留冲销前缀与上游作废原因，实际 {remark}"
+        );
+        assert!(
+            !remark.contains("坏账"),
+            "作废不许留下坏账字样（坏账报表会串味）"
+        );
+
+        // 状态日志：OPEN → CANCELLED + 原因（谁、为什么）
+        let log = text_of(
+            "SELECT from_status || '>' || to_status || '|' || coalesce(reason, '') \
+               FROM biz_status_log \
+              WHERE entity_type = 'RECEIVABLE' AND entity_id = ?::uuid AND to_status = 'CANCELLED' \
+              ORDER BY created_at DESC LIMIT 1",
+            vec![Value::from(&after.id)],
+        )
+        .await
+        .expect("作废必须写状态日志");
+        assert_eq!(log, format!("OPEN>CANCELLED|{REASON}"));
+
+        // 账龄不再计提 + 三本账回滚 + 单据终态
+        assert!(!in_aging(&before.ar_no).await, "已作废的应收不许再进账龄");
+        assert_eq!(cost_qty(MAT_A).await, dec("20"), "作废把库存原路退回");
+        assert_eq!(
+            text_of(
+                "SELECT status FROM biz_stock_out WHERE id = ?::uuid",
+                vec![Value::from(&out_id)]
+            )
+            .await
+            .as_deref(),
+            Some("CANCELLED")
+        );
+        println!(
+            "[SO-14 遗留] 作废冲销：{} → CANCELLED（金额 {}，账龄已排除，库存回滚到 20）",
+            after.ar_no, after.amount
+        );
+    }
+
+    /// **已收过款**的应收挡住作废：409 + 整笔回滚（出库单仍 POSTED、库存仍扣着、没有红字凭证）。
+    #[tokio::test]
+    async fn cancel_blocked_when_receivable_has_receipts() {
+        let Some(_guard) = setup().await else { return };
+        let customer = fixture_customer(CUSTOMER_CODE, 30).await;
+        seed_stock(MAT_A, "20").await;
+        let (so_id, item_id) = fixture_order(customer, "10", "100", "13", "APPROVED").await;
+        let ship_id = fixture_shipment(customer, so_id, item_id, "10", 0).await;
+        post_shipment(ship_id)
+            .await
+            .unwrap_or_else(|error| panic!("过账应成功：{} {}", error.code, error.msg));
+
+        let out_id = stock_out_of(ship_id).await.expect("出库单");
+        let ar = receivable_of(db(), out_id)
+            .await
+            .expect("查应收")
+            .expect("应收");
+        // 模拟已经收过 40 元（收款模块尚未落地，直接造 PARTIAL 形态）
+        sql(&format!(
+            "UPDATE biz_receivable SET received_amount = 40, unsettled_amount = 1090, \
+                status = 'PARTIAL', updated_at = now() WHERE id = '{}'::uuid",
+            ar.id
+        ))
+        .await;
+
+        let error = crate::business::erp::stockout_handler::cancel_stock_out(
+            out_id,
+            "客户取消订单，货退回仓库",
+            None,
+        )
+        .await
+        .expect_err("应收已收款，作废必须 409");
+        assert_eq!(error.status, 409);
+        assert!(
+            error.msg.contains("已收") || error.msg.contains("收款"),
+            "文案要点名已收款（先冲收款），实际 {}",
+            error.msg
+        );
+
+        // 整笔回滚：单据仍 POSTED、库存仍 10、应收仍 PARTIAL、没有红字凭证
+        assert_eq!(
+            text_of(
+                "SELECT status FROM biz_stock_out WHERE id = ?::uuid",
+                vec![Value::from(&out_id)]
+            )
+            .await
+            .as_deref(),
+            Some("POSTED"),
+            "作废失败后出库单必须留在 POSTED（不许半截作废）"
+        );
+        assert_eq!(cost_qty(MAT_A).await, dec("10"), "三本账必须原封不动");
+        let still = receivable_of(db(), out_id)
+            .await
+            .expect("查应收")
+            .expect("应收");
+        assert_eq!(still.status, receivable::STATUS_PARTIAL);
+        assert_eq!(still.received_amount, dec("40"));
+        let red = db()
+            .scalar_with_params::<i64>(
+                "SELECT count(*) FROM biz_voucher \
+                  WHERE source_type = 'STOCK_OUT' AND source_id = ?::uuid AND is_red = 1",
+                vec![Value::from(&out_id)],
+            )
+            .await
+            .expect("数红字凭证");
+        assert_eq!(red, 0, "作废失败不许留下红字凭证（同一事务）");
+        println!(
+            "[SO-14 遗留] 已收款拦住作废：{} / 出库单仍 POSTED / 红字凭证 0",
+            error.msg
+        );
+    }
+
+    /// 重复作废被出库单状态机挡在 409；应收侧重复调用走幂等分支，不再写第二次。
+    #[tokio::test]
+    async fn repeated_cancel_keeps_receivable_cancelled_once() {
+        let Some(_guard) = setup().await else { return };
+        let customer = fixture_customer(CUSTOMER_CODE, 30).await;
+        seed_stock(MAT_A, "20").await;
+        let (so_id, item_id) = fixture_order(customer, "10", "100", "13", "APPROVED").await;
+        let ship_id = fixture_shipment(customer, so_id, item_id, "10", 0).await;
+        post_shipment(ship_id)
+            .await
+            .unwrap_or_else(|error| panic!("过账应成功：{} {}", error.code, error.msg));
+        let out_id = stock_out_of(ship_id).await.expect("出库单");
+
+        const REASON: &str = "客户取消订单，货退回仓库";
+        crate::business::erp::stockout_handler::cancel_stock_out(out_id, REASON, None)
+            .await
+            .expect("第一次作废");
+        let second = crate::business::erp::stockout_handler::cancel_stock_out(out_id, REASON, None)
+            .await
+            .expect_err("重复作废必须 409");
+        assert_eq!(second.status, 409);
+
+        // 直接重入桥接层：已 CANCELLED → cancelled=false，不重复写
+        let again = cancel_in_tx(db(), out_id, REASON, None, Utc::now())
+            .await
+            .expect("幂等重入不应报错")
+            .expect("应返回那张已作废的应收");
+        assert!(!again.cancelled, "第二次必须走幂等分支");
+
+        let ar = receivable_of(db(), out_id)
+            .await
+            .expect("查应收")
+            .expect("应收");
+        assert_eq!(ar.status, receivable::STATUS_CANCELLED);
+        let logs = db()
+            .scalar_with_params::<i64>(
+                "SELECT count(*) FROM biz_status_log \
+                  WHERE entity_type = 'RECEIVABLE' AND entity_id = ?::uuid AND to_status = 'CANCELLED'",
+                vec![Value::from(&ar.id)],
+            )
+            .await
+            .expect("数状态日志");
+        assert_eq!(logs, 1, "只许留一条作废轨迹（幂等）");
+        assert_eq!(
+            cost_qty(MAT_A).await,
+            dec("20"),
+            "库存只回滚一次，不会被退两次"
+        );
+        println!(
+            "[SO-14 遗留] 幂等：重复作废 409，应收 {} 只冲销一次",
+            ar.ar_no
+        );
     }
 }

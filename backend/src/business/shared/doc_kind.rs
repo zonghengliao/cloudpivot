@@ -128,9 +128,9 @@ pub enum DocKind {
     Shipment,
     /// 应收单 `biz_receivable`（销售链 · SO-13）。
     ///
-    /// 镜像 `Payable`，但状态域不同（ARCH-7 §4.3）：`OPEN`/`PARTIAL`/`SETTLED`/
-    /// `WRITTEN_OFF`，边表在 `state_machine::RECEIVABLE_EDGES`。没有明细子表，
-    /// 状态只在单头流转；坏账核销是 `* → WRITTEN_OFF` 的终态边（必须给原因）。
+    /// 镜像 `Payable`，但状态域不同（ARCH-7 §4.3 + V0290）：`OPEN`/`PARTIAL`/`SETTLED`/
+    /// `WRITTEN_OFF`/`CANCELLED`，边表在 `state_machine::RECEIVABLE_EDGES`。没有明细子表，
+    /// 状态只在单头流转；坏账核销与出库作废冲销都是终态边（必须给原因）。
     Receivable,
 }
 

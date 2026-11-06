@@ -906,7 +906,7 @@ pub(super) async fn run_deferred_linkage_after_commit(
 // ==================== 作废 ====================
 
 /// 作废核心：`DRAFT | PENDING_POST → CANCELLED`（账没动过）与
-/// `POSTED → CANCELLED`（三本账回滚 + 红字凭证）两条路。
+/// `POSTED → CANCELLED`（三本账回滚 + 红字凭证 + **销售来源冲销应收**）两条路。
 pub async fn cancel_stock_out(
     id: Uuid,
     reason: &str,
@@ -1101,11 +1101,22 @@ async fn cancel_out_tx(
             .await
             .map_err(|error| write_error(error, "作废：回写红字凭证引用"))?;
     }
+
+    // 应收冲销（只有销售来源才有）：与三本账回滚 / 红字凭证**同一个事务**。
+    // 顺序与过账侧对称（过账：三本账 → 成本凭证 → 挂应收；作废：回滚三本账 → 红字凭证 → 冲销应收）。
+    // 任何 Err（应收已收款 / 已核销 / 并发改状态）都会让整笔作废回滚 —— 单据留在 POSTED，
+    // 不允许出现「货退回库存了、应收还挂着」或「应收作废了、库存没回」的半截账。
+    let ar =
+        crate::business::erp::receivable_bridge::cancel_in_tx(ex, id, reason, operator.id, now)
+            .await?;
+
     tracing::info!(
         stock_out_id = %id,
         out_no = %header.out_no,
         red_voucher = red.map(|v| v.to_string()).unwrap_or_default(),
-        "出库单作废：三本账已回滚，原凭证已红冲"
+        receivable = ar.as_ref().map(|outcome| outcome.ar_no.clone()).unwrap_or_default(),
+        receivable_cancelled = ar.as_ref().is_some_and(|outcome| outcome.cancelled),
+        "出库单作废：三本账已回滚，原凭证已红冲，销售来源已冲销应收"
     );
     Ok(())
 }

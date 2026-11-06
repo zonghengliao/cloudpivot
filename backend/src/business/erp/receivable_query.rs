@@ -7,7 +7,7 @@
 //! biz_receivable  id, ar_no, customer_id, source_type, source_id, source_no,
 //!                 invoice_no, invoice_date, currency_code, amount, received_amount,
 //!                 unsettled_amount, credit_days, due_date, period_code,
-//!                 status(OPEN/PARTIAL/SETTLED/WRITTEN_OFF), settled_at, voucher_id, remark
+//!                 status(OPEN/PARTIAL/SETTLED/WRITTEN_OFF/CANCELLED), settled_at, voucher_id, remark
 //!                 + 审计五件套
 //!                 CHECK unsettled_amount = amount - received_amount        ← 恒等
 //!                 CHECK amount > 0 AND 0 <= received_amount <= amount
@@ -29,7 +29,7 @@
 //!
 //! # 四道入参校验（全部 400，绝不静默忽略）
 //!
-//! 1. `status` 只认 4 值白名单（`PARTIAL_PAID` / `CANCELLED` 这类 payable 的值会被明确拒掉）；
+//! 1. `status` 只认 5 值白名单（`PARTIAL_PAID` / `PENDING_CANCEL` 这类 payable 的值会被明确拒掉）；
 //! 2. `customer_id` 必须是合法 UUID（非法 = 400，不静默忽略）；
 //! 3. `due_date_from` / `due_date_to` 必须是 `YYYY-MM-DD`；
 //! 4. 空白串一律当「没传」（`?status=` 不该变成「筛状态 = 空串」）。
@@ -67,8 +67,8 @@ pub const CUSTOMER_TABLE: &str = "biz_customer";
 /// 凭证表（详情取凭证号）。
 pub const VOUCHER_TABLE: &str = "biz_voucher";
 
-/// 状态白名单（与 `ck_biz_ar_status` 逐字一致；**不含** payable 的 PARTIAL_PAID / CANCELLED）。
-pub const STATUSES: [&str; 4] = receivable::STATUSES;
+/// 状态白名单（与 `ck_biz_ar_status` 逐字一致；**不含** payable 的 PARTIAL_PAID / PENDING_CANCEL）。
+pub const STATUSES: [&str; 5] = receivable::STATUSES;
 
 /// 列表选择列表：应收列 + 客户名称（LEFT JOIN，客户被软删时回落空串）。
 pub const LIST_COLUMNS: &str = "p.id, p.ar_no, p.customer_id, \
@@ -141,7 +141,7 @@ impl ReceivablePageQuery {
         {
             return Err(bad_request(format!(
                 "status 只允许 {}，收到「{status}」\
-                 （PARTIAL_PAID / CANCELLED 是应付的域值，应收对应 PARTIAL / WRITTEN_OFF）",
+                 （PARTIAL_PAID / PENDING_CANCEL 是应付的域值，应收对应 PARTIAL / WRITTEN_OFF / CANCELLED）",
                 STATUSES.join(" / ")
             )));
         }
@@ -376,11 +376,13 @@ pub struct ReceivableDetailRes {
 
 // ==================== 派生 ====================
 
-/// 是否逾期：到期日早于 `today`、仍有未收金额、且未核销。
+/// 是否逾期：到期日早于 `today`、仍有未收金额、且**还在有余额的状态**（OPEN / PARTIAL）。
 ///
 /// 与账龄同口径：**到期当天（0 天）不算逾期**（`due_date < today` 而非 `<=`）。
+/// 三种终态都不算逾期：`SETTLED` 收清了、`WRITTEN_OFF` 核销成损失了、
+/// `CANCELLED` 对应的销售根本没发生（V0290）。
 pub fn is_overdue(row: &ReceivableRow, today: NaiveDate) -> bool {
-    row.status != receivable::STATUS_WRITTEN_OFF
+    receivable::has_balance(&row.status)
         && row.unsettled_amount > Decimal::ZERO
         && row.due_date < today
 }
@@ -628,6 +630,10 @@ mod tests {
             !is_overdue(&sample_row("WRITTEN_OFF", "100", "0", "2026-10-01"), today),
             "已核销不再算逾期"
         );
+        assert!(
+            !is_overdue(&sample_row("CANCELLED", "100", "0", "2026-10-01"), today),
+            "已作废（出库作废冲销）不算逾期：这笔销售根本没发生"
+        );
         assert!(!is_overdue(
             &sample_row("OPEN", "100", "0", "2026-12-01"),
             today
@@ -652,7 +658,8 @@ mod tests {
         assert!(!res.overdue);
     }
 
-    /// ③ 状态白名单只认 4 值：payable 的 PARTIAL_PAID / CANCELLED 明确 400。
+    /// ③ 状态白名单只认应收域 5 值：payable 的 PARTIAL_PAID / PENDING_CANCEL 明确 400，
+    ///    而 `CANCELLED`（出库作废冲销，V0290）现在是合法域值，必须能筛。
     #[test]
     fn status_filter_rejects_payable_domain_values() {
         let mut query = ReceivablePageQuery {
@@ -664,7 +671,12 @@ mod tests {
             query.status = Some(good.to_string());
             assert!(query.validate().is_ok(), "{good} 应通过");
         }
-        for bad in ["PARTIAL_PAID", "CANCELLED", "PENDING_CANCEL", "open", ""] {
+        query.status = Some("CANCELLED".to_string());
+        assert!(
+            query.validate().is_ok(),
+            "CANCELLED 是应收自己的域值（V0290）"
+        );
+        for bad in ["PARTIAL_PAID", "PENDING_CANCEL", "open", "cancelled", ""] {
             query.status = Some(bad.to_string());
             let outcome = query.validate();
             if bad.is_empty() {

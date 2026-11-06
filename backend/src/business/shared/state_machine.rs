@@ -130,7 +130,7 @@ pub const ENTITY_SHIPMENT: &str = DocKind::Shipment.as_str();
 /// 实体类型：应收单（`biz_receivable`，销售链 · SO-13）。
 ///
 /// 落库值 `RECEIVABLE`（`DocKind::Receivable`）。与 `ENTITY_PAYABLE` 是**镜像**关系：
-/// 状态域不同（应收 4 值 `OPEN/PARTIAL/SETTLED/WRITTEN_OFF`，应付是
+/// 状态域不同（应收 5 值 `OPEN/PARTIAL/SETTLED/WRITTEN_OFF/CANCELLED`，应付是
 /// `OPEN/PARTIAL_PAID/SETTLED/CANCELLED(+PENDING_CANCEL)`），边表也不同 ——
 /// 见 [`RECEIVABLE_EDGES`]。`biz_receivable` 没有明细子表，状态只在单头流转。
 pub const ENTITY_RECEIVABLE: &str = DocKind::Receivable.as_str();
@@ -533,7 +533,7 @@ pub const SHIPMENT_EDGES: [(&str, &str); 4] = [
     ("PENDING_POST", "CANCELLED"),
 ];
 
-/// 应收单合法边（ARCH-7 §4.3，5 条，唯一真相）。
+/// 应收单合法边（ARCH-7 §4.3 + SO-14 遗留卡，6 条，唯一真相）。
 ///
 /// ```text
 /// OPEN    → PARTIAL      部分收款（收款核销累加 received_amount）
@@ -541,23 +541,27 @@ pub const SHIPMENT_EDGES: [(&str, &str); 4] = [
 /// PARTIAL → SETTLED      收清尾款
 /// OPEN    → WRITTEN_OFF  坏账核销（**唯一入口**：PATCH /receivable/{id}/write-off，必须给原因）
 /// PARTIAL → WRITTEN_OFF  部分收回后余额核销为坏账
+/// OPEN    → CANCELLED    来源出库单作废 ⇒ 应收冲销（**只从销售出库作废事务里走**，必须给原因）
 /// ```
 ///
 /// **与 [`PAYABLE_EDGES`] 的三处刻意不同**（照抄 payable 会撞库层 CHECK 23514）：
 /// - payable 的 `PARTIAL_PAID` 在这里叫 `PARTIAL`（`ck_biz_ar_status` 只认后者）；
-/// - payable 的 `CANCELLED`（作废）在应收里**不存在**：应收侧终止欠款的动作是
-///   「收不回来了」⇒ [`WRITTEN_OFF`]（坏账），语义是资产减值而不是单据作废；
-/// - payable 的作废审批两条边（`PENDING_CANCEL`）本卡不引入：坏账核销直接终态，
-///   复核动作走 `biz_status_log` 留痕（`WRITTEN_OFF` 是 requires_reason 边）。
+/// - payable 的作废审批两条边（`PENDING_CANCEL`）本卡不引入：应收的终止动作
+///   （坏账 / 出库作废冲销）都直接终态，复核动作走 `biz_status_log` 留痕；
+/// - payable 的 `CANCELLED` 在应收里**不是**「随便可以作废」：只有 `OPEN`（一分没收）
+///   有这条边，语义是「来源出库单已作废 ⇒ 这笔销售从未发生」（V0290）。
+///   已部分/全部收款的应收**没有**作废边 —— 钱已经收了，要冲回必须走收款退款单。
 ///
-/// **故意没有的边**：`SETTLED → *` / `WRITTEN_OFF → *`（两个终态）；
-/// `SETTLED → WRITTEN_OFF`（已收清没有余额可核销 —— 真要冲回得走收款红冲，不是坏账）。
-pub const RECEIVABLE_EDGES: [(&str, &str); 5] = [
+/// **故意没有的边**：`SETTLED → *` / `WRITTEN_OFF → *` / `CANCELLED → *`（三个终态）；
+/// `SETTLED → WRITTEN_OFF`（已收清没有余额可核销 —— 真要冲回得走收款红冲，不是坏账）；
+/// `PARTIAL → CANCELLED`（已收过钱 ⇒ 出库作废要先冲收款，handler 给 409）。
+pub const RECEIVABLE_EDGES: [(&str, &str); 6] = [
     ("OPEN", "PARTIAL"),
     ("OPEN", "SETTLED"),
     ("PARTIAL", "SETTLED"),
     ("OPEN", "WRITTEN_OFF"),
     ("PARTIAL", "WRITTEN_OFF"),
+    ("OPEN", "CANCELLED"),
 ];
 
 /// 应付单合法边（P7 的付款累计 + 作废；P-FLOW-3B 加 3 条作废审批边）。
@@ -700,16 +704,19 @@ pub const SALES_ORDER_REASON_EDGES: [(&str, &str); 4] = [
 /// （别处已经按「这批要发」排了货 / 通知了客户），作废必须能回答「为什么」。
 /// `DRAFT → CANCELLED` 不要原因 —— 草稿从未对外产生任何影响。
 pub const SHIPMENT_REASON_EDGES: [(&str, &str); 1] = [("PENDING_POST", "CANCELLED")];
-/// 需要 reason 的边：应收**坏账核销**。
+/// 需要 reason 的边：应收**坏账核销**与**出库作废冲销**。
 ///
 /// 核销把一笔应收从「资产」变成「损失」（借方 6702 / 贷方 1122），是**改账**动作：
-/// 审计要能回答「哪笔、为什么判为收不回来、谁批的」。所以两条入边都强制原因
+/// 审计要能回答「哪笔、为什么判为收不回来、谁批的」。所以入边强制原因
 /// （缺失 → `transition` 直接 400），原因同时落 `biz_status_log.reason` 与单据 `remark`。
+///
+/// `OPEN → CANCELLED` 同样必须给原因：作废一张应收的理由来自**上游出库单的作废原因**
+/// （`stockout_handler::cancel_stock_out` 强制 `reason`），冲销凭据要能追回那张单据。
 ///
 /// 收款相关的三条边（`OPEN→PARTIAL` / `OPEN→SETTLED` / `PARTIAL→SETTLED`）**不要**原因：
 /// 那是正常业务推进，依据是收款单本身。
-pub const RECEIVABLE_REASON_EDGES: [(&str, &str); 2] =
-    [("OPEN", "WRITTEN_OFF"), ("PARTIAL", "WRITTEN_OFF")];
+pub const RECEIVABLE_REASON_EDGES: [(&str, &str); 3] =
+    [("OPEN", "WRITTEN_OFF"), ("PARTIAL", "WRITTEN_OFF"), ("OPEN", "CANCELLED")];
 /// 需要 reason 的边：调拨单取消。
 pub const TRANSFER_REASON_EDGES: [(&str, &str); 2] =
     [("DRAFT", "CANCELLED"), ("PENDING", "CANCELLED")];
@@ -755,11 +762,11 @@ pub const SALES_ORDER_LOCKED: [&str; 5] =
 /// `PENDING_POST` **不在**入账态：提交待过账只是「排队」，改数量 / 改库位都没动过账，
 /// 允许撤回式修改（先作废重建）比锁死更省事，但**不允许原地改** —— 见 handler。
 pub const SHIPMENT_LOCKED: [&str; 2] = ["POSTED", "CANCELLED"];
-/// 应收单入账态：已结清（钱收完了，金额不许再动）与已核销（坏账终态）。
+/// 应收单入账态：已结清（钱收完了，金额不许再动）、已核销（坏账终态）与已作废（出库作废冲销）。
 ///
 /// `PARTIAL` **不在**入账态：部分收款之后还要继续核销（`PARTIAL → SETTLED` 的
 /// `received_amount` 会继续累加），锁死就没法收款了。
-pub const RECEIVABLE_LOCKED: [&str; 2] = ["SETTLED", "WRITTEN_OFF"];
+pub const RECEIVABLE_LOCKED: [&str; 3] = ["SETTLED", "WRITTEN_OFF", "CANCELLED"];
 /// 调拨单入账态：审批通过即锁定（在途 / 完成都不可改）。
 pub const TRANSFER_LOCKED: [&str; 3] = ["APPROVED", "IN_TRANSIT", "DONE"];
 /// 应付入账态：已结清 / 已作废都锁定（作废的单子当然不能再改）。
@@ -1022,15 +1029,16 @@ pub const SHIPMENT_BASE: [BaseEdge; 4] = [
 
 /// 应收单的 BASE_EDGES（与 [`RECEIVABLE_EDGES`] 逐条对应，顺序一致）。
 ///
-/// 五条全 `mandatory = true`：收款推进与坏账核销都是账务动作，
+/// 六条全 `mandatory = true`：收款推进、坏账核销、出库作废冲销都是账务动作，
 /// **没有可选边**（`state_machine` 单测 `optional_edges_are_exactly_the_documented_four`
 /// 钉死了「可选边只有 4 条」，这里多一条 optional 会直接红）。
-pub const RECEIVABLE_BASE: [BaseEdge; 5] = [
+pub const RECEIVABLE_BASE: [BaseEdge; 6] = [
     BaseEdge::mandatory("OPEN", "PARTIAL", "部分收款", false),
     BaseEdge::mandatory("OPEN", "SETTLED", "一次收清", false),
     BaseEdge::mandatory("PARTIAL", "SETTLED", "收清尾款", false),
     BaseEdge::mandatory("OPEN", "WRITTEN_OFF", "坏账核销", true),
     BaseEdge::mandatory("PARTIAL", "WRITTEN_OFF", "坏账核销", true),
+    BaseEdge::mandatory("OPEN", "CANCELLED", "出库作废冲销应收", true),
 ];
 
 /// 库存调拨单的 BASE_EDGES（与 [`TRANSFER_EDGES`] 逐条对应，顺序一致）。

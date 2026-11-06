@@ -22,9 +22,14 @@
 //! | `PARTIAL` | `PARTIAL_PAID` | 部分已收 |
 //! | `SETTLED` | `SETTLED` | 收清 |
 //! | `WRITTEN_OFF` | `CANCELLED` | **坏账核销**（收不回来了，终态） |
+//! | `CANCELLED` | （无） | **出库作废冲销**（来源出库单作废 ⇒ 这笔销售从未发生，终态；V0290） |
 //!
-//! 边表是 [`LEGAL_EDGES`]（= `state_machine::RECEIVABLE_EDGES`，5 条），全部经
+//! 边表是 [`LEGAL_EDGES`]（= `state_machine::RECEIVABLE_EDGES`，6 条），全部经
 //! `state_machine::transition` 落库并写 `biz_status_log`（`entity_type = RECEIVABLE`）。
+//!
+//! ⚠ `WRITTEN_OFF`（坏账）与 `CANCELLED`（作废）**不能混用**：
+//! 坏账报表按 `status = 'WRITTEN_OFF'` 取数统计减值损失；作废单不进坏账报表，
+//! 也不进账龄（账龄取 `OPEN` / `PARTIAL`，见 [`has_balance`]）。
 //!
 //! # 手工挂账（`POST /business/erp/receivable`）
 //!
@@ -44,7 +49,13 @@
 //! # 坏账核销（`PATCH /business/erp/receivable/{id}/write-off`）
 //!
 //! `OPEN` / `PARTIAL` → `WRITTEN_OFF`，**必须给原因**（`RECEIVABLE_REASON_EDGES`），
-//! 落 `settled_at`（核销时间）。`SETTLED` / `WRITTEN_OFF` 再核销 → 409（终态）。
+//! 落 `settled_at`（核销时间）。`SETTLED` / `WRITTEN_OFF` / `CANCELLED` 再核销 → 409（终态）。
+//!
+//! # 出库作废冲销（`cancel_for_stock_out`，由 `receivable_bridge` 调用）
+//!
+//! `OPEN`（且 `received_amount = 0`）→ `CANCELLED`，必须给原因（上游出库单的作废原因）。
+//! 入口唯一：`stockout_handler::cancel_out_tx` 在「三本账回滚 + 红字凭证」之后的**同一个事务**里调用。
+//! 已收过款的应收 → 409（先冲收款 / 收款退款单），库层 `ck_biz_ar_cancelled` 兜底。
 //!
 //! ## 本卡**不生成**核销凭证（边界，别当成漏了）
 //!
@@ -105,14 +116,25 @@ pub const STATUS_PARTIAL: &str = "PARTIAL";
 pub const STATUS_SETTLED: &str = "SETTLED";
 /// 状态：坏账核销（终态）。
 pub const STATUS_WRITTEN_OFF: &str = "WRITTEN_OFF";
+/// 状态：已作废（来源出库单作废 ⇒ 这笔销售从未发生，终态）。V0290。
+pub const STATUS_CANCELLED: &str = "CANCELLED";
 
 /// 状态白名单（与 `ck_biz_ar_status` 逐字一致，单测钉住）。
-pub const STATUSES: [&str; 4] = [
+pub const STATUSES: [&str; 5] = [
     STATUS_OPEN,
     STATUS_PARTIAL,
     STATUS_SETTLED,
     STATUS_WRITTEN_OFF,
+    STATUS_CANCELLED,
 ];
+
+/// 有余额的状态（`OPEN` / `PARTIAL`）—— **账龄 / 逾期 / 收款只看这两种**。
+///
+/// 三种终态各有各的「不再是应收资产」的理由：`SETTLED` 收清了、
+/// `WRITTEN_OFF` 核销成损失了、`CANCELLED` 对应的销售根本没发生。
+pub fn has_balance(status: &str) -> bool {
+    status == STATUS_OPEN || status == STATUS_PARTIAL
+}
 
 /// 来源类型：手工挂账。
 ///
@@ -137,15 +159,18 @@ pub const RECEIVABLE_SEQ: SeqSpec<'static> = SeqSpec {
 };
 
 /// 合法边（唯一真相在 `state_machine::RECEIVABLE_EDGES`，这里只是别名）。
-pub const LEGAL_EDGES: [(&str, &str); 5] = state_machine::RECEIVABLE_EDGES;
+pub const LEGAL_EDGES: [(&str, &str); 6] = state_machine::RECEIVABLE_EDGES;
 
 /// 入账态（唯一真相在 `state_machine::RECEIVABLE_LOCKED`）。
-pub const LOCKED: [&str; 2] = state_machine::RECEIVABLE_LOCKED;
+pub const LOCKED: [&str; 3] = state_machine::RECEIVABLE_LOCKED;
 
 /// 核销原因最短长度（短于这个的「坏账」「无」不算可追溯依据）。
 pub const REASON_MIN_CHARS: usize = 4;
 /// 核销原因最长长度（`remark` 是 TEXT，这里只是不给「一大段粘贴」）。
 pub const REASON_MAX_CHARS: usize = 500;
+
+/// 出库作废冲销写进 `remark` 的前缀（与「[坏账核销]」同形，一眼能看出这条应收怎么终止的）。
+pub const CANCEL_REASON_PREFIX: &str = "[出库作废冲销]";
 
 /// `biz_receivable` 列清单（与 V0287 逐列对应）。
 pub const COLUMNS: &str = "id, ar_no, customer_id, source_type, source_id, source_no, \
@@ -610,6 +635,134 @@ pub async fn write_off(
         })
 }
 
+/// 出库作废 ⇒ 冲销这张自动挂上的应收（`OPEN` → `CANCELLED`）。
+///
+/// # 只允许「一分没收」的应收
+///
+/// ```text
+/// status = OPEN 且 received_amount = 0   → 允许作废（钱没动过，单据作废 = 销售没发生）
+/// PARTIAL / SETTLED（收过钱）             → 409：钱已经进账，冲回必须走收款退款单
+/// WRITTEN_OFF（已坏账核销）               → 409：核销凭证已出，先处理核销再作废
+/// CANCELLED（已作废）                     → 409：重复作废（调用方先判幂等）
+/// ```
+///
+/// 库层还有 `ck_biz_ar_cancelled`（`status <> 'CANCELLED' OR received_amount = 0`）兜底，
+/// 程序算错 / 绕过 handler 也改不出「收过钱的已作废应收」。
+///
+/// # 事务边界（与出库作废同生共死）
+///
+/// 本函数**不开事务**，必须由 `stockout_handler::cancel_out_tx` 在它的事务里调用：
+/// 三本账回滚 / 出库红字凭证 / 应收作废要么全成、要么全回滚。
+/// 顺序与过账侧对称：过账是「三本账 → 成本凭证 → 挂应收」，作废是「回滚三本账 → 红字凭证 → 冲销应收」。
+///
+/// # 期间闸（有意不加，别当漏了）
+///
+/// 出库作废这条路径本身不过 `period::ensure_period_writable`（红字凭证直接落到作废当天），
+/// 在应收侧单方面加闸会让「销售来源出库单」的作废行为与领用出库不一致。
+/// 期间闸的缺口属**出库作废既有口径**，不在本卡扩大范围（要收口就一起收，见证据 README §边界）。
+pub async fn cancel_for_stock_out(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    reason: &str,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> std::result::Result<ReceivableRow, ApiError> {
+    let row = find_by_id(ex, id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询应收单"))?
+        .ok_or_else(|| {
+            ApiError::new(
+                404,
+                error_code::RESOURCE_NOT_FOUND,
+                "应收单不存在或已删除".to_string(),
+            )
+        })?;
+    if row.status == STATUS_CANCELLED {
+        return Err(ApiError::new(
+            409,
+            error_code::RESOURCE_CONFLICT,
+            format!(
+                "应收单 {} 已经是「{}」",
+                row.ar_no,
+                status_label(&row.status)
+            ),
+        ));
+    }
+    if row.status != STATUS_OPEN || row.received_amount > Decimal::ZERO {
+        return Err(ApiError::new(
+            409,
+            error_code::RESOURCE_CONFLICT,
+            format!(
+                "应收单 {} 当前是「{}」（已收 {}）：已收过款的应收不能作出库作废冲销，\
+                 请先冲收款（收款退款单）或先处理核销，再作废出库单",
+                row.ar_no,
+                status_label(&row.status),
+                row.received_amount.round_dp(2)
+            ),
+        ));
+    }
+    let reason = validate_reason(reason)?;
+
+    state_machine::transition(
+        ex,
+        state_machine::ENTITY_RECEIVABLE,
+        row.id,
+        &row.ar_no,
+        &LEGAL_EDGES,
+        &row.status,
+        STATUS_CANCELLED,
+        operator,
+        Some(&reason),
+        None,
+    )
+    .await?;
+
+    let remark = match row.remark.as_deref().map(str::trim) {
+        Some(old) if !old.is_empty() => format!("{old}\n{CANCEL_REASON_PREFIX} {reason}"),
+        _ => format!("{CANCEL_REASON_PREFIX} {reason}"),
+    };
+    // CAS：`status = 'OPEN' AND received_amount = 0` —— 并发收款把状态推到 PARTIAL 时这里写 0 行，
+    // 整笔出库作废回滚（不会出现「应收显示已作废、实际已收款」这种账）。
+    let updated = ex
+        .exec_sql(
+            format!(
+                "UPDATE {TABLE} \
+                    SET status = '{STATUS_CANCELLED}', settled_at = ?, updated_at = ?, \
+                        update_by = NULLIF(?::text,'')::uuid, remark = ? \
+                  WHERE id = ?::uuid AND status = '{STATUS_OPEN}' AND received_amount = 0 \
+                    AND deleted_at IS NULL"
+            ),
+            vec![
+                Value::from(now),
+                Value::from(now),
+                Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
+                Value::Text(remark),
+                Value::from(&row.id),
+            ],
+        )
+        .await?;
+    if updated == 0 {
+        return Err(ApiError::new(
+            409,
+            error_code::RESOURCE_CONFLICT,
+            format!(
+                "应收单 {} 在本次作废期间被收款 / 改动（不再是未收款 OPEN），出库作废已整笔回滚",
+                row.ar_no
+            ),
+        ));
+    }
+    find_by_id(ex, id)
+        .await
+        .map_err(|error| utils::db_error(error, "读取作废后的应收单"))?
+        .ok_or_else(|| {
+            ApiError::new(
+                404,
+                error_code::RESOURCE_NOT_FOUND,
+                "应收单作废后消失（并发软删？）".to_string(),
+            )
+        })
+}
+
 // ==================== 入参 / 出参 ====================
 
 /// 手工挂账请求（`POST /business/erp/receivable`）。
@@ -676,6 +829,7 @@ pub fn status_label(status: &str) -> &str {
         s if s == STATUS_PARTIAL => "部分已收",
         s if s == STATUS_SETTLED => "已收清",
         s if s == STATUS_WRITTEN_OFF => "坏账核销",
+        s if s == STATUS_CANCELLED => "已作废",
         other => other,
     }
 }
@@ -931,11 +1085,15 @@ mod tests {
         NaiveDate::parse_from_str(text, "%Y-%m-%d").expect("合法日期")
     }
 
-    /// ① 状态域与库层 `ck_biz_ar_status` 逐字一致（**不是** payable 的 PARTIAL_PAID / CANCELLED）。
+    /// ① 状态域与库层 `ck_biz_ar_status` 逐字一致（payable 的 PARTIAL_PAID / PENDING_CANCEL 仍不许进来）。
     #[test]
     fn status_domain_matches_check_constraint() {
-        assert_eq!(STATUSES, ["OPEN", "PARTIAL", "SETTLED", "WRITTEN_OFF"]);
-        for wrong in ["PARTIAL_PAID", "CANCELLED", "PENDING_CANCEL"] {
+        assert_eq!(
+            STATUSES,
+            ["OPEN", "PARTIAL", "SETTLED", "WRITTEN_OFF", "CANCELLED"],
+            "V0290 后应收域是 5 值（CANCELLED = 出库作废冲销）"
+        );
+        for wrong in ["PARTIAL_PAID", "PENDING_CANCEL"] {
             assert!(
                 !STATUSES.contains(&wrong),
                 "`{wrong}` 是 payable 的域值，写进 biz_receivable 会撞 ck_biz_ar_status（23514）"
@@ -946,31 +1104,64 @@ mod tests {
         assert_eq!(status_label(STATUS_SETTLED), "已收清");
         assert_eq!(status_label(STATUS_WRITTEN_OFF), "坏账核销");
         assert_eq!(
+            status_label(STATUS_CANCELLED),
+            "已作废",
+            "作废与坏账的标签必须能一眼分开（报表 / 台账都靠它）"
+        );
+        assert_eq!(
             status_label("WHATEVER"),
             "WHATEVER",
             "未知状态原样返回，不 panic"
         );
     }
 
-    /// ② 边表与状态机注册表同源，且与 ARCH-7 §4.3 的图一致（5 条边）。
+    /// ①b 有余额的状态只有 OPEN / PARTIAL：账龄、逾期、收款都按这个判（V0290 后三终态全排除）。
+    #[test]
+    fn only_open_and_partial_have_balance() {
+        assert!(has_balance(STATUS_OPEN));
+        assert!(has_balance(STATUS_PARTIAL));
+        for terminal in [STATUS_SETTLED, STATUS_WRITTEN_OFF, STATUS_CANCELLED] {
+            assert!(!has_balance(terminal), "`{terminal}` 不是有余额状态");
+        }
+    }
+
+    /// ② 边表与状态机注册表同源，且与 ARCH-7 §4.3 + V0290 的图一致（6 条边）。
     #[test]
     fn legal_edges_match_arch7_state_graph() {
         assert_eq!(LEGAL_EDGES, state_machine::RECEIVABLE_EDGES);
-        assert_eq!(LEGAL_EDGES.len(), 5);
+        assert_eq!(LEGAL_EDGES.len(), 6);
         let entity = state_machine::Entity::Receivable;
         assert!(entity.can_transition("OPEN", "PARTIAL"));
         assert!(entity.can_transition("OPEN", "SETTLED"));
         assert!(entity.can_transition("PARTIAL", "SETTLED"));
         assert!(entity.can_transition("OPEN", "WRITTEN_OFF"));
         assert!(entity.can_transition("PARTIAL", "WRITTEN_OFF"));
-        // 终态没有出边；已收清不能走坏账
+        assert!(entity.can_transition("OPEN", "CANCELLED"));
+        // 终态没有出边；已收清不能走坏账；收过钱的不能走作废
         assert!(!entity.can_transition("SETTLED", "WRITTEN_OFF"));
         assert!(!entity.can_transition("WRITTEN_OFF", "OPEN"));
+        assert!(
+            !entity.can_transition("PARTIAL", "CANCELLED"),
+            "已部分收款的应收没有作废边（先冲收款）"
+        );
+        for terminal in ["SETTLED", "WRITTEN_OFF", "CANCELLED"] {
+            for target in STATUSES {
+                assert!(
+                    !entity.can_transition(terminal, target),
+                    "终态 `{terminal}` 不许有出边（→ {target}）"
+                );
+            }
+        }
         assert!(entity.needs_reason("OPEN", "WRITTEN_OFF"));
         assert!(entity.needs_reason("PARTIAL", "WRITTEN_OFF"));
+        assert!(
+            entity.needs_reason("OPEN", "CANCELLED"),
+            "作废冲销必须留原因（上游出库单的作废理由）"
+        );
         assert!(!entity.needs_reason("OPEN", "SETTLED"));
         assert!(entity.is_locked("SETTLED"));
         assert!(entity.is_locked("WRITTEN_OFF"));
+        assert!(entity.is_locked("CANCELLED"));
         assert!(!entity.is_locked("PARTIAL"));
     }
 

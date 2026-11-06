@@ -1,0 +1,45 @@
+cargo test --features test-hooks（库 cloudpivot_so14，2026-11-06 19:22–19:47 CST）
+================================================================================
+
+test result: FAILED. 2813 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1212.53s
+
+本卡的 3 条新用例在全量里都 passed：
+  business::erp::receivable_bridge::tests::cancel_blocked_when_receivable_has_receipts ... ok
+  business::erp::receivable_bridge::tests::cancel_stock_out_cancels_receivable_and_restores_stock ... ok
+  business::erp::receivable_bridge::tests::repeated_cancel_keeps_receivable_cancelled_once ... ok
+
+6 条失败逐条归因（**没有一条**落在本卡改动的文件 / 语义上）
+--------------------------------------------------------------------------------
+① 既有缺陷（与父卡 SO-14 报的完全同一对，单跑复现）—— 本卡不碰 flow 定义
+   business::erp::stockin_handler::stockin_handler_tests_p16::p16_graph_snapshot_selfcheck_is_clean
+     → flow_graph_selfcheck: so_approve version 1 kind=RowsEdited，stored_hash ≠ recomputed_hash
+   business::erp::sales_approval_bridge::db_tests::three_tiers_start_flow_and_approve_to_approved
+     → 单据状态期望 APPROVED，实际 ""
+   单跑复现命令（本次实测同样失败）：
+     ERP_DB_URL=... cargo test --lib --features test-hooks -- --test-threads=1 \
+       business::erp::stockin_handler::stockin_handler_tests_p16::p16_graph_snapshot_selfcheck_is_clean \
+       business::erp::sales_approval_bridge::db_tests::three_tiers_start_flow_and_approve_to_approved
+     → test result: FAILED. 0 passed; 2 failed
+
+② 并行卡 SO-17（收款单）**未提交的 WIP** 造成的登记表/前端镜像不一致，与本卡无关
+   business::shared::doc_kind::doc_kind_tests::doc_kind_registries_match_doc_kind_table
+   business::shared::doc_kind::doc_kind_tests::frontend_ts_mirror_matches_rust
+     → 失败信息里只有多出来的 `RECEIPT`（SQL 22 行 / Rust 21 行）
+     → 证据：全量跑那一刻这两个文件是别的卡的在途改动
+         git diff docs/architecture/snapshot-drift/10_checks.sql  → 新增 ('STATUS_ENTITY','RECEIPT','biz_receipt',…)
+         git diff frontend/src/api/business/erp/doc-kinds.ts      → 新增 'RECEIPT'
+       本卡的提交里**不含** RECEIPT 相关任何一行（见 §七 的 git show 校验）
+
+③ 全量串味 / 顺序相关（单跑均通过）
+   business::erp::payable_bridge::tests::p17_skip_approval_payment_logs_are_purged_by_id
+     → 全量里报「审批流程 payable_pay 已发布…不能跳过」（别的用例把流程发布了）
+   business::erp::stocktake_tests::zz_teardown_purges_stocktake_fixtures
+     → 报 FK biz_flow_task_assignee_id_fkey（teardown 时别的用例的流程待办还指着 sys_user）
+   单跑（本次实测）：ERP_DB_URL=... cargo test --lib --features test-hooks -- --test-threads=1 \
+       business::erp::payable_bridge::tests::p17_skip_approval_payment_logs_are_purged_by_id \
+       business::erp::stocktake_tests::zz_teardown_purges_stocktake_fixtures
+     → test result: ok. 2 passed; 0 failed
+
+结论：本卡相关的单测域（receivable / receivable_query / receivable_aging / receivable_bridge /
+stockout / state_machine / doc_kind 的**应收**部分）全绿；剩余失败全部可归因到既有 flow 漂移、
+并行卡在途改动与共享库串味。
