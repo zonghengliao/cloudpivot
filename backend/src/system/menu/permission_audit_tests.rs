@@ -56,12 +56,48 @@ use crate::system::tests_support as ts;
 ///
 /// 每条都必须满足：① 仍在 `sys_menu` 里（否则前端 `meta.permission` 无处可勾）；
 /// ② 后端源码（剥离注释后）零引用。任一条件变化 → N18 变红，逼你回来清理台账。
-const ROUTE_LEVEL_ONLY: &[(&str, &str)] = &[(
-    "system:preference:view",
-    "TODO(FIX-06)：外观设置页纯前端（localStorage），后端无接口，权限点由 \
-     frontend/src/router/index.ts 的 meta.permission 拦截。日后若补后端接口，\
-     必须加 #[nik::permission] 并删除本例外。",
-)];
+const ROUTE_LEVEL_ONLY: &[(&str, &str)] = &[
+    (
+        "system:preference:view",
+        "TODO(FIX-06)：外观设置页纯前端（localStorage），后端无接口，权限点由 \
+         frontend/src/router/index.ts 的 meta.permission 拦截。日后若补后端接口， \
+         必须加 #[nik::permission] 并删除本例外。",
+    ),
+    // ---- 以下 7 条由 SO-35（V0310）预留，handler 归 SO-36 / SO-37（ARCH-7 §15.4）----
+    // 为什么先种码后写接口：佣金两页的菜单树与角色授权必须与佣金表同批上线，
+    // 否则 SO-36 写完接口才发现「码授不出去」（perm_menu_gate 闸⑥ 的静默死锁）。
+    // 每一条的落地卡与「必须删本例外」的纪律写在这里，避免留给下一个人考古。
+    (
+        "business:erp:commission-rule:list",
+        "TODO(SO-37)：佣金规则页列表接口由前端卡补齐（规则 CRUD 后端随之落地）。\
+         接口落地时必加 #[nik::permission(permission = \"business:erp:commission-rule:list\")] 并删除本例外。",
+    ),
+    (
+        "business:erp:commission-rule:create",
+        "TODO(SO-37)：佣金规则新建接口待落地（同上，落地即删本例外）。",
+    ),
+    (
+        "business:erp:commission-rule:update",
+        "TODO(SO-37)：佣金规则编辑 / 停用接口待落地（同上，落地即删本例外）。",
+    ),
+    (
+        "business:erp:commission-rule:delete",
+        "TODO(SO-37)：佣金规则软删接口待落地（同上，落地即删本例外）。",
+    ),
+    (
+        "business:erp:commission-settle:list",
+        "TODO(SO-36)：佣金结算分页 / 明细接口待落地（同卡：生成 + 状态流转）。\
+         接口落地时必加注解并删除本例外。",
+    ),
+    (
+        "business:erp:commission-settle:create",
+        "TODO(SO-36)：生成佣金结算单接口（POST /commission/settle）待落地，落地即删本例外。",
+    ),
+    (
+        "business:erp:commission-settle:status",
+        "TODO(SO-36)：结算单审批 / 发放接口（PATCH /commission/{id}/status）待落地，落地即删本例外。",
+    ),
+];
 
 /// 允许**没有** `#[nik::permission]` 注解的路由白名单：`"METHOD /path"` → 理由。
 ///
