@@ -111,7 +111,11 @@
             <code class="cell-trigger__code">{{ row.trigger_entity }}</code>
           </div>
           <t-space size="4px">
-            <t-tag size="small" theme="primary" variant="outline">{{ row.trigger_status }}</t-tag>
+            <t-tooltip :content="`状态编码：${row.trigger_status}`">
+                <t-tag size="small" theme="primary" variant="outline" data-testid="linkage-row-status">
+                  {{ statusLabel(row.trigger_entity, row.trigger_status) }}
+                </t-tag>
+              </t-tooltip>
             <t-tag v-if="!isWiredEntity(triggers, row.trigger_entity)" size="small" theme="warning" variant="light">
               未接线
             </t-tag>
@@ -273,7 +277,17 @@
                   filterable
                   data-testid="linkage-form-action"
                 />
-                <div v-if="currentAction" class="editor__action-hint">
+                <div class="editor__whitelist-note" data-testid="linkage-whitelist-note">
+                    <t-icon name="info-circle" />
+                    <span>
+                      目标动作是系统内置能力（当前
+                      <strong>{{ actions.filter((a) => a.implemented).length }}</strong>
+                      个已实现），不能自行新增 —— 每个动作背后是一段事务内的执行逻辑。
+                      如需新动作（发短信 / 调外部系统等）需开发。
+                      <em>但每个动作的参数可以自由配置。</em>
+                    </span>
+                  </div>
+                  <div v-if="currentAction" class="editor__action-hint">
                   <t-space size="6px">
                     <t-tag size="small" :theme="phaseTheme(currentAction.phase)" variant="light">
                       {{ phaseLabel(currentAction.phase) }}
@@ -501,8 +515,7 @@ import {
   type LinkageRule,
   type LinkageTrigger,
 } from '@/api/business/flow/linkage';
-import {
-  actionOptions,
+import {actionOptions,
   buildParamPayload,
   draftAlertTheme,
   emptyForm,
@@ -527,6 +540,7 @@ import {
   unwiredNote,
   type LinkageOption,
   type ParamForm,
+  statusLabel,
 } from './linkage-logic';
 
 /** 表格列 */

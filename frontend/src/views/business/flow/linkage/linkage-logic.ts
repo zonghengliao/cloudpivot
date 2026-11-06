@@ -23,6 +23,96 @@ import type {
 } from '@/api/business/flow/linkage';
 
 /** 下拉选项（`t-select` 的形状） */
+// ==================== 触发状态中文名（P1-FIX-12） ====================
+//
+// 后端 `admin.rs` 下发的 `triggers[].statuses` 是**状态编码**（POSTED / DOING / ...），
+// 直接展示对业务人员不可读。这里维护「编码 → 中文」，由 `statusOptions` 与列表单元格共用。
+//
+// **为什么放在前端而不是后端下发**：
+//   `known_statuses()` 从 `state_machine::Entity::base_edges()` 动态推导，后端没有中文表。
+//   在后端补 status_labels 要改 15 个实体的数据 + API DTO + 单测，改动面大；
+//   前端一张字典 + 一个单测钉住「必须覆盖后端全集」性价比更高。
+//   后续若后端下发 `status_labels`，此处可直接退化为「优先用后端、缺失才用本表」。
+//
+// **维护规则**：后端新增状态时，`tests_linkage_status_labels.ts` 的单测会红（它拿后端
+//   `statuses` 全集与本表的 keys 做集合比对），逼你补中文 —— 不会静默漂移。
+
+/** 通用状态中文名（跨实体共用） */
+export const STATUS_LABELS: Record<string, string> = {
+  // 单据通用
+  DRAFT: '草稿',
+  SUBMITTED: '已提交',
+  PENDING: '待处理',
+  PENDING_APPROVAL: '待审批',
+  PENDING_POST: '待过账',
+  PENDING_CANCEL: '待作废',
+  APPROVED: '已审批',
+  REJECTED: '已驳回',
+  AUDITED: '已审核',
+  POSTED: '已过账',
+  CANCELLED: '已作废',
+  CLOSED: '已关闭',
+  COMPLETED: '已完成',
+  DONE: '已完成',
+  SKIPPED: '已跳过',
+  REVERSED: '已红冲',
+  // 采购 / 库存
+  PARTIAL_RECEIVED: '部分收货',
+  RECEIVED: '已收货',
+  PARTIAL_PAID: '部分付款',
+  IN_TRANSIT: '在途',
+  // 资金
+  OPEN: '未结清',
+  SETTLED: '已结清',
+  PAID: '已支付',
+  // 合同
+  SIGNED: '已签署',
+  ACTIVE: '生效中',
+  TERMINATED: '已终止',
+  // 资产 / 折旧
+  IN_USE: '在用',
+  IDLE: '闲置',
+  DISPOSED: '已处置',
+  CALCULATED: '已计算',
+  // 期间 / 年结
+  NOT_OPENED: '未开启',
+  NOT_CLOSED: '未结转',
+  // 任务
+  TODO: '待办',
+  DOING: '进行中',
+  REVIEW: '待复核',
+};
+
+/**
+ * 实体特定覆盖（同一编码在不同实体含义不同时使用）。
+ *
+ * 典型冲突：
+ *   - `OPEN`：ACCOUNTING_PERIOD = 期间已开启；PAYABLE = 尚未结清
+ *   - `CLOSED`：ACCOUNTING_PERIOD = 期间已关闭；PURCHASE_ORDER = 订单已关闭
+ *   - `POSTED`：VOUCHER = 已记账；STOCK_IN = 已过账
+ */
+export const ENTITY_STATUS_OVERRIDES: Record<string, Record<string, string>> = {
+  ACCOUNTING_PERIOD: { NOT_OPENED: '未开启', OPEN: '已开启', CLOSED: '已关闭' },
+  ACCOUNTING_YEAR: { NOT_CLOSED: '未结转', CLOSED: '已结转' },
+  PAYABLE: { OPEN: '未结清', PARTIAL_PAID: '部分付款', SETTLED: '已结清', PENDING_CANCEL: '待作废' },
+  VOUCHER: { DRAFT: '草稿', AUDITED: '已审核', POSTED: '已记账' },
+  FIXED_ASSET: { IN_USE: '在用', IDLE: '闲置', DISPOSED: '已处置' },
+  DEPRECIATION: { CALCULATED: '已计算', POSTED: '已过账', REVERSED: '已红冲', SKIPPED: '已跳过' },
+};
+
+/**
+ * 取状态中文名。优先级：实体覆盖 → 通用表 → 原始编码（不丢信息）。
+ *
+ * @param entity 触发实体编码（如 `STOCK_IN`），可为空
+ * @param status 状态编码（如 `POSTED`）
+ */
+export function statusLabel(entity: string | undefined | null, status: string): string {
+  if (!status) return '';
+  const override = entity ? ENTITY_STATUS_OVERRIDES[entity]?.[status] : undefined;
+  if (override) return override;
+  return STATUS_LABELS[status] ?? status;
+}
+
 export interface LinkageOption {
   /** 展示文案 */
   label: string;
@@ -171,7 +261,11 @@ export function ruleOtherProblems(rule: LinkageRule, triggers: LinkageTrigger[])
 /** 某个实体的状态下拉（后端下发的状态集，前端不自己维护状态表） */
 export function statusOptions(triggers: LinkageTrigger[], entity: string): LinkageOption[] {
   const trigger = triggers.find((item) => item.entity === entity);
-  return (trigger?.statuses ?? []).map((status) => ({ label: status, value: status }));
+  // P1-FIX-12：显示「中文（编码）」，编码保留便于对照日志与排障
+  return (trigger?.statuses ?? []).map((status) => {
+    const zh = statusLabel(trigger?.entity, status);
+    return { label: zh && zh !== status ? `${zh}（${status}）` : status, value: status };
+  });
 }
 
 /**
