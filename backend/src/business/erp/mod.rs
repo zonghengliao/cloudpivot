@@ -67,6 +67,8 @@
 //! | [`reminder_purchase`] | ② 采购超期：超过 `expect_date` 未收完 → 制单人 + 采购经理（重提醒 3 天） | **ARCH-3 R-P1-2** |
 //! | [`reminder_contract`] | ③ 合同到期：`end_date` 前 30/15/7/1 天 → 制单人 + 负责人 + 采购经理 | **ARCH-3 R-P1-2** |
 //! | [`reminder_stock`] | ④ 低库存：`qty < safety_stock`（DC-12 摆设字段落地）→ 仓管主管 | **ARCH-3 R-P1-2** |
+//! | [`customer_model`] | 客户档案数据层（V0260）：`ACTIVE`/`FROZEN` 域、软删后编码可复用、分页 | **SO-01/SO-02** |
+//! | [`sales_model`] | 销售订单数据层（V0264）：`SO-yyyyMMdd-6 位` 取号 + 7 态状态域 + 金额恒等守卫 | **SO-04** |
 //!
 //! # 表结构的唯一依据
 //!
@@ -155,6 +157,7 @@ pub mod reminder_stock;
 pub mod report;
 pub mod report_item_admin;
 pub mod report_item_model;
+pub mod sales_model;
 pub mod separation;
 pub mod serial_dto;
 pub mod serial_handler;

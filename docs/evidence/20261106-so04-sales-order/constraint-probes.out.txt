@@ -1,0 +1,61 @@
+=== A. 金额恒等：total_with_tax=114 而 100+13=113 → 期望 ERROR ck_sales_order_amount ===
+psql:docs/evidence/20261106-so04-sales-order/constraint-probes.sql:7: ERROR:  new row for relation "biz_sales_order" violates check constraint "ck_sales_order_amount"
+DETAIL:  Failing row contains (e8510bcf-a439-4e9c-97e2-cbcbd555c129, EVID-CK-001, e81c2374-f5a4-47d9-858c-395259dc8bb9, 2026-11-06, null, DRAFT, 100.0000, 13.0000, 114.0000, null, 2026-11-06 09:57:50.52124+08, 2026-11-06 09:57:50.52124+08, null, null, null).
+=== B. 金额恒等：114 改 113 → 期望 INSERT 0 1（随后 ROLLBACK，不留数据）===
+BEGIN
+INSERT 0 1
+    so_no    | status | total_amount | total_tax | total_with_tax 
+-------------+--------+--------------+-----------+----------------
+ EVID-CK-001 | DRAFT  |     100.0000 |   13.0000 |       113.0000
+(1 row)
+
+ROLLBACK
+=== C. 状态域：技术架构旧稿值 SHIPPED → 期望 ERROR ck_sales_order_status ===
+psql:docs/evidence/20261106-so04-sales-order/constraint-probes.sql:18: ERROR:  new row for relation "biz_sales_order" violates check constraint "ck_sales_order_status"
+DETAIL:  Failing row contains (26a758d7-0973-4153-b8d0-7f98c356efd9, EVID-CK-002, 65d6a48b-0519-46e7-8123-1f9d0c9cb742, 2026-11-06, null, SHIPPED, 0.0000, 0.0000, 0.0000, null, 2026-11-06 09:57:50.526004+08, 2026-11-06 09:57:50.526004+08, null, null, null).
+=== D. 明细超发 delivered_qty(11) > qty(10) → 期望 ERROR ck_sales_order_item_delivered ===
+BEGIN
+INSERT 0 1
+psql:docs/evidence/20261106-so04-sales-order/constraint-probes.sql:25: ERROR:  new row for relation "biz_sales_order_item" violates check constraint "ck_sales_order_item_delivered"
+DETAIL:  Failing row contains (d1fdfb73-c9b6-46a1-a7f0-7d22d8c571a8, d0264aaa-0000-4000-8000-000000000001, 1, 741d54a4-2bc7-4acc-a32c-0a062a5834cd, 10.0000, 0.000000, 0.0000, 0.0000, 0.0000, 11.0000, 2026-11-06 09:57:50.526133+08, 2026-11-06 09:57:50.526133+08).
+ROLLBACK
+=== E. 明细零数量 qty=0 → 期望 ERROR ck_sales_order_item_qty ===
+BEGIN
+INSERT 0 1
+psql:docs/evidence/20261106-so04-sales-order/constraint-probes.sql:33: ERROR:  new row for relation "biz_sales_order_item" violates check constraint "ck_sales_order_item_qty"
+DETAIL:  Failing row contains (c217a0dd-0a5e-4143-b204-e32317fd955b, d0264aaa-0000-4000-8000-000000000002, 1, 82635025-2e01-47e3-a530-1e5ee45fb30f, 0.0000, 0.000000, 0.0000, 0.0000, 0.0000, 0.0000, 2026-11-06 09:57:50.526569+08, 2026-11-06 09:57:50.526569+08).
+ROLLBACK
+=== F. 单号唯一（存活行）：同一 so_no 插两次 → 期望第 2 次 ERROR uk_biz_sales_order_no ===
+BEGIN
+INSERT 0 1
+psql:docs/evidence/20261106-so04-sales-order/constraint-probes.sql:39: ERROR:  duplicate key value violates unique constraint "uk_biz_sales_order_no"
+DETAIL:  Key (so_no)=(EVID-CK-005) already exists.
+ROLLBACK
+=== G. 软删后单号可复用：软删 → 再插同号 → 期望 INSERT 0 1（随后 ROLLBACK）===
+BEGIN
+INSERT 0 1
+UPDATE 1
+INSERT 0 1
+ live_rows_with_same_no 
+------------------------
+                      1
+(1 row)
+
+ROLLBACK
+=== H. 级联：删单头 → 明细随外键消失 → 期望 0 ===
+BEGIN
+INSERT 0 1
+INSERT 0 1
+DELETE 1
+ items_left 
+------------
+          0
+(1 row)
+
+ROLLBACK
+=== I. 落库总览（应只剩种子取号规则，业务表 0 行）===
+ orders | items | so_seq_current_no | so_seq_period_key 
+--------+-------+-------------------+-------------------
+      0 |     0 |                10 | 20261106
+(1 row)
+

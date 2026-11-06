@@ -1,0 +1,23 @@
+    Blocking waiting for file lock on artifact directory
+   Compiling nik-db v0.4.2 (/opt/cloudpivot/backend/vendor/nik-db)
+   Compiling nik-web v0.4.2 (/opt/cloudpivot/backend/vendor/nik-web)
+   Compiling nik v0.4.2 (/opt/cloudpivot/backend/vendor/nik)
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 23s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-67e4f09c2e780dae)
+
+running 10 tests
+test business::erp::sales_model::tests::amount_identity_constraint_enforced_by_db ... ok
+test business::erp::sales_model::tests::defaults_delivered_guard_and_cascade_on_real_db ... ok
+test business::erp::sales_model::tests::delivered_qty_boundary ... ok
+test business::erp::sales_model::tests::format_and_parse_so_no_roundtrip ... ok
+test business::erp::sales_model::tests::next_so_no_generates_consecutive_numbers_on_real_db ... [SO-04] 取号实况：SO-20261106-000007 → SO-20261106-000008（period_key=20261106）
+ok
+test business::erp::sales_model::tests::parse_so_no_rejects_malformed_values ... ok
+test business::erp::sales_model::tests::period_key_uses_beijing_day ... ok
+test business::erp::sales_model::tests::so_no_unique_among_live_rows_only ... ok
+test business::erp::sales_model::tests::status_domain_matches_check_constraint ... ok
+test business::erp::sales_model::tests::totals_consistency_is_exact ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 2700 filtered out; finished in 1.39s
+

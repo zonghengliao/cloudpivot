@@ -1,0 +1,31 @@
+                                Table "public.biz_sales_order"
+     Column     |           Type           | Collation | Nullable |          Default           
+----------------+--------------------------+-----------+----------+----------------------------
+ id             | uuid                     |           | not null | gen_random_uuid()
+ so_no          | character varying(32)    |           | not null | 
+ customer_id    | uuid                     |           | not null | 
+ order_date     | date                     |           | not null | 
+ delivery_date  | date                     |           |          | 
+ status         | character varying(24)    |           | not null | 'DRAFT'::character varying
+ total_amount   | numeric(18,4)            |           | not null | 0
+ total_tax      | numeric(18,4)            |           | not null | 0
+ total_with_tax | numeric(18,4)            |           | not null | 0
+ remark         | text                     |           |          | 
+ created_at     | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ updated_at     | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ create_by      | uuid                     |           |          | 
+ update_by      | uuid                     |           |          | 
+ deleted_at     | timestamp with time zone |           |          | 
+Indexes:
+    "biz_sales_order_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_sales_order_customer" btree (customer_id, order_date DESC)
+    "idx_biz_sales_order_date" btree (order_date DESC)
+    "idx_biz_sales_order_status" btree (status)
+    "uk_biz_sales_order_no" UNIQUE, btree (so_no) WHERE deleted_at IS NULL
+Check constraints:
+    "ck_sales_order_amount" CHECK (total_with_tax = (total_amount + total_tax))
+    "ck_sales_order_amount_nonneg" CHECK (total_amount >= 0::numeric AND total_tax >= 0::numeric AND total_with_tax >= 0::numeric)
+    "ck_sales_order_status" CHECK (status::text = ANY (ARRAY['DRAFT'::character varying, 'SUBMITTED'::character varying, 'APPROVED'::character varying, 'PARTIAL_OUT'::character varying, 'OUTBOUND'::character varying, 'CLOSED'::character varying, 'CANCELLED'::character varying]::text[]))
+Referenced by:
+    TABLE "biz_sales_order_item" CONSTRAINT "fk_biz_sales_order_item_order" FOREIGN KEY (so_id) REFERENCES biz_sales_order(id) ON DELETE CASCADE
+
