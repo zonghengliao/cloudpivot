@@ -1,0 +1,74 @@
+==============================================================
+阶段 1｜空库全量重放 → cloudpivot_so32 (:18232)
+==============================================================
+==> 建库 cloudpivot_so32（owner=alun）
+==> 空库确认
+cloudpivot_so32 tables=0
+==> 启动 pid=1213537 库=cloudpivot_so32 端口=18232 日志=/root/cloudpivot_so32_server.log
+health=200 pid=1213537
+==> 迁移日志
+-- 反例：写在版本化迁移里会在空库上命中 0 个角色（迁移先于种子跑），
+-- 实测证据见 `docs/evidence/20261105-p0fix4a/03_migration_drill.txt`
+[2m2026-11-06T18:24:54.536543Z[0m [34mDEBUG[0m [2mtokio_postgres::simple_query[0m[2m:[0m executing statement batch: INSERT INTO schema_migrations (kind, name, version, checksum, applied_via, applied_at, applied_seq, execution_ms, success, source) VALUES ('seed', 'voucher_three_state_permissions', NULL, 'bc4644b284f7ccbfd6b5e4712b615571a3c5a6d5cb8a58064be328897d95d036', 'executed', 1793989494, 233, 0, TRUE, 'migrations/seed/S__voucher_three_state_permissions.sql') ON CONFLICT (kind, name) DO UPDATE SET version = excluded.version, checksum = excluded.checksum, applied_via = excluded.applied_via, applied_at = excluded.applied_at, applied_seq = excluded.applied_seq, execution_ms = excluded.execution_ms, success = excluded.success, source = excluded.source;
+-- 节点由版本化迁移 `migrations/business/V0121__flow_def_permissions.up.sql` 创建：
+-- 回滚：由 V0121 的 down 脚本统一清理（种子迁移没有独立 down）。
+-- ---------- 3) 页面节点的可见性：保持迁移里登记的状态（隐藏），此处不动 ----------
+[2m2026-11-06T18:24:54.538246Z[0m [34mDEBUG[0m [2mtokio_postgres::simple_query[0m[2m:[0m executing statement batch: INSERT INTO schema_migrations (kind, name, version, checksum, applied_via, applied_at, applied_seq, execution_ms, success, source) VALUES ('seed', 'workflow_permissions', NULL, '7704a11964e432d24e5b47d7640896f079d432a4ce0b3893ecd89a83964ff15b', 'executed', 1793989494, 234, 1, TRUE, 'migrations/seed/S__workflow_permissions.sql') ON CONFLICT (kind, name) DO UPDATE SET version = excluded.version, checksum = excluded.checksum, applied_via = excluded.applied_via, applied_at = excluded.applied_at, applied_seq = excluded.applied_seq, execution_ms = excluded.execution_ms, success = excluded.success, source = excluded.source;
+[2m2026-11-06T18:24:54.539591Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 234 个迁移
+  [OK]   health = 200
+  [OK]   V0270 schema_migrations 记录(version|kind|applied_via|success) = 270|versioned|executed|true
+  [OK]   versioned 迁移条数（历史 + 本卡） = 224
+  [OK]   applied_via 非法值行数（只允许 executed/imported） = 0
+  [OK]   本卡迁移按版本号次序落在 V0267 与 V0280 之间（空库重放排序正确） = true
+  [OK]   biz_customer_price 列数 = 14
+  [OK]   biz_price_tier 列数 = 16
+  [OK]   biz_material.standard_price 类型 = numeric(18,4)
+  [OK]   uk_biz_cust_price 是存活行唯一索引 = true
+  [OK]   uk_biz_price_tier 带 NULLS NOT DISTINCT = true
+  [OK]   第一条协议价插入 = inserted
+  [OK]   同键第二条被 uk_biz_cust_price 拒绝（唯一索引生效）: ERROR:  duplicate key value violates unique constraint "uk_biz_cust_price"
+  [OK]   价格 = 0 被 ck_biz_cust_price_price 拒绝（价格必须 > 0）
+  [OK]   standard_price = 0 被 CHECK 拒绝
+  [OK]   证据探针清场后残留 = 0
+
+==============================================================
+阶段 2｜乱序补迁 → cloudpivot_so32_ooo（克隆 cloudpivot_so31，已到 V0306 且无 V0270）:18233
+==============================================================
+  [OK]   克隆源 cloudpivot_so31 里 V0270 应不存在 = 0
+  [OK]   克隆源 cloudpivot_so31 最大版本 = 306
+==> 启动 pid=1213744 库=cloudpivot_so32_ooo 端口=18233 日志=/root/cloudpivot_so32_ooo_server.log
+health=200 pid=1213744
+==> 迁移日志
+-- 卡面点名 `V0270__sales_price`。开工实测：backend/migrations/business/ 最大号 = V0306
+-- （V0306__sales_return_menu_page，SO-31 提交 d2902f7），**V0270 未被任何迁移占用**
+-- 提交前再 `ls backend/migrations/business | sort | tail` 复核一次，防并行卡抢号。
+--   versioned 迁移只打一条 `乱序补迁` 的 tracing::warn，不拒绝、不阻断（与 sqlx 同行为）。
+-- 自检（末尾 DO 块）：结构 + 语义 + 行为探针，任一不符 → 整个迁移失败（事务回滚）
+    --        否则自检块会被 RESTRICT 顶穿成一条「迁移失败」的假故障。
+[2m2026-11-06T18:24:58.799110Z[0m [34mDEBUG[0m [2mtokio_postgres::simple_query[0m[2m:[0m executing statement batch: INSERT INTO schema_migrations (kind, name, version, checksum, applied_via, applied_at, applied_seq, execution_ms, success, source) VALUES ('versioned', 'sales_price', '270', '11a24149b93ac9077fa959426b6df8d706f6b9e5aea7cde85e979924d5ddc503', 'executed', 1793989498, 234, 24, TRUE, 'migrations/business/V0270__sales_price.up.sql') ON CONFLICT (kind, name) DO UPDATE SET version = excluded.version, checksum = excluded.checksum, applied_via = excluded.applied_via, applied_at = excluded.applied_at, applied_seq = excluded.applied_seq, execution_ms = excluded.execution_ms, success = excluded.success, source = excluded.source;
+[2m2026-11-06T18:24:58.801598Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 1 个迁移
+  [OK]   health = 200
+  [OK]   V0270 在存量库上补迁成功 = 270|executed|true
+  [OK]   补迁落在已应用最大值之后（applied_seq 递增，不重排历史） = true
+  [OK]   历史 V0306 记录仍在 = 1
+  [OK]   补迁前 max=306，补迁后 V0270 仍存在（号段 270 未被拒） = 1
+  [OK]   启动日志含「乱序补迁」告警（alun 对低版本补迁只告警不拒绝）
+  [OK]   存量库上三张对象在位 = true
+
+==============================================================
+阶段 3｜回滚演习 down → up → 二次 up（库 cloudpivot_so32_drill，克隆 cloudpivot_so32_ooo）
+==============================================================
+  [OK]   down 退出码 = 0
+  [OK]   down 后两张表是否消失 = true
+  [OK]   down 后 standard_price 列是否消失 = 0
+  [OK]   down 不改物料主数据行数 = 5
+  [OK]   down 二次执行（幂等）退出码 = 0
+  [OK]   down→up 退出码 = 0
+  [OK]   down→up 后表回来 = true
+  [OK]   二次 up（幂等，不再要求列/索引重建）退出码 = 0
+  [OK]   二次 up 后 schema_migrations 记录未被复制 = 1
+  [OK]   二次 up 后物料主数据行数未变 = 5
+
+==============================================================
+结论：全部断言通过（FAIL=0）
+==============================================================

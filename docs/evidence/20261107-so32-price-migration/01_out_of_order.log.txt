@@ -1,0 +1,3 @@
+30:[2m2026-11-06T18:24:58.768279Z[0m [33m WARN[0m [2mnik_db::migrate[0m[2m:[0m 待应用迁移的版本低于已应用最大值（乱序补迁）；确认无误后可设 out_of_order = true 消除告警 [3mmigration[0m[2m=[0msales_price [3mversion[0m[2m=[0m270 [3mlatest_applied[0m[2m=[0m306
+51:--   乱序补迁在本仓是**允许**的：alun-db 的 `apply()` 对「版本号低于已应用最大值」的
+52:--   versioned 迁移只打一条 `乱序补迁` 的 tracing::warn，不拒绝、不阻断（与 sqlx 同行为）。

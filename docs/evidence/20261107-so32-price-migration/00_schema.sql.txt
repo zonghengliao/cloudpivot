@@ -1,0 +1,82 @@
+=== \d biz_customer_price
+                               Table "public.biz_customer_price"
+     Column     |           Type           | Collation | Nullable |           Default           
+----------------+--------------------------+-----------+----------+-----------------------------
+ id             | uuid                     |           | not null | gen_random_uuid()
+ customer_id    | uuid                     |           | not null | 
+ material_id    | uuid                     |           | not null | 
+ price          | numeric(18,4)            |           | not null | 
+ min_qty        | numeric(18,4)            |           | not null | 0
+ effective_from | date                     |           | not null | CURRENT_DATE
+ effective_to   | date                     |           |          | 
+ status         | character varying(16)    |           | not null | 'ACTIVE'::character varying
+ remark         | text                     |           |          | 
+ created_at     | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ updated_at     | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ create_by      | uuid                     |           |          | 
+ update_by      | uuid                     |           |          | 
+ deleted_at     | timestamp with time zone |           |          | 
+Indexes:
+    "biz_customer_price_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_cust_price_customer_status" btree (customer_id, status) WHERE deleted_at IS NULL
+    "idx_biz_cust_price_material" btree (material_id)
+    "uk_biz_cust_price" UNIQUE, btree (customer_id, material_id, min_qty, effective_from) WHERE deleted_at IS NULL
+Check constraints:
+    "ck_biz_cust_price_dates" CHECK (effective_to IS NULL OR effective_to >= effective_from)
+    "ck_biz_cust_price_min_qty" CHECK (min_qty >= 0::numeric)
+    "ck_biz_cust_price_price" CHECK (price > 0::numeric)
+    "ck_biz_cust_price_status" CHECK (status::text = ANY (ARRAY['ACTIVE'::character varying, 'INACTIVE'::character varying]::text[]))
+Foreign-key constraints:
+    "fk_biz_cust_price_customer" FOREIGN KEY (customer_id) REFERENCES biz_customer(id) ON DELETE RESTRICT
+    "fk_biz_cust_price_material" FOREIGN KEY (material_id) REFERENCES biz_material(id) ON DELETE RESTRICT
+
+
+=== \d biz_price_tier
+                                 Table "public.biz_price_tier"
+     Column     |           Type           | Collation | Nullable |           Default           
+----------------+--------------------------+-----------+----------+-----------------------------
+ id             | uuid                     |           | not null | gen_random_uuid()
+ material_id    | uuid                     |           | not null | 
+ customer_id    | uuid                     |           |          | 
+ tier_type      | character varying(16)    |           | not null | 
+ min_qty        | numeric(18,4)            |           | not null | 
+ max_qty        | numeric(18,4)            |           |          | 
+ price          | numeric(18,4)            |           | not null | 
+ effective_from | date                     |           | not null | CURRENT_DATE
+ effective_to   | date                     |           |          | 
+ status         | character varying(16)    |           | not null | 'ACTIVE'::character varying
+ remark         | text                     |           |          | 
+ created_at     | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ updated_at     | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ create_by      | uuid                     |           |          | 
+ update_by      | uuid                     |           |          | 
+ deleted_at     | timestamp with time zone |           |          | 
+Indexes:
+    "biz_price_tier_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_price_tier_customer" btree (customer_id, material_id) WHERE customer_id IS NOT NULL AND deleted_at IS NULL
+    "idx_biz_price_tier_lookup" btree (material_id, tier_type, status, min_qty) WHERE deleted_at IS NULL
+    "uk_biz_price_tier" UNIQUE, btree (material_id, customer_id, tier_type, min_qty, effective_from) NULLS NOT DISTINCT WHERE deleted_at IS NULL
+Check constraints:
+    "ck_biz_price_tier_dates" CHECK (effective_to IS NULL OR effective_to >= effective_from)
+    "ck_biz_price_tier_price" CHECK (price > 0::numeric)
+    "ck_biz_price_tier_qty" CHECK (min_qty >= 0::numeric AND (max_qty IS NULL OR max_qty > min_qty))
+    "ck_biz_price_tier_status" CHECK (status::text = ANY (ARRAY['ACTIVE'::character varying, 'INACTIVE'::character varying]::text[]))
+    "ck_biz_price_tier_type" CHECK (tier_type::text = ANY (ARRAY['TIER'::character varying, 'PROMO'::character varying]::text[]))
+Foreign-key constraints:
+    "fk_biz_price_tier_customer" FOREIGN KEY (customer_id) REFERENCES biz_customer(id) ON DELETE RESTRICT
+    "fk_biz_price_tier_material" FOREIGN KEY (material_id) REFERENCES biz_material(id) ON DELETE RESTRICT
+
+
+=== biz_material.standard_price
+  column_name   | data_type | numeric_precision | numeric_scale | is_nullable | column_default 
+----------------+-----------+-------------------+---------------+-------------+----------------
+ standard_price | numeric   |                18 |             4 | YES         | 
+(1 row)
+
+
+=== schema_migrations V0270
+   kind    |    name     | version | applied_via | applied_seq | execution_ms | success |                    source                     
+-----------+-------------+---------+-------------+-------------+--------------+---------+-----------------------------------------------
+ versioned | sales_price | 270     | executed    |         200 |           18 | t       | migrations/business/V0270__sales_price.up.sql
+(1 row)
+
