@@ -1,0 +1,31 @@
+==================================================================
+V0267 迁移回归（库=cloudpivot_so25） 2026-11-06 23:54:35
+==================================================================
+
+== ① 基线（up 已应用） ==
+  (销售授权行/目录子页/目录节点/SALES_CLERK) = 52/6/1/1
+
+== ② up 重放（幂等：应 0 行新增） ==
+    psql:/opt/cloudpivot/backend/migrations/business/V0267__sales_menu.up.sql:154: NOTICE:  table "_sm_matrix" does not exist, skipping
+    psql:/opt/cloudpivot/backend/migrations/business/V0267__sales_menu.up.sql:409: NOTICE:  table "_sm_sel" does not exist, skipping
+    psql:/opt/cloudpivot/backend/migrations/business/V0267__sales_menu.up.sql:409: NOTICE:  V0267 完成：销售管理目录 + 6 页面归位；矩阵 47 对，本次新增授权 0 行，推进 token_version 0 人
+  ✅ 重放后快照 = 52/6/1/1
+
+== ③ down（回滚） ==
+    psql:/opt/cloudpivot/backend/migrations/business/V0267__sales_menu.down.sql:17: NOTICE:  table "_sm_matrix" does not exist, skipping
+    psql:/opt/cloudpivot/backend/migrations/business/V0267__sales_menu.down.sql:162: NOTICE:  V0267 down：已删除「销售管理」目录节点
+    psql:/opt/cloudpivot/backend/migrations/business/V0267__sales_menu.down.sql:162: NOTICE:  V0267 down：SALES_CLERK 仍有 1 个用户绑定，保留不删
+    psql:/opt/cloudpivot/backend/migrations/business/V0267__sales_menu.down.sql:162: NOTICE:  V0267 down 完成：删除授权 52 行，还原页面 6 行
+  down 后快照 = 0/0/0/1
+  ✅ down 后销售授权行=0 / 目录子页=0 / 目录节点=0 / SALES_CLERK 仍 1（有用户绑定，保留） = 0/0/0/1
+  ✅ 六页面 sort:parent 全还原 = 76:NULL,77:NULL,78:NULL,79:NULL,80:NULL,85:NULL
+
+== ④ 再 up（正向恢复） ==
+    psql:/opt/cloudpivot/backend/migrations/business/V0267__sales_menu.up.sql:154: NOTICE:  table "_sm_matrix" does not exist, skipping
+    psql:/opt/cloudpivot/backend/migrations/business/V0267__sales_menu.up.sql:409: NOTICE:  table "_sm_sel" does not exist, skipping
+    psql:/opt/cloudpivot/backend/migrations/business/V0267__sales_menu.up.sql:409: NOTICE:  V0267 完成：销售管理目录 + 6 页面归位；矩阵 47 对，本次新增授权 52 行，推进 token_version 6 人
+  ✅ 再 up 后快照与基线一致 = 52/6/1/1
+
+==================================================================
+PASS=4 FAIL=0
+结果：PASS

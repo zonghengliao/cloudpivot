@@ -1,0 +1,13 @@
+✅ 库 cloudpivot_so25 已从 cloudpivot_so24 逻辑复制（225 条迁移）
+health=200 pid=934755 log=/tmp/so25_server.log
+--- 迁移记账（最近 6 条）---
+301|sales_order_flow_is_system_and_snapshot|versioned|executed|t
+267|sales_menu|versioned|executed|t
+|workflow_permissions|seed|executed|t
+|voucher_three_state_permissions|seed|executed|t
+|task_project_permissions|seed|executed|t
+|task_permissions|seed|executed|t
+--- V0267 是否记账 ---
+1
+--- applied_via 分布（必须只有 executed/imported）---
+executed|227

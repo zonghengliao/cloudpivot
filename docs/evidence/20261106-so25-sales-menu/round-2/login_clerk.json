@@ -1,0 +1,16 @@
+{
+  "code": 0,
+  "msg": "ok",
+  "data": {
+    "access_token": "<redacted>",
+    "refresh_token": "<redacted>",
+    "token_type": "Bearer",
+    "expires_in": 900,
+    "user": {
+      "id": "01a1b191-37e3-739b-9eb6-3ec4d697d8b2",
+      "username": "so25_clerk",
+      "real_name": "SO25 销售员"
+    },
+    "must_change_password": false
+  }
+}
