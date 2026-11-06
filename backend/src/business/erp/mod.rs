@@ -256,6 +256,10 @@ mod cancel_cascade_tests;
 #[cfg(test)]
 mod aux_tests;
 
+/// 发货单列表批量补齐（缺陷卡 t_45900ea7）：列表与详情逐字段同口径。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod shipment_page_fill_tests;
+
 /// 夹具卫生（`#[cfg(test)]`）：`biz_status_log` 孤儿行的统一判据与清理。
 #[cfg(test)]
 pub(crate) mod fixture_hygiene;

@@ -763,18 +763,48 @@ pub async fn so_status_of(ex: &impl SqlExecutor, so_id: Uuid) -> DbResult<Option
         .transpose()
 }
 
-/// 订单单号（详情 / 列表回显用；订单不存在 → `None`，不报错）。
+/// 订单单号（详情 / 列表回显用；订单不存在或已软删 → `None`，不报错）。
+///
+/// 口径与 [`so_no_labels`]（列表批量补齐）**逐字一致**（同样带 `deleted_at IS NULL`），
+/// 否则会出现「同一张发货单，列表说没订单号、详情说有」的自相矛盾
+/// （本卡 t_45900ea7 就是在收这类注释与实现不一致的账）。
 pub async fn so_no_of(ex: &impl SqlExecutor, so_id: Uuid) -> DbResult<Option<String>> {
     // SCOPE-EXEMPT: 销售订单，ERP 单据，无归属列。
     let rows = ex
         .query_sql(
-            "SELECT so_no FROM biz_sales_order WHERE id = ?::uuid".to_string(),
+            "SELECT so_no FROM biz_sales_order WHERE id = ?::uuid AND deleted_at IS NULL"
+                .to_string(),
             vec![Value::from(so_id)],
         )
         .await?;
     rows.first()
         .map(|row| row.get_typed::<String>("so_no"))
         .transpose()
+}
+
+/// 批量取「订单 id → 订单号」，分页列表一次往返补齐（避免 N+1）。
+///
+/// 与 [`warehouse_labels`] 同形同口径：去重后一条 `IN (…)`，软删订单不出现在结果里
+/// （调用方按缺失处理 = `so_no` 留 `None`）；订单行被物理删除时自然也查不到。
+/// 与 [`so_no_of`]（详情）共用 `deleted_at IS NULL` 判据 ⇒ 列表与详情永远同一个值。
+pub async fn so_no_labels(ex: &impl SqlExecutor, ids: &[Uuid]) -> DbResult<Vec<(Uuid, String)>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    let unique: Vec<Uuid> = ids.iter().copied().filter(|id| seen.insert(*id)).collect();
+    let placeholders = vec!["?::uuid"; unique.len()].join(", ");
+    let sql = format!(
+        "SELECT id, so_no FROM biz_sales_order \
+          WHERE id IN ({placeholders}) AND deleted_at IS NULL"
+    );
+    let params: Vec<Value> = unique.iter().map(Value::from).collect();
+    let rows = ex.query_sql(sql, params).await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        out.push((row.get_typed("id")?, row.get_typed("so_no")?));
+    }
+    Ok(out)
 }
 
 /// 批量取「仓库 id → （编码, 名称）」，分页列表一次往返补齐（避免 N+1）。
@@ -825,9 +855,10 @@ pub async fn so_item_belongs(
     Ok(!rows.is_empty())
 }
 
-/// 关联销售出库单号（SO-10 过账回填的 `stock_out_id` → `out_no`；出库单被物理删 → `None`）。
+/// 关联销售出库单号（SO-10 过账回填的 `stock_out_id` → `out_no`；出库单不存在或已软删 → `None`）。
 ///
 /// 只读、单表：发货单详情要显示「关联出库单号」，这里给一个不回链 model 之外的查询入口。
+/// 口径与 [`stock_out_no_labels`]（列表批量补齐）逐字一致（同样带 `deleted_at IS NULL`）。
 pub async fn stock_out_no_of(
     ex: &impl SqlExecutor,
     stock_out_id: Uuid,
@@ -835,13 +866,42 @@ pub async fn stock_out_no_of(
     // SCOPE-EXEMPT: 出库单，ERP 单据，无归属列。
     let rows = ex
         .query_sql(
-            "SELECT out_no FROM biz_stock_out WHERE id = ?::uuid".to_string(),
+            "SELECT out_no FROM biz_stock_out WHERE id = ?::uuid AND deleted_at IS NULL"
+                .to_string(),
             vec![Value::from(stock_out_id)],
         )
         .await?;
     rows.first()
         .map(|row| row.get_typed::<String>("out_no"))
         .transpose()
+}
+
+/// 批量取「出库单 id → 出库单号」，分页列表一次往返补齐（避免 N+1）。
+///
+/// 与 [`so_no_labels`] / [`warehouse_labels`] 同形同口径：去重后一条 `IN (…)`，
+/// 软删出库单不出现在结果里（调用方按缺失处理 = `stock_out_no` 留 `None`）。
+/// 未过账的发货单没有 `stock_out_id`，调用方先过滤，本函数对空入参直接短路（不多发一条 SQL）。
+pub async fn stock_out_no_labels(
+    ex: &impl SqlExecutor,
+    ids: &[Uuid],
+) -> DbResult<Vec<(Uuid, String)>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    let unique: Vec<Uuid> = ids.iter().copied().filter(|id| seen.insert(*id)).collect();
+    let placeholders = vec!["?::uuid"; unique.len()].join(", ");
+    let sql = format!(
+        "SELECT id, out_no FROM biz_stock_out \
+          WHERE id IN ({placeholders}) AND deleted_at IS NULL"
+    );
+    let params: Vec<Value> = unique.iter().map(Value::from).collect();
+    let rows = ex.query_sql(sql, params).await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        out.push((row.get_typed("id")?, row.get_typed("out_no")?));
+    }
+    Ok(out)
 }
 
 /// 仓库是否存在且未软删（弱引用，没外键兜）。返回 `(编码, 名称)`。

@@ -359,8 +359,11 @@ impl From<&ShipmentItemRow> for ShipmentItemRes {
 
 /// 发货单出参（详情 / 列表行同构）。
 ///
-/// **列表行**：`items` 恒为空数组（明细只在详情里返回），但
-/// `so_no` / `customer_code` / `warehouse_code` 会**批量补齐**。
+/// **列表行**：`items` 恒为空数组（明细只在详情里返回），但 `so_no` /
+/// `customer_code` / `warehouse_code` / `stock_out_no` 会**批量补齐**（各自一次
+/// `IN (…)` 往返，见 [`page_shipment`]），一页固定 4 条补齐 SQL、不做 N+1 ——
+/// 列表与详情**逐字段同口径**，前端列表可直接展示，不必为每一行再发一次详情请求。
+/// 订单 / 出库单不存在或已软删时，对应单号为 `null`。
 #[derive(Debug, Clone, Serialize)]
 pub struct ShipmentRes {
     /// 主键。
@@ -369,7 +372,7 @@ pub struct ShipmentRes {
     pub ship_no: String,
     /// 来源销售订单 id。
     pub so_id: String,
-    /// 来源销售订单号（订单被物理删时为 `null`）。
+    /// 来源销售订单号（订单不存在或已软删时为 `null`；**列表与详情都下发**）。
     pub so_no: Option<String>,
     /// 客户 id。
     pub customer_id: String,
@@ -393,9 +396,9 @@ pub struct ShipmentRes {
     pub total_qty: Decimal,
     /// 过账生成的销售出库单 id（未过账为 `null`，SO-10 回填）。
     pub stock_out_id: Option<String>,
-    /// 过账生成的销售出库单号（`OUT-yyyyMMdd-000001`；未过账 / 出库单被物理删时为 `null`）。
+    /// 过账生成的销售出库单号（`OUT-yyyyMMdd-000001`；未过账 / 出库单不存在或已软删时为 `null`）。
     ///
-    /// SO-11 页面要显示「关联出库单号」，所以详情直接下发单号而不是只给 id ——
+    /// SO-11 页面要显示「关联出库单号」：**列表与详情都下发**（列表按 `stock_out_id` 批量补齐），
     /// 前端不必再为一行列表补一次详情请求。
     pub stock_out_no: Option<String>,
     /// 备注。
@@ -784,7 +787,8 @@ pub async fn page_shipment(
     .await
     .map_err(|error| utils::db_error(error, "分页查询发货单"))?;
 
-    // 客户 / 仓库编码一次往返补齐（一页里多张单常常同客户同仓库）
+    // 客户 / 仓库 / 订单号 / 出库单号各自一次往返补齐（一页里多张单常常同客户同仓库，
+    // 订单号与出库单号则按行去重后再批量查）—— 一页固定 4 条 SQL，不做 N+1。
     let customer_ids: Vec<Uuid> = rows.iter().map(|row| row.customer_id).collect();
     let naming: std::collections::HashMap<Uuid, (String, String)> =
         sales_order_model::customer_labels(&customer_ids)
@@ -801,6 +805,21 @@ pub async fn page_shipment(
             .into_iter()
             .map(|(id, code, name)| (id, (code, name)))
             .collect();
+    // 来源销售订单号（t_45900ea7：列表缺这一列，与 `ShipmentRes` 注释矛盾）
+    let so_ids: Vec<Uuid> = rows.iter().map(|row| row.so_id).collect();
+    let so_numbers: std::collections::HashMap<Uuid, String> = model::so_no_labels(db(), &so_ids)
+        .await
+        .map_err(|error| utils::db_error(error, "批量查询发货单来源订单号"))?
+        .into_iter()
+        .collect();
+    // 关联销售出库单号（只对已过账的行查；未过账 = 没有 stock_out_id = 保持 None）
+    let stock_out_ids: Vec<Uuid> = rows.iter().filter_map(|row| row.stock_out_id).collect();
+    let stock_out_numbers: std::collections::HashMap<Uuid, String> =
+        model::stock_out_no_labels(db(), &stock_out_ids)
+            .await
+            .map_err(|error| utils::db_error(error, "批量查询发货单关联出库单号"))?
+            .into_iter()
+            .collect();
     let (page, page_size) = model::normalize_page(filter.page, filter.page_size);
     let list = rows
         .iter()
@@ -814,6 +833,10 @@ pub async fn page_shipment(
                 res.warehouse_code = Some(code.clone());
                 res.warehouse_name = Some(name.clone());
             }
+            res.so_no = so_numbers.get(&row.so_id).cloned();
+            res.stock_out_no = row
+                .stock_out_id
+                .and_then(|id| stock_out_numbers.get(&id).cloned());
             res
         })
         .collect();

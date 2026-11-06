@@ -1,0 +1,108 @@
+
+===== ① 登录（admin / Admin@123456；首登强制改密兜住） =====
+token_len=461
+
+===== ② 夹具复位（本卡独占备注前缀 SO09FILL，绝不按 SH- / SO- / OUT- 号段删） =====
+  ✓ 期初 成本账 MAT_A = 20.0000
+
+===== ③ 建两张订单（A=10 件 / B=5 件）并置 APPROVED =====
+--- POST /sales-order（订单A）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1b030-0bee-7720-88f7-5c50afd0874b","so_no":"SO-20261106-000060","customer_id":"d0260000-0000-4000-8000-000000000001","customer_code":"CUS-0001","customer_name":"北京云枢科技有限公司","order_date":"2026-11-06","delivery_date":null,"status":"DRAFT","status_label":"草稿","total_amount":"1000.0000","total_tax":"130.0000","total_with_tax":"1130.0000","remark":"SO09FILL 订单A","created_at":"2026-11-06T09:28:21.229984Z","updated_at":"2026-11-06T09:28:21.229984Z","items":[{"id":"741f57b9-6c1d-4a5d-a2d8-68186b4955fb","line_no":1,"material_id":"d1370003-0000-4000-8000-000000000002","qty":"10.0000","price":"100.000000","amount":"1000.0000","tax_rate":"13.0000","tax_amount":"130.0000","delivered_qty":"0.0000","open_qty":"10.0000"}],"approval_instance_id":null}}
+order SO-20261106-000060 / 01a1b030-0bee-7720-88f7-5c50afd0874b / item 741f57b9-6c1d-4a5d-a2d8-68186b4955fb
+--- POST /sales-order（订单B）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1b030-0c18-72d5-8ed9-fed0b5072945","so_no":"SO-20261106-000061","customer_id":"d0260000-0000-4000-8000-000000000001","customer_code":"CUS-0001","customer_name":"北京云枢科技有限公司","order_date":"2026-11-06","delivery_date":null,"status":"DRAFT","status_label":"草稿","total_amount":"500.0000","total_tax":"65.0000","total_with_tax":"565.0000","remark":"SO09FILL 订单B","created_at":"2026-11-06T09:28:21.271716Z","updated_at":"2026-11-06T09:28:21.271716Z","items":[{"id":"cab9fbc2-f4aa-49c3-a42a-036a15772ead","line_no":1,"material_id":"d1370003-0000-4000-8000-000000000002","qty":"5.0000","price":"100.000000","amount":"500.0000","tax_rate":"13.0000","tax_amount":"65.0000","delivered_qty":"0.0000","open_qty":"5.0000"}],"approval_instance_id":null}}
+order SO-20261106-000061 / 01a1b030-0c18-72d5-8ed9-fed0b5072945 / item cab9fbc2-f4aa-49c3-a42a-036a15772ead
+
+===== ④ 建发货单 A（DRAFT）→ 列表 so_no 必须非空且 == 详情（本卡的缺陷原状是 null） =====
+--- POST /shipment（订单A）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1b030-0c47-72f6-98dc-db5b09a696db","ship_no":"SH-20261106-000062","so_id":"01a1b030-0bee-7720-88f7-5c50afd0874b","so_no":"SO-20261106-000060","customer_id":"d0260000-0000-4000-8000-000000000001","customer_code":"CUS-0001","customer_name":"北京云枢科技有限公司","warehouse_id":"d1370001-0000-4000-8000-000000000001","warehouse_code":"WH01","warehouse_name":"总仓（种子）","ship_date":"2026-11-06","status":"DRAFT","status_label":"草稿","total_qty":"10.0000","stock_out_id":null,"stock_out_no":null,"remark":"SO09FILL 发货A","created_at":"2026-11-06T09:28:21.314407Z","updated_at":"2026-11-06T09:28:21.314407Z","items":[{"id":"0e4104fb-6bde-47de-bf55-304b897bae9a","line_no":1,"so_item_id":"741f57b9-6c1d-4a5d-a2d8-68186b4955fb","material_id":"d1370003-0000-4000-8000-000000000002","qty":"10.0000","location_id":null,"serial_nos":[],"remark":null}]}}
+  ✓ 建单状态 = DRAFT
+--- GET /shipment/page?ship_no=SH-20261106-000062
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"list":[{"id":"01a1b030-0c47-72f6-98dc-db5b09a696db","ship_no":"SH-20261106-000062","so_id":"01a1b030-0bee-7720-88f7-5c50afd0874b","so_no":"SO-20261106-000060","customer_id":"d0260000-0000-4000-8000-000000000001","customer_code":"CUS-0001","customer_name":"北京云枢科技有限公司","warehouse_id":"d1370001-0000-4000-8000-000000000001","warehouse_code":"WH01","warehouse_name":"总仓（种子）","ship_date":"2026-11-06","status":"DRAFT","status_label":"草稿","total_qty":"10.0000","stock_out_id":null,"stock_out_no":null,"remark":"SO09FILL 发货A","created_at":"2026-11-06T09:28:21.314407Z","updated_at":"2026-11-06T09:28:21.314407Z","items":[]}],"total":1,"page":1,"page_size":20}}
+  ✓ 列表命中条数 = 1
+  ✓ 列表 so_no 非空（缺陷原状：null） = SO-20261106-000060
+  ✓ 列表 so_no == 订单号 = SO-20261106-000060
+  ✓ 列表 stock_out_no（未过账） = null
+  ✓ 列表 items 恒为空 = 0
+  ✓ 列表 customer_code 已补齐 = CUS-0001
+--- GET /shipment/{id}（A，草稿）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1b030-0c47-72f6-98dc-db5b09a696db","ship_no":"SH-20261106-000062","so_id":"01a1b030-0bee-7720-88f7-5c50afd0874b","so_no":"SO-20261106-000060","customer_id":"d0260000-0000-4000-8000-000000000001","customer_code":"CUS-0001","customer_name":"北京云枢科技有限公司","warehouse_id":"d1370001-0000-4000-8000-000000000001","warehouse_code":"WH01","warehouse_name":"总仓（种子）","ship_date":"2026-11-06","status":"DRAFT","status_label":"草稿","total_qty":"10.0000","stock_out_id":null,"stock_out_no":null,"remark":"SO09FILL 发货A","created_at":"2026-11-06T09:28:21.314407Z","updated_at":"2026-11-06T09:28:21.314407Z","items":[{"id":"0e4104fb-6bde-47de-bf55-304b897bae9a","line_no":1,"so_item_id":"741f57b9-6c1d-4a5d-a2d8-68186b4955fb","material_id":"d1370003-0000-4000-8000-000000000002","qty":"10.0000","location_id":null,"serial_nos":[],"remark":null}]}}
+  ✓ 详情 so_no = SO-20261106-000060
+  ✓ 列表 so_no 与详情逐字相等 = SO-20261106-000060
+  ✓ 详情 stock_out_no（未过账） = null
+
+===== ⑤ 再过账 A 之前先建发货单 B（DRAFT）——一页里同时有「已过账」与「草稿」两行 =====
+--- POST /shipment（订单B）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1b030-0c82-70c6-a9ee-0b5c9e734a03","ship_no":"SH-20261106-000063","so_id":"01a1b030-0c18-72d5-8ed9-fed0b5072945","so_no":"SO-20261106-000061","customer_id":"d0260000-0000-4000-8000-000000000001","customer_code":"CUS-0001","customer_name":"北京云枢科技有限公司","warehouse_id":"d1370001-0000-4000-8000-000000000001","warehouse_code":"WH01","warehouse_name":"总仓（种子）","ship_date":"2026-11-06","status":"DRAFT","status_label":"草稿","total_qty":"5.0000","stock_out_id":null,"stock_out_no":null,"remark":"SO09FILL 发货B","created_at":"2026-11-06T09:28:21.374319Z","updated_at":"2026-11-06T09:28:21.374319Z","items":[{"id":"386decdf-f847-43f3-a553-3330dad1f080","line_no":1,"so_item_id":"cab9fbc2-f4aa-49c3-a42a-036a15772ead","material_id":"d1370003-0000-4000-8000-000000000002","qty":"5.0000","location_id":null,"serial_nos":[],"remark":null}]}}
+
+===== ⑥ 提交 + 过账 A（生成销售出库单） =====
+--- PATCH /status（A → PENDING_POST）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1b030-0c47-72f6-98dc-db5b09a696db","ship_no":"SH-20261106-000062","so_id":"01a1b030-0bee-7720-88f7-5c50afd0874b","so_no":"SO-20261106-000060","customer_id":"d0260000-0000-4000-8000-000000000001","customer_code":"CUS-0001","customer_name":"北京云枢科技有限公司","warehouse_id":"d1370001-0000-4000-8000-000000000001","warehouse_code":"WH01","warehouse_name":"总仓（种子）","ship_date":"2026-11-06","status":"PENDING_POST","status_label":"待过账","total_qty":"10.0000","stock_out_id":null,"stock_out_no":null,"remark":"SO09FILL 发货A","created_at":"2026-11-06T09:28:21.314407Z","updated_at":"2026-11-06T09:28:21.395681Z","items":[{"id":"0e4104fb-6bde-47de-bf55-304b897bae9a","line_no":1,"so_item_id":"741f57b9-6c1d-4a5d-a2d8-68186b4955fb","material_id":"d1370003-0000-4000-8000-000000000002","qty":"10.0000","location_id":null,"serial_nos":[],"remark":null}]}}
+--- PATCH /status（A → POSTED）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1b030-0c47-72f6-98dc-db5b09a696db","ship_no":"SH-20261106-000062","so_id":"01a1b030-0bee-7720-88f7-5c50afd0874b","so_no":"SO-20261106-000060","customer_id":"d0260000-0000-4000-8000-000000000001","customer_code":"CUS-0001","customer_name":"北京云枢科技有限公司","warehouse_id":"d1370001-0000-4000-8000-000000000001","warehouse_code":"WH01","warehouse_name":"总仓（种子）","ship_date":"2026-11-06","status":"POSTED","status_label":"已过账","total_qty":"10.0000","stock_out_id":"01a1b030-0ca7-71de-8de2-8d5f3f8a24d2","stock_out_no":"OUT-20261106-000053","remark":"SO09FILL 发货A","created_at":"2026-11-06T09:28:21.314407Z","updated_at":"2026-11-06T09:28:21.411352Z","items":[{"id":"0e4104fb-6bde-47de-bf55-304b897bae9a","line_no":1,"so_item_id":"741f57b9-6c1d-4a5d-a2d8-68186b4955fb","material_id":"d1370003-0000-4000-8000-000000000002","qty":"10.0000","location_id":null,"serial_nos":[],"remark":null}]}}
+关联销售出库单号 = OUT-20261106-000053
+  ✓ 过账后状态 = POSTED
+  ✓ 过账后成本账 MAT_A（20−10） = 10.0000
+--- GET /shipment/{id}（A，已过账）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1b030-0c47-72f6-98dc-db5b09a696db","ship_no":"SH-20261106-000062","so_id":"01a1b030-0bee-7720-88f7-5c50afd0874b","so_no":"SO-20261106-000060","customer_id":"d0260000-0000-4000-8000-000000000001","customer_code":"CUS-0001","customer_name":"北京云枢科技有限公司","warehouse_id":"d1370001-0000-4000-8000-000000000001","warehouse_code":"WH01","warehouse_name":"总仓（种子）","ship_date":"2026-11-06","status":"POSTED","status_label":"已过账","total_qty":"10.0000","stock_out_id":"01a1b030-0ca7-71de-8de2-8d5f3f8a24d2","stock_out_no":"OUT-20261106-000053","remark":"SO09FILL 发货A","created_at":"2026-11-06T09:28:21.314407Z","updated_at":"2026-11-06T09:28:21.411352Z","items":[{"id":"0e4104fb-6bde-47de-bf55-304b897bae9a","line_no":1,"so_item_id":"741f57b9-6c1d-4a5d-a2d8-68186b4955fb","material_id":"d1370003-0000-4000-8000-000000000002","qty":"10.0000","location_id":null,"serial_nos":[],"remark":null}]}}
+  ✓ 详情 stock_out_no = OUT-20261106-000053
+  ✓ 详情 so_no（过账后） = SO-20261106-000060
+
+===== ⑦ 关键断言：一页两行（A 已过账 / B 草稿）——so_no 各自对、stock_out_no 各不同 =====
+--- GET /shipment/page?so_id=A
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"list":[{"id":"01a1b030-0c47-72f6-98dc-db5b09a696db","ship_no":"SH-20261106-000062","so_id":"01a1b030-0bee-7720-88f7-5c50afd0874b","so_no":"SO-20261106-000060","customer_id":"d0260000-0000-4000-8000-000000000001","customer_code":"CUS-0001","customer_name":"北京云枢科技有限公司","warehouse_id":"d1370001-0000-4000-8000-000000000001","warehouse_code":"WH01","warehouse_name":"总仓（种子）","ship_date":"2026-11-06","status":"POSTED","status_label":"已过账","total_qty":"10.0000","stock_out_id":"01a1b030-0ca7-71de-8de2-8d5f3f8a24d2","stock_out_no":"OUT-20261106-000053","remark":"SO09FILL 发货A","created_at":"2026-11-06T09:28:21.314407Z","updated_at":"2026-11-06T09:28:21.411352Z","items":[]}],"total":1,"page":1,"page_size":50}}
+  ✓ 列表（A 行）so_no 与详情逐字相等 = SO-20261106-000060
+  ✓ 列表（A 行）stock_out_no 与详情逐字相等 = OUT-20261106-000053
+--- GET /shipment/page?so_id=B
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"list":[{"id":"01a1b030-0c82-70c6-a9ee-0b5c9e734a03","ship_no":"SH-20261106-000063","so_id":"01a1b030-0c18-72d5-8ed9-fed0b5072945","so_no":"SO-20261106-000061","customer_id":"d0260000-0000-4000-8000-000000000001","customer_code":"CUS-0001","customer_name":"北京云枢科技有限公司","warehouse_id":"d1370001-0000-4000-8000-000000000001","warehouse_code":"WH01","warehouse_name":"总仓（种子）","ship_date":"2026-11-06","status":"DRAFT","status_label":"草稿","total_qty":"5.0000","stock_out_id":null,"stock_out_no":null,"remark":"SO09FILL 发货B","created_at":"2026-11-06T09:28:21.374319Z","updated_at":"2026-11-06T09:28:21.374319Z","items":[]}],"total":1,"page":1,"page_size":50}}
+  ✓ 列表（B 行）so_no = 订单B 号 = SO-20261106-000061
+  ✓ 列表（B 行）stock_out_no（未过账） = null
+  ✓ 同页两行 so_no 各自命中（不是整页同值）
+
+===== ⑧ 订单 A 软删 → 列表与详情**同时**变 null（列表/详情同判据） =====
+--- GET /shipment/page?so_id=A（订单已软删）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"list":[{"id":"01a1b030-0c47-72f6-98dc-db5b09a696db","ship_no":"SH-20261106-000062","so_id":"01a1b030-0bee-7720-88f7-5c50afd0874b","so_no":null,"customer_id":"d0260000-0000-4000-8000-000000000001","customer_code":"CUS-0001","customer_name":"北京云枢科技有限公司","warehouse_id":"d1370001-0000-4000-8000-000000000001","warehouse_code":"WH01","warehouse_name":"总仓（种子）","ship_date":"2026-11-06","status":"POSTED","status_label":"已过账","total_qty":"10.0000","stock_out_id":"01a1b030-0ca7-71de-8de2-8d5f3f8a24d2","stock_out_no":"OUT-20261106-000053","remark":"SO09FILL 发货A","created_at":"2026-11-06T09:28:21.314407Z","updated_at":"2026-11-06T09:28:21.411352Z","items":[]}],"total":1,"page":1,"page_size":50}}
+  ✓ 列表 so_no（订单软删） = null
+--- GET /shipment/{id}（A，订单已软删）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1b030-0c47-72f6-98dc-db5b09a696db","ship_no":"SH-20261106-000062","so_id":"01a1b030-0bee-7720-88f7-5c50afd0874b","so_no":null,"customer_id":"d0260000-0000-4000-8000-000000000001","customer_code":"CUS-0001","customer_name":"北京云枢科技有限公司","warehouse_id":"d1370001-0000-4000-8000-000000000001","warehouse_code":"WH01","warehouse_name":"总仓（种子）","ship_date":"2026-11-06","status":"POSTED","status_label":"已过账","total_qty":"10.0000","stock_out_id":"01a1b030-0ca7-71de-8de2-8d5f3f8a24d2","stock_out_no":"OUT-20261106-000053","remark":"SO09FILL 发货A","created_at":"2026-11-06T09:28:21.314407Z","updated_at":"2026-11-06T09:28:21.411352Z","items":[{"id":"0e4104fb-6bde-47de-bf55-304b897bae9a","line_no":1,"so_item_id":"741f57b9-6c1d-4a5d-a2d8-68186b4955fb","material_id":"d1370003-0000-4000-8000-000000000002","qty":"10.0000","location_id":null,"serial_nos":[],"remark":null}]}}
+  ✓ 详情 so_no（订单软删） = null
+  ✓ 详情 stock_out_no 不受订单软删影响 = OUT-20261106-000053
+
+===== ⑨ 出库单软删 → 列表与详情**同时**变 null =====
+--- GET /shipment/page?so_id=A（出库单已软删）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"list":[{"id":"01a1b030-0c47-72f6-98dc-db5b09a696db","ship_no":"SH-20261106-000062","so_id":"01a1b030-0bee-7720-88f7-5c50afd0874b","so_no":"SO-20261106-000060","customer_id":"d0260000-0000-4000-8000-000000000001","customer_code":"CUS-0001","customer_name":"北京云枢科技有限公司","warehouse_id":"d1370001-0000-4000-8000-000000000001","warehouse_code":"WH01","warehouse_name":"总仓（种子）","ship_date":"2026-11-06","status":"POSTED","status_label":"已过账","total_qty":"10.0000","stock_out_id":"01a1b030-0ca7-71de-8de2-8d5f3f8a24d2","stock_out_no":null,"remark":"SO09FILL 发货A","created_at":"2026-11-06T09:28:21.314407Z","updated_at":"2026-11-06T09:28:21.411352Z","items":[]}],"total":1,"page":1,"page_size":50}}
+  ✓ 列表 stock_out_no（出库单软删） = null
+--- GET /shipment/{id}（A，出库单已软删）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1b030-0c47-72f6-98dc-db5b09a696db","ship_no":"SH-20261106-000062","so_id":"01a1b030-0bee-7720-88f7-5c50afd0874b","so_no":"SO-20261106-000060","customer_id":"d0260000-0000-4000-8000-000000000001","customer_code":"CUS-0001","customer_name":"北京云枢科技有限公司","warehouse_id":"d1370001-0000-4000-8000-000000000001","warehouse_code":"WH01","warehouse_name":"总仓（种子）","ship_date":"2026-11-06","status":"POSTED","status_label":"已过账","total_qty":"10.0000","stock_out_id":"01a1b030-0ca7-71de-8de2-8d5f3f8a24d2","stock_out_no":null,"remark":"SO09FILL 发货A","created_at":"2026-11-06T09:28:21.314407Z","updated_at":"2026-11-06T09:28:21.411352Z","items":[{"id":"0e4104fb-6bde-47de-bf55-304b897bae9a","line_no":1,"so_item_id":"741f57b9-6c1d-4a5d-a2d8-68186b4955fb","material_id":"d1370003-0000-4000-8000-000000000002","qty":"10.0000","location_id":null,"serial_nos":[],"remark":null}]}}
+  ✓ 详情 stock_out_no（出库单软删） = null
+
+===== ⑩ 恢复出库单 → 两列都回到有值（证明前面不是永久变空） =====
+--- GET /shipment/page?so_id=A（恢复后）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"list":[{"id":"01a1b030-0c47-72f6-98dc-db5b09a696db","ship_no":"SH-20261106-000062","so_id":"01a1b030-0bee-7720-88f7-5c50afd0874b","so_no":"SO-20261106-000060","customer_id":"d0260000-0000-4000-8000-000000000001","customer_code":"CUS-0001","customer_name":"北京云枢科技有限公司","warehouse_id":"d1370001-0000-4000-8000-000000000001","warehouse_code":"WH01","warehouse_name":"总仓（种子）","ship_date":"2026-11-06","status":"POSTED","status_label":"已过账","total_qty":"10.0000","stock_out_id":"01a1b030-0ca7-71de-8de2-8d5f3f8a24d2","stock_out_no":"OUT-20261106-000053","remark":"SO09FILL 发货A","created_at":"2026-11-06T09:28:21.314407Z","updated_at":"2026-11-06T09:28:21.411352Z","items":[]}],"total":1,"page":1,"page_size":50}}
+  ✓ 列表 so_no（恢复） = SO-20261106-000060
+  ✓ 列表 stock_out_no（恢复） = OUT-20261106-000053
+
+===== ⑪ 回归：客户 / 仓库编码仍在（这次改动没碰掉既有批量补齐） =====
+--- GET /shipment/page（编码列）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"list":[{"id":"01a1b030-0c47-72f6-98dc-db5b09a696db","ship_no":"SH-20261106-000062","so_id":"01a1b030-0bee-7720-88f7-5c50afd0874b","so_no":"SO-20261106-000060","customer_id":"d0260000-0000-4000-8000-000000000001","customer_code":"CUS-0001","customer_name":"北京云枢科技有限公司","warehouse_id":"d1370001-0000-4000-8000-000000000001","warehouse_code":"WH01","warehouse_name":"总仓（种子）","ship_date":"2026-11-06","status":"POSTED","status_label":"已过账","total_qty":"10.0000","stock_out_id":"01a1b030-0ca7-71de-8de2-8d5f3f8a24d2","stock_out_no":"OUT-20261106-000053","remark":"SO09FILL 发货A","created_at":"2026-11-06T09:28:21.314407Z","updated_at":"2026-11-06T09:28:21.411352Z","items":[]}],"total":1,"page":1,"page_size":50}}
+  ✓ customer_code = CUS-0001
+  ✓ warehouse_code = WH01
+
+===== 结果：FAIL=0 =====

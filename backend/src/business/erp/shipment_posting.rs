@@ -355,10 +355,12 @@ pub async fn post_effects(
             ),
         ));
     }
+    // 订单号：订单不存在 / 已软删时（`so_no_of` 带 `deleted_at IS NULL`，与列表批量补齐同判据）
+    // 退回订单 id —— 只影响出库单 remark 的可读性，不能让凭证摘要里出现「来源销售订单 ／…」空号
     let so_no = shipment::so_no_of(ex, shipment_row.so_id)
         .await
         .map_err(|error| utils::db_error(error, "查询来源销售订单号"))?
-        .unwrap_or_default();
+        .unwrap_or_else(|| shipment_row.so_id.to_string());
 
     // ③ 明细 → 出库行 → 建销售出库单（DRAFT）
     let lines = to_stock_out_lines(ex, shipment_row, items).await?;
