@@ -1156,6 +1156,10 @@ pub const ERP_CONTRACT_IN_USE: i32 = 66018;
 /// `Σ PO.total_with_tax(未取消) + 本单 > contract.amount`。
 /// ⚠️ 并发坑：先查后写不是原子的，必须在**同一事务**里先
 /// `SELECT id FROM biz_contract WHERE id=? FOR UPDATE`，否则两个并发请求会双双放行。
+///
+/// 销售侧（SO-27）复用同一个码：`Σ SO.total_with_tax(未作废) + 本单 > contract.amount`。
+/// 语义、HTTP 状态、前端文案（「合同额度不足」）完全一致，
+/// 前端 `error-code.ts` 一条映射同时覆盖采购与销售两处。
 pub const ERP_CONTRACT_AMOUNT_EXCEEDED: i32 = 66019;
 
 /// 客户类合同暂未开放（HTTP 400）：ARCH-2 §3.2.3 的**临时降级**。
@@ -1363,6 +1367,18 @@ pub const ERP_EXPENSE_TOTAL_MISMATCH: i32 = 66042;
 /// 报文要指向「让财务反结账或延后审批」，绝不自动挑下一个期间（那等于篡改会计归属）。
 pub const ERP_EXPENSE_PERIOD_CLOSED: i32 = 66043;
 
+// ---------- SO-27 销售订单 ↔ 销售合同（接在 66043 之后） ----------
+
+/// 订单客户与合同乙方不是同一方（HTTP 400）。
+///
+/// 为什么单独给码而不复用 `ERP_PO_SUPPLIER_MISMATCH`（66025）：那个码的文案与
+/// 前端引导都是「采购单的供应商」，销售侧要引导「改选属于该客户的合同」。
+///
+/// 不静默按合同乙方覆盖客户：那是替用户改单头，审计上等于伪造业务事实；
+/// 也不放过（只校验额度）：把 A 客户的订单金额记到 B 客户的合同额度里，
+/// 两边都会错 —— 一张合同超卖、一张永远用不完。
+pub const ERP_SO_CONTRACT_CUSTOMER_MISMATCH: i32 = 66044;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1427,6 +1443,8 @@ mod tests {
             (ERP_EXPENSE_STATE, 66041),
             (ERP_EXPENSE_TOTAL_MISMATCH, 66042),
             (ERP_EXPENSE_PERIOD_CLOSED, 66043),
+            // SO-27 销售订单 ↔ 销售合同（66044）
+            (ERP_SO_CONTRACT_CUSTOMER_MISMATCH, 66044),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");

@@ -3903,8 +3903,9 @@ export function remindYearEnd(
 /**
  * 合同类型（`contract_dto::CONTRACT_TYPES` + `ck_biz_contract_type` 逐字一致）。
  *
- * 本期后端只放行 `PURCHASE`（`SUPPORTED_TYPES`）：`SALES` 的乙方是客户、客户主数据属
- * 批次 2 → 400 + `66020`；`SERVICE` / `LEASE` → 400 + `10001`。表单里其余选项置灰。
+ * 本期后端放行 `PURCHASE` + `SALES`（`SUPPORTED_TYPES`，SO-26 起销售合同可用）：
+ * `SALES` 的乙方是**客户**（`biz_customer`，表单里乙方选择器切换成客户选择器）；
+ * `SERVICE` / `LEASE` → 400 + `10001`，表单里这两个选项置灰。
  */
 export type ContractType = 'PURCHASE' | 'SALES' | 'SERVICE' | 'LEASE';
 
@@ -4038,9 +4039,9 @@ export interface ContractPageQuery {
 export interface CreateContractPayload {
   /** 合同名称（必填，≤ 200 字） */
   name: string;
-  /** 合同类型（本期只有 `PURCHASE`） */
+  /** 合同类型（`PURCHASE` / `SALES`；`SALES` 时 `party_b_id` 是客户 id） */
   contract_type: string;
-  /** 乙方（供应商）id，必填 */
+  /** 乙方 id（`PURCHASE` → 供应商 id；`SALES` → 客户 id） */
   party_b_id: string;
   /** 合同金额（后端 `CHECK (amount > 0)`） */
   amount: number | string;
@@ -4478,6 +4479,10 @@ export interface SalesOrder {
   customer_code: string | null;
   /** 客户名称（客户软删后 `null`） */
   customer_name: string | null;
+  /** 销售合同 id（未挂合同 `null`，SO-27） */
+  contract_id: string | null;
+  /** 销售合同号（`HT-yyyyMMdd-000001`；**只有详情填**，列表恒 `null`） */
+  contract_no: string | null;
   /** 下单日期（`yyyy-MM-dd`） */
   order_date: string;
   /** 要求交期（未约定 `null`） */
@@ -4520,6 +4525,13 @@ export interface SalesOrderItemReq {
 export interface CreateSalesOrderReq {
   /** 客户 id（必须存在且 `ACTIVE`，否则 400） */
   customer_id: string;
+  /**
+   * 销售合同 id（可空，SO-27）。
+   *
+   * 填了就由后端校验：类型必须 `SALES`、状态 `SIGNED`/`ACTIVE`、乙方 = 本单客户
+   * （否则 400），且「已下单 + 本单」不得超合同金额（超出 409 `66019`）。
+   */
+  contract_id?: string | null;
   /** 下单日期（`yyyy-MM-dd`，不给 = 今天） */
   order_date?: string;
   /** 要求交期（不能早于下单日） */
@@ -4538,6 +4550,8 @@ export interface CreateSalesOrderReq {
 export interface UpdateSalesOrderReq {
   /** 客户 id（不传 = 不改） */
   customer_id?: string;
+  /** 销售合同 id（**不传 = 不改**；传 `''` = 解绑；传 id = 换合同，SO-27） */
+  contract_id?: string | null;
   /** 下单日期（不传 = 不改） */
   order_date?: string;
   /** 交期（传 `''` = 清空） */

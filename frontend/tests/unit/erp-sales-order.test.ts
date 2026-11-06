@@ -55,6 +55,8 @@ function order(overrides: Partial<SalesOrder> = {}): SalesOrder {
     customer_id: 'd5050000-0000-4000-8000-00000000c001',
     customer_code: 'CUS-0001',
     customer_name: '北京示例科技有限公司',
+    contract_id: null,
+    contract_no: null,
     order_date: '2026-11-06',
     delivery_date: null,
     status: 'DRAFT',
@@ -369,11 +371,34 @@ test('create payload keeps dates and folds empty remark to null', () => {
 
   assert.deepEqual(buildCreatePayload(form), {
     customer_id: 'c1',
+    // 没选合同 → `null`（SO-27：`contract_id` 显式发 null，后端 serde 折成 None）
+    contract_id: null,
     order_date: '2026-11-06',
     delivery_date: null,
     remark: null,
     items: [{ material_id: 'm1', qty: '2', price: '100', tax_rate: '13' }],
   });
+});
+
+test('SO-27 合同：建单带上 contract_id，改单用 "" 表示解绑，详情回填', () => {
+  // ① 建单：选了合同就发 id（空 = null，后端 serde 折成 None）
+  const createForm = emptySalesOrderForm('2026-11-07');
+  createForm.customer_id = 'c1';
+  createForm.contract_id = 'ct-1';
+  const create = buildCreatePayload(createForm);
+  assert.equal(create.contract_id, 'ct-1');
+
+  // ② 改单：必须显式发（省略 = 后端「不改」，用户就永远解不掉合同）
+  const updateForm = emptySalesOrderForm('2026-11-07');
+  updateForm.customer_id = 'c1';
+  updateForm.contract_id = '';
+  assert.equal(buildUpdatePayload(updateForm).contract_id, '', '空串 = 解绑合同');
+
+  // ③ 详情 → 表单：挂过合同的单要能回填出合同（`null` → ''）
+  const withContract = order({ contract_id: 'ct-9' });
+  assert.equal(formFromDetail(withContract).contract_id, 'ct-9');
+  const withoutContract = order({ contract_id: null, contract_no: null });
+  assert.equal(formFromDetail(withoutContract).contract_id, '');
 });
 
 test('update payload uses "" for cleared delivery date / remark (整单覆盖)', () => {

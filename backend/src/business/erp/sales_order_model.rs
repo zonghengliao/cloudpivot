@@ -54,10 +54,10 @@ pub const ORDER_TABLE: &str = base::ORDER_TABLE;
 /// 明细表名。
 pub const ITEM_TABLE: &str = base::ITEM_TABLE;
 
-/// 单头列清单（与 V0264 逐列对应）。
-pub const ORDER_COLUMNS: &str = "id, so_no, customer_id, order_date, delivery_date, status, \
-     total_amount, total_tax, total_with_tax, remark, created_at, updated_at, \
-     create_by, update_by, deleted_at";
+/// 单头列清单（与 V0264 + V0302 逐列对应；`contract_id` 由 V0302 补上）。
+pub const ORDER_COLUMNS: &str = "id, so_no, customer_id, contract_id, order_date, \
+     delivery_date, status, total_amount, total_tax, total_with_tax, remark, \
+     created_at, updated_at, create_by, update_by, deleted_at";
 
 /// 明细列清单（与 V0264 逐列对应）。
 pub const ITEM_COLUMNS: &str = "id, so_id, line_no, material_id, qty, price, amount, \
@@ -112,6 +112,11 @@ pub struct SalesOrderRow {
     pub so_no: String,
     /// 客户（弱引用 `biz_customer.id`，无外键）。
     pub customer_id: Uuid,
+    /// 销售合同（`biz_contract.id`，V0302 硬外键；`None` = 未挂合同）。
+    ///
+    /// 语义：只表达「这张订单算在哪张销售合同下」，合同额度守卫（handler
+    /// `guard_contract_amount`）按它现算 `SUM(total_with_tax)`。
+    pub contract_id: Option<Uuid>,
     /// 下单日期。
     pub order_date: NaiveDate,
     /// 要求交期。
@@ -145,6 +150,7 @@ impl SalesOrderRow {
             id: row.get_typed("id")?,
             so_no: row.get_typed("so_no")?,
             customer_id: row.get_typed("customer_id")?,
+            contract_id: row.get_typed("contract_id")?,
             order_date: row.get_typed("order_date")?,
             delivery_date: row.get_typed("delivery_date")?,
             status: row.get_typed("status")?,
@@ -231,6 +237,8 @@ pub struct NewItem {
 pub struct NewSalesOrder<'a> {
     /// 客户（弱引用；有效性由 handler 在事务外校验）。
     pub customer_id: Uuid,
+    /// 销售合同（`None` = 未挂合同；存在性 / 类型 / 状态 / 额度由 handler 校验）。
+    pub contract_id: Option<Uuid>,
     /// 下单日期。
     pub order_date: NaiveDate,
     /// 要求交期。
@@ -309,6 +317,49 @@ pub async fn items_of(so_id: Uuid) -> DbResult<Vec<SalesOrderItemRow>> {
         .find_with_params(&sql, vec![Value::from(so_id)])
         .await?;
     rows.iter().map(SalesOrderItemRow::from_row).collect()
+}
+
+/// 某张销售合同下**已占用**的订单金额（价税合计口径，**现算不缓存**）。
+///
+/// 口径与采购单侧 `purchase_model::committed_amount` 逐条对齐：
+/// * `status <> 'CANCELLED'` —— 作废单不占额度（`CLOSED` 仍算：货已发完，钱是合同内的）；
+/// * `deleted_at IS NULL` —— 软删单不算；
+/// * `exclude` —— 改单时把自己排除，否则自己会被算两遍。
+///
+/// 为什么不维护「已下单额」缓存列：缓存必漂移（取消 / 改单 / 软删都要同步改，
+/// 漏一条就是永久错账），订单量级下 `SUM` 走 `idx_biz_sales_order_contract` 足够快。
+///
+/// ⚠ 本函数**不加锁**：并发安全靠调用方在同一事务里先 `FOR UPDATE` 锁合同行
+/// （`contract_model::contract_lock_full`），见 handler `guard_contract_amount`。
+pub async fn committed_amount(
+    ex: &impl SqlExecutor,
+    contract_id: Uuid,
+    exclude: Option<Uuid>,
+) -> DbResult<Decimal> {
+    let mut sql = format!(
+        "SELECT COALESCE(SUM(total_with_tax), 0)::text AS total \
+           FROM {ORDER_TABLE} \
+          WHERE contract_id = ?::uuid AND status <> ? AND deleted_at IS NULL"
+    );
+    // 作废态也走参数绑定（不在 SQL 里写字面量）：状态域的唯一真相是 `sales_model`
+    let mut params = vec![
+        Value::from(&contract_id),
+        Value::Text(STATUS_CANCELLED.to_string()),
+    ];
+    if let Some(exclude_id) = exclude {
+        // 改单时把自己排除掉。条件按需拼接，**不用** `NULLIF(?::text,'')` 那类写法
+        // ——空串参数在驱动里会被当成 NULL 序列化（A3 的 `error serializing parameter 2`）。
+        sql.push_str(" AND id <> ?::uuid");
+        params.push(Value::from(&exclude_id));
+    }
+    let row = ex.query_first_sql(sql, params).await?;
+    let total: Option<String> = match row {
+        None => None,
+        Some(row) => Some(row.get_typed("total")?),
+    };
+    Ok(total
+        .and_then(|text| text.parse::<Decimal>().ok())
+        .unwrap_or(Decimal::ZERO))
 }
 
 /// 分页：`so_no`（模糊）/ `status`（精确）/ `customer_id`（精确）三个可选条件。
@@ -457,10 +508,10 @@ pub async fn create_order(
     ex.exec_sql(
         format!(
             "INSERT INTO {ORDER_TABLE} \
-                (id, so_no, customer_id, order_date, delivery_date, status, \
+                (id, so_no, customer_id, contract_id, order_date, delivery_date, status, \
                  total_amount, total_tax, total_with_tax, remark, \
                  created_at, updated_at, create_by, update_by) \
-             VALUES (?, ?, ?, NULLIF(?::text,'')::date, NULLIF(?::text,'')::date, ?, \
+             VALUES (?, ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::date, NULLIF(?::text,'')::date, ?, \
                  ?::text::numeric, ?::text::numeric, ?::text::numeric, NULLIF(?::text,''), \
                  ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)"
         ),
@@ -468,6 +519,13 @@ pub async fn create_order(
             Value::from(&id),
             Value::Text(so_no.clone()),
             Value::from(&new.customer_id),
+            // 空串 → NULL（Uuid::to_string 不可能为空 ⇒ None 走空串分支）；
+            // 不用 `?::uuid` 直接绑 Option<Uuid>：与本文件其它写法保持一致
+            Value::Text(
+                new.contract_id
+                    .map(|value| value.to_string())
+                    .unwrap_or_default(),
+            ),
             Value::Text(new.order_date.to_string()),
             Value::Text(
                 new.delivery_date
@@ -519,15 +577,21 @@ pub async fn update_order(
         .exec_sql(
             format!(
                 "UPDATE {ORDER_TABLE} \
-                    SET customer_id = ?, order_date = NULLIF(?::text,'')::date, \
-                        delivery_date = NULLIF(?::text,'')::date, \
-                        total_amount = ?::text::numeric, total_tax = ?::text::numeric, \
-                        total_with_tax = ?::text::numeric, remark = NULLIF(?::text,''), \
-                        updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
-                  WHERE id = ? AND status = ? AND deleted_at IS NULL"
+                        SET customer_id = ?, contract_id = NULLIF(?::text,'')::uuid, \
+                            order_date = NULLIF(?::text,'')::date, \
+                            delivery_date = NULLIF(?::text,'')::date, \
+                            total_amount = ?::text::numeric, total_tax = ?::text::numeric, \
+                            total_with_tax = ?::text::numeric, remark = NULLIF(?::text,''), \
+                            updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
+                      WHERE id = ? AND status = ? AND deleted_at IS NULL"
             ),
             vec![
                 Value::from(&new.customer_id),
+                Value::Text(
+                    new.contract_id
+                        .map(|value| value.to_string())
+                        .unwrap_or_default(),
+                ),
                 Value::Text(new.order_date.to_string()),
                 Value::Text(
                     new.delivery_date
@@ -1024,6 +1088,7 @@ mod tests {
     fn new_order(customer_id: Uuid, remark: &str) -> NewSalesOrder<'_> {
         NewSalesOrder {
             customer_id,
+            contract_id: None,
             order_date: Utc::now().date_naive(),
             delivery_date: None,
             remark: Some(remark),

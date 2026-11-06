@@ -77,6 +77,7 @@ use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
 use crate::business::erp::approval_gate;
+use crate::business::erp::contract_model::{self, ContractRow};
 use crate::business::erp::customer_model::{self, STATUS_ACTIVE};
 use crate::business::erp::sales_approval_bridge;
 use crate::business::erp::sales_order_model::{
@@ -221,6 +222,13 @@ pub struct SalesOrderItemReq {
 pub struct CreateSalesOrderReq {
     /// 客户 id（UUID；必须是未软删且 `ACTIVE` 的客户）。
     pub customer_id: String,
+    /// 销售合同 id（UUID，可空 = 不挂合同）。
+    ///
+    /// 填了就必须过四关（`resolve_sales_contract`）：存在未软删 → `contract_type=SALES`
+    /// → 状态可用（`SIGNED` / `ACTIVE`）→ 合同乙方 = 本单客户；
+    /// 并在事务里过额度守卫（累计订单额不得超合同金额，超出 409 `66019`）。
+    #[serde(default)]
+    pub contract_id: Option<String>,
     /// 下单日期（`yyyy-MM-dd`，留空 = 今天）。
     #[serde(default)]
     pub order_date: Option<String>,
@@ -241,6 +249,12 @@ pub struct UpdateSalesOrderReq {
     /// 客户 id（留空 = 不改）。
     #[serde(default)]
     pub customer_id: Option<String>,
+    /// 销售合同 id（**不传 = 不改**；传空串 = 解绑合同；传 id = 换成这张）。
+    ///
+    /// 与其它可空字段同一口径：`Option<String>` + 空串代表「清空」，
+    /// 所以「解绑合同」不需要第二个布尔标志。
+    #[serde(default)]
+    pub contract_id: Option<String>,
     /// 下单日期（留空 = 不改）。
     #[serde(default)]
     pub order_date: Option<String>,
@@ -339,6 +353,14 @@ pub struct SalesOrderRes {
     pub customer_code: Option<String>,
     /// 客户名称（客户软删后为 `null`）。
     pub customer_name: Option<String>,
+    /// 销售合同 id（未挂合同为 `null`）。
+    pub contract_id: Option<String>,
+    /// 销售合同号（`HT-yyyyMMdd-000001`）。
+    ///
+    /// **只有详情填**（列表恒 `null`）：与 `approval_instance_id` 同口径 —— 列表要带上它
+    /// 就得每行 JOIN 一次 `biz_contract`，或在内存里批量补一次；列表页当前不需要展示，
+    /// 先用 `contract_id` 判断「有没有挂合同」。
+    pub contract_no: Option<String>,
     /// 下单日期（`yyyy-MM-dd`）。
     pub order_date: String,
     /// 要求交期（`yyyy-MM-dd`，未约定为 `null`）。
@@ -378,6 +400,9 @@ impl SalesOrderRes {
             customer_id: row.customer_id.to_string(),
             customer_code: None,
             customer_name: None,
+            contract_id: row.contract_id.map(|id| id.to_string()),
+            // 只由 `detail_of` 补（列表不发这条查询）；`of()` 保持纯函数
+            contract_no: None,
             order_date: row.order_date.to_string(),
             delivery_date: row.delivery_date.map(|date| date.to_string()),
             status: row.status.clone(),
@@ -439,15 +464,28 @@ fn build_item(req: &SalesOrderItemReq, index: usize) -> std::result::Result<NewI
     })
 }
 
-/// 校验 + 归一化整单入参：客户 id、日期、明细（**至少 1 行**）。
+/// 可选合同 id：空白 / `None` → `None`（不挂合同）；非空必须是合法 UUID。
+///
+/// 为什么不用 `parse_uuid` 一把梭：`contract_id` 是可空字段，「没传」和「传空串」
+/// 都是「不挂合同」，不能报 400；但传了乱码必须 400（静默当没传会让调用方以为挂上了）。
+fn parse_contract_id(raw: Option<&str>) -> std::result::Result<Option<Uuid>, ApiError> {
+    match raw.map(str::trim).filter(|text| !text.is_empty()) {
+        None => Ok(None),
+        Some(text) => parse_uuid(text, "contract_id").map(Some),
+    }
+}
+
+/// 校验 + 归一化整单入参：客户 id、合同 id、日期、明细（**至少 1 行**）。
 fn build_order<'a>(
     customer_id: &str,
+    contract_id: Option<&str>,
     order_date: Option<&str>,
     delivery_date: Option<&str>,
     remark: Option<&'a str>,
     items: &[SalesOrderItemReq],
 ) -> std::result::Result<(NewSalesOrder<'a>, Vec<NewItem>), ApiError> {
     let customer_id = parse_uuid(customer_id, "customer_id")?;
+    let contract_id = parse_contract_id(contract_id)?;
     let order_date =
         parse_date(order_date, "order_date")?.unwrap_or_else(|| Utc::now().date_naive());
     let delivery_date = parse_date(delivery_date, "delivery_date")?;
@@ -487,12 +525,153 @@ fn build_order<'a>(
     Ok((
         NewSalesOrder {
             customer_id,
+            contract_id,
             order_date,
             delivery_date,
             remark: remark.map(str::trim).filter(|text| !text.is_empty()),
         },
         built,
     ))
+}
+
+// ==================== 合同关联（SO-27） ====================
+
+/// 合同能不能挂到这张销售订单上（**纯逻辑**，单测直接调）。
+///
+/// 三条判据（对应 ARCH-7 §15.1.2 ③ 与采购单侧 V-22 的同构规则）：
+/// 1. 类型必须是 `SALES` —— 采购 / 服务 / 租赁合同挂到销售订单上，
+///    额度守卫会拿错合同的额度去卡销售单，账就永远对不上；
+/// 2. 状态必须在 `contract_model::USABLE_FOR_ORDER`（`SIGNED` / `ACTIVE`）——
+///    与采购单**同一个常量**：合同详情的 `usable_for_order` 也是按它算的，
+///    两处口径不一致会让用户看到「可用 = true」却选不到；
+/// 3. 合同乙方必须是本单客户（`party_b_id == customer_id`）——
+///    挂到别家客户的合同上，累计额会算进别人的合同，等于替别人用额度。
+fn ensure_sales_contract_usable(
+    contract: &ContractRow,
+    customer_id: Uuid,
+) -> std::result::Result<(), ApiError> {
+    if contract.contract_type != "SALES" {
+        return Err(ApiError::new(
+            400,
+            error_code::ERP_CONTRACT_NOT_USABLE,
+            format!(
+                "合同 {} 的类型是 {}，不能挂到销售订单上（只接受 SALES）",
+                contract.contract_no, contract.contract_type
+            ),
+        ));
+    }
+    if !contract_model::USABLE_FOR_ORDER.contains(&contract.status.as_str()) {
+        return Err(ApiError::new(
+            400,
+            error_code::ERP_CONTRACT_NOT_USABLE,
+            format!(
+                "合同 {} 当前是「{}」（{}），只有已签署（SIGNED）/ 生效（ACTIVE）的合同能挂订单",
+                contract.contract_no,
+                contract_model::status_label(&contract.status),
+                contract.status
+            ),
+        ));
+    }
+    if contract.party_b_id != customer_id {
+        return Err(ApiError::new(
+            400,
+            error_code::ERP_SO_CONTRACT_CUSTOMER_MISMATCH,
+            format!(
+                "合同 {} 的乙方不是本单客户（合同乙方 {}，本单客户 {}）：\
+                 挂别家客户的合同会把金额记到别人的合同额度上",
+                contract.contract_no, contract.party_b_id, customer_id
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// 合同额度判定（**纯逻辑**）：`已下单 + 本单 ≤ 合同金额`，超出即 409。
+///
+/// 为什么是 409 不是 400：入参本身合法（合同存在、状态可用、客户匹配），
+/// 冲突的是「这张合同的额度已经用掉了」这个现状 —— 同一张单在额度够的时候能建。
+fn ensure_within_contract_amount(
+    contract_no: &str,
+    contract_amount: Decimal,
+    used: Decimal,
+    this_total: Decimal,
+) -> std::result::Result<(), ApiError> {
+    let after = used + this_total;
+    if after > contract_amount {
+        return Err(ApiError::new(
+            409,
+            error_code::ERP_CONTRACT_AMOUNT_EXCEEDED,
+            format!(
+                "合同 {contract_no} 额度不足：合同金额 {contract_amount}，已下单 {used}（不含作废单），\
+                 本单 {this_total}，下单后累计 {after} 将超出合同额（剩余额度 {}）",
+                contract_amount - used
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// 取合同并校验可挂（不存在 / 已软删 → 404）。
+///
+/// 读在事务外（与采购单 `resolve_contract` 同序）：额度守卫会在**事务内**再锁一次
+/// 合同行并复检状态，所以这里读到的是「建单那一刻」的快照。
+async fn resolve_sales_contract(
+    contract_id: Uuid,
+    customer_id: Uuid,
+) -> std::result::Result<ContractRow, ApiError> {
+    let contract = contract_model::contract_find(contract_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询销售合同"))?
+        .ok_or_else(|| {
+            ApiError::new(
+                404,
+                error_code::RESOURCE_NOT_FOUND,
+                format!("合同 {contract_id} 不存在或已删除（contract_id 必须在建单前校验）"),
+            )
+        })?;
+    ensure_sales_contract_usable(&contract, customer_id)?;
+    Ok(contract)
+}
+
+/// 合同额度守卫（**必须在事务里调**）：先 `FOR UPDATE` 锁合同，再现算累计额。
+///
+/// 为什么不能「先查后写」：两个并发建单各自都看到「还剩额度」，加起来就超了
+/// （ARCH-2 V-23 的并发坑，采购单侧 `guard_contract_amount` 同一套写法）。
+/// 锁顺序 = 合同行 → 订单写入，与采购链同序，不会互相死锁。
+///
+/// 锁内复检状态：从读到写之间合同可能被终止 / 软删。
+async fn guard_contract_amount(
+    ex: &impl SqlExecutor,
+    contract: &ContractRow,
+    this_total: Decimal,
+    exclude: Option<Uuid>,
+) -> std::result::Result<(), ApiError> {
+    let locked = contract_model::contract_lock_full(ex, contract.id)
+        .await
+        .map_err(|error| utils::db_error(error, "锁定销售合同"))?;
+    let Some(locked) = locked else {
+        return Err(ApiError::new(
+            404,
+            error_code::RESOURCE_NOT_FOUND,
+            format!("合同 {} 在本次建单期间已被删除", contract.contract_no),
+        ));
+    };
+    if !contract_model::USABLE_FOR_ORDER.contains(&locked.status.as_str()) {
+        return Err(ApiError::new(
+            400,
+            error_code::ERP_CONTRACT_NOT_USABLE,
+            format!(
+                "合同 {} 在本次建单期间变成「{}」（{}），已不可挂订单",
+                locked.contract_no,
+                contract_model::status_label(&locked.status),
+                locked.status
+            ),
+        ));
+    }
+    let used = model::committed_amount(ex, locked.id, exclude)
+        .await
+        .map_err(|error| utils::db_error(error, "统计合同已下单额"))?;
+    ensure_within_contract_amount(&locked.contract_no, locked.amount, used, this_total)
 }
 
 // ==================== 业务逻辑（单测直接调这些） ====================
@@ -540,6 +719,14 @@ async fn detail_of(id: Uuid) -> std::result::Result<SalesOrderRes, ApiError> {
         .map_err(|error| utils::db_error(error, "查询销售订单审批实例"))?;
     let mut res = SalesOrderRes::of(&row, items).with_customer(customer.as_ref());
     res.approval_instance_id = instance.map(|id| id.to_string());
+    // SO-27：合同号按 `contract_id` 现查（不落快照列 —— 合同号不可改，没有「当时是谁」的问题；
+    // 合同被硬删时外键 SET NULL，这里也不会查）
+    if let Some(contract_id) = row.contract_id {
+        res.contract_no = contract_model::contract_find(contract_id)
+            .await
+            .map_err(|error| utils::db_error(error, "查询销售订单关联合同"))?
+            .map(|contract| contract.contract_no);
+    }
     Ok(res)
 }
 
@@ -550,17 +737,30 @@ pub async fn create_sales_order(
 ) -> std::result::Result<SalesOrderRes, ApiError> {
     let (new, items) = build_order(
         &req.customer_id,
+        req.contract_id.as_deref(),
         req.order_date.as_deref(),
         req.delivery_date.as_deref(),
         req.remark.as_deref(),
         &req.items,
     )?;
     let customer = require_active_customer(new.customer_id).await?;
+    // SO-27：合同的「类型 / 状态 / 乙方=客户」在事务外先拦（读一次即可），
+    // 额度守卫必须在事务内（锁合同行 → 现算累计额），见 guard_contract_amount
+    let contract = match new.contract_id {
+        None => None,
+        Some(contract_id) => Some(resolve_sales_contract(contract_id, new.customer_id).await?),
+    };
     let totals = Totals::of(&items);
     let tx = db()
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启建单事务"))?;
+    if let Some(contract) = contract.as_ref()
+        && let Err(error) = guard_contract_amount(&tx, contract, totals.with_tax, None).await
+    {
+        let _ = tx.rollback().await;
+        return Err(error);
+    }
     let created = model::create_order(
         &tx,
         &new,
@@ -613,6 +813,11 @@ pub async fn update_sales_order(
     let customer_id = match req.customer_id.as_deref() {
         Some(raw) => parse_uuid(raw, "customer_id")?,
         None => current.customer_id,
+    };
+    // 合同：不传 = 沿用；空串 = 解绑；传 id = 换合同（换也要重过四关 + 额度守卫）
+    let contract_id = match req.contract_id.as_deref() {
+        None => current.contract_id,
+        Some(text) => parse_contract_id(Some(text))?,
     };
     let order_date =
         parse_date(req.order_date.as_deref(), "order_date")?.unwrap_or(current.order_date);
@@ -667,8 +872,15 @@ pub async fn update_sales_order(
         // 换客户也要过「存在且未冻结」这一关（冻结客户禁开新单）
         require_active_customer(customer_id).await?;
     }
+    // SO-27：合同四关（含「乙方 = 本单客户」，所以必须排在客户确定之后）；
+    // 额度守卫在事务里，改单时把自己排除（exclude = 本单 id）
+    let contract = match contract_id {
+        None => None,
+        Some(contract_id) => Some(resolve_sales_contract(contract_id, customer_id).await?),
+    };
     let new = NewSalesOrder {
         customer_id,
+        contract_id,
         order_date,
         delivery_date,
         remark: remark.as_deref(),
@@ -678,6 +890,12 @@ pub async fn update_sales_order(
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启改单事务"))?;
+    if let Some(contract) = contract.as_ref()
+        && let Err(error) = guard_contract_amount(&tx, contract, totals.with_tax, Some(id)).await
+    {
+        let _ = tx.rollback().await;
+        return Err(error);
+    }
     let affected = model::update_order(&tx, id, &new, &items, &totals, operator, Utc::now()).await;
     let affected = match affected {
         Ok(value) => value,
@@ -1337,6 +1555,7 @@ mod tests {
     fn order_req(customer: &str, items: Vec<SalesOrderItemReq>) -> CreateSalesOrderReq {
         CreateSalesOrderReq {
             customer_id: customer.to_string(),
+            contract_id: None,
             order_date: Some("2026-11-06".to_string()),
             delivery_date: None,
             remark: None,
@@ -1350,47 +1569,64 @@ mod tests {
     #[test]
     fn create_request_validation_rejects_bad_input() {
         // ① 0 行明细
-        let err =
-            build_order(CUST, Some("2026-11-06"), None, None, &[]).expect_err("0 行明细必须被拒");
+        let err = build_order(CUST, None, Some("2026-11-06"), None, None, &[])
+            .expect_err("0 行明细必须被拒");
         assert_eq!(err.status, 400);
         assert_eq!(err.code, error_code::PARAM_INVALID);
         assert!(err.msg.contains("至少"), "{}", err.msg);
 
         // ② 数量 <= 0
         let bad_qty = item_req("0", "10", "13");
-        let err = build_order(CUST, None, None, None, &[bad_qty]).expect_err("qty=0 必须被拒");
+        let err =
+            build_order(CUST, None, None, None, None, &[bad_qty]).expect_err("qty=0 必须被拒");
         assert!(err.msg.contains("大于 0"), "{}", err.msg);
         // 负数数量
-        let err = build_order(CUST, None, None, None, &[item_req("-1", "10", "13")])
+        let err = build_order(CUST, None, None, None, None, &[item_req("-1", "10", "13")])
             .expect_err("负数量必须被拒");
         assert!(err.msg.contains("大于 0"), "{}", err.msg);
 
         // ③ 单价为负
-        let err = build_order(CUST, None, None, None, &[item_req("1", "-0.0001", "0")])
-            .expect_err("负单价必须被拒");
+        let err = build_order(
+            CUST,
+            None,
+            None,
+            None,
+            None,
+            &[item_req("1", "-0.0001", "0")],
+        )
+        .expect_err("负单价必须被拒");
         assert!(err.msg.contains("不能为负"), "{}", err.msg);
 
         // ④ 税率越界（> 100 / < 0）
         for rate in ["100.0001", "-1"] {
-            let err =
-                build_order(CUST, None, None, None, &[item_req("1", "10", rate)]).unwrap_err();
+            let err = build_order(CUST, None, None, None, None, &[item_req("1", "10", rate)])
+                .unwrap_err();
             assert!(err.msg.contains("0–100"), "税率 {rate}：{}", err.msg);
         }
         // 边界值 0 / 100 合法
-        build_order(CUST, None, None, None, &[item_req("1", "10", "0")]).expect("0% 合法");
-        build_order(CUST, None, None, None, &[item_req("1", "10", "100")]).expect("100% 合法");
+        build_order(CUST, None, None, None, None, &[item_req("1", "10", "0")]).expect("0% 合法");
+        build_order(CUST, None, None, None, None, &[item_req("1", "10", "100")])
+            .expect("100% 合法");
 
         // ⑤ 客户 id 非法 UUID / 缺失
-        let err = build_order("", None, None, None, &[item_req("1", "10", "0")])
+        let err = build_order("", None, None, None, None, &[item_req("1", "10", "0")])
             .expect_err("空客户 id 必须被拒");
         assert_eq!(err.code, error_code::ERP_FILTER_INVALID);
-        let err = build_order("not-a-uuid", None, None, None, &[item_req("1", "10", "0")])
-            .expect_err("非法客户 id 必须被拒");
+        let err = build_order(
+            "not-a-uuid",
+            None,
+            None,
+            None,
+            None,
+            &[item_req("1", "10", "0")],
+        )
+        .expect_err("非法客户 id 必须被拒");
         assert_eq!(err.code, error_code::ERP_FILTER_INVALID);
 
         // ⑥ 日期格式 / 交期早于下单日
         let err = build_order(
             CUST,
+            None,
             Some("2026-13-01"),
             None,
             None,
@@ -1400,6 +1636,7 @@ mod tests {
         assert!(err.msg.contains("yyyy-MM-dd"), "{}", err.msg);
         let err = build_order(
             CUST,
+            None,
             Some("2026-11-06"),
             Some("2026-11-05"),
             None,
@@ -1414,6 +1651,7 @@ mod tests {
     fn amounts_are_computed_server_side() {
         let (new, items) = build_order(
             CUST,
+            None,
             Some("2026-11-06"),
             Some("2026-11-20"),
             Some("  hello  "),
@@ -1472,6 +1710,7 @@ mod tests {
         let req = order_req(CUST, vec![item_req("2", "100", "13")]);
         let (new, items) = build_order(
             &req.customer_id,
+            req.contract_id.as_deref(),
             req.order_date.as_deref(),
             req.delivery_date.as_deref(),
             req.remark.as_deref(),
@@ -1483,6 +1722,7 @@ mod tests {
             id: uuid::Uuid::nil(),
             so_no: "SO-20261106-000001".to_string(),
             customer_id: new.customer_id,
+            contract_id: new.contract_id,
             order_date: new.order_date,
             delivery_date: None,
             status: model::STATUS_DRAFT.to_string(),
@@ -1502,6 +1742,136 @@ mod tests {
             "列表口径必须是 null（实例 id 只由详情补）"
         );
         assert_eq!(res.status, model::STATUS_DRAFT);
+    }
+
+    // ---------- SO-27：销售订单 ↔ 销售合同（纯逻辑） ----------
+
+    /// 合同夹具：只填与「能不能挂单」相关的四列，其余给安全默认值。
+    fn contract_fixture(
+        kind: &str,
+        status: &str,
+        party_b_id: Uuid,
+        amount: Decimal,
+    ) -> ContractRow {
+        ContractRow {
+            id: Uuid::now_v7(),
+            contract_no: "HT-20261107-000001".to_string(),
+            contract_name: "SO-27 夹具合同".to_string(),
+            contract_type: kind.to_string(),
+            party_a_id: None,
+            party_a_name: None,
+            party_b_type: "CUSTOMER".to_string(),
+            party_b_id,
+            party_b_name: "夹具客户".to_string(),
+            party_b_current_name: Some("夹具客户".to_string()),
+            amount,
+            currency_code: "CNY".to_string(),
+            sign_date: NaiveDate::from_ymd_opt(2026, 1, 1),
+            start_date: NaiveDate::from_ymd_opt(2026, 1, 2),
+            end_date: NaiveDate::from_ymd_opt(2026, 12, 31),
+            status: status.to_string(),
+            owner_id: None,
+            dept_id: None,
+            remark: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            create_by: None,
+            update_by: None,
+            deleted_at: None,
+            approval_instance_id: None,
+        }
+    }
+
+    /// `contract_id` 是可空字段：不传 / 空串 = 不挂合同，乱码必须 400（不许静默当没传）。
+    #[test]
+    fn contract_id_is_optional_but_never_silently_ignored() {
+        assert_eq!(parse_contract_id(None).unwrap(), None);
+        assert_eq!(parse_contract_id(Some("")).unwrap(), None);
+        assert_eq!(parse_contract_id(Some("   ")).unwrap(), None);
+        let id = Uuid::now_v7();
+        assert_eq!(
+            parse_contract_id(Some(&format!("  {id}  "))).unwrap(),
+            Some(id),
+            "两侧空白应被 trim 后解析"
+        );
+        let err = parse_contract_id(Some("HT-20261107-000001"))
+            .expect_err("合同号不是 UUID，必须 400（静默丢字段会让调用方以为挂上了）");
+        assert_eq!(err.status, 400);
+        assert_eq!(err.code, error_code::ERP_FILTER_INVALID);
+
+        // 建单入参经过 build_order 后，contract_id 落到 NewSalesOrder
+        let (new, _) = build_order(
+            CUST,
+            Some(&id.to_string()),
+            None,
+            None,
+            None,
+            &[item_req("1", "10", "0")],
+        )
+        .expect("合法入参");
+        assert_eq!(new.contract_id, Some(id));
+    }
+
+    /// 合同四关：类型必须是 SALES、状态必须可用（SIGNED/ACTIVE）、乙方必须是本单客户。
+    #[test]
+    fn sales_contract_must_be_sales_usable_and_same_customer() {
+        let customer = Uuid::now_v7();
+
+        // ① 类型不对（采购合同挂销售单 → 拿别人的额度卡销售单）
+        let purchase = contract_fixture("PURCHASE", "ACTIVE", customer, dec("1000"));
+        let err = ensure_sales_contract_usable(&purchase, customer).expect_err("PURCHASE 必须被拒");
+        assert_eq!(err.status, 400);
+        assert_eq!(err.code, error_code::ERP_CONTRACT_NOT_USABLE);
+        assert!(err.msg.contains("SALES"), "{}", err.msg);
+
+        // ② 状态不可用（DRAFT / COMPLETED / TERMINATED 都不行）
+        for status in ["DRAFT", "PENDING_APPROVAL", "COMPLETED", "TERMINATED"] {
+            let contract = contract_fixture("SALES", status, customer, dec("1000"));
+            let err = match ensure_sales_contract_usable(&contract, customer) {
+                Err(error) => error,
+                Ok(()) => panic!("{status} 必须被拒"),
+            };
+            assert_eq!(err.status, 400);
+            assert_eq!(err.code, error_code::ERP_CONTRACT_NOT_USABLE);
+        }
+        // ③ SIGNED / ACTIVE 都能挂（与采购单同一常量 `USABLE_FOR_ORDER`）
+        for status in contract_model::USABLE_FOR_ORDER {
+            let contract = contract_fixture("SALES", status, customer, dec("1000"));
+            ensure_sales_contract_usable(&contract, customer)
+                .unwrap_or_else(|error| panic!("{status} 应放行：{}", error.msg));
+        }
+
+        // ④ 乙方不是本单客户（把 A 的单记到 B 的合同额度上，两边都错）
+        let other = Uuid::now_v7();
+        let contract = contract_fixture("SALES", "ACTIVE", other, dec("1000"));
+        let err = ensure_sales_contract_usable(&contract, customer).unwrap_err();
+        assert_eq!(err.status, 400);
+        assert_eq!(err.code, error_code::ERP_SO_CONTRACT_CUSTOMER_MISMATCH);
+        assert!(err.msg.contains("乙方"), "{}", err.msg);
+    }
+
+    /// 额度守卫：`已下单 + 本单 ≤ 合同金额`，超出 409 `66019`（边界值放行）。
+    #[test]
+    fn contract_amount_guard_rejects_only_when_exceeded() {
+        let no = "HT-20261107-000001";
+        // 边界：正好用满 → 放行
+        ensure_within_contract_amount(no, dec("100"), dec("80"), dec("20"))
+            .expect("用满不等于超出");
+        // 未用满 → 放行
+        ensure_within_contract_amount(no, dec("100"), dec("0"), dec("99.9999"))
+            .expect("未超应放行");
+        // 超出 0.0001 → 409 + 66019，报文点名四个数（合同额 / 已下 / 本单 / 剩余）
+        let err = ensure_within_contract_amount(no, dec("100"), dec("80"), dec("20.0001"))
+            .expect_err("超出必须被拒");
+        assert_eq!(err.status, 409);
+        assert_eq!(err.code, error_code::ERP_CONTRACT_AMOUNT_EXCEEDED);
+        for needle in ["100", "80", "20.0001", "剩余额度 20"] {
+            assert!(err.msg.contains(needle), "报文缺 {needle}：{}", err.msg);
+        }
+        // 已下单额本身就超了合同（历史脏数据）→ 依然拒绝，不能因为「本单很小」放过
+        let err = ensure_within_contract_amount(no, dec("100"), dec("120"), dec("1"))
+            .expect_err("累计已超也必须拒");
+        assert_eq!(err.code, error_code::ERP_CONTRACT_AMOUNT_EXCEEDED);
     }
 
     // ---------- 真库用例（`ERP_DB_URL` 开关） ----------

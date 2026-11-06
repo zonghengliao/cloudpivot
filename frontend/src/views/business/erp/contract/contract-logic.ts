@@ -121,8 +121,29 @@ export const CONTRACT_REASON_EDGES: ReadonlyArray<readonly [ContractStatus, Cont
   ['ACTIVE', 'TERMINATED'],
 ] as const;
 
-/** 本期放行的合同类型（`contract_dto::SUPPORTED_TYPES`，只有 `PURCHASE`） */
-export const SUPPORTED_CONTRACT_TYPES: readonly ContractType[] = ['PURCHASE'] as const;
+/**
+ * 放行的合同类型（`contract_dto::SUPPORTED_TYPES` = `PURCHASE` / `SALES`）。
+ *
+ * SO-26 起销售合同可用（乙方 → `biz_customer`）；`SERVICE` / `LEASE` 仍未开放，
+ * 表单里置灰并标注「本期未开放」。
+ */
+export const SUPPORTED_CONTRACT_TYPES: readonly ContractType[] = ['PURCHASE', 'SALES'] as const;
+
+/**
+ * 合同类型 → 乙方主档（**与后端 `contract_dto` 的推导逐字一致**）。
+ *
+ * `PURCHASE` 的乙方是供应商，`SALES` 的乙方是客户；表单的乙方选择器按它切换数据源，
+ * 校验文案也按它分叉（「请选择乙方供应商」/「请选择乙方客户」）。
+ * 未放行的类型（`SERVICE` / `LEASE`）按采购口径兜底 —— 它们本来就提交不上去。
+ */
+export function contractPartyBKind(type: string | null | undefined): 'SUPPLIER' | 'CUSTOMER' {
+  return (type ?? '').trim().toUpperCase() === 'SALES' ? 'CUSTOMER' : 'SUPPLIER';
+}
+
+/** 乙方称谓：`乙方供应商` / `乙方客户`（表单 label、placeholder、校验文案统一用它） */
+export function contractPartyBLabel(type: string | null | undefined): string {
+  return contractPartyBKind(type) === 'CUSTOMER' ? '乙方客户' : '乙方供应商';
+}
 
 /** 合同类型中文名（`ck_biz_contract_type` 的 4 个值） */
 const CONTRACT_TYPE_LABELS: Record<ContractType, string> = {
@@ -197,8 +218,8 @@ export function contractTypeLabel(type: string | null | undefined): string {
 }
 
 /**
- * 合同类型下拉：本期只有「采购合同」可选，其余**置灰**（不是隐藏 —— 置灰能让用户
- * 知道系统里有销售/服务/租赁，只是还没开，比凭空少几个选项更容易解释）。
+ * 合同类型下拉：`PURCHASE` / `SALES` 可选，其余**置灰**（不是隐藏 —— 置灰能让用户
+ * 知道系统里有服务/租赁合同，只是还没开，比凭空少几个选项更容易解释）。
  */
 export function contractTypeOptions(): Array<{ label: string; value: ContractType; disabled: boolean }> {
   return (Object.keys(CONTRACT_TYPE_LABELS) as ContractType[]).map((value) => ({
@@ -576,7 +597,7 @@ function dateValue(text: string): string {
  *
  * 逐条对应：
  * 1. 名称非空 + ≤ 200 字；
- * 2. 合同类型必须是本期放行的 `PURCHASE`；
+ * 2. 合同类型必须是放行的 `PURCHASE` / `SALES`（`SERVICE` / `LEASE` → 后端 400）；
  * 3. 乙方必选；
  * 4. 金额必填且 **> 0**（DDL 是 `amount > 0`，卡面写的 `≥ 0` 与 DDL 不符）+ ≤ 4 位小数；
  * 5. 签订日期必填（卡面要求；后端「流转到 SIGNED 前必须三件套齐全」）；
@@ -600,7 +621,7 @@ export function validateContractForm(form: ContractFormState): ContractFormError
   }
 
   if (!form.party_b_id) {
-    errors.party_b_id = '请选择乙方供应商';
+    errors.party_b_id = `请选择${contractPartyBLabel(form.contract_type)}`;
   }
 
   if (form.amount === null || form.amount === undefined || Number.isNaN(Number(form.amount))) {

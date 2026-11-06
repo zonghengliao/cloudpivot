@@ -243,25 +243,27 @@
             :status="formErrors.contract_type ? 'error' : undefined"
             :tips="formErrors.contract_type"
           >
-            <!-- 本期只有采购合同可选，其余置灰（后端起 66020 / 10001） -->
+            <!-- 放行 PURCHASE / SALES（SO-26），其余置灰（后端 10001） -->
             <t-select
               v-model="form.contract_type"
               :options="formTypeOptions"
               placeholder="请选择合同类型"
               data-testid="contract-form-type"
+              @change="handleTypeChange"
             />
           </t-form-item>
 
           <t-form-item
-            label="乙方"
+            :label="partyBLabel"
             name="party_b_id"
             :status="formErrors.party_b_id ? 'error' : undefined"
             :tips="formErrors.party_b_id"
           >
+            <!-- 乙方随类型切换数据源：PURCHASE → 供应商；SALES → 客户（SO-27） -->
             <t-select
               v-model="form.party_b_id"
-              :options="supplierOptions"
-              placeholder="选择乙方供应商"
+              :options="partyBOptions"
+              :placeholder="`选择${partyBLabel}`"
               filterable
               clearable
               data-testid="contract-form-party-b"
@@ -401,7 +403,7 @@
             <span class="detail-field__value">{{ contractTypeLabel(detail.contract_type) }}</span>
           </div>
           <div class="detail-field">
-            <span class="detail-field__label">乙方</span>
+            <span class="detail-field__label">{{ contractPartyBLabel(detail.contract_type) }}</span>
             <span class="detail-field__value">{{ contractPartyBName(detail) }}</span>
           </div>
           <div class="detail-field">
@@ -560,10 +562,12 @@ import {
   fetchContractDetail,
   fetchContractPage,
   fetchContractPurchaseOrders,
+  fetchCustomerPage,
   fetchSupplierOptions,
   updateContract,
   type ContractDetail,
   type ContractRow,
+  type Customer,
   type PurchaseOrderRow,
   type Supplier,
 } from '@/api/business/erp';
@@ -587,6 +591,8 @@ import {
   contractEmptyState,
   contractFormFromDetail,
   contractListState,
+  contractPartyBKind,
+  contractPartyBLabel,
   contractPartyBName,
   contractPeriodText,
   contractStatusLabel,
@@ -682,12 +688,30 @@ const pagination = computed(() => ({
   showPageSize: false,
 }));
 
-/** 乙方下拉 */
+/** 乙方下拉：供应商（PURCHASE）与客户（SALES）两套数据源，按表单类型切换 */
 const suppliers = ref<Supplier[]>([]);
+const customers = ref<Customer[]>([]);
 const supplierOptions = computed(() =>
   suppliers.value.map((item) => ({ label: `${item.supplier_name}（${item.supplier_code}）`, value: item.id })),
 );
+const customerOptions = computed(() =>
+  customers.value.map((item) => ({ label: `${item.code} ${item.name}`, value: item.id })),
+);
+/** 当前表单类型对应的乙方候选（SALES → 客户；其余 → 供应商） */
+const partyBOptions = computed(() =>
+  contractPartyBKind(form.contract_type) === 'CUSTOMER' ? customerOptions.value : supplierOptions.value,
+);
+/** 乙方称谓（「乙方供应商」/「乙方客户」）—— label / placeholder / 校验文案同源 */
+const partyBLabel = computed(() => contractPartyBLabel(form.contract_type));
 
+/**
+ * 切换合同类型时清空乙方：供应商 id 与客户 id 是两个 id 空间，
+ * 留着上一个类型选中的 id 会让「乙方」看起来选好了、实际指向另一张主档（提交才 400）。
+ */
+function handleTypeChange(): void {
+  form.party_b_id = '';
+  formErrors.value.party_b_id = undefined;
+}
 /** 错误 → 文案 */
 function messageOf(error: unknown): string {
   if (error instanceof ApiError) {
@@ -718,7 +742,13 @@ async function loadContracts(page: number = current.value): Promise<void> {
 
 /** 主数据（失败不挡列表：下拉为空时页面还能看单） */
 async function loadBasics(): Promise<void> {
-  suppliers.value = await fetchSupplierOptions(OPTION_LIMIT).catch(() => [] as Supplier[]);
+  // 两套乙方主档一起拉：切换类型时不用等一次网络往返
+  const [supplierResult, customerResult] = await Promise.allSettled([
+    fetchSupplierOptions(OPTION_LIMIT),
+    fetchCustomerPage({ status: 'ACTIVE', page: 1, page_size: OPTION_LIMIT }),
+  ]);
+  suppliers.value = supplierResult.status === 'fulfilled' ? supplierResult.value : [];
+  customers.value = customerResult.status === 'fulfilled' ? (customerResult.value.list ?? []) : [];
 }
 
 /** 查询（回第一页） */

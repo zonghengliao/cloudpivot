@@ -206,6 +206,20 @@
               </t-form-item>
             </t-col>
             <t-col :span="6">
+              <t-form-item label="销售合同">
+                <!-- 只列 SALES 类型 + ACTIVE 的合同（卡面口径）；选了合同自动带出客户 -->
+                <t-select
+                  v-model="form.contract_id"
+                  :options="contractOptions"
+                  filterable
+                  clearable
+                  placeholder="不挂合同（可选）"
+                  data-testid="so-form-contract"
+                  @change="handleContractChange"
+                />
+              </t-form-item>
+            </t-col>
+            <t-col :span="6">
               <t-form-item label="订单日期" required-mark>
                 <t-date-picker
                   v-model="form.order_date"
@@ -419,6 +433,7 @@
 
         <t-descriptions :column="2" size="small" class="detail-desc" data-testid="so-detail-desc">
           <t-descriptions-item label="客户">{{ customerText(detail) }}</t-descriptions-item>
+          <t-descriptions-item label="销售合同">{{ detail.contract_no || '—' }}</t-descriptions-item>
           <t-descriptions-item label="订单日期">{{ detail.order_date }}</t-descriptions-item>
           <t-descriptions-item label="要求交期">{{ detail.delivery_date || '—' }}</t-descriptions-item>
           <t-descriptions-item label="价税合计">
@@ -529,12 +544,14 @@ import { ApiError } from '@/api/request';
 import {
   createSalesOrder,
   changeSalesOrderStatus,
+  fetchContractPage,
   fetchCustomerPage,
   fetchMaterialPage,
   fetchSalesOrderDetail,
   fetchSalesOrderPage,
   submitSalesOrderApproval,
   updateSalesOrder,
+  type ContractRow,
   type Customer,
   type MaterialRow,
   type SalesOrder,
@@ -686,10 +703,12 @@ function handlePageChange(pageInfo: { current: number; pageSize: number }): void
   void loadOrders(pageInfo.current);
 }
 
-// ==================== 主数据下拉（客户 / 物料） ====================
+// ==================== 主数据下拉（客户 / 物料 / 销售合同） ====================
 
 const customers = ref<Customer[]>([]);
 const materials = ref<MaterialRow[]>([]);
+/** 可挂的销售合同（`contract_type=SALES` + `status=ACTIVE`，SO-27） */
+const contracts = ref<ContractRow[]>([]);
 
 /** 客户下拉：只列 `ACTIVE`（冻结客户开不了新单，后端 400） */
 const customerOptions = computed(() =>
@@ -698,6 +717,34 @@ const customerOptions = computed(() =>
     value: item.id,
   })),
 );
+
+/**
+ * 合同下拉：**只列 SALES 类型 + ACTIVE 的合同**（卡面口径）。
+ *
+ * 后端 `USABLE_FOR_ORDER` 还放行 `SIGNED`（与采购单同一常量），API 调用方可以挂
+ * 已签署合同；页面按卡面只列 ACTIVE，避免用户在不该下单的合同上点出单。
+ * 选中后由 `handleContractChange` 自动带出客户（后端要求合同乙方 = 订单客户）。
+ */
+const contractOptions = computed(() =>
+  contracts.value.map((item) => ({
+    label: `${item.contract_no} ${item.contract_name}`,
+    value: item.id,
+  })),
+);
+
+/**
+ * 选合同 → 自动带出客户。
+ *
+ * 为什么自动带：后端强制「合同乙方 = 订单客户」，让用户手选两次必然对不上；
+ * 清空合同时**不动**客户（用户可能先选了客户再挂合同，回头解绑不该丢客户）。
+ */
+function handleContractChange(value: unknown): void {
+  const id = typeof value === 'string' ? value : '';
+  const picked = contracts.value.find((item) => item.id === id);
+  if (picked) {
+    form.customer_id = picked.party_b_id;
+  }
+}
 
 /** 物料下拉：只列启用（`status = 1`），标签带编码 + 规格 */
 const materialOptions = computed(() =>
@@ -752,16 +799,21 @@ function customerText(row: { customer_name: string | null; customer_code: string
 }
 
 async function loadOptions(): Promise<void> {
-  // 两个下拉互不依赖，一起发；任何一个失败都不该让页面整体失败 —— 只在控制台留痕
-  const [customerResult, materialResult] = await Promise.allSettled([
+  // 三个下拉互不依赖，一起发；任何一个失败都不该让页面整体失败 —— 只在控制台留痕
+  const [customerResult, materialResult, contractResult] = await Promise.allSettled([
     fetchCustomerPage({ status: 'ACTIVE', page: 1, page_size: 200 }),
     fetchMaterialPage({ status: 1, page: 1, page_size: 200 }),
+    // SO-27：只列 SALES + ACTIVE 的销售合同（卡面口径）
+    fetchContractPage({ contract_type: 'SALES', status: 'ACTIVE', page: 1, page_size: 200 }),
   ]);
   if (customerResult.status === 'fulfilled') {
     customers.value = customerResult.value.list ?? [];
   }
   if (materialResult.status === 'fulfilled') {
     materials.value = materialResult.value.list ?? [];
+  }
+  if (contractResult.status === 'fulfilled') {
+    contracts.value = contractResult.value.list ?? [];
   }
 }
 

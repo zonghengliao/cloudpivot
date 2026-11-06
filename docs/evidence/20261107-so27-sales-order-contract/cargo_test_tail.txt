@@ -1,0 +1,61 @@
+test testd::linkage::k07_state_change_appends_one_log ... ok
+test testd::linkage::k08_mutex_erp_maker_checker_gap ... ok
+test testd::masking::x02_detail_masked_for_plain_user ... ok
+test testd::masking::x03_sync_export_masked ... ok
+test testd::masking::x04_missing_rule_fails_closed ... ok
+test testd::masking::x05_plain_permission_exempt_and_audited ... ok
+test testd::mutex_help_ai::ai01_robot_user_gets_only_role_permissions ... ok
+test testd::mutex_help_ai::ai02_robot_operation_traced_in_changelog ... ok
+test testd::mutex_help_ai::mo01_monitor_collectors_on_real_proc ... ok
+test testd::mutex_help_ai::h01_help_doc_crud ... ok
+test testd::mutex_help_ai::h02_help_search ... ok
+test testd::mutex_help_ai::h03_help_content_xss_sanitized ... ok
+test testd::mutex_help_ai::x01_mutex_pair_is_symmetric ... ok
+test testd::mutex_help_ai::x02_assign_second_mutex_role_rejected ... ok
+test testd::mutex_help_ai::x03_single_request_dual_grant_rejected ... ok
+test testd::mutex_help_ai::x04_existing_dual_holder_detected ... ok
+test testd::project_log::c03_log_has_no_update_path ... ok
+test testd::mutex_help_ai::x05_mutex_covers_erp_maker_checker ... ok
+test testd::project_log::c01_every_state_change_logged ... ok
+test testd::project_log::c02_log_fields_complete ... ok
+test testd::project_log::c04_timeline_by_object ... ok
+test testd::project_log::c05_filter_by_operator_and_time ... ok
+test testd::project_log::p01_create_project_and_bind_task ... ok
+test testd::project_log::p03_project_stats_aggregate_tasks ... ok
+test testd::project_log::p02_delete_project_unbinds_tasks ... ok
+test testd::project_log::c06_ten_objects_log_count_matches ... ok
+test testd::project_log::p04_project_membership_is_not_a_scope ... ok
+test testd::storage::f01_local_store_roundtrip_integrity ... ok
+test testd::project_log::p05_archive_project ... ok
+test testd::storage::f02_oversize_upload_rejected ... ok
+test testd::storage::f03_dangerous_extension_rejected ... ok
+test testd::storage::f04_path_traversal_rejected ... ok
+test testd::storage::f05_download_owner_isolation ... ok
+test testd::storage::f06_both_backends_core_paths ... ok
+test testd::storage::f07_presign_ttl_and_expiry ... ok
+test testd::storage::f08_delete_is_soft_delete ... ok
+test testd::storage::zz_no_fixture_residue_after_full_suite ... ok
+test testd::storage::f09_attachment_lifecycle_vs_document ... ok
+
+test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 135.29s
+
+   Doc-tests cloudpivot
+
+running 12 tests
+test src/business/changelog/mod.rs - business::changelog (line 37) ... ignored
+test src/business/erp/contract_model.rs - business::erp::contract_model::party_b_ref (line 164) ... ignored
+test src/business/erp/serial_model.rs - business::erp::serial_model::move_serials (line 1507) ... ignored
+test src/business/flow/linkage/engine.rs - business::flow::linkage::engine (line 30) ... ignored
+test src/business/flow/settle_guard.rs - business::flow::settle_guard::gate (line 210) ... ignored
+test src/business/masking/registry.rs - business::masking::registry (line 12) ... ignored
+test src/business/notice/mod.rs - business::notice (line 21) ... ignored
+test src/business/shared/mod.rs - business::shared (line 24) ... ignored
+test src/middleware/auth_guard.rs - middleware::auth_guard (line 7) ... ignored
+test src/shared/enums.rs - shared::enums::module_enums (line 148) ... ignored
+test src/shared/error_code.rs - shared::error_code (line 15) ... ignored
+test src/business/flow/graph.rs - business::flow::graph::FlowGraph::find_cycle (line 556) ... ok
+
+test result: ok. 1 passed; 0 failed; 11 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+all doctests ran in 9.35s; merged doctests compilation took 9.32s
+done

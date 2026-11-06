@@ -37,6 +37,8 @@ import {
   contractEmptyState,
   contractFormFromDetail,
   contractListState,
+  contractPartyBKind,
+  contractPartyBLabel,
   contractPeriodText,
   contractStatusLabel,
   contractStatusTheme,
@@ -448,7 +450,7 @@ test('⑬ 请求体：空筛选不发、区间映射正确；建单/改单不带
 
 // ---------------------------------------------------------------- ⑭ 表单回填 / 类型下拉
 
-test('⑭ 编辑回填与类型下拉：详情 → 表单字段齐全，类型只放开「采购合同」', () => {
+test('⑭ 编辑回填与类型下拉：详情 → 表单字段齐全，类型放开「采购 / 销售合同」', () => {
   const detail: ContractDetail = {
     ...contractRow({
       amount: '226.0000',
@@ -477,15 +479,47 @@ test('⑭ 编辑回填与类型下拉：详情 → 表单字段齐全，类型�
   assert.equal(form.start_date, '2026-03-01');
   assert.equal(form.remark, '月结 30 天');
 
-  // 类型下拉：PURCHASE 可选，其余置灰并标注未开放
+  // 类型下拉：PURCHASE / SALES 可选，其余置灰并标注未开放
   const options = contractTypeOptions();
   assert.equal(options.length, 4, '后端白名单 4 个值都列出来（置灰而不是消失）');
   assert.deepEqual(
     options.filter((item) => !item.disabled).map((item) => item.value),
-    ['PURCHASE'],
+    ['PURCHASE', 'SALES'],
+    'SO-26 起销售合同也放行',
   );
   assert.ok(options.filter((item) => item.disabled).every((item) => item.label.includes('未开放')));
+  assert.deepEqual(
+    options.filter((item) => item.disabled).map((item) => item.value),
+    ['SERVICE', 'LEASE'],
+    '服务 / 租赁仍未开放',
+  );
   assert.equal(contractTypeLabel('PURCHASE'), '采购合同');
   assert.equal(contractTypeLabel('SALES'), '销售合同');
   assert.equal(contractTypeLabel(null), '—');
+});
+
+// ---------------------------------------------------------------- ⑮ 乙方主档随类型切换（SO-27）
+
+test('⑮ 乙方主档：SALES → 客户，其余 → 供应商（与后端推导逐字一致）', () => {
+  assert.equal(contractPartyBKind('SALES'), 'CUSTOMER');
+  assert.equal(contractPartyBKind('sales'), 'CUSTOMER', '大小写不敏感（后端按 to_uppercase 比）');
+  assert.equal(contractPartyBKind(' PURCHASE '), 'SUPPLIER');
+  assert.equal(contractPartyBKind(''), 'SUPPLIER');
+  assert.equal(contractPartyBKind(undefined), 'SUPPLIER');
+
+  assert.equal(contractPartyBLabel('SALES'), '乙方客户');
+  assert.equal(contractPartyBLabel('PURCHASE'), '乙方供应商');
+
+  // 后端推导必须同源：`contract_dto.rs` 里 SALES ↔ CUSTOMER 的配对是唯一真相
+  const dto = backendSource('erp/contract_dto.rs');
+  assert.ok(
+    /party_b_type.*CUSTOMER|CUSTOMER.*party_b_type/s.test(dto),
+    '后端 contract_dto.rs 里应有 SALES → CUSTOMER 的推导',
+  );
+
+  // 校验文案随类型分叉（供应商时不再说「请选择乙方客户」）
+  const salesErrors = validateContractForm({ ...legalForm(), contract_type: 'SALES', party_b_id: '' });
+  assert.equal(salesErrors.party_b_id, '请选择乙方客户');
+  const purchaseErrors = validateContractForm({ ...legalForm(), party_b_id: '' });
+  assert.equal(purchaseErrors.party_b_id, '请选择乙方供应商');
 });

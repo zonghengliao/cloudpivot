@@ -383,10 +383,16 @@ export interface SalesOrderLineDraft {
   tax_rate: number | string;
 }
 
-/** 单头草稿（`customer_id` / 日期 / 备注） */
+/** 单头草稿（`customer_id` / `contract_id` / 日期 / 备注） */
 export interface SalesOrderFormDraft {
   /** 客户 id（`''` = 还没选） */
   customer_id: string;
+  /**
+   * 销售合同 id（`''` = 不挂合同，SO-27）。
+   *
+   * 只放「SALES 类型 + 可用状态」的合同；填了由后端校验乙方 = 本单客户与合同额度。
+   */
+  contract_id: string;
   /** 下单日期（`yyyy-MM-dd`） */
   order_date: string;
   /** 要求交期（`''` = 未约定） */
@@ -418,6 +424,7 @@ export function newSalesOrderLine(
 export function emptySalesOrderForm(today: string): SalesOrderFormDraft {
   return {
     customer_id: '',
+    contract_id: '',
     order_date: today,
     delivery_date: '',
     remark: '',
@@ -434,6 +441,7 @@ export function emptySalesOrderForm(today: string): SalesOrderFormDraft {
 export function formFromDetail(order: SalesOrder): SalesOrderFormDraft {
   return {
     customer_id: order.customer_id,
+    contract_id: order.contract_id ?? '',
     order_date: order.order_date,
     delivery_date: order.delivery_date ?? '',
     remark: order.remark ?? '',
@@ -541,6 +549,7 @@ export function toItemReq(line: SalesOrderLineDraft): SalesOrderItemReq {
 export function buildCreatePayload(form: SalesOrderFormDraft): CreateSalesOrderReq {
   return {
     customer_id: form.customer_id,
+    contract_id: form.contract_id || null,
     order_date: form.order_date,
     delivery_date: form.delivery_date || null,
     remark: form.remark.trim() || null,
@@ -556,6 +565,9 @@ export function buildCreatePayload(form: SalesOrderFormDraft): CreateSalesOrderR
 export function buildUpdatePayload(form: SalesOrderFormDraft): UpdateSalesOrderReq {
   return {
     customer_id: form.customer_id,
+    // 空串 = 解绑合同（后端 `parse_contract_id` 把 Some("") 折成 None）；
+    // 不能省略：省略表示「不改」，用户就永远解不掉已挂的合同
+    contract_id: form.contract_id,
     order_date: form.order_date,
     delivery_date: form.delivery_date || '',
     remark: form.remark.trim(),
