@@ -1,7 +1,7 @@
 # 云枢 · 销售模块设计
 
 > 文档编号：ARCH-7
-> 版本：v1.0 · 2026-11-06
+> 版本：v1.1 · 2026-11-06（v1.1 补 §15 扩展功能设计，共 46 张卡）
 > 定位：**销售模块的唯一权威文档**。此前散落在 `ARCH-3 §3.8`、`ARCH-4`、`ERP-批次1-产品需求PRD` 的销售相关内容，已全部收口到本文。其他文档提及销售时以本文为准。
 > 前置状态：出库单（DC-13）**已完成**（`stockout` 模块 5238 行，支持 ISSUE/SCRAP/LOSS，成本结转凭证 借 6401/贷 1405 已实现）
 
@@ -30,13 +30,21 @@
 
 ### 1.2 不做什么（明确排除）
 
-| 不做 | 原因 |
-|---|---|
-| 销售合同（`contract_type=SALES`） | 合同模块 `SUPPORTED_TYPES=["PURCHASE"]` 只放行采购，放开需单独决策。本模块**只读引用**合同号，不建销售合同单据 |
-| 客户门户 / 电商对接 | 属集成层，等 IM 集成阶段 |
-| 多币种销售 | 现有 `biz_payable` 有 `currency_code` 字段但全库只有 CNY，销售沿用单币种 |
-| 佣金 / 销售提成 | 属 HR 薪酬域，不在本模块 |
-| 退货 / 红字发票的完整流程 | 首期只做「销售出库作废 → 红字凭证」，退货单另立 |
+> **v1.1 修订**（2026-11-06）：v1.0 曾把销售合同、多币种、佣金、退货列为「不做」，**该判断有误**——用户明确要求「范围先不考虑，先把完整设计做出来」。现已全部纳入 **§15 扩展功能设计**。
+>
+> 本表仅保留**真正不做**的项。
+
+| 不做 | 原因 | 决策人 / 日期 |
+|---|---|---|
+| **客户门户 / 电商对接** | 产品定位问题，暂不做 | 用户 · 2026-11-06 |
+
+**已从「不做」移入 §15 的项**：
+- 销售合同（`contract_type=SALES`）→ §15.1
+- 多币种销售 → §15.6
+- 佣金 / 销售提成 → §15.4
+- 退货 / 红字发票 → §15.2
+
+**§15 新增的项**：价格管理（§15.3）、信用额度释放（§15.5）、客户对账单（§15.7）、销售预测与目标（§15.8）
 
 ---
 
@@ -681,6 +689,554 @@ business:erp:invoice:list / create / update / delete / status
 | `ERP-批次1-产品需求PRD.md` | 第 2070 行「第 2 批做销售与应收」，本文是该批的实施设计 |
 | `采购入库勾稽重构-设计.md` | 采购侧勾稽，销售侧镜像它 |
 | `通用勾稽规则与业务链映射表.md` | 补销售链的勾稽映射 |
+
+---
+
+---
+
+## 15. 扩展功能设计（第二批）
+
+> 本章是 v1.1 新增。v1.0 曾以「最小可用」为由排除销售合同、退货、多币种等，**该判断有误**——用户明确要求「范围先不考虑，先把完整设计做出来」。本章补齐全部缺口。
+>
+> **唯一明确不做**：客户门户/电商对接（用户 2026-11-06 决定暂不做）。
+
+### 15.1 销售合同
+
+#### 15.1.1 现状核实（技术成本极低）
+
+```rust
+// contract_dto.rs:69-72
+pub const CONTRACT_TYPES: [&str; 4] = ["PURCHASE", "SALES", "SERVICE", "LEASE"];  // 值域已含 SALES
+pub const SUPPORTED_TYPES: [&str; 1] = ["PURCHASE"];                              // 只放行采购
+```
+
+**合同表字段已经是泛化设计**：`party_a_id / party_a_name / party_b_type / party_b_id / party_b_name`（甲乙方），不绑死 `supplier_id`。
+
+**放开 SALES 的成本**：改 1 个常量 + 校验点 `contract_handler.rs:388` 一处 + 前端类型下拉放开。
+
+#### 15.1.2 设计
+
+```
+① SUPPORTED_TYPES = ["PURCHASE", "SALES"]
+② party_b_type = "CUSTOMER" 时，party_b_id 指向 biz_customer
+   （contract_dto.rs:482 已有 SALES → CUSTOMER 的推导逻辑，只需接上客户主数据）
+③ 销售订单增加 contract_id 字段（可空），关联销售合同
+④ 合同金额控制：订单累计金额不能超过合同金额（超出需审批）
+⑤ 合同状态：DRAFT → SIGNED → ACTIVE → COMPLETED / TERMINATED
+   与采购合同同一套状态机
+⑥ 前端合同页类型下拉放开 SALES，乙方选择器在 SALES 时改为客户选择器
+```
+
+#### 15.1.3 表改动
+
+| 表 | 改动 |
+|---|---|
+| `biz_contract` | 无表结构改动（party_a/party_b 已泛化） |
+| `biz_sales_order` | 新增 `contract_id uuid`（可空，FK → biz_contract） |
+
+---
+
+### 15.2 退货管理
+
+#### 15.2.1 为什么必须有
+
+**作废 ≠ 退货**：
+- 作废 = 单据录错，整单撤销，库存回滚，红字凭证
+- 退货 = 客户买了又退回来，是**正常业务**：库存回库、应收冲减、可能开红字发票
+
+现有 `biz_stock_out` 只有作废时的红字冲回，**没有退货单据**。
+
+#### 15.2.2 表设计
+
+```sql
+-- 销售退货单
+biz_sales_return
+  id              uuid PK
+  return_no       varchar(32) 唯一    -- SR-20261106-000001
+  customer_id     uuid FK → biz_customer(id)
+  so_id           uuid FK → biz_sales_order(id)      -- 原销售订单（可空）
+  shipment_id     uuid FK → biz_shipment(id)         -- 原发货单（可空）
+  return_date     date 必填
+  return_type     varchar(16)          -- QUALITY(质量) / WRONG_ITEM(错发) / OTHER(其他)
+  warehouse_id    uuid FK → biz_warehouse(id)
+  status          varchar(16) 默认 'DRAFT'
+                  -- DRAFT / SUBMITTED / APPROVED / PENDING_POST / POSTED / CANCELLED
+  total_amount    numeric(18,2)        -- 不含税
+  total_tax       numeric(18,2)
+  total_with_tax  numeric(18,2)
+  stock_in_id     uuid                 -- 过账后生成的入库单
+  receivable_id   uuid                 -- 冲减的应收单
+  red_invoice_id  uuid                 -- 红字发票
+  approval_instance_id uuid
+  remark          text
+  -- 审计字段
+
+-- 退货明细
+biz_sales_return_item
+  id            uuid PK
+  return_id     uuid FK → biz_sales_return(id) ON DELETE CASCADE
+  so_item_id    uuid FK → biz_sales_order_item(id)
+  material_id   uuid FK → biz_material(id)
+  qty           numeric(18,4) 必填
+  price         numeric(18,4)
+  amount        numeric(18,2)
+  tax_rate      numeric(6,4)
+  tax_amount    numeric(18,2)
+  location_id   uuid FK → biz_location(id)
+  serial_nos    text[]
+  remark        varchar(500)
+  检查: ck_biz_sreturn_item_qty (qty > 0)
+```
+
+#### 15.2.3 流转逻辑
+
+```
+退货单 POSTED 时，一个事务内：
+1. 生成采购式入库单（复用 biz_stock_in，source_type=SALES_RETURN）
+   → 库存回库（inventory_writer）
+2. 生成红字入库凭证（借 1405 / 贷 6401，冲减成本）
+3. 冲减应收：生成负向 receivable 或调整原应收 unsettled_amount
+4. 若已开票 → 生成红字发票（biz_invoice，amount 为负，type=OUT_RED）
+5. 回写原销售订单 delivered_qty（减少）
+6. 更新客户信用额度占用
+
+退货数量约束：sum(已退) + 本次 <= 已发货量
+```
+
+#### 15.2.4 状态机
+
+```
+DRAFT → SUBMITTED → APPROVED → PENDING_POST → POSTED
+                       │            │
+                       └──驳回──────┴──作废──▶ CANCELLED
+```
+
+---
+
+### 15.3 价格管理
+
+#### 15.3.1 为什么需要
+
+现在销售订单的 `price` 字段只能**手工填**——同一个物料对不同客户价格不同，销售员每次都得查价、记错就亏。
+
+#### 15.3.2 表设计
+
+```sql
+-- 客户协议价（优先级最高）
+biz_customer_price
+  id            uuid PK
+  customer_id   uuid FK → biz_customer(id)
+  material_id   uuid FK → biz_material(id)
+  price         numeric(18,4) 必填     -- 含税单价
+  min_qty       numeric(18,4) 默认 0   -- 起订量
+  effective_from date 必填
+  effective_to  date                   -- 空=长期有效
+  status        varchar(16) 默认 'ACTIVE'
+  remark        text
+  -- 审计字段
+  唯一索引: uk_biz_cust_price (customer_id, material_id, min_qty, effective_from)
+
+-- 阶梯价 / 促销价（通用）
+biz_price_tier
+  id            uuid PK
+  material_id   uuid FK → biz_material(id)
+  customer_id   uuid                   -- 空=适用于所有客户
+  tier_type     varchar(16)            -- TIER(阶梯) / PROMO(促销)
+  min_qty       numeric(18,4) 必填
+  max_qty       numeric(18,4)          -- 空=无上限
+  price         numeric(18,4) 必填
+  effective_from date
+  effective_to   date
+  status        varchar(16) 默认 'ACTIVE'
+  -- 审计字段
+```
+
+#### 15.3.3 取价规则（**必须确定性**，不能有歧义）
+
+```
+优先级从高到低：
+① 客户协议价（biz_customer_price）
+   条件：customer_id + material_id 匹配，min_qty <= 订购量，
+        effective_from <= 订单日期 <= effective_to(或空)
+   多条命中 → 取 min_qty 最大（最匹配）的那条
+
+② 客户专属阶梯价（biz_price_tier where customer_id is not null）
+   条件：material_id 匹配 + min_qty <= 订购量 < max_qty + 有效期
+
+③ 通用阶梯价（biz_price_tier where customer_id is null）
+
+④ 物料标准售价（biz_material.standard_price，需新增字段）
+
+⑤ 都没有 → 返回空，让销售员手填（并提示"未找到协议价"）
+
+**接口**: GET /api/business/erp/price/resolve?customer_id=&material_id=&qty=&date=
+返回: { price, source: 'AGREED'|'TIER_CUSTOMER'|'TIER_COMMON'|'STANDARD'|'NONE', source_id }
+```
+
+#### 15.3.4 表改动
+
+| 表 | 改动 |
+|---|---|
+| `biz_material` | 新增 `standard_price numeric(18,4)`（标准售价） |
+
+---
+
+### 15.4 销售员与佣金
+
+#### 15.4.1 现状
+
+```
+sys_user 无 salesperson 字段
+sys_role 无 SALES 类角色
+销售订单无销售员字段
+```
+
+#### 15.4.2 设计
+
+```sql
+-- ① 销售订单记录销售员
+ALTER TABLE biz_sales_order ADD COLUMN salesperson_id uuid;  -- FK → sys_user(id)
+
+-- ② 佣金规则（按销售员 / 按物料类别 / 按金额区间）
+biz_commission_rule
+  id            uuid PK
+  rule_name     varchar(100)
+  scope_type    varchar(16)            -- SALESPERSON / MATERIAL_CATEGORY / ALL
+  scope_id      uuid                   -- salesperson_id 或 material_category_id
+  calc_type     varchar(16)            -- PERCENT(百分比) / FIXED(固定额)
+  rate          numeric(8,4)           -- 百分比 或 固定金额
+  min_amount    numeric(18,2) 默认 0   -- 起算金额
+  max_amount    numeric(18,2)          -- 封顶
+  effective_from date
+  effective_to   date
+  status        varchar(16) 默认 'ACTIVE'
+  -- 审计字段
+
+-- ③ 佣金结算单（按期间汇总）
+biz_commission_settlement
+  id            uuid PK
+  settlement_no varchar(32) 唯一       -- CM-202611-000001
+  salesperson_id uuid FK → sys_user(id)
+  period_code   varchar(8)             -- yyyy-MM
+  total_sales   numeric(18,2)          -- 期间销售额（已收款部分）
+  total_commission numeric(18,2)
+  status        varchar(16) 默认 'DRAFT'  -- DRAFT / APPROVED / PAID
+  paid_at       timestamp
+  voucher_id    uuid                   -- 佣金计提凭证
+  remark        text
+  -- 审计字段
+
+-- ④ 佣金明细（哪笔订单产生多少佣金）
+biz_commission_item
+  id              uuid PK
+  settlement_id   uuid FK → biz_commission_settlement(id) ON DELETE CASCADE
+  so_id           uuid FK → biz_sales_order(id)
+  receivable_id   uuid FK → biz_receivable(id)
+  base_amount     numeric(18,2)        -- 佣金基数（已收金额）
+  rule_id         uuid FK → biz_commission_rule(id)
+  rate            numeric(8,4)
+  commission      numeric(18,2)
+```
+
+#### 15.4.3 计提规则（关键：**按收款计佣，不按开单计佣**）
+
+```
+为什么按收款：开单不等于收到钱，坏账还要扣回。按收款计佣是销售管理的通行做法。
+
+规则：
+① 佣金基数 = 该销售员负责的订单对应的应收，**已核销（收到钱）的部分**
+② 按 biz_commission_rule 匹配规则（销售员 > 物料类别 > 全局）
+③ 结算周期：月度（period_code）
+④ 佣金计提凭证：借 6601 销售费用-佣金 / 贷 2241 其他应付款-佣金
+⑤ 实际支付：借 2241 / 贷 1002 银行存款
+⑥ 退货冲减：退货涉及的订单，佣金按比例扣回
+```
+
+#### 15.4.4 表改动
+
+| 表 | 改动 |
+|---|---|
+| `biz_sales_order` | 新增 `salesperson_id uuid` |
+| `sys_role` | 新增 SALES_MANAGER / SALES_CLERK 两个角色（种子） |
+
+---
+
+### 15.5 信用额度占用与释放
+
+#### 15.5.1 v1.0 的漏洞
+
+v1.0 只写了「下单时校验 `credit_used + 本单金额 <= credit_limit`」，**但没写什么时候释放**。如果只占用不释放，客户额度会被永久占死。
+
+#### 15.5.2 完整设计
+
+```
+额度占用时机（唯一）：
+  销售订单 APPROVED 时 → credit_used += 订单含税金额
+
+额度释放时机（三个出口，任一触发）：
+  ① 订单作废/关闭且未发货 → credit_used -= 订单金额（全额释放）
+  ② 应收核销完成（SETTLED） → credit_used -= 该应收金额
+     ^^^ 这是主要出口：钱收到了，额度自然释放
+  ③ 退货过账 → credit_used -= 退货金额
+
+额度重算（兜底，防止漂移）：
+  定时任务每日重算：credit_used = sum(
+    APPROVED/PARTIAL_SHIPPED/SHIPPED 状态订单的含税金额
+  ) - sum(
+    已核销的应收金额
+  )
+  → 与 credit_used 比对，不一致则告警并修正（记 changelog）
+```
+
+#### 15.5.3 表改动
+
+| 表 | 改动 |
+|---|---|
+| `biz_customer` | `credit_used` 字段已有，需补索引 |
+
+#### 15.5.4 不变量（追加到 S 系列）
+
+```
+S9  信用额度一致性: customer.credit_used =
+    sum(有效订单含税金额) - sum(已核销应收金额)
+    （容忍误差 0.01，超出即 BLOCKER）
+```
+
+---
+
+### 15.6 多币种
+
+#### 15.6.1 现状
+
+```
+有 currency_code 的表: biz_contract / biz_payable / biz_purchase_order / biz_stock_in
+实际值:                全部 CNY
+汇率表:                不存在
+金额精度:              numeric(18,4)
+```
+
+#### 15.6.2 设计原则（**双币记账，本位币入账**）
+
+```
+每一笔业务金额都存两个值：
+  · 原币金额（currency_amount）+ 币种（currency_code）
+  · 本位币金额（base_amount）+ 汇率（exchange_rate）
+
+凭证一律按**本位币**入账，原币仅作展示与对账。
+```
+
+#### 15.6.3 表设计
+
+```sql
+-- ① 币种主数据
+biz_currency
+  code          varchar(8) PK          -- CNY / USD / EUR / HKD
+  name          varchar(64)
+  symbol        varchar(8)
+  decimal_places int 默认 2
+  is_base       boolean 默认 false     -- 本位币（唯一）
+  status        varchar(16) 默认 'ACTIVE'
+
+-- ② 汇率表（按月维护，月末汇率结账用）
+biz_exchange_rate
+  id            uuid PK
+  from_currency varchar(8) FK → biz_currency(code)
+  to_currency   varchar(8)              -- 本位币
+  rate          numeric(18,8) 必填
+  rate_type     varchar(16)            -- SPOT(即时) / MONTH_END(月末)
+  effective_date date 必填
+  -- 审计字段
+  唯一索引: uk_biz_exchange_rate (from_currency, to_currency, rate_type, effective_date)
+
+-- ③ 已有表加字段（以 biz_sales_order 为例，应收/收款/发票同理）
+ALTER TABLE biz_sales_order
+  ADD COLUMN currency_code varchar(8) DEFAULT 'CNY',
+  ADD COLUMN exchange_rate numeric(18,8) DEFAULT 1,
+  ADD COLUMN base_total_amount numeric(18,2),      -- 本位币金额
+  ADD COLUMN base_total_tax numeric(18,2),
+  ADD COLUMN base_total_with_tax numeric(18,2);
+```
+
+#### 15.6.4 关键约束
+
+```
+① 汇率固定原则：单据创建时锁定汇率，后续汇率变动不影响已建单据
+   （否则已开的发票金额会漂移，审计通不过）
+
+② 汇兑损益：月末结账时，未核销的外币应收按月末汇率重估
+   借/贷：6603 财务费用-汇兑损益 / 1122 应收账款
+
+③ 本位币唯一：biz_currency 中 is_base=true 只能有一行（部分唯一索引）
+
+④ 录入校验：currency_code != 本位币 时，exchange_rate 必须 > 0 且必填
+```
+
+#### 15.6.5 表改动汇总
+
+| 表 | 新增字段 |
+|---|---|
+| `biz_sales_order` | currency_code, exchange_rate, base_total_amount, base_total_tax, base_total_with_tax |
+| `biz_receivable` | 同上 5 个 |
+| `biz_receipt` | 同上 5 个 |
+| `biz_invoice` | 同上 5 个 |
+
+**新增表**：`biz_currency`、`biz_exchange_rate`
+
+---
+
+### 15.7 客户对账单
+
+#### 15.7.1 为什么需要
+
+应付侧有对账（`payable_aging.rs` + 对账单），**应收没有对账单**。客户财务要求「给我一份对账单，我对一下账」时，现在只能手工拉 Excel。
+
+#### 15.7.2 设计
+
+```
+不做新表，用查询生成对账单（数据来自 biz_receivable + biz_receipt_allocation）
+
+接口:
+GET /api/business/erp/receivable/statement?customer_id=&period_from=&period_to=
+返回:
+{
+  customer: { code, name, tax_no },
+  period: { from, to },
+  opening_balance: 期初余额,
+  items: [
+    { date, type: 'INVOICE'|'RECEIPT'|'RETURN', doc_no, amount, balance }
+  ],
+  closing_balance: 期末余额,
+  detail: { total_invoiced, total_received, total_returned }
+}
+
+导出: GET .../statement/export?format=xlsx  → 生成 Excel
+```
+
+#### 15.7.3 客户对账确认
+
+```sql
+biz_statement_confirm
+  id            uuid PK
+  customer_id   uuid FK → biz_customer(id)
+  period_from   date
+  period_to     date
+  total_amount  numeric(18,2)          -- 对账总额
+  status        varchar(16) 默认 'SENT'  -- SENT / CONFIRMED / DISPUTED
+  confirmed_at  timestamp
+  confirmed_by  varchar(64)            -- 客户方确认人
+  dispute_reason text
+  attachment_id uuid                   -- 客户盖章回传的对账单
+  -- 审计字段
+```
+
+---
+
+### 15.8 销售预测与目标
+
+#### 15.8.1 设计
+
+```sql
+-- ① 销售目标（按销售员/部门/产品线，按期间）
+biz_sales_target
+  id            uuid PK
+  target_no     varchar(32)
+  scope_type    varchar(16)            -- SALESPERSON / DEPT / MATERIAL_CATEGORY / ALL
+  scope_id      uuid
+  period_code   varchar(8)             -- yyyy-MM 或 yyyy-QN
+  target_amount numeric(18,2)          -- 目标销售额
+  target_qty    numeric(18,4)          -- 目标数量（可选）
+  status        varchar(16) 默认 'ACTIVE'
+  -- 审计字段
+
+-- ② 销售预测（滚动预测，逐月更新）
+biz_sales_forecast
+  id            uuid PK
+  forecast_no   varchar(32)
+  customer_id   uuid                   -- 可空（按客户预测）
+  material_id   uuid                   -- 可空（按物料预测）
+  period_code   varchar(8) 必填
+  forecast_amount numeric(18,2)
+  confidence    varchar(16)            -- HIGH / MEDIUM / LOW
+  version_no    int 默认 1
+  -- 审计字段
+```
+
+#### 15.8.2 达成率看板
+
+```
+接口: GET /api/business/erp/sales-target/achievement?period_code=&scope_type=
+返回: [
+  { scope, target_amount, actual_amount, achievement_rate, gap }
+]
+
+actual_amount 取数口径：
+  · 按订单金额（APPROVED 及之后状态）或
+  · 按已收款金额（财务口径）
+  两个口径都要给，前端可切换
+```
+
+---
+
+### 15.9 明确不做
+
+| 项 | 原因 | 决策人 | 决策日期 |
+|---|---|---|---|
+| **客户门户 / 电商对接** | 产品定位问题，暂不做 | 用户 | 2026-11-06 |
+
+**其余 v1.0 排除项全部纳入本章**：销售合同（§15.1）、退货（§15.2）、价格管理（§15.3）、销售员佣金（§15.4）、信用额度释放（§15.5）、多币种（§15.6）、客户对账单（§15.7）、销售预测（§15.8）。
+
+---
+
+### 15.10 扩展功能实施计划（21 张卡）
+
+| # | 卡 | 类型 | 预计 |
+|---|---|---|---|
+| **销售合同（2）** | | | |
+| SO-26 | 合同放开 SALES + 客户主数据关联 | 后端 | 1h |
+| SO-27 | 销售订单关联合同 + 金额控制 + 前端合同类型放开 | 前后端 | 1.5h |
+| **退货（4）** | | | |
+| SO-28 | 退货单表 + 迁移 | 后端 | 1h |
+| SO-29 | 退货后端 API + 状态机 | 后端 | 1.5h |
+| SO-30 | 退货过账（回库+冲应收+红字凭证） | 后端 | 1.5h |
+| SO-31 | 退货单前端页面 | 前端 | 1.5h |
+| **价格管理（3）** | | | |
+| SO-32 | 价格表 + 迁移（客户协议价 + 阶梯价） | 后端 | 1h |
+| SO-33 | 价格解析接口 + 取价规则 | 后端 | 1.5h |
+| SO-34 | 价格管理前端（协议价维护 + 订单自动带价） | 前端 | 1.5h |
+| **销售员佣金（3）** | | | |
+| SO-35 | 销售员字段 + 佣金规则表 + 迁移 | 后端 | 1h |
+| SO-36 | 佣金计提（按收款计佣）+ 结算单 | 后端 | 1.5h |
+| SO-37 | 佣金前端（规则配置 + 结算查询） | 前端 | 1.5h |
+| **信用额度（1）** | | | |
+| SO-38 | 额度占用/释放/重算 + 不变量 S9 | 后端 | 1.5h |
+| **多币种（4）** | | | |
+| SO-39 | 币种 + 汇率表 + 迁移 | 后端 | 1h |
+| SO-40 | 销售单据双币字段 + 汇率锁定 | 后端 | 1.5h |
+| SO-41 | 凭证本位币入账 + 汇兑损益重估 | 后端 | 1.5h |
+| SO-42 | 币种汇率前端维护页 | 前端 | 1h |
+| **对账单 + 预测（2）** | | | |
+| SO-43 | 客户对账单（查询 + Excel 导出 + 确认） | 前后端 | 1.5h |
+| SO-44 | 销售目标与预测（表 + 达成率看板） | 前后端 | 1.5h |
+
+**扩展工时**：约 27 小时。
+**加上第一批 25 张（30 小时）**：**总计 46 张卡，约 57 小时**（串行）。
+
+---
+
+### 15.11 扩展功能的验收补充
+
+在 §12.2 的 10 步端到端基础上，追加：
+
+```
+⑪ 销售合同：签合同 → 建订单关联 → 验证合同金额控制
+⑫ 退货：发货后建退货单 → 过账 → 验证库存回库、应收冲减、红字凭证
+⑬ 价格：配客户协议价 → 建订单 → 验证自动带出协议价（不是标准价）
+⑭ 佣金：收款后跑佣金计提 → 验证按已收金额计算、结算单正确
+⑮ 信用额度：下单占用 → 收款释放 → 验证 credit_used 归零
+⑯ 多币种：USD 建单（汇率 7.2）→ 验证本位币金额 = 原币 × 汇率、凭证按本位币
+⑰ 对账单：生成对账单 → 验证期初+发生=期末、Excel 导出正确
+⑱ 销售目标：配目标 → 验证达成率计算
+```
 
 ---
 
