@@ -79,6 +79,9 @@ curl-round1.txt：==> 汇总：PASS=51 FAIL=0   （rc=0）
 curl-round2.txt：==> 汇总：PASS=51 FAIL=0   （rc=0）
 ```
 
+> 这两份输出是**合并到 main 之后**重跑的（合并树 = `b970ecd`，已含 SO-17 的 `receipt.rs` 与 V0293）：
+> 重新编译二进制 → 重启 :18121 → 连跑两轮，仍 51/51。也就是说本卡与收款模块同库共存时链路不被破坏。
+
 覆盖的关键断言（原始输出见上面两个文件）：
 
 1. **基线**：应收 `PARTIAL`（已收 100）时作废出库单 → **409**，报文点名「先冲收款」，且整笔回滚（出库单仍 `POSTED` / 库存不退回 / 无红字凭证）。
@@ -105,6 +108,7 @@ curl-round2.txt：==> 汇总：PASS=51 FAIL=0   （rc=0）
 | 迁移（全新库） | 空库 `cloudpivot_rr14` + 引擎启动 | V0294 / V0295 `success=t`，两份自检 NOTICE 均通过 |
 | 死权限码 | `python3 scripts/verify/perm_menu_gate.py` | **PASS**（5 个码都有菜单承载） |
 | 闸②（数据权限） | `python3 scripts/lint/scope_gate.py` | 本卡**零新增违规**（`receipt_refund.rs` 全部命中 `SCOPE-EXEMPT` 登记）；仅剩既有 `business/erp/shipment_page_fill_tests.rs` SKIP_MANIFEST 一条 FAIL（与本卡无关，父卡已记） |
+| ⚠ 合并后遗留 | `cargo clippy --all-targets --features test-hooks -- -D warnings` | 合并树上有 **11 条既有告警，全部在 `backend/src/business/erp/receipt.rs`（SO-17 的文件，`collapsible_if`）** —— 本卡文件 0 条。已在该卡评论区告警，需 SO-17 补 let-chain（本卡不动别人的文件） |
 
 真库单测里的两条真库用例（非 SKIP）：
 
