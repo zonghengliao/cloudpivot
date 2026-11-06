@@ -260,6 +260,51 @@ async fn shipment_customer_and_lines(
     Ok((customer_id, lines))
 }
 
+/// 来源销售订单的币种与已锁定汇率（SO-40）。
+///
+/// 取路径：`biz_shipment_item.so_item_id → biz_sales_order_item.so_id → biz_sales_order`。
+/// 发货明细为空 / 订单行缺失时回落到账套本位币 + 汇率 1（CNY 单的历史行为），
+/// 不因为「查不到币种」把整张出库过账打红 —— 但会打 warn 让运维看见。
+async fn order_currency_of(
+    ex: &impl SqlExecutor,
+    shipment_id: Uuid,
+) -> std::result::Result<(String, Decimal), ApiError> {
+    // SCOPE-EXEMPT: 发货明细 / 销售订单都是 ERP 单据表（无归属列），过账链路内部读。
+    let row = ex
+        .query_first_sql(
+            "SELECT o.currency_code, o.exchange_rate \
+               FROM biz_shipment_item it \
+               JOIN biz_sales_order_item oi ON oi.id = it.so_item_id \
+               JOIN biz_sales_order o ON o.id = oi.so_id AND o.deleted_at IS NULL \
+              WHERE it.shipment_id = ?::uuid \
+              ORDER BY it.created_at, it.id LIMIT 1"
+                .to_string(),
+            vec![Value::from(&shipment_id)],
+        )
+        .await
+        .map_err(|error| utils::db_error(error, "查询来源销售订单币种"))?;
+    match row {
+        Some(row) => Ok((
+            row.get_typed::<String>("currency_code")
+                .map_err(|error| utils::db_error(error, "读取来源订单币种"))?,
+            row.get_typed::<Decimal>("exchange_rate")
+                .map_err(|error| utils::db_error(error, "读取来源订单汇率"))?,
+        )),
+        None => {
+            tracing::warn!(
+                shipment_id = %shipment_id,
+                "出库过账：找不到来源销售订单的币种，应收按本位币兜底"
+            );
+            Ok((
+                crate::business::erp::currency::base_currency_code(ex)
+                    .await
+                    .map_err(|error| utils::db_error(error, "查账套本位币"))?,
+                Decimal::ONE,
+            ))
+        }
+    }
+}
+
 /// 客户账期天数（`biz_customer.credit_days`，V0289）；客户不存在 / 已软删 → 409。
 async fn credit_days_of(
     ex: &impl SqlExecutor,
@@ -361,6 +406,10 @@ pub async fn post_in_tx(
         return Ok(None);
     }
     let credit_days = credit_days_of(ex, customer_id).await?;
+    // SO-40：应收**继承来源销售订单的币种与已锁定汇率** —— 外币订单出库后挂出来的应收
+    // 必须是同一币种、同一汇率（这里不重取 SPOT：订单上锁的就是这张单的最终汇率，
+    // 出库过账晚几天发生不该让应收金额漂移）。
+    let (currency_code, exchange_rate) = order_currency_of(ex, shipment_id).await?;
     let period_code = voucher::period_of(ex, source.out_date)
         .await
         .map_err(|error| utils::db_error(error, "解析过账日所属会计期间"))?;
@@ -387,6 +436,8 @@ pub async fn post_in_tx(
         // 收入确认凭证（借 1122 / 贷 6001）属「收入凭证」那组卡：本卡不手搓分录，
         // 与 SO-13 手工挂账同口径留 None。
         voucher_id: None,
+        currency_code: &currency_code,
+        exchange_rate,
     };
     match receivable::insert_with_reason(ex, &new, operator, now, CREATED_REASON).await {
         Ok((receivable_id, ar_no)) => {

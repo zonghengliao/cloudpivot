@@ -92,6 +92,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
+use crate::business::erp::currency;
 use crate::business::erp::model::normalize_page;
 use crate::business::erp::period;
 use crate::business::erp::receivable::{self, ReceivableRow};
@@ -191,16 +192,19 @@ pub const NO_MAX_CHARS: usize = 64;
 /// 发票代码最长（与 `invoice_code VARCHAR(32)` 一致）。
 pub const CODE_MAX_CHARS: usize = 32;
 
-/// `biz_invoice` 列清单（与 V0298 逐列对应）。
+/// `biz_invoice` 列清单（与 V0298 + V0314 逐列对应）。
 pub const COLUMNS: &str = "id, invoice_no, invoice_type, invoice_code, customer_id, invoice_date, \
      amount, tax_amount, total_with_tax, tax_rate, status, receivable_id, source_type, source_no, \
-     voucher_id, remark, created_at, updated_at";
+     voucher_id, remark, \
+     currency_code, exchange_rate, base_total_amount, base_total_tax, base_total_with_tax, \
+     created_at, updated_at";
 
 /// 列表列（带客户名，别名 `p` / `c`）。
 pub const LIST_COLUMNS: &str = "p.id, p.invoice_no, p.invoice_type, p.invoice_code, p.customer_id, \
      COALESCE(c.name, '') AS customer_name, p.invoice_date, p.amount, p.tax_amount, \
      p.total_with_tax, p.tax_rate, p.status, p.receivable_id, p.source_type, p.source_no, \
-     p.voucher_id, p.remark, p.created_at, p.updated_at";
+     p.voucher_id, p.remark, p.currency_code, p.exchange_rate, p.base_total_amount, \
+     p.base_total_tax, p.base_total_with_tax, p.created_at, p.updated_at";
 
 /// 列表 FROM 子句。
 pub const LIST_FROM: &str = "FROM biz_invoice p \
@@ -640,6 +644,16 @@ pub struct InvoiceRow {
     pub voucher_id: Option<Uuid>,
     /// 备注。
     pub remark: Option<String>,
+    /// 原币币种（V0314 / SO-40）。
+    pub currency_code: String,
+    /// 开票时锁定的汇率。
+    pub exchange_rate: Decimal,
+    /// 本位币不含税金额。
+    pub base_total_amount: Decimal,
+    /// 本位币税额。
+    pub base_total_tax: Decimal,
+    /// 本位币价税合计。
+    pub base_total_with_tax: Decimal,
     /// 创建时间。
     pub created_at: Option<DateTime<Utc>>,
     /// 更新时间。
@@ -666,6 +680,11 @@ impl InvoiceRow {
             source_no: row.get_typed("source_no")?,
             voucher_id: row.get_typed("voucher_id")?,
             remark: row.get_typed("remark")?,
+            currency_code: row.get_typed("currency_code")?,
+            exchange_rate: row.get_typed("exchange_rate")?,
+            base_total_amount: row.get_typed("base_total_amount")?,
+            base_total_tax: row.get_typed("base_total_tax")?,
+            base_total_with_tax: row.get_typed("base_total_with_tax")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
         })
@@ -818,6 +837,16 @@ pub struct InvoiceRes {
     pub voucher_id: Option<String>,
     /// 备注。
     pub remark: Option<String>,
+    /// 原币币种（V0314 / SO-40）。
+    pub currency_code: String,
+    /// 开票时锁定的汇率。
+    pub exchange_rate: Decimal,
+    /// 本位币不含税金额。
+    pub base_total_amount: Decimal,
+    /// 本位币税额。
+    pub base_total_tax: Decimal,
+    /// 本位币价税合计。
+    pub base_total_with_tax: Decimal,
     /// 创建时间。
     pub created_at: Option<DateTime<Utc>>,
     /// 更新时间。
@@ -847,6 +876,11 @@ impl InvoiceRes {
             source_no: row.source_no.clone(),
             voucher_id: row.voucher_id.map(|id| id.to_string()),
             remark: row.remark.clone(),
+            currency_code: row.currency_code.clone(),
+            exchange_rate: row.exchange_rate,
+            base_total_amount: row.base_total_amount,
+            base_total_tax: row.base_total_tax,
+            base_total_with_tax: row.base_total_with_tax,
             created_at: row.created_at,
             updated_at: row.updated_at,
         }
@@ -975,6 +1009,10 @@ pub struct CreateInvoiceReq {
     pub source_no: Option<String>,
     /// 备注。
     pub remark: Option<String>,
+    /// 币种（ISO 4217 三位大写；缺省 = 应收的币种，再缺省 = 账套本位币）。V0314 / SO-40。
+    ///
+    /// 非本位币 ⇒ 按 `invoice_date` 取最近一条 SPOT 汇率并锁定，取不到一律 400。
+    pub currency_code: Option<String>,
 }
 
 /// 状态迁移请求。
@@ -1250,6 +1288,8 @@ pub async fn create(
         let mut resolved_source_type = req_source_type.clone();
         let mut resolved_source_no = req_source_no.clone();
         let mut receivable_total: Option<Decimal> = None;
+        // SO-40：从应收开票时继承应收的**币种**（汇率仍按开票日重新锁定）
+        let mut receivable_currency: Option<String> = None;
         if let Some(receivable_id) = receivable_id {
             let ar = lock_receivable(&tx, receivable_id)
                 .await
@@ -1290,6 +1330,7 @@ pub async fn create(
                 .or_else(|| normalize_source_type(Some(ar.source_type.as_str())));
             resolved_source_no = resolved_source_no.or(Some(ar.source_no.clone()));
             receivable_total = Some(ar.amount);
+            receivable_currency = Some(ar.currency_code.clone());
         }
         let customer_id = resolved_customer.expect("上面已保证至少有一个来源给客户");
 
@@ -1339,6 +1380,22 @@ pub async fn create(
                 .map_err(|error| utils::db_error(error, "取发票号"))?,
         };
 
+        // ④.5 SO-40：币种 = 显式传入 > 应收的币种 > 账套本位币；汇率按**开票日** SPOT 锁定。
+        //     从应收开票时不继承应收的汇率、只继承币种：发票是独立凭证，
+        //     它的汇率口径是「开票当天」（§15.6.4 ① 锁的是「建单时点」）。
+        let requested_currency = req
+            .currency_code
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string)
+            .or_else(|| receivable_currency.clone());
+        let locked = currency::lock(&tx, requested_currency.as_deref(), invoice_date)
+            .await
+            .map_err(|error| utils::db_error(error, "取开票汇率"))?
+            .into_locked("发票")?;
+        let base_amounts = currency::BaseAmounts::of(amount, tax_amount, locked.exchange_rate);
+
         let operator_text = operator.map(|v| v.to_string()).unwrap_or_default();
         // SCOPE-EXEMPT: 销售台账无归属列（见模块文档）。
         let inserted = tx
@@ -1348,12 +1405,14 @@ pub async fn create(
                         (invoice_no, invoice_type, invoice_code, customer_id, invoice_date, \
                          amount, tax_amount, total_with_tax, tax_rate, status, receivable_id, \
                          source_type, source_no, remark, \
+                         currency_code, exchange_rate, base_total_amount, base_total_tax, base_total_with_tax, \
                          created_at, updated_at, create_by, update_by) \
                      VALUES (?, ?, NULLIF(?::text,''), ?::uuid, ?::text::date, \
                              NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
                              NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
                              '{STATUS_DRAFT}', NULLIF(?::text,'')::uuid, \
                              NULLIF(?::text,''), NULLIF(?::text,''), NULLIF(?::text,''), \
+                             ?, ?::text::numeric, ?::text::numeric, ?::text::numeric, ?::text::numeric, \
                              ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid) \
                      RETURNING id"
                 ),
@@ -1371,6 +1430,11 @@ pub async fn create(
                     Value::Text(resolved_source_type.clone().unwrap_or_default()),
                     Value::Text(resolved_source_no.clone().unwrap_or_default()),
                     Value::Text(remark.clone().unwrap_or_default()),
+                    Value::Text(locked.currency_code.clone()),
+                    Value::Text(locked.exchange_rate.to_string()),
+                    Value::Text(base_amounts.amount.to_string()),
+                    Value::Text(base_amounts.tax.to_string()),
+                    Value::Text(base_amounts.with_tax.to_string()),
                     Value::from(now),
                     Value::from(now),
                     Value::Text(operator_text.clone()),

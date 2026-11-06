@@ -36,6 +36,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::credit;
+use crate::business::erp::currency;
 use crate::business::erp::model_base::{find_by_id, page_of};
 use crate::business::erp::sales_model as base;
 use crate::business::shared::{scope, state_machine};
@@ -55,10 +56,11 @@ pub const ORDER_TABLE: &str = base::ORDER_TABLE;
 /// 明细表名。
 pub const ITEM_TABLE: &str = base::ITEM_TABLE;
 
-/// 单头列清单（与 V0264 + V0302 + V0309 逐列对应；`contract_id` 由 V0302、
-/// `salesperson_id` 由 V0309 补上）。
+/// 单头列清单（与 V0264 + V0302 + V0309 + V0314 逐列对应；`contract_id` 由 V0302、
+/// `salesperson_id` 由 V0309 补上，双币 5 列由 V0314 / SO-40 补上）。
 pub const ORDER_COLUMNS: &str = "id, so_no, customer_id, contract_id, salesperson_id, order_date, \
      delivery_date, status, total_amount, total_tax, total_with_tax, remark, \
+     currency_code, exchange_rate, base_total_amount, base_total_tax, base_total_with_tax, \
      created_at, updated_at, create_by, update_by, deleted_at";
 
 /// 明细列清单（与 V0264 逐列对应）。
@@ -136,6 +138,16 @@ pub struct SalesOrderRow {
     pub total_tax: Decimal,
     /// 价税合计（= 前两项之和）。
     pub total_with_tax: Decimal,
+    /// 原币币种（V0314 / SO-40：ISO 4217 三位大写）。
+    pub currency_code: String,
+    /// **建单时锁定的**汇率：`1 原币 = exchange_rate 本位币`（后续汇率变动不回写）。
+    pub exchange_rate: Decimal,
+    /// 本位币不含税金额（= `round(total_amount × exchange_rate, 4)`）。
+    pub base_total_amount: Decimal,
+    /// 本位币税额。
+    pub base_total_tax: Decimal,
+    /// 本位币价税合计（= 前两项之和，尾差落这里）。
+    pub base_total_with_tax: Decimal,
     /// 备注。
     pub remark: Option<String>,
     /// 创建时间。
@@ -165,6 +177,11 @@ impl SalesOrderRow {
             total_amount: row.get_typed("total_amount")?,
             total_tax: row.get_typed("total_tax")?,
             total_with_tax: row.get_typed("total_with_tax")?,
+            currency_code: row.get_typed("currency_code")?,
+            exchange_rate: row.get_typed("exchange_rate")?,
+            base_total_amount: row.get_typed("base_total_amount")?,
+            base_total_tax: row.get_typed("base_total_tax")?,
+            base_total_with_tax: row.get_typed("base_total_with_tax")?,
             remark: row.get_typed("remark")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
@@ -592,11 +609,14 @@ pub async fn create_order(
     new: &NewSalesOrder<'_>,
     items: &[NewItem],
     totals: &Totals,
+    locked: &currency::LockedRate,
     operator: state_machine::Operator,
     now: DateTime<Utc>,
 ) -> DbResult<(Uuid, String)> {
     let so_no = base::next_so_no(ex, now).await?;
     let id = Uuid::now_v7();
+    // SO-40：本位币三项 = 原币 × 锁定汇率（含税取前两项之和，尾差落含税列）
+    let base_amounts = currency::BaseAmounts::of(totals.amount, totals.tax, locked.exchange_rate);
     let operator_text = Value::Text(
         operator
             .id
@@ -608,10 +628,12 @@ pub async fn create_order(
             "INSERT INTO {ORDER_TABLE} \
                 (id, so_no, customer_id, contract_id, salesperson_id, order_date, delivery_date, status, \
                  total_amount, total_tax, total_with_tax, remark, \
+                 currency_code, exchange_rate, base_total_amount, base_total_tax, base_total_with_tax, \
                  created_at, updated_at, create_by, update_by) \
              VALUES (?, ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid, \
                  NULLIF(?::text,'')::date, NULLIF(?::text,'')::date, ?, \
                  ?::text::numeric, ?::text::numeric, ?::text::numeric, NULLIF(?::text,''), \
+                 ?, ?::text::numeric, ?::text::numeric, ?::text::numeric, ?::text::numeric, \
                  ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)"
         ),
         vec![
@@ -642,6 +664,12 @@ pub async fn create_order(
             Value::Text(totals.tax.to_string()),
             Value::Text(totals.with_tax.to_string()),
             Value::Text(new.remark.unwrap_or_default().to_string()),
+            // V0314 / SO-40：原币币种 + **锁定汇率** + 本位币三项
+            Value::Text(locked.currency_code.clone()),
+            Value::Text(locked.exchange_rate.to_string()),
+            Value::Text(base_amounts.amount.to_string()),
+            Value::Text(base_amounts.tax.to_string()),
+            Value::Text(base_amounts.with_tax.to_string()),
             Value::from(now),
             Value::from(now),
             operator_text.clone(),
@@ -674,9 +702,11 @@ pub async fn update_order(
     new: &NewSalesOrder<'_>,
     items: &[NewItem],
     totals: &Totals,
+    locked: &currency::LockedRate,
     operator: Option<Uuid>,
     now: DateTime<Utc>,
 ) -> DbResult<u64> {
+    let base_amounts = currency::BaseAmounts::of(totals.amount, totals.tax, locked.exchange_rate);
     let operator_text = Value::Text(operator.map(|value| value.to_string()).unwrap_or_default());
     let affected = ex
         .exec_sql(
@@ -688,6 +718,9 @@ pub async fn update_order(
                             delivery_date = NULLIF(?::text,'')::date, \
                             total_amount = ?::text::numeric, total_tax = ?::text::numeric, \
                             total_with_tax = ?::text::numeric, remark = NULLIF(?::text,''), \
+                            currency_code = ?, exchange_rate = ?::text::numeric, \
+                            base_total_amount = ?::text::numeric, base_total_tax = ?::text::numeric, \
+                            base_total_with_tax = ?::text::numeric, \
                             updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
                       WHERE id = ? AND status = ? AND deleted_at IS NULL"
             ),
@@ -714,6 +747,12 @@ pub async fn update_order(
                 Value::Text(totals.tax.to_string()),
                 Value::Text(totals.with_tax.to_string()),
                 Value::Text(new.remark.unwrap_or_default().to_string()),
+                // SO-40：改单同时改写币种 / 汇率 / 本位币三项（草稿阶段允许换币种 → 重新锁定）
+                Value::Text(locked.currency_code.clone()),
+                Value::Text(locked.exchange_rate.to_string()),
+                Value::Text(base_amounts.amount.to_string()),
+                Value::Text(base_amounts.tax.to_string()),
+                Value::Text(base_amounts.with_tax.to_string()),
                 Value::from(now),
                 operator_text,
                 Value::from(&id),
@@ -1211,6 +1250,19 @@ mod tests {
         id
     }
 
+    /// 测试用锁定汇率：本位币单（CNY / rate 1）。
+    ///
+    /// SO-40 起 `create_order` / `update_order` 必须带锁定汇率 —— 本文件的老用例只关心
+    /// 单头 / 明细 / 状态，用本位币三件套（currency = CNY、rate = 1、base = 原币）即可，
+    /// 外币换算的用例另写（`create_order_locks_foreign_currency_and_persists_base_amounts`）。
+    fn test_locked() -> currency::LockedRate {
+        currency::LockedRate {
+            currency_code: "CNY".to_string(),
+            base_currency: "CNY".to_string(),
+            exchange_rate: Decimal::ONE,
+        }
+    }
+
     fn new_order(customer_id: Uuid, remark: &str) -> NewSalesOrder<'_> {
         NewSalesOrder {
             customer_id,
@@ -1235,6 +1287,7 @@ mod tests {
             &new_order(customer, "SO-05 建单"),
             &items,
             &totals,
+            &test_locked(),
             state_machine::Operator::of(None),
             Utc::now(),
         )
@@ -1300,6 +1353,7 @@ mod tests {
             &new_order(customer, "改单前"),
             &first,
             &totals,
+            &test_locked(),
             state_machine::Operator::of(None),
             Utc::now(),
         )
@@ -1315,6 +1369,7 @@ mod tests {
             &new_order(customer, "改单后"),
             &second,
             &totals2,
+            &test_locked(),
             None,
             Utc::now(),
         )
@@ -1340,12 +1395,78 @@ mod tests {
             &new_order(customer, "非草稿改单"),
             &second,
             &totals2,
+            &test_locked(),
             None,
             Utc::now(),
         )
         .await
         .expect("改单 SQL 应执行成功（只是 0 行）");
         assert_eq!(affected, 0, "非 DRAFT 的单据不许改（CAS 必须挡）");
+        cleanup().await;
+    }
+
+    /// SO-40：外币单建单 → 汇率锁定落库、本位币三项按锁定汇率换算；原币金额不受汇率影响。
+    #[tokio::test]
+    async fn create_order_locks_foreign_currency_and_persists_base_amounts() {
+        let Some(_guard) = setup().await else { return };
+        let customer = fixture_customer().await;
+        let items = vec![item("3", "17.655", "13"), item("2", "100", "0")];
+        let totals = Totals::of(&items);
+        let locked = currency::LockedRate {
+            currency_code: "USD".to_string(),
+            base_currency: "CNY".to_string(),
+            exchange_rate: dec("7.20000000"),
+        };
+        let tx = db().begin().await.expect("开事务");
+        let (id, _) = create_order(
+            &tx,
+            &new_order(customer, "SO-40 外币单"),
+            &items,
+            &totals,
+            &locked,
+            state_machine::Operator::of(None),
+            Utc::now(),
+        )
+        .await
+        .expect("外币建单应成功");
+        tx.commit().await.expect("提交事务");
+
+        let row = find_order(id).await.expect("查单头").expect("单头必须存在");
+        assert_eq!(row.currency_code, "USD", "币种必须落库（不是默认 CNY）");
+        assert_eq!(
+            row.exchange_rate,
+            dec("7.20000000"),
+            "汇率必须锁成建单时的值"
+        );
+        assert_eq!(row.total_amount, totals.amount, "原币金额不受汇率影响");
+        assert_eq!(
+            row.base_total_amount,
+            currency::scale_amount(totals.amount * row.exchange_rate),
+            "本位币不含税金额 = round(原币 × 锁定汇率, 4)"
+        );
+        assert_eq!(
+            row.base_total_tax,
+            currency::scale_amount(totals.tax * row.exchange_rate)
+        );
+        assert_eq!(
+            row.base_total_with_tax,
+            row.base_total_amount + row.base_total_tax,
+            "含税列必须取前两项之和（库层 ck_biz_sales_order_base_amount 同口径）"
+        );
+
+        // 次日汇率波动：改汇率表 / 新建另一张单都不许回写这张单（§15.6.4 ①）
+        db().execute_with_params(
+            "UPDATE biz_sales_order SET updated_at = updated_at WHERE id = ?::uuid",
+            vec![Value::from(&id)],
+        )
+        .await
+        .expect("touch 单头应成功");
+        let again = find_order(id).await.expect("查单头").expect("单头必须存在");
+        assert_eq!(
+            again.exchange_rate,
+            dec("7.20000000"),
+            "汇率锁定后任何读路径都不得重算"
+        );
         cleanup().await;
     }
 
@@ -1364,6 +1485,7 @@ mod tests {
                 &new_order(customer, remark),
                 &items,
                 &totals,
+                &test_locked(),
                 state_machine::Operator::of(None),
                 Utc::now(),
             )
@@ -1456,6 +1578,7 @@ mod tests {
             &new_order(customer, "额度"),
             &items,
             &totals,
+            &test_locked(),
             state_machine::Operator::of(None),
             Utc::now(),
         )
@@ -1514,6 +1637,7 @@ mod tests {
             &new_order(customer, "CAS"),
             &items,
             &totals,
+            &test_locked(),
             state_machine::Operator::of(None),
             Utc::now(),
         )
@@ -1573,6 +1697,7 @@ mod tests {
             &new,
             &items,
             &totals,
+            &test_locked(),
             state_machine::Operator::of(None),
             Utc::now(),
         )
@@ -1615,9 +1740,18 @@ mod tests {
         // 改单不传销售员 = 解绑（与 contract_id 同口径：空 ⇒ NULL）
         let unbound = new_order(customer, "SO-35 解绑销售员");
         let tx = db().begin().await.expect("开事务");
-        let affected = update_order(&tx, id, &unbound, &items, &totals, None, Utc::now())
-            .await
-            .expect("改单");
+        let affected = update_order(
+            &tx,
+            id,
+            &unbound,
+            &items,
+            &totals,
+            &test_locked(),
+            None,
+            Utc::now(),
+        )
+        .await
+        .expect("改单");
         assert_eq!(affected, 1);
         tx.commit().await.expect("提交");
         let row = find_order(id).await.expect("查单").expect("必须存在");

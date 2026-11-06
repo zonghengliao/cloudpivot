@@ -88,6 +88,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
+use crate::business::erp::currency;
 use crate::business::erp::period;
 use crate::business::erp::voucher::{self, SeqSpec};
 use crate::business::shared::state_machine;
@@ -177,6 +178,7 @@ pub const CANCEL_REASON_PREFIX: &str = "[出库作废冲销]";
 pub const COLUMNS: &str = "id, ar_no, customer_id, source_type, source_id, source_no, \
      invoice_no, invoice_date, currency_code::text AS currency_code, amount, received_amount, \
      unsettled_amount, credit_days, due_date, period_code, status, settled_at, voucher_id, remark, \
+     exchange_rate, base_total_amount, base_total_tax, base_total_with_tax, \
      created_at, updated_at, create_by, update_by, deleted_at";
 
 // ==================== 取号 ====================
@@ -233,6 +235,14 @@ pub struct ReceivableRow {
     pub created_at: Option<DateTime<Utc>>,
     /// 更新时间。
     pub updated_at: Option<DateTime<Utc>>,
+    /// 已锁定的汇率（V0314 / SO-40）。
+    pub exchange_rate: Decimal,
+    /// 本位币金额。
+    pub base_total_amount: Decimal,
+    /// 本位币税额（应收无税额拆分，恒 0）。
+    pub base_total_tax: Decimal,
+    /// 本位币价税合计。
+    pub base_total_with_tax: Decimal,
 }
 
 impl ReceivableRow {
@@ -258,6 +268,10 @@ impl ReceivableRow {
             settled_at: row.get_typed("settled_at")?,
             voucher_id: row.get_typed("voucher_id")?,
             remark: row.get_typed("remark")?,
+            exchange_rate: row.get_typed("exchange_rate")?,
+            base_total_amount: row.get_typed("base_total_amount")?,
+            base_total_tax: row.get_typed("base_total_tax")?,
+            base_total_with_tax: row.get_typed("base_total_with_tax")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
         })
@@ -433,6 +447,13 @@ pub struct NewReceivable<'a> {
     pub remark: Option<&'a str>,
     /// 收入确认凭证（本卡手工挂账为 `None`）。
     pub voucher_id: Option<Uuid>,
+    /// 原币币种（V0314 / SO-40）。
+    ///
+    /// 自动挂账（销售出库）**继承来源销售订单的币种与锁定汇率**；手工挂账按
+    /// `currency::lock` 在挂账日取 SPOT 锁定。
+    pub currency_code: &'a str,
+    /// 已锁定的汇率（`1 原币 = exchange_rate 本位币`）。
+    pub exchange_rate: Decimal,
 }
 
 /// 写一张应收单（`status = OPEN`），并写建单状态日志（`NULL → OPEN`，同一事务）。
@@ -469,6 +490,12 @@ pub async fn insert_with_reason(
     let amount = new.amount.round_dp(4);
     let received = new.received_amount.round_dp(4);
     let unsettled = unsettled_of(amount, received);
+    // SO-40：本位币金额 = 原币 × 锁定汇率（应收无税额拆分 ⇒ base_tax = 0）
+    let base_amounts = currency::BaseAmounts::of(
+        amount,
+        Decimal::ZERO,
+        currency::scale_rate(new.exchange_rate),
+    );
     let operator_text = operator.map(|v| v.to_string()).unwrap_or_default();
     // SCOPE-EXEMPT: 应收台账无归属列（见模块文档）。
     let inserted = ex
@@ -478,12 +505,15 @@ pub async fn insert_with_reason(
                     (ar_no, customer_id, source_type, source_id, source_no, invoice_no, invoice_date, \
                      currency_code, amount, received_amount, unsettled_amount, credit_days, due_date, \
                      period_code, status, settled_at, voucher_id, remark, \
+                     exchange_rate, base_total_amount, base_total_tax, base_total_with_tax, \
                      created_at, updated_at, create_by, update_by) \
                  VALUES (?, ?::uuid, ?, ?::uuid, ?, NULLIF(?::text,''), \
-                         NULLIF(?::text,'')::date, 'CNY', NULLIF(?::text,'')::numeric, \
+                         NULLIF(?::text,'')::date, ?, NULLIF(?::text,'')::numeric, \
                          NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, ?, \
                          NULLIF(?::text,'')::date, ?, '{STATUS_OPEN}', NULL, \
-                         NULLIF(?::text,'')::uuid, NULLIF(?::text,''), ?, ?, \
+                         NULLIF(?::text,'')::uuid, NULLIF(?::text,''), \
+                         ?::text::numeric, ?::text::numeric, ?::text::numeric, ?::text::numeric, \
+                         ?, ?, \
                          NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid) \
                  RETURNING id"
             ),
@@ -495,6 +525,7 @@ pub async fn insert_with_reason(
                 Value::Text(new.source_no.to_string()),
                 Value::Text(new.invoice_no.unwrap_or_default().to_string()),
                 Value::Text(new.invoice_date.map(|d| d.to_string()).unwrap_or_default()),
+                Value::Text(new.currency_code.to_string()),
                 Value::Text(amount.to_string()),
                 Value::Text(received.to_string()),
                 Value::Text(unsettled.to_string()),
@@ -507,6 +538,10 @@ pub async fn insert_with_reason(
                         .unwrap_or_default(),
                 ),
                 Value::Text(new.remark.unwrap_or_default().to_string()),
+                Value::Text(currency::scale_rate(new.exchange_rate).to_string()),
+                Value::Text(base_amounts.amount.to_string()),
+                Value::Text(base_amounts.tax.to_string()),
+                Value::Text(base_amounts.with_tax.to_string()),
                 Value::from(now),
                 Value::from(now),
                 Value::Text(operator_text.clone()),
@@ -859,6 +894,9 @@ pub struct CreateReceivableReq {
     pub invoice_date: Option<String>,
     /// 备注。
     pub remark: Option<String>,
+    /// 币种（ISO 4217 三位大写，缺省 = 账套本位币）。V0314 / SO-40：
+    /// 非本位币 ⇒ 按挂账日取最近一条 SPOT 汇率并锁定，取不到一律 400。
+    pub currency_code: Option<String>,
 }
 
 /// 坏账核销请求。
@@ -894,6 +932,16 @@ pub struct CreateReceivableRes {
     pub status: String,
     /// 状态中文标签。
     pub status_label: String,
+    /// 原币币种（V0314 / SO-40）。
+    pub currency_code: String,
+    /// 挂账时锁定的汇率。
+    pub exchange_rate: Decimal,
+    /// 本位币金额。
+    pub base_total_amount: Decimal,
+    /// 本位币税额（应收无税额拆分，恒 0）。
+    pub base_total_tax: Decimal,
+    /// 本位币价税合计。
+    pub base_total_with_tax: Decimal,
 }
 
 /// 状态中文标签（未知状态原样返回，不 panic）。
@@ -1025,6 +1073,12 @@ async fn create_manual_in_tx(
     }
 
     let source_id = Uuid::now_v7();
+    // SO-40：挂账即锁定汇率（账期/期间都已定，取数上界用挂账日）
+    let locked = currency::lock(tx, req.currency_code.as_deref(), voucher::today_cst(now))
+        .await
+        .map_err(|error| utils::db_error(error, "取挂账汇率"))?
+        .into_locked("应收单")?;
+    let base_amounts = currency::BaseAmounts::of(amount, Decimal::ZERO, locked.exchange_rate);
     let (id, ar_no) = insert(
         tx,
         &NewReceivable {
@@ -1041,6 +1095,8 @@ async fn create_manual_in_tx(
             invoice_date,
             remark: req.remark.as_deref(),
             voucher_id: None,
+            currency_code: &locked.currency_code,
+            exchange_rate: locked.exchange_rate,
         },
         operator,
         now,
@@ -1060,6 +1116,11 @@ async fn create_manual_in_tx(
         period_code,
         status: STATUS_OPEN.to_string(),
         status_label: status_label(STATUS_OPEN).to_string(),
+        currency_code: locked.currency_code.clone(),
+        exchange_rate: locked.exchange_rate,
+        base_total_amount: base_amounts.amount,
+        base_total_tax: base_amounts.tax,
+        base_total_with_tax: base_amounts.with_tax,
     })
 }
 

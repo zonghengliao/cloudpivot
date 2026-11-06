@@ -135,6 +135,7 @@ pub mod contract_dto;
 pub mod contract_handler;
 pub mod contract_model;
 pub mod credit;
+pub mod currency;
 pub mod customer_handler;
 pub mod customer_model;
 pub mod depreciation_handler;

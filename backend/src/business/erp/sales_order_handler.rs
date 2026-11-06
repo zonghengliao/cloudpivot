@@ -81,6 +81,7 @@ use serde::{Deserialize, Serialize};
 use crate::business::erp::approval_gate;
 use crate::business::erp::contract_model::{self, ContractRow};
 use crate::business::erp::credit;
+use crate::business::erp::currency;
 use crate::business::erp::customer_model::{self, STATUS_ACTIVE};
 use crate::business::erp::sales_approval_bridge;
 use crate::business::erp::sales_order_model::{
@@ -244,6 +245,12 @@ pub struct CreateSalesOrderReq {
     /// 要求交期（`yyyy-MM-dd`，留空 = 未约定）。
     #[serde(default)]
     pub delivery_date: Option<String>,
+    /// 币种（ISO 4217 三位大写，留空 = 账套本位币）。V0314 / SO-40。
+    ///
+    /// 非本位币 ⇒ 建单时按 `order_date` 取最近一条 SPOT 汇率并**锁定**到单据
+    /// （`exchange_rate` + 三项 `base_*`）；取不到汇率一律 400，**不默认 1**。
+    #[serde(default)]
+    pub currency_code: Option<String>,
     /// 备注。
     #[serde(default)]
     pub remark: Option<String>,
@@ -273,6 +280,12 @@ pub struct UpdateSalesOrderReq {
     /// 下单日期（留空 = 不改）。
     #[serde(default)]
     pub order_date: Option<String>,
+    /// 币种（**不传 = 不改**；传了就在改单时重新锁定汇率）。V0314 / SO-40。
+    ///
+    /// 与其它可空字段不同：**空串也当「不改」**——账号口径的本位币由账套配置决定，
+    /// 让「清空币种」等于「改回本位币」会静默改写已锁定的汇率，风险大于便利。
+    #[serde(default)]
+    pub currency_code: Option<String>,
     /// 要求交期（传空串 = 清空）。
     #[serde(default)]
     pub delivery_date: Option<String>,
@@ -394,6 +407,16 @@ pub struct SalesOrderRes {
     pub total_tax: Decimal,
     /// 价税合计（= 上两项之和）。
     pub total_with_tax: Decimal,
+    /// 原币币种（V0314 / SO-40）。
+    pub currency_code: String,
+    /// **建单时锁定的**汇率（`1 原币 = exchange_rate 本位币`）。
+    pub exchange_rate: Decimal,
+    /// 本位币不含税金额。
+    pub base_total_amount: Decimal,
+    /// 本位币税额。
+    pub base_total_tax: Decimal,
+    /// 本位币价税合计。
+    pub base_total_with_tax: Decimal,
     /// 备注。
     pub remark: Option<String>,
     /// 创建时间。
@@ -432,6 +455,11 @@ impl SalesOrderRes {
             total_amount: row.total_amount,
             total_tax: row.total_tax,
             total_with_tax: row.total_with_tax,
+            currency_code: row.currency_code.clone(),
+            exchange_rate: row.exchange_rate,
+            base_total_amount: row.base_total_amount,
+            base_total_tax: row.base_total_tax,
+            base_total_with_tax: row.base_total_with_tax,
             remark: row.remark.clone(),
             created_at: row.created_at,
             updated_at: row.updated_at,
@@ -809,6 +837,13 @@ pub async fn create_sales_order(
         require_active_salesperson(salesperson_id).await?;
     }
     let customer = require_active_customer(new.customer_id).await?;
+    // SO-40：**汇率锁定**（ARCH-7 §15.6.4 ①）—— 在建单事务外取一次 SPOT，
+    // 之后落进单据行的 exchange_rate 就是这张单的终身汇率，汇率表怎么变都不回写。
+    // 外币取不到汇率 ⇒ 400（`into_locked`），绝不默认 1。
+    let locked = currency::lock(db(), req.currency_code.as_deref(), new.order_date)
+        .await
+        .map_err(|error| utils::db_error(error, "取建单汇率"))?
+        .into_locked("销售订单")?;
     // SO-27：合同的「类型 / 状态 / 乙方=客户」在事务外先拦（读一次即可），
     // 额度守卫必须在事务内（锁合同行 → 现算累计额），见 guard_contract_amount
     let contract = match new.contract_id {
@@ -831,6 +866,7 @@ pub async fn create_sales_order(
         &new,
         &items,
         &totals,
+        &locked,
         state_machine::Operator::of(operator),
         Utc::now(),
     )
@@ -955,6 +991,28 @@ pub async fn update_sales_order(
         None => None,
         Some(contract_id) => Some(resolve_sales_contract(contract_id, customer_id).await?),
     };
+    // SO-40：改单时的汇率处理 ——
+    //   · 传了 currency_code（非空）⇒ 按新的 order_date 重新锁定（草稿阶段换币种是合法的）；
+    //   · 没传 / 传空串 ⇒ **沿用已锁定的汇率**（不按日期重取：否则「改个交期」就把汇率漂了，
+    //     汇率锁定一旦可被改单绕过，§15.6.4 ① 就等于没做）。
+    let locked = match req
+        .currency_code
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+    {
+        Some(raw) => currency::lock(db(), Some(raw), order_date)
+            .await
+            .map_err(|error| utils::db_error(error, "取改单汇率"))?
+            .into_locked("销售订单")?,
+        None => currency::LockedRate {
+            currency_code: current.currency_code.clone(),
+            base_currency: currency::base_currency_code(db())
+                .await
+                .map_err(|error| utils::db_error(error, "查账套本位币"))?,
+            exchange_rate: current.exchange_rate,
+        },
+    };
     let new = NewSalesOrder {
         customer_id,
         contract_id,
@@ -974,7 +1032,17 @@ pub async fn update_sales_order(
         let _ = tx.rollback().await;
         return Err(error);
     }
-    let affected = model::update_order(&tx, id, &new, &items, &totals, operator, Utc::now()).await;
+    let affected = model::update_order(
+        &tx,
+        id,
+        &new,
+        &items,
+        &totals,
+        &locked,
+        operator,
+        Utc::now(),
+    )
+    .await;
     let affected = match affected {
         Ok(value) => value,
         Err(error) => {
@@ -1655,6 +1723,7 @@ mod tests {
             salesperson_id: None,
             order_date: Some("2026-11-06".to_string()),
             delivery_date: None,
+            currency_code: None,
             remark: None,
             items,
         }
@@ -1827,6 +1896,11 @@ mod tests {
             total_amount: totals.amount,
             total_tax: totals.tax,
             total_with_tax: totals.with_tax,
+            currency_code: "CNY".to_string(),
+            exchange_rate: Decimal::ONE,
+            base_total_amount: totals.amount,
+            base_total_tax: totals.tax,
+            base_total_with_tax: totals.with_tax,
             remark: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),

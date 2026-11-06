@@ -1,0 +1,183 @@
+== 启动 pid=1698098 库=cloudpivot_so40_clean 端口=18099
+== /health: 200
+== 汇率种子：
+USD->CNY 7.10000000 @2026-11-01
+USD->CNY 7.90000000 @2026-11-08
+== token 长度 461
+== 客户=d0260000-0000-4000-8000-000000000001 物料=d1370003-0000-4000-8000-000000000002
+== 建单响应：
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "id": "01a1b330-730e-76d7-9c2d-0a8f8c1f128b",
+        "so_no": "SO-20261107-000018",
+        "customer_id": "d0260000-0000-4000-8000-000000000001",
+        "customer_code": "CUS-0001",
+        "customer_name": "\u5317\u4eac\u4e91\u67a2\u79d1\u6280\u6709\u9650\u516c\u53f8",
+        "contract_id": null,
+        "contract_no": null,
+        "salesperson_id": null,
+        "salesperson_name": null,
+        "order_date": "2026-11-07",
+        "delivery_date": null,
+        "status": "DRAFT",
+        "status_label": "\u8349\u7a3f",
+        "total_amount": "1000.0000",
+        "total_tax": "130.0000",
+        "total_with_tax": "1130.0000",
+        "currency_code": "USD",
+        "exchange_rate": "7.10000000",
+        "base_total_amount": "7100.0000",
+        "base_total_tax": "923.0000",
+        "base_total_with_tax": "8023.0000",
+        "remark": "SO-40 \u8bc1\u636e\uff1aUSD \u5355\uff08\u5e94\u9501 7.1\uff09",
+        "created_at": "2026-11-06T23:27:39.277997Z",
+        "updated_at": "2026-11-06T23:27:39.277997Z",
+        "items": [
+            {
+                "id": "35a258c3-ea31-409a-a1a6-74b01ca05239",
+                "line_no": 1,
+                "material_id": "d1370003-0000-4000-8000-000000000002",
+                "qty": "10.0000",
+                "price": "100.000000",
+                "amount": "1000.0000",
+                "tax_rate": "13.0000",
+                "tax_amount": "130.0000",
+                "delivered_qty": "0.0000",
+                "open_qty": "10.0000"
+            }
+        ],
+        "approval_instance_id": null
+    }
+}
+== 次日建单响应：
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "id": "01a1b330-734d-76b9-9e94-e0a9b5da902d",
+        "so_no": "SO-20261107-000019",
+        "customer_id": "d0260000-0000-4000-8000-000000000001",
+        "customer_code": "CUS-0001",
+        "customer_name": "\u5317\u4eac\u4e91\u67a2\u79d1\u6280\u6709\u9650\u516c\u53f8",
+        "contract_id": null,
+        "contract_no": null,
+        "salesperson_id": null,
+        "salesperson_name": null,
+        "order_date": "2026-11-08",
+        "delivery_date": null,
+        "status": "DRAFT",
+        "status_label": "\u8349\u7a3f",
+        "total_amount": "1000.0000",
+        "total_tax": "130.0000",
+        "total_with_tax": "1130.0000",
+        "currency_code": "USD",
+        "exchange_rate": "7.90000000",
+        "base_total_amount": "7900.0000",
+        "base_total_tax": "1027.0000",
+        "base_total_with_tax": "8927.0000",
+        "remark": "SO-40 \u8bc1\u636e\uff1aUSD \u5355\uff08\u5e94\u9501 7.9\uff09",
+        "created_at": "2026-11-06T23:27:39.340215Z",
+        "updated_at": "2026-11-06T23:27:39.340215Z",
+        "items": [
+            {
+                "id": "39bdf6cd-1932-4fd5-8f40-103cf93adc97",
+                "line_no": 1,
+                "material_id": "d1370003-0000-4000-8000-000000000002",
+                "qty": "10.0000",
+                "price": "100.000000",
+                "amount": "1000.0000",
+                "tax_rate": "13.0000",
+                "tax_amount": "130.0000",
+                "delivered_qty": "0.0000",
+                "open_qty": "10.0000"
+            }
+        ],
+        "approval_instance_id": null
+    }
+}
+== 老单回读（汇率变动后）：
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "id": "01a1b330-730e-76d7-9c2d-0a8f8c1f128b",
+        "so_no": "SO-20261107-000018",
+        "customer_id": "d0260000-0000-4000-8000-000000000001",
+        "customer_code": "CUS-0001",
+        "customer_name": "\u5317\u4eac\u4e91\u67a2\u79d1\u6280\u6709\u9650\u516c\u53f8",
+        "contract_id": null,
+        "contract_no": null,
+        "salesperson_id": null,
+        "salesperson_name": null,
+        "order_date": "2026-11-07",
+        "delivery_date": null,
+        "status": "DRAFT",
+        "status_label": "\u8349\u7a3f",
+        "total_amount": "1000.0000",
+        "total_tax": "130.0000",
+        "total_with_tax": "1130.0000",
+        "currency_code": "USD",
+        "exchange_rate": "7.10000000",
+        "base_total_amount": "7100.0000",
+        "base_total_tax": "923.0000",
+        "base_total_with_tax": "8023.0000",
+        "remark": "SO-40 \u8bc1\u636e\uff1aUSD \u5355\uff08\u5e94\u9501 7.1\uff09",
+        "created_at": "2026-11-06T23:27:39.277997Z",
+        "updated_at": "2026-11-06T23:27:39.277997Z",
+        "items": [
+            {
+                "id": "35a258c3-ea31-409a-a1a6-74b01ca05239",
+                "line_no": 1,
+                "material_id": "d1370003-0000-4000-8000-000000000002",
+                "qty": "10.0000",
+                "price": "100.000000",
+                "amount": "1000.0000",
+                "tax_rate": "13.0000",
+                "tax_amount": "130.0000",
+                "delivered_qty": "0.0000",
+                "open_qty": "10.0000"
+            }
+        ],
+        "approval_instance_id": null
+    }
+}
+== EUR 无汇率建单（期望 400）：
+HTTP 400
+{
+    "code": 10001,
+    "msg": "\u9500\u552e\u8ba2\u5355\u5e01\u79cd EUR \u5728 2026-11-07\uff08\u542b\uff09\u4e4b\u524d\u6ca1\u6709\u53ef\u7528\u7684 SPOT \u6c47\u7387\uff08\u672c\u4f4d\u5e01 CNY\uff09\uff1a\u8bf7\u5148\u5728\u300c\u5e01\u79cd / \u6c47\u7387\u300d\u91cc\u7ef4\u62a4\u8be5\u5e01\u79cd\u7684\u5373\u65f6\u6c47\u7387\uff1b\u5916\u5e01\u5355\u4e0d\u5141\u8bb8\u6309\u6c47\u7387 1 \u5165\u8d26"
+}
+== 收款单响应：
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "id": "42375043-ecf9-416b-9994-6a5f1295b20c",
+        "receipt_no": "RC-20261107-000001",
+        "customer_id": "d0260000-0000-4000-8000-000000000001",
+        "customer_name": "\u5317\u4eac\u4e91\u67a2\u79d1\u6280\u6709\u9650\u516c\u53f8",
+        "receipt_date": "2026-11-07",
+        "amount": "1000.0000",
+        "allocated_amount": "0.0000",
+        "unallocated_amount": "1000.0000",
+        "method": "BANK_TRANSFER",
+        "method_label": "\u94f6\u884c\u8f6c\u8d26",
+        "bank_account": null,
+        "status": "DRAFT",
+        "status_label": "\u8349\u7a3f",
+        "voucher_id": null,
+        "remark": null,
+        "currency_code": "USD",
+        "exchange_rate": "7.10000000",
+        "base_total_amount": "7100.0000",
+        "base_total_tax": "0.0000",
+        "base_total_with_tax": "7100.0000",
+        "created_at": "2026-11-06T23:27:39.457915Z",
+        "updated_at": "2026-11-06T23:27:39.457915Z",
+        "voucher_no": null,
+        "allocations": []
+    }
+}
+== 收尾：停实例

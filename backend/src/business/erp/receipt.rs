@@ -74,6 +74,7 @@ use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
 use crate::business::erp::credit;
+use crate::business::erp::currency;
 use crate::business::erp::model::normalize_page;
 use crate::business::erp::period;
 use crate::business::erp::receivable::{self, ReceivableRow};
@@ -180,14 +181,17 @@ pub const REASON_MIN_CHARS: usize = 4;
 /// 作废原因最长长度。
 pub const REASON_MAX_CHARS: usize = 500;
 
-/// `biz_receipt` 列清单（与 V0292 逐列对应；`method` 可空）。
+/// `biz_receipt` 列清单（与 V0292 + V0314 逐列对应；`method` 可空）。
 pub const COLUMNS: &str = "id, receipt_no, customer_id, receipt_date, amount, allocated_amount, \
-     method, bank_account, status, voucher_id, remark, created_at, updated_at";
+     method, bank_account, status, voucher_id, remark, \
+     currency_code, exchange_rate, base_total_amount, base_total_tax, base_total_with_tax, \
+     created_at, updated_at";
 
 /// 列表列（带客户名，别名 `p` / `c`）。
 pub const LIST_COLUMNS: &str = "p.id, p.receipt_no, p.customer_id, COALESCE(c.name, '') AS customer_name, \
      p.receipt_date, p.amount, p.allocated_amount, p.method, p.bank_account, p.status, p.voucher_id, \
-     p.remark, p.created_at, p.updated_at";
+     p.remark, p.currency_code, p.exchange_rate, p.base_total_amount, p.base_total_tax, \
+     p.base_total_with_tax, p.created_at, p.updated_at";
 
 /// 列表 FROM 子句。
 pub const LIST_FROM: &str = "FROM biz_receipt p \
@@ -415,6 +419,16 @@ pub struct ReceiptRow {
     pub voucher_id: Option<Uuid>,
     /// 备注。
     pub remark: Option<String>,
+    /// 原币币种（V0314 / SO-40）。
+    pub currency_code: String,
+    /// 登记时锁定的汇率（`1 原币 = exchange_rate 本位币`）。
+    pub exchange_rate: Decimal,
+    /// 本位币收款金额。
+    pub base_total_amount: Decimal,
+    /// 本位币税额（收款无税额拆分，恒 0）。
+    pub base_total_tax: Decimal,
+    /// 本位币价税合计。
+    pub base_total_with_tax: Decimal,
     /// 创建时间。
     pub created_at: Option<DateTime<Utc>>,
     /// 更新时间。
@@ -436,6 +450,11 @@ impl ReceiptRow {
             status: row.get_typed("status")?,
             voucher_id: row.get_typed("voucher_id")?,
             remark: row.get_typed("remark")?,
+            currency_code: row.get_typed("currency_code")?,
+            exchange_rate: row.get_typed("exchange_rate")?,
+            base_total_amount: row.get_typed("base_total_amount")?,
+            base_total_tax: row.get_typed("base_total_tax")?,
+            base_total_with_tax: row.get_typed("base_total_with_tax")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
         })
@@ -633,6 +652,16 @@ pub struct ReceiptRes {
     pub voucher_id: Option<String>,
     /// 备注。
     pub remark: Option<String>,
+    /// 原币币种（V0314 / SO-40）。
+    pub currency_code: String,
+    /// 登记时锁定的汇率。
+    pub exchange_rate: Decimal,
+    /// 本位币收款金额。
+    pub base_total_amount: Decimal,
+    /// 本位币税额。
+    pub base_total_tax: Decimal,
+    /// 本位币价税合计。
+    pub base_total_with_tax: Decimal,
     /// 创建时间。
     pub created_at: Option<DateTime<Utc>>,
     /// 更新时间。
@@ -658,6 +687,11 @@ impl ReceiptRes {
             status_label: status_label(&row.status).to_string(),
             voucher_id: row.voucher_id.map(|id| id.to_string()),
             remark: row.remark.clone(),
+            currency_code: row.currency_code.clone(),
+            exchange_rate: row.exchange_rate,
+            base_total_amount: row.base_total_amount,
+            base_total_tax: row.base_total_tax,
+            base_total_with_tax: row.base_total_with_tax,
             created_at: row.created_at,
             updated_at: row.updated_at,
         }
@@ -781,6 +815,9 @@ pub struct CreateReceiptReq {
     pub bank_account: Option<String>,
     /// 备注。
     pub remark: Option<String>,
+    /// 币种（ISO 4217 三位大写，缺省 = 账套本位币）。V0314 / SO-40：
+    /// 非本位币 ⇒ 按 `receipt_date` 取最近一条 SPOT 汇率并锁定，取不到一律 400。
+    pub currency_code: Option<String>,
 }
 
 /// 一条核销明细请求。
@@ -1014,6 +1051,12 @@ pub async fn create(
         .map(str::trim)
         .filter(|text| !text.is_empty())
         .map(str::to_string);
+    // SO-40：登记即锁定汇率（收款无税额拆分 ⇒ base_tax = 0，含税 = base_amount）
+    let locked = currency::lock(db(), req.currency_code.as_deref(), receipt_date)
+        .await
+        .map_err(|error| utils::db_error(error, "取收款汇率"))?
+        .into_locked("收款单")?;
+    let base_amounts = currency::BaseAmounts::of(amount, Decimal::ZERO, locked.exchange_rate);
     let now = Utc::now();
 
     let tx = db()
@@ -1041,10 +1084,13 @@ pub async fn create(
                     "INSERT INTO {TABLE} \
                         (receipt_no, customer_id, receipt_date, amount, allocated_amount, \
                          method, bank_account, status, remark, \
+                         currency_code, exchange_rate, base_total_amount, base_total_tax, base_total_with_tax, \
                          created_at, updated_at, create_by, update_by) \
                      VALUES (?, ?::uuid, ?::text::date, NULLIF(?::text,'')::numeric, 0, \
                              NULLIF(?::text,''), NULLIF(?::text,''), '{STATUS_DRAFT}', \
-                             NULLIF(?::text,''), ?, ?, NULLIF(?::text,'')::uuid, \
+                             NULLIF(?::text,''), \
+                             ?, ?::text::numeric, ?::text::numeric, ?::text::numeric, ?::text::numeric, \
+                             ?, ?, NULLIF(?::text,'')::uuid, \
                              NULLIF(?::text,'')::uuid) \
                      RETURNING id"
                 ),
@@ -1056,6 +1102,11 @@ pub async fn create(
                     Value::Text(method.clone().unwrap_or_default()),
                     Value::Text(bank_account.clone().unwrap_or_default()),
                     Value::Text(remark.clone().unwrap_or_default()),
+                    Value::Text(locked.currency_code.clone()),
+                    Value::Text(locked.exchange_rate.to_string()),
+                    Value::Text(base_amounts.amount.to_string()),
+                    Value::Text(base_amounts.tax.to_string()),
+                    Value::Text(base_amounts.with_tax.to_string()),
                     Value::from(now),
                     Value::from(now),
                     Value::Text(operator_text.clone()),
