@@ -1,0 +1,1187 @@
+<template>
+  <div class="sales-order-page">
+    <!-- ==================== ① 筛选 / 工具栏 ==================== -->
+    <t-card :bordered="false" class="filter-card">
+      <div class="filter-row">
+        <t-input
+          v-model="filter.so_no"
+          class="filter-row__keyword"
+          placeholder="订单编号（模糊）"
+          clearable
+          data-testid="so-filter-no"
+          @enter="handleSearch"
+        >
+          <template #prefix-icon><t-icon name="search" /></template>
+        </t-input>
+
+        <t-select
+          v-model="filter.status"
+          class="filter-row__select"
+          :options="statusOptions"
+          placeholder="全部状态"
+          clearable
+          data-testid="so-filter-status"
+        />
+
+        <t-select
+          v-model="filter.customer_id"
+          class="filter-row__customer"
+          :options="customerOptions"
+          placeholder="全部客户"
+          clearable
+          filterable
+          data-testid="so-filter-customer"
+        />
+
+        <t-button theme="primary" data-testid="btn-so-search" @click="handleSearch">查询</t-button>
+        <t-button variant="outline" data-testid="btn-so-reset" @click="handleReset">重置</t-button>
+        <t-button variant="outline" data-testid="btn-so-refresh" @click="handleRefresh">刷新</t-button>
+
+        <span class="filter-row__spacer" />
+
+        <t-tooltip
+          :content="canWrite ? '新建一张销售订单（SO-yyyyMMdd-000001）' : '当前账号没有 business:erp:sale-order:create 权限'"
+          placement="top-right"
+        >
+          <span class="gate-wrap">
+            <t-button
+              theme="primary"
+              data-testid="btn-so-new"
+              :disabled="!canWrite"
+              @click="openCreate"
+            >
+              <template #icon><t-icon name="add" /></template>
+              新建销售订单
+            </t-button>
+          </span>
+        </t-tooltip>
+      </div>
+    </t-card>
+
+    <!-- ==================== ② 列表 ==================== -->
+    <t-card :bordered="false" class="list-card">
+      <div class="panel-head">
+        <div class="panel-head__main">
+          <span class="panel-head__title">销售订单</span>
+          <span class="panel-head__meta" data-testid="so-meta">共 {{ total }} 条</span>
+          <t-tag v-if="isFiltered" size="small" variant="outline" data-testid="so-filtered-tag">已筛选</t-tag>
+        </div>
+        <span class="panel-head__hint">
+          提交后走审批中心（<code>so_approve</code>：销售主管 → 金额 ≥1 万加财务经理 → ≥10 万加总经理）；
+          已审批 / 部分出库可关闭，草稿 / 审批中 / 已审批可作废
+        </span>
+      </div>
+
+      <t-alert v-if="loadError" theme="error" :message="loadError" class="list-alert" data-testid="so-load-error">
+        <template #operation>
+          <t-button size="small" variant="outline" @click="loadOrders()">重试</t-button>
+        </template>
+      </t-alert>
+
+      <t-table
+        row-key="id"
+        :data="rows"
+        :columns="columns"
+        :loading="loading"
+        :pagination="pagination"
+        :hover="true"
+        data-testid="so-table"
+        @page-change="handlePageChange"
+      >
+        <template #so_no="{ row }">
+          <t-link theme="primary" class="mono" data-testid="so-no-link" @click="openDetail(row)">
+            {{ row.so_no }}
+          </t-link>
+        </template>
+
+        <template #customer_name="{ row }">
+          <span :class="{ muted: !row.customer_name }" :title="customerText(row)">
+            {{ customerText(row) }}
+          </span>
+        </template>
+
+        <template #order_date="{ row }">
+          <span class="mono">{{ row.order_date }}</span>
+        </template>
+
+        <template #delivery_date="{ row }">
+          <span class="mono" :class="{ muted: !row.delivery_date }">{{ row.delivery_date || '—' }}</span>
+        </template>
+
+        <template #total_with_tax="{ row }">
+          <span class="mono">{{ formatMoney(row.total_with_tax) }}</span>
+        </template>
+
+        <template #status="{ row }">
+          <t-tag
+            size="small"
+            variant="light"
+            :theme="salesOrderStatusTheme(row.status)"
+            :data-testid="`so-status-${row.so_no}`"
+          >
+            {{ row.status_label || salesOrderStatusLabel(row.status) }}
+          </t-tag>
+        </template>
+
+        <template #op="{ row }">
+          <div class="op-row">
+            <t-link theme="primary" data-testid="btn-so-detail" @click="openDetail(row)">详情</t-link>
+            <t-link
+              v-if="rowActions(row).edit"
+              v-privilege="[PERM.update]"
+              theme="primary"
+              data-testid="btn-so-edit"
+              @click="openEdit(row)"
+            >
+              编辑
+            </t-link>
+            <t-link
+              v-if="rowActions(row).submit"
+              v-privilege="[PERM.status]"
+              theme="primary"
+              data-testid="btn-so-submit"
+              @click="submitOrder(row)"
+            >
+              提交
+            </t-link>
+            <t-link
+              v-if="rowActions(row).withdraw"
+              v-privilege="[PERM.status]"
+              theme="warning"
+              data-testid="btn-so-withdraw"
+              @click="withdrawOrder(row)"
+            >
+              撤回
+            </t-link>
+            <t-link
+              v-if="rowActions(row).close"
+              v-privilege="[PERM.status]"
+              theme="success"
+              data-testid="btn-so-close"
+              @click="openReasonDialog(row, 'CLOSED')"
+            >
+              关闭
+            </t-link>
+            <t-link
+              v-if="rowActions(row).cancel"
+              v-privilege="[PERM.status]"
+              theme="danger"
+              data-testid="btn-so-cancel"
+              @click="openReasonDialog(row, 'CANCELLED')"
+            >
+              作废
+            </t-link>
+          </div>
+        </template>
+
+        <template #empty>
+          <div class="empty-block" data-testid="so-empty">{{ emptyListText(filter) }}</div>
+        </template>
+      </t-table>
+    </t-card>
+
+    <!-- ==================== ③ 新建 / 编辑弹窗 ==================== -->
+    <t-dialog
+      v-model:visible="formVisible"
+      :header="editingId ? '编辑销售订单' : '新建销售订单'"
+      :width="1100"
+      :confirm-btn="{ content: editingId ? '保存' : '创建', loading: submitting, disabled: submitting }"
+      :cancel-btn="{ disabled: submitting }"
+      :close-on-overlay-click="false"
+      data-testid="so-form-dialog"
+      @confirm="submitForm"
+    >
+      <div class="form-body">
+        <t-form label-width="96px" class="form-head">
+          <t-row :gutter="[16, 0]">
+            <t-col :span="6">
+              <t-form-item label="客户" required-mark>
+                <t-select
+                  v-model="form.customer_id"
+                  :options="customerOptions"
+                  filterable
+                  placeholder="选择客户（只列正常状态）"
+                  data-testid="so-form-customer"
+                />
+              </t-form-item>
+            </t-col>
+            <t-col :span="6">
+              <t-form-item label="订单日期" required-mark>
+                <t-date-picker
+                  v-model="form.order_date"
+                  value-type="YYYY-MM-DD"
+                  format="YYYY-MM-DD"
+                  :clearable="false"
+                  data-testid="so-form-order-date"
+                />
+              </t-form-item>
+            </t-col>
+            <t-col :span="6">
+              <t-form-item label="要求交期">
+                <t-date-picker
+                  v-model="form.delivery_date"
+                  value-type="YYYY-MM-DD"
+                  format="YYYY-MM-DD"
+                  placeholder="未约定"
+                  clearable
+                  data-testid="so-form-delivery-date"
+                />
+              </t-form-item>
+            </t-col>
+            <t-col :span="6">
+              <t-form-item label="备注">
+                <t-input
+                  v-model="form.remark"
+                  :maxlength="SALES_ORDER_REMARK_MAX"
+                  placeholder="订单备注（选填）"
+                  data-testid="so-form-remark"
+                />
+              </t-form-item>
+            </t-col>
+          </t-row>
+        </t-form>
+
+        <div class="section-head">
+          <span class="section-head__title">明细（{{ form.items.length }} 行）</span>
+          <span class="section-head__tip">金额 = 数量 × 单价（不含税），税额 = 金额 × 税率；提交后由服务端重算</span>
+          <span class="section-head__spacer" />
+          <t-button
+            size="small"
+            variant="outline"
+            :disabled="!canAddLine(form)"
+            data-testid="btn-so-add-line"
+            @click="addLine"
+          >
+            <template #icon><t-icon name="add" /></template>
+            加一行
+          </t-button>
+        </div>
+
+        <t-table
+          row-key="key"
+          size="small"
+          :data="form.items"
+          :columns="formItemColumns"
+          data-testid="so-form-items"
+        >
+          <template #line_index="{ rowIndex }">
+            <span class="mono">{{ rowIndex + 1 }}</span>
+          </template>
+
+          <template #material_id="{ row }">
+            <t-select
+              v-model="row.material_id"
+              class="material-select"
+              :options="materialOptions"
+              filterable
+              :filter="filterMaterial"
+              placeholder="物料编码 / 名称"
+              data-testid="so-form-material"
+            />
+          </template>
+
+          <template #qty="{ row }">
+            <t-input-number
+              v-model="row.qty"
+              theme="normal"
+              :decimal-places="4"
+              :min="0"
+              align="right"
+              data-testid="so-form-qty"
+            />
+          </template>
+
+          <template #price="{ row }">
+            <t-input-number
+              v-model="row.price"
+              theme="normal"
+              :decimal-places="4"
+              :min="0"
+              align="right"
+              placeholder="0.0000"
+              data-testid="so-form-price"
+            />
+          </template>
+
+          <template #tax_rate="{ row }">
+            <t-input-number
+              v-model="row.tax_rate"
+              theme="normal"
+              :decimal-places="2"
+              :min="0"
+              :max="100"
+              align="right"
+              data-testid="so-form-tax-rate"
+            />
+          </template>
+
+          <template #amount="{ row }">
+            <span class="mono" data-testid="so-form-amount">{{ formatMoney(computeLine(row.qty, row.price, row.tax_rate).amount) }}</span>
+          </template>
+
+          <template #tax_amount="{ row }">
+            <span class="mono">{{ formatMoney(computeLine(row.qty, row.price, row.tax_rate).tax_amount) }}</span>
+          </template>
+
+          <template #line_op="{ row }">
+            <t-link
+              theme="danger"
+              :disabled="!canRemoveLine(form)"
+              data-testid="btn-so-remove-line"
+              @click="removeLine(row.key)"
+            >
+              删除
+            </t-link>
+          </template>
+        </t-table>
+
+        <div class="totals" data-testid="so-form-totals">
+          <span>不含税合计 <b class="mono">{{ formatMoney(formTotals.amount) }}</b></span>
+          <span>税额合计 <b class="mono">{{ formatMoney(formTotals.tax) }}</b></span>
+          <span>价税合计 <b class="mono totals__strong">{{ formatMoney(formTotals.with_tax) }}</b></span>
+        </div>
+
+        <t-alert v-if="formError" theme="error" :message="formError" class="form-alert" data-testid="so-form-error" />
+      </div>
+    </t-dialog>
+
+    <!-- ==================== ④ 详情抽屉（含审批进度） ==================== -->
+    <t-drawer
+      v-model:visible="detailVisible"
+      header="销售订单详情"
+      size="920px"
+      :footer="false"
+      data-testid="so-detail-drawer"
+    >
+      <div v-if="detailLoading" class="detail-loading"><t-loading :loading="true" text="加载中…" /></div>
+      <t-alert v-else-if="detailError" theme="error" :message="detailError" data-testid="so-detail-error" />
+
+      <template v-else-if="detail">
+        <div class="detail-head">
+          <span class="detail-head__no mono" data-testid="so-detail-no">{{ detail.so_no }}</span>
+          <t-tag size="small" variant="light" :theme="salesOrderStatusTheme(detail.status)">
+            {{ detail.status_label || salesOrderStatusLabel(detail.status) }}
+          </t-tag>
+          <span class="detail-head__spacer" />
+          <!-- 详情里的操作与列表同源（状态判定都在 sales-order-query.ts） -->
+          <t-button
+            v-if="detailActions.submit"
+            v-privilege="[PERM.status]"
+            size="small"
+            theme="primary"
+            data-testid="btn-so-detail-submit"
+            @click="submitOrder(detail)"
+          >
+            提交审批
+          </t-button>
+          <t-button
+            v-if="detailActions.withdraw"
+            v-privilege="[PERM.status]"
+            size="small"
+            variant="outline"
+            data-testid="btn-so-detail-withdraw"
+            @click="withdrawOrder(detail)"
+          >
+            撤回审批
+          </t-button>
+          <t-button
+            v-if="detailActions.close"
+            v-privilege="[PERM.status]"
+            size="small"
+            variant="outline"
+            data-testid="btn-so-detail-close"
+            @click="openReasonDialog(detail, 'CLOSED')"
+          >
+            关闭
+          </t-button>
+          <t-button
+            v-if="detailActions.cancel"
+            v-privilege="[PERM.status]"
+            size="small"
+            theme="danger"
+            variant="outline"
+            data-testid="btn-so-detail-cancel"
+            @click="openReasonDialog(detail, 'CANCELLED')"
+          >
+            作废
+          </t-button>
+          <t-button
+            v-if="detailActions.edit"
+            v-privilege="[PERM.update]"
+            size="small"
+            variant="outline"
+            data-testid="btn-so-detail-edit"
+            @click="openEdit(detail)"
+          >
+            编辑
+          </t-button>
+        </div>
+
+        <t-descriptions :column="2" size="small" class="detail-desc" data-testid="so-detail-desc">
+          <t-descriptions-item label="客户">{{ customerText(detail) }}</t-descriptions-item>
+          <t-descriptions-item label="订单日期">{{ detail.order_date }}</t-descriptions-item>
+          <t-descriptions-item label="要求交期">{{ detail.delivery_date || '—' }}</t-descriptions-item>
+          <t-descriptions-item label="价税合计">
+            <b class="mono">{{ formatMoney(detail.total_with_tax) }}</b>
+          </t-descriptions-item>
+          <t-descriptions-item label="不含税合计">{{ formatMoney(detail.total_amount) }}</t-descriptions-item>
+          <t-descriptions-item label="税额合计">{{ formatMoney(detail.total_tax) }}</t-descriptions-item>
+          <t-descriptions-item label="备注" :span="2">{{ detail.remark || '—' }}</t-descriptions-item>
+        </t-descriptions>
+
+        <!--
+          审批进度：复用审批中心的 FlowProgress（与采购 / 应付 / 凭证 / 收货 / 调拨同一口径）。
+          节点行只来自 `GET /business/flow/instance/{id}`，前端不自己推「走到第几步」；
+          没有实例 id（草稿 / 已驳回打回）就整块不渲染，拉不到节点则降级成单号。
+        -->
+        <template v-if="hasApprovalProgress(approvalProgress)">
+          <div class="section-title">审批进度</div>
+          <FlowProgress
+            :nodes="approvalProgress.nodes"
+            :tasks="approvalProgress.tasks"
+            data-testid="so-approval-progress"
+          />
+        </template>
+        <div v-else-if="approvalFallback" class="approval-fallback" data-testid="so-approval-fallback">
+          {{ approvalFallback.label }} {{ approvalFallback.no }}（节点进度暂不可见，请到审批中心查看）
+        </div>
+
+        <div class="section-title">明细（{{ detail.items.length }} 条）</div>
+        <t-table
+          row-key="id"
+          size="small"
+          :data="detail.items"
+          :columns="detailItemColumns"
+          data-testid="so-detail-items"
+        >
+          <template #material_id="{ row }">{{ materialNameOf(row.material_id) }}</template>
+          <template #qty="{ row }"><span class="mono">{{ formatQty(row.qty) }}</span></template>
+          <template #price="{ row }"><span class="mono">{{ formatMoney(row.price) }}</span></template>
+          <template #tax_rate="{ row }"><span class="mono">{{ formatQty(row.tax_rate) }}%</span></template>
+          <template #amount="{ row }"><span class="mono">{{ formatMoney(row.amount) }}</span></template>
+          <template #tax_amount="{ row }"><span class="mono">{{ formatMoney(row.tax_amount) }}</span></template>
+          <template #delivered_qty="{ row }"><span class="mono">{{ formatQty(row.delivered_qty) }}</span></template>
+          <template #open_qty="{ row }"><span class="mono">{{ formatQty(row.open_qty) }}</span></template>
+        </t-table>
+      </template>
+    </t-drawer>
+
+    <!-- ==================== ⑤ 作废 / 关闭（要原因） ==================== -->
+    <t-dialog
+      v-model:visible="reasonVisible"
+      :header="reasonTarget === 'CLOSED' ? '关闭销售订单' : '作废销售订单'"
+      :width="520"
+      :confirm-btn="{ content: reasonTarget === 'CLOSED' ? '关闭' : '作废', theme: 'danger', loading: reasonSubmitting }"
+      :cancel-btn="{ disabled: reasonSubmitting }"
+      data-testid="so-reason-dialog"
+      @confirm="confirmReason"
+    >
+      <div class="reason-body">
+        <p class="reason-tip">
+          {{ reasonNeedsInput ? '这条状态迁移会影响客户额度占用 / 未发数量，必须写清原因（进状态日志与对账依据）。' : '草稿作废不动账，原因可选。' }}
+        </p>
+        <t-textarea
+          v-model="reasonText"
+          :autosize="{ minRows: 3, maxRows: 5 }"
+          :maxlength="200"
+          placeholder="原因（例如：客户取消订单 / 重复开单）"
+          data-testid="so-reason-input"
+        />
+      </div>
+    </t-dialog>
+  </div>
+</template>
+
+<script setup lang="ts">
+/**
+ * 销售订单页（SO-07）。
+ *
+ * # 接口（全部真接口，路径逐字对应 `backend/src/business/erp/sales_order_handler.rs`）
+ *
+ * | 动作 | 请求 | 权限 |
+ * |------|------|------|
+ * | 列表 | `GET /api/business/erp/sales-order/page` | `:list` |
+ * | 详情 | `GET /api/business/erp/sales-order/{id}` | `:list` |
+ * | 新建 | `POST /api/business/erp/sales-order` | `:create` |
+ * | 编辑 | `PUT /api/business/erp/sales-order/{id}`（只有 DRAFT） | `:update` |
+ * | 提交审批 | `POST /api/business/erp/sales-order/{id}/submit-approval` | `:status` |
+ * | 作废 / 关闭 | `PATCH /api/business/erp/sales-order/{id}/status` | `:status` |
+ * | 撤回审批 | `POST /api/business/flow/instance/{id}/withdraw`（**审批引擎**，不是 PATCH） | `business:flow:instance:read` 侧 |
+ *
+ * # 三条硬口径（SO-06 交接）
+ *
+ * 1. **审批结论不许人工写**：`APPROVED` / `DRAFT` 这两个目标态永远不发给 `PATCH /status`
+ *    （后端 400）。撤回 = 撤审批实例，通过 / 驳回 = 在审批中心点。
+ * 2. **撤回要先拿实例 id**：列表行的 `approval_instance_id` 恒为 `null`（后端只在详情补），
+ *    所以撤回按钮点下去先拉一次详情。
+ * 3. **列表不画审批进度**：实例 id 只有详情有，进度块（`FlowProgress`）只在详情抽屉里。
+ *
+ * # 金额
+ *
+ * 表单里的金额是 {@link computeLine} 的**预览**，提交只发 `qty` / `price` / `tax_rate`；
+ * 列表 / 详情的金额一律是服务端返回值（`formatMoney` 只做显示格式）。
+ */
+import { computed, onMounted, reactive, ref } from 'vue';
+import { MessagePlugin } from 'tdesign-vue-next';
+import type { PrimaryTableCol } from 'tdesign-vue-next';
+import { useUserStore } from '@/stores/user';
+import { ApiError } from '@/api/request';
+import {
+  createSalesOrder,
+  changeSalesOrderStatus,
+  fetchCustomerPage,
+  fetchMaterialPage,
+  fetchSalesOrderDetail,
+  fetchSalesOrderPage,
+  submitSalesOrderApproval,
+  updateSalesOrder,
+  type Customer,
+  type MaterialRow,
+  type SalesOrder,
+  type SalesOrderStatus,
+} from '@/api/business/erp';
+import { getFlowInstance, withdrawFlowInstance } from '@/api/business/flow-api';
+import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
+import {
+  EMPTY_APPROVAL_PROGRESS,
+  approvalFallbackOf,
+  hasApprovalProgress,
+  loadApprovalProgress,
+  type ApprovalProgress,
+} from '@/views/business/erp/shared/approval-progress';
+import { formatMoney } from '@/views/business/erp/shared/money';
+import {
+  SALES_ORDER_COLUMNS,
+  SALES_ORDER_ITEM_COLUMNS,
+  SALES_ORDER_MAX_LINES,
+  SALES_ORDER_PAGE_SIZE,
+  SALES_ORDER_REMARK_MAX,
+  SALES_ORDER_STATUS_OPTIONS,
+  buildCreatePayload,
+  buildSalesOrderQuery,
+  buildUpdatePayload,
+  canAddLine,
+  canRemoveLine,
+  computeLine,
+  computeTotals,
+  emptyListText,
+  emptySalesOrderFilter,
+  emptySalesOrderForm,
+  formFromDetail,
+  isSalesOrderFiltered,
+  newSalesOrderLine,
+  rowActions,
+  salesOrderStatusLabel,
+  salesOrderStatusTheme,
+  statusNeedsReason,
+  validateSalesOrderForm,
+  type SalesOrderFilter,
+  type SalesOrderFormDraft,
+  type SalesOrderLineDraft,
+} from './sales-order-query';
+
+/** 本页权限码（与 `V0265__sales_order_permissions.up.sql` 的 auth_code 逐字一致） */
+const PERM = {
+  /** 列表 / 详情（页面入口） */
+  list: 'business:erp:sale-order:list',
+  /** 新建 */
+  create: 'business:erp:sale-order:create',
+  /** 编辑（只有 DRAFT） */
+  update: 'business:erp:sale-order:update',
+  /** 状态流转（提交 / 撤回 / 作废 / 关闭） */
+  status: 'business:erp:sale-order:status',
+} as const;
+
+const userStore = useUserStore();
+const canWrite = computed(() => userStore.hasPermission(PERM.create));
+
+/** 表格列（colKey 与后端出参同名） */
+const columns = SALES_ORDER_COLUMNS;
+/** 表单明细列（行号 / 物料 / 数量 / 单价 / 税率 / 金额 / 税额 / 删除） */
+const formItemColumns: PrimaryTableCol[] = [
+  { colKey: 'line_index', title: '#', width: 56 },
+  { colKey: 'material_id', title: '物料', minWidth: 240 },
+  { colKey: 'qty', title: '数量', width: 130 },
+  { colKey: 'price', title: '不含税单价', width: 150 },
+  { colKey: 'tax_rate', title: '税率%', width: 110 },
+  { colKey: 'amount', title: '金额', width: 130, align: 'right' },
+  { colKey: 'tax_amount', title: '税额', width: 120, align: 'right' },
+  { colKey: 'line_op', title: '操作', width: 80 },
+];
+/** 详情明细列（多两列发货进度） */
+const detailItemColumns: PrimaryTableCol[] = [
+  ...SALES_ORDER_ITEM_COLUMNS,
+  { colKey: 'delivered_qty', title: '已发', width: 100, align: 'right' },
+  { colKey: 'open_qty', title: '未发', width: 100, align: 'right' },
+];
+/** 状态下拉（`''` = 全部，靠 `clearable` 清） */
+const statusOptions = SALES_ORDER_STATUS_OPTIONS.map((item) => ({ ...item }));
+
+// ==================== 列表 ====================
+
+const filter = reactive<SalesOrderFilter>(emptySalesOrderFilter());
+const rows = ref<SalesOrder[]>([]);
+const total = ref(0);
+const current = ref(1);
+const pageSize = SALES_ORDER_PAGE_SIZE;
+const loading = ref(false);
+const loadError = ref('');
+
+const isFiltered = computed(() => isSalesOrderFiltered(filter));
+const pagination = computed(() => ({
+  current: current.value,
+  pageSize,
+  total: total.value,
+  showJumper: true,
+  showPageSize: false,
+}));
+
+/** 错误 → 人话（ApiError 带后端 msg，别吃掉） */
+function messageOf(error: unknown): string {
+  if (error instanceof ApiError) {
+    return error.message;
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function loadOrders(page: number = current.value): Promise<void> {
+  loading.value = true;
+  loadError.value = '';
+  try {
+    const data = await fetchSalesOrderPage(buildSalesOrderQuery(filter, page, pageSize));
+    rows.value = data.list ?? [];
+    total.value = data.total ?? 0;
+    current.value = data.page ?? page;
+    const lastPage = Math.max(1, Math.ceil(total.value / pageSize));
+    if (current.value > lastPage) {
+      current.value = lastPage;
+      await loadOrders(lastPage);
+    }
+  } catch (error) {
+    rows.value = [];
+    total.value = 0;
+    loadError.value = `销售订单加载失败：${messageOf(error)}`;
+  } finally {
+    loading.value = false;
+  }
+}
+
+function handleSearch(): void {
+  current.value = 1;
+  void loadOrders(1);
+}
+
+function handleReset(): void {
+  Object.assign(filter, emptySalesOrderFilter());
+  current.value = 1;
+  void loadOrders(1);
+}
+
+function handleRefresh(): void {
+  void loadOrders(current.value);
+}
+
+function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
+  current.value = pageInfo.current;
+  void loadOrders(pageInfo.current);
+}
+
+// ==================== 主数据下拉（客户 / 物料） ====================
+
+const customers = ref<Customer[]>([]);
+const materials = ref<MaterialRow[]>([]);
+
+/** 客户下拉：只列 `ACTIVE`（冻结客户开不了新单，后端 400） */
+const customerOptions = computed(() =>
+  customers.value.map((item) => ({
+    label: `${item.code} ${item.name}`,
+    value: item.id,
+  })),
+);
+
+/** 物料下拉：只列启用（`status = 1`），标签带编码 + 规格 */
+const materialOptions = computed(() =>
+  materials.value.map((item) => ({
+    label: materialLabel(item),
+    value: item.id,
+  })),
+);
+
+function materialLabel(material: MaterialRow): string {
+  const spec = material.spec ? ` / ${material.spec}` : '';
+  return `${material.material_code} ${material.material_name}${spec}`;
+}
+
+/** 本地过滤（一次拉 200 条够用；超出时让用户去物料页查） */
+function filterMaterial(keyword: string, option: { label?: unknown }): boolean {
+  if (!keyword) {
+    return true;
+  }
+  return String(option.label ?? '').toLowerCase().includes(keyword.toLowerCase());
+}
+
+/** 详情里 `material_id` → 名称（下拉可能没覆盖到，回落短 id） */
+function materialNameOf(id: string): string {
+  const found = materials.value.find((item) => item.id === id);
+  if (found) {
+    return materialLabel(found);
+  }
+  return id.length > 8 ? `${id.slice(0, 8)}…` : id;
+}
+
+function formatQty(value: number | string | null | undefined): string {
+  if (value === null || value === undefined || value === '') {
+    return '0';
+  }
+  const num = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(num)) {
+    return '0';
+  }
+  return String(Number(num.toFixed(4)));
+}
+
+/** 客户显示：名称（编码），客户软删则两列都是 null */
+function customerText(row: { customer_name: string | null; customer_code: string | null }): string {
+  if (row.customer_name && row.customer_code) {
+    return `${row.customer_name}（${row.customer_code}）`;
+  }
+  if (row.customer_name) {
+    return row.customer_name;
+  }
+  return '客户已删除';
+}
+
+async function loadOptions(): Promise<void> {
+  // 两个下拉互不依赖，一起发；任何一个失败都不该让页面整体失败 —— 只在控制台留痕
+  const [customerResult, materialResult] = await Promise.allSettled([
+    fetchCustomerPage({ status: 'ACTIVE', page: 1, page_size: 200 }),
+    fetchMaterialPage({ status: 1, page: 1, page_size: 200 }),
+  ]);
+  if (customerResult.status === 'fulfilled') {
+    customers.value = customerResult.value.list ?? [];
+  }
+  if (materialResult.status === 'fulfilled') {
+    materials.value = materialResult.value.list ?? [];
+  }
+}
+
+// ==================== 新建 / 编辑 ====================
+
+const formVisible = ref(false);
+const editingId = ref<string | null>(null);
+const form = reactive<SalesOrderFormDraft>(emptySalesOrderForm(todayCst()));
+const formError = ref('');
+const submitting = ref(false);
+
+/** 北京时间今天（与后端 `today_cst()` 同口径） */
+function todayCst(): string {
+  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/** 表单合计（预览；提交后以服务端 `total_*` 为准） */
+const formTotals = computed(() =>
+  computeTotals(
+    form.items.map((line) => ({ qty: line.qty, price: line.price, tax_rate: line.tax_rate })),
+  ),
+);
+
+function openCreate(): void {
+  editingId.value = null;
+  formError.value = '';
+  Object.assign(form, emptySalesOrderForm(todayCst()));
+  formVisible.value = true;
+}
+
+/** 编辑：先拉详情（列表行没有明细），再用 `formFromDetail` 回填 */
+async function openEdit(row: SalesOrder): Promise<void> {
+  try {
+    const detail = row.items.length > 0 ? row : await fetchSalesOrderDetail(row.id);
+    editingId.value = detail.id;
+    formError.value = '';
+    Object.assign(form, formFromDetail(detail));
+    formVisible.value = true;
+  } catch (error) {
+    MessagePlugin.error(`加载订单详情失败：${messageOf(error)}`);
+  }
+}
+
+function addLine(): void {
+  if (!canAddLine(form)) {
+    MessagePlugin.warning(`明细最多 ${SALES_ORDER_MAX_LINES} 行`);
+    return;
+  }
+  form.items.push(newSalesOrderLine());
+}
+
+function removeLine(key: string): void {
+  if (!canRemoveLine(form)) {
+    MessagePlugin.warning('至少保留 1 行明细');
+    return;
+  }
+  const index = form.items.findIndex((line: SalesOrderLineDraft) => line.key === key);
+  if (index >= 0) {
+    form.items.splice(index, 1);
+  }
+}
+
+async function submitForm(): Promise<void> {
+  const error = validateSalesOrderForm(form);
+  if (error) {
+    formError.value = error;
+    return;
+  }
+  formError.value = '';
+  submitting.value = true;
+  try {
+    const created = editingId.value
+      ? await updateSalesOrder(editingId.value, buildUpdatePayload(form))
+      : await createSalesOrder(buildCreatePayload(form));
+    MessagePlugin.success(editingId.value ? `已保存 ${created.so_no}` : `已创建 ${created.so_no}`);
+    formVisible.value = false;
+    await loadOrders(editingId.value ? current.value : 1);
+  } catch (submitError) {
+    // 后端原文（客户冻结 / 状态已变 / 明细校验）直接摆到弹窗里，别只说「保存失败」
+    formError.value = messageOf(submitError);
+  } finally {
+    submitting.value = false;
+  }
+}
+
+// ==================== 提交 / 撤回 / 作废 / 关闭 ====================
+
+/**
+ * 提交审批。
+ *
+ * 走 `POST /{id}/submit-approval`：配了 `so_approve` 就发起实例（单据转 `SUBMITTED`），
+ * 没配流程后端 409（`APPROVAL_FLOW_NOT_CONFIGURED`）—— 这里原样显示后端文案，
+ * 不在前端「假装提交成功」。
+ */
+async function submitOrder(row: SalesOrder): Promise<void> {
+  try {
+    const updated = await submitSalesOrderApproval(row.id);
+    MessagePlugin.success(`${updated.so_no} 已提交审批`);
+    await refreshAfterMutation(updated.id);
+  } catch (error) {
+    MessagePlugin.error(`提交失败：${messageOf(error)}`);
+    await loadOrders(current.value);
+  }
+}
+
+/**
+ * 撤回审批。
+ *
+ * 列表行没有实例 id（后端只在详情补），所以先拉详情；撤回走**审批引擎**
+ * `POST /business/flow/instance/{id}/withdraw`，引擎回调再把单据打回 `DRAFT`。
+ */
+async function withdrawOrder(row: SalesOrder): Promise<void> {
+  let instanceId = row.approval_instance_id ?? '';
+  try {
+    if (!instanceId) {
+      const detail = await fetchSalesOrderDetail(row.id);
+      instanceId = detail.approval_instance_id ?? '';
+    }
+    if (!instanceId) {
+      MessagePlugin.warning('这张单当前没有在跑的审批实例（可能已结束），请刷新后查看状态');
+      await loadOrders(current.value);
+      return;
+    }
+    await withdrawFlowInstance(instanceId, '制单人撤回审批');
+    MessagePlugin.success(`${row.so_no} 已撤回，单据回到草稿`);
+    await refreshAfterMutation(row.id);
+  } catch (error) {
+    MessagePlugin.error(`撤回失败：${messageOf(error)}`);
+    await loadOrders(current.value);
+  }
+}
+
+/** 作废 / 关闭的原因弹窗 */
+const reasonVisible = ref(false);
+const reasonTarget = ref<SalesOrderStatus>('CANCELLED');
+const reasonOrder = ref<SalesOrder | null>(null);
+const reasonText = ref('');
+const reasonSubmitting = ref(false);
+
+/** 这条边要不要原因（与后端 `reason_edges` 同源） */
+const reasonNeedsInput = computed(() =>
+  reasonOrder.value ? statusNeedsReason(reasonOrder.value.status, reasonTarget.value) : false,
+);
+
+function openReasonDialog(row: SalesOrder, target: SalesOrderStatus): void {
+  reasonOrder.value = row;
+  reasonTarget.value = target;
+  reasonText.value = '';
+  reasonVisible.value = true;
+}
+
+async function confirmReason(): Promise<void> {
+  const order = reasonOrder.value;
+  if (!order) {
+    reasonVisible.value = false;
+    return;
+  }
+  if (reasonNeedsInput.value && !reasonText.value.trim()) {
+    MessagePlugin.warning('这条状态迁移必须填写原因');
+    return;
+  }
+  reasonSubmitting.value = true;
+  try {
+    const updated = await changeSalesOrderStatus(order.id, {
+      target_status: reasonTarget.value,
+      reason: reasonText.value.trim() || undefined,
+    });
+    MessagePlugin.success(
+      `${updated.so_no} 已${reasonTarget.value === 'CLOSED' ? '关闭' : '作废'}`,
+    );
+    reasonVisible.value = false;
+    await refreshAfterMutation(order.id);
+  } catch (error) {
+    MessagePlugin.error(`操作失败：${messageOf(error)}`);
+  } finally {
+    reasonSubmitting.value = false;
+  }
+}
+
+/** 变更后刷新列表；详情抽屉开着就同步刷新那一张 */
+async function refreshAfterMutation(id: string): Promise<void> {
+  await loadOrders(current.value);
+  if (detailVisible.value && detail.value?.id === id) {
+    await loadDetail(id);
+  }
+}
+
+// ==================== 详情（含审批进度） ====================
+
+const detailVisible = ref(false);
+const detailLoading = ref(false);
+const detailError = ref('');
+const detail = ref<SalesOrder | null>(null);
+const approvalProgress = ref<ApprovalProgress>({ ...EMPTY_APPROVAL_PROGRESS });
+
+const detailActions = computed(() => rowActions(detail.value ?? { status: null }));
+/** 拉不到节点时的降级文案（「审批中 FLW-xxx」） */
+const approvalFallback = computed(() =>
+  approvalFallbackOf(
+    detail.value
+      ? {
+          status: detail.value.status,
+          approval_instance_id: detail.value.approval_instance_id,
+        }
+      : null,
+  ),
+);
+
+async function openDetail(row: SalesOrder): Promise<void> {
+  detailVisible.value = true;
+  await loadDetail(row.id);
+}
+
+async function loadDetail(id: string): Promise<void> {
+  detailLoading.value = true;
+  detailError.value = '';
+  detail.value = null;
+  approvalProgress.value = { ...EMPTY_APPROVAL_PROGRESS };
+  try {
+    const data = await fetchSalesOrderDetail(id);
+    detail.value = data;
+    // 进度永不让详情页失败：没实例 → 空；拉不到 → 空（降级成单号）
+    approvalProgress.value = await loadApprovalProgress(data.approval_instance_id, getFlowInstance);
+  } catch (error) {
+    detailError.value = `详情加载失败：${messageOf(error)}`;
+  } finally {
+    detailLoading.value = false;
+  }
+}
+
+onMounted(async () => {
+  await Promise.all([loadOrders(1), loadOptions()]);
+});
+</script>
+
+<style scoped lang="less">
+.sales-order-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.filter-card,
+.list-card {
+  border-radius: 8px;
+}
+
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+
+  &__keyword {
+    width: 220px;
+  }
+
+  &__select {
+    width: 150px;
+  }
+
+  &__customer {
+    width: 220px;
+  }
+
+  &__spacer {
+    flex: 1;
+  }
+}
+
+.gate-wrap {
+  display: inline-flex;
+}
+
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 8px;
+
+  &__main {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  &__title {
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  &__meta {
+    color: var(--td-text-color-placeholder);
+    font-size: 12px;
+  }
+
+  &__hint {
+    margin-left: auto;
+    color: var(--td-text-color-placeholder);
+    font-size: 12px;
+  }
+}
+
+.list-alert {
+  margin-bottom: 8px;
+}
+
+.op-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mono {
+  font-family: var(--td-font-family-mono, Menlo, Consolas, monospace);
+}
+
+.muted {
+  color: var(--td-text-color-placeholder);
+}
+
+.empty-block {
+  padding: 24px 0;
+  color: var(--td-text-color-placeholder);
+  text-align: center;
+}
+
+.form-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+
+  &__title {
+    font-weight: 600;
+  }
+
+  &__tip {
+    color: var(--td-text-color-placeholder);
+    font-size: 12px;
+  }
+
+  &__spacer {
+    flex: 1;
+  }
+}
+
+.material-select {
+  width: 100%;
+}
+
+.totals {
+  display: flex;
+  justify-content: flex-end;
+  gap: 24px;
+  padding: 8px 4px;
+  font-size: 13px;
+
+  &__strong {
+    color: var(--td-brand-color);
+    font-size: 15px;
+  }
+}
+
+.form-alert {
+  margin-top: 4px;
+}
+
+.detail-loading {
+  padding: 32px 0;
+  text-align: center;
+}
+
+.detail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+
+  &__no {
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  &__spacer {
+    flex: 1;
+  }
+}
+
+.detail-desc {
+  margin-bottom: 8px;
+}
+
+.section-title {
+  margin: 16px 0 8px;
+  font-weight: 600;
+}
+
+.approval-fallback {
+  margin: 8px 0;
+  color: var(--td-text-color-placeholder);
+  font-size: 12px;
+}
+
+.reason-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reason-tip {
+  margin: 0;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+}
+</style>

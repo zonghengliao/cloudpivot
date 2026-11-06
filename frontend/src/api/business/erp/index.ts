@@ -4396,3 +4396,217 @@ export function updateCustomer(id: string, payload: UpdateCustomerReq): Promise<
 export function deleteCustomer(id: string): Promise<void> {
   return del<void>(`${BASE}/customer/${id}`);
 }
+
+// ==================== 销售订单（SO-07 · 销售链） ====================
+
+/**
+ * 销售订单状态域（7 值，逐字抄 `sales_model::STATUSES` / `V0264` 的 `ck_sales_order_status`）。
+ *
+ * | 编码 | 中文 | 谁写 |
+ * |------|------|------|
+ * | `DRAFT` | 草稿 | 建单 |
+ * | `SUBMITTED` | 审批中 | 提交审批（`POST /{id}/submit-approval`） |
+ * | `APPROVED` | 已审批 | **只由审批回调写**（人工 PATCH 一律 400） |
+ * | `PARTIAL_OUT` | 部分出库 | 出库过账回写 |
+ * | `OUTBOUND` | 已出库 | 出库过账回写 |
+ * | `CLOSED` | 已关闭 | 人工关闭（需原因） |
+ * | `CANCELLED` | 已作废 | 人工作废（需原因） |
+ */
+export type SalesOrderStatus =
+  | 'DRAFT'
+  | 'SUBMITTED'
+  | 'APPROVED'
+  | 'PARTIAL_OUT'
+  | 'OUTBOUND'
+  | 'CLOSED'
+  | 'CANCELLED';
+
+/**
+ * 销售订单明细行（逐字抄 `sales_order_handler::SalesOrderItemRes`）。
+ *
+ * 金额三项（`amount` / `tax_amount` / 单头汇总）都是**服务端算的**：前端提交只给
+ * `qty` / `price` / `tax_rate`，回填时直接显示服务端返回值（前端自己算一遍只用于
+ * 表单实时预览，永远不参与提交）。
+ */
+export interface SalesOrderItem {
+  /** 主键 */
+  id: string;
+  /** 行号（1 起） */
+  line_no: number;
+  /** 物料 id（弱引用 `biz_material.id`） */
+  material_id: string;
+  /** 数量（> 0） */
+  qty: number | string;
+  /** 不含税单价 */
+  price: number | string;
+  /** 行不含税金额（= round(price × qty, 4)） */
+  amount: number | string;
+  /** 税率百分数（0–100） */
+  tax_rate: number | string;
+  /** 行税额 */
+  tax_amount: number | string;
+  /** 已发货数量 */
+  delivered_qty: number | string;
+  /** 未发货数量（`qty - delivered_qty`） */
+  open_qty: number | string;
+}
+
+/**
+ * 销售订单（逐字抄 `sales_order_handler::SalesOrderRes`；列表行与详情同构）。
+ *
+ * - **列表行** `items` 恒为空数组（明细只在详情返回），`approval_instance_id` 恒 `null`；
+ * - `customer_code` / `customer_name` 在客户软删后为 `null`（列表已批量补齐，详情也补）；
+ * - `status_label` 由后端给中文，前端**不要**自己再译一遍（两处口径迟早漂移）。
+ */
+export interface SalesOrder {
+  /** 主键 */
+  id: string;
+  /** 单号（`SO-yyyyMMdd-000001`） */
+  so_no: string;
+  /** 客户 id */
+  customer_id: string;
+  /** 客户编码（客户软删后 `null`） */
+  customer_code: string | null;
+  /** 客户名称（客户软删后 `null`） */
+  customer_name: string | null;
+  /** 下单日期（`yyyy-MM-dd`） */
+  order_date: string;
+  /** 要求交期（未约定 `null`） */
+  delivery_date: string | null;
+  /** 状态编码 */
+  status: SalesOrderStatus;
+  /** 状态中文名（后端给） */
+  status_label: string;
+  /** 不含税合计 */
+  total_amount: number | string;
+  /** 税额合计 */
+  total_tax: number | string;
+  /** 价税合计（= 上两项之和，精确恒等） */
+  total_with_tax: number | string;
+  /** 备注 */
+  remark: string | null;
+  /** 创建时间（RFC3339） */
+  created_at: string;
+  /** 更新时间（RFC3339） */
+  updated_at: string;
+  /** 明细（列表恒为空） */
+  items: SalesOrderItem[];
+  /** 审批实例 id（**只有详情填**；草稿 / 驳回打回为 `null`） */
+  approval_instance_id: string | null;
+}
+
+/** 一行明细入参（金额不给：由服务端算） */
+export interface SalesOrderItemReq {
+  /** 物料 id（必填 UUID） */
+  material_id: string;
+  /** 数量（> 0，必填） */
+  qty: string;
+  /** 不含税单价（≥ 0，不给 = 0） */
+  price?: string;
+  /** 税率百分数（0–100，不给 = 0） */
+  tax_rate?: string;
+}
+
+/** 新建销售订单（`sales_order_handler::CreateSalesOrderReq`）：至少 1 行明细 */
+export interface CreateSalesOrderReq {
+  /** 客户 id（必须存在且 `ACTIVE`，否则 400） */
+  customer_id: string;
+  /** 下单日期（`yyyy-MM-dd`，不给 = 今天） */
+  order_date?: string;
+  /** 要求交期（不能早于下单日） */
+  delivery_date?: string | null;
+  /** 备注 */
+  remark?: string | null;
+  /** 明细（至少 1 行） */
+  items: SalesOrderItemReq[];
+}
+
+/**
+ * 编辑销售订单（`UpdateSalesOrderReq`，**整单覆盖式**，只有 `DRAFT` 能改）。
+ *
+ * `items` 传了就**整单替换**；不传 = 明细不动。
+ */
+export interface UpdateSalesOrderReq {
+  /** 客户 id（不传 = 不改） */
+  customer_id?: string;
+  /** 下单日期（不传 = 不改） */
+  order_date?: string;
+  /** 交期（传 `''` = 清空） */
+  delivery_date?: string | null;
+  /** 备注（传 `''` = 清空） */
+  remark?: string | null;
+  /** 明细（传了 = 整单替换） */
+  items?: SalesOrderItemReq[];
+}
+
+/** 状态流转（`SalesOrderStatusReq`）：`target_status` 必须是 `LEGAL_EDGES` 里的边 */
+export interface SalesOrderStatusReq {
+  /** 目标状态 */
+  target_status: SalesOrderStatus;
+  /** 原因（作废等需要原因） */
+  reason?: string;
+}
+
+/**
+ * 销售订单分页（`GET /business/erp/sales-order/page`，权限 `business:erp:sale-order:list`）。
+ *
+ * `so_no` 模糊，`status` / `customer_id` 精确；空串一律不发（后端把 `?status=`
+ * 当「等于空串」过滤，会查出 0 行）。
+ */
+export function fetchSalesOrderPage(query: {
+  so_no?: string;
+  status?: SalesOrderStatus | '';
+  customer_id?: string;
+  page?: number;
+  page_size?: number;
+}): Promise<PageData<SalesOrder>> {
+  return get<PageData<SalesOrder>>(`${BASE}/sales-order/page`, asParams(query));
+}
+
+/** 销售订单详情（`GET /business/erp/sales-order/{id}`，`:list` 权限；软删行 404） */
+export function fetchSalesOrderDetail(id: string): Promise<SalesOrder> {
+  return get<SalesOrder>(`${BASE}/sales-order/${id}`);
+}
+
+/** 新建销售订单（`POST /business/erp/sales-order`，权限 `:create`） */
+export function createSalesOrder(payload: CreateSalesOrderReq): Promise<SalesOrder> {
+  return post<SalesOrder>(`${BASE}/sales-order`, payload);
+}
+
+/** 编辑销售订单（`PUT /business/erp/sales-order/{id}`，权限 `:update`，只有 `DRAFT`） */
+export function updateSalesOrder(id: string, payload: UpdateSalesOrderReq): Promise<SalesOrder> {
+  return put<SalesOrder>(`${BASE}/sales-order/${id}`, payload);
+}
+
+/**
+ * 状态流转（`PATCH /business/erp/sales-order/{id}/status`，权限 `:status`）。
+ *
+ * ⚠️ **`APPROVED` / `DRAFT` 不要往这里传**：审批结论只由审批中心写，人工 PATCH
+ * 一律 400（SO-06 硬口径）。撤回审批走 `POST /business/flow/instance/{id}/withdraw`，
+ * 驳回 / 通过走 `POST /business/flow/task/{id}/{reject,approve}`。
+ */
+export function changeSalesOrderStatus(
+  id: string,
+  payload: SalesOrderStatusReq,
+): Promise<SalesOrder> {
+  return patch<SalesOrder>(`${BASE}/sales-order/${id}/status`, payload);
+}
+
+/**
+ * 提交审批（`POST /business/erp/sales-order/{id}/submit-approval`，权限 `:status`）。
+ *
+ * 与 `PATCH /status` 的 `target_status: 'SUBMITTED'` 是**同一条路**；本端点额外支持
+ * `skip_approval` / `skip_reason`（没配 `so_approve` 时的内控例外，需要
+ * `business:erp:skip-approval` 且理由 ≥10 字）。
+ *
+ * 失败口径（SO-06 实测）：
+ * - `409` + `APPROVAL_FLOW_NOT_CONFIGURED`：没配流程；
+ * - `409` + 审批中：已有在跑实例（报文带审批单号）；
+ * - `422`：唯一可审批人 = 制单人（内控）。
+ */
+export function submitSalesOrderApproval(
+  id: string,
+  payload: { reason?: string; skip_approval?: boolean; skip_reason?: string } = {},
+): Promise<SalesOrder> {
+  return post<SalesOrder>(`${BASE}/sales-order/${id}/submit-approval`, payload);
+}

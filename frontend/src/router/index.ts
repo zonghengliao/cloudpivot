@@ -422,6 +422,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '客户档案', permission: 'business:erp:customer:list' },
       },
       {
+        // ==================== ERP 销售订单（SO-07 · 销售链） ====================
+        // `sys_menu`（V0265 种子 …2651）path = `/business/erp/sales-order`，component
+        // `business/erp/sales-order/index`。**路由手工注册**（没有 views 自动扫描），
+        // 漏了 = 点菜单进 404；`system::menu::tests::n08`（真库档）会当场红。
+        // V0265 当时故意把 path/component 留 NULL（先有码、后补页），V0282 把这条
+        // 菜单补齐 —— 顺序不能反：先注册路由、再填菜单，n08 才一直绿。
+        path: 'business/erp/sales-order',
+        name: 'BusinessErpSalesOrder',
+        component: () => import('@/views/business/erp/sales-order/index.vue'),
+        meta: { title: '销售订单', permission: 'business:erp:sale-order:list' },
+      },
+      {
         // ==================== ERP 序列号（W4b-2） ====================
         // `sys_menu`（V0142 种子 …0981）path = `/business/erp/serial`，component
         // `business/erp/serial/index`。**路由手工注册**，漏了 = 点菜单进 404。

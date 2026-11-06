@@ -361,6 +361,12 @@ pub struct SalesOrderRes {
     pub updated_at: DateTime<Utc>,
     /// 明细（分页列表里恒为空）。
     pub items: Vec<SalesOrderItemRes>,
+    /// 当前挂着的审批实例 id（`biz_sales_order.approval_instance_id`）。
+    ///
+    /// **只有详情填**（列表恒 `null`）：审批进度区块（前端 `FlowProgress.vue`）
+    /// 靠它再打 `GET /business/flow/instance/{id}` 拿节点行，草稿 / 已驳回打回
+    /// 的单据这里为 `null`（SO-06 的 `apply_status_with_instance` 会清空）。
+    pub approval_instance_id: Option<String>,
 }
 
 impl SalesOrderRes {
@@ -383,6 +389,8 @@ impl SalesOrderRes {
             created_at: row.created_at,
             updated_at: row.updated_at,
             items,
+            // 只由 `detail_of` 补（列表不发这条查询）；`of()` 保持纯函数
+            approval_instance_id: None,
         }
     }
 
@@ -527,7 +535,12 @@ async fn detail_of(id: Uuid) -> std::result::Result<SalesOrderRes, ApiError> {
         .await
         .map_err(|error| utils::db_error(error, "查询销售订单客户"))?;
     let items = lines.iter().map(SalesOrderItemRes::from).collect();
-    Ok(SalesOrderRes::of(&row, items).with_customer(customer.as_ref()))
+    let instance = model::approval_instance_of(row.id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询销售订单审批实例"))?;
+    let mut res = SalesOrderRes::of(&row, items).with_customer(customer.as_ref());
+    res.approval_instance_id = instance.map(|id| id.to_string());
+    Ok(res)
 }
 
 /// 新建销售订单（`DRAFT`）。
@@ -1450,6 +1463,45 @@ mod tests {
             );
             assert!(!codes[index + 1..].contains(code), "权限码重复：{code}");
         }
+    }
+
+    /// 审批实例 id 的口径：`of()`（列表 / 新建 / 状态流转都用它）恒为 `None`，
+    /// **只有详情** `detail_of` 会补 —— 前端据此只对详情画审批进度（列表不画）。
+    #[test]
+    fn approval_instance_id_is_detail_only() {
+        let req = order_req(CUST, vec![item_req("2", "100", "13")]);
+        let (new, items) = build_order(
+            &req.customer_id,
+            req.order_date.as_deref(),
+            req.delivery_date.as_deref(),
+            req.remark.as_deref(),
+            &req.items,
+        )
+        .expect("合法入参");
+        let totals = Totals::of(&items);
+        let row = model::SalesOrderRow {
+            id: uuid::Uuid::nil(),
+            so_no: "SO-20261106-000001".to_string(),
+            customer_id: new.customer_id,
+            order_date: new.order_date,
+            delivery_date: None,
+            status: model::STATUS_DRAFT.to_string(),
+            total_amount: totals.amount,
+            total_tax: totals.tax,
+            total_with_tax: totals.with_tax,
+            remark: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            create_by: None,
+            update_by: None,
+            deleted_at: None,
+        };
+        let res = SalesOrderRes::of(&row, Vec::new());
+        assert!(
+            res.approval_instance_id.is_none(),
+            "列表口径必须是 null（实例 id 只由详情补）"
+        );
+        assert_eq!(res.status, model::STATUS_DRAFT);
     }
 
     // ---------- 真库用例（`ERP_DB_URL` 开关） ----------
