@@ -31,14 +31,21 @@
 //! | 超发闸 | `shipment_model::ensure_qty_within_remaining` | 累计发货量 > 订单行数量（含**其他未过账单的占用**） |
 //! | 库存闸 | [`transition_to_posted`] | 过账时仓库不够量（逐行 `stockout_model::fifo_plan`，与销售出库过账同一口径） |
 //!
-//! # 过账的边界（与 SO-10 的分工，写在这里免得下一卡猜）
+//! # 过账的边界（SO-09 交 SO-10 时的那份分工，现由 [`super::shipment_posting`] 落地）
 //!
-//! 本卡（SO-09）的「过账」= **状态到 `POSTED` + 过账前库存充足校验**。
-//! **库存三本账的扣减 / 生成销售出库单 / 回写 `delivered_qty` / 订单转 `PARTIAL_OUT`/`OUTBOUND`
-//! 是 SO-10 的事**（`inventory_writer` 是唯一写入口，本文件一行库存写 SQL 都没有）。
-//! SO-10 接入时在 `POSTED → POSTED` 之后、`tx.commit()` 之前插入即可 ——
-//! 位置就在 [`change_shipment_status`] 的 `state_machine::transition` 之后，
-//! 因为那时单据状态、明细、仓库都已经在事务里锁好了。
+//! SO-09 只把状态推到 `POSTED` + 过账前的**库存充足校验**（[`transition_to_posted`]，只读）；
+//! 真正的库存效果在 SO-10：`POSTED` 之后、`tx.commit()` 之前调用
+//! [`super::shipment_posting::post_effects`]，在同一事务里完成
+//!
+//! ```text
+//! 生成销售出库单（biz_stock_out, source_type=SALES, out_type=OTHER）
+//!   → stockout_handler::post_out_in_tx（负库存闸 / 三本账负向 / 成本结转凭证 / 联动）
+//!   → 回填 biz_shipment.stock_out_id
+//!   → biz_sales_order_item.delivered_qty += qty（超发闸在 SQL 里）
+//!   → 销售订单 PARTIAL_OUT / OUTBOUND
+//! ```
+//!
+//! 本文件仍然**一行库存写 SQL 都没有**：三本账的扣减全部由 `inventory_writer`（经出库过账内核）完成。
 //!
 //! # 数据权限
 //!
@@ -60,6 +67,8 @@ use crate::business::erp::sales_order_model;
 use crate::business::erp::shipment_model::{
     self as model, NewShipment, NewShipmentItem, ShipmentItemRow, ShipmentRow,
 };
+use crate::business::erp::shipment_posting;
+use crate::business::erp::stockout_handler;
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;
@@ -384,6 +393,11 @@ pub struct ShipmentRes {
     pub total_qty: Decimal,
     /// 过账生成的销售出库单 id（未过账为 `null`，SO-10 回填）。
     pub stock_out_id: Option<String>,
+    /// 过账生成的销售出库单号（`OUT-yyyyMMdd-000001`；未过账 / 出库单被物理删时为 `null`）。
+    ///
+    /// SO-11 页面要显示「关联出库单号」，所以详情直接下发单号而不是只给 id ——
+    /// 前端不必再为一行列表补一次详情请求。
+    pub stock_out_no: Option<String>,
     /// 备注。
     pub remark: Option<String>,
     /// 创建时间。
@@ -413,6 +427,7 @@ impl ShipmentRes {
             status_label: model::status_label(&row.status).to_string(),
             total_qty: row.total_qty,
             stock_out_id: row.stock_out_id.map(|id| id.to_string()),
+            stock_out_no: None,
             remark: row.remark.clone(),
             created_at: row.created_at,
             updated_at: row.updated_at,
@@ -580,6 +595,12 @@ async fn detail_of(id: Uuid) -> std::result::Result<ShipmentRes, ApiError> {
     res.so_no = model::so_no_of(db(), row.so_id)
         .await
         .map_err(|error| utils::db_error(error, "查询来源销售订单号"))?;
+    // 关联出库单号（SO-10 过账后回填；SO-11 页面直接显示这个号）
+    if let Some(stock_out_id) = row.stock_out_id {
+        res.stock_out_no = model::stock_out_no_of(db(), stock_out_id)
+            .await
+            .map_err(|error| utils::db_error(error, "查询关联销售出库单号"))?;
+    }
     let customers = sales_order_model::customer_labels(&[row.customer_id])
         .await
         .map_err(|error| utils::db_error(error, "查询发货单客户"))?;
@@ -938,55 +959,75 @@ pub async fn change_shipment_status(
 
     // ④ 状态机留痕 + CAS 落库（同一事务）
     let now = Utc::now();
+    let op = state_machine::Operator::of(operator);
     let tx = db()
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启状态流转事务"))?;
-    if let Err(error) = state_machine::transition(
-        &tx,
-        state_machine::ENTITY_SHIPMENT,
-        id,
-        &row.ship_no,
-        &model::LEGAL_EDGES,
-        &row.status,
-        &target,
-        state_machine::Operator::of(operator),
-        reason,
-        None,
-    )
-    .await
-    {
-        let _ = tx.rollback().await;
-        return Err(error);
-    }
-    // SO-10 的库存效果（生成销售出库单 + inventory_writer 扣减 + 回写 delivered_qty +
-    // 订单转 PARTIAL_OUT/OUTBOUND）插在这个位置：状态已在事务里锁定，明细与仓库都可读。
-    let applied = model::apply_status(&tx, id, &row.status, &target, operator, now).await;
-    match applied {
-        Ok(0) => {
-            let _ = tx.rollback().await;
-            Err(conflict(format!(
+    let mut posted: Option<shipment_posting::PostOutcome> = None;
+    let outcome = async {
+        // ① 状态机留痕（边表校验 + reason 校验 + 写 biz_status_log）
+        state_machine::transition(
+            &tx,
+            state_machine::ENTITY_SHIPMENT,
+            id,
+            &row.ship_no,
+            &model::LEGAL_EDGES,
+            &row.status,
+            &target,
+            op.clone(),
+            reason,
+            None,
+        )
+        .await?;
+        // ② CAS 落状态**先于**库存效果：并发重复过账在这里就分出生死
+        //    （第二个请求 UPDATE 到 0 行 → 整笔回滚，库存一遍都不会扣）
+        let affected = model::apply_status(&tx, id, &row.status, &target, operator, now)
+            .await
+            .map_err(|error| write_error(error, "发货单状态流转"))?;
+        if affected == 0 {
+            return Err(conflict(format!(
                 "发货单 {} 的状态在本次流转期间已被改动（期望 {}），请刷新后重试",
                 row.ship_no, row.status
-            )))
+            )));
         }
-        Ok(_) => {
+        // ③ SO-10 库存效果：生成销售出库单 → 过账（三本账负向 + 成本结转凭证）
+        //    → 回填 stock_out_id → 订单行 delivered_qty → 订单 PARTIAL_OUT/OUTBOUND。
+        //    全部在**本事务**里：任一步失败，上面的 CAS 也一起回滚。
+        if target == model::STATUS_POSTED {
+            posted = Some(shipment_posting::post_effects(&tx, &row, &items, &op, now).await?);
+        }
+        Ok::<(), ApiError>(())
+    }
+    .await;
+    match outcome {
+        Ok(()) => {
             tx.commit()
                 .await
                 .map_err(|error| utils::db_error(error, "提交状态流转事务"))?;
-            if target == model::STATUS_POSTED {
-                // 这一行不是「已完成过账」的宣告：库存效果由 SO-10 写。
-                tracing::warn!(
+            if let Some(note) = posted {
+                tracing::info!(
                     shipment_id = %id,
                     ship_no = %row.ship_no,
-                    "发货单已置 POSTED（过账前置库存校验通过）；库存扣减 / 销售出库单由 SO-10 落地"
+                    stock_out_id = %note.stock_out_id,
+                    stock_out_no = %note.stock_out_no,
+                    lines = note.lines,
+                    order_status = note.so_status.as_deref().unwrap_or_default(),
+                    "发货单已过账：销售出库单 / 三本账 / delivered_qty / 订单状态已同事务落库"
                 );
+                // 提交**之后**才跑延迟联动（发通知 / 建任务，独立事务，失败只记日志）
+                stockout_handler::run_deferred_linkage_after_commit(
+                    note.stock_out_id,
+                    &op,
+                    note.linkage,
+                )
+                .await;
             }
             detail_of(id).await
         }
         Err(error) => {
             let _ = tx.rollback().await;
-            Err(write_error(error, "发货单状态流转"))
+            Err(error)
         }
     }
 }

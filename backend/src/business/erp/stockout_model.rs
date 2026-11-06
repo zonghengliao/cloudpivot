@@ -297,9 +297,11 @@ pub async fn create(
         format!(
             "INSERT INTO {TABLE} \
                 (id, out_no, out_type, warehouse_id, out_date, status, total_qty, total_amount, \
-                 reason, remark, created_at, updated_at, create_by, update_by) \
+                 reason, remark, source_type, source_id, \
+                 created_at, updated_at, create_by, update_by) \
              VALUES (?, ?, ?, ?::uuid, ?, '{STATUS_DRAFT}', \
                  NULLIF(?::text,'')::numeric, 0, NULLIF(?::text,''), NULLIF(?::text,''), \
+                 NULLIF(?::text,''), NULLIF(?::text,'')::uuid, \
                  ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)"
         ),
         vec![
@@ -311,6 +313,14 @@ pub async fn create(
             Value::Text(totals.qty.round_dp(4).to_string()),
             Value::Text(new.reason.unwrap_or_default().to_string()),
             Value::Text(new.remark.unwrap_or_default().to_string()),
+            // 来源（V0285）：手工建单两个都空 → NULL，不参与 uk_biz_so_source。
+            // ⚠ 可空 uuid 一律 `NULLIF(?::text,'')::uuid`：驱动不接受空串直绑 uuid。
+            Value::Text(new.source_type.unwrap_or_default().to_string()),
+            Value::Text(
+                new.source_id
+                    .map(|value| value.to_string())
+                    .unwrap_or_default(),
+            ),
             Value::from(now),
             Value::from(now),
             operator_text.clone(),

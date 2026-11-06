@@ -70,6 +70,7 @@
 //! | [`customer_model`] | 客户档案数据层（V0260）：`ACTIVE`/`FROZEN` 域、软删后编码可复用、分页 | **SO-01/SO-02** |
 //! | [`sales_model`] | 销售订单数据层（V0264）：`SO-yyyyMMdd-6 位` 取号 + 7 态状态域 + 金额恒等守卫 | **SO-04** |
 //! | [`shipment_model`] | 发货单数据层（V0283）：`SH-yyyyMMdd-6 位` 取号 + 4 态状态域 + **超发守卫**（未发量 = 订单 − 已发 − 未过账占用） | **SO-08** |
+//! | [`shipment_posting`] | 发货过账的库存效果（V0285）：销售出库单（`source_type=SALES`）→ `inventory_writer` 三账负向 → `delivered_qty` → 订单 `PARTIAL_OUT`/`OUTBOUND`，**同一事务** | **SO-10** |
 //!
 //! # 表结构的唯一依据
 //!
@@ -168,6 +169,7 @@ pub mod serial_handler;
 pub mod serial_model;
 pub mod shipment_handler;
 pub mod shipment_model;
+pub mod shipment_posting;
 pub mod stockin_bridge;
 pub mod stockin_dto;
 pub mod stockin_handler;

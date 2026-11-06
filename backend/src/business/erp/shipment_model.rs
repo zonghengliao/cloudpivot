@@ -825,6 +825,25 @@ pub async fn so_item_belongs(
     Ok(!rows.is_empty())
 }
 
+/// 关联销售出库单号（SO-10 过账回填的 `stock_out_id` → `out_no`；出库单被物理删 → `None`）。
+///
+/// 只读、单表：发货单详情要显示「关联出库单号」，这里给一个不回链 model 之外的查询入口。
+pub async fn stock_out_no_of(
+    ex: &impl SqlExecutor,
+    stock_out_id: Uuid,
+) -> DbResult<Option<String>> {
+    // SCOPE-EXEMPT: 出库单，ERP 单据，无归属列。
+    let rows = ex
+        .query_sql(
+            "SELECT out_no FROM biz_stock_out WHERE id = ?::uuid".to_string(),
+            vec![Value::from(stock_out_id)],
+        )
+        .await?;
+    rows.first()
+        .map(|row| row.get_typed::<String>("out_no"))
+        .transpose()
+}
+
 /// 仓库是否存在且未软删（弱引用，没外键兜）。返回 `(编码, 名称)`。
 pub async fn warehouse_label(
     ex: &impl SqlExecutor,

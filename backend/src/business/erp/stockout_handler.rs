@@ -308,6 +308,9 @@ pub async fn create_stock_out(
         out_date,
         reason: req.reason.as_deref(),
         remark: req.remark.as_deref(),
+        // 手工建单没有来源单据（销售链的建单走 `shipment_posting`，不经本函数）
+        source_type: None,
+        source_id: None,
     };
     let now = Utc::now();
     let tx = db()
@@ -343,6 +346,9 @@ pub async fn update_stock_out(
         out_date,
         reason: req.reason.as_deref(),
         remark: req.remark.as_deref(),
+        // 手工建单没有来源单据（销售链的建单走 `shipment_posting`，不经本函数）
+        source_type: None,
+        source_id: None,
     };
     let now = Utc::now();
     let tx = db()
@@ -836,6 +842,45 @@ async fn post_out_tx(
         );
     }
     Ok(linkage_run)
+}
+
+// ==================== 销售发货复用的过账内核（SO-10） ====================
+
+/// 出库过账内核：**调用方负责事务边界与状态机之外的业务后置**。
+///
+/// 存在的唯一理由是复用：销售发货过账（`shipment_posting`）要在**自己的事务**里
+/// 走一遍完全相同的「负库存闸 → 三本账负向 → 成本结转凭证 → 联动」链路，
+/// 而不是另写一份（两份口径迟早漂移，一份改了另一份不改 = 账对不上）。
+///
+/// 返回的 [`linkage::LinkageRun`] 里是**提交后才能跑**的动作；调用方必须在
+/// `commit()` 成功之后调 [`run_deferred_linkage_after_commit`]，否则通知 / 待办
+/// 会在事务里发出去（回滚后仍然发了）。
+pub(super) async fn post_out_in_tx(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    operator: &state_machine::Operator,
+    reason: Option<&str>,
+    now: nik::prelude::chrono::DateTime<Utc>,
+) -> std::result::Result<linkage::LinkageRun, ApiError> {
+    post_out_tx(ex, id, operator, reason, now).await
+}
+
+/// 提交后跑出库过账的延迟联动（发通知 / 建任务，独立事务，失败只记日志）。
+pub(super) async fn run_deferred_linkage_after_commit(
+    id: Uuid,
+    operator: &state_machine::Operator,
+    run: linkage::LinkageRun,
+) {
+    if run.deferred.is_empty() {
+        return;
+    }
+    match stock_out::find(id).await {
+        Ok(Some(row)) => linkage_hook::run_deferred_linkage(&row, operator, run).await,
+        Ok(None) => {}
+        Err(error) => {
+            tracing::warn!(stock_out_id = %id, %error, "出库过账后回查单据失败：延迟联动已跳过")
+        }
+    }
 }
 
 // ==================== 作废 ====================

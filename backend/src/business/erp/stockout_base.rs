@@ -72,6 +72,14 @@ pub const DOC_TYPE_STOCK_OUT: &str = "STOCK_OUT";
 
 /// 出库流水的业务类型（`biz_inventory_txn.biz_type`，四种出库各一个值）。
 pub const BIZ_TYPE_ISSUE: &str = "ISSUE_OUT";
+
+/// 单据来源类型：销售发货（`source_type`，V0285）。
+///
+/// 与 `out_type` 是**两个维度**：`out_type` 说「领用性质」（决定借方科目），
+/// `source_type` 说「谁生成了这张单」（销售链 = 发货单过账）。
+/// 销售出库固定 `out_type = OTHER`（借方 6401 主营业务成本）+ `source_type = SALES`。
+pub const SOURCE_TYPE_SALES: &str = "SALES";
+
 /// 报废流水的业务类型。
 pub const BIZ_TYPE_SCRAP: &str = "SCRAP_OUT";
 /// 盘亏流水的业务类型。
@@ -203,6 +211,13 @@ pub struct NewStockOut<'a> {
     pub reason: Option<&'a str>,
     /// 备注。
     pub remark: Option<&'a str>,
+    /// 单据来源类型（SO-10：`Some("SALES")` = 销售发货过账生成；手工建单 `None`）。
+    ///
+    /// 与 [`super::stockout_base::SOURCE_TYPE_SALES`] 配套，落 `biz_stock_out.source_type`
+    /// （V0285）。来源 + 来源 id 上有**部分唯一索引**，同一来源只能有一张出库单。
+    pub source_type: Option<&'a str>,
+    /// 来源单据 id（销售链 = `biz_shipment.id`）。
+    pub source_id: Option<Uuid>,
 }
 
 /// 建单 / 改单的一行明细。

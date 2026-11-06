@@ -592,11 +592,13 @@ pub const TRIGGER_EXEMPT: &[&str] = &[
     // 所以这里显式豁免；等出库过账卡真的接上引擎时，把它从这里移到 `TRIGGER_SPECS`
     // 并给出 `wired = true` + `proofs`（漂移守卫会同时要求两者）。
     state_machine::ENTITY_SALES_ORDER,
-    // 销售链 SO-09：发货单的状态流转入口（`shipment_handler`）**不调联动引擎** ——
-    // 本卡只交付单据 + 状态机 + 过账前置库存校验；库存扣减 / 生成销售出库单 / 回写
-    // `delivered_qty` 都在 SO-10 过账卡，那时才需要联动（通知 / 建任务 / 生成凭证）。
-    // 与 SALE_ORDER 同口径：先显式豁免，接上引擎时移到 `TRIGGER_SPECS` 并给
-    // `wired = true` + `proofs`（漂移守卫 `wired_triggers_match_call_sites` 会同时要求两者）。
+    // 销售链 SO-09/SO-10：发货单的状态流转入口（`shipment_handler`）**不调联动引擎** ——
+    // 过账的跨单据联动走的是**它生成的那张销售出库单**（`STOCK_OUT/POSTED` 触发点，
+    // `stockout_handler::post_out_tx` ⑥ 已接线，`run_excluding` 排除重复落账的四类动作）。
+    // 发货单自己没有独立的触发点：同一件事（货出库了）由出库单触发一次，比在两张单上
+    // 各触发一次安全（否则通知 / 生成凭证会重复）。真要按发货单触发（例如「通知客户已发货」），
+    // 接引擎后把它从这里移到 `TRIGGER_SPECS` 并给 `wired = true` + `proofs`
+    // （漂移守卫 `wired_triggers_match_call_sites` 会同时要求两者）。
     state_machine::ENTITY_SHIPMENT,
 ];
 
