@@ -95,7 +95,7 @@ use serde::{Deserialize, Serialize};
 use crate::business::erp::model::normalize_page;
 use crate::business::erp::period;
 use crate::business::erp::receivable::{self, ReceivableRow};
-use crate::business::erp::voucher::{self, EntryLine, ReversalInput, SeqSpec};
+use crate::business::erp::voucher::{self, ReversalInput, SeqSpec};
 use crate::business::shared::doc_kind::VoucherSourceType;
 use crate::business::shared::scope;
 use crate::business::shared::state_machine;
@@ -161,12 +161,14 @@ pub const INVOICE_SEQ: SeqSpec<'static> = SeqSpec {
     remark: "发票号：IV-yyyyMMdd-000001，按天（CST）滚动；手填税控号时不取号",
 };
 
-/// 收入凭证借方：应收账款。
-pub const ACCOUNT_AR: &str = "1122";
+/// 收入凭证借方：应收账款（唯一真相在 [`voucher::ACCOUNT_AR`]）。
+pub const ACCOUNT_AR: &str = voucher::ACCOUNT_AR;
 /// 收入凭证贷方：主营业务收入（V0183 的损益类科目是 5xxx，稿面 6001 不存在）。
-pub const ACCOUNT_REVENUE: &str = "5001";
+///
+/// 唯一真相在 [`voucher::ACCOUNT_REVENUE`]（SO-22 把收入确认凭证的科目收口到 `voucher`）。
+pub const ACCOUNT_REVENUE: &str = voucher::ACCOUNT_REVENUE;
 /// 收入凭证贷方：应交税费-销项税（叶子科目；2221 是汇总科目，记账会被 `post_voucher` 拒）。
-pub const ACCOUNT_OUTPUT_TAX: &str = "2221.02";
+pub const ACCOUNT_OUTPUT_TAX: &str = voucher::ACCOUNT_OUTPUT_TAX;
 
 /// 凭证来源（`biz_voucher.source_type`）。
 pub const SOURCE_INVOICE: &str = VoucherSourceType::Invoice.as_str();
@@ -1586,21 +1588,25 @@ pub async fn change_status(
 
         match target.as_str() {
             STATUS_ISSUED => {
-                let voucher_id = post_invoice_voucher(&tx, &invoice, operator, now).await?;
-                tx.exec_sql(
-                    format!(
-                        "UPDATE {TABLE} SET voucher_id = ?::uuid, updated_at = ? \
-                          WHERE id = ?::uuid"
-                    ),
-                    vec![
-                        Value::from(&voucher_id),
-                        Value::from(now),
-                        Value::from(&invoice.id),
-                    ],
-                )
-                .await
-                .map_err(|error| write_error(error, "发票回写凭证"))?;
-                writeback_receivable(&tx, &invoice, operator, now).await?;
+                if let Some(voucher_id) = post_invoice_voucher(&tx, &invoice, operator, now).await? {
+                    tx.exec_sql(
+                        format!(
+                            "UPDATE {TABLE} SET voucher_id = ?::uuid, updated_at = ? \
+                              WHERE id = ?::uuid"
+                        ),
+                        vec![
+                            Value::from(&voucher_id),
+                            Value::from(now),
+                            Value::from(&invoice.id),
+                        ],
+                    )
+                    .await
+                    .map_err(|error| write_error(error, "发票回写凭证"))?;
+                    // 收入确认凭证同时回填应收单的 `voucher_id`（SO-22）：出库作废冲销
+                    // （`receivable::cancel_for_stock_out`）靠它判断「这条应收已有收入凭证，
+                    // 必须一起红冲」，否则会出现「应收冲销了、总账上 1122 还挂着」。
+                    writeback_receivable(&tx, &invoice, Some(voucher_id), operator, now).await?;
+                }
             }
             STATUS_VOID => {
                 reverse_invoice_voucher(&tx, &invoice, reason.as_deref(), operator, now).await?;
@@ -1628,74 +1634,31 @@ pub async fn change_status(
 
 /// 发票收入凭证：借 `1122` 应收账款（价税合计）/ 贷 `5001` 主营业务收入（不含税）
 /// + 贷 `2221.02` 应交税费-销项税（税额；为 0 时不出这一行，零金额分录会被 `post_voucher` 拒）。
+///
+/// **分录构造不再写在这里**：SO-22 把它收口到 [`voucher::create_for_sales_revenue`]
+/// （合并 / 排序 / 尾差吸收 / 借贷平衡 / 期间闸都在那里，一份实现）。
+/// 本函数只负责把发票行翻译成入参，并把「价税合计 ≤ 0 时没有凭证」如实返回。
 async fn post_invoice_voucher(
     tx: &Transaction,
     invoice: &InvoiceRow,
     operator: Option<Uuid>,
     now: DateTime<Utc>,
-) -> std::result::Result<Uuid, ApiError> {
-    let ar_account = voucher::account_required(tx, ACCOUNT_AR, "发票凭证的借方科目 1122 应收账款")
-        .await
-        .map_err(|error| write_error(error, "解析发票凭证借方科目"))?;
-    let revenue_account =
-        voucher::account_required(tx, ACCOUNT_REVENUE, "发票凭证的贷方科目 5001 主营业务收入")
-            .await
-            .map_err(|error| write_error(error, "解析发票凭证贷方科目"))?;
+) -> std::result::Result<Option<Uuid>, ApiError> {
     let summary = format!("开票 {} 客户 {}", invoice.invoice_no, invoice.customer_id);
-    let mut lines = vec![
-        EntryLine {
-            line_no: 1,
-            summary: format!("{summary} 确认应收账款"),
-            account: ar_account,
-            debit: invoice.total_with_tax,
-            credit: Decimal::ZERO,
-            aux_supplier_id: None,
-            aux_material_id: None,
-            aux_warehouse_id: None,
-            aux_dept_id: None,
-        },
-        EntryLine {
-            line_no: 2,
-            summary: format!("{summary} 确认销售收入"),
-            account: revenue_account,
-            debit: Decimal::ZERO,
-            credit: invoice.amount,
-            aux_supplier_id: None,
-            aux_material_id: None,
-            aux_warehouse_id: None,
-            aux_dept_id: None,
-        },
-    ];
-    if invoice.tax_amount != Decimal::ZERO {
-        let tax_account =
-            voucher::account_required(tx, ACCOUNT_OUTPUT_TAX, "发票凭证的贷方科目 2221.02 销项税")
-                .await
-                .map_err(|error| write_error(error, "解析发票凭证销项税科目"))?;
-        lines.push(EntryLine {
-            line_no: 3,
-            summary: format!("{summary} 销项税额"),
-            account: tax_account,
-            debit: Decimal::ZERO,
-            credit: invoice.tax_amount,
-            aux_supplier_id: None,
-            aux_material_id: None,
-            aux_warehouse_id: None,
-            aux_dept_id: None,
-        });
-    }
-    voucher::post_voucher(
+    voucher::create_for_sales_revenue(
         tx,
-        &voucher::PostVoucher {
-            voucher_type: voucher::VOUCHER_TYPE_AUTO,
-            source_type: SOURCE_INVOICE,
-            source_id: Some(invoice.id),
-            source_no: Some(invoice.invoice_no.as_str()),
+        &voucher::SalesRevenueVoucher {
+            invoice_id: invoice.id,
+            invoice_no: invoice.invoice_no.as_str(),
             voucher_date: invoice.invoice_date,
+            amount: invoice.amount,
+            tax_amount: invoice.tax_amount,
+            total_with_tax: invoice.total_with_tax,
+            // 发票没有商品明细行（biz_invoice 是「一张票一行金额」的粒度）⇒ 贷方收入单行汇总。
+            // 明细级收入拆分由退货 / 多行票卡在 `material_lines` 上接（同一 builder）。
+            material_lines: Vec::new(),
             summary,
-            lines,
             remark: invoice.remark.as_deref(),
-            red_of: None,
-            status: voucher::STATUS_POSTED,
         },
         operator,
         now,
@@ -1703,7 +1666,6 @@ async fn post_invoice_voucher(
     .await
     .map_err(|error| write_error(error, "生成发票收入凭证"))
 }
-
 /// 作废时红冲收入凭证（没有凭证 / 已红冲过 → 静默跳过，作废幂等）。
 async fn reverse_invoice_voucher(
     tx: &Transaction,
@@ -1741,10 +1703,15 @@ async fn reverse_invoice_voucher(
     Ok(())
 }
 
-/// 回写应收的发票号 / 开票日期（拷贝列，权威始终在 `biz_invoice`）。
+/// 回写应收的发票号 / 开票日期 / **收入确认凭证**（拷贝列，权威始终在 `biz_invoice`）。
+///
+/// `voucher_id` 回填（SO-22）是「出库作废 → 应收冲销」能把 1122 一起红冲的前提：
+/// `receivable::cancel_for_stock_out` 只对 `voucher_id IS NOT NULL`（= 收入已确认过）
+/// 的应收生成红字凭证，为空时什么都不做（挂账未开票的应收本来就没收入凭证）。
 async fn writeback_receivable(
     tx: &Transaction,
     invoice: &InvoiceRow,
+    voucher_id: Option<Uuid>,
     operator: Option<Uuid>,
     now: DateTime<Utc>,
 ) -> std::result::Result<(), ApiError> {
@@ -1754,7 +1721,8 @@ async fn writeback_receivable(
     // SCOPE-EXEMPT: 应收台账无归属列（见模块文档）。
     tx.exec_sql(
         format!(
-            "UPDATE {} SET invoice_no = ?, invoice_date = ?::text::date, updated_at = ?, \
+            "UPDATE {} SET invoice_no = ?, invoice_date = ?::text::date, \
+                    voucher_id = COALESCE(NULLIF(?::text,'')::uuid, voucher_id), updated_at = ?, \
                     update_by = NULLIF(?::text,'')::uuid \
               WHERE id = ?::uuid AND deleted_at IS NULL",
             receivable::TABLE
@@ -1762,6 +1730,7 @@ async fn writeback_receivable(
         vec![
             Value::Text(invoice.invoice_no.clone()),
             Value::Text(invoice.invoice_date.to_string()),
+            Value::Text(voucher_id.map(|v| v.to_string()).unwrap_or_default()),
             Value::from(now),
             Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
             Value::from(&receivable_id),
@@ -1773,6 +1742,9 @@ async fn writeback_receivable(
 }
 
 /// 作废时按号撤回应收的发票号回写（只清「确实指回本发票」的那一行，别擦掉别人的号）。
+///
+/// `voucher_id` 一起清（SO-22）：蓝字收入凭证已经被红冲了，应收单上再挂着一个
+/// 「已红冲的凭证号」会让 `cancel_for_stock_out` 拿它去第二次红冲。
 async fn clear_receivable_writeback(
     tx: &Transaction,
     invoice: &InvoiceRow,
@@ -1785,8 +1757,8 @@ async fn clear_receivable_writeback(
     // SCOPE-EXEMPT: 应收台账无归属列（见模块文档）。
     tx.exec_sql(
         format!(
-            "UPDATE {} SET invoice_no = NULL, invoice_date = NULL, updated_at = ?, \
-                    update_by = NULLIF(?::text,'')::uuid \
+            "UPDATE {} SET invoice_no = NULL, invoice_date = NULL, voucher_id = NULL, \
+                    updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
               WHERE id = ?::uuid AND deleted_at IS NULL AND invoice_no = ?",
             receivable::TABLE
         ),

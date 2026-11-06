@@ -635,6 +635,56 @@ pub async fn write_off(
         })
 }
 
+/// 红冲一条应收的**收入确认凭证**（SO-22；出库作废冲销 / 将来的退货共用）。
+///
+/// 红字分录 = 收入确认凭证的反向（借 1122 红字 / 贷 5001 + 2221.02 红字）——
+/// 由 [`voucher::reverse_posted`] 按原凭证逐行取反生成，**不另写一套负数分录**：
+/// 分录方向、金额、辅助核算、期间口径都只有一份实现，谁也改不歪。
+///
+/// * 原凭证不存在（被删 / 手工清过）⇒ 打 WARN 跳过，不阻断作废；
+/// * 已经红冲过（`reversed_by` 非空）⇒ 静默跳过（幂等，避免一次作废两张红票）；
+/// * 原凭证所属期间已结账 ⇒ `reverse_posted` 报错（封账的月份只读），整笔作废回滚。
+///
+/// 吃 `&impl SqlExecutor`，**不 commit** —— 调用方（出库作废事务）收口。
+async fn reverse_revenue_voucher(
+    ex: &impl SqlExecutor,
+    voucher_id: Uuid,
+    ar_no: &str,
+    reason: &str,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> std::result::Result<(), ApiError> {
+    let Some(original) = voucher::find_voucher(ex, voucher_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询应收的收入确认凭证"))?
+    else {
+        tracing::warn!(
+            ar_no,
+            voucher_id = %voucher_id,
+            "应收挂的收入凭证查不到（可能已被删除）：跳过红冲，只作废应收"
+        );
+        return Ok(());
+    };
+    if original.reversed_by.is_some() {
+        // 已经红冲过（重复作废 / 发票侧先冲了）⇒ 不再冲第二张
+        return Ok(());
+    }
+    let text = format!("出库作废冲销应收 {ar_no}：{reason}");
+    voucher::reverse_posted(
+        ex,
+        &original,
+        voucher::ReversalInput {
+            reason: Some(text.as_str()),
+            voucher_date: voucher::today_cst(now),
+        },
+        operator,
+        now,
+    )
+    .await
+    .map_err(|error| utils::db_error(error, "红冲应收的收入确认凭证"))?;
+    Ok(())
+}
+
 /// 出库作废 ⇒ 冲销这张自动挂上的应收（`OPEN` → `CANCELLED`）。
 ///
 /// # 只允许「一分没收」的应收
@@ -665,8 +715,11 @@ pub async fn write_off(
 /// 「领用出库」的报错顺序不同）。
 ///
 /// 唯一例外：出库单当时零成本、没生成成本结转凭证（`reverse_by_source` 返回 `None`），
-/// 那作废本身就没有会计后果，把 `OPEN` 应收标成 `CANCELLED` 也不需要过期间闸
-/// （这张应收此刻也不可能有收入凭证——`voucher_id` 仍为空）。
+/// 那作废本身就没有会计后果，把 `OPEN` 应收标成 `CANCELLED` 也不需要过期间闸。
+///
+/// 但**收入确认凭证该冲还得冲**（SO-22）：应收如果已经开票（`voucher_id` 非空），
+/// 红冲走 [`reverse_revenue_voucher`]，它自己会查原凭证所属期间是否已结账（已结账 ⇒ 报错，
+/// 不该在「账已封」的月份里凭空多出一张红字凭证）。
 pub async fn cancel_for_stock_out(
     ex: &impl SqlExecutor,
     id: Uuid,
@@ -758,6 +811,19 @@ pub async fn cancel_for_stock_out(
             ),
         ));
     }
+
+    // ---- 收入确认凭证的红字冲销（SO-22）----
+    //
+    // 只有「收入已经确认过」（`voucher_id` 非空 = 开票时生成了 借 1122 / 贷 5001 + 2221.02）
+    // 才需要冲：否则应收作废了、总账上 1122 还挂着这笔钱。
+    // 挂账未开票的应收 `voucher_id` 恒为空 ⇒ 这一段是空转（预期行为，不是漏做）。
+    //
+    // 凭证与本函数同一个事务（出库作废 `stockout_handler::cancel_out_tx` → 本函数），
+    // 所以红字凭证与三本账回滚 / 出库红字凭证同生共死；这里**不**再开事务。
+    if let Some(voucher_id) = row.voucher_id {
+        reverse_revenue_voucher(ex, voucher_id, &row.ar_no, &reason, operator, now).await?;
+    }
+
     find_by_id(ex, id)
         .await
         .map_err(|error| utils::db_error(error, "读取作废后的应收单"))?

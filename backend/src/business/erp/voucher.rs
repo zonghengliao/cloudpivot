@@ -201,6 +201,35 @@ pub const ACCOUNT_PENDING_GAIN_LOSS: &str = "1901";
 /// 科目编码：主营业务成本（序列号出库结转存货成本的借方）。
 pub const ACCOUNT_MAIN_COST: &str = "6401";
 
+// ---- 销售收入确认（ARCH-7 SO-22）用到的三个科目 ----
+//
+// 稿面（ARCH-7 §5.5 / §7.2）写的是「贷 6001 主营业务收入」，但**本仓科目表里没有 6001**：
+// `V0183__erp_balance_sheet` 种的损益类是 `5xxx`，主营业务收入 = `5001`
+// （`V0184__erp_income_statement` 也按 `5001,5051` 归集「一、营业收入」）。
+// 照稿面写 6001 会直接吃 `account_required` 的「科目不存在」（SO-20 已踩过，卡内汇报留了证）。
+/// 科目编码：应收账款（收入确认凭证的借方）。
+pub const ACCOUNT_AR: &str = "1122";
+/// 科目编码：主营业务收入（收入确认凭证的贷方；稿面 6001 在本库不存在，见上）。
+pub const ACCOUNT_REVENUE: &str = "5001";
+/// 科目编码：应交税费-应交增值税-销项税额（叶子科目）。
+///
+/// `2221` 是**汇总**科目，记账会被 [`post_voucher`] 的「只允许末级科目」闸拒掉。
+pub const ACCOUNT_OUTPUT_TAX: &str = "2221.02";
+
+/// 凭证来源类型：销售发票（`INVOICE`，与 `VoucherSourceType::Invoice` 同值）。
+///
+/// 收入确认的触发点是**开票**（ARCH-7 SO-22 口径「开票时确认收入」，符合税法：
+/// 增值税纳税义务发生在开票当天），所以 `source_id` 落发票 id、`source_no` 落发票号，
+/// 凭证↔发票可按号直接对账。
+pub const SOURCE_INVOICE: &str = "INVOICE";
+
+/// 借贷平衡容差：**差额 < 0.01 视为平衡**。
+///
+/// 记账的最小单位是「分」，4 位定标下 `0.00x` 的残差是拆行 / 定标带来的尾差，
+/// 不该让整张凭证写不出来；它会被吸收到最后一笔贷方行（见 [`create_for_sales_revenue`]）。
+/// 差额 ≥ 0.01 则是**真·不平**，必须拒绝 —— 这里绝不「算了」。
+pub const BALANCE_TOLERANCE: Decimal = Decimal::from_parts(1, 0, 0, false, 2);
+
 /// 凭证来源类型：序列号批量生成（= 无来源入库 / 期初）。
 pub const SOURCE_SERIAL_BATCH: &str = "SERIAL_BATCH";
 /// 凭证来源类型：序列号出库（与流水 `biz_type` 同名，凭证↔流水可按号对账）。
@@ -2685,6 +2714,288 @@ pub async fn create_for_stock_out(
     Ok(Some(voucher_id))
 }
 
+// ==================== 写：销售收入确认凭证（ARCH-7 §5.5 / SO-22） ====================
+
+/// 收入确认凭证的入参（**开票时**确认收入，一张发票一张蓝字凭证）。
+///
+/// 打包成结构体与 [`StockOutVoucher`] 同一个理由：摊平会撞 clippy 的
+/// `too_many_arguments`（`-D warnings` 下是硬错）。
+#[derive(Debug, Clone)]
+pub struct SalesRevenueVoucher<'a> {
+    /// 发票 id（`biz_voucher.source_id`）。
+    pub invoice_id: Uuid,
+    /// 发票号（`biz_voucher.source_no`，同时对账键）。
+    pub invoice_no: &'a str,
+    /// 凭证日期（= 发票 `invoice_date`，决定会计期间；跨期必须走调整）。
+    pub voucher_date: NaiveDate,
+    /// **不含税**金额（`biz_invoice.amount`，4 位定标）。
+    pub amount: Decimal,
+    /// 税额（`biz_invoice.tax_amount`）。
+    pub tax_amount: Decimal,
+    /// 价税合计（`biz_invoice.total_with_tax`，= 借方的应收账款）。
+    pub total_with_tax: Decimal,
+    /// **按商品聚合的收入行**（粒度 `MATERIAL`，`amount` = 该行不含税金额）。
+    ///
+    /// 非空 ⇒ 贷 `5001` 拆成 `M` 行（每行带物料辅助核算，账上能按商品看收入结构）；
+    /// 空 ⇒ 回退到「贷 1 行」的汇总行（本卡之前的行为）。
+    /// 无论哪条路，合并 / 升序 / 尾差吸收都走 [`VoucherMaterialLine::normalize`]
+    /// + [`absorb_tail_diff`]（与出库成本凭证同一套实现，不另写一份）。
+    pub material_lines: Vec<VoucherMaterialLine>,
+    /// 凭证摘要（调用方给，例如「开票 IV-20261106-000001 客户 xxx」）。
+    pub summary: String,
+    /// 备注（发票备注；`None` = 不写）。
+    pub remark: Option<&'a str>,
+}
+
+/// 校验「价税合计 = 不含税 + 税额」是否自洽，并返回**吸收尾差后**的贷方税额。
+///
+/// * 差额 < [`BALANCE_TOLERANCE`]（= 0.01）⇒ 视为平衡：返回的税额取
+///   `含税 − 不含税`（4 位定标），这样借方（含税）与贷方（不含税 + 税额）
+///   **分毫不差**，`post_voucher` 的严格相等校验也过得去；
+/// * 差额 ≥ 0.01 ⇒ `DbError::InvalidValue`，文案直接指出三个金额与差额。
+///   这是数据质量闸：不是「差不多就行」，是「这张单的金额本身算错了」。
+///
+/// 纯函数（不碰库），因此无 `ERP_DB_URL` 也能跑单测。
+pub fn sales_revenue_amounts(
+    doc_no: &str,
+    total_with_tax: Decimal,
+    amount: Decimal,
+    tax_amount: Decimal,
+) -> DbResult<(Decimal, Decimal)> {
+    let total = total_with_tax.round_dp(4);
+    let revenue = amount.round_dp(4);
+    let tax = tax_amount.round_dp(4);
+    if revenue < Decimal::ZERO {
+        return Err(DbError::InvalidValue(format!(
+            "收入凭证生成失败：不含税金额不能为负（单据 {doc_no} 传 {revenue}）；\
+             红字收入请走红字凭证（voucher::reverse_posted），不要拿负数硬写蓝字凭证"
+        )));
+    }
+    if tax < Decimal::ZERO {
+        return Err(DbError::InvalidValue(format!(
+            "收入凭证生成失败：税额不能为负（单据 {doc_no} 传 {tax}）"
+        )));
+    }
+    let derived_tax = (total - revenue).round_dp(4);
+    let diff = (derived_tax - tax).abs();
+    if diff >= BALANCE_TOLERANCE {
+        return Err(DbError::InvalidValue(format!(
+            "收入凭证生成失败：金额不自洽（单据 {doc_no}）—— 价税合计 {total} ≠ 不含税 {revenue} \
+             + 税额 {tax}（差额 {diff} ≥ {BALANCE_TOLERANCE}），借贷无法平衡；请先核对单据金额"
+        )));
+    }
+    if diff > Decimal::ZERO {
+        tracing::warn!(
+            doc_no,
+            total_with_tax = %total,
+            amount = %revenue,
+            tax_amount = %tax,
+            tail_diff = %diff,
+            absorbed_tax = %derived_tax,
+            "收入凭证的价税尾差 < 0.01：已吸收进销项税行（借贷分毫不差），非 0 = 单据定标信号"
+        );
+    }
+    Ok((revenue, derived_tax))
+}
+
+/// 把**不含税合计**拆到各商品行：合并同物料 → 按物料升序 → 尾差吸收到最后一行。
+///
+/// 复用 [`VoucherMaterialLine::normalize`]（合并 + 排序）与 [`absorb_tail_diff`]
+/// （尾差）—— 与出库成本结转凭证**同一套实现**，不另起一套拆分逻辑。
+/// 金额 ≤ 0 的行不参与（零金额行会被 `post_voucher` 的分录校验咬）。
+///
+/// 返回空 vec ⇒ 调用方回退到「贷 1 行」。
+pub fn sales_revenue_split(
+    doc_no: &str,
+    revenue_total: Decimal,
+    material_lines: &[VoucherMaterialLine],
+) -> DbResult<Vec<VoucherMaterialLine>> {
+    let mut positives: Vec<VoucherMaterialLine> = VoucherMaterialLine::normalize(
+        material_lines.iter().cloned(),
+    )
+    .into_iter()
+    .filter(|line| line.amount > Decimal::ZERO)
+    .collect();
+    if positives.is_empty() {
+        return Ok(Vec::new());
+    }
+    let amounts: Vec<Decimal> = positives.iter().map(|line| line.amount).collect();
+    let split = absorb_tail_diff(doc_no, revenue_total, &amounts)?;
+    for (line, amount) in positives.iter_mut().zip(split) {
+        line.amount = amount;
+    }
+    Ok(positives)
+}
+
+/// 开票（收入确认）时生成蓝字凭证：**借 1122 应收账款（价税合计）/ 贷 5001 主营业务收入
+/// （不含税）+ 贷 2221.02 应交税费-销项税（税额）**。
+///
+/// # 触发点：开票时，不是挂账时
+///
+/// ARCH-7 SO-22 的二选一取「开票时确认收入」：增值税纳税义务发生在开票当天，
+/// 挂账（出库转应收）只是债权成立、不是收入确认时点。所以 `source_type = INVOICE`、
+/// `source_id` = 发票 id（作废时按同一来源红冲，见 `invoice::reverse_invoice_voucher`）。
+///
+/// # 借贷平衡的硬口径
+///
+/// 1. 三个金额先过 [`sales_revenue_amounts`]：差额 ≥ 0.01 直接拒绝（金额本身算错）；
+/// 2. 差额 < 0.01 的尾差**吸收**掉（进销项税行 / 最后一笔贷方行），落库的凭证
+///    `Σ借 == Σ贷`（`post_voucher` 要求严格相等，不是「近似相等」）；
+/// 3. 拆行后的尾差走 [`absorb_tail_diff`]（与出库成本凭证同一把尺子）。
+///
+/// # 期间已关闭
+///
+/// 期间闸只有一处 —— [`post_voucher`] 里查 `biz_accounting_period`：已结账（`CLOSED`）
+/// 的月份**只读**，返回 `DbError::InvalidValue`（文案含「已结账」）。本函数不重复查，
+/// 免得出现「两个地方各自判一次、某天口径不一致」。
+///
+/// # 返回
+///
+/// * `Ok(Some(voucher_id))`：已生成并记账（`POSTED`）；
+/// * `Ok(None)`：价税合计 ≤ 0（零金额发票不构成凭证，打 WARN 点名单据）。
+///
+/// # 事务
+///
+/// 吃 `&impl SqlExecutor`（`Db` / `Transaction`），**由调用方开事务**；不 `begin` 不 `commit`。
+pub async fn create_for_sales_revenue(
+    ex: &impl SqlExecutor,
+    req: &SalesRevenueVoucher<'_>,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<Option<Uuid>> {
+    let total = req.total_with_tax.round_dp(4);
+    if total <= Decimal::ZERO {
+        tracing::warn!(
+            doc_no = req.invoice_no,
+            invoice_id = %req.invoice_id,
+            total_with_tax = %total,
+            "价税合计 ≤ 0（零金额发票）：跳过收入凭证生成，只留单据"
+        );
+        return Ok(None);
+    }
+    let (revenue, tax) =
+        sales_revenue_amounts(req.invoice_no, total, req.amount, req.tax_amount)?;
+
+    let ar_account = account_required(ex, ACCOUNT_AR, "收入凭证的借方科目 1122 应收账款").await?;
+    let revenue_account =
+        account_required(ex, ACCOUNT_REVENUE, "收入凭证的贷方科目 5001 主营业务收入").await?;
+
+    // 借：应收账款（价税合计）
+    let mut lines: Vec<EntryLine> = vec![EntryLine {
+        line_no: 1,
+        summary: format!("{} 确认应收账款", req.summary),
+        account: ar_account,
+        debit: total,
+        credit: Decimal::ZERO,
+        aux_supplier_id: None,
+        aux_material_id: None,
+        aux_warehouse_id: None,
+        aux_dept_id: None,
+    }];
+
+    // 贷：主营业务收入（不含税；按商品拆行时不带仓库辅助核算 —— 收入是全公司口径）
+    let split = sales_revenue_split(req.invoice_no, revenue, &req.material_lines)?;
+    if split.is_empty() {
+        lines.push(EntryLine {
+            line_no: 0,
+            summary: format!("{} 确认销售收入", req.summary),
+            account: revenue_account,
+            debit: Decimal::ZERO,
+            credit: revenue,
+            aux_supplier_id: None,
+            aux_material_id: None,
+            aux_warehouse_id: None,
+            aux_dept_id: None,
+        });
+    } else {
+        let ids: Vec<Uuid> = split.iter().map(|line| line.material_id).collect();
+        let codes = material_codes(ex, &ids).await?;
+        for line in &split {
+            let label = material_label(&codes, line.material_id);
+            lines.push(EntryLine {
+                line_no: 0,
+                summary: format!(
+                    "{} 收入 {}（{}）",
+                    req.summary,
+                    label,
+                    line_range_text(line.line_from, line.line_to)
+                ),
+                account: revenue_account.clone(),
+                debit: Decimal::ZERO,
+                credit: line.amount,
+                aux_supplier_id: None,
+                aux_material_id: Some(line.material_id),
+                // 收入科目不挂仓库：按仓拆收入会把损益表拆碎（与成本凭证的口径对称）
+                aux_warehouse_id: None,
+                aux_dept_id: None,
+            });
+        }
+    }
+
+    // 贷：应交税费-销项税（税额为 0 不出行 —— 零金额分录入不了库）
+    if tax > Decimal::ZERO {
+        let tax_account =
+            account_required(ex, ACCOUNT_OUTPUT_TAX, "收入凭证的贷方科目 2221.02 销项税").await?;
+        lines.push(EntryLine {
+            line_no: 0,
+            summary: format!("{} 销项税额", req.summary),
+            account: tax_account,
+            debit: Decimal::ZERO,
+            credit: tax,
+            aux_supplier_id: None,
+            aux_material_id: None,
+            aux_warehouse_id: None,
+            aux_dept_id: None,
+        });
+    }
+
+    for (index, line) in lines.iter_mut().enumerate() {
+        line.line_no = i32::try_from(index + 1).unwrap_or(0);
+    }
+
+    // 最后一闸：借贷必须真的平（不靠调用方自证）
+    let (debit, credit) = totals_of(&lines);
+    let diff = (debit - credit).abs();
+    if diff >= BALANCE_TOLERANCE {
+        return Err(DbError::InvalidValue(format!(
+            "收入凭证生成失败：借贷不平衡（单据 {}，借 {debit} / 贷 {credit}，差额 {diff} ≥ \
+             {BALANCE_TOLERANCE}）",
+            req.invoice_no
+        )));
+    }
+    if diff > Decimal::ZERO {
+        // < 0.01 的尾差落到最后一笔贷方行（上面已保证税额行是派生值，正常走不到这里）
+        if let Some(last) = lines.iter_mut().rev().find(|line| line.credit > Decimal::ZERO) {
+            last.credit = (last.credit + diff).round_dp(4);
+            tracing::warn!(
+                doc_no = req.invoice_no,
+                tail_diff = %diff,
+                "收入凭证的借贷尾差 < 0.01：已吸收到最后一笔贷方行"
+            );
+        }
+    }
+
+    let voucher_id = post_voucher(
+        ex,
+        &PostVoucher {
+            voucher_type: VOUCHER_TYPE_AUTO,
+            source_type: SOURCE_INVOICE,
+            source_id: Some(req.invoice_id),
+            source_no: Some(req.invoice_no),
+            voucher_date: req.voucher_date,
+            summary: req.summary.clone(),
+            lines,
+            remark: req.remark,
+            red_of: None,
+            status: crate::business::erp::voucher::STATUS_POSTED,
+        },
+        operator,
+        now,
+    )
+    .await?;
+    Ok(Some(voucher_id))
+}
+
 /// 按**来源单据**找原凭证并红冲（出库单作废用；找不到原凭证 → `Ok(None)`）。
 ///
 /// 与 [`reverse_for_stock_in`] 的区别只有一处：不写死 `SOURCE_STOCK_IN`，
@@ -3846,5 +4157,432 @@ mod tests {
             left, 0,
             "整库不许留 PAYABLE / VOUCHER 的孤儿状态日志（收敛等待 5s 后仍非 0）"
         );
+    }
+
+    // ==================== SO-22：销售收入确认凭证 ====================
+
+    /// 清掉本卡用例造的凭证（分录 → 状态日志 → 凭证）。
+    ///
+    /// 红字凭证的 `source_no` 继承原单号，所以一个前缀就能把蓝红两张都带走。
+    async fn cleanup_sales_revenue() {
+        let sqls = [
+            "DELETE FROM biz_voucher_entry WHERE voucher_id IN \
+             (SELECT id FROM biz_voucher WHERE source_no LIKE 'SO22-%')",
+            "DELETE FROM biz_status_log WHERE entity_type = 'VOUCHER' AND entity_id IN \
+             (SELECT id FROM biz_voucher WHERE source_no LIKE 'SO22-%')",
+            "DELETE FROM biz_voucher WHERE source_no LIKE 'SO22-%'",
+        ];
+        for sql in sqls {
+            exec(sql).await;
+        }
+    }
+
+    fn so22_invoice(no: u32) -> Uuid {
+        Uuid::from_str(&format!("b2c10022-0000-4000-8000-{no:012}")).expect("测试发票 id 非法")
+    }
+
+    /// `(line_no, account_code, debit, credit)` 逐行读回来。
+    async fn so22_entries(voucher_id: &Uuid) -> Vec<(i32, String, Decimal, Decimal)> {
+        let rows = db()
+            .query_sql(
+                "SELECT line_no, account_code, COALESCE(debit_amount, 0) AS d, \
+                        COALESCE(credit_amount, 0) AS c \
+                   FROM biz_voucher_entry WHERE voucher_id = ?::uuid ORDER BY line_no"
+                    .to_string(),
+                vec![Value::from(voucher_id)],
+            )
+            .await
+            .expect("查凭证分录");
+        rows.iter()
+            .map(|row| {
+                (
+                    row.get_typed::<i32>("line_no").expect("line_no"),
+                    row.get_typed::<String>("account_code").expect("account_code"),
+                    row.get_typed::<Decimal>("d").expect("debit"),
+                    row.get_typed::<Decimal>("c").expect("credit"),
+                )
+            })
+            .collect()
+    }
+
+    /// 纯函数：三个金额自洽 ⇒ 通过；差额 < 0.01 ⇒ 吸收；≥ 0.01 ⇒ 拒绝。
+    #[test]
+    fn sales_revenue_amounts_absorbs_under_a_cent_and_rejects_a_cent() {
+        let (revenue, tax) =
+            sales_revenue_amounts("SO22-U-1", dec("1130"), dec("1000"), dec("130"))
+                .expect("1130 = 1000 + 130 必须通过");
+        assert_eq!(revenue, dec("1000"));
+        assert_eq!(tax, dec("130"));
+        assert_eq!(revenue + tax, dec("1130"), "借贷必须相等");
+
+        // 尾差 0.004 < 0.01 ⇒ 吸收进销项税（含税 − 不含税），借贷分毫不差
+        let (revenue, tax) =
+            sales_revenue_amounts("SO22-U-2", dec("1130"), dec("1000"), dec("129.9960"))
+                .expect("尾差 < 0.01 应吸收而不是报错");
+        assert_eq!(revenue, dec("1000"));
+        assert_eq!(revenue + tax, dec("1130"), "吸收后借贷必须严格相等");
+        assert_eq!(tax, dec("130"));
+
+        // 差额恰好 0.01 ⇒ 拒绝（「< 0.01 才算平衡」，等于 0.01 就不算）
+        let err = sales_revenue_amounts("SO22-U-3", dec("1130"), dec("1000"), dec("129.99"))
+            .expect_err("差额 0.01 必须拒绝");
+        let text = format!("{err}");
+        assert!(text.contains("不自洽"), "文案要说清金额不自洽：{text}");
+
+        // 负数一律拒绝（红字必须走红字凭证，不许拿负数写蓝字）
+        assert!(
+            sales_revenue_amounts("SO22-U-4", dec("1130"), dec("-1000"), dec("130")).is_err(),
+            "负数不含税必须拒绝"
+        );
+        assert!(
+            sales_revenue_amounts("SO22-U-5", dec("1130"), dec("1000"), dec("-130")).is_err(),
+            "负数税额必须拒绝"
+        );
+        println!("[SO22-①] 价税自洽 / 尾差吸收 / 0.01 拒绝 / 负数拒绝 全部通过 ✓");
+    }
+
+    /// 纯函数：拆行复用 `normalize`（合并同物料 + 升序）+ 尾差吸收。
+    #[test]
+    fn sales_revenue_split_merges_same_material_and_absorbs_tail() {
+        let mat_a = Uuid::from_str(MATERIAL_A).expect("物料 A");
+        let mat_b = Uuid::from_str(MATERIAL_B).expect("物料 B");
+        let line = |material_id: Uuid, amount: &str, from: i32, to: i32| VoucherMaterialLine {
+            material_id,
+            qty: Decimal::ZERO,
+            amount: dec(amount),
+            line_from: from,
+            line_to: to,
+        };
+        // 明细：A 400 + A 100（同物料 ⇒ 合并 500）+ B 499.99；表头不含税 1000
+        let split = sales_revenue_split(
+            "SO22-U-6",
+            dec("1000"),
+            &[
+                line(mat_b, "499.99", 3, 3),
+                line(mat_a, "400", 1, 1),
+                line(mat_a, "100", 2, 2),
+            ],
+        )
+        .expect("拆分应成功");
+        assert_eq!(split.len(), 2, "同物料必须合并成一行");
+        assert_eq!(split[0].material_id, mat_a, "必须按物料 id 升序");
+        assert_eq!(split[0].amount, dec("500"), "A 的 400 + 100 应合并成 500");
+        assert_eq!(split[0].line_from, 1);
+        assert_eq!(split[0].line_to, 2);
+        let sum: Decimal = split.iter().map(|l| l.amount).sum();
+        assert_eq!(sum, dec("1000"), "拆行后合计必须等于表头不含税金额（尾差吸收）");
+        println!("[SO22-②] 合并 400+100=500 / 升序 / 尾差 0.01 吸收 → Σ=1000 ✓");
+    }
+
+    /// 真库：正常凭证 —— 借 1122 1130 / 贷 5001 1000 / 贷 2221.02 130，借贷相等。
+    #[tokio::test]
+    async fn sales_revenue_voucher_posts_balanced_entries() {
+        let Some(_guard) = setup().await else { return; };
+        cleanup_sales_revenue().await;
+        let now = Utc::now();
+        let voucher_id = create_for_sales_revenue(
+            db(),
+            &SalesRevenueVoucher {
+                invoice_id: so22_invoice(1),
+                invoice_no: "SO22-T-0001",
+                voucher_date: today_cst(now),
+                amount: dec("1000"),
+                tax_amount: dec("130"),
+                total_with_tax: dec("1130"),
+                material_lines: Vec::new(),
+                summary: "SO22 单测：正常收入凭证".to_string(),
+                remark: Some("SO22 单测"),
+            },
+            None,
+            now,
+        )
+        .await
+        .expect("收入凭证应生成")
+        .expect("应有凭证 id");
+
+        let entries = so22_entries(&voucher_id).await;
+        assert_eq!(entries.len(), 3, "应为 借1 + 贷2 共 3 行：{entries:?}");
+        assert_eq!(entries[0].1, ACCOUNT_AR);
+        assert_eq!(entries[0].2, dec("1130"), "借 1122 应为价税合计");
+        assert_eq!(entries[0].3, Decimal::ZERO);
+        assert_eq!(entries[1].1, ACCOUNT_REVENUE);
+        assert_eq!(entries[1].3, dec("1000"), "贷 5001 应为不含税金额");
+        assert_eq!(entries[2].1, ACCOUNT_OUTPUT_TAX);
+        assert_eq!(entries[2].3, dec("130"), "贷 2221.02 应为税额");
+        let debit: Decimal = entries.iter().map(|e| e.2).sum();
+        let credit: Decimal = entries.iter().map(|e| e.3).sum();
+        assert_eq!(debit, credit, "借贷必须相等");
+        assert_eq!(debit, dec("1130"));
+
+        let header = db()
+            .query_first_sql(
+                "SELECT source_type, source_no, status, total_debit, total_credit, entry_count \
+                   FROM biz_voucher WHERE id = ?::uuid"
+                    .to_string(),
+                vec![Value::from(&voucher_id)],
+            )
+            .await
+            .expect("查凭证头")
+            .expect("凭证头应存在");
+        assert_eq!(header.get_typed::<String>("source_type").unwrap(), SOURCE_INVOICE);
+        assert_eq!(header.get_typed::<String>("source_no").unwrap(), "SO22-T-0001");
+        assert_eq!(header.get_typed::<String>("status").unwrap(), STATUS_POSTED);
+        assert_eq!(header.get_typed::<i32>("entry_count").unwrap(), 3);
+        cleanup_sales_revenue().await;
+        println!("[SO22-③] 真库 3 行分录 借1122 1130 / 贷5001 1000 / 贷2221.02 130，借贷各 1130 ✓");
+    }
+
+    /// 真库：多行科目 —— 按商品拆 2 行收入 + 1 行税，合计仍等于不含税 1000。
+    #[tokio::test]
+    async fn sales_revenue_voucher_splits_revenue_by_material() {
+        let Some(_guard) = setup().await else { return; };
+        cleanup_sales_revenue().await;
+        let now = Utc::now();
+        let line = |material: &str, amount: &str| VoucherMaterialLine {
+            material_id: Uuid::from_str(material).expect("物料 id"),
+            qty: Decimal::ZERO,
+            amount: dec(amount),
+            line_from: 1,
+            line_to: 1,
+        };
+        let voucher_id = create_for_sales_revenue(
+            db(),
+            &SalesRevenueVoucher {
+                invoice_id: so22_invoice(2),
+                invoice_no: "SO22-T-0002",
+                voucher_date: today_cst(now),
+                amount: dec("1000"),
+                tax_amount: dec("130"),
+                total_with_tax: dec("1130"),
+                material_lines: vec![line(MATERIAL_B, "600"), line(MATERIAL_A, "400")],
+                summary: "SO22 单测：多行科目".to_string(),
+                remark: None,
+            },
+            None,
+            now,
+        )
+        .await
+        .expect("多行收入凭证应生成")
+        .expect("应有凭证 id");
+
+        let entries = so22_entries(&voucher_id).await;
+        assert_eq!(entries.len(), 4, "应为 借1 + 贷(收入2) + 贷(税1) = 4 行：{entries:?}");
+        let revenue_lines: Vec<&(i32, String, Decimal, Decimal)> =
+            entries.iter().filter(|e| e.1 == ACCOUNT_REVENUE).collect();
+        assert_eq!(revenue_lines.len(), 2, "收入必须按商品拆成 2 行");
+        let revenue_sum: Decimal = revenue_lines.iter().map(|e| e.3).sum();
+        assert_eq!(revenue_sum, dec("1000"), "两行收入合计必须等于不含税金额");
+        let debit: Decimal = entries.iter().map(|e| e.2).sum();
+        let credit: Decimal = entries.iter().map(|e| e.3).sum();
+        assert_eq!(debit, credit, "拆分后借贷仍必须相等");
+        assert_eq!(credit, dec("1130"));
+        cleanup_sales_revenue().await;
+        println!("[SO22-④] 真库多行科目：收入拆 2 行 Σ=1000 + 税 130，借贷各 1130 ✓");
+    }
+
+    /// 真库：期间已结账 ⇒ 拒绝（文案点明「已结账」），且库里不留半张凭证。
+    #[tokio::test]
+    async fn sales_revenue_voucher_rejects_closed_period() {
+        let Some(_guard) = setup().await else { return; };
+        cleanup_sales_revenue().await;
+        let period = "2031-03";
+        exec(&format!(
+            "DELETE FROM biz_accounting_period WHERE period_code = '{period}'"
+        ))
+        .await;
+        exec(&format!(
+            "INSERT INTO biz_accounting_period \
+                (id, period_year, period_month, period_code, start_date, end_date, status) \
+             VALUES (gen_random_uuid(), 2031, 3, '{period}', '2031-03-01', '2031-03-31', 'CLOSED')"
+        ))
+        .await;
+        let now = Utc::now();
+        let err = create_for_sales_revenue(
+            db(),
+            &SalesRevenueVoucher {
+                invoice_id: so22_invoice(3),
+                invoice_no: "SO22-T-0003",
+                voucher_date: NaiveDate::from_ymd_opt(2031, 3, 15).expect("合法日期"),
+                amount: dec("1000"),
+                tax_amount: dec("130"),
+                total_with_tax: dec("1130"),
+                material_lines: Vec::new(),
+                summary: "SO22 单测：已结账期间".to_string(),
+                remark: None,
+            },
+            None,
+            now,
+        )
+        .await
+        .expect_err("期间已结账必须拒绝");
+        let text = format!("{err}");
+        assert!(text.contains("已结账"), "文案必须说明期间已结账：{text}");
+        assert!(text.contains(period), "文案必须点名期间 {period}：{text}");
+        let leaked = db()
+            .query_first_sql(
+                "SELECT COUNT(*) AS n FROM biz_voucher WHERE source_no = 'SO22-T-0003'".to_string(),
+                vec![],
+            )
+            .await
+            .expect("查残留凭证")
+            .expect("count 行");
+        assert_eq!(
+            leaked.get_typed::<i64>("n").unwrap(),
+            0,
+            "被拒的凭证不能落库（半张凭证 = 账实不符）"
+        );
+        exec(&format!(
+            "DELETE FROM biz_accounting_period WHERE period_code = '{period}'"
+        ))
+        .await;
+        cleanup_sales_revenue().await;
+        println!("[SO22-⑤] 真库已结账期间拒绝：{text} ✓（无残留凭证）");
+    }
+
+    /// 真库：价税合计为 0 ⇒ 不生成凭证（`Ok(None)`），也不报错。
+    #[tokio::test]
+    async fn sales_revenue_voucher_skips_zero_amount() {
+        let Some(_guard) = setup().await else { return; };
+        cleanup_sales_revenue().await;
+        let now = Utc::now();
+        let got = create_for_sales_revenue(
+            db(),
+            &SalesRevenueVoucher {
+                invoice_id: so22_invoice(4),
+                invoice_no: "SO22-T-0004",
+                voucher_date: today_cst(now),
+                amount: Decimal::ZERO,
+                tax_amount: Decimal::ZERO,
+                total_with_tax: Decimal::ZERO,
+                material_lines: Vec::new(),
+                summary: "SO22 单测：零金额".to_string(),
+                remark: None,
+            },
+            None,
+            now,
+        )
+        .await
+        .expect("零金额不该报错");
+        assert!(got.is_none(), "零金额发票不该产出凭证");
+        cleanup_sales_revenue().await;
+        println!("[SO22-⑥] 真库零金额 → Ok(None)，不留凭证 ✓");
+    }
+
+    /// 真库：出库作废冲销应收（`CANCELLED`）时，收入凭证必须一起红冲 ——
+    /// 否则「应收冲销了、总账上 1122 还挂着」。
+    #[tokio::test]
+    async fn receivable_cancel_reds_the_revenue_voucher() {
+        let Some(_guard) = setup().await else { return; };
+        cleanup_sales_revenue().await;
+        exec(
+            "DELETE FROM biz_status_log WHERE entity_type = 'RECEIVABLE' AND entity_id IN \
+             (SELECT id FROM biz_receivable WHERE ar_no LIKE 'SO22-AR-%')",
+        )
+        .await;
+        exec("DELETE FROM biz_receivable WHERE ar_no LIKE 'SO22-AR-%'").await;
+
+        let now = Utc::now();
+        let customer = "b2c10022-0000-4000-8000-000000000099";
+        exec(&format!(
+            "INSERT INTO biz_customer (id, code, name, status) \
+             VALUES ('{customer}', 'SO22-CUST', 'SO22 单测客户', 'ACTIVE') ON CONFLICT DO NOTHING"
+        ))
+        .await;
+
+        // ① 开票时生成的蓝字收入凭证
+        let blue = create_for_sales_revenue(
+            db(),
+            &SalesRevenueVoucher {
+                invoice_id: so22_invoice(9),
+                invoice_no: "SO22-T-0009",
+                voucher_date: today_cst(now),
+                amount: dec("1000"),
+                tax_amount: dec("130"),
+                total_with_tax: dec("1130"),
+                material_lines: Vec::new(),
+                summary: "SO22 单测：应收冲销的红冲".to_string(),
+                remark: None,
+            },
+            None,
+            now,
+        )
+        .await
+        .expect("蓝字收入凭证应生成")
+        .expect("应有凭证 id");
+
+        // ② 一条「已开票、一分没收」的应收，挂上收入凭证
+        let ar_id = db()
+            .query_first_sql(
+                "INSERT INTO biz_receivable \
+                    (ar_no, customer_id, source_type, source_id, source_no, currency_code, amount, \
+                     received_amount, unsettled_amount, credit_days, due_date, period_code, status, \
+                     voucher_id) \
+                 VALUES ('SO22-AR-0001', ?::uuid, 'STOCK_OUT', gen_random_uuid(), 'SO22-SO-0001', \
+                         'CNY', 1130, 0, 1130, 30, ?::text::date, '2026-11', 'OPEN', ?::uuid) \
+                 RETURNING id"
+                    .to_string(),
+                vec![
+                    Value::from(&Uuid::from_str(customer).expect("客户 id")),
+                    Value::Text(today_cst(now).to_string()),
+                    Value::from(&blue),
+                ],
+            )
+            .await
+            .expect("建应收")
+            .expect("应收 id")
+            .get_typed::<Uuid>("id")
+            .expect("应收主键");
+
+        // ③ 出库作废 ⇒ 应收冲销（真实入口，内部同一事务里红冲收入凭证）
+        let row = crate::business::erp::receivable::cancel_for_stock_out(
+            db(),
+            ar_id,
+            "出库作废：SO22 单测",
+            None,
+            now,
+        )
+        .await
+        .expect("应收冲销应成功");
+        assert_eq!(row.status, "CANCELLED");
+
+        // ④ 蓝 + 红两张凭证，红字反向
+        let rows = db()
+            .query_sql(
+                "SELECT id, is_red, reverse_of FROM biz_voucher \
+                  WHERE source_no = 'SO22-T-0009' ORDER BY is_red"
+                    .to_string(),
+                vec![],
+            )
+            .await
+            .expect("查蓝红凭证");
+        assert_eq!(rows.len(), 2, "应有一张蓝字 + 一张红字：{rows:?}");
+        let blue_id = rows[0].get_typed::<Uuid>("id").expect("蓝字 id");
+        let red_id = rows[1].get_typed::<Uuid>("id").expect("红字 id");
+        assert_eq!(rows[0].get_typed::<i16>("is_red").unwrap(), IS_RED_NO);
+        assert_eq!(rows[1].get_typed::<i16>("is_red").unwrap(), IS_RED_YES);
+        assert_eq!(
+            rows[1].get_typed::<Uuid>("reverse_of").ok(),
+            Some(blue_id),
+            "红字凭证必须指回蓝字原凭证"
+        );
+
+        let blue_entries = so22_entries(&blue_id).await;
+        let red_entries = so22_entries(&red_id).await;
+        assert_eq!(red_entries.len(), blue_entries.len(), "红字行数应与蓝字一致");
+        for (blue_line, red_line) in blue_entries.iter().zip(red_entries.iter()) {
+            assert_eq!(blue_line.1, red_line.1, "科目顺序应一致");
+            assert_eq!(blue_line.2, red_line.3, "红字的贷方 = 蓝字的借方（反向）");
+            assert_eq!(blue_line.3, red_line.2, "红字的借方 = 蓝字的贷方（反向）");
+        }
+
+        // ⑤ 清场
+        exec(
+            "DELETE FROM biz_status_log WHERE entity_type = 'RECEIVABLE' AND entity_id IN \
+             (SELECT id FROM biz_receivable WHERE ar_no LIKE 'SO22-AR-%')",
+        )
+        .await;
+        exec("DELETE FROM biz_receivable WHERE ar_no LIKE 'SO22-AR-%'").await;
+        cleanup_sales_revenue().await;
+        println!("[SO22-⑦] 真库出库作废 → 应收 CANCELLED + 收入凭证红冲（反向分录逐行核对） ✓");
     }
 }

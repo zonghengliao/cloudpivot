@@ -606,6 +606,18 @@ pub const TRIGGER_EXEMPT: &[&str] = &[
     // 按 P1-FIX-5C 的口径显式豁免（登记进白名单却没人调 = 配了规则永远不触发）；
     // 真要按应收触发时，把它从 `TRIGGER_SPECS` 之外移进白名单并给 `wired = true` + `proofs`。
     state_machine::ENTITY_RECEIVABLE,
+    // 销售链 SO-17：收款单的状态流转入口（`receipt::post` / 核销）**不调联动引擎** ——
+    // 收款只动「应收的可核销余额 + 核销关系」，跨单据联动（应收转为已收 / 通知）走的是
+    // 应收自己的状态（`RECEIVABLE` 同为豁免项），不需要在收款单上再触发一次
+    // （否则同一笔钱在两个实体上各触发一次，通知 / 凭证会重复）。
+    // 按 P1-FIX-5C 的口径显式豁免；真要按收款触发时，把它移进 `TRIGGER_SPECS`
+    // 并给 `wired = true` + `proofs`（漂移守卫会同时要求两者）。
+    state_machine::ENTITY_RECEIPT,
+    // 销售链 SO-20：发票的状态流转入口（`invoice::change_status`）**不调联动引擎** ——
+    // 开票 / 作废的会计后果由收入确认凭证 + 红冲凭证承担（`voucher::create_for_sales_revenue`
+    // / `reverse_posted`），没有「另一张单据跟着变状态」的联动语义；
+    // 真要按发票触发（例如通知客户已开票）时，移进 `TRIGGER_SPECS` 并给 `wired = true` + `proofs`。
+    state_machine::ENTITY_INVOICE,
 ];
 
 /// 配置变更审计写 `biz_status_log` 时用的 `entity_type`。

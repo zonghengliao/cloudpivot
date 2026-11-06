@@ -1,0 +1,42 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.28s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 28 tests
+test business::erp::voucher::tests::account_mapping_uses_voucher_rule ... ok
+test business::erp::voucher::tests::amount_basis_inventory_excludes_tax_payable_includes_tax ... ok
+test business::erp::voucher::tests::cancel_creates_red_voucher_with_negative_net_effect ... ok
+test business::erp::voucher::tests::cancel_marks_payable_cancelled ... ok
+test business::erp::voucher::tests::db_rejects_entry_with_both_sides ... ok
+test business::erp::voucher::tests::db_rejects_unbalanced_voucher ... ok
+test business::erp::voucher::tests::material_account_is_used_when_rule_missing ... ok
+test business::erp::voucher::tests::missing_rule_falls_back_to_default_accounts ... ok
+test business::erp::voucher::tests::post_creates_open_payable_with_with_tax_amount ... ok
+test business::erp::voucher::tests::post_creates_posted_auto_voucher ... ok
+test business::erp::voucher::tests::post_creates_three_entries_debit_inventory_debit_tax_credit_payable ... ok
+test business::erp::voucher::tests::post_writes_back_voucher_and_payable_ids ... ok
+test business::erp::voucher::tests::receivable_cancel_reds_the_revenue_voucher ... [SO22-⑦] 真库出库作废 → 应收 CANCELLED + 收入凭证红冲（反向分录逐行核对） ✓
+ok
+test business::erp::voucher::tests::red_voucher_links_back_to_original ... ok
+test business::erp::voucher::tests::reversed_lines_swap_sides_and_keep_amounts ... ok
+test business::erp::voucher::tests::sales_revenue_amounts_absorbs_under_a_cent_and_rejects_a_cent ... [SO22-①] 价税自洽 / 尾差吸收 / 0.01 拒绝 / 负数拒绝 全部通过 ✓
+ok
+test business::erp::voucher::tests::sales_revenue_split_merges_same_material_and_absorbs_tail ... [SO22-②] 合并 400+100=500 / 升序 / 尾差 0.01 吸收 → Σ=1000 ✓
+ok
+test business::erp::voucher::tests::sales_revenue_voucher_posts_balanced_entries ... [SO22-③] 真库 3 行分录 借1122 1130 / 贷5001 1000 / 贷2221.02 130，借贷各 1130 ✓
+ok
+test business::erp::voucher::tests::sales_revenue_voucher_rejects_closed_period ... [SO22-⑤] 真库已结账期间拒绝：invalid value: 会计期间 2031-03 已结账，不能再生成凭证（凭证日期 2031-03-15）：已封账的月份只读，请在下一个未结账的期间做调整（或先反结账） ✓（无残留凭证）
+ok
+test business::erp::voucher::tests::sales_revenue_voucher_skips_zero_amount ... [SO22-⑥] 真库零金额 → Ok(None)，不留凭证 ✓
+ok
+test business::erp::voucher::tests::sales_revenue_voucher_splits_revenue_by_material ... [SO22-④] 真库多行科目：收入拆 2 行 Σ=1000 + 税 130，借贷各 1130 ✓
+ok
+test business::erp::voucher::tests::voucher_failure_rolls_back_inventory ... ok
+test business::erp::voucher::tests::voucher_no_format_is_pz_prefix_with_six_digits ... ok
+test business::erp::voucher::tests::voucher_period_follows_stock_in_date ... ok
+test business::erp::voucher::tests::voucher_totals_are_balanced ... ok
+test business::erp::voucher::tests::zero_tax_receipt_has_two_entries ... ok
+test business::erp::voucher::tests::zz_teardown_purges_finance_status_logs ... ok
+test business::erp::voucher::tests::zz_teardown_purges_fixture_accounts ... ok
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 2821 filtered out; finished in 49.08s
+
