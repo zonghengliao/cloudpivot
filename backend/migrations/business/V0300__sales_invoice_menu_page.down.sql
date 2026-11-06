@@ -1,19 +1,19 @@
 -- ============================================================================
--- V0297 down：把销售发票页还原成「未落地前端页」的状态
+-- V0300 down：把销售发票页还原成「未落地前端页」的状态
 --
--- 只还原 V0297 自己改的三列（path / component / is_visible）+ title 文案：
+-- 只还原 V0300 自己改的三列（path / component / is_visible）+ title 文案：
 --
 --     path      → NULL
 --     component → NULL
 --     is_visible→ FALSE
---     title     → V0296 的原文案
+--     title     → V0299 的原文案
 --
--- **不删权限码、不删按钮、不删授权行** —— 那是 V0296 的 down 干的事。
+-- **不删权限码、不删按钮、不删授权行** —— 那是 V0299 的 down 干的事。
 -- 还原后页面在侧边栏不可见、点不到，但 4 个码仍然可授（`sys_menu` 承载行还在），
 -- 后端 4 个接口照常工作（删前端页不影响任何已落库的发票 / 凭证）。
 --
 -- 已知代价：若 down 之后有人手工在「菜单管理」里改过这行的 path/component，
--- 回滚会把它一起抹成 NULL。这是「菜单表没有来源列」的通病（与 V0291 / V0294 down 同口径）。
+-- 回滚会把它一起抹成 NULL。这是「菜单表没有来源列」的通病（与 V0291 / V0296 down 同口径）。
 -- ============================================================================
 
 DO $$
@@ -23,7 +23,7 @@ DECLARE
     v_children int;
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = v_page) THEN
-        RAISE EXCEPTION 'V0297 down 失败：销售发票页面节点 …2895 不存在（V0296 已被回滚？）';
+        RAISE EXCEPTION 'V0300 down 失败：销售发票页面节点 …2895 不存在（V0299 已被回滚？）';
     END IF;
 
     -- ---------- ① 结构还原（幂等） ----------
@@ -36,13 +36,13 @@ BEGIN
          OR is_visible IS DISTINCT FROM FALSE
          OR title      IS DISTINCT FROM v_title);
 
-    -- ---------- ② 回滚后断言：三列已是 V0296 的状态 ----------
+    -- ---------- ② 回滚后断言：三列已是 V0299 的状态 ----------
     IF EXISTS (
         SELECT 1 FROM sys_menu
          WHERE id = v_page
            AND (path IS NOT NULL OR component IS NOT NULL OR is_visible IS NOT FALSE)
     ) THEN
-        RAISE EXCEPTION 'V0297 down 断言失败：销售发票页未还原成 path=NULL / component=NULL / is_visible=FALSE';
+        RAISE EXCEPTION 'V0300 down 断言失败：销售发票页未还原成 path=NULL / component=NULL / is_visible=FALSE';
     END IF;
 
     -- ---------- ③ 按钮不能被这一刀带走（权限码仍可授） ----------
@@ -50,8 +50,8 @@ BEGIN
       FROM sys_menu
      WHERE parent_id = v_page AND menu_type = 3 AND deleted_at IS NULL;
     IF v_children <> 3 THEN
-        RAISE EXCEPTION 'V0297 down 断言失败：销售发票页下应有 3 个按钮，实际 % 个', v_children;
+        RAISE EXCEPTION 'V0300 down 断言失败：销售发票页下应有 3 个按钮，实际 % 个', v_children;
     END IF;
 
-    RAISE NOTICE 'V0297 down 完成：销售发票页已关闭（path/component=NULL，is_visible=FALSE），3 个按钮与 4 个权限码保留';
+    RAISE NOTICE 'V0300 down 完成：销售发票页已关闭（path/component=NULL，is_visible=FALSE），3 个按钮与 4 个权限码保留';
 END $$;

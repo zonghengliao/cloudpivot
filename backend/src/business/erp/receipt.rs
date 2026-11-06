@@ -547,9 +547,7 @@ pub async fn allocations_of(
           ORDER BY a.created_at, a.id",
         receivable::TABLE
     );
-    let rows = ex
-        .query_sql(sql, vec![Value::from(&receipt_id)])
-        .await?;
+    let rows = ex.query_sql(sql, vec![Value::from(&receipt_id)]).await?;
     rows.iter().map(AllocationRow::from_row).collect()
 }
 
@@ -734,16 +732,15 @@ pub async fn detail_with(
     id: Uuid,
 ) -> std::result::Result<ReceiptDetailRes, ApiError> {
     // SCOPE-EXEMPT: 收款 / 客户 / 凭证均无归属列（见模块文档）。
-    let sql = format!(
-        "SELECT {LIST_COLUMNS} {LIST_FROM} WHERE p.id = ?::uuid AND p.deleted_at IS NULL"
-    );
+    let sql =
+        format!("SELECT {LIST_COLUMNS} {LIST_FROM} WHERE p.id = ?::uuid AND p.deleted_at IS NULL");
     let row = ex
         .query_first_sql(sql, vec![Value::from(&id)])
         .await
         .map_err(|error| utils::db_error(error, "查询收款单"))?
         .ok_or_else(not_found)?;
-    let receipt = ReceiptRow::from_row(&row)
-        .map_err(|error| utils::db_error(error, "解析收款单"))?;
+    let receipt =
+        ReceiptRow::from_row(&row).map_err(|error| utils::db_error(error, "解析收款单"))?;
     let customer_name: String = row
         .get_typed("customer_name")
         .map_err(|error| utils::db_error(error, "读取客户名称"))?;
@@ -857,33 +854,34 @@ pub struct ReceiptFilter {
 impl ReceiptPageQuery {
     /// 四道入参校验（全部 400，绝不静默忽略）。
     pub fn validate(&self) -> std::result::Result<(), ApiError> {
-        if let Some(status) = self.status.as_deref().map(str::trim) {
-            if !status.is_empty() && !STATUSES.contains(&status) {
-                return Err(bad_request(format!(
-                    "status 只认 {STATUSES:?}（收到「{status}」）：OPEN / PARTIAL / PAID 这类\
+        if let Some(status) = self.status.as_deref().map(str::trim)
+            && !status.is_empty()
+            && !STATUSES.contains(&status)
+        {
+            return Err(bad_request(format!(
+                "status 只认 {STATUSES:?}（收到「{status}」）：OPEN / PARTIAL / PAID 这类\
                      应收 / 应付的域值不是收款单的状态"
-                )));
-            }
+            )));
         }
-        if let Some(method) = self.method.as_deref().map(str::trim) {
-            if !method.is_empty() {
-                validate_method(Some(method))?;
-            }
+        if let Some(method) = self.method.as_deref().map(str::trim)
+            && !method.is_empty()
+        {
+            validate_method(Some(method))?;
         }
-        if let Some(raw) = self.customer_id.as_deref().map(str::trim) {
-            if !raw.is_empty() {
-                parse_uuid(raw, "customer_id")?;
-            }
+        if let Some(raw) = self.customer_id.as_deref().map(str::trim)
+            && !raw.is_empty()
+        {
+            parse_uuid(raw, "customer_id")?;
         }
-        if let Some(raw) = self.date_from.as_deref().map(str::trim) {
-            if !raw.is_empty() {
-                parse_date_arg(raw, "date_from")?;
-            }
+        if let Some(raw) = self.date_from.as_deref().map(str::trim)
+            && !raw.is_empty()
+        {
+            parse_date_arg(raw, "date_from")?;
         }
-        if let Some(raw) = self.date_to.as_deref().map(str::trim) {
-            if !raw.is_empty() {
-                parse_date_arg(raw, "date_to")?;
-            }
+        if let Some(raw) = self.date_to.as_deref().map(str::trim)
+            && !raw.is_empty()
+        {
+            parse_date_arg(raw, "date_to")?;
         }
         Ok(())
     }
@@ -896,44 +894,42 @@ impl ReceiptPageQuery {
             page_size,
             ..ReceiptFilter::default()
         };
-        if let Some(status) = self.status.as_deref().map(str::trim) {
-            if !status.is_empty() {
-                filter.status = Some(status.to_string());
-            }
+        if let Some(status) = self.status.as_deref().map(str::trim)
+            && !status.is_empty()
+        {
+            filter.status = Some(status.to_string());
         }
-        if let Some(method) = self.method.as_deref().map(str::trim) {
-            if !method.is_empty() {
-                filter.method = Some(method.to_string());
-            }
+        if let Some(method) = self.method.as_deref().map(str::trim)
+            && !method.is_empty()
+        {
+            filter.method = Some(method.to_string());
         }
-        if let Some(raw) = self.customer_id.as_deref().map(str::trim) {
-            if !raw.is_empty() {
-                filter.customer_id = Some(parse_uuid(raw, "customer_id")?);
-            }
+        if let Some(raw) = self.customer_id.as_deref().map(str::trim)
+            && !raw.is_empty()
+        {
+            filter.customer_id = Some(parse_uuid(raw, "customer_id")?);
         }
-        if let Some(raw) = self.receipt_no.as_deref().map(str::trim) {
-            if !raw.is_empty() {
-                filter.keyword = Some(raw.to_string());
-            }
+        if let Some(raw) = self.receipt_no.as_deref().map(str::trim)
+            && !raw.is_empty()
+        {
+            filter.keyword = Some(raw.to_string());
         }
-        if let Some(raw) = self.date_from.as_deref().map(str::trim) {
-            if !raw.is_empty() {
-                filter.date_from = Some(parse_date_arg(raw, "date_from")?);
-            }
+        if let Some(raw) = self.date_from.as_deref().map(str::trim)
+            && !raw.is_empty()
+        {
+            filter.date_from = Some(parse_date_arg(raw, "date_from")?);
         }
-        if let Some(raw) = self.date_to.as_deref().map(str::trim) {
-            if !raw.is_empty() {
-                filter.date_to = Some(parse_date_arg(raw, "date_to")?);
-            }
+        if let Some(raw) = self.date_to.as_deref().map(str::trim)
+            && !raw.is_empty()
+        {
+            filter.date_to = Some(parse_date_arg(raw, "date_to")?);
         }
         Ok(filter)
     }
 }
 
 /// 收款单分页（全部状态；财务要对账，作废的也要看得见）。
-pub async fn receipt_page(
-    q: &ReceiptFilter,
-) -> DbResult<(Vec<(ReceiptRow, String)>, i64)> {
+pub async fn receipt_page(q: &ReceiptFilter) -> DbResult<(Vec<(ReceiptRow, String)>, i64)> {
     let mut sql = format!("SELECT {LIST_COLUMNS} {LIST_FROM} WHERE p.deleted_at IS NULL");
     let mut params: Vec<Value> = Vec::new();
     if let Some(status) = q.status.as_deref() {
@@ -961,9 +957,15 @@ pub async fn receipt_page(
         sql.push_str(" AND p.receipt_date <= ?::text::date");
         params.push(Value::Text(to.to_string()));
     }
-    let result =
-        scope::paginate_unscoped(LIST_TARGET, &sql, params, Some(LIST_ORDER), q.page, q.page_size)
-            .await?;
+    let result = scope::paginate_unscoped(
+        LIST_TARGET,
+        &sql,
+        params,
+        Some(LIST_ORDER),
+        q.page,
+        q.page_size,
+    )
+    .await?;
     let rows = result
         .list
         .iter()
@@ -980,7 +982,9 @@ pub async fn receipt_page(
 /// 今日（CST）。
 fn today_cst() -> NaiveDate {
     Utc::now()
-        .with_timezone(&nik::prelude::chrono::FixedOffset::east_opt(8 * 3600).expect("CST 偏移恒定"))
+        .with_timezone(
+            &nik::prelude::chrono::FixedOffset::east_opt(8 * 3600).expect("CST 偏移恒定"),
+        )
         .date_naive()
 }
 
@@ -1698,7 +1702,12 @@ pub async fn receipt_page_handler(
         .iter()
         .map(|(row, name)| ReceiptRes::from_row(row, name))
         .collect();
-    Ok(Res::page(list, u64::try_from(total).unwrap_or(0), filter.page, filter.page_size))
+    Ok(Res::page(
+        list,
+        u64::try_from(total).unwrap_or(0),
+        filter.page,
+        filter.page_size,
+    ))
 }
 
 /// 核销到应收。
@@ -1829,7 +1838,10 @@ mod tests {
         assert_eq!(remaining_of(dec(1000.0), dec(1000.0)), Decimal::ZERO);
         assert_eq!(remaining_of(dec(0.0004), dec(0.0002)), dec(0.0002));
         assert_eq!(validate_amount(dec(0.0001)).expect("正数可过"), dec(0.0001));
-        assert!(validate_amount(Decimal::ZERO).is_err(), "0 元收款无业务含义");
+        assert!(
+            validate_amount(Decimal::ZERO).is_err(),
+            "0 元收款无业务含义"
+        );
         assert!(validate_amount(dec(-1.0)).is_err(), "负数收款要拒");
         assert!(
             validate_amount(Decimal::from(10_000_000_000_000i64)).is_err(),
@@ -1859,9 +1871,13 @@ mod tests {
         let err = validate_allocation_amount("AR-1", dec(600.0001), dec(600.0))
             .expect_err("超过未收余额必须拒");
         assert!(err.msg.contains("AR-1"), "文案要点名单号：{}", err.msg);
-        assert!(err.msg.contains("600.0001"), "文案要点名本次金额：{}", err.msg);
-        let zero = validate_allocation_amount("AR-1", Decimal::ZERO, dec(600.0))
-            .expect_err("0 核销要拒");
+        assert!(
+            err.msg.contains("600.0001"),
+            "文案要点名本次金额：{}",
+            err.msg
+        );
+        let zero =
+            validate_allocation_amount("AR-1", Decimal::ZERO, dec(600.0)).expect_err("0 核销要拒");
         assert!(zero.msg.contains("大于 0"), "{}", zero.msg);
     }
 
