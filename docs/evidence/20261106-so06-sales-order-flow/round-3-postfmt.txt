@@ -1,0 +1,48 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 28s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-67e4f09c2e780dae)
+
+running 39 tests
+test business::erp::sales_approval_bridge::db_tests::creator_cannot_approve_own_order ... ok
+test business::erp::sales_approval_bridge::db_tests::missing_flow_is_rejected_by_default ... ok
+test business::erp::sales_approval_bridge::db_tests::reject_returns_order_to_draft ... ok
+test business::erp::sales_approval_bridge::db_tests::three_tiers_start_flow_and_approve_to_approved ... ok
+test business::erp::sales_approval_bridge::tests::biz_type_and_flow_code_match_seed ... ok
+test business::erp::sales_approval_bridge::tests::form_data_exposes_numeric_amount ... ok
+test business::erp::sales_approval_bridge::tests::state_machine_allows_approval_edges ... ok
+test business::erp::sales_approval_bridge::tests::status_constants_are_exact ... ok
+test business::erp::sales_approval_bridge::tests::verdict_maps_only_final_states ... ok
+test business::erp::sales_model::tests::amount_identity_constraint_enforced_by_db ... ok
+test business::erp::sales_model::tests::defaults_delivered_guard_and_cascade_on_real_db ... ok
+test business::erp::sales_model::tests::delivered_qty_boundary ... ok
+test business::erp::sales_model::tests::format_and_parse_so_no_roundtrip ... ok
+test business::erp::sales_model::tests::next_so_no_generates_consecutive_numbers_on_real_db ... ok
+test business::erp::sales_model::tests::parse_so_no_rejects_malformed_values ... ok
+test business::erp::sales_model::tests::period_key_uses_beijing_day ... ok
+test business::erp::sales_model::tests::so_no_unique_among_live_rows_only ... ok
+test business::erp::sales_model::tests::status_domain_matches_check_constraint ... ok
+test business::erp::sales_model::tests::totals_consistency_is_exact ... ok
+test business::erp::sales_order_handler::tests::amounts_are_computed_server_side ... ok
+test business::erp::sales_order_handler::tests::cancel_requires_reason_after_submit ... ok
+test business::erp::sales_order_handler::tests::create_request_validation_rejects_bad_input ... ok
+test business::erp::sales_order_handler::tests::page_status_domain_is_checked_by_pure_rule ... ok
+test business::erp::sales_order_handler::tests::permission_codes_are_unique_and_prefixed ... ok
+test business::erp::sales_order_handler::tests::status_machine_main_chain_and_illegal_transitions ... ok
+test business::erp::sales_order_handler::tests::submit_guards_reject_empty_items_frozen_customer_and_credit_overflow ... ok
+test business::erp::sales_order_handler::tests::update_page_and_detail_work_end_to_end ... ok
+test business::erp::sales_order_model::tests::apply_status_is_compare_and_swap ... ok
+test business::erp::sales_order_model::tests::create_order_persists_header_items_and_log ... ok
+test business::erp::sales_order_model::tests::credit_occupying_statuses_are_declared ... ok
+test business::erp::sales_order_model::tests::customer_open_credit_counts_only_in_flight_orders ... ok
+test business::erp::sales_order_model::tests::illegal_transitions_rejected ... ok
+test business::erp::sales_order_model::tests::legal_edges_use_declared_status_domain ... ok
+test business::erp::sales_order_model::tests::line_amounts_round_per_line ... ok
+test business::erp::sales_order_model::tests::main_chain_edges_allowed ... ok
+test business::erp::sales_order_model::tests::open_qty_boundaries ... ok
+test business::erp::sales_order_model::tests::page_filters_so_no_status_and_customer ... ok
+test business::erp::sales_order_model::tests::totals_are_consistent_and_exact ... ok
+test business::erp::sales_order_model::tests::update_order_replaces_items_and_cas_on_draft ... ok
+
+test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 2700 filtered out; finished in 20.22s
+
+rc=0

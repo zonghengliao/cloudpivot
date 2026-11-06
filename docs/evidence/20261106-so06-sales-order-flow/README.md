@@ -55,6 +55,7 @@ DRAFT → SUBMITTED → APPROVED → PARTIAL_OUT → OUTBOUND
 | 文件 | 内容 |
 |---|---|
 | `round-1-unit-db.txt` / `round-2-unit-db.txt` | 同一个库（`cloudpivot_so06`）连跑两轮 `business::erp::sales*` → 各 **39 passed / 0 failed**（20.17s / 20.42s；耗时证明真库用例没被 SKIP）。含 5 条本卡单测：三档 1/2/3 跳 → APPROVED、驳回 → DRAFT、制单人自审 403、没配流程 409 |
+| `round-3-postfmt.txt` | `cargo fmt` 之后的复跑（**39 passed / 0 failed**，20.22s）—— 证明提交里的格式化改动没有语义变化 |
 | `curl-round-1.txt` / `curl-round-2.txt` | 真实 admin token 的 curl 实测，**两轮均「全部断言通过」（14 条 ✅）**：内控开 → 提交 422（唯一可审批人=制单人）；关内控 → 三档提交 200 + SUBMITTED；PATCH APPROVED/DRAFT → 400；内控开 → 自审 403/65019；关内控 → 1/2/3 跳全 APPROVED；驳回 → DRAFT + remark 带意见 + 可重提；重复提交 → 409 |
 | `regression-shared-flow.txt` | `business::shared` + `business::flow` + `business::erp::customer_` 回归 → **513 passed / 0 failed**（52.64s） |
 | `clean-db-apply.txt` | 干净库建成 + 迁移 APPLY_OK：`schema_migrations(max|count) = 281|209`，指纹里 `so_approve / n_sales,n_finance,n_gm / ROLE / ALLOW / AND` 三行齐全 |
