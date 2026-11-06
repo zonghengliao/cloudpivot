@@ -1,0 +1,25 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @cloudpivot/web@0.1.0 build /opt/cloudpivot/frontend
+> vue-tsc --noEmit && vite build
+
+vite v6.3.7 building for production...
+transforming...
+
+<--- Last few GCs --->
+
+[3793120:0x19940000]    27523 ms: Scavenge (during sweeping) 1518.5 (1539.3) -> 1517.3 (1541.1) MB, pooled: 0.0 MB, 11.90 / 0.00 ms (average mu = 0.357, current mu = 0.251) allocation failure; 
+[3793120:0x19940000]    28220 ms: Incremental Mark-Compact (reduce) 1524.4 (1545.6) -> 1520.0 (1538.8) MB, pooled: 0.0 MB, 24.23 / 0.00 ms (+ 596.4 ms in 101 steps since start of marking, biggest step 9.1 ms, walltime since start of marking 654 ms) (avera
+FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory
+----- Native stack trace -----
+
+ 1: 0x840124  [node]
+ 2: 0x840390 node::OOMErrorHandler(char const*, v8::OOMDetails const&) [node]
+ 3: 0xca2ae8  [node]
+ 4: 0xf02340  [node]
+ 5: 0xf005a0  [node]
+ 6: 0xe540dc  [node]
+ 7: 0x13463c0  [node]
+ 8: 0x1a82c8c  [node]
+Aborted (core dumped)
+ ELIFECYCLE  Command failed with exit code 134.

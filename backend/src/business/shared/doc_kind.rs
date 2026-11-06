@@ -114,11 +114,17 @@ pub enum DocKind {
     /// 所以本枚举**没有** `ExpensePayment` —— 付款凭证的 `source_type` 走
     /// [`VoucherSourceType::ExpensePayment`]，挂在本对象上。
     ExpenseReport,
+    /// 销售订单 `biz_sales_order`（销售链 · SO-04/SO-05）。
+    ///
+    /// 状态机 7 值（PRD §4.13.3）：`DRAFT`/`SUBMITTED`/`APPROVED`/`PARTIAL_OUT`/
+    /// `OUTBOUND`/`CLOSED`/`CANCELLED`，边表在 `state_machine::SALES_ORDER_EDGES`。
+    /// 明细 `biz_sales_order_item` 没有状态、也不单独记 `doc_type`（属单头）。
+    SaleOrder,
 }
 
 impl DocKind {
     /// 全部业务对象（顺序 = 声明顺序；前端 TS 常量表与巡检按此顺序逐字比对）。
-    pub const ALL: [DocKind; 18] = [
+    pub const ALL: [DocKind; 19] = [
         DocKind::PurchaseOrder,
         DocKind::StockIn,
         DocKind::StockOut,
@@ -137,6 +143,7 @@ impl DocKind {
         DocKind::FixedAsset,
         DocKind::Depreciation,
         DocKind::ExpenseReport,
+        DocKind::SaleOrder,
     ];
 
     /// 落库值（大写下划线）。**唯一拼写**。
@@ -160,6 +167,7 @@ impl DocKind {
             DocKind::FixedAsset => "FIXED_ASSET",
             DocKind::Depreciation => "DEPRECIATION",
             DocKind::ExpenseReport => "EXPENSE_REPORT",
+            DocKind::SaleOrder => "SALE_ORDER",
         }
     }
 
@@ -184,6 +192,7 @@ impl DocKind {
             DocKind::FixedAsset => "固定资产",
             DocKind::Depreciation => "折旧批次",
             DocKind::ExpenseReport => "费用报销单",
+            DocKind::SaleOrder => "销售订单",
         }
     }
 
@@ -207,6 +216,7 @@ impl DocKind {
             DocKind::FixedAsset => "biz_fixed_asset",
             DocKind::Depreciation => "biz_depreciation_batch",
             DocKind::ExpenseReport => "biz_expense_report",
+            DocKind::SaleOrder => "biz_sales_order",
             // 年结没有实体表：状态记在 `biz_status_log`，`entity_id` 存结转凭证 id
             DocKind::AccountingYear => return None,
         })
@@ -229,6 +239,7 @@ impl DocKind {
                 | DocKind::FixedAsset
                 | DocKind::Depreciation
                 | DocKind::ExpenseReport
+                | DocKind::SaleOrder
         )
     }
 
@@ -247,6 +258,7 @@ impl DocKind {
             DocKind::FixedAsset => "fixed-asset",
             DocKind::Depreciation => "depreciation",
             DocKind::ExpenseReport => "expense",
+            DocKind::SaleOrder => "sales-order",
             _ => return None,
         })
     }
@@ -1100,7 +1112,7 @@ pub struct ColumnDomain {
     pub axis: &'static str,
 }
 
-const DOC_KIND_VALUES: [&str; 18] = [
+const DOC_KIND_VALUES: [&str; 19] = [
     "PURCHASE_ORDER",
     "STOCK_IN",
     "STOCK_OUT",
@@ -1119,6 +1131,7 @@ const DOC_KIND_VALUES: [&str; 18] = [
     "FIXED_ASSET",
     "DEPRECIATION",
     "EXPENSE_REPORT",
+    "SALE_ORDER",
 ];
 
 const FLOW_BIZ_TYPE_VALUES: [&str; 15] = [

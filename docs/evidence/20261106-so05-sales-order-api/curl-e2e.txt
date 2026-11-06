@@ -1,0 +1,107 @@
+
+===== ① 登录（admin / Admin@123456）→ 首登强制改密（bootstrap 种子的 must_change_password） =====
+code=0 token_len=461 must_change_password=false
+
+===== ② 建客户（SO-02 接口，额度 1000） =====
+--- POST /business/erp/customer
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aeab-8f63-73d8-a610-0f0756098f42","code":"E2E-SO5-3771898","name":"SO-05 实测客户","tax_no":null,"contact_name":null,"contact_phone":null,"address":null,"credit_limit":"1000.0000","status":"ACTIVE","remark":null,"created_at":"2026-11-06T02:24:01.380271Z","updated_at":"2026-11-06T02:24:01.380271Z"}}
+customer_id=01a1aeab-8f63-73d8-a610-0f0756098f42
+
+===== ③ 建单：0 行明细 → 400 =====
+--- POST /sales-order（空明细）
+HTTP 400 (期望 400)
+{"code":10001,"msg":"销售订单至少要 1 行明细（明细为空的订单提交上去，审批人批的是一张空单）"}
+
+===== ④ 建单：正常 2 行（金额由服务端算：2×100 + 13% 税 = 226） =====
+--- POST /sales-order
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aeab-8f84-7255-8af0-d88ea35daa34","so_no":"SO-20261106-000045","customer_id":"01a1aeab-8f63-73d8-a610-0f0756098f42","customer_code":"E2E-SO5-3771898","customer_name":"SO-05 实测客户","order_date":"2026-11-06","delivery_date":"2026-11-20","status":"DRAFT","status_label":"草稿","total_amount":"205.0000","total_tax":"26.0000","total_with_tax":"231.0000","remark":"curl 实测","created_at":"2026-11-06T02:24:01.409157Z","updated_at":"2026-11-06T02:24:01.409157Z","items":[{"id":"0b724006-0f98-4873-9982-6e7650cc671a","line_no":1,"material_id":"d5050000-0000-4000-8000-000000000001","qty":"2.0000","price":"100.000000","amount":"200.0000","tax_rate":"13.0000","tax_amount":"26.0000","delivered_qty":"0.0000","open_qty":"2.0000"},{"id":"e18dc328-ebf2-4cac-94ef-d0c3de420bfe","line_no":2,"material_id":"d5050000-0000-4000-8000-000000000002","qty":"5.0000","price":"1.000000","amount":"5.0000","tax_rate":"0.0000","tax_amount":"0.0000","delivered_qty":"0.0000","open_qty":"5.0000"}]}}
+so_id=01a1aeab-8f84-7255-8af0-d88ea35daa34 so_no=SO-20261106-000045 status=DRAFT total_with_tax=231.0000
+
+===== ⑤ 详情 =====
+--- GET /sales-order/{id}
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aeab-8f84-7255-8af0-d88ea35daa34","so_no":"SO-20261106-000045","customer_id":"01a1aeab-8f63-73d8-a610-0f0756098f42","customer_code":"E2E-SO5-3771898","customer_name":"SO-05 实测客户","order_date":"2026-11-06","delivery_date":"2026-11-20","status":"DRAFT","status_label":"草稿","total_amount":"205.0000","total_tax":"26.0000","total_with_tax":"231.0000","remark":"curl 实测","created_at":"2026-11-06T02:24:01.409157Z","updated_at":"2026-11-06T02:24:01.409157Z","items":[{"id":"0b724006-0f98-4873-9982-6e7650cc671a","line_no":1,"material_id":"d5050000-0000-4000-8000-000000000001","qty":"2.0000","price":"100.000000","amount":"200.0000","tax_rate":"13.0000","tax_amount":"26.0000","delivered_qty":"0.0000","open_qty":"2.0000"},{"id":"e18dc328-ebf2-4cac-94ef-d0c3de420bfe","line_no":2,"material_id":"d5050000-0000-4000-8000-000000000002","qty":"5.0000","price":"1.000000","amount":"5.0000","tax_rate":"0.0000","tax_amount":"0.0000","delivered_qty":"0.0000","open_qty":"5.0000"}]}}
+
+===== ⑥ 改单（明细整单替换为 1 行） =====
+--- PUT /sales-order/{id}
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aeab-8f84-7255-8af0-d88ea35daa34","so_no":"SO-20261106-000045","customer_id":"01a1aeab-8f63-73d8-a610-0f0756098f42","customer_code":"E2E-SO5-3771898","customer_name":"SO-05 实测客户","order_date":"2026-11-06","delivery_date":"2026-11-20","status":"DRAFT","status_label":"草稿","total_amount":"150.0000","total_tax":"19.5000","total_with_tax":"169.5000","remark":"改单：单行 3×50","created_at":"2026-11-06T02:24:01.409157Z","updated_at":"2026-11-06T02:24:01.452869Z","items":[{"id":"f42cd5d9-0b76-4c5e-b6a6-667e0ac23ff3","line_no":1,"material_id":"d5050000-0000-4000-8000-000000000001","qty":"3.0000","price":"50.000000","amount":"150.0000","tax_rate":"13.0000","tax_amount":"19.5000","delivered_qty":"0.0000","open_qty":"3.0000"}]}}
+
+===== ⑦ 分页（单号模糊 + 客户精确） =====
+--- GET /sales-order/page
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"list":[{"id":"01a1aeab-8f84-7255-8af0-d88ea35daa34","so_no":"SO-20261106-000045","customer_id":"01a1aeab-8f63-73d8-a610-0f0756098f42","customer_code":"E2E-SO5-3771898","customer_name":"SO-05 实测客户","order_date":"2026-11-06","delivery_date":"2026-11-20","status":"DRAFT","status_label":"草稿","total_amount":"150.0000","total_tax":"19.5000","total_with_tax":"169.5000","remark":"改单：单行 3×50","created_at":"2026-11-06T02:24:01.409157Z","updated_at":"2026-11-06T02:24:01.452869Z","items":[]}],"total":1,"page":1,"page_size":10}}
+
+===== ⑧ 非法迁移：DRAFT → APPROVED（跳步）→ 409 =====
+--- PATCH /sales-order/{id}/status（跳步）
+HTTP 409 (期望 409)
+{"code":10003,"msg":"非法状态迁移：草稿（DRAFT）→ 已审批（APPROVED）不在合法边表里；当前可流转到：SUBMITTED（已提交） / CANCELLED（已取消）"}
+
+===== ⑨ 域外状态值：SHIPPED（技术架构旧稿）→ 400 =====
+--- PATCH /sales-order/{id}/status（SHIPPED）
+HTTP 400 (期望 400)
+{"code":10001,"msg":"target_status 必须是 DRAFT / SUBMITTED / APPROVED / PARTIAL_OUT / OUTBOUND / CLOSED / CANCELLED 之一（当前 `SHIPPED`）"}
+
+===== ⑩ 合法边：DRAFT → SUBMITTED =====
+--- PATCH /sales-order/{id}/status（提交）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aeab-8f84-7255-8af0-d88ea35daa34","so_no":"SO-20261106-000045","customer_id":"01a1aeab-8f63-73d8-a610-0f0756098f42","customer_code":"E2E-SO5-3771898","customer_name":"SO-05 实测客户","order_date":"2026-11-06","delivery_date":"2026-11-20","status":"SUBMITTED","status_label":"已提交","total_amount":"150.0000","total_tax":"19.5000","total_with_tax":"169.5000","remark":"改单：单行 3×50","created_at":"2026-11-06T02:24:01.409157Z","updated_at":"2026-11-06T02:24:01.508619Z","items":[{"id":"f42cd5d9-0b76-4c5e-b6a6-667e0ac23ff3","line_no":1,"material_id":"d5050000-0000-4000-8000-000000000001","qty":"3.0000","price":"50.000000","amount":"150.0000","tax_rate":"13.0000","tax_amount":"19.5000","delivered_qty":"0.0000","open_qty":"3.0000"}]}}
+
+===== ⑪ 提交后改单 → 409（只有 DRAFT 能改） =====
+--- PUT /sales-order/{id}（非草稿）
+HTTP 409 (期望 409)
+{"code":10003,"msg":"只有草稿（DRAFT）能改：当前状态是 已提交（SUBMITTED）。已提交 / 已审批的单据要改，请先作废再重建（销售订单没有「打回草稿」的边）"}
+
+===== ⑫ SUBMITTED → CANCELLED 缺原因 → 400 =====
+--- PATCH /status（缺原因）
+HTTP 400 (期望 400)
+{"code":10001,"msg":"已提交（SUBMITTED）→ 已取消（CANCELLED）必须给出原因（reason）：这条边会影响客户额度占用 / 未发数量，对账时要能回答「为什么」"}
+
+===== ⑬ SUBMITTED → APPROVED =====
+--- PATCH /status（审批通过）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aeab-8f84-7255-8af0-d88ea35daa34","so_no":"SO-20261106-000045","customer_id":"01a1aeab-8f63-73d8-a610-0f0756098f42","customer_code":"E2E-SO5-3771898","customer_name":"SO-05 实测客户","order_date":"2026-11-06","delivery_date":"2026-11-20","status":"APPROVED","status_label":"已审批","total_amount":"150.0000","total_tax":"19.5000","total_with_tax":"169.5000","remark":"改单：单行 3×50","created_at":"2026-11-06T02:24:01.409157Z","updated_at":"2026-11-06T02:24:01.550392Z","items":[{"id":"f42cd5d9-0b76-4c5e-b6a6-667e0ac23ff3","line_no":1,"material_id":"d5050000-0000-4000-8000-000000000001","qty":"3.0000","price":"50.000000","amount":"150.0000","tax_rate":"13.0000","tax_amount":"19.5000","delivered_qty":"0.0000","open_qty":"3.0000"}]}}
+
+===== ⑭ APPROVED → CANCELLED 带原因 → 200 =====
+--- PATCH /status（审批后作废）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aeab-8f84-7255-8af0-d88ea35daa34","so_no":"SO-20261106-000045","customer_id":"01a1aeab-8f63-73d8-a610-0f0756098f42","customer_code":"E2E-SO5-3771898","customer_name":"SO-05 实测客户","order_date":"2026-11-06","delivery_date":"2026-11-20","status":"CANCELLED","status_label":"已取消","total_amount":"150.0000","total_tax":"19.5000","total_with_tax":"169.5000","remark":"改单：单行 3×50","created_at":"2026-11-06T02:24:01.409157Z","updated_at":"2026-11-06T02:24:01.567875Z","items":[{"id":"f42cd5d9-0b76-4c5e-b6a6-667e0ac23ff3","line_no":1,"material_id":"d5050000-0000-4000-8000-000000000001","qty":"3.0000","price":"50.000000","amount":"150.0000","tax_rate":"13.0000","tax_amount":"19.5000","delivered_qty":"0.0000","open_qty":"3.0000"}]}}
+
+===== ⑮ 终态 CANCELLED → SUBMITTED → 409（终态不可出边） =====
+--- PATCH /status（终态出边）
+HTTP 409 (期望 409)
+{"code":10003,"msg":"销售订单 SO-20261106-000045 已是终态 已取消（CANCELLED），不能再流转"}
+
+===== ⑯ 客户冻结 → 建单 409 =====
+--- PUT /customer/{id}（冻结）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aeab-8f63-73d8-a610-0f0756098f42","code":"E2E-SO5-3771898","name":"SO-05 实测客户","tax_no":null,"contact_name":null,"contact_phone":null,"address":null,"credit_limit":"1000.0000","status":"FROZEN","remark":null,"created_at":"2026-11-06T02:24:01.380271Z","updated_at":"2026-11-06T02:24:01.595403Z"}}
+--- POST /sales-order（冻结客户）
+HTTP 409 (期望 409)
+{"code":10003,"msg":"客户 `E2E-SO5-3771898`（SO-05 实测客户）已冻结，不能开新销售订单；冻结客户的历史单据不受影响"}
+--- PUT /customer/{id}（恢复）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aeab-8f63-73d8-a610-0f0756098f42","code":"E2E-SO5-3771898","name":"SO-05 实测客户","tax_no":null,"contact_name":null,"contact_phone":null,"address":null,"credit_limit":"1000.0000","status":"ACTIVE","remark":null,"created_at":"2026-11-06T02:24:01.380271Z","updated_at":"2026-11-06T02:24:01.619835Z"}}
+
+===== ⑰ 信用额度：额度改成 50，建单 113 → 提交 409 =====
+--- PUT /customer/{id}（额度 50）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aeab-8f63-73d8-a610-0f0756098f42","code":"E2E-SO5-3771898","name":"SO-05 实测客户","tax_no":null,"contact_name":null,"contact_phone":null,"address":null,"credit_limit":"50.0000","status":"ACTIVE","remark":null,"created_at":"2026-11-06T02:24:01.380271Z","updated_at":"2026-11-06T02:24:01.632248Z"}}
+--- POST /sales-order（113）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aeab-906d-75da-bc83-c785dfce6924","so_no":"SO-20261106-000046","customer_id":"01a1aeab-8f63-73d8-a610-0f0756098f42","customer_code":"E2E-SO5-3771898","customer_name":"SO-05 实测客户","order_date":"2026-11-06","delivery_date":null,"status":"DRAFT","status_label":"草稿","total_amount":"100.0000","total_tax":"13.0000","total_with_tax":"113.0000","remark":null,"created_at":"2026-11-06T02:24:01.644240Z","updated_at":"2026-11-06T02:24:01.644240Z","items":[{"id":"2b95c6ed-9b7f-4b83-9d8a-d4c5a811df6f","line_no":1,"material_id":"d5050000-0000-4000-8000-000000000001","qty":"1.0000","price":"100.000000","amount":"100.0000","tax_rate":"13.0000","tax_amount":"13.0000","delivered_qty":"0.0000","open_qty":"1.0000"}]}}
+--- PATCH /status（超额提交）
+HTTP 409 (期望 409)
+{"code":10003,"msg":"客户 `E2E-SO5-3771898`（SO-05 实测客户）信用额度不足：额度 50.0000，在手订单已占 0，本单 SO-20261106-000046 价税合计 113.0000，合计 113.0000 超出 63.0000；请先收款 / 关闭旧单，或由管理员调高额度"}
+
+===== ⑱ 提交成功后释放额度：额度调回 0（不控额度）再提交 → 200 =====
+--- PUT /customer/{id}（额度 0 = 不控）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aeab-8f63-73d8-a610-0f0756098f42","code":"E2E-SO5-3771898","name":"SO-05 实测客户","tax_no":null,"contact_name":null,"contact_phone":null,"address":null,"credit_limit":"0.0000","status":"ACTIVE","remark":null,"created_at":"2026-11-06T02:24:01.380271Z","updated_at":"2026-11-06T02:24:01.674885Z"}}
+--- PATCH /status（不控额度提交）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aeab-906d-75da-bc83-c785dfce6924","so_no":"SO-20261106-000046","customer_id":"01a1aeab-8f63-73d8-a610-0f0756098f42","customer_code":"E2E-SO5-3771898","customer_name":"SO-05 实测客户","order_date":"2026-11-06","delivery_date":null,"status":"SUBMITTED","status_label":"已提交","total_amount":"100.0000","total_tax":"13.0000","total_with_tax":"113.0000","remark":null,"created_at":"2026-11-06T02:24:01.644240Z","updated_at":"2026-11-06T02:24:01.687263Z","items":[{"id":"2b95c6ed-9b7f-4b83-9d8a-d4c5a811df6f","line_no":1,"material_id":"d5050000-0000-4000-8000-000000000001","qty":"1.0000","price":"100.000000","amount":"100.0000","tax_rate":"13.0000","tax_amount":"13.0000","delivered_qty":"0.0000","open_qty":"1.0000"}]}}
+
+=== 全部断言通过（含 409 非法迁移 / 400 域外值 / 400 缺原因 / 409 守卫）===

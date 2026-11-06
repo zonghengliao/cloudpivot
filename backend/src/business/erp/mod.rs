@@ -158,6 +158,8 @@ pub mod report;
 pub mod report_item_admin;
 pub mod report_item_model;
 pub mod sales_model;
+pub mod sales_order_handler;
+pub mod sales_order_model;
 pub mod separation;
 pub mod serial_dto;
 pub mod serial_handler;

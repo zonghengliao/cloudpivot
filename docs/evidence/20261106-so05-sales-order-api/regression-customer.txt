@@ -1,0 +1,18 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-67e4f09c2e780dae)
+
+running 11 tests
+test business::erp::customer_handler::tests::create_customer_persists_all_fields ... ok
+test business::erp::customer_handler::tests::duplicate_code_rejected_and_reusable_after_soft_delete ... ok
+test business::erp::customer_handler::tests::negative_credit_limit_rejected_zero_allowed ... ok
+test business::erp::customer_handler::tests::page_filters_by_code_name_and_status ... ok
+test business::erp::customer_handler::tests::permission_codes_are_unique_and_prefixed ... ok
+test business::erp::customer_handler::tests::soft_delete_hides_row_but_keeps_it ... ok
+test business::erp::customer_handler::tests::update_is_partial_and_checks_code_uniqueness ... ok
+test business::erp::customer_model::tests::columns_cover_every_v0260_field ... ok
+test business::erp::customer_model::tests::credit_limit_guard_boundary ... ok
+test business::erp::customer_model::tests::normalize_code_only_trims ... ok
+test business::erp::customer_model::tests::status_domain_matches_check_constraint ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 2719 filtered out; finished in 2.84s
+

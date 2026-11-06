@@ -586,6 +586,12 @@ pub const TRIGGER_EXEMPT: &[&str] = &[
     // ARCH-6 §3：预算审批的结果是「额度状态翻 ACTIVE」，没有任何业务单据跟着变状态；
     // 预算的到期/超额提醒走 `biz_business_reminder`（V0210 那套），不挂在单据联动上。
     state_machine::ENTITY_BUDGET,
+    // 销售链 SO-05：销售订单的状态流转入口（`sales_order_handler`）**不调联动引擎** ——
+    // 本卡只交付单据 + 状态机，出库联动 / 通知 / 生成凭证都在后续卡（S3-05 出库过账卡）。
+    // 登记在白名单里却没人调引擎 = 「配了规则能保存、永远不触发」（P1-FIX-5C 那个病），
+    // 所以这里显式豁免；等出库过账卡真的接上引擎时，把它从这里移到 `TRIGGER_SPECS`
+    // 并给出 `wired = true` + `proofs`（漂移守卫会同时要求两者）。
+    state_machine::ENTITY_SALES_ORDER,
 ];
 
 /// 配置变更审计写 `biz_status_log` 时用的 `entity_type`。

@@ -56,6 +56,7 @@ export const DOC_KINDS = [
   'FIXED_ASSET',
   'DEPRECIATION',
   'EXPENSE_REPORT',
+  'SALE_ORDER',
 ] as const;
 
 /** 业务对象类型（联合类型 —— 写错编译期就报错）。 */
@@ -81,6 +82,7 @@ export const DOC_KIND_LABELS: Readonly<Record<DocKind, string>> = {
   FIXED_ASSET: '固定资产',
   DEPRECIATION: '折旧批次',
   EXPENSE_REPORT: '费用报销单',
+  SALE_ORDER: '销售订单',
 };
 
 /**
@@ -113,6 +115,7 @@ export const DOC_KIND_TABLES: Readonly<Partial<Record<DocKind, string>>> = {
   BUDGET: 'biz_budget',
   FIXED_ASSET: 'biz_fixed_asset',
   DEPRECIATION: 'biz_depreciation_batch',
+  SALE_ORDER: 'biz_sales_order',
 };
 
 /**
