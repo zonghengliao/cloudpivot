@@ -413,11 +413,31 @@ pub struct NewReceivable<'a> {
 ///
 /// 金额恒等式在这里算好一起写：`unsettled_amount = amount - received_amount`
 /// （只给 amount 会让 unsettled 落到默认 0 而被 `ck_biz_ar_unsettled` 拒成 23514）。
+///
+/// 建单日志的来源说明固定写「手工挂账」—— 自动挂账（销售出库过账）走
+/// [`insert_with_reason`]，别为了改一句日志文案去抄整个 INSERT。
 pub async fn insert(
     ex: &impl SqlExecutor,
     new: &NewReceivable<'_>,
     operator: Option<Uuid>,
     now: DateTime<Utc>,
+) -> DbResult<(Uuid, String)> {
+    insert_with_reason(ex, new, operator, now, CREATED_REASON_MANUAL).await
+}
+
+/// 建单状态日志的来源说明（手工挂账）。
+pub const CREATED_REASON_MANUAL: &str = "手工挂账";
+
+/// [`insert`] 的可定制说明版：`created_reason` 落 `biz_status_log.reason`
+/// （`NULL → OPEN` 那条），用于区分「手工挂账」与「销售出库过账自动挂账」（SO-14）。
+///
+/// 除了那一句说明，两个入口的落库行为**完全一致**（同一个 INSERT、同一条状态日志）。
+pub async fn insert_with_reason(
+    ex: &impl SqlExecutor,
+    new: &NewReceivable<'_>,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+    created_reason: &str,
 ) -> DbResult<(Uuid, String)> {
     let ar_no = next_receivable_no(ex, now).await?;
     let amount = new.amount.round_dp(4);
@@ -479,7 +499,7 @@ pub async fn insert(
                 &ar_no,
                 STATUS_OPEN,
                 operator,
-                Some("手工挂账"),
+                Some(created_reason),
             )
             .await
             .map_err(|error| DbError::InvalidValue(format!("[{}] {}", error.code, error.msg)))?;

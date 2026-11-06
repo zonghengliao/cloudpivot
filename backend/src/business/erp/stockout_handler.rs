@@ -446,6 +446,8 @@ pub async fn delete_stock_out(
 ///     → 明细回写 unit_cost / amount
 /// ④ 单头 total_amount
 /// ⑤ 成本结转凭证（借方 6401 / 1901，贷 1405；差额 ≤ 0 跳过）→ 回写 voucher_id
+/// ⑤b 销售出库（`source_type='SALES'`）→ 自动挂应收（`receivable_bridge`，SO-14）
+/// ⑥ 跨单据联动（排除库存 / 凭证四类动作；AfterCommit 动作由调用方在 commit 后跑）
 /// ```
 pub async fn post_stock_out(
     id: Uuid,
@@ -810,6 +812,23 @@ async fn post_out_tx(
             .await
             .map_err(|error| write_error(error, "过账：回写凭证引用"))?;
     }
+    // ⑤b 销售出库 → 应收挂账（SO-14）：判据是出库单的 `source_type='SALES'`（V0285），
+    //     不是 out_type。与 ②③ 同一事务：挂账失败（客户不存在 / 发货单缺失 / 库层约束）
+    //     直接 Err → 调用方回滚，库存与成本凭证一起消失（不许出现「货出了、应收没挂」）。
+    //     幂等三道闸在 receivable_bridge 里（已有行 → 跳过；并发撞 `uk_biz_ar_source` → 按已挂上处理）。
+    let receivable =
+        crate::business::erp::receivable_bridge::post_in_tx(ex, id, operator.id, now).await?;
+    if let Some(bridged) = receivable.as_ref() {
+        tracing::info!(
+            stock_out_id = %id,
+            out_no = %header.out_no,
+            ar_no = %bridged.ar_no,
+            amount = %bridged.amount,
+            created = bridged.created,
+            "销售出库过账：应收已挂账"
+        );
+    }
+
     tracing::info!(
         stock_out_id = %id,
         out_no = %header.out_no,
@@ -817,6 +836,7 @@ async fn post_out_tx(
         total_qty = %header.total_qty,
         total_amount = %total_amount,
         voucher = voucher_id.map(|v| v.to_string()).unwrap_or_default(),
+        receivable = receivable.as_ref().map(|r| r.ar_no.clone()).unwrap_or_default(),
         "出库单过账完成：三本账已负向，成本结转凭证已生成"
     );
 

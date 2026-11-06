@@ -41,9 +41,10 @@ pub use crate::business::erp::model_base::{DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, nor
 
 // ==================== 常量 ====================
 
-/// `biz_customer` 列清单（与 V0260 逐列对应，顺序无关）。
+/// `biz_customer` 列清单（与 V0260 + V0289 逐列对应，顺序无关）。
 pub const CUSTOMER_COLUMNS: &str = "id, code, name, tax_no, contact_name, contact_phone, address, \
-     credit_limit, status, remark, created_at, updated_at, create_by, update_by, deleted_at";
+     credit_days, credit_limit, status, remark, created_at, updated_at, create_by, update_by, \
+     deleted_at";
 
 /// 状态域值：正常（可开新单）。
 pub const STATUS_ACTIVE: &str = "ACTIVE";
@@ -75,6 +76,14 @@ pub fn credit_limit_allowed(value: Decimal) -> bool {
     value >= Decimal::ZERO
 }
 
+/// 账期天数守卫：`>= 0`（DDL 的 `ck_biz_customer_credit_days` 只是兜底，入口先拒）。
+///
+/// `0` 合法且语义是「现结」（到期日 = 过账日），与 `biz_supplier.credit_days` 同口径；
+/// 不设上限（供应商那边也没有）—— 真要按天封顶是业务配置，不是主数据约束。
+pub fn credit_days_allowed(value: i32) -> bool {
+    value >= 0
+}
+
 // ==================== 行结构 ====================
 
 /// `biz_customer` 一行。
@@ -94,6 +103,8 @@ pub struct CustomerRow {
     pub contact_phone: Option<String>,
     /// 地址。
     pub address: Option<String>,
+    /// 账期天数（`>= 0`，`0` = 现结；销售出库挂应收据此算到期日）。
+    pub credit_days: i32,
     /// 信用额度（`NUMERIC(18,4)`，`0` = 不控额度）。
     pub credit_limit: Decimal,
     /// 状态：`ACTIVE` / `FROZEN`。
@@ -123,6 +134,7 @@ impl CustomerRow {
             contact_name: row.get_typed("contact_name")?,
             contact_phone: row.get_typed("contact_phone")?,
             address: row.get_typed("address")?,
+            credit_days: row.get_typed("credit_days")?,
             credit_limit: row.get_typed("credit_limit")?,
             status: row.get_typed("status")?,
             remark: row.get_typed("remark")?,
@@ -233,6 +245,8 @@ pub struct CustomerWrite {
     pub contact_phone: Option<String>,
     /// 地址（空串 → NULL）。
     pub address: Option<String>,
+    /// 账期天数（`>= 0`，`0` = 现结）。
+    pub credit_days: i32,
     /// 信用额度（`>= 0`）。
     pub credit_limit: Decimal,
     /// 状态（`ACTIVE` / `FROZEN`）。
@@ -253,8 +267,8 @@ pub async fn customer_insert(
     db().execute_with_params(
         "INSERT INTO biz_customer \
              (id, code, name, tax_no, contact_name, contact_phone, address, \
-              credit_limit, status, remark, created_at, updated_at, create_by, update_by) \
-             VALUES (?::uuid, ?, ?, ?, ?, ?, ?, ?::text::numeric, ?, ?, now(), now(), \
+              credit_days, credit_limit, status, remark, created_at, updated_at, create_by, update_by) \
+             VALUES (?::uuid, ?, ?, ?, ?, ?, ?, ?, ?::text::numeric, ?, ?, now(), now(), \
                      NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)",
         vec![
             Value::from(&id),
@@ -264,6 +278,7 @@ pub async fn customer_insert(
             Value::from(write.contact_name.clone()),
             Value::from(write.contact_phone.clone()),
             Value::from(write.address.clone()),
+            Value::from(write.credit_days),
             Value::Text(write.credit_limit.to_string()),
             Value::from(write.status.clone()),
             Value::from(write.remark.clone()),
@@ -280,27 +295,28 @@ pub async fn customer_update(
     write: &CustomerWrite,
     operator: Option<Uuid>,
 ) -> DbResult<u64> {
-    db()
-        .execute_with_params(
-            "UPDATE biz_customer SET code = ?, name = ?, tax_no = ?, contact_name = ?, \
-             contact_phone = ?, address = ?, credit_limit = ?::text::numeric, status = ?, remark = ?, \
+    db().execute_with_params(
+        "UPDATE biz_customer SET code = ?, name = ?, tax_no = ?, contact_name = ?, \
+             contact_phone = ?, address = ?, credit_days = ?, credit_limit = ?::text::numeric, \
+             status = ?, remark = ?, \
              updated_at = now(), update_by = NULLIF(?::text,'')::uuid \
              WHERE id = ?::uuid AND deleted_at IS NULL",
-            vec![
-                Value::from(write.code.clone()),
-                Value::from(write.name.clone()),
-                Value::from(write.tax_no.clone()),
-                Value::from(write.contact_name.clone()),
-                Value::from(write.contact_phone.clone()),
-                Value::from(write.address.clone()),
-                Value::Text(write.credit_limit.to_string()),
-                Value::from(write.status.clone()),
-                Value::from(write.remark.clone()),
-                uuid_text(operator),
-                Value::from(&id),
-            ],
-        )
-        .await
+        vec![
+            Value::from(write.code.clone()),
+            Value::from(write.name.clone()),
+            Value::from(write.tax_no.clone()),
+            Value::from(write.contact_name.clone()),
+            Value::from(write.contact_phone.clone()),
+            Value::from(write.address.clone()),
+            Value::from(write.credit_days),
+            Value::Text(write.credit_limit.to_string()),
+            Value::from(write.status.clone()),
+            Value::from(write.remark.clone()),
+            uuid_text(operator),
+            Value::from(&id),
+        ],
+    )
+    .await
 }
 
 /// 软删（已删 / 不存在 → 返回 0，由 handler 翻 404）。
@@ -363,6 +379,16 @@ mod tests {
         assert!(!credit_limit_allowed(Decimal::from(-1)));
     }
 
+    /// 账期天数边界：`0`（现结）合法，负数不合法 —— 与 `ck_biz_customer_credit_days` 同域。
+    #[test]
+    fn credit_days_guard_boundary() {
+        assert!(credit_days_allowed(0));
+        assert!(credit_days_allowed(1));
+        assert!(credit_days_allowed(3650));
+        assert!(!credit_days_allowed(-1));
+        assert!(!credit_days_allowed(i32::MIN));
+    }
+
     /// 列清单必须覆盖 V0260 的全部列（漏一列 = `from_row` 运行时炸，这里提前钉住）。
     #[test]
     fn columns_cover_every_v0260_field() {
@@ -374,6 +400,7 @@ mod tests {
             "contact_name",
             "contact_phone",
             "address",
+            "credit_days",
             "credit_limit",
             "status",
             "remark",

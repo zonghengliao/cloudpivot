@@ -74,6 +74,7 @@
 //! | [`receivable`] | 应收单写侧（V0287）：手工挂账（`AR-yyyyMMdd-000001` / MANUAL 来源）+ 坏账核销（`WRITTEN_OFF` + 必须给原因） | **SO-13** |
 //! | [`receivable_query`] | 应收查询：分页 + 详情（含客户名 / 关联凭证号），只读 | **SO-13** |
 //! | [`receivable_aging`] | 应收账款**账龄分析**：分档与 `payable_aging` **同源**（同一份 BUCKETS / bucket_of / bucket_case_sql） | **SO-13** |
+//! | [`receivable_bridge`] | 销售出库过账 → **自动挂应收**（`source_type='SALES_OUT'`，与库存扣减 / 成本结转凭证同一事务；幂等靠 `uk_biz_ar_source`） | **SO-14** |
 //!
 //! # 表结构的唯一依据
 //!
@@ -156,6 +157,7 @@ pub mod purchase_handler;
 pub mod purchase_model;
 pub mod receivable;
 pub mod receivable_aging;
+pub mod receivable_bridge;
 pub mod receivable_query;
 pub mod reminder;
 pub mod reminder_contract;

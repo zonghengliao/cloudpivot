@@ -126,6 +126,16 @@ fn require_credit_limit(value: Decimal) -> std::result::Result<(), ApiError> {
     )))
 }
 
+/// 账期天数：`>= 0`（`0` = 现结，到期日 = 过账日）。
+fn require_credit_days(value: i32) -> std::result::Result<(), ApiError> {
+    if customer_model::credit_days_allowed(value) {
+        return Ok(());
+    }
+    Err(bad_request(format!(
+        "credit_days 不能为负数（当前 {value}）；0 表示现结（到期日 = 过账日）"
+    )))
+}
+
 /// 路径里的 UUID：非法 → `400 + 66006`（绝不静默当作「没传」）。
 fn parse_uuid(raw: &str, field: &str) -> std::result::Result<Uuid, ApiError> {
     let text = raw.trim();
@@ -248,6 +258,9 @@ pub struct CreateCustomerReq {
     /// 地址（`VARCHAR(255)`）。
     #[serde(default)]
     pub address: Option<String>,
+    /// 账期天数（`>= 0`，**留空 = 0 = 现结**）。
+    #[serde(default)]
+    pub credit_days: Option<i32>,
     /// 信用额度（`>= 0`，**`0` / 留空 = 不控额度**）。
     #[serde(default)]
     pub credit_limit: Option<Decimal>,
@@ -268,6 +281,9 @@ impl CreateCustomerReq {
         check_optional_text(self.contact_name.as_deref(), "contact_name", 50)?;
         check_optional_text(self.contact_phone.as_deref(), "contact_phone", 30)?;
         check_optional_text(self.address.as_deref(), "address", 255)?;
+        if let Some(credit_days) = self.credit_days {
+            require_credit_days(credit_days)?;
+        }
         if let Some(credit_limit) = self.credit_limit {
             require_credit_limit(credit_limit)?;
         }
@@ -304,6 +320,9 @@ pub struct UpdateCustomerReq {
     /// 地址（传空串 = 清空）。
     #[serde(default)]
     pub address: Option<String>,
+    /// 账期天数（不传 = 不改）。
+    #[serde(default)]
+    pub credit_days: Option<i32>,
     /// 信用额度（不传 = 不改）。
     #[serde(default)]
     pub credit_limit: Option<Decimal>,
@@ -328,6 +347,9 @@ impl UpdateCustomerReq {
         check_optional_text(self.contact_name.as_deref(), "contact_name", 50)?;
         check_optional_text(self.contact_phone.as_deref(), "contact_phone", 30)?;
         check_optional_text(self.address.as_deref(), "address", 255)?;
+        if let Some(credit_days) = self.credit_days {
+            require_credit_days(credit_days)?;
+        }
         if let Some(credit_limit) = self.credit_limit {
             require_credit_limit(credit_limit)?;
         }
@@ -360,6 +382,8 @@ pub struct CustomerRes {
     pub contact_phone: Option<String>,
     /// 地址。
     pub address: Option<String>,
+    /// 账期天数（`0` = 现结）。
+    pub credit_days: i32,
     /// 信用额度（`0` = 不控额度）。
     pub credit_limit: Decimal,
     /// 状态：`ACTIVE` / `FROZEN`。
@@ -382,6 +406,7 @@ impl From<&CustomerRow> for CustomerRes {
             contact_name: row.contact_name.clone(),
             contact_phone: row.contact_phone.clone(),
             address: row.address.clone(),
+            credit_days: row.credit_days,
             credit_limit: row.credit_limit,
             status: row.status.clone(),
             remark: row.remark.clone(),
@@ -413,6 +438,7 @@ pub async fn create_customer(
         contact_name: clean_optional(req.contact_name),
         contact_phone: clean_optional(req.contact_phone),
         address: clean_optional(req.address),
+        credit_days: req.credit_days.unwrap_or(0),
         credit_limit: req.credit_limit.unwrap_or(Decimal::ZERO),
         status: req
             .status
@@ -553,6 +579,7 @@ fn merge_write(current: &CustomerRow, req: UpdateCustomerReq) -> CustomerWrite {
         contact_name: merge_optional(req.contact_name, current.contact_name.clone()),
         contact_phone: merge_optional(req.contact_phone, current.contact_phone.clone()),
         address: merge_optional(req.address, current.address.clone()),
+        credit_days: req.credit_days.unwrap_or(current.credit_days),
         credit_limit: req.credit_limit.unwrap_or(current.credit_limit),
         status,
         remark: merge_optional(req.remark, current.remark.clone()),
