@@ -1,0 +1,34 @@
+NOTICE:  database "cloudpivot_so12_drill2" does not exist, skipping
+=== [1] 演练前（克隆 so12，含 V0287）===
+table=biz_receivable ar_seq=1 idx=8 checks=5
+=== [2] 执行 down ===
+psql:backend/migrations/business/V0287__sales_receivable.down.sql:24: NOTICE:  V0287 down：删除 biz_receivable（0 行）
+DO
+DROP TABLE
+DELETE 1
+psql:backend/migrations/business/V0287__sales_receivable.down.sql:61: NOTICE:  V0287 down 完成：biz_receivable 零残留、AR 取号行已删、payable 在位、其它取号规则 CT,PO,SH,SN,SO,STOCK_OUT,STOCK_TAKE
+DO
+table=<null> ar_seq=0 idx=0 payable=biz_payable
+=== [3] 重放 up ===
+CREATE TABLE
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+INSERT 0 1
+psql:backend/migrations/business/V0287__sales_receivable.up.sql:486: NOTICE:  V0287 自检通过：biz_receivable 24 列（与 biz_payable 逐列同型）/ 5 约束 / 8 索引 / AR 取号=AR-20261106-000001
+DO
+table=biz_receivable ar_seq=1 idx=8 checks=5

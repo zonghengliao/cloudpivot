@@ -1,0 +1,59 @@
+Timing is off.
+psql:constraint-probes.sql:10: NOTICE:  table "probe_results" does not exist, skipping
+DROP TABLE
+CREATE TABLE
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+
+===== 探针结果（expected vs actual）=====
+ n  |  rc  |                      name                      |          expected          |           actual           
+----+------+------------------------------------------------+----------------------------+----------------------------
+  1 | PASS | amount = 0                                     | 拒 ck_biz_ar_amount        | 拒 ck_biz_ar_amount
+  2 | PASS | amount = -5                                    | 拒 ck_biz_ar_amount        | 拒 ck_biz_ar_amount
+  3 | PASS | received_amount > amount（超收 0.0001）        | 拒 ck_biz_ar_amount        | 拒 ck_biz_ar_amount
+  4 | PASS | received_amount = -0.0001                      | 拒 ck_biz_ar_amount        | 拒 ck_biz_ar_amount
+  5 | PASS | unsettled_amount ≠ amount - received_amount    | 拒 ck_biz_ar_unsettled     | 拒 ck_biz_ar_unsettled
+  6 | PASS | status = PARTIAL_PAID（payable 的域值）        | 拒 ck_biz_ar_status        | 拒 ck_biz_ar_status
+  7 | PASS | status = CANCELLED（payable 的域值）           | 拒 ck_biz_ar_status        | 拒 ck_biz_ar_status
+  8 | PASS | SETTLED 但未收 60                              | 拒 ck_biz_ar_settled       | 拒 ck_biz_ar_settled
+  9 | PASS | credit_days = -1                               | 拒 ck_biz_ar_credit        | 拒 ck_biz_ar_credit
+ 10 | PASS | 正常挂账（默认 status/币种/已收 0）            | OPEN/0.0000/1000.0000/CNY  | OPEN/0.0000/1000.0000/CNY
+ 11 | PASS | 部分收款 400 → PARTIAL                         | PARTIAL/400.0000/600.0000  | PARTIAL/400.0000/600.0000
+ 12 | PASS | UPDATE 超收（1000.0001 > 1000）                | 拒 ck_biz_ar_amount        | 拒 ck_biz_ar_amount
+ 13 | PASS | 全额收款 → SETTLED + settled_at                | SETTLED/0.0000/true        | SETTLED/0.0000/true
+ 14 | PASS | 坏账核销 WRITTEN_OFF（保留未收额）             | WRITTEN_OFF/true           | WRITTEN_OFF/true
+ 15 | PASS | 存活行 ar_no 重号                              | 拒 uk_biz_ar_no            | 拒 uk_biz_ar_no
+ 16 | PASS | 软删后同号复插                                 | 存活行 = 1                 | 1
+ 17 | PASS | 同一 SALES_OUT 来源重复挂账                    | 拒 uk_biz_ar_source        | 拒 uk_biz_ar_source
+ 18 | PASS | MANUAL 同 source_id 两笔（例外生效）           | 2 行                       | 2
+ 19 | PASS | 四位小数精度（0.0002/0.0001）                  | 0.0002/0.0001/0.0001       | 0.0002/0.0001/0.0001
+ 20 | PASS | 列数 24 + 5 条 CHECK                           | 24 列 / 5 条 CHECK         | 24 列 / 5 条 CHECK
+ 21 | PASS | 索引 8 个 + AR 取号规则                        | 8 索引 / AR|yyyyMMdd|-|1|1 | 8 索引 / AR|yyyyMMdd|-|1|1
+ 22 | PASS | 与 biz_payable 逐列同型（类型/长度/精度/可空） | 24 列 / 24 列              | 24 列 / 24 列
+ 23 | PASS | 探针清场                                       | 0 行                       | 0 行
+(23 rows)
+
+
+psql:constraint-probes.sql:375: NOTICE:  SO-12 探针全部通过：23 / 23 条
+DO

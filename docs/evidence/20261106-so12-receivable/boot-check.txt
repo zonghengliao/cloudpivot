@@ -1,0 +1,8 @@
+[2m2026-11-06T08:54:41.835568Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 215 个迁移
+[2m2026-11-06T08:54:42.050008Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 孤儿任务依赖自检通过：0 条
+[2m2026-11-06T08:54:42.051031Z[0m [32m INFO[0m [2mcloudpivot::business::shared::guard[0m[2m:[0m 数据权限自检通过：11 张登记表的部门列/归属列均存在，SUPER_ADMIN 角色存在
+[2m2026-11-06T08:54:42.057058Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 测试残留自检通过：biz_flow_def / biz_flow_instance 均 0 行 E2E_*, D2_SMOKE
+[2m2026-11-06T08:54:42.263973Z[0m [32m INFO[0m [2mcloudpivot::shared::startup_guard[0m[2m:[0m 启动守卫通过：认证密钥长度满足下限 [3mprofile[0m[2m=[0mtest [3mjwt_secret_len[0m[2m=[0m64
+[2m2026-11-06T08:54:42.263985Z[0m [32m INFO[0m [2mcloudpivot::shared::startup_guard[0m[2m:[0m 启动守卫通过：缓存后端满足吊销耐久性要求 [3mprofile[0m[2m=[0mtest [3mcache_type[0m[2m=[0mlocal
+[2m2026-11-06T08:54:42.264014Z[0m [32m INFO[0m [2mcloudpivot::shared::startup_guard[0m[2m:[0m 启动守卫通过：存储主密钥长度满足要求 [3mprofile[0m[2m=[0mtest [3mstorage_master_key_len[0m[2m=[0m64
+[2m2026-11-06T08:54:42.265567Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 插件启动完成 [3melapsed_ms[0m[2m=[0m1

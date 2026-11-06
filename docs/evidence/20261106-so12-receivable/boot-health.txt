@@ -1,0 +1,2 @@
+{"code":0,"msg":"ok","data":{"status":"ok","app":"cloudpivot","profile":"test","time":"2026-11-06T08:58:05.146555479+00:00"}}
+health_http=200

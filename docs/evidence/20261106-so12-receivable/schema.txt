@@ -1,0 +1,43 @@
+                                    Table "public.biz_receivable"
+      Column      |           Type           | Collation | Nullable |            Default             
+------------------+--------------------------+-----------+----------+--------------------------------
+ id               | uuid                     |           | not null | gen_random_uuid()
+ ar_no            | character varying(32)    |           | not null | 
+ customer_id      | uuid                     |           | not null | 
+ source_type      | character varying(24)    |           | not null | 'SALES_OUT'::character varying
+ source_id        | uuid                     |           | not null | 
+ source_no        | character varying(32)    |           | not null | 
+ invoice_no       | character varying(50)    |           |          | 
+ invoice_date     | date                     |           |          | 
+ currency_code    | character(3)             |           | not null | 'CNY'::bpchar
+ amount           | numeric(18,4)            |           | not null | 
+ received_amount  | numeric(18,4)            |           | not null | 0
+ unsettled_amount | numeric(18,4)            |           | not null | 0
+ credit_days      | integer                  |           | not null | 0
+ due_date         | date                     |           | not null | 
+ period_code      | character varying(7)     |           | not null | 
+ status           | character varying(20)    |           | not null | 'OPEN'::character varying
+ settled_at       | timestamp with time zone |           |          | 
+ voucher_id       | uuid                     |           |          | 
+ remark           | text                     |           |          | 
+ created_at       | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ updated_at       | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ create_by        | uuid                     |           |          | 
+ update_by        | uuid                     |           |          | 
+ deleted_at       | timestamp with time zone |           |          | 
+Indexes:
+    "biz_receivable_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_ar_customer" btree (customer_id, status)
+    "idx_biz_ar_due" btree (due_date, status)
+    "idx_biz_ar_period" btree (period_code)
+    "idx_biz_ar_status" btree (status)
+    "idx_biz_ar_voucher" btree (voucher_id) WHERE voucher_id IS NOT NULL
+    "uk_biz_ar_no" UNIQUE, btree (ar_no) WHERE deleted_at IS NULL
+    "uk_biz_ar_source" UNIQUE, btree (source_type, source_id) WHERE deleted_at IS NULL AND source_type::text <> 'MANUAL'::text
+Check constraints:
+    "ck_biz_ar_amount" CHECK (amount > 0::numeric AND received_amount >= 0::numeric AND received_amount <= amount)
+    "ck_biz_ar_credit" CHECK (credit_days >= 0)
+    "ck_biz_ar_settled" CHECK (status::text <> 'SETTLED'::text OR unsettled_amount = 0::numeric)
+    "ck_biz_ar_status" CHECK (status::text = ANY (ARRAY['OPEN'::character varying, 'PARTIAL'::character varying, 'SETTLED'::character varying, 'WRITTEN_OFF'::character varying]::text[]))
+    "ck_biz_ar_unsettled" CHECK (unsettled_amount = (amount - received_amount))
+
