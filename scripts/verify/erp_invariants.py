@@ -837,6 +837,21 @@ _INSERT_FLOW_DEF_IMPLICIT_RE = re.compile(
     r"INSERT\s+INTO\s+biz_flow_def\s+(?!\()", re.IGNORECASE)
 _UPDATE_FLOW_DEF_RE = re.compile(r"UPDATE\s+biz_flow_def\b", re.IGNORECASE)
 _IS_SYSTEM_TRUE_RE = re.compile(r"is_system\s*=\s*TRUE", re.IGNORECASE)
+# `--` 行注释（长度保持不变地抹成空格，行号才不会漂）
+_SQL_LINE_COMMENT_RE = re.compile(r"--[^\n]*")
+
+
+def _blank_sql_comments(text):
+    """把 `--` 行注释抹成等长空格：**H6/H5 只看真语句，不看注释里的示范写法**。
+
+    为什么需要（SO-23 实测踩到）：补偿迁移的表头注释里写一句
+    「扫 migrations 的 `INSERT INTO biz_flow_def (…)` 列清单」，正则就把这行
+    注释当成一处真种子的 INSERT 列清单，报「flow_code=(未解析) 漏写 is_system」——
+    假红。反向更危险：注释里写一句 `UPDATE biz_flow_def … is_system = TRUE`
+    就能把**真实**的漏列当成「已被补偿」而静默放过。
+    抹成等长空格而不是直接删，是为了让报错里的 `文件:行号` 仍然对得上原文。
+    """
+    return _SQL_LINE_COMMENT_RE.sub(lambda m: " " * len(m.group(0)), text)
 
 
 def _migrations_root():
@@ -902,9 +917,10 @@ def _compensating_migration(flow_code, after_version, migrations):
     for ver, _path, text in migrations:
         if ver <= after_version:
             continue
-        for m in _UPDATE_FLOW_DEF_RE.finditer(text):
-            j = text.find(";", m.end())
-            stmt = text[m.end():j if j != -1 else len(text)]
+        code_text = _blank_sql_comments(text)
+        for m in _UPDATE_FLOW_DEF_RE.finditer(code_text):
+            j = code_text.find(";", m.end())
+            stmt = code_text[m.end():j if j != -1 else len(code_text)]
             if f"'{flow_code}'" in stmt and _IS_SYSTEM_TRUE_RE.search(stmt):
                 return f"V{ver:04d}"
     return None
@@ -923,7 +939,9 @@ def _check_flow_seed_is_system():
     for ver, path, text in migrations:
         if ver < _IS_SYSTEM_COLUMN_FROM:
             continue
-        for line, cols, stmt in _flow_def_inserts(text):
+        # 只扫**真语句**：注释里的示范写法既不能判红，也不能当补偿证据（见 _blank_sql_comments）
+        code_text = _blank_sql_comments(text)
+        for line, cols, stmt in _flow_def_inserts(code_text):
             scanned += 1
             if "is_system" in cols:
                 continue
@@ -935,9 +953,9 @@ def _check_flow_seed_is_system():
             else:
                 bad.append(f"{where} flow_code={code or '(未解析)'}")
         # 隐式列清单：正则拿不到列名，一律判红（位置依赖列序，比漏列更脆）
-        for m in _INSERT_FLOW_DEF_IMPLICIT_RE.finditer(text):
+        for m in _INSERT_FLOW_DEF_IMPLICIT_RE.finditer(code_text):
             scanned += 1
-            line = text.count("\n", 0, m.start()) + 1
+            line = code_text.count("\n", 0, m.start()) + 1
             bad.append(f"{path.name}:{line} 列清单隐式（INSERT 后没有括号列清单，"
                        f"无法静态确认写了 is_system）")
 
@@ -1883,10 +1901,457 @@ def group_o():
     check(name, "E2E", "WARN", ok, "\n".join(lines), locator)
 
 
+# ══════════════════════════════════════════════════════════════════
+# S. 销售链不变量（ARCH-7 §9.2 的 S1–S8，SO-23）
+# ══════════════════════════════════════════════════════════════════
+# 口径来源：`docs/architecture/ARCH-7-销售模块设计.md` §9.2（8 条，逐字对号）。
+# 全部 BLOCKER：销售链错一条就是「货出了没账 / 钱收了没核销 / 三本账对不上」，
+# 不许带病运行（与 A/B/C 组同级别）。
+#
+# ── 为什么库层已经有 CHECK 还要再查一遍 ────────────────────────────
+# S1/S3 的恒等式在 V0264 / V0295 里是 CHECK（`ck_sales_order_amount` /
+# `ck_biz_invoice_amount`）。它挡得住**将来**写坏，挡不住这三种情况：
+#   ① 老库（约束是后来才加的，或加了 `NOT VALID`）里的历史行；
+#   ② 有人 `ALTER TABLE … DROP CONSTRAINT` 之后写进去的行；
+#   ③ 约束表达式在，但业务表被直接改（运维手工 UPDATE，绕过 handler）。
+# 巡检是「账对不对」的最后一道闸，判据不能建立在「约束一定还在」的假设上。
+# 另有两条**库层根本没有**的跨表断言（下面各自 docstring 里标了「无 CHECK 兜底」）：
+#   S1b 明细 Σ = 头、S5b Σ 核销 = 已核销、S6 出库 ↔ 应收、S8 三账 —— 这几条
+#   CHECK 表达不了（跨表 / 不能带子查询），只能在这里查。
+#
+# ── 销售相关凭证的圈定口径（S7）────────────────────────────────
+# `biz_voucher.source_type` 没有 CHECK 白名单（VARCHAR(24)，新增取值不用迁移），
+# 所以**不能只按 source_type 认**（漏一个下游取值就把整组凭证漏出巡检）。
+# S7 用「科目 ∪ 来源」双判据，任一命中即算销售相关：
+#   · 科目：1122 应收账款 / 2221.02 应交税费-销项税 / 5001 主营业务收入 /
+#           6401 主营业务成本（SO-22 实测：6001 在本仓 biz_account 里**不存在**，
+#           收入科目是 5001 —— 稿面写 6001，别照抄，会让 S7 一条都圈不到）
+#   · 来源：STOCK_OUT / RECEIPT / INVOICE / SALES_OUT / RECEIVABLE
+#     注：STOCK_OUT 也覆盖非销售出库（领用/报废/盘亏，借 6401 / 1901）；
+#         把 6401 一起算进来是**故意放宽**——借贷平衡这条对它们同样成立，
+#         宽一点只会多查不会误判（S7 的判据是 Σ借 == Σ贷，恒真）。
+#
+# ── 「0 行 = 绿」的可见性（与 O1 的跳过口径一致）────────────────
+# 干净库上销售链一条数据都没有，8 条会「绿色地空跑」。每条后面打一行
+# `· 覆盖：…`，把**实际查了多少行**写进报告 —— 免得「绿」和「没查」长得一样。
+# 验收要求 48 条全绿；本组在没上销售模块的库上退回 INFO 跳过（与 N2 缺列同口径）。
+SALES_AR_ACCOUNT = "1122"      # 应收账款
+SALES_TAX_ACCOUNT = "2221.02"  # 应交税费-销项税
+SALES_REVENUE_ACCOUNT = "5001" # 主营业务收入（稿面 6001 在本仓不存在）
+SALES_COST_ACCOUNT = "6401"    # 主营业务成本
+SALES_VOUCHER_SOURCES = ("STOCK_OUT", "RECEIPT", "INVOICE", "SALES_OUT", "RECEIVABLE")
+SALES_ACCOUNT_LIKES = (SALES_AR_ACCOUNT, SALES_TAX_ACCOUNT,
+                       SALES_REVENUE_ACCOUNT, SALES_COST_ACCOUNT)
+_SALES_ACC_SQL = " or ".join(f"a.account_code like '{c}%'" for c in SALES_ACCOUNT_LIKES)
+_SALES_SRC_SQL = ",".join(f"'{s}'" for s in SALES_VOUCHER_SOURCES)
+S_CHECK_NAMES = [
+    "S1 销售订单 价税合计 = 不含税 + 税额（且明细 Σ = 头）",
+    "S2 订单发货一致性 0 ≤ delivered_qty ≤ qty",
+    "S3 发票 价税合计 = 不含税 + 税额",
+    "S4 应收核销 0 ≤ received_amount ≤ amount",
+    "S5 收款核销 allocated_amount ≤ amount 且 Σ核销 = 已核销",
+    "S6 销售出库 ↔ 应收勾稽（已过账出库必有应收）",
+    "S7 销售相关凭证 Σ借 = Σ贷（且头金额 = 分录取和）",
+    "S8 三账一致（销售出库：库存 = 库位账 = 流水）",
+]
+
+
+def group_s():
+    """销售链 8 条不变量（ARCH-7 §9.2）。真库直查，全部 BLOCKER。"""
+    print("\n" + "=" * 92)
+    print("S. 销售链不变量（订单/发货/发票/应收/收款/出库/凭证/三账）")
+    print("=" * 92)
+    tag = "销售"
+
+    # 没上销售模块的库（迁移未跑到 business/），整组 INFO 跳过：让条数稳定，
+    # 又不把「没这功能」误报成「账错了」。
+    if not table_exists("biz_sales_order"):
+        for n in S_CHECK_NAMES:
+            check(n, tag, "INFO", True, "本库没有 biz_sales_order（销售模块未上线），跳过")
+        return
+
+    # ── S1 销售订单金额 ─────────────────────────────────────────────
+    # a) 头恒等（库层 ck_sales_order_amount 兜底，这里防「约束被摘掉的老库」）
+    s1a = q("""
+        select so_no, total_amount::text, total_tax::text, total_with_tax::text
+          from biz_sales_order
+         where deleted_at is null
+           and abs(total_with_tax - (total_amount + total_tax)) > 0.0001
+    """)
+    # b) 明细汇总 = 头（**无 CHECK 兜底**：CHECK 不能跨表，算漏/算重只能靠这里）
+    s1b = q("""
+        select h.so_no,
+               coalesce(i.a, 0)::text, h.total_amount::text,
+               coalesce(i.t, 0)::text, h.total_tax::text
+          from biz_sales_order h
+          left join (select so_id, sum(amount) a, sum(tax_amount) t
+                       from biz_sales_order_item group by so_id) i on i.so_id = h.id
+         where h.deleted_at is null
+           and (abs(coalesce(i.a, 0) - h.total_amount) > 0.0001
+             or abs(coalesce(i.t, 0) - h.total_tax) > 0.0001)
+         order by h.so_no
+    """)
+    n_so = one("select count(*) from biz_sales_order where deleted_at is null")
+    n_soi = one("select count(*) from biz_sales_order_item")
+    print(f"  · 覆盖：销售订单 {n_so} 张 / 明细 {n_soi} 行")
+    lines = []
+    if s1a:
+        lines.append(f"头恒等不成立 {len(s1a)} 张（单号|不含税|税额|价税合计）：")
+        for r in s1a[:8]:
+            lines.append(f"  · {r[0]} | {r[1]} | {r[2]} | {r[3]}  期望 {dec(r[1]) + dec(r[2])}")
+    if s1b:
+        lines.append(f"明细求和 ≠ 头 {len(s1b)} 张（单号|明细不含税|头不含税|明细税额|头税额）：")
+        for r in s1b[:8]:
+            lines.append(f"  · {r[0]} | {r[1]} | {r[2]} | {r[3]} | {r[4]}")
+    check(S_CHECK_NAMES[0], tag, "BLOCKER", not s1a and not s1b,
+          "\n".join(lines) if lines else "全部自洽",
+          """select so_no, total_amount::text, total_tax::text, total_with_tax::text
+             from biz_sales_order
+             where deleted_at is null
+               and abs(total_with_tax - (total_amount + total_tax)) > 0.0001""")
+
+    # ── S2 订单发货一致性 ───────────────────────────────────────────
+    # ARCH-7 §9.2 写的是 `sum(delivered_qty) <= qty`：`delivered_qty` 本身就是
+    # 「该订单行累计已发」的累加列（V0264 注释），所以逐行判据即
+    # `delivered_qty <= qty`；另挡负数（负数会让「已发」变负、后续超发判定失效）。
+    s2 = q("""
+        select h.so_no, i.line_no::text, i.qty::text, i.delivered_qty::text
+          from biz_sales_order_item i
+          join biz_sales_order h on h.id = i.so_id and h.deleted_at is null
+         where i.delivered_qty < 0
+            or i.delivered_qty > i.qty + 0.0001
+         order by h.so_no, i.line_no
+    """)
+    shipped = one("select count(*) from biz_sales_order_item where delivered_qty > 0")
+    print(f"  · 覆盖：订单明细 {n_soi} 行，其中已发货 {shipped} 行")
+    det = ""
+    if s2:
+        det = f"{len(s2)} 行 delivered_qty 越界（单号|行号|订单量|已发量）：\n" + "\n".join(
+            f"  · {r[0]} 行{r[1]} | qty={r[2]} | delivered={r[3]}" for r in s2[:8])
+    check(S_CHECK_NAMES[1], tag, "BLOCKER", not s2, det or "全部 0 ≤ 已发 ≤ 订单量",
+          """select h.so_no, i.line_no::text, i.qty::text, i.delivered_qty::text
+             from biz_sales_order_item i
+             join biz_sales_order h on h.id = i.so_id and h.deleted_at is null
+             where i.delivered_qty < 0 or i.delivered_qty > i.qty + 0.0001""")
+
+    # ── S3 发票金额 ────────────────────────────────────────────────
+    # 正票（OUT, amount > 0）与红字票（OUT_RED, amount < 0）同一条恒等式。
+    s3 = q("""
+        select invoice_no, invoice_type, amount::text, tax_amount::text, total_with_tax::text
+          from biz_invoice
+         where deleted_at is null
+           and abs(total_with_tax - (amount + tax_amount)) > 0.0001
+         order by invoice_date, invoice_no
+    """)
+    n_iv = one("select count(*) from biz_invoice where deleted_at is null")
+    n_red = one("select count(*) from biz_invoice where deleted_at is null and invoice_type = 'OUT_RED'")
+    print(f"  · 覆盖：发票 {n_iv} 张（其中红字 {n_red} 张）")
+    det = ""
+    if s3:
+        det = f"{len(s3)} 张票面不平（票号|票种|不含税|税额|价税合计）：\n" + "\n".join(
+            f"  · {r[0]} {r[1]} | {r[2]} | {r[3]} | {r[4]}" for r in s3[:8])
+    check(S_CHECK_NAMES[2], tag, "BLOCKER", not s3, det or "全部自洽",
+          """select invoice_no, amount::text, tax_amount::text, total_with_tax::text
+             from biz_invoice where deleted_at is null
+               and abs(total_with_tax - (amount + tax_amount)) > 0.0001""")
+
+    # ── S4 应收核销 ────────────────────────────────────────────────
+    if table_exists("biz_receivable"):
+        s4 = q("""
+            select ar_no, amount::text, received_amount::text,
+                   (amount - received_amount)::text, status
+              from biz_receivable
+             where deleted_at is null
+               and (received_amount < 0 or received_amount > amount + 0.0001)
+             order by ar_no
+        """)
+        n_ar = one("select count(*) from biz_receivable where deleted_at is null")
+        n_part = one("select count(*) from biz_receivable where deleted_at is null and received_amount > 0")
+        print(f"  · 覆盖：应收 {n_ar} 张，其中已收款 {n_part} 张")
+        det = ""
+        if s4:
+            det = f"{len(s4)} 张应收已收越界（AR号|金额|已收|未收|状态）：\n" + "\n".join(
+                f"  · {r[0]} | {r[1]} | {r[2]} | 未收 {r[3]} | {r[4]}" for r in s4[:8])
+        check(S_CHECK_NAMES[3], tag, "BLOCKER", not s4, det or "全部 0 ≤ 已收 ≤ 应收",
+              """select ar_no, amount::text, received_amount::text, status
+                 from biz_receivable where deleted_at is null
+                   and (received_amount < 0 or received_amount > amount + 0.0001)""")
+    else:
+        check(S_CHECK_NAMES[3], tag, "INFO", True, "本库没有 biz_receivable，跳过")
+
+    # ── S5 收款核销 ────────────────────────────────────────────────
+    # a) 已核销 ≤ 收款金额；b) Σ核销明细 = 已核销（**无 CHECK 兜底**，跨表求和不进约束）。
+    # 作废（CANCELLED）收款不豁免：receipt.rs 的状态机要求「先反核销（删明细 + 回滚应收）
+    # 再作废」，所以作废行同样是 allocated_amount = 0 且无明细 —— 一起查才是对的。
+    if table_exists("biz_receipt") and table_exists("biz_receipt_allocation"):
+        s5a = q("""
+            select receipt_no, amount::text, allocated_amount::text, status
+              from biz_receipt
+             where deleted_at is null
+               and (allocated_amount < 0 or allocated_amount > amount + 0.0001)
+             order by receipt_no
+        """)
+        s5b = q("""
+            select r.receipt_no, r.allocated_amount::text,
+                   coalesce(sum(a.amount), 0)::text, count(a.id)::text
+              from biz_receipt r
+              left join biz_receipt_allocation a on a.receipt_id = r.id
+             where r.deleted_at is null
+             group by r.id, r.receipt_no, r.allocated_amount
+            having abs(coalesce(sum(a.amount), 0) - r.allocated_amount) > 0.0001
+             order by r.receipt_no
+        """)
+        n_rc = one("select count(*) from biz_receipt where deleted_at is null")
+        n_alloc = one("select count(*) from biz_receipt_allocation")
+        print(f"  · 覆盖：收款 {n_rc} 张 / 核销明细 {n_alloc} 行")
+        lines = []
+        if s5a:
+            lines.append(f"已核销 > 收款金额 {len(s5a)} 张（收款号|金额|已核销|状态）：")
+            for r in s5a[:8]:
+                lines.append(f"  · {r[0]} | {r[1]} | {r[2]} | {r[3]}")
+        if s5b:
+            lines.append(f"Σ核销明细 ≠ 已核销 {len(s5b)} 张（收款号|已核销|Σ明细|明细条数）：")
+            for r in s5b[:8]:
+                lines.append(f"  · {r[0]} | {r[1]} | {r[2]} | {r[3]} 条")
+        check(S_CHECK_NAMES[4], tag, "BLOCKER", not s5a and not s5b,
+              "\n".join(lines) if lines else "全部自洽",
+              """select r.receipt_no, r.allocated_amount::text, coalesce(sum(a.amount),0)::text
+                 from biz_receipt r left join biz_receipt_allocation a on a.receipt_id = r.id
+                 where r.deleted_at is null
+                 group by r.id, r.receipt_no, r.allocated_amount
+                 having abs(coalesce(sum(a.amount),0) - r.allocated_amount) > 0.0001""")
+    else:
+        check(S_CHECK_NAMES[4], tag, "INFO", True, "本库没有收款/核销表，跳过")
+
+    # ── S6 出库 ↔ 应收勾稽 ─────────────────────────────────────────
+    # 判据是 `biz_stock_out.source_type = 'SALES'`，**不是** `out_type`：
+    # V0285 起「来源」与「领用性质」是两个维度，销售出库的 out_type 固定
+    # `OTHER`（借 6401），靠 source_type 才认得出是销售链（stockout_base.rs:75-81、
+    # receivable_bridge.rs:24-25 逐字）。只认 out_type='SALES' 会一条都查不到。
+    #
+    # 例外（代码明文允许，不判红，但要看得见）：含税金额 ≤ 0 的赠品/零价出库
+    # 不挂应收（receivable_bridge.rs:355-370 已记日志；biz_receivable.amount > 0
+    # 是库层 CHECK，挂不上）。含税金额按同一公式复算：
+    #   Σ round(发货数量 × 订单行单价 × (1 + 税率/100), 4) —— taxed_amount_of 口径。
+    # 反向也查：来源是 SALES_OUT 的应收必须挂在真实出库单上（防孤儿应收）。
+    if table_exists("biz_stock_out") and table_exists("biz_receivable"):
+        s6a = q(f"""
+            with out_scope as (
+                select o.id, o.out_no, o.out_date,
+                       s1.id as shipment_id,
+                       (select coalesce(sum(round(si.qty * oi.price * (1 + oi.tax_rate / 100), 4)), 0)
+                          from biz_shipment_item si
+                          join biz_sales_order_item oi on oi.id = si.so_item_id
+                         where si.shipment_id = s1.id) as taxed
+                  from biz_stock_out o
+                  left join lateral (
+                        select s2.id from biz_shipment s2
+                         where s2.deleted_at is null
+                           and (s2.id = o.source_id or s2.stock_out_id = o.id)
+                         order by (s2.id = o.source_id) desc
+                         limit 1) s1 on true
+                 where o.deleted_at is null
+                   and o.source_type = 'SALES'
+                   and o.status = 'POSTED'
+                   and o.cancelled_at is null
+            )
+            select b.out_no, b.out_date::text, coalesce(b.taxed, 0)::text
+              from out_scope b
+             where (b.shipment_id is null or coalesce(b.taxed, 0) > 0)
+               and not exists (select 1 from biz_receivable r
+                                where r.deleted_at is null
+                                  and r.source_type = 'SALES_OUT'
+                                  and r.source_id = b.id
+                                  and r.status <> 'CANCELLED')
+             order by b.out_date, b.out_no
+        """)
+        s6b = q("""
+            select r.ar_no, r.source_no, r.source_id::text, r.amount::text
+              from biz_receivable r
+             where r.deleted_at is null
+               and r.source_type = 'SALES_OUT'
+               and not exists (select 1 from biz_stock_out o where o.id = r.source_id)
+             order by r.ar_no
+        """)
+        n_out = one("""select count(*) from biz_stock_out
+                        where deleted_at is null and source_type = 'SALES' and status = 'POSTED'
+                          and cancelled_at is null""")
+        n_gift = one(f"""select count(*) from (
+                  select o.id, s1.id as shipment_id,
+                         (select coalesce(sum(round(si.qty * oi.price * (1 + oi.tax_rate / 100), 4)), 0)
+                            from biz_shipment_item si
+                            join biz_sales_order_item oi on oi.id = si.so_item_id
+                           where si.shipment_id = s1.id) as taxed
+                    from biz_stock_out o
+                    left join lateral (
+                          select s2.id from biz_shipment s2
+                           where s2.deleted_at is null
+                             and (s2.id = o.source_id or s2.stock_out_id = o.id)
+                           order by (s2.id = o.source_id) desc limit 1) s1 on true
+                   where o.deleted_at is null and o.source_type = 'SALES'
+                     and o.status = 'POSTED' and o.cancelled_at is null) x
+                 where shipment_id is not null and taxed <= 0""")
+        n_src_ar = one("""select count(*) from biz_receivable
+                           where deleted_at is null and source_type = 'SALES_OUT'""")
+        print(f"  · 覆盖：已过账销售出库 {n_out} 张（赠品/零价免挂应收 {n_gift} 张）"
+              f" / SALES_OUT 来源应收 {n_src_ar} 张")
+        lines = []
+        if s6a:
+            lines.append(f"已过账销售出库缺应收 {len(s6a)} 张（出库单号|日期|含税金额）：")
+            for r in s6a[:8]:
+                lines.append(f"  · {r[0]} | {r[1]} | {r[2]}")
+        if s6b:
+            lines.append(f"SALES_OUT 来源应收挂空 {len(s6b)} 张（AR号|来源单号|来源 id|金额）：")
+            for r in s6b[:8]:
+                lines.append(f"  · {r[0]} | {r[1]} | {r[2]} | {r[3]}")
+        check(S_CHECK_NAMES[5], tag, "BLOCKER", not s6a and not s6b,
+              "\n".join(lines) if lines else "每张已过账销售出库都有应收，且无孤儿应收",
+              """select o.out_no from biz_stock_out o
+                 where o.deleted_at is null and o.source_type='SALES' and o.status='POSTED'
+                   and o.cancelled_at is null
+                   and not exists (select 1 from biz_receivable r
+                                    where r.deleted_at is null and r.source_type='SALES_OUT'
+                                      and r.source_id=o.id and r.status<>'CANCELLED')""")
+    else:
+        check(S_CHECK_NAMES[5], tag, "INFO", True, "本库没有出库/应收表，跳过")
+
+    # ── S7 销售相关凭证借贷平衡 ────────────────────────────────────
+    # 圈定口径见文件头（科目 ∪ 来源）。两个轴：分录 Σ借=Σ贷、头金额=分录取和。
+    # A1/A2 是**全账**判据；S7 是**销售口径**判据 —— 它挂掉时能直接指向销售链，
+    # 而不是让值班的人在一万张凭证里捞。
+    if table_exists("biz_voucher") and table_exists("biz_account"):
+        scoped = f"""
+            with scoped as (
+                select v.id, v.voucher_no, v.total_debit, v.total_credit, v.source_type
+                  from biz_voucher v
+                 where v.deleted_at is null
+                   and (v.source_type in ({_SALES_SRC_SQL})
+                        or exists (select 1 from biz_voucher_entry e
+                                     join biz_account a on a.id = e.account_id
+                                    where e.voucher_id = v.id and ({_SALES_ACC_SQL})))
+            ), agg as (
+                select e.voucher_id,
+                       coalesce(sum(e.debit_amount), 0) d,
+                       coalesce(sum(e.credit_amount), 0) c,
+                       count(e.id) n
+                  from biz_voucher_entry e group by e.voucher_id
+            )
+        """
+        s7a = q(scoped + """
+            select s.voucher_no, coalesce(g.d, 0)::text, coalesce(g.c, 0)::text, s.source_type
+              from scoped s left join agg g on g.voucher_id = s.id
+             where abs(coalesce(g.d, 0) - coalesce(g.c, 0)) > 0.0001
+             order by s.voucher_no
+        """)
+        s7b = q(scoped + """
+            select s.voucher_no, s.total_debit::text, coalesce(g.d, 0)::text,
+                   s.total_credit::text, coalesce(g.c, 0)::text
+              from scoped s left join agg g on g.voucher_id = s.id
+             where abs(s.total_debit - coalesce(g.d, 0)) > 0.0001
+                or abs(s.total_credit - coalesce(g.c, 0)) > 0.0001
+             order by s.voucher_no
+        """)
+        n_scoped = one(scoped + " select count(*) from scoped")
+        n_all = one("select count(*) from biz_voucher where deleted_at is null")
+        print(f"  · 覆盖：全账凭证 {n_all} 张，其中销售相关 {n_scoped} 张")
+        lines = []
+        if s7a:
+            lines.append(f"销售相关凭证借贷不平 {len(s7a)} 张（凭证号|Σ借|Σ贷|来源）：")
+            for r in s7a[:8]:
+                lines.append(f"  · {r[0]} | {r[1]} | {r[2]} | {r[3]}")
+        if s7b:
+            lines.append(f"销售相关凭证头 ≠ 分录取和 {len(s7b)} 张（凭证号|头借|Σ借|头贷|Σ贷）：")
+            for r in s7b[:8]:
+                lines.append(f"  · {r[0]} | {r[1]} | {r[2]} | {r[3]} | {r[4]}")
+        check(S_CHECK_NAMES[6], tag, "BLOCKER", not s7a and not s7b,
+              "\n".join(lines) if lines else "销售相关凭证全部借贷平衡",
+              scoped + """select s.voucher_no from scoped s left join agg g on g.voucher_id = s.id
+                          where abs(coalesce(g.d,0) - coalesce(g.c,0)) > 0.0001""")
+    else:
+        check(S_CHECK_NAMES[6], tag, "INFO", True, "本库没有凭证/科目表，跳过")
+
+    # ── S8 三账一致（销售出库后）────────────────────────────────────
+    # 两个轴，都限定在「销售出库动过的物料×仓库」上：
+    #   a) 库存表 = 库位账 = 流水（B1/B4 是全库版，这里按销售口径收窄，红了先看销售链）
+    #   b) 单据级：出库单明细合计 = 该单在流水里的净额（防「扣了账没进流水」的半截过账）
+    # 只看三本账**现存**的数字：过账/作废都走 inventory_writer.rs，任何一方漏写都会在这里露头。
+    if table_exists("biz_inventory") and table_exists("biz_inventory_location") \
+            and table_exists("biz_inventory_txn") and table_exists("biz_stock_out"):
+        keys = """
+            with keys as (
+                select distinct t.material_id, t.warehouse_id
+                  from biz_inventory_txn t
+                  join biz_stock_out o on o.id = t.doc_id and t.doc_type = 'STOCK_OUT'
+                 where o.source_type = 'SALES'
+            ), inv as (
+                select material_id, warehouse_id, sum(qty) q from biz_inventory group by 1, 2
+            ), loc as (
+                select material_id, warehouse_id, sum(qty) q from biz_inventory_location group by 1, 2
+            ), txn as (
+                select material_id, warehouse_id,
+                       sum(case when txn_type = 'IN' then qty else -qty end) q
+                  from biz_inventory_txn group by 1, 2
+            )
+        """
+        s8a = q(keys + """
+            select m.material_code, w.warehouse_code,
+                   coalesce(inv.q, 0)::text, coalesce(loc.q, 0)::text, coalesce(txn.q, 0)::text
+              from keys k
+              left join inv on inv.material_id = k.material_id and inv.warehouse_id = k.warehouse_id
+              left join loc on loc.material_id = k.material_id and loc.warehouse_id = k.warehouse_id
+              left join txn on txn.material_id = k.material_id and txn.warehouse_id = k.warehouse_id
+              join biz_material m on m.id = k.material_id
+              join biz_warehouse w on w.id = k.warehouse_id
+             where abs(coalesce(inv.q, 0) - coalesce(loc.q, 0)) > 0.0001
+                or abs(coalesce(inv.q, 0) - coalesce(txn.q, 0)) > 0.0001
+             order by m.material_code, w.warehouse_code
+        """)
+        s8b = q("""
+            select o.out_no,
+                   coalesce((select sum(i.qty) from biz_stock_out_item i
+                              where i.stock_out_id = o.id), 0)::text,
+                   coalesce((select sum(case when t.txn_type = 'OUT' then t.qty else -t.qty end)
+                               from biz_inventory_txn t
+                              where t.doc_type = 'STOCK_OUT' and t.doc_id = o.id), 0)::text
+              from biz_stock_out o
+             where o.deleted_at is null and o.source_type = 'SALES' and o.status = 'POSTED'
+             order by o.out_no
+        """)
+        # s8b 里把 filter 放到外层，才能只留下不一致的（子查询在 having 里对聚合更绕）
+        s8b = [r for r in s8b if abs(dec(r[1]) - dec(r[2])) > TOL]
+        n_keys = one(keys + " select count(*) from keys")
+        n_posted = one("""select count(*) from biz_stock_out where deleted_at is null
+                            and source_type = 'SALES' and status = 'POSTED'""")
+        print(f"  · 覆盖：销售出库涉及的 物料×仓库 {n_keys} 组 / 已过账出库单 {n_posted} 张")
+        lines = []
+        if s8a:
+            lines.append(f"三账不符 {len(s8a)} 组（物料|仓库|库存|库位账|流水）：")
+            for r in s8a[:8]:
+                lines.append(f"  · {r[0]} | {r[1]} | {r[2]} | {r[3]} | {r[4]}")
+        if s8b:
+            lines.append(f"出库单明细 ≠ 流水净额 {len(s8b)} 张（出库单号|明细合计|流水净额）：")
+            for r in s8b[:8]:
+                lines.append(f"  · {r[0]} | {r[1]} | {r[2]}")
+        check(S_CHECK_NAMES[7], tag, "BLOCKER", not s8a and not s8b,
+              "\n".join(lines) if lines else "销售出库覆盖的三本账全部一致",
+              keys + """select m.material_code, w.warehouse_code,
+                               coalesce(inv.q,0)::text, coalesce(loc.q,0)::text, coalesce(txn.q,0)::text
+                          from keys k
+                          left join inv on inv.material_id=k.material_id and inv.warehouse_id=k.warehouse_id
+                          left join loc on loc.material_id=k.material_id and loc.warehouse_id=k.warehouse_id
+                          left join txn on txn.material_id=k.material_id and txn.warehouse_id=k.warehouse_id
+                          join biz_material m on m.id=k.material_id
+                          join biz_warehouse w on w.id=k.warehouse_id
+                         where abs(coalesce(inv.q,0)-coalesce(loc.q,0)) > 0.0001
+                            or abs(coalesce(inv.q,0)-coalesce(txn.q,0)) > 0.0001""")
+    else:
+        check(S_CHECK_NAMES[7], tag, "INFO", True, "本库缺三本账/出库表，跳过")
+
+
 GROUPS = {"会计": group_a, "账账": group_b, "账实": group_c,
           "单据链": group_d, "状态": group_e, "期间": group_f, "闭环": group_g,
           "审批": group_h, "盘点": group_i, "固资": group_k, "报销": group_l,
-          "任务": group_j, "权限": group_n, "E2E": group_o}
+          "任务": group_j, "权限": group_n, "E2E": group_o, "销售": group_s}
 
 
 def main():
