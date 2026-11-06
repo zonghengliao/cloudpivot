@@ -446,6 +446,17 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '发货单', permission: 'business:erp:shipment:list' },
       },
       {
+        // ==================== ERP 销售退货单（SO-31 · 销售链） ====================
+        // `sys_menu`（V0304 种子 …3041）path 留 NULL，由 V0306 收尾补成
+        // `/business/erp/sales-return` + component `business/erp/sales-return/index`
+        // （先注册路由、再填菜单：`system::menu::tests::n08` 是真库档硬门禁，
+        //  path 先填而路由后加会让 n08 一直红）。
+        path: 'business/erp/sales-return',
+        name: 'BusinessErpSalesReturn',
+        component: () => import('@/views/business/erp/sales-return/index.vue'),
+        meta: { title: '销售退货单', permission: 'business:erp:sales-return:list' },
+      },
+      {
         // ==================== ERP 序列号（W4b-2） ====================
         // `sys_menu`（V0142 种子 …0981）path = `/business/erp/serial`，component
         // `business/erp/serial/index`。**路由手工注册**，漏了 = 点菜单进 404。

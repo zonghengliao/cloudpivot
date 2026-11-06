@@ -1,0 +1,1 @@
+{"code":10003,"msg":"非法状态迁移：待过账（PENDING_POST）→ 已取消（CANCELLED）不在合法边表里；当前可流转到：POSTED（已过账）"}

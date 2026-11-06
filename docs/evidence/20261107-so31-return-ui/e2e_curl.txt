@@ -1,0 +1,68 @@
+== SO-31 退货单前端页接口验收（http://127.0.0.1:18231/api · 库 cloudpivot_so31） ==
+  ✅ admin 登录成功（must_change_password=true）
+  ✅ 前置：首登改密 → Admin@So31!2026
+  ✅ 新口令重登成功
+  ✅ 列表 http = 200
+  ✅ 列表 code = 0
+  ✅ 返回结构含 list = true
+  ✅ 可退明细 http = 200
+  ✅ 可退明细行数 = 2
+  ✅ 可退明细含 remaining/price/tax_rate = true
+     首行可退=7.0000 单价=100.000000 税率=13.0000
+     （库里没有未过账发货单，跳过 409 反证）
+  ✅ 建单 http = 200
+  ✅ 建单 code = 0
+  ✅ 建单状态 = DRAFT
+  ✅ 建单状态中文 = 草稿
+  ✅ 单号前缀 SR- = SR-
+  ✅ 建单类型中文 = 质量
+  ✅ 建单来源发货单号已补齐 = SO30-SH-A
+  ✅ 建单客户名已补齐 = SO30 未开票客户
+  ✅ 建单审批实例为空（未接引擎） = null
+  ✅ 建单明细行数 = 1
+  ✅ 建单明细数量（Decimal 4 位） = 3.0000
+  ✅ 不含税金额 = qty×price = 3000000
+  ✅ 税额 = 金额×税率/100 = 390000
+     建单成功：SR-20261107-000001 (01a1b20e-dd83-7746-b4ff-18c92d461e5b)
+  ✅ 超退建单 http = 400
+     超退报文：items[0].qty = 9999 超过可退量 4.0000（已发 7.0000 − 已退 3.0000）：超退被拒绝
+  ✅ 列表 http（建单后） = 200
+  ✅ 列表总数 = 1
+  ✅ 列表首行单号 = SR-20261107-000001
+  ✅ 列表行含 approval_instance_id 字段 = true
+  ✅ 列表行客户名已补齐 = SO30 未开票客户
+  ✅ 列表行发货单号已补齐 = SO30-SH-A
+  ✅ 列表行价税合计 = 3390000
+  ✅ 单号模糊过滤命中 = 1
+  ✅ 单号模糊过滤空 = 0
+  ✅ 状态过滤（POSTED 尚无） = 0
+  ✅ 详情 http = 200
+  ✅ 详情单号 = SR-20261107-000001
+  ✅ 详情明细行数 = 1
+  ✅ 详情明细物料 = 订单行带出 = d1370003-0000-4000-8000-000000000001
+  ✅ 详情行号 = 1
+  ✅ 提交 http = 200
+  ✅ 提交后状态 = SUBMITTED
+  ✅ 提交后状态中文 = 已提交
+  ✅ 重复提交 http（非法边） = 409
+  ✅ 批准后状态 = APPROVED
+  ✅ 进入待过账后状态 = PENDING_POST
+  ✅ 待过账作废 http（非法边） = 409
+     非法边报文：非法状态迁移：待过账（PENDING_POST）→ 已取消（CANCELLED）不在合法边表里；当前可流转到：POSTED（已过账）
+  ✅ 过账 http = 200
+  ✅ 过账后状态 = POSTED
+  ✅ 过账后状态中文 = 已过账
+  ✅ 过账回填入库单 id 非空 = true
+  ✅ 过账回填应收 id 非空 = true
+     入库单=01a1b20e-dea7-7414-bb2d-cde6ea2d82f5 应收=d0304000-0000-4000-8000-000000000001 红票=null
+  ✅ 重复过账 http（终态） = 409
+  ✅ 过账后详情状态 = POSTED
+  ✅ 状态过滤（POSTED）命中 = 1
+stock_in=IN-20261107-000001 qty=3.0000 status=POSTED
+txn=1 qty_sum=3.0000 after_sum=103.0000
+cost_book=103.0000/6180.0000
+  ✅ 菜单 path|component|visible|parent|sort = /business/erp/sales-return|business/erp/sales-return/index|true|20000000-0000-0000-0000-000000002701|70
+  ✅ 迁移 306 已应用（versioned/executed） = versioned/executed
+  ✅ applied_via 非法行数 = 0
+
+== 结果：56 通过 / 0 失败 ==
