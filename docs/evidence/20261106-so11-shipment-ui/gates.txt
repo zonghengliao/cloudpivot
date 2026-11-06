@@ -1,0 +1,12 @@
+# 权限码闸 + 孤儿按钮闸（对着隔离库 cloudpivot_so11 跑，含 V0286 后的菜单终态）
+
+## perm_menu_gate
+  · system:preference:view             源码零引用（纯前端权限点）
+============================================================================================
+==> 闸：PASS
+
+## orphan_button_gate
+ℹ 冗余节点授权（同码另有可达节点，不判红）：WAREHOUSE_MANAGER business:erp:doc:cancel-impact @ /business/erp/payable(business:erp:payable:list)（2/3 个节点可达）
+ℹ 超管行（*:*:* 短路，对功能零影响，不判红）：SUPER_ADMIN business:erp:voucher:audit @ /business/erp/voucher(business:erp:voucher:list)
+ℹ 超管行（*:*:* 短路，对功能零影响，不判红）：SUPER_ADMIN business:erp:voucher:post @ /business/erp/voucher(business:erp:voucher:list)
+ℹ 超管行（*:*:* 短路，对功能零影响，不判红）：SUPER_ADMIN business:erp:voucher:un-audit @ /business/erp/voucher(business:erp:voucher:list)

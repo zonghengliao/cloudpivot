@@ -1,0 +1,32 @@
+# 前端门禁（SO-11 最终代码，2026-11-06）
+
+## npx vue-tsc --noEmit（在 frontend/ 下）
+rc=0（无输出 = 零错误）
+
+## npx tsx --test tests/unit/erp-shipment.test.ts（在 frontend/ 下）
+```
+# tests 27
+# suites 0
+# pass 27
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+```
+（第一次在仓库根用 `npx --prefix frontend` 跑，`@/` 别名解析不到 → 1 fail；必须在 `frontend/` 目录下跑，
+与 `pnpm test:unit` 同口径。）
+
+## vite build（等价 `pnpm build` 的 build 段；产物落仓库外 scratch/so11-dist，**未覆盖生产 dist**）
+```
+so11-dist/assets/echarts-CuV_skF0.js.gz      1002.89kb / gzip: 331.52kb
+so11-dist/assets/tdesign-B9Yx93ic.js.gz      7994.62kb / gzip: 772.17kb
+```
+构建 rc=0（进程正常退出）
+
+## 产物自检
+- 入口：`assets/index-D2rX4WfQ.js`
+- 发货单页面 chunk（含「本次发货」「关联出库单号」「新建发货单」）：`assets/index-C_jFBlcs.js`
+- 打包文件数：152 个 js chunk
+
+## 权限码闸 / 孤儿按钮闸
+见同目录 `gates.txt`：`perm_menu_gate` PASS、`orphan_button_gate` 孤儿 (角色,码) = 0
