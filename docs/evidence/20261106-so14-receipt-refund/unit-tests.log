@@ -1,0 +1,20 @@
+   Compiling cloudpivot v0.1.0 (/var/tmp/t_573bfe5b-wt/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 37.32s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-67e4f09c2e780dae)
+
+running 12 tests
+test business::erp::receipt_refund::tests::amount_validation_rejects_zero_and_negative ... ok
+test business::erp::receipt_refund::tests::edges_are_the_registered_ones_and_posted_is_terminal ... ok
+test business::erp::receipt_refund::tests::method_must_be_in_whitelist ... ok
+test business::erp::receipt_refund::tests::page_query_validates_status_and_dates ... ok
+test business::erp::receipt_refund::tests::reason_is_required_and_bounded ... ok
+test business::erp::receipt_refund::tests::receivable_downward_edges_are_registered ... ok
+test business::erp::receipt_refund::tests::receivable_status_follows_received_amount ... ok
+test business::erp::receipt_refund::tests::refund_rejects_over_refund_and_cross_customer ... ok
+test business::erp::receipt_refund::tests::refund_restores_receivable_to_open_and_posts_voucher ... ok
+test business::erp::receipt_refund::tests::refundable_cap_is_enforced ... ok
+test business::erp::receipt_refund::tests::status_and_method_vocabularies_match_the_db_constraints ... ok
+test business::erp::receipt_refund::tests::voucher_source_is_registered_with_its_doc_kind ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 2819 filtered out; finished in 1.71s
+

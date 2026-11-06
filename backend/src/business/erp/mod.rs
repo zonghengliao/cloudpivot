@@ -76,6 +76,7 @@
 //! | [`receivable_aging`] | 应收账款**账龄分析**：分档与 `payable_aging` **同源**（同一份 BUCKETS / bucket_of / bucket_case_sql） | **SO-13** |
 //! | [`receivable_bridge`] | 销售出库过账 → **自动挂应收**（`source_type='SALES_OUT'`，与库存扣减 / 成本结转凭证同一事务；幂等靠 `uk_biz_ar_source`） | **SO-14** |
 //! | [`receipt`] | 收款单写侧 + 读侧（V0292）：登记（`RC-yyyyMMdd-000001`）/ 核销到多张应收（回写 `received_amount`+状态）/ 确认 / 过账（借 1002 / 贷 1122）/ 作废 | **SO-17** |
+//! | [`receipt_refund`] | 收款退款单（V0294/V0295）：登记（`RR-yyyyMMdd-000001`）/ 核销冲减应收已收（`received_amount -= 金额`，应收退回 `PARTIAL`/`OPEN`）/ 确认 / 过账（借 1122 / 贷 1002）/ 草稿作废 —— SO-14 遗留「已收款的应收作废出库单」的前置单据 | **SO-14 遗留** |
 //!
 //! # 表结构的唯一依据
 //!
@@ -156,11 +157,12 @@ pub mod purchase_credit;
 pub mod purchase_dto;
 pub mod purchase_handler;
 pub mod purchase_model;
+pub mod receipt;
+pub mod receipt_refund;
 pub mod receivable;
 pub mod receivable_aging;
 pub mod receivable_bridge;
 pub mod receivable_query;
-pub mod receipt;
 pub mod reminder;
 pub mod reminder_contract;
 pub mod reminder_payable;

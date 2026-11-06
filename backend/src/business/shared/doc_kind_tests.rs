@@ -864,6 +864,8 @@ fn voucher_source_target_table(value: &str) -> Option<&'static str> {
         "EXPENSE_REPORT" | "EXPENSE_PAYMENT" => "biz_expense_report",
         // 销售链 SO-17：收款单过账凭证挂在收款单上
         "RECEIPT" => "biz_receipt",
+        // 销售链 SO-14 遗留卡：收款退款过账凭证挂在退款单上
+        "RECEIPT_REFUND" => "biz_receipt_refund",
         other => panic!(
             "VOUCHER_SOURCE 取值 {other} 没登记目标表：改了 VoucherSourceType 要同步 di.v_poly_ref_map"
         ),
