@@ -66,6 +66,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::business::erp::credit;
 use crate::business::erp::inventory_writer::{self, TxnRecord};
 use crate::business::erp::invoice;
 use crate::business::erp::period;
@@ -1459,6 +1460,20 @@ pub async fn post_in_tx(
         delivered_lines,
         "退货过账完成：回库 / 红字入库凭证 / 应收冲减 / 红字发票 / delivered_qty 同一事务落库"
     );
+
+    // ⑫ SO-38 / ARCH-7 §15.5.2 ③：退货过账 = 额度释放出口。
+    // 此刻本单状态已是 POSTED（handler 的状态 CAS 在调用本函数之前、同一事务内），
+    // 公式按 POSTED 计入 ⇒ 同事务同步就是「货退回来了，额度当场还回去」。
+    // 非 POSTED 的退货（草稿 / 待审）不计入释放，见 `credit::usage_of`。
+    credit::sync(
+        ex,
+        row.customer_id,
+        credit::CAUSE_RETURN_POSTED,
+        &row.return_no,
+    )
+    .await
+    .map_err(|error| utils::db_error(error, "同步客户信用额度（退货过账）"))?;
+
     Ok(ReturnPostOutcome {
         stock_in_id,
         stock_in_no,

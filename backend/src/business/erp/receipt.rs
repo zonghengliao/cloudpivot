@@ -73,6 +73,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
+use crate::business::erp::credit;
 use crate::business::erp::model::normalize_page;
 use crate::business::erp::period;
 use crate::business::erp::receivable::{self, ReceivableRow};
@@ -1357,6 +1358,20 @@ pub async fn allocate(
                     item.ar_no
                 )));
             }
+        }
+
+        // ⑤ SO-38 / ARCH-7 §15.5.2 ②：**应收核销 = 信用额度释放的主出口**。
+        // 与核销同事务 —— 钱收到了，额度必须当场还回去，不能等每日兜底重算。
+        // 一张收款单只允许核销同一客户的应收（上面已校验），所以这里同步一个客户即可。
+        if !planned.is_empty() {
+            credit::sync(
+                &tx,
+                receipt.customer_id,
+                credit::CAUSE_AR_SETTLED,
+                &receipt.receipt_no,
+            )
+            .await
+            .map_err(|error| utils::db_error(error, "同步客户信用额度（收款核销）"))?;
         }
 
         // ⑥ 回写收款头：allocated_amount 以**库里的明细合计**为准

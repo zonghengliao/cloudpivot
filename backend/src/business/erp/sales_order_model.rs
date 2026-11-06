@@ -35,6 +35,7 @@ use nik::prelude::rust_decimal::{Decimal, RoundingStrategy};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::business::erp::credit;
 use crate::business::erp::model_base::{find_by_id, page_of};
 use crate::business::erp::sales_model as base;
 use crate::business::shared::{scope, state_machine};
@@ -745,21 +746,29 @@ pub async fn apply_status(
     now: DateTime<Utc>,
 ) -> DbResult<u64> {
     let operator_text = Value::Text(operator.map(|value| value.to_string()).unwrap_or_default());
-    ex.exec_sql(
-        format!(
-            "UPDATE {ORDER_TABLE} \
-                SET status = ?, updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
-              WHERE id = ? AND status = ? AND deleted_at IS NULL"
-        ),
-        vec![
-            Value::Text(to.to_string()),
-            Value::from(now),
-            operator_text,
-            Value::from(&id),
-            Value::Text(from.to_string()),
-        ],
-    )
-    .await
+    let affected = ex
+        .exec_sql(
+            format!(
+                "UPDATE {ORDER_TABLE} \
+                    SET status = ?, updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
+                  WHERE id = ? AND status = ? AND deleted_at IS NULL"
+            ),
+            vec![
+                Value::Text(to.to_string()),
+                Value::from(now),
+                operator_text,
+                Value::from(&id),
+                Value::Text(from.to_string()),
+            ],
+        )
+        .await?;
+    // SO-38 / ARCH-7 §15.5：订单状态一变就重算客户额度（同一事务，与单据同生共死）。
+    // 占用唯一时机 = 迁入 APPROVED；作废 / 关闭 = 迁出占用集合即整单释放；
+    // 发货推进（APPROVED → PARTIAL_OUT → OUTBOUND）在集合内互迁，额度不变但要留痕。
+    if affected > 0 {
+        credit::sync_order(ex, id, credit::cause_of_transition(from, to)).await?;
+    }
+    Ok(affected)
 }
 /// 状态迁移落库（**带审批实例**；SO-06 审批流用）。
 ///
@@ -863,7 +872,13 @@ pub async fn apply_status_with_instance(
             ],
         ),
     };
-    ex.exec_sql(sql, params).await
+    let affected = ex.exec_sql(sql, params).await?;
+    // SO-38 / ARCH-7 §15.5：审批回调这条路径同样要重算额度（APPROVED 的**唯一写入口**
+    // 就是这里，漏了它等于「从来没人占用额度」）。
+    if affected > 0 {
+        credit::sync_order(ex, id, credit::cause_of_transition(from, to)).await?;
+    }
+    Ok(affected)
 }
 
 /// 这张销售订单当前挂着的审批实例（`approval_instance_id`；没有 → `None`）。

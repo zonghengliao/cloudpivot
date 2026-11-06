@@ -1,0 +1,30 @@
+== ① 客户详情暴露 credit_used / credit_available ==
+使用客户: d0260000-0000-4000-8000-000000000001
+PASS  GET customer HTTP                                          = 200
+  credit_limit=500000.0000 credit_used=0.0000 credit_available=500000.0000
+PASS  客户详情带 credit_used（V0313 新列）              = 0.0000
+PASS  credit_available = limit - used                            = 500000.0000
+
+== ② 漂移检测：绕过业务写库改 credit_used → S9 应转 BLOCKER ==
+  注入漂移：credit_used → 999（真值 0.0000）
+  🚨 [销售] S9 客户信用额度 = 有效订单含税 − 已核销应收 − 已过账退货（下限 0）
+  · [销售] S9 客户信用额度 = 有效订单含税 − 已核销应收 − 已过账退货（下限 0）  —  额度漂移 1 个客户（客户|credit_used|应有值）：
+PASS  S9 发现漂移并判 BLOCKER                             
+
+== ③ 兜底重算：定时任务「执行一次」修正漂移 + 记台账 ==
+  sys_job: erp_credit_recompute|530b02f8-bd5d-457a-8977-548cda6b34f9
+PASS  sys_job 种子行存在                                    = erp_credit_recompute
+PASS  POST job trigger HTTP                                      = 200
+  任务日志：信用额度重算：扫描 2 个客户，修正 1 个（CUS-0001 | 999.00 → 0）
+PASS  重算报告含「修正」（发现并修正漂移）    
+PASS  重算报告带「前 → 后」明细（可定位）     
+PASS  重算后 credit_used 回到真值                         = 0.0000
+PASS  biz_credit_log 记了 RECOMPUTE/JOB                        = 2
+  台账明细: 999.0000→0.0000 Δ-999.0000
+
+== ④ 修正后 S9 回到绿 ==
+  ✅ [销售] S9 客户信用额度 = 有效订单含税 − 已核销应收 − 已过账退货（下限 0）
+PASS  S9 修正后通过                                        
+
+============================================================
+ALL CHECKS PASSED (11)

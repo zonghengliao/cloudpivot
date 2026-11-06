@@ -386,6 +386,10 @@ pub struct CustomerRes {
     pub credit_days: i32,
     /// 信用额度（`0` = 不控额度）。
     pub credit_limit: Decimal,
+    /// 已用额度（SO-38：有效订单含税 − 已核销应收 − 已过账退货，下限 0）。
+    pub credit_used: Decimal,
+    /// 可用额度（`None` = 不控额度；否则 `credit_limit − credit_used`，不出负数）。
+    pub credit_available: Option<Decimal>,
     /// 状态：`ACTIVE` / `FROZEN`。
     pub status: String,
     /// 备注。
@@ -408,6 +412,18 @@ impl From<&CustomerRow> for CustomerRes {
             address: row.address.clone(),
             credit_days: row.credit_days,
             credit_limit: row.credit_limit,
+            credit_used: row.credit_used,
+            // 0 = 不控额度（与供应商同口径）：这时「可用额度」没有意义，返回 None
+            credit_available: if row.credit_limit <= Decimal::ZERO {
+                None
+            } else {
+                let rest = row.credit_limit - row.credit_used;
+                Some(if rest < Decimal::ZERO {
+                    Decimal::ZERO
+                } else {
+                    rest
+                })
+            },
             status: row.status.clone(),
             remark: row.remark.clone(),
             created_at: row.created_at,

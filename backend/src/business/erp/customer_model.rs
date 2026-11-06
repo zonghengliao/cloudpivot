@@ -41,10 +41,10 @@ pub use crate::business::erp::model_base::{DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, nor
 
 // ==================== 常量 ====================
 
-/// `biz_customer` 列清单（与 V0260 + V0289 逐列对应，顺序无关）。
+/// `biz_customer` 列清单（与 V0260 + V0289 + V0313 逐列对应，顺序无关）。
 pub const CUSTOMER_COLUMNS: &str = "id, code, name, tax_no, contact_name, contact_phone, address, \
-     credit_days, credit_limit, status, remark, created_at, updated_at, create_by, update_by, \
-     deleted_at";
+     credit_days, credit_limit, credit_used, status, remark, created_at, updated_at, create_by, \
+     update_by, deleted_at";
 
 /// 状态域值：正常（可开新单）。
 pub const STATUS_ACTIVE: &str = "ACTIVE";
@@ -107,6 +107,8 @@ pub struct CustomerRow {
     pub credit_days: i32,
     /// 信用额度（`NUMERIC(18,4)`，`0` = 不控额度）。
     pub credit_limit: Decimal,
+    /// 已用额度（SO-38 / V0313：有效订单含税 − 已核销应收 − 已过账退货，下限 0）。
+    pub credit_used: Decimal,
     /// 状态：`ACTIVE` / `FROZEN`。
     pub status: String,
     /// 备注。
@@ -136,6 +138,7 @@ impl CustomerRow {
             address: row.get_typed("address")?,
             credit_days: row.get_typed("credit_days")?,
             credit_limit: row.get_typed("credit_limit")?,
+            credit_used: row.get_typed("credit_used")?,
             status: row.get_typed("status")?,
             remark: row.get_typed("remark")?,
             created_at: row.get_typed("created_at")?,

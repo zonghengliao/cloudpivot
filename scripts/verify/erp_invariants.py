@@ -1953,11 +1953,12 @@ S_CHECK_NAMES = [
     "S6 销售出库 ↔ 应收勾稽（已过账出库必有应收）",
     "S7 销售相关凭证 Σ借 = Σ贷（且头金额 = 分录取和）",
     "S8 三账一致（销售出库：库存 = 库位账 = 流水）",
+    "S9 客户信用额度 = 有效订单含税 − 已核销应收 − 已过账退货（下限 0）",
 ]
 
 
 def group_s():
-    """销售链 8 条不变量（ARCH-7 §9.2）。真库直查，全部 BLOCKER。"""
+    """销售链 9 条不变量（ARCH-7 §9.2 的 S1–S8 + SO-38 的 S9）。真库直查，全部 BLOCKER。"""
     print("\n" + "=" * 92)
     print("S. 销售链不变量（订单/发货/发票/应收/收款/出库/凭证/三账）")
     print("=" * 92)
@@ -2346,6 +2347,86 @@ def group_s():
                             or abs(coalesce(inv.q,0)-coalesce(txn.q,0)) > 0.0001""")
     else:
         check(S_CHECK_NAMES[7], tag, "INFO", True, "本库缺三本账/出库表，跳过")
+
+    # ── S9 客户信用额度一致性（ARCH-7 §15.5.4，SO-38）─────────────────
+    # 口径（与 backend/src/business/erp/credit.rs 的 usage_of 逐字同源）：
+    #   credit_used = Σ(有效订单含税[APPROVED/PARTIAL_OUT/OUTBOUND])
+    #               − Σ(应收已核销 received_amount)
+    #               − Σ(已过账退货含税[POSTED])
+    #               下限 0
+    # 容差 0.01：numeric(18,4) 存 4 位，口径比到分。
+    # 这条判的是**缓存列 vs 三张表现算**。红了说明有人绕过 handler 改库、
+    # 或某个额度出口漏接了；每日 02:10 的 `erp_credit_recompute` 会修正，
+    # 但**修完仍要人看**（修正本身说明有 bug 或越权操作）。
+    name_s9 = S_CHECK_NAMES[8]
+    has_credit_used = q(
+        "select 1 from information_schema.columns "
+        "where table_schema='public' and table_name='biz_customer' "
+        "and column_name='credit_used'")
+    if not has_credit_used:
+        check(name_s9, tag, "INFO", True,
+              "biz_customer 没有 credit_used 列（未跑 V0313），跳过")
+    elif not (table_exists("biz_receivable") and table_exists("biz_sales_return")):
+        check(name_s9, tag, "INFO", True, "本库缺应收/退货表（销售模块未上线），跳过")
+    else:
+        s9_sql = """
+            with occ as (
+                select customer_id, sum(total_with_tax) s from biz_sales_order
+                 where deleted_at is null
+                   and status in ('APPROVED', 'PARTIAL_OUT', 'OUTBOUND')
+                 group by customer_id
+            ), rec as (
+                select customer_id, sum(received_amount) s from biz_receivable
+                 where deleted_at is null group by customer_id
+            ), ret as (
+                select customer_id, sum(total_with_tax) s from biz_sales_return
+                 where deleted_at is null and status = 'POSTED' group by customer_id
+            )
+            select c.code, c.credit_used::text,
+                   greatest(0, coalesce(occ.s, 0) - coalesce(rec.s, 0) - coalesce(ret.s, 0))::text
+              from biz_customer c
+              left join occ on occ.customer_id = c.id
+              left join rec on rec.customer_id = c.id
+              left join ret on ret.customer_id = c.id
+             where c.deleted_at is null
+        """
+        s9 = [r for r in q(s9_sql)
+              if abs(dec(r[1]) - dec(r[2])) > Decimal("0.01")]
+        n_cust = one("select count(*) from biz_customer where deleted_at is null")
+        print(f"  · 覆盖：客户 {n_cust} 个（有额度占用 / 已收款 / 已退货的都会被比到）")
+        if s9:
+            lines = [f"额度漂移 {len(s9)} 个客户（客户|credit_used|应有值）："]
+            for r in s9[:8]:
+                lines.append(f"  · {r[0]} | {r[1]} | {r[2]}（差 {dec(r[1]) - dec(r[2])}）")
+            if len(s9) > 8:
+                lines.append(f"  ... 还有 {len(s9) - 8} 个")
+        else:
+            lines = []
+        check(name_s9, tag, "BLOCKER", not s9,
+              "\n".join(lines) if lines else "所有客户 credit_used 与公式一致（容差 0.01）",
+              """
+              select c.code, c.credit_used::text,
+                     greatest(0,
+                       coalesce((select sum(o.total_with_tax) from biz_sales_order o
+                                  where o.customer_id=c.id and o.deleted_at is null
+                                    and o.status in ('APPROVED','PARTIAL_OUT','OUTBOUND')),0)
+                     - coalesce((select sum(r.received_amount) from biz_receivable r
+                                  where r.customer_id=c.id and r.deleted_at is null),0)
+                     - coalesce((select sum(t.total_with_tax) from biz_sales_return t
+                                  where t.customer_id=c.id and t.deleted_at is null
+                                    and t.status='POSTED'),0))::text as expected
+                from biz_customer c
+               where c.deleted_at is null
+                 and abs(c.credit_used - greatest(0,
+                       coalesce((select sum(o.total_with_tax) from biz_sales_order o
+                                  where o.customer_id=c.id and o.deleted_at is null
+                                    and o.status in ('APPROVED','PARTIAL_OUT','OUTBOUND')),0)
+                     - coalesce((select sum(r.received_amount) from biz_receivable r
+                                  where r.customer_id=c.id and r.deleted_at is null),0)
+                     - coalesce((select sum(t.total_with_tax) from biz_sales_return t
+                                  where t.customer_id=c.id and t.deleted_at is null
+                                    and t.status='POSTED'),0))) > 0.01
+              """)
 
 
 GROUPS = {"会计": group_a, "账账": group_b, "账实": group_c,

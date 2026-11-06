@@ -316,6 +316,9 @@ impl Scheduler {
         crate::business::erp::voucher_bridge::register_builtin(self);
         // FIN-2：折旧计提（每月 1 日 01:30 计提上一个会计月的折旧）
         crate::business::erp::depreciation_model::register_builtin(self);
+        // SO-38 / ARCH-7 §15.5：客户信用额度兜底重算（每天 02:10，早于 02:20 的
+        // 账务不变量巡检 —— 先修正再巡检：巡检还红就说明今晚真没修成）。
+        crate::business::erp::credit::register_builtin(self);
         // 批次 D · D4d：审批图快照自检（每天 03:30，分批扫 PUBLISHED 版本重算 graph_hash；不一致 WARN + 审计）
         crate::business::flow::maintain::register_builtin(self);
         // 批次 E · E11：周期任务生成（每 5 分钟扫一次 biz_task_template.next_run_at）
@@ -660,6 +663,14 @@ pub async fn run_handler(
             .await
             .map_err(|e| utils::db_error(e, "执行账务不变量巡检并落库"))?;
             Ok(crate::support::invariant::runner::summary(&record))
+        }
+        // SO-38：客户信用额度兜底重算（定时任务页「执行一次」走这里，与内置 cron 共用任务体）。
+        // 重算发现漂移会**修正并记 biz_credit_log**（cause = RECOMPUTE），返回摘要给出明细。
+        target if target == crate::business::erp::credit::TASK_NAME => {
+            let report = crate::business::erp::credit::recompute_all("JOB")
+                .await
+                .map_err(|e| utils::db_error(e, "执行客户信用额度重算"))?;
+            Ok(report.summary())
         }
         other => Err(ApiError::new(
             422,
