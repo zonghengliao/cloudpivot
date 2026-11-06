@@ -71,6 +71,9 @@
 //! | [`sales_model`] | 销售订单数据层（V0264）：`SO-yyyyMMdd-6 位` 取号 + 7 态状态域 + 金额恒等守卫 | **SO-04** |
 //! | [`shipment_model`] | 发货单数据层（V0283）：`SH-yyyyMMdd-6 位` 取号 + 4 态状态域 + **超发守卫**（未发量 = 订单 − 已发 − 未过账占用） | **SO-08** |
 //! | [`shipment_posting`] | 发货过账的库存效果（V0285）：销售出库单（`source_type=SALES`）→ `inventory_writer` 三账负向 → `delivered_qty` → 订单 `PARTIAL_OUT`/`OUTBOUND`，**同一事务** | **SO-10** |
+//! | [`receivable`] | 应收单写侧（V0287）：手工挂账（`AR-yyyyMMdd-000001` / MANUAL 来源）+ 坏账核销（`WRITTEN_OFF` + 必须给原因） | **SO-13** |
+//! | [`receivable_query`] | 应收查询：分页 + 详情（含客户名 / 关联凭证号），只读 | **SO-13** |
+//! | [`receivable_aging`] | 应收账款**账龄分析**：分档与 `payable_aging` **同源**（同一份 BUCKETS / bucket_of / bucket_case_sql） | **SO-13** |
 //!
 //! # 表结构的唯一依据
 //!
@@ -151,6 +154,9 @@ pub mod purchase_credit;
 pub mod purchase_dto;
 pub mod purchase_handler;
 pub mod purchase_model;
+pub mod receivable;
+pub mod receivable_aging;
+pub mod receivable_query;
 pub mod reminder;
 pub mod reminder_contract;
 pub mod reminder_payable;

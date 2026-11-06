@@ -126,11 +126,17 @@ pub enum DocKind {
     /// 边表在 `state_machine::SHIPMENT_EDGES`。明细 `biz_shipment_item` 没有状态、
     /// 也不单独记 `doc_type`（属单头）。
     Shipment,
+    /// 应收单 `biz_receivable`（销售链 · SO-13）。
+    ///
+    /// 镜像 `Payable`，但状态域不同（ARCH-7 §4.3）：`OPEN`/`PARTIAL`/`SETTLED`/
+    /// `WRITTEN_OFF`，边表在 `state_machine::RECEIVABLE_EDGES`。没有明细子表，
+    /// 状态只在单头流转；坏账核销是 `* → WRITTEN_OFF` 的终态边（必须给原因）。
+    Receivable,
 }
 
 impl DocKind {
     /// 全部业务对象（顺序 = 声明顺序；前端 TS 常量表与巡检按此顺序逐字比对）。
-    pub const ALL: [DocKind; 20] = [
+    pub const ALL: [DocKind; 21] = [
         DocKind::PurchaseOrder,
         DocKind::StockIn,
         DocKind::StockOut,
@@ -151,6 +157,7 @@ impl DocKind {
         DocKind::ExpenseReport,
         DocKind::SaleOrder,
         DocKind::Shipment,
+        DocKind::Receivable,
     ];
 
     /// 落库值（大写下划线）。**唯一拼写**。
@@ -176,6 +183,7 @@ impl DocKind {
             DocKind::ExpenseReport => "EXPENSE_REPORT",
             DocKind::SaleOrder => "SALE_ORDER",
             DocKind::Shipment => "SHIPMENT",
+            DocKind::Receivable => "RECEIVABLE",
         }
     }
 
@@ -202,6 +210,7 @@ impl DocKind {
             DocKind::ExpenseReport => "费用报销单",
             DocKind::SaleOrder => "销售订单",
             DocKind::Shipment => "发货单",
+            DocKind::Receivable => "应收单",
         }
     }
 
@@ -227,6 +236,7 @@ impl DocKind {
             DocKind::ExpenseReport => "biz_expense_report",
             DocKind::SaleOrder => "biz_sales_order",
             DocKind::Shipment => "biz_shipment",
+            DocKind::Receivable => "biz_receivable",
             // 年结没有实体表：状态记在 `biz_status_log`，`entity_id` 存结转凭证 id
             DocKind::AccountingYear => return None,
         })
@@ -251,6 +261,7 @@ impl DocKind {
                 | DocKind::ExpenseReport
                 | DocKind::SaleOrder
                 | DocKind::Shipment
+                | DocKind::Receivable
         )
     }
 
@@ -271,6 +282,7 @@ impl DocKind {
             DocKind::ExpenseReport => "expense",
             DocKind::SaleOrder => "sales-order",
             DocKind::Shipment => "shipment",
+            DocKind::Receivable => "receivable",
             _ => return None,
         })
     }
@@ -1124,7 +1136,7 @@ pub struct ColumnDomain {
     pub axis: &'static str,
 }
 
-const DOC_KIND_VALUES: [&str; 20] = [
+const DOC_KIND_VALUES: [&str; 21] = [
     "PURCHASE_ORDER",
     "STOCK_IN",
     "STOCK_OUT",
@@ -1145,6 +1157,7 @@ const DOC_KIND_VALUES: [&str; 20] = [
     "EXPENSE_REPORT",
     "SALE_ORDER",
     "SHIPMENT",
+    "RECEIVABLE",
 ];
 
 const FLOW_BIZ_TYPE_VALUES: [&str; 15] = [

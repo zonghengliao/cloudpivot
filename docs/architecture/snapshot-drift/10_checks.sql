@@ -491,6 +491,8 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('STATUS_ENTITY', 'SALE_ORDER',        'biz_sales_order',       'deleted_at', '销售订单（销售链 SO-05）'),
     -- 销售链 SO-09：发货单进状态日志（`shipment_handler` 的建单 / 流转都写 entity_type=SHIPMENT）
     ('STATUS_ENTITY', 'SHIPMENT',          'biz_shipment',          'deleted_at', '发货单（销售链 SO-09）'),
+    -- 销售链 SO-13：应收单进状态日志（`receivable.rs` 的建单 / 核销都写 entity_type=RECEIVABLE）
+    ('STATUS_ENTITY', 'RECEIVABLE',        'biz_receivable',        'deleted_at', '应收单（销售链 SO-13）'),
     -- ⑤ 序列号来源：biz_material_serial.source_type + source_id（P2-6b 补全映射）
     ('SERIAL_SOURCE', 'PURCHASE', 'biz_stock_in',       'deleted_at', '收货过账生成（in_type=PURCHASE），source_id = 收货单 id'),
     ('SERIAL_SOURCE', 'RETURN',   'biz_stock_in',       'deleted_at', '退货入库生成（in_type=RETURN，同一张收货单表），source_id = 收货单 id'),
