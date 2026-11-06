@@ -1,0 +1,8 @@
+ version |          name          |   kind    | applied_via 
+---------+------------------------+-----------+-------------
+ 285     | sales_stock_out_source | versioned | executed
+(1 row)
+
+ source_type   | character varying(20)    |           |          | 
+ source_id     | uuid                     |           |          | 
+    "uk_biz_so_source" UNIQUE, btree (source_type, source_id) WHERE source_type IS NOT NULL AND deleted_at IS NULL

@@ -119,7 +119,14 @@ cargo check --all-targets --features test-hooks                → rc=0
 ```
 ERP_DB_URL='postgres://alun:***@127.0.0.1:5432/cloudpivot_so10b' \
   cargo test --lib --features test-hooks -- --test-threads=1
+
+test result: FAILED. 2768 passed; 2 failed; … finished in 1406.10s
 ```
+
+对照父卡（SO-09，同口径）：2759 passed / 2 failed → 本卡新增 9 条单测，**2759 + 9 = 2768**，数字对得上。
+2 条失败均为 **SO-06 线既有缺陷**（`sales_approval_bridge` 全量顺序污染、V0281 `so_approve`
+`graph_hash` 漂移），与本卡改动无关，逐条归因见 `full-suite-attribution.md`。
+第二轮全量见 `full-suite-round-2.txt`。
 
 ---
 
