@@ -1,0 +1,66 @@
+== 首登：改初始密码（session_guard 只放行改密/登出）
+{"code":0,"message":null}
+== login ok (token_len=461) round=1
+== 0) 核销面板数据源 GET /receivable/page（status=OPEN，customer_id=d0260000-0000-4000-8000-000000000001）
+[{"ar_no":"AR-SO18-R1-002","amount":"400.0000","unsettled_amount":"400.0000","status":"OPEN","due_date":"2026-11-20"},{"ar_no":"AR-SO18-R1-001","amount":"600.0000","unsettled_amount":"600.0000","status":"OPEN","due_date":"2026-11-05"},{"ar_no":"AR-SO18-002","amount":"400.0000","unsettled_amount":"400.0000","status":"OPEN","due_date":"2026-11-20"},{"ar_no":"AR-SO18-001","amount":"600.0000","unsettled_amount":"600.0000","status":"OPEN","due_date":"2026-11-05"}]
+[]
+PASS  面板拿到 AR-SO18-R1-001 = yes
+PASS  面板拿到 AR-SO18-R1-002 = yes
+PASS  面板拿到别家客户 AR-SO18-R1-003 = yes
+== 1) 收款登记 POST /receipt amount=1000.0000（弹窗 testid=btn-rc-create）
+{"code":0,"message":null,"data":{"receipt_no":"RC-20261106-000003","amount":"1000.0000","allocated":"0.0000","unallocated":"1000.0000","status":"DRAFT","status_label":"草稿","method_label":"银行转账"}}
+PASS  登记单号形如 RC-yyyyMMdd-000001 = 1
+PASS  登记后状态 = DRAFT
+PASS  登记后未核销 = 全额 = 1000.0000
+PASS  负面：登记金额 0 的 HTTP = 400
+== 2) 核销负面 POST /receipt/97eb83f1-b6d4-4600-ade9-f191c19dbebc/allocate
+   核到别家客户 -> http=400 body={"code":10001,"msg":"应收单 AR-SO18-R1-003 的客户是 d0260000-0000-4000-8000-000000000002，与收款单 RC-20261106-000003 的客户 d0260000-0000-4000-8000-000000000001 不一致：收款只能核销同一个客户名下的应收"}
+PASS  负面：核到别家客户应收的 HTTP = 400
+   单张超额 600.0001 > 600 -> http=400 body={"code":10001,"msg":"本次核销 600.0001 超过应收 AR-SO18-R1-001 的可核销余额 600.0000（未收金额 + 本收款此前已核销的金额）：请按余额或更小的金额核销"}
+PASS  负面：单张超过可核销余额的 HTTP = 400
+   合计 1001 > 1000 -> http=400 body={"code":10001,"msg":"本次核销 401.0000 超过应收 AR-SO18-R1-002 的可核销余额 400.0000（未收金额 + 本收款此前已核销的金额）：请按余额或更小的金额核销"}
+PASS  负面：核销合计超过收款金额的 HTTP = 400
+== 3) 核销面板保存 POST /receipt/97eb83f1-b6d4-4600-ade9-f191c19dbebc/allocate {AR1:600, AR2:300}
+{"code":0,"message":null,"data":{"allocated":"900.0000","unallocated":"100.0000","allocations":[{"ar_no":"AR-SO18-R1-002","amount":"300.0000","ar_status":"PARTIAL","ar_unsettled_amount":"100.0000"},{"ar_no":"AR-SO18-R1-001","amount":"600.0000","ar_status":"SETTLED","ar_unsettled_amount":"0.0000"}]}}
+PASS  核销后已核销 = 900 = 900.0000
+PASS  核销后未核销 = 100（面板实时剩余） = 100.0000
+== 4) 应收状态变化 GET /receivable/{id}
+{"ar_no":"AR-SO18-R1-001","amount":"600.0000","received":"600.0000","unsettled":"0.0000","status":"SETTLED","status_label":"已收清"}
+{"ar_no":"AR-SO18-R1-002","amount":"400.0000","received":"300.0000","unsettled":"100.0000","status":"PARTIAL","status_label":"部分已收"}
+PASS  AR001 状态（核满） = SETTLED
+PASS  AR001 未收 = 0.0000
+PASS  AR002 状态（核一半） = PARTIAL
+PASS  AR002 未收 = 100.0000
+== 5) 确认 PATCH /receipt/97eb83f1-b6d4-4600-ade9-f191c19dbebc/status {CONFIRMED}
+{"code":0,"message":null,"data":{"status":"CONFIRMED","status_label":"已确认"}}
+PASS  确认后状态 = CONFIRMED
+== 6) 过账前置：未核销满 -> 409
+   http=409 body={"code":10003,"msg":"收款单 RC-20261106-000003 还有 100.0000 未核销到应收（收款 1000.0000 / 已核销 900.0000）：先核销满再过账，否则凭证会把未核销的钱贷记成应收账款收回"}
+PASS  负面：未核销满过账的 HTTP = 409
+== 7) 面板只发「有变化」的行（changedAllocationRows 的口径）
+   重提已核满的 AR1 -> http=409 body={"code":10003,"msg":"应收单 AR-SO18-R1-001 当前是「已收清」，不能核销（只有未收 / 部分已收的应收能收款）：已结清 / 已坏账核销 / 已作废的应收都不能再收款"}
+PASS  负面：重提已 SETTLED 应收的 HTTP = 409
+== 7.2 补齐 AR2 剩余 100（只发 AR2）
+{"code":0,"message":null,"data":{"allocated":"1000.0000","unallocated":"0.0000"}}
+{"code":0,"message":null,"data":{"status":"POSTED","status_label":"已过账","voucher_no":"PZ-20261106-000002"}}
+PASS  过账后状态 = POSTED
+PASS  过账生成凭证号形如 PZ-yyyyMMdd-000001 = 1
+PASS  AR002 补核后状态 = SETTLED
+== 7.1 凭证分录（查库 biz_voucher_entry）
+1002|1000.0000|0.0000
+1122|0.0000|1000.0000
+PASS  凭证分录 1002 借 1000.0000 = 1000.0000
+PASS  凭证分录 1122 贷 1000.0000 = 1000.0000
+== 8) 列表 GET /receipt/page（customer_id 筛选 + 分页）
+{"total":1,"list":[{"receipt_no":"RC-20261106-000003","customer_name":"北京云枢科技有限公司","receipt_date":"2026-11-06","amount":"1000.0000","allocated_amount":"1000.0000","unallocated_amount":"0.0000","method_label":"银行转账","status":"POSTED","status_label":"已过账"}]}
+PASS  列表含本轮单号 = 1
+PASS  列表行客户名（LEFT JOIN biz_customer） = 北京云枢科技有限公司
+PASS  列表行收款方式中文 = 银行转账
+PASS  列表行状态中文 = 已过账
+{"receipt_no":"RC-20261106-000003","status":"POSTED","allocated":"1000.0000","voucher_no":"PZ-20261106-000002","allocations":[{"ar_no":"AR-SO18-R1-002","amount":"400.0000","ar_status":"SETTLED","ar_unsettled_amount":"0.0000"},{"ar_no":"AR-SO18-R1-001","amount":"600.0000","ar_status":"SETTLED","ar_unsettled_amount":"0.0000"}]}
+PASS  详情核销明细行数 = 2
+   过账后再核销 -> http=409 body={"code":10003,"msg":"收款单 RC-20261106-000003 当前是「已过账」，只有草稿 / 已确认的收款单能核销：已过账（POSTED）的金额与核销被凭证锁定，已作废（CANCELLED）的更不能再核"}
+PASS  负面：POSTED 收款不可再核销的 HTTP = 409
+
+==== ROUND 1 结果: PASS=30 FAIL=0  receipt=RC-20261106-000003 (97eb83f1-b6d4-4600-ade9-f191c19dbebc) ====
+RID=97eb83f1-b6d4-4600-ade9-f191c19dbebc RNO=RC-20261106-000003

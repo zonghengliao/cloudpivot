@@ -4864,3 +4864,154 @@ export interface ReceivableAging {
 export function fetchReceivableAging(query: { period?: string; as_of?: string } = {}): Promise<ReceivableAging> {
   return get<ReceivableAging>(`${BASE}/receivable/aging`, asParams(query));
 }
+
+// ==================== 收款单（SO-17 后端 / SO-18 前端） ====================
+
+/**
+ * 收款单状态域（逐字抄 `receipt::STATUSES` / `ck_biz_receipt_status`）。
+ *
+ * ⚠️ 与应收的 `OPEN/PARTIAL/SETTLED/…` **不是一套值**：把 `OPEN` 传给收款接口会 400，
+ * 把 `DRAFT` 传给应收接口同样 400 —— 两个台账各有自己的 CHECK。
+ */
+export type ReceiptStatus = 'DRAFT' | 'CONFIRMED' | 'POSTED' | 'CANCELLED';
+
+/** 收款方式域（`receipt::METHODS`，与 `ck_biz_receipt_method` 逐字一致）。 */
+export type ReceiptMethod = 'BANK_TRANSFER' | 'CASH' | 'CHECK' | 'OTHER';
+
+/**
+ * 收款单行（后端 `receipt::ReceiptRes`，列表 / 详情共用）。
+ *
+ * 金额是 `NUMERIC` 出的**字符串**（`"1000.0000"`），比较与累加一律走
+ * `views/business/erp/shared/money.ts` 的整数分，不要直接 `+`。
+ */
+export interface Receipt {
+  id: string;
+  /** 收款单号 `RC-yyyyMMdd-000001`（`receipt::NO_PREFIX`） */
+  receipt_no: string;
+  customer_id: string;
+  /** 客户名称（LEFT JOIN `biz_customer`，客户软删时是空串） */
+  customer_name: string;
+  /** 收款日期 `yyyy-MM-dd` */
+  receipt_date: string;
+  amount: number | string;
+  /** 已核销金额（= 库内 SUM(核销明细)） */
+  allocated_amount: number | string;
+  /** 未核销余额（= amount − allocated_amount，后端算好） */
+  unallocated_amount: number | string;
+  method: ReceiptMethod | string | null;
+  /** 收款方式中文（后端 `receipt::method_label`，未指定时「未指定」） */
+  method_label: string;
+  bank_account: string | null;
+  status: ReceiptStatus | string;
+  /** 状态中文（后端 `receipt::status_label`） */
+  status_label: string;
+  /** 过账后生成的收款凭证 id */
+  voucher_id: string | null;
+  remark: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+/** 核销明细（后端 `receipt::AllocationRes`，详情抽屉 / 核销面板用）。 */
+export interface ReceiptAllocation {
+  id: string;
+  receivable_id: string;
+  ar_no: string;
+  ar_amount: number | string;
+  ar_received_amount: number | string;
+  ar_unsettled_amount: number | string;
+  ar_status: string;
+  ar_status_label: string;
+  /** 本次（本收款）对这张应收的核销金额 */
+  amount: number | string;
+  remark: string | null;
+  created_at: string | null;
+}
+
+/** 收款单详情（`ReceiptRes` 展开 + 凭证号 + 核销明细）。 */
+export interface ReceiptDetail extends Receipt {
+  voucher_no: string | null;
+  allocations: ReceiptAllocation[];
+}
+
+/**
+ * 收款分页入参（逐字抄 `receipt::ReceiptPageQuery`）。
+ *
+ * `receipt_no` 是**模糊**匹配（单号 + 客户名），不是 `keyword`；空串一律不发。
+ */
+export interface ReceiptQuery {
+  page?: number;
+  page_size?: number;
+  status?: ReceiptStatus | '';
+  customer_id?: string;
+  receipt_no?: string;
+  method?: ReceiptMethod | '';
+  /** 收款日期下界（含）`yyyy-MM-dd` */
+  date_from?: string;
+  /** 收款日期上界（含）`yyyy-MM-dd` */
+  date_to?: string;
+}
+
+/** 收款分页（`GET /business/erp/receipt/page`，权限 `business:erp:receipt:list`）。 */
+export function fetchReceiptPage(query: ReceiptQuery = {}): Promise<PageData<Receipt>> {
+  return get<PageData<Receipt>>(`${BASE}/receipt/page`, asParams(query));
+}
+
+/** 收款详情（`GET /business/erp/receipt/{id}`，权限 `:detail`，含核销明细）。 */
+export function fetchReceiptDetail(id: string): Promise<ReceiptDetail> {
+  return get<ReceiptDetail>(`${BASE}/receipt/${id}`);
+}
+
+/** 登记收款请求（`receipt::CreateReceiptReq`）。 */
+export interface CreateReceiptReq {
+  customer_id: string;
+  /** 缺省 = 今天（CST） */
+  receipt_date?: string | null;
+  /** 收款金额，必须 > 0 */
+  amount: string | number;
+  method?: ReceiptMethod | null;
+  bank_account?: string | null;
+  remark?: string | null;
+}
+
+/** 登记收款（`POST /business/erp/receipt`，权限 `business:erp:receipt:create`）。 */
+export function createReceipt(payload: CreateReceiptReq): Promise<ReceiptDetail> {
+  return post<ReceiptDetail>(`${BASE}/receipt`, payload);
+}
+
+/** 一条核销明细（`receipt::AllocateItemReq`）。 */
+export interface AllocateReceiptItemReq {
+  receivable_id: string;
+  /** 本次核销金额，> 0 且 ≤ 该应收「可核销余额」 */
+  amount: string | number;
+  remark?: string | null;
+}
+
+/**
+ * 核销到应收（`POST /business/erp/receipt/{id}/allocate`，权限 `:allocate`）。
+ *
+ * 一次多张应收；同一张应收在**同一张收款**下只有一行（重复提交 = 改金额）。
+ * 后端校验：核销总额 ≤ 收款金额、单张 ≤ 应收可核销余额、客户必须一致、
+ * 应收必须 OPEN/PARTIAL、收款必须 DRAFT/CONFIRMED。返回回读后的完整详情。
+ */
+export function allocateReceipt(
+  id: string,
+  items: AllocateReceiptItemReq[],
+): Promise<ReceiptDetail> {
+  return post<ReceiptDetail>(`${BASE}/receipt/${id}/allocate`, { items });
+}
+
+/**
+ * 状态迁移（`PATCH /business/erp/receipt/{id}/status`，权限 `:status`）。
+ *
+ * 合法边只有三条：`DRAFT→CONFIRMED`、`CONFIRMED→POSTED`、`DRAFT→CANCELLED`。
+ * - `POSTED` 要求核销满（`allocated_amount == amount`），否则 409（凭证只有 借1002/贷1122 两行）；
+ * - `CANCELLED` 要求已核销为 0 且给原因（≥4 字）。
+ */
+export function changeReceiptStatus(
+  id: string,
+  status: ReceiptStatus,
+  reason?: string,
+): Promise<ReceiptDetail> {
+  return patch<ReceiptDetail>(`${BASE}/receipt/${id}/status`, { status, reason });
+}
