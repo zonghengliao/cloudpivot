@@ -56,6 +56,8 @@ DRAFT / SUBMITTED / APPROVED → CANCELLED
 | `snapshot-audit-clean.txt` | 干净库 `snapshot_audit.py` → **26/26 通过，BLOCKER 0** |
 | `invariants.txt` | ⚠ 这是在**跑过 flow 回归的脏库**（`cloudpivot_so05`）上的输出：`67/68` 之外的 `D1 已过账收货单必有凭证` BLOCKER 来自 `D2L-SI-2`（联动测试夹具 `business::flow::linkage`，10:18:40 由回归跑出来，非本卡代码）；干净库基线见 `invariants-clean.txt` |
 | `clippy.txt` | `cargo clippy --all-targets --features test-hooks -- -D warnings` → 零告警 |
+| `frontend-typecheck.txt` | `pnpm typecheck`（vue-tsc --noEmit）→ rc=0（词表镜像改动） |
+| `frontend-build.txt` | `NODE_OPTIONS=--max-old-space-size=6144 pnpm build` → rc=0。**首轮 OOM**：`vite build` 默认 1.5G 堆，当时全量 `cargo test`（2710 条真库）正在同机跑，机器 15G 内存不够；套件跑完重跑即过。与本卡改动无关（前端只加了常量数组） |
 | `diff/` | 本卡全部改动相对 `c1bddb3` 的 unified diff |
 
 ### curl 实测关键输出（原文见 `curl-e2e.txt`）
