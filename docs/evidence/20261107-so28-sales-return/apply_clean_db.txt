@@ -1,0 +1,20 @@
+==> 表 owner = alun
+==> created: cloudpivot_so28 (owner=alun)
+==> 启动 pid=1112148 库=cloudpivot_so28 端口=18228 日志=/root/so28-migrate.log（跑迁移 + bootstrap）
+==> 启动日志尾部
+[2m2026-11-06T17:13:37.142564Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 token_blacklist_cleanup 调度循环已停止
+[2m2026-11-06T17:13:37.142575Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 announcement_auto_expire 调度循环已停止
+[2m2026-11-06T17:13:37.142703Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务插件: 已停止
+[2m2026-11-06T17:13:37.142739Z[0m [32m INFO[0m [2mnik_core::plugin[0m[2m:[0m 停止插件: x-log-bus
+[2m2026-11-06T17:13:37.142972Z[0m [32m INFO[0m [2mnik_core::plugin[0m[2m:[0m 停止插件: startup-auth-secret-guard
+==> 库指纹
+    schema_migrations(max|count) = 303|230
+    超管人数（= assignee_type=ADMIN 节点的会签人数） = 1
+    asset_disposal / n_gm / ROLE / self_approval=ALLOW / AND
+    budget_approve / n_dept / ROLE / self_approval=ALLOW / AND
+    budget_approve / n_fin_adj / ROLE / self_approval=ALLOW / AND
+--- 启动日志中的迁移完成行 ---
+[2m2026-11-06T17:13:34.203384Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 230 个迁移
+--- schema_migrations 尾部（本次新增） ---
+302|sales_order_contract|versioned|executed|applied_seq=219
+303|sales_return|versioned|executed|applied_seq=220

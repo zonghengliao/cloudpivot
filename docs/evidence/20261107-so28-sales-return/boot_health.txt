@@ -1,0 +1,6 @@
+== 启动前 schema_migrations(count|max) = 230|303
+== 启动 pid=1113221 端口=18228（库=cloudpivot_so28）
+   [2m2026-11-06T17:14:34.857695Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+== /health = 200
+== 启动后 schema_migrations(count|max) = 230|303
+ALL PASS: 应用 0 个迁移 + /health 200 + 迁移条数不变

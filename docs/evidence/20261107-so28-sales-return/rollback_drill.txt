@@ -1,0 +1,50 @@
+== 0) 前置：源库无活跃连接才能 createdb -T
+== 1) 克隆 cloudpivot_so28 → cloudpivot_so28_drill
+   迁移后指纹: biz_sales_return | cols=22 | idx=8 | item_cols=14 | item_idx=4 | sr_seq=1
+== 2) 执行 down.sql（期望：两表消失 + SR 取号行消失 + 父表仍在）
+head=<null> item=<null> sr_seq=0 parent_so=biz_sales_order
+   ✅ 两表已删 / SR 取号行已删 / 父表完好
+== 3) 再执行 up.sql（期望：结构 + 取号行全部回来）
+   重放后指纹: biz_sales_return | cols=22 | idx=8 | item_cols=14 | item_idx=4 | sr_seq=1
+   ✅ up 重放后 表/取号行/CHECK/外键 全部在位
+== 4) 幂等重放第二轮（期望：不报错、不重复种子）
+psql:/opt/cloudpivot/backend/migrations/business/V0303__sales_return.up.sql:106: NOTICE:  relation "biz_sales_return" already exists, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0303__sales_return.up.sql:127: NOTICE:  relation "uk_biz_sreturn_no" already exists, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0303__sales_return.up.sql:129: NOTICE:  relation "idx_biz_sreturn_order" already exists, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0303__sales_return.up.sql:131: NOTICE:  relation "idx_biz_sreturn_shipment" already exists, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0303__sales_return.up.sql:133: NOTICE:  relation "idx_biz_sreturn_customer" already exists, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0303__sales_return.up.sql:135: NOTICE:  relation "idx_biz_sreturn_status" already exists, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0303__sales_return.up.sql:137: NOTICE:  relation "idx_biz_sreturn_date" already exists, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0303__sales_return.up.sql:139: NOTICE:  relation "idx_biz_sreturn_stock_in" already exists, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0303__sales_return.up.sql:166: NOTICE:  relation "biz_sales_return_item" already exists, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0303__sales_return.up.sql:177: NOTICE:  relation "idx_biz_sreturn_item_return" already exists, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0303__sales_return.up.sql:179: NOTICE:  relation "idx_biz_sreturn_item_so_item" already exists, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0303__sales_return.up.sql:181: NOTICE:  relation "idx_biz_sreturn_item_material" already exists, skipping
+   ✅ 第二轮 up 幂等（SR 取号行仍 1 行）
+== 5) 第三轮：独立约束探针（在克隆库上跑一遍，确认回滚-重放后行为不变）
+    S1_tables_exist                  | PASS    | biz_sales_return / biz_sales_return_item 都存在
+    S2_head_columns                  | PASS    | 主表列数 = 22（期望 22）
+    S3_item_columns                  | PASS    | 明细列数 = 14（期望 14）
+    S4_amount_types_match_order_item | PASS    | price 18,6 / amount 18,4 / tax_rate 7,4 / tax_amount 18,4 与订单行一致
+    S5_head_zero_fk                  | PASS    | 单头外键条数 = 0（ADR-06：单据链/主数据一律弱引用）
+    S6_item_single_cascade_fk        | PASS    | 明细外键 1 条；定义=FOREIGN KEY (return_id) REFERENCES biz_sales_return(id) ON DELETE CASCADE
+    S7_no_trigger                    | PASS    | 两张表上的用户触发器 = 0
+    S8_seq_rule_sr                   | PASS    | biz_seq(SR) = SR|yyyyMMdd|-|1|1（期望 SR|yyyyMMdd|-|1|1）
+    S9_ck_name_from_card             | PASS    | ck_biz_sreturn_item_qty 存在 = t
+    B1_defaults                      | PASS    | 默认落库 = DRAFT|0.0000|0.0000|0.0000
+    B2_status_reject_illegal         | PASS    | status=RETURNED → 23514 拒绝
+    B3_type_reject_illegal           | PASS    | return_type=OUT_RED → 23514 拒绝
+    B4_amount_identity_reject        | PASS    | amount+tax≠total → 23514 拒绝
+    B5_amount_negative_reject        | PASS    | 负金额 → 23514 拒绝
+    B6_tax_rate_reject               | PASS    | tax_rate=150 → 23514 拒绝
+    B7_qty_zero_reject               | PASS    | qty=0 → 23514 拒绝
+    B8_qty_negative_reject           | PASS    | qty=-3 → 23514 拒绝
+    B9_qty_positive_accept           | PASS    | qty=3 + serial_nos 三元素插入成功
+    B10_fk_reject_orphan             | PASS    | 孤儿明细 → 23503 拒绝
+    B11_no_unique_reject             | PASS    | 存活行重号 → 23505 拒绝
+    B12_softdelete_no_reuse          | PASS    | 软删后同号重插成功
+    B13_cascade_delete               | PASS    | 删前明细 1 行 → 删后 0 行（期望 0）
+    B14_residue_zero                 | PASS    | 探针残留 = 0 行
+   psql:/opt/cloudpivot/docs/evidence/20261107-so28-sales-return/constraint-probes.sql:234: NOTICE:  SO-28 探针汇总: 23 / 23 PASS
+== 6) 清场：删一次性克隆库
+ALL PASS: down → up → 幂等重放 → 探针 23/23

@@ -1,0 +1,102 @@
+                                                                                                Table "public.biz_sales_return"
+        Column        |           Type           | Collation | Nullable |          Default           | Storage  | Compression | Stats target |                                   Description                                    
+----------------------+--------------------------+-----------+----------+----------------------------+----------+-------------+--------------+----------------------------------------------------------------------------------
+ id                   | uuid                     |           | not null | gen_random_uuid()          | plain    |             |              | 
+ return_no            | character varying(32)    |           | not null |                            | extended |             |              | 退货单号：SR-yyyyMMdd-000001（biz_seq seq_type=SR 取号，按 CST 的天滚动）
+ customer_id          | uuid                     |           | not null |                            | plain    |             |              | 客户 id（弱引用 biz_customer.id，无外键：客户软删后历史单据仍可读）
+ so_id                | uuid                     |           |          |                            | plain    |             |              | 原销售订单 id（弱引用，可空：ADR-06 单据链零外键；有效性由 SO-29 建单时校验）
+ shipment_id          | uuid                     |           |          |                            | plain    |             |              | 原发货单 id（弱引用，可空：SO-29 用它带出可退明细）
+ return_date          | date                     |           | not null |                            | plain    |             |              | 
+ return_type          | character varying(16)    |           | not null |                            | extended |             |              | 退货类型：QUALITY(质量) / WRONG_ITEM(错发) / OTHER(其他)
+ warehouse_id         | uuid                     |           | not null |                            | plain    |             |              | 退回入库仓库（弱引用 biz_warehouse.id，无外键）
+ status               | character varying(24)    |           | not null | 'DRAFT'::character varying | extended |             |              | 状态机：DRAFT/SUBMITTED/APPROVED/PENDING_POST/POSTED/CANCELLED（ARCH-7 §15.2.4）
+ total_amount         | numeric(18,4)            |           | not null | 0                          | main     |             |              | 
+ total_tax            | numeric(18,4)            |           | not null | 0                          | main     |             |              | 
+ total_with_tax       | numeric(18,4)            |           | not null | 0                          | main     |             |              | 价税合计（Numeric(18,4)，ck_biz_sreturn_amount 保证 = total_amount + total_tax）
+ stock_in_id          | uuid                     |           |          |                            | plain    |             |              | 过账生成的退货入库单 id（弱引用 biz_stock_in.id；可空，无外键以免过账事务成环）
+ receivable_id        | uuid                     |           |          |                            | plain    |             |              | 冲减的应收单 id（弱引用 biz_receivable.id；可空）
+ red_invoice_id       | uuid                     |           |          |                            | plain    |             |              | 红字发票 id（弱引用 biz_invoice.id；可空）
+ approval_instance_id | uuid                     |           |          |                            | plain    |             |              | 审批实例 id（弱引用流程引擎；可空，未提审时为空）
+ remark               | text                     |           |          |                            | extended |             |              | 
+ created_at           | timestamp with time zone |           | not null | CURRENT_TIMESTAMP          | plain    |             |              | 
+ updated_at           | timestamp with time zone |           | not null | CURRENT_TIMESTAMP          | plain    |             |              | 
+ create_by            | uuid                     |           |          |                            | plain    |             |              | 
+ update_by            | uuid                     |           |          |                            | plain    |             |              | 
+ deleted_at           | timestamp with time zone |           |          |                            | plain    |             |              | 软删标记；单号唯一索引带 WHERE deleted_at IS NULL ⇒ 软删后单号可复用
+Indexes:
+    "biz_sales_return_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_sreturn_customer" btree (customer_id, return_date DESC)
+    "idx_biz_sreturn_date" btree (return_date DESC)
+    "idx_biz_sreturn_order" btree (so_id, return_date DESC)
+    "idx_biz_sreturn_shipment" btree (shipment_id) WHERE shipment_id IS NOT NULL
+    "idx_biz_sreturn_status" btree (status)
+    "idx_biz_sreturn_stock_in" btree (stock_in_id) WHERE stock_in_id IS NOT NULL
+    "uk_biz_sreturn_no" UNIQUE, btree (return_no) WHERE deleted_at IS NULL
+Check constraints:
+    "ck_biz_sreturn_amount" CHECK (total_with_tax = (total_amount + total_tax))
+    "ck_biz_sreturn_amount_nonneg" CHECK (total_amount >= 0::numeric AND total_tax >= 0::numeric AND total_with_tax >= 0::numeric)
+    "ck_biz_sreturn_status" CHECK (status::text = ANY (ARRAY['DRAFT'::character varying, 'SUBMITTED'::character varying, 'APPROVED'::character varying, 'PENDING_POST'::character varying, 'POSTED'::character varying, 'CANCELLED'::character varying]::text[]))
+    "ck_biz_sreturn_type" CHECK (return_type::text = ANY (ARRAY['QUALITY'::character varying, 'WRONG_ITEM'::character varying, 'OTHER'::character varying]::text[]))
+Referenced by:
+    TABLE "biz_sales_return_item" CONSTRAINT "fk_biz_sreturn_item_return" FOREIGN KEY (return_id) REFERENCES biz_sales_return(id) ON DELETE CASCADE
+Not-null constraints:
+    "biz_sales_return_id_not_null" NOT NULL "id"
+    "biz_sales_return_return_no_not_null" NOT NULL "return_no"
+    "biz_sales_return_customer_id_not_null" NOT NULL "customer_id"
+    "biz_sales_return_return_date_not_null" NOT NULL "return_date"
+    "biz_sales_return_return_type_not_null" NOT NULL "return_type"
+    "biz_sales_return_warehouse_id_not_null" NOT NULL "warehouse_id"
+    "biz_sales_return_status_not_null" NOT NULL "status"
+    "biz_sales_return_total_amount_not_null" NOT NULL "total_amount"
+    "biz_sales_return_total_tax_not_null" NOT NULL "total_tax"
+    "biz_sales_return_total_with_tax_not_null" NOT NULL "total_with_tax"
+    "biz_sales_return_created_at_not_null" NOT NULL "created_at"
+    "biz_sales_return_updated_at_not_null" NOT NULL "updated_at"
+Access method: heap
+
+                                                                                          Table "public.biz_sales_return_item"
+   Column    |           Type           | Collation | Nullable |      Default      | Storage  | Compression | Stats target |                                         Description                                         
+-------------+--------------------------+-----------+----------+-------------------+----------+-------------+--------------+---------------------------------------------------------------------------------------------
+ id          | uuid                     |           | not null | gen_random_uuid() | plain    |             |              | 
+ return_id   | uuid                     |           | not null |                   | plain    |             |              | 所属退货单（硬外键 ON DELETE CASCADE：卡面点名，明细离开单头无独立意义）
+ so_item_id  | uuid                     |           |          |                   | plain    |             |              | 对应的原销售订单行（弱引用 biz_sales_order_item.id，可空：无原单退货留空）
+ material_id | uuid                     |           | not null |                   | plain    |             |              | 
+ qty         | numeric(18,4)            |           | not null |                   | main     |             |              | 退货数量（> 0，ck_biz_sreturn_item_qty 库层兜底；累计不超「已发量 − 已退量」由 SO-29 守卫）
+ price       | numeric(18,6)            |           | not null | 0                 | main     |             |              | 单价（不含税，NUMERIC(18,6) 与 biz_sales_order_item.price 同型，拷贝不丢精度）
+ amount      | numeric(18,4)            |           | not null | 0                 | main     |             |              | 
+ tax_rate    | numeric(7,4)             |           | not null | 0                 | main     |             |              | 
+ tax_amount  | numeric(18,4)            |           | not null | 0                 | main     |             |              | 
+ location_id | uuid                     |           |          |                   | plain    |             |              | 退回库位（弱引用 biz_location.id；NULL = 整仓退货）
+ serial_nos  | text[]                   |           |          |                   | extended |             |              | 序列号数组（一物一码物料才填，长度须与 qty 一致，由 model 校验）
+ remark      | character varying(500)   |           |          |                   | extended |             |              | 
+ created_at  | timestamp with time zone |           | not null | CURRENT_TIMESTAMP | plain    |             |              | 
+ updated_at  | timestamp with time zone |           | not null | CURRENT_TIMESTAMP | plain    |             |              | 
+Indexes:
+    "biz_sales_return_item_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_sreturn_item_material" btree (material_id)
+    "idx_biz_sreturn_item_return" btree (return_id)
+    "idx_biz_sreturn_item_so_item" btree (so_item_id) WHERE so_item_id IS NOT NULL
+Check constraints:
+    "ck_biz_sreturn_item_price" CHECK (price >= 0::numeric AND amount >= 0::numeric AND tax_amount >= 0::numeric)
+    "ck_biz_sreturn_item_qty" CHECK (qty > 0::numeric)
+    "ck_biz_sreturn_item_rate" CHECK (tax_rate >= 0::numeric AND tax_rate <= 100::numeric)
+Foreign-key constraints:
+    "fk_biz_sreturn_item_return" FOREIGN KEY (return_id) REFERENCES biz_sales_return(id) ON DELETE CASCADE
+Not-null constraints:
+    "biz_sales_return_item_id_not_null" NOT NULL "id"
+    "biz_sales_return_item_return_id_not_null" NOT NULL "return_id"
+    "biz_sales_return_item_material_id_not_null" NOT NULL "material_id"
+    "biz_sales_return_item_qty_not_null" NOT NULL "qty"
+    "biz_sales_return_item_price_not_null" NOT NULL "price"
+    "biz_sales_return_item_amount_not_null" NOT NULL "amount"
+    "biz_sales_return_item_tax_rate_not_null" NOT NULL "tax_rate"
+    "biz_sales_return_item_tax_amount_not_null" NOT NULL "tax_amount"
+    "biz_sales_return_item_created_at_not_null" NOT NULL "created_at"
+    "biz_sales_return_item_updated_at_not_null" NOT NULL "updated_at"
+Access method: heap
+
+ seq_type | prefix | date_pattern | separator | step | status |                       remark                        
+----------+--------+--------------+-----------+------+--------+-----------------------------------------------------
+ SR       | SR     | yyyyMMdd     | -         |    1 |      1 | 销售退货单单号：SR-yyyyMMdd-000001，按天（CST）滚动
+(1 row)
+
