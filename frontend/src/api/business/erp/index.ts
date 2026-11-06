@@ -4619,3 +4619,248 @@ export function submitSalesOrderApproval(
 ): Promise<SalesOrder> {
   return post<SalesOrder>(`${BASE}/sales-order/${id}/submit-approval`, payload);
 }
+
+// ==================== 应收账款（销售链 · 后端 SO-12/13/14 → 前端 SO-15） ====================
+
+/**
+ * 应收单状态域（逐字抄后端 `receivable::STATUSES` / `ck_biz_ar_status`）。
+ *
+ * ⚠ **不是**应付的那 4 个值：`PARTIAL_PAID` / `PENDING_CANCEL` 是 `biz_payable` 的域，
+ * 传给应收接口会 **400**（`receivable_query::ReceivablePageQuery::validate` 白名单拒绝，
+ * 绝不静默忽略）。应收对应的是 `PARTIAL`（部分已收）与 `CANCELLED`（出库作废冲销，V0290）。
+ */
+export type ReceivableStatus = 'OPEN' | 'PARTIAL' | 'SETTLED' | 'WRITTEN_OFF' | 'CANCELLED';
+
+/**
+ * 来源单据类型。
+ *
+ * - `SALES_OUT`：销售出库过账自动挂账（SO-14，`source_no` = 出库单号）；
+ * - `MANUAL`：手工挂账（`source_no` 固定 `MANUAL`，也是 `uk_biz_ar_source` 的唯一例外）。
+ */
+export type ReceivableSourceType = 'MANUAL' | 'SALES_OUT';
+
+/**
+ * 应收单（分页行 / 详情单头，后端 `receivable_query::ReceivableRes`）。
+ *
+ * 金额字段是 `numeric(18,2)` → `rust_decimal`，JSON 里出**字符串**（`"1130.0000"`）；
+ * 前端一律过 `money.ts` 的 `formatMoney`（先转整数分再格式化），不要 `parseFloat` 累加。
+ */
+export interface Receivable {
+  id: string;
+  /** 应收单号 `AR-yyyyMMdd-000001`（`receivable::NO_PREFIX`） */
+  ar_no: string;
+  customer_id: string;
+  /** 客户名称（后端 LEFT JOIN `biz_customer`，客户被软删时是空串） */
+  customer_name: string;
+  source_type: ReceivableSourceType | string;
+  source_id: string;
+  /** 来源单号（出库单号 / `MANUAL`） */
+  source_no: string;
+  invoice_no: string | null;
+  invoice_date: string | null;
+  currency_code: string;
+  /** 应收金额 */
+  amount: number | string;
+  /** 已收金额（收款单核销累加；SO-17 落地前恒 0） */
+  received_amount: number | string;
+  /** 未收金额（= amount − received_amount，库列冗余且有 CHECK 恒等） */
+  unsettled_amount: number | string;
+  /** 账期天数快照（0 = 现结，挂账时冻结） */
+  credit_days: number;
+  /** 到期日 `yyyy-MM-dd` */
+  due_date: string;
+  /** 所属会计期间 `yyyy-MM` */
+  period_code: string;
+  status: ReceivableStatus | string;
+  /** 状态中文（后端 `receivable::status_label`，前端只做兜底不做翻译） */
+  status_label: string;
+  /**
+   * 是否逾期（后端判据：`due_date < 今天` **且** 仍有未收 **且** 状态是 OPEN/PARTIAL）。
+   * 到期当天不算逾期，与账龄口径一致。
+   */
+  overdue: boolean;
+  settled_at: string | null;
+  /** 收入确认凭证 id（SO-22 前自动挂账的单恒 null） */
+  voucher_id: string | null;
+  remark: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 应收详情（`ReceivableRes` 展开 + `voucher_no`）。 */
+export interface ReceivableDetail extends Receivable {
+  /** 关联凭证号（凭证没生成 / 已删时 null） */
+  voucher_no: string | null;
+}
+
+/**
+ * 应收分页入参（逐字抄 `receivable_query::ReceivablePageQuery`）。
+ *
+ * `ar_no` 是**模糊**匹配（同时匹配来源单号），**不是** `keyword` ——
+ * 传 `keyword` 会被后端静默忽略并返回全表（SO-14 的 curl 脚本踩过这个坑）。
+ */
+export interface ReceivableQuery {
+  page?: number;
+  page_size?: number;
+  status?: ReceivableStatus | '';
+  customer_id?: string;
+  ar_no?: string;
+  source_type?: ReceivableSourceType | '';
+  /** 到期日下界（含）`yyyy-MM-dd` */
+  due_date_from?: string;
+  /** 到期日上界（含）`yyyy-MM-dd` */
+  due_date_to?: string;
+}
+
+/**
+ * 应收分页（`GET /business/erp/receivable/page`，权限 `business:erp:receivable:list`）。
+ *
+ * 后端默认**返回全部状态**（核销 / 作废单也要看得见，财务要对账），要只看看未收就自己传 `status`。
+ */
+export function fetchReceivablePage(query: ReceivableQuery = {}): Promise<PageData<Receivable>> {
+  return get<PageData<Receivable>>(`${BASE}/receivable/page`, asParams(query));
+}
+
+/** 应收详情（`GET /business/erp/receivable/{id}`，权限 `:detail`）。 */
+export function fetchReceivableDetail(id: string): Promise<ReceivableDetail> {
+  return get<ReceivableDetail>(`${BASE}/receivable/${id}`);
+}
+
+/**
+ * 手工挂账（`POST /business/erp/receivable`，权限 `business:erp:receivable:create`）。
+ *
+ * - `amount` 必填且 `> 0`（后端 400 不静默）；
+ * - `due_date` 显式给时**优先于** `credit_days` 推算；
+ * - 客户 `FROZEN` → 409；期间已结账 → 400。
+ */
+export interface CreateReceivableReq {
+  customer_id: string;
+  amount: string | number;
+  /** 账期天数（默认 0 ⇒ 到期日 = 挂账日） */
+  credit_days?: number | null;
+  /** 到期日 `yyyy-MM-dd`（给了就不按 credit_days 算） */
+  due_date?: string | null;
+  /** 所属会计期间 `yyyy-MM`（默认挂账日所属期间） */
+  period_code?: string | null;
+  invoice_no?: string | null;
+  invoice_date?: string | null;
+  remark?: string | null;
+}
+
+/** 手工挂账回执（后端 `receivable::CreateReceivableRes`）。 */
+export interface CreateReceivableRes {
+  id: string;
+  ar_no: string;
+  customer_id: string;
+  amount: number | string;
+  received_amount: number | string;
+  unsettled_amount: number | string;
+  credit_days: number;
+  due_date: string;
+  period_code: string;
+  status: ReceivableStatus;
+  status_label: string;
+}
+
+/** 手工挂账。 */
+export function createReceivable(payload: CreateReceivableReq): Promise<CreateReceivableRes> {
+  return post<CreateReceivableRes>(`${BASE}/receivable`, payload);
+}
+
+/**
+ * 坏账核销（`PATCH /business/erp/receivable/{id}/write-off`，权限 `business:erp:receivable:write-off`）。
+ *
+ * 只允许 `OPEN` / `PARTIAL` → `WRITTEN_OFF`；`SETTLED` / 已核销 / 已作废 **409**。
+ * `reason` 必填（后端 `REASON_MIN_CHARS` 字起）—— 坏账是会计估计变更，没原因无法审计。
+ * 返回**回读后的完整详情**（客户名 + 凭证号），前端可就地刷新卡片。
+ */
+export function writeOffReceivable(id: string, reason: string): Promise<ReceivableDetail> {
+  return patch<ReceivableDetail>(`${BASE}/receivable/${id}/write-off`, { reason });
+}
+
+/**
+ * 账龄一格（后端共用 `payable_aging::AgingBucketAmountRes`，字段名因此是 **`unpaid`**
+ * 而不是 `unsettled` —— 应收侧照抄同一个结构，别按语义改名，改了就是运行时 `undefined`）。
+ */
+export interface ReceivableAgingCell {
+  key: string;
+  label: string;
+  /** 该档未收金额合计（字段名沿用应付的 `unpaid`） */
+  unpaid: string;
+  doc_count: number;
+}
+
+/** 客户账龄一行（后端 `receivable_aging::CustomerAgingRes`）。 */
+export interface ReceivableAgingCustomer {
+  customer_id: string;
+  customer_name: string;
+  doc_count: number;
+  /** 未收合计 */
+  total_unsettled: string;
+  /** 与响应 `buckets` 同序同长（缺档补 0） */
+  buckets: ReceivableAgingCell[];
+  /** 最长逾期天数（未逾期记 0） */
+  max_overdue_days: number;
+}
+
+/** 账龄明细一行（后端 `receivable_aging::ReceivableAgingDetailRes`）。 */
+export interface ReceivableAgingDetailRow {
+  receivable_id: string;
+  ar_no: string;
+  customer_id: string;
+  customer_name: string;
+  source_no: string;
+  source_type: string;
+  invoice_no: string | null;
+  period_code: string;
+  credit_days: number;
+  due_date: string;
+  /** 基准日 − 到期日（正数 = 逾期；0 = 到期当天；负数 = 未到期） */
+  overdue_days: number;
+  bucket: string;
+  bucket_label: string;
+  amount: string;
+  received_amount: string;
+  unsettled_amount: string;
+  status: string;
+}
+
+/** 应收账龄分析表（后端 `receivable_aging::ReceivableAgingRes`）。 */
+export interface ReceivableAging {
+  report_code: string;
+  report_name: string;
+  company_name: string;
+  unit: string;
+  as_of: string;
+  as_of_source: 'QUERY' | 'PERIOD' | 'TODAY';
+  period: string | null;
+  period_name: string | null;
+  period_status: ReportPeriodStatus | null;
+  generated_at: string;
+  /** 档位定义：**表头按它渲染**，前端不写死 30/60/90 */
+  buckets: AgingBucketDef[];
+  summary: ReceivableAgingCell[];
+  total_unsettled: string;
+  overdue_unsettled: string;
+  overdue_ratio: string;
+  total_amount: string;
+  total_received: string;
+  doc_count: number;
+  customer_count: number;
+  customers: ReceivableAgingCustomer[];
+  details: ReceivableAgingDetailRow[];
+  detail_count: number;
+  detail_truncated: boolean;
+  hints: string[];
+}
+
+/**
+ * 编应收账龄分析表（`GET /business/erp/receivable/aging`，权限 `business:erp:receivable:aging`）。
+ *
+ * 入参与应付账龄**同一套语义**：`as_of` 优先；只传 `period` 用该期间末日；都空 = 今天（CST）。
+ * 分档与应付**同源**（同一份 `BUCKETS` / `bucket_of`），不含 `WRITTEN_OFF` / `CANCELLED`
+ * —— 坏账核销掉的、作废冲销的都不该再算作应收资产。
+ */
+export function fetchReceivableAging(query: { period?: string; as_of?: string } = {}): Promise<ReceivableAging> {
+  return get<ReceivableAging>(`${BASE}/receivable/aging`, asParams(query));
+}

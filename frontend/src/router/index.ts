@@ -605,6 +605,17 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '费用类型', permission: 'business:erp:expense-type:list' },
       },
       {
+        // ==================== ERP 应收账款（SO-15 前端 / 后端 SO-12~14） ====================
+        // 菜单节点由 V0288 种下（id …2880），`path` / `component` / `is_visible` 在 V0288 里
+        // **故意留空**（注释原文：「前端路由落地后一条 UPDATE 收尾」），由本卡 V0291 补齐 →
+        // 侧边栏「应收账款」可见。`system::menu::tests::n08`（menu_type=2 的 path 必须能在
+        // 本文件里解析）是真库硬门禁，路径写错这条测试会红。
+        path: 'business/erp/receivable',
+        name: 'BusinessErpReceivable',
+        component: () => import('@/views/business/erp/receivable/index.vue'),
+        meta: { title: '应收台账', permission: 'business:erp:receivable:list' },
+      },
+      {
         // ==================== ERP 应付单（P2-E2） ====================
         // `sys_menu` 里**还没有**这条菜单：V0148 只建了 `biz_payable`，既没种
         // `business:erp:payable:*` 权限码也没种菜单节点（`grep -rn 'erp/payable'

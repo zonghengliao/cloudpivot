@@ -1,0 +1,79 @@
+==> 0. 清场（只碰 SO15UI 前缀的夹具）
+
+==> 1. 登录（admin）
+  PASS  拿到 admin access_token
+
+==> 2. 建夹具客户 + 两笔应收（一笔逾期 30 天，一笔未到期）
+  PASS  建客户成功（credit_days=30）
+  PASS  手工挂账 #1（到期 2026-10-07，逾期 30 天）
+  PASS  手工挂账 #2（到期 2026-11-16，未到期）
+
+==> 3. 列表：页面读的 8 列 + 分页 + 过滤（GET /receivable/page）
+  PASS  分页 total = 2（2）
+  PASS  分页 page = 1（1）
+  PASS  分页 page_size = 20（20）
+  PASS  列表行有 ar_no（键存在）
+  PASS  列表行有 customer_name（键存在）
+  PASS  列表行有 source_no（键存在）
+  PASS  列表行有 amount（键存在）
+  PASS  列表行有 received_amount（键存在）
+  PASS  列表行有 unsettled_amount（键存在）
+  PASS  列表行有 due_date（键存在）
+  PASS  列表行有 status（键存在）
+  PASS  列表行有 status_label（键存在）
+  PASS  列表行有 overdue（键存在）
+  PASS  客户名回填（LEFT JOIN biz_customer）（SO-15 台账演示客户）
+  PASS  来源类型 = MANUAL（手工挂账）（MANUAL）
+  PASS  来源单号 = MANUAL（uk_biz_ar_source 的唯一例外）（MANUAL）
+  PASS  状态中文由后端下发（未收）
+  PASS  30 天前到期的单据 overdue = true（列表红标的数据源）（true）
+  PASS  10 天后到期的单据 overdue = false（false）
+  PASS  传应付状态 PARTIAL_PAID → 400（前端状态域抄错会立刻暴露）（400）
+  PASS  到期日区间过滤 total = 1（1）
+
+==> 4. 详情（GET /receivable/{id}）：金额 / 已收 / 未收 / voucher_no
+  PASS  详情有 voucher_no（关联凭证号）（键存在）
+  PASS  详情有 settled_at（键存在）
+  PASS  详情有 credit_days（键存在）
+  PASS  详情有 period_code（键存在）
+  PASS  详情 amount = 1130（1130）
+  PASS  详情 received_amount = 0（0）
+  PASS  详情 unsettled_amount = 1130（1130）
+  PASS  详情凭证号为 null（收入确认凭证属 SO-22）（null）
+
+==> 5. 账龄看板（GET /receivable/aging）：5 档表头 + 汇总 + 明细
+  PASS  账龄基准日 = 传入的 as_of（2026-11-06）
+  PASS  as_of_source = QUERY（手动指定）（QUERY）
+  PASS  档位数 = 5（未到期 / 1-30 / 31-60 / 61-90 / 90+）（5）
+  PASS  档位 key 顺序（NOT_DUE,D0_30,D31_60,D61_90,OVER_90）
+  PASS  汇总格与档位同长同序（NOT_DUE,D0_30,D31_60,D61_90,OVER_90）
+  PASS  逾期 30 天落在 D0_30 档，金额 1130（1130）
+  PASS  未到期档 500（500）
+  PASS  账龄有 details（单据明细）（键存在）
+  PASS  账龄有 overdue_ratio（键存在）
+  PASS  明细行数 = 2（2）
+  PASS  明细行带 bucket_label（页面标签的数据源）（1-30 天）
+
+==> 6. 坏账核销（PATCH /receivable/{id}/write-off）
+  PASS  原因过短被拒（前端 writeOffReasonError 同口径）（10001）
+  PASS  核销后状态 = WRITTEN_OFF（WRITTEN_OFF）
+  PASS  核销后状态中文 = 坏账核销（坏账核销）
+  PASS  核销后 settled_at 非空（set）
+  PASS  核销后金额不变（只改状态，不冲金额）（1130）
+  PASS  重复核销返回业务错误（不是 200）（10003）
+
+==> 7. 核销记录留痕（前端「核销记录」面板的数据源 = remark 前缀）
+  PASS  remark 含 [坏账核销] 前缀（前端按这个前缀拆行）
+  PASS  remark 保留了核销原因（可审计）
+
+==> 8. 核销后账龄不再计入应收资产
+  PASS  核销后逾期 30 天档清零（0）
+  PASS  核销后明细只剩 1 张（1）
+
+==> 9. 库层复核（页面之外的事实）
+  PASS  biz_receivable 该客户 2 张（1 张已核销）（2）
+  PASS  状态留痕写进 biz_status_log（RECEIVABLE / WRITTEN_OFF）（1）
+  PASS  sys_menu 应收页已开（V0291 收尾）（/business/erp/receivable|business/erp/receivable/index|true）
+  PASS  V0291 在 schema_migrations 里 versioned/executed（versioned|executed|true）
+
+==> 汇总：PASS=58 FAIL=0
