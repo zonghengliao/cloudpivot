@@ -5,7 +5,7 @@
  *
  * | 语义 | 出处（`backend/src/business/erp/invoice.rs`） |
  * |------|------|
- * | 状态域 4 值 | `invoice::STATUSES` / `ck_biz_invoice_status`（V0295） |
+ * | 状态域 4 值 | `invoice::STATUSES` / `ck_biz_invoice_status`（V0298） |
  * | 状态中文 | `invoice::status_label`（前端只做兜底） |
  * | 票种 2 值 | `invoice::TYPES` / `ck_biz_invoice_type` |
  * | 状态机边 | `state_machine::INVOICE_EDGES`（4 条，经 `invoice::LEGAL_EDGES` 导出） |
@@ -45,7 +45,7 @@ export const INVOICE_REASON_MAX = 500;
 /** 发票默认税率 13%（`invoice::default_tax_rate` = `0.1300`） */
 export const INVOICE_DEFAULT_TAX_RATE = 0.13;
 
-/** 发票的 4 个权限码（`V0296` 种的 `sys_menu.auth_code`，逐字一致） */
+/** 发票的 4 个权限码（`V0299` 种的 `sys_menu.auth_code`，逐字一致） */
 export const INVOICE_PERMS = {
   list: 'business:erp:invoice:list',
   detail: 'business:erp:invoice:detail',

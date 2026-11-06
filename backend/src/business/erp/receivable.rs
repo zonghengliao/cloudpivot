@@ -24,7 +24,8 @@
 //! | `WRITTEN_OFF` | `CANCELLED` | **坏账核销**（收不回来了，终态） |
 //! | `CANCELLED` | （无） | **出库作废冲销**（来源出库单作废 ⇒ 这笔销售从未发生，终态；V0290） |
 //!
-//! 边表是 [`LEGAL_EDGES`]（= `state_machine::RECEIVABLE_EDGES`，6 条），全部经
+//! 边表是 [`LEGAL_EDGES`]（= `state_machine::RECEIVABLE_EDGES`，9 条；其中 3 条是
+//! 收款退款单的反向边 `SETTLED → PARTIAL → OPEN`，由 SO-14 遗留卡补入），全部经
 //! `state_machine::transition` 落库并写 `biz_status_log`（`entity_type = RECEIVABLE`）。
 //!
 //! ⚠ `WRITTEN_OFF`（坏账）与 `CANCELLED`（作废）**不能混用**：
@@ -159,7 +160,7 @@ pub const RECEIVABLE_SEQ: SeqSpec<'static> = SeqSpec {
 };
 
 /// 合法边（唯一真相在 `state_machine::RECEIVABLE_EDGES`，这里只是别名）。
-pub const LEGAL_EDGES: [(&str, &str); 6] = state_machine::RECEIVABLE_EDGES;
+pub const LEGAL_EDGES: [(&str, &str); 9] = state_machine::RECEIVABLE_EDGES;
 
 /// 入账态（唯一真相在 `state_machine::RECEIVABLE_LOCKED`）。
 pub const LOCKED: [&str; 3] = state_machine::RECEIVABLE_LOCKED;
@@ -1202,7 +1203,11 @@ mod tests {
     #[test]
     fn legal_edges_match_arch7_state_graph() {
         assert_eq!(LEGAL_EDGES, state_machine::RECEIVABLE_EDGES);
-        assert_eq!(LEGAL_EDGES.len(), 6);
+        assert_eq!(
+            LEGAL_EDGES.len(),
+            9,
+            "6 条正向（ARCH-7 §4.3 + V0290）+ 3 条退款反向边（SETTLED → PARTIAL → OPEN，V0294）"
+        );
         let entity = state_machine::Entity::Receivable;
         assert!(entity.can_transition("OPEN", "PARTIAL"));
         assert!(entity.can_transition("OPEN", "SETTLED"));
@@ -1210,14 +1215,24 @@ mod tests {
         assert!(entity.can_transition("OPEN", "WRITTEN_OFF"));
         assert!(entity.can_transition("PARTIAL", "WRITTEN_OFF"));
         assert!(entity.can_transition("OPEN", "CANCELLED"));
-        // 终态没有出边；已收清不能走坏账；收过钱的不能走作废
+        // 退款反向边：退款核销把 `received_amount` 冲回来，状态必须跟着回退，
+        // 否则「状态说收清、金额说没收」与 `ck_biz_ar_unsettled` 恒等式矛盾。
+        assert!(entity.can_transition("SETTLED", "PARTIAL"));
+        assert!(entity.can_transition("PARTIAL", "OPEN"));
+        assert!(entity.can_transition("SETTLED", "OPEN"));
+        // 已收清不能走坏账；收过钱的不能走作废（退款只能回退余额，不能抹账）
         assert!(!entity.can_transition("SETTLED", "WRITTEN_OFF"));
         assert!(!entity.can_transition("WRITTEN_OFF", "OPEN"));
         assert!(
             !entity.can_transition("PARTIAL", "CANCELLED"),
             "已部分收款的应收没有作废边（先冲收款）"
         );
-        for terminal in ["SETTLED", "WRITTEN_OFF", "CANCELLED"] {
+        assert!(
+            !entity.can_transition("SETTLED", "CANCELLED"),
+            "已收清还作废 = 用退款绕过审批抹掉一笔已收的钱"
+        );
+        // SETTLED 不是终态（有 2 条退款回退边），其它两个终态没有出边
+        for terminal in ["WRITTEN_OFF", "CANCELLED"] {
             for target in STATUSES {
                 assert!(
                     !entity.can_transition(terminal, target),
@@ -1225,6 +1240,16 @@ mod tests {
                 );
             }
         }
+        let settled_out: Vec<&str> = STATUSES
+            .iter()
+            .copied()
+            .filter(|target| entity.can_transition("SETTLED", target))
+            .collect();
+        assert_eq!(
+            settled_out,
+            vec!["OPEN", "PARTIAL"],
+            "SETTLED 的出边只允许退款回退（→ PARTIAL / OPEN）"
+        );
         assert!(entity.needs_reason("OPEN", "WRITTEN_OFF"));
         assert!(entity.needs_reason("PARTIAL", "WRITTEN_OFF"));
         assert!(

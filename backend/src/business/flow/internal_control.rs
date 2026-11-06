@@ -137,6 +137,13 @@ pub async fn of(instance: &flow_model::InstanceRow) -> DbResult<Control> {
         let creator = payable_bridge::internal_control_creator_of_payable(instance.biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
+    } else if biz_type == crate::business::erp::receipt_refund_bridge::BIZ_TYPE {
+        // SO-14 遗留 D10：收款退款审批的 `biz_id` 是**退款单 id**（制单人不能批自己的退款）
+        let creator =
+            crate::business::erp::receipt_refund_bridge::internal_control_creator(instance.biz_id)
+                .await?;
+        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
+        true
     } else if biz_type == crate::business::erp::voucher_bridge::BIZ_TYPE {
         // P-FLOW-3B：凭证红冲审批的 `biz_id` 是**凭证 id**
         let creator =

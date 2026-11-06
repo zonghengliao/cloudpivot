@@ -1,0 +1,52 @@
+==> 0. 清场（隔离库按表清）+ 夹具
+  PASS  夹具：客户 + 应收 PARTIAL（1000 / 已收 100 / 30234dc1-1dae-4243-9bbb-9e13f15de417）
+  PASS  夹具：审批人 rr_approver（超管，但不是制单人）
+
+==> 1. 登录（admin；首登强制改密自动处理）
+  PASS  拿到 admin access_token（制单人）
+  PASS  审批人口令已与 admin 同步
+
+==> 2. 登记退款 → 核销 → 确认（制单人 = admin）
+  PASS  登记退款（RR-20261106-000013）
+  PASS  新单审批段为空（null）
+  PASS  确认后状态（CONFIRMED）
+
+==> 3. 未审批直接过账 → 409 + 66044
+  PASS  过账闸错误码（66044）
+  PASS  报文给出提交审批的入口
+
+==> 4. 提交审批（状态不变 + 实例 PENDING + 1 条待办）
+  PASS  提交后单据状态（审批不是状态）（CONFIRMED）
+  PASS  审批实例状态（PENDING）
+  PASS  待办数（1）
+  PASS  审批实例（01a1b117-22d2-71b2-9302-4e91d6bb2e69）
+  PASS  审批中重复提交 409（10003）
+
+==> 5. 审批人登录 → 同意（内控：制单人不能批自己的单）
+  PASS  审批人登录成功
+  PASS  审批人能看到待办且是自己的（yes）
+  PASS  制单人没有待办（内控排除）（）
+  PASS  审批动作返回实例状态（APPROVED）
+
+==> 6. 回调自动过账：退款单 POSTED + 凭证 + 状态日志
+  PASS  退款单状态（回调直接过账）（POSTED）
+  PASS  过账生成凭证号（PZ-20261106-000121）
+  PASS  详情里的审批状态（APPROVED）
+  PASS  凭证 借 1122 100（1）
+  PASS  凭证 贷 1002 100（1）
+  PASS  状态日志写明审批单号（1）
+  PASS  应收已回到 OPEN / 已收 0（OPEN|0.0000）
+
+==> 7. 终态语义没动：已过账再作废 409
+  PASS  已过账作废被拒（10003）
+
+==> 8. 第二张单：驳回 → 仍是 CONFIRMED、一分没记账、可重新提交
+  PASS  驳回后单据仍是已确认（CONFIRMED）
+  PASS  驳回后审批状态（REJECTED）
+  PASS  驳回一分没记账（凭证数）（0）
+  PASS  驳回后可以重新提交（新实例 PENDING）（PENDING）
+  PASS  重提后仍是同一张单（未过账）（CONFIRMED）
+
+==> 9. 汇总
+  断言：PASS=31 FAIL=0
+  RESULT=ALL_PASS（31 条断言）

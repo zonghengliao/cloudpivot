@@ -1,0 +1,60 @@
+Pager usage is off.
+===== 1. schema_migrations =====
+ applied | maxver 
+---------+--------
+     230 |    301
+(1 row)
+
+ version |                  name                   | success | applied_via 
+---------+-----------------------------------------+---------+-------------
+ 294     | sales_receipt_refund                    | t       | executed
+ 295     | sales_receipt_refund_permissions        | t       | executed
+ 296     | sales_receipt_menu_page                 | t       | executed
+ 297     | sales_receipt_refund_approval           | t       | executed
+ 298     | sales_invoice                           | t       | imported
+ 299     | sales_invoice_permissions               | t       | imported
+ 300     | sales_invoice_menu_page                 | t       | imported
+ 301     | sales_order_flow_is_system_and_snapshot | t       | imported
+(8 rows)
+
+===== 2. V0301 声称对象（so_approve is_system + 快照 hash）=====
+   flow_code    | is_system |  status   | version_no |      hash16      | snap_schema | nodes | edges 
+----------------+-----------+-----------+------------+------------------+-------------+-------+-------
+ receipt_refund | t         | PUBLISHED |          1 | 6a592107a9e7e6bc | 1           |     3 |     2
+ so_approve     | t         | PUBLISHED |          1 | 97fe937752c881c0 | 1           |     7 |     8
+(2 rows)
+
+===== 3. 新表存在性 + 行数 =====
+          table_name           | has_comment 
+-------------------------------+-------------
+ biz_invoice                   | t
+ biz_receipt_refund            | t
+ biz_receipt_refund_allocation | t
+(3 rows)
+
+               t               | rows 
+-------------------------------+------
+ biz_invoice                   |    0
+ biz_receipt_refund            |    0
+ biz_receipt_refund_allocation |    0
+(3 rows)
+
+===== 4. 销售管理菜单树（V0267 + V0300）=====
+                  id                  |              parent_id               |   name   | menu_type |          auth_code           | is_visible | sort_order 
+--------------------------------------+--------------------------------------+----------+-----------+------------------------------+------------+------------
+ 20000000-0000-0000-0000-000000002701 |                                      | 销售管理 |         1 |                              | t          |         64
+ 20000000-0000-0000-0000-000000002601 | 20000000-0000-0000-0000-000000002701 | 客户档案 |         2 | business:erp:customer:list   | t          |         10
+ 20000000-0000-0000-0000-000000002651 | 20000000-0000-0000-0000-000000002701 | 销售订单 |         2 | business:erp:sale-order:list | t          |         20
+ 20000000-0000-0000-0000-000000002841 | 20000000-0000-0000-0000-000000002701 | 发货单   |         2 | business:erp:shipment:list   | t          |         30
+ 20000000-0000-0000-0000-000000002880 | 20000000-0000-0000-0000-000000002701 | 应收账款 |         2 | business:erp:receivable:list | t          |         40
+ 20000000-0000-0000-0000-000000002890 | 20000000-0000-0000-0000-000000002701 | 收款单   |         2 | business:erp:receipt:list    | t          |         50
+ 20000000-0000-0000-0000-000000002895 | 20000000-0000-0000-0000-000000002701 | 销售发票 |         2 | business:erp:invoice:list    | t          |         60
+(7 rows)
+
+===== 5. 号段种子 RR / IV =====
+ seq_type |   seq_name   | prefix | date_pattern | current_no | step | status |                                   remark                                    
+----------+--------------+--------+--------------+------------+------+--------+-----------------------------------------------------------------------------
+ IV       | 销售发票号   | IV     | yyyyMMdd     |          0 |    1 |      1 | 销售发票单据号：IV-yyyyMMdd-000001，按天（CST）滚动；手填税控发票号时不取号
+ RR       | 收款退款单号 | RR     | yyyyMMdd     |          0 |    1 |      1 | 收款退款单号：RR-yyyyMMdd-000001，按天（CST）滚动（V0294 · SO-14 遗留卡）
+(2 rows)
+
