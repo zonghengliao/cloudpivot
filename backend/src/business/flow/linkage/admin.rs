@@ -160,6 +160,12 @@ pub struct RuleRes {
     pub trigger_entity_label: String,
     /// 触发状态
     pub trigger_status: String,
+    /// 触发状态中文名（`POSTED` → 「已过账」；P1-FIX-12A）
+    ///
+    /// 列表页直接显示这个字段。**为什么行级也下发一份**：列表要显示中文就得把
+    /// 「编码 → 中文」的字典 join 到每一行，前端自己算一遍就是第二份映射；
+    /// 字典里查不到（脏数据 / 状态已被状态机删掉）时回落成编码本身，不显示空白。
+    pub trigger_status_label: String,
     /// 白名单动作码
     pub action_code: String,
     /// 动作中文名（不在白名单时回落成动作码）
@@ -195,6 +201,7 @@ impl RuleRes {
             trigger_entity: row.trigger_entity.clone(),
             trigger_entity_label: trigger_label(&row.trigger_entity),
             trigger_status: row.trigger_status.clone(),
+            trigger_status_label: trigger_status_label(&row.trigger_entity, &row.trigger_status),
             action_code: row.action_code.clone(),
             action_label: action
                 .map(|item| item.label.to_string())
@@ -216,6 +223,19 @@ impl RuleRes {
     }
 }
 
+/// 一个触发状态的中文名（`code` = 落库编码，`label` = 人读中文）。
+///
+/// P1-FIX-12A：配置页原来拿编码当显示名，管理员看到的是 `POSTED / DOING / DRAFT`。
+/// 现在编码与中文成对下发 —— `code` 仍要与库里的 `trigger_status` / 日志对得上，
+/// `label` 是给人看的。
+#[derive(Debug, Serialize)]
+pub struct StatusLabelRes {
+    /// 状态编码（与 `biz_flow_linkage_rule.trigger_status` 逐字一致）
+    pub code: String,
+    /// 中文名（来自 [`spec::TriggerSpec::status_labels`]）
+    pub label: String,
+}
+
 /// 一个触发点（单据类型 + 允许的状态）。
 #[derive(Debug, Serialize)]
 pub struct TriggerRes {
@@ -225,6 +245,11 @@ pub struct TriggerRes {
     pub label: String,
     /// 允许的触发状态（升序，与状态机边表同口径）
     pub statuses: Vec<String>,
+    /// 允许的触发状态 + 中文名（**顺序与 `statuses` 逐项对齐**，P1-FIX-12A）
+    ///
+    /// `statuses` 保留是为了向后兼容（老前端 / 脚本仍按编码取值）；
+    /// 新前端用 `status_labels` 渲染下拉的 label，`value` 继续用 `code`。
+    pub status_labels: Vec<StatusLabelRes>,
     /// **是否已接线**（`false` = 代码里没人调引擎，配了规则永远不触发；前端据此标注并拦截保存）
     pub wired: bool,
     /// 接线位置（`wired = true`）或未接线原因 + 接的时候要动哪里（`wired = false`）。
@@ -943,6 +968,31 @@ fn trigger_label(entity: &str) -> String {
         .unwrap_or_else(|| entity.to_string())
 }
 
+/// 触发状态的中文名（P1-FIX-12A）。
+///
+/// 字典只有一份：[`spec::TriggerSpec::status_labels`]。查不到时**回落成编码本身**
+/// 而不是「未知状态」——脏数据 / 状态机里已删掉的老状态，回显编码才能对着
+/// `biz_flow_linkage_rule.trigger_status` 和日志排障；空白或「未知状态」都没法查。
+fn trigger_status_label(entity: &str, status: &str) -> String {
+    spec::status_label_of(entity, status)
+        .unwrap_or(status)
+        .to_string()
+}
+
+/// 某触发点的「状态编码 + 中文名」清单（**顺序与 `statuses` 逐项对齐**）。
+///
+/// 顺序刻意跟着 `statuses`（= [`model::known_statuses`] 的顺序）走，两数组同下标即同一状态：
+/// 前端按下标兜底也不会错位，老前端只读 `statuses` 也不受任何影响。
+fn status_labels_of(entity: &str) -> Vec<StatusLabelRes> {
+    model::known_statuses(entity)
+        .into_iter()
+        .map(|status| StatusLabelRes {
+            code: status.to_string(),
+            label: trigger_status_label(entity, status),
+        })
+        .collect()
+}
+
 /// 触发点字典（单据类型 + 该单据允许的状态）。
 fn catalog_triggers() -> Vec<TriggerRes> {
     spec::TRIGGERS
@@ -954,6 +1004,7 @@ fn catalog_triggers() -> Vec<TriggerRes> {
                 .into_iter()
                 .map(str::to_string)
                 .collect(),
+            status_labels: status_labels_of(entity),
             wired: spec::is_wired_trigger(entity),
             wiring: spec::trigger_spec(entity)
                 .map(|item| item.wiring.to_string())
@@ -993,6 +1044,90 @@ mod tests {
             assert!(!trigger.statuses.is_empty(), "每个触发点都要有状态可选");
             assert!(!trigger.label.is_empty(), "中文名不能为空");
         }
+    }
+
+    /// 触发点字典必须带「状态编码 → 中文名」，且与 `statuses` 逐项对齐（P1-FIX-12A）。
+    ///
+    /// 用户报的就是这条：下拉和列表都显示 `POSTED / DOING / DRAFT`，看不出是什么状态。
+    #[test]
+    fn catalog_triggers_carry_status_labels() {
+        let triggers = catalog_triggers();
+        for trigger in &triggers {
+            assert_eq!(
+                trigger.status_labels.len(),
+                trigger.statuses.len(),
+                "{}：status_labels 必须与 statuses 一一对应",
+                trigger.entity
+            );
+            for (status, pair) in trigger.statuses.iter().zip(&trigger.status_labels) {
+                assert_eq!(
+                    status, &pair.code,
+                    "{}：两个数组同下标必须是同一状态（前端会按下标兜底）",
+                    trigger.entity
+                );
+                assert!(
+                    !pair.label.trim().is_empty(),
+                    "{} / {status}：中文名不能为空",
+                    trigger.entity
+                );
+                assert_ne!(
+                    pair.label, pair.code,
+                    "{} / {status}：中文名回落成了编码（字典缺项，等于没修）",
+                    trigger.entity
+                );
+            }
+        }
+
+        // 抽查用户实际点名的三个：POSTED / DOING / DRAFT
+        let pair_of = |entity: &str, code: &str| -> String {
+            triggers
+                .iter()
+                .find(|item| item.entity == entity)
+                .and_then(|item| item.status_labels.iter().find(|pair| pair.code == code))
+                .map(|pair| pair.label.clone())
+                .unwrap_or_else(|| panic!("{entity} 缺状态 {code}"))
+        };
+        assert_eq!(pair_of("STOCK_IN", "POSTED"), "已过账");
+        assert_eq!(pair_of("TASK", "DOING"), "进行中");
+        assert_eq!(pair_of("STOCK_IN", "DRAFT"), "草稿");
+        assert_eq!(pair_of("FLOW_INSTANCE", "REJECTED"), "已驳回");
+
+        // 向后兼容：老字段一行不少（老前端 / 脚本仍按编码取值）
+        assert!(
+            triggers.iter().all(|trigger| !trigger.statuses.is_empty()),
+            "statuses 必须继续下发"
+        );
+    }
+
+    /// 规则行也要带触发状态中文名（列表页直接显示，前端不再维护第二份映射）。
+    #[test]
+    fn rule_res_carries_trigger_status_label() {
+        use nik::prelude::chrono::Utc;
+
+        let row = LinkageRuleRow {
+            id: Uuid::now_v7(),
+            name: "收货过账后发通知".to_string(),
+            trigger_entity: "STOCK_IN".to_string(),
+            trigger_status: "POSTED".to_string(),
+            action_code: "SEND_NOTICE".to_string(),
+            action_params: serde_json::json!({"mode": "TAKEOVER"}),
+            enabled: true,
+            seq: 0,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        let res = RuleRes::of(&row);
+        assert_eq!(res.trigger_status, "POSTED", "编码必须继续下发（向后兼容）");
+        assert_eq!(res.trigger_status_label, "已过账");
+
+        // 状态机里已不存在的历史状态：回落成编码本身（不空白、不改数据）
+        let mut legacy = row.clone();
+        legacy.trigger_status = "LEGACY_STATE".to_string();
+        let res = RuleRes::of(&legacy);
+        assert_eq!(
+            res.trigger_status_label, "LEGACY_STATE",
+            "查不到就回显编码，便于排障"
+        );
     }
 
     /// 触发点字典必须带上「是否接线」与其说明（P1-FIX-5C：配置页靠它拦误配）。

@@ -266,6 +266,24 @@ pub fn is_known_trigger(entity: &str) -> bool {
 pub struct TriggerSpec {
     /// 触发实体（与 [`TRIGGERS`] 逐字一致，顺序也一致，由单测钉住）。
     pub entity: &'static str,
+    /// 触发状态的中文名（`编码 → 中文`，P1-FIX-12A）。
+    ///
+    /// # 为什么中文名要放在后端
+    ///
+    /// 配置页的「触发状态」下拉原本直接拿 [`TriggerSpec`] 的状态**编码**当 label，
+    /// 于是管理员看到的是 `POSTED / DOING / DRAFT`——「已过账 / 进行中 / 草稿」得靠背。
+    /// 而这些中文名在各自的单据模块里**早就有一份了**（`stockin_base::status_label`
+    /// 等 14 个函数 + 任务状态枚举），前端的 `status-map.ts` 又是第三份：
+    /// 同一份文案三处维护，改一处漏两处。所以字典由后端下发，前端只做「编码 → 中文」
+    /// 的一次映射（编码仍随 `value` 一起下发，排障时对着日志还能认）。
+    ///
+    /// # 口径（不许另造句）
+    ///
+    /// 每个中文名逐字取自该单据自己的状态机定义（单测 `status_labels_match_doc_modules`
+    /// 直接调那些函数对拍，不是手抄自证）；顺序按**生命周期**排，不按字母。
+    /// 覆盖性由单测 `status_labels_cover_known_statuses` 双向钉住：
+    /// 少一项（下拉缺中文）或多项（写了个状态机里不存在的状态）都会红。
+    pub status_labels: &'static [(&'static str, &'static str)],
     /// 是否已接线（`false` = 配了规则永远不会触发）。
     pub wired: bool,
     /// `wired = true` → 接线位置（`文件::函数`，说明「凭什么算接线」）；
@@ -282,6 +300,13 @@ pub struct TriggerSpec {
 pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     TriggerSpec {
         entity: state_machine::ENTITY_STOCK_IN,
+        status_labels: &[
+            ("DRAFT", "草稿"),
+            ("PENDING_POST", "过账审批中"),
+            ("POSTED", "已过账"),
+            ("PENDING_CANCEL", "作废审批中"),
+            ("CANCELLED", "已作废"),
+        ],
         wired: true,
         wiring: "已接线：erp/stockin_handler_post.rs::post_in_tx 第 ⑦ 步走凭证专用路由 \
                  (linkage::engine::stockin_voucher) + 第 ⑧ 步跑通用引擎 \
@@ -304,6 +329,12 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     },
     TriggerSpec {
         entity: state_machine::ENTITY_STOCK_OUT,
+        status_labels: &[
+            ("DRAFT", "草稿"),
+            ("PENDING_POST", "待过账"),
+            ("POSTED", "已过账"),
+            ("CANCELLED", "已作废"),
+        ],
         wired: true,
         wiring: "已接线：erp/stockout_handler.rs::post_out_tx 第 ⑥ 步跑通用引擎 \
                  run_excluding(spec::STOCKOUT_EXCLUDED_ACTIONS)（库存 / 成本 / 凭证由 ③⑤ \
@@ -322,6 +353,14 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     },
     TriggerSpec {
         entity: state_machine::ENTITY_TRANSFER,
+        status_labels: &[
+            ("DRAFT", "草稿"),
+            ("PENDING", "待审批"),
+            ("APPROVED", "已审批"),
+            ("IN_TRANSIT", "在途"),
+            ("DONE", "已完成"),
+            ("CANCELLED", "已取消"),
+        ],
         wired: false,
         wiring: "未接线：状态变更点在 erp/transfer_handler_status.rs（调 \
                  state_machine::transition + transfer_write::apply_status），同样没有联动调用点。\
@@ -330,6 +369,15 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     },
     TriggerSpec {
         entity: state_machine::ENTITY_PURCHASE_ORDER,
+        status_labels: &[
+            ("DRAFT", "草稿"),
+            ("SUBMITTED", "已提交"),
+            ("APPROVED", "已审批"),
+            ("PARTIAL_RECEIVED", "部分收货"),
+            ("RECEIVED", "已收货"),
+            ("CLOSED", "已关闭"),
+            ("CANCELLED", "已取消"),
+        ],
         wired: false,
         wiring: "未接线：采购单状态在 purchase_model::apply_status（部分收货由 \
                  erp/stockin_purchase.rs 用 transition_if_changed 推进），两处都没有联动调用点。\
@@ -339,6 +387,13 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     },
     TriggerSpec {
         entity: state_machine::ENTITY_PAYABLE,
+        status_labels: &[
+            ("OPEN", "未付"),
+            ("PARTIAL_PAID", "部分已付"),
+            ("SETTLED", "已结清"),
+            ("PENDING_CANCEL", "作废审批中"),
+            ("CANCELLED", "已作废"),
+        ],
         wired: false,
         wiring: "未接线：应付单状态由 erp/payable_payment.rs 用 transition_if_changed 推进（付款、\
                  部分付款、结清都在这个文件）。接线要动：付款事务内 run_excluding(&[\
@@ -347,6 +402,11 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     },
     TriggerSpec {
         entity: state_machine::ENTITY_VOUCHER,
+        status_labels: &[
+            ("DRAFT", "草稿"),
+            ("AUDITED", "已审核"),
+            ("POSTED", "已记账"),
+        ],
         wired: false,
         wiring: "未接线：凭证过账 / 反过账在 erp/voucher_write.rs（append / reverse_posted 已抽成\
                  唯一实现），但没有联动调用点。注意：在凭证状态上配 GENERATE_VOUCHER 会造「凭证\
@@ -355,6 +415,11 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     },
     TriggerSpec {
         entity: state_machine::ENTITY_PERIOD,
+        status_labels: &[
+            ("NOT_OPENED", "未开启"),
+            ("OPEN", "已开启"),
+            ("CLOSED", "已结账"),
+        ],
         wired: false,
         wiring: "未接线：会计期间结账 / 反结账在 erp/period.rs（apply_status + \
                  state_machine::transition），没有联动调用点。接线要动：月结事务内 + commit 后",
@@ -362,6 +427,7 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     },
     TriggerSpec {
         entity: state_machine::ENTITY_YEAR_END,
+        status_labels: &[("NOT_CLOSED", "未结转"), ("CLOSED", "已结转")],
         wired: false,
         wiring: "未接线：年结批次在 erp/year_end.rs（大批量结转，事务很长）。接线要动：结转事务内\
                  只放关键动作、通知一律 commit 后；年结的失败回滚代价最大，必须单开卡做真机验证",
@@ -369,6 +435,14 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     },
     TriggerSpec {
         entity: state_machine::ENTITY_CONTRACT,
+        status_labels: &[
+            ("DRAFT", "草稿"),
+            ("PENDING_APPROVAL", "审批中"),
+            ("SIGNED", "已签订"),
+            ("ACTIVE", "已生效"),
+            ("COMPLETED", "已完成"),
+            ("TERMINATED", "已终止"),
+        ],
         wired: false,
         wiring: "未接线：合同状态在 erp/contract_handler.rs（构造 / 审批通过 / 终止），没有联动\
                  调用点。接线要动：审批通过那一步（与 flow 审批回调相邻，注意别重复触发）",
@@ -376,6 +450,12 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     },
     TriggerSpec {
         entity: state_machine::ENTITY_STOCK_TAKE,
+        status_labels: &[
+            ("DRAFT", "草稿"),
+            ("PENDING_POST", "待过账"),
+            ("POSTED", "已过账"),
+            ("CANCELLED", "已作废"),
+        ],
         wired: false,
         wiring: "未接线：盘点单过账 / 作废在 erp/stocktake_handler.rs::post_stock_take / \
                  change_status（盘盈盘亏由 stocktake_model::apply_status + 库存写入落账），\
@@ -385,6 +465,7 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     },
     TriggerSpec {
         entity: state_machine::ENTITY_FIXED_ASSET,
+        status_labels: &[("IN_USE", "在役"), ("IDLE", "闲置"), ("DISPOSED", "已处置")],
         wired: false,
         wiring: "未接线：资产停用 / 启用 / 处置 / 作废在 erp/asset_handler.rs（+ asset_bridge.rs \
                  抛凭证），没有联动调用点",
@@ -392,6 +473,12 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     },
     TriggerSpec {
         entity: state_machine::ENTITY_DEPRECIATION,
+        status_labels: &[
+            ("CALCULATED", "已计算"),
+            ("POSTED", "已过账"),
+            ("REVERSED", "已红冲"),
+            ("SKIPPED", "已跳过"),
+        ],
         wired: false,
         wiring: "未接线：折旧批次过账 / 红冲在 erp/depreciation_handler.rs（+ \
                  depreciation_model.rs），没有联动调用点。批次是大批量操作，通知必须走 commit 后",
@@ -399,6 +486,13 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     },
     TriggerSpec {
         entity: state_machine::ENTITY_EXPENSE,
+        status_labels: &[
+            ("DRAFT", "草稿"),
+            ("SUBMITTED", "审批中"),
+            ("APPROVED", "已审批（待付款）"),
+            ("PAID", "已付清"),
+            ("CANCELLED", "已作废"),
+        ],
         wired: false,
         wiring: "未接线：报销单提交 / 通过 / 付清 / 作废在 erp/expense_handler.rs（+ \
                  expense_bridge.rs 建应付 / 凭证），没有联动调用点",
@@ -406,6 +500,13 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     },
     TriggerSpec {
         entity: TRIGGER_TASK,
+        status_labels: &[
+            ("TODO", "待开始"),
+            ("DOING", "进行中"),
+            ("REVIEW", "待验收"),
+            ("DONE", "已完成"),
+            ("CANCELLED", "已取消"),
+        ],
         wired: true,
         wiring: "已接线：task/task_handler_notice.rs::notify_status_change —— 每次任务状态变更\
                  都会用 task_notice_draft 算好草稿，再调 linkage::engine::status_notice \
@@ -417,6 +518,13 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     },
     TriggerSpec {
         entity: TRIGGER_FLOW_INSTANCE,
+        status_labels: &[
+            ("PENDING", "审批中"),
+            ("APPROVED", "已通过"),
+            ("REJECTED", "已驳回"),
+            ("SKIPPED", "已跳过"),
+            ("CANCELLED", "已取消"),
+        ],
         wired: false,
         wiring: "未接线：审批实例状态在 flow 审批回调里推进（approve / reject / cancel），\
                  那里的「审批通过」还会顺带改业务单据状态，两个触发点的先后顺序必须先定清楚\
@@ -430,6 +538,19 @@ pub fn trigger_spec(entity: &str) -> Option<&'static TriggerSpec> {
     TRIGGER_SPECS
         .iter()
         .find(|spec| spec.entity == entity.trim())
+}
+
+/// 某个触发状态的**中文名**（`None` = 这个状态不在该触发点的状态集里）。
+///
+/// 配置页 / 预览 / 报文都走这里取值：编码 → 中文只有一份映射（[`TriggerSpec::status_labels`]），
+/// 前端不再自己维护状态文案表。
+pub fn status_label_of(entity: &str, status: &str) -> Option<&'static str> {
+    let code = status.trim();
+    trigger_spec(entity)?
+        .status_labels
+        .iter()
+        .find(|(value, _)| *value == code)
+        .map(|(_, label)| *label)
 }
 
 /// 触发点是否**真的接线**（白名单里有但没人调引擎 = `false`）。
@@ -1090,5 +1211,165 @@ fn json_kind(value: &serde_json::Value) -> &'static str {
         serde_json::Value::String(_) => "字符串",
         serde_json::Value::Array(_) => "数组",
         serde_json::Value::Object(_) => "对象",
+    }
+}
+
+// ==================== 状态中文名（P1-FIX-12A） ====================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::business::flow::linkage::model;
+    use crate::business::task::state::TaskStatus;
+
+    /// ① 覆盖性（**双向**）：`statuses`（`model::known_statuses`）的每一项都要有中文名，
+    /// 表里也不许出现状态机里根本不存在的状态。
+    ///
+    /// 单向只测「不遗漏」的话，删掉一个状态机边、表里留着旧状态名照样全绿 ——
+    /// 那会给管理员一个「能选、但永远等不到」的状态。所以两个方向都判。
+    #[test]
+    fn status_labels_cover_known_statuses() {
+        assert_eq!(
+            TRIGGER_SPECS.len(),
+            TRIGGERS.len(),
+            "触发点表与白名单必须等长"
+        );
+        for spec in TRIGGER_SPECS {
+            let known = model::known_statuses(spec.entity);
+            assert!(!known.is_empty(), "{} 的状态集不能为空", spec.entity);
+            for status in &known {
+                assert!(
+                    status_label_of(spec.entity, status).is_some(),
+                    "{} 的状态 `{status}` 缺中文名（配置页会退回显示编码）",
+                    spec.entity
+                );
+            }
+            for &(code, _) in spec.status_labels {
+                assert!(
+                    known.contains(&code),
+                    "{} 的状态表里写了 `{code}`，但它不在状态集 {known:?} 里（写错状态 = 规则永远不触发）",
+                    spec.entity
+                );
+            }
+        }
+    }
+
+    /// ② 表本身要干净：编码非空且全大写、中文非空、同一触发点内编码不重复。
+    #[test]
+    fn status_labels_are_well_formed() {
+        for spec in TRIGGER_SPECS {
+            let mut seen: Vec<&str> = Vec::new();
+            for &(code, label) in spec.status_labels {
+                assert_eq!(
+                    code,
+                    code.trim(),
+                    "{}：编码不许带空白 `{code}`",
+                    spec.entity
+                );
+                assert!(!code.is_empty(), "{}：编码不能为空", spec.entity);
+                assert!(
+                    code.chars()
+                        .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit() || ch == '_'),
+                    "{}：编码 `{code}` 必须是大写下划线形式（与库 CHECK 逐字一致）",
+                    spec.entity
+                );
+                assert!(
+                    !label.trim().is_empty(),
+                    "{}：`{code}` 的中文名不能为空",
+                    spec.entity
+                );
+                assert_eq!(
+                    label,
+                    label.trim(),
+                    "{}：`{code}` 的中文名不许带空白",
+                    spec.entity
+                );
+                assert!(
+                    !seen.contains(&code),
+                    "{}：状态 `{code}` 重复登记（下拉会出现两个一样的选项）",
+                    spec.entity
+                );
+                seen.push(code);
+            }
+        }
+    }
+
+    /// ③ 漂移守卫：逐字对拍**各单据自己的** `status_label()`（不是手抄自证）。
+    ///
+    /// 只对拍能从 crate 外部调用的 7 个模块 + 任务状态枚举；`stockin_base` /
+    /// `stockout_base` / `transfer_base` 三个底座模块在 `erp/mod.rs` 里是私有 `mod`，
+    /// 跨模块拿不到（它们的文案由各自模块的单测守着）。这里点名统计对拍条数，
+    /// 映射断开（例如把实体名写错）会立刻反映成条数不足。
+    #[test]
+    fn status_labels_match_doc_modules() {
+        use crate::business::erp::{
+            asset_dto, contract_model, expense_dto, payable_query, purchase_model, stocktake_model,
+            voucher_query,
+        };
+
+        fn doc_module_label(entity: &str, status: &str) -> Option<String> {
+            let label = match entity {
+                e if e == state_machine::ENTITY_PURCHASE_ORDER => {
+                    purchase_model::status_label(status).to_string()
+                }
+                e if e == state_machine::ENTITY_PAYABLE => {
+                    payable_query::status_label(status).to_string()
+                }
+                e if e == state_machine::ENTITY_VOUCHER => {
+                    voucher_query::status_label(status).to_string()
+                }
+                e if e == state_machine::ENTITY_CONTRACT => {
+                    contract_model::status_label(status).to_string()
+                }
+                e if e == state_machine::ENTITY_STOCK_TAKE => {
+                    stocktake_model::status_label(status).to_string()
+                }
+                e if e == state_machine::ENTITY_FIXED_ASSET => {
+                    asset_dto::status_label(status).to_string()
+                }
+                e if e == state_machine::ENTITY_EXPENSE => {
+                    expense_dto::status_label(status).to_string()
+                }
+                TRIGGER_TASK => TaskStatus::parse(status)?.label().to_string(),
+                _ => return None,
+            };
+            Some(label)
+        }
+
+        let mut checked = 0usize;
+        for spec in TRIGGER_SPECS {
+            for &(code, label) in spec.status_labels {
+                let Some(expected) = doc_module_label(spec.entity, code) else {
+                    continue;
+                };
+                assert_eq!(
+                    label, expected,
+                    "{} / `{code}`：字典里的中文名与单据模块的 status_label 不一致",
+                    spec.entity
+                );
+                checked += 1;
+            }
+        }
+        // 7 个可调用模块 + 任务枚举覆盖的状态总数（采购 7 + 应付 5 + 凭证 3 + 合同 6 +
+        // 盘点 4 + 资产 3 + 报销 5 + 任务 5）。少一条就说明上面的映射断了。
+        assert_eq!(checked, 38, "对拍状态数不符：映射表被改坏或实体名写错");
+    }
+
+    /// ④ 查表函数的边界：未知实体 / 未知状态一律 `None`（fail-closed，不回显编码当中文）。
+    #[test]
+    fn status_label_lookup_rejects_unknown() {
+        assert_eq!(
+            status_label_of(state_machine::ENTITY_STOCK_IN, "POSTED"),
+            Some("已过账")
+        );
+        assert_eq!(
+            status_label_of(state_machine::ENTITY_STOCK_IN, " POSTED "),
+            Some("已过账")
+        );
+        assert_eq!(
+            status_label_of(state_machine::ENTITY_STOCK_IN, "NOT_A_STATUS"),
+            None
+        );
+        assert_eq!(status_label_of("NOT_AN_ENTITY", "POSTED"), None);
     }
 }
