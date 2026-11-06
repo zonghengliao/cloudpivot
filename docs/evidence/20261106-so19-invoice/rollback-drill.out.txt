@@ -1,0 +1,26 @@
+===== [0] 准备：从 cloudpivot_so19 克隆出 cloudpivot_so19_drill（模板克隆，不动源库）=====
+[0] 演练前 table=biz_invoice inv_seq=1 checks=6 idx=7 receivable=biz_receivable other_seq=AR,CT,IV,PO,RC,SH,SN,SO,STOCK_OUT,STOCK_TAKE
+
+===== [1] 执行 down.sql =====
+psql:/opt/cloudpivot/backend/migrations/business/V0295__sales_invoice.down.sql:24: NOTICE:  V0295 down：删除 biz_invoice（0 行）
+psql:/opt/cloudpivot/backend/migrations/business/V0295__sales_invoice.down.sql:61: NOTICE:  V0295 down 完成：biz_invoice 零残留、IV 取号行已删、receivable 在位、其它取号规则 AR,CT,PO,RC,SH,SN,SO,STOCK_OUT,STOCK_TAKE
+[1] down 后 table=<null> inv_seq=0 checks=0 idx=0 receivable=biz_receivable other_seq=AR,CT,PO,RC,SH,SN,SO,STOCK_OUT,STOCK_TAKE
+
+===== [2] 重放 up.sql（幂等 + 自检第二次跑）=====
+psql:/opt/cloudpivot/backend/migrations/business/V0295__sales_invoice.up.sql:513: NOTICE:  V0295 自检通过：biz_invoice 21 列 / 6 约束 / 7 索引 / 外键 RESTRICT / IV 取号=IV-20261106-000001
+[2] up 后 table=biz_invoice inv_seq=1 checks=6 idx=7 receivable=biz_receivable other_seq=AR,CT,IV,PO,RC,SH,SN,SO,STOCK_OUT,STOCK_TAKE
+
+===== [3] 第三轮探针（psql 直灌路径的库）=====
+psql:/opt/cloudpivot/docs/evidence/20261106-so19-invoice/constraint-probes.sql:243: NOTICE:  P29 PASS 清场 探针行残留 = 0
+psql:/opt/cloudpivot/docs/evidence/20261106-so19-invoice/constraint-probes.sql:243: NOTICE:  ===== 探针汇总：29 / 29 PASS =====
+DO
+[3] 探针后残留：invoice=0 receivable_probe=0
+
+===== [4] 幂等重放：up.sql 再跑一遍（DDL 全 already exists）=====
+psql:/opt/cloudpivot/backend/migrations/business/V0295__sales_invoice.up.sql:176: NOTICE:  relation "idx_biz_invoice_date" already exists, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0295__sales_invoice.up.sql:178: NOTICE:  relation "idx_biz_invoice_voucher" already exists, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0295__sales_invoice.up.sql:513: NOTICE:  V0295 自检通过：biz_invoice 21 列 / 6 约束 / 7 索引 / 外键 RESTRICT / IV 取号=IV-20261106-000001
+[4] 二次重放后 table=biz_invoice inv_seq=1 checks=6 idx=7 receivable=biz_receivable other_seq=AR,CT,IV,PO,RC,SH,SN,SO,STOCK_OUT,STOCK_TAKE
+
+===== [5] 清理演练库 =====
+dropped: cloudpivot_so19_drill
