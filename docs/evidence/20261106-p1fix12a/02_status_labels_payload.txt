@@ -1,0 +1,83 @@
+GET /api/business/flow/linkage 响应片段（真实 token，profile=test + 独立库 cp_p1fix12a）
+====================================================================================================
+
+① triggers[0]（STOCK_IN）原样 JSON —— statuses 保留、status_labels 新增：
+{
+  "entity": "STOCK_IN",
+  "label": "收货入库单",
+  "statuses": [
+    "DRAFT",
+    "POSTED",
+    "CANCELLED",
+    "PENDING_CANCEL",
+    "PENDING_POST"
+  ],
+  "status_labels": [
+    {
+      "code": "DRAFT",
+      "label": "草稿"
+    },
+    {
+      "code": "POSTED",
+      "label": "已过账"
+    },
+    {
+      "code": "CANCELLED",
+      "label": "已作废"
+    },
+    {
+      "code": "PENDING_CANCEL",
+      "label": "作废审批中"
+    },
+    {
+      "code": "PENDING_POST",
+      "label": "过账审批中"
+    }
+  ],
+  "wired": true,
+  "wiring": "已接线：erp/stockin_handler_post.rs::post_in_tx 第 ⑦ 步走凭证专用路由 (linkage::engine::stockin_voucher) + 第 ⑧ 步跑通用引擎 run_excluding(&[GENERATE_VOUCHER])，commit 后 post_stock_in / post_after_approval 调 run_stockin_deferred_linkage → run_deferred"
+}
+
+② TASK 触发点（用户点名的 DOING）：
+{
+  "entity": "TASK",
+  "label": "任务",
+  "statuses": [
+    "TODO",
+    "DOING",
+    "REVIEW",
+    "DONE",
+    "CANCELLED"
+  ],
+  "status_labels": [
+    {
+      "code": "TODO",
+      "label": "待开始"
+    },
+    {
+      "code": "DOING",
+      "label": "进行中"
+    },
+    {
+      "code": "REVIEW",
+      "label": "待验收"
+    },
+    {
+      "code": "DONE",
+      "label": "已完成"
+    },
+    {
+      "code": "CANCELLED",
+      "label": "已取消"
+    }
+  ],
+  "wired": true,
+  "wiring": "已接线：task/task_handler_notice.rs::notify_status_change —— 每次任务状态变更都会用 task_notice_draft 算好草稿，再调 linkage::engine::status_notice （SHADOW 影子对比 / TAKEOVER 由配置发、旧逻辑不发；校验不过一律退回旧逻辑）"
+}
+
+③ rules[] 每行同时下发编码与中文（trigger_status / trigger_status_label）：
+   id=b60a5ebe…  STOCK_IN/POSTED → 已过账  动作=GENERATE_VOUCHER(生成凭证) 启用=True
+   id=8a8accf8…  STOCK_IN/POSTED → 已过账  动作=SEND_NOTICE(发通知) 启用=True
+   id=55798381…  TASK/DOING → 进行中  动作=SEND_NOTICE(发通知) 启用=True
+
+④ forbidden_keys 未受影响：sql, sql_text, statement, stmt, query, queries, script, expression, exec, execute, shell, cmd

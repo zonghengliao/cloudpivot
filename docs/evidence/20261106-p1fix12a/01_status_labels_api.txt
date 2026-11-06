@@ -1,0 +1,206 @@
+# P1-FIX-12A 证据：联动规则触发状态下发中文名（t_08ca10e4）
+
+- 代码提交：`f1f3375 feat(flow-linkage): 触发状态下发中文名 status_labels（P1-FIX-12A · t_08ca10e4）`
+- 改动（只 2 个文件）：
+  - `backend/src/business/flow/linkage/spec.rs`：`TriggerSpec.status_labels`（编码 → 中文，15 个触发点全覆盖）
+    + `spec::status_label_of()` 查表函数 + 4 条单测
+  - `backend/src/business/flow/linkage/admin.rs`：`TriggerRes.status_labels: [{code,label}]`、
+    `RuleRes.trigger_status_label`（列表行级中文）+ 2 条单测（`statuses` 原样保留）
+- 自检脚本：`scripts/verify/p1fix12a_status_labels_check.sh`（登录 → 首登改密 → GET → 5 条断言）
+- 环境：本机（99）`profile=test` + 独立库 `cp_p1fix12a`（空库自动迁移 205 个），实例 `127.0.0.1:18023`，
+  干净 worktree `/root/p1fix12a-wt` @ 上述提交（`git status` 脏文件 0，共用 warm target）。
+
+## ① cargo test（干净树，只含本卡改动）
+
+### 本卡新增 6 条单测（linkage 模块 65 条一并跑）
+
+```
+$ CARGO_TARGET_DIR=/opt/cloudpivot/backend/target cargo test --lib business::flow::linkage:: -- --test-threads=1
+test business::flow::linkage::admin::tests::catalog_triggers_carry_status_labels ... ok
+test business::flow::linkage::admin::tests::rule_res_carries_trigger_status_label ... ok
+test business::flow::linkage::spec::tests::status_label_lookup_rejects_unknown ... ok
+test business::flow::linkage::spec::tests::status_labels_are_well_formed ... ok
+test business::flow::linkage::spec::tests::status_labels_cover_known_statuses ... ok
+test business::flow::linkage::spec::tests::status_labels_match_doc_modules ... ok
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 2633 filtered out; finished in 0.06s
+```
+
+### 全量 lib 单测
+
+```
+$ CARGO_TARGET_DIR=/opt/cloudpivot/backend/target cargo test --lib -- --test-threads=1
+test result: ok. 2698 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.58s
+```
+
+> 首次全量跑时 `shared::startup_guard::tests::merge_semantics_or_base_and_profile` 红：
+> 干净 worktree 里没有 gitignore 的 `config/config-dev.toml` / `config-test.toml`
+> （该测试要读这两份**本地私有** profile 配置）。把它们从工作树复制进 worktree（非代码）后复跑
+> = 2698 passed / 0 failed，即上面这一份。
+
+## ② 接口自检脚本实跑（真实 admin token，exit 0）
+
+```
+$ BASE=http://127.0.0.1:18023 NIK_ADMIN_PASSWORD=<env> bash scripts/verify/p1fix12a_status_labels_check.sh
+== ① 登录
+login_http=200
+== ② 首登强制改密（403「首次登录必须先修改初始密码」时必经）
+change_pwd_http=200
+login_http=200
+== ③ GET /business/flow/linkage
+linkage_http=200
+== ④ 断言
+绿：15 个触发点全部带中文名、与 statuses 逐项对齐、3 条规则带 trigger_status_label
+```
+
+## ③ curl 全过程原文（含首登强制改密的 403 坑）
+
+```
+$ NIK_ADMIN_PASSWORD=<env> bash /root/p1fix12a/curl-evidence.sh
+=== ① 登录（admin）
+login_http=200
+token_len=461
+
+=== ② 首次登录强制改密（must_change_password → 否则一切业务接口 403）
+change_pwd_http=200
+{"code":0,"msg":"密码已修改"}
+改密成功 → 用新口令重新登录
+relogin_http=200
+token_len=461
+
+=== ③ GET /api/business/flow/linkage（带真实 token）
+linkage_http=200
+
+=== ④ 断言：15 个触发点都带 status_labels，且与 statuses 逐项对齐
+code=0 msg='ok' triggers=15 rules=3
+断言结果: 全绿（15/15 带中文名、与 statuses 逐项对齐、statuses 仍在）
+
+每个触发点的状态中文名（★ = 用户点名的三个）：
+  STOCK_IN         收货入库单      ★草稿（DRAFT）, ★已过账（POSTED）, 已作废（CANCELLED）, 作废审批中（PENDING_CANCEL）, 过账审批中（PENDING_POST）
+  STOCK_OUT        出库单        草稿（DRAFT）, 待过账（PENDING_POST）, 已过账（POSTED）, 已作废（CANCELLED）
+  STOCK_TRANSFER   库存调拨单      草稿（DRAFT）, 待审批（PENDING）, 已审批（APPROVED）, 已取消（CANCELLED）, 在途（IN_TRANSIT）, 已完成（DONE）
+  PURCHASE_ORDER   采购订单       草稿（DRAFT）, 已提交（SUBMITTED）, 已取消（CANCELLED）, 已审批（APPROVED）, 已关闭（CLOSED）, 部分收货（PARTIAL_RECEIVED）, 已收货（RECEIVED）
+  PAYABLE          应付单        未付（OPEN）, 部分已付（PARTIAL_PAID）, 已结清（SETTLED）, 已作废（CANCELLED）, 作废审批中（PENDING_CANCEL）
+  VOUCHER          凭证         草稿（DRAFT）, 已审核（AUDITED）, 已记账（POSTED）
+  ACCOUNTING_PERIOD 会计期间       未开启（NOT_OPENED）, 已开启（OPEN）, 已结账（CLOSED）
+  ACCOUNTING_YEAR  会计年度       未结转（NOT_CLOSED）, 已结转（CLOSED）
+  CONTRACT         合同         草稿（DRAFT）, 审批中（PENDING_APPROVAL）, 已签订（SIGNED）, 已生效（ACTIVE）, 已终止（TERMINATED）, 已完成（COMPLETED）
+  STOCK_TAKE       盘点单        草稿（DRAFT）, 待过账（PENDING_POST）, 已过账（POSTED）, 已作废（CANCELLED）
+  FIXED_ASSET      固定资产       在役（IN_USE）, 闲置（IDLE）, 已处置（DISPOSED）
+  DEPRECIATION     折旧批次       已计算（CALCULATED）, 已过账（POSTED）, 已红冲（REVERSED）, 已跳过（SKIPPED）
+  EXPENSE_REPORT   费用报销单      草稿（DRAFT）, 审批中（SUBMITTED）, 已审批（待付款）（APPROVED）, 已付清（PAID）, 已作废（CANCELLED）
+  TASK             任务         待开始（TODO）, ★进行中（DOING）, 待验收（REVIEW）, 已完成（DONE）, 已取消（CANCELLED）
+  FLOW_INSTANCE    审批实例       审批中（PENDING）, 已通过（APPROVED）, 已驳回（REJECTED）, 已跳过（SKIPPED）, 已取消（CANCELLED）
+```
+
+## ④ 响应片段（原样 JSON）
+
+详见 `02_status_labels_payload.txt`；要点：
+
+```
+GET /api/business/flow/linkage 响应片段（真实 token，profile=test + 独立库 cp_p1fix12a）
+====================================================================================================
+
+① triggers[0]（STOCK_IN）原样 JSON —— statuses 保留、status_labels 新增：
+{
+  "entity": "STOCK_IN",
+  "label": "收货入库单",
+  "statuses": [
+    "DRAFT",
+    "POSTED",
+    "CANCELLED",
+    "PENDING_CANCEL",
+    "PENDING_POST"
+  ],
+  "status_labels": [
+    {
+      "code": "DRAFT",
+      "label": "草稿"
+    },
+    {
+      "code": "POSTED",
+      "label": "已过账"
+    },
+    {
+      "code": "CANCELLED",
+      "label": "已作废"
+    },
+    {
+      "code": "PENDING_CANCEL",
+      "label": "作废审批中"
+    },
+    {
+      "code": "PENDING_POST",
+      "label": "过账审批中"
+    }
+  ],
+  "wired": true,
+  "wiring": "已接线：erp/stockin_handler_post.rs::post_in_tx 第 ⑦ 步走凭证专用路由 (linkage::engine::stockin_voucher) + 第 ⑧ 步跑通用引擎 run_excluding(&[GENERATE_VOUCHER])，commit 后 post_stock_in / post_after_approval 调 run_stockin_deferred_linkage → run_deferred"
+}
+
+② TASK 触发点（用户点名的 DOING）：
+{
+  "entity": "TASK",
+  "label": "任务",
+  "statuses": [
+    "TODO",
+    "DOING",
+    "REVIEW",
+    "DONE",
+    "CANCELLED"
+  ],
+  "status_labels": [
+    {
+      "code": "TODO",
+      "label": "待开始"
+    },
+    {
+      "code": "DOING",
+      "label": "进行中"
+    },
+    {
+      "code": "REVIEW",
+      "label": "待验收"
+    },
+    {
+      "code": "DONE",
+      "label": "已完成"
+    },
+    {
+      "code": "CANCELLED",
+      "label": "已取消"
+    }
+  ],
+  "wired": true,
+  "wiring": "已接线：task/task_handler_notice.rs::notify_status_change —— 每次任务状态变更都会用 task_notice_draft 算好草稿，再调 linkage::engine::status_notice （SHADOW 影子对比 / TAKEOVER 由配置发、旧逻辑不发；校验不过一律退回旧逻辑）"
+}
+
+③ rules[] 每行同时下发编码与中文（trigger_status / trigger_status_label）：
+   id=b60a5ebe…  STOCK_IN/POSTED → 已过账  动作=GENERATE_VOUCHER(生成凭证) 启用=True
+   id=8a8accf8…  STOCK_IN/POSTED → 已过账  动作=SEND_NOTICE(发通知) 启用=True
+   id=55798381…  TASK/DOING → 进行中  动作=SEND_NOTICE(发通知) 启用=True
+
+④ forbidden_keys 未受影响：sql, sql_text, statement, stmt, query, queries, script, expression, exec, execute, shell, cmd
+```
+
+## ⑤ 复现
+
+```bash
+# 1) 干净树
+git -C /opt/cloudpivot worktree add -f /root/p1fix12a-wt <本卡提交>
+# 2) 独立库（alun 无 createdb 权限，走 postgres）
+su postgres -c "createdb -O alun cp_p1fix12a"
+# 3) 起实例（空库自动迁移 + NIK_ADMIN_PASSWORD 注入初始口令）
+bash /root/p1fix12a/run-instance.sh > /root/p1fix12a/instance.log 2>&1 &
+# 4) 断言（脚本自己处理「首登必须先改密」的 403）
+BASE=http://127.0.0.1:18023 NIK_ADMIN_PASSWORD='Admin@123456' \
+  bash scripts/verify/p1fix12a_status_labels_check.sh
+```
+
+## 结论
+
+- `GET /business/flow/linkage` 的 `triggers[]` 每项新增 `status_labels: [{code,label}]`：
+  15/15 触发点全部带中文名，顺序与 `statuses` **逐项对齐**（前端按下标兜底也不会错位）；
+- `statuses` 原样保留 → 老前端 / 脚本不受影响（向后兼容）；
+- `rules[]` 每行新增 `trigger_status_label`，列表页可一行直接显示中文；
+- 字典只有一份（`spec::TRIGGER_SPECS`），单测与 7 个单据模块的 `status_label()` + 任务状态枚举
+  逐字对拍（38 条），文案漂移会被测试当场打红。
