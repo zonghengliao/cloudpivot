@@ -618,6 +618,12 @@ pub const TRIGGER_EXEMPT: &[&str] = &[
     // / `reverse_posted`），没有「另一张单据跟着变状态」的联动语义；
     // 真要按发票触发（例如通知客户已开票）时，移进 `TRIGGER_SPECS` 并给 `wired = true` + `proofs`。
     state_machine::ENTITY_INVOICE,
+    // 销售链 SO-14 遗留 · D10（卡 t_b9840c8d）：收款退款单（资金单据）同理 ——
+    // 状态流转入口 `receipt_refund::change_status` 不调联动引擎；退款凭证在过账那一步
+    // 直接生成，应收侧的冲减由 `allocate` 落账（不是状态联动）。
+    // 审批通过后的过账是**流程回调**（`receipt_refund_bridge::on_refund_settled`），
+    // 不是单据联动规则，所以也不进 `TRIGGER_SPECS`。
+    state_machine::ENTITY_RECEIPT_REFUND,
 ];
 
 /// 配置变更审计写 `biz_status_log` 时用的 `entity_type`。

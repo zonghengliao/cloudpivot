@@ -1,13 +1,19 @@
 -- ======================================================
--- V0295：销售链 —— 销售发票 `biz_invoice` + `IV` 取号规则（SO-19）
+-- V0298：销售链 —— 销售发票 `biz_invoice` + `IV` 取号规则（SO-19）
 --
 --   ① biz_invoice             销售发票（21 列 = ARCH-7 §3.1.8 的 16 个业务字段 + 审计 5 件套）
 --   ② biz_seq(seq_type='IV')  单据号取号规则：IV-yyyyMMdd-000001（按 CST 天滚动）
 --
 -- ── 号段（开工实测复核，别信卡面）──────────────────────────
 --   卡面写「V0266__sales_invoice」，但 V0266 已被销售订单菜单卡占用（已应用迁移不可改、
---   指纹校验会炸，**不能复用号段**）。写入本文件时 business/ 最大号 = V0294 ⇒ 本卡取 **V0295**。
+--   指纹校验会炸，**不能复用号段**）。写入本文件时 business/ 最大号 = V0294 ⇒ 本卡取 **V0298**。
 --   迁移号会被并行卡抢走，**提交前**再 `ls business | tail` 复核一次。
+--
+--   ⚠ 号段最终值（DEPLOY-SYNC 卡 t_c3087afe，2026-11-06 22:0x 合仓时定）：本条落 `V0298`。
+--     原因：并行的 SO-14 遗留分支已占 `V0294/V0295/V0296/V0297`（收款退款），
+--     发票三件套由 `V0295/V0296/V0297` 顺延为 `V0298/V0299/V0300`（`git mv` + 文件内
+--     `V0295` 字样同步，SQL 一行未改）。两条分支此前**都未进生产库**（prod `schema_migrations`
+--     头 = `V0293`），所以顺延不涉及已应用迁移的改号。
 --
 -- ── 口径来源与 ARCH-7 稿面的差异（逐条记理由，别当漏项）──────────────
 --   主口径 = `docs/architecture/ARCH-7-销售模块设计.md` §3.1.8 + §4.5 + §7.2。
@@ -197,12 +203,12 @@ DECLARE
 BEGIN
     -- 3.1 表在位 + 列数（多一列少一列都算漂移）
     IF to_regclass('public.biz_invoice') IS NULL THEN
-        RAISE EXCEPTION 'V0295 自检失败：biz_invoice 未建';
+        RAISE EXCEPTION 'V0298 自检失败：biz_invoice 未建';
     END IF;
     SELECT count(*) INTO n FROM information_schema.columns
      WHERE table_schema = 'public' AND table_name = 'biz_invoice';
     IF n <> 21 THEN
-        RAISE EXCEPTION 'V0295 自检失败：biz_invoice 列数 = %（期望 21 = 16 业务 + 5 审计）', n;
+        RAISE EXCEPTION 'V0298 自检失败：biz_invoice 列数 = %（期望 21 = 16 业务 + 5 审计）', n;
     END IF;
 
     -- 3.2 卡面点名的 16 个业务字段 + 审计 5 件套必须逐字在位
@@ -213,7 +219,7 @@ BEGIN
                            'status','receivable_id','source_type','source_no','voucher_id','remark',
                            'created_at','updated_at','create_by','update_by','deleted_at');
     IF n <> 21 THEN
-        RAISE EXCEPTION 'V0295 自检失败：biz_invoice 卡面列只齐了 %/21', n;
+        RAISE EXCEPTION 'V0298 自检失败：biz_invoice 卡面列只齐了 %/21', n;
     END IF;
 
     -- 3.3 金额三列必须 NUMERIC(18,4)（与 voucher_entry / receivable / receipt 同精度）
@@ -222,14 +228,14 @@ BEGIN
        AND column_name IN ('amount','tax_amount','total_with_tax')
        AND numeric_precision = 18 AND numeric_scale = 4;
     IF n <> 3 THEN
-        RAISE EXCEPTION 'V0295 自检失败：金额三列 NUMERIC(18,4) 只落地 %/3', n;
+        RAISE EXCEPTION 'V0298 自检失败：金额三列 NUMERIC(18,4) 只落地 %/3', n;
     END IF;
     -- 税率 NUMERIC(6,4)
     SELECT count(*) INTO n FROM information_schema.columns
      WHERE table_schema = 'public' AND table_name = 'biz_invoice'
        AND column_name = 'tax_rate' AND numeric_precision = 6 AND numeric_scale = 4;
     IF n <> 1 THEN
-        RAISE EXCEPTION 'V0295 自检失败：tax_rate 不是 NUMERIC(6,4)';
+        RAISE EXCEPTION 'V0298 自检失败：tax_rate 不是 NUMERIC(6,4)';
     END IF;
 
     -- 3.4 六条 CHECK 在位
@@ -238,7 +244,7 @@ BEGIN
        AND conname IN ('ck_biz_invoice_amount','ck_biz_invoice_sign','ck_biz_invoice_status',
                        'ck_biz_invoice_type','ck_biz_invoice_tax_rate','ck_biz_invoice_source');
     IF n <> 6 THEN
-        RAISE EXCEPTION 'V0295 自检失败：biz_invoice 点名约束应有 6 条，实际 %', n;
+        RAISE EXCEPTION 'V0298 自检失败：biz_invoice 点名约束应有 6 条，实际 %', n;
     END IF;
 
     -- 3.5 状态域 4 值齐全（漏一个下游就会踩 23514）
@@ -246,38 +252,38 @@ BEGIN
     LOOP
         IF (SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'ck_biz_invoice_status')
            NOT LIKE '%''' || d || '''%' THEN
-            RAISE EXCEPTION 'V0295 自检失败：ck_biz_invoice_status 缺域值 %', d;
+            RAISE EXCEPTION 'V0298 自检失败：ck_biz_invoice_status 缺域值 %', d;
         END IF;
     END LOOP;
     -- 隔壁模块的域值不许混进发票域（防下游抄 receivable / receipt 后语义漂移）
     IF (SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'ck_biz_invoice_status')
        LIKE '%CANCELLED%' OR (SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'ck_biz_invoice_status')
        LIKE '%OPEN%' THEN
-        RAISE EXCEPTION 'V0295 自检失败：ck_biz_invoice_status 混入了收款/应收的域值（CANCELLED / OPEN）';
+        RAISE EXCEPTION 'V0298 自检失败：ck_biz_invoice_status 混入了收款/应收的域值（CANCELLED / OPEN）';
     END IF;
 
     -- 3.6 索引：pkey + uk×1 + idx×5 = 7；点名索引必须真实落地（撞名会被静默跳过）
     SELECT count(*) INTO n FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'biz_invoice';
     IF n <> 7 THEN
-        RAISE EXCEPTION 'V0295 自检失败：biz_invoice 索引应有 7 个，实际 %（撞名被静默跳过？）', n;
+        RAISE EXCEPTION 'V0298 自检失败：biz_invoice 索引应有 7 个，实际 %（撞名被静默跳过？）', n;
     END IF;
     SELECT count(*) INTO n FROM pg_indexes
      WHERE schemaname = 'public' AND tablename = 'biz_invoice'
        AND indexname IN ('uk_biz_invoice_no','idx_biz_invoice_customer','idx_biz_invoice_status',
                          'idx_biz_invoice_receivable','idx_biz_invoice_date','idx_biz_invoice_voucher');
     IF n <> 6 THEN
-        RAISE EXCEPTION 'V0295 自检失败：点名的 6 个索引只落地了 %/6', n;
+        RAISE EXCEPTION 'V0298 自检失败：点名的 6 个索引只落地了 %/6', n;
     END IF;
     SELECT indexdef INTO d FROM pg_indexes
      WHERE schemaname = 'public' AND indexname = 'uk_biz_invoice_no';
     IF d NOT LIKE '%UNIQUE%' OR d NOT LIKE '%deleted_at IS NULL%' THEN
-        RAISE EXCEPTION 'V0295 自检失败：uk_biz_invoice_no 不是「存活行唯一」的部分索引（def=%）', d;
+        RAISE EXCEPTION 'V0298 自检失败：uk_biz_invoice_no 不是「存活行唯一」的部分索引（def=%）', d;
     END IF;
     -- receivable_id 索引不许是唯一（一张应收可分次开票 + 红冲）
     SELECT indexdef INTO d FROM pg_indexes
      WHERE schemaname = 'public' AND indexname = 'idx_biz_invoice_receivable';
     IF d LIKE '%UNIQUE%' THEN
-        RAISE EXCEPTION 'V0295 自检失败：idx_biz_invoice_receivable 不该是唯一索引（def=%）', d;
+        RAISE EXCEPTION 'V0298 自检失败：idx_biz_invoice_receivable 不该是唯一索引（def=%）', d;
     END IF;
 
     -- 3.7 默认值：invoice_type=OUT / status=DRAFT / tax_rate=0.1300；
@@ -285,24 +291,24 @@ BEGIN
     SELECT column_default INTO d FROM information_schema.columns
      WHERE table_schema = 'public' AND table_name = 'biz_invoice' AND column_name = 'invoice_type';
     IF d IS NULL OR d NOT LIKE '''OUT''%' THEN
-        RAISE EXCEPTION 'V0295 自检失败：invoice_type 默认值不是 OUT（default=%）', d;
+        RAISE EXCEPTION 'V0298 自检失败：invoice_type 默认值不是 OUT（default=%）', d;
     END IF;
     SELECT column_default INTO d FROM information_schema.columns
      WHERE table_schema = 'public' AND table_name = 'biz_invoice' AND column_name = 'status';
     IF d IS NULL OR d NOT LIKE '''DRAFT''%' THEN
-        RAISE EXCEPTION 'V0295 自检失败：status 默认值不是 DRAFT（default=%）', d;
+        RAISE EXCEPTION 'V0298 自检失败：status 默认值不是 DRAFT（default=%）', d;
     END IF;
     SELECT column_default INTO d FROM information_schema.columns
      WHERE table_schema = 'public' AND table_name = 'biz_invoice' AND column_name = 'tax_rate';
     IF d IS NULL OR d::numeric <> 0.13 THEN
-        RAISE EXCEPTION 'V0295 自检失败：tax_rate 默认值不是 0.13（default=%）', d;
+        RAISE EXCEPTION 'V0298 自检失败：tax_rate 默认值不是 0.13（default=%）', d;
     END IF;
     SELECT count(*) INTO n FROM information_schema.columns
      WHERE table_schema = 'public' AND table_name = 'biz_invoice'
        AND column_name IN ('amount','tax_amount','total_with_tax')
        AND column_default IS NOT NULL;
     IF n <> 0 THEN
-        RAISE EXCEPTION 'V0295 自检失败：金额列不该有默认值（会与 ck_biz_invoice_amount 互相矛盾），实际 % 列有', n;
+        RAISE EXCEPTION 'V0298 自检失败：金额列不该有默认值（会与 ck_biz_invoice_amount 互相矛盾），实际 % 列有', n;
     END IF;
 
     -- 3.8 外键：receivable_id → biz_receivable(id) ON DELETE RESTRICT（confdeltype='r'）
@@ -310,16 +316,16 @@ BEGIN
      WHERE conname = 'biz_invoice_receivable_id_fkey'
        AND conrelid = 'public.biz_invoice'::regclass;
     IF d IS NULL THEN
-        RAISE EXCEPTION 'V0295 自检失败：biz_invoice_receivable_id_fkey 不存在';
+        RAISE EXCEPTION 'V0298 自检失败：biz_invoice_receivable_id_fkey 不存在';
     END IF;
     IF d <> 'r' THEN
-        RAISE EXCEPTION 'V0295 自检失败：receivable_id 外键删除动作 = %（期望 r = RESTRICT）', d;
+        RAISE EXCEPTION 'V0298 自检失败：receivable_id 外键删除动作 = %（期望 r = RESTRICT）', d;
     END IF;
     -- customer_id 必须是弱引用：整张表只许这一个外键
     SELECT count(*) INTO n FROM pg_constraint
      WHERE conrelid = 'public.biz_invoice'::regclass AND contype = 'f';
     IF n <> 1 THEN
-        RAISE EXCEPTION 'V0295 自检失败：biz_invoice 外键数 = %（期望 1：只有 receivable_id；customer_id 必须弱引用）', n;
+        RAISE EXCEPTION 'V0298 自检失败：biz_invoice 外键数 = %（期望 1：只有 receivable_id；customer_id 必须弱引用）', n;
     END IF;
 
     -- ================= 3.9 行为探针（坏数据必须被拒） =================
@@ -328,7 +334,7 @@ BEGIN
     BEGIN
         INSERT INTO biz_invoice (invoice_no, customer_id, invoice_date, amount, tax_amount, total_with_tax)
         VALUES ('IV-PROBE-0001', cust, DATE '2026-11-06', 1000, 130, 1131);
-        RAISE EXCEPTION 'V0295 自检失败：total_with_tax ≠ amount + tax_amount 却插入成功';
+        RAISE EXCEPTION 'V0298 自检失败：total_with_tax ≠ amount + tax_amount 却插入成功';
     EXCEPTION WHEN check_violation THEN NULL;
     END;
 
@@ -336,7 +342,7 @@ BEGIN
     BEGIN
         INSERT INTO biz_invoice (invoice_no, customer_id, invoice_date, amount, tax_amount, total_with_tax)
         VALUES ('IV-PROBE-0002', cust, DATE '2026-11-06', 0, 0, 0);
-        RAISE EXCEPTION 'V0295 自检失败：OUT 且 amount = 0 未被 ck_biz_invoice_sign 拒绝';
+        RAISE EXCEPTION 'V0298 自检失败：OUT 且 amount = 0 未被 ck_biz_invoice_sign 拒绝';
     EXCEPTION WHEN check_violation THEN NULL;
     END;
 
@@ -344,7 +350,7 @@ BEGIN
     BEGIN
         INSERT INTO biz_invoice (invoice_no, customer_id, invoice_date, amount, tax_amount, total_with_tax)
         VALUES ('IV-PROBE-0003', cust, DATE '2026-11-06', -1000, -130, -1130);
-        RAISE EXCEPTION 'V0295 自检失败：OUT 且 amount < 0 未被 ck_biz_invoice_sign 拒绝';
+        RAISE EXCEPTION 'V0298 自检失败：OUT 且 amount < 0 未被 ck_biz_invoice_sign 拒绝';
     EXCEPTION WHEN check_violation THEN NULL;
     END;
 
@@ -353,7 +359,7 @@ BEGIN
         INSERT INTO biz_invoice (invoice_no, invoice_type, customer_id, invoice_date,
                                  amount, tax_amount, total_with_tax)
         VALUES ('IV-PROBE-0004', 'OUT_RED', cust, DATE '2026-11-06', 1000, 130, 1130);
-        RAISE EXCEPTION 'V0295 自检失败：OUT_RED 且 amount > 0 未被 ck_biz_invoice_sign 拒绝';
+        RAISE EXCEPTION 'V0298 自检失败：OUT_RED 且 amount > 0 未被 ck_biz_invoice_sign 拒绝';
     EXCEPTION WHEN check_violation THEN NULL;
     END;
 
@@ -361,7 +367,7 @@ BEGIN
     BEGIN
         INSERT INTO biz_invoice (invoice_no, customer_id, invoice_date, amount, tax_amount, total_with_tax, status)
         VALUES ('IV-PROBE-0005', cust, DATE '2026-11-06', 1000, 130, 1130, 'OPEN');
-        RAISE EXCEPTION 'V0295 自检失败：status = OPEN 未被 ck_biz_invoice_status 拒绝';
+        RAISE EXCEPTION 'V0298 自检失败：status = OPEN 未被 ck_biz_invoice_status 拒绝';
     EXCEPTION WHEN check_violation THEN NULL;
     END;
 
@@ -369,13 +375,13 @@ BEGIN
     BEGIN
         INSERT INTO biz_invoice (invoice_no, customer_id, invoice_date, amount, tax_amount, total_with_tax, status)
         VALUES ('IV-PROBE-0006', cust, DATE '2026-11-06', 1000, 130, 1130, 'CONFIRMED');
-        RAISE EXCEPTION 'V0295 自检失败：status = CONFIRMED 未被 ck_biz_invoice_status 拒绝';
+        RAISE EXCEPTION 'V0298 自检失败：status = CONFIRMED 未被 ck_biz_invoice_status 拒绝';
     EXCEPTION WHEN check_violation THEN NULL;
     END;
     BEGIN
         INSERT INTO biz_invoice (invoice_no, customer_id, invoice_date, amount, tax_amount, total_with_tax, status)
         VALUES ('IV-PROBE-0007', cust, DATE '2026-11-06', 1000, 130, 1130, 'CANCELLED');
-        RAISE EXCEPTION 'V0295 自检失败：status = CANCELLED 未被 ck_biz_invoice_status 拒绝（发票作废用 VOID）';
+        RAISE EXCEPTION 'V0298 自检失败：status = CANCELLED 未被 ck_biz_invoice_status 拒绝（发票作废用 VOID）';
     EXCEPTION WHEN check_violation THEN NULL;
     END;
 
@@ -384,7 +390,7 @@ BEGIN
         INSERT INTO biz_invoice (invoice_no, invoice_type, customer_id, invoice_date,
                                  amount, tax_amount, total_with_tax)
         VALUES ('IV-PROBE-0008', 'IN', cust, DATE '2026-11-06', 1000, 130, 1130);
-        RAISE EXCEPTION 'V0295 自检失败：invoice_type = IN 未被 ck_biz_invoice_type 拒绝';
+        RAISE EXCEPTION 'V0298 自检失败：invoice_type = IN 未被 ck_biz_invoice_type 拒绝';
     EXCEPTION WHEN check_violation THEN NULL;
     END;
 
@@ -393,7 +399,7 @@ BEGIN
         INSERT INTO biz_invoice (invoice_no, customer_id, invoice_date, amount, tax_amount,
                                  total_with_tax, source_type)
         VALUES ('IV-PROBE-0009', cust, DATE '2026-11-06', 1000, 130, 1130, 'SO');
-        RAISE EXCEPTION 'V0295 自检失败：source_type = SO 未被 ck_biz_invoice_source 拒绝（应写 SALES_ORDER）';
+        RAISE EXCEPTION 'V0298 自检失败：source_type = SO 未被 ck_biz_invoice_source 拒绝（应写 SALES_ORDER）';
     EXCEPTION WHEN check_violation THEN NULL;
     END;
 
@@ -402,14 +408,14 @@ BEGIN
         INSERT INTO biz_invoice (invoice_no, customer_id, invoice_date, amount, tax_amount,
                                  total_with_tax, tax_rate)
         VALUES ('IV-PROBE-0010', cust, DATE '2026-11-06', 1000, 130, 1130, -0.01);
-        RAISE EXCEPTION 'V0295 自检失败：tax_rate = -0.01 未被 ck_biz_invoice_tax_rate 拒绝';
+        RAISE EXCEPTION 'V0298 自检失败：tax_rate = -0.01 未被 ck_biz_invoice_tax_rate 拒绝';
     EXCEPTION WHEN check_violation THEN NULL;
     END;
     BEGIN
         INSERT INTO biz_invoice (invoice_no, customer_id, invoice_date, amount, tax_amount,
                                  total_with_tax, tax_rate)
         VALUES ('IV-PROBE-0011', cust, DATE '2026-11-06', 1000, 130, 1130, 1.5);
-        RAISE EXCEPTION 'V0295 自检失败：tax_rate = 1.5 未被 ck_biz_invoice_tax_rate 拒绝';
+        RAISE EXCEPTION 'V0298 自检失败：tax_rate = 1.5 未被 ck_biz_invoice_tax_rate 拒绝';
     EXCEPTION WHEN check_violation THEN NULL;
     END;
 
@@ -420,14 +426,14 @@ BEGIN
     SELECT status || '|' || invoice_type || '|' || tax_rate::text || '|' || total_with_tax::text
       INTO d FROM biz_invoice WHERE id = probe_iv;
     IF d <> 'DRAFT|OUT|0.1300|1130.0000' THEN
-        RAISE EXCEPTION 'V0295 自检失败：默认值落库 = %（期望 DRAFT|OUT|0.1300|1130.0000）', d;
+        RAISE EXCEPTION 'V0298 自检失败：默认值落库 = %（期望 DRAFT|OUT|0.1300|1130.0000）', d;
     END IF;
 
     -- 3.9k 存活行重号 → 拒
     BEGIN
         INSERT INTO biz_invoice (invoice_no, customer_id, invoice_date, amount, tax_amount, total_with_tax)
         VALUES ('IV-PROBE-1000', cust, DATE '2026-11-06', 1000, 130, 1130);
-        RAISE EXCEPTION 'V0295 自检失败：存活行重号未被 uk_biz_invoice_no 拒绝';
+        RAISE EXCEPTION 'V0298 自检失败：存活行重号未被 uk_biz_invoice_no 拒绝';
     EXCEPTION WHEN unique_violation THEN NULL;
     END;
 
@@ -436,7 +442,7 @@ BEGIN
     VALUES ('IV-PROBE-1001', cust, DATE '2026-11-06', 0.0002, 0.0000, 0.0002);
     SELECT amount::text INTO d FROM biz_invoice WHERE invoice_no = 'IV-PROBE-1001';
     IF d <> '0.0002' THEN
-        RAISE EXCEPTION 'V0295 自检失败：金额精度被截断（0.0002 → %）', d;
+        RAISE EXCEPTION 'V0298 自检失败：金额精度被截断（0.0002 → %）', d;
     END IF;
 
     -- 3.9m 红字票正常路径：金额为负、恒等式成立 → 通过
@@ -446,7 +452,7 @@ BEGIN
     SELECT count(*) INTO n FROM biz_invoice WHERE invoice_no = 'IV-PROBE-1002'
        AND total_with_tax = -1130.0000;
     IF n <> 1 THEN
-        RAISE EXCEPTION 'V0295 自检失败：红字票（负金额）正常路径插入失败';
+        RAISE EXCEPTION 'V0298 自检失败：红字票（负金额）正常路径插入失败';
     END IF;
 
     -- 3.9n 软删后同号可复用（部分唯一索引语义）
@@ -456,7 +462,7 @@ BEGIN
     SELECT count(*) INTO n FROM biz_invoice
      WHERE invoice_no = 'IV-PROBE-1001' AND deleted_at IS NULL;
     IF n <> 1 THEN
-        RAISE EXCEPTION 'V0295 自检失败：软删后同号重插后存活行 = %（期望 1）', n;
+        RAISE EXCEPTION 'V0298 自检失败：软删后同号重插后存活行 = %（期望 1）', n;
     END IF;
 
     -- 3.9o 外键：挂到不存在的应收 → 拒（foreign_key_violation）
@@ -464,50 +470,50 @@ BEGIN
         INSERT INTO biz_invoice (invoice_no, customer_id, invoice_date, amount, tax_amount,
                                  total_with_tax, receivable_id)
         VALUES ('IV-PROBE-1003', cust, DATE '2026-11-06', 1000, 130, 1130, gen_random_uuid());
-        RAISE EXCEPTION 'V0295 自检失败：receivable_id 指向不存在的应收却插入成功';
+        RAISE EXCEPTION 'V0298 自检失败：receivable_id 指向不存在的应收却插入成功';
     EXCEPTION WHEN foreign_key_violation THEN NULL;
     END;
 
     -- 3.9p 硬删「已被发票引用」的应收 → 拒（RESTRICT = SQLSTATE 23001，不是 23503）
     INSERT INTO biz_receivable (id, ar_no, customer_id, source_type, source_id, source_no,
                                 amount, unsettled_amount, credit_days, period_code, due_date)
-    VALUES (probe_ar, 'AR-PROBE-V0295-0001', cust, 'MANUAL', gen_random_uuid(), 'MANUAL',
+    VALUES (probe_ar, 'AR-PROBE-V0298-0001', cust, 'MANUAL', gen_random_uuid(), 'MANUAL',
             1130.0000, 1130.0000, 0, '2026-11', DATE '2026-11-06');
     INSERT INTO biz_invoice (id, invoice_no, customer_id, invoice_date, amount, tax_amount,
                              total_with_tax, receivable_id)
     VALUES (probe_fk, 'IV-PROBE-1004', cust, DATE '2026-11-06', 1000, 130, 1130, probe_ar);
     BEGIN
         DELETE FROM biz_receivable WHERE id = probe_ar;
-        RAISE EXCEPTION 'V0295 自检失败：硬删已被发票引用的应收未被 RESTRICT 拒绝';
+        RAISE EXCEPTION 'V0298 自检失败：硬删已被发票引用的应收未被 RESTRICT 拒绝';
     EXCEPTION WHEN restrict_violation OR foreign_key_violation THEN NULL;
     END;
 
     -- 3.9q 清场：探针行全部消失（发票 + 探针应收）
     DELETE FROM biz_invoice WHERE invoice_no LIKE 'IV-PROBE-%';
-    DELETE FROM biz_receivable WHERE ar_no LIKE 'AR-PROBE-V0295-%';
+    DELETE FROM biz_receivable WHERE ar_no LIKE 'AR-PROBE-V0298-%';
     SELECT count(*) INTO n FROM biz_invoice WHERE invoice_no LIKE 'IV-PROBE-%';
     IF n <> 0 THEN
-        RAISE EXCEPTION 'V0295 自检失败：发票探针残留 % 行', n;
+        RAISE EXCEPTION 'V0298 自检失败：发票探针残留 % 行', n;
     END IF;
-    SELECT count(*) INTO n FROM biz_receivable WHERE ar_no LIKE 'AR-PROBE-V0295-%';
+    SELECT count(*) INTO n FROM biz_receivable WHERE ar_no LIKE 'AR-PROBE-V0298-%';
     IF n <> 0 THEN
-        RAISE EXCEPTION 'V0295 自检失败：应收探针残留 % 行', n;
+        RAISE EXCEPTION 'V0298 自检失败：应收探针残留 % 行', n;
     END IF;
 
     -- 3.10 取号规则：IV 行在位且口径正确，并能拼出 IV-yyyyMMdd-000001 形态
     SELECT prefix || '|' || date_pattern || '|' || separator || '|' || step || '|' || status
       INTO d FROM biz_seq WHERE seq_type = 'IV' AND deleted_at IS NULL;
     IF d IS NULL THEN
-        RAISE EXCEPTION 'V0295 自检失败：biz_seq(seq_type=IV) 取号规则行缺失';
+        RAISE EXCEPTION 'V0298 自检失败：biz_seq(seq_type=IV) 取号规则行缺失';
     END IF;
     IF d <> 'IV|yyyyMMdd|-|1|1' THEN
-        RAISE EXCEPTION 'V0295 自检失败：IV 取号规则口径不对（% ≠ IV|yyyyMMdd|-|1|1）', d;
+        RAISE EXCEPTION 'V0298 自检失败：IV 取号规则口径不对（% ≠ IV|yyyyMMdd|-|1|1）', d;
     END IF;
     SELECT 'IV-' || to_char(DATE '2026-11-06', 'YYYYMMDD') || '-' || lpad('1', 6, '0') INTO sample;
     IF sample !~ '^IV-[0-9]{8}-[0-9]{6}$' THEN
-        RAISE EXCEPTION 'V0295 自检失败：按规则拼出的单号 % 不符合 IV-YYYYMMDD-NNNNNN', sample;
+        RAISE EXCEPTION 'V0298 自检失败：按规则拼出的单号 % 不符合 IV-YYYYMMDD-NNNNNN', sample;
     END IF;
 
-    RAISE NOTICE 'V0295 自检通过：biz_invoice 21 列 / 6 约束 / 7 索引 / 外键 RESTRICT / IV 取号=%',
+    RAISE NOTICE 'V0298 自检通过：biz_invoice 21 列 / 6 约束 / 7 索引 / 外键 RESTRICT / IV 取号=%',
                  sample;
 END $$;

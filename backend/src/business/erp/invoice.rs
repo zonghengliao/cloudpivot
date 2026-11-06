@@ -1,6 +1,6 @@
 //! 销售发票（销售链 · SO-20）：**开票 → 收入凭证 → 回写应收 → 归档 → 作废（红冲）**。
 //!
-//! 表结构见 `backend/migrations/business/V0295__sales_invoice.up.sql`（SO-19）：
+//! 表结构见 `backend/migrations/business/V0298__sales_invoice.up.sql`（SO-19）：
 //!
 //! ```text
 //! biz_invoice  id, invoice_no(IV-yyyyMMdd-000001 或手填税控号), invoice_type(OUT/OUT_RED),
@@ -79,7 +79,7 @@
 //! # 数据权限
 //!
 //! ```text
-//! SCOPE-EXEMPT: biz_invoice 是销售台账（V0295 建表，无 dept_id / 归属人列），
+//! SCOPE-EXEMPT: biz_invoice 是销售台账（V0298 建表，无 dept_id / 归属人列），
 //! 数据范围（SELF / DEPT_*）表达不出来；可见性由 business:erp:invoice:* 权限码控制。
 //! SCOPE-EXEMPT: biz_receivable / biz_customer / biz_voucher / biz_seq 均无归属列。
 //! ```
@@ -102,7 +102,7 @@ use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;
 
-// ==================== 权限码（与 V0296 的 sys_menu.auth_code 逐字一致） ====================
+// ==================== 权限码（与 V0299 的 sys_menu.auth_code 逐字一致） ====================
 
 /// 列表 / 分页。
 pub const PERM_LIST: &str = "business:erp:invoice:list";
@@ -191,7 +191,7 @@ pub const NO_MAX_CHARS: usize = 64;
 /// 发票代码最长（与 `invoice_code VARCHAR(32)` 一致）。
 pub const CODE_MAX_CHARS: usize = 32;
 
-/// `biz_invoice` 列清单（与 V0295 逐列对应）。
+/// `biz_invoice` 列清单（与 V0298 逐列对应）。
 pub const COLUMNS: &str = "id, invoice_no, invoice_type, invoice_code, customer_id, invoice_date, \
      amount, tax_amount, total_with_tax, tax_rate, status, receivable_id, source_type, source_no, \
      voucher_id, remark, created_at, updated_at";

@@ -60,6 +60,7 @@ export const DOC_KINDS = [
   'SHIPMENT',
   'RECEIVABLE',
   'RECEIPT',
+  'RECEIPT_REFUND',
   'INVOICE',
 ] as const;
 
@@ -90,6 +91,7 @@ export const DOC_KIND_LABELS: Readonly<Record<DocKind, string>> = {
   SHIPMENT: '发货单',
   RECEIVABLE: '应收单',
   RECEIPT: '收款单',
+  RECEIPT_REFUND: '收款退款单',
   INVOICE: '销售发票',
 };
 
@@ -127,6 +129,7 @@ export const DOC_KIND_TABLES: Readonly<Partial<Record<DocKind, string>>> = {
   SHIPMENT: 'biz_shipment',
   RECEIVABLE: 'biz_receivable',
   RECEIPT: 'biz_receipt',
+  RECEIPT_REFUND: 'biz_receipt_refund',
   INVOICE: 'biz_invoice',
 };
 
@@ -186,6 +189,7 @@ export const FLOW_BIZ_TYPES = [
   'OTHER',
   'BUDGET_APPROVE',
   'ASSET_DISPOSAL',
+  'RECEIPT_REFUND',
 ] as const;
 
 /** 审批业务类型（联合类型）。 */
@@ -208,6 +212,7 @@ export const FLOW_BIZ_TYPE_LABELS: Readonly<Record<FlowBizType, string>> = {
   OTHER: '其他审批',
   BUDGET_APPROVE: '预算审批',
   ASSET_DISPOSAL: '资产处置审批',
+  RECEIPT_REFUND: '收款退款审批',
 };
 
 /** 审批业务类型 → 默认流程编码（`biz_flow_def.flow_code`）。 */
@@ -227,6 +232,7 @@ export const FLOW_BIZ_TYPE_FLOW_CODES: Readonly<Record<FlowBizType, string>> = {
   OTHER: 'other',
   BUDGET_APPROVE: 'budget_approve',
   ASSET_DISPOSAL: 'asset_disposal',
+  RECEIPT_REFUND: 'receipt_refund',
 };
 
 /** 采购订单审批的业务类型（历史常量名，值来自 {@link FLOW_BIZ_TYPES}）。 */
@@ -338,6 +344,7 @@ export const VOUCHER_SOURCE_TYPES = [
   'EXPENSE_REPORT',
   'EXPENSE_PAYMENT',
   'RECEIPT',
+  'RECEIPT_REFUND',
   'INVOICE',
 ] as const;
 
@@ -362,6 +369,7 @@ export const VOUCHER_SOURCE_TYPE_LABELS: Readonly<Record<VoucherSourceType, stri
   EXPENSE_REPORT: '费用报销入账',
   EXPENSE_PAYMENT: '费用报销付款',
   RECEIPT: '收款过账',
+  RECEIPT_REFUND: '收款退款过账',
   INVOICE: '发票开票',
 };
 

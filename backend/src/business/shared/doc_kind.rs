@@ -138,6 +138,12 @@ pub enum DocKind {
     /// 边表在 `state_machine::RECEIPT_EDGES`。核销明细 `biz_receipt_allocation`
     /// 没有状态、也不单独记 `doc_type`（属单头）。
     Receipt,
+    /// 收款退款单 `biz_receipt_refund`（销售链 · SO-14 遗留卡）。
+    ///
+    /// 资金单据的反向单据：状态域与收款单同构
+    /// （`DRAFT`/`CONFIRMED`/`POSTED`/`CANCELLED`，边表在 `state_machine::RECEIPT_REFUND_EDGES`），
+    /// 但过账后不可作废。明细 `biz_receipt_refund_allocation` 没有状态、也不单独记 `doc_type`。
+    ReceiptRefund,
     /// 销售发票 `biz_invoice`（销售链 · SO-19 / SO-20）。
     ///
     /// 状态机 4 值（ARCH-7 §4.5）：`DRAFT`/`ISSUED`/`POSTED`/`VOID`，边表在
@@ -148,7 +154,7 @@ pub enum DocKind {
 
 impl DocKind {
     /// 全部业务对象（顺序 = 声明顺序；前端 TS 常量表与巡检按此顺序逐字比对）。
-    pub const ALL: [DocKind; 23] = [
+    pub const ALL: [DocKind; 24] = [
         DocKind::PurchaseOrder,
         DocKind::StockIn,
         DocKind::StockOut,
@@ -171,6 +177,7 @@ impl DocKind {
         DocKind::Shipment,
         DocKind::Receivable,
         DocKind::Receipt,
+        DocKind::ReceiptRefund,
         DocKind::Invoice,
     ];
 
@@ -199,6 +206,7 @@ impl DocKind {
             DocKind::Shipment => "SHIPMENT",
             DocKind::Receivable => "RECEIVABLE",
             DocKind::Receipt => "RECEIPT",
+            DocKind::ReceiptRefund => "RECEIPT_REFUND",
             DocKind::Invoice => "INVOICE",
         }
     }
@@ -228,6 +236,7 @@ impl DocKind {
             DocKind::Shipment => "发货单",
             DocKind::Receivable => "应收单",
             DocKind::Receipt => "收款单",
+            DocKind::ReceiptRefund => "收款退款单",
             DocKind::Invoice => "销售发票",
         }
     }
@@ -256,6 +265,7 @@ impl DocKind {
             DocKind::Shipment => "biz_shipment",
             DocKind::Receivable => "biz_receivable",
             DocKind::Receipt => "biz_receipt",
+            DocKind::ReceiptRefund => "biz_receipt_refund",
             DocKind::Invoice => "biz_invoice",
             // 年结没有实体表：状态记在 `biz_status_log`，`entity_id` 存结转凭证 id
             DocKind::AccountingYear => return None,
@@ -283,6 +293,7 @@ impl DocKind {
                 | DocKind::Shipment
                 | DocKind::Receivable
                 | DocKind::Receipt
+                | DocKind::ReceiptRefund
                 | DocKind::Invoice
         )
     }
@@ -414,11 +425,23 @@ pub enum FlowBizType {
     /// （低价卖给关联方、假装报废后私用），所以**不分金额档、第一站就是总经理**
     /// （频次低，多一道签的成本可以接受）。
     AssetDisposal,
+    /// 收款退款审批（`receipt_refund`，SO-14 遗留 · D10）。
+    ///
+    /// 退款是**真出钱**（借 1122 应收 / 贷 1002 银行），与 [`FlowBizType::PayablePay`]
+    /// （付款）同级别的资金动作，所以必须过审批，而不是靠「原因必填 + 权限码」自觉。
+    ///
+    /// 与付款审批的差别（口径见卡 t_b9840c8d）：**不动退款单的状态域** ——
+    /// 退款单仍是 `DRAFT`/`CONFIRMED`/`POSTED`/`CANCELLED`，审批是**过账的前置条件**
+    /// （`CONFIRMED → POSTED` 前必须存在 `biz_type='RECEIPT_REFUND'` 且 `APPROVED`
+    /// 的实例），而不是多一个「审批中」状态。理由：资金单据的状态域已经是一条
+    /// 三态生命周期（草稿 / 已确认 / 已过账），再塞一个审批态会让「已确认但没批」
+    /// 与「批了没记账」挤进同一个字段，状态日志也读不出两者的差别。
+    ReceiptRefund,
 }
 
 impl FlowBizType {
     /// 全部审批业务类型（顺序 = 声明顺序）。
-    pub const ALL: [FlowBizType; 15] = [
+    pub const ALL: [FlowBizType; 16] = [
         FlowBizType::PoApprove,
         FlowBizType::StockInPost,
         FlowBizType::StockInCancel,
@@ -434,6 +457,7 @@ impl FlowBizType {
         FlowBizType::Other,
         FlowBizType::BudgetApprove,
         FlowBizType::AssetDisposal,
+        FlowBizType::ReceiptRefund,
     ];
 
     /// 需要「发布状态自检」的业务类型（`GET /business/erp/approval-flow/health` 的清单）。
@@ -470,6 +494,7 @@ impl FlowBizType {
             FlowBizType::Other => "OTHER",
             FlowBizType::BudgetApprove => "BUDGET_APPROVE",
             FlowBizType::AssetDisposal => "ASSET_DISPOSAL",
+            FlowBizType::ReceiptRefund => "RECEIPT_REFUND",
         }
     }
 
@@ -491,6 +516,7 @@ impl FlowBizType {
             FlowBizType::Other => "other",
             FlowBizType::BudgetApprove => "budget_approve",
             FlowBizType::AssetDisposal => "asset_disposal",
+            FlowBizType::ReceiptRefund => "receipt_refund",
         }
     }
 
@@ -512,6 +538,7 @@ impl FlowBizType {
             FlowBizType::Other => "其他审批",
             FlowBizType::BudgetApprove => "预算审批",
             FlowBizType::AssetDisposal => "资产处置审批",
+            FlowBizType::ReceiptRefund => "收款退款审批",
         }
     }
 
@@ -530,6 +557,7 @@ impl FlowBizType {
             FlowBizType::FlowEdgeConfig => DocKind::FlowEdgeConfig,
             FlowBizType::BudgetApprove => DocKind::Budget,
             FlowBizType::AssetDisposal => DocKind::FixedAsset,
+            FlowBizType::ReceiptRefund => DocKind::ReceiptRefund,
             // FIN-3（ARCH-6 §6.2.2）：`Expense` 由 `None` 改成 `Some(...)` —— 一处**行为变更**，
             // `doc_kind_tests` 的期望同步改；`HEALTH_CHECKED` 未扩（它绑着已应用的 V0202
             // 自检块，改注释都会 checksum 失败，扩清单必须新开迁移重写自检块，超出 FIN-3 范围）。
@@ -855,6 +883,8 @@ pub enum VoucherSourceType {
     ExpensePayment,
     /// 收款单过账（借 1002 银行存款 / 贷 1122 应收账款，销售链 · SO-17）。
     Receipt,
+    /// 收款退款单过账（借 1122 应收账款 / 贷 1002 银行存款，销售链 · SO-14 遗留卡）。
+    ReceiptRefund,
     /// 销售发票开票（借 1122 应收账款 / 贷 5001 主营业务收入 + 2221.02 销项税，
     /// 销售链 · SO-20）。作废时的红字凭证沿用同一来源（`red_of` 指回这张蓝字凭证）。
     Invoice,
@@ -862,7 +892,7 @@ pub enum VoucherSourceType {
 
 impl VoucherSourceType {
     /// 全部来源（顺序 = 声明顺序）。
-    pub const ALL: [VoucherSourceType; 17] = [
+    pub const ALL: [VoucherSourceType; 18] = [
         VoucherSourceType::StockIn,
         VoucherSourceType::StockOut,
         VoucherSourceType::Payment,
@@ -879,6 +909,7 @@ impl VoucherSourceType {
         VoucherSourceType::ExpenseReport,
         VoucherSourceType::ExpensePayment,
         VoucherSourceType::Receipt,
+        VoucherSourceType::ReceiptRefund,
         VoucherSourceType::Invoice,
     ];
 
@@ -901,6 +932,7 @@ impl VoucherSourceType {
             VoucherSourceType::ExpenseReport => "EXPENSE_REPORT",
             VoucherSourceType::ExpensePayment => "EXPENSE_PAYMENT",
             VoucherSourceType::Receipt => "RECEIPT",
+            VoucherSourceType::ReceiptRefund => "RECEIPT_REFUND",
             VoucherSourceType::Invoice => "INVOICE",
         }
     }
@@ -924,6 +956,7 @@ impl VoucherSourceType {
             VoucherSourceType::ExpenseReport => "费用报销入账",
             VoucherSourceType::ExpensePayment => "费用报销付款",
             VoucherSourceType::Receipt => "收款过账",
+            VoucherSourceType::ReceiptRefund => "收款退款过账",
             VoucherSourceType::Invoice => "发票开票",
         }
     }
@@ -949,6 +982,7 @@ impl VoucherSourceType {
                 DocKind::ExpenseReport
             }
             VoucherSourceType::Receipt => DocKind::Receipt,
+            VoucherSourceType::ReceiptRefund => DocKind::ReceiptRefund,
             VoucherSourceType::Invoice => DocKind::Invoice,
         })
     }
@@ -1173,7 +1207,7 @@ pub struct ColumnDomain {
     pub axis: &'static str,
 }
 
-const DOC_KIND_VALUES: [&str; 23] = [
+const DOC_KIND_VALUES: [&str; 24] = [
     "PURCHASE_ORDER",
     "STOCK_IN",
     "STOCK_OUT",
@@ -1196,10 +1230,11 @@ const DOC_KIND_VALUES: [&str; 23] = [
     "SHIPMENT",
     "RECEIVABLE",
     "RECEIPT",
+    "RECEIPT_REFUND",
     "INVOICE",
 ];
 
-const FLOW_BIZ_TYPE_VALUES: [&str; 15] = [
+const FLOW_BIZ_TYPE_VALUES: [&str; 16] = [
     "PO_APPROVE",
     "STOCK_IN_POST",
     "STOCK_IN_CANCEL",
@@ -1215,6 +1250,7 @@ const FLOW_BIZ_TYPE_VALUES: [&str; 15] = [
     "OTHER",
     "BUDGET_APPROVE",
     "ASSET_DISPOSAL",
+    "RECEIPT_REFUND",
 ];
 
 const TXN_BIZ_TYPE_VALUES: [&str; 22] = [
@@ -1253,7 +1289,7 @@ const TXN_DOC_TYPE_VALUES: [&str; 8] = [
     "ADJUST",
 ];
 
-const VOUCHER_SOURCE_VALUES: [&str; 17] = [
+const VOUCHER_SOURCE_VALUES: [&str; 18] = [
     "STOCK_IN",
     "STOCK_OUT",
     "PAYMENT",
@@ -1270,6 +1306,7 @@ const VOUCHER_SOURCE_VALUES: [&str; 17] = [
     "EXPENSE_REPORT",
     "EXPENSE_PAYMENT",
     "RECEIPT",
+    "RECEIPT_REFUND",
     "INVOICE",
 ];
 

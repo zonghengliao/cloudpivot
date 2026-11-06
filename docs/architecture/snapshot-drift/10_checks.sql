@@ -440,6 +440,8 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('VOUCHER_SOURCE', 'EXPENSE_PAYMENT',      'biz_expense_report',     'deleted_at', '费用报销付款生成（FIN-3）：source_id = 报销单 id（付款挂在报销单上）'),
     -- 销售链 SO-17：收款单过账生成（借 1002 / 贷 1122），source_id = 收款单 id
     ('VOUCHER_SOURCE', 'RECEIPT',              'biz_receipt',            'deleted_at', '收款单过账生成（销售链 SO-17）：source_id = 收款单 id，见 receipt::post_receipt_voucher'),
+    -- 销售链 SO-14 遗留卡：收款退款单过账生成（借 1122 / 贷 1002），source_id = 退款单 id
+    ('VOUCHER_SOURCE', 'RECEIPT_REFUND',       'biz_receipt_refund',     'deleted_at', '收款退款单过账生成（SO-14 遗留）：source_id = 退款单 id，见 receipt_refund::post_refund_voucher'),
     -- 销售链 SO-20：发票开票生成收入凭证（借 1122 / 贷 5001 + 2221.02），作废红冲沿用同一来源
     ('VOUCHER_SOURCE', 'INVOICE',              'biz_invoice',            'deleted_at', '发票开票生成（销售链 SO-20）：source_id = 发票 id，见 invoice::post_invoice_voucher'),
     -- ② 库存流水来源单据：biz_inventory_txn.doc_type + doc_id
@@ -470,6 +472,8 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     -- 否则 DI-19 的「流程实例业务单据悬空」永远看不到预算审批 / 资产处置审批
     ('FLOW_BIZ', 'BUDGET_APPROVE',   'biz_budget',         'deleted_at', '预算审批（FIN-1）：biz_id = 预算行 id（budget_bridge 按 biz_budget.id 取制单人）'),
     ('FLOW_BIZ', 'ASSET_DISPOSAL',   'biz_fixed_asset',    'deleted_at', '资产处置审批（FIN-2）：biz_id = 资产卡片 id（一张卡同时只能有一个在跑处置单）'),
+    -- SO-14 遗留 · D10：收款退款审批（审批是**过账前置**，不是退款单的一个状态；biz_id = 退款单 id）
+    ('FLOW_BIZ', 'RECEIPT_REFUND',   'biz_receipt_refund', 'deleted_at', '收款退款审批（SO-14 遗留 D10）：biz_id = 退款单 id，见 receipt_refund_bridge'),
     -- ④ 状态日志实体：biz_status_log.entity_type + entity_id（取值域 = DocKind）
     ('STATUS_ENTITY', 'PURCHASE_ORDER',    'biz_purchase_order',    'deleted_at', '采购单'),
     ('STATUS_ENTITY', 'STOCK_IN',          'biz_stock_in',          'deleted_at', '收货单'),
@@ -499,6 +503,8 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('STATUS_ENTITY', 'RECEIVABLE',        'biz_receivable',        'deleted_at', '应收单（销售链 SO-13）'),
     -- 销售链 SO-17：收款单进状态日志（`receipt.rs` 的建单 / 确认 / 过账 / 作废都写 entity_type=RECEIPT）
     ('STATUS_ENTITY', 'RECEIPT',           'biz_receipt',           'deleted_at', '收款单（销售链 SO-17）'),
+    -- 销售链 SO-14 遗留：收款退款单进状态日志（建单 / 确认 / 过账 / 作废）
+    ('STATUS_ENTITY', 'RECEIPT_REFUND',    'biz_receipt_refund',    'deleted_at', '收款退款单（SO-14 遗留）'),
     -- 销售链 SO-20：发票进状态日志（`invoice.rs` 的建单 / 开票 / 归档 / 作废都写 entity_type=INVOICE）
     ('STATUS_ENTITY', 'INVOICE',           'biz_invoice',           'deleted_at', '销售发票（销售链 SO-20）'),
     -- ⑤ 序列号来源：biz_material_serial.source_type + source_id（P2-6b 补全映射）
