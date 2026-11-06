@@ -1,0 +1,3 @@
+test business::erp::receivable::tests::legal_edges_match_arch7_state_graph ... FAILED
+test result: FAILED. 2867 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.69s
+error: test failed, to rerun pass `--lib`

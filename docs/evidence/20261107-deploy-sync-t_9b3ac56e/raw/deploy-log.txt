@@ -1,0 +1,510 @@
+
+==============================================================
+== [0/8] 前置检查
+==============================================================
+[00:25:13] 仓库 /opt/cloudpivot，库 cloudpivot，服务 cloudpivot，标签 t_9b3ac56e
+
+==============================================================
+== [1/8] 查清待上线内容（git fetch + 差异清单）
+==============================================================
+[00:25:13] 当前 HEAD      bdd3a29b9eea0ad14c691f7e2e3c8b7b0c770a24  merge: 收敛三方分叉（DEPLOY-SYNC t_c3087afe）—— SO-14 遗留退款 + SO-19/20/21 销售发票
+[00:25:13] origin/main    4a25bb7b98b1978e221b5040e051d256dae5c6e1  merge: 收敛三方分叉（DEPLOY-SYNC t_9b3ac56e）—— SO-22/23/24/25 销售链 + SO-14 遗留退款
+[00:25:13] 落后提交数：9
+    4a25bb7b merge: 收敛三方分叉（DEPLOY-SYNC t_9b3ac56e）—— SO-22/23/24/25 销售链 + SO-14 遗留退款
+    311f13aa fix(erp-flow): V0301 补 so_approve is_system + 存量版本快照按 canonical 重写（H6 BLOCKER 收口）
+    a6773540 test(verify): SO-25 补 start 子命令 + 重启自洽与前端门禁证据
+    f61cf8ae feat(erp-sales): SO-25 销售管理菜单树 + 五角色授权（V0267）
+    4606b4f5 docs(evidence): SO-24 README 补提交号
+    c6feedbd test(verify): SO-24 销售链端到端十步（真 token curl）+ 证据
+    bb677776 docs(evidence): SO-23 巡检原始日志（*.log 被 .gitignore 排除，改存 .txt）
+    19214a2b test(verify): SO-23 销售链不变量 S1-S8（8 条 BLOCKER）+ 正负向演练证据
+    7c200e1b feat(erp-sales): SO-22 收入确认凭证（create_for_sales_revenue + 开票时确认 + 应收冲销红冲）
+[00:25:13] 库内已应用 versioned 迁移：218 条，最大版本 V0300
+[00:25:13] 预检通过：applied_via 取值合法、迁移文件名可被引擎识别
+[00:25:13] 后端改动：有　　前端改动：无　　待应用迁移：2 个（口径：磁盘全部 up.sql − 库内 success 记录）
+[00:25:13]     + backend/migrations/business/V0267__sales_menu.up.sql  [V0267]
+[00:25:13]     + backend/migrations/business/V0301__sales_order_flow_is_system_and_snapshot.up.sql  [V0301]
+[00:25:13]   ⚠ 其中 1 条版本号低于库内最大已应用 V0300： V0267
+[00:25:13]      这是引擎允许的乱序补迁（启动期只打 out_of_order WARN）；旧版 deploy.sh 正是把这些 gap 整批丢掉才炸的
+
+==============================================================
+== [2/8] 备份（库 dump + 线上二进制 + 现有 dist）
+==============================================================
+[00:25:13] pg_dump …
+  ✅ db.dump                           2265419 字节
+  ✅ cloudpivot                       61035400 字节
+  ✅ dist/                                 16M
+[00:25:14] 备份目录：/root/deploy-backup-t_9b3ac56e
+
+==============================================================
+== [3/8] 同步代码（git merge --ff-only）
+==============================================================
+Updating bdd3a29b..4a25bb7b
+Fast-forward
+ .../migrations/business/V0267__sales_menu.down.sql |  164 ++
+ .../migrations/business/V0267__sales_menu.up.sql   |  412 +++
+ ...ales_order_flow_is_system_and_snapshot.down.sql |   39 +
+ ..._sales_order_flow_is_system_and_snapshot.up.sql |  194 ++
+ backend/src/business/erp/invoice.rs                |  138 +-
+ backend/src/business/erp/receivable.rs             |  100 +-
+ backend/src/business/erp/voucher.rs                |  738 +++++
+ backend/src/business/flow/linkage/spec.rs          |   16 +-
+ backend/src/business/shared/state_machine.rs       |    5 +-
+ .../20261106-so22-revenue-voucher/README.md        |  170 ++
+ .../boot-and-health.txt                            |   19 +
+ .../cargo-test-full-round1.txt                     | 2884 ++++++++++++++++++++
+ .../cargo-test-full-round2.txt                     | 2878 +++++++++++++++++++
+ .../full-suite-attribution.md                      |   62 +
+ .../round-1-so20-regression.out.txt                |  118 +
+ .../round-1-unit-tests.out.txt                     |   42 +
+ .../round-2-verify.out.txt                         |   41 +
+ .../round-3-verify.out.txt                         |   41 +
+ .../start-instance.sh                              |   53 +
+ .../20261106-so22-revenue-voucher/verify-e2e.sh    |  132 +
+ .../20261106-so23-followup-so-approve/README.md    |  181 ++
+ .../raw/before-baseline.txt                        |   35 +
+ .../raw/db-state.txt                               |    5 +
+ .../raw/erp-invariants-full.txt                    |  161 ++
+ .../raw/erp-invariants-group-approval.txt          |   20 +
+ .../raw/h6-detail.txt                              |    9 +
+ .../raw/migration-guard.txt                        |    8 +
+ .../raw/migration-roundtrip.txt                    |   18 +
+ .../raw/p16-graph-selfcheck.txt                    |    9 +
+ .../raw/pflow1a-full.txt                           |   48 +
+ .../raw/templates-api-probe.txt                    |   10 +
+ .../raw/v0267-fresh-blocker.txt                    |   13 +
+ .../scripts/before_baseline.sh                     |   56 +
+ .../scripts/cmp_snapshot.py                        |   43 +
+ .../scripts/collect_before.sh                      |   25 +
+ .../scripts/final_accept.sh                        |   96 +
+ .../scripts/fresh_db_frozen.sh                     |   86 +
+ .../scripts/gen_migration.py                       |  296 ++
+ .../scripts/h6_detail.py                           |   19 +
+ .../scripts/mig_guard.sh                           |   20 +
+ .../scripts/mig_roundtrip.sh                       |   36 +
+ .../scripts/probe_templates.py                     |   46 +
+ .../scripts/start_api_isolation.sh                 |   36 +
+ .../scripts/sync_probe_checksums.py                |   44 +
+ .../scripts/v0267_evidence.sh                      |   53 +
+ .../20261106-so23-sales-invariants/README.md       |  174 ++
+ .../raw/fresh-group-a.txt                          |   19 +
+ .../raw/fresh-round1.txt                           |  169 ++
+ .../raw/fresh-round2.txt                           |  169 ++
+ .../raw/neg-sales-group.txt                        |   87 +
+ .../raw/pflow1a-baseline.txt                       |    9 +
+ .../raw/pos-full.txt                               |  169 ++
+ .../raw/pos-sales-group.txt                        |   30 +
+ .../raw/round1-vs-round2.diff                      |    0
+ docs/evidence/20261106-so25-sales-menu/README.md   |  129 +
+ .../20261106-so25-sales-menu/final-console.txt     |   84 +
+ .../20261106-so25-sales-menu/frontend-build.txt    |  380 +++
+ .../frontend-typecheck.txt                         |    7 +
+ .../20261106-so25-sales-menu/gate-perm-orphan.txt  |   24 +
+ .../20261106-so25-sales-menu/gate-role-code.txt    |   10 +
+ .../migration-roundtrip.txt                        |   31 +
+ .../20261106-so25-sales-menu/raw/login_admin.json  |   16 +
+ .../raw/login_admin_first.json                     |    1 +
+ .../raw/login_admin_so24.json                      |   16 +
+ .../20261106-so25-sales-menu/raw/login_clerk.json  |   16 +
+ .../20261106-so25-sales-menu/raw/login_fin.json    |   16 +
+ .../20261106-so25-sales-menu/raw/login_gm.json     |   16 +
+ .../20261106-so25-sales-menu/raw/login_laoliu.json |   16 +
+ .../20261106-so25-sales-menu/raw/login_wh.json     |   16 +
+ .../20261106-so25-sales-menu/raw/menus_clk.json    |    1 +
+ .../20261106-so25-sales-menu/raw/menus_fin.json    |    1 +
+ .../20261106-so25-sales-menu/raw/menus_gm.json     |    1 +
+ .../20261106-so25-sales-menu/raw/menus_sup.json    |    1 +
+ .../20261106-so25-sales-menu/raw/menus_wh.json     |    1 +
+ .../20261106-so25-sales-menu/raw/perm________.json |    1 +
+ .../raw/perm_________.json                         |    1 +
+ .../raw/perm__________.json                        |    1 +
+ .../raw/perm___________.json                       |    1 +
+ .../raw/pre_pwd_change.json                        |    1 +
+ .../20261106-so25-sales-menu/raw/user_laoliu.json  |    1 +
+ .../raw/user_so25_clerk.json                       |    1 +
+ .../raw/user_so25_fin.json                         |    1 +
+ .../20261106-so25-sales-menu/raw/user_so25_gm.json |    1 +
+ .../20261106-so25-sales-menu/raw/user_so25_wh.json |    1 +
+ .../20261106-so25-sales-menu/restart-console.txt   |   14 +
+ .../20261106-so25-sales-menu/round-1-apply.txt     |   13 +
+ .../20261106-so25-sales-menu/round-1-console.txt   |   84 +
+ .../round-1/login_admin.json                       |   16 +
+ .../round-1/login_admin_first.json                 |    1 +
+ .../round-1/login_admin_so24.json                  |   16 +
+ .../round-1/login_clerk.json                       |   16 +
+ .../round-1/login_fin.json                         |   16 +
+ .../20261106-so25-sales-menu/round-1/login_gm.json |   16 +
+ .../round-1/login_laoliu.json                      |   16 +
+ .../20261106-so25-sales-menu/round-1/login_wh.json |   16 +
+ .../round-1/menus_clk.json                         |    1 +
+ .../round-1/menus_fin.json                         |    1 +
+ .../20261106-so25-sales-menu/round-1/menus_gm.json |    1 +
+ .../round-1/menus_sup.json                         |    1 +
+ .../20261106-so25-sales-menu/round-1/menus_wh.json |    1 +
+ .../round-1/perm________.json                      |    1 +
+ .../round-1/perm_________.json                     |    1 +
+ .../round-1/perm__________.json                    |    1 +
+ .../round-1/perm___________.json                   |    1 +
+ .../round-1/pre_pwd_change.json                    |    1 +
+ .../round-1/user_laoliu.json                       |    1 +
+ .../round-1/user_so25_clerk.json                   |    1 +
+ .../round-1/user_so25_fin.json                     |    1 +
+ .../round-1/user_so25_gm.json                      |    1 +
+ .../round-1/user_so25_wh.json                      |    1 +
+ .../20261106-so25-sales-menu/round-2-apply.txt     |   13 +
+ .../20261106-so25-sales-menu/round-2-console.txt   |   84 +
+ .../round-2/login_admin.json                       |   16 +
+ .../round-2/login_admin_first.json                 |    1 +
+ .../round-2/login_admin_so24.json                  |   16 +
+ .../round-2/login_clerk.json                       |   16 +
+ .../round-2/login_fin.json                         |   16 +
+ .../20261106-so25-sales-menu/round-2/login_gm.json |   16 +
+ .../round-2/login_laoliu.json                      |   16 +
+ .../20261106-so25-sales-menu/round-2/login_wh.json |   16 +
+ .../round-2/menus_clk.json                         |    1 +
+ .../round-2/menus_fin.json                         |    1 +
+ .../20261106-so25-sales-menu/round-2/menus_gm.json |    1 +
+ .../round-2/menus_sup.json                         |    1 +
+ .../20261106-so25-sales-menu/round-2/menus_wh.json |    1 +
+ .../round-2/perm________.json                      |    1 +
+ .../round-2/perm_________.json                     |    1 +
+ .../round-2/perm__________.json                    |    1 +
+ .../round-2/perm___________.json                   |    1 +
+ .../round-2/pre_pwd_change.json                    |    1 +
+ .../round-2/user_laoliu.json                       |    1 +
+ .../round-2/user_so25_clerk.json                   |    1 +
+ .../round-2/user_so25_fin.json                     |    1 +
+ .../round-2/user_so25_gm.json                      |    1 +
+ .../round-2/user_so25_wh.json                      |    1 +
+ docs/evidence/sales-e2e/README.md                  |  183 ++
+ .../sales-e2e/raw/control_pristine_full.txt        |  169 ++
+ docs/evidence/sales-e2e/raw/login_admin.json       |    1 +
+ docs/evidence/sales-e2e/raw/login_admin0.json      |    1 +
+ docs/evidence/sales-e2e/raw/login_app.json         |    1 +
+ docs/evidence/sales-e2e/raw/migration_check.txt    |    1 +
+ docs/evidence/sales-e2e/raw/pre_inventory.txt      |    8 +
+ docs/evidence/sales-e2e/raw/pre_opening.json       |    1 +
+ docs/evidence/sales-e2e/raw/pre_pwd_change.json    |    1 +
+ docs/evidence/sales-e2e/raw/pre_user_create.json   |    1 +
+ docs/evidence/sales-e2e/raw/round1_console.txt     |  115 +
+ docs/evidence/sales-e2e/raw/round2_console.txt     |  115 +
+ docs/evidence/sales-e2e/raw/round_diff.txt         |    6 +
+ docs/evidence/sales-e2e/raw/step01.txt             |    3 +
+ docs/evidence/sales-e2e/raw/step01_customer.json   |    1 +
+ docs/evidence/sales-e2e/raw/step02_approve_r1.json |    1 +
+ docs/evidence/sales-e2e/raw/step02_approve_r2.json |    1 +
+ docs/evidence/sales-e2e/raw/step02_approved.txt    |    5 +
+ docs/evidence/sales-e2e/raw/step02_so.txt          |    4 +
+ docs/evidence/sales-e2e/raw/step02_so_create.json  |    1 +
+ docs/evidence/sales-e2e/raw/step02_submit.json     |    1 +
+ docs/evidence/sales-e2e/raw/step02_submitted.txt   |    4 +
+ docs/evidence/sales-e2e/raw/step03.txt             |    5 +
+ .../sales-e2e/raw/step03_shipment_create.json      |    1 +
+ docs/evidence/sales-e2e/raw/step04_after_post.txt  |   18 +
+ docs/evidence/sales-e2e/raw/step04_post.json       |    1 +
+ docs/evidence/sales-e2e/raw/step04_submit.json     |    1 +
+ docs/evidence/sales-e2e/raw/step05.txt             |    8 +
+ docs/evidence/sales-e2e/raw/step05_post.json       |    1 +
+ .../sales-e2e/raw/step05_shipment_create.json      |    1 +
+ docs/evidence/sales-e2e/raw/step05_submit.json     |    1 +
+ docs/evidence/sales-e2e/raw/step06_invoice1.json   |    1 +
+ docs/evidence/sales-e2e/raw/step06_invoice2.json   |    1 +
+ docs/evidence/sales-e2e/raw/step06_issue1.json     |    1 +
+ docs/evidence/sales-e2e/raw/step06_issue2.json     |    1 +
+ .../sales-e2e/raw/step07_revenue_voucher.txt       |   11 +
+ docs/evidence/sales-e2e/raw/step08_allocate.json   |    1 +
+ docs/evidence/sales-e2e/raw/step08_confirm.json    |    1 +
+ docs/evidence/sales-e2e/raw/step08_post.json       |    1 +
+ .../sales-e2e/raw/step08_receipt_create.json       |    1 +
+ docs/evidence/sales-e2e/raw/step09_final.txt       |   13 +
+ docs/evidence/sales-e2e/raw/step10_invariants.txt  |   30 +
+ .../sales-e2e/raw/step10_invariants_full.txt       |  169 ++
+ scripts/verify/erp_invariants.py                   |  479 +++-
+ scripts/verify/so23_accept.sh                      |   34 +
+ scripts/verify/so23_dbsetup.sh                     |   27 +
+ scripts/verify/so23_fresh_db.sh                    |   84 +
+ scripts/verify/so23_pflow1a_probe.sh               |   16 +
+ scripts/verify/so23_pick_db.sh                     |   19 +
+ scripts/verify/so23_sales_drill.sh                 |   59 +
+ scripts/verify/so23_sales_drill.sql                |  105 +
+ scripts/verify/so23_sales_fixture.sql              |  256 ++
+ scripts/verify/so23_schema_dump.sh                 |   26 +
+ scripts/verify/so24_control.sh                     |   15 +
+ scripts/verify/so24_e2e.sh                         |  351 +++
+ scripts/verify/so24_round_diff.sh                  |   21 +
+ scripts/verify/so25_menu_apply.sh                  |  103 +
+ scripts/verify/so25_menu_verify.sh                 |  231 ++
+ scripts/verify/so25_migration_roundtrip.sh         |   77 +
+ 194 files changed, 14395 insertions(+), 102 deletions(-)
+ create mode 100644 backend/migrations/business/V0267__sales_menu.down.sql
+ create mode 100644 backend/migrations/business/V0267__sales_menu.up.sql
+ create mode 100644 backend/migrations/business/V0301__sales_order_flow_is_system_and_snapshot.down.sql
+ create mode 100644 backend/migrations/business/V0301__sales_order_flow_is_system_and_snapshot.up.sql
+ create mode 100644 docs/evidence/20261106-so22-revenue-voucher/README.md
+ create mode 100644 docs/evidence/20261106-so22-revenue-voucher/boot-and-health.txt
+ create mode 100644 docs/evidence/20261106-so22-revenue-voucher/cargo-test-full-round1.txt
+ create mode 100644 docs/evidence/20261106-so22-revenue-voucher/cargo-test-full-round2.txt
+ create mode 100644 docs/evidence/20261106-so22-revenue-voucher/full-suite-attribution.md
+ create mode 100644 docs/evidence/20261106-so22-revenue-voucher/round-1-so20-regression.out.txt
+ create mode 100644 docs/evidence/20261106-so22-revenue-voucher/round-1-unit-tests.out.txt
+ create mode 100644 docs/evidence/20261106-so22-revenue-voucher/round-2-verify.out.txt
+ create mode 100644 docs/evidence/20261106-so22-revenue-voucher/round-3-verify.out.txt
+ create mode 100644 docs/evidence/20261106-so22-revenue-voucher/start-instance.sh
+ create mode 100644 docs/evidence/20261106-so22-revenue-voucher/verify-e2e.sh
+ create mode 100644 docs/evidence/20261106-so23-followup-so-approve/README.md
+ create mode 100644 docs/evidence/20261106-so23-followup-so-approve/raw/before-baseline.txt
+ create mode 100644 docs/evidence/20261106-so23-followup-so-approve/raw/db-state.txt
+ create mode 100644 docs/evidence/20261106-so23-followup-so-approve/raw/erp-invariants-full.txt
+ create mode 100644 docs/evidence/20261106-so23-followup-so-approve/raw/erp-invariants-group-approval.txt
+ create mode 100644 docs/evidence/20261106-so23-followup-so-approve/raw/h6-detail.txt
+ create mode 100644 docs/evidence/20261106-so23-followup-so-approve/raw/migration-guard.txt
+ create mode 100644 docs/evidence/20261106-so23-followup-so-approve/raw/migration-roundtrip.txt
+ create mode 100644 docs/evidence/20261106-so23-followup-so-approve/raw/p16-graph-selfcheck.txt
+ create mode 100644 docs/evidence/20261106-so23-followup-so-approve/raw/pflow1a-full.txt
+ create mode 100644 docs/evidence/20261106-so23-followup-so-approve/raw/templates-api-probe.txt
+ create mode 100644 docs/evidence/20261106-so23-followup-so-approve/raw/v0267-fresh-blocker.txt
+ create mode 100644 docs/evidence/20261106-so23-followup-so-approve/scripts/before_baseline.sh
+ create mode 100644 docs/evidence/20261106-so23-followup-so-approve/scripts/cmp_snapshot.py
+ create mode 100644 docs/evidence/20261106-so23-followup-so-approve/scripts/collect_before.sh
+ create mode 100644 docs/evidence/20261106-so23-followup-so-approve/scripts/final_accept.sh
+ create mode 100644 docs/evidence/20261106-so23-followup-so-approve/scripts/fresh_db_frozen.sh
+ create mode 100644 docs/evidence/20261106-so23-followup-so-approve/scripts/gen_migration.py
+ create mode 100644 docs/evidence/20261106-so23-followup-so-approve/scripts/h6_detail.py
+ create mode 100644 docs/evidence/20261106-so23-followup-so-approve/scripts/mig_guard.sh
+ create mode 100644 docs/evidence/20261106-so23-followup-so-approve/scripts/mig_roundtrip.sh
+ create mode 100644 docs/evidence/20261106-so23-followup-so-approve/scripts/probe_templates.py
+ create mode 100644 docs/evidence/20261106-so23-followup-so-approve/scripts/start_api_isolation.sh
+ create mode 100644 docs/evidence/20261106-so23-followup-so-approve/scripts/sync_probe_checksums.py
+ create mode 100644 docs/evidence/20261106-so23-followup-so-approve/scripts/v0267_evidence.sh
+ create mode 100644 docs/evidence/20261106-so23-sales-invariants/README.md
+ create mode 100644 docs/evidence/20261106-so23-sales-invariants/raw/fresh-group-a.txt
+ create mode 100644 docs/evidence/20261106-so23-sales-invariants/raw/fresh-round1.txt
+ create mode 100644 docs/evidence/20261106-so23-sales-invariants/raw/fresh-round2.txt
+ create mode 100644 docs/evidence/20261106-so23-sales-invariants/raw/neg-sales-group.txt
+ create mode 100644 docs/evidence/20261106-so23-sales-invariants/raw/pflow1a-baseline.txt
+ create mode 100644 docs/evidence/20261106-so23-sales-invariants/raw/pos-full.txt
+ create mode 100644 docs/evidence/20261106-so23-sales-invariants/raw/pos-sales-group.txt
+ create mode 100644 docs/evidence/20261106-so23-sales-invariants/raw/round1-vs-round2.diff
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/README.md
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/final-console.txt
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/frontend-build.txt
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/frontend-typecheck.txt
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/gate-perm-orphan.txt
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/gate-role-code.txt
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/migration-roundtrip.txt
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/raw/login_admin.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/raw/login_admin_first.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/raw/login_admin_so24.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/raw/login_clerk.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/raw/login_fin.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/raw/login_gm.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/raw/login_laoliu.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/raw/login_wh.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/raw/menus_clk.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/raw/menus_fin.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/raw/menus_gm.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/raw/menus_sup.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/raw/menus_wh.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/raw/perm________.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/raw/perm_________.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/raw/perm__________.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/raw/perm___________.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/raw/pre_pwd_change.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/raw/user_laoliu.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/raw/user_so25_clerk.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/raw/user_so25_fin.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/raw/user_so25_gm.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/raw/user_so25_wh.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/restart-console.txt
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-1-apply.txt
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-1-console.txt
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-1/login_admin.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-1/login_admin_first.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-1/login_admin_so24.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-1/login_clerk.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-1/login_fin.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-1/login_gm.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-1/login_laoliu.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-1/login_wh.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-1/menus_clk.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-1/menus_fin.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-1/menus_gm.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-1/menus_sup.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-1/menus_wh.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-1/perm________.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-1/perm_________.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-1/perm__________.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-1/perm___________.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-1/pre_pwd_change.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-1/user_laoliu.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-1/user_so25_clerk.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-1/user_so25_fin.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-1/user_so25_gm.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-1/user_so25_wh.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-2-apply.txt
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-2-console.txt
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-2/login_admin.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-2/login_admin_first.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-2/login_admin_so24.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-2/login_clerk.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-2/login_fin.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-2/login_gm.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-2/login_laoliu.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-2/login_wh.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-2/menus_clk.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-2/menus_fin.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-2/menus_gm.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-2/menus_sup.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-2/menus_wh.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-2/perm________.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-2/perm_________.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-2/perm__________.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-2/perm___________.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-2/pre_pwd_change.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-2/user_laoliu.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-2/user_so25_clerk.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-2/user_so25_fin.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-2/user_so25_gm.json
+ create mode 100644 docs/evidence/20261106-so25-sales-menu/round-2/user_so25_wh.json
+ create mode 100644 docs/evidence/sales-e2e/README.md
+ create mode 100644 docs/evidence/sales-e2e/raw/control_pristine_full.txt
+ create mode 100644 docs/evidence/sales-e2e/raw/login_admin.json
+ create mode 100644 docs/evidence/sales-e2e/raw/login_admin0.json
+ create mode 100644 docs/evidence/sales-e2e/raw/login_app.json
+ create mode 100644 docs/evidence/sales-e2e/raw/migration_check.txt
+ create mode 100644 docs/evidence/sales-e2e/raw/pre_inventory.txt
+ create mode 100644 docs/evidence/sales-e2e/raw/pre_opening.json
+ create mode 100644 docs/evidence/sales-e2e/raw/pre_pwd_change.json
+ create mode 100644 docs/evidence/sales-e2e/raw/pre_user_create.json
+ create mode 100644 docs/evidence/sales-e2e/raw/round1_console.txt
+ create mode 100644 docs/evidence/sales-e2e/raw/round2_console.txt
+ create mode 100644 docs/evidence/sales-e2e/raw/round_diff.txt
+ create mode 100644 docs/evidence/sales-e2e/raw/step01.txt
+ create mode 100644 docs/evidence/sales-e2e/raw/step01_customer.json
+ create mode 100644 docs/evidence/sales-e2e/raw/step02_approve_r1.json
+ create mode 100644 docs/evidence/sales-e2e/raw/step02_approve_r2.json
+ create mode 100644 docs/evidence/sales-e2e/raw/step02_approved.txt
+ create mode 100644 docs/evidence/sales-e2e/raw/step02_so.txt
+ create mode 100644 docs/evidence/sales-e2e/raw/step02_so_create.json
+ create mode 100644 docs/evidence/sales-e2e/raw/step02_submit.json
+ create mode 100644 docs/evidence/sales-e2e/raw/step02_submitted.txt
+ create mode 100644 docs/evidence/sales-e2e/raw/step03.txt
+ create mode 100644 docs/evidence/sales-e2e/raw/step03_shipment_create.json
+ create mode 100644 docs/evidence/sales-e2e/raw/step04_after_post.txt
+ create mode 100644 docs/evidence/sales-e2e/raw/step04_post.json
+ create mode 100644 docs/evidence/sales-e2e/raw/step04_submit.json
+ create mode 100644 docs/evidence/sales-e2e/raw/step05.txt
+ create mode 100644 docs/evidence/sales-e2e/raw/step05_post.json
+ create mode 100644 docs/evidence/sales-e2e/raw/step05_shipment_create.json
+ create mode 100644 docs/evidence/sales-e2e/raw/step05_submit.json
+ create mode 100644 docs/evidence/sales-e2e/raw/step06_invoice1.json
+ create mode 100644 docs/evidence/sales-e2e/raw/step06_invoice2.json
+ create mode 100644 docs/evidence/sales-e2e/raw/step06_issue1.json
+ create mode 100644 docs/evidence/sales-e2e/raw/step06_issue2.json
+ create mode 100644 docs/evidence/sales-e2e/raw/step07_revenue_voucher.txt
+ create mode 100644 docs/evidence/sales-e2e/raw/step08_allocate.json
+ create mode 100644 docs/evidence/sales-e2e/raw/step08_confirm.json
+ create mode 100644 docs/evidence/sales-e2e/raw/step08_post.json
+ create mode 100644 docs/evidence/sales-e2e/raw/step08_receipt_create.json
+ create mode 100644 docs/evidence/sales-e2e/raw/step09_final.txt
+ create mode 100644 docs/evidence/sales-e2e/raw/step10_invariants.txt
+ create mode 100644 docs/evidence/sales-e2e/raw/step10_invariants_full.txt
+ create mode 100644 scripts/verify/so23_accept.sh
+ create mode 100644 scripts/verify/so23_dbsetup.sh
+ create mode 100644 scripts/verify/so23_fresh_db.sh
+ create mode 100644 scripts/verify/so23_pflow1a_probe.sh
+ create mode 100644 scripts/verify/so23_pick_db.sh
+ create mode 100644 scripts/verify/so23_sales_drill.sh
+ create mode 100644 scripts/verify/so23_sales_drill.sql
+ create mode 100644 scripts/verify/so23_sales_fixture.sql
+ create mode 100644 scripts/verify/so23_schema_dump.sh
+ create mode 100644 scripts/verify/so24_control.sh
+ create mode 100644 scripts/verify/so24_e2e.sh
+ create mode 100644 scripts/verify/so24_round_diff.sh
+ create mode 100644 scripts/verify/so25_menu_apply.sh
+ create mode 100644 scripts/verify/so25_menu_verify.sh
+ create mode 100644 scripts/verify/so25_migration_roundtrip.sh
+  ✅ HEAD → 4a25bb7b merge: 收敛三方分叉（DEPLOY-SYNC t_9b3ac56e）—— SO-22/23/24/25 销售链 + SO-14 遗留退款
+
+==============================================================
+== [4/8] 后端编译（只编译不重启）
+==============================================================
+[00:25:14] cargo build --release（jobs=1，日志 /var/log/cloudpivot-deploy-t_9b3ac56e.log）…
+    Blocking waiting for file lock on package cache
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `release` profile [optimized] target(s) in 6m 21s
+  ✅ 编译完成（381s）新二进制 md5=ca00824166eb002144fbf081b4e8ea37  60911208 字节
+
+==============================================================
+== [5/8] 数据库迁移（逐条跑 + 按引擎口径记账 + 跑完对账）
+==============================================================
+[00:31:35] 迁移前已记账 218 条，本次待跑 2 条
+PENDING_ASSERT_OK 传入清单 == 独立算出的待跑集合（2 条，按版本升序）
+RUN_START 待跑 2 条，迁移前已记账 218 条
+-----------------------------------------------------------------
+==> [V0267] migrations/business/V0267__sales_menu.up.sql
+    INSERT 0 1
+    UPDATE 6
+    INSERT 0 1
+    psql:/opt/cloudpivot/backend/migrations/business/V0267__sales_menu.up.sql:154: NOTICE:  table "_sm_matrix" does not exist, skipping
+    DROP TABLE
+    CREATE TABLE
+    INSERT 0 47
+    psql:/opt/cloudpivot/backend/migrations/business/V0267__sales_menu.up.sql:409: NOTICE:  table "_sm_sel" does not exist, skipping
+    psql:/opt/cloudpivot/backend/migrations/business/V0267__sales_menu.up.sql:409: NOTICE:  V0267 完成：销售管理目录 + 6 页面归位；矩阵 47 对，本次新增授权 52 行，推进 token_version 3 人
+    DO
+    DROP TABLE
+    DROP TABLE
+APPLY_OK V267 checksum=1d2914e19775a19f… seq=235 ms=74ms 记录数=1 source=migrations/business/V0267__sales_menu.up.sql
+-----------------------------------------------------------------
+==> [V0301] migrations/business/V0301__sales_order_flow_is_system_and_snapshot.up.sql
+    psql:/opt/cloudpivot/backend/migrations/business/V0301__sales_order_flow_is_system_and_snapshot.up.sql:194: NOTICE:  V0301：so_approve 打标 1 行，快照 canonical 重排 1 行（da3c2eed → 97fe9377）
+    DO
+APPLY_OK V301 checksum=e5f0f91929e27451… seq=236 ms=30ms 记录数=1 source=migrations/business/V0301__sales_order_flow_is_system_and_snapshot.up.sql
+RECON_OK applied 增量 2 == 本次条数 2（218 → 220）
+VIA_OK applied_via 全部合法（executed imported baseline）
+SET_OK 磁盘上的版本化迁移全部已记账（220 条）
+===== 本次应用 2 条：267,280,281,282,283,284,285,286,287,288,289,290,291,292,293,294,295,296,297,298,299,300,301 =====
+  ✅ 对账通过：新增记账 2 条 == 待跑 2 条（218 → 220）
+  ✅ applied_via 合法（全部 ∈ executed imported baseline）
+  ✅ 集合复核：磁盘上的版本化迁移全部已记账（含 business/system/support 全部分目录）
+
+==============================================================
+== [6/8] 启用新二进制（换文件 → 重启 → /health → 进程==磁盘 → 记账自检）
+==============================================================
+[00:31:36] 换二进制（cp → .new + mv -f，绝不 cp 到正在运行的路径）…
+[00:31:36] 重启服务 …
+  ✅ /health 正常：{"code":0,"msg":"ok","data":{"status":"ok","app":"cloudpivot","profile":"prod","time":"2026-11-06T16:33:08.546934508+00:00"}}
+  ✅ 进程 == 磁盘（md5 ca00824166eb002144fbf081b4e8ea37，PID 1727248）
+  ✅ 集合复核：重启后无未记账的版本化迁移（含 business/system/support 全部分目录）
+  ✅ applied_via 合法（全部 ∈ executed imported baseline）
+  ✅ 启动日志确认「应用 0 个迁移」（记账与引擎一致）
+
+==============================================================
+== [7/8] 前端（只在有前端改动时 typecheck + build，并比对入口指纹）
+==============================================================
+[00:33:08] 无前端改动，跳过 dist 构建
+
+==============================================================
+== [8/8] 收口核对
+==============================================================
+[00:33:08] 主仓 HEAD          4a25bb7b  merge: 收敛三方分叉（DEPLOY-SYNC t_9b3ac56e）—— SO-22/23/24/25 销售链 + SO-14 遗留退款
+[00:33:08] origin/main        4a25bb7b
+  ✅ 主仓 HEAD == origin/main
+[00:33:09] 迁移记账           220 条，最大版本 V0301
+  ✅ 磁盘迁移全部已记账（磁盘 - 库 = 空）
+[00:33:09] 服务状态           active
+[00:33:09] /health            {"code":0,"msg":"ok","data":{"status":"ok","app":"cloudpivot","profile":"prod","time":"2026-11-06T16:33:09.161193937+00:00"}}
+[00:33:09] 进程==磁盘         yes
+[00:33:09] 线上前端入口       assets/index-aUBeUlnV.js（dist/index.html: assets/index-aUBeUlnV.js）
+[00:33:09] 备份目录           /root/deploy-backup-t_9b3ac56e
+
+================= 部署完成 =================
+  发布提交   4a25bb7b
+  备份        /root/deploy-backup-t_9b3ac56e（db.dump / cloudpivot / dist）
+  日志        /var/log/cloudpivot-deploy-t_9b3ac56e.log
+  回滚：见 /opt/cloudpivot/scripts/deploy/README.md「回滚」一节（三件套：二进制 / dist / 库 dump）
+        二进制  systemctl stop cloudpivot && cp /root/deploy-backup-t_9b3ac56e/cloudpivot /opt/cloudpivot/backend/target/release/cloudpivot.rollback && mv -f /opt/cloudpivot/backend/target/release/cloudpivot.rollback /opt/cloudpivot/backend/target/release/cloudpivot && systemctl start cloudpivot
+        前端    mv /opt/cloudpivot/frontend/dist /opt/cloudpivot/frontend/dist-failed-t_9b3ac56e && mv /opt/cloudpivot/frontend/dist-prev-t_9b3ac56e /opt/cloudpivot/frontend/dist
+        代码    git -C /opt/cloudpivot reset --hard bdd3a29b9eea0ad14c691f7e2e3c8b7b0c770a24
+============================================
