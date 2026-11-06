@@ -46,8 +46,10 @@
 //! 2. **客户未冻结**（`biz_customer.status = 'ACTIVE'`；`customer_id` 是弱引用，
 //!    没有外键能兜这件事，必须自己查 —— SO-04 交接的第 ③ 条）；
 //! 3. **信用额度未超**（`= 客户 limit 0` 表示不控额度；否则
-//!    「在手订单占用量 + 本单价税合计 ≤ limit」，占用口径见
-//!    `sales_order_model::CREDIT_OCCUPYING_STATUSES`）。
+//!    「已占 `credit_used` + 在审（已提交待审批）合计 + 本单价税合计 ≤ limit」）。
+//!    SO-38 起的口径：`credit_used` = 有效订单含税 − 已核销应收 − 已过账退货（下限 0），
+//!    占用唯一时机是 APPROVED，释放三个出口见 [`crate::business::erp::credit`]；
+//!    待审单不进计数器、但在本守卫里算管道占用（否则连开多张草稿一起提交能绕过额度）。
 //!
 //! 建单 / 改单时也会校验「客户存在且 ACTIVE」（冻结 = 禁开新单，SO-02 口径），
 //! 提交时**再查一次**：草稿期间客户可能被冻结。
@@ -78,6 +80,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::business::erp::approval_gate;
 use crate::business::erp::contract_model::{self, ContractRow};
+use crate::business::erp::credit;
 use crate::business::erp::customer_model::{self, STATUS_ACTIVE};
 use crate::business::erp::sales_approval_bridge;
 use crate::business::erp::sales_order_model::{
@@ -1089,13 +1092,20 @@ async fn ensure_submittable(
         // 0 = 不控额度（与供应商 / 客户档案的口径一致）
         return Ok(());
     }
-    let used = model::customer_open_credit(db(), row.customer_id, Some(row.id))
+    let used = credit::stored(db(), row.customer_id)
         .await
-        .map_err(|error| utils::db_error(error, "统计客户在手订单信用占用"))?;
-    let after = used + row.total_with_tax;
+        .map_err(|error| utils::db_error(error, "读取客户已用信用额度"))?
+        .unwrap_or(Decimal::ZERO);
+    // SO-38：`credit_used` 只算 APPROVED 起的占用（ARCH §15.5.2 的唯一占用时机），
+    // 已提交待审批的单不进计数器。守卫必须把它们算成「管道占用」——
+    // 否则连开 10 张草稿一起提交，每张单独看都不超，一起就超了。
+    let pending = credit::pending_credit(db(), row.customer_id, Some(row.id))
+        .await
+        .map_err(|error| utils::db_error(error, "统计客户在审订单信用占用"))?;
+    let after = used + pending + row.total_with_tax;
     if after > limit {
         return Err(conflict(format!(
-            "客户 `{}`（{}）信用额度不足：额度 {limit}，在手订单已占 {used}，\
+            "客户 `{}`（{}）信用额度不足：额度 {limit}，已占 {used}，在审 {pending}，\
              本单 {so_no} 价税合计 {amount}，合计 {after} 超出 {over}；\
              请先收款 / 关闭旧单，或由管理员调高额度",
             customer.code,

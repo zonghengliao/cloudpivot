@@ -103,6 +103,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
+use crate::business::erp::credit;
 use crate::business::erp::model_base::normalize_page;
 use crate::business::erp::period;
 use crate::business::erp::receivable;
@@ -1557,7 +1558,20 @@ pub async fn allocate(
             }
         }
 
-        // ⑥ 回写退款头：allocated_amount 以**库里的明细合计**为准
+        // ⑥ SO-38：退款核销 = 额度释放出口 ② 的反向边（钱退了，敞口又回来了）。
+        // 与冲减同事务；一张退款单同样只冲同一客户的应收。
+        if !planned.is_empty() {
+            credit::sync(
+                &tx,
+                refund.customer_id,
+                credit::CAUSE_AR_REVERSED,
+                &refund.refund_no,
+            )
+            .await
+            .map_err(|error| utils::db_error(error, "同步客户信用额度（收款退款）"))?;
+        }
+
+        // ⑦ 回写退款头：allocated_amount 以**库里的明细合计**为准
         let allocated = allocated_sum(&tx, refund.id)
             .await
             .map_err(|error| utils::db_error(error, "汇总冲减金额"))?;
