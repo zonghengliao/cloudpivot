@@ -136,6 +136,18 @@ ERP_DB_URL='postgres://alun:***@127.0.0.1:5432/cloudpivot_so14' \
 ## 六、真实 token 的端到端 curl（连跑两轮）
 
 实例：`backend/target/debug/cloudpivot` @ `127.0.0.1:18118`，库 `cloudpivot_so14c`（全新迁到 290），admin 真 token。
+本轮验收后实例已停；要复跑起实例（库已迁到 290，直接起即可）：
+
+```bash
+cd /opt/cloudpivot/backend
+NIK_PROFILE=test NIK_DATABASE_NAME=cloudpivot_so14c NIK_DATABASE_HOST=127.0.0.1 \
+NIK_DATABASE_PORT=5432 NIK_DATABASE_USER=alun NIK_DATABASE_PASSWORD=alun \
+NIK_SERVER_LISTEN=127.0.0.1:18118 NIK_ADMIN_PASSWORD='Admin@123456' \
+NIK_MIDDLEWARE_AUTH_JWT_SECRET=$(openssl rand -hex 32) \
+CLOUDPIVOT_STORAGE_MASTER_KEY=$(openssl rand -hex 32) \
+setsid ./target/debug/cloudpivot > /root/so14c-e2e-server.log 2>&1 &
+# 健康检查通过后再跑上面的 curl 脚本（脚本自带清场，可连跑多轮）
+```
 
 ```bash
 BASE=http://127.0.0.1:18118/api DB=cloudpivot_so14c \
