@@ -217,6 +217,15 @@ impl RuleRes {
 }
 
 /// 一个触发点（单据类型 + 允许的状态）。
+/// 状态编码 + 中文名（P1-FIX-12）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct StatusLabelRes {
+    /// 状态编码（如 `POSTED`）
+    pub code: String,
+    /// 中文名（如 `已过账`）；后端缺失时回落成 `code` 本身
+    pub label: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct TriggerRes {
     /// 触发单据类型（落 `trigger_entity`）
@@ -225,6 +234,8 @@ pub struct TriggerRes {
     pub label: String,
     /// 允许的触发状态（升序，与状态机边表同口径）
     pub statuses: Vec<String>,
+    /// 状态中文名（与 `statuses` 同序，`{code, label}`）。P1-FIX-12 新增。
+    pub status_labels: Vec<StatusLabelRes>,
     /// **是否已接线**（`false` = 代码里没人调引擎，配了规则永远不触发；前端据此标注并拦截保存）
     pub wired: bool,
     /// 接线位置（`wired = true`）或未接线原因 + 接的时候要动哪里（`wired = false`）。
@@ -953,6 +964,15 @@ fn catalog_triggers() -> Vec<TriggerRes> {
             statuses: model::known_statuses(entity)
                 .into_iter()
                 .map(str::to_string)
+                .collect(),
+            status_labels: model::known_statuses(entity)
+                .into_iter()
+                .map(|code| StatusLabelRes {
+                    code: code.to_string(),
+                    label: spec::status_label_opt(entity, code)
+                        .unwrap_or(code)
+                        .to_string(),
+                })
                 .collect(),
             wired: spec::is_wired_trigger(entity),
             wiring: spec::trigger_spec(entity)

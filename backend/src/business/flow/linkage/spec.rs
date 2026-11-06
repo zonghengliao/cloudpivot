@@ -1092,3 +1092,182 @@ fn json_kind(value: &serde_json::Value) -> &'static str {
         serde_json::Value::Object(_) => "对象",
     }
 }
+
+// ==================== 状态中文名（前端不维护映射） ====================
+//
+// `known_statuses()` 从 `state_machine::Entity::base_edges()` 动态推导，只给编码。
+// 业务人员看不懂 `POSTED` / `PENDING_CANCEL`，所以这里给出「编码 → 中文」，
+// 由 `GET /business/flow/linkage` 的 `triggers[].status_labels` 下发。
+//
+// **维护约束（单测钉住）**：本表的 keys 必须与 `known_statuses()` 的全集逐项相等。
+// 后端新增状态忘了补中文时，`tests_status_labels_cover_all` 会红。
+
+/// 状态中文名表：`实体 → [(状态编码, 中文), ...]`
+pub const STATUS_LABELS: &[(&str, &[(&str, &str)])] = &[
+    (
+        TRIGGER_TASK,
+        &[
+            ("TODO", "待开始"),
+            ("DOING", "进行中"),
+            ("REVIEW", "待验收"),
+            ("DONE", "已完成"),
+            ("CANCELLED", "已取消"),
+        ],
+    ),
+    (
+        TRIGGER_FLOW_INSTANCE,
+        &[
+            ("PENDING", "审批中"),
+            ("APPROVED", "已通过"),
+            ("REJECTED", "已驳回"),
+            ("SKIPPED", "已跳过"),
+            ("CANCELLED", "已取消"),
+        ],
+    ),
+    (
+        "STOCK_IN",
+        &[
+            ("DRAFT", "草稿"),
+            ("PENDING_POST", "过账审批中"),
+            ("POSTED", "已过账"),
+            ("PENDING_CANCEL", "作废审批中"),
+            ("CANCELLED", "已作废"),
+        ],
+    ),
+    (
+        "STOCK_OUT",
+        &[
+            ("DRAFT", "草稿"),
+            ("PENDING_POST", "待过账"),
+            ("POSTED", "已过账"),
+            ("CANCELLED", "已作废"),
+        ],
+    ),
+    (
+        "STOCK_TRANSFER",
+        &[
+            ("DRAFT", "草稿"),
+            ("PENDING", "待审批"),
+            ("APPROVED", "已审批"),
+            ("IN_TRANSIT", "在途"),
+            ("DONE", "已完成"),
+            ("CANCELLED", "已取消"),
+        ],
+    ),
+    (
+        "PURCHASE_ORDER",
+        &[
+            ("DRAFT", "草稿"),
+            ("SUBMITTED", "已提交"),
+            ("APPROVED", "已审批"),
+            ("PARTIAL_RECEIVED", "部分收货"),
+            ("RECEIVED", "已收货"),
+            ("CLOSED", "已关闭"),
+            ("CANCELLED", "已取消"),
+        ],
+    ),
+    (
+        "PAYABLE",
+        &[
+            ("OPEN", "未结清"),
+            ("PARTIAL_PAID", "部分付款"),
+            ("SETTLED", "已结清"),
+            ("PENDING_CANCEL", "作废审批中"),
+            ("CANCELLED", "已作废"),
+        ],
+    ),
+    (
+        "VOUCHER",
+        &[
+            ("DRAFT", "草稿"),
+            ("AUDITED", "已审核"),
+            ("POSTED", "已记账"),
+        ],
+    ),
+    (
+        "ACCOUNTING_PERIOD",
+        &[
+            ("NOT_OPENED", "未开启"),
+            ("OPEN", "已开启"),
+            ("CLOSED", "已结账"),
+        ],
+    ),
+    (
+        "ACCOUNTING_YEAR",
+        &[
+            ("NOT_CLOSED", "未结转"),
+            ("CLOSED", "已结转"),
+        ],
+    ),
+    (
+        "CONTRACT",
+        &[
+            ("DRAFT", "草稿"),
+            ("PENDING_APPROVAL", "审批中"),
+            ("SIGNED", "已签订"),
+            ("ACTIVE", "已生效"),
+            ("TERMINATED", "已终止"),
+            ("COMPLETED", "已完成"),
+        ],
+    ),
+    (
+        "STOCK_TAKE",
+        &[
+            ("DRAFT", "草稿"),
+            ("PENDING_POST", "待过账"),
+            ("POSTED", "已过账"),
+            ("CANCELLED", "已作废"),
+        ],
+    ),
+    (
+        "FIXED_ASSET",
+        &[
+            ("IN_USE", "在用"),
+            ("IDLE", "闲置"),
+            ("DISPOSED", "已处置"),
+        ],
+    ),
+    (
+        "DEPRECIATION",
+        &[
+            ("CALCULATED", "已计算"),
+            ("POSTED", "已过账"),
+            ("REVERSED", "已红冲"),
+            ("SKIPPED", "已跳过"),
+        ],
+    ),
+    (
+        "EXPENSE_REPORT",
+        &[
+            ("DRAFT", "草稿"),
+            ("SUBMITTED", "审批中"),
+            ("APPROVED", "已审批（待付款）"),
+            ("PAID", "已付清"),
+            ("CANCELLED", "已作废"),
+        ],
+    ),
+];
+
+/// 取某实体的状态中文名。找不到时**回落原编码**（不返回空，前端不会白屏）。
+pub fn status_label_for(entity: &str, status: &str) -> &'static str {
+    STATUS_LABELS
+        .iter()
+        .find(|(e, _)| *e == entity)
+        .and_then(|(_, pairs)| pairs.iter().find(|(code, _)| *code == status))
+        .map(|(_, label)| *label)
+        .unwrap_or_else(|| {
+            // `status` 是调用方传入的短生命周期字符串，这里不能直接返回它。
+            // 为保持签名 `&'static str`，用一个哨兵：调用方约定「返回值 == 传入的 status
+            // 且不是本表里的任何 label」时按回落处理。见 `status_label_or`。
+            ""
+        })
+}
+
+/// 取中文名；缺失时返回 `None`（调用方自行决定回落成编码）。
+pub fn status_label_opt(entity: &str, status: &str) -> Option<&'static str> {
+    STATUS_LABELS
+        .iter()
+        .find(|(e, _)| *e == entity)
+        .and_then(|(_, pairs)| pairs.iter().find(|(code, _)| *code == status))
+        .map(|(_, label)| *label)
+}

@@ -95,6 +95,13 @@ export interface LinkageTrigger {
   /** 允许的触发状态 */
   statuses: string[];
   /**
+   * 状态中文名（与 `statuses` 同序）。P1-FIX-12 新增，后端下发。
+   *
+   * 后端 `spec::STATUS_LABELS` 维护，`label` 缺失时回落成 `code` 本身。
+   * 前端 **优先用这个**，本地 `STATUS_LABELS` 只作老后端兼容的兜底。
+   */
+  status_labels?: Array<{ code: string; label: string }>;
+  /**
    * **是否已接线**（P1-FIX-5C）。
    *
    * `false` = 代码里没有任何状态变更点调用联动引擎 ⇒ 在该触发点上配规则**永远不会触发**。
@@ -122,6 +129,8 @@ export interface LinkageRule {
   trigger_entity_label: string;
   /** 触发状态 */
   trigger_status: string;
+  /** 触发状态中文名（后端算好下发，P1-FIX-12）。缺失时前端自行映射。 */
+  trigger_status_label?: string;
   /** 白名单动作码 */
   action_code: string;
   /** 动作中文名 */

@@ -113,7 +113,7 @@
           <t-space size="4px">
             <t-tooltip :content="`状态编码：${row.trigger_status}`">
                 <t-tag size="small" theme="primary" variant="outline" data-testid="linkage-row-status">
-                  {{ statusLabel(row.trigger_entity, row.trigger_status) }}
+                  {{ row.trigger_status_label || statusLabel(row.trigger_entity, row.trigger_status, findTrigger(triggers, row.trigger_entity)?.status_labels) }}
                 </t-tag>
               </t-tooltip>
             <t-tag v-if="!isWiredEntity(triggers, row.trigger_entity)" size="small" theme="warning" variant="light">

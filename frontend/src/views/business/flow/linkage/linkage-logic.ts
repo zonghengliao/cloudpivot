@@ -106,10 +106,19 @@ export const ENTITY_STATUS_OVERRIDES: Record<string, Record<string, string>> = {
  * @param entity 触发实体编码（如 `STOCK_IN`），可为空
  * @param status 状态编码（如 `POSTED`）
  */
-export function statusLabel(entity: string | undefined | null, status: string): string {
+export function statusLabel(
+  entity: string | undefined | null,
+  status: string,
+  backendLabels?: Array<{ code: string; label: string }> | null,
+): string {
   if (!status) return '';
+  // ① 后端下发优先（P1-FIX-12：后端 spec::STATUS_LABELS 是权威源）
+  const fromBackend = backendLabels?.find((item) => item.code === status)?.label;
+  if (fromBackend && fromBackend !== status) return fromBackend;
+  // ② 实体特定覆盖（解决 OPEN/CLOSED/POSTED 跨实体歧义）
   const override = entity ? ENTITY_STATUS_OVERRIDES[entity]?.[status] : undefined;
   if (override) return override;
+  // ③ 本地通用表（老后端没下发时的兜底）
   return STATUS_LABELS[status] ?? status;
 }
 
@@ -263,7 +272,7 @@ export function statusOptions(triggers: LinkageTrigger[], entity: string): Linka
   const trigger = triggers.find((item) => item.entity === entity);
   // P1-FIX-12：显示「中文（编码）」，编码保留便于对照日志与排障
   return (trigger?.statuses ?? []).map((status) => {
-    const zh = statusLabel(trigger?.entity, status);
+    const zh = statusLabel(trigger?.entity, status, trigger?.status_labels);
     return { label: zh && zh !== status ? `${zh}（${status}）` : status, value: status };
   });
 }
