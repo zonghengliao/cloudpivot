@@ -4252,3 +4252,147 @@ export async function exportPayableAging(query: { period?: string; as_of?: strin
   });
   return response.data;
 }
+
+// ==================== 销售链：客户档案（SO-03） ====================
+
+/**
+ * 客户状态（逐字抄后端 `customer_model::STATUS_ACTIVE` / `STATUS_FROZEN`）。
+ *
+ * ⚠️ 不是 1/0：客户档案的状态域是**字符串**，`ACTIVE`（正常）/ `FROZEN`（冻结）。
+ * 冻结只影响「开新单」，历史单据与引用不受影响（后端 `V0260` 的
+ * `ck_biz_customer_status` CHECK 只认这两个字面量，传 `'1'` 回 400 + 10001）。
+ */
+export type CustomerStatus = 'ACTIVE' | 'FROZEN';
+
+/**
+ * 客户档案（逐字抄 `customer_handler::CustomerRes`，= `biz_customer` 的存活列）。
+ *
+ * 字段名**没有** `customer_` 前缀：本表列就叫 `code` / `name`（与供应商的
+ * `supplier_code` / `supplier_name` 不同），猜成后者 = 整列空白且编译期抓不到。
+ */
+export interface Customer {
+  /** 主键（UUID） */
+  id: string;
+  /** 客户编码（`VARCHAR(40)`，未删除内唯一；软删后编码可复用） */
+  code: string;
+  /** 客户全称（`VARCHAR(200)`） */
+  name: string;
+  /** 纳税人识别号 */
+  tax_no: string | null;
+  /** 默认联系人姓名 */
+  contact_name: string | null;
+  /** 默认联系人电话 */
+  contact_phone: string | null;
+  /** 地址 */
+  address: string | null;
+  /**
+   * 信用额度：`Decimal` 后端以**字符串**下发（如 `"200000.5000"`），
+   * 不要 `parseFloat` 后再格式化 —— 会丢 4 位小数口径（与供应商页同规则）。
+   */
+  credit_limit: string;
+  /** 状态：`ACTIVE` / `FROZEN` */
+  status: CustomerStatus;
+  /** 备注 */
+  remark: string | null;
+  /** 创建时间（ISO8601） */
+  created_at: string;
+  /** 更新时间（ISO8601） */
+  updated_at: string;
+}
+
+/**
+ * 新建客户（`customer_handler::CreateCustomerReq`）。
+ *
+ * - `code` / `name` 必填；`credit_limit >= 0`（`0` = 不控额度）；
+ * - `status` 留空 → 后端默认 `ACTIVE`；
+ * - 文本字段传 `null` 或省略等价（后端 `clean_optional` 会把空白折成 `None`）。
+ */
+export interface CreateCustomerReq {
+  /** 客户编码（必填，≤40） */
+  code: string;
+  /** 客户全称（必填，≤200） */
+  name: string;
+  /** 纳税人识别号（≤50） */
+  tax_no?: string | null;
+  /** 联系人（≤50） */
+  contact_name?: string | null;
+  /** 联系电话（≤30） */
+  contact_phone?: string | null;
+  /** 地址（≤255） */
+  address?: string | null;
+  /** 信用额度（`>= 0`，字符串定点更稳：`"1000.5"`） */
+  credit_limit?: string | number | null;
+  /** 状态（不传 = `ACTIVE`） */
+  status?: CustomerStatus;
+  /** 备注（≤2000） */
+  remark?: string | null;
+}
+
+/**
+ * 编辑客户（`customer_handler::UpdateCustomerReq`，**部分更新**）。
+ *
+ * 缺席 = 不改；可选文本传 `''`（或 `null`）= 清空。所以「只想切状态」的请求体
+ * 就是 `{ status: 'FROZEN' }` —— 不要整表单回写，会把别人刚改的字段覆盖回旧值。
+ */
+export interface UpdateCustomerReq {
+  /** 客户编码（不传 = 不改） */
+  code?: string;
+  /** 客户全称（不传 = 不改） */
+  name?: string;
+  /** 纳税人识别号（`''` = 清空） */
+  tax_no?: string | null;
+  /** 联系人（`''` = 清空） */
+  contact_name?: string | null;
+  /** 联系电话（`''` = 清空） */
+  contact_phone?: string | null;
+  /** 地址（`''` = 清空） */
+  address?: string | null;
+  /** 信用额度（不传 = 不改） */
+  credit_limit?: string | number | null;
+  /** 状态（不传 = 不改） */
+  status?: CustomerStatus;
+  /** 备注（`''` = 清空） */
+  remark?: string | null;
+}
+
+/**
+ * 客户分页（`GET /business/erp/customer/page`，权限 `business:erp:customer:list`）。
+ *
+ * 入参逐字抄 `customer_handler::CustomerFilter`：`code` / `name` **模糊**，
+ * `status` **精确**（非法值后端 400，不静默忽略）。空串一律不发
+ * （后端把 `?code=` 当「等于空串」过滤，会查出 0 行）。
+ */
+export function fetchCustomerPage(query: {
+  code?: string;
+  name?: string;
+  status?: CustomerStatus | '';
+  page?: number;
+  page_size?: number;
+}): Promise<PageData<Customer>> {
+  return get<PageData<Customer>>(`${BASE}/customer/page`, asParams(query));
+}
+
+/** 客户详情（`GET /business/erp/customer/{id}`，同样是 `:list` 权限；软删行 404） */
+export function fetchCustomerDetail(id: string): Promise<Customer> {
+  return get<Customer>(`${BASE}/customer/${id}`);
+}
+
+/** 新建客户（`POST /business/erp/customer`，权限 `business:erp:customer:create`） */
+export function createCustomer(payload: CreateCustomerReq): Promise<Customer> {
+  return post<Customer>(`${BASE}/customer`, payload);
+}
+
+/** 编辑客户（`PUT /business/erp/customer/{id}`，权限 `business:erp:customer:update`） */
+export function updateCustomer(id: string, payload: UpdateCustomerReq): Promise<Customer> {
+  return put<Customer>(`${BASE}/customer/${id}`, payload);
+}
+
+/**
+ * 删除客户（`DELETE /business/erp/customer/{id}`，**软删**，权限 `business:erp:customer:delete`）。
+ *
+ * 软删后**同一编码可以再建**（`uk_biz_customer_code` 是 `WHERE deleted_at IS NULL` 的部分唯一索引），
+ * 所以删除确认文案里要把这件事写出来，别让用户以为编码永久作废。
+ */
+export function deleteCustomer(id: string): Promise<void> {
+  return del<void>(`${BASE}/customer/${id}`);
+}

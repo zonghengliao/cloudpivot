@@ -1,0 +1,6 @@
+### pnpm build（NODE_OPTIONS=--max-old-space-size=8192）(2026-11-06 09:32:15)
+> vue-tsc --noEmit && vite build
+vite v6.3.7 building for production...
+dist/index.html                                                                   1.42 kB │ gzip:   0.85 kB
+dist/assets/flow-error-codes-KUjSAnWS.js                                          4.64 kB │ gzip:   2.37 kB
+✓ built in 46.39s

@@ -1,0 +1,51 @@
+== SO-03 客户档案前端真机验收 · 第 1 轮 · 2026-11-06T01:31:01.237Z · BASE=http://127.0.0.1:5186
+   测试编码=SO03-E2E-661170（每轮唯一）
+[PASS] 1 列表首屏渲染 seed 客户 CUS-0001
+   列表口径: 共 3 条
+[PASS] 1 列表分页口径显示「共 N 条」 · 共 3 条
+[PASS] 1 一页 20 条上限内 tbody 行数 >= 3 · rows=3
+[PASS] 1 额度 0（CUS-0003）显示「不控额度」
+[PASS] 1 后端分页 total 与页面口径同源 = true
+[PASS] 2 编码模糊搜索只剩 CUS-0002 一行 = 1
+[PASS] 2 搜索命中的行名是上海云枢贸易
+[PASS] 2 搜不到时给「没有匹配的客户」空态（不是空白表）
+[PASS] 2 重置回全量
+[PASS] 3a 空表单点创建 → 「客户编码必填」字段错误
+[PASS] 3a 校验拦住时没有发 POST
+[PASS] 3 新建成功后列表出现新编码
+[PASS] 3 库里有这条客户 = 1
+[PASS] 3 名称落库（trim 后） = "SO03 客户 1 轮"
+[PASS] 3 信用额度按字符串定点落库 = "12345.6700"
+[PASS] 3 状态默认 ACTIVE = "ACTIVE"
+[PASS] 3 联系人落库 = "王五"
+   创建回读: {"code":"SO03-E2E-661170","name":"SO03 客户 1 轮","credit_limit":"12345.6700","status":"ACTIVE"}
+[PASS] 4 编辑后列表显示新名称
+[PASS] 4 名称已更新 = "SO03 客户 1 轮（改名）"
+[PASS] 4 联系人已更新 = "赵六"
+[PASS] 4 额度已更新 = "20000.0000"
+[PASS] 4 未改字段（税号）保持不变 = "91110108MA0SO03X1"
+[PASS] 5 点「冻结」后行内状态 tag 变「冻结」
+[PASS] 5 库里 status=FROZEN = "FROZEN"
+[PASS] 5 点「解冻」后行内状态 tag 变「正常」
+[PASS] 5 库里 status=ACTIVE = "ACTIVE"
+[PASS] 6 删除确认文案写明「同一编码可以再次使用」
+[PASS] 6 删除后列表不再显示该客户
+[PASS] 6 库中分页 total=0（软删） = 0
+[PASS] 6 软删后详情 404 = 404
+[PASS] 7 页面无未预期 console error = []
+   本轮 API 调用（真接口）：
+     GET /api/business/erp/customer/page?page=1&page_size=20 → 200
+     GET /api/business/erp/customer/page?page=1&page_size=20&code=CUS-0002 → 200
+     GET /api/business/erp/customer/page?page=1&page_size=20&code=NO-SUCH-CODE → 200
+     GET /api/business/erp/customer/page?page=1&page_size=20 → 200
+     POST /api/business/erp/customer → 200
+     GET /api/business/erp/customer/page?page=1&page_size=20 → 200
+     PUT /api/business/erp/customer/01a1ae7b-185e-74f7-b3f7-af1cbb9b8ad2 → 200
+     GET /api/business/erp/customer/page?page=1&page_size=20 → 200
+     PUT /api/business/erp/customer/01a1ae7b-185e-74f7-b3f7-af1cbb9b8ad2 → 200
+     GET /api/business/erp/customer/page?page=1&page_size=20 → 200
+     PUT /api/business/erp/customer/01a1ae7b-185e-74f7-b3f7-af1cbb9b8ad2 → 200
+     GET /api/business/erp/customer/page?page=1&page_size=20 → 200
+     DELETE /api/business/erp/customer/01a1ae7b-185e-74f7-b3f7-af1cbb9b8ad2 → 200
+     GET /api/business/erp/customer/page?page=1&page_size=20 → 200
+== 第 1 轮结果：PASS=31 FAIL=0
