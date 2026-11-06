@@ -600,6 +600,12 @@ pub const TRIGGER_EXEMPT: &[&str] = &[
     // 接引擎后把它从这里移到 `TRIGGER_SPECS` 并给 `wired = true` + `proofs`
     // （漂移守卫 `wired_triggers_match_call_sites` 会同时要求两者）。
     state_machine::ENTITY_SHIPMENT,
+    // 销售链 SO-13：应收单的状态流转入口（`receivable::write_off` / 收款核销）
+    // **不调联动引擎** —— 本卡只交付台账 + 状态机 + 账龄；「核销后通知 / 生成坏账凭证」
+    // 属后续凭证卡（`receivable_bridge` 是 SO-14 的出库挂账，不是状态联动）。
+    // 按 P1-FIX-5C 的口径显式豁免（登记进白名单却没人调 = 配了规则永远不触发）；
+    // 真要按应收触发时，把它从 `TRIGGER_SPECS` 之外移进白名单并给 `wired = true` + `proofs`。
+    state_machine::ENTITY_RECEIVABLE,
 ];
 
 /// 配置变更审计写 `biz_status_log` 时用的 `entity_type`。

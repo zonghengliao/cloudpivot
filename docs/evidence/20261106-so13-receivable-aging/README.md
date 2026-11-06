@@ -78,7 +78,6 @@ test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 2771 filtered out; 
 另外 3 组防线：`status_domain_matches_check_constraint`（`PARTIAL_PAID`/`CANCELLED` 不许进来）、`legal_edges_match_arch7_state_graph`（5 条边 + 终态 + requires_reason）、`db_param_validation_happens_before_any_write`（参数错不落任何行）。
 
 ### 3) 5 接口真实 token curl（连跑两轮，各 41 条断言）
-
 脚本：`docs/evidence/20261106-so13-receivable-aging/curl-5-endpoints.sh`
 实例：`./target/debug/cloudpivot` @ `127.0.0.1:18114`，库 `cloudpivot_so13`，admin 真 token。
 
@@ -111,8 +110,27 @@ NODE_OPTIONS=--max-old-space-size=4096 pnpm build → rc=0
 > 注：默认 heap 下 `vite build` 在 1.5 GB 触发 V8 OOM（与其他 agent 的 cargo 编译并发、内存紧张），
 > 加 `NODE_OPTIONS=--max-old-space-size=4096` 后通过；与本卡代码无关（`vue-tsc --noEmit` 全程 0 错）。
 
-### 5) 迁移
+### 4b) 全量回归
 
+```
+ERP_DB_URL='postgres://alun:***@127.0.0.1:5432/cloudpivot_so13' \
+  cargo test --lib --features test-hooks -- --test-threads=1
+
+test result: FAILED. 2801 passed; 3 failed; 0 ignored; … finished in 1313.11s
+```
+
+3 条失败**逐条归因**：
+
+| # | 用例 | 归因 | 处置 |
+|---|------|------|------|
+| 1 | `business::flow::linkage::tests::triggers_cover_state_machine_entities` | **本卡引入**：登记了 `Entity::Receivable` 却没进联动触发点白名单/例外清单 | 已修：`flow/linkage/spec.rs::TRIGGER_EXEMPT` 加 `ENTITY_RECEIVABLE`（与 SALE_ORDER / SHIPMENT 同口径，本卡状态流转不调联动引擎）→ 复跑 `business::flow::linkage` **65/65 全绿** |
+| 2 | `business::erp::stockin_handler::stockin_handler_tests_p16::p16_graph_snapshot_selfcheck_is_clean` | **既有缺陷（SO-06 线）**：`flow_graph_selfcheck` 报 `so_approve`（def `…d0281`）`RowsEdited`，stored_hash `da3c2eed…` ≠ recomputed `97fe9377…`。只有 `V0281__sales_order_flow` 建过这个流程，本卡两个迁移（287/288）**不碰** `biz_flow_def*` | 单跑这条也失败（不是顺序污染）；SO-09/SO-10 证据里已记录同一现象 |
+| 3 | `business::erp::sales_approval_bridge::db_tests::three_tiers_start_flow_and_approve_to_approved` | **既有缺陷（同属 so_approve 那条流程）**：`assert left ""==right "APPROVED"` 状态没推进 | 单跑也失败；同上 |
+
+> 结论：本卡范围内的 31 条新单测 + `business::flow::linkage`(65) + `business::shared::`(113)
+> 全绿；全量剩下的 2 条是 `so_approve` 流程的既有缺陷（与本卡改动无关，本卡不碰 flow 定义）。
+
+### 5) 迁移
 ```
 schema_migrations:
   287 | sales_receivable             | versioned | executed | success=t   （父卡 SO-12）
