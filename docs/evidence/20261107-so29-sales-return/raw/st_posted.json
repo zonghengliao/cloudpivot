@@ -1,0 +1,1 @@
+{"code":10003,"msg":"退货过账链路由 SO-30 落地：SR-20261107-000023（待过账）目前不能直接推到 POSTED。已登记状态机边 PENDING_POST → POSTED，但过账要在一个事务里完成「生成入库单（inventory_writer 回库）→ 红字入库凭证 → 冲减应收 → 红字发票 → 回写 delivered_qty」；本卡（SO-29）只交付 CRUD + 状态机 + 超退守卫"}

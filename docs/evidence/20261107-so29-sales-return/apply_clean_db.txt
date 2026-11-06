@@ -1,0 +1,45 @@
+# SO-29 空库全量重放（库 cloudpivot_so29_fresh / 端口 18230 / 独立实例）
+
+## 启动日志
+[2m2026-11-06T17:31:01.693263Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 231 个迁移
+[2m2026-11-06T17:31:02.057210Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 插件启动完成 [3melapsed_ms[0m[2m=[0m0
+[2m2026-11-06T17:31:02.205624Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m cloudpivot 启动完成, 耗时 1792ms
+
+## /health
+http=200
+
+## 本卡两条迁移
+ version |           name           |   kind    | applied_via | success | applied_seq 
+---------+--------------------------+-----------+-------------+---------+-------------
+ 303     | sales_return             | versioned | executed    | t       |         220
+ 304     | sales_return_permissions | versioned | executed    | t       |         221
+(2 rows)
+
+## 结构与约束
+      table_name       | cols 
+-----------------------+------
+ biz_sales_return      |   22
+ biz_sales_return_item |   14
+(2 rows)
+
+           conname            | contype 
+------------------------------+---------
+ ck_biz_sreturn_amount        | c
+ ck_biz_sreturn_amount_nonneg | c
+ ck_biz_sreturn_item_price    | c
+ ck_biz_sreturn_item_qty      | c
+ ck_biz_sreturn_item_rate     | c
+ ck_biz_sreturn_status        | c
+ ck_biz_sreturn_type          | c
+ fk_biz_sreturn_item_return   | f
+(8 rows)
+
+ seq_type | prefix | date_pattern | step 
+----------+--------+--------------+------
+ SR       | SR     | yyyyMMdd     |    1
+(1 row)
+
+## 权限码承载行
+2|business:erp:sales-return:list|visible=false
+3|business:erp:sales-return:create|visible=false
+3|business:erp:sales-return:status|visible=false

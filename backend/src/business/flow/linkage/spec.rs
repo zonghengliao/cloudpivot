@@ -618,6 +618,12 @@ pub const TRIGGER_EXEMPT: &[&str] = &[
     // / `reverse_posted`），没有「另一张单据跟着变状态」的联动语义；
     // 真要按发票触发（例如通知客户已开票）时，移进 `TRIGGER_SPECS` 并给 `wired = true` + `proofs`。
     state_machine::ENTITY_INVOICE,
+    // 销售链 SO-29：退货单的状态流转入口（`sales_return_handler::change_return_status`）
+    // **不调联动引擎** —— 过账后的会计后果（回库 / 冲应收 / 红字凭证）由 SO-30 的过账
+    // 事务承担，退货单本身没有「另一张单据跟着变状态」的联动语义；真要按退货触发
+    // （例如通知仓库收货）时，移进 `TRIGGER_SPECS` 并给 `wired = true` + `proofs`
+    // （漂移守卫 `wired_triggers_match_call_sites` 会同时要求两者）。
+    state_machine::ENTITY_SALES_RETURN,
 ];
 
 /// 配置变更审计写 `biz_status_log` 时用的 `entity_type`。

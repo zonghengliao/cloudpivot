@@ -175,6 +175,8 @@ pub mod sales_approval_bridge;
 pub mod sales_model;
 pub mod sales_order_handler;
 pub mod sales_order_model;
+pub mod sales_return_handler;
+pub mod sales_return_model;
 pub mod separation;
 pub mod serial_dto;
 pub mod serial_handler;

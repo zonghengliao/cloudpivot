@@ -61,6 +61,7 @@ export const DOC_KINDS = [
   'RECEIVABLE',
   'RECEIPT',
   'INVOICE',
+  'SALES_RETURN',
 ] as const;
 
 /** 业务对象类型（联合类型 —— 写错编译期就报错）。 */
@@ -91,6 +92,7 @@ export const DOC_KIND_LABELS: Readonly<Record<DocKind, string>> = {
   RECEIVABLE: '应收单',
   RECEIPT: '收款单',
   INVOICE: '销售发票',
+  SALES_RETURN: '销售退货单',
 };
 
 /**
@@ -128,6 +130,7 @@ export const DOC_KIND_TABLES: Readonly<Partial<Record<DocKind, string>>> = {
   RECEIVABLE: 'biz_receivable',
   RECEIPT: 'biz_receipt',
   INVOICE: 'biz_invoice',
+  SALES_RETURN: 'biz_sales_return',
 };
 
 /**

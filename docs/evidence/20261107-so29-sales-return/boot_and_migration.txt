@@ -1,0 +1,23 @@
+# SO-29 隔离实例启动 + 迁移记账（库 cloudpivot_so29 / 端口 18229 / 空库全量重放）
+
+## 启动日志（迁移 / 就绪）
+[2m2026-11-06T17:30:05.121499Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+[2m2026-11-06T17:30:05.287571Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 插件启动完成 [3melapsed_ms[0m[2m=[0m0
+[2m2026-11-06T17:30:05.434897Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m cloudpivot 启动完成, 耗时 582ms
+
+## /health
+http=200
+
+## schema_migrations（本卡两条）
+ version |           name           |   kind    | applied_via | success | applied_seq 
+---------+--------------------------+-----------+-------------+---------+-------------
+ 303     | sales_return             | versioned | executed    | t       |         220
+ 304     | sales_return_permissions | versioned | executed    | t       |         221
+(2 rows)
+
+## 迁移总数 / 最大版本
+total=231
+max_version=304
+
+## applied_via 口径（只能是 executed / imported）
+executed=231

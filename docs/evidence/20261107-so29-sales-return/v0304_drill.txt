@@ -1,0 +1,24 @@
+== 基线：3 行（期望 3）
+
+== ① down ==
+psql:/opt/cloudpivot/backend/migrations/business/V0304__sales_return_permissions.down.sql:41: NOTICE:  V0304 回滚完成：销售退货单页面节点与 2 个按钮已删（授权行一并清理）
+DO
+down 后 sys_menu 承载行 = 0（期望 0）
+
+== ② up ==
+INSERT 0 2
+psql:/opt/cloudpivot/backend/migrations/business/V0304__sales_return_permissions.up.sql:126: NOTICE:  V0304 完成：sales-return 3 个权限码已种入 sys_menu（1 页面 + 2 按钮，均隐藏）
+DO
+up 后 sys_menu 承载行 = 3（期望 3）
+
+== ③ 二次 up（幂等） ==
+psql:/opt/cloudpivot/backend/migrations/business/V0304__sales_return_permissions.up.sql:126: NOTICE:  V0304 完成：sales-return 3 个权限码已种入 sys_menu（1 页面 + 2 按钮，均隐藏）
+DO
+二次 up 后 sys_menu 承载行 = 3（期望 3）
+
+== 明细（页面 + 2 按钮） ==
+2|business:erp:sales-return:list|parent=-|visible=false
+3|business:erp:sales-return:create|parent=20000000-0000-0000-0000-000000003041|visible=false
+3|business:erp:sales-return:status|parent=20000000-0000-0000-0000-000000003041|visible=false
+
+演练通过 ✅（down → up → 二次 up 全绿）

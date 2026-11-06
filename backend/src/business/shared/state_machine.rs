@@ -151,6 +151,14 @@ pub const ENTITY_RECEIPT: &str = DocKind::Receipt.as_str();
 /// 回写应收），`POSTED` 是归档终态，作废从 `DRAFT / ISSUED` 进来（要原因）。
 pub const ENTITY_INVOICE: &str = DocKind::Invoice.as_str();
 
+/// 实体类型：销售退货单（`biz_sales_return`，销售链 · SO-29）。
+///
+/// 落库值 `SALES_RETURN`（`DocKind::SalesReturn`）。状态只在**单据头**上流转
+/// （明细 `biz_sales_return_item` 没有状态列）；库存回库 / 应收冲减 / 红字凭证
+/// 由过账卡（SO-30）在 `PENDING_POST → POSTED` 的同一个事务里完成，
+/// 本实体只管状态与 `biz_status_log` 轨迹。
+pub const ENTITY_SALES_RETURN: &str = DocKind::SalesReturn.as_str();
+
 /// 出库单合法边（与 `stockout_base::LEGAL_EDGES` 同源）。
 ///
 /// ```text
@@ -589,6 +597,35 @@ pub const INVOICE_EDGES: [(&str, &str); 4] = [
     ("ISSUED", "VOID"),
 ];
 
+/// 销售退货单合法边（ARCH-7 §15.2.4，7 条，唯一真相）。
+///
+/// ```text
+/// DRAFT         → SUBMITTED      提交（草稿只改状态，账上一分没动）
+/// SUBMITTED     → APPROVED       审批通过（本卡无审批流，人工推进；审批接入是后续卡）
+/// APPROVED      → PENDING_POST   批准后进入待过账（过账前的最后一次确认）
+/// PENDING_POST  → POSTED         过账（SO-30：回库 + 冲应收 + 红字凭证，同一事务）
+/// DRAFT         → CANCELLED      草稿作废（从未占过可退量，不要原因）
+/// SUBMITTED     → CANCELLED      提交后作废（**要原因**）
+/// APPROVED      → CANCELLED      批准后作废（**要原因**）
+/// ```
+///
+/// **故意没有的边**（每条都是一个真问题）：
+/// - `PENDING_POST → CANCELLED`：待过账已经把「这批货要退回来」的承诺传下去了，
+///   撤回要先回 `APPROVED` —— 稿面 §15.2.4 也只画到 `APPROVED` 的作废箭头；
+/// - `POSTED → CANCELLED`：过账即已回库 / 已冲应收 / 已开红字，撤销必须走红冲链，
+///   不是一条状态边；
+/// - `* → DRAFT`：退货单没有「打回草稿」的边（本卡也没有改单接口），
+///   要改就作废重建，少一条边就少一处「账没动但状态乱了」的窗口。
+pub const SALES_RETURN_EDGES: [(&str, &str); 7] = [
+    ("DRAFT", "SUBMITTED"),
+    ("SUBMITTED", "APPROVED"),
+    ("APPROVED", "PENDING_POST"),
+    ("PENDING_POST", "POSTED"),
+    ("DRAFT", "CANCELLED"),
+    ("SUBMITTED", "CANCELLED"),
+    ("APPROVED", "CANCELLED"),
+];
+
 /// 应收单合法边（ARCH-7 §4.3 + SO-14 遗留卡，6 条，唯一真相）。
 ///
 /// ```text
@@ -788,6 +825,13 @@ pub const RECEIPT_REASON_EDGES: [(&str, &str); 1] = [("DRAFT", "CANCELLED")];
 /// 审计必须能回答「哪张、为什么、谁批的」。开票（`DRAFT → ISSUED`）与归档
 /// （`ISSUED → POSTED`）是正常推进，不要原因。
 pub const INVOICE_REASON_EDGES: [(&str, &str); 2] = [("DRAFT", "VOID"), ("ISSUED", "VOID")];
+/// 需要 reason 的退货单边：提交后 / 批准后作废。
+///
+/// 草稿作废不要原因（从未提交过、也没占到任何账务）；提交之后作废意味着
+/// 「这单本来要退的货不退了」—— 审计要能回答为什么，所以强制原因。
+pub const SALES_RETURN_REASON_EDGES: [(&str, &str); 2] =
+    [("SUBMITTED", "CANCELLED"), ("APPROVED", "CANCELLED")];
+
 /// 需要 reason 的边：调拨单取消。
 pub const TRANSFER_REASON_EDGES: [(&str, &str); 2] =
     [("DRAFT", "CANCELLED"), ("PENDING", "CANCELLED")];
@@ -847,6 +891,11 @@ pub const RECEIPT_LOCKED: [&str; 2] = ["POSTED", "CANCELLED"];
 ///
 /// `DRAFT` **不在**入账态：草稿还要走开票流程（`ISSUED` 时才生成凭证）。
 pub const INVOICE_LOCKED: [&str; 3] = ["ISSUED", "POSTED", "VOID"];
+/// 退货单入账态：已过账（已回库 / 已冲应收 / 已开红字，明细不许再动）与已作废。
+///
+/// `PENDING_POST` **不在**入账态：待过账还能被 SO-30 的过账事务读取处理，
+/// 锁死会让过账前的一切准备都落空（与发货单的 `PENDING_POST` 同口径）。
+pub const SALES_RETURN_LOCKED: [&str; 2] = ["POSTED", "CANCELLED"];
 /// 调拨单入账态：审批通过即锁定（在途 / 完成都不可改）。
 pub const TRANSFER_LOCKED: [&str; 3] = ["APPROVED", "IN_TRANSIT", "DONE"];
 /// 应付入账态：已结清 / 已作废都锁定（作废的单子当然不能再改）。
@@ -1142,6 +1191,25 @@ pub const INVOICE_BASE: [BaseEdge; 4] = [
     BaseEdge::mandatory("ISSUED", "VOID", "开票后作废（红冲）", true),
 ];
 
+/// 销售退货单的 BASE_EDGES（与 [`SALES_RETURN_EDGES`] 逐条对应，顺序一致）。
+///
+/// 七条全 `mandatory = true`：主链（提交 → 批准 → 待过账 → 过账）与三个作废口，
+/// **没有可选边可关**（关掉「过账」等于让退货单永远停在待过账）。
+pub const SALES_RETURN_BASE: [BaseEdge; 7] = [
+    BaseEdge::mandatory("DRAFT", "SUBMITTED", "提交", false),
+    BaseEdge::mandatory("SUBMITTED", "APPROVED", "审批通过", false),
+    BaseEdge::mandatory("APPROVED", "PENDING_POST", "进入待过账", false),
+    BaseEdge::mandatory(
+        "PENDING_POST",
+        "POSTED",
+        "过账（回库 + 冲应收 + 红字凭证）",
+        false,
+    ),
+    BaseEdge::mandatory("DRAFT", "CANCELLED", "草稿作废", false),
+    BaseEdge::mandatory("SUBMITTED", "CANCELLED", "提交后作废", true),
+    BaseEdge::mandatory("APPROVED", "CANCELLED", "批准后作废", true),
+];
+
 /// 库存调拨单的 BASE_EDGES（与 [`TRANSFER_EDGES`] 逐条对应，顺序一致）。
 ///
 /// 调拨六条边全是主链 / 撤销，**没有可选边**（没有捷径可关）。
@@ -1320,11 +1388,17 @@ pub enum Entity {
     /// 状态域（ARCH-7 §4.5）：`DRAFT → ISSUED → POSTED`，`DRAFT / ISSUED → VOID`。
     /// 开票（`ISSUED`）时生成收入凭证并回写应收，作废时红冲。
     Invoice,
+    /// 销售退货单 `biz_sales_return`（销售链 · SO-29）。
+    ///
+    /// 状态域（ARCH-7 §15.2.4）：`DRAFT → SUBMITTED → APPROVED → PENDING_POST → POSTED`，
+    /// `DRAFT / SUBMITTED / APPROVED → CANCELLED`。过账（回库 + 冲应收 + 红字凭证）
+    /// 由 SO-30 在 `PENDING_POST → POSTED` 的同一事务里完成。
+    SalesReturn,
 }
 
 impl Entity {
     /// 全部实体（注册表全量，未知类型就是对表外的字符串）。
-    pub const ALL: [Entity; 19] = [
+    pub const ALL: [Entity; 20] = [
         Entity::StockIn,
         Entity::PurchaseOrder,
         Entity::Transfer,
@@ -1344,6 +1418,7 @@ impl Entity {
         Entity::Receivable,
         Entity::Receipt,
         Entity::Invoice,
+        Entity::SalesReturn,
     ];
 
     /// 落库的 `entity_type`。
@@ -1368,6 +1443,7 @@ impl Entity {
             Entity::Receivable => ENTITY_RECEIVABLE,
             Entity::Receipt => ENTITY_RECEIPT,
             Entity::Invoice => ENTITY_INVOICE,
+            Entity::SalesReturn => ENTITY_SALES_RETURN,
         }
     }
 
@@ -1398,6 +1474,7 @@ impl Entity {
             Entity::Receivable => "应收单",
             Entity::Receipt => "收款单",
             Entity::Invoice => "销售发票",
+            Entity::SalesReturn => "销售退货单",
         }
     }
 
@@ -1423,6 +1500,7 @@ impl Entity {
             Entity::Receivable => &RECEIVABLE_EDGES,
             Entity::Receipt => &RECEIPT_EDGES,
             Entity::Invoice => &INVOICE_EDGES,
+            Entity::SalesReturn => &SALES_RETURN_EDGES,
         }
     }
 
@@ -1451,6 +1529,7 @@ impl Entity {
             Entity::Receivable => &RECEIVABLE_BASE,
             Entity::Receipt => &RECEIPT_BASE,
             Entity::Invoice => &INVOICE_BASE,
+            Entity::SalesReturn => &SALES_RETURN_BASE,
         }
     }
 
@@ -1483,6 +1562,7 @@ impl Entity {
             Entity::Receivable => &RECEIVABLE_REASON_EDGES,
             Entity::Receipt => &RECEIPT_REASON_EDGES,
             Entity::Invoice => &INVOICE_REASON_EDGES,
+            Entity::SalesReturn => &SALES_RETURN_REASON_EDGES,
         }
     }
 
@@ -1508,6 +1588,7 @@ impl Entity {
             Entity::Receivable => &RECEIVABLE_LOCKED,
             Entity::Receipt => &RECEIPT_LOCKED,
             Entity::Invoice => &INVOICE_LOCKED,
+            Entity::SalesReturn => &SALES_RETURN_LOCKED,
         }
     }
 
@@ -4331,11 +4412,12 @@ mod contract_tests {
         );
         assert_eq!(
             Entity::ALL.len(),
-            19,
+            20,
             "注册表从 7 → 8（CONTRACT）→ 9（STOCK_OUT）→ 10（STOCK_TAKE）→ 11（BUDGET，FIN-1）\
              → 12（FIXED_ASSET，FIN-2）→ 13（DEPRECIATION，FIN-2）→ 14（EXPENSE_REPORT，FIN-3）\
              → 15（SALE_ORDER，销售链 SO-05）→ 16（SHIPMENT，销售链 SO-09）\
-             → 17（RECEIVABLE，销售链 SO-13）→ 18（RECEIPT，销售链 SO-17）"
+             → 17（RECEIVABLE，销售链 SO-13）→ 18（RECEIPT，销售链 SO-17）\
+             → 19（INVOICE，销售链 SO-20）→ 20（SALES_RETURN，销售链 SO-29）"
         );
 
         // ③ as_str
