@@ -1,0 +1,17 @@
+== 隔离实例：127.0.0.1:18123（debug 二进制 2026-11-06 20:59，库 cloudpivot_so20）
+
+== GET /health ×2
+round 1: http=200
+round 2: http=200
+
+== schema_migrations V0297（kind=versioned / applied_via 只允许 executed|imported）
+versioned|297|sales_invoice_menu_page|executed|t|12
+
+== 迁移落库后的菜单节点（V0296 留空 → V0297 补齐）
+20000000-0000-0000-0000-000000002895|销售发票|2|business:erp:invoice:list|/business/erp/invoice|business/erp/invoice/index|t|销售发票
+
+== 页面下 3 个按钮仍在（V0297 断言 B 等价复核）
+3
+
+== 迁移总行数
+225

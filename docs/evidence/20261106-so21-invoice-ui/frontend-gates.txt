@@ -1,0 +1,25 @@
+== node / pnpm
+v22.23.4
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+10.5.0
+
+== pnpm typecheck（= vue-tsc --noEmit）
+
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> vue-tsc --noEmit
+
+
+== 单元测试（发票页纯逻辑，21 条）
+# tests 21
+# pass 21
+# fail 0
+
+== 全部前端单测（regression）
+# tests 985
+# pass 985
+# fail 0
+
+== pnpm check:palettes
+色板数据校验：通过
+
+[check-palettes] 全部通过 ✓
