@@ -1,0 +1,67 @@
+# 轮次 2 · 2026-11-06 09:03:58 CST
+== 1) 表存在 ==
+  [PASS] to_regclass(biz_customer) = biz_customer
+  [PASS] to_regclass(biz_customer_contact) = biz_customer_contact
+== 2) 列（名/类型/可空/默认）==
+biz_customer.id | uuid | nullable=NO | default=gen_random_uuid()
+biz_customer.code | character varying(40) | nullable=NO | default=-
+biz_customer.name | character varying(200) | nullable=NO | default=-
+biz_customer.tax_no | character varying(50) | nullable=YES | default=-
+biz_customer.contact_name | character varying(50) | nullable=YES | default=-
+biz_customer.contact_phone | character varying(30) | nullable=YES | default=-
+biz_customer.address | character varying(255) | nullable=YES | default=-
+biz_customer.credit_limit | numeric | nullable=NO | default=0
+biz_customer.status | character varying(20) | nullable=NO | default='ACTIVE'::character varying
+biz_customer.remark | text | nullable=YES | default=-
+biz_customer.created_at | timestamp with time zone | nullable=NO | default=CURRENT_TIMESTAMP
+biz_customer.updated_at | timestamp with time zone | nullable=NO | default=CURRENT_TIMESTAMP
+biz_customer.create_by | uuid | nullable=YES | default=-
+biz_customer.update_by | uuid | nullable=YES | default=-
+biz_customer.deleted_at | timestamp with time zone | nullable=YES | default=-
+biz_customer_contact.id | uuid | nullable=NO | default=gen_random_uuid()
+biz_customer_contact.customer_id | uuid | nullable=NO | default=-
+biz_customer_contact.name | character varying(50) | nullable=NO | default=-
+biz_customer_contact.phone | character varying(30) | nullable=YES | default=-
+biz_customer_contact.email | character varying(120) | nullable=YES | default=-
+biz_customer_contact.position | character varying(50) | nullable=YES | default=-
+biz_customer_contact.is_primary | smallint | nullable=NO | default=0
+biz_customer_contact.created_at | timestamp with time zone | nullable=NO | default=CURRENT_TIMESTAMP
+biz_customer_contact.updated_at | timestamp with time zone | nullable=NO | default=CURRENT_TIMESTAMP
+biz_customer_contact.create_by | uuid | nullable=YES | default=-
+biz_customer_contact.update_by | uuid | nullable=YES | default=-
+biz_customer_contact.deleted_at | timestamp with time zone | nullable=YES | default=-
+== 3) 索引 ==
+biz_customer | biz_customer_pkey | CREATE UNIQUE INDEX biz_customer_pkey ON public.biz_customer USING btree (id)
+biz_customer | idx_biz_customer_name | CREATE INDEX idx_biz_customer_name ON public.biz_customer USING btree (name)
+biz_customer | idx_biz_customer_status | CREATE INDEX idx_biz_customer_status ON public.biz_customer USING btree (status)
+biz_customer | uk_biz_customer_code | CREATE UNIQUE INDEX uk_biz_customer_code ON public.biz_customer USING btree (code) WHERE (deleted_at IS NULL)
+biz_customer_contact | biz_customer_contact_pkey | CREATE UNIQUE INDEX biz_customer_contact_pkey ON public.biz_customer_contact USING btree (id)
+biz_customer_contact | idx_biz_customer_contact_customer | CREATE INDEX idx_biz_customer_contact_customer ON public.biz_customer_contact USING btree (customer_id)
+biz_customer_contact | uk_biz_customer_contact_primary | CREATE UNIQUE INDEX uk_biz_customer_contact_primary ON public.biz_customer_contact USING btree (customer_id) WHERE ((is_primary = 1) AND (deleted_at IS NULL))
+  [PASS] uk_biz_customer_code 是唯一部分索引 = 1
+== 4) 约束 ==
+biz_customer | ck_biz_customer_credit_limit | CHECK ((credit_limit >= (0)::numeric))
+biz_customer | ck_biz_customer_status | CHECK (((status)::text = ANY ((ARRAY['ACTIVE'::character varying, 'FROZEN'::character varying])::text[])))
+biz_customer_contact | ck_biz_customer_contact_primary | CHECK ((is_primary = ANY (ARRAY[0, 1])))
+biz_customer_contact | fk_biz_customer_contact_customer | FOREIGN KEY (customer_id) REFERENCES biz_customer(id) ON DELETE RESTRICT
+  [PASS] 外键指向 biz_customer(id) 且 RESTRICT = 1
+== 5) 种子 ==
+CUS-0001 | 北京云枢科技有限公司 | ACTIVE | 500000.0000 | 主联系人=张伟
+CUS-0002 | 上海云枢贸易有限公司 | ACTIVE | 200000.0000 | 主联系人=李娜
+CUS-0003 | 广州云枢实业有限公司 | ACTIVE | 0.0000 | 主联系人=王强
+  [PASS] 客户种子条数 = 3
+  [PASS] 主联系人条数 = 3
+  [PASS] 孤儿联系人 = 0
+  [PASS] 探针残留 = 0
+== 6) 行为断言（负例必须被拒）==
+  [PASS] credit_limit = -1 被拒：violates check constraint "ck_biz_customer_credit_limit"
+  [PASS] status = 'BOGUS' 被拒：violates check constraint "ck_biz_customer_status"
+  [PASS] is_primary = 2 被拒：violates check constraint "ck_biz_customer_contact_primary"
+  [PASS] 孤儿 customer_id 被拒：violates foreign key constraint "fk_biz_customer_contact_customer"
+  [PASS] 第二主联系人 被拒：violates unique constraint "uk_biz_customer_contact_primary"
+  [PASS] 同编码重复 被拒：violates unique constraint "uk_biz_customer_code"
+== 7) 物理删客户被联系人挡住（RESTRICT）==
+  [PASS] DELETE 客户被 fk_biz_customer_contact_customer 挡住
+
+V0260 验收：全部通过
+rc=0
