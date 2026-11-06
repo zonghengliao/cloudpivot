@@ -1,0 +1,42 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 47.20s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 34 tests
+test business::erp::price_dto::tests::bad_uuid_is_rejected ... ok
+test business::erp::price_dto::tests::material_is_required ... ok
+test business::erp::price_dto::tests::response_shape_is_three_fields ... ok
+test business::erp::price_dto::tests::customer_is_optional ... ok
+test business::erp::price_dto::tests::qty_is_required_and_non_negative ... ok
+test business::erp::price_dto::tests::date_defaults_to_today_cst ... ok
+test business::erp::price_dto::tests::validate_full_query ... ok
+test business::erp::price_dto::tests::source_domain_matches_arch7 ... ok
+test business::erp::price_handler::tests::not_found_errors_are_explicit ... ok
+test business::erp::price_handler::tests::permission_code_shape ... ok
+test business::erp::price_handler::tests::route_path_has_no_api_prefix ... ok
+test business::erp::price_model::tests::agreed_full_tie_falls_back_to_id ... ok
+test business::erp::price_model::tests::agreed_picks_largest_min_qty ... ok
+test business::erp::price_model::tests::agreed_qty_floor_is_inclusive ... ok
+test business::erp::price_model::tests::agreed_tie_on_min_qty_picks_newest_effective_from ... ok
+test business::erp::price_model::tests::customer_tier_miss_falls_to_common ... ok
+test business::erp::price_model::tests::candidate_order_does_not_change_result ... ok
+test business::erp::price_model::tests::date_window_is_inclusive_on_both_ends ... ok
+test business::erp::price_model::tests::expired_agreed_falls_through_to_next_level ... ok
+test business::erp::price_model::tests::level1_agreed_hits ... ok
+test business::erp::price_model::tests::expired_tier_is_ignored ... ok
+test business::erp::price_model::tests::level2_customer_tier_hits ... ok
+test business::erp::price_model::tests::future_agreed_is_not_used ... ok
+test business::erp::price_model::tests::level3_common_tier_hits ... ok
+test business::erp::price_model::tests::level4_standard_price_hits ... ok
+test business::erp::price_model::tests::level5_all_miss_returns_none ... ok
+test business::erp::price_model::tests::promo_beats_tier_in_same_window ... ok
+test business::erp::price_model::tests::priority_is_strict_and_short_circuits ... ok
+test business::erp::price_model::tests::qty_below_min_qty_falls_through ... ok
+test business::erp::price_model::tests::repeated_resolution_is_stable ... ok
+test business::erp::price_model::tests::sql_guards_alive_rows_and_status ... ok
+test business::erp::price_model::tests::tier_type_domain_matches_ddl ... ok
+test business::erp::price_model::tests::tier_window_is_left_closed_right_open ... ok
+test business::erp::price_model::tests::tier_overlap_picks_highest_min_qty ... ok
+
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 2888 filtered out; finished in 0.01s
+

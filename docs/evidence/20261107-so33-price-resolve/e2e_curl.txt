@@ -1,0 +1,32 @@
+登录成功（admin / SUPER_ADMIN 短路权限），token 长度 461
+
+=== A. 5 级各级命中 ===
+[PASS] ① AGREED（多条取 min_qty 最大） —— 期望 price=9.0000 source=AGREED id=f0330000-0000-4000-8000-000000000102，实际 {"price": "9.0000", "source": "AGREED", "source_id": "f0330000-0000-4000-8000-000000000102"}
+[PASS] ② TIER_CUSTOMER（PROMO 压过同段 TIER） —— 期望 price=6.5000 source=TIER_CUSTOMER id=f0330000-0000-4000-8000-000000000202，实际 {"price": "6.5000", "source": "TIER_CUSTOMER", "source_id": "f0330000-0000-4000-8000-000000000202"}
+[PASS] ③ TIER_COMMON —— 期望 price=8.0000 source=TIER_COMMON id=f0330000-0000-4000-8000-000000000203，实际 {"price": "8.0000", "source": "TIER_COMMON", "source_id": "f0330000-0000-4000-8000-000000000203"}
+[PASS] ④ STANDARD（source_id = 物料 id） —— 期望 price=12.5000 source=STANDARD id=f0330000-0000-4000-8000-000000000013，实际 {"price": "12.5000", "source": "STANDARD", "source_id": "f0330000-0000-4000-8000-000000000013"}
+[PASS] ④ STANDARD 的 price 是 JSON 字符串（金额口径） —— 实际类型 str 值 '12.5000'
+[PASS] ⑤ NONE（price=null / source_id=null / HTTP 200） —— 实际 {"price": null, "source": "NONE", "source_id": null}
+
+=== B. 边界与确定性 ===
+[PASS] 有效期边界：effective_to 当天仍生效 —— 期望 price=8.5000 source=AGREED id=f0330000-0000-4000-8000-000000000105，实际 {"price": "8.5000", "source": "AGREED", "source_id": "f0330000-0000-4000-8000-000000000105"}
+[PASS] 有效期边界：effective_to 次日失效并降级 —— 期望 price=9.0000 source=AGREED id=f0330000-0000-4000-8000-000000000102，实际 {"price": "9.0000", "source": "AGREED", "source_id": "f0330000-0000-4000-8000-000000000102"}
+[PASS] 有效期边界：未到 effective_from 的价不参与 —— 期望 price=9.8000 source=AGREED id=f0330000-0000-4000-8000-000000000103，实际 {"price": "9.8000", "source": "AGREED", "source_id": "f0330000-0000-4000-8000-000000000103"}
+[PASS] 多条协议价：同起订量取最近生效 —— 期望 price=9.6000 source=AGREED id=f0330000-0000-4000-8000-000000000104，实际 {"price": "9.6000", "source": "AGREED", "source_id": "f0330000-0000-4000-8000-000000000104"}
+[PASS] 档位区间左闭右开：qty == max_qty 不命中 —— 期望 price=8.0000 source=TIER_COMMON id=f0330000-0000-4000-8000-000000000203，实际 {"price": "8.0000", "source": "TIER_COMMON", "source_id": "f0330000-0000-4000-8000-000000000203"}
+[PASS] 档位区间左闭：qty == min_qty 命中 —— 期望 price=6.5000 source=TIER_CUSTOMER id=f0330000-0000-4000-8000-000000000202，实际 {"price": "6.5000", "source": "TIER_CUSTOMER", "source_id": "f0330000-0000-4000-8000-000000000202"}
+[PASS] 停用行不参与取价（INACTIVE 的 1.0000 未命中） —— 期望 price=8.5000 source=AGREED id=f0330000-0000-4000-8000-000000000105，实际 {"price": "8.5000", "source": "AGREED", "source_id": "f0330000-0000-4000-8000-000000000105"}
+[PASS] 起订量边界：未达 min_qty 不命中 —— 期望 price=10.0000 source=AGREED id=f0330000-0000-4000-8000-000000000101，实际 {"price": "10.0000", "source": "AGREED", "source_id": "f0330000-0000-4000-8000-000000000101"}
+[PASS] 不传 customer_id：跳过协议价与专属阶梯 —— 期望 price=8.0000 source=TIER_COMMON id=f0330000-0000-4000-8000-000000000203，实际 {"price": "8.0000", "source": "TIER_COMMON", "source_id": "f0330000-0000-4000-8000-000000000203"}
+[PASS] 确定性：同条件 10 次调用结果完全一致 —— 不同结果数 1
+
+=== C. 失败路径 ===
+[PASS] 缺 qty → 400 + 10001（不静默按 0 取价） —— HTTP 400 {"code": 10001, "msg": "qty 必填（不限量取底价请显式传 qty=0）"}
+[PASS] qty 为负 → 400 + 10001 —— HTTP 400 {"code": 10001, "msg": "qty 不能为负 `-5`"}
+[PASS] date 非法 → 400 + 10001 —— HTTP 400 {"code": 10001, "msg": "date 不是合法日期 `2026-13-01`（YYYY-MM-DD）：input is out of range"}
+[PASS] 物料不存在 → 404 + 10002（不静默给 NONE） —— HTTP 404 {"code": 10002, "msg": "物料不存在或已删除，无法取价"}
+[PASS] 客户不存在 → 404 + 10002 —— HTTP 404 {"code": 10002, "msg": "客户不存在或已删除，无法按客户协议价取价"}
+[PASS] 无 token → 401（接口受鉴权保护） —— HTTP 401 {"code": 401, "msg": "未授权访问，请先登录"}
+
+=== 结果：22 条断言，FAIL 0 ===
+ALL_PASS

@@ -1,0 +1,22 @@
+============================================================================================
+死权限码常驻闸 · perm_menu_gate.py（handler 注解码 − sys_menu.auth_code）
+============================================================================================
+代码侧：401 个非测试 .rs（跳过测试文件 78 个、cfg(test) 项内夹具码 0 处）→ 注解码 307 个（537 处）
+菜单侧：319 个活跃 auth_code（db=cloudpivot_so33@127.0.0.1:5432 user=alun）
+--------------------------------------------------------------------------------------------
+✓ missing_in_menu = 0   （代码在用的码全部有菜单承载，可被授予）
+ℹ unused_in_code  = 12  （只报告，不判红：行级校验 / 纯前端权限点都合法）
+  · business:attachment:delete         行级/常量引用  backend/src/business/attachment/dto.rs:31
+  · business:erp:skip-approval         行级/常量引用  backend/src/business/erp/approval_gate.rs:76
+  · business:flow:admin                行级/常量引用  backend/src/business/flow/handler.rs:1595
+  · business:project:delete            行级/常量引用  backend/src/business/project/handler.rs:57
+  · business:project:update            行级/常量引用  backend/src/business/project/handler.rs:55
+  · business:task:attachment:delete    行级/常量引用  backend/src/business/task/dto.rs:1407
+  · business:task:comment:delete       行级/常量引用  backend/src/business/task/dto.rs:1404
+  · business:task:dependency           行级/常量引用  backend/src/business/task/dto.rs:1093
+  · business:task:member               行级/常量引用  backend/src/business/task/dto.rs:107
+  · business:task:worklog              行级/常量引用  backend/src/business/task/dto.rs:1410
+  · system:field-mask:plain            行级/常量引用  backend/src/business/masking/registry.rs:47
+  · system:preference:view             源码零引用（纯前端权限点）
+============================================================================================
+==> 闸：PASS

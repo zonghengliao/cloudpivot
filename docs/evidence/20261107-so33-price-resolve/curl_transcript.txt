@@ -1,0 +1,75 @@
+### 0. 登录（admin / SUPER_ADMIN）
+"code":0
+token: eyJ0eXAiOiJKV1Qi…（长度 461）
+
+==========================================================
+ A. 5 级各级命中
+==========================================================
+
+### ① AGREED：C1×M1 qty=150（三条满足起订量，取 min_qty=100 那条 = 9.0000）
+$ curl -s -H 'Authorization: Bearer $TOKEN' 'http://127.0.0.1:18239/api/business/erp/price/resolve?customer_id=f0330000-0000-4000-8000-000000000001&material_id=f0330000-0000-4000-8000-000000000011&qty=150&date=2026-01-01'
+{"code":0,"msg":"ok","data":{"price":"9.0000","source":"AGREED","source_id":"f0330000-0000-4000-8000-000000000102"}}
+
+### ② TIER_CUSTOMER：C1×M2 qty=50（专属 PROMO 6.5 压过同段 TIER 7.0）
+$ curl -s -H 'Authorization: Bearer $TOKEN' 'http://127.0.0.1:18239/api/business/erp/price/resolve?customer_id=f0330000-0000-4000-8000-000000000001&material_id=f0330000-0000-4000-8000-000000000012&qty=50&date=2026-01-01'
+{"code":0,"msg":"ok","data":{"price":"6.5000","source":"TIER_CUSTOMER","source_id":"f0330000-0000-4000-8000-000000000202"}}
+
+### ③ TIER_COMMON：C2×M2 qty=50（C2 无专属档位 → 通用 8.0000）
+$ curl -s -H 'Authorization: Bearer $TOKEN' 'http://127.0.0.1:18239/api/business/erp/price/resolve?customer_id=f0330000-0000-4000-8000-000000000002&material_id=f0330000-0000-4000-8000-000000000012&qty=50&date=2026-01-01'
+{"code":0,"msg":"ok","data":{"price":"8.0000","source":"TIER_COMMON","source_id":"f0330000-0000-4000-8000-000000000203"}}
+
+### ④ STANDARD：C2×M3 qty=10（物料标准价 12.5000，source_id = 物料 id）
+$ curl -s -H 'Authorization: Bearer $TOKEN' 'http://127.0.0.1:18239/api/business/erp/price/resolve?customer_id=f0330000-0000-4000-8000-000000000002&material_id=f0330000-0000-4000-8000-000000000013&qty=10&date=2026-01-01'
+{"code":0,"msg":"ok","data":{"price":"12.5000","source":"STANDARD","source_id":"f0330000-0000-4000-8000-000000000013"}}
+
+### ⑤ NONE：C2×M4 qty=10（无协议价 / 无档位 / 标准价 NULL）
+$ curl -s -H 'Authorization: Bearer $TOKEN' 'http://127.0.0.1:18239/api/business/erp/price/resolve?customer_id=f0330000-0000-4000-8000-000000000002&material_id=f0330000-0000-4000-8000-000000000014&qty=10&date=2026-01-01'
+{"code":0,"msg":"ok","data":{"price":null,"source":"NONE","source_id":null}}
+
+==========================================================
+ B. 边界（有效期 / 档位区间 / 多条命中 / 停用行）
+==========================================================
+
+### 有效期：effective_to 当天仍生效（2026-03-31 → 8.5000）
+$ curl -s -H 'Authorization: Bearer $TOKEN' 'http://127.0.0.1:18239/api/business/erp/price/resolve?customer_id=f0330000-0000-4000-8000-000000000001&material_id=f0330000-0000-4000-8000-000000000011&qty=250&date=2026-03-31'
+{"code":0,"msg":"ok","data":{"price":"8.5000","source":"AGREED","source_id":"f0330000-0000-4000-8000-000000000105"}}
+
+### 有效期：effective_to 次日失效并降级（2026-04-01 → 9.0000）
+$ curl -s -H 'Authorization: Bearer $TOKEN' 'http://127.0.0.1:18239/api/business/erp/price/resolve?customer_id=f0330000-0000-4000-8000-000000000001&material_id=f0330000-0000-4000-8000-000000000011&qty=250&date=2026-04-01'
+{"code":0,"msg":"ok","data":{"price":"9.0000","source":"AGREED","source_id":"f0330000-0000-4000-8000-000000000102"}}
+
+### 有效期：未到 effective_from 不参与（2026-05-31 → 旧价 9.8000）
+$ curl -s -H 'Authorization: Bearer $TOKEN' 'http://127.0.0.1:18239/api/business/erp/price/resolve?customer_id=f0330000-0000-4000-8000-000000000001&material_id=f0330000-0000-4000-8000-000000000011&qty=60&date=2026-05-31'
+{"code":0,"msg":"ok","data":{"price":"9.8000","source":"AGREED","source_id":"f0330000-0000-4000-8000-000000000103"}}
+
+### 多条协议价：同 min_qty=50 取最近生效（2026-07-01 → 9.6000）
+$ curl -s -H 'Authorization: Bearer $TOKEN' 'http://127.0.0.1:18239/api/business/erp/price/resolve?customer_id=f0330000-0000-4000-8000-000000000001&material_id=f0330000-0000-4000-8000-000000000011&qty=60&date=2026-07-01'
+{"code":0,"msg":"ok","data":{"price":"9.6000","source":"AGREED","source_id":"f0330000-0000-4000-8000-000000000104"}}
+
+### 档位区间左闭右开：qty == max_qty(100) 不命中档位（→ 通用 8.0000）
+$ curl -s -H 'Authorization: Bearer $TOKEN' 'http://127.0.0.1:18239/api/business/erp/price/resolve?customer_id=f0330000-0000-4000-8000-000000000001&material_id=f0330000-0000-4000-8000-000000000012&qty=100&date=2026-01-01'
+{"code":0,"msg":"ok","data":{"price":"8.0000","source":"TIER_COMMON","source_id":"f0330000-0000-4000-8000-000000000203"}}
+
+### 停用行不参与：qty=300 未命中 INACTIVE 的 1.0000（→ 8.5000）
+$ curl -s -H 'Authorization: Bearer $TOKEN' 'http://127.0.0.1:18239/api/business/erp/price/resolve?customer_id=f0330000-0000-4000-8000-000000000001&material_id=f0330000-0000-4000-8000-000000000011&qty=300&date=2026-01-01'
+{"code":0,"msg":"ok","data":{"price":"8.5000","source":"AGREED","source_id":"f0330000-0000-4000-8000-000000000105"}}
+
+### 不传 customer_id：跳过 ①②（→ 通用阶梯 8.0000）
+$ curl -s -H 'Authorization: Bearer $TOKEN' 'http://127.0.0.1:18239/api/business/erp/price/resolve?material_id=f0330000-0000-4000-8000-000000000012&qty=50&date=2026-01-01'
+{"code":0,"msg":"ok","data":{"price":"8.0000","source":"TIER_COMMON","source_id":"f0330000-0000-4000-8000-000000000203"}}
+
+==========================================================
+ C. 失败路径
+==========================================================
+
+### 缺 qty（→ 400 + 10001）
+$ curl -s -H 'Authorization: Bearer $TOKEN' 'http://127.0.0.1:18239/api/business/erp/price/resolve?customer_id=f0330000-0000-4000-8000-000000000001&material_id=f0330000-0000-4000-8000-000000000011&date=2026-01-01'
+{"code":10001,"msg":"qty 必填（不限量取底价请显式传 qty=0）"}
+
+### 物料不存在（→ 404 + 10002）
+$ curl -s -H 'Authorization: Bearer $TOKEN' 'http://127.0.0.1:18239/api/business/erp/price/resolve?customer_id=f0330000-0000-4000-8000-000000000001&material_id=00000000-0000-4000-8000-0000000000ff&qty=1&date=2026-01-01'
+{"code":10002,"msg":"物料不存在或已删除，无法取价"}
+
+### 无 token（→ 401）
+$ curl -s 'http://127.0.0.1:18239/api/business/erp/price/resolve?material_id=f0330000-0000-4000-8000-000000000011&qty=1'
+{"code":401,"msg":"未授权访问，请先登录"}

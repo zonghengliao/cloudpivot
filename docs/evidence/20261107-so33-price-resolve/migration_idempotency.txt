@@ -1,0 +1,18 @@
+### 1) 二次 up（幂等：ON CONFLICT DO NOTHING + 自检）
+INSERT 0 0
+DO
+### 2) down（先删授权行再删菜单行）
+DELETE 0
+DELETE 1
+down 后菜单行数=0
+### 3) 二次 down（幂等）
+DELETE 0
+DELETE 0
+### 4) 再次 up（恢复现场）
+INSERT 0 1
+DO
+恢复后菜单行数=1
+### 5) applied_via 审计（非法值行数）
+0
+### 6) 本卡迁移记录
+307|versioned|executed|t|price_resolve_permission
