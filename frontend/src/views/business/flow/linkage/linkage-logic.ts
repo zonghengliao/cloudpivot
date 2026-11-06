@@ -168,10 +168,65 @@ export function ruleOtherProblems(rule: LinkageRule, triggers: LinkageTrigger[])
   return rule.problems.filter((item) => !wiring.includes(item));
 }
 
-/** 某个实体的状态下拉（后端下发的状态集，前端不自己维护状态表） */
+/**
+ * 某个实体下单个状态的**中文名**（P1-FIX-12A）。
+ *
+ * 字典只有后端一份（`TriggerRes.status_labels`）；查不到就原样返回编码 ——
+ * 历史脏状态 / 字典里没有的值宁可显示编码，也不能显示空白或「未知」。
+ */
+export function statusLabelOf(
+  triggers: LinkageTrigger[],
+  entity: string,
+  status: string,
+): string {
+  const trigger = triggers.find((item) => item.entity === entity);
+  const hit = (trigger?.status_labels ?? []).find((item) => item.code === status);
+  return hit?.label || status;
+}
+
+/**
+ * 某个实体的状态下拉（后端下发的状态集，前端不自己维护状态表）。
+ *
+ * 文案是「中文（编码）」（P1-FIX-12A）：中文给管理员看，括号里的编码留给
+ * 「日志 / 库里是哪个值」的排障场景 —— 两样都得在，否则对不上号。
+ * `value` 永远是编码（落库、后端校验都认它）。
+ */
 export function statusOptions(triggers: LinkageTrigger[], entity: string): LinkageOption[] {
   const trigger = triggers.find((item) => item.entity === entity);
-  return (trigger?.statuses ?? []).map((status) => ({ label: status, value: status }));
+  const labelMap = new Map((trigger?.status_labels ?? []).map((item) => [item.code, item.label]));
+  return (trigger?.statuses ?? []).map((status) => {
+    const label = labelMap.get(status);
+    return {
+      label: label && label !== status ? `${label}（${status}）` : status,
+      value: status,
+    };
+  });
+}
+
+/**
+ * 列表里一行规则的**触发状态显示名**。
+ *
+ * 后端行级已下发 `trigger_status_label`（查不到回落编码），所以这里直接用它，
+ * 不再在前端建第二份映射；老响应 / 脏数据缺字段时才退回编码。
+ */
+export function ruleTriggerStatusText(rule: LinkageRule): string {
+  return rule.trigger_status_label || rule.trigger_status;
+}
+
+/** 已实现（`implemented = true`）的动作个数 —— 「白名单说明」里的 X */
+export function implementedActionCount(actions: LinkageAction[]): number {
+  return actions.filter((action) => action.implemented).length;
+}
+
+/**
+ * 「目标动作（白名单）」的说明文案。
+ *
+ * 用户会问「动作能不能自己新增」：答案是**不能**，动作码来自后端编译期白名单
+ * （`spec::ACTIONS`），新增动作 = 改代码 + 上线。能自由配的只有每个动作的参数。
+ * X 取 `implemented = true` 的个数（占位动作虽在下拉里但置灰，不该算进「能用」）。
+ */
+export function actionWhitelistNote(actions: LinkageAction[]): string {
+  return `动作由系统内置（当前 ${implementedActionCount(actions)} 个已实现），不能自行新增；如需新动作（如发短信、调外部接口）需开发。每个动作的参数可自由配置。`;
 }
 
 /**

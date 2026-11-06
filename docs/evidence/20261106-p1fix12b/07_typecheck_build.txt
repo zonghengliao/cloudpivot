@@ -1,0 +1,15 @@
+# P1-FIX-12B 类型检查 + 构建
+# 注：outDir 指向仓库外（/opt/cloudpivot/frontend/dist 是生产 dist，验收卡不发版，避免覆盖）
+
+dist-p1fix12b/demo/flow-poc/vendor/vue-flow.bundle.js.gz                                   283.84kb / gzip: 100.30kb
+dist-p1fix12b/demo/flow-poc/vendor/logicflow.bundle.js.gz                                  384.37kb / gzip: 98.77kb
+dist-p1fix12b/assets/echarts-CuV_skF0.js.gz                                                1002.89kb / gzip: 331.52kb
+dist-p1fix12b/assets/tdesign-B9Yx93ic.js.gz                                                7994.62kb / gzip: 772.17kb
+
+
+== 产物文案检查
+/root/.hermes/profiles/frontend-developer/cache/scratch/dist-p1fix12b/assets/index-DWrpaUtF.js
+      1 /root/.hermes/profiles/frontend-developer/cache/scratch/dist-p1fix12b/assets/index-DWrpaUtF.js:不能自行新增
+      1 /root/.hermes/profiles/frontend-developer/cache/scratch/dist-p1fix12b/assets/index-DWrpaUtF.js:个已实现
+OUT=/root/.hermes/profiles/frontend-developer/cache/scratch/dist-p1fix12b
+53ec6a517b987e42159141174488380c57c3108b4d0b224768e683d2c9ccc1c9  /root/.hermes/profiles/frontend-developer/cache/scratch/dist-p1fix12b/index.html

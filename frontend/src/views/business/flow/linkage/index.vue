@@ -111,7 +111,21 @@
             <code class="cell-trigger__code">{{ row.trigger_entity }}</code>
           </div>
           <t-space size="4px">
-            <t-tag size="small" theme="primary" variant="outline">{{ row.trigger_status }}</t-tag>
+            <!-- 状态显示中文（P1-FIX-12A：后端行级下发 trigger_status_label）；编码留作小字 + 悬停提示，
+                 排障时跟日志 / 库里的值对得上 -->
+            <t-tooltip :content="`状态编码：${row.trigger_status}`" placement="top">
+              <t-tag
+                size="small"
+                theme="primary"
+                variant="outline"
+                data-testid="linkage-row-status"
+              >
+                {{ ruleTriggerStatusText(row) }}
+              </t-tag>
+            </t-tooltip>
+            <code class="cell-trigger__status-code" data-testid="linkage-row-status-code">
+              {{ row.trigger_status }}
+            </code>
             <t-tag v-if="!isWiredEntity(triggers, row.trigger_entity)" size="small" theme="warning" variant="light">
               未接线
             </t-tag>
@@ -264,7 +278,19 @@
               </t-form-item>
             </t-col>
             <t-col :span="12">
-              <t-form-item label="目标动作（白名单）" required-mark>
+              <t-form-item required-mark>
+                <template #label>
+                  <span class="editor__label">
+                    目标动作（白名单）
+                    <t-tooltip :content="actionWhitelistNoteText" placement="top-left">
+                      <t-icon
+                        name="help-circle"
+                        class="editor__label-icon"
+                        data-testid="linkage-action-whitelist-help"
+                      />
+                    </t-tooltip>
+                  </span>
+                </template>
                 <t-select
                   v-model="form.action_code"
                   :options="actionSelectOptions"
@@ -273,6 +299,10 @@
                   filterable
                   data-testid="linkage-form-action"
                 />
+                <!-- 「能不能自己新增动作」的正面回答：动作码是编译期白名单，X = 已实现数量（P1-FIX-12B） -->
+                <div class="editor__whitelist-note" data-testid="linkage-action-whitelist-note">
+                  {{ actionWhitelistNoteText }}
+                </div>
                 <div v-if="currentAction" class="editor__action-hint">
                   <t-space size="6px">
                     <t-tag size="small" :theme="phaseTheme(currentAction.phase)" variant="light">
@@ -503,6 +533,7 @@ import {
 } from '@/api/business/flow/linkage';
 import {
   actionOptions,
+  actionWhitelistNote,
   buildParamPayload,
   draftAlertTheme,
   emptyForm,
@@ -519,6 +550,7 @@ import {
   previewAlertTheme,
   previewHighlights,
   ruleOtherProblems,
+  ruleTriggerStatusText,
   ruleWiringProblems,
   severityLabel,
   severityTheme,
@@ -674,6 +706,14 @@ const statusSelectOptions = computed<LinkageOption[]>(() =>
 
 /** 动作下拉（未接管置灰） */
 const actionSelectOptions = computed<LinkageOption[]>(() => actionOptions(actions.value));
+
+/**
+ * 「目标动作（白名单）」的说明：动作能不能自己新增。
+ *
+ * 答案是不行（动作码来自后端编译期白名单 `spec::ACTIONS`），能自由配的只有每个动作的参数；
+ * 文案里带「当前 X 个已实现」，X 用后端下发的 `implemented = true` 数量算（不写死）。
+ */
+const actionWhitelistNoteText = computed(() => actionWhitelistNote(actions.value));
 
 /** 枚举参数的候选值 */
 function enumOptions(param: LinkageParam): LinkageOption[] {
@@ -973,6 +1013,7 @@ void loadList();
 
 .intro__desc code,
 .cell-trigger__code,
+.cell-trigger__status-code,
 .cell-action__code {
   padding: 0 4px;
   border-radius: 2px;
@@ -1112,6 +1153,28 @@ void loadList();
 
 .editor__action-hint {
   margin-top: 6px;
+}
+
+/* 「目标动作（白名单）」的说明文字：跟控件同一个纵向堆叠（controls 已改成 block） */
+.editor__whitelist-note {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--td-text-color-placeholder);
+  word-break: break-word;
+}
+
+/* 表单项 label 里的问号图标：中文说明挂在它的 tooltip 上（也同时以说明文字平铺在控件下方） */
+.editor__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.editor__label-icon {
+  font-size: 14px;
+  color: var(--td-text-color-placeholder);
+  cursor: help;
 }
 
 .editor__reuse {

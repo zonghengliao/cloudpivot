@@ -1,0 +1,15 @@
+# P1-FIX-12B 接口实测（真机：独立实例 127.0.0.1:18098 + 克隆库 cloudpivot_p1fix12b）
+# 二进制：/opt/cloudpivot/backend/target/debug/cloudpivot（含 12A 的 status_labels，strings 命中 43 处）
+# 脚本：bash p1fix12b_api_check.sh（BASE=http://127.0.0.1:18098）
+
+== ① 登录（admin）
+login_http=200
+== ② GET /business/flow/linkage
+linkage_http=200
+== ③ 断言
+triggers=15  actions=11  implemented=4  rules=3
+带 status_labels 的触发点：15/15
+示例 STOCK_IN：草稿（DRAFT） / 已过账（POSTED） / 已作废（CANCELLED） / 作废审批中（PENDING_CANCEL） / 过账审批中（PENDING_POST）
+规则行 trigger_status_label：已过账（POSTED） / 已过账（POSTED） / 进行中（DOING）
+== ④ 硬断言（0 = 通过）
+assert_rc=0

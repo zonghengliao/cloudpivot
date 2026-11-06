@@ -18,16 +18,20 @@ import assert from 'node:assert/strict';
 import type { LinkageAction, LinkageParam, LinkageRule, LinkageTrigger } from '../../src/api/business/flow/linkage';
 import {
   actionOptions,
+  actionWhitelistNote,
   buildParamPayload,
   draftAlertTheme,
   emptyForm,
   filterRules,
   formatParams,
+  implementedActionCount,
   isHealthy,
   paramsToForm,
   phaseLabel,
   previewHighlights,
+  ruleTriggerStatusText,
   severityLabel,
+  statusLabelOf,
   statusOptions,
   triggerOptions,
 } from '../../src/views/business/flow/linkage/linkage-logic';
@@ -55,6 +59,7 @@ function rule(overrides: Partial<LinkageRule>): LinkageRule {
     trigger_entity: 'STOCK_IN',
     trigger_entity_label: '收货入库单',
     trigger_status: 'POSTED',
+    trigger_status_label: '已过账',
     action_code: 'SEND_NOTICE',
     action_label: '发通知',
     phase: 'AFTER_COMMIT',
@@ -71,8 +76,28 @@ function rule(overrides: Partial<LinkageRule>): LinkageRule {
 }
 
 const TRIGGERS: LinkageTrigger[] = [
-  { entity: 'STOCK_IN', label: '收货入库单', statuses: ['DRAFT', 'PENDING_POST', 'POSTED'] },
-  { entity: 'TASK', label: '任务', statuses: ['TODO', 'DOING'] },
+  {
+    entity: 'STOCK_IN',
+    label: '收货入库单',
+    statuses: ['DRAFT', 'PENDING_POST', 'POSTED'],
+    // 与 statuses 逐项对齐（后端 TriggerRes.status_labels 的不变量，P1-FIX-12A）
+    status_labels: [
+      { code: 'DRAFT', label: '草稿' },
+      { code: 'PENDING_POST', label: '待过账' },
+      { code: 'POSTED', label: '已过账' },
+    ],
+    wired: true,
+    wiring: 'stock_in.rs::post',
+  },
+  {
+    entity: 'TASK',
+    label: '任务',
+    statuses: ['TODO', 'DOING'],
+    // 这条模拟「后端没下发中文名」的老响应：下拉必须原样显示编码，不许编造
+    status_labels: [],
+    wired: false,
+    wiring: '尚未接线',
+  },
 ];
 
 test('动作下拉：未接管动作置灰，文案带事务归属', () => {
@@ -97,6 +122,51 @@ test('触发点 / 状态下拉：状态集来自后端下发，前端不自己�
     ['DRAFT', 'PENDING_POST', 'POSTED'],
   );
   assert.deepEqual(statusOptions(TRIGGERS, 'NOT_A_DOC'), [], '未知实体不编造状态');
+});
+
+test('状态下拉文案：中文（编码），value 仍是编码（P1-FIX-12B）', () => {
+  const options = statusOptions(TRIGGERS, 'STOCK_IN');
+  assert.deepEqual(
+    options.map((item) => [item.label, item.value]),
+    [
+      ['草稿（DRAFT）', 'DRAFT'],
+      ['待过账（PENDING_POST）', 'PENDING_POST'],
+      ['已过账（POSTED）', 'POSTED'],
+    ],
+    '中文给人看、括号里的编码给排障对日志',
+  );
+  // 后端没下发 status_labels（老响应 / 字典缺项）：原样显示编码，不许编造中文
+  assert.deepEqual(statusOptions(TRIGGERS, 'TASK'), [
+    { label: 'TODO', value: 'TODO' },
+    { label: 'DOING', value: 'DOING' },
+  ]);
+});
+
+test('状态中文名查表：查不到回落编码（不显示空白）', () => {
+  assert.equal(statusLabelOf(TRIGGERS, 'STOCK_IN', 'POSTED'), '已过账');
+  assert.equal(statusLabelOf(TRIGGERS, 'STOCK_IN', 'GHOST'), 'GHOST', '脏状态回落编码');
+  assert.equal(statusLabelOf(TRIGGERS, 'NOT_A_DOC', 'POSTED'), 'POSTED', '未知实体回落编码');
+});
+
+test('列表状态列：优先用后端行级中文名，缺字段回落编码', () => {
+  assert.equal(ruleTriggerStatusText(rule({})), '已过账');
+  assert.equal(ruleTriggerStatusText(rule({ trigger_status_label: '' })), 'POSTED');
+});
+
+test('动作白名单说明：X 只数已实现动作，且明说不能自行新增（P1-FIX-12B）', () => {
+  const actions = [
+    action({ code: 'SEND_NOTICE' }),
+    action({ code: 'GENERATE_VOUCHER' }),
+    action({ code: 'LOCK_DOCUMENT', implemented: false }),
+  ];
+  assert.equal(implementedActionCount(actions), 2, '未接管的占位动作不算「已实现」');
+  const note = actionWhitelistNote(actions);
+  assert.match(note, /当前 2 个已实现/);
+  assert.match(note, /不能自行新增/);
+  assert.match(note, /需开发/);
+  assert.match(note, /参数可自由配置/);
+  // 空字典（加载失败 / 首屏）也不能出现 undefined 或崩掉
+  assert.match(actionWhitelistNote([]), /当前 0 个已实现/);
 });
 
 test('参数拼装：必填空值报错，可选空值不写进 payload', () => {

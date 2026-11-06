@@ -86,14 +86,34 @@ export interface LinkageAction {
   reuse: string;
 }
 
+/**
+ * 一个触发状态（`StatusLabelRes`，P1-FIX-12A）。
+ *
+ * `code` 与库里的 `trigger_status` / 日志逐字一致，`label` 是给人看的中文。
+ * 前端只做 `code → label` 的查表，不维护第二份状态中文名（字典只有后端一份）。
+ */
+export interface LinkageStatusLabel {
+  /** 状态编码（与 `biz_flow_linkage_rule.trigger_status` 逐字一致） */
+  code: string;
+  /** 中文名 */
+  label: string;
+}
+
 /** 一个触发点（`TriggerRes`） */
 export interface LinkageTrigger {
   /** 触发单据类型（落 `trigger_entity`） */
   entity: string;
   /** 中文名 */
   label: string;
-  /** 允许的触发状态 */
+  /** 允许的触发状态（编码，向后兼容保留） */
   statuses: string[];
+  /**
+   * 允许的触发状态 + 中文名（**顺序与 `statuses` 逐项对齐**，P1-FIX-12A）。
+   *
+   * 下拉的 `label` 用它渲染成「中文（编码）」，`value` 仍取 `code` ——
+   * 编码留在括号里是为了排障时能和日志 / 库里的值对上。
+   */
+  status_labels: LinkageStatusLabel[];
   /**
    * **是否已接线**（P1-FIX-5C）。
    *
@@ -120,8 +140,15 @@ export interface LinkageRule {
   trigger_entity: string;
   /** 触发单据中文名 */
   trigger_entity_label: string;
-  /** 触发状态 */
+  /** 触发状态（编码） */
   trigger_status: string;
+  /**
+   * 触发状态中文名（P1-FIX-12A，后端逐行算好）。
+   *
+   * 列表直接显示这个字段；字典里查不到的历史脏状态后端会**回落成编码本身**（不会空白）。
+   * 编码仍保留在 `trigger_status` 里，悬停提示 / 排障时用它。
+   */
+  trigger_status_label: string;
   /** 白名单动作码 */
   action_code: string;
   /** 动作中文名 */
