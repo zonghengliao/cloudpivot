@@ -153,6 +153,8 @@ pub mod period;
 pub mod period_items;
 pub mod period_owner;
 pub mod period_remind;
+pub mod price_admin_handler;
+pub mod price_admin_model;
 pub mod price_dto;
 pub mod price_handler;
 pub mod price_model;

@@ -457,6 +457,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '销售退货单', permission: 'business:erp:sales-return:list' },
       },
       {
+        // ==================== ERP 价格管理（SO-34 · 销售链） ====================
+        // `sys_menu`（V0308 种子 …3081）path = `/business/erp/customer-price`，
+        // component `business/erp/customer-price/index`。**路由手工注册**（没有 views
+        // 自动扫描），漏了 = 点菜单进 404；`system::menu::tests::n08`（真库档）会当场红。
+        // 与 V0261/V0264 那批「先留 NULL、后补菜单」不同：本卡路由与菜单同一提交落地，
+        // 所以迁移里直接写 path（先注册路由、再填菜单的顺序仍然成立）。
+        path: 'business/erp/customer-price',
+        name: 'BusinessErpCustomerPrice',
+        component: () => import('@/views/business/erp/customer-price/index.vue'),
+        meta: { title: '价格管理', permission: 'business:erp:cust-price:list' },
+      },
+      {
         // ==================== ERP 序列号（W4b-2） ====================
         // `sys_menu`（V0142 种子 …0981）path = `/business/erp/serial`，component
         // `business/erp/serial/index`。**路由手工注册**，漏了 = 点菜单进 404。

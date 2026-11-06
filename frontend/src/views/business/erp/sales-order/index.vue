@@ -202,6 +202,7 @@
                   filterable
                   placeholder="选择客户（只列正常状态）"
                   data-testid="so-form-customer"
+                  @change="handleFormCustomerChange"
                 />
               </t-form-item>
             </t-col>
@@ -291,6 +292,7 @@
               :filter="filterMaterial"
               placeholder="物料编码 / 名称"
               data-testid="so-form-material"
+              @change="onLineMaterialChange(row)"
             />
           </template>
 
@@ -302,6 +304,7 @@
               :min="0"
               align="right"
               data-testid="so-form-qty"
+              @change="onLineQtyChange(row)"
             />
           </template>
 
@@ -314,7 +317,32 @@
               align="right"
               placeholder="0.0000"
               data-testid="so-form-price"
+              @change="onLinePriceChange(row)"
             />
+          </template>
+
+          <template #price_source="{ row }">
+            <div class="source-cell">
+              <t-tag
+                v-if="linePriceBadge(row)"
+                size="small"
+                variant="light"
+                :theme="linePriceBadgeTheme(row)"
+                data-testid="so-form-price-source"
+              >
+                {{ linePriceBadgeLabel(row) }}
+              </t-tag>
+              <span v-else class="source-cell__empty">—</span>
+              <t-link
+                v-if="row.price_source || row.price_manual"
+                theme="primary"
+                size="small"
+                data-testid="btn-so-refetch-price"
+                @click="refetchLinePrice(row, true)"
+              >
+                重取价
+              </t-link>
+            </div>
           </template>
 
           <template #tax_rate="{ row }">
@@ -574,11 +602,13 @@ import {
   SALES_ORDER_PAGE_SIZE,
   SALES_ORDER_REMARK_MAX,
   SALES_ORDER_STATUS_OPTIONS,
+  applyResolvedPrice,
   buildCreatePayload,
   buildSalesOrderQuery,
   buildUpdatePayload,
   canAddLine,
   canRemoveLine,
+  clearManualPrice,
   computeLine,
   computeTotals,
   emptyListText,
@@ -586,6 +616,10 @@ import {
   emptySalesOrderForm,
   formFromDetail,
   isSalesOrderFiltered,
+  linePriceBadge,
+  linePriceBadgeLabel,
+  linePriceBadgeTheme,
+  markPriceManual,
   newSalesOrderLine,
   rowActions,
   salesOrderStatusLabel,
@@ -596,6 +630,7 @@ import {
   type SalesOrderFormDraft,
   type SalesOrderLineDraft,
 } from './sales-order-query';
+import { resolvePrice, type PriceResolveRes } from '@/api/business/erp/customer-price';
 
 /** 本页权限码（与 `V0265__sales_order_permissions.up.sql` 的 auth_code 逐字一致） */
 const PERM = {
@@ -614,15 +649,17 @@ const canWrite = computed(() => userStore.hasPermission(PERM.create));
 
 /** 表格列（colKey 与后端出参同名） */
 const columns = SALES_ORDER_COLUMNS;
-/** 表单明细列（行号 / 物料 / 数量 / 单价 / 税率 / 金额 / 税额 / 删除） */
+/** 表单明细列（行号 / 物料 / 数量 / 单价 / 取价来源 / 税率 / 金额 / 税额 / 删除） */
 const formItemColumns: PrimaryTableCol[] = [
-  { colKey: 'line_index', title: '#', width: 56 },
-  { colKey: 'material_id', title: '物料', minWidth: 240 },
-  { colKey: 'qty', title: '数量', width: 130 },
-  { colKey: 'price', title: '不含税单价', width: 150 },
-  { colKey: 'tax_rate', title: '税率%', width: 110 },
-  { colKey: 'amount', title: '金额', width: 130, align: 'right' },
-  { colKey: 'tax_amount', title: '税额', width: 120, align: 'right' },
+  { colKey: 'line_index', title: '#', width: 48 },
+  { colKey: 'material_id', title: '物料', minWidth: 220 },
+  { colKey: 'qty', title: '数量', width: 110 },
+  { colKey: 'price', title: '不含税单价', width: 130 },
+  // SO-34：取价来源（协议价 / 阶梯价 / 标准价 / 未找到 / 手动价）
+  { colKey: 'price_source', title: '取价来源', width: 150 },
+  { colKey: 'tax_rate', title: '税率%', width: 90 },
+  { colKey: 'amount', title: '金额', width: 120, align: 'right' },
+  { colKey: 'tax_amount', title: '税额', width: 110, align: 'right' },
   { colKey: 'line_op', title: '操作', width: 80 },
 ];
 /** 详情明细列（多两列发货进度） */
@@ -873,6 +910,100 @@ function removeLine(key: string): void {
   const index = form.items.findIndex((line: SalesOrderLineDraft) => line.key === key);
   if (index >= 0) {
     form.items.splice(index, 1);
+  }
+}
+
+// ==================== 自动带价（SO-34 / ARCH-7 §15.3.3） ====================
+
+/**
+ * 每行的取价请求序号。
+ *
+ * `qty` 每敲一次都会发一次请求，慢的那个后回来会把新价覆盖成旧价（经典乱序 bug）。
+ * 每次发请求自增序号，回来时序号不是最新就**丢弃**——这是前端唯一能保证"最后一次输入赢"的手段。
+ */
+const priceSeq = new Map<string, number>();
+
+/** 行在表单里的序号（1 起，报错文案用） */
+function lineNoOf(line: SalesOrderLineDraft): number {
+  return form.items.findIndex((item) => item.key === line.key) + 1;
+}
+
+/**
+ * 取价并回填一行。
+ *
+ * @param line   目标行
+ * @param force  `true` = 用户点「重取价」：先清掉手动标记，再按规则覆盖
+ */
+async function refetchLinePrice(line: SalesOrderLineDraft, force = false): Promise<void> {
+  const materialId = line.material_id;
+  if (!materialId) {
+    line.price_source = '';
+    return;
+  }
+  const qty = Number(line.qty);
+  if (!Number.isFinite(qty) || qty <= 0) {
+    // qty 必填（SO-33）：数量还没填好就取价会静默命中 min_qty=0 的低价档，宁可不取
+    line.price_source = '';
+    return;
+  }
+  if (force) {
+    clearManualPrice(line);
+  }
+  const token = (priceSeq.get(line.key) ?? 0) + 1;
+  priceSeq.set(line.key, token);
+  try {
+    const res: PriceResolveRes = await resolvePrice({
+      material_id: materialId,
+      qty: String(qty),
+      customer_id: form.customer_id || undefined,
+      date: form.order_date || undefined,
+    });
+    // 过期响应 / 行已被删 / 物料已被换掉 → 丢弃（别把别的行的价写进来）
+    if (priceSeq.get(line.key) !== token || line.material_id !== materialId) {
+      return;
+    }
+    applyResolvedPrice(line, res);
+    if (res.source === 'NONE' && !line.price_manual) {
+      // 无价是合法业务结果（200）：提示手填，不是报错弹窗
+      MessagePlugin.warning(`第 ${lineNoOf(line)} 行未找到协议价 / 阶梯价 / 标准价，请手填含税单价`);
+    }
+  } catch (error) {
+    if (priceSeq.get(line.key) === token) {
+      // 取价失败不该拦住开单：告诉用户、让他手填
+      MessagePlugin.warning(`第 ${lineNoOf(line)} 行取价失败（可手填单价）：${messageOf(error)}`);
+    }
+  }
+}
+
+/**
+ * 换物料：**先清掉旧单价**再取价。
+ *
+ * 不清的话，取价失败（网络 / 404）时旧物料的价会留在新物料行上 —— 这正是
+ * "卖错价"最典型的一条路径。
+ */
+function onLineMaterialChange(row: SalesOrderLineDraft): void {
+  row.price = '';
+  row.price_source = '';
+  row.price_manual = false;
+  void refetchLinePrice(row);
+}
+
+/** 改数量：档位随量变，重新取价（手动价不动，只更新来源） */
+function onLineQtyChange(row: SalesOrderLineDraft): void {
+  void refetchLinePrice(row);
+}
+
+/** 改单价：有来源时标「手动价」（销售覆盖了系统价，必须留痕） */
+function onLinePriceChange(row: SalesOrderLineDraft): void {
+  markPriceManual(row);
+}
+
+/** 换客户：所有已选物料的行重新取价（协议价 / 客户专属阶梯都跟着客户变） */
+function handleFormCustomerChange(): void {
+  for (const line of form.items) {
+    if (line.material_id) {
+      void refetchLinePrice(line);
+    }
   }
 }
 
@@ -1235,5 +1366,17 @@ onMounted(async () => {
   margin: 0;
   color: var(--td-text-color-secondary);
   font-size: 12px;
+}
+
+/* SO-34：取价来源单元格（标签 + 重取价链接，窄列里也不换行） */
+.source-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.source-cell__empty {
+  color: var(--td-text-color-placeholder);
 }
 </style>

@@ -1,0 +1,24 @@
+== pnpm typecheck ==
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> vue-tsc --noEmit
+
+
+== pnpm build (NODE_OPTIONS=--max-old-space-size=6144；默认 1.5G heap 会 OOM，见 README) ==
+dist//opt/cloudpivot/frontend/demo/flow-poc/vendor/vue-flow.bundle.js.gz                                   283.84kb / gzip: 100.30kb
+dist//opt/cloudpivot/frontend/demo/flow-poc/vendor/logicflow.bundle.js.gz                                  384.37kb / gzip: 98.77kb
+dist//opt/cloudpivot/frontend/assets/echarts-CuV_skF0.js.gz                                                1002.89kb / gzip: 331.52kb
+dist//opt/cloudpivot/frontend/assets/tdesign-B9Yx93ic.js.gz                                                7994.62kb / gzip: 772.17kb
+
+
+
+== 产物（价格页 chunk） ==
+-rw-r--r-- 1 root root     649 Nov  7 03:06 customer-price-B2LJirmO.js
+
+== 路由 & 页面文件 ==
+total 56
+drwxr-xr-x  2 root root    54 Nov  7 02:52 .
+drwxr-xr-x 40 root root  4096 Nov  7 02:50 ..
+-rw-r--r--  1 root root 13881 Nov  7 02:50 customer-price-query.ts
+-rw-r--r--  1 root root 34372 Nov  7 02:52 index.vue

@@ -1,0 +1,57 @@
+登录成功（admin / SUPER_ADMIN 短路权限），token 长度 461
+清场：软删 1 条本卡价格夹具（material = f0330000-0000-4000-8000-000000000014）
+
+[A] 客户协议价 CRUD
+  PASS  A1 新建协议价 200/code0
+  PASS  A1 回显单价 7.7777
+  PASS  A1 回显客户名（LEFT JOIN 补齐）
+  PASS  A1 回显物料编码
+  PASS  A1 状态缺省 ACTIVE
+  PASS  A2 分页 200
+  PASS  A2 列表命中新建行
+  PASS  A2 total >= 1
+  PASS  A3 重复键 409
+  PASS  A3 冲突文案点名起订量/生效日
+  PASS  A4 price=0 → 400
+  PASS  A5 非法 material_id → 400
+  PASS  A6 物料不存在 → 404
+  PASS  A7 编辑 200
+  PASS  A7 单价改成功
+  PASS  A7 失效日被清空（长期有效）
+  PASS  A7 未传的起订量沿用
+  PASS  A8 取价命中 AGREED
+  PASS  A8 取价单价 = 8.8888
+  PASS  A8 source_id = 协议价行 id
+  PASS  A9 起订量不满足 → NONE(200)
+  PASS  A9 NONE 时 price=null
+  PASS  A10 软删 200
+  PASS  A10 软删后列表不再出现
+  PASS  A11 重复删除 → 404
+  PASS  A12 软删后同键可重录
+
+[B] 阶梯价 / 促销价 CRUD
+  PASS  B1 新建档位 200
+  PASS  B1 通用档 customer_id = null
+  PASS  B1 档位类型缺省 TIER
+  PASS  B2 重复档位键 → 409
+  PASS  B3 max_qty == min_qty → 400
+  PASS  B4 同物料第二档 200
+  PASS  B5 同物料两档都在
+  PASS  B5 档位按起订量升序（列表可读成一条阶梯）
+  PASS  B6 编辑档位 200
+  PASS  B6 max_qty=-1 → null（无上限）
+  PASS  B7 通用阶梯命中 TIER_COMMON
+  PASS  B7 高档位单价 9.0000
+  PASS  B8 删除档位 200
+  PASS  B8 删除第二档 200
+
+[C] 销售订单自动带价
+  PASS  C1 取价 AGREED 9.9999
+  PASS  C2 开单 200/code0
+  PASS  C2 订单行单价 = 取价结果 9.9999
+  PASS  C3 详情回读单价 9.9999
+  PASS  C3 金额 = 60 × 9.9999（服务端算）
+  PASS  C4 换客户后无价 → NONE
+
+=========================
+ALL_PASS 46 / 46

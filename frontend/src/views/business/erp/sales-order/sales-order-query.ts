@@ -39,6 +39,8 @@ import type {
   CreateSalesOrderReq,
   UpdateSalesOrderReq,
 } from '@/api/business/erp';
+import type { PriceResolveRes, PriceSource } from '@/api/business/erp/customer-price';
+import { priceSourceLabel, priceSourceTheme } from '@/views/business/erp/shared/price-source';
 
 /** 每页条数（与采购 / 收货列表同口径；后端上限 200、`0` → 20） */
 export const SALES_ORDER_PAGE_SIZE = 20;
@@ -381,6 +383,21 @@ export interface SalesOrderLineDraft {
   price: number | string;
   /** 税率百分数（同上，两种态都收） */
   tax_rate: number | string;
+  /**
+   * 取价来源（SO-34 自动带价的**结果**，只在前端显示，不提交）。
+   *
+   * `''` = 还没取价（没选客户/物料，或接口还没回）；其余见 `price_dto::SOURCES`。
+   * 后端订单只收 `qty/price/tax_rate`，来源是"这一行为什么是这个价"的审计线索，
+   * 不进单据 —— 真要留痕，后端按 `source_id` 能回查到那一行价格配置。
+   */
+  price_source?: PriceSource | '';
+  /**
+   * 销售员手动改过价（SO-34）。
+   *
+   * `true` 时**不再被自动取价覆盖**（改过的价是人工决策，重算冲掉就是"卖亏了没人知道"）；
+   * 想看规则价就点行尾「重取价」。展示上打「手动价」标签盖住来源。
+   */
+  price_manual?: boolean;
 }
 
 /** 单头草稿（`customer_id` / `contract_id` / 日期 / 备注） */
@@ -416,8 +433,87 @@ export function newSalesOrderLine(
     qty: '1',
     price: '',
     tax_rate: '13',
+    price_source: '',
+    price_manual: false,
     ...defaults,
   };
+}
+
+// ==================== 自动带价（SO-34 / ARCH-7 §15.3.3） ====================
+
+/**
+ * 取价结果 → 行（自动带价）。
+ *
+ * 三条口径：
+ * 1. **来源总是更新**：即使销售手动改过价，也把"规则命中了哪一级"记下来
+ *    （页面用「手动价」标签盖住它展示，但 `重取价` 时要用）；
+ * 2. **手动价不被覆盖**：`price_manual = true` 时价格保持人工值 —— 自动重算冲掉
+ *    销售特意让的价，是最容易"卖亏了还查不出来"的一类事故；
+ * 3. **`NONE` 不清空已填价**：没价是业务事实（让销售手填），把用户手填的数字抹掉更糟。
+ *
+ * @returns `true` = 价格被自动带出；`false` = 只是记录了来源（手动价 / 无价）
+ */
+export function applyResolvedPrice(line: SalesOrderLineDraft, res: PriceResolveRes): boolean {
+  line.price_source = res.source;
+  if (line.price_manual) {
+    return false;
+  }
+  if (res.price === null || res.price === undefined || res.price === '') {
+    return false;
+  }
+  const num = Number(res.price);
+  if (!Number.isFinite(num)) {
+    return false;
+  }
+  line.price = String(Number(num.toFixed(4)));
+  return true;
+}
+
+/**
+ * 销售员改价 → 标记「手动价」。
+ *
+ * 调用点在单价输入框的 `@change`，**且只在该行已有来源（`price_source`）时才标**
+ * ——新建行还没取过价时手填一个值是正常流程，不该一上来就顶着「手动价」标签；
+ * 一旦有来源，用户改动就是覆盖系统价，必须留痕。
+ */
+export function markPriceManual(line: SalesOrderLineDraft): void {
+  if (line.price_source) {
+    line.price_manual = true;
+  }
+}
+
+/** 行尾「重取价」：清掉手动标记，让下一次取价覆盖价格 */
+export function clearManualPrice(line: SalesOrderLineDraft): void {
+  line.price_manual = false;
+}
+
+/** 行的取价徽标：手动价 > 来源；都没取过价返回 `null`（不渲染标签） */
+export function linePriceBadge(line: SalesOrderLineDraft): {
+  label: string;
+  theme: 'success' | 'primary' | 'default' | 'warning';
+} | null {
+  if (line.price_manual) {
+    return { label: '手动价', theme: 'warning' };
+  }
+  if (!line.price_source) {
+    return null;
+  }
+  return {
+    label: priceSourceLabel(line.price_source),
+    theme: priceSourceTheme(line.price_source),
+  };
+}
+
+/** 行的取价徽标文案（无徽标 → 空串，模板里配合 `v-if="linePriceBadge(row)"`） */
+export function linePriceBadgeLabel(line: SalesOrderLineDraft): string {
+  return linePriceBadge(line)?.label ?? '';
+}
+
+/** 行的取价徽标配色（无徽标 → `default`，TDesign 不会为此报错） */
+export function linePriceBadgeTheme(
+  line: SalesOrderLineDraft,
+): 'success' | 'primary' | 'default' | 'warning' {
+  return linePriceBadge(line)?.theme ?? 'default';
 }
 
 /** 空表单（新建用；`today` 由调用方给，便于测试与「北京时间今天」口径） */
@@ -453,6 +549,10 @@ export function formFromDetail(order: SalesOrder): SalesOrderFormDraft {
           qty: String(toFinite(item.qty)),
           price: String(toFinite(item.price)),
           tax_rate: String(toFinite(item.tax_rate)),
+          // 历史单据没有取价来源（SO-34 之前的单没有这条线索）：留空 = 不显示标签，
+          // 编单时也不会被"自动带价"悄悄改价（price_manual=true，人工价优先）
+          price_source: '',
+          price_manual: true,
         }),
       ),
   };

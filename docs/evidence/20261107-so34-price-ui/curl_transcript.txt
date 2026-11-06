@@ -1,0 +1,88 @@
+
+### ① 登录拿 token（admin / SUPER_ADMIN 短路权限）
+token 长度 = 461
+
+### ② 新建客户协议价（C1 × M4，起订量 500，单价 6.6600）
+{"code":0,"msg":"ok","data":{"id":"01a1b245-a707-7425-9d5e-b98ee51b3b78","customer_id":"f0330000-0000-4000-8000-000000000001","customer_code":"SO33-C1","customer_name":"SO33 客户A（有协议价）","material_id":"f0330000-0000-4000-8000-000000000014","material_code":"SO33-M4","material_name":"SO33 物料4（一无所有）","material_spec":null,"price":"6.6600","min_qty":"500.0000","effective_from":"2026-01-01","effective_to":null,"status":"ACTIVE","remark":"curl 留证","created_at":"2026-11-06T19:11:11.623958Z","updated_at":"2026-11-06T19:11:11.623958Z"}}
+新建 id = 01a1b245-a707-7425-9d5e-b98ee51b3b78
+
+### ③ 分页查（按物料 M4 筛，能看到客户 / 物料名称被 LEFT JOIN 补齐）
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "list": [
+            {
+                "id": "01a1b245-a707-7425-9d5e-b98ee51b3b78",
+                "customer_id": "f0330000-0000-4000-8000-000000000001",
+                "customer_code": "SO33-C1",
+                "customer_name": "SO33 \u5ba2\u6237A\uff08\u6709\u534f\u8bae\u4ef7\uff09",
+                "material_id": "f0330000-0000-4000-8000-000000000014",
+                "material_code": "SO33-M4",
+                "material_name": "SO33 \u7269\u65994\uff08\u4e00\u65e0\u6240\u6709\uff09",
+                "material_spec": null,
+                "price": "6.6600",
+                "min_qty": "500.0000",
+                "effective_from": "2026-01-01",
+                "effective_to": null,
+                "status": "ACTIVE",
+                "remark": "curl \u7559\u8bc1",
+                "created_at": "2026-11-06T19:11:11.623958Z",
+                "updated_at": "2026-11-06T19:11:11.623958Z"
+            },
+            {
+                "id": "01a1b23f-27d7-71cd-9516-126d736dd717",
+                "customer_id": "f0330000-0000-4000-8000-000000000002",
+                "customer_code": "SO33-C2",
+                "customer_name": "SO33 \u5ba2\u6237B\uff08\u65e0\u534f\u8bae\u4ef7\uff09",
+                "material_id": "f0330000-0000-4000-8000-000000000014",
+                "material_code": "SO33-M4",
+                "material_name": "SO33 \u7269\u65994\uff08\u4e00\u65e0\u6240\u6709\uff09",
+                "material_spec": null,
+                "price": "9.9999",
+                "min_qty": "50.0000",
+                "effective_from": "2026-01-01",
+                "effective_to": null,
+                "status": "ACTIVE",
+                "remark": null,
+                "created_at": "2026-11-06T19:04:05.847957Z",
+                "updated_at": "2026-11-06T19:04:05.847957Z"
+
+### ④ 新建通用阶梯档（M4，[100, 500)，单价 5.5500）
+{"code":0,"msg":"ok","data":{"id":"01a1b245-a742-72d7-87ce-64c5a5efbc18","material_id":"f0330000-0000-4000-8000-000000000014","material_code":"SO33-M4","material_name":"SO33 物料4（一无所有）","material_spec":null,"customer_id":null,"customer_code":null,"customer_name":null,"tier_type":"TIER","min_qty":"100.0000","max_qty":"500.0000","price":"5.5500","effective_from":"2026-01-01","effective_to":null,"status":"ACTIVE","remark":null,"created_at":"2026-11-06T19:11:11.682951Z","updated_at":"2026-11-06T19:11:11.682951Z"}}
+档位 id = 01a1b245-a742-72d7-87ce-64c5a5efbc18
+
+### ⑤ 唯一键冲突（同客户 + 物料 + 起订量 + 生效日再建一次 → 409）
+HTTP 409
+
+### ⑥ 取价（C1 × M4，qty=600 → 命中协议价 6.6600）
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "price": "6.6600",
+        "source": "AGREED",
+        "source_id": "01a1b245-a707-7425-9d5e-b98ee51b3b78"
+    }
+}
+
+### ⑦ 取价（C1 × M4，qty=400 → 协议价起订量 500 不够，落通用阶梯 5.5500）
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "price": "5.5500",
+        "source": "TIER_COMMON",
+        "source_id": "01a1b245-a742-72d7-87ce-64c5a5efbc18"
+    }
+}
+
+### ⑧ 用取到的价开销售订单（600 件 × 6.6600 → 金额由服务端算）
+{'so_no': 'SO-20261107-000009', 'item_price': '6.660000', 'amount': '3996.0000', 'total_with_tax': '4515.4800'}
+
+### ⑨ 清理（软删本留证的协议价与档位）
+DELETE agreed → HTTP 200
+DELETE tier   → HTTP 200
+
+### ⑩ 无 token 调接口 → 401（权限不是只靠前端隐藏按钮）
+HTTP 401

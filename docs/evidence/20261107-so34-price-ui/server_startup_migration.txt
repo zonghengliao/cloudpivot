@@ -1,0 +1,2 @@
+[2m2026-11-06T19:10:14.602015Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 1 个迁移
+308|versioned|executed

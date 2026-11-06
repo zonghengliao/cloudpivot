@@ -1,0 +1,11 @@
+== ① 二次 up（幂等：应只打印 NOTICE/无异常） ==
+UP#2 OK
+== ② down（删授权 + 按钮 + 页面） ==
+DOWN OK
+0
+== ③ 二次 down（幂等 no-op） ==
+DOWN#2 OK
+== ④ 再 up（恢复） ==
+UP#3 OK
+8
+0

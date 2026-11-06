@@ -1,0 +1,24 @@
+ version |   kind    | applied_via | success 
+---------+-----------+-------------+---------
+ 308     | versioned | executed    | t
+(1 row)
+
+                  id                  |    name    | menu_type |           auth_code            |             path             | is_visible |  parent  
+--------------------------------------+------------+-----------+--------------------------------+------------------------------+------------+----------
+ 20000000-0000-0000-0000-000000003081 | 价格管理   |         2 | business:erp:cust-price:list   | /business/erp/customer-price | t          | 销售管理
+ 20000000-0000-0000-0000-000000003082 | 协议价新建 |         3 | business:erp:cust-price:create |                              | t          | 价格管理
+ 20000000-0000-0000-0000-000000003083 | 协议价编辑 |         3 | business:erp:cust-price:update |                              | t          | 价格管理
+ 20000000-0000-0000-0000-000000003084 | 协议价删除 |         3 | business:erp:cust-price:delete |                              | t          | 价格管理
+ 20000000-0000-0000-0000-000000003085 | 阶梯价查询 |         3 | business:erp:price-tier:list   |                              | t          | 价格管理
+ 20000000-0000-0000-0000-000000003086 | 阶梯价新建 |         3 | business:erp:price-tier:create |                              | t          | 价格管理
+ 20000000-0000-0000-0000-000000003087 | 阶梯价编辑 |         3 | business:erp:price-tier:update |                              | t          | 价格管理
+ 20000000-0000-0000-0000-000000003088 | 阶梯价删除 |         3 | business:erp:price-tier:delete |                              | t          | 价格管理
+(8 rows)
+
+    role_code     | count 
+------------------+-------
+ FINANCE_MANAGER  |     1
+ SALES_CLERK      |     3
+ SALES_SUPERVISOR |     9
+(3 rows)
+
