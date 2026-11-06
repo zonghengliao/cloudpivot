@@ -1,0 +1,13 @@
+== V0306 down ==
+psql:backend/migrations/business/V0306__sales_return_menu_page.down.sql:79: NOTICE:  V0306 down 完成：销售退货单页已还原（path/component=NULL, is_visible=FALSE, parent=NULL, sort=79），3 个权限码与 2 个按钮完好
+DO
+-- down 后菜单行 --
+<NULL>|<NULL>|f|<NULL>|79
+== V0306 up ==
+psql:backend/migrations/business/V0306__sales_return_menu_page.up.sql:137: NOTICE:  V0306 完成：销售退货单页已开（path=/business/erp/sales-return component=business/erp/sales-return/index parent=销售管理 sort=70），本次改 path 1 行；2 个按钮父级完好
+DO
+== V0306 二次 up（幂等）==
+psql:backend/migrations/business/V0306__sales_return_menu_page.up.sql:137: NOTICE:  V0306 完成：销售退货单页已开（path=/business/erp/sales-return component=business/erp/sales-return/index parent=销售管理 sort=70），本次改 path 0 行；2 个按钮父级完好
+DO
+-- 终态 --
+/business/erp/sales-return|business/erp/sales-return/index|t|20000000-0000-0000-0000-000000002701|70

@@ -1,0 +1,1 @@
+{"code":10003,"msg":"非法状态迁移：已提交（SUBMITTED）→ 已提交（SUBMITTED）不在合法边表里；当前可流转到：APPROVED（已批准） / CANCELLED（已取消）"}

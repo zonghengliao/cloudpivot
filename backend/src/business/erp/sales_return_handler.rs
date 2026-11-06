@@ -492,6 +492,13 @@ pub struct ReturnRes {
     pub receivable_id: Option<String>,
     /// 红字发票（SO-30 回填）。
     pub red_invoice_id: Option<String>,
+    /// 审批实例 id（弱引用流程引擎；未提审为 `null`）。
+    ///
+    /// SO-31 起对前端下发（前端 `FlowProgress` 靠它打 `GET /business/flow/instance/{id}`）。
+    /// **现状**：退货单尚未接入流程引擎（`change_return_status` 不建实例），本字段恒
+    /// `null`，前端按 `approval-progress.ts` 的共享口径降级为「不渲染进度块」；
+    /// 接上引擎后前端无需再改。与销售订单 `approval_instance_id` 同口径（列表也下发）。
+    pub approval_instance_id: Option<String>,
     /// 备注。
     pub remark: Option<String>,
     /// 创建时间。
@@ -529,6 +536,7 @@ impl ReturnRes {
             stock_in_id: row.stock_in_id.map(|id| id.to_string()),
             receivable_id: row.receivable_id.map(|id| id.to_string()),
             red_invoice_id: row.red_invoice_id.map(|id| id.to_string()),
+            approval_instance_id: row.approval_instance_id.map(|id| id.to_string()),
             remark: row.remark.clone(),
             created_at: row.created_at,
             updated_at: row.updated_at,

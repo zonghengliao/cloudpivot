@@ -1,0 +1,7 @@
+== 页面 chunk 里的本卡文案 / testid（证明进包）==
+frontend/dist/assets/index-CuIcQMb0.js
+frontend/dist/assets/index-CuIcQMb0.js
+-- chunk 大小 --
+-rw-r--r-- 1 root root 32732 Nov  7 02:15 frontend/dist/assets/index-CuIcQMb0.js
+-- dist 入口 --
+assets/index-DhLHPPhn.js

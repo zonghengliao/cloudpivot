@@ -1,0 +1,5 @@
+== 隔离实例启动时的迁移日志（含 V0303~V0306）==
+[2m2026-11-06T18:13:07.329709Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0304 完成：sales-return 3 个权限码已种入 sys_menu（1 页面 + 2 按钮，均隐藏）
+[2m2026-11-06T18:13:07.334884Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0305 OK：biz_stock_in 来源两列 + 部分唯一索引 + 发票来源白名单 SALES_RETURN
+[2m2026-11-06T18:13:07.336640Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0306 完成：销售退货单页已开（path=/business/erp/sales-return component=business/erp/sales-return/index parent=销售管理 sort=70），本次改 path 1 行；2 个按钮父级完好
+[2m2026-11-06T18:13:07.361064Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 233 个迁移

@@ -1,0 +1,6087 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @cloudpivot/web@0.1.0 test:unit /opt/cloudpivot/frontend
+> tsx --test "tests/unit/**/*.test.ts"
+
+TAP version 13
+# Subtest: 工具栏文案：勾选后显示条数，并明确「本页 / 全部筛选结果」
+ok 1 - 工具栏文案：勾选后显示条数，并明确「本页 / 全部筛选结果」
+  ---
+  duration_ms: 0.566687
+  type: 'test'
+  ...
+# Subtest: 状态不符合时按钮禁用，提示点名「哪几条状态不对」
+ok 2 - 状态不符合时按钮禁用，提示点名「哪几条状态不对」
+  ---
+  duration_ms: 0.22455
+  type: 'test'
+  ...
+# Subtest: 行复选框：任何动作都不适用的行不可勾选，全选也会跳过它
+ok 3 - 行复选框：任何动作都不适用的行不可勾选，全选也会跳过它
+  ---
+  duration_ms: 1.186669
+  type: 'test'
+  ...
+# Subtest: 进度：N/M 与百分比，且按 BATCH_CHUNK 分批不超过后端上限
+ok 4 - 进度：N/M 与百分比，且按 BATCH_CHUNK 分批不超过后端上限
+  ---
+  duration_ms: 0.177173
+  type: 'test'
+  ...
+# Subtest: 结果汇总：总数/成功/失败，失败逐条「单号：原因」并可整段复制
+ok 5 - 结果汇总：总数/成功/失败，失败逐条「单号：原因」并可整段复制
+  ---
+  duration_ms: 0.279469
+  type: 'test'
+  ...
+# Subtest: 全选 / 反选 / 清空：只动给定 id，不清其它页的勾选
+ok 6 - 全选 / 反选 / 清空：只动给定 id，不清其它页的勾选
+  ---
+  duration_ms: 0.195424
+  type: 'test'
+  ...
+# Subtest: 高危动作：确认正文带影响条数，原因必填且有最小字数
+ok 7 - 高危动作：确认正文带影响条数，原因必填且有最小字数
+  ---
+  duration_ms: 0.210841
+  type: 'test'
+  ...
+# Subtest: 批量指派：没选负责人不许提交，选了才通过
+ok 8 - 批量指派：没选负责人不许提交，选了才通过
+  ---
+  duration_ms: 0.093837
+  type: 'test'
+  ...
+# Subtest: visible 的三个分支：有勾选 / 正在跑 / 结果弹窗还没关
+ok 9 - visible 的三个分支：有勾选 / 正在跑 / 结果弹窗还没关
+  ---
+  duration_ms: 0.564855
+  type: 'test'
+  ...
+# Subtest: execute() 成功收尾的顺序：先 resultVisible = true，再清空勾选
+ok 10 - execute() 成功收尾的顺序：先 resultVisible = true，再清空勾选
+  ---
+  duration_ms: 0.129422
+  type: 'test'
+  ...
+# Subtest: 结果弹窗的显隐由 resultVisible 受控，并接住关闭事件
+ok 11 - 结果弹窗的显隐由 resultVisible 受控，并接住关闭事件
+  ---
+  duration_ms: 0.13463
+  type: 'test'
+  ...
+# Subtest: 关掉结果弹窗会清掉本次 outcome（下一次动作不残留上一次结果）
+ok 12 - 关掉结果弹窗会清掉本次 outcome（下一次动作不残留上一次结果）
+  ---
+  duration_ms: 0.128796
+  type: 'test'
+  ...
+# Subtest: 结果弹窗的标题/正文仍然来自 resultHeadline / resultHint（导出任务要能被认出来）
+ok 13 - 结果弹窗的标题/正文仍然来自 resultHeadline / resultHint（导出任务要能被认出来）
+  ---
+  duration_ms: 0.152964
+  type: 'test'
+  ...
+# Subtest: 回执齐全：卡片状态/进度按回执校正，父任务进度同步到板上
+ok 14 - 回执齐全：卡片状态/进度按回执校正，父任务进度同步到板上
+  ---
+  duration_ms: 0.721943
+  type: 'test'
+  ...
+# Subtest: 回执缺 parent_progress（undefined）：不抛异常，卡片留在目标列
+ok 15 - 回执缺 parent_progress（undefined）：不抛异常，卡片留在目标列
+  ---
+  duration_ms: 0.099796
+  type: 'test'
+  ...
+# Subtest: 回执 parent_progress 为 null：不抛异常，卡片留在目标列
+ok 16 - 回执 parent_progress 为 null：不抛异常，卡片留在目标列
+  ---
+  duration_ms: 0.089878
+  type: 'test'
+  ...
+# Subtest: 回执整个为 null（body.data 为空）：用 fallbackStatus 兜底，不抛也不回滚
+ok 17 - 回执整个为 null（body.data 为空）：用 fallbackStatus 兜底，不抛也不回滚
+  ---
+  duration_ms: 0.088045
+  type: 'test'
+  ...
+# Subtest: 回执缺 status：用 fallbackStatus（拖拽目标列）兜底
+ok 18 - 回执缺 status：用 fallbackStatus（拖拽目标列）兜底
+  ---
+  duration_ms: 0.08867
+  type: 'test'
+  ...
+# Subtest: parent_progress 是对象而非数组：安全跳过，不影响卡片校正
+ok 19 - parent_progress 是对象而非数组：安全跳过，不影响卡片校正
+  ---
+  duration_ms: 0.080295
+  type: 'test'
+  ...
+# Subtest: parent_progress 元素缺字段：跳过坏元素，继续处理后面的（不整体丢弃）
+ok 20 - parent_progress 元素缺字段：跳过坏元素，继续处理后面的（不整体丢弃）
+  ---
+  duration_ms: 0.164214
+  type: 'test'
+  ...
+# Subtest: 目标列里找不到该卡（回执早于列表刷新到）：applied=false 且不抛
+ok 21 - 目标列里找不到该卡（回执早于列表刷新到）：applied=false 且不抛
+  ---
+  duration_ms: 0.080503
+  type: 'test'
+  ...
+# Subtest: progress 非数字（后端类型漂移成字符串）：不写坏卡片进度
+ok 22 - progress 非数字（后端类型漂移成字符串）：不写坏卡片进度
+  ---
+  duration_ms: 0.299928
+  type: 'test'
+  ...
+# Subtest: boardTasks 缺席（不传）也不炸
+ok 23 - boardTasks 缺席（不传）也不炸
+  ---
+  duration_ms: 0.410266
+  type: 'test'
+  ...
+# Subtest: ① 收货单详情：FlowProgress 同时传 nodes 与 tasks（否则只有进度条，看不到审批人）
+ok 24 - ① 收货单详情：FlowProgress 同时传 nodes 与 tasks（否则只有进度条，看不到审批人）
+  ---
+  duration_ms: 0.797488
+  type: 'test'
+  ...
+# Subtest: ② 应付单详情：FlowProgress 同时传 nodes 与 tasks，且标题仍跟着实例类型走
+ok 25 - ② 应付单详情：FlowProgress 同时传 nodes 与 tasks，且标题仍跟着实例类型走
+  ---
+  duration_ms: 0.143714
+  type: 'test'
+  ...
+# Subtest: ③ 凭证详情：底部新增「审批进度」区块（节点 + 审批人明细），位置在分录 / 合计之后
+ok 26 - ③ 凭证详情：底部新增「审批进度」区块（节点 + 审批人明细），位置在分录 / 合计之后
+  ---
+  duration_ms: 0.248343
+  type: 'test'
+  ...
+# Subtest: ③-补 凭证：进度数据源优先 `pending_reverse_instance_id`（P-FLOW-3B 下发的字段），不是自造 id
+ok 27 - ③-补 凭证：进度数据源优先 `pending_reverse_instance_id`（P-FLOW-3B 下发的字段），不是自造 id
+  ---
+  duration_ms: 0.34418
+  type: 'test'
+  ...
+# Subtest: ④ 调拨单详情：自绘时间线整段删掉，换成全站 FlowProgress（含 tasks）
+ok 28 - ④ 调拨单详情：自绘时间线整段删掉，换成全站 FlowProgress（含 tasks）
+  ---
+  duration_ms: 0.310595
+  type: 'test'
+  ...
+# Subtest: ④-补 调拨单：自绘时间线独有的「提交人 + 提交时间」用一行文字补回（不许默默丢）
+ok 29 - ④-补 调拨单：自绘时间线独有的「提交人 + 提交时间」用一行文字补回（不许默默丢）
+  ---
+  duration_ms: 1.130542
+  type: 'test'
+  ...
+# Subtest: ⑤ 四个页面都从同一个共享装载器取进度（不再各写一份 map）
+ok 30 - ⑤ 四个页面都从同一个共享装载器取进度（不再各写一份 map）
+  ---
+  duration_ms: 0.214842
+  type: 'test'
+  ...
+# Subtest: ⑤-补 approvalProgressOf：实例详情一次映射成 nodes + tasks，null 退化成空（不抛）
+ok 31 - ⑤-补 approvalProgressOf：实例详情一次映射成 nodes + tasks，null 退化成空（不抛）
+  ---
+  duration_ms: 0.373014
+  type: 'test'
+  ...
+# Subtest: ⑤-补 loadApprovalProgress 与 approvalProgressOf 同口径（凭证 / 收货 / 应付都走它）
+ok 32 - ⑤-补 loadApprovalProgress 与 approvalProgressOf 同口径（凭证 / 收货 / 应付都走它）
+  ---
+  duration_ms: 0.549937
+  type: 'test'
+  ...
+# Subtest: ⑥ FlowProgress 组件契约未变：nodes 必填、tasks 可选（不传的老页面像素不变）
+ok 33 - ⑥ FlowProgress 组件契约未变：nodes 必填、tasks 可选（不传的老页面像素不变）
+  ---
+  duration_ms: 0.464059
+  type: 'test'
+  ...
+# Subtest: ① 单个 cmp 节点生成正确 JSON（键名/键顺序 = op field cmp value）
+ok 34 - ① 单个 cmp 节点生成正确 JSON（键名/键顺序 = op field cmp value）
+  ---
+  duration_ms: 1.302257
+  type: 'test'
+  ...
+# Subtest: ② and 包两个条件 → args 长度 2，结构正确
+ok 35 - ② and 包两个条件 → args 长度 2，结构正确
+  ---
+  duration_ms: 0.115504
+  type: 'test'
+  ...
+# Subtest: ③ or 嵌套 and → 树形结构正确（or.args[0] 是 and，and.args 有 2 项）
+ok 36 - ③ or 嵌套 and → 树形结构正确（or.args[0] 是 and，and.args 有 2 项）
+  ---
+  duration_ms: 0.202966
+  type: 'test'
+  ...
+# Subtest: ④ not 单条件 → args 长度 1（多给会被截断到 1 并记问题）
+ok 37 - ④ not 单条件 → args 长度 1（多给会被截断到 1 并记问题）
+  ---
+  duration_ms: 0.241551
+  type: 'test'
+  ...
+# Subtest: ⑤ JSON → 树 → JSON 逐字相等（往返一致）
+ok 38 - ⑤ JSON → 树 → JSON 逐字相等（往返一致）
+  ---
+  duration_ms: 0.531353
+  type: 'test'
+  ...
+# Subtest: ⑥ 深度到 8 层 → 不能再加（addBlock 给出原因，addChild 拒绝）
+ok 39 - ⑥ 深度到 8 层 → 不能再加（addBlock 给出原因，addChild 拒绝）
+  ---
+  duration_ms: 0.604231
+  type: 'test'
+  ...
+# Subtest: ⑥b 手工构造「第 8 层还是分组」→ 两个添加按钮都被深度挡住
+ok 40 - ⑥b 手工构造「第 8 层还是分组」→ 两个添加按钮都被深度挡住
+  ---
+  duration_ms: 0.18059
+  type: 'test'
+  ...
+# Subtest: ⑦ 节点到 64 → 不能再加；65 个节点被体检测出超限
+ok 41 - ⑦ 节点到 64 → 不能再加；65 个节点被体检测出超限
+  ---
+  duration_ms: 0.499852
+  type: 'test'
+  ...
+# Subtest: ⑧ 字段不在白名单（foo.bar）→ 红框提示；空字段也提示
+ok 42 - ⑧ 字段不在白名单（foo.bar）→ 红框提示；空字段也提示
+  ---
+  duration_ms: 0.339596
+  type: 'test'
+  ...
+# Subtest: ⑨ 空规则树 → 生成 null（表示无条件）
+ok 43 - ⑨ 空规则树 → 生成 null（表示无条件）
+  ---
+  duration_ms: 0.386473
+  type: 'test'
+  ...
+# Subtest: ⑩ form.amount 前缀输入 → 通过校验，且生成 JSON 带完整字段名
+ok 44 - ⑩ form.amount 前缀输入 → 通过校验，且生成 JSON 带完整字段名
+  ---
+  duration_ms: 0.173215
+  type: 'test'
+  ...
+# Subtest: 附加：右值输入框文本 → JSON 字面量（数字/布尔/null/数组）
+ok 45 - 附加：右值输入框文本 → JSON 字面量（数字/布尔/null/数组）
+  ---
+  duration_ms: 0.321887
+  type: 'test'
+  ...
+# Subtest: 附加：is_null / not_null 不落 value 键（与后端求值形状一致）
+ok 46 - 附加：is_null / not_null 不落 value 键（与后端求值形状一致）
+  ---
+  duration_ms: 0.08617
+  type: 'test'
+  ...
+# Subtest: 附加：in 的右值必须是数组（标量会被体检拦下）
+ok 47 - 附加：in 的右值必须是数组（标量会被体检拦下）
+  ---
+  duration_ms: 0.989995
+  type: 'test'
+  ...
+# Subtest: 附加：单组 args 到 16 项封顶（后端 MAX_CONDITION_ARGS）
+ok 48 - 附加：单组 args 到 16 项封顶（后端 MAX_CONDITION_ARGS）
+  ---
+  duration_ms: 0.190591
+  type: 'test'
+  ...
+# Subtest: 附加：addChild 造出来的分组自带一个空 cmp（点开就能填，且节点数 +2）
+ok 49 - 附加：addChild 造出来的分组自带一个空 cmp（点开就能填，且节点数 +2）
+  ---
+  duration_ms: 0.134797
+  type: 'test'
+  ...
+# Subtest: 附加：非对象/未知算子反解不抛异常（老数据防御）
+ok 50 - 附加：非对象/未知算子反解不抛异常（老数据防御）
+  ---
+  duration_ms: 0.190549
+  type: 'test'
+  ...
+# Subtest: 附加：semanticKey 忽略键顺序（避免 watch 回灌冲掉正在编辑的输入）
+ok 51 - 附加：semanticKey 忽略键顺序（避免 watch 回灌冲掉正在编辑的输入）
+  ---
+  duration_ms: 0.193632
+  type: 'test'
+  ...
+# Subtest: D4 · 带出：只带待收 > 0 的行，数量默认 = 待收数量
+ok 52 - D4 · 带出：只带待收 > 0 的行，数量默认 = 待收数量
+  ---
+  duration_ms: 2.719352
+  type: 'test'
+  ...
+# Subtest: D4 · 带出：单头（供应商 / 仓库 / 来源单号）全部来自源单
+ok 53 - D4 · 带出：单头（供应商 / 仓库 / 来源单号）全部来自源单
+  ---
+  duration_ms: 0.131171
+  type: 'test'
+  ...
+# Subtest: D4 · 带出：NUMERIC 以字符串下发也能正确转数（"70.0000" → 70）
+ok 54 - D4 · 带出：NUMERIC 以字符串下发也能正确转数（"70.0000" → 70）
+  ---
+  duration_ms: 0.112462
+  type: 'test'
+  ...
+# Subtest: D4 · 带出：一行待收都没有时留一个空行（界面不该是零行）
+ok 55 - D4 · 带出：一行待收都没有时留一个空行（界面不该是零行）
+  ---
+  duration_ms: 0.115129
+  type: 'test'
+  ...
+# Subtest: D4 · 保存：每行带回 purchase_order_item_id + 单头带 purchase_order_id
+ok 56 - D4 · 保存：每行带回 purchase_order_item_id + 单头带 purchase_order_id
+  ---
+  duration_ms: 0.147338
+  type: 'test'
+  ...
+# Subtest: D4 · 保存：手工建单（无来源）不带 purchase_order_id（给 null，不误挂单）
+ok 57 - D4 · 保存：手工建单（无来源）不带 purchase_order_id（给 null，不误挂单）
+  ---
+  duration_ms: 0.089545
+  type: 'test'
+  ...
+# Subtest: D4 · 防超收：数量超过待收 → 前端先拦，文案点明本次上限与三个数
+ok 58 - D4 · 防超收：数量超过待收 → 前端先拦，文案点明本次上限与三个数
+  ---
+  duration_ms: 0.387056
+  type: 'test'
+  ...
+# Subtest: D4 · 防超收：刚好等于待收（部分收货的极限）要放行
+ok 59 - D4 · 防超收：刚好等于待收（部分收货的极限）要放行
+  ---
+  duration_ms: 0.106045
+  type: 'test'
+  ...
+# Subtest: D4 · 防超收：改小数量（部分收货是常态）不拦
+ok 60 - D4 · 防超收：改小数量（部分收货是常态）不拦
+  ---
+  duration_ms: 0.408057
+  type: 'test'
+  ...
+# Subtest: D4/O3 · 筛选：按来源采购单号进查询参数，清空后不发
+ok 61 - D4/O3 · 筛选：按来源采购单号进查询参数，清空后不发
+  ---
+  duration_ms: 0.425933
+  type: 'test'
+  ...
+# Subtest: D4/O3 · 筛选：只填采购单号也算「处于筛选态」（决定空表文案）
+ok 62 - D4/O3 · 筛选：只填采购单号也算「处于筛选态」（决定空表文案）
+  ---
+  duration_ms: 0.198341
+  type: 'test'
+  ...
+# Subtest: d5 预填金额 = 后端 default_amount（部分已付时是 300 而不是 500）
+ok 63 - d5 预填金额 = 后端 default_amount（部分已付时是 300 而不是 500）
+  ---
+  duration_ms: 0.766987
+  type: 'test'
+  ...
+# Subtest: d5 预填金额：整数分不丢精度（126.35 → 126.35）
+ok 64 - d5 预填金额：整数分不丢精度（126.35 → 126.35）
+  ---
+  duration_ms: 0.132588
+  type: 'test'
+  ...
+# Subtest: d5 预填金额：后端没给 default_amount 时退回未付（灰度期的老响应）
+ok 65 - d5 预填金额：后端没给 default_amount 时退回未付（灰度期的老响应）
+  ---
+  duration_ms: 0.079753
+  type: 'test'
+  ...
+# Subtest: d5 预填金额：不能付款时是 0（后端把 default_amount 归 0）
+ok 66 - d5 预填金额：不能付款时是 0（后端把 default_amount 归 0）
+  ---
+  duration_ms: 0.161214
+  type: 'test'
+  ...
+# Subtest: d5 按钮：能付 + 有付款权限 → 显示
+ok 67 - d5 按钮：能付 + 有付款权限 → 显示
+  ---
+  duration_ms: 0.092087
+  type: 'test'
+  ...
+# Subtest: d5 按钮：已结清 → 不显示（不是置灰）
+ok 68 - d5 按钮：已结清 → 不显示（不是置灰）
+  ---
+  duration_ms: 0.071586
+  type: 'test'
+  ...
+# Subtest: d5 按钮：已作废 → 不显示
+ok 69 - d5 按钮：已作废 → 不显示
+  ---
+  duration_ms: 0.135089
+  type: 'test'
+  ...
+# Subtest: d5 按钮：审批中（can_pay=false）→ 不显示，且原因要能透出给用户
+ok 70 - d5 按钮：审批中（can_pay=false）→ 不显示，且原因要能透出给用户
+  ---
+  duration_ms: 0.126838
+  type: 'test'
+  ...
+# Subtest: d5 按钮：没有 business:erp:payable:pay 权限 → 不显示（后端仍会 403）
+ok 71 - d5 按钮：没有 business:erp:payable:pay 权限 → 不显示（后端仍会 403）
+  ---
+  duration_ms: 0.337637
+  type: 'test'
+  ...
+# Subtest: d5 按钮：可付信息还没拉到（null）→ 不显示，避免闪现一个点不动的按钮
+ok 72 - d5 按钮：可付信息还没拉到（null）→ 不显示，避免闪现一个点不动的按钮
+  ---
+  duration_ms: 0.35343
+  type: 'test'
+  ...
+# Subtest: d5 追溯：来源收货单 → 收货单页深链（带 in_id）
+ok 73 - d5 追溯：来源收货单 → 收货单页深链（带 in_id）
+  ---
+  duration_ms: 0.148881
+  type: 'test'
+  ...
+# Subtest: d5 追溯：非收货来源 / 没有 id → 不给假链接
+ok 74 - d5 追溯：非收货来源 / 没有 id → 不给假链接
+  ---
+  duration_ms: 0.080003
+  type: 'test'
+  ...
+# Subtest: d5 追溯：付款凭证号 → 凭证页深链；空号 → null
+ok 75 - d5 追溯：付款凭证号 → 凭证页深链；空号 → null
+  ---
+  duration_ms: 0.076044
+  type: 'test'
+  ...
+# Subtest: d5 追溯：应付单号 → 应付页深链（付款记录点回来）
+ok 76 - d5 追溯：应付单号 → 应付页深链（付款记录点回来）
+  ---
+  duration_ms: 0.069377
+  type: 'test'
+  ...
+# Subtest: D9 收货单：复制带出采购单 → 提示「请重新关联采购单」
+ok 77 - D9 收货单：复制带出采购单 → 提示「请重新关联采购单」
+  ---
+  duration_ms: 0.545062
+  type: 'test'
+  ...
+# Subtest: D9 收货单：无源直收的单子复制 → 不提示（避免无意义打扰）
+ok 78 - D9 收货单：无源直收的单子复制 → 不提示（避免无意义打扰）
+  ---
+  duration_ms: 0.106296
+  type: 'test'
+  ...
+# Subtest: D9 收货单：回填表单带 id（保存走改这张草稿，不会又建一张）
+ok 79 - D9 收货单：回填表单带 id（保存走改这张草稿，不会又建一张）
+  ---
+  duration_ms: 0.233592
+  type: 'test'
+  ...
+# Subtest: D9 调拨单：原单带过序列号 → 提示「序列号不会复制」
+ok 80 - D9 调拨单：原单带过序列号 → 提示「序列号不会复制」
+  ---
+  duration_ms: 0.2143
+  type: 'test'
+  ...
+# Subtest: D9 调拨单：原单没有序列号（数量物料）→ 不提示
+ok 81 - D9 调拨单：原单没有序列号（数量物料）→ 不提示
+  ---
+  duration_ms: 0.092379
+  type: 'test'
+  ...
+# Subtest: D9 调拨单：复制出来的详情回填后明细一致、id 指向新单
+ok 82 - D9 调拨单：复制出来的详情回填后明细一致、id 指向新单
+  ---
+  duration_ms: 0.803614
+  type: 'test'
+  ...
+# Subtest: ④ 采购类型选 CONTRACT：合同选择器出现、供应商变只读（模板接线 + 逻辑判据）
+ok 83 - ④ 采购类型选 CONTRACT：合同选择器出现、供应商变只读（模板接线 + 逻辑判据）
+  ---
+  duration_ms: 1.391177
+  type: 'test'
+  ...
+# Subtest: ⑤ 采购类型选 SPOT：合同选择器不渲染、供应商可编辑
+ok 84 - ⑤ 采购类型选 SPOT：合同选择器不渲染、供应商可编辑
+  ---
+  duration_ms: 0.498727
+  type: 'test'
+  ...
+# Subtest: ⑥ CONTRACT 型未选合同 → 提交被拦（且不误报「请选择供应商」）
+ok 85 - ⑥ CONTRACT 型未选合同 → 提交被拦（且不误报「请选择供应商」）
+  ---
+  duration_ms: 0.223342
+  type: 'test'
+  ...
+# Subtest: ⑦ 选中合同 → 供应商字段被自动填入乙方名（id + 名称一把写）
+ok 86 - ⑦ 选中合同 → 供应商字段被自动填入乙方名（id + 名称一把写）
+  ---
+  duration_ms: 0.112921
+  type: 'test'
+  ...
+# Subtest: ⑧ 编辑 CONTRACT 型单：采购类型只读、合同只读（不给换合同）
+ok 87 - ⑧ 编辑 CONTRACT 型单：采购类型只读、合同只读（不给换合同）
+  ---
+  duration_ms: 1.059832
+  type: 'test'
+  ...
+# Subtest: ⑨ 列表显示「合同采购 / 现货采购」文案正确（且走同一个函数，不在模板里写三元）
+ok 88 - ⑨ 列表显示「合同采购 / 现货采购」文案正确（且走同一个函数，不在模板里写三元）
+  ---
+  duration_ms: 0.523311
+  type: 'test'
+  ...
+# Subtest: ⑩ 列表合同号读快照字段 contract_no_snapshot（不是实时 JOIN / 不是 contract_id）
+ok 89 - ⑩ 列表合同号读快照字段 contract_no_snapshot（不是实时 JOIN / 不是 contract_id）
+  ---
+  duration_ms: 0.505935
+  type: 'test'
+  ...
+# Subtest: ⑭ 原有「审批单 FLW-xxx」链接仍然存在且可点（这次改动不许弄丢）
+ok 90 - ⑭ 原有「审批单 FLW-xxx」链接仍然存在且可点（这次改动不许弄丢）
+  ---
+  duration_ms: 0.441767
+  type: 'test'
+  ...
+# Subtest: 合同下拉只列「采购类 + 可下单状态」，状态口径与后端 USABLE_FOR_ORDER 逐字一致
+ok 91 - 合同下拉只列「采购类 + 可下单状态」，状态口径与后端 USABLE_FOR_ORDER 逐字一致
+  ---
+  duration_ms: 1.381344
+  type: 'test'
+  ...
+# Subtest: 请求体口径：合同采购不发 supplier_id / 现货采购不带 contract_id
+ok 92 - 请求体口径：合同采购不发 supplier_id / 现货采购不带 contract_id
+  ---
+  duration_ms: 0.550729
+  type: 'test'
+  ...
+# Subtest: ⑪ 入库单采购入库：供应商只读（值来自采购单）+ 采购单必选
+ok 93 - ⑪ 入库单采购入库：供应商只读（值来自采购单）+ 采购单必选
+  ---
+  duration_ms: 0.947535
+  type: 'test'
+  ...
+# Subtest: ⑫ 入库单非采购入库（无源单据）：显示「无源单据」标记，供应商转手选且必须写备注
+ok 94 - ⑫ 入库单非采购入库（无源单据）：显示「无源单据」标记，供应商转手选且必须写备注
+  ---
+  duration_ms: 0.562563
+  type: 'test'
+  ...
+# Subtest: ⑬ 入库单未选采购单 → 供应商显示「请先选择采购单」（不是空白、不是 —）
+ok 95 - ⑬ 入库单未选采购单 → 供应商显示「请先选择采购单」（不是空白、不是 —）
+  ---
+  duration_ms: 0.104087
+  type: 'test'
+  ...
+# Subtest: 入库单：采购单下拉只列 APPROVED / PARTIAL_RECEIVED，且详情回填保留无源标记
+ok 96 - 入库单：采购单下拉只列 APPROVED / PARTIAL_RECEIVED，且详情回填保留无源标记
+  ---
+  duration_ms: 0.236426
+  type: 'test'
+  ...
+# Subtest: ④ 列表渲染：有数据时行数与总数正确，空数据时判为空表
+ok 97 - ④ 列表渲染：有数据时行数与总数正确，空数据时判为空表
+  ---
+  duration_ms: 0.902909
+  type: 'test'
+  ...
+# Subtest: ⑤ 列表空态：无数据给友好提示，且区分「筛不到」与「一条都没有」
+ok 98 - ⑤ 列表空态：无数据给友好提示，且区分「筛不到」与「一条都没有」
+  ---
+  duration_ms: 0.244885
+  type: 'test'
+  ...
+# Subtest: ⑥ 状态徽标：6 个状态的文案与配色（照后端口径 status_label）
+ok 99 - ⑥ 状态徽标：6 个状态的文案与配色（照后端口径 status_label）
+  ---
+  duration_ms: 2.166206
+  type: 'test'
+  ...
+# Subtest: ⑦ 状态按钮：只显示当前状态能走的合法边，且与前端的边表 = 后端状态机
+ok 100 - ⑦ 状态按钮：只显示当前状态能走的合法边，且与前端的边表 = 后端状态机
+  ---
+  duration_ms: 2.256835
+  type: 'test'
+  ...
+# Subtest: ⑧ 表单校验：名称为空 → 提交被拦（且不再报其它无关错误）
+ok 101 - ⑧ 表单校验：名称为空 → 提交被拦（且不再报其它无关错误）
+  ---
+  duration_ms: 0.361513
+  type: 'test'
+  ...
+# Subtest: ⑨ 表单校验：乙方未选 → 提交被拦
+ok 102 - ⑨ 表单校验：乙方未选 → 提交被拦
+  ---
+  duration_ms: 0.107004
+  type: 'test'
+  ...
+# Subtest: ⑩ 表单校验：有效期止早于起 → 提交被拦；签订晚于生效 → 也拦
+ok 103 - ⑩ 表单校验：有效期止早于起 → 提交被拦；签订晚于生效 → 也拦
+  ---
+  duration_ms: 0.109796
+  type: 'test'
+  ...
+# Subtest: ⑪ 编辑按钮：非 DRAFT 单不出现编辑入口（删除同理）
+ok 104 - ⑪ 编辑按钮：非 DRAFT 单不出现编辑入口（删除同理）
+  ---
+  duration_ms: 0.205132
+  type: 'test'
+  ...
+# Subtest: ⑫ 金额显示：千分位 + ¥ 前缀
+ok 105 - ⑫ 金额显示：千分位 + ¥ 前缀
+  ---
+  duration_ms: 0.538145
+  type: 'test'
+  ...
+# Subtest: ⑬ 请求体：空筛选不发、区间映射正确；建单/改单不带单号与状态
+ok 106 - ⑬ 请求体：空筛选不发、区间映射正确；建单/改单不带单号与状态
+  ---
+  duration_ms: 0.533062
+  type: 'test'
+  ...
+# Subtest: ⑭ 编辑回填与类型下拉：详情 → 表单字段齐全，类型放开「采购 / 销售合同」
+ok 107 - ⑭ 编辑回填与类型下拉：详情 → 表单字段齐全，类型放开「采购 / 销售合同」
+  ---
+  duration_ms: 0.263134
+  type: 'test'
+  ...
+# Subtest: ⑮ 乙方主档：SALES → 客户，其余 → 供应商（与后端推导逐字一致）
+ok 108 - ⑮ 乙方主档：SALES → 客户，其余 → 供应商（与后端推导逐字一致）
+  ---
+  duration_ms: 0.353597
+  type: 'test'
+  ...
+# Subtest: CUSTOMER_COLUMNS 的 colKey 与后端 CustomerRes 逐字一致（不含 supplier_ 前缀）
+ok 109 - CUSTOMER_COLUMNS 的 colKey 与后端 CustomerRes 逐字一致（不含 supplier_ 前缀）
+  ---
+  duration_ms: 1.410803
+  type: 'test'
+  ...
+# Subtest: CUSTOMER_STATUS_OPTIONS 是字符串域 ACTIVE/FROZEN，不是 1/0
+ok 110 - CUSTOMER_STATUS_OPTIONS 是字符串域 ACTIVE/FROZEN，不是 1/0
+  ---
+  duration_ms: 0.091421
+  type: 'test'
+  ...
+# Subtest: buildCustomerQuery：空筛选只发 page/page_size（空串发出去会查出 0 行）
+ok 111 - buildCustomerQuery：空筛选只发 page/page_size（空串发出去会查出 0 行）
+  ---
+  duration_ms: 0.123088
+  type: 'test'
+  ...
+# Subtest: buildCustomerQuery：code / name 各自 trim 后独立下发，status 精确透传
+ok 112 - buildCustomerQuery：code / name 各自 trim 后独立下发，status 精确透传
+  ---
+  duration_ms: 0.170673
+  type: 'test'
+  ...
+# Subtest: isCustomerFiltered：任一条件有值即筛选态
+ok 113 - isCustomerFiltered：任一条件有值即筛选态
+  ---
+  duration_ms: 0.095837
+  type: 'test'
+  ...
+# Subtest: 状态文案 / 主题 / 切换目标
+ok 114 - 状态文案 / 主题 / 切换目标
+  ---
+  duration_ms: 0.111962
+  type: 'test'
+  ...
+# Subtest: formatCreditLimit：字符串裁尾零，0 说人话「不控额度」
+ok 115 - formatCreditLimit：字符串裁尾零，0 说人话「不控额度」
+  ---
+  duration_ms: 0.220341
+  type: 'test'
+  ...
+# Subtest: creditLimitText：数字 → 字符串定点（不走 toFixed，避免二进制误差）
+ok 116 - creditLimitText：数字 → 字符串定点（不走 toFixed，避免二进制误差）
+  ---
+  duration_ms: 0.09392
+  type: 'test'
+  ...
+# Subtest: contactLabel / textOr：空值统一显示 —
+ok 117 - contactLabel / textOr：空值统一显示 —
+  ---
+  duration_ms: 0.370555
+  type: 'test'
+  ...
+# Subtest: isCustomerListEmpty
+ok 118 - isCustomerListEmpty
+  ---
+  duration_ms: 0.366597
+  type: 'test'
+  ...
+# Subtest: validateCustomerForm：新建必填编码 + 名称，超长与负额度都要拦
+ok 119 - validateCustomerForm：新建必填编码 + 名称，超长与负额度都要拦
+  ---
+  duration_ms: 0.404682
+  type: 'test'
+  ...
+# Subtest: validateCustomerForm：编辑态不再校验编码（只读，改不了）；0 额度合法
+ok 120 - validateCustomerForm：编辑态不再校验编码（只读，改不了）；0 额度合法
+  ---
+  duration_ms: 0.111463
+  type: 'test'
+  ...
+# Subtest: buildCustomerCreatePayload：trim + 空串折 null + 额度转字符串定点 + 默认 ACTIVE
+ok 121 - buildCustomerCreatePayload：trim + 空串折 null + 额度转字符串定点 + 默认 ACTIVE
+  ---
+  duration_ms: 0.130713
+  type: 'test'
+  ...
+# Subtest: buildCustomerCreatePayload：新建默认 credit_days = 0（= 现结，不是 30）
+ok 122 - buildCustomerCreatePayload：新建默认 credit_days = 0（= 现结，不是 30）
+  ---
+  duration_ms: 0.072669
+  type: 'test'
+  ...
+# Subtest: formatCreditDays / isCashOnDelivery：0 说「现结」，> 0 显天数
+ok 123 - formatCreditDays / isCashOnDelivery：0 说「现结」，> 0 显天数
+  ---
+  duration_ms: 0.089212
+  type: 'test'
+  ...
+# Subtest: creditDaysError：负数文案逐字照后端 require_credit_days，非整数/i32 越界也先拦
+ok 124 - creditDaysError：负数文案逐字照后端 require_credit_days，非整数/i32 越界也先拦
+  ---
+  duration_ms: 0.072002
+  type: 'test'
+  ...
+# Subtest: creditDaysValue：兜底折成非负整数（脏值不漏给后端）
+ok 125 - creditDaysValue：兜底折成非负整数（脏值不漏给后端）
+  ---
+  duration_ms: 0.063877
+  type: 'test'
+  ...
+# Subtest: validateCustomerForm：账期负数挂到 formErrors.credit_days，0 合法
+ok 126 - validateCustomerForm：账期负数挂到 formErrors.credit_days，0 合法
+  ---
+  duration_ms: 0.083669
+  type: 'test'
+  ...
+# Subtest: buildCustomerUpdatePayload：账期按值比较（45→0 要发，0→0 不发）
+ok 127 - buildCustomerUpdatePayload：账期按值比较（45→0 要发，0→0 不发）
+  ---
+  duration_ms: 0.307844
+  type: 'test'
+  ...
+# Subtest: buildCustomerUpdatePayload：没改就发空对象（省一次 PUT 和一条假成功）
+ok 128 - buildCustomerUpdatePayload：没改就发空对象（省一次 PUT 和一条假成功）
+  ---
+  duration_ms: 0.099712
+  type: 'test'
+  ...
+# Subtest: buildCustomerUpdatePayload：只发改过的字段，其余缺席
+ok 129 - buildCustomerUpdatePayload：只发改过的字段，其余缺席
+  ---
+  duration_ms: 0.080212
+  type: 'test'
+  ...
+# Subtest: buildCustomerUpdatePayload：文本从有到无发空串（后端约定 "" = 清空）
+ok 130 - buildCustomerUpdatePayload：文本从有到无发空串（后端约定 "" = 清空）
+  ---
+  duration_ms: 0.084753
+  type: 'test'
+  ...
+# Subtest: buildCustomerUpdatePayload：额度与状态分开比较（0.0000 等于 0 不算改）
+ok 131 - buildCustomerUpdatePayload：额度与状态分开比较（0.0000 等于 0 不算改）
+  ---
+  duration_ms: 0.096254
+  type: 'test'
+  ...
+# Subtest: buildCustomerStatusPayload：列表上的冻结/解冻只带 status
+ok 132 - buildCustomerStatusPayload：列表上的冻结/解冻只带 status
+  ---
+  duration_ms: 0.072753
+  type: 'test'
+  ...
+# Subtest: customerFormFromRow：FROZEN 原样回填，null 文本折成空串（t-input 不吃 null）
+ok 133 - customerFormFromRow：FROZEN 原样回填，null 文本折成空串（t-input 不吃 null）
+  ---
+  duration_ms: 0.090753
+  type: 'test'
+  ...
+# Subtest: 科目树：3 层结构逐层展开，父在前、子缩进深度 = level
+ok 134 - 科目树：3 层结构逐层展开，父在前、子缩进深度 = level
+  ---
+  duration_ms: 1.644186
+  type: 'test'
+  ...
+# Subtest: 科目树：孤儿 / 自环 / 互指环都不会让整枝消失
+ok 135 - 科目树：孤儿 / 自环 / 互指环都不会让整枝消失
+  ---
+  duration_ms: 0.153464
+  type: 'test'
+  ...
+# Subtest: 科目树：编码自然序（1405 < 2202 < 2221 < 2221.01 < 2221.02）
+ok 136 - 科目树：编码自然序（1405 < 2202 < 2221 < 2221.01 < 2221.02）
+  ---
+  duration_ms: 0.089962
+  type: 'test'
+  ...
+# Subtest: 科目树：展开态 = 有下级的节点，折叠只动自己一个
+ok 137 - 科目树：展开态 = 有下级的节点，折叠只动自己一个
+  ---
+  duration_ms: 0.310594
+  type: 'test'
+  ...
+# Subtest: 科目树：row-key 唯一（空 id 退到编码，重复补后缀）
+ok 138 - 科目树：row-key 唯一（空 id 退到编码，重复补后缀）
+  ---
+  duration_ms: 0.154256
+  type: 'test'
+  ...
+# Subtest: 科目树：过滤保留祖先，但祖先不算命中
+ok 139 - 科目树：过滤保留祖先，但祖先不算命中
+  ---
+  duration_ms: 0.458976
+  type: 'test'
+  ...
+# Subtest: 科目类型映射：ASSET/LIABILITY/EQUITY/COST/PROFIT_LOSS → 中文（卡面的 PROFIT 是别名）
+ok 140 - 科目类型映射：ASSET/LIABILITY/EQUITY/COST/PROFIT_LOSS → 中文（卡面的 PROFIT 是别名）
+  ---
+  duration_ms: 0.126672
+  type: 'test'
+  ...
+# Subtest: 科目其余译名：余额方向 / 启用状态 / 层级
+ok 141 - 科目其余译名：余额方向 / 启用状态 / 层级
+  ---
+  duration_ms: 0.117796
+  type: 'test'
+  ...
+# Subtest: 期间状态映射：NOT_OPENED/OPEN/CLOSED → 中文 + 配色
+ok 142 - 期间状态映射：NOT_OPENED/OPEN/CLOSED → 中文 + 配色
+  ---
+  duration_ms: 0.324429
+  type: 'test'
+  ...
+# Subtest: 期间其余逻辑：标题 / 区间 / 天数 / 当月 / 结账时间 / 查询入参
+ok 143 - 期间其余逻辑：标题 / 区间 / 天数 / 当月 / 结账时间 / 查询入参
+  ---
+  duration_ms: 0.716735
+  type: 'test'
+  ...
+# Subtest: ① 出入方向：IN→入库(绿) / OUT→出库(橙)，未知值不猜颜色
+ok 144 - ① 出入方向：IN→入库(绿) / OUT→出库(橙)，未知值不猜颜色
+  ---
+  duration_ms: 1.317091
+  type: 'test'
+  ...
+# Subtest: ①附 流水数量签名：IN 加 +、OUT 用 U+2212 减号，库里 qty 恒正
+ok 145 - ①附 流水数量签名：IN 加 +、OUT 用 U+2212 减号，库里 qty 恒正
+  ---
+  duration_ms: 0.200508
+  type: 'test'
+  ...
+# Subtest: ② 业务类型中文：PURCHASE_IN→采购入库，调拨区分进出，未知码原样返回
+ok 146 - ② 业务类型中文：PURCHASE_IN→采购入库，调拨区分进出，未知码原样返回
+  ---
+  duration_ms: 0.163298
+  type: 'test'
+  ...
+# Subtest: ③ 可用数量 = qty − locked_qty（后端 Decimal 出的是字符串，不能直接减）
+ok 147 - ③ 可用数量 = qty − locked_qty（后端 Decimal 出的是字符串，不能直接减）
+  ---
+  duration_ms: 0.185132
+  type: 'test'
+  ...
+# Subtest: ④ 三个 Tab 各带各的筛选：字段不串、空串不发、only_nonzero 只在开时发
+ok 148 - ④ 三个 Tab 各带各的筛选：字段不串、空串不发、only_nonzero 只在开时发
+  ---
+  duration_ms: 0.280218
+  type: 'test'
+  ...
+# Subtest: ④附 Tab 与菜单路径互认：三条 sys_menu 路径都落到本页，不缺 Tab、不 404
+ok 149 - ④附 Tab 与菜单路径互认：三条 sys_menu 路径都落到本页，不缺 Tab、不 404
+  ---
+  duration_ms: 0.29122
+  type: 'test'
+  ...
+# Subtest: ⑤ 筛选态判定与日期区间校验（空态文案、400 前置拦截都靠它）
+ok 150 - ⑤ 筛选态判定与日期区间校验（空态文案、400 前置拦截都靠它）
+  ---
+  duration_ms: 0.218925
+  type: 'test'
+  ...
+# Subtest: ④ 巡检模式：只认 1 / true（大小写、空白、数组首值），拼错的参数退回普通库存
+ok 151 - ④ 巡检模式：只认 1 / true（大小写、空白、数组首值），拼错的参数退回普通库存
+  ---
+  duration_ms: 0.104212
+  type: 'test'
+  ...
+# Subtest: ④ 漂移方向：diff 正=账多 / 负=账少 / 零=一致，文案·配色·符号三处一致
+ok 152 - ④ 漂移方向：diff 正=账多 / 负=账少 / 零=一致，文案·配色·符号三处一致
+  ---
+  duration_ms: 0.384139
+  type: 'test'
+  ...
+# Subtest: ④ 可修正标记与结论文案：把 only-read 口径写进页面，别让用户以为点了就会改账
+ok 153 - ④ 可修正标记与结论文案：把 only-read 口径写进页面，别让用户以为点了就会改账
+  ---
+  duration_ms: 0.424391
+  type: 'test'
+  ...
+# Subtest: ④ 空态文案：check=0（没有序列号物料）与「巡检干净」是两件事，别都说成没数据
+ok 154 - ④ 空态文案：check=0（没有序列号物料）与「巡检干净」是两件事，别都说成没数据
+  ---
+  duration_ms: 0.177382
+  type: 'test'
+  ...
+# Subtest: 状态域 = DRAFT/ISSUED/POSTED/VOID（不含应收的 OPEN、收款的 CANCELLED）
+ok 155 - 状态域 = DRAFT/ISSUED/POSTED/VOID（不含应收的 OPEN、收款的 CANCELLED）
+  ---
+  duration_ms: 1.442804
+  type: 'test'
+  ...
+# Subtest: 边表 4 条：没有 POSTED→VOID、没有任何边回到 DRAFT
+ok 156 - 边表 4 条：没有 POSTED→VOID、没有任何边回到 DRAFT
+  ---
+  duration_ms: 0.312345
+  type: 'test'
+  ...
+# Subtest: 两条作废边都要原因；开票 / 归档不要
+ok 157 - 两条作废边都要原因；开票 / 归档不要
+  ---
+  duration_ms: 0.129505
+  type: 'test'
+  ...
+# Subtest: 按钮可用性：开票 / 归档 / 作废按状态互斥
+ok 158 - 按钮可用性：开票 / 归档 / 作废按状态互斥
+  ---
+  duration_ms: 0.199716
+  type: 'test'
+  ...
+# Subtest: 作废影响提示：ISSUED 来的必须提示红冲凭证 + 撤回应收发票号
+ok 159 - 作废影响提示：ISSUED 来的必须提示红冲凭证 + 撤回应收发票号
+  ---
+  duration_ms: 0.160214
+  type: 'test'
+  ...
+# Subtest: 下一步提示覆盖 4 态且提到凭证 / 红字票
+ok 160 - 下一步提示覆盖 4 态且提到凭证 / 红字票
+  ---
+  duration_ms: 0.123713
+  type: 'test'
+  ...
+# Subtest: 票种域与中文（OUT_RED 由退货流程生成，手工建会被 400）
+ok 161 - 票种域与中文（OUT_RED 由退货流程生成，手工建会被 400）
+  ---
+  duration_ms: 0.147672
+  type: 'test'
+  ...
+# Subtest: 来源文案：单号 + 中文类型；手工挂账不重复成「MANUAL（MANUAL）」
+ok 162 - 来源文案：单号 + 中文类型；手工挂账不重复成「MANUAL（MANUAL）」
+  ---
+  duration_ms: 0.10017
+  type: 'test'
+  ...
+# Subtest: 税额拆分：先定不含税，税额 = 合计 − 不含税（两者相加恒等于合计）
+ok 163 - 税额拆分：先定不含税，税额 = 合计 − 不含税（两者相加恒等于合计）
+  ---
+  duration_ms: 0.413974
+  type: 'test'
+  ...
+# Subtest: 税率文案：0.13 → 13%，0 → 0%，缺失 → —
+ok 164 - 税率文案：0.13 → 13%，0 → 0%，缺失 → —
+  ---
+  duration_ms: 0.349846
+  type: 'test'
+  ...
+# Subtest: 已开票合计排除 VOID，可排除自身
+ok 165 - 已开票合计排除 VOID，可排除自身
+  ---
+  duration_ms: 0.968869
+  type: 'test'
+  ...
+# Subtest: 剩余额度 = 应收金额 − 已开票（作废后恢复；超额时为负，不许夹到 0）
+ok 166 - 剩余额度 = 应收金额 − 已开票（作废后恢复；超额时为负，不许夹到 0）
+  ---
+  duration_ms: 0.11738
+  type: 'test'
+  ...
+# Subtest: 开票表单校验：应收必选 / 金额 > 0 / 不超额度 / 税率 0~1
+ok 167 - 开票表单校验：应收必选 / 金额 > 0 / 不超额度 / 税率 0~1
+  ---
+  duration_ms: 0.310345
+  type: 'test'
+  ...
+# Subtest: 开票弹窗默认税率 0.13（后端 default_tax_rate）
+ok 168 - 开票弹窗默认税率 0.13（后端 default_tax_rate）
+  ---
+  duration_ms: 0.055252
+  type: 'test'
+  ...
+# Subtest: 作废原因：按字符数 4~500，中文 2 字不算够长
+ok 169 - 作废原因：按字符数 4~500，中文 2 字不算够长
+  ---
+  duration_ms: 0.094337
+  type: 'test'
+  ...
+# Subtest: 筛选 → 查询参数：空串一律不发，模糊键 trim
+ok 170 - 筛选 → 查询参数：空串一律不发，模糊键 trim
+  ---
+  duration_ms: 0.13213
+  type: 'test'
+  ...
+# Subtest: 应收下拉文案含单号 / 客户 / 金额 / 到期日 / 已开票提示
+ok 171 - 应收下拉文案含单号 / 客户 / 金额 / 到期日 / 已开票提示
+  ---
+  duration_ms: 0.099045
+  type: 'test'
+  ...
+# Subtest: 列表列：9 列、单号固定左、操作固定右、宽度合计 ≤ 1288（1600 视口实测可视宽）
+ok 172 - 列表列：9 列、单号固定左、操作固定右、宽度合计 ≤ 1288（1600 视口实测可视宽）
+  ---
+  duration_ms: 0.104712
+  type: 'test'
+  ...
+# Subtest: 4 个权限码与 V0296 的 sys_menu.auth_code 逐字一致
+ok 173 - 4 个权限码与 V0296 的 sys_menu.auth_code 逐字一致
+  ---
+  duration_ms: 0.067919
+  type: 'test'
+  ...
+# Subtest: 后端 invoice.rs 的状态域 / 原因长度 / 票种 / 额度口径与前端一致
+ok 174 - 后端 invoice.rs 的状态域 / 原因长度 / 票种 / 额度口径与前端一致
+  ---
+  duration_ms: 0.413682
+  type: 'test'
+  ...
+# Subtest: 后端 state_machine.rs 的 INVOICE 边表 / 终态与前端逐条一致
+ok 175 - 后端 state_machine.rs 的 INVOICE 边表 / 终态与前端逐条一致
+  ---
+  duration_ms: 0.913367
+  type: 'test'
+  ...
+# Subtest: ① 仓库筛选：只选仓库时，请求参数带 warehouse_id 且不带其它筛选键
+ok 176 - ① 仓库筛选：只选仓库时，请求参数带 warehouse_id 且不带其它筛选键
+  ---
+  duration_ms: 0.712693
+  type: 'test'
+  ...
+# Subtest: ① 仓库筛选：不选仓库 = 跨仓总览（warehouse_id 整键缺席，不是空串）
+ok 177 - ① 仓库筛选：不选仓库 = 跨仓总览（warehouse_id 整键缺席，不是空串）
+  ---
+  duration_ms: 0.089378
+  type: 'test'
+  ...
+# Subtest: ① 仓库筛选：换仓库 → 参数跟着换；关键词去掉首尾空格
+ok 178 - ① 仓库筛选：换仓库 → 参数跟着换；关键词去掉首尾空格
+  ---
+  duration_ms: 0.10267
+  type: 'test'
+  ...
+# Subtest: ② 库位类型映射：后端 6 个枚举 → 中文（逐字对齐 dto.rs::LOCATION_TYPES）
+ok 179 - ② 库位类型映射：后端 6 个枚举 → 中文（逐字对齐 dto.rs::LOCATION_TYPES）
+  ---
+  duration_ms: 0.823614
+  type: 'test'
+  ...
+# Subtest: ② 库位类型筛选：选中的类型进请求参数（原样大写枚举，不传中文）
+ok 180 - ② 库位类型筛选：选中的类型进请求参数（原样大写枚举，不传中文）
+  ---
+  duration_ms: 0.093378
+  type: 'test'
+  ...
+# Subtest: ② 库位类型配色：每种类型都有 TDesign 主题，不写裸 hex
+ok 181 - ② 库位类型配色：每种类型都有 TDesign 主题，不写裸 hex
+  ---
+  duration_ms: 0.188216
+  type: 'test'
+  ...
+# Subtest: ③ 启用状态映射：1 启用（success）/ 0 停用（default），未知值可见
+ok 182 - ③ 启用状态映射：1 启用（success）/ 0 停用（default），未知值可见
+  ---
+  duration_ms: 0.194965
+  type: 'test'
+  ...
+# Subtest: ③ 启用状态筛选：选「停用」必须发出 status=0（number），不能被真假值判断丢掉
+ok 183 - ③ 启用状态筛选：选「停用」必须发出 status=0（number），不能被真假值判断丢掉
+  ---
+  duration_ms: 0.107296
+  type: 'test'
+  ...
+# Subtest: ④ 所属仓库：列表接口没有 warehouse_name，用仓库树翻译成层级路径
+ok 184 - ④ 所属仓库：列表接口没有 warehouse_name，用仓库树翻译成层级路径
+  ---
+  duration_ms: 0.984495
+  type: 'test'
+  ...
+# Subtest: ④ 仓库筛选下拉：列出**全部**仓库（非叶子也在），文案带层级路径与编码
+ok 185 - ④ 仓库筛选下拉：列出**全部**仓库（非叶子也在），文案带层级路径与编码
+  ---
+  duration_ms: 0.494894
+  type: 'test'
+  ...
+# Subtest: ④ 行视图：类型/状态/仓库名/容量全部翻译好，原字段不动
+ok 186 - ④ 行视图：类型/状态/仓库名/容量全部翻译好，原字段不动
+  ---
+  duration_ms: 0.200174
+  type: 'test'
+  ...
+# Subtest: ⑤ 是否处于筛选态：只看停用也算筛选（否则空态会说「还没有库位」）
+ok 187 - ⑤ 是否处于筛选态：只看停用也算筛选（否则空态会说「还没有库位」）
+  ---
+  duration_ms: 0.087753
+  type: 'test'
+  ...
+# Subtest: ⑥ 时间格式化：RFC3339 → YYYY-MM-DD HH:mm，非法/空值回「—」
+ok 188 - ⑥ 时间格式化：RFC3339 → YYYY-MM-DD HH:mm，非法/空值回「—」
+  ---
+  duration_ms: 0.248093
+  type: 'test'
+  ...
+# Subtest: ① 计量单位表格列 = 后端 UnitRes 的真字段（不自造列）
+ok 189 - ① 计量单位表格列 = 后端 UnitRes 的真字段（不自造列）
+  ---
+  duration_ms: 1.466596
+  type: 'test'
+  ...
+# Subtest: ① 供应商表格列 = 后端 SupplierRes 的真字段（不是 code / name）
+ok 190 - ① 供应商表格列 = 后端 SupplierRes 的真字段（不是 code / name）
+  ---
+  duration_ms: 0.308887
+  type: 'test'
+  ...
+# Subtest: ② 状态映射：1 启用绿 tag，0 停用灰 tag，脏值不染绿
+ok 191 - ② 状态映射：1 启用绿 tag，0 停用灰 tag，脏值不染绿
+  ---
+  duration_ms: 0.110796
+  type: 'test'
+  ...
+# Subtest: ③ 空态：rows.length === 0 才空，null / [] / 有行
+ok 192 - ③ 空态：rows.length === 0 才空，null / [] / 有行
+  ---
+  duration_ms: 0.098921
+  type: 'test'
+  ...
+# Subtest: ④ 查询参数：空串不发，page/page_size 是服务端字段
+ok 193 - ④ 查询参数：空串不发，page/page_size 是服务端字段
+  ---
+  duration_ms: 0.260843
+  type: 'test'
+  ...
+# Subtest: ⑤ 折算单位：1 箱 = 12 个，基准单位恒等 1，基准下拉剔除自己
+ok 194 - ⑤ 折算单位：1 箱 = 12 个，基准单位恒等 1，基准下拉剔除自己
+  ---
+  duration_ms: 0.22455
+  type: 'test'
+  ...
+# Subtest: ⑤ 计量单位请求体：基础单位不发 base_unit_id，折算单位必须带 rate
+ok 195 - ⑤ 计量单位请求体：基础单位不发 base_unit_id，折算单位必须带 rate
+  ---
+  duration_ms: 0.191216
+  type: 'test'
+  ...
+# Subtest: ⑤ 编辑请求体：只发改过的字段；清空折算基准必须发 null（不是空串）
+ok 196 - ⑤ 编辑请求体：只发改过的字段；清空折算基准必须发 null（不是空串）
+  ---
+  duration_ms: 0.156714
+  type: 'test'
+  ...
+# Subtest: ⑥ 供应商表单回填与请求体：空串转 null，只发改过的字段
+ok 197 - ⑥ 供应商表单回填与请求体：空串转 null，只发改过的字段
+  ---
+  duration_ms: 0.62194
+  type: 'test'
+  ...
+# Subtest: ⑥ 供应商展示：账期 0 = 现结，额度裁尾零
+ok 198 - ⑥ 供应商展示：账期 0 = 现结，额度裁尾零
+  ---
+  duration_ms: 0.382389
+  type: 'test'
+  ...
+# Subtest: ⑦ ERP-S1：系统预置单位打「系统」标签且不给删，客户自建可删
+ok 199 - ⑦ ERP-S1：系统预置单位打「系统」标签且不给删，客户自建可删
+  ---
+  duration_ms: 0.17934
+  type: 'test'
+  ...
+# Subtest: ⑦ ERP-S1：小数位数进请求体（新建带上、编辑只发改过的）且校验 0–6
+ok 200 - ⑦ ERP-S1：小数位数进请求体（新建带上、编辑只发改过的）且校验 0–6
+  ---
+  duration_ms: 0.126713
+  type: 'test'
+  ...
+# Subtest: ⑧ DC-09：折算单位返回灰字、基础单位不显示
+ok 201 - ⑧ DC-09：折算单位返回灰字、基础单位不显示
+  ---
+  duration_ms: 0.074544
+  type: 'test'
+  ...
+# Subtest: serial_required 显示：true → 「★是」，false → 「否」
+ok 202 - serial_required 显示：true → 「★是」，false → 「否」
+  ---
+  duration_ms: 0.651316
+  type: 'test'
+  ...
+# Subtest: 筛选参数：serial_required=true 带 true；all 时整键缺席（不是带 undefined / 空串）
+ok 203 - 筛选参数：serial_required=true 带 true；all 时整键缺席（不是带 undefined / 空串）
+  ---
+  duration_ms: 0.263177
+  type: 'test'
+  ...
+# Subtest: 筛选参数：keyword 先 trim，空串 / 全空格不发；分类空串不发
+ok 204 - 筛选参数：keyword 先 trim，空串 / 全空格不发；分类空串不发
+  ---
+  duration_ms: 0.781071
+  type: 'test'
+  ...
+# Subtest: 分页参数：page / page_size 正确（默认 1 / 10，非法值夹回合法值）
+ok 205 - 分页参数：page / page_size 正确（默认 1 / 10，非法值夹回合法值）
+  ---
+  duration_ms: 0.108545
+  type: 'test'
+  ...
+# Subtest: 页码夹紧：total=5 / size=10 时第 3 页回到第 1 页
+ok 206 - 页码夹紧：total=5 / size=10 时第 3 页回到第 1 页
+  ---
+  duration_ms: 0.176006
+  type: 'test'
+  ...
+# Subtest: 编辑请求体：无 material_code；serial_required 未改则缺席
+ok 207 - 编辑请求体：无 material_code；serial_required 未改则缺席
+  ---
+  duration_ms: 0.187174
+  type: 'test'
+  ...
+# Subtest: 新建请求体：serial_required / costing_method 显式带上（不靠后端缺省）+ 空规格为 null
+ok 208 - 新建请求体：serial_required / costing_method 显式带上（不靠后端缺省）+ 空规格为 null
+  ---
+  duration_ms: 0.189257
+  type: 'test'
+  ...
+# Subtest: 成本法：下拉只有 MOVING_AVG；历史值作为禁用项兜底；编辑请求体不带 costing_method
+ok 209 - 成本法：下拉只有 MOVING_AVG；历史值作为禁用项兜底；编辑请求体不带 costing_method
+  ---
+  duration_ms: 0.275177
+  type: 'test'
+  ...
+# Subtest: 表单校验：编码 / 名称 / 单位，编辑态不校验编码
+ok 210 - 表单校验：编码 / 名称 / 单位，编辑态不校验编码
+  ---
+  duration_ms: 0.368847
+  type: 'test'
+  ...
+# Subtest: 列表文案：单位译名、分类中文、状态
+ok 211 - 列表文案：单位译名、分类中文、状态
+  ---
+  duration_ms: 0.423515
+  type: 'test'
+  ...
+# Subtest: 三个权限码与 V0189 的 sys_menu 节点逐字一致
+ok 212 - 三个权限码与 V0189 的 sys_menu 节点逐字一致
+  ---
+  duration_ms: 0.695235
+  type: 'test'
+  ...
+# Subtest: 金额解析：字符串 / 数字都能量，非法一律 0（不抛错）
+ok 213 - 金额解析：字符串 / 数字都能量，非法一律 0（不抛错）
+  ---
+  duration_ms: 0.104629
+  type: 'test'
+  ...
+# Subtest: 合计必须是数值相加，不是字符串拼接（Decimal 回来是 "50000.0000"）
+ok 214 - 合计必须是数值相加，不是字符串拼接（Decimal 回来是 "50000.0000"）
+  ---
+  duration_ms: 15.443119
+  type: 'test'
+  ...
+# Subtest: 借贷平衡判定：差额保留两位，浮点噪声不算不平
+ok 215 - 借贷平衡判定：差额保留两位，浮点噪声不算不平
+  ---
+  duration_ms: 0.868324
+  type: 'test'
+  ...
+# Subtest: 期初状态 → 中文与配色（NONE 未录 / ENTERED 已录 / LOCKED 已锁定）
+ok 216 - 期初状态 → 中文与配色（NONE 未录 / ENTERED 已录 / LOCKED 已锁定）
+  ---
+  duration_ms: 0.119379
+  type: 'test'
+  ...
+# Subtest: 结账后整页只读 + 顶部文案点名期间；未开账也不能录
+ok 217 - 结账后整页只读 + 顶部文案点名期间；未开账也不能录
+  ---
+  duration_ms: 0.198174
+  type: 'test'
+  ...
+# Subtest: 保存按钮：无权限 / 不平衡 / 只读 三种情况都不许点
+ok 218 - 保存按钮：无权限 / 不平衡 / 只读 三种情况都不许点
+  ---
+  duration_ms: 0.207383
+  type: 'test'
+  ...
+# Subtest: 行级校验：空科目 / 负数 / 借贷同填 都要报出来
+ok 219 - 行级校验：空科目 / 负数 / 借贷同填 都要报出来
+  ---
+  duration_ms: 0.162172
+  type: 'test'
+  ...
+# Subtest: 两列都为 0 的空行不参与提交（后端也会直接丢掉）
+ok 220 - 两列都为 0 的空行不参与提交（后端也会直接丢掉）
+  ---
+  duration_ms: 0.335054
+  type: 'test'
+  ...
+# Subtest: 期初凭证摘要：没有凭证时说清楚，有凭证时报号 + 日期 + 分录数
+ok 221 - 期初凭证摘要：没有凭证时说清楚，有凭证时报号 + 日期 + 分录数
+  ---
+  duration_ms: 0.551854
+  type: 'test'
+  ...
+# Subtest: 库存期初提示：金额为 0 时不打扰，非 0 时说明会自动生成 1405 / 3103 两行
+ok 222 - 库存期初提示：金额为 0 时不打扰，非 0 时说明会自动生成 1405 / 3103 两行
+  ---
+  duration_ms: 0.219425
+  type: 'test'
+  ...
+# Subtest: 默认期间：当前月存在且 OPEN 时落当前月（不是最新的 2026-12）
+ok 223 - 默认期间：当前月存在且 OPEN 时落当前月（不是最新的 2026-12）
+  ---
+  duration_ms: 0.864865
+  type: 'test'
+  ...
+# Subtest: 默认期间：当前月未开账时落最早的 OPEN 期间（倒序列表的最后一个）
+ok 224 - 默认期间：当前月未开账时落最早的 OPEN 期间（倒序列表的最后一个）
+  ---
+  duration_ms: 0.098795
+  type: 'test'
+  ...
+# Subtest: 默认期间：没有 OPEN 时兜底最新一条，空清单返回空串（不抛错）
+ok 225 - 默认期间：没有 OPEN 时兜底最新一条，空清单返回空串（不抛错）
+  ---
+  duration_ms: 0.079837
+  type: 'test'
+  ...
+# Subtest: 默认期间：输入顺序打乱也落同一期间（不依赖后端排序）
+ok 226 - 默认期间：输入顺序打乱也落同一期间（不依赖后端排序）
+  ---
+  duration_ms: 0.077253
+  type: 'test'
+  ...
+# Subtest: 默认期间：月边界按北京时间取月（UTC 还是上个月时不能落错期间）
+ok 227 - 默认期间：月边界按北京时间取月（UTC 还是上个月时不能落错期间）
+  ---
+  duration_ms: 0.068503
+  type: 'test'
+  ...
+# Subtest: ① 应付 4 态 → 中文 + 颜色（橙/蓝/绿/灰），未知状态原样返回
+ok 228 - ① 应付 4 态 → 中文 + 颜色（橙/蓝/绿/灰），未知状态原样返回
+  ---
+  duration_ms: 1.726856
+  type: 'test'
+  ...
+# Subtest: ① 凭证 4 态 → 中文 + 颜色，来源/类型标签与后端逐字一致
+ok 229 - ① 凭证 4 态 → 中文 + 颜色，来源/类型标签与后端逐字一致
+  ---
+  duration_ms: 0.156714
+  type: 'test'
+  ...
+# Subtest: ② 借贷平衡：Σ借 == Σ贷 → true，不等 → false（含后端 Decimal 字符串与浮点陷阱）
+ok 230 - ② 借贷平衡：Σ借 == Σ贷 → true，不等 → false（含后端 Decimal 字符串与浮点陷阱）
+  ---
+  duration_ms: 0.302512
+  type: 'test'
+  ...
+# Subtest: ② 详情三方校验：前端逐行加 / 后端分录合计 / 单头合计 三者一致才算「真的平」
+ok 231 - ② 详情三方校验：前端逐行加 / 后端分录合计 / 单头合计 三者一致才算「真的平」
+  ---
+  duration_ms: 0.135672
+  type: 'test'
+  ...
+# Subtest: ③ 余额恒等式：期初 + 本期借 − 本期贷 = 期末（逐行 + 合计 + 平衡判定）
+ok 232 - ③ 余额恒等式：期初 + 本期借 − 本期贷 = 期末（逐行 + 合计 + 平衡判定）
+  ---
+  duration_ms: 0.417016
+  type: 'test'
+  ...
+# Subtest: ③ 流水逐行余额自洽：第 i 行 = 第 i−1 行 + 本行净额
+ok 233 - ③ 流水逐行余额自洽：第 i 行 = 第 i−1 行 + 本行净额
+  ---
+  duration_ms: 0.235134
+  type: 'test'
+  ...
+# Subtest: ④ 查询参数：空串一律不发，科目/期间缺失时在界面上拦住
+ok 234 - ④ 查询参数：空串一律不发，科目/期间缺失时在界面上拦住
+  ---
+  duration_ms: 0.37918
+  type: 'test'
+  ...
+# Subtest: ④ 应付页辅助判定：逾期 / 付款进度 / 未付兜底 / 来源文案
+ok 235 - ④ 应付页辅助判定：逾期 / 付款进度 / 未付兜底 / 来源文案
+  ---
+  duration_ms: 0.167173
+  type: 'test'
+  ...
+# Subtest: ④ 金额格式化：整数分、千分位、负数（不出现 -0.00）
+ok 236 - ④ 金额格式化：整数分、千分位、负数（不出现 -0.00）
+  ---
+  duration_ms: 0.405474
+  type: 'test'
+  ...
+# Subtest: 权限码与后端 V0188 / V0207 逐字一致（四个码必须分开）
+ok 237 - 权限码与后端 V0188 / V0207 逐字一致（四个码必须分开）
+  ---
+  duration_ms: 0.708735
+  type: 'test'
+  ...
+# Subtest: 状态 → 动作：CLOSED 只能反结账，OPEN 只能结账，NOT_OPENED 只能开账
+ok 238 - 状态 → 动作：CLOSED 只能反结账，OPEN 只能结账，NOT_OPENED 只能开账
+  ---
+  duration_ms: 0.19709
+  type: 'test'
+  ...
+# Subtest: 无权限 → 按钮不出（canRunPeriodAction=false，页面用 v-if 而不是 disabled）
+ok 239 - 无权限 → 按钮不出（canRunPeriodAction=false，页面用 v-if 而不是 disabled）
+  ---
+  duration_ms: 0.135381
+  type: 'test'
+  ...
+# Subtest: 反结账原因：必填且 ≥ 10 字（与后端同一文案口径）
+ok 240 - 反结账原因：必填且 ≥ 10 字（与后端同一文案口径）
+  ---
+  duration_ms: 0.197466
+  type: 'test'
+  ...
+# Subtest: 结账备注可选，只在超过 200 字时报错
+ok 241 - 结账备注可选，只在超过 200 字时报错
+  ---
+  duration_ms: 0.178757
+  type: 'test'
+  ...
+# Subtest: 结账预检摘要：全绿说「可以结账」，有阻塞点名第一条 + 剩余条数
+ok 242 - 结账预检摘要：全绿说「可以结账」，有阻塞点名第一条 + 剩余条数
+  ---
+  duration_ms: 0.107754
+  type: 'test'
+  ...
+# Subtest: 批量开账入参：严格 YYYY-MM、from ≤ to、一次最多 120 个月
+ok 243 - 批量开账入参：严格 YYYY-MM、from ≤ to、一次最多 120 个月
+  ---
+  duration_ms: 0.278094
+  type: 'test'
+  ...
+# Subtest: 催办权限码与后端 V0207 一致
+ok 244 - 催办权限码与后端 V0207 一致
+  ---
+  duration_ms: 0.646982
+  type: 'test'
+  ...
+# Subtest: 单据类型中文与后端 doc_type_label 一致，未知类型原样返回
+ok 245 - 单据类型中文与后端 doc_type_label 一致，未知类型原样返回
+  ---
+  duration_ms: 0.133588
+  type: 'test'
+  ...
+# Subtest: 角色码翻译：已知岗位显示中文，未知原样，空 = 待分配
+ok 246 - 角色码翻译：已知岗位显示中文，未知原样，空 = 待分配
+  ---
+  duration_ms: 0.103879
+  type: 'test'
+  ...
+# Subtest: 「该谁处理」文案：角色(姓名) / 只有角色 / 待分配
+ok 247 - 「该谁处理」文案：角色(姓名) / 只有角色 / 待分配
+  ---
+  duration_ms: 0.105129
+  type: 'test'
+  ...
+# Subtest: 只有「待分配」的行不能催办（后端不猜处理人，前端也不给点）
+ok 248 - 只有「待分配」的行不能催办（后端不猜处理人，前端也不给点）
+  ---
+  duration_ms: 0.097545
+  type: 'test'
+  ...
+# Subtest: 可催办明细过滤：待分配的留在表格里但不进催办列表
+ok 249 - 可催办明细过滤：待分配的留在表格里但不进催办列表
+  ---
+  duration_ms: 0.780363
+  type: 'test'
+  ...
+# Subtest: 金额文案：两位小数 + 千分位；空值显示破折号
+ok 250 - 金额文案：两位小数 + 千分位；空值显示破折号
+  ---
+  duration_ms: 13.210161
+  type: 'test'
+  ...
+# Subtest: 已等文案：小时 / 天 / 不到 1 小时 / 缺省
+ok 251 - 已等文案：小时 / 天 / 不到 1 小时 / 缺省
+  ---
+  duration_ms: 0.188716
+  type: 'test'
+  ...
+# Subtest: 明细存在性与计数：空明细退回老样式
+ok 252 - 明细存在性与计数：空明细退回老样式
+  ---
+  duration_ms: 0.407265
+  type: 'test'
+  ...
+# Subtest: 催办回执：优先用后端那句人话，缺失时按计数合成
+ok 253 - 催办回执：优先用后端那句人话，缺失时按计数合成
+  ---
+  duration_ms: 0.41989
+  type: 'test'
+  ...
+# Subtest: decimalText：去掉 Decimal 串的尾随 0，整数位保留
+ok 254 - decimalText：去掉 Decimal 串的尾随 0，整数位保留
+  ---
+  duration_ms: 0.963828
+  type: 'test'
+  ...
+# Subtest: decimalText：空值给「—」，不显示 0（区分「没填」与「填了 0」）
+ok 255 - decimalText：空值给「—」，不显示 0（区分「没填」与「填了 0」）
+  ---
+  duration_ms: 0.09567
+  type: 'test'
+  ...
+# Subtest: taxRateText：量纲 0–100，0% 也照实显示
+ok 256 - taxRateText：量纲 0–100，0% 也照实显示
+  ---
+  duration_ms: 0.15534
+  type: 'test'
+  ...
+# Subtest: receivedText：已收/应收，缺 received_qty 按 0
+ok 257 - receivedText：已收/应收，缺 received_qty 按 0
+  ---
+  duration_ms: 0.121088
+  type: 'test'
+  ...
+# Subtest: isFullyReceived：按数值比较（"5.0000" 与 "5" 相等），qty<=0 不算收满
+ok 258 - isFullyReceived：按数值比较（"5.0000" 与 "5" 相等），qty<=0 不算收满
+  ---
+  duration_ms: 0.10963
+  type: 'test'
+  ...
+# Subtest: buildItemQuery：空筛选只发分页（不发 ?order_id=）
+ok 259 - buildItemQuery：空筛选只发分页（不发 ?order_id=）
+  ---
+  duration_ms: 0.763779
+  type: 'test'
+  ...
+# Subtest: buildItemQuery：两个 id 都给了就都发
+ok 260 - buildItemQuery：两个 id 都给了就都发
+  ---
+  duration_ms: 0.097254
+  type: 'test'
+  ...
+# Subtest: labelOf：主数据缺行时退回短 id，绝不留白
+ok 261 - labelOf：主数据缺行时退回短 id，绝不留白
+  ---
+  duration_ms: 0.103962
+  type: 'test'
+  ...
+# Subtest: buildSeqQuery：keyword 去空格、状态 0（停用）也要发
+ok 262 - buildSeqQuery：keyword 去空格、状态 0（停用）也要发
+  ---
+  duration_ms: 2.203791
+  type: 'test'
+  ...
+# Subtest: nextNoOf：current_no + step；step 非法时退化成 1
+ok 263 - nextNoOf：current_no + step；step 非法时退化成 1
+  ---
+  duration_ms: 0.490643
+  type: 'test'
+  ...
+# Subtest: seqStatus：1 启用（主色）/ 0 停用（灰）/ 未知原样
+ok 264 - seqStatus：1 启用（主色）/ 0 停用（灰）/ 未知原样
+  ---
+  duration_ms: 0.90545
+  type: 'test'
+  ...
+# Subtest: datePatternText / periodKeyText：三种周期口径 + 未取号
+ok 265 - datePatternText / periodKeyText：三种周期口径 + 未取号
+  ---
+  duration_ms: 0.12613
+  type: 'test'
+  ...
+# Subtest: separatorText：空串显示「无」而不是留白
+ok 266 - separatorText：空串显示「无」而不是留白
+  ---
+  duration_ms: 0.072086
+  type: 'test'
+  ...
+# Subtest: ① 口径 A：qty=100 × 不含税单价 2，税率 13% → 价款 200 / 税额 26 / 价税合计 226
+ok 267 - ① 口径 A：qty=100 × 不含税单价 2，税率 13% → 价款 200 / 税额 26 / 价税合计 226
+  ---
+  duration_ms: 0.728944
+  type: 'test'
+  ...
+# Subtest: ② 口径 B：qty=100 × 含税单价 2，税率 13% → 价款 176.99 / 税额 23.01 / 价税合计 200
+ok 268 - ② 口径 B：qty=100 × 含税单价 2，税率 13% → 价款 176.99 / 税额 23.01 / 价税合计 200
+  ---
+  duration_ms: 0.127672
+  type: 'test'
+  ...
+# Subtest: ③ 口径切换：同一串录入数字被重新解释，各行金额全部重算（226.00 → 200.00）
+ok 269 - ③ 口径切换：同一串录入数字被重新解释，各行金额全部重算（226.00 → 200.00）
+  ---
+  duration_ms: 0.192923
+  type: 'test'
+  ...
+# Subtest: ④ 收货单状态按钮显隐：DRAFT 显示编辑/过账，POSTED 只显示查看（作废另算）
+ok 270 - ④ 收货单状态按钮显隐：DRAFT 显示编辑/过账，POSTED 只显示查看（作废另算）
+  ---
+  duration_ms: 0.76432
+  type: 'test'
+  ...
+# Subtest: ⑤ 过账弹窗：默认勾「发票已随货到达」，「发票未到」置灰且带 tooltip
+ok 271 - ⑤ 过账弹窗：默认勾「发票已随货到达」，「发票未到」置灰且带 tooltip
+  ---
+  duration_ms: 0.24155
+  type: 'test'
+  ...
+# Subtest: ⑥ 请求体：不含税口径带 price_excl，含税口径带 price_incl，且都不传金额字段
+ok 272 - ⑥ 请求体：不含税口径带 price_excl，含税口径带 price_incl，且都不传金额字段
+  ---
+  duration_ms: 0.556688
+  type: 'test'
+  ...
+# Subtest: ⑦ 表单校验：0 数量 / 负单价 / 越界税率 / 缺供应商都能拦住
+ok 273 - ⑦ 表单校验：0 数量 / 负单价 / 越界税率 / 缺供应商都能拦住
+  ---
+  duration_ms: 0.342846
+  type: 'test'
+  ...
+# Subtest: ⑧ NUMERIC 字符串归一 + 取消带原因
+ok 274 - ⑧ NUMERIC 字符串归一 + 取消带原因
+  ---
+  duration_ms: 0.168673
+  type: 'test'
+  ...
+# Subtest: 状态域是收款那 4 个值，绝不能混进应收的 OPEN/PARTIAL
+ok 275 - 状态域是收款那 4 个值，绝不能混进应收的 OPEN/PARTIAL
+  ---
+  duration_ms: 1.565475
+  type: 'test'
+  ...
+# Subtest: 收款方式域与中文标签逐字对齐后端
+ok 276 - 收款方式域与中文标签逐字对齐后端
+  ---
+  duration_ms: 0.121629
+  type: 'test'
+  ...
+# Subtest: 状态下拉 value 用编码、label 用中文（回填时 v-model 传的是编码）
+ok 277 - 状态下拉 value 用编码、label 用中文（回填时 v-model 传的是编码）
+  ---
+  duration_ms: 0.148672
+  type: 'test'
+  ...
+# Subtest: 状态机只有 3 条边：没有 CONFIRMED→CANCELLED、没有 POSTED→*
+ok 278 - 状态机只有 3 条边：没有 CONFIRMED→CANCELLED、没有 POSTED→*
+  ---
+  duration_ms: 0.137713
+  type: 'test'
+  ...
+# Subtest: 权限码 5 个，与 V0293 种的 auth_code 逐字一致
+ok 279 - 权限码 5 个，与 V0293 种的 auth_code 逐字一致
+  ---
+  duration_ms: 0.150631
+  type: 'test'
+  ...
+# Subtest: 状态中文：后端 status_label 优先，缺失回落本地表，未知状态回落编码
+ok 280 - 状态中文：后端 status_label 优先，缺失回落本地表，未知状态回落编码
+  ---
+  duration_ms: 0.152422
+  type: 'test'
+  ...
+# Subtest: 收款方式中文：后端 method_label 优先，空方法给「未指定」
+ok 281 - 收款方式中文：后端 method_label 优先，空方法给「未指定」
+  ---
+  duration_ms: 0.154464
+  type: 'test'
+  ...
+# Subtest: 列表列覆盖卡面要求的 6 列（单号/客户/日期/金额/已核销/状态）
+ok 282 - 列表列覆盖卡面要求的 6 列（单号/客户/日期/金额/已核销/状态）
+  ---
+  duration_ms: 0.118588
+  type: 'test'
+  ...
+# Subtest: 空筛选一律不发空串（后端把 ?status= 当等于空串、?customer_id= 当非法 UUID）
+ok 283 - 空筛选一律不发空串（后端把 ?status= 当等于空串、?customer_id= 当非法 UUID）
+  ---
+  duration_ms: 0.935243
+  type: 'test'
+  ...
+# Subtest: 筛选参数：空格被 trim、单号模糊、日期下发 yyyy-MM-dd
+ok 284 - 筛选参数：空格被 trim、单号模糊、日期下发 yyyy-MM-dd
+  ---
+  duration_ms: 0.398015
+  type: 'test'
+  ...
+# Subtest: 确认按钮：只有 DRAFT 能确认
+ok 285 - 确认按钮：只有 DRAFT 能确认
+  ---
+  duration_ms: 0.156839
+  type: 'test'
+  ...
+# Subtest: 过账：必须 CONFIRMED 且核销满（allocated == amount），字符串金额也要比得准
+ok 286 - 过账：必须 CONFIRMED 且核销满（allocated == amount），字符串金额也要比得准
+  ---
+  duration_ms: 0.251218
+  type: 'test'
+  ...
+# Subtest: 作废：只有「草稿 + 一分钱没核销」能作废；其余都要给出原因
+ok 287 - 作废：只有「草稿 + 一分钱没核销」能作废；其余都要给出原因
+  ---
+  duration_ms: 0.098087
+  type: 'test'
+  ...
+# Subtest: 可核销状态 = DRAFT | CONFIRMED（POSTED/CANCELLED 后端 409）
+ok 288 - 可核销状态 = DRAFT | CONFIRMED（POSTED/CANCELLED 后端 409）
+  ---
+  duration_ms: 0.061669
+  type: 'test'
+  ...
+# Subtest: 金额小工具：字符串小数不拼串、比例不除零、负数留符号
+ok 289 - 金额小工具：字符串小数不拼串、比例不除零、负数留符号
+  ---
+  duration_ms: 0.086836
+  type: 'test'
+  ...
+# Subtest: 作废原因按字符数：4 个汉字合法、3 个不合法、501 个超限
+ok 290 - 作废原因按字符数：4 个汉字合法、3 个不合法、501 个超限
+  ---
+  duration_ms: 0.087836
+  type: 'test'
+  ...
+# Subtest: 登记表单：客户必选、金额必须 > 0、日期形状 yyyy-MM-dd
+ok 291 - 登记表单：客户必选、金额必须 > 0、日期形状 yyyy-MM-dd
+  ---
+  duration_ms: 0.124255
+  type: 'test'
+  ...
+# Subtest: 面板行：已有核销回填勾选 + 金额，可核销余额 = 未收 + 本收款此前核过的
+ok 292 - 面板行：已有核销回填勾选 + 金额，可核销余额 = 未收 + 本收款此前核过的
+  ---
+  duration_ms: 0.16309
+  type: 'test'
+  ...
+# Subtest: 面板行：详情里有、未收列表没带回的应收也要留在面板上（否则保存时被静默丢掉）
+ok 293 - 面板行：详情里有、未收列表没带回的应收也要留在面板上（否则保存时被静默丢掉）
+  ---
+  duration_ms: 0.070169
+  type: 'test'
+  ...
+# Subtest: 面板行：同一张应收重复出现只保留一行
+ok 294 - 面板行：同一张应收重复出现只保留一行
+  ---
+  duration_ms: 0.062919
+  type: 'test'
+  ...
+# Subtest: 未收应收合并：去重、丢掉终态与未收 0 的行、按到期日升序
+ok 295 - 未收应收合并：去重、丢掉终态与未收 0 的行、按到期日升序
+  ---
+  duration_ms: 0.137214
+  type: 'test'
+  ...
+# Subtest: 校验：单张超可核销余额 / 合计超收款金额 / 填了没勾 / 一张没勾
+ok 296 - 校验：单张超可核销余额 / 合计超收款金额 / 填了没勾 / 一张没勾
+  ---
+  duration_ms: 0.332887
+  type: 'test'
+  ...
+# Subtest: 已核销的行不能取消勾选、不能调小（无反核销接口，后端 UPSERT 不删行）
+ok 297 - 已核销的行不能取消勾选、不能调小（无反核销接口，后端 UPSERT 不删行）
+  ---
+  duration_ms: 0.16309
+  type: 'test'
+  ...
+# Subtest: buildAllocateItems 跳过「金额没变」的行（重提已核满应收会被后端 409）
+ok 298 - buildAllocateItems 跳过「金额没变」的行（重提已核满应收会被后端 409）
+  ---
+  duration_ms: 0.151798
+  type: 'test'
+  ...
+# Subtest: 核销金额出参是「元.4 位小数」定点串（后端 Decimal 收字符串）
+ok 299 - 核销金额出参是「元.4 位小数」定点串（后端 Decimal 收字符串）
+  ---
+  duration_ms: 0.068961
+  type: 'test'
+  ...
+# Subtest: 实时剩余：合计 / 剩余 / 勾选张数 / 单行剩余
+ok 300 - 实时剩余：合计 / 剩余 / 勾选张数 / 单行剩余
+  ---
+  duration_ms: 0.111338
+  type: 'test'
+  ...
+# Subtest: 一键填满：按到期日顺序从上往下填，最后一张只填到剩余额度
+ok 301 - 一键填满：按到期日顺序从上往下填，最后一张只填到剩余额度
+  ---
+  duration_ms: 0.121338
+  type: 'test'
+  ...
+# Subtest: 应收状态中文：后端 status_label 优先，缺失回落本地表
+ok 302 - 应收状态中文：后端 status_label 优先，缺失回落本地表
+  ---
+  duration_ms: 0.066169
+  type: 'test'
+  ...
+# Subtest: 列定义覆盖卡面要求的 8 列 + 操作列
+ok 303 - 列定义覆盖卡面要求的 8 列 + 操作列
+  ---
+  duration_ms: 0.779696
+  type: 'test'
+  ...
+# Subtest: 权限码与 V0288 的 sys_menu.auth_code 逐字一致
+ok 304 - 权限码与 V0288 的 sys_menu.auth_code 逐字一致
+  ---
+  duration_ms: 0.799779
+  type: 'test'
+  ...
+# Subtest: 状态域是应收的 5 个值，不是应付那套（PARTIAL_PAID / PENDING_CANCEL 会 400）
+ok 305 - 状态域是应收的 5 个值，不是应付那套（PARTIAL_PAID / PENDING_CANCEL 会 400）
+  ---
+  duration_ms: 0.10692
+  type: 'test'
+  ...
+# Subtest: 空筛选只发分页参数（空串一律不发）
+ok 306 - 空筛选只发分页参数（空串一律不发）
+  ---
+  duration_ms: 0.12038
+  type: 'test'
+  ...
+# Subtest: 筛选齐全时映射成后端键名（后台唯一模糊键是 ar_no，不是 keyword）
+ok 307 - 筛选齐全时映射成后端键名（后台唯一模糊键是 ar_no，不是 keyword）
+  ---
+  duration_ms: 0.17709
+  type: 'test'
+  ...
+# Subtest: 页码非法值归一到 1（后端 page 从 1 起）
+ok 308 - 页码非法值归一到 1（后端 page 从 1 起）
+  ---
+  duration_ms: 0.08167
+  type: 'test'
+  ...
+# Subtest: isReceivableFiltered：只有空白单号不算筛选（「已筛选」徽标不误报）
+ok 309 - isReceivableFiltered：只有空白单号不算筛选（「已筛选」徽标不误报）
+  ---
+  duration_ms: 0.142422
+  type: 'test'
+  ...
+# Subtest: 状态中文优先用后端 status_label，缺失才回落本地表，最后回落编码
+ok 310 - 状态中文优先用后端 status_label，缺失才回落本地表，最后回落编码
+  ---
+  duration_ms: 0.133546
+  type: 'test'
+  ...
+# Subtest: 状态配色：未知状态回落 default 不抛错
+ok 311 - 状态配色：未知状态回落 default 不抛错
+  ---
+  duration_ms: 0.292094
+  type: 'test'
+  ...
+# Subtest: 来源中文：SALES_OUT / MANUAL / 未知原样
+ok 312 - 来源中文：SALES_OUT / MANUAL / 未知原样
+  ---
+  duration_ms: 0.354346
+  type: 'test'
+  ...
+# Subtest: 只有 OPEN / PARTIAL 能核销（hasBalance 同口径）
+ok 313 - 只有 OPEN / PARTIAL 能核销（hasBalance 同口径）
+  ---
+  duration_ms: 0.186257
+  type: 'test'
+  ...
+# Subtest: 不能核销时给出指名道姓的原因（按钮灰了也要说明为什么）
+ok 314 - 不能核销时给出指名道姓的原因（按钮灰了也要说明为什么）
+  ---
+  duration_ms: 0.154423
+  type: 'test'
+  ...
+# Subtest: 核销原因按字符数判 4..500（中文 4 个字要能过，英文 3 个字母不过）
+ok 315 - 核销原因按字符数判 4..500（中文 4 个字要能过，英文 3 个字母不过）
+  ---
+  duration_ms: 0.125171
+  type: 'test'
+  ...
+# Subtest: 原因归一：去首尾空白 + 连续空白折一个空格（与后端收到的字符串一致）
+ok 316 - 原因归一：去首尾空白 + 连续空白折一个空格（与后端收到的字符串一致）
+  ---
+  duration_ms: 0.114129
+  type: 'test'
+  ...
+# Subtest: 逾期天数：正数逾期 / 0 到期当天 / 负数未到期
+ok 317 - 逾期天数：正数逾期 / 0 到期当天 / 负数未到期
+  ---
+  duration_ms: 0.162798
+  type: 'test'
+  ...
+# Subtest: 逾期文案：只有 OPEN/PARTIAL 才提逾期（已结清的单不该挂红标）
+ok 318 - 逾期文案：只有 OPEN/PARTIAL 才提逾期（已结清的单不该挂红标）
+  ---
+  duration_ms: 0.093462
+  type: 'test'
+  ...
+# Subtest: 账龄天数文案与应付账龄页同一套说法
+ok 319 - 账龄天数文案与应付账龄页同一套说法
+  ---
+  duration_ms: 0.068544
+  type: 'test'
+  ...
+# Subtest: 已收比例：整数分口径，超额截到 100%
+ok 320 - 已收比例：整数分口径，超额截到 100%
+  ---
+  duration_ms: 0.081211
+  type: 'test'
+  ...
+# Subtest: 账龄格占比：合计为 0 或格为 0 一律 0（不产生 NaN 宽度）
+ok 321 - 账龄格占比：合计为 0 或格为 0 一律 0（不产生 NaN 宽度）
+  ---
+  duration_ms: 0.076503
+  type: 'test'
+  ...
+# Subtest: 账龄档位配色：未到期绿 / 90+ 红 / 未知灰
+ok 322 - 账龄档位配色：未到期绿 / 90+ 红 / 未知灰
+  ---
+  duration_ms: 0.077628
+  type: 'test'
+  ...
+# Subtest: 基准日来源与期间状态文案
+ok 323 - 基准日来源与期间状态文案
+  ---
+  duration_ms: 0.080045
+  type: 'test'
+  ...
+# Subtest: 留痕前缀与后端写进 remark 的原文一致
+ok 324 - 留痕前缀与后端写进 remark 的原文一致
+  ---
+  duration_ms: 0.062961
+  type: 'test'
+  ...
+# Subtest: 坏账核销留痕：从 remark 拆出原因，时间用 settled_at
+ok 325 - 坏账核销留痕：从 remark 拆出原因，时间用 settled_at
+  ---
+  duration_ms: 0.104171
+  type: 'test'
+  ...
+# Subtest: 出库作废冲销留痕：与坏账核销同一面板但 kind 不同
+ok 326 - 出库作废冲销留痕：与坏账核销同一面板但 kind 不同
+  ---
+  duration_ms: 0.067377
+  type: 'test'
+  ...
+# Subtest: 多条留痕按行拆开（后端一行一条），无关备注行被忽略
+ok 327 - 多条留痕按行拆开（后端一行一条），无关备注行被忽略
+  ---
+  duration_ms: 0.08967
+  type: 'test'
+  ...
+# Subtest: 没有留痕的普通单返回空数组（不拿「已收 > 0」编收款行）
+ok 328 - 没有留痕的普通单返回空数组（不拿「已收 > 0」编收款行）
+  ---
+  duration_ms: 0.12988
+  type: 'test'
+  ...
+# Subtest: 收款核销未上线：空态文案要据实说明，且已收 > 0 时点名原因
+ok 329 - 收款核销未上线：空态文案要据实说明，且已收 > 0 时点名原因
+  ---
+  duration_ms: 0.105379
+  type: 'test'
+  ...
+# Subtest: status labels/themes cover the 7-value domain and fall back to the code
+ok 330 - status labels/themes cover the 7-value domain and fall back to the code
+  ---
+  duration_ms: 1.440929
+  type: 'test'
+  ...
+# Subtest: action visibility follows LEGAL_EDGES, not "my own draft"
+ok 331 - action visibility follows LEGAL_EDGES, not "my own draft"
+  ---
+  duration_ms: 0.374514
+  type: 'test'
+  ...
+# Subtest: reason is required only on the edges whose BASE edge says so
+ok 332 - reason is required only on the edges whose BASE edge says so
+  ---
+  duration_ms: 0.097004
+  type: 'test'
+  ...
+# Subtest: filter → query drops empty fields and trims the order no
+ok 333 - filter → query drops empty fields and trims the order no
+  ---
+  duration_ms: 0.154172
+  type: 'test'
+  ...
+# Subtest: empty-state copy distinguishes "no data" from "nothing matched"
+ok 334 - empty-state copy distinguishes "no data" from "nothing matched"
+  ---
+  duration_ms: 0.228133
+  type: 'test'
+  ...
+# Subtest: line amounts: amount = round(price × qty, 4), tax = round(amount × rate / 100, 4)
+ok 335 - line amounts: amount = round(price × qty, 4), tax = round(amount × rate / 100, 4)
+  ---
+  duration_ms: 0.271594
+  type: 'test'
+  ...
+# Subtest: order totals sum per-line rounded amounts (Totals::of 同口径)
+ok 336 - order totals sum per-line rounded amounts (Totals::of 同口径)
+  ---
+  duration_ms: 0.175923
+  type: 'test'
+  ...
+# Subtest: date strings must be real calendar days
+ok 337 - date strings must be real calendar days
+  ---
+  duration_ms: 0.177423
+  type: 'test'
+  ...
+# Subtest: form validation rejects every case the backend rejects
+ok 338 - form validation rejects every case the backend rejects
+  ---
+  duration_ms: 0.695526
+  type: 'test'
+  ...
+# Subtest: form validation reports which line failed
+ok 339 - form validation reports which line failed
+  ---
+  duration_ms: 0.462976
+  type: 'test'
+  ...
+# Subtest: line add/remove guards keep at least one line
+ok 340 - line add/remove guards keep at least one line
+  ---
+  duration_ms: 0.342763
+  type: 'test'
+  ...
+# Subtest: item request carries only qty / price / tax_rate (amounts are server-side)
+ok 341 - item request carries only qty / price / tax_rate (amounts are server-side)
+  ---
+  duration_ms: 0.112838
+  type: 'test'
+  ...
+# Subtest: create payload keeps dates and folds empty remark to null
+ok 342 - create payload keeps dates and folds empty remark to null
+  ---
+  duration_ms: 0.106462
+  type: 'test'
+  ...
+# Subtest: SO-27 合同：建单带上 contract_id，改单用 "" 表示解绑，详情回填
+ok 343 - SO-27 合同：建单带上 contract_id，改单用 "" 表示解绑，详情回填
+  ---
+  duration_ms: 0.179631
+  type: 'test'
+  ...
+# Subtest: update payload uses "" for cleared delivery date / remark (整单覆盖)
+ok 344 - update payload uses "" for cleared delivery date / remark (整单覆盖)
+  ---
+  duration_ms: 0.117672
+  type: 'test'
+  ...
+# Subtest: detail → form round-trips the line values sorted by line_no
+ok 345 - detail → form round-trips the line values sorted by line_no
+  ---
+  duration_ms: 0.138755
+  type: 'test'
+  ...
+# Subtest: null delivery date / remark in detail become empty strings in the form
+ok 346 - null delivery date / remark in detail become empty strings in the form
+  ---
+  duration_ms: 0.072836
+  type: 'test'
+  ...
+# Subtest: 状态域 6 值且顺序与后端 STATUSES 一致
+ok 347 - 状态域 6 值且顺序与后端 STATUSES 一致
+  ---
+  duration_ms: 1.7614
+  type: 'test'
+  ...
+# Subtest: 状态中文名与后端 status_label 逐字一致（含 CANCELLED = 已取消）
+ok 348 - 状态中文名与后端 status_label 逐字一致（含 CANCELLED = 已取消）
+  ---
+  duration_ms: 0.405515
+  type: 'test'
+  ...
+# Subtest: 退货类型 3 值与中文名与后端逐字一致
+ok 349 - 退货类型 3 值与中文名与后端逐字一致
+  ---
+  duration_ms: 0.319928
+  type: 'test'
+  ...
+# Subtest: 7 条合法边逐条等于后端 SALES_RETURN_EDGES
+ok 350 - 7 条合法边逐条等于后端 SALES_RETURN_EDGES
+  ---
+  duration_ms: 1.112416
+  type: 'test'
+  ...
+# Subtest: 2 条必填原因的边逐条等于后端 SALES_RETURN_REASON_EDGES
+ok 351 - 2 条必填原因的边逐条等于后端 SALES_RETURN_REASON_EDGES
+  ---
+  duration_ms: 0.757445
+  type: 'test'
+  ...
+# Subtest: canTransition / allowedTargets：单向链、不跳步、终态出不去、待过账不能作废
+ok 352 - canTransition / allowedTargets：单向链、不跳步、终态出不去、待过账不能作废
+  ---
+  duration_ms: 0.243092
+  type: 'test'
+  ...
+# Subtest: 按钮显隐矩阵：5 个动作各对应一条边
+ok 353 - 按钮显隐矩阵：5 个动作各对应一条边
+  ---
+  duration_ms: 0.205133
+  type: 'test'
+  ...
+# Subtest: statusNeedsReason：只有 SUBMITTED / APPROVED 作废要原因
+ok 354 - statusNeedsReason：只有 SUBMITTED / APPROVED 作废要原因
+  ---
+  duration_ms: 0.09392
+  type: 'test'
+  ...
+# Subtest: 状态线：作废单只点亮草稿，主链顺序与后端一致
+ok 355 - 状态线：作废单只点亮草稿，主链顺序与后端一致
+  ---
+  duration_ms: 0.359305
+  type: 'test'
+  ...
+# Subtest: 未知状态 / 类型回落编码本身，不显示空白
+ok 356 - 未知状态 / 类型回落编码本身，不显示空白
+  ---
+  duration_ms: 0.386682
+  type: 'test'
+  ...
+# Subtest: 筛选 → 请求参数：空串根本不发，页大小默认 20
+ok 357 - 筛选 → 请求参数：空串根本不发，页大小默认 20
+  ---
+  duration_ms: 0.208091
+  type: 'test'
+  ...
+# Subtest: 列表列必须含卡面点名的六列（单号 / 客户 / 日期 / 类型 / 金额 / 状态）
+ok 358 - 列表列必须含卡面点名的六列（单号 / 客户 / 日期 / 类型 / 金额 / 状态）
+  ---
+  duration_ms: 0.93841
+  type: 'test'
+  ...
+# Subtest: 可退明细 → 表单行：只留 remaining > 0、按行号排序、数量默认可退量
+ok 359 - 可退明细 → 表单行：只留 remaining > 0、按行号排序、数量默认可退量
+  ---
+  duration_ms: 0.217008
+  type: 'test'
+  ...
+# Subtest: 金额拆分与服务端 line_amounts 同公式（amount = round(price×qty,4)，tax = round(amount×rate/100,4)）
+ok 360 - 金额拆分与服务端 line_amounts 同公式（amount = round(price×qty,4)，tax = round(amount×rate/100,4)）
+  ---
+  duration_ms: 0.094796
+  type: 'test'
+  ...
+# Subtest: 表单预估合计 = 逐行金额 + 税额之和
+ok 361 - 表单预估合计 = 逐行金额 + 税额之和
+  ---
+  duration_ms: 0.138713
+  type: 'test'
+  ...
+# Subtest: qtyText：4 位定标 + 去掉无意义 0
+ok 362 - qtyText：4 位定标 + 去掉无意义 0
+  ---
+  duration_ms: 0.060919
+  type: 'test'
+  ...
+# Subtest: 表单校验：缺发货单 / 类型 / 仓库 / 日期非法 / 无明细 都拦住
+ok 363 - 表单校验：缺发货单 / 类型 / 仓库 / 日期非法 / 无明细 都拦住
+  ---
+  duration_ms: 0.274385
+  type: 'test'
+  ...
+# Subtest: 表单校验：数量必须 > 0 且不超过可退量
+ok 364 - 表单校验：数量必须 > 0 且不超过可退量
+  ---
+  duration_ms: 0.084503
+  type: 'test'
+  ...
+# Subtest: 表单校验：行数上限
+ok 365 - 表单校验：行数上限
+  ---
+  duration_ms: 0.328846
+  type: 'test'
+  ...
+# Subtest: isDateString：真日期才放行
+ok 366 - isDateString：真日期才放行
+  ---
+  duration_ms: 0.144963
+  type: 'test'
+  ...
+# Subtest: 建单入参：带发货单 + 类型 + 仓库 + 日期，明细只发 so_item_id / qty / 库位 / 备注
+ok 367 - 建单入参：带发货单 + 类型 + 仓库 + 日期，明细只发 so_item_id / qty / 库位 / 备注
+  ---
+  duration_ms: 0.238926
+  type: 'test'
+  ...
+# Subtest: isFullReturn：数量全等于可退量才算「整单全退」
+ok 368 - isFullReturn：数量全等于可退量才算「整单全退」
+  ---
+  duration_ms: 0.079711
+  type: 'test'
+  ...
+# Subtest: 过账弹窗正文点名单据与合计，并说清五个真实效果
+ok 369 - 过账弹窗正文点名单据与合计，并说清五个真实效果
+  ---
+  duration_ms: 12.864689
+  type: 'test'
+  ...
+# Subtest: 过账回链文案：已生成 / 已删除 / 未过账 三态分开说
+ok 370 - 过账回链文案：已生成 / 已删除 / 未过账 三态分开说
+  ---
+  duration_ms: 0.117171
+  type: 'test'
+  ...
+# Subtest: 金额显示：两位小数 + 千分位
+ok 371 - 金额显示：两位小数 + 千分位
+  ---
+  duration_ms: 0.162547
+  type: 'test'
+  ...
+# Subtest: ① 状态映射：IN_STOCK→在库/绿、OUTBOUND→已出库/蓝、SCRAPPED→已报废/灰
+ok 372 - ① 状态映射：IN_STOCK→在库/绿、OUTBOUND→已出库/蓝、SCRAPPED→已报废/灰
+  ---
+  duration_ms: 1.345592
+  type: 'test'
+  ...
+# Subtest: ② 可流转：IN_STOCK 可出库可报废、OUTBOUND 只能报废、SCRAPPED 都不能
+ok 373 - ② 可流转：IN_STOCK 可出库可报废、OUTBOUND 只能报废、SCRAPPED 都不能
+  ---
+  duration_ms: 0.371181
+  type: 'test'
+  ...
+# Subtest: ③ 扫码结果合并：命中行标 scanned=true，其余 false；不在本页时 hitOnPage=false
+ok 374 - ③ 扫码结果合并：命中行标 scanned=true，其余 false；不在本页时 hitOnPage=false
+  ---
+  duration_ms: 0.390264
+  type: 'test'
+  ...
+# Subtest: 筛选参数：空值整键缺席，序列号去空白，状态 / 物料 / 仓库按选中带上
+ok 375 - 筛选参数：空值整键缺席，序列号去空白，状态 / 物料 / 仓库按选中带上
+  ---
+  duration_ms: 0.160006
+  type: 'test'
+  ...
+# Subtest: 批量生成表单：物料 / 仓库 / 成本单价必填、数量 1..1000、请求体空值不发
+ok 376 - 批量生成表单：物料 / 仓库 / 成本单价必填、数量 1..1000、请求体空值不发
+  ---
+  duration_ms: 0.336388
+  type: 'test'
+  ...
+# Subtest: 批量生成表单：成本单价四条校验（空 / 非数字 / ≤0 / 7 位小数），口径照后端 parse_unit_cost
+ok 377 - 批量生成表单：成本单价四条校验（空 / 非数字 / ≤0 / 7 位小数），口径照后端 parse_unit_cost
+  ---
+  duration_ms: 0.140297
+  type: 'test'
+  ...
+# Subtest: 入库金额预览：数量 × 单价，4 位小数（与 biz_inventory.amount numeric(18,4) 一致）
+ok 378 - 入库金额预览：数量 × 单价，4 位小数（与 biz_inventory.amount numeric(18,4) 一致）
+  ---
+  duration_ms: 0.182215
+  type: 'test'
+  ...
+# Subtest: 批量生成失败文案：400/10001 的 msg 原样透出，拿不到 msg 才兜底
+ok 379 - 批量生成失败文案：400/10001 的 msg 原样透出，拿不到 msg 才兜底
+  ---
+  duration_ms: 0.104713
+  type: 'test'
+  ...
+# Subtest: 批量生成成功摘要：金额 / 结存用后端回显的字符串（前端不重算）
+ok 380 - 批量生成成功摘要：金额 / 结存用后端回显的字符串（前端不重算）
+  ---
+  duration_ms: 0.456559
+  type: 'test'
+  ...
+# Subtest: 状态域 4 值且顺序与后端 STATUSES 一致
+ok 381 - 状态域 4 值且顺序与后端 STATUSES 一致
+  ---
+  duration_ms: 1.768774
+  type: 'test'
+  ...
+# Subtest: 状态中文名与后端 status_label 逐字一致
+ok 382 - 状态中文名与后端 status_label 逐字一致
+  ---
+  duration_ms: 0.380639
+  type: 'test'
+  ...
+# Subtest: 4 条合法边逐条等于后端 SHIPMENT_EDGES
+ok 383 - 4 条合法边逐条等于后端 SHIPMENT_EDGES
+  ---
+  duration_ms: 0.937494
+  type: 'test'
+  ...
+# Subtest: 必填原因只有 PENDING_POST → CANCELLED（等于后端 SHIPMENT_REASON_EDGES）
+ok 384 - 必填原因只有 PENDING_POST → CANCELLED（等于后端 SHIPMENT_REASON_EDGES）
+  ---
+  duration_ms: 1.056623
+  type: 'test'
+  ...
+# Subtest: 非法边一律不认：DRAFT→POSTED、POSTED→CANCELLED、CANCELLED→*
+ok 385 - 非法边一律不认：DRAFT→POSTED、POSTED→CANCELLED、CANCELLED→*
+  ---
+  duration_ms: 0.24526
+  type: 'test'
+  ...
+# Subtest: allowedTargets 按边表顺序给出可选去向
+ok 386 - allowedTargets 按边表顺序给出可选去向
+  ---
+  duration_ms: 0.13213
+  type: 'test'
+  ...
+# Subtest: 按钮矩阵：DRAFT 只能提交/作废，PENDING_POST 只能过账/作废，终态无动作
+ok 387 - 按钮矩阵：DRAFT 只能提交/作废，PENDING_POST 只能过账/作废，终态无动作
+  ---
+  duration_ms: 0.339596
+  type: 'test'
+  ...
+# Subtest: 状态标签 / 配色：认不出的编码回落编码本身与 default
+ok 388 - 状态标签 / 配色：认不出的编码回落编码本身与 default
+  ---
+  duration_ms: 0.106171
+  type: 'test'
+  ...
+# Subtest: 状态下拉：5 项（全部 + 4 态），首项 = 全部（value 空串）
+ok 389 - 状态下拉：5 项（全部 + 4 态），首项 = 全部（value 空串）
+  ---
+  duration_ms: 0.382097
+  type: 'test'
+  ...
+# Subtest: 空筛选 ⇒ 请求只带分页（空串根本不发）
+ok 390 - 空筛选 ⇒ 请求只带分页（空串根本不发）
+  ---
+  duration_ms: 0.41639
+  type: 'test'
+  ...
+# Subtest: 筛选参数：单号 trim、状态与客户精确带上
+ok 391 - 筛选参数：单号 trim、状态与客户精确带上
+  ---
+  duration_ms: 0.164839
+  type: 'test'
+  ...
+# Subtest: 空态文案区分「没数据」与「筛出来没有」
+ok 392 - 空态文案区分「没数据」与「筛出来没有」
+  ---
+  duration_ms: 0.084461
+  type: 'test'
+  ...
+# Subtest: 列表列与详情明细列的 colKey 与后端出参同名
+ok 393 - 列表列与详情明细列的 colKey 与后端出参同名
+  ---
+  duration_ms: 0.081128
+  type: 'test'
+  ...
+# Subtest: 只带 remaining > 0 的行，按订单行号升序，数量默认未发量
+ok 394 - 只带 remaining > 0 的行，按订单行号升序，数量默认未发量
+  ---
+  duration_ms: 0.210883
+  type: 'test'
+  ...
+# Subtest: 整张订单都发完了 ⇒ 带出 0 行（校验要拦住并给同一句口径）
+ok 395 - 整张订单都发完了 ⇒ 带出 0 行（校验要拦住并给同一句口径）
+  ---
+  duration_ms: 0.198341
+  type: 'test'
+  ...
+# Subtest: qtyText 4 位定标：字符串数字、空值、非法值都归一
+ok 396 - qtyText 4 位定标：字符串数字、空值、非法值都归一
+  ---
+  duration_ms: 0.073003
+  type: 'test'
+  ...
+# Subtest: 合计数量按行累加（4 位定标后取整到 4 位）
+ok 397 - 合计数量按行累加（4 位定标后取整到 4 位）
+  ---
+  duration_ms: 0.075419
+  type: 'test'
+  ...
+# Subtest: 必填项：订单 / 仓库 / 日期格式 / 明细非空
+ok 398 - 必填项：订单 / 仓库 / 日期格式 / 明细非空
+  ---
+  duration_ms: 0.123838
+  type: 'test'
+  ...
+# Subtest: 数量校验：0 / 负数 / 超过未发量都要拦住
+ok 399 - 数量校验：0 / 负数 / 超过未发量都要拦住
+  ---
+  duration_ms: 0.105046
+  type: 'test'
+  ...
+# Subtest: 明细行数上限与备注上限
+ok 400 - 明细行数上限与备注上限
+  ---
+  duration_ms: 1.428845
+  type: 'test'
+  ...
+# Subtest: isDateString 拒掉不存在的日期
+ok 401 - isDateString 拒掉不存在的日期
+  ---
+  duration_ms: 0.08292
+  type: 'test'
+  ...
+# Subtest: 建单请求体：不带物料、qty 归一为 4 位定标、空白备注与空库位不发
+ok 402 - 建单请求体：不带物料、qty 归一为 4 位定标、空白备注与空库位不发
+  ---
+  duration_ms: 0.148255
+  type: 'test'
+  ...
+# Subtest: 数量留空 = 交给服务端「该行全部未发量」
+ok 403 - 数量留空 = 交给服务端「该行全部未发量」
+  ---
+  duration_ms: 0.062877
+  type: 'test'
+  ...
+# Subtest: 指定库位与行备注照发（库位是 biz_location.id）
+ok 404 - 指定库位与行备注照发（库位是 biz_location.id）
+  ---
+  duration_ms: 0.068336
+  type: 'test'
+  ...
+# Subtest: isFullShipment：数量全等于未发量才算「整单全发」
+ok 405 - isFullShipment：数量全等于未发量才算「整单全发」
+  ---
+  duration_ms: 0.074003
+  type: 'test'
+  ...
+# Subtest: 过账弹窗正文点名单据与合计，并说清三个真实效果
+ok 406 - 过账弹窗正文点名单据与合计，并说清三个真实效果
+  ---
+  duration_ms: 0.081878
+  type: 'test'
+  ...
+# Subtest: 关联出库单号：过账后有号、未过账与出库单被删分开表达
+ok 407 - 关联出库单号：过账后有号、未过账与出库单被删分开表达
+  ---
+  duration_ms: 0.066794
+  type: 'test'
+  ...
+# Subtest: 出库类型四值与中文名逐字对齐后端 OUT_TYPES
+ok 408 - 出库类型四值与中文名逐字对齐后端 OUT_TYPES
+  ---
+  duration_ms: 1.464304
+  type: 'test'
+  ...
+# Subtest: 只有报废 / 盘亏必须填事由（要挂 1901）
+ok 409 - 只有报废 / 盘亏必须填事由（要挂 1901）
+  ---
+  duration_ms: 0.100879
+  type: 'test'
+  ...
+# Subtest: 状态四值的中文名与标签主题
+ok 410 - 状态四值的中文名与标签主题
+  ---
+  duration_ms: 0.19609
+  type: 'test'
+  ...
+# Subtest: 按钮 = next_statuses 的投影：只喂两个目标就只出两个按钮
+ok 411 - 按钮 = next_statuses 的投影：只喂两个目标就只出两个按钮
+  ---
+  duration_ms: 0.14888
+  type: 'test'
+  ...
+# Subtest: next_statuses 为空 → 一个按钮都不出（已作废单据再也不能流转）
+ok 412 - next_statuses 为空 → 一个按钮都不出（已作废单据再也不能流转）
+  ---
+  duration_ms: 0.156381
+  type: 'test'
+  ...
+# Subtest: 目标态文案看「当前状态」：PENDING_POST → DRAFT 是撤回，其它是退回
+ok 413 - 目标态文案看「当前状态」：PENDING_POST → DRAFT 是撤回，其它是退回
+  ---
+  duration_ms: 0.082878
+  type: 'test'
+  ...
+# Subtest: next_statuses 里的未知目标被丢弃，重复目标只留一个
+ok 414 - next_statuses 里的未知目标被丢弃，重复目标只留一个
+  ---
+  duration_ms: 0.15388
+  type: 'test'
+  ...
+# Subtest: 空领用单：缺仓库 / 缺物料 / 数量为 0 三处同时报错
+ok 415 - 空领用单：缺仓库 / 缺物料 / 数量为 0 三处同时报错
+  ---
+  duration_ms: 0.472393
+  type: 'test'
+  ...
+# Subtest: 报废 / 盘亏没写事由被拦住，写了就放行
+ok 416 - 报废 / 盘亏没写事由被拦住，写了就放行
+  ---
+  duration_ms: 0.415516
+  type: 'test'
+  ...
+# Subtest: 一物一码物料被前端提前拦下（后端会 400 指路序列号管理）
+ok 417 - 一物一码物料被前端提前拦下（后端会 400 指路序列号管理）
+  ---
+  duration_ms: 0.529103
+  type: 'test'
+  ...
+# Subtest: 数量必须 > 0：0 与负数都拦
+ok 418 - 数量必须 > 0：0 与负数都拦
+  ---
+  duration_ms: 0.327345
+  type: 'test'
+  ...
+# Subtest: 明细为空 / 超上限都被拦，且错误挂在 items 上
+ok 419 - 明细为空 / 超上限都被拦，且错误挂在 items 上
+  ---
+  duration_ms: 0.158172
+  type: 'test'
+  ...
+# Subtest: 建单 body 只带后端认的字段：明细没有单价 / 金额 / 单位
+ok 420 - 建单 body 只带后端认的字段：明细没有单价 / 金额 / 单位
+  ---
+  duration_ms: 0.168839
+  type: 'test'
+  ...
+# Subtest: 数量转字符串时去掉浮点尾巴
+ok 421 - 数量转字符串时去掉浮点尾巴
+  ---
+  duration_ms: 0.09017
+  type: 'test'
+  ...
+# Subtest: 筛选条件：空串一律不发，日期区间拆成 date_from / date_to
+ok 422 - 筛选条件：空串一律不发，日期区间拆成 date_from / date_to
+  ---
+  duration_ms: 0.126629
+  type: 'test'
+  ...
+# Subtest: isStockOutFiltered 只认真正填了的条件
+ok 423 - isStockOutFiltered 只认真正填了的条件
+  ---
+  duration_ms: 0.08717
+  type: 'test'
+  ...
+# Subtest: 状态历史只为真实发生过的里程碑打点
+ok 424 - 状态历史只为真实发生过的里程碑打点
+  ---
+  duration_ms: 0.127671
+  type: 'test'
+  ...
+# Subtest: 待过账的历史不编时间（后端没下发提交时间）
+ok 425 - 待过账的历史不编时间（后端没下发提交时间）
+  ---
+  duration_ms: 0.081045
+  type: 'test'
+  ...
+# Subtest: 作废原因必填，且请求体把原因带上
+ok 426 - 作废原因必填，且请求体把原因带上
+  ---
+  duration_ms: 0.10367
+  type: 'test'
+  ...
+# Subtest: 只有草稿能编辑 / 删除
+ok 427 - 只有草稿能编辑 / 删除
+  ---
+  duration_ms: 0.075295
+  type: 'test'
+  ...
+# Subtest: 错误文案原样带后端 msg（负库存的「可用量」不能被吞掉）
+ok 428 - 错误文案原样带后端 msg（负库存的「可用量」不能被吞掉）
+  ---
+  duration_ms: 0.120338
+  type: 'test'
+  ...
+# Subtest: 详情 → 编辑表单：数量转成数字，库位缺省为 null
+ok 429 - 详情 → 编辑表单：数量转成数字，库位缺省为 null
+  ---
+  duration_ms: 0.119838
+  type: 'test'
+  ...
+# Subtest: API 层 6 个接口都写全了 /api 前缀（漏了会命中 SPA fallback 返回 HTML）
+ok 430 - API 层 6 个接口都写全了 /api 前缀（漏了会命中 SPA fallback 返回 HTML）
+  ---
+  duration_ms: 1.183878
+  type: 'test'
+  ...
+# Subtest: 盘点类型两值与中文名逐字对齐后端 TAKE_TYPES
+ok 431 - 盘点类型两值与中文名逐字对齐后端 TAKE_TYPES
+  ---
+  duration_ms: 1.628019
+  type: 'test'
+  ...
+# Subtest: 状态四值的译名与标签主题
+ok 432 - 状态四值的译名与标签主题
+  ---
+  duration_ms: 0.152131
+  type: 'test'
+  ...
+# Subtest: 空表单默认全盘 + 今天（CST）+ 无范围行
+ok 433 - 空表单默认全盘 + 今天（CST）+ 无范围行
+  ---
+  duration_ms: 0.294469
+  type: 'test'
+  ...
+# Subtest: 全盘不填范围也能通过校验（范围由服务端快照）
+ok 434 - 全盘不填范围也能通过校验（范围由服务端快照）
+  ---
+  duration_ms: 0.141838
+  type: 'test'
+  ...
+# Subtest: 全盘带 items 必须报错（后端对 FULL + items 直接 400）
+ok 435 - 全盘带 items 必须报错（后端对 FULL + items 直接 400）
+  ---
+  duration_ms: 0.205341
+  type: 'test'
+  ...
+# Subtest: 抽盘没有范围行必须报错
+ok 436 - 抽盘没有范围行必须报错
+  ---
+  duration_ms: 0.088795
+  type: 'test'
+  ...
+# Subtest: 抽盘同一物料同一库位重复 → 报错（否则过账双倍调平）
+ok 437 - 抽盘同一物料同一库位重复 → 报错（否则过账双倍调平）
+  ---
+  duration_ms: 0.18809
+  type: 'test'
+  ...
+# Subtest: 抽盘两个库位桶各一行是合法的（不算重复）
+ok 438 - 抽盘两个库位桶各一行是合法的（不算重复）
+  ---
+  duration_ms: 0.08667
+  type: 'test'
+  ...
+# Subtest: 仓库 / 日期必填
+ok 439 - 仓库 / 日期必填
+  ---
+  duration_ms: 0.335971
+  type: 'test'
+  ...
+# Subtest: 备注超 500 字报错（后端 MAX_REMARK_LEN）
+ok 440 - 备注超 500 字报错（后端 MAX_REMARK_LEN）
+  ---
+  duration_ms: 0.373556
+  type: 'test'
+  ...
+# Subtest: 建单请求体：全盘 items 为空数组，抽盘只带 material_id / location_id
+ok 441 - 建单请求体：全盘 items 为空数组，抽盘只带 material_id / location_id
+  ---
+  duration_ms: 1.073998
+  type: 'test'
+  ...
+# Subtest: 详情 → 实盘数编辑态：默认回显后端给的实盘数
+ok 442 - 详情 → 实盘数编辑态：默认回显后端给的实盘数
+  ---
+  duration_ms: 0.2143
+  type: 'test'
+  ...
+# Subtest: 实盘数：空 / 非数字 / 负数都拦，0 合法
+ok 443 - 实盘数：空 / 非数字 / 负数都拦，0 合法
+  ---
+  duration_ms: 0.211008
+  type: 'test'
+  ...
+# Subtest: 改单请求体：lines 用 item_id + actual_qty，日期与备注原样带
+ok 444 - 改单请求体：lines 用 item_id + actual_qty，日期与备注原样带
+  ---
+  duration_ms: 0.130505
+  type: 'test'
+  ...
+# Subtest: 草稿态只出「提交审批 / 作废」两个按钮 —— 盘点没有「直接过账」
+ok 445 - 草稿态只出「提交审批 / 作废」两个按钮 —— 盘点没有「直接过账」
+  ---
+  duration_ms: 0.191841
+  type: 'test'
+  ...
+# Subtest: 待过账态出「过账 / 撤回 / 作废」三个按钮
+ok 446 - 待过账态出「过账 / 撤回 / 作废」三个按钮
+  ---
+  duration_ms: 0.105629
+  type: 'test'
+  ...
+# Subtest: 已过账态只剩作废（且必须写原因）
+ok 447 - 已过账态只剩作废（且必须写原因）
+  ---
+  duration_ms: 0.072128
+  type: 'test'
+  ...
+# Subtest: 未知目标状态一律丢弃（不让页面渲出点不了 / 看不懂的按钮）
+ok 448 - 未知目标状态一律丢弃（不让页面渲出点不了 / 看不懂的按钮）
+  ---
+  duration_ms: 0.077586
+  type: 'test'
+  ...
+# Subtest: 只有草稿能改 / 能删
+ok 449 - 只有草稿能改 / 能删
+  ---
+  duration_ms: 0.083628
+  type: 'test'
+  ...
+# Subtest: 作废原因必填；已过账的报文要点名红字凭证
+ok 450 - 作废原因必填；已过账的报文要点名红字凭证
+  ---
+  duration_ms: 0.171631
+  type: 'test'
+  ...
+# Subtest: 66033 才算「没配已发布审批流程」
+ok 451 - 66033 才算「没配已发布审批流程」
+  ---
+  duration_ms: 0.090795
+  type: 'test'
+  ...
+# Subtest: 跳过审批理由 ≥ 10 字，请求体带 skip_approval + skip_reason
+ok 452 - 跳过审批理由 ≥ 10 字，请求体带 skip_approval + skip_reason
+  ---
+  duration_ms: 0.09892
+  type: 'test'
+  ...
+# Subtest: 筛选 → 查询参数（空串一律不发）
+ok 453 - 筛选 → 查询参数（空串一律不发）
+  ---
+  duration_ms: 0.11138
+  type: 'test'
+  ...
+# Subtest: 差异方向与符号：正数盘盈带 +，负数盘亏带 -，0 无符号
+ok 454 - 差异方向与符号：正数盘盈带 +，负数盘亏带 -，0 无符号
+  ---
+  duration_ms: 0.089087
+  type: 'test'
+  ...
+# Subtest: 状态历史只为真实发生过的里程碑打点
+ok 455 - 状态历史只为真实发生过的里程碑打点
+  ---
+  duration_ms: 0.129963
+  type: 'test'
+  ...
+# Subtest: 错误文案原样带上后端报文与错误码
+ok 456 - 错误文案原样带上后端报文与错误码
+  ---
+  duration_ms: 0.082462
+  type: 'test'
+  ...
+# Subtest: aggregateDiff：按明细 diff_qty 汇总盘盈 / 盘亏数量
+ok 457 - aggregateDiff：按明细 diff_qty 汇总盘盈 / 盘亏数量
+  ---
+  duration_ms: 0.105087
+  type: 'test'
+  ...
+# Subtest: gainLossDisplay：草稿按明细汇总（标 fromBackend=false），已过账用后端合计
+ok 458 - gainLossDisplay：草稿按明细汇总（标 fromBackend=false），已过账用后端合计
+  ---
+  duration_ms: 0.099421
+  type: 'test'
+  ...
+# Subtest: V0211 的菜单 path 已在 router/index.ts 注册（n08 的前端侧镜像）
+ok 459 - V0211 的菜单 path 已在 router/index.ts 注册（n08 的前端侧镜像）
+  ---
+  duration_ms: 0.44835
+  type: 'test'
+  ...
+# Subtest: 菜单 component 指向的视图文件真的存在
+ok 460 - 菜单 component 指向的视图文件真的存在
+  ---
+  duration_ms: 0.329471
+  type: 'test'
+  ...
+# Subtest: 详情「差异凭证 / 红冲凭证」必须显示凭证号（PZ-… / PZR-…），不许拿 UUID 截断顶替
+ok 461 - 详情「差异凭证 / 红冲凭证」必须显示凭证号（PZ-… / PZR-…），不许拿 UUID 截断顶替
+  ---
+  duration_ms: 0.247676
+  type: 'test'
+  ...
+# Subtest: 详情契约：单头扁平 + items + next_statuses
+ok 462 - 详情契约：单头扁平 + items + next_statuses
+  ---
+  duration_ms: 0.095128
+  type: 'test'
+  ...
+# Subtest: ① 状态映射：6 种状态 → 中文 + 配色（紫没有语义槽 → primary/dark 顶替）
+ok 463 - ① 状态映射：6 种状态 → 中文 + 配色（紫没有语义槽 → primary/dark 顶替）
+  ---
+  duration_ms: 1.268214
+  type: 'test'
+  ...
+# Subtest: ② 可流转判断：每种状态的按钮显隐（照卡面 §四·③）
+ok 464 - ② 可流转判断：每种状态的按钮显隐（照卡面 §四·③）
+  ---
+  duration_ms: 0.337513
+  type: 'test'
+  ...
+# Subtest: ③ 建单校验：同仓报错 / 数量 ≤ 0 报错 / 序列号个数 ≠ 数量报错
+ok 465 - ③ 建单校验：同仓报错 / 数量 ≤ 0 报错 / 序列号个数 ≠ 数量报错
+  ---
+  duration_ms: 0.525145
+  type: 'test'
+  ...
+# Subtest: ④ 查询参数空串不发 / 请求体省略空值 / 明细序列号只在非空时发
+ok 466 - ④ 查询参数空串不发 / 请求体省略空值 / 明细序列号只在非空时发
+  ---
+  duration_ms: 0.373472
+  type: 'test'
+  ...
+# Subtest: ⑤ 审批进度：提交 → 审批人同意 → 完成（时间线三段拼接）
+ok 467 - ⑤ 审批进度：提交 → 审批人同意 → 完成（时间线三段拼接）
+  ---
+  duration_ms: 0.355305
+  type: 'test'
+  ...
+# Subtest: ⑥ 超期在途：开关 → 请求参数 / 矛盾组合永不产生 / 红标与角标文案
+ok 468 - ⑥ 超期在途：开关 → 请求参数 / 矛盾组合永不产生 / 红标与角标文案
+  ---
+  duration_ms: 0.360888
+  type: 'test'
+  ...
+# Subtest: ① 3 层树展平：长度 = 节点总数，parent_id 仍指向上级真实节点
+ok 469 - ① 3 层树展平：长度 = 节点总数，parent_id 仍指向上级真实节点
+  ---
+  duration_ms: 1.225754
+  type: 'test'
+  ...
+# Subtest: ② 节点 key 生成：空 code 不产出 undefined，重复 code 也不撞 key
+ok 470 - ② 节点 key 生成：空 code 不产出 undefined，重复 code 也不撞 key
+  ---
+  duration_ms: 1.354175
+  type: 'test'
+  ...
+# Subtest: ③ is_leaf 判定：有 children 的为 false，无 children 的为 true
+ok 471 - ③ is_leaf 判定：有 children 的为 false，无 children 的为 true
+  ---
+  duration_ms: 0.106587
+  type: 'test'
+  ...
+# Subtest: ④ 点节点后 selectedWarehouseId 正确更新（含取消选中）
+ok 472 - ④ 点节点后 selectedWarehouseId 正确更新（含取消选中）
+  ---
+  duration_ms: 0.099295
+  type: 'test'
+  ...
+# Subtest: 年结催办权限码与后端 V0208 逐字一致
+ok 473 - 年结催办权限码与后端 V0208 逐字一致
+  ---
+  duration_ms: 0.693318
+  type: 'test'
+  ...
+# Subtest: 原有三个年结权限码没被改动（前缀是 yearend，不是 year-end）
+ok 474 - 原有三个年结权限码没被改动（前缀是 yearend，不是 year-end）
+  ---
+  duration_ms: 0.086128
+  type: 'test'
+  ...
+# Subtest: 只有带明细的阻塞项上表格（其余三类不硬造空表）
+ok 475 - 只有带明细的阻塞项上表格（其余三类不硬造空表）
+  ---
+  duration_ms: 0.868574
+  type: 'test'
+  ...
+# Subtest: 明细总条数按所有阻塞项累加（每类上限 50 由后端保证）
+ok 476 - 明细总条数按所有阻塞项累加（每类上限 50 由后端保证）
+  ---
+  duration_ms: 0.116296
+  type: 'test'
+  ...
+# Subtest: 五项校验之外的附加闸仍单独归类（已结转 / 下年期初被占用）
+ok 477 - 五项校验之外的附加闸仍单独归类（已结转 / 下年期初被占用）
+  ---
+  duration_ms: 0.115296
+  type: 'test'
+  ...
+# Subtest: 摘要数「几项通过」而不是「几项失败」
+ok 478 - 摘要数「几项通过」而不是「几项失败」
+  ---
+  duration_ms: 0.117588
+  type: 'test'
+  ...
+# Subtest: 五项校验的固定顺序与后端 BLOCKER_* 常量一致
+ok 479 - 五项校验的固定顺序与后端 BLOCKER_* 常量一致
+  ---
+  duration_ms: 0.138881
+  type: 'test'
+  ...
+# Subtest: shared/blocker-logic 的口径与结账页一致（抽取不许改行为）
+ok 480 - shared/blocker-logic 的口径与结账页一致（抽取不许改行为）
+  ---
+  duration_ms: 0.137297
+  type: 'test'
+  ...
+# Subtest: 调拨页消费 transfer_no 深链（后端 route_of 的口径）
+ok 481 - 调拨页消费 transfer_no 深链（后端 route_of 的口径）
+  ---
+  duration_ms: 0.310178
+  type: 'test'
+  ...
+# Subtest: 年结页 ?year= 深链（2000–2998 之外一律忽略，退回最新年度）
+ok 482 - 年结页 ?year= 深链（2000–2998 之外一律忽略，退回最新年度）
+  ---
+  duration_ms: 0.406807
+  type: 'test'
+  ...
+# Subtest: 权限码与后端逐字一致（三个分开的码，不是复用期间码）
+ok 483 - 权限码与后端逐字一致（三个分开的码，不是复用期间码）
+  ---
+  duration_ms: 0.6789
+  type: 'test'
+  ...
+# Subtest: 金额：字符串 / 数字都能算（后端 Decimal 经 JSON 回来是字符串或数字）
+ok 484 - 金额：字符串 / 数字都能算（后端 Decimal 经 JSON 回来是字符串或数字）
+  ---
+  duration_ms: 12.372504
+  type: 'test'
+  ...
+# Subtest: 状态：未结转 / 已结转 的中文与 theme
+ok 485 - 状态：未结转 / 已结转 的中文与 theme
+  ---
+  duration_ms: 0.21655
+  type: 'test'
+  ...
+# Subtest: 五项前置校验固定渲染五行，通过的也渲染 ✅
+ok 486 - 五项前置校验固定渲染五行，通过的也渲染 ✅
+  ---
+  duration_ms: 0.850074
+  type: 'test'
+  ...
+# Subtest: 未结账时：❌ 行点名月份（后端给 periods + message）
+ok 487 - 未结账时：❌ 行点名月份（后端给 periods + message）
+  ---
+  duration_ms: 0.187174
+  type: 'test'
+  ...
+# Subtest: 试算不平：detail 里必须带差额
+ok 488 - 试算不平：detail 里必须带差额
+  ---
+  duration_ms: 0.101337
+  type: 'test'
+  ...
+# Subtest: 年结按钮：can_close + 有 close 权限 + 未结转 三条同时满足
+ok 489 - 年结按钮：can_close + 有 close 权限 + 未结转 三条同时满足
+  ---
+  duration_ms: 0.099879
+  type: 'test'
+  ...
+# Subtest: 年结按钮禁用时必须说清原因（不是静默置灰）
+ok 490 - 年结按钮禁用时必须说清原因（不是静默置灰）
+  ---
+  duration_ms: 0.105504
+  type: 'test'
+  ...
+# Subtest: 反年结按钮：已结转 + 有 reopen 权限
+ok 491 - 反年结按钮：已结转 + 有 reopen 权限
+  ---
+  duration_ms: 0.549521
+  type: 'test'
+  ...
+# Subtest: 反年结原因：必填 + ≥ 10 字（与后端同判据）
+ok 492 - 反年结原因：必填 + ≥ 10 字（与后端同判据）
+  ---
+  duration_ms: 0.45135
+  type: 'test'
+  ...
+# Subtest: 前置之外的附加阻塞项单独列出（下年期初被占用 / 已结转）
+ok 493 - 前置之外的附加阻塞项单独列出（下年期初被占用 / 已结转）
+  ---
+  duration_ms: 0.205674
+  type: 'test'
+  ...
+# Subtest: 结转凭证摘要：空年度跳过凭证时不能说成「失败」
+ok 494 - 结转凭证摘要：空年度跳过凭证时不能说成「失败」
+  ---
+  duration_ms: 0.294761
+  type: 'test'
+  ...
+# Subtest: 下年期初摘要：生成行数 / 未生成 两种口径
+ok 495 - 下年期初摘要：生成行数 / 未生成 两种口径
+  ---
+  duration_ms: 0.096962
+  type: 'test'
+  ...
+# Subtest: 年结成功文案：带凭证号 / 空年度 两种情况
+ok 496 - 年结成功文案：带凭证号 / 空年度 两种情况
+  ---
+  duration_ms: 0.117671
+  type: 'test'
+  ...
+# Subtest: parseMoney：后端字符串 → 四位定点 bigint，不经过 Number
+ok 497 - parseMoney：后端字符串 → 四位定点 bigint，不经过 Number
+  ---
+  duration_ms: 0.842074
+  type: 'test'
+  ...
+# Subtest: 加减比较：0.1 + 0.2 精确等于 0.3
+ok 498 - 加减比较：0.1 + 0.2 精确等于 0.3
+  ---
+  duration_ms: 0.214967
+  type: 'test'
+  ...
+# Subtest: isZeroMoney / formatMoney：-0.0001 展示不出现 -0.00
+ok 499 - isZeroMoney / formatMoney：-0.0001 展示不出现 -0.00
+  ---
+  duration_ms: 0.181465
+  type: 'test'
+  ...
+# Subtest: formatRate：0.0500 → 5.00%
+ok 500 - formatRate：0.0500 → 5.00%
+  ---
+  duration_ms: 0.092295
+  type: 'test'
+  ...
+# Subtest: previewDepreciation：100000 / 残值 5% / 36 个月 = 2638.8889，起提次月 1 日
+ok 501 - previewDepreciation：100000 / 残值 5% / 36 个月 = 2638.8889，起提次月 1 日
+  ---
+  duration_ms: 1.392885
+  type: 'test'
+  ...
+# Subtest: previewDepreciation：短年限尾差补齐 / 入参不全返回 null
+ok 502 - previewDepreciation：短年限尾差补齐 / 入参不全返回 null
+  ---
+  duration_ms: 0.43685
+  type: 'test'
+  ...
+# Subtest: periodAmountOf：第 1 月 = 月折旧，最后 1 月补尾差，提足后为 0
+ok 503 - periodAmountOf：第 1 月 = 月折旧，最后 1 月补尾差，提足后为 0
+  ---
+  duration_ms: 0.40489
+  type: 'test'
+  ...
+# Subtest: periodAmountOf：处置当月仍提整月，处置次月起为 0；闲置照提
+ok 504 - periodAmountOf：处置当月仍提整月，处置次月起为 0；闲置照提
+  ---
+  duration_ms: 0.163548
+  type: 'test'
+  ...
+# Subtest: summarizeDepreciation：已提 = POSTED 批次合计，差异给方向
+ok 505 - summarizeDepreciation：已提 = POSTED 批次合计，差异给方向
+  ---
+  duration_ms: 1.812193
+  type: 'test'
+  ...
+# Subtest: diffDisplay / runResultText / K4 自检
+ok 506 - diffDisplay / runResultText / K4 自检
+  ---
+  duration_ms: 0.601981
+  type: 'test'
+  ...
+# Subtest: 期间工具：上一会计月 / 期初期末 / 月差 / 下拉
+ok 507 - 期间工具：上一会计月 / 期初期末 / 月差 / 下拉
+  ---
+  duration_ms: 0.567063
+  type: 'test'
+  ...
+# Subtest: validateAssetForm：必填与税额口径（镜像后端 400）
+ok 508 - validateAssetForm：必填与税额口径（镜像后端 400）
+  ---
+  duration_ms: 0.2143
+  type: 'test'
+  ...
+# Subtest: applyStockInSource：金额预填 + 锁定，税额清零，购物口径 FROM_STOCK
+ok 509 - applyStockInSource：金额预填 + 锁定，税额清零，购物口径 FROM_STOCK
+  ---
+  duration_ms: 0.176632
+  type: 'test'
+  ...
+# Subtest: toCreatePayload：金额补足四位、空串字段不发
+ok 510 - toCreatePayload：金额补足四位、空串字段不发
+  ---
+  duration_ms: 0.088753
+  type: 'test'
+  ...
+# Subtest: validateDisposeForm：SALE 必须有售价，SCRAP/LOSS 不许有金额
+ok 511 - validateDisposeForm：SALE 必须有售价，SCRAP/LOSS 不许有金额
+  ---
+  duration_ms: 0.154256
+  type: 'test'
+  ...
+# Subtest: disposeSummaryOf：净值 / 已提月数 / 剩余可提 全部取接口值
+ok 512 - disposeSummaryOf：净值 / 已提月数 / 剩余可提 全部取接口值
+  ---
+  duration_ms: 0.102337
+  type: 'test'
+  ...
+# Subtest: 动作可见性：处置卡只读，在跑审批不再允许提交，已处置可作废
+ok 513 - 动作可见性：处置卡只读，在跑审批不再允许提交，已处置可作废
+  ---
+  duration_ms: 0.155547
+  type: 'test'
+  ...
+# Subtest: 状态与变动文案：后端没给 label 时按词表兜底，未知值原样显示
+ok 514 - 状态与变动文案：后端没给 label 时按词表兜底，未知值原样显示
+  ---
+  duration_ms: 0.106546
+  type: 'test'
+  ...
+# Subtest: errorText：66038/66039/66040/65019 补「怎么办」，普通错误带错误码
+ok 515 - errorText：66038/66039/66040/65019 补「怎么办」，普通错误带错误码
+  ---
+  duration_ms: 0.108004
+  type: 'test'
+  ...
+# Subtest: 原因校验：普通原因非空，红冲原因 ≥ 2 字
+ok 516 - 原因校验：普通原因非空，红冲原因 ≥ 2 字
+  ---
+  duration_ms: 0.087545
+  type: 'test'
+  ...
+# Subtest: validateCategoryForm：编码 / 月数 / 残值率 / 科目必填
+ok 517 - validateCategoryForm：编码 / 月数 / 残值率 / 科目必填
+  ---
+  duration_ms: 0.179673
+  type: 'test'
+  ...
+# Subtest: 分类逻辑：科目只列末级、回填表单、方法译名
+ok 518 - 分类逻辑：科目只列末级、回填表单、方法译名
+  ---
+  duration_ms: 0.172381
+  type: 'test'
+  ...
+# Subtest: 迁移里的三个菜单 component 都真实存在视图文件
+ok 519 - 迁移里的三个菜单 component 都真实存在视图文件
+  ---
+  duration_ms: 0.232925
+  type: 'test'
+  ...
+# Subtest: router/index.ts 注册了三条固定资产路由（路径按菜单，不改路由）
+ok 520 - router/index.ts 注册了三条固定资产路由（路径按菜单，不改路由）
+  ---
+  duration_ms: 0.224342
+  type: 'test'
+  ...
+# Subtest: splitPreview：6600 含税 / 6% → 不含税 6,226.42 + 税额 373.58（差额法，只舍入一次）
+ok 521 - splitPreview：6600 含税 / 6% → 不含税 6,226.42 + 税额 373.58（差额法，只舍入一次）
+  ---
+  duration_ms: 1.106291
+  type: 'test'
+  ...
+# Subtest: splitPreview：不可抵扣（招待费）→ 税额恒 0、不含税 = 含税
+ok 522 - splitPreview：不可抵扣（招待费）→ 税额恒 0、不含税 = 含税
+  ---
+  duration_ms: 0.093462
+  type: 'test'
+  ...
+# Subtest: splitPreview：税率 0 / 空值 / 非法值 → 税额 0（不抛异常）
+ok 523 - splitPreview：税率 0 / 空值 / 非法值 → 税额 0（不抛异常）
+  ---
+  duration_ms: 0.116212
+  type: 'test'
+  ...
+# Subtest: splitPreview：税额取差额而不是 round(含税×税率)，避免多出一分
+ok 524 - splitPreview：税额取差额而不是 round(含税×税率)，避免多出一分
+  ---
+  duration_ms: 0.075044
+  type: 'test'
+  ...
+# Subtest: sumSplits：逐行先拆再累加（不是先累加再拆）
+ok 525 - sumSplits：逐行先拆再累加（不是先累加再拆）
+  ---
+  duration_ms: 0.112712
+  type: 'test'
+  ...
+# Subtest: typeDeductible：找不到类型时按可抵扣处理（最终以后端裁决为准）
+ok 526 - typeDeductible：找不到类型时按可抵扣处理（最终以后端裁决为准）
+  ---
+  duration_ms: 0.08842
+  type: 'test'
+  ...
+# Subtest: previewItem：选业务招待费 → 行税额 0，且提示文案是 §4.10 原文
+ok 527 - previewItem：选业务招待费 → 行税额 0，且提示文案是 §4.10 原文
+  ---
+  duration_ms: 0.133297
+  type: 'test'
+  ...
+# Subtest: previewTotals：两种类型混排仍按各自可抵扣性拆
+ok 528 - previewTotals：两种类型混排仍按各自可抵扣性拆
+  ---
+  duration_ms: 0.16034
+  type: 'test'
+  ...
+# Subtest: rateText：0.0600 → 6%，0.13 → 13%，脏值原样返回
+ok 529 - rateText：0.0600 → 6%，0.13 → 13%，脏值原样返回
+  ---
+  duration_ms: 0.333804
+  type: 'test'
+  ...
+# Subtest: 状态配色：DRAFT 默认 / SUBMITTED 警告 / APPROVED 主色 / PAID 成功 / CANCELLED 危险
+ok 530 - 状态配色：DRAFT 默认 / SUBMITTED 警告 / APPROVED 主色 / PAID 成功 / CANCELLED 危险
+  ---
+  duration_ms: 0.334471
+  type: 'test'
+  ...
+# Subtest: statusText / payStatusText：优先后端下发的 label（前端不维护第二份译名）
+ok 531 - statusText / payStatusText：优先后端下发的 label（前端不维护第二份译名）
+  ---
+  duration_ms: 0.187965
+  type: 'test'
+  ...
+# Subtest: 动作可用性：只有草稿能改 / 删 / 提交，只有审批中能撤回
+ok 532 - 动作可用性：只有草稿能改 / 删 / 提交，只有审批中能撤回
+  ---
+  duration_ms: 0.102879
+  type: 'test'
+  ...
+# Subtest: 作废可用性：PAID / 已作废不许作废；已付过一分钱也不许（要先红冲付款）
+ok 533 - 作废可用性：PAID / 已作废不许作废；已付过一分钱也不许（要先红冲付款）
+  ---
+  duration_ms: 0.077086
+  type: 'test'
+  ...
+# Subtest: 付款可用性：只有 APPROVED 且还有未付余额可付（部分付款后仍可付）
+ok 534 - 付款可用性：只有 APPROVED 且还有未付余额可付（部分付款后仍可付）
+  ---
+  duration_ms: 0.069836
+  type: 'test'
+  ...
+# Subtest: cancelReasonError：空 / 少于 10 字报错，10 字通过
+ok 535 - cancelReasonError：空 / 少于 10 字报错，10 字通过
+  ---
+  duration_ms: 0.13663
+  type: 'test'
+  ...
+# Subtest: validateExpenseForm：事由必填、明细至少一行
+ok 536 - validateExpenseForm：事由必填、明细至少一行
+  ---
+  duration_ms: 0.345805
+  type: 'test'
+  ...
+# Subtest: validateExpenseForm：行级错误定位到 items.<index>.<field>
+ok 537 - validateExpenseForm：行级错误定位到 items.<index>.<field>
+  ---
+  duration_ms: 0.151255
+  type: 'test'
+  ...
+# Subtest: validateExpenseForm：need_invoice_no 与 amount_limit 是行级业务校验
+ok 538 - validateExpenseForm：need_invoice_no 与 amount_limit 是行级业务校验
+  ---
+  duration_ms: 0.729152
+  type: 'test'
+  ...
+# Subtest: validateExpenseForm：税率超出 0~1 报错（6% 要填 0.06 不是 6）
+ok 539 - validateExpenseForm：税率超出 0~1 报错（6% 要填 0.06 不是 6）
+  ---
+  duration_ms: 0.083003
+  type: 'test'
+  ...
+# Subtest: toReportPayload：只提交含税，空串字段不发（空 reporter_id 会被后端当 UUID 解析 400）
+ok 540 - toReportPayload：只提交含税，空串字段不发（空 reporter_id 会被后端当 UUID 解析 400）
+  ---
+  duration_ms: 0.123546
+  type: 'test'
+  ...
+# Subtest: formFromDetail：编辑草稿时把后端拆好的含税金额填回去
+ok 541 - formFromDetail：编辑草稿时把后端拆好的含税金额填回去
+  ---
+  duration_ms: 0.147214
+  type: 'test'
+  ...
+# Subtest: emptyPayForm：金额预填**未付余额**（不是报销总额）
+ok 542 - emptyPayForm：金额预填**未付余额**（不是报销总额）
+  ---
+  duration_ms: 0.099337
+  type: 'test'
+  ...
+# Subtest: validatePayForm：金额 > 0 且 ≤ 未付，付款日期必填
+ok 543 - validatePayForm：金额 > 0 且 ≤ 未付，付款日期必填
+  ---
+  duration_ms: 0.112546
+  type: 'test'
+  ...
+# Subtest: toPayPayload：空账户 / 空备注不发
+ok 544 - toPayPayload：空账户 / 空备注不发
+  ---
+  duration_ms: 0.070669
+  type: 'test'
+  ...
+# Subtest: validateTypeForm：编码大写字母开头、科目必填、上限非负
+ok 545 - validateTypeForm：编码大写字母开头、科目必填、上限非负
+  ---
+  duration_ms: 0.13363
+  type: 'test'
+  ...
+# Subtest: toTypePayload：编码大写化、0 上限原样提交、备注空串不发
+ok 546 - toTypePayload：编码大写化、0 上限原样提交、备注空串不发
+  ---
+  duration_ms: 0.078003
+  type: 'test'
+  ...
+# Subtest: budgetUsageRows：四要素齐全（部门 / 科目 / 占多少 / 占哪个月）
+ok 547 - budgetUsageRows：四要素齐全（部门 / 科目 / 占多少 / 占哪个月）
+  ---
+  duration_ms: 0.11963
+  type: 'test'
+  ...
+# Subtest: 预算占用 / 付款 / 发票 / 方式的中文映射（未知值原样暴露脏数据）
+ok 548 - 预算占用 / 付款 / 发票 / 方式的中文映射（未知值原样暴露脏数据）
+  ---
+  duration_ms: 0.081712
+  type: 'test'
+  ...
+# Subtest: 三页菜单 path / component 与迁移 V0242 逐字一致
+ok 549 - 三页菜单 path / component 与迁移 V0242 逐字一致
+  ---
+  duration_ms: 0.191215
+  type: 'test'
+  ...
+# Subtest: router 手工注册了三条路由（漏一条 = 菜单可见但点进去 404）
+ok 550 - router 手工注册了三条路由（漏一条 = 菜单可见但点进去 404）
+  ---
+  duration_ms: 0.246968
+  type: 'test'
+  ...
+# Subtest: API 层路径全部写全 /api（漏了会命中 SPA fallback 返回 HTML）
+ok 551 - API 层路径全部写全 /api（漏了会命中 SPA fallback 返回 HTML）
+  ---
+  duration_ms: 0.137671
+  type: 'test'
+  ...
+# Subtest: 权限码只取 V0242 种的 12 个（白名单外一个都不加）
+ok 552 - 权限码只取 V0242 种的 12 个（白名单外一个都不加）
+  ---
+  duration_ms: 0.310345
+  type: 'test'
+  ...
+# Subtest: 「我的报销」默认只查自己 + 招待费税额置灰（源码契约）
+ok 553 - 「我的报销」默认只查自己 + 招待费税额置灰（源码契约）
+  ---
+  duration_ms: 1.105999
+  type: 'test'
+  ...
+# Subtest: 详情抽屉四块必备信息都在（审批轨迹 / 凭证号 / 付款记录 / 预算占用）
+ok 554 - 详情抽屉四块必备信息都在（审批轨迹 / 凭证号 / 付款记录 / 预算占用）
+  ---
+  duration_ms: 0.154505
+  type: 'test'
+  ...
+# Subtest: ① 单链 A→B→C（TB）：x 相同、y 逐层递增
+ok 555 - ① 单链 A→B→C（TB）：x 相同、y 逐层递增
+  ---
+  duration_ms: 8.491734
+  type: 'test'
+  ...
+# Subtest: ② 分支 A→B / A→C：B、C 同层（y 相同）、x 不同
+ok 556 - ② 分支 A→B / A→C：B、C 同层（y 相同）、x 不同
+  ---
+  duration_ms: 2.502094
+  type: 'test'
+  ...
+# Subtest: ③ 菱形 A→B→D、A→C→D：B/C 同层，D 在最后一层
+ok 557 - ③ 菱形 A→B→D、A→C→D：B/C 同层，D 在最后一层
+  ---
+  duration_ms: 3.559841
+  type: 'test'
+  ...
+# Subtest: ④ 孤立节点（无连线）：结果里有它，且不与任何节点重叠
+ok 558 - ④ 孤立节点（无连线）：结果里有它，且不与任何节点重叠
+  ---
+  duration_ms: 2.317712
+  type: 'test'
+  ...
+# Subtest: ⑤ 空输入 → 返回空 Map，不崩
+ok 559 - ⑤ 空输入 → 返回空 Map，不崩
+  ---
+  duration_ms: 0.101587
+  type: 'test'
+  ...
+# Subtest: ⑥ 自环边 A→A：不崩，A 仍有坐标（自环不参与层次划分）
+ok 560 - ⑥ 自环边 A→A：不崩，A 仍有坐标（自环不参与层次划分）
+  ---
+  duration_ms: 1.331133
+  type: 'test'
+  ...
+# Subtest: ⑦ 成环 A→B→C→A：dagre 能处理，三个节点都有整数坐标
+ok 561 - ⑦ 成环 A→B→C→A：dagre 能处理，三个节点都有整数坐标
+  ---
+  duration_ms: 4.383914
+  type: 'test'
+  ...
+# Subtest: ⑧ 节点尺寸差异大（120×52 / 220×76）：不重叠
+ok 562 - ⑧ 节点尺寸差异大（120×52 / 220×76）：不重叠
+  ---
+  duration_ms: 2.683225
+  type: 'test'
+  ...
+# Subtest: ⑨ LR 方向：x 逐层递增、同层 y 相同
+ok 563 - ⑨ LR 方向：x 逐层递增、同层 y 相同
+  ---
+  duration_ms: 3.373126
+  type: 'test'
+  ...
+# Subtest: ⑩ 结果坐标都是整数（Math.round 生效，落库 / 网格吸附都不会带小数）
+ok 564 - ⑩ 结果坐标都是整数（Math.round 生效，落库 / 网格吸附都不会带小数）
+  ---
+  duration_ms: 2.332837
+  type: 'test'
+  ...
+# Subtest: ⑪ A→B 两条边（条件分支同向）：不崩，仍只有两个层次
+ok 565 - ⑪ A→B 两条边（条件分支同向）：不崩，仍只有两个层次
+  ---
+  duration_ms: 1.257463
+  type: 'test'
+  ...
+# Subtest: ⑫ 边指向不存在的节点：忽略该边，不为幽灵节点造坐标
+ok 566 - ⑫ 边指向不存在的节点：忽略该边，不为幽灵节点造坐标
+  ---
+  duration_ms: 0.366722
+  type: 'test'
+  ...
+# Subtest: 后端 FlowBizType 的落库字面量 = 前端 FLOW_BIZ_TYPES（逐字、同序，15 个）
+ok 567 - 后端 FlowBizType 的落库字面量 = 前端 FLOW_BIZ_TYPES（逐字、同序，15 个）
+  ---
+  duration_ms: 1.74344
+  type: 'test'
+  ...
+# Subtest: 映射表的 key 只能取真实枚举字面量（不许自己编类型名）
+ok 568 - 映射表的 key 只能取真实枚举字面量（不许自己编类型名）
+  ---
+  duration_ms: 0.112504
+  type: 'test'
+  ...
+# Subtest: 登记的恰好是「有详情页」的 10 种；盘点/费用/其他故意不登记
+ok 569 - 登记的恰好是「有详情页」的 10 种；盘点/费用/其他故意不登记
+  ---
+  duration_ms: 0.200215
+  type: 'test'
+  ...
+# Subtest: 每条目标的路由 path 都在 router/index.ts 里真的注册过
+ok 570 - 每条目标的路由 path 都在 router/index.ts 里真的注册过
+  ---
+  duration_ms: 0.332054
+  type: 'test'
+  ...
+# Subtest: 深链键取的是各详情页自己读的那个 query 参数（不发明新参数）
+ok 571 - 深链键取的是各详情页自己读的那个 query 参数（不发明新参数）
+  ---
+  duration_ms: 2.430132
+  type: 'test'
+  ...
+# Subtest: 探测接口路径 = 后端 \#[nik::get(...)] 注解（逐字，含 /api 前缀）
+ok 572 - 探测接口路径 = 后端 \#[nik::get(...)] 注解（逐字，含 /api 前缀）
+  ---
+  duration_ms: 8.036134
+  type: 'test'
+  ...
+# Subtest: 深链：任务/合同/采购/入库用 id，应付/凭证/调拨用单号，边配置定位实体
+ok 573 - 深链：任务/合同/采购/入库用 id，应付/凭证/调拨用单号，边配置定位实体
+  ---
+  duration_ms: 0.259926
+  type: 'test'
+  ...
+# Subtest: 只认单号的页面：没记单号 ⇒ 不构造深链（按钮置灰提示，不跳空列表）
+ok 574 - 只认单号的页面：没记单号 ⇒ 不构造深链（按钮置灰提示，不跳空列表）
+  ---
+  duration_ms: 0.09842
+  type: 'test'
+  ...
+# Subtest: edgeEntityOf：只认已知业务对象的第一段，别把半截字符串塞进 URL
+ok 575 - edgeEntityOf：只认已知业务对象的第一段，别把半截字符串塞进 URL
+  ---
+  duration_ms: 0.312637
+  type: 'test'
+  ...
+# Subtest: 探测失败分三支：403 归「没权限」，404/不存在业务码归「已清场」，其余归「说不清」
+ok 576 - 探测失败分三支：403 归「没权限」，404/不存在业务码归「已清场」，其余归「说不清」
+  ---
+  duration_ms: 0.483768
+  type: 'test'
+  ...
+# Subtest: 置灰文案逐字抄卡面，且不出现技术术语
+ok 577 - 置灰文案逐字抄卡面，且不出现技术术语
+  ---
+  duration_ms: 0.269427
+  type: 'test'
+  ...
+# Subtest: ⓪ 解析正交 `d`：M/L 一律按绝对坐标取点，支持小数与负数
+ok 578 - ⓪ 解析正交 `d`：M/L 一律按绝对坐标取点，支持小数与负数
+  ---
+  duration_ms: 1.603727
+  type: 'test'
+  ...
+# Subtest: ① 两点直线 → path 里没有 Q（直线不切圆角）
+ok 579 - ① 两点直线 → path 里没有 Q（直线不切圆角）
+  ---
+  duration_ms: 0.196549
+  type: 'test'
+  ...
+# Subtest: ①-b 三点共线（折线但同向）→ 也不切圆角
+ok 580 - ①-b 三点共线（折线但同向）→ 也不切圆角
+  ---
+  duration_ms: 0.084295
+  type: 'test'
+  ...
+# Subtest: ② 一个直角拐点 → 恰好 1 个 Q，半径 ≤ 8
+ok 581 - ② 一个直角拐点 → 恰好 1 个 Q，半径 ≤ 8
+  ---
+  duration_ms: 0.186174
+  type: 'test'
+  ...
+# Subtest: ③ 两个拐点（Z 形）→ 2 个 Q
+ok 582 - ③ 两个拐点（Z 形）→ 2 个 Q
+  ---
+  duration_ms: 0.09517
+  type: 'test'
+  ...
+# Subtest: ④ 段长 < 16px：半径自动减半，绝不超出段长
+ok 583 - ④ 段长 < 16px：半径自动减半，绝不超出段长
+  ---
+  duration_ms: 0.270926
+  type: 'test'
+  ...
+# Subtest: ⑤ 起终点相同 / 单点 → 不产生非法 path
+ok 584 - ⑤ 起终点相同 / 单点 → 不产生非法 path
+  ---
+  duration_ms: 0.105338
+  type: 'test'
+  ...
+# Subtest: ⑥ 真实折线（右向 / 回流绕行）都能圆化，且点数与线段数不变
+ok 585 - ⑥ 真实折线（右向 / 回流绕行）都能圆化，且点数与线段数不变
+  ---
+  duration_ms: 0.122921
+  type: 'test'
+  ...
+# Subtest: ⑦ 边标签宽度：中文按整字宽、ASCII 按 0.55 字宽，且向上取整
+ok 586 - ⑦ 边标签宽度：中文按整字宽、ASCII 按 0.55 字宽，且向上取整
+  ---
+  duration_ms: 0.403681
+  type: 'test'
+  ...
+# Subtest: ① `.flow-edge__hit` 必须 `fill: none`（P15 黑块根因）
+ok 587 - ① `.flow-edge__hit` 必须 `fill: none`（P15 黑块根因）
+  ---
+  duration_ms: 0.859782
+  type: 'test'
+  ...
+# Subtest: ①-b 命中层的 `<path>` 也必须带 `fill="none"` 属性（样式若被 scoped 改名仍有兜底）
+ok 588 - ①-b 命中层的 `<path>` 也必须带 `fill="none"` 属性（样式若被 scoped 改名仍有兜底）
+  ---
+  duration_ms: 0.352139
+  type: 'test'
+  ...
+# Subtest: ①-c 命中层仍是「只吃描边」的热区：pointer-events: stroke + 14px 描边（点击热区不能坏）
+ok 589 - ①-c 命中层仍是「只吃描边」的热区：pointer-events: stroke + 14px 描边（点击热区不能坏）
+  ---
+  duration_ms: 0.158465
+  type: 'test'
+  ...
+# Subtest: ② `.flow-edge__line` 必须 `fill: none`（CSS + 模板属性双写）
+ok 590 - ② `.flow-edge__line` 必须 `fill: none`（CSS + 模板属性双写）
+  ---
+  duration_ms: 0.21455
+  type: 'test'
+  ...
+# Subtest: ③ 箭头 marker 里的 path 是实心三角（`d` 以 z 闭合），必须由 `.flow-canvas__arrow` 给 fill
+ok 591 - ③ 箭头 marker 里的 path 是实心三角（`d` 以 z 闭合），必须由 `.flow-canvas__arrow` 给 fill
+  ---
+  duration_ms: 0.400182
+  type: 'test'
+  ...
+# Subtest: ④ 网格用 pattern（circle + rect），没有任何裸 `<path>` 网格线
+ok 592 - ④ 网格用 pattern（circle + rect），没有任何裸 `<path>` 网格线
+  ---
+  duration_ms: 0.22905
+  type: 'test'
+  ...
+# Subtest: ⑤ 每个 `<path>` 都要么带 fill 属性，要么属于「实心图形」白名单（新增 path 会被这条拦住）
+ok 593 - ⑤ 每个 `<path>` 都要么带 fill 属性，要么属于「实心图形」白名单（新增 path 会被这条拦住）
+  ---
+  duration_ms: 0.890908
+  type: 'test'
+  ...
+# Subtest: ⑥ 拖拽中的虚线 path 也显式 fill="none"（同类问题，提前钉住）
+ok 594 - ⑥ 拖拽中的虚线 path 也显式 fill="none"（同类问题，提前钉住）
+  ---
+  duration_ms: 0.12113
+  type: 'test'
+  ...
+# Subtest: ⑦ `.flow-node` 的 <g> 上不允许再出现 transform（Safari foreignObject 塌陷的根因）
+ok 595 - ⑦ `.flow-node` 的 <g> 上不允许再出现 transform（Safari foreignObject 塌陷的根因）
+  ---
+  duration_ms: 0.441516
+  type: 'test'
+  ...
+# Subtest: ⑦-b foreignObject 用 node.x / node.y 定位（不再是 x="0" y="0"）
+ok 596 - ⑦-b foreignObject 用 node.x / node.y 定位（不再是 x="0" y="0"）
+  ---
+  duration_ms: 0.444184
+  type: 'test'
+  ...
+# Subtest: ⑦-c 锚点 / 校验角标用绝对坐标（跟着 node.x / node.y 偏移，而不是靠 g 的 translate）
+ok 597 - ⑦-c 锚点 / 校验角标用绝对坐标（跟着 node.x / node.y 偏移，而不是靠 g 的 translate）
+  ---
+  duration_ms: 0.257343
+  type: 'test'
+  ...
+# Subtest: ⑧ scene <g> 上不许有 transform，平移缩放必须挂在 svg 的 :style 上
+ok 598 - ⑧ scene <g> 上不许有 transform，平移缩放必须挂在 svg 的 :style 上
+  ---
+  duration_ms: 0.201883
+  type: 'test'
+  ...
+# Subtest: ⑨ 卡片命中交给同位置的 SVG rect（否则 WebKit 下 HTML 卡片盖住锚点，拉不了线）
+ok 599 - ⑨ 卡片命中交给同位置的 SVG rect（否则 WebKit 下 HTML 卡片盖住锚点，拉不了线）
+  ---
+  duration_ms: 0.183173
+  type: 'test'
+  ...
+# Subtest: ① 校验角标：issueKeys 命中 → has-issue（红虚线框 + 角标）；未命中不带
+ok 600 - ① 校验角标：issueKeys 命中 → has-issue（红虚线框 + 角标）；未命中不带
+  ---
+  duration_ms: 0.886241
+  type: 'test'
+  ...
+# Subtest: ① 校验角标画在卡片**外面**（卡片 overflow:hidden，放里面会被裁成半圆）+ 带悬停原因
+ok 601 - ① 校验角标画在卡片**外面**（卡片 overflow:hidden，放里面会被裁成半圆）+ 带悬停原因
+  ---
+  duration_ms: 0.233926
+  type: 'test'
+  ...
+# Subtest: ② 5 种状态：角标内容 / 文案 / 底色档位与老画布逐字一致
+ok 602 - ② 5 种状态：角标内容 / 文案 / 底色档位与老画布逐字一致
+  ---
+  duration_ms: 0.845323
+  type: 'test'
+  ...
+# Subtest: ② 状态色 class + ACTIVE 脉冲动画都还在（脉冲是「当前走到哪」的关键视觉）
+ok 603 - ② 状态色 class + ACTIVE 脉冲动画都还在（脉冲是「当前走到哪」的关键视觉）
+  ---
+  duration_ms: 0.191674
+  type: 'test'
+  ...
+# Subtest: ③ 只读态**仍然渲染** Handle（v-if 摘掉会让 Vue Flow 锚点退化成 bottom/top）
+ok 604 - ③ 只读态**仍然渲染** Handle（v-if 摘掉会让 Vue Flow 锚点退化成 bottom/top）
+  ---
+  duration_ms: 0.335679
+  type: 'test'
+  ...
+# Subtest: ③ 节点上声明 sourcePosition/targetPosition 兜底（Handle 缺失也不会退化成上下）
+ok 605 - ③ 节点上声明 sourcePosition/targetPosition 兜底（Handle 缺失也不会退化成上下）
+  ---
+  duration_ms: 0.082711
+  type: 'test'
+  ...
+# Subtest: ③ 锚点圆点用内嵌 SVG circle（r=5 / 描边 1.5），与老画布同一条几何
+ok 606 - ③ 锚点圆点用内嵌 SVG circle（r=5 / 描边 1.5），与老画布同一条几何
+  ---
+  duration_ms: 1.047456
+  type: 'test'
+  ...
+# Subtest: ④ takenPairs 口径是 `${from}>${to}`（写错分隔符 → 进度图上整片不亮）
+ok 607 - ④ takenPairs 口径是 `${from}>${to}`（写错分隔符 → 进度图上整片不亮）
+  ---
+  duration_ms: 0.191424
+  type: 'test'
+  ...
+# Subtest: ⑤ 选中态：class 由 props 驱动（不依赖 Vue Flow 内部 selection）
+ok 608 - ⑤ 选中态：class 由 props 驱动（不依赖 Vue Flow 内部 selection）
+  ---
+  duration_ms: 0.362888
+  type: 'test'
+  ...
+# Subtest: ⑥ 只读态：不可拖 / 不可连 / Delete 无效（三个开关 + 键盘判断）
+ok 609 - ⑥ 只读态：不可拖 / 不可连 / Delete 无效（三个开关 + 键盘判断）
+  ---
+  duration_ms: 0.375223
+  type: 'test'
+  ...
+# Subtest: ⑨ 键盘：Delete 删除、空格平移、Esc 取消（Esc 是本卡新增，老画布没有）
+ok 610 - ⑨ 键盘：Delete 删除、空格平移、Esc 取消（Esc 是本卡新增，老画布没有）
+  ---
+  duration_ms: 0.232758
+  type: 'test'
+  ...
+# Subtest: ⑦ 左侧面板拖拽创建：调用方用 screenToCanvas 换算落点（两套画布同一入口）
+ok 611 - ⑦ 左侧面板拖拽创建：调用方用 screenToCanvas 换算落点（两套画布同一入口）
+  ---
+  duration_ms: 0.141006
+  type: 'test'
+  ...
+# Subtest: ⑩ 底部提示：编辑态文案逐字一致；只读态改成只读说明（不再提示「拖出连线」）
+ok 612 - ⑩ 底部提示：编辑态文案逐字一致；只读态改成只读说明（不再提示「拖出连线」）
+  ---
+  duration_ms: 0.125379
+  type: 'test'
+  ...
+# Subtest: ⑪ 副标题 11 种情况：会签 3 / 缺配置 2 / 类型说明 4 / 运行状态 2
+ok 613 - ⑪ 副标题 11 种情况：会签 3 / 缺配置 2 / 类型说明 4 / 运行状态 2
+  ---
+  duration_ms: 0.289761
+  type: 'test'
+  ...
+# Subtest: ⑪ 副标题规则没有「两份实现漂移」：老画布里的每条文案在共用实现里都存在
+ok 614 - ⑪ 副标题规则没有「两份实现漂移」：老画布里的每条文案在共用实现里都存在
+  ---
+  duration_ms: 0.217383
+  type: 'test'
+  ...
+# Subtest: ⑪ 图标 / 尺寸：9 种节点一个不落，尺寸口径与老画布同一份（NODE_META）
+ok 615 - ⑪ 图标 / 尺寸：9 种节点一个不落，尺寸口径与老画布同一份（NODE_META）
+  ---
+  duration_ms: 0.096462
+  type: 'test'
+  ...
+# Subtest: ⑧ 条件标签：兜底分支显示「其他情况」、虚线；实线分支显示自身 label
+ok 616 - ⑧ 条件标签：兜底分支显示「其他情况」、虚线；实线分支显示自身 label
+  ---
+  duration_ms: 0.239675
+  type: 'test'
+  ...
+# Subtest: ① props：新画布覆盖老画布全部字段（一个都不能少）
+ok 617 - ① props：新画布覆盖老画布全部字段（一个都不能少）
+  ---
+  duration_ms: 0.795363
+  type: 'test'
+  ...
+# Subtest: ② props：新画布允许的额外字段只有 autoFit 兼容别名
+ok 618 - ② props：新画布允许的额外字段只有 autoFit 兼容别名
+  ---
+  duration_ms: 0.834614
+  type: 'test'
+  ...
+# Subtest: ③ props：切换器声明了全部字段（否则调用方传参过不了 vue-tsc）
+ok 619 - ③ props：切换器声明了全部字段（否则调用方传参过不了 vue-tsc）
+  ---
+  duration_ms: 0.108713
+  type: 'test'
+  ...
+# Subtest: ④ emits：两套画布事件名完全一致（10 个）
+ok 620 - ④ emits：两套画布事件名完全一致（10 个）
+  ---
+  duration_ms: 0.160464
+  type: 'test'
+  ...
+# Subtest: ⑤ emits：切换器转发了全部事件（漏一个就是「点了没反应」）
+ok 621 - ⑤ emits：切换器转发了全部事件（漏一个就是「点了没反应」）
+  ---
+  duration_ms: 0.464392
+  type: 'test'
+  ...
+# Subtest: ⑥ expose：新画布暴露的命令式 API 与老画布同名（7 个）
+ok 622 - ⑥ expose：新画布暴露的命令式 API 与老画布同名（7 个）
+  ---
+  duration_ms: 0.397264
+  type: 'test'
+  ...
+# Subtest: ⑦ 节点卡片规格：11px 圆角 / 3.5px 色条 / 30×30 图标底块 两边都在
+ok 623 - ⑦ 节点卡片规格：11px 圆角 / 3.5px 色条 / 30×30 图标底块 两边都在
+  ---
+  duration_ms: 0.699734
+  type: 'test'
+  ...
+# Subtest: ⑧ Handle 方向：target=Left + source=Right（不给 Handle 会兜底成 bottom→top）
+ok 624 - ⑧ Handle 方向：target=Left + source=Right（不给 Handle 会兜底成 bottom→top）
+  ---
+  duration_ms: 0.118296
+  type: 'test'
+  ...
+# Subtest: ⑨ 连线几何仍复用 graph.ts / rounded-path.ts（不许另起一套坐标）
+ok 625 - ⑨ 连线几何仍复用 graph.ts / rounded-path.ts（不许另起一套坐标）
+  ---
+  duration_ms: 0.331054
+  type: 'test'
+  ...
+# Subtest: ⑪ 切换器与老画布的 props 默认值一致（boolean 缺省会被 Vue 转成 false，必须显式对齐）
+ok 626 - ⑪ 切换器与老画布的 props 默认值一致（boolean 缺省会被 Vue 转成 false，必须显式对齐）
+  ---
+  duration_ms: 0.598481
+  type: 'test'
+  ...
+# Subtest: ⑫ 老画布一行没改：仍是被切换器导入的回退实现
+ok 627 - ⑫ 老画布一行没改：仍是被切换器导入的回退实现
+  ---
+  duration_ms: 0.14038
+  type: 'test'
+  ...
+# Subtest: ① 默认引擎是 vueflow（env / 参数都没给）
+ok 628 - ① 默认引擎是 vueflow（env / 参数都没给）
+  ---
+  duration_ms: 0.629815
+  type: 'test'
+  ...
+# Subtest: ② env 生效：VITE_FLOW_CANVAS=vueflow
+ok 629 - ② env 生效：VITE_FLOW_CANVAS=vueflow
+  ---
+  duration_ms: 0.080211
+  type: 'test'
+  ...
+# Subtest: ③ URL 参数优先于 env（运维灰度后，开发者仍能单页 A/B）
+ok 630 - ③ URL 参数优先于 env（运维灰度后，开发者仍能单页 A/B）
+  ---
+  duration_ms: 0.097754
+  type: 'test'
+  ...
+# Subtest: ④ 非法值不生效（拼错参数不该把画布换掉）；回退到 native 一定有两条路
+ok 631 - ④ 非法值不生效（拼错参数不该把画布换掉）；回退到 native 一定有两条路
+  ---
+  duration_ms: 0.286303
+  type: 'test'
+  ...
+# Subtest: ⑤ 参数解析：编码 / 别名 / 大小写
+ok 632 - ⑤ 参数解析：编码 / 别名 / 大小写
+  ---
+  duration_ms: 0.182882
+  type: 'test'
+  ...
+# Subtest: ⑥ 九种节点都有图标 + 尺寸与 graph.ts 一致
+ok 633 - ⑥ 九种节点都有图标 + 尺寸与 graph.ts 一致
+  ---
+  duration_ms: 0.867908
+  type: 'test'
+  ...
+# Subtest: ⑦ 副标题：九种类型逐条对齐老画布文案
+ok 634 - ⑦ 副标题：九种类型逐条对齐老画布文案
+  ---
+  duration_ms: 0.566438
+  type: 'test'
+  ...
+# Subtest: ⑧ 运行状态叠加到副标题 + 状态点
+ok 635 - ⑧ 运行状态叠加到副标题 + 状态点
+  ---
+  duration_ms: 0.110421
+  type: 'test'
+  ...
+# Subtest: ⑨ class 集合：选中 / 校验 / 紧凑 / 类型色 一个不落
+ok 636 - ⑨ class 集合：选中 / 校验 / 紧凑 / 类型色 一个不落
+  ---
+  duration_ms: 0.372848
+  type: 'test'
+  ...
+# Subtest: ⑩ 主标题：name 为空时用类型中文名兜底
+ok 637 - ⑩ 主标题：name 为空时用类型中文名兜底
+  ---
+  duration_ms: 0.394806
+  type: 'test'
+  ...
+# Subtest: ① 落点压在目标卡片内任意位置 → 返回目标节点（不要求靠近句柄）
+ok 638 - ① 落点压在目标卡片内任意位置 → 返回目标节点（不要求靠近句柄）
+  ---
+  duration_ms: 0.651691
+  type: 'test'
+  ...
+# Subtest: ② 落点紧贴卡片左边缘外 5px（空白）→ 被入口锚点 40px 内吸附；右侧外沿则不吸附
+ok 639 - ② 落点紧贴卡片左边缘外 5px（空白）→ 被入口锚点 40px 内吸附；右侧外沿则不吸附
+  ---
+  duration_ms: 0.179632
+  type: 'test'
+  ...
+# Subtest: ③ 落点回到起点卡片上 → 返回起点（交给页面提示「不能连到自己」）
+ok 640 - ③ 落点回到起点卡片上 → 返回起点（交给页面提示「不能连到自己」）
+  ---
+  duration_ms: 0.088337
+  type: 'test'
+  ...
+# Subtest: ④ 起点与目标重叠时，优先返回「别的」节点（不能因为自环提示吞掉合法落点）
+ok 641 - ④ 起点与目标重叠时，优先返回「别的」节点（不能因为自环提示吞掉合法落点）
+  ---
+  duration_ms: 0.085086
+  type: 'test'
+  ...
+# Subtest: ⑤ 落点在空白处、且离所有入口锚点都 > 40px → null（不乱连）
+ok 642 - ⑤ 落点在空白处、且离所有入口锚点都 > 40px → null（不乱连）
+  ---
+  duration_ms: 0.153172
+  type: 'test'
+  ...
+# Subtest: ⑥ 落点在空白处、离入口锚点 40px 内 → 吸附最近节点（老画布的宽容度）
+ok 643 - ⑥ 落点在空白处、离入口锚点 40px 内 → 吸附最近节点（老画布的宽容度）
+  ---
+  duration_ms: 0.141381
+  type: 'test'
+  ...
+# Subtest: ⑦ 没有起点（fromKey=null）：只走「压在别的卡片上」这一级，不做自环 / 吸附
+ok 644 - ⑦ 没有起点（fromKey=null）：只走「压在别的卡片上」这一级，不做自环 / 吸附
+  ---
+  duration_ms: 0.079003
+  type: 'test'
+  ...
+# Subtest: ⑧ fromKey 不在节点表里（脏数据）：不抛错，仍能命中其它卡片
+ok 645 - ⑧ fromKey 不在节点表里（脏数据）：不抛错，仍能命中其它卡片
+  ---
+  duration_ms: 0.080794
+  type: 'test'
+  ...
+# Subtest: ⑨ 卡片边界是闭区间（贴边走也算命中，避免差 1px 落空）
+ok 646 - ⑨ 卡片边界是闭区间（贴边走也算命中，避免差 1px 落空）
+  ---
+  duration_ms: 0.31147
+  type: 'test'
+  ...
+# Subtest: ① 已知字段 → 中文标签（supplier_id / total_with_tax / price_mode）
+ok 647 - ① 已知字段 → 中文标签（supplier_id / total_with_tax / price_mode）
+  ---
+  duration_ms: 0.741445
+  type: 'test'
+  ...
+# Subtest: ② 未知字段 → 降级显示原键名（不丢信息）
+ok 648 - ② 未知字段 → 降级显示原键名（不丢信息）
+  ---
+  duration_ms: 1.224837
+  type: 'test'
+  ...
+# Subtest: ③ 嵌套字段（form.xxx）→ 展开成 form.amount 且标签取叶子键的中文
+ok 649 - ③ 嵌套字段（form.xxx）→ 展开成 form.amount 且标签取叶子键的中文
+  ---
+  duration_ms: 0.461267
+  type: 'test'
+  ...
+# Subtest: ④ supplier_id 查到名称 → 「供应商：示例供应商（种子）」
+ok 650 - ④ supplier_id 查到名称 → 「供应商：示例供应商（种子）」
+  ---
+  duration_ms: 0.412558
+  type: 'test'
+  ...
+# Subtest: ⑤ 查不到名称 → 显示 (ID: 前 8 位…)（不许空白、不许整条 uuid）
+ok 651 - ⑤ 查不到名称 → 显示 (ID: 前 8 位…)（不许空白、不许整条 uuid）
+  ---
+  duration_ms: 0.241967
+  type: 'test'
+  ...
+# Subtest: ⑥ 空值（null / undefined / 空串）→ 「—」
+ok 652 - ⑥ 空值（null / undefined / 空串）→ 「—」
+  ---
+  duration_ms: 0.101128
+  type: 'test'
+  ...
+# Subtest: ⑦ 金额：数字 226 与数字字符串 "226.0000" 都是 ¥226.00，且带千分位
+ok 653 - ⑦ 金额：数字 226 与数字字符串 "226.0000" 都是 ¥226.00，且带千分位
+  ---
+  duration_ms: 1.157001
+  type: 'test'
+  ...
+# Subtest: ⑧ 枚举：EXCL → 不含税；SUBMITTED → 已提交；未知枚举原样
+ok 654 - ⑧ 枚举：EXCL → 不含税；SUBMITTED → 已提交；未知枚举原样
+  ---
+  duration_ms: 0.13988
+  type: 'test'
+  ...
+# Subtest: ⑨ 日期 2026-10-31 → 原样（已可读，不重排、不加时区）
+ok 655 - ⑨ 日期 2026-10-31 → 原样（已可读，不重排、不加时区）
+  ---
+  duration_ms: 0.365722
+  type: 'test'
+  ...
+# Subtest: ⑩ 数组明细 → 表格（3 行；列标题中文；单元格格式化；不是 JSON 字符串）
+ok 656 - ⑩ 数组明细 → 表格（3 行；列标题中文；单元格格式化；不是 JSON 字符串）
+  ---
+  duration_ms: 0.776612
+  type: 'test'
+  ...
+# Subtest: ⑪ 数量 "100.0000" → 100（不能变 ¥100.00）；小数保留
+ok 657 - ⑪ 数量 "100.0000" → 100（不能变 ¥100.00）；小数保留
+  ---
+  duration_ms: 0.203882
+  type: 'test'
+  ...
+# Subtest: ⑫ 布尔 → 是 / 否（发票已到这类开关字段）
+ok 658 - ⑫ 布尔 → 是 / 否（发票已到这类开关字段）
+  ---
+  duration_ms: 0.065753
+  type: 'test'
+  ...
+# Subtest: ⑬ tax_rate 13 → "13"（比例类字段不许变成 ¥13.00）
+ok 659 - ⑬ tax_rate 13 → "13"（比例类字段不许变成 ¥13.00）
+  ---
+  duration_ms: 0.072752
+  type: 'test'
+  ...
+# Subtest: ⑮ order_id 与 order_no 并存 → 只显示「采购单号」，不显示 (ID: …) 噪声
+ok 660 - ⑮ order_id 与 order_no 并存 → 只显示「采购单号」，不显示 (ID: …) 噪声
+  ---
+  duration_ms: 0.132838
+  type: 'test'
+  ...
+# Subtest: ⑯ 字段按业务顺序排（单号 → 供应商 → 仓库 → 金额 → 数量 → 人），未知键排最后
+ok 661 - ⑯ 字段按业务顺序排（单号 → 供应商 → 仓库 → 金额 → 数量 → 人），未知键排最后
+  ---
+  duration_ms: 0.206925
+  type: 'test'
+  ...
+# Subtest: ⑭ 待办卡片摘要：供应商 + 价税合计 + 数量合计（不带 order_id / create_by 噪声）
+ok 662 - ⑭ 待办卡片摘要：供应商 + 价税合计 + 数量合计（不带 order_id / create_by 噪声）
+  ---
+  duration_ms: 0.122297
+  type: 'test'
+  ...
+# Subtest: 附加：空数组 → 「—」；字符串数组 → 「、」拼接；单行明细也成表
+ok 663 - 附加：空数组 → 「—」；字符串数组 → 「、」拼接；单行明细也成表
+  ---
+  duration_ms: 0.122963
+  type: 'test'
+  ...
+# Subtest: ⑰ 新实例（form_data 有 *_name）：5 个名称键有中文标签，且 *_id 让位 —— 页面上不再有 (ID: …) 行
+ok 664 - ⑰ 新实例（form_data 有 *_name）：5 个名称键有中文标签，且 *_id 让位 —— 页面上不再有 (ID: …) 行
+  ---
+  duration_ms: 0.217133
+  type: 'test'
+  ...
+# Subtest: ⑰b 调拨：调出 / 调入仓库只显示中文名（from_/to_warehouse_id 让位）
+ok 665 - ⑰b 调拨：调出 / 调入仓库只显示中文名（from_/to_warehouse_id 让位）
+  ---
+  duration_ms: 0.107796
+  type: 'test'
+  ...
+# Subtest: ⑰c 制单人：译名拿不到 → 整行不显示（不留裸 ID）；拿到了 → 照常显示姓名
+ok 666 - ⑰c 制单人：译名拿不到 → 整行不显示（不留裸 ID）；拿到了 → 照常显示姓名
+  ---
+  duration_ms: 0.152548
+  type: 'test'
+  ...
+# Subtest: ⑱ 名字为空 / 缺键 / 空串 → *_id 照常显示（不许把信息藏没）
+ok 667 - ⑱ 名字为空 / 缺键 / 空串 → *_id 照常显示（不许把信息藏没）
+  ---
+  duration_ms: 0.137505
+  type: 'test'
+  ...
+# Subtest: ⑲ 待办卡片摘要：新实例显示中文名（不是 (ID: …)）；老实例口径不变
+ok 668 - ⑲ 待办卡片摘要：新实例显示中文名（不是 (ID: …)）；老实例口径不变
+  ---
+  duration_ms: 0.135588
+  type: 'test'
+  ...
+# Subtest: ⑳ 快照明细（8 键）→ 表头全中文（含「单位」），数值仍是 100 / ¥80.00 / 13
+ok 669 - ⑳ 快照明细（8 键）→ 表头全中文（含「单位」），数值仍是 100 / ¥80.00 / 13
+  ---
+  duration_ms: 0.241009
+  type: 'test'
+  ...
+# Subtest: ⑳b items 为空数组 → 不渲染表格（按「无明细」处理，不报错）
+ok 670 - ⑳b items 为空数组 → 不渲染表格（按「无明细」处理，不报错）
+  ---
+  duration_ms: 0.075502
+  type: 'test'
+  ...
+# Subtest: ㉑ readItemSnapshot：老实例（无 items）→ legacy，空数组 / 自定义流程 → 不报 legacy
+ok 671 - ㉑ readItemSnapshot：老实例（无 items）→ legacy，空数组 / 自定义流程 → 不报 legacy
+  ---
+  duration_ms: 0.125129
+  type: 'test'
+  ...
+# Subtest: 动作下拉：未接管动作置灰，文案带事务归属
+ok 672 - 动作下拉：未接管动作置灰，文案带事务归属
+  ---
+  duration_ms: 0.813281
+  type: 'test'
+  ...
+# Subtest: 触发点 / 状态下拉：状态集来自后端下发，前端不自己维护
+ok 673 - 触发点 / 状态下拉：状态集来自后端下发，前端不自己维护
+  ---
+  duration_ms: 1.459346
+  type: 'test'
+  ...
+# Subtest: 状态下拉文案：中文（编码），value 仍是编码（P1-FIX-12B）
+ok 674 - 状态下拉文案：中文（编码），value 仍是编码（P1-FIX-12B）
+  ---
+  duration_ms: 0.250759
+  type: 'test'
+  ...
+# Subtest: 状态中文名查表：查不到回落编码（不显示空白）
+ok 675 - 状态中文名查表：查不到回落编码（不显示空白）
+  ---
+  duration_ms: 0.106587
+  type: 'test'
+  ...
+# Subtest: 列表状态列：优先用后端行级中文名，缺字段回落编码
+ok 676 - 列表状态列：优先用后端行级中文名，缺字段回落编码
+  ---
+  duration_ms: 0.120588
+  type: 'test'
+  ...
+# Subtest: 动作白名单说明：X 只数已实现动作，且明说不能自行新增（P1-FIX-12B）
+ok 677 - 动作白名单说明：X 只数已实现动作，且明说不能自行新增（P1-FIX-12B）
+  ---
+  duration_ms: 0.122129
+  type: 'test'
+  ...
+# Subtest: 参数拼装：必填空值报错，可选空值不写进 payload
+ok 678 - 参数拼装：必填空值报错，可选空值不写进 payload
+  ---
+  duration_ms: 0.172048
+  type: 'test'
+  ...
+# Subtest: 参数拼装：键集合只能来自动作声明（禁配 SQL 的结构性保证）
+ok 679 - 参数拼装：键集合只能来自动作声明（禁配 SQL 的结构性保证）
+  ---
+  duration_ms: 0.159756
+  type: 'test'
+  ...
+# Subtest: 参数拼装：整数 / 区间 / 十进制 / 枚举 / UUID 列表
+ok 680 - 参数拼装：整数 / 区间 / 十进制 / 枚举 / UUID 列表
+  ---
+  duration_ms: 0.558396
+  type: 'test'
+  ...
+# Subtest: 表单回填：布尔 → boolean，UUID 列表 → 逗号串，声明外的键忽略
+ok 681 - 表单回填：布尔 → boolean，UUID 列表 → 逗号串，声明外的键忽略
+  ---
+  duration_ms: 0.882449
+  type: 'test'
+  ...
+# Subtest: 列表筛选：实体 / 只看启用 / 关键词（大小写不敏感）
+ok 682 - 列表筛选：实体 / 只看启用 / 关键词（大小写不敏感）
+  ---
+  duration_ms: 0.251301
+  type: 'test'
+  ...
+# Subtest: 参数摘要 / 事务与等级文案 / 健康判定
+ok 683 - 参数摘要 / 事务与等级文案 / 健康判定
+  ---
+  duration_ms: 0.150339
+  type: 'test'
+  ...
+# Subtest: 预览提醒：空执行链 / 回滚风险 / 全部提交后执行
+ok 684 - 预览提醒：空执行链 / 回滚风险 / 全部提交后执行
+  ---
+  duration_ms: 0.122837
+  type: 'test'
+  ...
+# Subtest: 模板二选一：引用模式不带 inline，内联模式不带 template_code
+ok 685 - 模板二选一：引用模式不带 inline，内联模式不带 template_code
+  ---
+  duration_ms: 0.627315
+  type: 'test'
+  ...
+# Subtest: 每个来源只带自己那个键
+ok 686 - 每个来源只带自己那个键
+  ---
+  duration_ms: 0.997162
+  type: 'test'
+  ...
+# Subtest: 往返稳定：patch 之后再读回来是同一份状态
+ok 687 - 往返稳定：patch 之后再读回来是同一份状态
+  ---
+  duration_ms: 0.542395
+  type: 'test'
+  ...
+# Subtest: 空的 targets 数组会退回一行默认来源（面板不能「一行都没有」）
+ok 688 - 空的 targets 数组会退回一行默认来源（面板不能「一行都没有」）
+  ---
+  duration_ms: 0.105713
+  type: 'test'
+  ...
+# Subtest: 校验：条数 / 模板 / 必填三处的文案与后端一致
+ok 689 - 校验：条数 / 模板 / 必填三处的文案与后端一致
+  ---
+  duration_ms: 0.315012
+  type: 'test'
+  ...
+# Subtest: 样例预览：已知变量替换、未知变量显示成〔path〕而不是空串
+ok 690 - 样例预览：已知变量替换、未知变量显示成〔path〕而不是空串
+  ---
+  duration_ms: 0.15759
+  type: 'test'
+  ...
+# Subtest: 权限码与 edge_admin.rs / V0206 逐字一致
+ok 691 - 权限码与 edge_admin.rs / V0206 逐字一致
+  ---
+  duration_ms: 0.640607
+  type: 'test'
+  ...
+# Subtest: mergeBaseEdges：没有配置行时原样用 BASE 边（configured=false / enabled=true）
+ok 692 - mergeBaseEdges：没有配置行时原样用 BASE 边（configured=false / enabled=true）
+  ---
+  duration_ms: 0.907909
+  type: 'test'
+  ...
+# Subtest: mergeBaseEdges：有配置行 → configured=true，文案 / 权限码 / 启用取配置值
+ok 693 - mergeBaseEdges：有配置行 → configured=true，文案 / 权限码 / 启用取配置值
+  ---
+  duration_ms: 0.270177
+  type: 'test'
+  ...
+# Subtest: mergeBaseEdges：requires_reason 只能加不能减（BASE true 时配置 false 也算 true）
+ok 694 - mergeBaseEdges：requires_reason 只能加不能减（BASE true 时配置 false 也算 true）
+  ---
+  duration_ms: 0.108629
+  type: 'test'
+  ...
+# Subtest: mergeBaseEdges：配置行缺失但边不在 effective_edges 里 → 视为已禁用
+ok 695 - mergeBaseEdges：配置行缺失但边不在 effective_edges 里 → 视为已禁用
+  ---
+  duration_ms: 0.184215
+  type: 'test'
+  ...
+# Subtest: edgeRowView：mandatory 边禁不掉、BASE 要求原因的边开关锁死
+ok 696 - edgeRowView：mandatory 边禁不掉、BASE 要求原因的边开关锁死
+  ---
+  duration_ms: 0.175465
+  type: 'test'
+  ...
+# Subtest: changeFormOf：没有配置行时文案回填空串（不把 BASE 文案写死进库）
+ok 697 - changeFormOf：没有配置行时文案回填空串（不把 BASE 文案写死进库）
+  ---
+  duration_ms: 0.103379
+  type: 'test'
+  ...
+# Subtest: buildChangeReq：confirm 恒为 true、空串归一成 null、理由 trim
+ok 698 - buildChangeReq：confirm 恒为 true、空串归一成 null、理由 trim
+  ---
+  duration_ms: 0.18434
+  type: 'test'
+  ...
+# Subtest: buildChangeReq：BASE 要求原因的边，即使表单传 false 也必须提交 true
+ok 699 - buildChangeReq：BASE 要求原因的边，即使表单传 false 也必须提交 true
+  ---
+  duration_ms: 0.349305
+  type: 'test'
+  ...
+# Subtest: changeReasonError：理由不能空、不能太短
+ok 700 - changeReasonError：理由不能空、不能太短
+  ---
+  duration_ms: 0.374055
+  type: 'test'
+  ...
+# Subtest: changeSummary / changeResultText / pendingChangeText：文案分开「已送审」与「已生效」
+ok 701 - changeSummary / changeResultText / pendingChangeText：文案分开「已送审」与「已生效」
+  ---
+  duration_ms: 0.279886
+  type: 'test'
+  ...
+# Subtest: 能力表覆盖 9 种节点，两种新节点各自的 config 分区正确
+ok 702 - 能力表覆盖 9 种节点，两种新节点各自的 config 分区正确
+  ---
+  duration_ms: 1.392344
+  type: 'test'
+  ...
+# Subtest: capabilitiesOf 对未知类型兜底（不抛错），大小写不敏感
+ok 703 - capabilitiesOf 对未知类型兜底（不抛错），大小写不敏感
+  ---
+  duration_ms: 0.158631
+  type: 'test'
+  ...
+# Subtest: graph.ts 的节点清单与能力表一致（含新增两种；needsAssignee 同口径）
+ok 704 - graph.ts 的节点清单与能力表一致（含新增两种；needsAssignee 同口径）
+  ---
+  duration_ms: 0.124504
+  type: 'test'
+  ...
+# Subtest: TASK_NODE 的指派来源：非 TASK_ACCEPT 流程灰掉三个任务来源
+ok 705 - TASK_NODE 的指派来源：非 TASK_ACCEPT 流程灰掉三个任务来源
+  ---
+  duration_ms: 0.153173
+  type: 'test'
+  ...
+# Subtest: TASK_NODE 的超时动作灰掉「自动通过 / 自动驳回」（活没干完不能算干完）
+ok 706 - TASK_NODE 的超时动作灰掉「自动通过 / 自动驳回」（活没干完不能算干完）
+  ---
+  duration_ms: 0.183465
+  type: 'test'
+  ...
+# Subtest: 顺序①：先选 APPROVE → 再想勾验收（禁用）→ 仍是 APPROVE + 不验收
+ok 707 - 顺序①：先选 APPROVE → 再想勾验收（禁用）→ 仍是 APPROVE + 不验收
+  ---
+  duration_ms: 0.124338
+  type: 'test'
+  ...
+# Subtest: 顺序②：先勾「需验收」→ 再选 APPROVE（灰掉）→ 落成 APPROVE + 不验收仍合法
+ok 708 - 顺序②：先勾「需验收」→ 再选 APPROVE（灰掉）→ 落成 APPROVE + 不验收仍合法
+  ---
+  duration_ms: 0.133713
+  type: 'test'
+  ...
+# Subtest: 顺序③：选 VERIFY → 自动勾验收并锁定 → 想取消验收（禁用）→ 落成 DIRECT + 不验收
+ok 709 - 顺序③：选 VERIFY → 自动勾验收并锁定 → 想取消验收（禁用）→ 落成 DIRECT + 不验收
+  ---
+  duration_ms: 0.12813
+  type: 'test'
+  ...
+# Subtest: 顺序④：DIRECT → 勾验收 → VERIFY → APPROVE → 回 DIRECT（每一步都合法）
+ok 710 - 顺序④：DIRECT → 勾验收 → VERIFY → APPROVE → 回 DIRECT（每一步都合法）
+  ---
+  duration_ms: 0.34568
+  type: 'test'
+  ...
+# Subtest: 穷举：任意状态 × 任意一次操作，结果都过 R18 矩阵
+ok 711 - 穷举：任意状态 × 任意一次操作，结果都过 R18 矩阵
+  ---
+  duration_ms: 0.469142
+  type: 'test'
+  ...
+# Subtest: checkMatrix 自身能判出两条违例（否则上面的穷举是空的）
+ok 712 - checkMatrix 自身能判出两条违例（否则上面的穷举是空的）
+  ---
+  duration_ms: 0.147005
+  type: 'test'
+  ...
+# Subtest: APPROVE 不再是阶段闸：只剩 approve_biz_type 必填校验（P-FLOW-1B 收口）
+ok 713 - APPROVE 不再是阶段闸：只剩 approve_biz_type 必填校验（P-FLOW-1B 收口）
+  ---
+  duration_ms: 0.113713
+  type: 'test'
+  ...
+# Subtest: 源码里不再有 1A 阶段闸的死码（删干净 = 验收 2/3）
+ok 714 - 源码里不再有 1A 阶段闸的死码（删干净 = 验收 2/3）
+  ---
+  duration_ms: 0.432308
+  type: 'test'
+  ...
+# Subtest: taskConfigOf 对脏数据兜底（缺键 / 未知枚举 / 非对象都不抛错）
+ok 715 - taskConfigOf 对脏数据兜底（缺键 / 未知枚举 / 非对象都不抛错）
+  ---
+  duration_ms: 0.166214
+  type: 'test'
+  ...
+# Subtest: taskConfigPatch：非 APPROVE 不带 approve_biz_type，空描述不落键（否则 65034）
+ok 716 - taskConfigPatch：非 APPROVE 不带 approve_biz_type，空描述不落键（否则 65034）
+  ---
+  duration_ms: 0.098504
+  type: 'test'
+  ...
+# Subtest: taskConfigPatch：APPROVE 带 approve_biz_type；RELATIVE 期限只带 amount+unit
+ok 717 - taskConfigPatch：APPROVE 带 approve_biz_type；RELATIVE 期限只带 amount+unit
+  ---
+  duration_ms: 0.092296
+  type: 'test'
+  ...
+# Subtest: dueIssue：三种模式的必备键与上限
+ok 718 - dueIssue：三种模式的必备键与上限
+  ---
+  duration_ms: 0.135005
+  type: 'test'
+  ...
+# Subtest: 非流程任务：按钮组原样返回（普通任务行为一个字不变）
+ok 719 - 非流程任务：按钮组原样返回（普通任务行为一个字不变）
+  ---
+  duration_ms: 0.092545
+  type: 'test'
+  ...
+# Subtest: 流程任务 DIRECT：只剩「完成」+ 取消（不再并列「提交验收」）
+ok 720 - 流程任务 DIRECT：只剩「完成」+ 取消（不再并列「提交验收」）
+  ---
+  duration_ms: 0.176048
+  type: 'test'
+  ...
+# Subtest: 流程任务 VERIFY：只剩「提交验收」
+ok 721 - 流程任务 VERIFY：只剩「提交验收」
+  ---
+  duration_ms: 0.079753
+  type: 'test'
+  ...
+# Subtest: 流程任务 APPROVE：主按钮是「完成」，副文案「完成后需审批」
+ok 722 - 流程任务 APPROVE：主按钮是「完成」，副文案「完成后需审批」
+  ---
+  duration_ms: 0.092545
+  type: 'test'
+  ...
+# Subtest: 65034–65039 码值与 error_code.rs 一致
+ok 723 - 65034–65039 码值与 error_code.rs 一致
+  ---
+  duration_ms: 0.833865
+  type: 'test'
+  ...
+# Subtest: 65038 的本地兜底文案指向「联系流程发起人」（不是「刷新重试」）
+ok 724 - 65038 的本地兜底文案指向「联系流程发起人」（不是「刷新重试」）
+  ---
+  duration_ms: 0.100713
+  type: 'test'
+  ...
+# Subtest: taskNodeErrorText：后端原文优先，本地文案兜底（并标明来源）
+ok 725 - taskNodeErrorText：后端原文优先，本地文案兜底（并标明来源）
+  ---
+  duration_ms: 0.067503
+  type: 'test'
+  ...
+# Subtest: exportFilterPayload：空筛选 → 一个键都不发（全选行为不变）
+ok 726 - exportFilterPayload：空筛选 → 一个键都不发（全选行为不变）
+  ---
+  duration_ms: 1.247588
+  type: 'test'
+  ...
+# Subtest: exportFilterPayload：状态筛选 → status_code，且永远不带 status
+ok 727 - exportFilterPayload：状态筛选 → status_code，且永远不带 status
+  ---
+  duration_ms: 0.154673
+  type: 'test'
+  ...
+# Subtest: exportFilterPayload：关键词与状态码同时带（顺序无关，值原样透传）
+ok 728 - exportFilterPayload：关键词与状态码同时带（顺序无关，值原样透传）
+  ---
+  duration_ms: 0.094254
+  type: 'test'
+  ...
+# Subtest: exportFilterPayload：三张单据页的状态筛选码都能原样进 payload
+ok 729 - exportFilterPayload：三张单据页的状态筛选码都能原样进 payload
+  ---
+  duration_ms: 0.181132
+  type: 'test'
+  ...
+# Subtest: 收货入库单页：批量导出 payload 透传列表状态筛选
+ok 730 - 收货入库单页：批量导出 payload 透传列表状态筛选
+  ---
+  duration_ms: 0.479768
+  type: 'test'
+  ...
+# Subtest: 应付单页：批量导出 payload 透传列表状态筛选
+ok 731 - 应付单页：批量导出 payload 透传列表状态筛选
+  ---
+  duration_ms: 0.277218
+  type: 'test'
+  ...
+# Subtest: 凭证页：批量导出 payload 透传列表状态筛选
+ok 732 - 凭证页：批量导出 payload 透传列表状态筛选
+  ---
+  duration_ms: 1.085874
+  type: 'test'
+  ...
+# Subtest: api 类型：BatchExportPayload / createExport 都声明了 status_code 且保留 status
+ok 733 - api 类型：BatchExportPayload / createExport 都声明了 status_code 且保留 status
+  ---
+  duration_ms: 0.195507
+  type: 'test'
+  ...
+# Subtest: 后端导出白名单：字段名与 status_code 契约逐字未变
+ok 734 - 后端导出白名单：字段名与 status_code 契约逐字未变
+  ---
+  duration_ms: 0.404806
+  type: 'test'
+  ...
+# Subtest: 状态码漂移守卫：三页筛选项 = 后端导出白名单（集合相等）
+ok 735 - 状态码漂移守卫：三页筛选项 = 后端导出白名单（集合相等）
+  ---
+  duration_ms: 0.701442
+  type: 'test'
+  ...
+# Subtest: 四类汇总：条数与合计正确，顺序与跳转路径固定
+ok 736 - 四类汇总：条数与合计正确，顺序与跳转路径固定
+  ---
+  duration_ms: 1.376301
+  type: 'test'
+  ...
+# Subtest: collectUnread 并行取数：全部成功时逐类落到对应键
+ok 737 - collectUnread 并行取数：全部成功时逐类落到对应键
+  ---
+  duration_ms: 0.242592
+  type: 'test'
+  ...
+# Subtest: collectUnread 单类失败按 0 计，不影响其它类别（无权限 403 不能让弹窗哑火）
+ok 738 - collectUnread 单类失败按 0 计，不影响其它类别（无权限 403 不能让弹窗哑火）
+  ---
+  duration_ms: 0.187965
+  type: 'test'
+  ...
+# Subtest: collectUnread 缺 loader 的类别按 0 计（分阶段接接口时不会崩）
+ok 739 - collectUnread 缺 loader 的类别按 0 计（分阶段接接口时不会崩）
+  ---
+  duration_ms: 0.193091
+  type: 'test'
+  ...
+# Subtest: 登录标记：未弹过 → 弹一次后标记 → 清标记后又能弹（退出登录再登录）
+ok 740 - 登录标记：未弹过 → 弹一次后标记 → 清标记后又能弹（退出登录再登录）
+  ---
+  duration_ms: 0.164548
+  type: 'test'
+  ...
+# Subtest: 「有未读就弹 / 全空不弹」的判定口径：合计 > 0 才该弹
+ok 741 - 「有未读就弹 / 全空不弹」的判定口径：合计 > 0 才该弹
+  ---
+  duration_ms: 0.221509
+  type: 'test'
+  ...
+# Subtest: 计数容错：负数 / 空串 / null / NaN 一律按 0（后端下发 null 时不能显示「NaN 条」）
+ok 742 - 计数容错：负数 / 空串 / null / NaN 一律按 0（后端下发 null 时不能显示「NaN 条」）
+  ---
+  duration_ms: 0.157631
+  type: 'test'
+  ...
+# Subtest: 类别清单是四条且键名与后端取数一一对应
+ok 743 - 类别清单是四条且键名与后端取数一一对应
+  ---
+  duration_ms: 0.086504
+  type: 'test'
+  ...
+# Subtest: useFormMemory ① 无记忆时 recall 返回空对象
+ok 744 - useFormMemory ① 无记忆时 recall 返回空对象
+  ---
+  duration_ms: 1.453304
+  type: 'test'
+  ...
+# Subtest: useFormMemory ② remember 之后 recall 能原样拿到
+ok 745 - useFormMemory ② remember 之后 recall 能原样拿到
+  ---
+  duration_ms: 0.222383
+  type: 'test'
+  ...
+# Subtest: useFormMemory ③ 只记指定字段，其他字段一律不落盘
+ok 746 - useFormMemory ③ 只记指定字段，其他字段一律不落盘
+  ---
+  duration_ms: 0.187715
+  type: 'test'
+  ...
+# Subtest: useFormMemory ④ 空值不覆盖已有记忆（null / undefined / 空串跳过），但 0 与 false 算真实选择
+ok 747 - useFormMemory ④ 空值不覆盖已有记忆（null / undefined / 空串跳过），但 0 与 false 算真实选择
+  ---
+  duration_ms: 0.111462
+  type: 'test'
+  ...
+# Subtest: useFormMemory ⑤ forget 之后没有任何记忆，且不留空壳 `{}`
+ok 748 - useFormMemory ⑤ forget 之后没有任何记忆，且不留空壳 `{}`
+  ---
+  duration_ms: 0.125213
+  type: 'test'
+  ...
+# Subtest: useFormMemory ⑥ 全空值 remember 不落盘（避免「恢复了 0 项」的假提示）
+ok 749 - useFormMemory ⑥ 全空值 remember 不落盘（避免「恢复了 0 项」的假提示）
+  ---
+  duration_ms: 0.088961
+  type: 'test'
+  ...
+# Subtest: useFormMemory ⑦ 提示条 labels：只报「记忆带出」的字段，源单已带出的不算
+ok 750 - useFormMemory ⑦ 提示条 labels：只报「记忆带出」的字段，源单已带出的不算
+  ---
+  duration_ms: 0.219258
+  type: 'test'
+  ...
+# Subtest: useListMemory ① 完整存取：筛选 + 页码 + 每页条数 + Tab
+ok 751 - useListMemory ① 完整存取：筛选 + 页码 + 每页条数 + Tab
+  ---
+  duration_ms: 0.216675
+  type: 'test'
+  ...
+# Subtest: useListMemory ② 损坏的 JSON → 返回空对象，不崩
+ok 752 - useListMemory ② 损坏的 JSON → 返回空对象，不崩
+  ---
+  duration_ms: 0.447392
+  type: 'test'
+  ...
+# Subtest: useListMemory ③ forget 之后 recall 为空（关标签页语义）
+ok 753 - useListMemory ③ forget 之后 recall 为空（关标签页语义）
+  ---
+  duration_ms: 0.416807
+  type: 'test'
+  ...
+# Subtest: 优先级 ① 源单带出的值覆盖上次记忆
+ok 754 - 优先级 ① 源单带出的值覆盖上次记忆
+  ---
+  duration_ms: 0.225258
+  type: 'test'
+  ...
+# Subtest: 优先级 ② 没有源单时，记忆值覆盖系统默认
+ok 755 - 优先级 ② 没有源单时，记忆值覆盖系统默认
+  ---
+  duration_ms: 0.082753
+  type: 'test'
+  ...
+# Subtest: 优先级 ③ 三层都没值时用系统默认
+ok 756 - 优先级 ③ 三层都没值时用系统默认
+  ---
+  duration_ms: 0.072377
+  type: 'test'
+  ...
+# Subtest: 存储整体不可用（隐私模式 / 配额满）时 remember / recall 都不抛
+ok 757 - 存储整体不可用（隐私模式 / 配额满）时 remember / recall 都不抛
+  ---
+  duration_ms: 0.248926
+  type: 'test'
+  ...
+# Subtest: run 在没有 localStorage 的宿主里：resolveStorage 退化成本次会话内的可用替身
+ok 758 - run 在没有 localStorage 的宿主里：resolveStorage 退化成本次会话内的可用替身
+  ---
+  duration_ms: 0.152214
+  type: 'test'
+  ...
+# Subtest: memory-core 基础口径：isBlank / pickFields / mergeMemory
+ok 759 - memory-core 基础口径：isBlank / pickFields / mergeMemory
+  ---
+  duration_ms: 0.100921
+  type: 'test'
+  ...
+# Subtest: latestItems 累积：后到的排在最前，条数逐条递增
+ok 760 - latestItems 累积：后到的排在最前，条数逐条递增
+  ---
+  duration_ms: 1.800776
+  type: 'test'
+  ...
+# Subtest: latestItems 上限：第 6 条进来挤掉最旧的一条，恒不超过 5 条
+ok 761 - latestItems 上限：第 6 条进来挤掉最旧的一条，恒不超过 5 条
+  ---
+  duration_ms: 0.302595
+  type: 'test'
+  ...
+# Subtest: 同一条消息（同 receiver_id）从不同通道重复送到时只入队一次
+ok 762 - 同一条消息（同 receiver_id）从不同通道重复送到时只入队一次
+  ---
+  duration_ms: 0.12463
+  type: 'test'
+  ...
+# Subtest: 脏数据（缺 receiver_id / 缺 title / 非对象）不入队，也不抛错
+ok 763 - 脏数据（缺 receiver_id / 缺 title / 非对象）不入队，也不抛错
+  ---
+  duration_ms: 0.298511
+  type: 'test'
+  ...
+# Subtest: 计时到期自动收起（8 秒的短时长等价用例）
+ok 764 - 计时到期自动收起（8 秒的短时长等价用例）
+  ---
+  duration_ms: 79.944938
+  type: 'test'
+  ...
+# Subtest: 鼠标悬停暂停计时：暂停期间不收起，离开后按剩余时间继续
+ok 765 - 鼠标悬停暂停计时：暂停期间不收起，离开后按剩余时间继续
+  ---
+  duration_ms: 182.698934
+  type: 'test'
+  ...
+# Subtest: 新消息到达时重新计满：两条消息间隔小于 8 秒也只收起一次
+ok 766 - 新消息到达时重新计满：两条消息间隔小于 8 秒也只收起一次
+  ---
+  duration_ms: 130.071848
+  type: 'test'
+  ...
+# Subtest: cancel 之后不再触发收起（用户点 [×] 的情形）
+ok 767 - cancel 之后不再触发收起（用户点 [×] 的情形）
+  ---
+  duration_ms: 59.493843
+  type: 'test'
+  ...
+# Subtest: 按 notice_type 区分图标、按 level 区分语义色、相对时间文案正确
+ok 768 - 按 notice_type 区分图标、按 level 区分语义色、相对时间文案正确
+  ---
+  duration_ms: 0.529644
+  type: 'test'
+  ...
+# Subtest: appendPopupItem 不修改入参（store 里是 ref 数组，必须换新引用才触发渲染）
+ok 769 - appendPopupItem 不修改入参（store 里是 ref 数组，必须换新引用才触发渲染）
+  ---
+  duration_ms: 0.395848
+  type: 'test'
+  ...
+# Subtest: SSE 帧解析：跨 chunk 的半截帧要拼接完整后才产出
+ok 770 - SSE 帧解析：跨 chunk 的半截帧要拼接完整后才产出
+  ---
+  duration_ms: 0.453892
+  type: 'test'
+  ...
+# Subtest: SSE 心跳注释帧（`: keep-alive`）被忽略，不影响后续数据帧
+ok 771 - SSE 心跳注释帧（`: keep-alive`）被忽略，不影响后续数据帧
+  ---
+  duration_ms: 0.114129
+  type: 'test'
+  ...
+# Subtest: filterArrivedSince 只留新到的：旧未读不因「拉最新 5 条」被误报成新消息
+ok 772 - filterArrivedSince 只留新到的：旧未读不因「拉最新 5 条」被误报成新消息
+  ---
+  duration_ms: 0.100337
+  type: 'test'
+  ...
+# Subtest: filterArrivedSince 对脏 created_at 保留（宁可多显示一条，也不吞掉新消息）
+ok 773 - filterArrivedSince 对脏 created_at 保留（宁可多显示一条，也不吞掉新消息）
+  ---
+  duration_ms: 0.06221
+  type: 'test'
+  ...
+# Subtest: 状态 → 允许的动作：草稿只有审核
+ok 774 - 状态 → 允许的动作：草稿只有审核
+  ---
+  duration_ms: 1.338383
+  type: 'test'
+  ...
+# Subtest: 状态 → 允许的动作：已审核有反审核 + 记账（顺序即界面顺序）
+ok 775 - 状态 → 允许的动作：已审核有反审核 + 记账（顺序即界面顺序）
+  ---
+  duration_ms: 0.09167
+  type: 'test'
+  ...
+# Subtest: 状态 → 允许的动作：已记账 / 已作废 / 未知状态一个都没有
+ok 776 - 状态 → 允许的动作：已记账 / 已作废 / 未知状态一个都没有
+  ---
+  duration_ms: 0.097879
+  type: 'test'
+  ...
+# Subtest: 动作声明：权限码与后端 \#[alun::permission] 同名，且只有反审核要求原因
+ok 777 - 动作声明：权限码与后端 \#[alun::permission] 同名，且只有反审核要求原因
+  ---
+  duration_ms: 0.100796
+  type: 'test'
+  ...
+# Subtest: 按钮清单：全权限 + 无自审 → 都可点且无置灰原因
+ok 778 - 按钮清单：全权限 + 无自审 → 都可点且无置灰原因
+  ---
+  duration_ms: 0.252051
+  type: 'test'
+  ...
+# Subtest: 按钮清单：没权限 → 置灰并点名缺哪个权限码（不隐藏）
+ok 779 - 按钮清单：没权限 → 置灰并点名缺哪个权限码（不隐藏）
+  ---
+  duration_ms: 0.150838
+  type: 'test'
+  ...
+# Subtest: 按钮清单：制单人自审 → 审核置灰（内控），反审核/记账不受影响
+ok 780 - 按钮清单：制单人自审 → 审核置灰（内控），反审核/记账不受影响
+  ---
+  duration_ms: 0.145255
+  type: 'test'
+  ...
+# Subtest: 自审判定：两个 id 任一未知 → 不拦（宁可不拦，也不误拦）
+ok 781 - 自审判定：两个 id 任一未知 → 不拦（宁可不拦，也不误拦）
+  ---
+  duration_ms: 0.078712
+  type: 'test'
+  ...
+# Subtest: 反审核原因必填：空白 / 只有空格 / null / undefined 全部拦下
+ok 782 - 反审核原因必填：空白 / 只有空格 / null / undefined 全部拦下
+  ---
+  duration_ms: 0.457476
+  type: 'test'
+  ...
+# Subtest: 审核链说明文案：每个状态都说清「为什么没有按钮 / 下一步走哪」
+ok 783 - 审核链说明文案：每个状态都说清「为什么没有按钮 / 下一步走哪」
+  ---
+  duration_ms: 0.381973
+  type: 'test'
+  ...
+# Subtest: 动作回执 / 确认文案：记账要写明「不可再反审核」
+ok 784 - 动作回执 / 确认文案：记账要写明「不可再反审核」
+  ---
+  duration_ms: 0.176506
+  type: 'test'
+  ...
+# Subtest: 审批实例 id：红冲实例优先，其次审核实例，都没有 → null（进度块不渲染）
+ok 785 - 审批实例 id：红冲实例优先，其次审核实例，都没有 → null（进度块不渲染）
+  ---
+  duration_ms: 0.092629
+  type: 'test'
+  ...
+# Subtest: 可用量 = 账面数量 − 锁定量（锁定量不能算成可调拨）
+ok 786 - 可用量 = 账面数量 − 锁定量（锁定量不能算成可调拨）
+  ---
+  duration_ms: 1.198878
+  type: 'test'
+  ...
+# Subtest: 锁定量超过账面（脏数据）时可用量如实为负，默认带入数量仍是 0
+ok 787 - 锁定量超过账面（脏数据）时可用量如实为负，默认带入数量仍是 0
+  ---
+  duration_ms: 0.118671
+  type: 'test'
+  ...
+# Subtest: from_location_id 口径：inventory_location_id 取库位库存行 id，location_id 单独保留
+ok 788 - from_location_id 口径：inventory_location_id 取库位库存行 id，location_id 单独保留
+  ---
+  duration_ms: 0.113046
+  type: 'test'
+  ...
+# Subtest: 成本价取本仓该物料的汇总行均价，并标记 has_cost
+ok 789 - 成本价取本仓该物料的汇总行均价，并标记 has_cost
+  ---
+  duration_ms: 0.214466
+  type: 'test'
+  ...
+# Subtest: 同物料多行库存里，零成本行不让位给有成本的行
+ok 790 - 同物料多行库存里，零成本行不让位给有成本的行
+  ---
+  duration_ms: 0.112129
+  type: 'test'
+  ...
+# Subtest: 没有任何成本价时 has_cost=false（界面显示「无成本价」而不是 ¥0.0000 骗人）
+ok 791 - 没有任何成本价时 has_cost=false（界面显示「无成本价」而不是 ¥0.0000 骗人）
+  ---
+  duration_ms: 0.094253
+  type: 'test'
+  ...
+# Subtest: 一物一码标记从物料主数据透传（物料不在主数据里时不报错，按非一物一码）
+ok 792 - 一物一码标记从物料主数据透传（物料不在主数据里时不报错，按非一物一码）
+  ---
+  duration_ms: 8.623697
+  type: 'test'
+  ...
+# Subtest: 排序：可用量降序（有货的在最上面），同量按物料编码稳定
+ok 793 - 排序：可用量降序（有货的在最上面），同量按物料编码稳定
+  ---
+  duration_ms: 0.901325
+  type: 'test'
+  ...
+# Subtest: 只带出「勾选了且数量 > 0」的行
+ok 794 - 只带出「勾选了且数量 > 0」的行
+  ---
+  duration_ms: 0.440391
+  type: 'test'
+  ...
+# Subtest: 数量被夹在可用量以内（手工改大也不允许超发）
+ok 795 - 数量被夹在可用量以内（手工改大也不允许超发）
+  ---
+  duration_ms: 0.365055
+  type: 'test'
+  ...
+# Subtest: 空表单（一行空行）带入 1 条：复用那行，不留空行
+ok 796 - 空表单（一行空行）带入 1 条：复用那行，不留空行
+  ---
+  duration_ms: 0.23855
+  type: 'test'
+  ...
+# Subtest: 同物料 + 同库位 → 累加数量（不出现两行一样的物料）
+ok 797 - 同物料 + 同库位 → 累加数量（不出现两行一样的物料）
+  ---
+  duration_ms: 0.095962
+  type: 'test'
+  ...
+# Subtest: 同物料不同库位 → 各占一行（库位是调出的真实来源，合并就丢了）
+ok 798 - 同物料不同库位 → 各占一行（库位是调出的真实来源，合并就丢了）
+  ---
+  duration_ms: 0.08967
+  type: 'test'
+  ...
+# Subtest: 数量 <= 0 的选择被丢弃（不产生空明细行）
+ok 799 - 数量 <= 0 的选择被丢弃（不产生空明细行）
+  ---
+  duration_ms: 0.068127
+  type: 'test'
+  ...
+# Subtest: 不改入参（返回新数组、新行对象）
+ok 800 - 不改入参（返回新数组、新行对象）
+  ---
+  duration_ms: 0.071628
+  type: 'test'
+  ...
+# Subtest: ① 未评估（credit_exposure 为 null）= 显示「未评估」，不能显示成「额度内」
+ok 801 - ① 未评估（credit_exposure 为 null）= 显示「未评估」，不能显示成「额度内」
+  ---
+  duration_ms: 0.800738
+  type: 'test'
+  ...
+# Subtest: ① 超限：红色标签 + tooltip 带累计与额度（后端 Decimal 出参是字符串，要格式化）
+ok 802 - ① 超限：红色标签 + tooltip 带累计与额度（后端 Decimal 出参是字符串，要格式化）
+  ---
+  duration_ms: 0.253385
+  type: 'test'
+  ...
+# Subtest: ① 额度内：tooltip 给「累计 / 额度 / 剩余」三个数，且剩余 = 额度 − 累计
+ok 803 - ① 额度内：tooltip 给「累计 / 额度 / 剩余」三个数，且剩余 = 额度 − 累计
+  ---
+  duration_ms: 0.121463
+  type: 'test'
+  ...
+# Subtest: ① 额度为 0（= 不限）：显示「额度不限」，不能显示「超 0」
+ok 804 - ① 额度为 0（= 不限）：显示「额度不限」，不能显示「超 0」
+  ---
+  duration_ms: 0.202507
+  type: 'test'
+  ...
+# Subtest: ② 安全库存留空/0/负数/非数字 → 提交 0（= 不预警），绝不当成「阈值 0」
+ok 805 - ② 安全库存留空/0/负数/非数字 → 提交 0（= 不预警），绝不当成「阈值 0」
+  ---
+  duration_ms: 0.163173
+  type: 'test'
+  ...
+# Subtest: ② 回填去掉 PG 的尾零（50.0000 → 50），用户不会以为自己填错
+ok 806 - ② 回填去掉 PG 的尾零（50.0000 → 50），用户不会以为自己填错
+  ---
+  duration_ms: 0.100754
+  type: 'test'
+  ...
+# Subtest: ② 校验：留空合法；负数/非数字报错（与后端 require_non_negative 同口径）
+ok 807 - ② 校验：留空合法；负数/非数字报错（与后端 require_non_negative 同口径）
+  ---
+  duration_ms: 0.210049
+  type: 'test'
+  ...
+# Subtest: ② 新建/编辑请求体都显式带 safety_stock（留空发 0，不靠后端缺省蒙对）
+ok 808 - ② 新建/编辑请求体都显式带 safety_stock（留空发 0，不靠后端缺省蒙对）
+  ---
+  duration_ms: 0.180132
+  type: 'test'
+  ...
+# Subtest: ② 物料页有安全库存输入框 + 口径提示文案
+ok 809 - ② 物料页有安全库存输入框 + 口径提示文案
+  ---
+  duration_ms: 0.442766
+  type: 'test'
+  ...
+# Subtest: ③ 库存页不再显示「锁定」列（locked_qty 恒 0，显示它等于骗人）
+ok 810 - ③ 库存页不再显示「锁定」列（locked_qty 恒 0，显示它等于骗人）
+  ---
+  duration_ms: 0.570354
+  type: 'test'
+  ...
+# Subtest: ③ 采购单页显示超信用额度标签 + 详情信用结论
+ok 811 - ③ 采购单页显示超信用额度标签 + 详情信用结论
+  ---
+  duration_ms: 0.388681
+  type: 'test'
+  ...
+# Subtest: map 命中 → 显示主档**现值**（改名后列表跟着变，快照不参与显示）
+ok 812 - map 命中 → 显示主档**现值**（改名后列表跟着变，快照不参与显示）
+  ---
+  duration_ms: 0.6759
+  type: 'test'
+  ...
+# Subtest: map 未命中但有快照 → 显示**快照名**（主档软删 / 主数据没拉回来）
+ok 813 - map 未命中但有快照 → 显示**快照名**（主档软删 / 主数据没拉回来）
+  ---
+  duration_ms: 0.081587
+  type: 'test'
+  ...
+# Subtest: 两者都没有 → `—`（不留白、不报错）
+ok 814 - 两者都没有 → `—`（不留白、不报错）
+  ---
+  duration_ms: 0.084503
+  type: 'test'
+  ...
+# Subtest: 空串不算名字：主档名为空串 → 回落快照；快照为空串 → `—`
+ok 815 - 空串不算名字：主档名为空串 → 回落快照；快照为空串 → `—`
+  ---
+  duration_ms: 0.077836
+  type: 'test'
+  ...
+# Subtest: 任何输入组合下输出都不含 uuid / uuid 短号（禁落 uuid 的回归闸门）
+ok 816 - 任何输入组合下输出都不含 uuid / uuid 短号（禁落 uuid 的回归闸门）
+  ---
+  duration_ms: 0.419557
+  type: 'test'
+  ...
+# Subtest: 对照：`shortId(SUPPLIER_ID)` 确实会长成被禁的形态（证明上面的闸门抓得到东西）
+ok 817 - 对照：`shortId(SUPPLIER_ID)` 确实会长成被禁的形态（证明上面的闸门抓得到东西）
+  ---
+  duration_ms: 0.08892
+  type: 'test'
+  ...
+# Subtest: 详情「供应商（现名）」用 `supplierCurrentNameOf`：只认现值，查不到给 `—`（不给 uuid）
+ok 818 - 详情「供应商（现名）」用 `supplierCurrentNameOf`：只认现值，查不到给 `—`（不给 uuid）
+  ---
+  duration_ms: 0.146922
+  type: 'test'
+  ...
+# Subtest: 列表列走 `supplierDisplayOf(row)`（现名→快照→—），不再出现 `shortId(row.supplier_id)`
+ok 819 - 列表列走 `supplierDisplayOf(row)`（现名→快照→—），不再出现 `shortId(row.supplier_id)`
+  ---
+  duration_ms: 0.168339
+  type: 'test'
+  ...
+# Subtest: `supplierDisplayOf` 的实现同时读 `supplier_id` 与 `supplier_name`（快照必须进排队列）
+ok 820 - `supplierDisplayOf` 的实现同时读 `supplier_id` 与 `supplier_name`（快照必须进排队列）
+  ---
+  duration_ms: 0.359221
+  type: 'test'
+  ...
+# Subtest: 详情页并列两行：「供应商（现名）」在前、「下单时供应商快照」紧接其后
+ok 821 - 详情页并列两行：「供应商（现名）」在前、「下单时供应商快照」紧接其后
+  ---
+  duration_ms: 0.386389
+  type: 'test'
+  ...
+# Subtest: 快照栏只读灰字、绑 `detail.supplier_name`，空则 `—`
+ok 822 - 快照栏只读灰字、绑 `detail.supplier_name`，空则 `—`
+  ---
+  duration_ms: 0.167881
+  type: 'test'
+  ...
+# Subtest: 「供应商（现名）」栏绑 `supplierDisplayOf(detail)`（现值→快照→—），不再用裸 shortId
+ok 823 - 「供应商（现名）」栏绑 `supplierDisplayOf(detail)`（现值→快照→—），不再用裸 shortId
+  ---
+  duration_ms: 0.098087
+  type: 'test'
+  ...
+# Subtest: 空表单 `project_id` 是空串（= 未选 / 不归集），不是 undefined 也不是 null
+ok 824 - 空表单 `project_id` 是空串（= 未选 / 不归集），不是 undefined 也不是 null
+  ---
+  duration_ms: 0.931118
+  type: 'test'
+  ...
+# Subtest: 编辑回填：`project_id = X` → 表单 `X`；`null` / 缺字段 → 空串
+ok 825 - 编辑回填：`project_id = X` → 表单 `X`；`null` / 缺字段 → 空串
+  ---
+  duration_ms: 0.17209
+  type: 'test'
+  ...
+# Subtest: `buildPurchasePayload` 带项目 → `project_id` 是 uuid 原文
+ok 826 - `buildPurchasePayload` 带项目 → `project_id` 是 uuid 原文
+  ---
+  duration_ms: 0.159465
+  type: 'test'
+  ...
+# Subtest: `buildPurchasePayload` 未选项目 → `project_id: null`，**键必须存在**（改单不传即清空）
+ok 827 - `buildPurchasePayload` 未选项目 → `project_id: null`，**键必须存在**（改单不传即清空）
+  ---
+  duration_ms: 0.190882
+  type: 'test'
+  ...
+# Subtest: 清空项目再保存 = 显式 `null`（不是空串、不是 uuid）
+ok 828 - 清空项目再保存 = 显式 `null`（不是空串、不是 uuid）
+  ---
+  duration_ms: 0.102795
+  type: 'test'
+  ...
+# Subtest: 有 `project_name` → 显示名字（后端实时 JOIN 的现名，项目改名后跟着变）
+ok 829 - 有 `project_name` → 显示名字（后端实时 JOIN 的现名，项目改名后跟着变）
+  ---
+  duration_ms: 0.078461
+  type: 'test'
+  ...
+# Subtest: 只有 `project_id`、没有名字 → 「（已删除项目）」（项目被软删）
+ok 830 - 只有 `project_id`、没有名字 → 「（已删除项目）」（项目被软删）
+  ---
+  duration_ms: 0.156881
+  type: 'test'
+  ...
+# Subtest: id 与名字都没有 → `—`（未归集项目，不留白）
+ok 831 - id 与名字都没有 → `—`（未归集项目，不留白）
+  ---
+  duration_ms: 0.077045
+  type: 'test'
+  ...
+# Subtest: 任何输入组合下都不出现 uuid / uuid 短号（禁落 uuid 的回归闸门）
+ok 832 - 任何输入组合下都不出现 uuid / uuid 短号（禁落 uuid 的回归闸门）
+  ---
+  duration_ms: 0.433641
+  type: 'test'
+  ...
+# Subtest: 选项文案 = `名称（编码）`；**归档项目加后缀但不筛掉**
+ok 833 - 选项文案 = `名称（编码）`；**归档项目加后缀但不筛掉**
+  ---
+  duration_ms: 0.436766
+  type: 'test'
+  ...
+# Subtest: 选中值在清单里 → 原样返回，不重复插兜底项
+ok 834 - 选中值在清单里 → 原样返回，不重复插兜底项
+  ---
+  duration_ms: 0.183549
+  type: 'test'
+  ...
+# Subtest: 选中值**不在**清单里（未参与 / 已删）→ 补一条兜底项，别让选择器静默变空
+ok 835 - 选中值**不在**清单里（未参与 / 已删）→ 补一条兜底项，别让选择器静默变空
+  ---
+  duration_ms: 0.164548
+  type: 'test'
+  ...
+# Subtest: 未选项目（空串）→ 不插兜底项（不能凭空给一个「空 uuid」选项）
+ok 836 - 未选项目（空串）→ 不插兜底项（不能凭空给一个「空 uuid」选项）
+  ---
+  duration_ms: 0.067086
+  type: 'test'
+  ...
+# Subtest: 列表 columns 在「供应商」列之后加了「项目」列（宽 160 + 省略）
+ok 837 - 列表 columns 在「供应商」列之后加了「项目」列（宽 160 + 省略）
+  ---
+  duration_ms: 0.124963
+  type: 'test'
+  ...
+# Subtest: 列表插槽走 `projectDisplayName(row.project_id, row.project_name)`，不许出现 shortId / uuid 短号
+ok 838 - 列表插槽走 `projectDisplayName(row.project_id, row.project_name)`，不许出现 shortId / uuid 短号
+  ---
+  duration_ms: 0.150214
+  type: 'test'
+  ...
+# Subtest: 详情抽屉有「所属项目」一行，绑 `projectDisplayName(detail.project_id, detail.project_name)`
+ok 839 - 详情抽屉有「所属项目」一行，绑 `projectDisplayName(detail.project_id, detail.project_name)`
+  ---
+  duration_ms: 0.099296
+  type: 'test'
+  ...
+# Subtest: 表单下拉：`purchase-project`、clearable + filterable、placeholder = NO_PROJECT_PLACEHOLDER
+ok 840 - 表单下拉：`purchase-project`、clearable + filterable、placeholder = NO_PROJECT_PLACEHOLDER
+  ---
+  duration_ms: 0.128713
+  type: 'test'
+  ...
+# Subtest: 表单下拉接兜底选项 `projectSelectOptions`，数据源 `pageProjects` 失败不挡页面
+ok 841 - 表单下拉接兜底选项 `projectSelectOptions`，数据源 `pageProjects` 失败不挡页面
+  ---
+  duration_ms: 0.13988
+  type: 'test'
+  ...
+# Subtest: `project_id` 不进表单记忆（否则下一张单会默默挂错项目）
+ok 842 - `project_id` 不进表单记忆（否则下一张单会默默挂错项目）
+  ---
+  duration_ms: 0.078503
+  type: 'test'
+  ...
+# Subtest: ③ 付款成功后必须走 refreshDetail(id)，不能只把写回包的 detail 塞给抽屉
+ok 843 - ③ 付款成功后必须走 refreshDetail(id)，不能只把写回包的 detail 塞给抽屉
+  ---
+  duration_ms: 0.746112
+  type: 'test'
+  ...
+# Subtest: ③ refreshDetail() 从读接口 fetchPayableDetail(id) 取权威快照，并重算可付信息
+ok 844 - ③ refreshDetail() 从读接口 fetchPayableDetail(id) 取权威快照，并重算可付信息
+  ---
+  duration_ms: 0.28201
+  type: 'test'
+  ...
+# Subtest: ③ 刷新失败不能让抽屉静默停在旧数据（必须告警）
+ok 845 - ③ 刷新失败不能让抽屉静默停在旧数据（必须告警）
+  ---
+  duration_ms: 0.285761
+  type: 'test'
+  ...
+# Subtest: ① 应付 PENDING_CANCEL → 「作废审批中」+ warning，文案与后端 status_label 逐字一致
+ok 846 - ① 应付 PENDING_CANCEL → 「作废审批中」+ warning，文案与后端 status_label 逐字一致
+  ---
+  duration_ms: 0.976578
+  type: 'test'
+  ...
+# Subtest: ① 状态下拉能筛出「作废审批中」（共 6 项，值顺序稳定）
+ok 847 - ① 状态下拉能筛出「作废审批中」（共 6 项，值顺序稳定）
+  ---
+  duration_ms: 0.793947
+  type: 'test'
+  ...
+# Subtest: ② 作废审批中：「付款」「作废」都不可点，「撤回作废」可点（且有权限时）
+ok 848 - ② 作废审批中：「付款」「作废」都不可点，「撤回作废」可点（且有权限时）
+  ---
+  duration_ms: 0.144047
+  type: 'test'
+  ...
+# Subtest: ② 没有撤回权限时说清原因（不静默隐藏）
+ok 849 - ② 没有撤回权限时说清原因（不静默隐藏）
+  ---
+  duration_ms: 0.092003
+  type: 'test'
+  ...
+# Subtest: ③ 后端 can_pay=true 但单据在作废审批中 → 抽屉不显示「发起付款」
+ok 850 - ③ 后端 can_pay=true 但单据在作废审批中 → 抽屉不显示「发起付款」
+  ---
+  duration_ms: 0.632732
+  type: 'test'
+  ...
+# Subtest: ④ 送审 → info 且只说「已提交审批」，绝不出现「已作废」
+ok 851 - ④ 送审 → info 且只说「已提交审批」，绝不出现「已作废」
+  ---
+  duration_ms: 0.15313
+  type: 'test'
+  ...
+# Subtest: ④ 未配流程降级直做 → success「已作废：单号」（老文案保留）
+ok 852 - ④ 未配流程降级直做 → success「已作废：单号」（老文案保留）
+  ---
+  duration_ms: 0.089003
+  type: 'test'
+  ...
+# Subtest: ④ 未知 outcome → 用后端 message 兜底，不吞掉也不瞎猜
+ok 853 - ④ 未知 outcome → 用后端 message 兜底，不吞掉也不瞎猜
+  ---
+  duration_ms: 0.139214
+  type: 'test'
+  ...
+# Subtest: ⑤ 撤回文案说清「回到什么状态」，不让人以为单据被删了
+ok 854 - ⑤ 撤回文案说清「回到什么状态」，不让人以为单据被删了
+  ---
+  duration_ms: 0.343721
+  type: 'test'
+  ...
+# Subtest: ⑥ 凭证红冲送审 → info，绝不出现「已红冲」
+ok 855 - ⑥ 凭证红冲送审 → info，绝不出现「已红冲」
+  ---
+  duration_ms: 0.352721
+  type: 'test'
+  ...
+# Subtest: ⑥ 未配流程降级直做 → success「已红冲：生成红字凭证 PZR-…」
+ok 856 - ⑥ 未配流程降级直做 → success「已红冲：生成红字凭证 PZR-…」
+  ---
+  duration_ms: 0.134964
+  type: 'test'
+  ...
+# Subtest: ⑥ 徽标文案与卡面逐字一致
+ok 857 - ⑥ 徽标文案与卡面逐字一致
+  ---
+  duration_ms: 0.069711
+  type: 'test'
+  ...
+# Subtest: ⑦ 红冲审批中：不能红冲（必 409），但可以撤回；状态仍是 POSTED
+ok 858 - ⑦ 红冲审批中：不能红冲（必 409），但可以撤回；状态仍是 POSTED
+  ---
+  duration_ms: 0.116629
+  type: 'test'
+  ...
+# Subtest: ⑦ 老的红冲判据原样不变（红字 / 已红冲 / 非 POSTED 都不可红冲）
+ok 859 - ⑦ 老的红冲判据原样不变（红字 / 已红冲 / 非 POSTED 都不可红冲）
+  ---
+  duration_ms: 0.07442
+  type: 'test'
+  ...
+# Subtest: ⑦ 没有撤回权限时凭证侧也说清原因
+ok 860 - ⑦ 没有撤回权限时凭证侧也说清原因
+  ---
+  duration_ms: 0.072419
+  type: 'test'
+  ...
+# Subtest: ⑧ 凭证页不再有「审批实例分页」兜底（删干净，grep 无引用）
+ok 861 - ⑧ 凭证页不再有「审批实例分页」兜底（删干净，grep 无引用）
+  ---
+  duration_ms: 0.380389
+  type: 'test'
+  ...
+# Subtest: ⑧ 新字段是「恒在的 string | null」：前端必填 + 后端 DTO 真的下发
+ok 862 - ⑧ 新字段是「恒在的 string | null」：前端必填 + 后端 DTO 真的下发
+  ---
+  duration_ms: 1.098375
+  type: 'test'
+  ...
+# Subtest: ⑨ 抽屉进度按单据状态选：作废审批中 → 作废实例，否则付款实例
+ok 863 - ⑨ 抽屉进度按单据状态选：作废审批中 → 作废实例，否则付款实例
+  ---
+  duration_ms: 0.157631
+  type: 'test'
+  ...
+# Subtest: ⑨ 作废原因：有值原样显示，null / 空白不渲染空行
+ok 864 - ⑨ 作废原因：有值原样显示，null / 空白不渲染空行
+  ---
+  duration_ms: 0.067419
+  type: 'test'
+  ...
+# Subtest: ⑨ outcome 常量与后端逐字一致（送审/直做两条路的判据来源）
+ok 865 - ⑨ outcome 常量与后端逐字一致（送审/直做两条路的判据来源）
+  ---
+  duration_ms: 0.939119
+  type: 'test'
+  ...
+# Subtest: ① 顶部「审批单 FLW-xxx」链接逐字未改（P-FLOW-3A 原样：v-if / 三元文案 / testid / 点击参数）
+ok 866 - ① 顶部「审批单 FLW-xxx」链接逐字未改（P-FLOW-3A 原样：v-if / 三元文案 / testid / 点击参数）
+  ---
+  duration_ms: 0.515353
+  type: 'test'
+  ...
+# Subtest: ①-补 全抽屉只有一个审批单号：不许再在基本信息区/底部重复一份
+ok 867 - ①-补 全抽屉只有一个审批单号：不许再在基本信息区/底部重复一份
+  ---
+  duration_ms: 0.125129
+  type: 'test'
+  ...
+# Subtest: ② 没挂审批实例的老单：底部显示「未发起审批」空态（不留白、不报错），顶部也没有链接
+ok 868 - ② 没挂审批实例的老单：底部显示「未发起审批」空态（不留白、不报错），顶部也没有链接
+  ---
+  duration_ms: 0.144047
+  type: 'test'
+  ...
+# Subtest: ③ 审批详情拉不到：降级行 testid 保留，文案简化成「一句提示 + 单号链接」
+ok 869 - ③ 审批详情拉不到：降级行 testid 保留，文案简化成「一句提示 + 单号链接」
+  ---
+  duration_ms: 0.182048
+  type: 'test'
+  ...
+# Subtest: ④ 渲染顺序：基本信息 → 收货进度 → 已生成收货单 → 明细 → 审批进度 → </t-drawer>
+ok 870 - ④ 渲染顺序：基本信息 → 收货进度 → 已生成收货单 → 明细 → 审批进度 → </t-drawer>
+  ---
+  duration_ms: 0.133922
+  type: 'test'
+  ...
+# Subtest: ⑤ 跳过原因：SKIPPED 的审批人不被藏起来，原因（comment）原样带出
+ok 871 - ⑤ 跳过原因：SKIPPED 的审批人不被藏起来，原因（comment）原样带出
+  ---
+  duration_ms: 0.158214
+  type: 'test'
+  ...
+# Subtest: ① 有 approval_instance_id → 拉一次实例 → 拿到 3 个节点，进度区块该渲染
+ok 872 - ① 有 approval_instance_id → 拉一次实例 → 拿到 3 个节点，进度区块该渲染
+  ---
+  duration_ms: 1.47093
+  type: 'test'
+  ...
+# Subtest: ② 没有 approval_instance_id（草稿 / 已打回）→ 一次都不拉、进度与降级链接都不渲染
+ok 873 - ② 没有 approval_instance_id（草稿 / 已打回）→ 一次都不拉、进度与降级链接都不渲染
+  ---
+  duration_ms: 0.145464
+  type: 'test'
+  ...
+# Subtest: ③ 拉节点抛错（权限 / 实例已归档）→ 不抛异常、退化成单号链接
+ok 874 - ③ 拉节点抛错（权限 / 实例已归档）→ 不抛异常、退化成单号链接
+  ---
+  duration_ms: 0.297428
+  type: 'test'
+  ...
+# Subtest: ④ 节点状态映射：APPROVED→已通过、ACTIVE→处理中、PENDING→未到达，未知状态原样显示
+ok 875 - ④ 节点状态映射：APPROVED→已通过、ACTIVE→处理中、PENDING→未到达，未知状态原样显示
+  ---
+  duration_ms: 0.184132
+  type: 'test'
+  ...
+# Subtest: ⑤ 三个审批人挂在「部门主管审批」下：姓名 / 状态 / 时间 / 意见都在
+ok 876 - ⑤ 三个审批人挂在「部门主管审批」下：姓名 / 状态 / 时间 / 意见都在
+  ---
+  duration_ms: 0.200299
+  type: 'test'
+  ...
+# Subtest: ⑤-补 节点表里没有的节点（退回后的旧轮次）也要显示审批人，不许丢
+ok 877 - ⑤-补 节点表里没有的节点（退回后的旧轮次）也要显示审批人，不许丢
+  ---
+  duration_ms: 0.107629
+  type: 'test'
+  ...
+# Subtest: ⑥ 提交审批后再开详情：换了实例 id 就拿到新节点；没有实例就清空
+ok 878 - ⑥ 提交审批后再开详情：换了实例 id 就拿到新节点；没有实例就清空
+  ---
+  duration_ms: 0.242342
+  type: 'test'
+  ...
+# Subtest: ⑦ 后端节点按 node_key 排出来的「开始」在最后 → 进度条要 START 第一、END 最后
+ok 879 - ⑦ 后端节点按 node_key 排出来的「开始」在最后 → 进度条要 START 第一、END 最后
+  ---
+  duration_ms: 0.184424
+  type: 'test'
+  ...
+# Subtest: 预览 · 单条件 + then：当 金额 ≥ 10000 时 → 由 角色 FINANCE_DIRECTOR 审批
+ok 880 - 预览 · 单条件 + then：当 金额 ≥ 10000 时 → 由 角色 FINANCE_DIRECTOR 审批
+  ---
+  duration_ms: 1.930613
+  type: 'test'
+  ...
+# Subtest: 预览 · 双条件 AND：当 金额 ≥ 10000 且 部门 是 财务 时
+ok 881 - 预览 · 双条件 AND：当 金额 ≥ 10000 且 部门 是 财务 时
+  ---
+  duration_ms: 0.217134
+  type: 'test'
+  ...
+# Subtest: 预览 · OR 混合：不同算子的子分组必须加括号
+ok 882 - 预览 · OR 混合：不同算子的子分组必须加括号
+  ---
+  duration_ms: 0.226092
+  type: 'test'
+  ...
+# Subtest: 预览 · 同算子嵌套摊平（不丢语义、少一层括号）
+ok 883 - 预览 · 同算子嵌套摊平（不丢语义、少一层括号）
+  ---
+  duration_ms: 0.156339
+  type: 'test'
+  ...
+# Subtest: 预览 · not 单独加括号：当 非(部门 是 财务) 时
+ok 884 - 预览 · not 单独加括号：当 非(部门 是 财务) 时
+  ---
+  duration_ms: 0.113463
+  type: 'test'
+  ...
+# Subtest: 预览 · 空规则树 → 「尚未配置规则」
+ok 885 - 预览 · 空规则树 → 「尚未配置规则」
+  ---
+  duration_ms: 0.146297
+  type: 'test'
+  ...
+# Subtest: 预览 · 非法节点（空字段）→ ⚠ 第 1 条规则有空字段
+ok 886 - 预览 · 非法节点（空字段）→ ⚠ 第 1 条规则有空字段
+  ---
+  duration_ms: 0.352222
+  type: 'test'
+  ...
+# Subtest: 预览 · 非白名单字段 → 横幅提示带后端原句（不是「空字段」）
+ok 887 - 预览 · 非白名单字段 → 横幅提示带后端原句（不是「空字段」）
+  ---
+  duration_ms: 0.197632
+  type: 'test'
+  ...
+# Subtest: 预览 · then 目标为空 → 句子占位 + 一条 65016 提醒
+ok 888 - 预览 · then 目标为空 → 句子占位 + 一条 65016 提醒
+  ---
+  duration_ms: 0.396014
+  type: 'test'
+  ...
+# Subtest: 目标读法：10 种来源都能读成人话，保留词标「不支持」
+ok 889 - 目标读法：10 种来源都能读成人话，保留词标「不支持」
+  ---
+  duration_ms: 0.378639
+  type: 'test'
+  ...
+# Subtest: 算术子与字面量读法：数组用「、」、空值有明确占位
+ok 890 - 算术子与字面量读法：数组用「、」、空值有明确占位
+  ---
+  duration_ms: 0.134922
+  type: 'test'
+  ...
+# Subtest: 预览 · 面板直接可用的计数（8/8 层、23/64、2/32 条）
+ok 891 - 预览 · 面板直接可用的计数（8/8 层、23/64、2/32 条）
+  ---
+  duration_ms: 0.253551
+  type: 'test'
+  ...
+# Subtest: 深度 8 层 → 通过（后端 MAX_CONDITION_DEPTH 边界值本身合法）
+ok 892 - 深度 8 层 → 通过（后端 MAX_CONDITION_DEPTH 边界值本身合法）
+  ---
+  duration_ms: 1.992241
+  type: 'test'
+  ...
+# Subtest: 深度 9 层 → 报错，且文案是 65016 + 后端原文
+ok 893 - 深度 9 层 → 报错，且文案是 65016 + 后端原文
+  ---
+  duration_ms: 0.468351
+  type: 'test'
+  ...
+# Subtest: 节点 64 个 → 通过（32 个叶子 + 32 个分组）
+ok 894 - 节点 64 个 → 通过（32 个叶子 + 32 个分组）
+  ---
+  duration_ms: 0.619607
+  type: 'test'
+  ...
+# Subtest: 节点 65 个 → 报错（65016 节点数上限原文）
+ok 895 - 节点 65 个 → 报错（65016 节点数上限原文）
+  ---
+  duration_ms: 0.257093
+  type: 'test'
+  ...
+# Subtest: 规则 32 条 → 通过
+ok 896 - 规则 32 条 → 通过
+  ---
+  duration_ms: 0.260301
+  type: 'test'
+  ...
+# Subtest: 规则 33 条 → 报错，且是纯前端闸（不挂后端码）
+ok 897 - 规则 33 条 → 报错，且是纯前端闸（不挂后端码）
+  ---
+  duration_ms: 0.196508
+  type: 'test'
+  ...
+# Subtest: 10 个固定字段 + form.* → 通过
+ok 898 - 10 个固定字段 + form.* → 通过
+  ---
+  duration_ms: 0.281094
+  type: 'test'
+  ...
+# Subtest: 非白名单字段 → 报错，文案与 graph.rs 逐字一致
+ok 899 - 非白名单字段 → 报错，文案与 graph.rs 逐字一致
+  ---
+  duration_ms: 0.18284
+  type: 'test'
+  ...
+# Subtest: 空字段 → 「cmp 节点缺少 field」，并定位到第 1 条规则
+ok 900 - 空字段 → 「cmp 节点缺少 field」，并定位到第 1 条规则
+  ---
+  duration_ms: 0.48481
+  type: 'test'
+  ...
+# Subtest: then 目标为空 → 65016 + expression.rs 原文（不是卡面写的 65033）
+ok 901 - then 目标为空 → 65016 + expression.rs 原文（不是卡面写的 65033）
+  ---
+  duration_ms: 0.414765
+  type: 'test'
+  ...
+# Subtest: then 目标 6 个（上限 5）→ 65016 超限原文
+ok 902 - then 目标 6 个（上限 5）→ 65016 超限原文
+  ---
+  duration_ms: 0.324429
+  type: 'test'
+  ...
+# Subtest: PREV_APPROVER → 65033 + graph.rs 原文（本期唯一给 65033 的场景）
+ok 903 - PREV_APPROVER → 65033 + graph.rs 原文（本期唯一给 65033 的场景）
+  ---
+  duration_ms: 0.110712
+  type: 'test'
+  ...
+# Subtest: 码值 65016 / 65033 与 error_code.rs 一致
+ok 904 - 码值 65016 / 65033 与 error_code.rs 一致
+  ---
+  duration_ms: 0.58673
+  type: 'test'
+  ...
+# Subtest: 上限常量与 graph.rs / expression.rs 一致
+ok 905 - 上限常量与 graph.rs / expression.rs 一致
+  ---
+  duration_ms: 0.878908
+  type: 'test'
+  ...
+# Subtest: FIXED_FIELDS 与 graph.rs 逐项一致（顺序也算）
+ok 906 - FIXED_FIELDS 与 graph.rs 逐项一致（顺序也算）
+  ---
+  duration_ms: 0.706901
+  type: 'test'
+  ...
+# Subtest: 65016 / 65033 的文案模板在对应 .rs 里逐字存在
+ok 907 - 65016 / 65033 的文案模板在对应 .rs 里逐字存在
+  ---
+  duration_ms: 2.215666
+  type: 'test'
+  ...
+# Subtest: 填模板的结果与 rust format! 的语义一致（占位按序 / 具名都能填）
+ok 908 - 填模板的结果与 rust format! 的语义一致（占位按序 / 具名都能填）
+  ---
+  duration_ms: 0.202299
+  type: 'test'
+  ...
+# Subtest: 空条件树 = 无条件：合法，计数归零
+ok 909 - 空条件树 = 无条件：合法，计数归零
+  ---
+  duration_ms: 0.086336
+  type: 'test'
+  ...
+# Subtest: 计数器与超限标记（面板 n/limit 渲染用）
+ok 910 - 计数器与超限标记（面板 n/limit 渲染用）
+  ---
+  duration_ms: 0.285635
+  type: 'test'
+  ...
+# Subtest: ② 上传人显示名：姓名 → 用户名 → UUID，空值给破折号
+ok 911 - ② 上传人显示名：姓名 → 用户名 → UUID，空值给破折号
+  ---
+  duration_ms: 0.479101
+  type: 'test'
+  ...
+# Subtest: ② 只请求没解析过的 id：本页去重 + 跨页复用，翻页不重复拉用户表
+ok 912 - ② 只请求没解析过的 id：本页去重 + 跨页复用，翻页不重复拉用户表
+  ---
+  duration_ms: 0.782029
+  type: 'test'
+  ...
+# Subtest: ② 合并用户表：real_name 空则用 username，两者都空不写（继续回退 UUID）
+ok 913 - ② 合并用户表：real_name 空则用 username，两者都空不写（继续回退 UUID）
+  ---
+  duration_ms: 0.140088
+  type: 'test'
+  ...
+# Subtest: ② 译名页大小与其它 ERP 译名页同口径（200）
+ok 914 - ② 译名页大小与其它 ERP 译名页同口径（200）
+  ---
+  duration_ms: 0.148298
+  type: 'test'
+  ...
+# Subtest: prod（144）一律拒绝 —— 本次事故的目标
+ok 915 - prod（144）一律拒绝 —— 本次事故的目标
+  ---
+  duration_ms: 0.755653
+  type: 'test'
+  ...
+# Subtest: prod 后端直连端口 8023 拒绝（哪怕 host 写成回环）
+ok 916 - prod 后端直连端口 8023 拒绝（哪怕 host 写成回环）
+  ---
+  duration_ms: 0.128297
+  type: 'test'
+  ...
+# Subtest: dev 默认端口 5173 拒绝（vite 代理默认指 8023，容易「以为本地其实生产」）
+ok 917 - dev 默认端口 5173 拒绝（vite 代理默认指 8023，容易「以为本地其实生产」）
+  ---
+  duration_ms: 0.200424
+  type: 'test'
+  ...
+# Subtest: 事故来源机 172.18.10.7 拒绝
+ok 918 - 事故来源机 172.18.10.7 拒绝
+  ---
+  duration_ms: 0.103212
+  type: 'test'
+  ...
+# Subtest: 隔离实例（回环 + 5189 前端 / 18089 后端）放行
+ok 919 - 隔离实例（回环 + 5189 前端 / 18089 后端）放行
+  ---
+  duration_ms: 0.245718
+  type: 'test'
+  ...
+# Subtest: 回环但端口不在隔离段 → 拒绝
+ok 920 - 回环但端口不在隔离段 → 拒绝
+  ---
+  duration_ms: 0.08942
+  type: 'test'
+  ...
+# Subtest: E2E_ISOLATED_HOSTS 可显式放行 CI 容器名
+ok 921 - E2E_ISOLATED_HOSTS 可显式放行 CI 容器名
+  ---
+  duration_ms: 0.212549
+  type: 'test'
+  ...
+# Subtest: 非法 URL → 拒绝且不抛异常
+ok 922 - 非法 URL → 拒绝且不抛异常
+  ---
+  duration_ms: 0.096503
+  type: 'test'
+  ...
+# Subtest: assertIsolatedTarget：打 prod 抛错，报错里带「怎么起隔离实例」
+ok 923 - assertIsolatedTarget：打 prod 抛错，报错里带「怎么起隔离实例」
+  ---
+  duration_ms: 0.606689
+  type: 'test'
+  ...
+# Subtest: escape hatch：只设 E2E_ALLOW_PROD=1 不给理由 → 仍然拒绝
+ok 924 - escape hatch：只设 E2E_ALLOW_PROD=1 不给理由 → 仍然拒绝
+  ---
+  duration_ms: 0.417474
+  type: 'test'
+  ...
+# Subtest: escape hatch：flag + 理由都给了 → 放行，并打印 prod 后置检查清单
+ok 925 - escape hatch：flag + 理由都给了 → 放行，并打印 prod 后置检查清单
+  ---
+  duration_ms: 0.307553
+  type: 'test'
+  ...
+# Subtest: 后置检查清单含 residue → backup → apply → invariants 四步
+ok 926 - 后置检查清单含 residue → backup → apply → invariants 四步
+  ---
+  duration_ms: 0.114795
+  type: 'test'
+  ...
+# Subtest: PENDING + 王五 → 「✓ 审批中（王五）」（设计稿原文）
+ok 927 - PENDING + 王五 → 「✓ 审批中（王五）」（设计稿原文）
+  ---
+  duration_ms: 3.760057
+  type: 'test'
+  ...
+# Subtest: 多人格式钉死：2 人逐个列、≥3 人折叠成「首人 等 N 人」
+ok 928 - 多人格式钉死：2 人逐个列、≥3 人折叠成「首人 等 N 人」
+  ---
+  duration_ms: 0.093671
+  type: 'test'
+  ...
+# Subtest: 待办人去重、去空白、丢空串后仍按规则渲染
+ok 929 - 待办人去重、去空白、丢空串后仍按规则渲染
+  ---
+  duration_ms: 0.083837
+  type: 'test'
+  ...
+# Subtest: APPROVED → 不显示「审批中」
+ok 930 - APPROVED → 不显示「审批中」
+  ---
+  duration_ms: 0.069919
+  type: 'test'
+  ...
+# Subtest: approval = null（DIRECT 节点完成）→ 不显示「审批中」
+ok 931 - approval = null（DIRECT 节点完成）→ 不显示「审批中」
+  ---
+  duration_ms: 0.06842
+  type: 'test'
+  ...
+# Subtest: approval = null 且节点仍 ACTIVE → 也不显示（不许拿 node_status 猜）
+ok 932 - approval = null 且节点仍 ACTIVE → 也不显示（不许拿 node_status 猜）
+  ---
+  duration_ms: 0.063835
+  type: 'test'
+  ...
+# Subtest: PENDING 但待办人为空 → 不显示（没人可等）
+ok 933 - PENDING 但待办人为空 → 不显示（没人可等）
+  ---
+  duration_ms: 0.132213
+  type: 'test'
+  ...
+# Subtest: 任务未 DONE（REVIEW / DOING）→ 即使审批 PENDING 也不显示
+ok 934 - 任务未 DONE（REVIEW / DOING）→ 即使审批 PENDING 也不显示
+  ---
+  duration_ms: 0.074419
+  type: 'test'
+  ...
+# Subtest: 其它终态（REJECTED / CANCELLED / WITHDRAWN）→ 不显示
+ok 935 - 其它终态（REJECTED / CANCELLED / WITHDRAWN）→ 不显示
+  ---
+  duration_ms: 0.355597
+  type: 'test'
+  ...
+# Subtest: flow 整段为 null（手工任务）→ 不显示
+ok 936 - flow 整段为 null（手工任务）→ 不显示
+  ---
+  duration_ms: 0.476059
+  type: 'test'
+  ...
+# Subtest: 样例的 approval 字段恒在：APPROVED 时是对象、DIRECT 时是 null（不是缺字段）
+ok 937 - 样例的 approval 字段恒在：APPROVED 时是对象、DIRECT 时是 null（不是缺字段）
+  ---
+  duration_ms: 1.094124
+  type: 'test'
+  ...
+# Subtest: 真接口样例 APPROVE → 完成方式是 APPROVE，副文案「完成后需审批」显示
+ok 938 - 真接口样例 APPROVE → 完成方式是 APPROVE，副文案「完成后需审批」显示
+  ---
+  duration_ms: 0.475726
+  type: 'test'
+  ...
+# Subtest: APPROVE 走到按钮组：只剩一个主按钮「完成」+ 取消，副文案仍可见
+ok 939 - APPROVE 走到按钮组：只剩一个主按钮「完成」+ 取消，副文案仍可见
+  ---
+  duration_ms: 0.76907
+  type: 'test'
+  ...
+# Subtest: on_complete=null（没配该项）+ 无需验收 → 推断 DIRECT，无副文案
+ok 940 - on_complete=null（没配该项）+ 无需验收 → 推断 DIRECT，无副文案
+  ---
+  duration_ms: 0.079836
+  type: 'test'
+  ...
+# Subtest: on_complete=null（没配该项）+ 需验收 → 推断 VERIFY，主按钮「提交验收」，无副文案
+ok 941 - on_complete=null（没配该项）+ 需验收 → 推断 VERIFY，主按钮「提交验收」，无副文案
+  ---
+  duration_ms: 0.161922
+  type: 'test'
+  ...
+# Subtest: 手工任务（flow=null）→ 完成上下文为 null，且不改变原有按钮
+ok 942 - 手工任务（flow=null）→ 完成上下文为 null，且不改变原有按钮
+  ---
+  duration_ms: 0.079336
+  type: 'test'
+  ...
+# Subtest: 三个走向字段是必填：样例里 on_cancel=null 也在，类型上不能省
+ok 943 - 三个走向字段是必填：样例里 on_cancel=null 也在，类型上不能省
+  ---
+  duration_ms: 0.090712
+  type: 'test'
+  ...
+# Subtest: TaskPageQuery 包含可选布尔 root_only（与后端 TaskPageQuery.root_only 同名）
+ok 944 - TaskPageQuery 包含可选布尔 root_only（与后端 TaskPageQuery.root_only 同名）
+  ---
+  duration_ms: 0.793321
+  type: 'test'
+  ...
+# Subtest: 列表视图 loadList 的 pageTasks 调用带 root_only: true，且全页只出现一次
+ok 945 - 列表视图 loadList 的 pageTasks 调用带 root_only: true，且全页只出现一次
+  ---
+  duration_ms: 0.327221
+  type: 'test'
+  ...
+# Subtest: 看板 / 燃尽图 / 甘特图 / 父任务选择器都不传 root_only（它们需要全部任务）
+ok 946 - 看板 / 燃尽图 / 甘特图 / 父任务选择器都不传 root_only（它们需要全部任务）
+  ---
+  duration_ms: 2.305503
+  type: 'test'
+  ...
+# Subtest: 后端 dto / model / handler 三处与前端契约一致
+ok 947 - 后端 dto / model / handler 三处与前端契约一致
+  ---
+  duration_ms: 3.069822
+  type: 'test'
+  ...
+# Subtest: toggleStatus 添加：[] → ["TODO"]
+ok 948 - toggleStatus 添加：[] → ["TODO"]
+  ---
+  duration_ms: 3.222578
+  type: 'test'
+  ...
+# Subtest: toggleStatus 再点同一个：["TODO"] → []
+ok 949 - toggleStatus 再点同一个：["TODO"] → []
+  ---
+  duration_ms: 0.096503
+  type: 'test'
+  ...
+# Subtest: toggleStatus 多选：["TODO","DOING"] 顺序保持（先点的在前）
+ok 950 - toggleStatus 多选：["TODO","DOING"] 顺序保持（先点的在前）
+  ---
+  duration_ms: 0.092129
+  type: 'test'
+  ...
+# Subtest: clearStatuses：任意 → []
+ok 951 - clearStatuses：任意 → []
+  ---
+  duration_ms: 0.097087
+  type: 'test'
+  ...
+# Subtest: 请求参数：statuses 数组 → 逗号串；空数组 → undefined（= 不筛）
+ok 952 - 请求参数：statuses 数组 → 逗号串；空数组 → undefined（= 不筛）
+  ---
+  duration_ms: 0.099837
+  type: 'test'
+  ...
+# Subtest: 待勾选态判定：空数组不算筛选，有勾选才算
+ok 953 - 待勾选态判定：空数组不算筛选，有勾选才算
+  ---
+  duration_ms: 0.072003
+  type: 'test'
+  ...
+# Subtest: 纯函数：不修改入参（Vue reactive 数组被原地改动会绕过赋值、触发不了依赖）
+ok 954 - 纯函数：不修改入参（Vue reactive 数组被原地改动会绕过赋值、触发不了依赖）
+  ---
+  duration_ms: 0.124963
+  type: 'test'
+  ...
+# Subtest: FIXED_FIELDS 与 graph.rs 逐字一致（10 个，顺序也一致）
+ok 955 - FIXED_FIELDS 与 graph.rs 逐字一致（10 个，顺序也一致）
+  ---
+  duration_ms: 3.429378
+  type: 'test'
+  ...
+# Subtest: TEMPLATE_ONLY_FIELDS 与 graph.rs 逐字一致（4 个只给模板用的根）
+ok 956 - TEMPLATE_ONLY_FIELDS 与 graph.rs 逐字一致（4 个只给模板用的根）
+  ---
+  duration_ms: 0.732944
+  type: 'test'
+  ...
+# Subtest: MAX_VAR_SEGMENT 与 render.rs 的 MAX_VAR_NAME_LEN 一致
+ok 957 - MAX_VAR_SEGMENT 与 render.rs 的 MAX_VAR_NAME_LEN 一致
+  ---
+  duration_ms: 0.249926
+  type: 'test'
+  ...
+# Subtest: TASK_ACCEPT 流程下 FIXED_FIELDS + TEMPLATE_ONLY_FIELDS 全量合法（14 条零 issue）
+ok 958 - TASK_ACCEPT 流程下 FIXED_FIELDS + TEMPLATE_ONLY_FIELDS 全量合法（14 条零 issue）
+  ---
+  duration_ms: 0.501977
+  type: 'test'
+  ...
+# Subtest: 非 TASK_ACCEPT 流程里 task.* 判非法（65037），其余 6 个固定字段仍合法
+ok 959 - 非 TASK_ACCEPT 流程里 task.* 判非法（65037），其余 6 个固定字段仍合法
+  ---
+  duration_ms: 0.213508
+  type: 'test'
+  ...
+# Subtest: bizType 大小写 / 前后空白不敏感（与后端 eq_ignore_ascii_case 同口径）
+ok 960 - bizType 大小写 / 前后空白不敏感（与后端 eq_ignore_ascii_case 同口径）
+  ---
+  duration_ms: 0.085503
+  type: 'test'
+  ...
+# Subtest: form.* 合法形状：字母或下划线开头的标识符
+ok 961 - form.* 合法形状：字母或下划线开头的标识符
+  ---
+  duration_ms: 0.124172
+  type: 'test'
+  ...
+# Subtest: form.* 非法形状：空段 / 数字开头 / 连字符 / 两层点号 / 缺段
+ok 962 - form.* 非法形状：空段 / 数字开头 / 连字符 / 两层点号 / 缺段
+  ---
+  duration_ms: 0.15859
+  type: 'test'
+  ...
+# Subtest: 完全不存在的根（order.amount / unknown.field）判非法 65037
+ok 963 - 完全不存在的根（order.amount / unknown.field）判非法 65037
+  ---
+  duration_ms: 0.294178
+  type: 'test'
+  ...
+# Subtest: 单个路径段超过 64 字符判语法错（65036），等于上限合法
+ok 964 - 单个路径段超过 64 字符判语法错（65036），等于上限合法
+  ---
+  duration_ms: 0.90995
+  type: 'test'
+  ...
+# Subtest: 未闭合的占位符报 65036 且只报一条（后端的 ? 也是直接返回）
+ok 965 - 未闭合的占位符报 65036 且只报一条（后端的 ? 也是直接返回）
+  ---
+  duration_ms: 0.145255
+  type: 'test'
+  ...
+# Subtest: 多于一层点号（form.a.b）判语法错 65036
+ok 966 - 多于一层点号（form.a.b）判语法错 65036
+  ---
+  duration_ms: 0.083253
+  type: 'test'
+  ...
+# Subtest: 花括号内允许空白（{{ instance.biz_no }}），路径按 trim 解析
+ok 967 - 花括号内允许空白（{{ instance.biz_no }}），路径按 trim 解析
+  ---
+  duration_ms: 0.160881
+  type: 'test'
+  ...
+# Subtest: extractPlaceholders 保持出现顺序并去重；start/end 含花括号
+ok 968 - extractPlaceholders 保持出现顺序并去重；start/end 含花括号
+  ---
+  duration_ms: 0.124005
+  type: 'test'
+  ...
+# Subtest: 光标在中间插入：文本正确、光标落 `}}` 之后
+ok 969 - 光标在中间插入：文本正确、光标落 `}}` 之后
+  ---
+  duration_ms: 0.098337
+  type: 'test'
+  ...
+# Subtest: 选中文字时替换选中段（不是插入到选区前面）
+ok 970 - 选中文字时替换选中段（不是插入到选区前面）
+  ---
+  duration_ms: 0.065752
+  type: 'test'
+  ...
+# Subtest: 越界 / 反向 / 非数字的选区夹紧，不抛错
+ok 971 - 越界 / 反向 / 非数字的选区夹紧，不抛错
+  ---
+  duration_ms: 0.068878
+  type: 'test'
+  ...
+# Subtest: 非 TASK_ACCEPT 流程的选择器不出现 task.* 组；TASK_ACCEPT 才出现
+ok 972 - 非 TASK_ACCEPT 流程的选择器不出现 task.* 组；TASK_ACCEPT 才出现
+  ---
+  duration_ms: 0.18434
+  type: 'test'
+  ...
+# Subtest: 表单字段候选过滤掉非法名、去重、保持顺序（宁可少列，不可伪造）
+ok 973 - 表单字段候选过滤掉非法名、去重、保持顺序（宁可少列，不可伪造）
+  ---
+  duration_ms: 0.083795
+  type: 'test'
+  ...
+# Subtest: 没有历史实例时表单组是空数组（组件据此只给手输，不伪造候选）
+ok 974 - 没有历史实例时表单组是空数组（组件据此只给手输，不伪造候选）
+  ---
+  duration_ms: 0.072003
+  type: 'test'
+  ...
+# Subtest: 文法与 render.rs 的 validate_var_path 注释口径一致（最多一层点号）
+ok 975 - 文法与 render.rs 的 validate_var_path 注释口径一致（最多一层点号）
+  ---
+  duration_ms: 0.207382
+  type: 'test'
+  ...
+# Subtest: ① 10 种来源逐条生成后端认得的 JSON（键名 = expression.rs 的 snake_case）
+ok 976 - ① 10 种来源逐条生成后端认得的 JSON（键名 = expression.rs 的 snake_case）
+  ---
+  duration_ms: 2.001783
+  type: 'test'
+  ...
+# Subtest: ①-b 无需输入的五种来源只落 type 一个键（后端 deny_unknown_keys 会拒多余键）
+ok 977 - ①-b 无需输入的五种来源只落 type 一个键（后端 deny_unknown_keys 会拒多余键）
+  ---
+  duration_ms: 0.127463
+  type: 'test'
+  ...
+# Subtest: ② ROLE 存的是 role_code（不是 role_id）：键名只能是 role_codes
+ok 978 - ② ROLE 存的是 role_code（不是 role_id）：键名只能是 role_codes
+  ---
+  duration_ms: 0.262801
+  type: 'test'
+  ...
+# Subtest: ③ PREV_APPROVER 下拉里灰显不可选，且不产出 JSON（D-E8：不落 501）
+ok 979 - ③ PREV_APPROVER 下拉里灰显不可选，且不产出 JSON（D-E8：不落 501）
+  ---
+  duration_ms: 0.354388
+  type: 'test'
+  ...
+# Subtest: ④ 空 then 数组 → 校验报错（整组问题，index = -1）
+ok 980 - ④ 空 then 数组 → 校验报错（整组问题，index = -1）
+  ---
+  duration_ms: 0.111087
+  type: 'test'
+  ...
+# Subtest: ④-b 超过 5 个 / 不是数组 → 整组报错，不崩
+ok 981 - ④-b 超过 5 个 / 不是数组 → 整组报错，不崩
+  ---
+  duration_ms: 0.243884
+  type: 'test'
+  ...
+# Subtest: ⑤ 写死 uuid 列表（卡面的 STATIC）= USER + 多个 user_ids
+ok 982 - ⑤ 写死 uuid 列表（卡面的 STATIC）= USER + 多个 user_ids
+  ---
+  duration_ms: 0.257427
+  type: 'test'
+  ...
+# Subtest: ⑥ FORM_VAR 空输入 / 非法字段名 → 校验报错；合法名 → form_var_key
+ok 983 - ⑥ FORM_VAR 空输入 / 非法字段名 → 校验报错；合法名 → form_var_key
+  ---
+  duration_ms: 0.196465
+  type: 'test'
+  ...
+# Subtest: ⑦ 每种来源对应的输入控件（无输入的不许有输入框）
+ok 984 - ⑦ 每种来源对应的输入控件（无输入的不许有输入框）
+  ---
+  duration_ms: 0.468768
+  type: 'test'
+  ...
+# Subtest: ⑧ 往返稳定：JSON → 目标 → JSON 逐字一致（打开老数据不改写语义）
+ok 985 - ⑧ 往返稳定：JSON → 目标 → JSON 逐字一致（打开老数据不改写语义）
+  ---
+  duration_ms: 0.599272
+  type: 'test'
+  ...
+# Subtest: ⑧-b 脏数据不崩：未知来源 / 非对象项 / 缺键都渲染成可修复的一行
+ok 986 - ⑧-b 脏数据不崩：未知来源 / 非对象项 / 缺键都渲染成可修复的一行
+  ---
+  duration_ms: 0.259968
+  type: 'test'
+  ...
+# Subtest: 行样式：父任务 → task-row--parent，普通行 → 空串
+ok 987 - 行样式：父任务 → task-row--parent，普通行 → 空串
+  ---
+  duration_ms: 0.58398
+  type: 'test'
+  ...
+# Subtest: 行样式：子行优先——孙任务（_isSub 且自己有子任务）仍按子行渲染，不挂 4px 竖条
+ok 988 - 行样式：子行优先——孙任务（_isSub 且自己有子任务）仍按子行渲染，不挂 4px 竖条
+  ---
+  duration_ms: 0.096503
+  type: 'test'
+  ...
+# Subtest: 行样式：脏数据（child_count 为 undefined / 负数）不判成父任务
+ok 989 - 行样式：脏数据（child_count 为 undefined / 负数）不判成父任务
+  ---
+  duration_ms: 0.071378
+  type: 'test'
+  ...
+# Subtest: 子任务进度百分比：1/3 取整 33、2/3 取整 67、3/3 = 100
+ok 990 - 子任务进度百分比：1/3 取整 33、2/3 取整 67、3/3 = 100
+  ---
+  duration_ms: 0.084211
+  type: 'test'
+  ...
+# Subtest: 子任务进度百分比：分母为 0 / undefined / NaN 一律 0（不出现 NaN% 或 Infinity）
+ok 991 - 子任务进度百分比：分母为 0 / undefined / NaN 一律 0（不出现 NaN% 或 Infinity）
+  ---
+  duration_ms: 0.093545
+  type: 'test'
+  ...
+# Subtest: 子任务进度百分比：done 越界先夹紧（并发下架子任务时不会出现 -50% / 150%）
+ok 992 - 子任务进度百分比：done 越界先夹紧（并发下架子任务时不会出现 -50% / 150%）
+  ---
+  duration_ms: 0.120254
+  type: 'test'
+  ...
+# Subtest: 子任务分数文案：N/M 与百分比同源夹紧；分母 0 显示 0/0
+ok 993 - 子任务分数文案：N/M 与百分比同源夹紧；分母 0 显示 0/0
+  ---
+  duration_ms: 0.076003
+  type: 'test'
+  ...
+# Subtest: 箭头列下标：任务号列 = 0（老大 2026-10-30 要求箭头放任务号前面）
+ok 994 - 箭头列下标：任务号列 = 0（老大 2026-10-30 要求箭头放任务号前面）
+  ---
+  duration_ms: 0.075753
+  type: 'test'
+  ...
+# Subtest: 箭头列下标：在任务号前插一列后，箭头仍然跟着任务号列走（不写死数字的理由）
+ok 995 - 箭头列下标：在任务号前插一列后，箭头仍然跟着任务号列走（不写死数字的理由）
+  ---
+  duration_ms: 0.294636
+  type: 'test'
+  ...
+# Subtest: 箭头列下标：找不到任务号列时兜底 0（不让树形彻底哑掉）
+ok 996 - 箭头列下标：找不到任务号列时兜底 0（不让树形彻底哑掉）
+  ---
+  duration_ms: 0.322887
+  type: 'test'
+  ...
+# Subtest: 树形配置：treeNodeColumnIndex 对准任务号列（老大 2026-10-30 改）、缩进 24px
+ok 997 - 树形配置：treeNodeColumnIndex 对准任务号列（老大 2026-10-30 改）、缩进 24px
+  ---
+  duration_ms: 0.138047
+  type: 'test'
+  ...
+# Subtest: ① 展平与层数：顶层只挂 parent 为空的仓库，深度算得出 3 层
+ok 998 - ① 展平与层数：顶层只挂 parent 为空的仓库，深度算得出 3 层
+  ---
+  duration_ms: 1.653353
+  type: 'test'
+  ...
+# Subtest: ② 首屏默认展开 = 第 1 层里有孩子的节点（不 expandAll）
+ok 999 - ② 首屏默认展开 = 第 1 层里有孩子的节点（不 expandAll）
+  ---
+  duration_ms: 0.203591
+  type: 'test'
+  ...
+# Subtest: ③ 逐节点独立折叠：只动自己，不联级
+ok 1000 - ③ 逐节点独立折叠：只动自己，不联级
+  ---
+  duration_ms: 0.154881
+  type: 'test'
+  ...
+# Subtest: ④ 搜索：命中第 3 层时保留祖先并给出要展开的 id（否则子树静默消失）
+ok 1001 - ④ 搜索：命中第 3 层时保留祖先并给出要展开的 id（否则子树静默消失）
+  ---
+  duration_ms: 0.449976
+  type: 'test'
+  ...
+# Subtest: ⑤ 按 id 找节点 + 路径文字（右面板「当前选中」副标题）
+ok 1002 - ⑤ 按 id 找节点 + 路径文字（右面板「当前选中」副标题）
+  ---
+  duration_ms: 0.217883
+  type: 'test'
+  ...
+# Subtest: ⑥ 层级推导：顶级 = 1，第 3 层仓库不能再有下级（66004）
+ok 1003 - ⑥ 层级推导：顶级 = 1，第 3 层仓库不能再有下级（66004）
+  ---
+  duration_ms: 0.189174
+  type: 'test'
+  ...
+# Subtest: ⑦ 叶子约束：非叶子仓库的「新建库位」必须禁用，且原因说清「不能设成叶子」
+ok 1004 - ⑦ 叶子约束：非叶子仓库的「新建库位」必须禁用，且原因说清「不能设成叶子」
+  ---
+  duration_ms: 0.215967
+  type: 'test'
+  ...
+# Subtest: ⑧ 新建仓库请求体：level 跟着父推导，**不带 is_leaf**，空串转 null
+ok 1005 - ⑧ 新建仓库请求体：level 跟着父推导，**不带 is_leaf**，空串转 null
+  ---
+  duration_ms: 0.122004
+  type: 'test'
+  ...
+# Subtest: ⑨ 编辑仓库请求体：只带真改过的字段，清空的可空字段显式传 null
+ok 1006 - ⑨ 编辑仓库请求体：只带真改过的字段，清空的可空字段显式传 null
+  ---
+  duration_ms: 0.336221
+  type: 'test'
+  ...
+# Subtest: ⑩ 库位请求体：新建带 warehouse_id，编辑不带（后端不许换仓库）
+ok 1007 - ⑩ 库位请求体：新建带 warehouse_id，编辑不带（后端不许换仓库）
+  ---
+  duration_ms: 0.394265
+  type: 'test'
+  ...
+# Subtest: ⑪ 仓库表单校验：编码 / 名称必填、长度上限照后端
+ok 1008 - ⑪ 仓库表单校验：编码 / 名称必填、长度上限照后端
+  ---
+  duration_ms: 0.154673
+  type: 'test'
+  ...
+# Subtest: ⑫ 枚举文案与选项：仓库 5 类 / 库位 6 类，与后端常量逐字对齐
+ok 1009 - ⑫ 枚举文案与选项：仓库 5 类 / 库位 6 类，与后端常量逐字对齐
+  ---
+  duration_ms: 0.110045
+  type: 'test'
+  ...
+# Subtest: ⑬ 前端分页：切片 / 夹紧越界页码（第 3 页删光后不空白）
+ok 1010 - ⑬ 前端分页：切片 / 夹紧越界页码（第 3 页删光后不空白）
+  ---
+  duration_ms: 0.121921
+  type: 'test'
+  ...
+# Subtest: ⑭ 父仓库选择器：剪掉第 3 层（不能再往下建），父节点不因剪枝丢失
+ok 1011 - ⑭ 父仓库选择器：剪掉第 3 层（不能再往下建），父节点不因剪枝丢失
+  ---
+  duration_ms: 0.114421
+  type: 'test'
+  ...
+# Subtest: ⑮ 所属仓库下拉：只给叶子仓库，文案带完整路径 + 编码（平铺也分得清）
+ok 1012 - ⑮ 所属仓库下拉：只给叶子仓库，文案带完整路径 + 编码（平铺也分得清）
+  ---
+  duration_ms: 0.120671
+  type: 'test'
+  ...
+1..1012
+# tests 1012
+# suites 0
+# pass 1012
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3435.55722
