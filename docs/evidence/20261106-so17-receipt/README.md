@@ -116,3 +116,20 @@ cd backend && \
 BASE=http://127.0.0.1:8023/api DB=cloudpivot_so17 \
   bash docs/evidence/20261106-so17-receipt/curl-5-endpoints.sh
 ```
+
+## 5. 前端门禁（本卡改了 frontend/src/api/business/erp/doc-kinds.ts）
+
+```
+$ cd frontend && pnpm typecheck
+> vue-tsc --noEmit        # 无输出 = 通过
+
+$ NODE_OPTIONS=--max-old-space-size=4096 pnpm build
+dist/assets/tdesign-B9Yx93ic.js.gz  7994.62kb / gzip: 772.17kb   ← 构建成功
+```
+`doc-kinds.ts` 是后端 `doc_kind_tests::frontend_ts_mirror_matches_rust` 逐字读取的镜像文件，
+新增的 `RECEIPT` 必须与 Rust 枚举同序同行，单测已覆盖（`business::shared::` 113/113 PASS）。
+
+## 6. 环境清理
+
+验证完成后：停掉隔离实例（`:8023` 无监听）、`dropdb cloudpivot_so17`。
+复跑按第 4 节即可重建。
