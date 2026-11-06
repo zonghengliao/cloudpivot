@@ -606,6 +606,18 @@ pub const TRIGGER_EXEMPT: &[&str] = &[
     // 按 P1-FIX-5C 的口径显式豁免（登记进白名单却没人调 = 配了规则永远不触发）；
     // 真要按应收触发时，把它从 `TRIGGER_SPECS` 之外移进白名单并给 `wired = true` + `proofs`。
     state_machine::ENTITY_RECEIVABLE,
+    // 销售链 SO-17：收款单（资金单据）的状态流转入口（`receipt::change_status`）
+    // **不调联动引擎** —— 它自己不产生库存 / 凭证之外的跨单据联动，收款凭证由过账那一步
+    // 直接生成；「核销后通知客户 / 冲减应收」都在应收侧（`receivable`）落账，
+    // 不在收款单上再触发一次（否则同一件事触发两遍）。
+    // 按 P1-FIX-5C 的口径显式豁免：登记进白名单却没人调引擎 = 配了规则永远不触发。
+    state_machine::ENTITY_RECEIPT,
+    // 销售链 SO-14 遗留 · D10（卡 t_b9840c8d）：收款退款单（资金单据）同理 ——
+    // 状态流转入口 `receipt_refund::change_status` 不调联动引擎；退款凭证在过账那一步
+    // 直接生成，应收侧的冲减由 `allocate` 落账（不是状态联动）。
+    // 审批通过后的过账是**流程回调**（`receipt_refund_bridge::on_refund_settled`），
+    // 不是单据联动规则，所以也不进 `TRIGGER_SPECS`。
+    state_machine::ENTITY_RECEIPT_REFUND,
 ];
 
 /// 配置变更审计写 `biz_status_log` 时用的 `entity_type`。

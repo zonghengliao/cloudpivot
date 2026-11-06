@@ -1,7 +1,7 @@
 -- ============================================================================
--- V0294 down：把收款单页还原成「未落地前端页」的状态
+-- V0296 down：把收款单页还原成「未落地前端页」的状态
 --
--- 只还原 V0294 自己改的三列（path / component / is_visible）+ title 文案：
+-- 只还原 V0296 自己改的三列（path / component / is_visible）+ title 文案：
 --
 --     path      → NULL
 --     component → NULL
@@ -23,7 +23,7 @@ DECLARE
     v_children int;
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = v_page) THEN
-        RAISE EXCEPTION 'V0294 down 失败：收款单页面节点 …2890 不存在（V0293 已被回滚？）';
+        RAISE EXCEPTION 'V0296 down 失败：收款单页面节点 …2890 不存在（V0293 已被回滚？）';
     END IF;
 
     -- ---------- ① 结构还原（幂等） ----------
@@ -42,7 +42,7 @@ BEGIN
          WHERE id = v_page
            AND (path IS NOT NULL OR component IS NOT NULL OR is_visible IS NOT FALSE)
     ) THEN
-        RAISE EXCEPTION 'V0294 down 断言失败：收款单页未还原成 path=NULL / component=NULL / is_visible=FALSE';
+        RAISE EXCEPTION 'V0296 down 断言失败：收款单页未还原成 path=NULL / component=NULL / is_visible=FALSE';
     END IF;
 
     -- ---------- ③ 按钮不能被这一刀带走（权限码仍可授） ----------
@@ -50,8 +50,8 @@ BEGIN
       FROM sys_menu
      WHERE parent_id = v_page AND menu_type = 3 AND deleted_at IS NULL;
     IF v_children <> 4 THEN
-        RAISE EXCEPTION 'V0294 down 断言失败：收款单页下应有 4 个按钮，实际 % 个', v_children;
+        RAISE EXCEPTION 'V0296 down 断言失败：收款单页下应有 4 个按钮，实际 % 个', v_children;
     END IF;
 
-    RAISE NOTICE 'V0294 down 完成：收款单页已关闭（path/component=NULL，is_visible=FALSE），4 个按钮与 5 个权限码保留';
+    RAISE NOTICE 'V0296 down 完成：收款单页已关闭（path/component=NULL，is_visible=FALSE），4 个按钮与 5 个权限码保留';
 END $$;

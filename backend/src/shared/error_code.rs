@@ -1272,6 +1272,22 @@ pub const ERP_SI_OVER_RECEIVE: i32 = 66032;
 /// 与「系统没配流程」（找管理员 / 显式跳过），并且要在报文里稳定拿到 `flow_code`。
 pub const APPROVAL_FLOW_NOT_CONFIGURED: i32 = 66033;
 
+/// 收款退款单**没有已通过的审批实例**，本次过账被拒绝（HTTP 409）。
+///
+/// SO-14 遗留卡 `t_573bfe5b` 的 D10 补丁（卡 `t_b9840c8d`）：退款是真出钱
+/// （借 1122 应收 / 贷 1002 银行存款），与应付付款同级别的资金动作，所以
+/// `CONFIRMED → POSTED` 之前必须有 `biz_type = 'RECEIPT_REFUND'`、`status = 'APPROVED'`
+/// 的审批实例。审批**不是一个状态**（退款单仍是四值状态机），它是过账的前置条件。
+///
+/// 为什么单独给码而不是复用 [`RESOURCE_CONFLICT`]：前端要能按码把「去发起审批」的按钮
+/// 直接渲染出来（这是可恢复的、缺一步操作），与「单据状态冲突」（要改单据）不是一类问题。
+/// 报文里带退款单号与提交入口路径，照着点就能走完。
+///
+/// 合法出路两条：① 调 `POST /business/erp/receipt-refund/{id}/submit-approval` 发起审批
+/// （审批通过后回调**自动过账**，不需要再手工点一次）；② 没配流程时由持
+/// `business:erp:skip-approval` 的账号在提交时写明理由（≥10 字）显式跳过。
+pub const ERP_RECEIPT_REFUND_APPROVAL_REQUIRED: i32 = 66044;
+
 // ---------- DC-13 出库单（库存账只增不减的硬缺口，接在 66033 之后） ----------
 
 /// 出库数量超过账面可用量，且该仓库不允许负库存（HTTP 409）。
@@ -1427,6 +1443,8 @@ mod tests {
             (ERP_EXPENSE_STATE, 66041),
             (ERP_EXPENSE_TOTAL_MISMATCH, 66042),
             (ERP_EXPENSE_PERIOD_CLOSED, 66043),
+            // SO-14 遗留 D10：收款退款过账必须有已通过的审批实例（66044）
+            (ERP_RECEIPT_REFUND_APPROVAL_REQUIRED, 66044),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");

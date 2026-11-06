@@ -58,6 +58,21 @@
 //! 1123 预付账款，属 ARCH-7 §8.1 的预留项）。所以本卡口径：**未核销余额 > 0 时拒绝过账（409）**，
 //! 让财务先核销（或作废重登）。这条同时把「退款只冲已收过的钱」钉死。
 //!
+//! # 审批前置（SO-14 遗留 · D10，卡 t_b9840c8d）
+//!
+//! ```text
+//! CONFIRMED ──POST /submit-approval──▶ 发起 receipt_refund 审批实例（退款单状态不变）
+//!                │                        ├─ 审批通过 ──▶ 回调**直接过账**（本模块 post_after_approval）
+//!                │                        └─ 驳回/撤回 ──▶ 仍是 CONFIRMED（账一分没动，可改完再提）
+//!                └─ 没配流程 ──▶ 409 + 66033；持 business:erp:skip-approval + 理由 ≥10 字可显式跳过
+//! CONFIRMED ──PATCH status=POSTED──▶ **必须先有 APPROVED 实例**，否则 409 + 66044
+//! ```
+//!
+//! **审批不是一个状态**：`biz_receipt_refund.status` 的四个值语义没变
+//! （`ck_biz_receipt_refund_status` 也没动）。审批是「钱能不能动」的前置条件，
+//! 与凭证红冲审批同思路。因此前端判断「已提交待批」要读详情里的 `approval` 段
+//! （最近一条实例的号 / 状态 / 待办数），**不能只看 status**。
+//!
 //! # POSTED 是终态（刻意）
 //!
 //! 钱已付出且凭证已记账，退款单不能作废 —— 要抹掉只能由客户重新回一张收款单
@@ -92,6 +107,8 @@ use crate::business::erp::model_base::normalize_page;
 use crate::business::erp::period;
 use crate::business::erp::receivable;
 use crate::business::erp::voucher::{self, EntryLine, SeqSpec};
+use crate::business::erp::{approval_gate, receipt_refund_bridge};
+use crate::business::flow::{engine, model as flow_model};
 use crate::business::shared::doc_kind::VoucherSourceType;
 use crate::business::shared::scope;
 use crate::business::shared::state_machine;
@@ -194,7 +211,7 @@ pub const REASON_MAX_CHARS: usize = 500;
 /// `biz_receipt_refund` 列清单（与 V0294 逐列对应）。
 pub const COLUMNS: &str = "id, refund_no, customer_id, source_receipt_id, refund_date, amount, \
                            allocated_amount, method, bank_account, status, voucher_id, reason, \
-                           remark, created_at, updated_at";
+                           remark, created_at, updated_at, create_by";
 
 /// 分页列清单（连带客户名；别名 `c` = biz_customer）。
 pub const LIST_COLUMNS: &str = "p.id, p.refund_no, p.customer_id, COALESCE(c.name, '') AS customer_name, \
@@ -439,6 +456,8 @@ pub struct RefundRow {
     pub created_at: Option<DateTime<Utc>>,
     /// 更新时间。
     pub updated_at: Option<DateTime<Utc>>,
+    /// 制单人（审批内控「制单人 ≠ 审批人」用的就是它）。
+    pub create_by: Option<Uuid>,
 }
 
 impl RefundRow {
@@ -460,6 +479,7 @@ impl RefundRow {
             remark: row.get_typed("remark")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
+            create_by: row.get_typed("create_by")?,
         })
     }
 
@@ -801,6 +821,21 @@ pub struct RefundAllocateReq {
     pub allocations: Vec<RefundAllocateLineReq>,
 }
 
+/// 提交审批请求（`POST /business/erp/receipt-refund/{id}/submit-approval`）。
+///
+/// `skip_approval` / `skip_reason` 是内控例外片段（与采购 / 收货 / 付款同款）：
+/// **只有**「库里没有已发布的 receipt_refund 流程」时才用得上，
+/// 需要 `business:erp:skip-approval` 权限码 + 理由 ≥ 10 字，理由写进 `biz_status_log`。
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct RefundSubmitReq {
+    /// 提交说明（写进状态日志；跳过审批时与跳过理由合并）。
+    pub reason: Option<String>,
+    /// 内控例外片段（`skip_approval` / `skip_reason`）。
+    #[serde(flatten)]
+    pub approval: approval_gate::SkipApprovalReq,
+}
+
 /// 状态迁移请求。
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
@@ -1045,7 +1080,36 @@ impl RefundAllocationRes {
     }
 }
 
-/// 退款单详情（头 + 冲减明细 + 凭证号）。
+/// 退款单的审批进度摘要（发过几轮就有几行实例，这里只给**最近一条**）。
+///
+/// 为什么放在详情里：审批不是一个状态（`status` 仍是 `CONFIRMED`），前端要判断
+/// 「已提交待批 / 被驳回过 / 从没提过」只能看这一段。
+#[derive(Debug, Clone, Serialize)]
+pub struct RefundApprovalRes {
+    /// 审批实例 id。
+    pub instance_id: String,
+    /// 审批单号（引擎口径 `FLW-yyyyMMdd-XXXXXXXX`）。
+    pub instance_no: String,
+    /// 实例状态：`PENDING` 审批中 / `APPROVED` 已通过 / `REJECTED` 驳回 /
+    /// `WITHDRAWN` 撤回 / `CANCELLED` 终止。
+    pub status: String,
+    /// 还在等几个人批（非 `PENDING` 恒为 0）。
+    pub pending_tasks: i64,
+}
+
+impl RefundApprovalRes {
+    /// 由审批桥的摘要构造。
+    fn from_brief(brief: &receipt_refund_bridge::ApprovalBrief) -> Self {
+        Self {
+            instance_id: brief.instance_id.to_string(),
+            instance_no: brief.instance_no.clone(),
+            status: brief.status.clone(),
+            pending_tasks: brief.pending_tasks,
+        }
+    }
+}
+
+/// 退款单详情（头 + 冲减明细 + 凭证号 + 审批进度）。
 #[derive(Debug, Clone, Serialize)]
 pub struct RefundDetailRes {
     /// 单头。
@@ -1055,6 +1119,8 @@ pub struct RefundDetailRes {
     pub voucher_no: String,
     /// 冲减明细。
     pub allocations: Vec<RefundAllocationRes>,
+    /// 最近一条审批实例（从没提交过审批 → `None`）。
+    pub approval: Option<RefundApprovalRes>,
 }
 
 /// 详情（只读，`GET /business/erp/receipt-refund/{id}`）。
@@ -1084,6 +1150,10 @@ pub async fn detail_with(
             .unwrap_or_default(),
         None => String::new(),
     };
+    let approval = receipt_refund_bridge::latest_approval_of(ex, row.id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询退款审批实例"))?
+        .map(|brief| RefundApprovalRes::from_brief(&brief));
     Ok(RefundDetailRes {
         header: RefundRes::from_row(&row, &name),
         voucher_no,
@@ -1091,6 +1161,7 @@ pub async fn detail_with(
             .iter()
             .map(RefundAllocationRes::from_row)
             .collect(),
+        approval,
     })
 }
 
@@ -1527,14 +1598,34 @@ pub async fn allocate(
 
 /// 状态迁移（`DRAFT→CONFIRMED` / `CONFIRMED→POSTED` / `DRAFT→CANCELLED`）。
 ///
-/// - `POSTED`：要求核销满（`allocated_amount == amount`），生成退款凭证
-///   借 1122 应收账款 / 贷 1002 银行存款（各 = 退款金额），并回写 `voucher_id`；
+/// - `POSTED`：**必须有已通过的审批实例**（`biz_flow_instance(biz_type='RECEIPT_REFUND',
+///   biz_id=本单, status='APPROVED')`，否则 409 + `66044`；唯一例外是
+///   [`change_status_with`] 的 `approval_override`（显式跳过审批的理由，只有
+///   `submit_approval` 的 skip 分支会传），再要求核销满
+///   （`allocated_amount == amount`），生成退款凭证 借 1122 应收账款 / 贷 1002 银行存款
+///   （各 = 退款金额），并回写 `voucher_id`；
 /// - `CANCELLED`：要求一分没核销（库层 `ck_biz_receipt_refund_cancelled` 兜底），
 ///   原因必填（>= 4 字），并写进状态日志。
+///
+/// 所有 HTTP 入口走本函数（`approval_override = None`）—— 换 URL 绕不过审批闸。
 pub async fn change_status(
     operator: Option<Uuid>,
     id: &str,
     req: RefundStatusReq,
+) -> std::result::Result<RefundDetailRes, ApiError> {
+    change_status_with(operator, id, req, None).await
+}
+
+/// [`change_status`] 的实现体。
+///
+/// `approval_override` 只给「没配流程 + 持 `business:erp:skip-approval` +
+/// 理由 ≥ 10 字」那条显式跳过的分支用（理由会并进 `biz_status_log`）。
+/// 它是**内部参数**，不在 HTTP 请求体里 —— 任何从接口进来的调用都传 `None`。
+async fn change_status_with(
+    operator: Option<Uuid>,
+    id: &str,
+    req: RefundStatusReq,
+    approval_override: Option<String>,
 ) -> std::result::Result<RefundDetailRes, ApiError> {
     let id = parse_uuid(id, "id")?;
     let target = req.status.trim().to_string();
@@ -1543,7 +1634,7 @@ pub async fn change_status(
             "status 只认 {STATUSES:?}（收到「{target}」）"
         )));
     }
-    let reason = match req.reason.as_deref() {
+    let mut reason = match req.reason.as_deref() {
         Some(raw) if !raw.trim().is_empty() => Some(validate_reason(raw)?),
         _ => None,
     };
@@ -1588,6 +1679,36 @@ pub async fn change_status(
                         refund.amount,
                         refund.allocated_amount
                     )));
+                }
+                // ★ 审批前置（SO-14 遗留 · D10）：没有「已通过」的审批实例就不许过账。
+                //   审批通过的回调走同一条路径（那时实例已是 APPROVED），所以这里只认
+                //   实例状态、不认「谁在调」—— 人工过账与回调过账一个口径。
+                let approved = receipt_refund_bridge::approved_instance_of(&tx, refund.id)
+                    .await
+                    .map_err(|error| utils::db_error(error, "查询退款审批实例"))?;
+                match (approved, approval_override.as_deref()) {
+                    (Some(instance), _) => {
+                        // 人工过账（回调失败后的补记）时也把审批单号写进状态日志
+                        if reason.is_none() {
+                            reason = Some(format!("审批通过（{}）过账", instance.instance_no));
+                        }
+                    }
+                    (None, Some(skip_reason)) => {
+                        reason = Some(approval_gate::merge_reason(reason.as_deref(), skip_reason));
+                    }
+                    (None, None) => {
+                        return Err(ApiError::new(
+                            409,
+                            error_code::ERP_RECEIPT_REFUND_APPROVAL_REQUIRED,
+                            format!(
+                                "退款单 {} 还没通过审批，不能过账：先调 POST /business/erp/receipt-refund/{}/submit-approval \
+                                 发起「收款退款审批」，审批通过后系统会**自动过账**（不需要再手工点一次）。\
+                                 若本环境没有已发布的 receipt_refund 流程：让管理员在「流程定义」里发布，\
+                                 或由持 business:erp:skip-approval 的账号在提交审批时写明理由（≥10 字）显式跳过",
+                                refund.refund_no, refund.id
+                            ),
+                        ));
+                    }
                 }
                 period::ensure_period_writable(
                     &tx,
@@ -1683,6 +1804,263 @@ pub async fn change_status(
             Err(error)
         }
     }
+}
+
+// ==================== 写：审批（SO-14 遗留 · D10） ====================
+
+/// 审批回调过账的结果（回调据此决定日志口径）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PostOutcome {
+    /// 本次真的过账了（生成凭证）。
+    Posted,
+    /// 之前已经过账（重复回调）→ 幂等，不再记账。
+    AlreadyPosted,
+    /// 当前状态不是「已确认」，过不了账（被别的路径改过）→ 交人工处置。
+    NotPostable {
+        /// 当前状态。
+        status: String,
+    },
+}
+
+/// **审批通过后的过账执行体**（由 `receipt_refund_bridge::on_refund_settled` 调）。
+///
+/// 与人工 `PATCH status=POSTED` 走**同一条代码路径**（[`change_status`]：核销满校验 →
+/// 过账闸 → 凭证），不另写一套记账逻辑 —— 两套写法迟早会在凭证科目或幂等上走岔。
+/// 此刻审批实例已是 `APPROVED`，所以过账闸对它是放行的。
+pub async fn post_after_approval(
+    refund_id: Uuid,
+    operator: Option<Uuid>,
+    reason: &str,
+) -> std::result::Result<PostOutcome, ApiError> {
+    let Some(row) = find_by_id(db(), refund_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询收款退款单"))?
+    else {
+        return Err(not_found());
+    };
+    match row.status.as_str() {
+        STATUS_POSTED => return Ok(PostOutcome::AlreadyPosted),
+        STATUS_CONFIRMED => {}
+        other => {
+            return Ok(PostOutcome::NotPostable {
+                status: other.to_string(),
+            });
+        }
+    }
+    change_status(
+        operator,
+        &refund_id.to_string(),
+        RefundStatusReq {
+            status: STATUS_POSTED.to_string(),
+            reason: Some(reason.to_string()),
+        },
+    )
+    .await?;
+    Ok(PostOutcome::Posted)
+}
+
+/// 提交审批（`POST /business/erp/receipt-refund/{id}/submit-approval` 的唯一入口）。
+///
+/// # 前置（缺一条就 409，报文点名缺什么）
+///
+/// 1. 状态必须是 `CONFIRMED`（草稿没确认就送审 = 财务还没认这笔退款）；
+/// 2. 必须核销满（`allocated_amount == amount`）—— 审批通过后回调**直接过账**，
+///    核销不满的单子批了也过不了账，那才是真正的坑；
+/// 3. 同一张单不能有两轮在跑的审批（`biz_instance_running` + 库侧
+///    `uk_biz_flow_instance_biz_active` 双保险）。
+///
+/// # 没配流程
+///
+/// `approved_refund_flow == None` → `approval_gate::authorize_missing_flow`：
+/// 默认 409 + `66033`（fail-closed），只有持 `business:erp:skip-approval` 且理由
+/// ≥ 10 字的账号才能显式跳过 —— 此时**直接过账**（理由写进状态日志），
+/// 否则退款单会永远停在「已确认」且没人能记账。
+pub async fn submit_approval(
+    operator: Option<Uuid>,
+    id_raw: &str,
+    note: Option<&str>,
+    gate: &approval_gate::ApprovalGate<'_>,
+) -> std::result::Result<RefundDetailRes, ApiError> {
+    let id = parse_uuid(id_raw, "id")?;
+    let row = find_by_id(db(), id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询收款退款单"))?
+        .ok_or_else(not_found)?;
+    if row.status != STATUS_CONFIRMED {
+        return Err(conflict(format!(
+            "退款单 {} 当前是「{}」（{}）：只有「{}」的退款单可以提交审批（先确认，再送审）",
+            row.refund_no,
+            status_label(&row.status),
+            row.status,
+            status_label(STATUS_CONFIRMED)
+        )));
+    }
+    if row.allocated_amount != row.amount {
+        return Err(conflict(format!(
+            "退款单 {} 还有 {} 没冲减到应收（退款 {} / 已冲减 {}）：\
+             审批通过后系统会直接过账，所以提交前必须核销满",
+            row.refund_no,
+            row.remaining(),
+            row.amount,
+            row.allocated_amount
+        )));
+    }
+    if flow_model::biz_instance_running(receipt_refund_bridge::BIZ_TYPE, id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询在跑审批单"))?
+    {
+        let instance_no = receipt_refund_bridge::latest_approval_of(db(), id)
+            .await
+            .ok()
+            .flatten()
+            .map(|brief| brief.instance_no)
+            .unwrap_or_else(|| "审批单".to_string());
+        return Err(conflict(format!(
+            "退款单 {} 已在审批中（{instance_no}）：请等审批结果，或从审批中心撤回后再提交",
+            row.refund_no
+        )));
+    }
+    match receipt_refund_bridge::published_refund_flow()
+        .await
+        .map_err(|error| utils::db_error(error, "查询退款审批流程"))?
+    {
+        Some(flow) => {
+            // 有流程就必须走流程：请求里带了 skip_approval 也要 400（不许绕过已配置的内控）
+            approval_gate::ensure_not_skipped(receipt_refund_bridge::FLOW_CODE, gate)?;
+            start_approval(&row, &flow, operator).await
+        }
+        None => {
+            let skip_reason = approval_gate::authorize_missing_flow(
+                receipt_refund_bridge::BIZ_TYPE,
+                receipt_refund_bridge::FLOW_CODE,
+                gate,
+            )?;
+            tracing::warn!(
+                refund_id = %row.id,
+                refund_no = %row.refund_no,
+                %skip_reason,
+                "收款退款提交审批：没有已发布的 receipt_refund 流程，按「显式跳过审批」直接过账（理由已写 biz_status_log）"
+            );
+            change_status_with(
+                operator,
+                id_raw,
+                RefundStatusReq {
+                    status: STATUS_POSTED.to_string(),
+                    reason: note
+                        .map(str::trim)
+                        .filter(|text| !text.is_empty())
+                        .map(str::to_string),
+                },
+                Some(skip_reason),
+            )
+            .await
+        }
+    }
+}
+
+/// [`submit_approval`] 的「有流程」分支：发起审批实例（退款单状态**不变**，仍是 `CONFIRMED`）。
+#[allow(clippy::too_many_arguments)]
+async fn start_approval(
+    row: &RefundRow,
+    flow: &receipt_refund_bridge::RefundFlow,
+    operator: Option<Uuid>,
+) -> std::result::Result<RefundDetailRes, ApiError> {
+    let Some(operator_id) = operator else {
+        return Err(ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_MISSING,
+            "提交审批需要登录用户（令牌里没有用户 id）",
+        ));
+    };
+    let (initiator_name, initiator_dept_id) = flow_model::user_profile(operator_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询发起人"))?
+        .unwrap_or((String::new(), None));
+    let instance_id = Uuid::now_v7();
+    let title = format!("{} 收款退款 {} 元", row.refund_no, row.amount)
+        .chars()
+        .take(200)
+        .collect::<String>();
+    let start = engine::StartReq {
+        instance_id,
+        def_id: flow.def_id,
+        version_id: flow.version_id,
+        version_no: flow.version_no,
+        flow_code: flow.flow_code.clone(),
+        flow_name: flow.flow_name.clone(),
+        biz_type: flow.biz_type.clone(),
+        biz_id: Some(row.id),
+        biz_no: Some(row.refund_no.clone()),
+        title,
+        initiator_id: operator_id,
+        initiator_name: Some(initiator_name),
+        initiator_dept_id,
+        form_data: receipt_refund_bridge::form_data(row),
+    };
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启退款审批事务"))?;
+    let mut out = match engine::start(&tx, &start).await {
+        Ok(out) => out,
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(if flow_model::is_biz_active_duplicate(&error) {
+                flow_model::approval_in_progress("收款退款单", Some(row.refund_no.as_str()))
+            } else {
+                write_error(error, "发起收款退款审批单")
+            });
+        }
+    };
+    if let Some(rejected) = out.rejected.take() {
+        let _ = tx.rollback().await;
+        return Err(rejected);
+    }
+    if out.instance_id != Some(instance_id) {
+        let _ = tx.rollback().await;
+        return Err(ApiError::new(
+            500,
+            error_code::INTERNAL_ERROR,
+            "审批单发起后返回的实例 id 与预生成的不一致（引擎内部错误）",
+        ));
+    }
+    let auto_finished = out.instance_status.eq_ignore_ascii_case("APPROVED");
+    if !auto_finished && !out.instance_status.eq_ignore_ascii_case("PENDING") {
+        let status = out.instance_status.clone();
+        let _ = tx.rollback().await;
+        return Err(ApiError::new(
+            500,
+            error_code::INTERNAL_ERROR,
+            format!(
+                "退款审批单发起后状态是 {status}（应为 PENDING）：流程定义可能没有可执行的审批节点"
+            ),
+        ));
+    }
+    tx.commit()
+        .await
+        .map_err(|error| utils::db_error(error, "提交退款审批事务"))?;
+    // 锁外副作用（审批通知 / 客户自配的通知节点）：提交之后才发，失败只 WARN
+    let effects = out.effects.take();
+    if !effects.is_empty() {
+        engine::flush_effects(effects).await;
+    }
+    let drafts = out.effects.take_drafts();
+    if !drafts.is_empty() {
+        engine::flush_drafts(drafts).await;
+    }
+    tracing::info!(
+        refund_id = %row.id,
+        refund_no = %row.refund_no,
+        %instance_id,
+        flow_code = %start.flow_code,
+        "收款退款单已提交审批（退款单仍是已确认，等审批通过后自动过账）"
+    );
+    // 流程里没有任何可执行的审批节点（全被跳空）→ 实例在同一个事务里就走完了，
+    // 必须立刻跑一次「审批通过」的回调，否则退款单停在 CONFIRMED 且没有待办能推进它。
+    if auto_finished {
+        receipt_refund_bridge::on_refund_settled(Some(instance_id), "APPROVED").await;
+    }
+    detail_with(db(), row.id).await
 }
 
 /// 当前状态的合法去向（错误文案用）。
@@ -1834,6 +2212,30 @@ pub async fn receipt_refund_allocate(
     Ok(Res::ok(allocate(operator, &id, req).await?))
 }
 
+/// 提交审批（`CONFIRMED` + 核销满 → 发起 `receipt_refund` 实例；审批通过后自动过账）。
+///
+/// 权限码复用 `business:erp:receipt-refund:status`（与 SO-06 的
+/// `POST /sales-order/{id}/submit-approval` 复用 `:status` 同一口径：
+/// 提交审批是「推进单据状态」的一个动作，不另开码也就不用再加一行菜单）。
+#[nik::permission(
+    path = "/business/erp/receipt-refund/{id}/submit-approval",
+    method = "POST",
+    permission = "business:erp:receipt-refund:status"
+)]
+#[nik::post("/business/erp/receipt-refund/{id}/submit-approval")]
+pub async fn receipt_refund_submit_approval(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    body: Option<Json<RefundSubmitReq>>,
+) -> ResResult<RefundDetailRes> {
+    let operator = utils::current_user_uuid(&claims);
+    let req = body.map(|Json(req)| req).unwrap_or_default();
+    let gate = approval_gate::ApprovalGate::new(&req.approval, &claims);
+    Ok(Res::ok(
+        submit_approval(operator, &id, req.reason.as_deref(), &gate).await?,
+    ))
+}
+
 /// 状态迁移（确认 / 过账 / 作废）。
 #[nik::permission(
     path = "/business/erp/receipt-refund/{id}/status",
@@ -1855,6 +2257,9 @@ pub async fn receipt_refund_status(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::business::erp::approval_gate;
+    use crate::business::erp::receipt_refund_bridge;
+    use crate::business::flow::engine;
     use std::str::FromStr;
 
     fn dec(raw: &str) -> Decimal {
@@ -2047,6 +2452,12 @@ mod tests {
 
     /// 清场 + 夹具：一个客户 + 一张已收 100 的 PARTIAL 应收（1000 / 已收 100）。
     async fn setup() -> (Uuid, Uuid) {
+        // 审批运行时表先清（`biz_flow_instance.biz_id` 不是外键 → 换表时要自己清，
+        // 否则上一轮的 APPROVED 实例会让本轮的「过账闸」用例假通过）
+        sql("DELETE FROM biz_flow_task WHERE instance_id IN \
+             (SELECT id FROM biz_flow_instance WHERE biz_type = 'RECEIPT_REFUND')")
+        .await;
+        sql("DELETE FROM biz_flow_instance WHERE biz_type = 'RECEIPT_REFUND'").await;
         sql("DELETE FROM biz_receipt_refund_allocation").await;
         sql("DELETE FROM biz_receipt_refund").await;
         sql("DELETE FROM biz_status_log WHERE entity_type IN ('RECEIPT_REFUND','RECEIVABLE')")
@@ -2072,6 +2483,59 @@ mod tests {
             Uuid::parse_str(FIX_CUSTOMER).expect("夹具 UUID 非法"),
             ar_id,
         )
+    }
+
+    /// 一个超管 id（`sys_role.role_code = 'SUPER_ADMIN'` 的成员）。
+    ///
+    /// 审批回调里的 `initiator_id` 有外键到 `sys_user`，必须给真用户；
+    /// 没有超管的库（没跑种子）→ `None`，调用方 SKIP。
+    async fn admin_id() -> Option<Uuid> {
+        let raw = scalar(
+            "SELECT u.id::text FROM sys_user u \
+               JOIN sys_user_role ur ON ur.user_id = u.id \
+               JOIN sys_role r ON r.id = ur.role_id \
+              WHERE r.role_code = 'SUPER_ADMIN' AND u.deleted_at IS NULL \
+              ORDER BY u.created_at LIMIT 1",
+        )
+        .await;
+        Uuid::parse_str(&raw).ok()
+    }
+
+    /// 已发布的 `receipt_refund` 流程（`(def_id, version_id)`）。
+    async fn refund_flow() -> Option<(Uuid, Uuid)> {
+        let raw = scalar(
+            "SELECT (current_version_id::text || '|' || id::text) FROM biz_flow_def \
+              WHERE flow_code = 'receipt_refund' AND status = 'PUBLISHED' AND deleted_at IS NULL",
+        )
+        .await;
+        let (version, def) = raw.split_once('|')?;
+        Some((Uuid::parse_str(def).ok()?, Uuid::parse_str(version).ok()?))
+    }
+
+    /// 给退款单造一条 `APPROVED` 审批实例（**只**给「过账闸」用例用）。
+    ///
+    /// 真实审批链（发起 → 待办 → 同意 → 回调过账）由
+    /// `refund_approval_chain_posts_on_approve_and_stays_confirmed_on_reject` 覆盖；
+    /// 这里只回答「闸认不认这个实例」，所以直接落一行终态实例，不跑引擎。
+    async fn seed_approved_instance(refund_id: &Uuid) -> Uuid {
+        let admin = admin_id().await.expect("库里必须有超管（种子迁移）");
+        let (def_id, version_id) = refund_flow()
+            .await
+            .expect("库里必须有 receipt_refund 流程（V0297）");
+        let instance_id = Uuid::now_v7();
+        let short = instance_id.to_string().replace('-', "");
+        sql(&format!(
+            "INSERT INTO biz_flow_instance (id, instance_no, def_id, version_id, version_no, \
+                                            flow_code, flow_name, biz_type, biz_id, biz_no, title, \
+                                            status, initiator_id, form_data, started_at, ended_at) \
+             VALUES ('{instance_id}'::uuid, 'FLOW-T-{}', '{def_id}'::uuid, '{version_id}'::uuid, 1, \
+                     'receipt_refund', '收款退款审批（财务复核）', 'RECEIPT_REFUND', \
+                     '{refund_id}'::uuid, NULL, '过账闸夹具', 'APPROVED', '{admin}'::uuid, '{{}}'::jsonb, \
+                     now(), now())",
+            &short[..12]
+        ))
+        .await;
+        instance_id
     }
 
     fn sample_req(customer: Uuid) -> CreateRefundReq {
@@ -2147,6 +2611,28 @@ mod tests {
         .await
         .expect("确认应成功");
         assert_eq!(confirmed.header.status, STATUS_CONFIRMED);
+
+        // ③' 审批前置（SO-14 遗留 · D10）：没有已通过的审批实例 → 409 + 66044，
+        //     报文必须点出提交审批的入口（前端按码渲染「去发起审批」）
+        let gated = change_status(
+            None,
+            &refund_id.to_string(),
+            RefundStatusReq {
+                status: "POSTED".to_string(),
+                reason: None,
+            },
+        )
+        .await;
+        let err = gated.expect_err("没审批就过账必须被拒");
+        assert_eq!(err.code, error_code::ERP_RECEIPT_REFUND_APPROVAL_REQUIRED);
+        assert!(
+            err.msg.contains("submit-approval"),
+            "报文必须给出提交审批的入口：{}",
+            err.msg
+        );
+        // 造一条已通过的实例（真审批链在同模块的 approval_chain 用例里跑）
+        let instance_id = seed_approved_instance(&refund_id).await;
+
         let posted = change_status(
             None,
             &refund_id.to_string(),
@@ -2159,6 +2645,20 @@ mod tests {
         .expect("过账应成功");
         assert_eq!(posted.header.status, STATUS_POSTED);
         assert!(!posted.voucher_no.is_empty(), "过账必须生成凭证号");
+        let approval = posted.approval.as_ref().expect("详情必须带审批段");
+        assert_eq!(approval.instance_id, instance_id.to_string());
+        assert_eq!(approval.status, "APPROVED");
+        assert_eq!(approval.pending_tasks, 0);
+        assert_eq!(
+            scalar(&format!(
+                "SELECT count(*) FROM biz_status_log WHERE entity_type = 'RECEIPT_REFUND' \
+                    AND entity_id = '{refund_id}'::uuid AND to_status = 'POSTED' \
+                    AND reason LIKE '%审批通过%'"
+            ))
+            .await,
+            "1",
+            "人工过账（已有 APPROVED 实例）的状态日志要写明是哪一轮批的"
+        );
         // 凭证方向：借 1122 / 贷 1002，各 100
         assert_eq!(
             scalar(&format!(
@@ -2314,5 +2814,379 @@ mod tests {
         sql("DELETE FROM biz_customer WHERE code LIKE 'RR14C-%'").await;
         sql("DELETE FROM biz_receipt_refund_allocation").await;
         sql("DELETE FROM biz_receipt_refund").await;
+    }
+
+    /// 夹具制单人（**不是**超管：超管是兜底审批人，同一个人会撞内控）。
+    const FIX_CREATOR: &str = "d5950000-0000-4000-8000-0000000000c1";
+
+    /// 确保夹具制单人存在（`sys_user.username` 唯一 → 幂等 upsert）。
+    async fn ensure_creator() -> Uuid {
+        sql(&format!(
+            "INSERT INTO sys_user (id, username, password, real_name) \
+             VALUES ('{FIX_CREATOR}'::uuid, 'rr14_ap_creator', 'rr14-not-a-real-hash', 'RR14 退款制单人') \
+             ON CONFLICT (id) DO UPDATE SET deleted_at = NULL"
+        ))
+        .await;
+        Uuid::parse_str(FIX_CREATOR).expect("夹具 UUID 非法")
+    }
+
+    /// 该实例当前待办的指派人（`PENDING`，取第一条）。
+    async fn pending_assignee(instance_id: Uuid) -> Vec<String> {
+        let rows = db()
+            .find_with_params(
+                "SELECT assignee_id::text AS value FROM biz_flow_task \
+                  WHERE instance_id = ?::uuid AND status = 'PENDING' \
+                  ORDER BY created_at",
+                vec![Value::from(&instance_id)],
+            )
+            .await
+            .expect("查询待办失败");
+        rows.iter()
+            .map(|row| row.get_typed::<String>("value").unwrap_or_default())
+            .collect()
+    }
+
+    /// 审批一条待办，并在**事务提交之后**跑业务回调（与 `flow::handler::approve_task` 同序）。
+    async fn approve_task(task_id: Uuid, operator: Uuid) -> String {
+        let out = db()
+            .transaction(|tx| async move {
+                engine::approve(&tx, task_id, operator, Some("D10 同意")).await
+            })
+            .await
+            .expect("审批失败");
+        if let Some(rejected) = out.rejected {
+            panic!("审批被拒：{} {}", rejected.code, rejected.msg);
+        }
+        let status = out.instance_status.clone();
+        receipt_refund_bridge::on_refund_settled(out.instance_id, &status).await;
+        status
+    }
+
+    /// 驳回并终止（`REJECTED`），同样在提交后跑回调。
+    async fn reject_task(task_id: Uuid, operator: Uuid) -> String {
+        let out = db()
+            .transaction(|tx| async move {
+                engine::reject(
+                    &tx,
+                    task_id,
+                    operator,
+                    "D10 金额存疑，驳回",
+                    engine::ReturnTo::Final,
+                )
+                .await
+            })
+            .await
+            .expect("驳回失败");
+        if let Some(rejected) = out.rejected {
+            panic!("驳回被拒：{} {}", rejected.code, rejected.msg);
+        }
+        let status = out.instance_status.clone();
+        receipt_refund_bridge::on_refund_settled(out.instance_id, &status).await;
+        status
+    }
+
+    /// 该实例的**第一条待办**与它自己的指派人（同一行取，多待办时也不会配错人）。
+    async fn first_pending_task(instance_id: Uuid) -> Option<(Uuid, Uuid)> {
+        let raw = scalar(&format!(
+            "SELECT (id::text || '|' || assignee_id::text) FROM biz_flow_task \
+              WHERE instance_id = '{instance_id}'::uuid AND status = 'PENDING' \
+              ORDER BY created_at LIMIT 1"
+        ))
+        .await;
+        let (task, assignee) = raw.split_once('|')?;
+        Some((Uuid::parse_str(task).ok()?, Uuid::parse_str(assignee).ok()?))
+    }
+
+    /// V0297 种子的「快照 ↔ 节点/边行」必须一致（否则 `flow::maintain` 每日自检会报漂移）。
+    ///
+    /// 这条用例是给**种子迁移**上的保险：`graph_hash` 是手写进 SQL 的，
+    /// 谁改了节点/边的任何一列（哪怕只是 `config`）都会让 `load_graph().graph_hash()`
+    /// 与库里的 `graph_hash` 分叉 —— 那是「行被改过」的形态，必须在提交前红掉。
+    #[tokio::test]
+    async fn seeded_flow_graph_hash_matches_its_rows() {
+        let _guard = DB_LOCK.lock().await;
+        if !ensure_db().await {
+            return;
+        }
+        let Some((_def_id, version_id)) = refund_flow().await else {
+            println!("SKIP: 库里没有已发布的 receipt_refund 流程（V0297 没跑）");
+            return;
+        };
+        let graph = flow_model::load_graph(version_id)
+            .await
+            .expect("加载 receipt_refund 流程版本图失败");
+        let stored = scalar(&format!(
+            "SELECT btrim(graph_hash) FROM biz_flow_def_version WHERE id = '{version_id}'::uuid"
+        ))
+        .await;
+        assert_eq!(
+            graph.graph_hash(),
+            stored,
+            "V0297 种子的 graph_snapshot/graph_hash 与 biz_flow_node/biz_flow_edge 行不一致"
+        );
+        assert_eq!(
+            graph.nodes.len(),
+            3,
+            "种子图应为 START + 财务经理审批 + END"
+        );
+        assert_eq!(graph.edges.len(), 2, "种子图应为 e_start + e_end");
+    }
+
+    /// **审批链主用例**：发起 → 待办（内控排除制单人）→ 同意 → 回调**自动过账**；
+    /// 另一张单驳回 → 退款单留在 `CONFIRMED`（账一分没动，可重新提交）。
+    #[tokio::test]
+    async fn refund_approval_chain_posts_on_approve_and_stays_confirmed_on_reject() {
+        let _guard = DB_LOCK.lock().await;
+        if !ensure_db().await {
+            return;
+        }
+        if refund_flow().await.is_none() {
+            println!("SKIP: 库里没有已发布的 receipt_refund 流程（V0297 没跑）");
+            return;
+        }
+        let Some(admin) = admin_id().await else {
+            println!("SKIP: 库里没有超管（种子迁移没跑）");
+            return;
+        };
+        let creator = ensure_creator().await;
+        assert_ne!(creator, admin, "内控用例要求制单人与兜底审批人不同人");
+        let (customer, ar_id) = setup().await;
+
+        // ---------- ① 登记 + 核销 + 确认（制单人 = creator，不是超管） ----------
+        let created = create(Some(creator), sample_req(customer))
+            .await
+            .expect("登记退款应成功");
+        let refund_id = Uuid::parse_str(&created.header.id).expect("id 非法");
+        assert!(created.approval.is_none(), "还没提交审批 → 审批段必须为空");
+        allocate(
+            Some(creator),
+            &refund_id.to_string(),
+            RefundAllocateReq {
+                allocations: vec![RefundAllocateLineReq {
+                    receivable_id: ar_id.to_string(),
+                    amount: dec("100"),
+                    remark: None,
+                }],
+            },
+        )
+        .await
+        .expect("核销应成功");
+        change_status(
+            Some(creator),
+            &refund_id.to_string(),
+            RefundStatusReq {
+                status: STATUS_CONFIRMED.to_string(),
+                reason: None,
+            },
+        )
+        .await
+        .expect("确认应成功");
+
+        // ---------- ② 提交审批（状态不变，实例 PENDING） ----------
+        let submitted = submit_approval(
+            Some(creator),
+            &refund_id.to_string(),
+            None,
+            &approval_gate::ApprovalGate::none(),
+        )
+        .await
+        .expect("提交审批应成功");
+        assert_eq!(
+            submitted.header.status, STATUS_CONFIRMED,
+            "审批不是状态：提交后单据仍是已确认"
+        );
+        let approval = submitted.approval.as_ref().expect("详情必须带审批段");
+        assert_eq!(approval.status, "PENDING");
+        assert!(
+            approval.pending_tasks >= 1,
+            "至少 1 条待办（共用库里兜底超管可能有多个 → 多条待办是正常的），实际 {}",
+            approval.pending_tasks
+        );
+        let instance_id = Uuid::parse_str(&approval.instance_id).expect("实例 id 非法");
+
+        // 审批中不许重复提交
+        let again = submit_approval(
+            Some(creator),
+            &refund_id.to_string(),
+            None,
+            &approval_gate::ApprovalGate::none(),
+        )
+        .await;
+        let err = again.expect_err("审批中重复提交必须被拒");
+        assert_eq!(err.code, error_code::RESOURCE_CONFLICT);
+
+        // 审批中也不许直接过账（网关只认 APPROVED 实例）
+        let early = change_status(
+            Some(creator),
+            &refund_id.to_string(),
+            RefundStatusReq {
+                status: STATUS_POSTED.to_string(),
+                reason: None,
+            },
+        )
+        .await;
+        let err = early.expect_err("审批中不许过账");
+        assert_eq!(err.code, error_code::ERP_RECEIPT_REFUND_APPROVAL_REQUIRED);
+
+        // ---------- ③ 内控：制单人被排除在审批人之外 ----------
+        let assignees = pending_assignee(instance_id).await;
+        assert!(!assignees.is_empty(), "审批节点必须有人可派");
+        assert!(
+            !assignees.contains(&creator.to_string()),
+            "内控失败：制单人不能成为自己退款单的审批人（待办={assignees:?}）"
+        );
+
+        // ---------- ④ 同意 → 回调自动过账 ----------
+        let (task_id, approver) = first_pending_task(instance_id)
+            .await
+            .expect("待办必须存在（待办 id + 指派人）");
+        let status = approve_task(task_id, approver).await;
+        assert_eq!(status, "APPROVED");
+        assert_eq!(
+            scalar(&format!(
+                "SELECT status FROM biz_receipt_refund WHERE id = '{refund_id}'::uuid"
+            ))
+            .await,
+            STATUS_POSTED,
+            "审批通过后回调必须**直接过账**（不需要人再点一次）"
+        );
+        assert_eq!(
+            scalar(&format!(
+                "SELECT count(*) FROM biz_voucher v WHERE v.source_type = 'RECEIPT_REFUND' \
+                    AND v.source_id = '{refund_id}'::uuid"
+            ))
+            .await,
+            "1",
+            "过账必须恰好生成 1 张退款凭证"
+        );
+        assert_eq!(
+            scalar(&format!(
+                "SELECT count(*) FROM biz_status_log WHERE entity_type = 'RECEIPT_REFUND' \
+                    AND entity_id = '{refund_id}'::uuid AND to_status = 'POSTED' \
+                    AND reason LIKE '审批通过%'"
+            ))
+            .await,
+            "1"
+        );
+
+        // 重复回调（幂等）：不再记账、不再多出凭证
+        receipt_refund_bridge::on_refund_settled(Some(instance_id), "APPROVED").await;
+        assert_eq!(
+            scalar(&format!(
+                "SELECT count(*) FROM biz_voucher v WHERE v.source_type = 'RECEIPT_REFUND' \
+                    AND v.source_id = '{refund_id}'::uuid"
+            ))
+            .await,
+            "1",
+            "重复回调不许重复记账"
+        );
+
+        // ---------- ⑤ 驳回 → 退款单留在 CONFIRMED，账一分没动 ----------
+        let second = create(Some(creator), sample_req(customer))
+            .await
+            .expect("第二张退款单应登记成功");
+        let second_id = Uuid::parse_str(&second.header.id).expect("id 非法");
+        let second_ar = Uuid::now_v7();
+        sql(&format!(
+            "INSERT INTO biz_receivable (id, ar_no, customer_id, source_type, source_id, source_no, \
+                                        amount, received_amount, unsettled_amount, credit_days, \
+                                        period_code, due_date, status) \
+             VALUES ('{second_ar}'::uuid, 'AR-RR14C-000009', '{customer}'::uuid, 'MANUAL', \
+                     gen_random_uuid(), 'MANUAL', 100, 100, 0, 30, '2026-11', '2026-12-06', 'SETTLED')"
+        ))
+        .await;
+        allocate(
+            Some(creator),
+            &second_id.to_string(),
+            RefundAllocateReq {
+                allocations: vec![RefundAllocateLineReq {
+                    receivable_id: second_ar.to_string(),
+                    amount: dec("100"),
+                    remark: None,
+                }],
+            },
+        )
+        .await
+        .expect("第二张核销应成功");
+        change_status(
+            Some(creator),
+            &second_id.to_string(),
+            RefundStatusReq {
+                status: STATUS_CONFIRMED.to_string(),
+                reason: None,
+            },
+        )
+        .await
+        .expect("第二张确认应成功");
+        let second_submitted = submit_approval(
+            Some(creator),
+            &second_id.to_string(),
+            None,
+            &approval_gate::ApprovalGate::none(),
+        )
+        .await
+        .expect("第二张提交审批应成功");
+        let second_instance = Uuid::parse_str(
+            &second_submitted
+                .approval
+                .as_ref()
+                .expect("审批段")
+                .instance_id,
+        )
+        .expect("实例 id 非法");
+        let second_assignees = pending_assignee(second_instance).await;
+        assert!(
+            !second_assignees.contains(&creator.to_string()),
+            "内控失败：制单人出现在第二张单的待办里（{second_assignees:?}）"
+        );
+        let (second_task, second_approver) = first_pending_task(second_instance)
+            .await
+            .expect("第二张单的待办必须存在");
+        let status = reject_task(second_task, second_approver).await;
+        assert_eq!(status, "REJECTED");
+        assert_eq!(
+            scalar(&format!(
+                "SELECT status FROM biz_receipt_refund WHERE id = '{second_id}'::uuid"
+            ))
+            .await,
+            STATUS_CONFIRMED,
+            "驳回后单据必须仍是已确认（审批不是状态）"
+        );
+        assert_eq!(
+            scalar(&format!(
+                "SELECT count(*) FROM biz_voucher WHERE source_type = 'RECEIPT_REFUND' \
+                    AND source_id = '{second_id}'::uuid"
+            ))
+            .await,
+            "0",
+            "驳回一分钱都不许记账"
+        );
+        // 驳回后可以再提交（新实例），说明「驳回 → 改完再提」这条路是通的
+        let resubmitted = submit_approval(
+            Some(creator),
+            &second_id.to_string(),
+            None,
+            &approval_gate::ApprovalGate::none(),
+        )
+        .await
+        .expect("驳回后应能重新提交");
+        assert_eq!(
+            resubmitted.approval.as_ref().expect("审批段").status,
+            "PENDING"
+        );
+
+        // ---------- ⑥ 清场 ----------
+        sql("DELETE FROM biz_flow_task WHERE instance_id IN \
+             (SELECT id FROM biz_flow_instance WHERE biz_type = 'RECEIPT_REFUND')")
+        .await;
+        sql("DELETE FROM biz_flow_instance WHERE biz_type = 'RECEIPT_REFUND'").await;
+        sql("DELETE FROM biz_status_log WHERE entity_type = 'RECEIPT_REFUND'").await;
+        // 顺序按外键：核销明细 → 退款单 → 凭证 → 应收（`biz_receipt_refund_allocation.receivable_id`
+        // 是 RESTRICT，先删应收会撞约束，报文只有一句 `db error`）→ 客户
+        sql("DELETE FROM biz_receipt_refund_allocation").await;
+        sql("DELETE FROM biz_receipt_refund").await;
+        sql("DELETE FROM biz_voucher WHERE source_type = 'RECEIPT_REFUND'").await;
+        sql("DELETE FROM biz_receivable WHERE ar_no LIKE 'AR-RR14C-%'").await;
+        sql("DELETE FROM biz_customer WHERE code LIKE 'RR14C-%'").await;
     }
 }

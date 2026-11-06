@@ -1708,6 +1708,9 @@ pub async fn withdraw_instance(
         .await;
     // P17：也可能是「应付付款」单 → 付款记录标 REJECTED（账一分没动，可重新提交）
     crate::business::erp::payable_bridge::on_payment_settled(Some(instance_id), "WITHDRAWN").await;
+    // SO-14 遗留 D10：也可能是「收款退款」单 → 退款单仍是已确认（账一分没动，可改完再提）
+    crate::business::erp::receipt_refund_bridge::on_refund_settled(Some(instance_id), "WITHDRAWN")
+        .await;
     // P-FLOW-3B：也可能是「应付作废」单 → 单据回 OPEN（欠款一分没动）
     crate::business::erp::payable_bridge::on_cancel_settled(Some(instance_id), "WITHDRAWN").await;
     // P-FLOW-3B：也可能是「凭证红冲」单 → 只清 pending（凭证一直是 POSTED，账没动）
@@ -1764,6 +1767,8 @@ pub async fn approve_task(
     crate::business::erp::expense_bridge::guard_self_approval(task_id, operator).await?;
     // SO-06：销售订单 —— 制单人 / 发起人不能批自己的销售订单（403 + 65019）
     crate::business::erp::sales_approval_bridge::guard_self_approval(task_id, operator).await?;
+    // SO-14 遗留 D10：收款退款 —— 制单人 / 发起人不能批自己的退款（403 + 65019）
+    crate::business::erp::receipt_refund_bridge::guard_self_approval(task_id, operator).await?;
     let mut out = db()
         .transaction(|tx| async move {
             engine::approve(&tx, task_id, operator, comment.as_deref()).await
@@ -1818,6 +1823,13 @@ pub async fn approve_task(
     // P17：也可能是「应付付款」发起的 —— 通过才记账（应付回写 + 借 2202 / 贷 1002 凭证）
     crate::business::erp::payable_bridge::on_payment_settled(out.instance_id, &out.instance_status)
         .await;
+    // SO-14 遗留 D10：也可能是「收款退款」发起的 —— 通过则由回调**直接过账**
+    // （借 1122 / 贷 1002 凭证），不需要人再点一次过账；驳回 / 终止则退款单不动
+    crate::business::erp::receipt_refund_bridge::on_refund_settled(
+        out.instance_id,
+        &out.instance_status,
+    )
+    .await;
     // P-FLOW-3B：也可能是「应付作废」发起的 —— 通过才真正作废（进项凭证红冲 + 欠款消失）
     crate::business::erp::payable_bridge::on_cancel_settled(out.instance_id, &out.instance_status)
         .await;
@@ -1917,6 +1929,12 @@ pub async fn reject_task(
     // P17：付款审批被驳回 / 驳回终止 → 付款记录标 REJECTED（账一分没动，可重新提交）
     crate::business::erp::payable_bridge::on_payment_settled(out.instance_id, &out.instance_status)
         .await;
+    // SO-14 遗留 D10：退款审批被驳回 / 终止 → 退款单仍是已确认（账一分没动）
+    crate::business::erp::receipt_refund_bridge::on_refund_settled(
+        out.instance_id,
+        &out.instance_status,
+    )
+    .await;
     // P-FLOW-3B：应付作废被驳回 → 单据回 OPEN（欠款一分没动，可以再提交）
     crate::business::erp::payable_bridge::on_cancel_settled(out.instance_id, &out.instance_status)
         .await;

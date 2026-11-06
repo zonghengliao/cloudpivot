@@ -159,6 +159,7 @@ pub mod purchase_handler;
 pub mod purchase_model;
 pub mod receipt;
 pub mod receipt_refund;
+pub mod receipt_refund_bridge;
 pub mod receivable;
 pub mod receivable_aging;
 pub mod receivable_bridge;

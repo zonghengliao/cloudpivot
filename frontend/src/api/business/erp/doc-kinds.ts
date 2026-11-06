@@ -186,6 +186,7 @@ export const FLOW_BIZ_TYPES = [
   'OTHER',
   'BUDGET_APPROVE',
   'ASSET_DISPOSAL',
+  'RECEIPT_REFUND',
 ] as const;
 
 /** 审批业务类型（联合类型）。 */
@@ -208,6 +209,7 @@ export const FLOW_BIZ_TYPE_LABELS: Readonly<Record<FlowBizType, string>> = {
   OTHER: '其他审批',
   BUDGET_APPROVE: '预算审批',
   ASSET_DISPOSAL: '资产处置审批',
+  RECEIPT_REFUND: '收款退款审批',
 };
 
 /** 审批业务类型 → 默认流程编码（`biz_flow_def.flow_code`）。 */
@@ -227,6 +229,7 @@ export const FLOW_BIZ_TYPE_FLOW_CODES: Readonly<Record<FlowBizType, string>> = {
   OTHER: 'other',
   BUDGET_APPROVE: 'budget_approve',
   ASSET_DISPOSAL: 'asset_disposal',
+  RECEIPT_REFUND: 'receipt_refund',
 };
 
 /** 采购订单审批的业务类型（历史常量名，值来自 {@link FLOW_BIZ_TYPES}）。 */

@@ -413,11 +413,23 @@ pub enum FlowBizType {
     /// （低价卖给关联方、假装报废后私用），所以**不分金额档、第一站就是总经理**
     /// （频次低，多一道签的成本可以接受）。
     AssetDisposal,
+    /// 收款退款审批（`receipt_refund`，SO-14 遗留 · D10）。
+    ///
+    /// 退款是**真出钱**（借 1122 应收 / 贷 1002 银行），与 [`FlowBizType::PayablePay`]
+    /// （付款）同级别的资金动作，所以必须过审批，而不是靠「原因必填 + 权限码」自觉。
+    ///
+    /// 与付款审批的差别（口径见卡 t_b9840c8d）：**不动退款单的状态域** ——
+    /// 退款单仍是 `DRAFT`/`CONFIRMED`/`POSTED`/`CANCELLED`，审批是**过账的前置条件**
+    /// （`CONFIRMED → POSTED` 前必须存在 `biz_type='RECEIPT_REFUND'` 且 `APPROVED`
+    /// 的实例），而不是多一个「审批中」状态。理由：资金单据的状态域已经是一条
+    /// 三态生命周期（草稿 / 已确认 / 已过账），再塞一个审批态会让「已确认但没批」
+    /// 与「批了没记账」挤进同一个字段，状态日志也读不出两者的差别。
+    ReceiptRefund,
 }
 
 impl FlowBizType {
     /// 全部审批业务类型（顺序 = 声明顺序）。
-    pub const ALL: [FlowBizType; 15] = [
+    pub const ALL: [FlowBizType; 16] = [
         FlowBizType::PoApprove,
         FlowBizType::StockInPost,
         FlowBizType::StockInCancel,
@@ -433,6 +445,7 @@ impl FlowBizType {
         FlowBizType::Other,
         FlowBizType::BudgetApprove,
         FlowBizType::AssetDisposal,
+        FlowBizType::ReceiptRefund,
     ];
 
     /// 需要「发布状态自检」的业务类型（`GET /business/erp/approval-flow/health` 的清单）。
@@ -469,6 +482,7 @@ impl FlowBizType {
             FlowBizType::Other => "OTHER",
             FlowBizType::BudgetApprove => "BUDGET_APPROVE",
             FlowBizType::AssetDisposal => "ASSET_DISPOSAL",
+            FlowBizType::ReceiptRefund => "RECEIPT_REFUND",
         }
     }
 
@@ -490,6 +504,7 @@ impl FlowBizType {
             FlowBizType::Other => "other",
             FlowBizType::BudgetApprove => "budget_approve",
             FlowBizType::AssetDisposal => "asset_disposal",
+            FlowBizType::ReceiptRefund => "receipt_refund",
         }
     }
 
@@ -511,6 +526,7 @@ impl FlowBizType {
             FlowBizType::Other => "其他审批",
             FlowBizType::BudgetApprove => "预算审批",
             FlowBizType::AssetDisposal => "资产处置审批",
+            FlowBizType::ReceiptRefund => "收款退款审批",
         }
     }
 
@@ -529,6 +545,7 @@ impl FlowBizType {
             FlowBizType::FlowEdgeConfig => DocKind::FlowEdgeConfig,
             FlowBizType::BudgetApprove => DocKind::Budget,
             FlowBizType::AssetDisposal => DocKind::FixedAsset,
+            FlowBizType::ReceiptRefund => DocKind::ReceiptRefund,
             // FIN-3（ARCH-6 §6.2.2）：`Expense` 由 `None` 改成 `Some(...)` —— 一处**行为变更**，
             // `doc_kind_tests` 的期望同步改；`HEALTH_CHECKED` 未扩（它绑着已应用的 V0202
             // 自检块，改注释都会 checksum 失败，扩清单必须新开迁移重写自检块，超出 FIN-3 范围）。
@@ -1197,7 +1214,7 @@ const DOC_KIND_VALUES: [&str; 23] = [
     "RECEIPT_REFUND",
 ];
 
-const FLOW_BIZ_TYPE_VALUES: [&str; 15] = [
+const FLOW_BIZ_TYPE_VALUES: [&str; 16] = [
     "PO_APPROVE",
     "STOCK_IN_POST",
     "STOCK_IN_CANCEL",
@@ -1213,6 +1230,7 @@ const FLOW_BIZ_TYPE_VALUES: [&str; 15] = [
     "OTHER",
     "BUDGET_APPROVE",
     "ASSET_DISPOSAL",
+    "RECEIPT_REFUND",
 ];
 
 const TXN_BIZ_TYPE_VALUES: [&str; 22] = [

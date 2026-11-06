@@ -854,33 +854,34 @@ pub struct ReceiptFilter {
 impl ReceiptPageQuery {
     /// 四道入参校验（全部 400，绝不静默忽略）。
     pub fn validate(&self) -> std::result::Result<(), ApiError> {
-        if let Some(status) = self.status.as_deref().map(str::trim) {
-            if !status.is_empty() && !STATUSES.contains(&status) {
-                return Err(bad_request(format!(
-                    "status 只认 {STATUSES:?}（收到「{status}」）：OPEN / PARTIAL / PAID 这类\
+        if let Some(status) = self.status.as_deref().map(str::trim)
+            && !status.is_empty()
+            && !STATUSES.contains(&status)
+        {
+            return Err(bad_request(format!(
+                "status 只认 {STATUSES:?}（收到「{status}」）：OPEN / PARTIAL / PAID 这类\
                      应收 / 应付的域值不是收款单的状态"
-                )));
-            }
+            )));
         }
-        if let Some(method) = self.method.as_deref().map(str::trim) {
-            if !method.is_empty() {
-                validate_method(Some(method))?;
-            }
+        if let Some(method) = self.method.as_deref().map(str::trim)
+            && !method.is_empty()
+        {
+            validate_method(Some(method))?;
         }
-        if let Some(raw) = self.customer_id.as_deref().map(str::trim) {
-            if !raw.is_empty() {
-                parse_uuid(raw, "customer_id")?;
-            }
+        if let Some(raw) = self.customer_id.as_deref().map(str::trim)
+            && !raw.is_empty()
+        {
+            parse_uuid(raw, "customer_id")?;
         }
-        if let Some(raw) = self.date_from.as_deref().map(str::trim) {
-            if !raw.is_empty() {
-                parse_date_arg(raw, "date_from")?;
-            }
+        if let Some(raw) = self.date_from.as_deref().map(str::trim)
+            && !raw.is_empty()
+        {
+            parse_date_arg(raw, "date_from")?;
         }
-        if let Some(raw) = self.date_to.as_deref().map(str::trim) {
-            if !raw.is_empty() {
-                parse_date_arg(raw, "date_to")?;
-            }
+        if let Some(raw) = self.date_to.as_deref().map(str::trim)
+            && !raw.is_empty()
+        {
+            parse_date_arg(raw, "date_to")?;
         }
         Ok(())
     }
@@ -893,35 +894,35 @@ impl ReceiptPageQuery {
             page_size,
             ..ReceiptFilter::default()
         };
-        if let Some(status) = self.status.as_deref().map(str::trim) {
-            if !status.is_empty() {
-                filter.status = Some(status.to_string());
-            }
+        if let Some(status) = self.status.as_deref().map(str::trim)
+            && !status.is_empty()
+        {
+            filter.status = Some(status.to_string());
         }
-        if let Some(method) = self.method.as_deref().map(str::trim) {
-            if !method.is_empty() {
-                filter.method = Some(method.to_string());
-            }
+        if let Some(method) = self.method.as_deref().map(str::trim)
+            && !method.is_empty()
+        {
+            filter.method = Some(method.to_string());
         }
-        if let Some(raw) = self.customer_id.as_deref().map(str::trim) {
-            if !raw.is_empty() {
-                filter.customer_id = Some(parse_uuid(raw, "customer_id")?);
-            }
+        if let Some(raw) = self.customer_id.as_deref().map(str::trim)
+            && !raw.is_empty()
+        {
+            filter.customer_id = Some(parse_uuid(raw, "customer_id")?);
         }
-        if let Some(raw) = self.receipt_no.as_deref().map(str::trim) {
-            if !raw.is_empty() {
-                filter.keyword = Some(raw.to_string());
-            }
+        if let Some(raw) = self.receipt_no.as_deref().map(str::trim)
+            && !raw.is_empty()
+        {
+            filter.keyword = Some(raw.to_string());
         }
-        if let Some(raw) = self.date_from.as_deref().map(str::trim) {
-            if !raw.is_empty() {
-                filter.date_from = Some(parse_date_arg(raw, "date_from")?);
-            }
+        if let Some(raw) = self.date_from.as_deref().map(str::trim)
+            && !raw.is_empty()
+        {
+            filter.date_from = Some(parse_date_arg(raw, "date_from")?);
         }
-        if let Some(raw) = self.date_to.as_deref().map(str::trim) {
-            if !raw.is_empty() {
-                filter.date_to = Some(parse_date_arg(raw, "date_to")?);
-            }
+        if let Some(raw) = self.date_to.as_deref().map(str::trim)
+            && !raw.is_empty()
+        {
+            filter.date_to = Some(parse_date_arg(raw, "date_to")?);
         }
         Ok(filter)
     }

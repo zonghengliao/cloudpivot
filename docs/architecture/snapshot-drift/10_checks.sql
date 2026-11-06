@@ -470,6 +470,8 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     -- 否则 DI-19 的「流程实例业务单据悬空」永远看不到预算审批 / 资产处置审批
     ('FLOW_BIZ', 'BUDGET_APPROVE',   'biz_budget',         'deleted_at', '预算审批（FIN-1）：biz_id = 预算行 id（budget_bridge 按 biz_budget.id 取制单人）'),
     ('FLOW_BIZ', 'ASSET_DISPOSAL',   'biz_fixed_asset',    'deleted_at', '资产处置审批（FIN-2）：biz_id = 资产卡片 id（一张卡同时只能有一个在跑处置单）'),
+    -- SO-14 遗留 · D10：收款退款审批（审批是**过账前置**，不是退款单的一个状态；biz_id = 退款单 id）
+    ('FLOW_BIZ', 'RECEIPT_REFUND',   'biz_receipt_refund', 'deleted_at', '收款退款审批（SO-14 遗留 D10）：biz_id = 退款单 id，见 receipt_refund_bridge'),
     -- ④ 状态日志实体：biz_status_log.entity_type + entity_id（取值域 = DocKind）
     ('STATUS_ENTITY', 'PURCHASE_ORDER',    'biz_purchase_order',    'deleted_at', '采购单'),
     ('STATUS_ENTITY', 'STOCK_IN',          'biz_stock_in',          'deleted_at', '收货单'),
