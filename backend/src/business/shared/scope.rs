@@ -261,6 +261,18 @@ impl ScopeTarget {
     /// `sys_file`：上传人是 `uploaded_by`；**没有部门列**，部门形态需要 join
     /// `sys_user`（P1，B5 之后），在此之前部门类范围降级为「仅本人」。
     pub const SYS_FILE: Self = Self::new("sys_file", "f", None, Some("uploaded_by"));
+
+    /// `biz_commission_settlement`（SO-36）：销售员只看自己的结算单。
+    ///
+    /// 归属列是 `salesperson_id`（这张结算单算在哪个销售员头上），**没有部门列** ——
+    /// 部门类范围（本部门 / 本部门及以下 / 自定义）由 [`filter_for`] 安全侧降级为
+    /// 「仅本人」。这是佣金的正确语义：提成对个人，不对部门。
+    pub const BIZ_COMMISSION_SETTLEMENT: Self = Self::new(
+        "biz_commission_settlement",
+        "t",
+        None,
+        Some("salesperson_id"),
+    );
 }
 
 /// 登记表清单（架构 §2.5 的 `SCOPED_TABLES`）。
@@ -283,6 +295,7 @@ pub const SCOPED_TABLES: &[ScopeTarget] = &[
     ScopeTarget::PASSWORD_CHANGE_LOGS,
     ScopeTarget::SYS_NOTICE,
     ScopeTarget::SYS_FILE,
+    ScopeTarget::BIZ_COMMISSION_SETTLEMENT,
 ];
 
 // ==================== 片段 ====================

@@ -84,19 +84,6 @@ const ROUTE_LEVEL_ONLY: &[(&str, &str)] = &[
         "business:erp:commission-rule:delete",
         "TODO(SO-37)：佣金规则软删接口待落地（同上，落地即删本例外）。",
     ),
-    (
-        "business:erp:commission-settle:list",
-        "TODO(SO-36)：佣金结算分页 / 明细接口待落地（同卡：生成 + 状态流转）。\
-         接口落地时必加注解并删除本例外。",
-    ),
-    (
-        "business:erp:commission-settle:create",
-        "TODO(SO-36)：生成佣金结算单接口（POST /commission/settle）待落地，落地即删本例外。",
-    ),
-    (
-        "business:erp:commission-settle:status",
-        "TODO(SO-36)：结算单审批 / 发放接口（PATCH /commission/{id}/status）待落地，落地即删本例外。",
-    ),
 ];
 
 /// 允许**没有** `#[nik::permission]` 注解的路由白名单：`"METHOD /path"` → 理由。

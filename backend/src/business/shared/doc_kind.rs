@@ -900,11 +900,17 @@ pub enum VoucherSourceType {
     /// 销售发票开票（借 1122 应收账款 / 贷 5001 主营业务收入 + 2221.02 销项税，
     /// 销售链 · SO-20）。作废时的红字凭证沿用同一来源（`red_of` 指回这张蓝字凭证）。
     Invoice,
+    /// 销售佣金结算（佣金计提：借 5601 销售费用 / 贷 2241.02 其他应付款-佣金；
+    /// 佣金发放：借 2241.02 / 贷 1002 银行存款。销售链 · SO-36 / ARCH-7 §15.4.3）。
+    ///
+    /// `source_id` = `biz_commission_settlement.id`、`source_no` = 结算单号（`CM-…`）：
+    /// 一次结算出两张凭证（计提 / 发放），两张都挂同一结算单，靠摘要与科目区分。
+    Commission,
 }
 
 impl VoucherSourceType {
     /// 全部来源（顺序 = 声明顺序）。
-    pub const ALL: [VoucherSourceType; 18] = [
+    pub const ALL: [VoucherSourceType; 19] = [
         VoucherSourceType::StockIn,
         VoucherSourceType::StockOut,
         VoucherSourceType::Payment,
@@ -923,6 +929,7 @@ impl VoucherSourceType {
         VoucherSourceType::Receipt,
         VoucherSourceType::ReceiptRefund,
         VoucherSourceType::Invoice,
+        VoucherSourceType::Commission,
     ];
 
     /// 落库值（大写下划线）。**唯一拼写**。
@@ -946,6 +953,7 @@ impl VoucherSourceType {
             VoucherSourceType::Receipt => "RECEIPT",
             VoucherSourceType::ReceiptRefund => "RECEIPT_REFUND",
             VoucherSourceType::Invoice => "INVOICE",
+            VoucherSourceType::Commission => "COMMISSION",
         }
     }
 
@@ -970,6 +978,7 @@ impl VoucherSourceType {
             VoucherSourceType::Receipt => "收款过账",
             VoucherSourceType::ReceiptRefund => "收款退款过账",
             VoucherSourceType::Invoice => "发票开票",
+            VoucherSourceType::Commission => "佣金结算",
         }
     }
 
@@ -996,6 +1005,10 @@ impl VoucherSourceType {
             VoucherSourceType::Receipt => DocKind::Receipt,
             VoucherSourceType::ReceiptRefund => DocKind::ReceiptRefund,
             VoucherSourceType::Invoice => DocKind::Invoice,
+            // 佣金结算单不在 `DocKind` 词表里（接 `biz_status_log` 要同步前端镜像
+            // 与巡检登记表，属 P2-5 词表收敛的独立改动，见 commission_handler 头注释），
+            // 故不映射业务对象；凭证的 source_no 已写结算单号，可反查。
+            VoucherSourceType::Commission => return None,
         })
     }
 
@@ -1302,7 +1315,7 @@ const TXN_DOC_TYPE_VALUES: [&str; 8] = [
     "ADJUST",
 ];
 
-const VOUCHER_SOURCE_VALUES: [&str; 18] = [
+const VOUCHER_SOURCE_VALUES: [&str; 19] = [
     "STOCK_IN",
     "STOCK_OUT",
     "PAYMENT",
@@ -1321,6 +1334,7 @@ const VOUCHER_SOURCE_VALUES: [&str; 18] = [
     "RECEIPT",
     "RECEIPT_REFUND",
     "INVOICE",
+    "COMMISSION",
 ];
 
 const SERIAL_SOURCE_VALUES: [&str; 4] = ["PURCHASE", "TRANSFER", "PRODUCE", "RETURN"];

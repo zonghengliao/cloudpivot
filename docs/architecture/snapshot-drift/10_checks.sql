@@ -444,6 +444,9 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('VOUCHER_SOURCE', 'RECEIPT_REFUND',       'biz_receipt_refund',     'deleted_at', '收款退款单过账生成（SO-14 遗留）：source_id = 退款单 id，见 receipt_refund::post_refund_voucher'),
     -- 销售链 SO-20：发票开票生成收入凭证（借 1122 / 贷 5001 + 2221.02），作废红冲沿用同一来源
     ('VOUCHER_SOURCE', 'INVOICE',              'biz_invoice',            'deleted_at', '发票开票生成（销售链 SO-20）：source_id = 发票 id，见 invoice::post_invoice_voucher'),
+    -- 销售链 SO-36：佣金结算生成两张凭证（计提 借5601/贷2241.02；发放 借2241.02/贷1002），
+    -- 两张都挂同一结算单（source_no = CM-… 结算单号）
+    ('VOUCHER_SOURCE', 'COMMISSION',           'biz_commission_settlement', 'deleted_at', '佣金结算生成（销售链 SO-36）：source_id = 结算单 id，见 commission_handler::write_commission_voucher'),
     -- ② 库存流水来源单据：biz_inventory_txn.doc_type + doc_id
     ('TXN_DOC', 'STOCK_IN',        'biz_stock_in',        'deleted_at', '收货过账的流水'),
     ('TXN_DOC', 'STOCK_OUT',       'biz_stock_out',       'deleted_at', '出库过账的流水'),

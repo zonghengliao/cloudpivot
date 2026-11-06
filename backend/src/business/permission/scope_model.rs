@@ -176,6 +176,14 @@ pub const TABLE_WIRING: &[TableWiring] = &[
         anchor: "SYS_FILE",
         reason: "文件列表走 scope::paginate(SYS_FILE)，归属列 uploaded_by（business/storage/model.rs:1072）；同文件 221 行的 paginate_unscoped 属于 sys_storage_config，不是本表",
     },
+    // ---- business/erp（销售链 SO-36） ----
+    TableWiring {
+        table: "biz_commission_settlement",
+        status: WiringStatus::Wired,
+        no_paginate: false,
+        anchor: "BIZ_COMMISSION_SETTLEMENT",
+        reason: "佣金结算单分页走 scope::paginate(BIZ_COMMISSION_SETTLEMENT)，归属列 salesperson_id（business/erp/commission_model.rs:469）；无 dept_id ⇒ 部门类范围安全侧降级为「仅本人」（提成对个人不对部门）",
+    },
 ];
 
 /// 取某张表的登记项（未登记 → `None`）。

@@ -116,6 +116,9 @@ pub mod budget_handler;
 pub mod budget_model;
 pub mod cancel_cascade;
 pub mod cash_flow;
+pub mod commission_dto;
+pub mod commission_handler;
+pub mod commission_model;
 #[cfg(test)]
 mod contract_approval_tests;
 pub mod contract_bridge;

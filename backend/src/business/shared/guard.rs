@@ -423,15 +423,17 @@ mod tests {
     /// 附加：登记表清单与自检函数用的是同一份清单（避免两处清单漂移）。
     #[test]
     fn preflight_uses_the_registry() {
-        // 10 张（B2 基线）+ `password_change_logs`（B5 按 §2.5 的 ✅(P1) 行补登记）= 11 张
+        // 10 张（B2 基线）+ `password_change_logs`（B5 按 §2.5 的 ✅(P1) 行补登记）
+        // + `biz_commission_settlement`（SO-36：佣金结算单按销售员注入 SELF）= 12 张
         assert_eq!(
             SCOPED_TABLES.len(),
-            11,
-            "架构 §2.5 登记表 10 张 + B5 补登记的 password_change_logs"
+            12,
+            "架构 §2.5 登记表 10 张 + B5 补登记的 password_change_logs + SO-36 的佣金结算单"
         );
         assert!(SCOPED_TABLES.contains(&ScopeTarget::SYS_USER));
         assert!(SCOPED_TABLES.contains(&ScopeTarget::SYS_FILE));
         assert!(SCOPED_TABLES.contains(&ScopeTarget::PASSWORD_CHANGE_LOGS));
+        assert!(SCOPED_TABLES.contains(&ScopeTarget::BIZ_COMMISSION_SETTLEMENT));
         println!(
             "[清单] preflight 直接遍历 SCOPED_TABLES（{} 张）✓",
             SCOPED_TABLES.len()

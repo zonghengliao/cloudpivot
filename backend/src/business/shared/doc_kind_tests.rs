@@ -868,6 +868,8 @@ fn voucher_source_target_table(value: &str) -> Option<&'static str> {
         "RECEIPT_REFUND" => "biz_receipt_refund",
         // 销售链 SO-20：发票开票的收入凭证（含作废红冲）挂在发票上
         "INVOICE" => "biz_invoice",
+        // 销售链 SO-36：佣金计提 / 发放两张凭证都挂在结算单上
+        "COMMISSION" => "biz_commission_settlement",
         other => panic!(
             "VOUCHER_SOURCE 取值 {other} 没登记目标表：改了 VoucherSourceType 要同步 di.v_poly_ref_map"
         ),

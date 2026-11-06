@@ -1,0 +1,186 @@
+
+### ① 夹具就位（psql 直连隔离库；上游销售链已由 SO-04/10/14 各自的卡验证）
+ orders       |     3
+ receivables  |     3
+ rules        |     3
+ salespersons |     2
+(5 rows)
+
+
+### ② 登录拿 token（admin / SUPER_ADMIN 短路权限）
+token 长度 = 461
+
+### ③ 生成 2026-11 结算单（POST /api/business/erp/commission/settle）
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "period_code": "2026-11",
+        "settlements": [
+            {
+                "id": "01a1b2af-dc04-74dc-802f-672cb3f6d5f3",
+                "settlement_no": "CM-202611-000002",
+                "salesperson_id": "e3600000-0000-4000-8000-000000000011",
+                "salesperson_name": "SO36 \u9500\u552e\u5458\u7532",
+                "period_code": "2026-11",
+                "total_sales": "400.0000",
+                "total_commission": "80.0000",
+                "status": "DRAFT",
+                "paid_at": null,
+                "voucher_id": null,
+                "voucher_no": null,
+                "item_count": 2,
+                "remark": "SO-36 \u8ba1\u63d0\u7559\u8bc1",
+                "created_at": "2026-11-06T21:07:11.999209Z"
+            },
+            {
+                "id": "01a1b2af-dc0c-73fe-89a8-b9ea2f383e6c",
+                "settlement_no": "CM-202611-000003",
+                "salesperson_id": "e3600000-0000-4000-8000-000000000012",
+                "salesperson_name": "SO36 \u9500\u552e\u5458\u4e59",
+                "period_code": "2026-11",
+                "total_sales": "1000.0000",
+                "total_commission": "60.0000",
+                "status": "DRAFT",
+                "paid_at": null,
+                "voucher_id": null,
+                "voucher_no": null,
+                "item_count": 1,
+                "remark": "SO-36 \u8ba1\u63d0\u7559\u8bc1",
+                "created_at": "2026-11-06T21:07:11.999209Z"
+            }
+        ],
+        "skipped": []
+    }
+}
+✅ 结算单张数（SP1 + SP2） = 2
+✅ 期间 = 2026-11
+SP1 结算单 = CM-202611-000002 (01a1b2af-dc04-74dc-802f-672cb3f6d5f3)
+SP2 结算单 = CM-202611-000003 (01a1b2af-dc0c-73fe-89a8-b9ea2f383e6c)
+✅ SP1 佣金基数（已收 400，未收 600 不计） = 400.0000
+✅ SP1 佣金（400 × 20%） = 80.0000
+✅ SP1 初始状态 = DRAFT
+✅ SP2 佣金基数 = 1000.0000
+✅ SP2 佣金（10% 封顶 60） = 60.0000
+
+### ③b 明细核对（GET /api/business/erp/commission/{id}）
+{'ar_no': '__SO36-AR-A__', 'so_no': '__SO36-SO-A__', 'base_amount': '240.0000', 'rate': '20.0000', 'commission': '48.0000', 'rule_name': 'SO36 销售员甲 20%'}
+{'ar_no': '__SO36-AR-A__', 'so_no': '__SO36-SO-A__', 'base_amount': '160.0000', 'rate': '20.0000', 'commission': '32.0000', 'rule_name': 'SO36 销售员甲 20%'}
+✅ SP1 明细行数（M1 + M2 两个物料桶） = 2
+✅ SP1 明细只落在 AR-A（AR-C 未收款不出现） = ['__SO36-AR-A__', '__SO36-AR-A__']
+✅ SP1 基数按订单行金额 6:4 分摊（1000 中已收 400） = ['160.0000', '240.0000']
+✅ SP1 佣金按 20% 计 = ['32.0000', '48.0000']
+✅ 命中的是销售员级规则 = True
+
+### ④ 非法状态迁移 DRAFT → PAID → 409（凭证与单据不能脱钩）
+✅ DRAFT → PAID 的 HTTP 码 = 409
+{"code":10003,"msg":"结算单 CM-202611-000002 不能从「草稿」变成「已发放」（合法路径：DRAFT → APPROVED → PAID）"}
+
+### ⑤ 审批 SP1 → 计提凭证（PATCH status=APPROVED）
+{'settlement_no': 'CM-202611-000002', 'status': 'APPROVED', 'total_commission': '80.0000', 'voucher_id': '2627e92d-b167-4ca4-906b-2e601e986c1e', 'voucher_no': 'PZ-20261107-000004'}
+✅ SP1 审批后状态 = APPROVED
+✅ 计提凭证 id = 2627e92d-b167-4ca4-906b-2e601e986c1e
+
+### ⑤b 凭证分录核对（库里真账：借 5601 / 贷 2241.02，金额 = 80.00）
+     voucher_no     | source_type |    source_no     | line_no | account_code |                                   summary                                   | debit_amount | credit_amount 
+--------------------+-------------+------------------+---------+--------------+-----------------------------------------------------------------------------+--------------+---------------
+ PZ-20261107-000004 | COMMISSION  | CM-202611-000002 |       1 | 5601         | 佣金计提 CM-202611-000002（销售员 SO36 销售员甲 期间 2026-11） 计提销售佣金 |      80.0000 |        0.0000
+ PZ-20261107-000004 | COMMISSION  | CM-202611-000002 |       2 | 2241.02      | 佣金计提 CM-202611-000002（销售员 SO36 销售员甲 期间 2026-11） 应付销售佣金 |       0.0000 |       80.0000
+(2 rows)
+
+✅ 借方 5601 销售费用 80 = 1
+✅ 贷方 2241.02 其他应付款-佣金 80 = 1
+✅ 凭证借贷平衡 = 0
+
+### ⑥ 审批 SP2（封顶 60）→ 凭证金额 60
+✅ SP2 计提凭证借方金额（封顶生效） = 60.0000
+
+### ⑦ 发放 SP1 → 付款凭证（借 2241.02 / 贷 1002）
+{'settlement_no': 'CM-202611-000002', 'status': 'PAID', 'paid_at': '2026-11-06T21:07:12.559065Z'}
+✅ SP1 发放后状态 = PAID
+✅ 发放时间已落库（PAID ⇔ paid_at 非空） = True
+✅ 付款凭证借 2241.02 80（冲平应付佣金） = 1
+✅ 付款凭证贷 1002 银行存款 80 = 1
+
+### ⑧ 重算幂等：同期间再跑 → 已审批的拒绝重算（不重复发钱）
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "period_code": "2026-11",
+        "settlements": [],
+        "skipped": [
+            {
+                "salesperson_id": "e3600000-0000-4000-8000-000000000011",
+                "salesperson_name": "SO36 \u9500\u552e\u5458\u7532",
+                "reason": "\u7ed3\u7b97\u5355 CM-202611-000002 \u5df2\u300c\u5df2\u53d1\u653e\u300d\u5165\u8d26\uff0c\u4e0d\u80fd\u91cd\u7b97\uff08\u5982\u9700\u66f4\u6b63\u8bf7\u7ea2\u51b2\u51ed\u8bc1\u540e\u4f5c\u5e9f\u8be5\u5355\uff09"
+            },
+            {
+                "salesperson_id": "e3600000-0000-4000-8000-000000000012",
+                "salesperson_name": "SO36 \u9500\u552e\u5458\u4e59",
+                "reason": "\u7ed3\u7b97\u5355 CM-202611-000003 \u5df2\u300c\u5df2\u5ba1\u6279\u300d\u5165\u8d26\uff0c\u4e0d\u80fd\u91cd\u7b97\uff08\u5982\u9700\u66f4\u6b63\u8bf7\u7ea2\u51b2\u51ed\u8bc1\u540e\u4f5c\u5e9f\u8be5\u5355\uff09"
+            }
+        ]
+    }
+}
+✅ 无新建结算单 = 0
+✅ 两个销售员都被跳过 = 2
+✅ 跳过原因是「已审批入账不能重算」 = True
+
+### ⑨ 退货 / 退款冲回：AR-B 已收 1000 → 600（模拟收款退款单把已收打回），下一期间计提 −40
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "period_code": "2026-12",
+        "settlements": [
+            {
+                "id": "01a1b2af-df10-7145-a856-e1ccbffd2bee",
+                "settlement_no": "CM-202612-000004",
+                "salesperson_id": "e3600000-0000-4000-8000-000000000012",
+                "salesperson_name": "SO36 \u9500\u552e\u5458\u4e59",
+                "period_code": "2026-12",
+                "total_sales": "0.0000",
+                "total_commission": "-40.0000",
+                "status": "DRAFT",
+                "paid_at": null,
+                "voucher_id": null,
+                "voucher_no": null,
+                "item_count": 1,
+                "remark": null,
+                "created_at": "2026-11-06T21:07:12.778557Z"
+            }
+        ],
+        "skipped": [
+            {
+                "salesperson_id": "e3600000-0000-4000-8000-000000000011",
+                "salesperson_name": "SO36 \u9500\u552e\u5458\u7532",
+                "reason": "\u672c\u671f\u6ca1\u6709\u53ef\u8ba1\u4f63\u7684\u5df2\u6536\u6b3e\uff08\u672a\u6536\u6b3e / \u5df2\u5168\u90e8\u8ba1\u8fc7 / \u672a\u547d\u4e2d\u751f\u6548\u89c4\u5219\uff09"
+            }
+        ]
+    }
+}
+✅ 冲回佣金 −40（−400 × 10%） = -40.0000
+✅ 纯冲回期间 total_sales 按 0 兜底（库层 CHECK） = 0.0000
+[{'base_amount': '-400.0000', 'rate': '10.0000', 'commission': '-40.0000', 'remark': '退货 / 退款冲回（SO36 物料一 10% 封顶 60）'}]
+
+### ⑩ 分页（GET /api/business/erp/commission/page，数据权限走 scope::paginate）
+{'total': 3, 'rows': [{'settlement_no': 'CM-202612-000004', 'period_code': '2026-12', 'status': 'DRAFT', 'total_commission': '-40.0000'}, {'settlement_no': 'CM-202611-000003', 'period_code': '2026-11', 'status': 'APPROVED', 'total_commission': '60.0000'}, {'settlement_no': 'CM-202611-000002', 'period_code': '2026-11', 'status': 'PAID', 'total_commission': '80.0000'}]}
+✅ 2026-11 期间结算单数 = 2
+✅ PAID 状态筛选 = 1
+✅ 关键字（单号）筛选 = 2
+
+### ⑪ 负路径：period_code 乱码 → 400
+✅ 非法期间 HTTP 码 = 400
+{"code":10001,"msg":"period_code 的月份必须在 01–12（收到「2026-13」）"}
+
+### ⑫ 负路径：status 乱码 → 400
+✅ 非法状态 HTTP 码 = 400
+{"code":10001,"msg":"status 只认 [\"DRAFT\", \"APPROVED\", \"PAID\"]（收到「CANCELLED」）"}
+
+### ⑬ 无 token → 401（权限不是只靠前端藏按钮）
+✅ 列表无 token = 401
+✅ 计提无 token = 401
+
+### 结果
+ALL CHECKS PASSED

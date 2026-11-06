@@ -1,0 +1,54 @@
+
+### 库：cloudpivot_so36p
+
+### ① up（第一轮）
+-- psql -f V0311__commission_settle_setup.up.sql
+NOTICE:  relation "idx_biz_cmitem_settlement_status" already exists, skipping
+NOTICE:  V0311 完成：2241.02 + biz_seq(CM) + 有符号基数列就位
+account_2241_02=1
+seq_cm=1
+base_check=CHECK ((base_amount <> (0)::numeric))
+idx_cmitem_status=1
+
+### ② up（第二轮，必须幂等：无 ERROR，值不变）
+-- psql -f V0311__commission_settle_setup.up.sql
+NOTICE:  relation "idx_biz_cmitem_settlement_status" already exists, skipping
+NOTICE:  V0311 完成：2241.02 + biz_seq(CM) + 有符号基数列就位
+account_2241_02=1
+seq_cm=1
+base_check=CHECK ((base_amount <> (0)::numeric))
+idx_cmitem_status=1
+
+### ③ 行为探针：负基数可插、0 被拒
+negative_base_ok=-100.0000
+-- 试图插入 base_amount = 0（必须被 ck_biz_cmitem_base 拒绝）
+ERROR:  new row for relation "biz_commission_item" violates check constraint "ck_biz_cmitem_base"
+
+### ④ down（有负基数行 → 必须被 ck_biz_cmitem_base 挡住：这条路径是设计，不是 bug）
+-- psql -f V0311__commission_settle_setup.down.sql
+ERROR:  check constraint "ck_biz_cmitem_base" of relation "biz_commission_item" is violated by some row
+settlements=1
+
+### ⑤ 清掉凭证明细与负数行后 down（第二轮，必须成功）
+-- psql -f V0311__commission_settle_setup.down.sql
+NOTICE:  index "idx_biz_cmitem_settlement_status" does not exist, skipping
+account_2241_02=0
+seq_cm=0
+base_check=CHECK ((base_amount >= (0)::numeric))
+idx_cmitem_status=0
+
+### ⑥ down（第三轮，必须幂等：无 ERROR）
+-- psql -f V0311__commission_settle_setup.down.sql
+NOTICE:  index "idx_biz_cmitem_settlement_status" does not exist, skipping
+account_2241_02=0
+seq_cm=0
+base_check=CHECK ((base_amount >= (0)::numeric))
+idx_cmitem_status=0
+
+### ⑦ up（恢复）
+-- psql -f V0311__commission_settle_setup.up.sql
+NOTICE:  V0311 完成：2241.02 + biz_seq(CM) + 有符号基数列就位
+account_2241_02=1
+seq_cm=1
+base_check=CHECK ((base_amount <> (0)::numeric))
+idx_cmitem_status=1
