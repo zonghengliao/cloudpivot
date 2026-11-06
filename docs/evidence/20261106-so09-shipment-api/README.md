@@ -87,7 +87,7 @@ DRAFT ──提交──▶ PENDING_POST ──过账──▶ POSTED
 |------|------|------|
 | `cargo test --lib`（发货单模块，真库，**两轮**） | 两轮各 **21 passed / 0 failed** | `unit-round-1.txt` / `unit-round-2.txt` |
 | `cargo test --lib`（shared：doc_kind + state_machine，真库） | **134 passed / 0 failed** | `unit-shared-round-1.txt` |
-| `cargo test --lib`（全量，干净库 `cloudpivot_so09b`，`--test-threads=1`） | **2758 passed / 3 failed**（1342s）：1 条本卡引入（联动白名单）**已修复并复跑 240 绿**；2 条为既有缺陷（SO-06 线：`so_approve` graph_hash 漂移、审批夹具顺序污染） | `full-suite.txt` + `full-suite-attribution.md` + `after-fix-subset.txt` |
+| `cargo test --lib`（全量，干净库 `cloudpivot_so09b`，`--test-threads=1`，**两轮**） | 首轮 **2758/3**（含本卡引入 1 条）→ 修复后**二轮 2759 passed / 2 failed**（1392s），剩余 2 条为既有缺陷（SO-06 线：`so_approve` graph_hash 漂移、审批夹具顺序污染） | `full-suite.txt` + `full-suite-round-2.txt` + `full-suite-attribution.md` + `after-fix-subset.txt` |
 | `cargo fmt`（rustfmt +1.94.1 / edition 2024，改动文件全部 --check） | **rc=0** | `fmt.txt` |
 | `cargo clippy --all-targets -D warnings` | **0 warning** | `clippy.txt` |
 | 真机 curl（真实 token，**两轮**） | 两轮各 **25 条断言全通过** | `curl-round-1.txt` / `curl-round-2.txt` / `curl-e2e.sh` |

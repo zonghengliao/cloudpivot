@@ -34,3 +34,18 @@ ERP_DB_URL='postgres://alun:***@127.0.0.1:5432/cloudpivot_so09' \
 > 说明：**第 1、2 条是既有缺陷，本卡不修**（修它们要新开迁移重算 V0281 的 graph_hash / 清审批夹具残留，
 > 属于 SO-06 线的独立缺陷卡）。因此「全量 0 失败」在当前 main 上不可达 —— 本卡的口径是：
 > **本卡引入的失败已归零**（第 3 条修复并复跑 240 绿），另 2 条与 SO-08 交接记录的失败**逐条同因同点**。
+
+## 修复后的第二轮全量（`full-suite-round-2.txt`）
+
+同一个干净库 `cloudpivot_so09b`、同一命令跑第二轮：
+
+```
+test result: FAILED. 2759 passed; 2 failed; … finished in 1392.53s
+failures:
+    business::erp::sales_approval_bridge::db_tests::three_tiers_start_flow_and_approve_to_approved
+    business::erp::stockin_handler::stockin_handler_tests_p16::p16_graph_snapshot_selfcheck_is_clean
+```
+
+对比首轮（2758/3）：`flow::linkage::tests::triggers_cover_state_machine_entities` **已绿**，
+`passed` +1、`failed` −1 —— 本卡引入的失败**归零**，剩下两条就是上表 #1 / #2 的既有缺陷。
+（两条既有缺陷的修复建议：新开迁移重算 V0281 `so_approve` 的 graph_hash；审批夹具加清场。属 SO-06 线缺陷卡，不在本卡范围。）
