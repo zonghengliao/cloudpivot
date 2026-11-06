@@ -24,7 +24,8 @@
 //! | `WRITTEN_OFF` | `CANCELLED` | **坏账核销**（收不回来了，终态） |
 //! | `CANCELLED` | （无） | **出库作废冲销**（来源出库单作废 ⇒ 这笔销售从未发生，终态；V0290） |
 //!
-//! 边表是 [`LEGAL_EDGES`]（= `state_machine::RECEIVABLE_EDGES`，6 条），全部经
+//! 边表是 [`LEGAL_EDGES`]（= `state_machine::RECEIVABLE_EDGES`，9 条；其中 3 条是
+//! 收款退款单的反向边 `SETTLED → PARTIAL → OPEN`，由 SO-14 遗留卡补入），全部经
 //! `state_machine::transition` 落库并写 `biz_status_log`（`entity_type = RECEIVABLE`）。
 //!
 //! ⚠ `WRITTEN_OFF`（坏账）与 `CANCELLED`（作废）**不能混用**：
@@ -159,7 +160,7 @@ pub const RECEIVABLE_SEQ: SeqSpec<'static> = SeqSpec {
 };
 
 /// 合法边（唯一真相在 `state_machine::RECEIVABLE_EDGES`，这里只是别名）。
-pub const LEGAL_EDGES: [(&str, &str); 6] = state_machine::RECEIVABLE_EDGES;
+pub const LEGAL_EDGES: [(&str, &str); 9] = state_machine::RECEIVABLE_EDGES;
 
 /// 入账态（唯一真相在 `state_machine::RECEIVABLE_LOCKED`）。
 pub const LOCKED: [&str; 3] = state_machine::RECEIVABLE_LOCKED;
