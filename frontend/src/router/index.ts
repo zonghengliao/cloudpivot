@@ -469,6 +469,26 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '价格管理', permission: 'business:erp:cust-price:list' },
       },
       {
+        // ==================== ERP 佣金规则（SO-37 · 销售链 §15.4） ====================
+        // `sys_menu`（V0310 种子 …3301）path/component 留 NULL，由 V0312 收尾补成
+        // `/business/erp/commission-rule` + `business/erp/commission-rule/index`
+        // （先注册路由、再填菜单：`system::menu::tests::n08` 是真库档硬门禁，
+        //  path 先填而路由后加会让 n08 一直红）。
+        path: 'business/erp/commission-rule',
+        name: 'BusinessErpCommissionRule',
+        component: () => import('@/views/business/erp/commission-rule/index.vue'),
+        meta: { title: '佣金规则', permission: 'business:erp:commission-rule:list' },
+      },
+      {
+        // ==================== ERP 佣金结算（SO-37 · 销售链 §15.4） ====================
+        // `sys_menu`（V0310 种子 …3311）path 同样留 NULL，由 V0312 补成
+        // `/business/erp/commission` + `business/erp/commission/index`。
+        path: 'business/erp/commission',
+        name: 'BusinessErpCommission',
+        component: () => import('@/views/business/erp/commission/index.vue'),
+        meta: { title: '佣金结算', permission: 'business:erp:commission-settle:list' },
+      },
+      {
         // ==================== ERP 序列号（W4b-2） ====================
         // `sys_menu`（V0142 种子 …0981）path = `/business/erp/serial`，component
         // `business/erp/serial/index`。**路由手工注册**，漏了 = 点菜单进 404。

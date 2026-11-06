@@ -57,6 +57,9 @@ function order(overrides: Partial<SalesOrder> = {}): SalesOrder {
     customer_name: '北京示例科技有限公司',
     contract_id: null,
     contract_no: null,
+    // SO-37：销售员（未指定 = null；佣金按它归属）
+    salesperson_id: null,
+    salesperson_name: null,
     order_date: '2026-11-06',
     delivery_date: null,
     status: 'DRAFT',
@@ -373,11 +376,33 @@ test('create payload keeps dates and folds empty remark to null', () => {
     customer_id: 'c1',
     // 没选合同 → `null`（SO-27：`contract_id` 显式发 null，后端 serde 折成 None）
     contract_id: null,
+    // 没选销售员 → `null`（SO-37：后端不默认成建单人 —— 佣金归属必须显式指定）
+    salesperson_id: null,
     order_date: '2026-11-06',
     delivery_date: null,
     remark: null,
     items: [{ material_id: 'm1', qty: '2', price: '100', tax_rate: '13' }],
   });
+});
+
+test('SO-37 销售员：建单发 id、改单用 "" 解绑、详情 null 折成空串', () => {
+  // ① 建单：选了销售员就发 id
+  const createForm = emptySalesOrderForm('2026-11-07');
+  createForm.customer_id = 'c1';
+  createForm.salesperson_id = 'u-1';
+  assert.equal(buildCreatePayload(createForm).salesperson_id, 'u-1');
+
+  // ② 改单：必须显式发（省略 = 后端「不改」，用户就永远解不掉销售员）
+  const updateForm = emptySalesOrderForm('2026-11-07');
+  updateForm.customer_id = 'c1';
+  updateForm.salesperson_id = '';
+  assert.equal(buildUpdatePayload(updateForm).salesperson_id, '', '空串 = 解绑销售员');
+
+  // ③ 详情 → 表单：`null`（老单 / 没指定）折成空串，别让 t-select 收到 null
+  const withSalesperson = order({ salesperson_id: 'u-9', salesperson_name: '张三' });
+  assert.equal(formFromDetail(withSalesperson).salesperson_id, 'u-9');
+  const withoutSalesperson = order({ salesperson_id: null, salesperson_name: null });
+  assert.equal(formFromDetail(withoutSalesperson).salesperson_id, '');
 });
 
 test('SO-27 合同：建单带上 contract_id，改单用 "" 表示解绑，详情回填', () => {

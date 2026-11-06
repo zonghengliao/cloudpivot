@@ -410,6 +410,13 @@ export interface SalesOrderFormDraft {
    * 只放「SALES 类型 + 可用状态」的合同；填了由后端校验乙方 = 本单客户与合同额度。
    */
   contract_id: string;
+  /**
+   * 销售员 id（`''` = 不指定，SO-35 / ARCH-7 §15.4）。
+   *
+   * 佣金按「订单的销售员」归属，**留空不等于建单人**：后端不默认，前台也不猜。
+   * 填了后端会校验「存在 + 未软删 + 启用」，停用账号 400。
+   */
+  salesperson_id: string;
   /** 下单日期（`yyyy-MM-dd`） */
   order_date: string;
   /** 要求交期（`''` = 未约定） */
@@ -521,6 +528,7 @@ export function emptySalesOrderForm(today: string): SalesOrderFormDraft {
   return {
     customer_id: '',
     contract_id: '',
+    salesperson_id: '',
     order_date: today,
     delivery_date: '',
     remark: '',
@@ -538,6 +546,8 @@ export function formFromDetail(order: SalesOrder): SalesOrderFormDraft {
   return {
     customer_id: order.customer_id,
     contract_id: order.contract_id ?? '',
+    // 销售员可能为 null（SO-35 之前的老单 / 建单时没指定）→ 折成空串，输入框只认字符串
+    salesperson_id: order.salesperson_id ?? '',
     order_date: order.order_date,
     delivery_date: order.delivery_date ?? '',
     remark: order.remark ?? '',
@@ -650,6 +660,8 @@ export function buildCreatePayload(form: SalesOrderFormDraft): CreateSalesOrderR
   return {
     customer_id: form.customer_id,
     contract_id: form.contract_id || null,
+    // 空串 = 不指定销售员（后端不默认成建单人：佣金归属要人明确指定）
+    salesperson_id: form.salesperson_id || null,
     order_date: form.order_date,
     delivery_date: form.delivery_date || null,
     remark: form.remark.trim() || null,
@@ -668,6 +680,8 @@ export function buildUpdatePayload(form: SalesOrderFormDraft): UpdateSalesOrderR
     // 空串 = 解绑合同（后端 `parse_contract_id` 把 Some("") 折成 None）；
     // 不能省略：省略表示「不改」，用户就永远解不掉已挂的合同
     contract_id: form.contract_id,
+    // 空串 = 解绑销售员（后端把 `Some("")` 折成 None）；不能省略，否则永远解不掉
+    salesperson_id: form.salesperson_id,
     order_date: form.order_date,
     delivery_date: form.delivery_date || '',
     remark: form.remark.trim(),

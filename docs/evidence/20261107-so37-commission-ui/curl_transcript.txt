@@ -1,0 +1,80 @@
+═══ ① 佣金规则：列表 / 过滤（含 scope_name 派生列） ═══
+PASS  规则分页 HTTP 200                                    = 200
+PASS  规则分页 total（夹具 3 条）                     = 3
+PASS  出参带 scope_name（销售员姓名）                = SO36 销售员甲
+PASS  出参带 scope_name（物料名称）                   = SO36 物料一
+PASS  比率是字符串（NUMERIC 口径 5.0000）            = 5.0000
+PASS  scope_type 过滤只回销售员级                      = 1
+PASS  keyword 过滤（「封顶」只命中物料级那条） = 1
+PASS  status 过滤（现在没有停用规则）              = 0
+
+═══ ② 佣金规则：新建（页面表单发的就是这份入参） ═══
+PASS  新建规则 HTTP 200                                    = 200
+PASS  新建回单带 id                                       = yes
+PASS  新建回 scope_name = SO36 物料二                    = SO36 物料二
+PASS  新建回 rate 字符串 15.0000                         = 15.0000
+PASS  新建回 effective_to = null（长期有效）          = null
+
+═══ ③ 佣金规则：五条库层约束的入口拦截（前端校验的后端兜底） ═══
+PASS  ALL 带 scope_id → 400                                 = 400
+PASS  PERCENT rate=120 → 400                                 = 400
+PASS  max_amount < min_amount → 400                          = 400
+PASS  effective_to < effective_from → 400                    = 400
+PASS  scope_id 指向不存在的账号 → 400                = 400
+
+═══ ④ 佣金规则：编辑 / 停用 / 删除 ═══
+PASS  编辑 rate HTTP 200                                     = 200
+PASS  编辑后 rate = 12.0000                                 = 12.0000
+PASS  没传的字段保持原值（部分更新）            = SO37 页面新建：物料二 15%
+PASS  停用（改 status，不删行）                       = INACTIVE
+PASS  停用后能在 INACTIVE 过滤里查到                 = 1
+PASS  软删 HTTP 200                                          = 200
+PASS  软删后列表回到 3 条                              = 3
+
+═══ ⑤ 生成结算单（期间 + 销售员；已收款口径） ═══
+PASS  生成 HTTP 200                                          = 200
+PASS  生成 2 张（SP1 / SP2）                              = 2
+PASS  SP1 结算单号前缀 CM-202611                         = CM-202611
+PASS  SP1 佣金 80.0000（销售员 20% 压过物料 10% / 全局 5%） = 80.0000
+PASS  结算单分页回来 2 张                              = 2
+PASS  分页带 item_count（明细行数 2）                 = 2
+
+═══ ⑥ 查看明细（哪笔订单 / 应收产生多少佣金） ═══
+PASS  详情 HTTP 200                                          = 200
+PASS  明细 2 行（SO-A 拆成物料一 / 物料二两桶） = 2
+PASS  明细带销售订单号                                 = __SO36-SO-A__
+PASS  明细带应收单号                                    = __SO36-AR-A__
+PASS  明细带命中规则名                                 = SO36 销售员甲 20%
+PASS  明细佣金合计 = 单头应发（48+32=80）          = 80
+PASS  明细基数为正（计提）                           = true
+
+═══ ⑦ 审批 / 发放（合法边 + 跳步 / 回退 409） ═══
+PASS  DRAFT → PAID 跳步 → 409                            = 409
+PASS  DRAFT → APPROVED HTTP 200                              = 200
+PASS  审批后状态 APPROVED                                 = APPROVED
+PASS  审批后出计提凭证号（PZ-）                     = PZ-
+PASS  APPROVED → DRAFT 回退 → 409                        = 409
+PASS  APPROVED → PAID HTTP 200                               = 200
+PASS  发放后状态 PAID                                     = PAID
+PASS  PAID 后有发放时间                                  = yes
+PASS  已审批 / 已发放的单不被重算（SP1 进 skipped） = true
+
+═══ ⑧ 冲回场景（SP2 应收 1000 → 600：−400 基数 / −40 佣金） ═══
+PASS  2026-12 生成 1 张（SP2 冲回）                     = 1
+PASS  冲回佣金 -40.0000                                    = -40.0000
+PASS  冲回明细基数为负                                 = true
+PASS  冲回明细备注说明退货 / 退款                  = yes
+
+═══ ⑨ 权限（无 commission-rule:* → 403；前端隐藏按钮的后端兜底） ═══
+PASS  销售员账号建规则 → 403                         = 403
+PASS  销售员账号看规则列表 → 403                   = 403
+
+═══ ⑩ 菜单（V0312：两个页面节点可见且 path 与前端路由逐字一致） ═══
+PASS  菜单树里有「佣金规则」                        = yes
+PASS  菜单树里有「佣金结算」                        = yes
+PASS  佣金规则 path                                        = /business/erp/commission-rule
+PASS  佣金结算 path                                        = /business/erp/commission
+PASS  佣金规则 component                                   = business/erp/commission-rule/index
+
+──────────────────────────────────────────────
+ALL CHECKS PASSED (58)

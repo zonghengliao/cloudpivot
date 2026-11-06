@@ -221,6 +221,27 @@
               </t-form-item>
             </t-col>
             <t-col :span="6">
+              <t-form-item label="销售员">
+                <!-- SO-37：佣金归属人。留空 = 不指定（后端不默认成建单人）；
+                     候选要 system:user:list，销售员账号没有 → 降级成提示 + 手填 -->
+                <t-select
+                  v-if="!salespersonOptionsFailed"
+                  v-model="form.salesperson_id"
+                  :options="salespersonOptions"
+                  filterable
+                  clearable
+                  placeholder="不指定（留空则这笔订单不产生佣金）"
+                  data-testid="so-form-salesperson"
+                />
+                <t-input
+                  v-else
+                  v-model="form.salesperson_id"
+                  placeholder="候选无权限读取：粘贴销售员 UUID 或留空"
+                  data-testid="so-form-salesperson-manual"
+                />
+              </t-form-item>
+            </t-col>
+            <t-col :span="6">
               <t-form-item label="订单日期" required-mark>
                 <t-date-picker
                   v-model="form.order_date"
@@ -462,6 +483,7 @@
         <t-descriptions :column="2" size="small" class="detail-desc" data-testid="so-detail-desc">
           <t-descriptions-item label="客户">{{ customerText(detail) }}</t-descriptions-item>
           <t-descriptions-item label="销售合同">{{ detail.contract_no || '—' }}</t-descriptions-item>
+          <t-descriptions-item label="销售员">{{ detail.salesperson_name || '未指定（不产生佣金）' }}</t-descriptions-item>
           <t-descriptions-item label="订单日期">{{ detail.order_date }}</t-descriptions-item>
           <t-descriptions-item label="要求交期">{{ detail.delivery_date || '—' }}</t-descriptions-item>
           <t-descriptions-item label="价税合计">
@@ -586,6 +608,7 @@ import {
   type SalesOrderStatus,
 } from '@/api/business/erp';
 import { getFlowInstance, withdrawFlowInstance } from '@/api/business/flow-api';
+import { pageUsers, type UserRes } from '@/api/system/user-api';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
 import {
   EMPTY_APPROVAL_PROGRESS,
@@ -746,6 +769,10 @@ const customers = ref<Customer[]>([]);
 const materials = ref<MaterialRow[]>([]);
 /** 可挂的销售合同（`contract_type=SALES` + `status=ACTIVE`，SO-27） */
 const contracts = ref<ContractRow[]>([]);
+/** 销售员候选（SO-37；`sys_user.page` 里 `status=1` 的启用账号） */
+const salespersons = ref<UserRes[]>([]);
+/** 销售员候选拉不到（销售员 / 销售主管没有 `system:user:list`）→ 表单里给降级提示 */
+const salespersonOptionsFailed = ref(false);
 
 /** 客户下拉：只列 `ACTIVE`（冻结客户开不了新单，后端 400） */
 const customerOptions = computed(() =>
@@ -765,6 +792,14 @@ const customerOptions = computed(() =>
 const contractOptions = computed(() =>
   contracts.value.map((item) => ({
     label: `${item.contract_no} ${item.contract_name}`,
+    value: item.id,
+  })),
+);
+
+/** 销售员下拉（`real_name（username）`；账号名兜底，别显示裸 UUID） */
+const salespersonOptions = computed(() =>
+  salespersons.value.map((item) => ({
+    label: `${item.real_name || item.username}（${item.username}）`,
     value: item.id,
   })),
 );
@@ -836,12 +871,15 @@ function customerText(row: { customer_name: string | null; customer_code: string
 }
 
 async function loadOptions(): Promise<void> {
-  // 三个下拉互不依赖，一起发；任何一个失败都不该让页面整体失败 —— 只在控制台留痕
-  const [customerResult, materialResult, contractResult] = await Promise.allSettled([
+  // 四个下拉互不依赖，一起发；任何一个失败都不该让页面整体失败 —— 只在控制台留痕
+  const [customerResult, materialResult, contractResult, userResult] = await Promise.allSettled([
     fetchCustomerPage({ status: 'ACTIVE', page: 1, page_size: 200 }),
     fetchMaterialPage({ status: 1, page: 1, page_size: 200 }),
     // SO-27：只列 SALES + ACTIVE 的销售合同（卡面口径）
     fetchContractPage({ contract_type: 'SALES', status: 'ACTIVE', page: 1, page_size: 200 }),
+    // SO-37：销售员候选（佣金归属人）。销售员 / 销售主管**没有** system:user:list，
+    // 拉不到时只是下拉为空 —— 建单本身照旧（后端允许销售员留空）
+    pageUsers({ page: 1, page_size: 200, status: 1 }),
   ]);
   if (customerResult.status === 'fulfilled') {
     customers.value = customerResult.value.list ?? [];
@@ -851,6 +889,12 @@ async function loadOptions(): Promise<void> {
   }
   if (contractResult.status === 'fulfilled') {
     contracts.value = contractResult.value.list ?? [];
+  }
+  if (userResult.status === 'fulfilled') {
+    salespersons.value = userResult.value.list ?? [];
+    salespersonOptionsFailed.value = salespersons.value.length === 0;
+  } else {
+    salespersonOptionsFailed.value = true;
   }
 }
 

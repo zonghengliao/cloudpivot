@@ -4483,6 +4483,10 @@ export interface SalesOrder {
   contract_id: string | null;
   /** 销售合同号（`HT-yyyyMMdd-000001`；**只有详情填**，列表恒 `null`） */
   contract_no: string | null;
+  /** 销售员 id（未指定 `null`；V0309 / SO-35 —— 佣金归属人） */
+  salesperson_id: string | null;
+  /** 销售员姓名（列表批量补齐 / 详情单查；账号软删后 `null`） */
+  salesperson_name: string | null;
   /** 下单日期（`yyyy-MM-dd`） */
   order_date: string;
   /** 要求交期（未约定 `null`） */
@@ -4532,6 +4536,13 @@ export interface CreateSalesOrderReq {
    * （否则 400），且「已下单 + 本单」不得超合同金额（超出 409 `66019`）。
    */
   contract_id?: string | null;
+  /**
+   * 销售员 id（`sys_user.id`，可空 = 不指定；SO-35 / V0309）。
+   *
+   * 填了就必须是「存在 + 未软删 + 启用」的账号（停用账号不允许再接新单计佣）；
+   * **留空不默认成建单人** —— 佣金归属必须是人明确指定的。
+   */
+  salesperson_id?: string | null;
   /** 下单日期（`yyyy-MM-dd`，不给 = 今天） */
   order_date?: string;
   /** 要求交期（不能早于下单日） */
@@ -4552,6 +4563,12 @@ export interface UpdateSalesOrderReq {
   customer_id?: string;
   /** 销售合同 id（**不传 = 不改**；传 `''` = 解绑；传 id = 换合同，SO-27） */
   contract_id?: string | null;
+  /**
+   * 销售员 id（**不传 = 不改**；传 `''` = 解绑；传 id = 换人；SO-35）。
+   *
+   * 换人同样要过「存在 + 未软删 + 启用」（停用账号不允许再接新单计佣）。
+   */
+  salesperson_id?: string | null;
   /** 下单日期（不传 = 不改） */
   order_date?: string;
   /** 交期（传 `''` = 清空） */

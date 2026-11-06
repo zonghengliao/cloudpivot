@@ -1,0 +1,22 @@
+=== 门禁（2026-11-07 06:0x） ===
+--- pnpm typecheck
+干净（退出码 0，无输出行）
+
+--- vite build（outDir 指到工作区外，未覆盖生产 dist）
+dist-so37/assets/tdesign-B9Yx93ic.js.gz                                                7994.62kb / gzip: 772.17kb
+
+
+EXIT=0
+
+--- pnpm check:palettes
+色阶算法断言：330 条，失败 0 条 / 色板数据校验：通过 / [check-palettes] 全部通过 ✓
+
+--- pnpm test:unit
+tests 1029 / pass 1028 / fail 1（唯一失败：flow-biz-link.test.ts「后端 FlowBizType 16 ≠ 前端 15」，HEAD 既有缺陷，本卡未触及相关文件）
+
+--- 我的改动涉及的路径（git status）
+ M frontend/src/router/index.ts
+?? backend/migrations/business/V0312__commission_menu_page.up.sql
+?? frontend/src/api/business/erp/commission.ts
+?? frontend/src/views/business/erp/commission-rule/
+?? frontend/src/views/business/erp/commission/

@@ -1,0 +1,44 @@
+=== V0312 迁移往返探针（库 cloudpivot_so37p = cloudpivot_so36 克隆）===
+--- 0) 克隆库先确认 V0312 未应用
+1
+--- 1) up（第一次）
+psql:backend/migrations/business/V0312__commission_menu_page.up.sql:229: NOTICE:  V0312 ① 规则页 path 更新 0 行
+psql:backend/migrations/business/V0312__commission_menu_page.up.sql:229: NOTICE:  V0312 ② 规则页 component 更新 0 行
+psql:backend/migrations/business/V0312__commission_menu_page.up.sql:229: NOTICE:  V0312 ③ 规则页 title/parent/sort/visible 更新 0 行
+psql:backend/migrations/business/V0312__commission_menu_page.up.sql:229: NOTICE:  V0312 ④ 结算页 path 更新 0 行
+psql:backend/migrations/business/V0312__commission_menu_page.up.sql:229: NOTICE:  V0312 ⑤ 结算页 component 更新 0 行
+psql:backend/migrations/business/V0312__commission_menu_page.up.sql:229: NOTICE:  V0312 ⑥ 结算页 title/parent/sort/visible 更新 0 行
+psql:backend/migrations/business/V0312__commission_menu_page.up.sql:229: NOTICE:  V0312 完成：佣金规则 /business/erp/commission-rule（sort 80）、佣金结算 /business/erp/commission（sort 90）已挂到「销售管理」目录
+--- 2) up（第二次，幂等：每条 UPDATE 都应是 0 行）
+psql:backend/migrations/business/V0312__commission_menu_page.up.sql:229: NOTICE:  V0312 ① 规则页 path 更新 0 行
+psql:backend/migrations/business/V0312__commission_menu_page.up.sql:229: NOTICE:  V0312 ② 规则页 component 更新 0 行
+psql:backend/migrations/business/V0312__commission_menu_page.up.sql:229: NOTICE:  V0312 ③ 规则页 title/parent/sort/visible 更新 0 行
+psql:backend/migrations/business/V0312__commission_menu_page.up.sql:229: NOTICE:  V0312 ④ 结算页 path 更新 0 行
+psql:backend/migrations/business/V0312__commission_menu_page.up.sql:229: NOTICE:  V0312 ⑤ 结算页 component 更新 0 行
+psql:backend/migrations/business/V0312__commission_menu_page.up.sql:229: NOTICE:  V0312 ⑥ 结算页 title/parent/sort/visible 更新 0 行
+psql:backend/migrations/business/V0312__commission_menu_page.up.sql:229: NOTICE:  V0312 完成：佣金规则 /business/erp/commission-rule（sort 80）、佣金结算 /business/erp/commission（sort 90）已挂到「销售管理」目录
+--- 3) 终态
+佣金规则|/business/erp/commission-rule|business/erp/commission-rule/index|20000000-0000-0000-0000-000000002701|80|t
+佣金结算|/business/erp/commission|business/erp/commission/index|20000000-0000-0000-0000-000000002701|90|t
+--- 4) down（还原成 V0310 形状）
+psql:backend/migrations/business/V0312__commission_menu_page.down.sql:129: NOTICE:  V0312 down ① 规则页还原 1 行
+psql:backend/migrations/business/V0312__commission_menu_page.down.sql:129: NOTICE:  V0312 down ② 结算页还原 1 行
+psql:backend/migrations/business/V0312__commission_menu_page.down.sql:129: NOTICE:  V0312 down 完成：佣金两页已还原为隐藏节点（权限码与按钮保持不变）
+佣金规则（按销售员 / 物料类别 / 全局；百分比或固定额；起止金额 + 有效期）。path/component/可见性由 SO-37 落地后补|NULL|NULL|NULL|88|f
+佣金结算（按 销售员 × 期间 汇总；按已核销应收计佣；DRAFT/APPROVED/PAID）。path/component/可见性由 SO-37 落地后补|NULL|NULL|NULL|92|f
+--- 5) down（第二次，幂等）
+psql:backend/migrations/business/V0312__commission_menu_page.down.sql:129: NOTICE:  V0312 down ① 规则页还原 0 行
+psql:backend/migrations/business/V0312__commission_menu_page.down.sql:129: NOTICE:  V0312 down ② 结算页还原 0 行
+psql:backend/migrations/business/V0312__commission_menu_page.down.sql:129: NOTICE:  V0312 down 完成：佣金两页已还原为隐藏节点（权限码与按钮保持不变）
+--- 6) 再 up（可重放）
+psql:backend/migrations/business/V0312__commission_menu_page.up.sql:229: NOTICE:  V0312 ① 规则页 path 更新 1 行
+psql:backend/migrations/business/V0312__commission_menu_page.up.sql:229: NOTICE:  V0312 ② 规则页 component 更新 1 行
+psql:backend/migrations/business/V0312__commission_menu_page.up.sql:229: NOTICE:  V0312 ③ 规则页 title/parent/sort/visible 更新 1 行
+psql:backend/migrations/business/V0312__commission_menu_page.up.sql:229: NOTICE:  V0312 ④ 结算页 path 更新 1 行
+psql:backend/migrations/business/V0312__commission_menu_page.up.sql:229: NOTICE:  V0312 ⑤ 结算页 component 更新 1 行
+psql:backend/migrations/business/V0312__commission_menu_page.up.sql:229: NOTICE:  V0312 ⑥ 结算页 title/parent/sort/visible 更新 1 行
+psql:backend/migrations/business/V0312__commission_menu_page.up.sql:229: NOTICE:  V0312 完成：佣金规则 /business/erp/commission-rule（sort 80）、佣金结算 /business/erp/commission（sort 90）已挂到「销售管理」目录
+佣金规则|/business/erp/commission-rule|t
+佣金结算|/business/erp/commission|t
+--- 7) 真实实例上的记账（versioned / executed）
+312|commission_menu_page|versioned|executed|t|migrations/business/V0312__commission_menu_page.up.sql

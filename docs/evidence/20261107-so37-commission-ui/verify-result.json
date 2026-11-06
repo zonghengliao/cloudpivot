@@ -1,0 +1,178 @@
+{
+  "total": 39,
+  "passed": 39,
+  "failed": 0,
+  "results": [
+    {
+      "name": "规则页：列表接口 200",
+      "ok": true,
+      "detail": "200"
+    },
+    {
+      "name": "规则页：三条夹具规则都在列表里",
+      "ok": true
+    },
+    {
+      "name": "规则页：范围对象显示中文名（不是裸 UUID）",
+      "ok": true
+    },
+    {
+      "name": "规则页：百分比列带 % 号",
+      "ok": true,
+      "detail": "5.0000%"
+    },
+    {
+      "name": "规则页：封顶为空显示「不封顶」",
+      "ok": true
+    },
+    {
+      "name": "规则页：分页条渲染",
+      "ok": true
+    },
+    {
+      "name": "规则页：范围筛选发出了 scope_type=SALESPERSON",
+      "ok": true,
+      "detail": "200"
+    },
+    {
+      "name": "规则页：筛后只剩销售员级那条",
+      "ok": true
+    },
+    {
+      "name": "新建弹窗：切成「按物料」后出现物料选择器",
+      "ok": true
+    },
+    {
+      "name": "新建弹窗：费率输入框落到 15",
+      "ok": true,
+      "detail": "15.0000"
+    },
+    {
+      "name": "新建弹窗：请求体字段齐全（scope/rate/min/max/有效期）",
+      "ok": true,
+      "detail": "{\"rule_name\":\"SO37 页面验证：物料二 15%\",\"scope_type\":\"MATERIAL_CATEGORY\",\"scope_id\":\"e3600000-0000-4000-8000-000000000022\",\"calc_type\":\"PERCENT\",\"rate\":\"15\",\"min_amount\":\"0\",\"max_amount\":null,\"effective_from\":\"2026-11-07\",\"effective_to\":null,\"status\":\"ACTIVE\",\"remark\":null}"
+    },
+    {
+      "name": "新建弹窗：后端已接受（HTTP 200）",
+      "ok": true
+    },
+    {
+      "name": "规则页：新建的规则出现在列表首行",
+      "ok": true
+    },
+    {
+      "name": "结算页：列表接口 200",
+      "ok": true
+    },
+    {
+      "name": "生成弹窗：期间默认当前月（北京时间）",
+      "ok": true,
+      "detail": "2026 年 11 月"
+    },
+    {
+      "name": "生成结算单：POST 200",
+      "ok": true,
+      "detail": "200"
+    },
+    {
+      "name": "生成结算单：请求体只带 period_code（销售员留空 = 全员）",
+      "ok": true,
+      "detail": "{\"period_code\":\"2026-11\"}"
+    },
+    {
+      "name": "生成结果提示：说明生成了几张",
+      "ok": true,
+      "detail": "已生成 2 张草稿结算单（2026 年 11 月）"
+    },
+    {
+      "name": "结算页：列表出现结算单号（CM-yyyyMM-）",
+      "ok": true,
+      "detail": "CM-202611-000007"
+    },
+    {
+      "name": "结算页：销售员列显示姓名",
+      "ok": true
+    },
+    {
+      "name": "结算页：本页合计条出现",
+      "ok": true
+    },
+    {
+      "name": "明细：展开时按需拉详情接口 200",
+      "ok": true
+    },
+    {
+      "name": "明细：展开后渲染出明细区块",
+      "ok": true,
+      "detail": "items-block=2"
+    },
+    {
+      "name": "明细：列出产生佣金的销售订单号（SO-A / SO-B）",
+      "ok": true,
+      "detail": "__SO36-SO-B__,__SO36-SO-A__,__SO36-SO-A__"
+    },
+    {
+      "name": "明细：列出对应应收单号",
+      "ok": true
+    },
+    {
+      "name": "明细：列出命中规则名",
+      "ok": true
+    },
+    {
+      "name": "明细：底部给出明细佣金合计",
+      "ok": true
+    },
+    {
+      "name": "明细：明细表列头齐全（订单 / 应收 / 规则 / 基数 / 佣金）",
+      "ok": true
+    },
+    {
+      "name": "审批弹窗：说明会生成计提凭证（借 5601 / 贷 2241.02）",
+      "ok": true
+    },
+    {
+      "name": "审批：PATCH 200",
+      "ok": true
+    },
+    {
+      "name": "审批后状态列出现「已审批」",
+      "ok": true,
+      "detail": "已审批,草稿"
+    },
+    {
+      "name": "发放弹窗：说明会出付款凭证（借 2241.02 / 贷 1002）",
+      "ok": true
+    },
+    {
+      "name": "发放弹窗：带「发放说明」输入框",
+      "ok": true
+    },
+    {
+      "name": "发放：PATCH 200",
+      "ok": true
+    },
+    {
+      "name": "发放后状态列出现「已发放」",
+      "ok": true
+    },
+    {
+      "name": "发放后不再显示「确认发放」按钮（终态）",
+      "ok": true
+    },
+    {
+      "name": "销售订单页：列表接口 200",
+      "ok": true
+    },
+    {
+      "name": "销售订单表单：出现「销售员」选择器",
+      "ok": true
+    },
+    {
+      "name": "销售订单表单：能选中销售员并回显",
+      "ok": true,
+      "detail": "SO36 销售员甲（so36_sp1）"
+    }
+  ],
+  "apiErrors": []
+}
