@@ -1,0 +1,170 @@
+
+### ⓪ 重放夹具（幂等：清空结算单 / 规则后重建订单→发货→出库→应收与三条规则）
+ orders       |     3
+ receivables  |     3
+ rules        |     3
+ salespersons |     2
+(5 rows)
+
+✅ 夹具规则条数 = 3
+✅ 夹具清空后的结算单数 = 0
+
+### ① 登录拿 token（admin / SUPER_ADMIN 短路权限）
+token 长度 = 461
+
+### A1 夹具基线：2026-11 计提（SP1 命中销售员甲 20%）
+✅ 基线佣金（400 × 20%） = 80.0000
+
+### A2 AR-A 已收 400 → 600，2027-01 计提 → delta 200 / 佣金 40（仍命中销售员甲 20%）
+✅ 2027-01 基数（600 − 已认领 400） = 200.0000
+✅ 2027-01 佣金（200 × 20%） = 40.0000
+✅ 命中规则（销售员级） = ['SO36 销售员甲 20%']
+
+### A3 PUT 停用销售员规则（只发 status=INACTIVE）→ 其余字段逐字不变
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "id": "e3600000-0000-4000-8000-000000000073",
+        "rule_name": "SO36 \u9500\u552e\u5458\u7532 20%",
+        "scope_type": "SALESPERSON",
+        "scope_id": "e3600000-0000-4000-8000-000000000011",
+        "scope_name": "SO36 \u9500\u552e\u5458\u7532",
+        "calc_type": "PERCENT",
+        "rate": "20.0000",
+        "min_amount": "0.0000",
+        "max_amount": null,
+        "effective_from": "2026-01-01",
+        "effective_to": null,
+        "status": "INACTIVE",
+        "remark": "SO-36 \u5939\u5177\uff1a\u9500\u552e\u5458\u7ea7\uff0c\u5fc5\u987b\u538b\u8fc7\u7269\u6599\u7ea7\u4e0e\u5168\u5c40",
+        "created_at": "2026-11-06T21:40:22.051523Z",
+        "updated_at": "2026-11-06T21:40:22.567322Z"
+    }
+}
+✅ 停用后的状态 = INACTIVE
+✅ 停用不改比率 = 20.0000
+✅ 停用不改范围 = SALESPERSON
+✅ 停用后仍能读出范围名 = SO36 销售员甲
+
+### A4 AR-A 已收 600 → 800，2027-02 计提 → 16 = 物料一 10%（12）+ 全局 5%（4）
+✅ 2027-02 基数 = 200.0000
+✅ 2027-02 佣金（停用后回落到物料 10% + 全局 5%） = 16.0000
+[{'base_amount': '120.0000', 'rate': '10.0000', 'commission': '12.0000', 'rule_name': 'SO36 物料一 10% 封顶 60'}, {'base_amount': '80.0000', 'rate': '5.0000', 'commission': '4.0000', 'rule_name': 'SO36 全局 5%'}]
+✅ 两行佣金：物料一 12 + 其余 4 = ['12.0000', '4.0000']
+✅ 停用后命中物料级 + 全局级 = ['SO36 全局 5%', 'SO36 物料一 10% 封顶 60']
+✅ 两行比率快照 = ['10.0000', '5.0000']
+
+### A5 PUT 恢复销售员规则为 ACTIVE（停用是可逆的，不是删除）
+✅ 恢复启用 = ACTIVE
+
+### B1 新建 4 条规则（全局 / 物料 / 销售员 / 固定额）
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "id": "01a1b2ce-3cc5-7184-b616-dbc54339035a",
+        "rule_name": "SO36B \u5168\u5c40 4%",
+        "scope_type": "ALL",
+        "scope_id": null,
+        "scope_name": null,
+        "calc_type": "PERCENT",
+        "rate": "4.0000",
+        "min_amount": "0.0000",
+        "max_amount": null,
+        "effective_from": "2030-01-01",
+        "effective_to": null,
+        "status": "ACTIVE",
+        "remark": "SO-36b \u7559\u8bc1\uff1a\u5168\u5c40\u515c\u5e95",
+        "created_at": "2026-11-06T21:40:22.854248Z",
+        "updated_at": "2026-11-06T21:40:22.854248Z"
+    }
+}
+✅ 比率序列化成 4 位小数字符串 = 4.0000
+✅ 起算额 4 位小数 = 0.0000
+✅ 不封顶 = null = None
+✅ ALL 的 scope_id 为 null = None
+✅ ALL 的 scope_name 为 null = None
+✅ 默认启用 = ACTIVE
+✅ 生效起 YYYY-MM-DD = 2030-01-01
+✅ 长期有效 = null = None
+✅ 物料级 scope_name = biz_material.material_name = SO36 物料一
+✅ 封顶 4 位小数 = 60.0000
+✅ 销售员级 scope_name = sys_user.real_name = SO36 销售员甲
+✅ 固定额计算方式 = FIXED
+✅ FIXED 的 rate 是金额，同样 4 位小数 = 150.0000
+
+### B2 分页与筛选（GET /api/business/erp/commission-rule/page）
+{'total': 4, 'rows': [{'rule_name': 'SO36B 固定 150 元', 'scope_type': 'ALL', 'scope_name': None, 'rate': '150.0000', 'status': 'ACTIVE'}, {'rule_name': 'SO36B 甲专属 25%', 'scope_type': 'SALESPERSON', 'scope_name': 'SO36 销售员甲', 'rate': '25.0000', 'status': 'ACTIVE'}, {'rule_name': 'SO36B 物料一 10% 封顶 60', 'scope_type': 'MATERIAL_CATEGORY', 'scope_name': 'SO36 物料一', 'rate': '10.0000', 'status': 'ACTIVE'}, {'rule_name': 'SO36B 全局 4%', 'scope_type': 'ALL', 'scope_name': None, 'rate': '4.0000', 'status': 'ACTIVE'}]}
+✅ SO36B 规则总数 = 4
+✅ 页码回显 = 1
+✅ 每页条数回显 = 20
+✅ 启用规则排在前面（排序首键 status） = ACTIVE
+✅ scope_type 过滤 = 1
+✅ calc_type 过滤 = 1
+✅ keyword 匹配范围名（销售员姓名） = 2
+✅ keyword 匹配规则名 = 1
+
+### B3 PUT 部分更新：只发 rate → 其余不变；再发 max_amount=null → 真清空
+✅ 比率改成 12% = 12.0000
+✅ 规则名未被改 = SO36B 物料一 10% 封顶 60
+✅ 封顶未被改 = 60.0000
+✅ 起算额未被改 = 0.0000
+✅ 范围未被改 = SO36 物料一
+✅ 显式 null 清空封顶 = None
+✅ 显式 null 清空生效止 = None
+
+### B4 DELETE 未被引用的规则（录错了才用）
+✅ 软删未被引用的规则 = 200
+✅ 软删后列表少一条 = 3
+✅ 软删行不出现在任何状态筛选里 = 0
+✅ 重复删除 → 404 = 404
+
+### B5 DELETE 被佣金明细引用的规则 → 409（历史明细要能追溯，只能停用）
+夹具规则 073 的存活明细引用数 = 4
+✅ 被引用的规则拒绝删除 = 409
+{"code":10003,"msg":"规则「SO36 销售员甲 20%」已被 4 条佣金明细引用，不能删除；不再使用时请停用（PUT status=INACTIVE），历史明细与凭证仍要能追溯到它"}
+
+### C 负路径（全部 400，文案指名到字段）
+✅ ALL 却给了 scope_id = 400
+{"code":10001,"msg":"scope_type=ALL 是全局规则，不能指定 scope_id（收到「e3600000-0000-4000-8000-000000000021」）"}
+✅ SALESPERSON 没给 scope_id = 400
+{"code":10001,"msg":"scope_type=SALESPERSON 必须指定 scope_id（SALESPERSON ⇒ 销售员 id；MATERIAL_CATEGORY ⇒ 物料 id）"}
+✅ MATERIAL_CATEGORY 指向不存在的物料 = 400
+{"code":10001,"msg":"scope_type=物料 的 scope_id（e3600000-0000-4000-8000-00000000ffff）指向的物料（biz_material）不存在或已删除"}
+✅ PERCENT 的 rate=120 = 400
+{"code":10001,"msg":"calc_type=PERCENT 时 rate 是百分数，必须在 0–100 之间（收到 120）"}
+✅ 生效期倒挂 = 400
+{"code":10001,"msg":"effective_to（2030-05-31）不能早于 effective_from（2030-06-01）"}
+✅ 封顶小于起算额 = 400
+{"code":10001,"msg":"max_amount（50）不能小于 min_amount（100）"}
+✅ status 乱码 = 400
+{"code":10001,"msg":"status 只认 [\"ACTIVE\", \"INACTIVE\"]（收到「DELETED」）"}
+✅ rate 缺失 = 400
+{"code":10001,"msg":"rate 必填（PERCENT 填百分数 0–100；FIXED 填金额）"}
+
+### C2 列表筛选乱码 → 400
+✅ status 乱码 = 400
+✅ scope_type 乱码 = 400
+
+### C3 无 token → 401（权限不是只靠前端藏按钮）
+✅ 列表无 token = 401
+✅ 新建无 token = 401
+✅ 编辑无 token = 401
+✅ 删除无 token = 401
+
+### D 落库态核对（psql 直查，确认 4 位小数与审计列）
+        rule_name         |    scope_type     |               scope_id               | calc_type |   rate   | min_amount | max_amount | effective_from | effective_to | status | has_create_by | deleted 
+--------------------------+-------------------+--------------------------------------+-----------+----------+------------+------------+----------------+--------------+--------+---------------+---------
+ SO36 全局 5%             | ALL               |                                      | PERCENT   |   5.0000 |     0.0000 |            | 2026-01-01     |              | ACTIVE | f             | f
+ SO36 物料一 10% 封顶 60  | MATERIAL_CATEGORY | e3600000-0000-4000-8000-000000000021 | PERCENT   |  10.0000 |     0.0000 |    60.0000 | 2026-01-01     |              | ACTIVE | f             | f
+ SO36 销售员甲 20%        | SALESPERSON       | e3600000-0000-4000-8000-000000000011 | PERCENT   |  20.0000 |     0.0000 |            | 2026-01-01     |              | ACTIVE | f             | f
+ SO36B 固定 150 元        | ALL               |                                      | FIXED     | 150.0000 |   500.0000 |            | 2030-01-01     |              | ACTIVE | t             | t
+ SO36B 甲专属 25%         | SALESPERSON       | e3600000-0000-4000-8000-000000000011 | PERCENT   |  25.0000 |     0.0000 |            | 2030-01-01     |              | ACTIVE | t             | f
+ SO36B 全局 4%            | ALL               |                                      | PERCENT   |   4.0000 |     0.0000 |            | 2030-01-01     |              | ACTIVE | t             | f
+ SO36B 物料一 10% 封顶 60 | MATERIAL_CATEGORY | e3600000-0000-4000-8000-000000000021 | PERCENT   |  12.0000 |     0.0000 |            | 2030-01-01     |              | ACTIVE | t             | f
+(7 rows)
+
+
+### 结果
+ALL CHECKS PASSED

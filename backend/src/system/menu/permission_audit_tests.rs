@@ -63,27 +63,9 @@ const ROUTE_LEVEL_ONLY: &[(&str, &str)] = &[
          frontend/src/router/index.ts 的 meta.permission 拦截。日后若补后端接口， \
          必须加 #[nik::permission] 并删除本例外。",
     ),
-    // ---- 以下 7 条由 SO-35（V0310）预留，handler 归 SO-36 / SO-37（ARCH-7 §15.4）----
-    // 为什么先种码后写接口：佣金两页的菜单树与角色授权必须与佣金表同批上线，
-    // 否则 SO-36 写完接口才发现「码授不出去」（perm_menu_gate 闸⑥ 的静默死锁）。
-    // 每一条的落地卡与「必须删本例外」的纪律写在这里，避免留给下一个人考古。
-    (
-        "business:erp:commission-rule:list",
-        "TODO(SO-37)：佣金规则页列表接口由前端卡补齐（规则 CRUD 后端随之落地）。\
-         接口落地时必加 #[nik::permission(permission = \"business:erp:commission-rule:list\")] 并删除本例外。",
-    ),
-    (
-        "business:erp:commission-rule:create",
-        "TODO(SO-37)：佣金规则新建接口待落地（同上，落地即删本例外）。",
-    ),
-    (
-        "business:erp:commission-rule:update",
-        "TODO(SO-37)：佣金规则编辑 / 停用接口待落地（同上，落地即删本例外）。",
-    ),
-    (
-        "business:erp:commission-rule:delete",
-        "TODO(SO-37)：佣金规则软删接口待落地（同上，落地即删本例外）。",
-    ),
+    // ---- 佣金两页的 7 个权限码（V0310 预种）已全部落地，例外台账清空 ----
+    // SO-36 落地 commission-settle:{create,list,status}，SO-36b 落地
+    // commission-rule:{list,create,update,delete}，落地即删本例外（N18 持续校验台账）。
 ];
 
 /// 允许**没有** `#[nik::permission]` 注解的路由白名单：`"METHOD /path"` → 理由。

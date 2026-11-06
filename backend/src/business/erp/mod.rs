@@ -78,6 +78,12 @@
 //! | [`receipt`] | 收款单写侧 + 读侧（V0292）：登记（`RC-yyyyMMdd-000001`）/ 核销到多张应收（回写 `received_amount`+状态）/ 确认 / 过账（借 1002 / 贷 1122）/ 作废 | **SO-17** |
 //! | [`receipt_refund`] | 收款退款单（V0294/V0295）：登记（`RR-yyyyMMdd-000001`）/ 核销冲减应收已收（`received_amount -= 金额`，应收退回 `PARTIAL`/`OPEN`）/ 确认 / 过账（借 1122 / 贷 1002）/ 草稿作废 —— SO-14 遗留「已收款的应收作废出库单」的前置单据 | **SO-14 遗留** |
 //! | [`invoice`] | 销售发票写侧 + 读侧（V0298）：开票（`IV-yyyyMMdd-000001` / 从应收带金额 / 不超过应收）/ 开票生成收入凭证（借 1122 / 贷 5001 + 2221.02）并回写应收 / 归档 / 作废（红冲 + 撤回应收发票号） | **SO-20** |
+//! | [`commission_dto`] | 佣金结算契约：计提入参 / 结算单行 / 明细行 / 状态迁移（`DRAFT → APPROVED → PAID`） | **SO-36** |
+//! | [`commission_model`] | 佣金数据层（V0309/V0311）：候选应收 → 已认领基数、规则快照、结算单取号（`CM-yyyyMM`） | **SO-36** |
+//! | [`commission_handler`] | 佣金 4 个接口：计提（`settle`）/ 分页 / 详情 / 审批发放 + 纯函数 `pick_rule` / `commission_of` | **SO-36** |
+//! | [`commission_rule_dto`] | 佣金规则契约（V0309 §②）：范围 / 计算方式 / 比率金额校验 + 部分更新三态合并 | **SO-36b** |
+//! | [`commission_rule_model`] | 佣金规则数据层（`biz_commission_rule` 17 列）：分页（含 `scope_name` 派生列）/ 建改软删 / 引用计数 | **SO-36b** |
+//! | [`commission_rule_handler`] | 佣金规则 4 个接口：分页 / 新建 / 编辑（停用）/ 软删（`SO-37` 前端依赖） | **SO-36b** |
 //!
 //! # 表结构的唯一依据
 //!
@@ -119,6 +125,9 @@ pub mod cash_flow;
 pub mod commission_dto;
 pub mod commission_handler;
 pub mod commission_model;
+pub mod commission_rule_dto;
+pub mod commission_rule_handler;
+pub mod commission_rule_model;
 #[cfg(test)]
 mod contract_approval_tests;
 pub mod contract_bridge;

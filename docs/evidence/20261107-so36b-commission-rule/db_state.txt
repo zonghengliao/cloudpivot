@@ -1,0 +1,11 @@
+        rule_name         |    scope_type     | calc_type |   rate   | status | deleted 
+--------------------------+-------------------+-----------+----------+--------+---------
+ SO36 全局 5%             | ALL               | PERCENT   |   5.0000 | ACTIVE | f
+ SO36 物料一 10% 封顶 60  | MATERIAL_CATEGORY | PERCENT   |  10.0000 | ACTIVE | f
+ SO36 销售员甲 20%        | SALESPERSON       | PERCENT   |  20.0000 | ACTIVE | f
+ SO36B 固定 150 元        | ALL               | FIXED     | 150.0000 | ACTIVE | t
+ SO36B 甲专属 25%         | SALESPERSON       | PERCENT   |  25.0000 | ACTIVE | f
+ SO36B 全局 4%            | ALL               | PERCENT   |   4.0000 | ACTIVE | f
+ SO36B 物料一 10% 封顶 60 | MATERIAL_CATEGORY | PERCENT   |  12.0000 | ACTIVE | f
+(7 rows)
+

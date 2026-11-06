@@ -265,3 +265,18 @@ N18 会持续校验这笔台账（例外的码一旦有了注解或消失，N18 
 **这不是放水**：先种码后写接口，是为了让 SO-36/SO-37 落地接口时码已经能授给角色
 （否则写完接口才发现 `perm_menu_gate` 报 `missing_in_menu`，除超管无人能调）。
 接口落地的那张卡必须删掉对应例外行 —— 纪律写在例外表里，不靠记忆。
+
+---
+
+## 9. 补记（SO-36b，2026-11-07）：佣金 7 码全部落地，例外台账清零
+
+`commission-rule:{list,create,update,delete}` 四个接口由 **SO-36b** 补齐
+（`backend/src/business/erp/commission_rule_handler.rs`），`commission-settle:{create,list,status}`
+三个码由 SO-36 补齐。至此 V0310 预种的 7 个码**全部**有 `#[nik::permission]` 注解落地：
+
+- `ROUTE_LEVEL_ONLY` 里 4 条 `business:erp:commission-rule:*` 例外**已删除**（按第 8 节的纪律）；
+- 台账现存 1 条例外（`system:preference:view`，纯前端外观设置，仍未变）；
+- N18（例外台账必须仍然成立）与 N14（菜单码必须有源码落地）在 `SYS_DB_URL` 就位时全绿。
+
+> 复核命令：`cargo test --lib system::menu::permission_audit_tests -- --nocapture`
+> （未设 `SYS_DB_URL` 时数据库用例打印 SKIP；N17 不依赖库，永远真跑）。

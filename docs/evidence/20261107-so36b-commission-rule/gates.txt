@@ -1,0 +1,28 @@
+=== 1) cargo test --lib（全量）===
+
+test result: ok. 3030 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.55s
+
+TEST exit=0
+
+=== 2) cargo clippy --all-targets -- -D warnings ===
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 39s
+CLIPPY exit=0
+
+=== 3) cargo fmt --check（全仓）===
+clean（无输出）
+
+=== 4) rustfmt --check 本卡 5 个改动文件 ===
+clean（无输出）
+
+=== 5) 新增单测清单 ===
+31
+（31 条：dto 17 / model 9 / handler 8 中的 5 条语义回归 + 3 条形状与权限）
+
+=== 6) 权限台账真库校验（SYS_DB_URL=cloudpivot_so36）===
+[N17] 扫描器自检通过（死码 / 裸路由都能扫出来；属性顺序颠倒也能认出来）✓
+[N15] 371 条种子菜单行权限码形态合规 ✓（判据范围 = run 起点前的种子行）
+[N18] 例外台账 1 条、白名单 16 条，全部有理由且仍然成立 ✓
+[N16] 575 条路由：559 条有权限注解 + 16 条白名单例外 ✓
+[N14] 339 个种子菜单权限码全部有源码落地 ✓（327 条走 #[nik::permission] 注解闸，11 条走行级校验；判据范围 = run 起点前的种子行，已排除本次/历史夹具 0 行）
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 3024 filtered out; finished in 4.53s
