@@ -28,6 +28,7 @@
 | `06_unit_tests.txt` | `pnpm test:unit` 全量 860 条全绿 |
 | `07_typecheck_build.txt` | `vue-tsc --noEmit` + `vite build`（outDir 指仓库外）通过，产物里命中新文案 |
 | `08_self_check.txt` | 自检脚本 `scripts/verify/p1fix12b_linkage_zh_check.sh` 实跑（4 条接口断言 + 13 条单测全绿）+ 负样本（删掉 `status_labels` 后 4 条断言全红，证明断言不是空转） |
+| `09_preview_status_zh.png` | 预览影响弹窗：`收货入库单 STOCK_IN → 已过账 POSTED`（同一页面里其它露状态的地方也一并用中文，不留「半中半码」） |
 
 ## 真机环境
 

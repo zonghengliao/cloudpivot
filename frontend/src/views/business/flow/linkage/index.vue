@@ -457,7 +457,10 @@
             {{ previewResult.trigger_entity_label }}
             <code>{{ previewResult.trigger_entity }}</code>
             →
-            <t-tag size="small" theme="primary" variant="outline">{{ previewResult.trigger_status }}</t-tag>
+            <t-tag size="small" theme="primary" variant="outline" data-testid="linkage-preview-status">
+              {{ statusLabelOf(triggers, previewResult.trigger_entity, previewResult.trigger_status) }}
+            </t-tag>
+            <code>{{ previewResult.trigger_status }}</code>
           </span>
           <t-space size="8px">
             <t-tag theme="primary" variant="light">启用规则 {{ previewResult.enabled_count }} 条</t-tag>
@@ -554,6 +557,7 @@ import {
   ruleWiringProblems,
   severityLabel,
   severityTheme,
+  statusLabelOf,
   statusOptions,
   triggerOptions,
   unwiredNote,
@@ -901,7 +905,7 @@ function handleToggleChange(row: LinkageRule, next: boolean): void {
     body: next
       ? `「${row.name}」将在 ${
           row.trigger_entity_label
-        } 走到 ${row.trigger_status} 后被引擎执行。改联动 = 改业务规则，请确认。`
+        } 走到「${ruleTriggerStatusText(row)}」后被引擎执行。改联动 = 改业务规则，请确认。`
       : `「${row.name}」将不再执行（配置保留，可随时重新启用）。`,
     theme: next ? 'warning' : 'default',
     confirmBtn: next ? '确认启用' : '确认停用',
@@ -926,7 +930,7 @@ function handleToggleChange(row: LinkageRule, next: boolean): void {
 function handleDelete(row: LinkageRule): void {
   const dialog = DialogPlugin.confirm({
     header: '删除这条联动规则？',
-    body: `「${row.name}」（${row.trigger_entity} → ${row.trigger_status} · ${row.action_code}）将不再执行。删除是软删，历史仍可追；要恢复请重新创建同一触发点的同一动作。`,
+    body: `「${row.name}」（${row.trigger_entity_label} →「${ruleTriggerStatusText(row)}」· ${row.action_label}）将不再执行。删除是软删，历史仍可追；要恢复请重新创建同一触发点的同一动作。`,
     theme: 'danger',
     confirmBtn: '确认删除',
     onConfirm: async () => {
