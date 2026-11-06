@@ -1,0 +1,7 @@
+pnpm typecheck → 通过（vue-tsc --noEmit 无输出，exit=0）
+pnpm build → 通过（vite build exit=0，dist 产物见下）
+
+后端 clippy 基线说明：cargo clippy --lib -- -D warnings 报 11 条 collapsible_if，全部落在
+backend/src/business/erp/receipt.rs（SO-17 的文件，HEAD 版本已存在同样的嵌套 if，属基线告警，
+本卡未引入、未修改该文件）；本卡新增/修改的文件 clippy 告警 0 条（invoice.rs / doc_kind.rs /
+state_machine.rs / doc_kind_tests.rs / mod.rs）。

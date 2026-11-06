@@ -1,0 +1,9 @@
+[2m2026-11-06T12:59:15.174485Z[0m [32m INFO[0m [2mcloudpivot::business::shared::guard[0m[2m:[0m 数据权限自检通过：11 张登记表的部门列/归属列均存在，SUPER_ADMIN 角色存在
+[2m2026-11-06T12:59:15.177088Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 测试残留自检通过：biz_flow_def / biz_flow_instance 均 0 行 E2E_*, D2_SMOKE
+[2m2026-11-06T12:59:15.177643Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 孤儿任务依赖自检通过：0 条
+[2m2026-11-06T12:59:15.178894Z[0m [32m INFO[0m [2mcloudpivot::shared::startup_guard[0m[2m:[0m AI 用户不变式自检通过：ROBOT 账号与 sys_ai_agent 一一对应
+[2m2026-11-06T12:59:15.349762Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 插件启动完成 [3melapsed_ms[0m[2m=[0m0
+[2m2026-11-06T12:59:15.526243Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m cloudpivot 启动完成, 耗时 2210ms
+versioned | 295 | sales_invoice | executed | success=true | 23ms | 982a773f1aca0aee
+versioned | 296 | sales_invoice_permissions | executed | success=true | 1ms | 0ae75e721bfe9e33
+[2m2026-11-06T12:59:14.999201Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 224 个迁移

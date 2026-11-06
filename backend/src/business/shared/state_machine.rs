@@ -143,6 +143,14 @@ pub const ENTITY_RECEIVABLE: &str = DocKind::Receivable.as_str();
 /// 边表见 [`RECEIPT_EDGES`]；明细 `biz_receipt_allocation` 没有状态（属单头）。
 pub const ENTITY_RECEIPT: &str = DocKind::Receipt.as_str();
 
+/// 实体类型：销售发票（`biz_invoice`，销售链 · SO-19/SO-20）。
+///
+/// 落库值 `INVOICE`（`DocKind::Invoice`）。状态域 4 值（ARCH-7 §4.5）：
+/// `DRAFT / ISSUED / POSTED / VOID` —— **`VOID` 不是收款单的 `CANCELLED`**，
+/// 两词并存是稿面既定。边表见 [`INVOICE_EDGES`]：`ISSUED` 是「开票」（生成收入凭证 +
+/// 回写应收），`POSTED` 是归档终态，作废从 `DRAFT / ISSUED` 进来（要原因）。
+pub const ENTITY_INVOICE: &str = DocKind::Invoice.as_str();
+
 /// 出库单合法边（与 `stockout_base::LEGAL_EDGES` 同源）。
 ///
 /// ```text
@@ -561,6 +569,26 @@ pub const RECEIPT_EDGES: [(&str, &str); 3] = [
     ("DRAFT", "CANCELLED"),
 ];
 
+/// 销售发票合法边（ARCH-7 §4.5，4 条，唯一真相）。
+///
+/// ```text
+/// DRAFT  → ISSUED   开票（生成收入凭证 借 1122 / 贷 5001 + 2221.02，回写应收发票号）
+/// ISSUED → POSTED   归档（发票已交付 / 已报税留档，不再产生凭证，终态）
+/// DRAFT  → VOID     草稿作废（账上一分没动 ⇒ 没有可红冲的凭证，只作废单据）
+/// ISSUED → VOID     开票后作废（红冲收入凭证，并撤回应收的发票号回写）
+/// ```
+///
+/// **故意没有的边**：
+/// - `POSTED → VOID`：归档即会计档案，稿面 §4.5 只给 `DRAFT / ISSUED → VOID`；
+///   要改已归档的发票得走红字发票流程（ARCH-7 §15.2.3），不是原地作废；
+/// - `* → DRAFT`：没有任何边回到草稿（发票号一旦开出就是审计线索）。
+pub const INVOICE_EDGES: [(&str, &str); 4] = [
+    ("DRAFT", "ISSUED"),
+    ("ISSUED", "POSTED"),
+    ("DRAFT", "VOID"),
+    ("ISSUED", "VOID"),
+];
+
 /// 应收单合法边（ARCH-7 §4.3 + SO-14 遗留卡，6 条，唯一真相）。
 ///
 /// ```text
@@ -754,6 +782,12 @@ pub const RECEIVABLE_REASON_EDGES: [(&str, &str); 3] = [
 /// 审计要能回答「哪笔、为什么作废、谁批的」。`DRAFT → CONFIRMED` / `CONFIRMED → POSTED`
 /// 是正常推进（依据是收款单本身），不要原因。
 pub const RECEIPT_REASON_EDGES: [(&str, &str); 1] = [("DRAFT", "CANCELLED")];
+/// 需要 reason 的边：发票作废（`DRAFT → VOID` / `ISSUED → VOID`）。
+///
+/// 作废一张发票等于宣布「这张票不认了」：`ISSUED` 作废还要红冲收入凭证，
+/// 审计必须能回答「哪张、为什么、谁批的」。开票（`DRAFT → ISSUED`）与归档
+/// （`ISSUED → POSTED`）是正常推进，不要原因。
+pub const INVOICE_REASON_EDGES: [(&str, &str); 2] = [("DRAFT", "VOID"), ("ISSUED", "VOID")];
 /// 需要 reason 的边：调拨单取消。
 pub const TRANSFER_REASON_EDGES: [(&str, &str); 2] =
     [("DRAFT", "CANCELLED"), ("PENDING", "CANCELLED")];
@@ -809,6 +843,10 @@ pub const RECEIVABLE_LOCKED: [&str; 3] = ["SETTLED", "WRITTEN_OFF", "CANCELLED"]
 /// `CONFIRMED` **不在**入账态：确认之后还要核销（`allocate` 要改 `allocated_amount`），
 /// 锁死就没法核销了 —— 与应收的 `PARTIAL` 同理。
 pub const RECEIPT_LOCKED: [&str; 2] = ["POSTED", "CANCELLED"];
+/// 发票入账态：已开票（凭证已生成、应收已回写）、已归档、已作废，金额 / 客户 / 税率都不许再动。
+///
+/// `DRAFT` **不在**入账态：草稿还要走开票流程（`ISSUED` 时才生成凭证）。
+pub const INVOICE_LOCKED: [&str; 3] = ["ISSUED", "POSTED", "VOID"];
 /// 调拨单入账态：审批通过即锁定（在途 / 完成都不可改）。
 pub const TRANSFER_LOCKED: [&str; 3] = ["APPROVED", "IN_TRANSIT", "DONE"];
 /// 应付入账态：已结清 / 已作废都锁定（作废的单子当然不能再改）。
@@ -1093,6 +1131,17 @@ pub const RECEIPT_BASE: [BaseEdge; 3] = [
     BaseEdge::mandatory("DRAFT", "CANCELLED", "草稿作废", true),
 ];
 
+/// 销售发票的 BASE_EDGES（与 [`INVOICE_EDGES`] 逐条对应，顺序一致）。
+///
+/// 四条全 `mandatory`：开票 / 归档 / 两种作废都是账务动作，没有可选捷径
+/// （`optional_edges_are_exactly_the_documented_four` 钉死「可选边只有 4 条」）。
+pub const INVOICE_BASE: [BaseEdge; 4] = [
+    BaseEdge::mandatory("DRAFT", "ISSUED", "开票（生成收入凭证）", false),
+    BaseEdge::mandatory("ISSUED", "POSTED", "归档", false),
+    BaseEdge::mandatory("DRAFT", "VOID", "草稿作废", true),
+    BaseEdge::mandatory("ISSUED", "VOID", "开票后作废（红冲）", true),
+];
+
 /// 库存调拨单的 BASE_EDGES（与 [`TRANSFER_EDGES`] 逐条对应，顺序一致）。
 ///
 /// 调拨六条边全是主链 / 撤销，**没有可选边**（没有捷径可关）。
@@ -1266,11 +1315,16 @@ pub enum Entity {
     /// 资金单据的台账流（ARCH-7 §4.4）：`DRAFT → CONFIRMED → POSTED`，
     /// `DRAFT → CANCELLED` 作废。**状态域与应收 / 应付都不是一套值**。
     Receipt,
+    /// 销售发票 `biz_invoice`（销售链 · SO-20）。
+    ///
+    /// 状态域（ARCH-7 §4.5）：`DRAFT → ISSUED → POSTED`，`DRAFT / ISSUED → VOID`。
+    /// 开票（`ISSUED`）时生成收入凭证并回写应收，作废时红冲。
+    Invoice,
 }
 
 impl Entity {
     /// 全部实体（注册表全量，未知类型就是对表外的字符串）。
-    pub const ALL: [Entity; 18] = [
+    pub const ALL: [Entity; 19] = [
         Entity::StockIn,
         Entity::PurchaseOrder,
         Entity::Transfer,
@@ -1289,6 +1343,7 @@ impl Entity {
         Entity::Shipment,
         Entity::Receivable,
         Entity::Receipt,
+        Entity::Invoice,
     ];
 
     /// 落库的 `entity_type`。
@@ -1312,6 +1367,7 @@ impl Entity {
             Entity::Shipment => ENTITY_SHIPMENT,
             Entity::Receivable => ENTITY_RECEIVABLE,
             Entity::Receipt => ENTITY_RECEIPT,
+            Entity::Invoice => ENTITY_INVOICE,
         }
     }
 
@@ -1341,6 +1397,7 @@ impl Entity {
             Entity::Shipment => "发货单",
             Entity::Receivable => "应收单",
             Entity::Receipt => "收款单",
+            Entity::Invoice => "销售发票",
         }
     }
 
@@ -1365,6 +1422,7 @@ impl Entity {
             Entity::Shipment => &SHIPMENT_EDGES,
             Entity::Receivable => &RECEIVABLE_EDGES,
             Entity::Receipt => &RECEIPT_EDGES,
+            Entity::Invoice => &INVOICE_EDGES,
         }
     }
 
@@ -1392,6 +1450,7 @@ impl Entity {
             Entity::Shipment => &SHIPMENT_BASE,
             Entity::Receivable => &RECEIVABLE_BASE,
             Entity::Receipt => &RECEIPT_BASE,
+            Entity::Invoice => &INVOICE_BASE,
         }
     }
 
@@ -1423,6 +1482,7 @@ impl Entity {
             Entity::Shipment => &SHIPMENT_REASON_EDGES,
             Entity::Receivable => &RECEIVABLE_REASON_EDGES,
             Entity::Receipt => &RECEIPT_REASON_EDGES,
+            Entity::Invoice => &INVOICE_REASON_EDGES,
         }
     }
 
@@ -1447,6 +1507,7 @@ impl Entity {
             Entity::Shipment => &SHIPMENT_LOCKED,
             Entity::Receivable => &RECEIVABLE_LOCKED,
             Entity::Receipt => &RECEIPT_LOCKED,
+            Entity::Invoice => &INVOICE_LOCKED,
         }
     }
 
@@ -4270,7 +4331,7 @@ mod contract_tests {
         );
         assert_eq!(
             Entity::ALL.len(),
-            18,
+            19,
             "注册表从 7 → 8（CONTRACT）→ 9（STOCK_OUT）→ 10（STOCK_TAKE）→ 11（BUDGET，FIN-1）\
              → 12（FIXED_ASSET，FIN-2）→ 13（DEPRECIATION，FIN-2）→ 14（EXPENSE_REPORT，FIN-3）\
              → 15（SALE_ORDER，销售链 SO-05）→ 16（SHIPMENT，销售链 SO-09）\

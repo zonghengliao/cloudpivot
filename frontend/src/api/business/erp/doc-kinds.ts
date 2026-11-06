@@ -60,6 +60,7 @@ export const DOC_KINDS = [
   'SHIPMENT',
   'RECEIVABLE',
   'RECEIPT',
+  'INVOICE',
 ] as const;
 
 /** 业务对象类型（联合类型 —— 写错编译期就报错）。 */
@@ -89,6 +90,7 @@ export const DOC_KIND_LABELS: Readonly<Record<DocKind, string>> = {
   SHIPMENT: '发货单',
   RECEIVABLE: '应收单',
   RECEIPT: '收款单',
+  INVOICE: '销售发票',
 };
 
 /**
@@ -125,6 +127,7 @@ export const DOC_KIND_TABLES: Readonly<Partial<Record<DocKind, string>>> = {
   SHIPMENT: 'biz_shipment',
   RECEIVABLE: 'biz_receivable',
   RECEIPT: 'biz_receipt',
+  INVOICE: 'biz_invoice',
 };
 
 /**
@@ -335,6 +338,7 @@ export const VOUCHER_SOURCE_TYPES = [
   'EXPENSE_REPORT',
   'EXPENSE_PAYMENT',
   'RECEIPT',
+  'INVOICE',
 ] as const;
 
 /** 凭证来源（联合类型）。 */
@@ -358,6 +362,7 @@ export const VOUCHER_SOURCE_TYPE_LABELS: Readonly<Record<VoucherSourceType, stri
   EXPENSE_REPORT: '费用报销入账',
   EXPENSE_PAYMENT: '费用报销付款',
   RECEIPT: '收款过账',
+  INVOICE: '发票开票',
 };
 
 // ==================== ⑥ 序列号来源 ====================
