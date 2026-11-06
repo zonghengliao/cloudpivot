@@ -472,12 +472,15 @@ pub const TRANSFER_EDGES: [(&str, &str); 6] = [
 ///
 /// # 没有的边
 ///
-/// - **没有 `* → DRAFT`**：销售订单一旦提交就不能改明细（改单只允许 DRAFT），
-///   也没有「审批驳回打回草稿」这条：驳回由审批引擎处理（`SUBMITTED → CANCELLED` 或留在 SUBMITTED）。
+/// - **只有一条 `* → DRAFT`**：`SUBMITTED → DRAFT` —— 审批驳回 / 撤回打回草稿
+///   （SO-06 审批流；写这条边的只有审批回调 `sales_approval_bridge::on_so_settled`，
+///   人工 `PATCH /status` 在 handler 里被显式拒绝）。`APPROVED → DRAFT` 仍然没有：
+///   已审批的单据不能被打回草稿（否则已生效的承诺被悄悄撤销）。
 /// - **没有 `OUTBOUND → *` / `CLOSED → *` / `CANCELLED → *`**：三个终态，出了就不再动
 ///   （出库后发现要退，走退货单，不是把已出库的销售订单改回去）。
-/// - **没有 `SUBMITTED → APPROVED` 以外的审批结果**：审批驳回由流程引擎写 `CANCELLED`（带原因）。
-pub const SALES_ORDER_EDGES: [(&str, &str); 10] = [
+/// - **没有 `SUBMITTED → APPROVED` 以外的人工审批结果**：`SUBMITTED → APPROVED` 只由审批
+///   回调写（人工 `PATCH /status` 在 handler 里 400，指向审批中心）。
+pub const SALES_ORDER_EDGES: [(&str, &str); 11] = [
     ("DRAFT", "SUBMITTED"),
     ("SUBMITTED", "APPROVED"),
     ("APPROVED", "PARTIAL_OUT"),
@@ -488,6 +491,8 @@ pub const SALES_ORDER_EDGES: [(&str, &str); 10] = [
     ("DRAFT", "CANCELLED"),
     ("SUBMITTED", "CANCELLED"),
     ("APPROVED", "CANCELLED"),
+    // SO-06：审批驳回 / 撤回 → 打回草稿（改完可重新提交；审批意见写 remark）
+    ("SUBMITTED", "DRAFT"),
 ];
 
 /// 应付单合法边（P7 的付款累计 + 作废；P-FLOW-3B 加 3 条作废审批边）。
@@ -890,14 +895,16 @@ pub const PURCHASE_ORDER_BASE: [BaseEdge; 15] = [
 
 /// 销售订单的 BASE_EDGES（与 [`SALES_ORDER_EDGES`] 逐条对应，顺序一致）。
 ///
-/// 10 条边**全部 mandatory**：销售订单没有「能关掉的捷径」——
+/// 11 条边**全部 mandatory**：销售订单没有「能关掉的捷径」——
 ///   · `APPROVED → CLOSED` 看着像捷径，但关掉之后从 `APPROVED` 就只剩出库一条路，
 ///     而 `OUTBOUND` 是终态（没有 `OUTBOUND → CLOSED`）⇒ 关掉它等于把单据卡死；
-///   · `DRAFT → CANCELLED` 关掉之后草稿单永远删不掉（本表没有 `* → DRAFT`、也没有物理删接口）。
+///   · `DRAFT → CANCELLED` 关掉之后草稿单永远删不掉（本表只有 `SUBMITTED → DRAFT` 一条回草稿的边、
+///     也没有物理删接口）。
 /// 与 `TRANSFER_BASE`（六条全 mandatory）同口径。
 ///
 /// 要原因的四条：提交后 / 审批后作废、两种「关闭」（关闭 = 剩余未发数量作废，必须留痕）。
-pub const SALES_ORDER_BASE: [BaseEdge; 10] = [
+/// `SUBMITTED → DRAFT` 不强制原因：审批驳回意见由回调写进 `remark` + `biz_status_log`。
+pub const SALES_ORDER_BASE: [BaseEdge; 11] = [
     BaseEdge::mandatory("DRAFT", "SUBMITTED", "提交", false),
     BaseEdge::mandatory("SUBMITTED", "APPROVED", "审批通过", false),
     BaseEdge::mandatory("APPROVED", "PARTIAL_OUT", "部分出库", false),
@@ -908,6 +915,7 @@ pub const SALES_ORDER_BASE: [BaseEdge; 10] = [
     BaseEdge::mandatory("DRAFT", "CANCELLED", "草稿作废", false),
     BaseEdge::mandatory("SUBMITTED", "CANCELLED", "作废", true),
     BaseEdge::mandatory("APPROVED", "CANCELLED", "作废", true),
+    BaseEdge::mandatory("SUBMITTED", "DRAFT", "审批驳回打回草稿", false),
 ];
 
 /// 库存调拨单的 BASE_EDGES（与 [`TRANSFER_EDGES`] 逐条对应，顺序一致）。

@@ -157,6 +157,7 @@ pub mod reminder_stock;
 pub mod report;
 pub mod report_item_admin;
 pub mod report_item_model;
+pub mod sales_approval_bridge;
 pub mod sales_model;
 pub mod sales_order_handler;
 pub mod sales_order_model;

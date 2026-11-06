@@ -8,7 +8,8 @@
 //! | PUT | `/business/erp/sales-order/{id}` | `business:erp:sale-order:update` | 改单（**只有 DRAFT**，明细整单替换） |
 //! | GET | `/business/erp/sales-order/{id}` | `business:erp:sale-order:list` | 详情（含明细 + 客户编码/名称） |
 //! | GET | `/business/erp/sales-order/page` | `business:erp:sale-order:list` | 分页（`so_no` 模糊 / `status` 精确 / `customer_id` 精确） |
-//! | PATCH | `/business/erp/sales-order/{id}/status` | `business:erp:sale-order:status` | 状态流转（**只走 `LEGAL_EDGES` 的 10 条边**，其余 409） |
+//! | PATCH | `/business/erp/sales-order/{id}/status` | `business:erp:sale-order:status` | 状态流转（**只走 `LEGAL_EDGES` 的 11 条边**，其余 409）；`target=SUBMITTED` 走审批入口 |
+//! | POST | `/business/erp/sales-order/{id}/submit-approval` | `business:erp:sale-order:status` | 提交审批（`DRAFT → SUBMITTED` + 发起 `so_approve` 实例；SO-06） |
 //!
 //! # 状态机（唯一真相：`state_machine::SALES_ORDER_EDGES`）
 //!
@@ -17,6 +18,7 @@
 //!                        └→ OUTBOUND（一次发完）   └→ CLOSED（剩余量作废）
 //!                        └→ CLOSED（未发货直接关闭）
 //! DRAFT / SUBMITTED / APPROVED → CANCELLED
+//! SUBMITTED → DRAFT（审批驳回 / 撤回打回草稿，**只有审批回调能写**）
 //! ```
 //!
 //! - 非法迁移一律 **409 + 可选去向**（不是 500、也不是静默忽略）；
@@ -25,6 +27,18 @@
 //!   `sales_order_model::apply_status`（CAS `WHERE status = from`），同一事务。
 //! - `PARTIAL_OUT` / `OUTBOUND` 正常由**出库过账**回写（S3-05 卡），本卡也允许持有
 //!   `sale-order:status` 权限的人手工推（联调 / 导入历史单场景），边表是同一张。
+//!
+//! # 审批（SO-06）
+//!
+//! | 目标态 | 谁写 | 说明 |
+//! |--------|------|------|
+//! | `SUBMITTED` | [`submit_approval`] | `DRAFT → SUBMITTED` + 发起 `so_approve` 实例（同一事务）；没配流程 → 409 默认拒绝，除非持 `business:erp:skip-approval` 并写明理由（≥10 字） |
+//! | `APPROVED` | **审批回调** `sales_approval_bridge::on_so_settled` | 人工点 `PATCH /status` 直接 400（指向审批中心）——否则「审批」只是画在纸上 |
+//! | `DRAFT` | **审批回调** | 驳回 / 撤回打回草稿（意见写 `remark`、清实例），改完可重新提交 |
+//!
+//! 金额三档（`< 1 万` 销售主管 / `1–10 万` 销售主管→财务经理 / `≥ 10 万`
+//! 销售主管→财务经理→总经理）**不在代码里**：写在 `V0281__sales_order_flow` 的
+//! 条件边（`form.amount`）+ `biz_flow_node_assignee` 角色指派里，客户改阈值不用发版。
 //!
 //! # 提交时（`DRAFT → SUBMITTED`）的三道守卫（卡面要求）
 //!
@@ -62,10 +76,14 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
+use crate::business::erp::approval_gate;
 use crate::business::erp::customer_model::{self, STATUS_ACTIVE};
+use crate::business::erp::sales_approval_bridge;
 use crate::business::erp::sales_order_model::{
     self as model, NewItem, NewSalesOrder, SalesOrderItemRow, SalesOrderRow, Totals,
 };
+use crate::business::flow::engine;
+use crate::business::flow::model as flow_model;
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;
@@ -245,6 +263,22 @@ pub struct SalesOrderStatusReq {
     /// 原因（需要原因的边必填：提交后 / 审批后作废、两种关闭）。
     #[serde(default)]
     pub reason: Option<String>,
+}
+
+/// 提交审批请求（`POST /business/erp/sales-order/{id}/submit-approval`）。
+///
+/// 除 `reason` 外还接受内控例外的两个字段（`skip_approval` / `skip_reason`，
+/// 见 `approval_gate::SkipApprovalReq`）：**没配 `so_approve` 流程时**，
+/// 只有持 `business:erp:skip-approval` 且理由 ≥10 字的账号能显式跳过；
+/// 配了流程时带 `skip_approval` 一律 400（不许绕过已配置的内控）。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct SalesOrderSubmitReq {
+    /// 提交备注（写进 `biz_status_log.reason`；跳过审批时与跳过理由合并）。
+    #[serde(default)]
+    pub reason: Option<String>,
+    /// 内控例外片段（`skip_approval` / `skip_reason`）。
+    #[serde(flatten)]
+    pub approval: approval_gate::SkipApprovalReq,
 }
 
 /// 明细出参。
@@ -857,6 +891,18 @@ pub async fn change_sales_order_status(
         let _ = tx.rollback().await;
         return Err(error);
     }
+    // SO-06：审批中作废（`SUBMITTED → CANCELLED`）→ **同一事务**终止在跑的审批单。
+    // 不做这一步就是采购桥 / 收货桥踩过的老坑：审批中心留孤儿待办，而且
+    // `uk_biz_flow_instance_biz_active` 会把这张单**下一次提交**永久堵死。
+    if row.status == model::STATUS_SUBMITTED && target == model::STATUS_CANCELLED {
+        let cancel_reason = reason.unwrap_or("审批中作废：终止在跑的审批单");
+        if let Err(error) =
+            sales_approval_bridge::cancel_approval_of(&tx, id, &row.so_no, cancel_reason).await
+        {
+            let _ = tx.rollback().await;
+            return Err(write_error(error, "终止在跑的销售订单审批"));
+        }
+    }
     let applied = model::apply_status(&tx, id, &row.status, &target, operator, now).await;
     match applied {
         Ok(0) => {
@@ -877,6 +923,260 @@ pub async fn change_sales_order_status(
             Err(write_error(error, "销售订单状态流转"))
         }
     }
+}
+
+// ==================== 提交审批（SO-06） ====================
+
+/// 提交销售订单审批的**唯一入口**（SO-06 + ARCH-3 DC-01 口径）。
+///
+/// 配了已发布的 `so_approve` 流程 → `DRAFT → SUBMITTED` + 发起审批实例（**同一事务**）；
+/// **没配流程 → 409 + `APPROVAL_FLOW_NOT_CONFIGURED`（默认拒绝）**，只有持有
+/// `business:erp:skip-approval` 并写明理由（≥10 字）的账号才能显式跳过，
+/// 理由会作为本次状态流转的 `reason` 落进 `biz_status_log`。
+///
+/// 为什么入口收在这里：`PATCH /status`（老前端）与 `POST /submit-approval`（新按钮）
+/// **必须同一条路** —— 否则审批可以被换一个 URL 绕过。
+///
+/// 提交前的三道守卫与直接提交是**同一套**（0 行明细 / 客户冻结 / 信用额度超），
+/// 区别只在于「过不过审批单」。
+pub async fn submit_approval(
+    operator: Option<Uuid>,
+    id_raw: &str,
+    gate: &approval_gate::ApprovalGate<'_>,
+) -> std::result::Result<SalesOrderRes, ApiError> {
+    let id = parse_uuid(id_raw, "id")?;
+    let row = model::find_order(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询销售订单"))?
+        .ok_or_else(not_found)?;
+    // ① 已在审批中 → 409（带上审批单号，报文能直接照着去找）
+    if row.status == model::STATUS_SUBMITTED {
+        let instance_no = pending_instance_no(&row).await;
+        return Err(conflict(format!(
+            "销售订单 {} 已在审批中（{instance_no}）：请等审批结束，或从审批中心撤回后再提交",
+            row.so_no
+        )));
+    }
+    // ② 只有草稿能提交审批
+    if row.status != model::STATUS_DRAFT {
+        return Err(conflict(format!(
+            "销售订单 {} 当前是「{}」（{}），只有草稿（DRAFT）可以提交审批",
+            row.so_no,
+            model::status_label(&row.status),
+            row.status
+        )));
+    }
+    // ③ 三道守卫（明细 ≥ 1 / 客户未冻结 / 信用额度未超）
+    let lines = model::items_of(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询销售订单明细"))?;
+    ensure_submittable(&row, &lines).await?;
+    // ④ 幂等：同一单已有在跑的审批 → 409
+    if flow_model::biz_instance_running(sales_approval_bridge::BIZ_TYPE, id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询在跑审批单"))?
+    {
+        let instance_no = pending_instance_no(&row).await;
+        return Err(conflict(format!(
+            "销售订单 {} 已在审批中（{instance_no}）：请等审批结束，或从审批中心撤回后再提交",
+            row.so_no
+        )));
+    }
+    match sales_approval_bridge::published_so_flow()
+        .await
+        .map_err(|error| utils::db_error(error, "查询销售订单审批流程"))?
+    {
+        Some(flow) => {
+            // 有流程就必须走流程：请求里带了 skip_approval 也要 400（不许绕过已配置的内控）
+            approval_gate::ensure_not_skipped(sales_approval_bridge::FLOW_CODE, gate)?;
+            start_approval(&row, &flow, operator).await
+        }
+        None => {
+            // 默认拒绝：没配流程 → 409（点名 so_approve）；只有「持跳过权限 + 理由 ≥10 字」放行
+            let skip_reason = approval_gate::authorize_missing_flow(
+                sales_approval_bridge::BIZ_TYPE,
+                sales_approval_bridge::FLOW_CODE,
+                gate,
+            )?;
+            tracing::warn!(
+                order_id = %row.id,
+                order_no = %row.so_no,
+                %skip_reason,
+                "销售订单提交：没有已发布的 so_approve 流程，按「显式跳过审批」放行（理由已写 biz_status_log）"
+            );
+            let skip_req = SalesOrderStatusReq {
+                target_status: model::STATUS_SUBMITTED.to_string(),
+                reason: Some(skip_reason),
+            };
+            change_sales_order_status(operator, id_raw, skip_req).await
+        }
+    }
+}
+
+/// [`submit_approval`] 的「有流程」分支：`DRAFT → SUBMITTED` + 发起实例（同一事务）。
+async fn start_approval(
+    row: &SalesOrderRow,
+    flow: &sales_approval_bridge::SoFlow,
+    operator: Option<Uuid>,
+) -> std::result::Result<SalesOrderRes, ApiError> {
+    let Some(operator_id) = operator else {
+        return Err(ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_MISSING,
+            "提交审批需要登录用户（令牌里没有用户 id）",
+        ));
+    };
+    let (initiator_name, initiator_dept_id) = flow_model::user_profile(operator_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询发起人"))?
+        .unwrap_or((String::new(), None));
+    let instance_id = Uuid::now_v7();
+    let title = format!("{} 销售订单审批", row.so_no)
+        .chars()
+        .take(200)
+        .collect::<String>();
+    let start = engine::StartReq {
+        instance_id,
+        def_id: flow.def_id,
+        version_id: flow.version_id,
+        version_no: flow.version_no,
+        flow_code: flow.flow_code.clone(),
+        flow_name: flow.flow_name.clone(),
+        biz_type: flow.biz_type.clone(),
+        biz_id: Some(row.id),
+        biz_no: Some(row.so_no.clone()),
+        title,
+        initiator_id: operator_id,
+        initiator_name: Some(initiator_name),
+        initiator_dept_id,
+        form_data: sales_approval_bridge::form_data(row),
+    };
+    let now = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启销售订单审批事务"))?;
+    let outcome = start_approval_tx(&tx, row, &start, operator, now).await;
+    let mut out = match outcome {
+        Ok(out) => out,
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(error);
+        }
+    };
+    let instance = out.instance_id.unwrap_or_default();
+    let auto_finished = out.instance_status.eq_ignore_ascii_case("APPROVED");
+    tx.commit()
+        .await
+        .map_err(|error| utils::db_error(error, "提交销售订单审批事务"))?;
+    // 锁外副作用（审批通知 / 客户自配的通知节点）必须在提交之后发，失败只 WARN
+    let effects = out.effects.take();
+    if !effects.is_empty() {
+        engine::flush_effects(effects).await;
+    }
+    let drafts = out.effects.take_drafts();
+    if !drafts.is_empty() {
+        engine::flush_drafts(drafts).await;
+    }
+    tracing::info!(
+        order_id = %row.id,
+        order_no = %row.so_no,
+        instance_id = %instance,
+        flow_code = %start.flow_code,
+        "销售订单已提交审批（状态 SUBMITTED）"
+    );
+    // 流程里没有任何审批节点（全被跳过）→ 实例在同一个事务里就走完了，
+    // 提交后立刻执行「审批通过」的回调，否则单据停在 SUBMITTED 且没有待办能推进它。
+    if auto_finished {
+        sales_approval_bridge::on_so_settled(Some(instance), "APPROVED").await;
+    }
+    detail_of(row.id).await
+}
+
+/// [`start_approval`] 的事务体：返回引擎动作结果（调用方提交后负责发锁外副作用）。
+async fn start_approval_tx(
+    tx: &Transaction,
+    row: &SalesOrderRow,
+    start: &engine::StartReq,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> std::result::Result<engine::ActionOut, ApiError> {
+    // ① 状态机唯一入口（边表 + 写 biz_status_log）
+    state_machine::transition(
+        tx,
+        state_machine::ENTITY_SALES_ORDER,
+        row.id,
+        &row.so_no,
+        &model::LEGAL_EDGES,
+        model::STATUS_DRAFT,
+        model::STATUS_SUBMITTED,
+        state_machine::Operator::of(operator),
+        Some("提交审批"),
+        None,
+    )
+    .await?;
+    // ② 发起审批单（引擎在同一事务里建实例 + 待办 + 节点）
+    let mut out = engine::start(tx, start)
+        .await
+        .map_err(|error| submit_conflict(error, &row.so_no))?;
+    if let Some(rejected) = out.rejected.take() {
+        let hint = if rejected.code == error_code::FLOW_SELF_APPROVAL_FORBIDDEN {
+            "（内控要求：审批人不能是发起人本人。请由他人提交，或让另一个账号具备审批权限后再审）"
+        } else {
+            ""
+        };
+        return Err(ApiError::new(
+            rejected.status,
+            rejected.code,
+            format!("{}{hint}", rejected.msg),
+        ));
+    }
+    let instance_id = out
+        .instance_id
+        .ok_or_else(|| ApiError::new(500, error_code::INTERNAL_ERROR, "审批单发起后没有实例 id"))?;
+    // ③ CAS 回写单据：状态 + 实例 id（`WHERE status = 'DRAFT'` 双保险）
+    let affected = model::apply_status_with_instance(
+        tx,
+        row.id,
+        model::STATUS_DRAFT,
+        model::STATUS_SUBMITTED,
+        None,
+        operator,
+        Some(instance_id),
+        now,
+    )
+    .await
+    .map_err(|error| write_error(error, "销售订单提交审批落库"))?;
+    if affected == 0 {
+        return Err(conflict(format!(
+            "销售订单 {} 的状态在本次提交期间已被改动（期望 DRAFT），请刷新后重试",
+            row.so_no
+        )));
+    }
+    Ok(out)
+}
+
+/// 审批实例的唯一索引冲突 / 其它写错误 → 人话错误。
+fn submit_conflict(err: DbError, order_no: &str) -> ApiError {
+    if flow_model::is_biz_active_duplicate(&err) {
+        tracing::warn!(
+            order_no,
+            error = %err,
+            "提交审批撞审批实例唯一索引：已有在跑实例，翻 409 + 单号"
+        );
+        return flow_model::approval_in_progress("销售订单", Some(order_no));
+    }
+    write_error(err, "发起销售订单审批单")
+}
+
+/// 审批中实例单号（详情 / 409 报文用；查不到就说「审批单」）。
+async fn pending_instance_no(row: &SalesOrderRow) -> String {
+    if let Ok(Some(instance_id)) = model::approval_instance_of(row.id).await
+        && let Ok(Some(instance)) = flow_model::find_instance(instance_id).await
+    {
+        return instance.instance_no;
+    }
+    "审批单".to_string()
 }
 
 // ==================== HTTP 入口 ====================
@@ -937,6 +1237,9 @@ pub async fn sales_order_update(
 }
 
 /// 状态流转（非法迁移 409）。
+///
+/// `target=SUBMITTED` 走**审批入口**（[`submit_approval`]，配了流程就先建实例）；
+/// `target=APPROVED` / `DRAFT` 是**审批回调专属**，人工点一律 400（指向审批中心）。
 #[nik::permission(
     path = "/business/erp/sales-order/{id}/status",
     method = "PATCH",
@@ -949,9 +1252,48 @@ pub async fn sales_order_change_status(
     Json(req): Json<SalesOrderStatusReq>,
 ) -> ResResult<SalesOrderRes> {
     let operator = utils::current_user_uuid(&claims);
+    let target = req.target_status.trim().to_string();
+    // 审批结论只能由审批中心写：人工推这两个目标态等于「绕过审批」或「自己打回自己」
+    if target == model::STATUS_APPROVED || target == model::STATUS_DRAFT {
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!(
+                "`{target}` 是审批结论，不能人工流转：请在「审批中心」审批（通过 → APPROVED，\
+                 驳回 → 打回草稿 DRAFT）。人工 PATCH 只用于作废 / 关闭 / 出库这类状态"
+            ),
+        ));
+    }
+    if target == model::STATUS_SUBMITTED {
+        let no_skip = approval_gate::SkipApprovalReq::default();
+        let gate = approval_gate::ApprovalGate::new(&no_skip, &claims);
+        return Ok(Res::ok(submit_approval(operator, &id, &gate).await?));
+    }
     Ok(Res::ok(
         change_sales_order_status(operator, &id, req).await?,
     ))
+}
+
+/// 提交审批（`DRAFT → SUBMITTED` + 发起 `so_approve` 实例）。
+///
+/// 与 `PATCH /status` 的 `target=SUBMITTED` 是**同一条路**（[`submit_approval`]）；
+/// 本端点额外支持 `skip_approval` / `skip_reason`（没配流程时的内控例外，需要
+/// `business:erp:skip-approval` 权限码）。
+#[nik::permission(
+    path = "/business/erp/sales-order/{id}/submit-approval",
+    method = "POST",
+    permission = "business:erp:sale-order:status"
+)]
+#[nik::post("/business/erp/sales-order/{id}/submit-approval")]
+pub async fn sales_order_submit_approval(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    body: Option<Json<SalesOrderSubmitReq>>,
+) -> ResResult<SalesOrderRes> {
+    let operator = utils::current_user_uuid(&claims);
+    let req = body.map(|Json(req)| req).unwrap_or_default();
+    let gate = approval_gate::ApprovalGate::new(&req.approval, &claims);
+    Ok(Res::ok(submit_approval(operator, &id, &gate).await?))
 }
 
 /// 权限码自检：4 个码、无重复、前缀 `business:erp:sale-order:`（V0265 的菜单行逐字对应）。

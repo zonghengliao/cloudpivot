@@ -1691,6 +1691,9 @@ pub async fn withdraw_instance(
     crate::business::erp::stockin_bridge::on_post_settled(Some(instance_id), "WITHDRAWN").await;
     // P-FLOW-3A：也可能是「采购订单审批」单 → 打回草稿
     crate::business::erp::purchase_bridge::on_po_settled(Some(instance_id), "WITHDRAWN").await;
+    // SO-06：也可能是「销售订单审批」单 → 打回草稿（清实例，改完可重新提交）
+    crate::business::erp::sales_approval_bridge::on_so_settled(Some(instance_id), "WITHDRAWN")
+        .await;
     // FIN-1：也可能是「预算审批」单 → 打回草稿（额度一分没生效）
     crate::business::erp::budget_bridge::on_budget_settled(Some(instance_id), "WITHDRAWN").await;
     // FIN-2：也可能是「资产处置审批」单 → 撤回即资产原地不动（一张凭证都不生成）
@@ -1759,6 +1762,8 @@ pub async fn approve_task(
     crate::business::erp::asset_bridge::guard_self_approval(task_id, operator).await?;
     // FIN-3：费用报销 —— 报销人 / 发起人不能批自己的报销（403 + 65019）
     crate::business::erp::expense_bridge::guard_self_approval(task_id, operator).await?;
+    // SO-06：销售订单 —— 制单人 / 发起人不能批自己的销售订单（403 + 65019）
+    crate::business::erp::sales_approval_bridge::guard_self_approval(task_id, operator).await?;
     let mut out = db()
         .transaction(|tx| async move {
             engine::approve(&tx, task_id, operator, comment.as_deref()).await
@@ -1782,6 +1787,12 @@ pub async fn approve_task(
     // P-FLOW-3A：也可能是「采购订单审批」发起的 —— 通过则 APPROVED（可收货），驳回则打回草稿
     crate::business::erp::purchase_bridge::on_po_settled(out.instance_id, &out.instance_status)
         .await;
+    // SO-06：也可能是「销售订单审批」发起的 —— 通过则 APPROVED（可出库），驳回则打回草稿
+    crate::business::erp::sales_approval_bridge::on_so_settled(
+        out.instance_id,
+        &out.instance_status,
+    )
+    .await;
     // FIN-1（ARCH-6 §3.3）：也可能是「预算审批」发起的 —— 通过则 ACTIVE（同槽旧版 SUPERSEDED）
     crate::business::erp::budget_bridge::on_budget_settled(out.instance_id, &out.instance_status)
         .await;
@@ -1876,6 +1887,12 @@ pub async fn reject_task(
     // P-FLOW-3A：采购订单审批被驳回 → 打回草稿 + 审批意见写 remark
     crate::business::erp::purchase_bridge::on_po_settled(out.instance_id, &out.instance_status)
         .await;
+    // SO-06：销售订单审批被驳回 → 打回草稿 + 审批意见写 remark
+    crate::business::erp::sales_approval_bridge::on_so_settled(
+        out.instance_id,
+        &out.instance_status,
+    )
+    .await;
     // FIN-1：预算审批被驳回 / 撤回 → 打回草稿（额度一分没生效）
     crate::business::erp::budget_bridge::on_budget_settled(out.instance_id, &out.instance_status)
         .await;

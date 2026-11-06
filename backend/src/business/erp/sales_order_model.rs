@@ -65,10 +65,10 @@ pub const ITEM_COLUMNS: &str = "id, so_id, line_no, material_id, qty, price, amo
 
 /// 合法边表：**唯一真相**在 `state_machine::SALES_ORDER_EDGES`（本文件只引用，不复制）。
 ///
-/// 10 条边（PRD §4.13.3）：
+/// 11 条边（PRD §4.13.3 + SO-06 审批）：
 /// `DRAFT→SUBMITTED→APPROVED→{PARTIAL_OUT→OUTBOUND, OUTBOUND, CLOSED}`、
-/// `{DRAFT, SUBMITTED, APPROVED}→CANCELLED`。
-pub const LEGAL_EDGES: [(&str, &str); 10] = state_machine::SALES_ORDER_EDGES;
+/// `{DRAFT, SUBMITTED, APPROVED}→CANCELLED`、`SUBMITTED→DRAFT`（审批驳回打回草稿）。
+pub const LEGAL_EDGES: [(&str, &str); 11] = state_machine::SALES_ORDER_EDGES;
 
 /// 状态机判定：只有 [`LEGAL_EDGES`] 里的边放行（其余一律 409，见 handler）。
 pub fn can_transition(from: &str, to: &str) -> bool {
@@ -586,6 +586,120 @@ pub async fn apply_status(
     )
     .await
 }
+/// 状态迁移落库（**带审批实例**；SO-06 审批流用）。
+///
+/// 与 [`apply_status`] 的唯一差别：`approval_instance_id` 的写入/清空规则
+///
+/// | 目标态 | `approval_instance_id` |
+/// |---|---|
+/// | `SUBMITTED` | 写本次发起（或跳过审批）的实例 id（`None` = 跳过审批路径，列置 NULL） |
+/// | `DRAFT` | **清空**（驳回 / 撤回打回草稿，改完重新提交会生成新实例） |
+/// | 其它（`APPROVED` 等） | **保留**（详情页仍要能显示「审批通过 FLW-xxx」，审计用） |
+///
+/// `reason` 只在**回草稿**时追加进 `remark`（审批意见要让人一眼看到为什么被打回）；
+/// 其它迁移的 reason 已经由 [`crate::business::shared::state_machine::transition`]
+/// 写进 `biz_status_log`，不再重复堆进备注。
+///
+/// 调用方必须先过 `state_machine::transition`（边表校验 + 写 `biz_status_log`）。
+#[allow(clippy::too_many_arguments)]
+pub async fn apply_status_with_instance(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    from: &str,
+    to: &str,
+    reason: Option<&str>,
+    operator: Option<Uuid>,
+    approval_instance_id: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    let operator_text = Value::Text(operator.map(|value| value.to_string()).unwrap_or_default());
+    let instance_text = Value::Text(
+        approval_instance_id
+            .map(|value| value.to_string())
+            .unwrap_or_default(),
+    );
+    let from_text = Value::Text(from.to_string());
+    let reason_text = reason
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string);
+    // 三条分支各写各的 SQL（不拼 CASE、不做运行时分支的参数裁剪）：
+    // 参数个数与占位符**一一对应**，驱动的类型推断没有余地 —— 这是 `purchase_model`
+    // 同款写法，也是本仓唯一验证过的形态（参数化 `CASE WHEN ? = '…'` 实测报
+    // "query failed"：驱动把 `?` 一律当 text，PG 在 CASE 里推断不出唯一类型）。
+    let (sql, params) = match to {
+        // 提交审批：写实例 id（`None` = 跳过审批路径，列置 NULL）
+        STATUS_SUBMITTED => (
+            format!(
+                "UPDATE {ORDER_TABLE} \
+                    SET status = 'SUBMITTED', approval_instance_id = NULLIF(?::text,'')::uuid, \
+                        updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
+                  WHERE id = ? AND status = ? AND deleted_at IS NULL"
+            ),
+            vec![
+                instance_text,
+                Value::from(now),
+                operator_text,
+                Value::from(&id),
+                from_text,
+            ],
+        ),
+        // 驳回 / 撤回回草稿：清实例 + 意见追加进 remark
+        STATUS_DRAFT => match reason_text {
+            Some(text) => (
+                format!(
+                    "UPDATE {ORDER_TABLE} \
+                        SET status = 'DRAFT', approval_instance_id = NULL, \
+                            updated_at = ?, update_by = NULLIF(?::text,'')::uuid, \
+                            remark = concat_ws(' | ', NULLIF(remark, ''), ?::text) \
+                      WHERE id = ? AND status = ? AND deleted_at IS NULL"
+                ),
+                vec![
+                    Value::from(now),
+                    operator_text,
+                    Value::Text(text),
+                    Value::from(&id),
+                    from_text,
+                ],
+            ),
+            None => (
+                format!(
+                    "UPDATE {ORDER_TABLE} \
+                        SET status = 'DRAFT', approval_instance_id = NULL, \
+                            updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
+                      WHERE id = ? AND status = ? AND deleted_at IS NULL"
+                ),
+                vec![Value::from(now), operator_text, Value::from(&id), from_text],
+            ),
+        },
+        // 其它（审批通过）：实例 id 保留作审计
+        other => (
+            format!(
+                "UPDATE {ORDER_TABLE} \
+                    SET status = ?, updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
+                  WHERE id = ? AND status = ? AND deleted_at IS NULL"
+            ),
+            vec![
+                Value::Text(other.to_string()),
+                Value::from(now),
+                operator_text,
+                Value::from(&id),
+                from_text,
+            ],
+        ),
+    };
+    ex.exec_sql(sql, params).await
+}
+
+/// 这张销售订单当前挂着的审批实例（`approval_instance_id`；没有 → `None`）。
+pub async fn approval_instance_of(id: Uuid) -> DbResult<Option<Uuid>> {
+    let sql = format!("SELECT approval_instance_id FROM {ORDER_TABLE} WHERE id = ?::uuid");
+    let rows = db().find_with_params(&sql, vec![Value::from(&id)]).await?;
+    match rows.first() {
+        None => Ok(None),
+        Some(row) => row.get_typed("approval_instance_id"),
+    }
+}
 
 // ==================== 单测 ====================
 
@@ -645,6 +759,8 @@ mod tests {
             (STATUS_DRAFT, STATUS_CANCELLED),
             (STATUS_SUBMITTED, STATUS_CANCELLED),
             (STATUS_APPROVED, STATUS_CANCELLED),
+            // SO-06：审批驳回 / 撤回 → 打回草稿
+            (STATUS_SUBMITTED, STATUS_DRAFT),
         ];
         for (from, to) in chain {
             assert!(can_transition(from, to), "`{from} → {to}` 应在合法边表里");
@@ -662,10 +778,10 @@ mod tests {
             (STATUS_SUBMITTED, STATUS_OUTBOUND),
             (STATUS_DRAFT, STATUS_CLOSED),
             (STATUS_SUBMITTED, STATUS_CLOSED),
-            // 回退（本状态机没有任何回退边）
-            (STATUS_SUBMITTED, STATUS_DRAFT),
+            // 回退（只有 `SUBMITTED → DRAFT` 一条回草稿边，其余回退全被拒）
             (STATUS_APPROVED, STATUS_SUBMITTED),
             (STATUS_OUTBOUND, STATUS_PARTIAL_OUT),
+            (STATUS_APPROVED, STATUS_DRAFT),
             // 终态出边（OUTBOUND / CLOSED / CANCELLED 全是终态）
             (STATUS_OUTBOUND, STATUS_CLOSED),
             (STATUS_OUTBOUND, STATUS_CANCELLED),
@@ -696,6 +812,11 @@ mod tests {
         assert!(allowed_targets(STATUS_CLOSED).is_empty(), "终态不应有出边");
         assert!(allowed_targets(STATUS_OUTBOUND).is_empty());
         assert!(allowed_targets(STATUS_CANCELLED).is_empty());
+        // SO-06：提交后只有「审批通过 / 作废 / 驳回打回草稿」三条出路
+        assert_eq!(
+            allowed_targets(STATUS_SUBMITTED),
+            vec![STATUS_APPROVED, STATUS_CANCELLED, STATUS_DRAFT]
+        );
     }
 
     /// 行金额：`amount = round(price×qty,4)`、`tax = round(amount×rate/100,4)`，逐行先舍入。

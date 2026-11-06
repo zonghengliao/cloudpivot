@@ -1,0 +1,17 @@
+=== V0281 种入的图快照 hash 与库内 jsonb 的 canonical 重算一致（无漂移） ===
+
+比对方式（check_db_hash.py）：
+  1. psql 取出 biz_flow_def_version.graph_snapshot::text（PG 已把 jsonb 的键按
+     jsonb 规则重排，所以不能直接哈希这段文本）；
+  2. 用 Python json.loads 后 json.dumps(sort_keys=True, separators=(',',':')) 做
+     canonical 序列化（与 flow::graph::snapshot + serde_json 紧凑排序同口径）；
+  3. sha256 与 seed 里写死的 graph_hash 比对。
+
+输出：
+psql rc 0 len 5008
+canonical_hash da3c2eeda2593b0e3a0b362dd31ec2c79505ba3efe0053028896d05e5b2fa9a2
+matches_seed True
+canonical==seed_text True
+
+⇒ 库里 7 节点 / 8 边重建出来的图与 V0281 种入的 graph_snapshot 逐字符一致，
+   flow::maintain 的 DriftKind::RowsEdited 不会误报，R1–R21 校验用的是同一份图。

@@ -175,6 +175,13 @@ pub async fn of(instance: &flow_model::InstanceRow) -> DbResult<Control> {
             crate::business::erp::asset_bridge::internal_control_creator(instance.biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
+    } else if biz_type == crate::business::erp::sales_approval_bridge::BIZ_TYPE {
+        // SO-06：销售订单审批的 `biz_id` 是**销售订单 id**（制单人不能批自己提交的单）
+        let creator =
+            crate::business::erp::sales_approval_bridge::internal_control_creator(instance.biz_id)
+                .await?;
+        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
+        true
     } else {
         false
     };

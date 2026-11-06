@@ -1,0 +1,140 @@
+
+===== ① 登录（admin） =====
+code=0 token_len=461 must_change_password=false
+
+===== ② 建客户（额度 0 = 不限）+ 三档金额建单 =====
+--- POST /business/erp/customer
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aede-2bd4-73ca-82eb-31f06841b466","code":"E2E-SO6-3861012","name":"SO-06 审批实测客户","tax_no":null,"contact_name":null,"contact_phone":null,"address":null,"credit_limit":"0.0000","status":"ACTIVE","remark":null,"created_at":"2026-11-06T03:19:18.228993Z","updated_at":"2026-11-06T03:19:18.228993Z"}}
+customer_id=01a1aede-2bd4-73ca-82eb-31f06841b466
+--- POST /sales-order（tier1-5000：1 × 5000，税率 0）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aede-2be7-7648-a090-192e4d8eeba5","so_no":"SO-20261106-000013","customer_id":"01a1aede-2bd4-73ca-82eb-31f06841b466","customer_code":"E2E-SO6-3861012","customer_name":"SO-06 审批实测客户","order_date":"2026-11-06","delivery_date":null,"status":"DRAFT","status_label":"草稿","total_amount":"5000.0000","total_tax":"0.0000","total_with_tax":"5000.0000","remark":"SO-06 tier1-5000","created_at":"2026-11-06T03:19:18.244798Z","updated_at":"2026-11-06T03:19:18.244798Z","items":[{"id":"8db92afa-8d76-46aa-9429-e9962e82972f","line_no":1,"material_id":"d5050000-0000-4000-8000-000000000001","qty":"1.0000","price":"5000.000000","amount":"5000.0000","tax_rate":"0.0000","tax_amount":"0.0000","delivered_qty":"0.0000","open_qty":"1.0000"}]}}
+  → so_id=01a1aede-2be7-7648-a090-192e4d8eeba5 so_no=SO-20261106-000013 total_with_tax=5000.0000
+--- POST /sales-order（tier2-50000：1 × 50000，税率 0）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aede-2c01-72ff-bcba-ab99ea80f101","so_no":"SO-20261106-000014","customer_id":"01a1aede-2bd4-73ca-82eb-31f06841b466","customer_code":"E2E-SO6-3861012","customer_name":"SO-06 审批实测客户","order_date":"2026-11-06","delivery_date":null,"status":"DRAFT","status_label":"草稿","total_amount":"50000.0000","total_tax":"0.0000","total_with_tax":"50000.0000","remark":"SO-06 tier2-50000","created_at":"2026-11-06T03:19:18.272950Z","updated_at":"2026-11-06T03:19:18.272950Z","items":[{"id":"edd6dda2-b039-444e-bf02-74a70dd8a1a5","line_no":1,"material_id":"d5050000-0000-4000-8000-000000000001","qty":"1.0000","price":"50000.000000","amount":"50000.0000","tax_rate":"0.0000","tax_amount":"0.0000","delivered_qty":"0.0000","open_qty":"1.0000"}]}}
+  → so_id=01a1aede-2c01-72ff-bcba-ab99ea80f101 so_no=SO-20261106-000014 total_with_tax=50000.0000
+--- POST /sales-order（tier3-150000：1 × 150000，税率 0）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aede-2c17-76e3-8f75-503f1ad72056","so_no":"SO-20261106-000015","customer_id":"01a1aede-2bd4-73ca-82eb-31f06841b466","customer_code":"E2E-SO6-3861012","customer_name":"SO-06 审批实测客户","order_date":"2026-11-06","delivery_date":null,"status":"DRAFT","status_label":"草稿","total_amount":"150000.0000","total_tax":"0.0000","total_with_tax":"150000.0000","remark":"SO-06 tier3-150000","created_at":"2026-11-06T03:19:18.295082Z","updated_at":"2026-11-06T03:19:18.295082Z","items":[{"id":"4891de82-cb1a-462c-9600-e36c8f216589","line_no":1,"material_id":"d5050000-0000-4000-8000-000000000001","qty":"1.0000","price":"150000.000000","amount":"150000.0000","tax_rate":"0.0000","tax_amount":"0.0000","delivered_qty":"0.0000","open_qty":"1.0000"}]}}
+  → so_id=01a1aede-2c17-76e3-8f75-503f1ad72056 so_no=SO-20261106-000015 total_with_tax=150000.0000
+
+===== ③ 内控（默认开）：提交 → 422（唯一的可审批人是制单人本人，内控不留可用审批人） =====
+--- POST /support/config/reload（separation=true）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":["announcement.default_expire_days","announcement.fanout_enabled","announcement.scope_refresh_on_dept_change","auth.lock_minutes","auth.max_login_fail_count","changelog.big_field_bytes","changelog.retention_months","erp.budget.control_mode","erp.budget.enforce_on_po","erp.expense.pay_remind_days","erp.reminder.low_stock.realert_days","erp.reminder.po_overdue.realert_days","erp.separation_of_duties.approve","erp.separation_of_duties.enabled","erp.separation_of_duties.pay","erp.separation_of_duties.post","erp.transfer.in_transit_overdue_days","erp.transfer.in_transit_realert_hours","log.ip_location_enabled"]}
+  erp.separation_of_duties.approve = true
+--- POST /submit-approval（tier1，内控开）
+HTTP 422 (期望 422)
+{"code":65018,"msg":"节点「销售主管审批」的审批人全部是制单人 / 发起人本人，内控（职责分离）不允许他们审批自己的单据，本节点没有一个可用审批人：超级管理员（内控：单据制单人不可审批自己制单的单据（职责分离），已跳过并留痕）。请先把该节点的审批岗位（角色成员 / 指定审批人）指派给非制单人、非发起人；或改由他人提交本单。"}
+  ✅ 422 报文点名「审批人全是制单人 / 发起人」（internal_control 落 SKIPPED 留痕）
+--- GET /sales-order/{id}（被内控拒绝后）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aede-2be7-7648-a090-192e4d8eeba5","so_no":"SO-20261106-000013","customer_id":"01a1aede-2bd4-73ca-82eb-31f06841b466","customer_code":"E2E-SO6-3861012","customer_name":"SO-06 审批实测客户","order_date":"2026-11-06","delivery_date":null,"status":"DRAFT","status_label":"草稿","total_amount":"5000.0000","total_tax":"0.0000","total_with_tax":"5000.0000","remark":"SO-06 tier1-5000","created_at":"2026-11-06T03:19:18.244798Z","updated_at":"2026-11-06T03:19:18.244798Z","items":[{"id":"8db92afa-8d76-46aa-9429-e9962e82972f","line_no":1,"material_id":"d5050000-0000-4000-8000-000000000001","qty":"1.0000","price":"5000.000000","amount":"5000.0000","tax_rate":"0.0000","tax_amount":"0.0000","delivered_qty":"0.0000","open_qty":"1.0000"}]}}
+  ✅ 内控拒绝后仍是 DRAFT（事务整体回滚，没留下半张审批单）
+
+===== ④ 关掉内控（内控例外，脚本留痕）→ 三档分别提交成功 =====
+--- POST /support/config/reload（separation=false）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":["announcement.default_expire_days","announcement.fanout_enabled","announcement.scope_refresh_on_dept_change","auth.lock_minutes","auth.max_login_fail_count","changelog.big_field_bytes","changelog.retention_months","erp.budget.control_mode","erp.budget.enforce_on_po","erp.expense.pay_remind_days","erp.reminder.low_stock.realert_days","erp.reminder.po_overdue.realert_days","erp.separation_of_duties.approve","erp.separation_of_duties.enabled","erp.separation_of_duties.pay","erp.separation_of_duties.post","erp.transfer.in_transit_overdue_days","erp.transfer.in_transit_realert_hours","log.ip_location_enabled"]}
+  erp.separation_of_duties.approve = false
+--- POST /submit-approval（< 1 万）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aede-2be7-7648-a090-192e4d8eeba5","so_no":"SO-20261106-000013","customer_id":"01a1aede-2bd4-73ca-82eb-31f06841b466","customer_code":"E2E-SO6-3861012","customer_name":"SO-06 审批实测客户","order_date":"2026-11-06","delivery_date":null,"status":"SUBMITTED","status_label":"已提交","total_amount":"5000.0000","total_tax":"0.0000","total_with_tax":"5000.0000","remark":"SO-06 tier1-5000","created_at":"2026-11-06T03:19:18.244798Z","updated_at":"2026-11-06T03:19:18.444626Z","items":[{"id":"8db92afa-8d76-46aa-9429-e9962e82972f","line_no":1,"material_id":"d5050000-0000-4000-8000-000000000001","qty":"1.0000","price":"5000.000000","amount":"5000.0000","tax_rate":"0.0000","tax_amount":"0.0000","delivered_qty":"0.0000","open_qty":"1.0000"}]}}
+  ✅ < 1 万 → SUBMITTED（已发起 so_approve 实例）
+--- POST /submit-approval（1–10 万）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aede-2c01-72ff-bcba-ab99ea80f101","so_no":"SO-20261106-000014","customer_id":"01a1aede-2bd4-73ca-82eb-31f06841b466","customer_code":"E2E-SO6-3861012","customer_name":"SO-06 审批实测客户","order_date":"2026-11-06","delivery_date":null,"status":"SUBMITTED","status_label":"已提交","total_amount":"50000.0000","total_tax":"0.0000","total_with_tax":"50000.0000","remark":"SO-06 tier2-50000","created_at":"2026-11-06T03:19:18.272950Z","updated_at":"2026-11-06T03:19:18.484181Z","items":[{"id":"edd6dda2-b039-444e-bf02-74a70dd8a1a5","line_no":1,"material_id":"d5050000-0000-4000-8000-000000000001","qty":"1.0000","price":"50000.000000","amount":"50000.0000","tax_rate":"0.0000","tax_amount":"0.0000","delivered_qty":"0.0000","open_qty":"1.0000"}]}}
+  ✅ 1–10 万 → SUBMITTED（已发起 so_approve 实例）
+--- POST /submit-approval（≥ 10 万）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aede-2c17-76e3-8f75-503f1ad72056","so_no":"SO-20261106-000015","customer_id":"01a1aede-2bd4-73ca-82eb-31f06841b466","customer_code":"E2E-SO6-3861012","customer_name":"SO-06 审批实测客户","order_date":"2026-11-06","delivery_date":null,"status":"SUBMITTED","status_label":"已提交","total_amount":"150000.0000","total_tax":"0.0000","total_with_tax":"150000.0000","remark":"SO-06 tier3-150000","created_at":"2026-11-06T03:19:18.295082Z","updated_at":"2026-11-06T03:19:18.517402Z","items":[{"id":"4891de82-cb1a-462c-9600-e36c8f216589","line_no":1,"material_id":"d5050000-0000-4000-8000-000000000001","qty":"1.0000","price":"150000.000000","amount":"150000.0000","tax_rate":"0.0000","tax_amount":"0.0000","delivered_qty":"0.0000","open_qty":"1.0000"}]}}
+  ✅ ≥ 10 万 → SUBMITTED（已发起 so_approve 实例）
+
+===== ⑤ 人工推审批结论 → 400（只能由审批中心写） =====
+--- PATCH /status（APPROVED）
+HTTP 400 (期望 400)
+{"code":10001,"msg":"`APPROVED` 是审批结论，不能人工流转：请在「审批中心」审批（通过 → APPROVED，驳回 → 打回草稿 DRAFT）。人工 PATCH 只用于作废 / 关闭 / 出库这类状态"}
+--- PATCH /status（DRAFT）
+HTTP 400 (期望 400)
+{"code":10001,"msg":"`DRAFT` 是审批结论，不能人工流转：请在「审批中心」审批（通过 → APPROVED，驳回 → 打回草稿 DRAFT）。人工 PATCH 只用于作废 / 关闭 / 出库这类状态"}
+
+===== ⑥ 内控再打开：审批入口闸 → 自审 403（separation.rs，事务之前拦） =====
+--- POST /support/config/reload（separation=true）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":["announcement.default_expire_days","announcement.fanout_enabled","announcement.scope_refresh_on_dept_change","auth.lock_minutes","auth.max_login_fail_count","changelog.big_field_bytes","changelog.retention_months","erp.budget.control_mode","erp.budget.enforce_on_po","erp.expense.pay_remind_days","erp.reminder.low_stock.realert_days","erp.reminder.po_overdue.realert_days","erp.separation_of_duties.approve","erp.separation_of_duties.enabled","erp.separation_of_duties.pay","erp.separation_of_duties.post","erp.transfer.in_transit_overdue_days","erp.transfer.in_transit_realert_hours","log.ip_location_enabled"]}
+  erp.separation_of_duties.approve = true
+  待办 task_id=01a1aede-2cb4-768b-9eb4-c41048207038
+--- POST /business/flow/task/{id}/approve（自己审自己）
+HTTP 403 (期望 403)
+{"code":65019,"msg":"不能审批自己提交的销售订单：销售订单 SO-20261106-000013 由你本人提交（内控要求制单与审批分离），请交给其他有审批权限的账号处理（内控开关 erp.separation_of_duties.approve 已开启；小团队如确需本人处理，可在系统参数中关闭该开关）"}
+
+===== ⑦ 内控关掉后逐跳审批：跳数必须分别是 1 / 2 / 3 =====
+--- POST /support/config/reload（separation=false）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":["announcement.default_expire_days","announcement.fanout_enabled","announcement.scope_refresh_on_dept_change","auth.lock_minutes","auth.max_login_fail_count","changelog.big_field_bytes","changelog.retention_months","erp.budget.control_mode","erp.budget.enforce_on_po","erp.expense.pay_remind_days","erp.reminder.low_stock.realert_days","erp.reminder.po_overdue.realert_days","erp.separation_of_duties.approve","erp.separation_of_duties.enabled","erp.separation_of_duties.pay","erp.separation_of_duties.post","erp.transfer.in_transit_overdue_days","erp.transfer.in_transit_realert_hours","log.ip_location_enabled"]}
+  erp.separation_of_duties.approve = false
+--- POST /business/flow/task/01a1aede-2cb4-768b-9eb4-c41048207038/approve（SO-20261106-000013 第 1 跳）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"instance_id":"01a1aede-2cac-71f8-aeda-9217054b8e95","instance_status":"APPROVED","node_status":"APPROVED","done":true,"idempotent":false,"next_nodes":[],"auto_passed_nodes":0,"approver_count":1,"approved_count":1,"rejected_count":0}}
+--- POST /business/flow/task/01a1aede-2cdb-712b-8508-b84e92c0074d/approve（SO-20261106-000014 第 1 跳）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"instance_id":"01a1aede-2cd4-7514-af2f-c75648ed1c8d","instance_status":"PENDING","node_status":"APPROVED","done":true,"idempotent":false,"next_nodes":[],"auto_passed_nodes":0,"approver_count":1,"approved_count":1,"rejected_count":0}}
+--- POST /business/flow/task/01a1aede-2dec-7729-9d3f-143a58234b5e/approve（SO-20261106-000014 第 2 跳）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"instance_id":"01a1aede-2cd4-7514-af2f-c75648ed1c8d","instance_status":"APPROVED","node_status":"APPROVED","done":true,"idempotent":false,"next_nodes":[],"auto_passed_nodes":0,"approver_count":1,"approved_count":1,"rejected_count":0}}
+--- POST /business/flow/task/01a1aede-2cfb-7478-948e-4746c0a2a289/approve（SO-20261106-000015 第 1 跳）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"instance_id":"01a1aede-2cf5-751d-a888-77b23f990bc0","instance_status":"PENDING","node_status":"APPROVED","done":true,"idempotent":false,"next_nodes":[],"auto_passed_nodes":0,"approver_count":1,"approved_count":1,"rejected_count":0}}
+--- POST /business/flow/task/01a1aede-2e56-7739-ad94-b8f977a7cca2/approve（SO-20261106-000015 第 2 跳）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"instance_id":"01a1aede-2cf5-751d-a888-77b23f990bc0","instance_status":"PENDING","node_status":"APPROVED","done":true,"idempotent":false,"next_nodes":[],"auto_passed_nodes":0,"approver_count":1,"approved_count":1,"rejected_count":0}}
+--- POST /business/flow/task/01a1aede-2e82-75ce-844c-b51163964fff/approve（SO-20261106-000015 第 3 跳）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"instance_id":"01a1aede-2cf5-751d-a888-77b23f990bc0","instance_status":"APPROVED","node_status":"APPROVED","done":true,"idempotent":false,"next_nodes":[],"auto_passed_nodes":0,"approver_count":1,"approved_count":1,"rejected_count":0}}
+  跳数：tier1=1 tier2=2 tier3=3（期望 1 / 2 / 3）
+  ✅ tier1 全链 = 销售主管（1 跳）
+  ✅ tier2 全链 = 销售主管 → 财务经理（2 跳）
+  ✅ tier3 全链 = 销售主管 → 财务经理 → 总经理（3 跳）
+--- GET /sales-order/{id}（tier1 审批后）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aede-2be7-7648-a090-192e4d8eeba5","so_no":"SO-20261106-000013","customer_id":"01a1aede-2bd4-73ca-82eb-31f06841b466","customer_code":"E2E-SO6-3861012","customer_name":"SO-06 审批实测客户","order_date":"2026-11-06","delivery_date":null,"status":"APPROVED","status_label":"已审批","total_amount":"5000.0000","total_tax":"0.0000","total_with_tax":"5000.0000","remark":"SO-06 tier1-5000","created_at":"2026-11-06T03:19:18.244798Z","updated_at":"2026-11-06T03:19:18.711730Z","items":[{"id":"8db92afa-8d76-46aa-9429-e9962e82972f","line_no":1,"material_id":"d5050000-0000-4000-8000-000000000001","qty":"1.0000","price":"5000.000000","amount":"5000.0000","tax_rate":"0.0000","tax_amount":"0.0000","delivered_qty":"0.0000","open_qty":"1.0000"}]}}
+  ✅ tier1 审批通过 → APPROVED
+--- GET /sales-order/{id}（tier2 审批后）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aede-2c01-72ff-bcba-ab99ea80f101","so_no":"SO-20261106-000014","customer_id":"01a1aede-2bd4-73ca-82eb-31f06841b466","customer_code":"E2E-SO6-3861012","customer_name":"SO-06 审批实测客户","order_date":"2026-11-06","delivery_date":null,"status":"APPROVED","status_label":"已审批","total_amount":"50000.0000","total_tax":"0.0000","total_with_tax":"50000.0000","remark":"SO-06 tier2-50000","created_at":"2026-11-06T03:19:18.272950Z","updated_at":"2026-11-06T03:19:18.820518Z","items":[{"id":"edd6dda2-b039-444e-bf02-74a70dd8a1a5","line_no":1,"material_id":"d5050000-0000-4000-8000-000000000001","qty":"1.0000","price":"50000.000000","amount":"50000.0000","tax_rate":"0.0000","tax_amount":"0.0000","delivered_qty":"0.0000","open_qty":"1.0000"}]}}
+  ✅ tier2 审批通过 → APPROVED
+--- GET /sales-order/{id}（tier3 审批后）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aede-2c17-76e3-8f75-503f1ad72056","so_no":"SO-20261106-000015","customer_id":"01a1aede-2bd4-73ca-82eb-31f06841b466","customer_code":"E2E-SO6-3861012","customer_name":"SO-06 审批实测客户","order_date":"2026-11-06","delivery_date":null,"status":"APPROVED","status_label":"已审批","total_amount":"150000.0000","total_tax":"0.0000","total_with_tax":"150000.0000","remark":"SO-06 tier3-150000","created_at":"2026-11-06T03:19:18.295082Z","updated_at":"2026-11-06T03:19:18.968445Z","items":[{"id":"4891de82-cb1a-462c-9600-e36c8f216589","line_no":1,"material_id":"d5050000-0000-4000-8000-000000000001","qty":"1.0000","price":"150000.000000","amount":"150000.0000","tax_rate":"0.0000","tax_amount":"0.0000","delivered_qty":"0.0000","open_qty":"1.0000"}]}}
+  ✅ tier3 审批通过 → APPROVED
+
+===== ⑧ 驳回 → 退回 DRAFT（remark 带审批意见 + 实例清空 + 可重新提交） =====
+--- POST /sales-order（reject-case：1 × 5000，税率 0）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aede-2f02-750e-b41b-172601685393","so_no":"SO-20261106-000016","customer_id":"01a1aede-2bd4-73ca-82eb-31f06841b466","customer_code":"E2E-SO6-3861012","customer_name":"SO-06 审批实测客户","order_date":"2026-11-06","delivery_date":null,"status":"DRAFT","status_label":"草稿","total_amount":"5000.0000","total_tax":"0.0000","total_with_tax":"5000.0000","remark":"SO-06 reject-case","created_at":"2026-11-06T03:19:19.041405Z","updated_at":"2026-11-06T03:19:19.041405Z","items":[{"id":"cd47864f-a341-42bb-a679-ec70fd25c875","line_no":1,"material_id":"d5050000-0000-4000-8000-000000000001","qty":"1.0000","price":"5000.000000","amount":"5000.0000","tax_rate":"0.0000","tax_amount":"0.0000","delivered_qty":"0.0000","open_qty":"1.0000"}]}}
+  → so_id=01a1aede-2f02-750e-b41b-172601685393 so_no=SO-20261106-000016 total_with_tax=5000.0000
+--- POST /submit-approval（驳回用例）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aede-2f02-750e-b41b-172601685393","so_no":"SO-20261106-000016","customer_id":"01a1aede-2bd4-73ca-82eb-31f06841b466","customer_code":"E2E-SO6-3861012","customer_name":"SO-06 审批实测客户","order_date":"2026-11-06","delivery_date":null,"status":"SUBMITTED","status_label":"已提交","total_amount":"5000.0000","total_tax":"0.0000","total_with_tax":"5000.0000","remark":"SO-06 reject-case","created_at":"2026-11-06T03:19:19.041405Z","updated_at":"2026-11-06T03:19:19.065723Z","items":[{"id":"cd47864f-a341-42bb-a679-ec70fd25c875","line_no":1,"material_id":"d5050000-0000-4000-8000-000000000001","qty":"1.0000","price":"5000.000000","amount":"5000.0000","tax_rate":"0.0000","tax_amount":"0.0000","delivered_qty":"0.0000","open_qty":"1.0000"}]}}
+--- POST /business/flow/task/{id}/reject（return_to=NONE 终止）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"instance_id":"01a1aede-2f19-730d-8edc-3c2d8587e7db","instance_status":"REJECTED","node_status":"REJECTED","done":true,"idempotent":false,"next_nodes":[],"auto_passed_nodes":0,"approver_count":1,"approved_count":0,"rejected_count":1}}
+--- GET /sales-order/{id}（驳回后）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aede-2f02-750e-b41b-172601685393","so_no":"SO-20261106-000016","customer_id":"01a1aede-2bd4-73ca-82eb-31f06841b466","customer_code":"E2E-SO6-3861012","customer_name":"SO-06 审批实测客户","order_date":"2026-11-06","delivery_date":null,"status":"DRAFT","status_label":"草稿","total_amount":"5000.0000","total_tax":"0.0000","total_with_tax":"5000.0000","remark":"SO-06 reject-case | 审批驳回：金额与合同不符，退回重报","created_at":"2026-11-06T03:19:19.041405Z","updated_at":"2026-11-06T03:19:19.119290Z","items":[{"id":"cd47864f-a341-42bb-a679-ec70fd25c875","line_no":1,"material_id":"d5050000-0000-4000-8000-000000000001","qty":"1.0000","price":"5000.000000","amount":"5000.0000","tax_rate":"0.0000","tax_amount":"0.0000","delivered_qty":"0.0000","open_qty":"1.0000"}]}}
+  status=DRAFT remark=SO-06 reject-case | 审批驳回：金额与合同不符，退回重报
+  ✅ 驳回 → DRAFT
+  ✅ 驳回意见写进 remark
+--- POST /submit-approval（驳回后重新提交）
+HTTP 200 (期望 200)
+{"code":0,"msg":"ok","data":{"id":"01a1aede-2f02-750e-b41b-172601685393","so_no":"SO-20261106-000016","customer_id":"01a1aede-2bd4-73ca-82eb-31f06841b466","customer_code":"E2E-SO6-3861012","customer_name":"SO-06 审批实测客户","order_date":"2026-11-06","delivery_date":null,"status":"SUBMITTED","status_label":"已提交","total_amount":"5000.0000","total_tax":"0.0000","total_with_tax":"5000.0000","remark":"SO-06 reject-case | 审批驳回：金额与合同不符，退回重报","created_at":"2026-11-06T03:19:19.041405Z","updated_at":"2026-11-06T03:19:19.157879Z","items":[{"id":"cd47864f-a341-42bb-a679-ec70fd25c875","line_no":1,"material_id":"d5050000-0000-4000-8000-000000000001","qty":"1.0000","price":"5000.000000","amount":"5000.0000","tax_rate":"0.0000","tax_amount":"0.0000","delivered_qty":"0.0000","open_qty":"1.0000"}]}}
+  ✅ 回草稿后可重新提交（实例已清空，没有撞唯一索引）
+
+===== ⑨ 重复提交 → 409 =====
+--- POST /submit-approval（已在审批中）
+HTTP 409 (期望 409)
+{"code":10003,"msg":"销售订单 SO-20261106-000016 已在审批中（FLW-20261106-87EB1FE8）：请等审批结束，或从审批中心撤回后再提交"}
+
+=== 全部断言通过 ===
