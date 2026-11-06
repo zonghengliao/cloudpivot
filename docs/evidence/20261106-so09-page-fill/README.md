@@ -122,7 +122,12 @@ ERP_DB_URL='postgres://alun:***@127.0.0.1:5432/cloudpivot_so09fix' \
 
 ## 7. 提交与清理
 
-* 提交：`git add backend/src/business/erp/{shipment_handler.rs,shipment_model.rs,shipment_posting.rs,shipment_page_fill_tests.rs,mod.rs}` —— 只含本卡文件；
-* 隔离实例（pid 记录在 scratch `so09fix-backend.pid`）验收后停止；
-* 隔离库 `cloudpivot_so09fix` 与 worktree `/root/so09fix-wt`、`/root/so09fix-target` 保留到本卡关闭后由维护动作清理
-  （不删：后续如需二次复核可直接复用；磁盘占用见卡面 metadata）。
+* 提交：`4c2c1b0` —— `git add` 按路径只含本卡文件：
+  `backend/src/business/erp/{shipment_handler.rs, shipment_model.rs, shipment_posting.rs, shipment_page_fill_tests.rs}`、
+  `mod.rs`（**只暂存本卡那 3 行**：共享工作区里该文件同时有 SO-12 卡加的 `pub mod receivable*;`，
+  用 `git hash-object -w` + `git update-index --cacheinfo` 造了一份「HEAD + 本卡 3 行」的 blob，
+  避免把别人未提交的模块声明带进本提交）与 `docs/evidence/20261106-so09-page-fill/`；
+* 隔离实例（18099）验收后已停止，端口已释放；
+* 隔离库 `cloudpivot_so09fix` 已 `dropdb`；worktree `/root/so09fix-wt` 已 `git worktree remove`；
+* **遗留**：`/root/so09fix-target`（cargo target，约 8.6G）未能自动删除 —— 本卡在无人值守会话，
+  `rm -rf` / `find -delete` 被审批策略拦截。需有审批的会话执行 `rm -rf /root/so09fix-target` 回收磁盘。
