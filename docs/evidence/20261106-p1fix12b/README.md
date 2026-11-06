@@ -27,6 +27,7 @@
 | `05_api_status_labels.txt` | 真实 token curl：`GET /business/flow/linkage` → 15/15 触发点带 `status_labels`、3 条规则带 `trigger_status_label`（硬断言 exit 0） |
 | `06_unit_tests.txt` | `pnpm test:unit` 全量 860 条全绿 |
 | `07_typecheck_build.txt` | `vue-tsc --noEmit` + `vite build`（outDir 指仓库外）通过，产物里命中新文案 |
+| `08_self_check.txt` | 自检脚本 `scripts/verify/p1fix12b_linkage_zh_check.sh` 实跑（4 条接口断言 + 13 条单测全绿）+ 负样本（删掉 `status_labels` 后 4 条断言全红，证明断言不是空转） |
 
 ## 真机环境
 

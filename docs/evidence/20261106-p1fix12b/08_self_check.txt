@@ -1,0 +1,26 @@
+# P1-FIX-12B 自检脚本实跑（scripts/verify/p1fix12b_linkage_zh_check.sh）
+# 环境：BASE=http://127.0.0.1:18098（含 12A 的 debug 二进制）+ 克隆库 cloudpivot_p1fix12b；口令走 NIK_ADMIN_PASSWORD 环境变量（不落盘）
+
+== ① 登录
+== ② GET /business/flow/linkage
+linkage_http=200
+== ③ 断言
+triggers=15  actions=11  implemented=4  rules=3
+带 status_labels 的触发点：15/15
+示例 STOCK_IN：草稿（DRAFT） / 已过账（POSTED） / 已作废（CANCELLED） / 作废审批中（PENDING_CANCEL） / 过账审批中（PENDING_POST）
+规则行 trigger_status_label：已过账（POSTED） / 已过账（POSTED） / 进行中（DOING）
+绿：每个触发点都下发 status_labels，且与 statuses 等长
+绿：status_labels 的 code 顺序与 statuses 逐项一致
+绿：status_labels 的 label 都不为空
+绿：每条规则都带 trigger_status_label（非空）
+== ④ 前端纯逻辑单测
+绿：flow-linkage 单测 13 条
+== 结果：失败 0 条
+P1-FIX-12B 自检通过 ✓
+
+# 负样本：把真实响应里的 status_labels / trigger_status_label 删掉 → 4 条断言必须全红（证明断言不是空转）
+
+负样本 #1 如期变红：每个触发点都下发 status_labels，且与 statuses 等长
+负样本 #2 如期变红：status_labels 的 code 顺序与 statuses 逐项一致
+负样本 #3 如期变红：status_labels 的 label 都不为空
+负样本 #4 如期变红：每条规则都带 trigger_status_label（非空）
