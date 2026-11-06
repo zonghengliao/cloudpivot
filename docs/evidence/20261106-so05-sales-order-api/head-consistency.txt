@@ -1,0 +1,16 @@
+=== HEAD=d573d0f 的联动调用点静态核对（证明那条 FAILED 与本卡无关）===
+--- HEAD 里 transfer_handler_status.rs 的引擎调用点（LNK-01 尚未提交，应为 0）:
+0
+--- HEAD 全仓「调引擎」的文件集合:
+backend/src/business/erp/stockin_handler_post.rs
+backend/src/business/erp/stockout_handler.rs
+backend/src/business/erp/stockout_linkage.rs
+backend/src/business/flow/linkage/engine.rs
+backend/src/business/flow/linkage/spec.rs
+backend/src/business/flow/linkage/tests_presets.rs
+backend/src/business/flow/linkage/tests_wiring.rs
+--- HEAD 里 spec.rs 登记的 wired 文件（proofs 第一列）:
+"src/business/erp/stockin_handler_post.rs"
+"src/business/erp/stockout_handler.rs"
+"src/business/erp/stockout_linkage.rs"
+"src/business/task/task_handler_notice.rs"

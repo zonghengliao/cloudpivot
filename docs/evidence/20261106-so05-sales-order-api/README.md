@@ -50,7 +50,8 @@ DRAFT / SUBMITTED / APPROVED → CANCELLED
 | `regression-shared.txt` | `business::shared::`（词表 + 状态机）→ **113 passed** |
 | `regression-flow.txt` | `business::flow::`（联动 + 边配置）→ **389 passed** |
 | `regression-customer.txt` | `business::erp::customer_`（SO-02 回归）→ **11 passed** |
-| `full-suite.txt` | 干净库全量 lib 套件（`--test-threads=1`）→ 见文末 `full-suite-exit=` |
+| `full-suite.txt` | 干净库（`cloudpivot_so05b`）全量 lib 套件（`--test-threads=1`）：**2722 passed / 1 failed / 1521s**。唯一失败是 `flow::linkage::tests_wiring::wired_triggers_match_call_sites`，**与本卡无关**（见 §5） |
+| `head-consistency.txt` | 对本次提交 `d573d0f` 的静态核对（联动调用点 / wired 登记 / `transfer_handler*` 是否在本卡 diff 里） |
 | `invariants-clean.txt` | 干净库 `erp_invariants.py` → **67/68，BLOCKER 0，WARN 1**（唯一 WARN = 新库 admin 无部门，bootstrap 种子现状，与 SO-04 同一基线） |
 | `snapshot-audit-clean.txt` | 干净库 `snapshot_audit.py` → **26/26 通过，BLOCKER 0** |
 | `invariants.txt` | ⚠ 这是在**跑过 flow 回归的脏库**（`cloudpivot_so05`）上的输出：`67/68` 之外的 `D1 已过账收货单必有凭证` BLOCKER 来自 `D2L-SI-2`（联动测试夹具 `business::flow::linkage`，10:18:40 由回归跑出来，非本卡代码）；干净库基线见 `invariants-clean.txt` |
@@ -105,3 +106,28 @@ bash docs/evidence/20261106-so05-sales-order-api/curl-e2e.sh
    实测脚本先 `PUT /api/system/auth/password` 改密再重登（不是本卡的 bug）。
 9. **V0265 的 path / component 留 NULL**：`system::menu::tests::n08`（菜单路径必须能在前端路由解析）
    在前端页落地之前会红 —— 与 V0261/V0262 的两次收尾同一口径。
+
+## 5. 全量套件里那 1 条 FAILED 的归因（不是本卡）
+
+```
+business::flow::linkage::tests_wiring::wired_triggers_match_call_sites ... FAILED
+联动引擎的调用点与 spec::TRIGGER_SPECS 不一致：
+- 调了引擎但没登记（多接了触发点却没写 wired = true）：
+  ["src/business/erp/transfer_handler_db_tests_linkage.rs", "src/business/erp/transfer_handler_status.rs"]
+```
+
+- 这两个文件是**另一张卡（LNK-01 调拨接线）正在共享工作树里的未提交改动**：
+  `git status` → `M backend/src/business/erp/transfer_handler_status.rs`、
+  `?? backend/src/business/erp/transfer_handler_db_tests_linkage.rs`、
+  `M backend/src/business/flow/linkage/spec.rs`；
+- 本卡提交 `d573d0f` **一行都没碰** `transfer_handler*`（`git show --name-only d573d0f | grep transfer_handler` = 0 行），
+  只在自己的 `doc_kind/state_machine` 上新登记了 `SALE_ORDER`（销售订单不调联动引擎，登记在
+  `TRIGGER_EXEMPT`，扫描器根本不会把它算进「调了引擎的文件集合」）；
+- 本卡早前在**一致状态**的工作树上跑 `business::flow::` 回归时，这条用例是 **ok**
+  （`regression-flow.txt`：389 passed / 0 failed，含 `wired_triggers_match_call_sites ... ok`）。
+- 提交时还收口过一次「共享索引」问题：第一版 `f4d2335` 误把 LNK-01 在 `linkage/spec.rs` 的
+  未提交 hunk（`TRANSFER` 的 `wired: true` + `TRANSFER_EXCLUDED_ACTIONS`）一起带进提交，
+  已 `reset --soft` 后用 `git update-index` 只重放本卡的 6 行 hunk 重新提交为 `d573d0f`，
+  对方的工作树改动原样保留（`git status` 仍是 `MM`）。因此 **HEAD 上的 spec.rs 与
+  HEAD 上的 transfer_handler_status.rs 是自洽的**（HEAD 的 transfer_handler_status.rs 里
+  `linkage::engine::run` 出现 0 次，见 `head-consistency.txt`）。
