@@ -1,0 +1,33 @@
+psql:constraint-probes.sql:237: NOTICE:  P01 PASS 结构 biz_receipt = 16 列
+psql:constraint-probes.sql:237: NOTICE:  P02 PASS 结构 biz_receipt_allocation = 7 列
+psql:constraint-probes.sql:237: NOTICE:  P03 PASS 结构 5 条 CHECK 在位
+psql:constraint-probes.sql:237: NOTICE:  P04 PASS 结构 索引 = 9（6 + 3）
+psql:constraint-probes.sql:237: NOTICE:  P05 PASS 结构 三列金额 NUMERIC(18,4)
+psql:constraint-probes.sql:237: NOTICE:  P06 PASS 外键 receipt_id=CASCADE / receivable_id=RESTRICT
+psql:constraint-probes.sql:237: NOTICE:  P08 PASS 拒 ck_biz_receipt_amount (amount=0)
+psql:constraint-probes.sql:237: NOTICE:  P09 PASS 拒 ck_biz_receipt_amount (amount=-5)
+psql:constraint-probes.sql:237: NOTICE:  P10 PASS 拒 ck_biz_receipt_amount (allocated 100.0001 > amount 100)
+psql:constraint-probes.sql:237: NOTICE:  P11 PASS 拒 ck_biz_receipt_amount (allocated=-0.0001)
+psql:constraint-probes.sql:237: NOTICE:  P12 PASS 拒 NOT NULL (amount 缺省省略)
+psql:constraint-probes.sql:237: NOTICE:  P13 PASS 拒 ck_biz_receipt_status (status=OPEN ← 应收域值)
+psql:constraint-probes.sql:237: NOTICE:  P14 PASS 拒 ck_biz_receipt_status (PARTIAL_PAID ← 应付域值)
+psql:constraint-probes.sql:237: NOTICE:  P15 PASS 拒 ck_biz_receipt_method (ALIPAY)
+psql:constraint-probes.sql:237: NOTICE:  P16 PASS 拒 ck_biz_receipt_cancelled (CANCELLED + allocated 60)
+psql:constraint-probes.sql:237: NOTICE:  P17 PASS 正常收款单 默认 DRAFT / allocated 0 / amount 1000.0000
+psql:constraint-probes.sql:237: NOTICE:  P18 PASS 拒 uk_biz_receipt_no (存活行重号)
+psql:constraint-probes.sql:237: NOTICE:  P19 PASS 软删后同号可复用（存活行 1）
+psql:constraint-probes.sql:237: NOTICE:  P20 PASS 精度 0.0002 不截断 / CANCELLED+allocated 0 合法 / method NULL 合法
+psql:constraint-probes.sql:237: NOTICE:  P21 PASS 拒 UPDATE 超核销 (1000.0001 > 1000)
+psql:constraint-probes.sql:237: NOTICE:  P21b PASS 正常核销 600 / status CONFIRMED 落库成功
+psql:constraint-probes.sql:237: NOTICE:  P22 PASS 拒 ck_biz_rcpt_alloc_amount (0)
+psql:constraint-probes.sql:237: NOTICE:  P23 PASS 拒 ck_biz_rcpt_alloc_amount (-1)
+psql:constraint-probes.sql:237: NOTICE:  P24 PASS 正常核销 300 落库
+psql:constraint-probes.sql:237: NOTICE:  P25 PASS 拒 uk_biz_rcpt_alloc_pair (重复核销同一笔应收)
+psql:constraint-probes.sql:237: NOTICE:  P26 PASS 拒 外键 (receivable 不存在)
+psql:constraint-probes.sql:237: NOTICE:  P27 PASS 拒 外键 (receipt 不存在)
+psql:constraint-probes.sql:237: NOTICE:  P28 PASS 拒 硬删被核销应收 (RESTRICT / SQLSTATE 23001)
+psql:constraint-probes.sql:237: NOTICE:  P29 PASS 删收款头 → 核销明细级联删除 (CASCADE)
+psql:constraint-probes.sql:237: NOTICE:  P30 PASS 取号规则 RC|yyyyMMdd|-|1|1 → RC-20261106-000001
+psql:constraint-probes.sql:237: NOTICE:  P31 PASS 探针清场 0 行残留（可重复执行）
+psql:constraint-probes.sql:237: NOTICE:  ===== V0292 约束探针全部通过 =====
+DO

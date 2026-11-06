@@ -1,0 +1,59 @@
+                                   Table "public.biz_receipt"
+      Column      |           Type           | Collation | Nullable |          Default           
+------------------+--------------------------+-----------+----------+----------------------------
+ id               | uuid                     |           | not null | gen_random_uuid()
+ receipt_no       | character varying(32)    |           | not null | 
+ customer_id      | uuid                     |           | not null | 
+ receipt_date     | date                     |           | not null | 
+ amount           | numeric(18,4)            |           | not null | 
+ allocated_amount | numeric(18,4)            |           | not null | 0
+ method           | character varying(32)    |           |          | 
+ bank_account     | character varying(64)    |           |          | 
+ status           | character varying(16)    |           | not null | 'DRAFT'::character varying
+ voucher_id       | uuid                     |           |          | 
+ remark           | text                     |           |          | 
+ created_at       | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ updated_at       | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ create_by        | uuid                     |           |          | 
+ update_by        | uuid                     |           |          | 
+ deleted_at       | timestamp with time zone |           |          | 
+Indexes:
+    "biz_receipt_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_receipt_customer" btree (customer_id, receipt_date)
+    "idx_biz_receipt_date" btree (receipt_date)
+    "idx_biz_receipt_status" btree (status)
+    "idx_biz_receipt_voucher" btree (voucher_id) WHERE voucher_id IS NOT NULL
+    "uk_biz_receipt_no" UNIQUE, btree (receipt_no) WHERE deleted_at IS NULL
+Check constraints:
+    "ck_biz_receipt_amount" CHECK (amount > 0::numeric AND allocated_amount >= 0::numeric AND allocated_amount <= amount)
+    "ck_biz_receipt_cancelled" CHECK (status::text <> 'CANCELLED'::text OR allocated_amount = 0::numeric)
+    "ck_biz_receipt_method" CHECK (method IS NULL OR (method::text = ANY (ARRAY['BANK_TRANSFER'::character varying, 'CASH'::character varying, 'CHECK'::character varying, 'OTHER'::character varying]::text[])))
+    "ck_biz_receipt_status" CHECK (status::text = ANY (ARRAY['DRAFT'::character varying, 'CONFIRMED'::character varying, 'POSTED'::character varying, 'CANCELLED'::character varying]::text[]))
+Referenced by:
+    TABLE "biz_receipt_allocation" CONSTRAINT "biz_receipt_allocation_receipt_id_fkey" FOREIGN KEY (receipt_id) REFERENCES biz_receipt(id) ON DELETE CASCADE
+
+                        Table "public.biz_receipt_allocation"
+    Column     |           Type           | Collation | Nullable |      Default      
+---------------+--------------------------+-----------+----------+-------------------
+ id            | uuid                     |           | not null | gen_random_uuid()
+ receipt_id    | uuid                     |           | not null | 
+ receivable_id | uuid                     |           | not null | 
+ amount        | numeric(18,4)            |           | not null | 
+ remark        | character varying(500)   |           |          | 
+ created_at    | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ create_by     | uuid                     |           |          | 
+Indexes:
+    "biz_receipt_allocation_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_rcpt_alloc_receivable" btree (receivable_id)
+    "uk_biz_rcpt_alloc_pair" UNIQUE, btree (receipt_id, receivable_id)
+Check constraints:
+    "ck_biz_rcpt_alloc_amount" CHECK (amount > 0::numeric)
+Foreign-key constraints:
+    "biz_receipt_allocation_receipt_id_fkey" FOREIGN KEY (receipt_id) REFERENCES biz_receipt(id) ON DELETE CASCADE
+    "biz_receipt_allocation_receivable_id_fkey" FOREIGN KEY (receivable_id) REFERENCES biz_receivable(id) ON DELETE RESTRICT
+
+   kind    | version |     name      | applied_via | success | execution_ms |    checksum16    
+-----------+---------+---------------+-------------+---------+--------------+------------------
+ versioned | 292     | sales_receipt | executed    | t       |           17 | 5d7acb8c5802aa9c
+(1 row)
+

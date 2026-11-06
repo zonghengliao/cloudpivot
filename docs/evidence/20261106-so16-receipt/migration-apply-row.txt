@@ -1,0 +1,5 @@
+   kind    | version |     name      | applied_via | success | execution_ms |    checksum16    | applied_at 
+-----------+---------+---------------+-------------+---------+--------------+------------------+------------
+ versioned | 292     | sales_receipt | executed    | t       |           17 | 5d7acb8c5802aa9c | 1793964930
+(1 row)
+
