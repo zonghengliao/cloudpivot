@@ -25,11 +25,12 @@
 //! **不要"顺手"给 `party_b_id` 补外键**：`.down.sql` 会因此不可回滚、软删主档会连带
 //! 失败，而且违反 ARCH-2 §2.3 末段的实测结论。
 //!
-//! # 批次 2 的替换点（R2，写在这里免得后人翻文档）
+//! # 乙方类型分叉（R2 已落地，SO-26）
 //!
-//! 客户主数据上线后，本文件只改一处：给 [`party_b_ref`] 增加 `CUSTOMER` 分支
-//! （查 `biz_customer(id, deleted_at IS NULL, status = 1)` 返回 `customer_name`）。
-//! 若客户表的列名不同（如 `customer_status`），映射**只能写在本函数内**，不外溢。
+//! `party_b_type = SUPPLIER` → `biz_supplier`（名称列 `supplier_name`，新签闸 `status = 1`）；
+//! `party_b_type = CUSTOMER` → `biz_customer`（名称列 `name`，新签闸 `status = 'ACTIVE'`）。
+//! 两条分支都在 [`party_b_ref`] / [`party_b_ref_for_new`] 背后的
+//! [`party_b_lookup`] 里，映射**不外溢**到 handler / dto。
 
 use nik::prelude::chrono::{DateTime, NaiveDate, Utc};
 use nik::prelude::rust_decimal::Decimal;
@@ -46,7 +47,7 @@ pub const CONTRACT_TABLE: &str = "biz_contract";
 /// 乙方类型：供应商（`party_b_id → biz_supplier.id`）。
 pub const PARTY_B_SUPPLIER: &str = "SUPPLIER";
 
-/// 乙方类型：客户（表属批次 2，本期写入硬拒 66020，见 ARCH-2 §3.2.3）。
+/// 乙方类型：客户（`party_b_id → biz_customer.id`；SO-26 起 SALES 合同放行）。
 pub const PARTY_B_CUSTOMER: &str = "CUSTOMER";
 
 /// 合同的 6 个状态（与 DDL 的 `ck_biz_contract_status` 白名单逐字一致）。
@@ -87,34 +88,76 @@ pub const STATUS_TERMINATED: &str = "TERMINATED";
 /// 否则「PO 建好三天后合同到期」会让一张已成立的承诺再也提交不了（§5.1 末段）。
 pub const USABLE_FOR_ORDER: [&str; 2] = [STATUS_SIGNED, STATUS_ACTIVE];
 
-/// 解析乙方引用：`SUPPLIER` 分支返回 `biz_supplier.supplier_name`（未软删才算存在）。
+/// 供应商解析 SQL（改单 / 详情：只要求存在且未软删）。
+const SUPPLIER_REF_SQL: &str = "SELECT supplier_name AS party_b_name FROM biz_supplier WHERE id = ?::uuid AND deleted_at IS NULL";
+
+/// 供应商解析 SQL（新签：额外要求启用中，V-11）。
+const SUPPLIER_REF_NEW_SQL: &str = "SELECT supplier_name AS party_b_name FROM biz_supplier \
+     WHERE id = ?::uuid AND deleted_at IS NULL AND status = 1";
+
+/// 客户解析 SQL（改单 / 详情：只要求存在且未软删）。
+///
+/// ⚠️ `biz_customer` 的状态是**字符串域值**（`ACTIVE` / `FROZEN`），不是供应商那种
+/// `SMALLINT 1/0`；写成 `status = 1` 会恒判 0 行（见 `customer_model` 模块文档）。
+const CUSTOMER_REF_SQL: &str =
+    "SELECT name AS party_b_name FROM biz_customer WHERE id = ?::uuid AND deleted_at IS NULL";
+
+/// 客户解析 SQL（新签：额外要求 `ACTIVE`；`FROZEN` = 冻结，禁开新单）。
+const CUSTOMER_REF_NEW_SQL: &str = "SELECT name AS party_b_name FROM biz_customer \
+     WHERE id = ?::uuid AND deleted_at IS NULL AND status = 'ACTIVE'";
+
+/// 乙方主档解析的唯一实现（两个公开入口都走它，避免分支各写一套）。
+///
+/// * `for_new = false` → 存在性 + 未软删（改单换乙方 / 通用解析器）
+/// * `for_new = true`  → 额外要求「可开新单」：供应商 `status = 1`、客户 `status = 'ACTIVE'`
+///
+/// 未知乙方类型 → `Ok(None)`（由调用方报 66021，绝不静默放过）。
+///
+/// SCOPE-EXEMPT: `biz_supplier` / `biz_customer` 都是全局主数据（无 dept_id / 归属人列），
+/// 这里是按主键的存在性解析，不是列表查询，不涉及数据范围。
+async fn party_b_lookup(party_b_type: &str, id: Uuid, for_new: bool) -> DbResult<Option<String>> {
+    let sql = match (party_b_type, for_new) {
+        (PARTY_B_SUPPLIER, false) => SUPPLIER_REF_SQL,
+        (PARTY_B_SUPPLIER, true) => SUPPLIER_REF_NEW_SQL,
+        (PARTY_B_CUSTOMER, false) => CUSTOMER_REF_SQL,
+        (PARTY_B_CUSTOMER, true) => CUSTOMER_REF_NEW_SQL,
+        _ => return Ok(None),
+    };
+    let rows = db().find_with_params(sql, vec![Value::from(&id)]).await?;
+    match rows.first() {
+        None => Ok(None),
+        Some(row) => Ok(Some(row.get_typed("party_b_name")?)),
+    }
+}
+
+/// 解析乙方引用：`SUPPLIER` → `biz_supplier.supplier_name`、`CUSTOMER` → `biz_customer.name`
+/// （两者都要求未软删才算存在）。
 ///
 /// 照抄 [`crate::business::erp::purchase_model::supplier_ref`] 的写法（ARCH-2 附录 B #5
-/// 指名了这个范本），签名多一个 `party_b_type`：批次 2 要在这里分叉到 `biz_customer`，
-/// 现在就把闸口留好，届时只加分支、不改调用方（§3.2.3 R2）。
+/// 指名了这个范本），签名多一个 `party_b_type`：两条分支的映射收在 [`party_b_lookup`] 里，
+/// 调用方（`contract_handler` / `contract_bridge`）只看「返回名字或 None」。
 ///
 /// # 参数
 ///
-/// * `party_b_type` —— `SUPPLIER` / `CUSTOMER`（其它值返回 `Ok(None)`，由调用方报 66020/66021）
+/// * `party_b_type` —— `SUPPLIER` / `CUSTOMER`（其它值返回 `Ok(None)`，由调用方报 66021）
 /// * `id` —— 乙方主键
 ///
 /// # 返回值
 ///
 /// * `Ok(Some(name))` —— 主档存在且未软删；`name` 直接作为 `party_b_name` **快照**落库
 ///   （V-15：不接受前端自填，否则审计上的"当时乙方是谁"就不可信）
-/// * `Ok(None)` —— 不存在 / 已软删 / 本期不支持的乙方类型
+/// * `Ok(None)` —— 不存在 / 已软删 / 未知乙方类型
 /// * `Err(DbError)` —— 数据库异常（连不上、类型不符），由调用方 `?` 上抛
 ///
 /// # 幂等与副作用
 ///
 /// 纯读，无副作用；不加锁（读主档名称不需要与主档写入串行）。
 ///
-/// # 本期为什么 `CUSTOMER` 一定返回 `None`
+/// # 与 [`party_b_ref_for_new`] 的分工
 ///
-/// 客户主数据（`biz_customer`）属批次 2。**不要**用「先存 id 后补主档」绕过 ——
-/// ARCH-2 §3.2.3 明确禁止：那会制造一批永远无法校验的孤儿数据，等客户表上线时
-/// 无人知道该把哪条 id 认领成客户。故此处直接返回 `None`，由 A2 的
-/// `ensure_party_b` 第一行转成 `66020 客户类合同暂未开放`。
+/// 本函数**不看**主档的业务状态（客户 `FROZEN` / 供应商停用照样返回名字）：
+/// 改备注、换联系人这类操作不该因为主档被冻结就失败（V-11 末段）。
+/// 新签的「可开新单」闸在 [`party_b_ref_for_new`]。
 ///
 /// # 示例
 ///
@@ -123,56 +166,28 @@ pub const USABLE_FOR_ORDER: [&str; 2] = [STATUS_SIGNED, STATUS_ACTIVE];
 /// match contract_model::party_b_ref(&req.party_b_type, req.party_b_id).await? {
 ///     Some(name) => party_b_name = name,                       // 快照用服务端读到的名字
 ///     None => return Err(ApiError::new(400, error_code::ERP_CONTRACT_PARTY_INVALID,
-///                                      "乙方供应商不存在或已停用")),
+///                                      "乙方不存在或已停用")),
 /// }
 /// ```
 pub async fn party_b_ref(party_b_type: &str, id: Uuid) -> DbResult<Option<String>> {
-    // SCOPE-EXEMPT: biz_supplier 是全局主数据（无 dept_id / 归属人列），
-    // 这里是一次按主键的存在性解析，不是列表查询，不涉及数据范围。
-    match party_b_type {
-        PARTY_B_SUPPLIER => {
-            let rows = db()
-                .find_with_params(
-                    "SELECT supplier_name FROM biz_supplier WHERE id = ?::uuid AND deleted_at IS NULL",
-                    vec![Value::from(&id)],
-                )
-                .await?;
-            match rows.first() {
-                None => Ok(None),
-                Some(row) => Ok(Some(row.get_typed("supplier_name")?)),
-            }
-        }
-        // 批次 2 在这里加 `biz_customer` 分支（§3.2.3 R2）；本期一律 None → 66020。
-        _ => Ok(None),
-    }
+    party_b_lookup(party_b_type, id, false).await
 }
 
-/// 供应商是否可用于**新签**合同（ARCH-2 V-11：新建时额外要求 `status = 1`）。
+/// 乙方主档是否可用于**新签**合同（ARCH-2 V-11：新建时额外要求主档处于可开新单状态）。
+///
+/// * `SUPPLIER`：`status = 1`（启用）
+/// * `CUSTOMER`：`status = 'ACTIVE'`（`FROZEN` = 冻结 → 拒）
 ///
 /// 为什么与 [`party_b_ref`] 分开：V-11 明写「停用只在**新建**校验；修改其它字段不重验」——
-/// 否则供应商一停用，连合同的备注都改不了。因此两个判定不能合并成一个函数，
+/// 否则供应商一停用（客户一冻结），连合同的备注都改不了。因此两个判定不能合并成一个函数，
 /// 调用点必须显式表达「这是新建还是改其它字段」。
 ///
 /// # 返回值
 ///
-/// * `Ok(Some(name))` —— 存在、未软删、且 `status = 1`
-/// * `Ok(None)` —— 不存在 / 已软删 / 已停用（三者对外话术一致：66021）
+/// * `Ok(Some(name))` —— 存在、未软删、且可开新单
+/// * `Ok(None)` —— 不存在 / 已软删 / 已停用或被冻结（对外话术一致：66021）
 pub async fn party_b_ref_for_new(party_b_type: &str, id: Uuid) -> DbResult<Option<String>> {
-    if party_b_type != PARTY_B_SUPPLIER {
-        // 客户分支本期不开（66020），不查任何表
-        return Ok(None);
-    }
-    let rows = db()
-        .find_with_params(
-            "SELECT supplier_name FROM biz_supplier \
-              WHERE id = ?::uuid AND deleted_at IS NULL AND status = 1",
-            vec![Value::from(&id)],
-        )
-        .await?;
-    match rows.first() {
-        None => Ok(None),
-        Some(row) => Ok(Some(row.get_typed("supplier_name")?)),
-    }
+    party_b_lookup(party_b_type, id, true).await
 }
 
 // ==================== A2：行结构 / 查询 / 写入 ====================
@@ -234,17 +249,24 @@ pub const CONTRACT_BASE_COLUMNS: &str = "c.id, c.contract_no, c.contract_name, c
      c.approval_instance_id";
 
 /// 列表 / 详情用的列清单 = 基础列 + 关联带出的乙方现值。
+///
+/// 乙方现值按 `party_b_type` 分叉：`SUPPLIER` 取 `biz_supplier.supplier_name`、
+/// `CUSTOMER` 取 `biz_customer.name`（SO-26 起 SALES 合同也有现值）。
 pub const CONTRACT_LIST_COLUMNS: &str = "c.id, c.contract_no, c.contract_name, c.contract_type, \
      c.party_a_id, c.party_a_name, c.party_b_type, c.party_b_id, c.party_b_name, c.amount, \
      c.currency_code, c.sign_date, c.start_date, c.end_date, c.status, c.owner_id, c.dept_id, \
      c.remark, c.created_at, c.updated_at, c.create_by, c.update_by, c.deleted_at, \
      c.approval_instance_id, \
-     s.supplier_name AS party_b_current_name";
+     COALESCE(s.supplier_name, cu.name) AS party_b_current_name";
 
 /// 乙方现值关联（**LEFT JOIN**：主档软删 / 不存在也要能查出合同 —— 历史合同不能因为
 /// 供应商被删就查不到，那是审计事故；现值给 `null`，快照列照旧可读）。
+///
+/// 两个 JOIN 各自带 `party_b_type` 条件：合同行只会命中其中一条，另一条恒为 NULL，
+/// `COALESCE` 取到的就是该类型主档的现值（`SUPPLIER` / `CUSTOMER` 的 id 空间互不相干）。
 pub const CONTRACT_JOIN: &str = "FROM biz_contract c \
-     LEFT JOIN biz_supplier s ON s.id = c.party_b_id";
+     LEFT JOIN biz_supplier s ON s.id = c.party_b_id AND c.party_b_type = 'SUPPLIER' \
+     LEFT JOIN biz_customer cu ON cu.id = c.party_b_id AND c.party_b_type = 'CUSTOMER'";
 
 /// `biz_contract` 的分页锚点。
 ///
@@ -944,6 +966,29 @@ mod tests {
         )
         .await
         .unwrap_or_else(|err| panic!("清理 biz_supplier 夹具失败：{err}"));
+        db().execute_with_params("DELETE FROM biz_customer WHERE code LIKE 'A1CM-%'", vec![])
+            .await
+            .unwrap_or_else(|err| panic!("清理 biz_customer 夹具失败：{err}"));
+    }
+
+    /// 造一个客户，返回 (id, name)。`status` 用来验「冻结」分支
+    /// （`biz_customer` 的状态是字符串域值 `ACTIVE` / `FROZEN`，不是 1/0）。
+    async fn make_customer(tag: &str, status: &str) -> (Uuid, String) {
+        let id = Uuid::now_v7();
+        let name = format!("A1 合同乙方客户 {tag}");
+        let code = format!("{PREFIX}CUS-{}-{tag}", &id.simple().to_string()[..8]);
+        db().execute_with_params(
+            "INSERT INTO biz_customer (id, code, name, status) VALUES (?::uuid, ?, ?, ?)",
+            vec![
+                Value::from(&id),
+                Value::Text(code),
+                Value::Text(name.clone()),
+                Value::Text(status.to_string()),
+            ],
+        )
+        .await
+        .unwrap_or_else(|err| panic!("造客户失败：{err}"));
+        (id, name)
     }
 
     /// 造一个供应商，返回 (id, name)。`status` 用来验「停用」分支。
@@ -1008,23 +1053,88 @@ mod tests {
         );
     }
 
-    /// ④ CUSTOMER 分支本期不开：即使 id 存在也返回 None（§3.2.3 的硬拒口径）。
+    /// ④ CUSTOMER 分支（SO-26 放行）：返回 `biz_customer.name`；未知类型仍 None。
     ///
-    /// 这条断言同时是「批次 2 的提醒」：R2 落地后，本用例要改成
-    /// 「造一个 biz_customer 行 → 返回 customer_name」。
+    /// 这条用例曾叫 `party_b_ref_customer_branch_is_closed`（客户主数据未上线时恒 None），
+    /// SO-26 把分支接上后语义反转 —— 保留测试位置，断言换成「真的读到客户名」。
     #[tokio::test]
-    async fn party_b_ref_customer_branch_is_closed() {
+    async fn party_b_ref_customer_branch_reads_customer_name() {
         let Some(_guard) = setup().await else { return };
-        let (id, _name) = make_supplier("CUS", 1).await;
+        let (id, name) = make_customer("OK", "ACTIVE").await;
         assert_eq!(
-            party_b_ref(PARTY_B_CUSTOMER, id).await.unwrap(),
-            None,
-            "客户主数据未上线，CUSTOMER 分支必须返回 None（调用方转 66020）"
+            party_b_ref(PARTY_B_CUSTOMER, id).await.unwrap().as_deref(),
+            Some(name.as_str()),
+            "SALES 合同的 party_b_id 指向 biz_customer.id，名称由服务端快照"
+        );
+        // 冻结客户在通用解析器里**照样**能取到名字（改备注不该被冻结挡住）
+        let (frozen_id, frozen_name) = make_customer("FRZ", "FROZEN").await;
+        assert_eq!(
+            party_b_ref(PARTY_B_CUSTOMER, frozen_id)
+                .await
+                .unwrap()
+                .as_deref(),
+            Some(frozen_name.as_str()),
+            "FROZEN 只拦新签，不拦改单（V-11）"
         );
         assert_eq!(
             party_b_ref("UNKNOWN", id).await.unwrap(),
             None,
             "未知乙方类型也不能静默放过"
+        );
+    }
+
+    /// ④-1 SO-26：客户不存在 / 已软删 → None（handler 据此给 66021）。
+    #[tokio::test]
+    async fn party_b_ref_customer_missing_or_deleted_is_none() {
+        let Some(_guard) = setup().await else { return };
+        assert_eq!(
+            party_b_ref(PARTY_B_CUSTOMER, Uuid::now_v7()).await.unwrap(),
+            None,
+            "不存在的客户必须返回 None"
+        );
+        let (id, _name) = make_customer("DEL", "ACTIVE").await;
+        db().execute_with_params(
+            "UPDATE biz_customer SET deleted_at = now() WHERE id = ?::uuid",
+            vec![Value::from(&id)],
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            party_b_ref(PARTY_B_CUSTOMER, id).await.unwrap(),
+            None,
+            "已软删的客户不得作为新合同乙方"
+        );
+    }
+
+    /// ④-2 SO-26：新签闸口对客户按 `status = 'ACTIVE'` 判定（FROZEN 拒、ACTIVE 过）。
+    #[tokio::test]
+    async fn party_b_ref_for_new_only_accepts_active_customer() {
+        let Some(_guard) = setup().await else { return };
+        let (active_id, active_name) = make_customer("ON", "ACTIVE").await;
+        let (frozen_id, _frozen_name) = make_customer("OFF", "FROZEN").await;
+
+        assert_eq!(
+            party_b_ref_for_new(PARTY_B_CUSTOMER, active_id)
+                .await
+                .unwrap()
+                .as_deref(),
+            Some(active_name.as_str()),
+            "ACTIVE 客户可以新签销售合同"
+        );
+        assert_eq!(
+            party_b_ref_for_new(PARTY_B_CUSTOMER, frozen_id)
+                .await
+                .unwrap(),
+            None,
+            "FROZEN（冻结）客户不得新签（V-11；status 是字符串域值，写成 status = 1 会恒判 0 行）"
+        );
+        // 同一把 id 当成供应商查不到名字（两条主档分支不串）
+        assert_eq!(
+            party_b_ref_for_new(PARTY_B_SUPPLIER, active_id)
+                .await
+                .unwrap(),
+            None,
+            "客户 id 不能当供应商 id 用"
         );
     }
 
@@ -1061,13 +1171,13 @@ mod tests {
             Some(enabled_name.as_str()),
             "启用中的供应商可以新签"
         );
-        // 客户分支在新签闸口同样关闭（不查表，直接 None）
+        // CUSTOMER 分支按客户表解析：拿供应商 id 去查客户表必然查不到（两条主档不串）
         assert_eq!(
             party_b_ref_for_new(PARTY_B_CUSTOMER, enabled_id)
                 .await
                 .unwrap(),
             None,
-            "CUSTOMER 本期不开（66020）"
+            "供应商 id 不能当客户 id 用（CUSTOMER 分支查 biz_customer）"
         );
     }
 }

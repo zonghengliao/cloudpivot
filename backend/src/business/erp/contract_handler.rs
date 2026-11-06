@@ -29,7 +29,8 @@
 //! | 非草稿改单（字段冻结） | `66016 ERP_CONTRACT_FIELD_LOCKED` | 409 |
 //! | 合同号重复 | `66017 ERP_CONTRACT_NO_DUPLICATED` | 409 |
 //! | 被采购单引用不可删 | `66018 ERP_CONTRACT_IN_USE` | 409 |
-//! | 客户类合同未开放 | `66020 ERP_CONTRACT_CUSTOMER_UNSUPPORTED` | 400 |
+//! | 客户类合同未开放 | `66020 ERP_CONTRACT_CUSTOMER_UNSUPPORTED` | 400 |（**SO-26 起废弃**：
+//!   `SALES` 已放行，乙方走 `biz_customer`；码值保留不删，避免历史日志 / 前端映射报未知码）
 //! | 乙方不存在 / 已停用 | `66021 ERP_CONTRACT_PARTY_INVALID` | 400 |
 //!
 //! 入参形态问题（必填缺失 / 超长 / 非法枚举 / 金额非正 / 日期反了）一律
@@ -41,7 +42,8 @@
 //!    写状态的是 `state_machine::transition`（它自己写 `biz_status_log`）。
 //!    handler 里**没有** `match (from, to) { … }` 这种硬判——有的话加一条边就要改两处。
 //! ② **单号只用于显示 / 模糊查**（R1-f）：任何关联都靠 `party_b_id`，不靠 `contract_no` 文本。
-//! ③ **乙方名称是快照**：新建 / 换乙方时由服务端从 `biz_supplier` 读，客户端传什么都不算数。
+//! ③ **乙方名称是快照**：新建 / 换乙方时由服务端按 `party_b_type` 从 `biz_supplier`（供应商）
+//!    或 `biz_customer`（客户）读，客户端传什么都不算数。
 //!
 //! # 与卡面的出入（都以 DDL 为准，逐条已写进 A2 交付说明）
 //!
@@ -63,7 +65,7 @@ use crate::business::erp::approval_gate;
 use crate::business::erp::contract_bridge;
 use crate::business::erp::contract_dto::{
     ContractDetailRes, ContractFilter, ContractRes, ContractStatusReq, CreateContractReq,
-    SUPPORTED_TYPES, UpdateContractReq, normalize_page, parse_optional_uuid, parse_uuid_text,
+    UpdateContractReq, normalize_page, parse_optional_uuid, parse_uuid_text,
 };
 use crate::business::erp::contract_model::{self, ContractMut, STATUS_DRAFT};
 use crate::business::flow::{engine, model as flow_model};
@@ -189,19 +191,29 @@ fn reference_guard(
     }
 }
 
-/// 乙方不存在 / 已停用（400 + `66021`）。
+/// 乙方不存在 / 已删除（400 + `66021`，改单换乙方用：不查业务状态，V-11）。
 fn party_invalid(message: impl Into<String>) -> ApiError {
     ApiError::new(400, error_code::ERP_CONTRACT_PARTY_INVALID, message.into())
 }
 
-/// 客户类合同未开放（400 + `66020`）。
-fn customer_unsupported() -> ApiError {
-    ApiError::new(
-        400,
-        error_code::ERP_CONTRACT_CUSTOMER_UNSUPPORTED,
-        "客户类合同（SALES / 乙方类型 CUSTOMER）本批次未开放：客户主数据属批次 2，\
-         上线后 party_b_ref 会自动支持（ARCH-2 §3.2.3 R2）",
-    )
+/// 乙方主档在 UI / 日志里的称谓（按类型分叉，别让销售合同的报错说「供应商」）。
+fn party_label(party_b_type: &str) -> &'static str {
+    if party_b_type == contract_model::PARTY_B_CUSTOMER {
+        "乙方客户"
+    } else {
+        "乙方供应商"
+    }
+}
+
+/// 新签时乙方不可用（400 + `66021`）：文案按类型说清「停用」还是「冻结」。
+fn party_missing_for_new(party_b_type: &str, party_b_id: Uuid) -> ApiError {
+    let label = party_label(party_b_type);
+    let state = if party_b_type == contract_model::PARTY_B_CUSTOMER {
+        "已冻结（V-11：冻结客户不得新签合同）"
+    } else {
+        "已停用（V-11：停用供应商不得新签合同）"
+    };
+    party_invalid(format!("{label} {party_b_id} 不存在、已删除或{state}"))
 }
 
 /// 写路径的数据库错误收口（与 `handler::write_error` 同款判据：按变体，不按文案）。
@@ -357,15 +369,17 @@ pub async fn contract_detail(Path(id): Path<String>) -> ResResult<ContractDetail
 ///
 /// # 处理链
 ///
-/// 1. 纯入参校验（必填 / 长度 / 枚举 / 金额 > 0 / 日期顺序 / 签订 ≤ 生效）；
-/// 2. 类型闸：本期只放 `PURCHASE`，`SALES` → `66020`，其余 → 400；
-/// 3. 乙方解析：`party_b_ref_for_new`（要求 `status = 1`）→ 无 → `66021`；
+/// 1. 纯入参校验（必填 / 长度 / 枚举 / **类型闸**（`PURCHASE`/`SALES`，`SERVICE`/`LEASE` 拒）
+///    / 金额 > 0 / 日期顺序 / 签订 ≤ 生效）；
+/// 2. 乙方类型：`SALES` 推导为 `CUSTOMER`（`party_b_id → biz_customer.id`），其余 `SUPPLIER`；
+/// 3. 乙方解析：`party_b_ref_for_new`（供应商 `status = 1`、客户 `status = 'ACTIVE'`）
+///    → 无 → `66021`；
 /// 4. 同一事务里取号 + 插入（取号与插入必须同事务，否则回滚会吃掉一个号，
 ///    虽然号码不要求连续，但少一个号会让对账人多问一句）。
 ///
 /// # 异常情况
 ///
-/// - 400 + `10001`：入参不合法；400 + `66020`：客户类合同；400 + `66021`：乙方无效；
+/// - 400 + `10001`：入参不合法 / 类型未开放；400 + `66021`：乙方不存在 / 已删 / 停用或冻结；
 /// - 409 + `66017`：合同号重复（唯一索引兜底）；
 /// - 500：数据库异常。
 #[nik::permission(
@@ -378,38 +392,16 @@ pub async fn contract_create(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Json(req): Json<CreateContractReq>,
 ) -> ResResult<ContractDetailRes> {
+    // 含类型闸：`SERVICE` / `LEASE` 是合法枚举但未开放 → 400 点名放行集（SO-26）
     req.validate()?;
 
-    // 类型闸：本期只开放 PURCHASE（卡面）；SALES 的乙方是客户 → 66020
-    let contract_type = req.contract_type_value();
-    if contract_type == "SALES" {
-        return Err(customer_unsupported());
-    }
-    if !SUPPORTED_TYPES.contains(&contract_type) {
-        return Err(ApiError::new(
-            400,
-            error_code::PARAM_INVALID,
-            format!(
-                "contract_type `{contract_type}` 本批次未开放：只支持 {}",
-                SUPPORTED_TYPES.join(" / ")
-            ),
-        ));
-    }
-
     let party_b_type = req.resolve_party_b_type()?;
-    if party_b_type == contract_model::PARTY_B_CUSTOMER {
-        return Err(customer_unsupported());
-    }
     let party_b_id = parse_uuid_text(req.party_b_id.as_deref().unwrap_or_default(), "party_b_id")?;
-    // V-11：新建要求供应商存在、未软删、且启用中（停用只拦新签，不拦改备注）
+    // V-11：新建要求乙方主档存在、未软删、且可开新单（停用/冻结只拦新签，不拦改备注）
     let party_b_name = contract_model::party_b_ref_for_new(party_b_type, party_b_id)
         .await
         .map_err(|error| utils::db_error(error, "校验合同乙方"))?
-        .ok_or_else(|| {
-            party_invalid(format!(
-                "乙方供应商 {party_b_id} 不存在、已删除或已停用（V-11：停用供应商不得新签合同）"
-            ))
-        })?;
+        .ok_or_else(|| party_missing_for_new(party_b_type, party_b_id))?;
 
     let operator = operator_of(&claims);
     let mut new = req.into_new(party_b_id, party_b_name, party_b_type, operator);
@@ -522,7 +514,12 @@ pub async fn contract_update(
                 let name = contract_model::party_b_ref(&current.party_b_type, new_id)
                     .await
                     .map_err(|error| utils::db_error(error, "校验合同乙方"))?
-                    .ok_or_else(|| party_invalid(format!("乙方供应商 {new_id} 不存在或已删除")))?;
+                    .ok_or_else(|| {
+                        party_invalid(format!(
+                            "{} {new_id} 不存在或已删除",
+                            party_label(&current.party_b_type)
+                        ))
+                    })?;
                 (new_id, name)
             }
         }

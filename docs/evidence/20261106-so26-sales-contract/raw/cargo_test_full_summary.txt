@@ -1,0 +1,28 @@
+failures:
+---- business::erp::payable_bridge::tests::p17_skip_approval_payment_logs_are_purged_by_id stdout ----
+thread 'business::erp::payable_bridge::tests::p17_skip_approval_payment_logs_are_purged_by_id' (967619) panicked at src/business/erp/payable_bridge.rs:2392:41:
+---- business::erp::receivable_aging::tests::db_bucket_boundaries_and_backet_source_agree stdout ----
+thread 'business::erp::receivable_aging::tests::db_bucket_boundaries_and_backet_source_agree' (980115) panicked at src/business/erp/receivable_aging.rs:1091:13:
+SQL: DELETE FROM biz_receivable
+---- business::erp::receivable_aging::tests::db_customer_pivot_and_summary_are_consistent stdout ----
+thread 'business::erp::receivable_aging::tests::db_customer_pivot_and_summary_are_consistent' (980119) panicked at src/business/erp/receivable_aging.rs:1091:13:
+SQL: DELETE FROM biz_receivable
+---- business::erp::receivable_aging::tests::db_period_cutoff_excludes_later_documents stdout ----
+thread 'business::erp::receivable_aging::tests::db_period_cutoff_excludes_later_documents' (980125) panicked at src/business/erp/receivable_aging.rs:1091:13:
+SQL: DELETE FROM biz_receivable
+---- business::erp::sales_approval_bridge::db_tests::reject_returns_order_to_draft stdout ----
+thread 'business::erp::sales_approval_bridge::db_tests::reject_returns_order_to_draft' (982584) panicked at src/business/erp/sales_approval_bridge.rs:883:9:
+---- business::erp::sales_approval_bridge::db_tests::three_tiers_start_flow_and_approve_to_approved stdout ----
+thread 'business::erp::sales_approval_bridge::db_tests::three_tiers_start_flow_and_approve_to_approved' (982615) panicked at src/business/erp/sales_approval_bridge.rs:811:17:
+---- business::erp::stocktake_tests::zz_teardown_purges_stocktake_fixtures stdout ----
+thread 'business::erp::stocktake_tests::zz_teardown_purges_stocktake_fixtures' (1012131) panicked at src/business/erp/stocktake_tests.rs:149:9:
+SQL: DELETE FROM sys_user WHERE username LIKE 'stk_%'
+failures:
+    business::erp::payable_bridge::tests::p17_skip_approval_payment_logs_are_purged_by_id
+    business::erp::receivable_aging::tests::db_bucket_boundaries_and_backet_source_agree
+    business::erp::receivable_aging::tests::db_customer_pivot_and_summary_are_consistent
+    business::erp::receivable_aging::tests::db_period_cutoff_excludes_later_documents
+    business::erp::sales_approval_bridge::db_tests::reject_returns_order_to_draft
+    business::erp::sales_approval_bridge::db_tests::three_tiers_start_flow_and_approve_to_approved
+    business::erp::stocktake_tests::zz_teardown_purges_stocktake_fixtures
+test result: FAILED. 2846 passed; 7 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1192.35s

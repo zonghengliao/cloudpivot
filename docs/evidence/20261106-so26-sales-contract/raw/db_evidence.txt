@@ -1,0 +1,4 @@
+DB=cloudpivot_so26 (TEMPLATE cloudpivot_so25)
+migrations=227
+new_sales_contract_migrations=0
+biz_contract_cols=24

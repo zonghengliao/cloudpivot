@@ -1,0 +1,66 @@
+==================================================================
+SO-26 验收：库=cloudpivot_so26 实例=http://127.0.0.1:18226/api
+==================================================================
+
+== 0) 实例 / 迁移记账（本卡无表结构改动 ⇒ 不该有新迁移） ==
+  ✅ /health = 200
+  · 当前迁移条数=227（启动日志若打印「应用 0 个迁移」即与卡面第 4 条一致）
+  ✅ applied_via 非 executed/imported 的迁移数 = 0
+  ✅ 本卡新增迁移数（卡面第 4 条：无表结构改动） = 0
+
+== 1) admin 登录（模板库口令自 SO-25 继承，逐候选试） ==
+  ✅ admin 登录成功（口令 = Admin@So25!2026）
+
+== 2) 夹具：建一个 ACTIVE 客户 + 一个 FROZEN 客户（真接口） ==
+  ✅ 建客户 HTTP = 200
+  ✅ 客户名 = SO-26 销售合同客户
+  ✅ 建 FROZEN 客户 HTTP = 200
+
+== 3) ① SALES 合同：建成功 + 乙方快照来自 biz_customer ==
+  ✅ POST /business/erp/contract（SALES）HTTP = 200
+  ✅ 合同类型 = SALES
+  ✅ 乙方类型（SALES 推导 CUSTOMER） = CUSTOMER
+  ✅ 乙方 id = 客户 id = 01a1b1ba-3053-7239-bc79-0ef3e7be04ea
+  ✅ 乙方名称快照 = 客户主档名（服务端读） = SO-26 销售合同客户
+  ✅ 乙方现值（LEFT JOIN biz_customer） = SO-26 销售合同客户
+  ✅ 初始状态 = DRAFT
+  ✅ 合同号形状（HT-yyyyMMdd-000001） = HT-
+
+  --- 详情 / 列表也能带出客户现值 ---
+  ✅ GET 详情 HTTP = 200
+  ✅ 详情乙方现值 = SO-26 销售合同客户
+  ✅ GET 分页（contract_type=SALES）HTTP = 200
+  ✅ 列表里能查到刚建的 SALES 合同 = 1
+  ✅ 列表行的乙方现值 = SO-26 销售合同客户
+  ✅ 库内落库三元组（contract_type|party_b_type|party_b_name） = SALES|CUSTOMER|SO-26 销售合同客户
+
+== 4) ② SERVICE / LEASE 仍被拒（合法枚举，未开放） ==
+  ✅ POST SERVICE HTTP = 400
+  ✅ SERVICE 错误码（10001=入参非法） = 10001
+  ✅ SERVICE 文案点名放行集：contract_type `SERVICE` 本批次未开放：只支持 PURCHASE / SALES
+  ✅ POST LEASE HTTP = 400
+  ✅ LEASE 错误码（10001=入参非法） = 10001
+  ✅ LEASE 文案点名放行集：contract_type `LEASE` 本批次未开放：只支持 PURCHASE / SALES
+
+== 5) ③ party_b_type=CUSTOMER 时校验客户存在 ==
+  ✅ 不存在的客户 → HTTP = 400
+  ✅ 不存在的客户 → 业务码（66021 PARTY_INVALID） = 66021
+  ✅ 文案按类型称谓：乙方客户 0f76520d-454b-4e2c-ada6-24cc9d9c9ec5 不存在、已删除或已冻结（V-11：冻结客户不得新签合同）
+  ✅ FROZEN 客户 → HTTP = 400
+  ✅ FROZEN 客户 → 业务码 = 66021
+  ✅ 文案说清冻结：乙方客户 01a1b1ba-3066-7435-8d68-802ab47eae83 不存在、已删除或已冻结（V-11：冻结客户不得新签合同）
+  ✅ SALES + party_b_type=SUPPLIER 冲突 → HTTP = 400
+  ✅ 冲突文案点名 CUSTOMER：SALES（销售）合同的乙方类型必须是 CUSTOMER，与 party_b_type 冲突
+
+== 6) 回归：PURCHASE（供应商分支）仍可建 ==
+  ✅ POST PURCHASE HTTP = 200
+  ✅ PURCHASE 乙方类型 = SUPPLIER
+  ✅ PURCHASE 乙方名称快照 = 示例供应商（种子）
+  ✅ PURCHASE 乙方现值（仍走 biz_supplier） = 示例供应商（种子）
+
+== 7) 夹具回读（库内证据） ==
+HT-20261107-000100 | SALES | CUSTOMER | SO-26 销售合同客户 | 01a1b1ba-3053-7239-bc79-0ef3e7be04ea
+
+==================================================================
+PASS=39 FAIL=0
+结果：PASS

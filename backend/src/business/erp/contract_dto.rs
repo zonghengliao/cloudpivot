@@ -63,13 +63,13 @@ pub const MAX_REASON_LEN: usize = 500;
 
 /// 合同类型白名单（与 `ck_biz_contract_type` 逐字一致）。
 ///
-/// 本期只开放 `PURCHASE`（其乙方是供应商）；`SALES` 的乙方是客户，
-/// 客户主数据属批次 2 → 一律 `66020`。`SERVICE` / `LEASE` 的乙方两种都可能是
-/// （`ck_biz_contract_type_party_pair` 放行），本期按供应商处理。
+/// `PURCHASE` 的乙方是供应商，`SALES` 的乙方是客户（客户主数据 `biz_customer`
+/// 已随销售链 SO-02 上线，SO-26 起真正放行）；`SERVICE` / `LEASE` 的乙方两种都可能是
+/// （`ck_biz_contract_type_party_pair` 放行），业务未开 → 仍拒。
 pub const CONTRACT_TYPES: [&str; 4] = ["PURCHASE", "SALES", "SERVICE", "LEASE"];
 
-/// 本期真正放行的合同类型（其余类型要么等客户主数据，要么业务未开）。
-pub const SUPPORTED_TYPES: [&str; 1] = ["PURCHASE"];
+/// 本期真正放行的合同类型（SO-26：放开 `SALES`；`SERVICE` / `LEASE` 仍关）。
+pub const SUPPORTED_TYPES: [&str; 2] = ["PURCHASE", "SALES"];
 
 /// 默认币种（与 DDL 的 `DEFAULT 'CNY'` 一致）。
 pub const DEFAULT_CURRENCY: &str = "CNY";
@@ -124,6 +124,25 @@ fn check_optional_text(
         ))),
         _ => Ok(()),
     }
+}
+
+/// 类型闸：`contract_type` 是否在本期放行集里（纯函数，handler 与单测共用同一出口）。
+///
+/// 与 [`require_one_of`] 的区别：那条判「是不是合法枚举值」（4 个），本函数判
+/// 「业务开没开」（[`SUPPORTED_TYPES`] 2 个）。两条闸都要过：
+/// `SERVICE` / `LEASE` 是合法枚举但未开 → 400 且文案点名当前只支持哪些。
+///
+/// # 异常情况
+///
+/// * 400 + `10001`：不在 [`SUPPORTED_TYPES`] 里（`SERVICE` / `LEASE` / 未来新枚举）。
+pub fn ensure_supported_type(contract_type: &str) -> std::result::Result<(), ApiError> {
+    if SUPPORTED_TYPES.contains(&contract_type) {
+        return Ok(());
+    }
+    Err(bad_request(format!(
+        "contract_type `{contract_type}` 本批次未开放：只支持 {}",
+        SUPPORTED_TYPES.join(" / ")
+    )))
 }
 
 /// 枚举白名单。
@@ -441,11 +460,14 @@ impl CreateContractReq {
     ///
     /// # 异常情况
     ///
-    /// * 400 + `10001`：缺必填 / 超长 / 枚举非法 / 金额 ≤ 0 / 日期区间反了 / 签订晚于生效 / 币种非法。
+    /// * 400 + `10001`：缺必填 / 超长 / 枚举非法 / 类型未开放（`SERVICE` / `LEASE`）/
+    ///   金额 ≤ 0 / 日期区间反了 / 签订晚于生效 / 币种非法。
     pub fn validate(&self) -> std::result::Result<(), ApiError> {
         require_text(self.display_name(), "name", MAX_NAME_LEN)?;
         let contract_type = require_text(self.contract_type.as_deref(), "contract_type", 16)?;
         require_one_of(&contract_type, &CONTRACT_TYPES, "contract_type")?;
+        // 类型闸（业务开没开）：SO-26 起 PURCHASE / SALES 放行，SERVICE / LEASE 仍拒
+        ensure_supported_type(&contract_type)?;
         if self
             .party_b_id
             .as_deref()
@@ -479,12 +501,13 @@ impl CreateContractReq {
 
     /// 乙方类型：客户端显式给了就校验，没给按合同类型推导。
     ///
-    /// * `SALES` → `CUSTOMER`（客户主数据未上线 → 调用方转 `66020`）
-    /// * 其余 → `SUPPLIER`（`SERVICE` / `LEASE` 理论可两选，本期只接供应商）
+    /// * `SALES` → `CUSTOMER`（`party_b_id` 指向 `biz_customer.id`，SO-26 起放行）
+    /// * 其余 → `SUPPLIER`（`SERVICE` / `LEASE` 理论可两选，本期只接供应商且未开放）
     ///
     /// # 异常情况
     ///
-    /// * 400 + `10001`：传了非 `SUPPLIER` / `CUSTOMER` 的第三个值。
+    /// * 400 + `10001`：传了非 `SUPPLIER` / `CUSTOMER` 的第三个值；或 `SALES` 显式传
+    ///   `SUPPLIER`（与推导冲突）。
     pub fn resolve_party_b_type(&self) -> std::result::Result<&'static str, ApiError> {
         let derived = if self.contract_type_value() == "SALES" {
             contract_model::PARTY_B_CUSTOMER
@@ -934,7 +957,7 @@ mod tests {
         assert_eq!(new.contract_name, "A2 采购合同");
     }
 
-    /// ⑧ `SALES`（客户类）本期不开：乙方类型推导出 `CUSTOMER`，调用方据此转 66020。
+    /// ⑧ `SALES`（客户类）的乙方类型推导为 `CUSTOMER`（SO-26 起 party_b_id 指向 biz_customer）。
     #[test]
     fn sales_contract_derives_customer_party_type() {
         let req = CreateContractReq {
@@ -944,8 +967,72 @@ mod tests {
         assert_eq!(
             req.resolve_party_b_type().expect("推导"),
             contract_model::PARTY_B_CUSTOMER,
-            "销售合同的乙方是客户 → 调用方转 66020"
+            "销售合同的乙方是客户 → party_b_id 指向 biz_customer.id"
         );
+    }
+
+    /// ⑧-1 SO-26：`SALES` 放开（校验通过），`SERVICE` / `LEASE` 仍被类型闸拒。
+    #[test]
+    fn sales_is_supported_but_service_and_lease_are_not() {
+        assert_eq!(SUPPORTED_TYPES, ["PURCHASE", "SALES"], "放行集");
+
+        let sales = CreateContractReq {
+            contract_type: Some("SALES".to_string()),
+            ..base_req()
+        };
+        sales.validate().expect("SALES 必须放行（SO-26）");
+        assert_eq!(
+            sales.resolve_party_b_type().expect("推导"),
+            contract_model::PARTY_B_CUSTOMER
+        );
+
+        for unsupported in ["SERVICE", "LEASE"] {
+            assert!(
+                CONTRACT_TYPES.contains(&unsupported),
+                "{unsupported} 仍是合法枚举值"
+            );
+            let req = CreateContractReq {
+                contract_type: Some(unsupported.to_string()),
+                ..base_req()
+            };
+            let err = req
+                .validate()
+                .expect_err("未开放的类型必须拒（合法枚举 ≠ 业务已开）");
+            assert_eq!(err.status, 400, "{unsupported}");
+            assert_eq!(err.code, error_code::PARAM_INVALID, "{unsupported}");
+            assert!(
+                err.msg.contains("PURCHASE") && err.msg.contains("SALES"),
+                "文案要点名放行集：{}",
+                err.msg
+            );
+            assert!(
+                err.msg.contains(unsupported),
+                "文案要点名被拒的类型：{}",
+                err.msg
+            );
+            assert_eq!(
+                ensure_supported_type(unsupported)
+                    .expect_err("类型闸")
+                    .status,
+                400,
+                "纯函数同样拒"
+            );
+        }
+        assert!(ensure_supported_type("PURCHASE").is_ok());
+        assert!(ensure_supported_type("SALES").is_ok());
+    }
+
+    /// ⑧-2 `SALES` 显式传 `SUPPLIER` 乙方类型 → 400（推导与显式必须一致）。
+    #[test]
+    fn sales_with_supplier_party_type_is_rejected() {
+        let req = CreateContractReq {
+            contract_type: Some("SALES".to_string()),
+            party_b_type: Some(contract_model::PARTY_B_SUPPLIER.to_string()),
+            ..base_req()
+        };
+        let err = req.resolve_party_b_type().expect_err("冲突必须拒");
+        assert_eq!(err.status, 400);
+        assert!(err.msg.contains("CUSTOMER"), "{}", err.msg);
     }
 
     /// ⑨ 分页口径：默认 1/20，上限 100。
