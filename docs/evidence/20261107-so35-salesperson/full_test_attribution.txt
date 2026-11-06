@@ -1,0 +1,74 @@
+SO-35 全量 lib 测试在真库上的归因记录（2026-11-07）
+=====================================================
+
+环境：库 cloudpivot_so35d（`RECREATE=1 ERP_DB=cloudpivot_so35d bash scripts/verify/erp_clean_db.sh`
+新建，迁移器实测 schema_migrations(max|count) = 310|238，超管人数 = 1），
+命令：ERP_DB_URL/SYS_DB_URL/TASK_DB_URL 三把都指向该库，
+      cargo test --lib -- --test-threads=1
+
+## 一、全量结果（串行）
+
+test result: FAILED. 2944 passed; 5 failed; 0 ignored; finished in 1490.49s
+
+失败清单：
+  1. business::erp::sales_approval_bridge::db_tests::three_tiers_start_flow_and_approve_to_approved
+  2. business::shared::doc_kind::doc_kind_tests::doc_kind_registries_match_doc_kind_table
+  3. business::shared::doc_kind::doc_kind_tests::frontend_ts_mirror_matches_rust
+  4. business::shared::doc_kind::doc_kind_tests::voucher_source_map_matches_snapshot_registry
+  5. system::menu::tests::n10_annotated_permissions_have_menu_code
+
+## 二、逐条归因（全部实测，不是推测）
+
+### 2/3/4 + 5 —— 由**另一位 worker 未提交的 RECEIPT_REFUND 改动**造成，与本卡无关
+
+- `git status` 显示 `backend/src/business/erp/receipt.rs` / `voucher.rs` 处于已修改但**未提交**
+  状态（SO-35 的提交 616384d **不含**这两个文件）。
+- 失败断言原文里出现的正是对方新增的单据类型：
+  `... ("RECEIPT_REFUND", Some("biz_receipt_refund")) ... / 期望 [...（17 种，无 RECEIPT_REFUND）]`
+  `left: 18  right: 17`
+- `n10` 的报错也逐字点名对方的新码：
+  `business:erp:receipt-refund:create / :detail / :list / :allocate / :status`
+  ——「后端已注解但 sys_menu 没有承载」= 对方还没提交它那条菜单迁移。
+- 结论：这 4 条是工作区里**别人的 WIP** 的必经红，等对方提交其迁移后自然转绿；本卡不动别人的文件。
+
+### 1 —— 全量跑过之后的**夹具残留**，与本卡的迁移无关（三条对照实验）
+
+| 实验 | 库 | 结果 |
+|---|---|---|
+| ① 本卡迁移**全部应用**（V0309+V0310），单跑该用例 | cloudpivot_so35d（新建干净库） | **ok** |
+| ② 把 V0309 / V0310 文件移出 migrations、新建干净库（**无本卡迁移**）后单跑 | cloudpivot_so35d（重建前） | **ok** |
+| ③ 只应用 V0309 单跑 / 再应用 V0310 单跑 | cloudpivot_so35d | **ok / ok** |
+| ④ 全量串行跑完之后，同一库单跑 | cloudpivot_so35d | FAILED（`left: "" right: "APPROVED"`） |
+| ⑤ 同库，先删掉本卡给 SALES_SUPERVISOR 补的 flow 授权，再单跑 | cloudpivot_so35d | 仍 FAILED ⇒ **不是本卡授权引起的** |
+| ⑥ 同库，把所有非 admin 夹具账号软删（`update sys_user set deleted_at=now() where username<>'admin'`，24 行）后单跑 | cloudpivot_so35d | **ok** ⇒ 结论：是**别的用例留下的夹具账号**在污染，不是本卡迁移 |
+
+复现 ⑥ 的两条命令：
+```bash
+psql -h 127.0.0.1 -U alun -d cloudpivot_so35d -Atc "update sys_user set deleted_at=now() where username <> 'admin' and deleted_at is null"
+ERP_DB_URL=... SYS_DB_URL=... TASK_DB_URL=... cargo test --lib -- --test-threads=1 \
+  business::erp::sales_approval_bridge::db_tests::three_tiers_start_flow_and_approve_to_approved
+```
+
+这一类的官方口径见 `scripts/verify/erp_clean_db.sh` 头注释（p17 等夹具型用例会往库里留
+超管 / 账号；`assignee_type=ADMIN` + `join_mode=AND` 节点的会签人数 = 在职超管数 ⇒
+同一条提交在「刚建的库」与「跑过一轮的库」上结果不同）。
+
+## 三、本卡新增用例（三条，全绿）
+
+```
+running 3 tests
+test business::erp::sales_order_handler::tests::create_order_binds_salesperson_and_rejects_inactive_user ... ok
+test business::erp::sales_order_handler::tests::parse_salesperson_id_accepts_blank_and_rejects_garbage ... ok
+test business::erp::sales_order_model::tests::salesperson_round_trip_and_unbind ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 2965 filtered out; finished in 2.26s
+```
+
+命中的菜单/权限类真库用例（6 条）也全部通过：
+```
+[N19] 38 处 ROLE 指派的审批节点，全部持有 business:flow:approve ✓
+[N14] 334 个种子菜单权限码全部有源码落地 ✓（315 条走 #[nik::permission]，11 条走行级校验）
+[N18] 例外台账 8 条、白名单 16 条，全部有理由且仍然成立 ✓
+[N16] 561 条路由：545 条有权限注解 + 16 条白名单例外 ✓
+test result: ok. 6 passed; 0 failed
+```

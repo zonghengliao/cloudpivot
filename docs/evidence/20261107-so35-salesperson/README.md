@@ -40,10 +40,10 @@
 | 迁移往返（up→up 幂等→down→down 幂等→up） | `migration_probe.txt` | 每轮自检通过；两轮 down 第二轮全 `skipping`；表/列/外键/菜单/授权行数在 up/down 后精确回到 0 / 原值 |
 | 迁移器记账 | `db_state.txt` ① | `309|versioned|executed|t`、`310|versioned|executed|t`；全库 `applied_via` 只有 `executed`（238 行） |
 | 结构 / 约束 / 索引 | `db_state.txt` ③④⑤ | 列数 17/15/11；外键 `SET NULL` / `CASCADE` 逐条对；11 条 CHECK 全在；两个唯一索引列序正确 |
-| 角色 + 授权 | `db_state.txt` ⑤ | `SALES_SUPERVISOR` / `SALES_CLERK` / `FINANCE_MANAGER` / `GENERAL_MANAGER` 在位，佣金 11 对授权逐条可查 |
+| 角色 + 授权 | `db_state.txt` ⑤ | `SALES_SUPERVISOR` / `SALES_CLERK` / `FINANCE_MANAGER` / `GENERAL_MANAGER` 在位；佣金 11 对 + flow 缺口补丁 2 条（共 13 对矩阵，展开 15 行授权）逐条可查 |
 | 真实 token curl | `curl_transcript.txt` | 建单回显 `salesperson_name`、详情/分页补名、空串解绑、重挂、不存在 400、乱码 400、无 token 401 |
 | 常驻闸门 | `gates.txt` | `missing_in_menu = 0`、`孤儿 (角色,码) = 0`、`role_code_gate` 无未知角色码 |
-| 单测 | 汇报正文 | `cargo test --lib` 全绿（含本卡新增 3 条：model 往返 1 条、handler 纯逻辑 1 条 + 真库 1 条） |
+| 单测 | `full_test_attribution.txt` | `cargo test --lib -- --test-threads=1` 干净库 **2944 passed / 5 failed**，5 条逐条归因：4 条是**另一位 worker 未提交的 RECEIPT_REFUND WIP**（本卡提交不含 receipt.rs/voucher.rs），1 条是**夹具残留**（软删 24 个残留账号后同库单跑即绿，且与删除本卡授权无关）。本卡新增 3 条用例全绿 |
 
 ## 四、复现
 
