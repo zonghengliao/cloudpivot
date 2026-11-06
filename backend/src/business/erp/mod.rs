@@ -69,6 +69,7 @@
 //! | [`reminder_stock`] | ④ 低库存：`qty < safety_stock`（DC-12 摆设字段落地）→ 仓管主管 | **ARCH-3 R-P1-2** |
 //! | [`customer_model`] | 客户档案数据层（V0260）：`ACTIVE`/`FROZEN` 域、软删后编码可复用、分页 | **SO-01/SO-02** |
 //! | [`sales_model`] | 销售订单数据层（V0264）：`SO-yyyyMMdd-6 位` 取号 + 7 态状态域 + 金额恒等守卫 | **SO-04** |
+//! | [`shipment_model`] | 发货单数据层（V0283）：`SH-yyyyMMdd-6 位` 取号 + 4 态状态域 + **超发守卫**（未发量 = 订单 − 已发 − 未过账占用） | **SO-08** |
 //!
 //! # 表结构的唯一依据
 //!
@@ -165,6 +166,7 @@ pub mod separation;
 pub mod serial_dto;
 pub mod serial_handler;
 pub mod serial_model;
+pub mod shipment_model;
 pub mod stockin_bridge;
 pub mod stockin_dto;
 pub mod stockin_handler;

@@ -1,0 +1,106 @@
+=== 表结构 biz_shipment
+                                 Table "public.biz_shipment"
+    Column    |           Type           | Collation | Nullable |          Default           
+--------------+--------------------------+-----------+----------+----------------------------
+ id           | uuid                     |           | not null | gen_random_uuid()
+ ship_no      | character varying(32)    |           | not null | 
+ so_id        | uuid                     |           | not null | 
+ customer_id  | uuid                     |           | not null | 
+ warehouse_id | uuid                     |           | not null | 
+ ship_date    | date                     |           | not null | 
+ status       | character varying(24)    |           | not null | 'DRAFT'::character varying
+ total_qty    | numeric(18,4)            |           | not null | 0
+ stock_out_id | uuid                     |           |          | 
+ remark       | text                     |           |          | 
+ created_at   | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ updated_at   | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ create_by    | uuid                     |           |          | 
+ update_by    | uuid                     |           |          | 
+ deleted_at   | timestamp with time zone |           |          | 
+Indexes:
+    "biz_shipment_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_shipment_customer" btree (customer_id, ship_date DESC)
+    "idx_biz_shipment_date" btree (ship_date DESC)
+    "idx_biz_shipment_order" btree (so_id, ship_date DESC)
+    "idx_biz_shipment_status" btree (status)
+    "uk_biz_shipment_no" UNIQUE, btree (ship_no) WHERE deleted_at IS NULL
+Check constraints:
+    "ck_shipment_status" CHECK (status::text = ANY (ARRAY['DRAFT'::character varying, 'PENDING_POST'::character varying, 'POSTED'::character varying, 'CANCELLED'::character varying]::text[]))
+    "ck_shipment_total_qty" CHECK (total_qty >= 0::numeric)
+Foreign-key constraints:
+    "fk_biz_shipment_order" FOREIGN KEY (so_id) REFERENCES biz_sales_order(id) ON DELETE RESTRICT
+Referenced by:
+    TABLE "biz_shipment_item" CONSTRAINT "fk_biz_shipment_item_shipment" FOREIGN KEY (shipment_id) REFERENCES biz_shipment(id) ON DELETE CASCADE
+
+=== 表结构 biz_shipment_item
+                         Table "public.biz_shipment_item"
+   Column    |           Type           | Collation | Nullable |      Default      
+-------------+--------------------------+-----------+----------+-------------------
+ id          | uuid                     |           | not null | gen_random_uuid()
+ shipment_id | uuid                     |           | not null | 
+ so_item_id  | uuid                     |           | not null | 
+ material_id | uuid                     |           | not null | 
+ qty         | numeric(18,4)            |           | not null | 
+ location_id | uuid                     |           |          | 
+ serial_nos  | text[]                   |           |          | 
+ remark      | character varying(500)   |           |          | 
+ created_at  | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ updated_at  | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+Indexes:
+    "biz_shipment_item_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_shipment_item_material" btree (material_id)
+    "idx_biz_shipment_item_shipment" btree (shipment_id)
+    "idx_biz_shipment_item_so_item" btree (so_item_id)
+Check constraints:
+    "ck_biz_shipment_item_qty" CHECK (qty > 0::numeric)
+Foreign-key constraints:
+    "fk_biz_shipment_item_shipment" FOREIGN KEY (shipment_id) REFERENCES biz_shipment(id) ON DELETE CASCADE
+    "fk_biz_shipment_item_so_item" FOREIGN KEY (so_item_id) REFERENCES biz_sales_order_item(id) ON DELETE RESTRICT
+
+=== 索引
+ERROR:  ORDER BY position 2 is not in select list
+LINE 1: ...blename in ('biz_shipment','biz_shipment_item') order by 1,2
+                                                                      ^
+=== 约束
+ERROR:  ORDER BY position 2 is not in select list
+LINE 1: ...pment'::regclass,'biz_shipment_item'::regclass) order by 1,2
+                                                                      ^
+=== 取号规则
+SH|SH|yyyyMMdd|-|1|1
+=== 索引
+biz_shipment | biz_shipment_pkey | CREATE UNIQUE INDEX biz_shipment_pkey ON public.biz_shipment USING btree (id)
+biz_shipment | idx_biz_shipment_customer | CREATE INDEX idx_biz_shipment_customer ON public.biz_shipment USING btree (customer_id, ship_date DESC)
+biz_shipment | idx_biz_shipment_date | CREATE INDEX idx_biz_shipment_date ON public.biz_shipment USING btree (ship_date DESC)
+biz_shipment | idx_biz_shipment_order | CREATE INDEX idx_biz_shipment_order ON public.biz_shipment USING btree (so_id, ship_date DESC)
+biz_shipment | idx_biz_shipment_status | CREATE INDEX idx_biz_shipment_status ON public.biz_shipment USING btree (status)
+biz_shipment | uk_biz_shipment_no | CREATE UNIQUE INDEX uk_biz_shipment_no ON public.biz_shipment USING btree (ship_no) WHERE (deleted_at IS NULL)
+biz_shipment_item | biz_shipment_item_pkey | CREATE UNIQUE INDEX biz_shipment_item_pkey ON public.biz_shipment_item USING btree (id)
+biz_shipment_item | idx_biz_shipment_item_material | CREATE INDEX idx_biz_shipment_item_material ON public.biz_shipment_item USING btree (material_id)
+biz_shipment_item | idx_biz_shipment_item_shipment | CREATE INDEX idx_biz_shipment_item_shipment ON public.biz_shipment_item USING btree (shipment_id)
+biz_shipment_item | idx_biz_shipment_item_so_item | CREATE INDEX idx_biz_shipment_item_so_item ON public.biz_shipment_item USING btree (so_item_id)
+=== 约束
+biz_shipment | biz_shipment_created_at_not_null | NOT NULL created_at
+biz_shipment | biz_shipment_customer_id_not_null | NOT NULL customer_id
+biz_shipment | biz_shipment_id_not_null | NOT NULL id
+biz_shipment | biz_shipment_pkey | PRIMARY KEY (id)
+biz_shipment | biz_shipment_ship_date_not_null | NOT NULL ship_date
+biz_shipment | biz_shipment_ship_no_not_null | NOT NULL ship_no
+biz_shipment | biz_shipment_so_id_not_null | NOT NULL so_id
+biz_shipment | biz_shipment_status_not_null | NOT NULL status
+biz_shipment | biz_shipment_total_qty_not_null | NOT NULL total_qty
+biz_shipment | biz_shipment_updated_at_not_null | NOT NULL updated_at
+biz_shipment | biz_shipment_warehouse_id_not_null | NOT NULL warehouse_id
+biz_shipment | ck_shipment_status | CHECK (((status)::text = ANY ((ARRAY['DRAFT'::character varying, 'PENDING_POST'::character varying, 'POSTED'::character varying, 'CANCELLED'::character varying])::text[])))
+biz_shipment | ck_shipment_total_qty | CHECK ((total_qty >= (0)::numeric))
+biz_shipment | fk_biz_shipment_order | FOREIGN KEY (so_id) REFERENCES biz_sales_order(id) ON DELETE RESTRICT
+biz_shipment_item | biz_shipment_item_created_at_not_null | NOT NULL created_at
+biz_shipment_item | biz_shipment_item_id_not_null | NOT NULL id
+biz_shipment_item | biz_shipment_item_material_id_not_null | NOT NULL material_id
+biz_shipment_item | biz_shipment_item_pkey | PRIMARY KEY (id)
+biz_shipment_item | biz_shipment_item_qty_not_null | NOT NULL qty
+biz_shipment_item | biz_shipment_item_shipment_id_not_null | NOT NULL shipment_id
+biz_shipment_item | biz_shipment_item_so_item_id_not_null | NOT NULL so_item_id
+biz_shipment_item | biz_shipment_item_updated_at_not_null | NOT NULL updated_at
+biz_shipment_item | ck_biz_shipment_item_qty | CHECK ((qty > (0)::numeric))
+biz_shipment_item | fk_biz_shipment_item_shipment | FOREIGN KEY (shipment_id) REFERENCES biz_shipment(id) ON DELETE CASCADE
+biz_shipment_item | fk_biz_shipment_item_so_item | FOREIGN KEY (so_item_id) REFERENCES biz_sales_order_item(id) ON DELETE RESTRICT

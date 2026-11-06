@@ -1,0 +1,20 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-67e4f09c2e780dae)
+
+running 11 tests
+test business::erp::shipment_model::tests::defaults_and_check_constraints_on_real_db ... ok
+test business::erp::shipment_model::tests::format_and_parse_ship_no_roundtrip ... ok
+test business::erp::shipment_model::tests::next_ship_no_generates_consecutive_numbers_on_real_db ... [SO-08] 取号实况：SH-20261106-000003 → SH-20261106-000004（period_key=20261106）
+ok
+test business::erp::shipment_model::tests::over_ship_guard_blocks_more_than_remaining ... [SO-08] 超发探针：订单 10 / 已发 4 ⇒ 未发 6.0000
+ok
+test business::erp::shipment_model::tests::parse_ship_no_rejects_malformed_values ... ok
+test business::erp::shipment_model::tests::posted_shipment_is_not_counted_twice ... ok
+test business::erp::shipment_model::tests::qty_within_remaining_boundary ... ok
+test business::erp::shipment_model::tests::remaining_qty_subtracts_delivered_and_reserved ... ok
+test business::erp::shipment_model::tests::reserving_statuses_exclude_posted ... ok
+test business::erp::shipment_model::tests::shippable_items_skip_fully_delivered_lines ... ok
+test business::erp::shipment_model::tests::status_domain_matches_check_constraint ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 2740 filtered out; finished in 3.31s
+

@@ -1,0 +1,171 @@
+-- V0283 行为探针（在引擎迁移出来的干净库 cloudpivot_so08 上跑，不是手灌建表）
+-- 期望：坏数据全部被拒；最后清理干净（residue = 0）。
+\set ON_ERROR_STOP off
+\echo '=== 0) 备料：客户 + 订单 + 订单行（qty=10，delivered_qty=4）'
+=== 0) 备料：客户 + 订单 + 订单行（qty=10，delivered_qty=4）
+INSERT INTO biz_customer (id, code, name, credit_limit, status)
+VALUES ('d0283aaa-0000-4000-8000-000000000001', 'SH8P-CUST', 'SO-08 探针客户', 10000, 'ACTIVE');
+INSERT 0 1
+INSERT INTO biz_sales_order (id, so_no, customer_id, order_date)
+VALUES ('d0283aaa-0000-4000-8000-000000000002', 'SH8P-SO-1',
+        'd0283aaa-0000-4000-8000-000000000001', CURRENT_DATE);
+INSERT 0 1
+INSERT INTO biz_sales_order_item (id, so_id, line_no, material_id, qty, price, amount, tax_rate, tax_amount, delivered_qty)
+VALUES ('d0283aaa-0000-4000-8000-000000000003', 'd0283aaa-0000-4000-8000-000000000002', 1,
+        gen_random_uuid(), 10, 100, 0, 13, 0, 4);
+INSERT 0 1
+\echo ''
+
+\echo '=== A) status = SHIPPED（销售订单的终态，不属于发货单） → 期望 check_violation'
+=== A) status = SHIPPED（销售订单的终态，不属于发货单） → 期望 check_violation
+INSERT INTO biz_shipment (ship_no, so_id, customer_id, warehouse_id, ship_date, status)
+VALUES ('SH8P-A', 'd0283aaa-0000-4000-8000-000000000002',
+        'd0283aaa-0000-4000-8000-000000000001', gen_random_uuid(), CURRENT_DATE, 'SHIPPED');
+psql:constraint-probes.sql:18: ERROR:  new row for relation "biz_shipment" violates check constraint "ck_shipment_status"
+DETAIL:  Failing row contains (088feae5-c5f7-4854-b065-e0d89bc7fa65, SH8P-A, d0283aaa-0000-4000-8000-000000000002, d0283aaa-0000-4000-8000-000000000001, 1822c05b-bf02-4137-a87f-b5503f924bf0, 2026-11-06, SHIPPED, 0.0000, null, null, 2026-11-06 12:15:44.66698+08, 2026-11-06 12:15:44.66698+08, null, null, null).
+\echo ''
+
+\echo '=== B) total_qty = -1 → 期望 check_violation'
+=== B) total_qty = -1 → 期望 check_violation
+INSERT INTO biz_shipment (ship_no, so_id, customer_id, warehouse_id, ship_date, total_qty)
+VALUES ('SH8P-B', 'd0283aaa-0000-4000-8000-000000000002',
+        'd0283aaa-0000-4000-8000-000000000001', gen_random_uuid(), CURRENT_DATE, -1);
+psql:constraint-probes.sql:24: ERROR:  new row for relation "biz_shipment" violates check constraint "ck_shipment_total_qty"
+DETAIL:  Failing row contains (9f8c4d7a-055a-4ca2-87c8-97d8f0c817ce, SH8P-B, d0283aaa-0000-4000-8000-000000000002, d0283aaa-0000-4000-8000-000000000001, 5823ba56-75f4-4534-8599-e0dc8fb0e201, 2026-11-06, DRAFT, -1.0000, null, null, 2026-11-06 12:15:44.667266+08, 2026-11-06 12:15:44.667266+08, null, null, null).
+\echo ''
+
+\echo '=== C) 正常发货单（不传 status / total_qty）→ 期望 DEFAULT DRAFT / 0'
+=== C) 正常发货单（不传 status / total_qty）→ 期望 DEFAULT DRAFT / 0
+INSERT INTO biz_shipment (id, ship_no, so_id, customer_id, warehouse_id, ship_date)
+VALUES ('d0283aaa-0000-4000-8000-000000000004', 'SH8P-C',
+        'd0283aaa-0000-4000-8000-000000000002',
+        'd0283aaa-0000-4000-8000-000000000001', gen_random_uuid(), CURRENT_DATE);
+INSERT 0 1
+SELECT ship_no, status, total_qty FROM biz_shipment WHERE ship_no = 'SH8P-C';
+ ship_no | status | total_qty 
+---------+--------+-----------
+ SH8P-C  | DRAFT  |    0.0000
+(1 row)
+
+\echo ''
+
+\echo '=== D) 明细 qty = 0 → 期望 check_violation（ck_biz_shipment_item_qty）'
+=== D) 明细 qty = 0 → 期望 check_violation（ck_biz_shipment_item_qty）
+INSERT INTO biz_shipment_item (shipment_id, so_item_id, material_id, qty)
+VALUES ('d0283aaa-0000-4000-8000-000000000004',
+        'd0283aaa-0000-4000-8000-000000000003', gen_random_uuid(), 0);
+psql:constraint-probes.sql:38: ERROR:  new row for relation "biz_shipment_item" violates check constraint "ck_biz_shipment_item_qty"
+DETAIL:  Failing row contains (9075ce98-873d-46cf-b878-774d18fe16d0, d0283aaa-0000-4000-8000-000000000004, d0283aaa-0000-4000-8000-000000000003, 19ac60e7-53ea-4182-8496-21184441f9e7, 0.0000, null, null, null, 2026-11-06 12:15:44.668245+08, 2026-11-06 12:15:44.668245+08).
+\echo ''
+
+\echo '=== E) 明细指向不存在的订单行 → 期望 foreign_key_violation'
+=== E) 明细指向不存在的订单行 → 期望 foreign_key_violation
+INSERT INTO biz_shipment_item (shipment_id, so_item_id, material_id, qty)
+VALUES ('d0283aaa-0000-4000-8000-000000000004',
+        '00000000-0000-4000-8000-0000ffffffff'::uuid, gen_random_uuid(), 1);
+psql:constraint-probes.sql:44: ERROR:  insert or update on table "biz_shipment_item" violates foreign key constraint "fk_biz_shipment_item_so_item"
+DETAIL:  Key (so_item_id)=(00000000-0000-4000-8000-0000ffffffff) is not present in table "biz_sales_order_item".
+\echo ''
+
+\echo '=== F) 超发判定（shipment_model 的唯一口径）：订单 10 − 已发 4 − 未过账占用 0 = 6'
+=== F) 超发判定（shipment_model 的唯一口径）：订单 10 − 已发 4 − 未过账占用 0 = 6
+SELECT o.qty AS ordered, o.delivered_qty AS delivered,
+       COALESCE((SELECT SUM(si.qty) FROM biz_shipment_item si
+                   JOIN biz_shipment s ON s.id = si.shipment_id
+                  WHERE si.so_item_id = o.id AND s.deleted_at IS NULL
+                    AND s.status IN ('DRAFT','PENDING_POST')), 0) AS reserved,
+       (o.qty - o.delivered_qty
+        - COALESCE((SELECT SUM(si.qty) FROM biz_shipment_item si
+                      JOIN biz_shipment s ON s.id = si.shipment_id
+                     WHERE si.so_item_id = o.id AND s.deleted_at IS NULL
+                       AND s.status IN ('DRAFT','PENDING_POST')), 0)) AS remaining,
+       (CASE WHEN 7 <= o.qty - o.delivered_qty THEN 'ALLOW' ELSE 'BLOCKED' END) AS "qty=7",
+       (CASE WHEN 6 <= o.qty - o.delivered_qty THEN 'ALLOW' ELSE 'BLOCKED' END) AS "qty=6",
+       (CASE WHEN 6.0001 <= o.qty - o.delivered_qty THEN 'ALLOW' ELSE 'BLOCKED' END) AS "qty=6.0001"
+  FROM biz_sales_order_item o
+ WHERE o.id = 'd0283aaa-0000-4000-8000-000000000003';
+ ordered | delivered | reserved | remaining |  qty=7  | qty=6 | qty=6.0001 
+---------+-----------+----------+-----------+---------+-------+------------
+ 10.0000 |    4.0000 |        0 |    6.0000 | BLOCKED | ALLOW | BLOCKED
+(1 row)
+
+\echo ''
+
+\echo '=== G) 合法明细（发 6）→ 期望 INSERT 0 1'
+=== G) 合法明细（发 6）→ 期望 INSERT 0 1
+INSERT INTO biz_shipment_item (shipment_id, so_item_id, material_id, qty, serial_nos)
+VALUES ('d0283aaa-0000-4000-8000-000000000004',
+        'd0283aaa-0000-4000-8000-000000000003', gen_random_uuid(), 6,
+        ARRAY['SN-1','SN-2','SN-3','SN-4','SN-5','SN-6']);
+INSERT 0 1
+SELECT qty, array_length(serial_nos, 1) AS serial_count
+  FROM biz_shipment_item
+ WHERE shipment_id = 'd0283aaa-0000-4000-8000-000000000004';
+  qty   | serial_count 
+--------+--------------
+ 6.0000 |            6
+(1 row)
+
+\echo ''
+
+\echo '=== H) 被发货单引用的订单行不许删 → 期望 restrict_violation'
+=== H) 被发货单引用的订单行不许删 → 期望 restrict_violation
+DELETE FROM biz_sales_order_item WHERE id = 'd0283aaa-0000-4000-8000-000000000003';
+psql:constraint-probes.sql:76: ERROR:  update or delete on table "biz_sales_order_item" violates RESTRICT setting of foreign key constraint "fk_biz_shipment_item_so_item" on table "biz_shipment_item"
+DETAIL:  Key (id)=(d0283aaa-0000-4000-8000-000000000003) is referenced from table "biz_shipment_item".
+\echo ''
+
+\echo '=== I) 存活行重号 → 期望 unique_violation（uk_biz_shipment_no）'
+=== I) 存活行重号 → 期望 unique_violation（uk_biz_shipment_no）
+INSERT INTO biz_shipment (ship_no, so_id, customer_id, warehouse_id, ship_date)
+VALUES ('SH8P-C', 'd0283aaa-0000-4000-8000-000000000002',
+        'd0283aaa-0000-4000-8000-000000000001', gen_random_uuid(), CURRENT_DATE);
+psql:constraint-probes.sql:82: ERROR:  duplicate key value violates unique constraint "uk_biz_shipment_no"
+DETAIL:  Key (ship_no)=(SH8P-C) already exists.
+\echo ''
+
+\echo '=== J) 软删后同号可复插 → 期望 INSERT 0 1，存活行 = 1'
+=== J) 软删后同号可复插 → 期望 INSERT 0 1，存活行 = 1
+UPDATE biz_shipment SET deleted_at = now() WHERE ship_no = 'SH8P-C' AND deleted_at IS NULL;
+UPDATE 1
+INSERT INTO biz_shipment (ship_no, so_id, customer_id, warehouse_id, ship_date)
+VALUES ('SH8P-C', 'd0283aaa-0000-4000-8000-000000000002',
+        'd0283aaa-0000-4000-8000-000000000001', gen_random_uuid(), CURRENT_DATE);
+INSERT 0 1
+SELECT count(*) AS live_rows FROM biz_shipment WHERE ship_no = 'SH8P-C' AND deleted_at IS NULL;
+ live_rows 
+-----------
+         1
+(1 row)
+
+\echo ''
+
+\echo '=== K) 删单头 → 明细级联消失 → 期望 items_left = 0'
+=== K) 删单头 → 明细级联消失 → 期望 items_left = 0
+DELETE FROM biz_shipment WHERE so_id = 'd0283aaa-0000-4000-8000-000000000002';
+DELETE 2
+SELECT count(*) AS items_left FROM biz_shipment_item;
+ items_left 
+------------
+          0
+(1 row)
+
+\echo ''
+
+\echo '=== L) 收尾：清探针（订单行 → 订单 → 客户）→ 期望 residue = 0'
+=== L) 收尾：清探针（订单行 → 订单 → 客户）→ 期望 residue = 0
+DELETE FROM biz_sales_order_item WHERE so_id = 'd0283aaa-0000-4000-8000-000000000002';
+DELETE 1
+DELETE FROM biz_sales_order WHERE id = 'd0283aaa-0000-4000-8000-000000000002';
+DELETE 1
+DELETE FROM biz_customer WHERE code = 'SH8P-CUST';
+DELETE 1
+SELECT (SELECT count(*) FROM biz_shipment) AS shipments,
+       (SELECT count(*) FROM biz_shipment_item) AS shipment_items,
+       (SELECT count(*) FROM biz_sales_order WHERE so_no LIKE 'SH8P-%') AS probe_orders,
+       (SELECT count(*) FROM biz_customer WHERE code = 'SH8P-CUST') AS probe_customers;
+ shipments | shipment_items | probe_orders | probe_customers 
+-----------+----------------+--------------+-----------------
+         0 |              0 |            0 |               0
+(1 row)
+
