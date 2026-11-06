@@ -41,4 +41,25 @@ ERP_DB_URL='postgres://alun:alun@127.0.0.1:5432/cloudpivot_so10' \
 
 ## 第二轮全量
 
-同一干净库、同一命令的第二轮见 `full-suite-round-2.txt`。
+同一干净库（`cloudpivot_so10b`）、同一命令的第二轮：`full-suite-round-2.txt`
+
+```
+test result: FAILED. 2768 passed; 2 failed; 0 ignored; … finished in 1398.73s
+```
+
+**两轮数字完全一致**（2768 / 2），失败的仍是同两条（`sales_approval_bridge` 顺序污染、
+`p16_graph_snapshot_selfcheck_is_clean` 的 V0281 `so_approve` hash 漂移），
+说明本卡改动稳定、且没有「第二轮才翻红」的顺序依赖问题。
+
+## 顺带发现（SO-06 线第三条既有症状，非本卡）
+
+`scripts/verify/biz_type_domain.py` 在带 V0281 的库上 FAIL：
+
+```
+[FAIL] ② 审批动作  biz_flow_def.biz_type  取值 15 种
+       ✗ 域外值 'SO_APPROVE' × 1
+```
+
+`SO_APPROVE` 不在 `backend/src/business/shared/doc_kind.rs` 的 `COLUMN_DOMAINS` 词表里
+（V0281 由 SO-06 引入，与本卡无关）。修它要么把值补进词表、要么改流程种子 —— 属 SO-06 线的
+独立缺陷卡，建议与 `graph_hash` 漂移一起修。
