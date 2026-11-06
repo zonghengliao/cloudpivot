@@ -1,0 +1,9 @@
+migrations scanned: 217
+V0206 V0206__flow_edge_config_admin.up.sql:106 flow_code=flow_edge_config cols_has_is_system=True compensated_by=None
+V0209 V0209__erp_contract_approval.up.sql:91 flow_code=contract_approve cols_has_is_system=False compensated_by=V0220
+V0211 V0211__erp_stock_take.up.sql:299 flow_code=stock_take_post cols_has_is_system=False compensated_by=V0220
+V0228 V0228__erp_budget_approval_flow.up.sql:48 flow_code=budget_approve cols_has_is_system=False compensated_by=V0233
+V0231 V0231__erp_asset_disposal_flow.up.sql:33 flow_code=asset_disposal cols_has_is_system=False compensated_by=V0233
+V0243 V0243__erp_expense_approval_flow.up.sql:43 flow_code=expense cols_has_is_system=True compensated_by=None
+V0281 V0281__sales_order_flow.up.sql:88 flow_code=so_approve cols_has_is_system=False compensated_by=V0301
+  ✅ [审批] H6 预置流程种子的 INSERT 必须显式写 is_system（或由后续迁移补偿）

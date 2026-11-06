@@ -1,0 +1,5 @@
+迁移数=226，applied_via 非 executed/imported=0
+so_approve: flow_name=销售订单审批（标准·金额分级），is_system=true，status=PUBLISHED，current_version_no=1
+v1 PUBLISHED hash=97fe937752c881c0c9b36f7aa8e2a410c2891a4327711fde96fcbf16a0bc6e80 nodes=7 edges=8
+快照边序=e_low,e_low_else,e_mid,e_mid_else,e_finance_mid,e_gm_end,e_sales_low,e_start
+模板默认口径命中=1

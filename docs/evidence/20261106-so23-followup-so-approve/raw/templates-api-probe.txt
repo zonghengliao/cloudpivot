@@ -1,0 +1,10 @@
+== 默认口径（Standard：AND d.is_system） ==
+   total=15 items=15 groups=8
+   flow_codes=['asset_disposal', 'budget_approve', 'contract_approve', 'expense', 'flow_edge_config', 'payable_cancel', 'payable_pay', 'po_approve', 'so_approve', 'stock_in_cancel', 'stock_in_post', 'stock_take_post', 'stock_transfer', 'task_accept', 'voucher_reverse']
+   OK so_approve 在列表里：flow_name='销售订单审批（标准·金额分级）' is_system=True status=PUBLISHED nodes=7 edges=8
+
+== scope=all（标准 + 客户副本） ==
+   total=15 items=15 groups=8
+   flow_codes=['asset_disposal', 'budget_approve', 'contract_approve', 'expense', 'flow_edge_config', 'payable_cancel', 'payable_pay', 'po_approve', 'so_approve', 'stock_in_cancel', 'stock_in_post', 'stock_take_post', 'stock_transfer', 'task_accept', 'voucher_reverse']
+   OK so_approve 在列表里：flow_name='销售订单审批（标准·金额分级）' is_system=True status=PUBLISHED nodes=7 edges=8
+

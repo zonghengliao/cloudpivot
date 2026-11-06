@@ -1,0 +1,13 @@
+== 原始迁移集（含 V0267/v0301，不剔任何文件）在空库 cloudpivot_v267probe 上跑全量迁移 ==
+[2m2026-11-06T16:09:46.019312Z[0m [31mERROR[0m [2mnik_web::app[0m[2m:[0m 数据库迁移失败: query failed: : db error
+FATAL: 服务启动失败: 配置错误: 数据库迁移失败: query failed: : db error
+
+-- 失败点：schema_migrations 最后入库的版本 --
+已入库 197 条
+最后一条 = V265 sales_order_permissions
+
+-- 直接单跑 V0267 拿真实报错（应用只报 'db error'，psql 才有全文）--
+psql:/opt/cloudpivot/backend/migrations/business/V0267__sales_menu.up.sql:409: ERROR:  V0267 自检 6.1 失败：以下销售权限码在 sys_menu 里没有承载 → business:erp:shipment:list, business:erp:shipment:create, business:erp:shipment:status, business:erp:receivable:list, business:erp:receivable:detail, business:erp:receivable:aging, business:erp:receivable:create, business:erp:receivable:write-off, business:erp:receipt:list, business:erp:receipt:detail, business:erp:receipt:create, business:erp:receipt:allocate, business:erp:receipt:status, business:erp:invoice:list, business:erp:invoice:detail, business:erp:invoice:create, business:erp:invoice:status
+
+-- 那些权限码的菜单承载行由更高号段的迁移建（所以空库上 267 一定先于它们）--
+V0267__sales_menu.up.sql V0288__sales_receivable_permissions.up.sql V0291__sales_receivable_menu_page.up.sql V0296__sales_invoice_permissions.up.sql V0297__sales_invoice_menu_page.up.sql 

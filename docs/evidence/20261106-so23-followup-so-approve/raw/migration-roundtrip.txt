@@ -1,0 +1,18 @@
+== 应用 V0301 之后（canonical 口径）==
+flag=true
+hash=97fe937752c881c0c9b36f7aa8e2a410c2891a4327711fde96fcbf16a0bc6e80
+edges=e_low,e_low_else,e_mid,e_mid_else,e_finance_mid,e_gm_end,e_sales_low,e_start
+== 跑 down.sql ==
+flag=false
+hash=da3c2eeda2593b0e3a0b362dd31ec2c79505ba3efe0053028896d05e5b2fa9a2
+edges=e_finance_mid,e_gm_end,e_low,e_low_else,e_mid,e_mid_else,e_sales_low,e_start
+== 再跑 up.sql（幂等/可重放）==
+psql:/opt/cloudpivot/backend/migrations/business/V0301__sales_order_flow_is_system_and_snapshot.up.sql:194: NOTICE:  V0301：so_approve 打标 1 行，快照 canonical 重排 1 行（da3c2eed → 97fe9377）
+flag=true
+hash=97fe937752c881c0c9b36f7aa8e2a410c2891a4327711fde96fcbf16a0bc6e80
+edges=e_low,e_low_else,e_mid,e_mid_else,e_finance_mid,e_gm_end,e_sales_low,e_start
+== 再跑一次 up.sql（幂等：0 行变更、不报错）==
+psql:/opt/cloudpivot/backend/migrations/business/V0301__sales_order_flow_is_system_and_snapshot.up.sql:194: NOTICE:  V0301：so_approve 打标 0 行，快照 canonical 重排 0 行（da3c2eed → 97fe9377）
+flag=true
+hash=97fe937752c881c0c9b36f7aa8e2a410c2891a4327711fde96fcbf16a0bc6e80
+edges=e_low,e_low_else,e_mid,e_mid_else,e_finance_mid,e_gm_end,e_sales_low,e_start

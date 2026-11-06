@@ -1,0 +1,8 @@
+== 造出「客户改过」的状态（hash=abab…）==
+flag=false
+hash=abababababababababababababababababababababababababababababababab
+== 跑 up.sql（应当只打标、不改图）==
+psql:/opt/cloudpivot/backend/migrations/business/V0301__sales_order_flow_is_system_and_snapshot.up.sql:194: NOTICE:  V0301：so_approve 打标 1 行，快照 canonical 重排 0 行（da3c2eed → 97fe9377）
+退出码=0
+flag=true
+hash=abababababababababababababababababababababababababababababababab

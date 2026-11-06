@@ -1,0 +1,48 @@
+    Blocking waiting for file lock on artifact directory
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 29s
+     Running tests/pflow1a.rs (target/debug/deps/pflow1a-2dcd81248b9c243b)
+
+running 12 tests
+test flow_detail_approval_is_null_for_direct_node ... [pflow1a] 已连接 postgres://alun:alun@127.0.0.1:5432/cloudpivot_pflow1a
+[⑪] DIRECT：approval = null，node_status = APPROVED
+ok
+test flow_detail_carries_approval_progress ... [⑪] APPROVE：PENDING → 待办人Some(["APRV 同事"])；通过后 → APPROVED + 待办[]
+ok
+test flow_detail_carries_on_complete_direct ... [⑩] DIRECT：on_complete=Some("DIRECT") on_reject=Some("BACK_TO_PREV") on_cancel=Some("TERMINATE")
+ok
+test flow_detail_carries_on_complete_verify ... [⑩] VERIFY：on_complete=Some("VERIFY") on_reject=Some("STAY") on_cancel=Some("BACK_TO_PREV")
+ok
+test flow_detail_is_null_for_manual_task ... [⑩] 非流程任务 → flow = null
+ok
+test preview_covers_five_cases ... [⑧] 预演 5 个 case 的错误码与设计 §3.3 表逐条一致
+ok
+test publish_regression_keeps_graph_hash ... [④] asset_disposal v1 → 重新发布 hash 不变（b4bef2fc227db8131f75792028217d170e961a529055db9a96d3ac11333139ac），nodes=3 edges=2
+[④] budget_approve v1 → 重新发布 hash 不变（19b84d031306f9dbb2140690245b153b9f287de2a89d95aacaf2f6cbcf762871），nodes=11 edges=13
+[④] contract_approve v1 → 重新发布 hash 不变（95270c466037cbb4f83a68e42eb02d7476ae520ca0f96da84edd1e47f7b75768），nodes=6 edges=6
+[④] expense v1 → 重新发布 hash 不变（196042b525bb64d95741902d415270652ac9afb1f6ecfcbc683540f6ec6d345b），nodes=7 edges=8
+[④] flow_edge_config v1 → 重新发布 hash 不变（c0ad61937b734114f6865f9347b57ab9824f560605e522a204d22650baa30e08），nodes=3 edges=2
+[④] payable_cancel v1 → 重新发布 hash 不变（4f484777debbea1a0cc1a76db28274c4d9986c8cbe8d3936afa7e08a50adf7fc），nodes=3 edges=2
+[④] payable_pay v2 → 重新发布 hash 不变（5059115327e291c6e1861fa434f7e74d8ccc50e133e79b802cde6f074e2c65d3），nodes=7 edges=8
+[④] po_approve v2 → 重新发布 hash 不变（4db3fe5731dc8efc7844d6a51a326df20638d8b1eabd4a553444ead503554b7d），nodes=9 edges=11
+[④] so_approve v1 → 重新发布 hash 不变（97fe937752c881c0c9b36f7aa8e2a410c2891a4327711fde96fcbf16a0bc6e80），nodes=7 edges=8
+[④] stock_in_cancel v2 → 重新发布 hash 不变（80cd6c9c76c165a7b75e0be29f163482825dc31eef1f195e0602cd98d3ca4cb1），nodes=3 edges=2
+[④] stock_in_post v1 → 重新发布 hash 不变（035d3c246b89330681f67c353277dc53313c7a6521041e45841bd078b2563b3d），nodes=5 edges=5
+[④] stock_take_post v1 → 重新发布 hash 不变（331f253a63ed68bb88fbcc7d4cc1d9273f3a49efde9d8d76955d71d36ac95ae8），nodes=6 edges=6
+[④] stock_transfer v2 → 重新发布 hash 不变（7211229eeec38dca63ee28cd0fceb5a13b11ab5e12c94adb87465ad178901ef6），nodes=3 edges=2
+[④] task_accept v1 → 重新发布 hash 不变（f5e20abd1098ed8b6fa84d713d5c5456db4e5743cbd4cdb7605cd13d3761c05f），nodes=3 edges=2
+[④] voucher_reverse v1 → 重新发布 hash 不变（742f06d8fbecc6eb2fdfdfaed66571bfff9c1b3b02ff8dd0338f0dc7f3dd17b2），nodes=5 edges=5
+ok
+test role_multi_resolution_makes_one_task_with_members ... [⑤b] 角色 2 人 → 1 张任务，owner=01a1b19c-4981-76ce-b7b7-e12f2ac9aed3，协作人 1 个
+ok
+test task_node_end_to_end_creates_one_task ... [⑤] 实例 01a1b19c-519a-740b-8500-5c4299bdb6a8 生成 1 张任务，节点 ACTIVE，实例 PENDING，截止日 Some(2026-11-11)
+ok
+test task_node_generation_is_idempotent ... [⑥] 重复生成仍 1 行（前置查询 + 唯一索引双保险）
+ok
+test task_page_filters_by_flow_source ... [⑨] source=FLOW 命中 1 条并带 flow 段；source=SELF 0 条；非法值 400
+ok
+test too_long_title_rolls_back_whole_instance ... [⑦] 标题 201 字符 → 65039，实例 0 行、任务 0 行
+ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 27.25s
+
