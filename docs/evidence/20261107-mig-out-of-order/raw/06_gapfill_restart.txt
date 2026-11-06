@@ -1,0 +1,11 @@
+启动 pid=1075947 db=cp_td403a60a_noop3 port=18118
+--- 迁移/启动关键行
+8:2026-11-06T16:53:02.882867Z  INFO nik_web::app: 数据库迁移完成: 应用 0 个迁移
+141:2026-11-06T16:53:03.050913Z  INFO nik_web::app: 插件启动完成 elapsed_ms=0
+145:2026-11-06T16:53:03.182390Z  WARN nik_web::app: 检测到 531 条 #[permission] 规则，但 [middleware.permission] enabled = false；已按安全默认挂载权限校验层（如需豁免请移除对应的宏注解）
+146:2026-11-06T16:53:03.182436Z  INFO nik_web::app: 检测到 531 条 #[permission] 规则 + 0 条配置规则 → 已启用权限校验层
+152:2026-11-06T16:53:03.193801Z  INFO nik_web::app: cloudpivot 启动完成, 耗时 555ms
+--- /health
+HTTP=200
+{"code":0,"msg":"ok","data":{"status":"ok","app":"cloudpivot","profile":"test","time":"2026-11-06T16:53:03.648825563+00:00"}}
+RESULT=OK

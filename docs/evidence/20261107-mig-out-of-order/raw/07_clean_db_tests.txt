@@ -1,0 +1,43 @@
+===== FILTER business::erp::receivable_aging::
+test business::erp::receivable_aging::tests::assemble_computes_ratio_and_detail_buckets ... ok
+test business::erp::receivable_aging::tests::bucket_boundaries_are_identical_to_payable ... ok
+test business::erp::receivable_aging::tests::db_bucket_boundaries_and_backet_source_agree ... ok
+test business::erp::receivable_aging::tests::db_customer_pivot_and_summary_are_consistent ... ok
+test business::erp::receivable_aging::tests::db_period_cutoff_excludes_later_documents ... ok
+test business::erp::receivable_aging::tests::overdue_and_as_of_are_shared_with_payable ... ok
+test business::erp::receivable_aging::tests::pivot_fills_missing_buckets_and_sorts_by_amount ... ok
+test business::erp::receivable_aging::tests::sql_bucket_case_comes_from_payable ... ok
+test business::erp::receivable_aging::tests::summary_sums_match_customers ... ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 2849 filtered out; finished in 2.34s
+===== FILTER business::erp::payable_bridge::
+test business::erp::payable_bridge::tests::dc01_pay_without_published_flow_is_409 ... ok
+test business::erp::payable_bridge::tests::p17_amount_500000_routes_to_countersign ... ok
+test business::erp::payable_bridge::tests::p17_amount_50000_routes_to_finance_manager ... ok
+test business::erp::payable_bridge::tests::p17_amount_5000_routes_to_dept_lead ... ok
+test business::erp::payable_bridge::tests::p17_amount_number_is_json_number ... ok
+test business::erp::payable_bridge::tests::p17_amount_over_unpaid_is_rejected ... ok
+test business::erp::payable_bridge::tests::p17_approval_backfills_payment_voucher ... ok
+test business::erp::payable_bridge::tests::p17_approval_full_amount_settles ... ok
+test business::erp::payable_bridge::tests::p17_approval_generates_balanced_voucher ... ok
+test business::erp::payable_bridge::tests::p17_approval_marks_partial_paid ... ok
+test business::erp::payable_bridge::tests::p17_approve_after_payable_cancelled_is_refused ... ok
+test business::erp::payable_bridge::tests::p17_cancel_payable_terminates_pending_approval ... ok
+test business::erp::payable_bridge::tests::p17_constants_match_seed ... ok
+test business::erp::payable_bridge::tests::p17_countersign_needs_every_vote ... ok
+test business::erp::payable_bridge::tests::p17_creator_cannot_approve_own_payment ... ok
+test business::erp::payable_bridge::tests::p17_duplicate_submit_is_conflict ... ok
+test business::erp::payable_bridge::tests::p17_fixture_users_are_removed_by_cleanup ... ok
+test business::erp::payable_bridge::tests::p17_pay_settled_payable_is_conflict ... ok
+test business::erp::payable_bridge::tests::p17_reject_keeps_books_and_allows_resubmit ... ok
+test business::erp::payable_bridge::tests::p17_seeded_flow_graph_is_consistent ... ok
+test business::erp::payable_bridge::tests::p17_skip_approval_payment_logs_are_purged_by_id ... ok
+test business::erp::payable_bridge::tests::p17_submit_creates_pending_payment_and_instance ... ok
+test business::erp::payable_bridge::tests::p17_verdict_maps_only_final_states ... ok
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 2835 filtered out; finished in 67.29s
+===== FILTER business::erp::sales_approval_bridge::db_tests::
+test business::erp::sales_approval_bridge::db_tests::creator_cannot_approve_own_order ... ok
+test business::erp::sales_approval_bridge::db_tests::missing_flow_is_rejected_by_default ... ok
+test business::erp::sales_approval_bridge::db_tests::reject_returns_order_to_draft ... ok
+test business::erp::sales_approval_bridge::db_tests::three_tiers_start_flow_and_approve_to_approved ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 2854 filtered out; finished in 11.28s
+ALL_DONE

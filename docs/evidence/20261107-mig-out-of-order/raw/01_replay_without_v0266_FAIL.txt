@@ -1,0 +1,7 @@
+==> 空库已建：mig_replay_neg1（owner=alun）
+✗ 失败：v0267 V0267__sales_menu.up.sql
+    psql:/root/.hermes/kanban/boards/dev/workspaces/t_d403a60a/mig_orig/business/V0267__sales_menu.up.sql:409: ERROR:  V0267 自检 6.1 失败：以下销售权限码在 sys_menu 里没有承载 → business:erp:shipment:list, business:erp:shipment:create, business:erp:shipment:status, business:erp:receivable:list, business:erp:receivable:detail, business:erp:receivable:aging, business:erp:receivable:create, business:erp:receivable:write-off, business:erp:receipt:list, business:erp:receipt:detail, business:erp:receipt:create, business:erp:receipt:allocate, business:erp:receipt:status, business:erp:invoice:list, business:erp:invoice:detail, business:erp:invoice:create, business:erp:invoice:status
+== 结果：FAIL —— 前 197/218 条成功，第一条失败在 V0267__sales_menu.up.sql
+   典型病因：该迁移的自检引用了**更晚**迁移才建的行（菜单码 / 角色码 / 表）。
+   修法：新增一条**号段更小**的前置迁移把它依赖的行提前种下（已应用迁移不可改，
+        改一个注释都会让所有已应用库启动即 checksum 失败），并保持 ON CONFLICT DO NOTHING。

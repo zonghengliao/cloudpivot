@@ -1,0 +1,18 @@
+# 空库（CREATE DATABASE 后直接起实例）→ 引擎跑完迁移 + bootstrap
+# 命令：ERP_DB=cloudpivot_td403a60a REPO=<含 V0266 的迁移树> BIN=target/debug/cloudpivot bash scripts/verify/erp_clean_db.sh
+
+    RAISE NOTICE 'V0266 完成：4 个销售页面 + 13 个按钮的前置承载已就位（存量库为 0 行插入）';
+[2m2026-11-06T16:45:36.181353Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0266 完成：4 个销售页面 + 13 个按钮的前置承载已就位（存量库为 0 行插入）
+[2m2026-11-06T16:45:36.348750Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 229 个迁移
+[2m2026-11-06T16:45:36.721189Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 插件启动完成 [3melapsed_ms[0m[2m=[0m0
+[2m2026-11-06T16:45:36.870438Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m cloudpivot 启动完成, 耗时 1868ms
+
+# 库指纹：max(version)|count(schema_migrations) / admin 用户数 / 已发布流程数
+302|229
+1
+15
+
+# 重启一次（幂等）：应用 0 个迁移 + /health 200
+[2m2026-11-06T16:46:18.836906Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+[2m2026-11-06T16:46:18.996317Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 插件启动完成 [3melapsed_ms[0m[2m=[0m0
+[2m2026-11-06T16:46:19.135927Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m cloudpivot 启动完成, 耗时 528ms

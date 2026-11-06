@@ -1,0 +1,30 @@
+# 存量库副本（TEMPLATE cloudpivot_so26：227 条迁移 / max=301）上起一次实例，验证 V0266 走 gap 补迁
+# 目标：① 存量迁移 checksum 全部通过（引擎 0 条 was-modified 告警）；② V0266 只补一行记账、不插行；③ /health 200
+
+## 起实例前
+schema_migrations=227 max=301
+sys_menu=362
+sys_role=10
+sys_role_menu=755
+
+## 起实例（引擎日志关键行，已滤掉 SQL 注释回显与 ANSI 色码）
+2026-11-06T16:52:40.695748Z  WARN nik_db::migrate: 待应用迁移的版本低于已应用最大值（乱序补迁）；确认无误后可设 out_of_order = true 消除告警 migration=sales_menu_prereq version=266 latest_applied=301
+2026-11-06T16:52:40.712007Z  INFO nik_web::app: 数据库迁移完成: 应用 2 个迁移
+2026-11-06T16:52:40.888982Z  INFO nik_web::app: 插件启动完成 elapsed_ms=0
+2026-11-06T16:52:41.038896Z  INFO nik_web::app: cloudpivot 启动完成, 耗时 651ms
+
+（`应用 2 个迁移` = V0266 + 同批另一张卡的 V0302；本卡只新增 V0266。
+ 全日志 grep `was modified after it was applied` 命中 0 条**引擎告警** —— 只有本迁移注释里出现该字样。）
+
+## /health
+HTTP=200 {"code":0,"msg":"ok","data":{"status":"ok","app":"cloudpivot","profile":"test"}}
+
+## 起实例后（三张表行数应与起前完全一致 ⇒ 纯 no-op）
+schema_migrations=229 max=302
+sys_menu=362
+sys_role=10
+sys_role_menu=755
+
+## 本次新写入的记账行
+302 | sales_order_contract | versioned | executed | migrations/business/V0302__sales_order_contract.up.sql
+266 | sales_menu_prereq | versioned | executed | migrations/business/V0266__sales_menu_prereq.up.sql
