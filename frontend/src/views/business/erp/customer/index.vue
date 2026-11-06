@@ -97,6 +97,12 @@
           <span :class="{ muted: !row.contact_name && !row.contact_phone }">{{ contactLabel(row) }}</span>
         </template>
 
+        <template #credit_days="{ row }">
+          <span class="mono" :class="{ muted: isCashOnDelivery(row.credit_days) }">
+            {{ formatCreditDays(row.credit_days) }}
+          </span>
+        </template>
+
         <template #credit_limit="{ row }">
           <span class="mono" :class="{ muted: Number(row.credit_limit) === 0 }">
             {{ formatCreditLimit(row.credit_limit) }}
@@ -261,6 +267,26 @@
           </div>
         </t-form-item>
 
+        <t-form-item
+          label="账期(天)"
+          name="credit_days"
+          :status="formErrors.credit_days ? 'error' : undefined"
+          :tips="formErrors.credit_days || '0 = 现结（到期日 = 出库过账日）'"
+        >
+          <div class="dlg-inline">
+            <t-input-number
+              v-model="form.credit_days"
+              :min="0"
+              :step="1"
+              :decimal-places="0"
+              suffix="天"
+              theme="normal"
+              data-testid="cus-credit-days"
+            />
+            <span class="dlg-help">0 = 现结；填 30 则出库过账后 30 天到期（挂应收时算到期日）</span>
+          </div>
+        </t-form-item>
+
         <t-form-item label="状态">
           <t-radio-group v-model="form.status" data-testid="cus-status">
             <t-radio value="ACTIVE">正常</t-radio>
@@ -301,7 +327,7 @@
  *
  * # 为什么没有「查看」抽屉
  *
- * 客户只有 9 个业务字段，编辑弹窗已经全展示；再叠一个抽屉只是多一次点击
+ * 客户只有 10 个业务字段（含 SO-14 的账期天数），编辑弹窗已经全展示；再叠一个抽屉只是多一次点击
  * （供应商页有抽屉是因为它有 16 列，列表装不下）。少一个交互面，少一处漂移。
  *
  * # 状态切换
@@ -337,8 +363,10 @@ import {
   customerToggleLabel,
   emptyCustomerFilter,
   emptyCustomerForm,
+  formatCreditDays,
   formatCreditLimit,
   hasCustomerFieldError,
+  isCashOnDelivery,
   isCustomerFiltered,
   isCustomerUpdateEmpty,
   nextCustomerStatus,

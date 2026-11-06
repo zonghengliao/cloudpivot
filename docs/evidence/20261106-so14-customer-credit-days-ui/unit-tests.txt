@@ -1,0 +1,1827 @@
+# pnpm test:unit 全量输出（仅保留 ok/# 汇总行；完整 909 条）
+# Subtest: 工具栏文案：勾选后显示条数，并明确「本页 / 全部筛选结果」
+ok 1 - 工具栏文案：勾选后显示条数，并明确「本页 / 全部筛选结果」
+# Subtest: 状态不符合时按钮禁用，提示点名「哪几条状态不对」
+ok 2 - 状态不符合时按钮禁用，提示点名「哪几条状态不对」
+# Subtest: 行复选框：任何动作都不适用的行不可勾选，全选也会跳过它
+ok 3 - 行复选框：任何动作都不适用的行不可勾选，全选也会跳过它
+# Subtest: 进度：N/M 与百分比，且按 BATCH_CHUNK 分批不超过后端上限
+ok 4 - 进度：N/M 与百分比，且按 BATCH_CHUNK 分批不超过后端上限
+# Subtest: 结果汇总：总数/成功/失败，失败逐条「单号：原因」并可整段复制
+ok 5 - 结果汇总：总数/成功/失败，失败逐条「单号：原因」并可整段复制
+# Subtest: 全选 / 反选 / 清空：只动给定 id，不清其它页的勾选
+ok 6 - 全选 / 反选 / 清空：只动给定 id，不清其它页的勾选
+# Subtest: 高危动作：确认正文带影响条数，原因必填且有最小字数
+ok 7 - 高危动作：确认正文带影响条数，原因必填且有最小字数
+# Subtest: 批量指派：没选负责人不许提交，选了才通过
+ok 8 - 批量指派：没选负责人不许提交，选了才通过
+# Subtest: visible 的三个分支：有勾选 / 正在跑 / 结果弹窗还没关
+ok 9 - visible 的三个分支：有勾选 / 正在跑 / 结果弹窗还没关
+# Subtest: execute() 成功收尾的顺序：先 resultVisible = true，再清空勾选
+ok 10 - execute() 成功收尾的顺序：先 resultVisible = true，再清空勾选
+# Subtest: 结果弹窗的显隐由 resultVisible 受控，并接住关闭事件
+ok 11 - 结果弹窗的显隐由 resultVisible 受控，并接住关闭事件
+# Subtest: 关掉结果弹窗会清掉本次 outcome（下一次动作不残留上一次结果）
+ok 12 - 关掉结果弹窗会清掉本次 outcome（下一次动作不残留上一次结果）
+# Subtest: 结果弹窗的标题/正文仍然来自 resultHeadline / resultHint（导出任务要能被认出来）
+ok 13 - 结果弹窗的标题/正文仍然来自 resultHeadline / resultHint（导出任务要能被认出来）
+# Subtest: 回执齐全：卡片状态/进度按回执校正，父任务进度同步到板上
+ok 14 - 回执齐全：卡片状态/进度按回执校正，父任务进度同步到板上
+# Subtest: 回执缺 parent_progress（undefined）：不抛异常，卡片留在目标列
+ok 15 - 回执缺 parent_progress（undefined）：不抛异常，卡片留在目标列
+# Subtest: 回执 parent_progress 为 null：不抛异常，卡片留在目标列
+ok 16 - 回执 parent_progress 为 null：不抛异常，卡片留在目标列
+# Subtest: 回执整个为 null（body.data 为空）：用 fallbackStatus 兜底，不抛也不回滚
+ok 17 - 回执整个为 null（body.data 为空）：用 fallbackStatus 兜底，不抛也不回滚
+# Subtest: 回执缺 status：用 fallbackStatus（拖拽目标列）兜底
+ok 18 - 回执缺 status：用 fallbackStatus（拖拽目标列）兜底
+# Subtest: parent_progress 是对象而非数组：安全跳过，不影响卡片校正
+ok 19 - parent_progress 是对象而非数组：安全跳过，不影响卡片校正
+# Subtest: parent_progress 元素缺字段：跳过坏元素，继续处理后面的（不整体丢弃）
+ok 20 - parent_progress 元素缺字段：跳过坏元素，继续处理后面的（不整体丢弃）
+# Subtest: 目标列里找不到该卡（回执早于列表刷新到）：applied=false 且不抛
+ok 21 - 目标列里找不到该卡（回执早于列表刷新到）：applied=false 且不抛
+# Subtest: progress 非数字（后端类型漂移成字符串）：不写坏卡片进度
+ok 22 - progress 非数字（后端类型漂移成字符串）：不写坏卡片进度
+# Subtest: boardTasks 缺席（不传）也不炸
+ok 23 - boardTasks 缺席（不传）也不炸
+# Subtest: ① 收货单详情：FlowProgress 同时传 nodes 与 tasks（否则只有进度条，看不到审批人）
+ok 24 - ① 收货单详情：FlowProgress 同时传 nodes 与 tasks（否则只有进度条，看不到审批人）
+# Subtest: ② 应付单详情：FlowProgress 同时传 nodes 与 tasks，且标题仍跟着实例类型走
+ok 25 - ② 应付单详情：FlowProgress 同时传 nodes 与 tasks，且标题仍跟着实例类型走
+# Subtest: ③ 凭证详情：底部新增「审批进度」区块（节点 + 审批人明细），位置在分录 / 合计之后
+ok 26 - ③ 凭证详情：底部新增「审批进度」区块（节点 + 审批人明细），位置在分录 / 合计之后
+# Subtest: ③-补 凭证：进度数据源优先 `pending_reverse_instance_id`（P-FLOW-3B 下发的字段），不是自造 id
+ok 27 - ③-补 凭证：进度数据源优先 `pending_reverse_instance_id`（P-FLOW-3B 下发的字段），不是自造 id
+# Subtest: ④ 调拨单详情：自绘时间线整段删掉，换成全站 FlowProgress（含 tasks）
+ok 28 - ④ 调拨单详情：自绘时间线整段删掉，换成全站 FlowProgress（含 tasks）
+# Subtest: ④-补 调拨单：自绘时间线独有的「提交人 + 提交时间」用一行文字补回（不许默默丢）
+ok 29 - ④-补 调拨单：自绘时间线独有的「提交人 + 提交时间」用一行文字补回（不许默默丢）
+# Subtest: ⑤ 四个页面都从同一个共享装载器取进度（不再各写一份 map）
+ok 30 - ⑤ 四个页面都从同一个共享装载器取进度（不再各写一份 map）
+# Subtest: ⑤-补 approvalProgressOf：实例详情一次映射成 nodes + tasks，null 退化成空（不抛）
+ok 31 - ⑤-补 approvalProgressOf：实例详情一次映射成 nodes + tasks，null 退化成空（不抛）
+# Subtest: ⑤-补 loadApprovalProgress 与 approvalProgressOf 同口径（凭证 / 收货 / 应付都走它）
+ok 32 - ⑤-补 loadApprovalProgress 与 approvalProgressOf 同口径（凭证 / 收货 / 应付都走它）
+# Subtest: ⑥ FlowProgress 组件契约未变：nodes 必填、tasks 可选（不传的老页面像素不变）
+ok 33 - ⑥ FlowProgress 组件契约未变：nodes 必填、tasks 可选（不传的老页面像素不变）
+# Subtest: ① 单个 cmp 节点生成正确 JSON（键名/键顺序 = op field cmp value）
+ok 34 - ① 单个 cmp 节点生成正确 JSON（键名/键顺序 = op field cmp value）
+# Subtest: ② and 包两个条件 → args 长度 2，结构正确
+ok 35 - ② and 包两个条件 → args 长度 2，结构正确
+# Subtest: ③ or 嵌套 and → 树形结构正确（or.args[0] 是 and，and.args 有 2 项）
+ok 36 - ③ or 嵌套 and → 树形结构正确（or.args[0] 是 and，and.args 有 2 项）
+# Subtest: ④ not 单条件 → args 长度 1（多给会被截断到 1 并记问题）
+ok 37 - ④ not 单条件 → args 长度 1（多给会被截断到 1 并记问题）
+# Subtest: ⑤ JSON → 树 → JSON 逐字相等（往返一致）
+ok 38 - ⑤ JSON → 树 → JSON 逐字相等（往返一致）
+# Subtest: ⑥ 深度到 8 层 → 不能再加（addBlock 给出原因，addChild 拒绝）
+ok 39 - ⑥ 深度到 8 层 → 不能再加（addBlock 给出原因，addChild 拒绝）
+# Subtest: ⑥b 手工构造「第 8 层还是分组」→ 两个添加按钮都被深度挡住
+ok 40 - ⑥b 手工构造「第 8 层还是分组」→ 两个添加按钮都被深度挡住
+# Subtest: ⑦ 节点到 64 → 不能再加；65 个节点被体检测出超限
+ok 41 - ⑦ 节点到 64 → 不能再加；65 个节点被体检测出超限
+# Subtest: ⑧ 字段不在白名单（foo.bar）→ 红框提示；空字段也提示
+ok 42 - ⑧ 字段不在白名单（foo.bar）→ 红框提示；空字段也提示
+# Subtest: ⑨ 空规则树 → 生成 null（表示无条件）
+ok 43 - ⑨ 空规则树 → 生成 null（表示无条件）
+# Subtest: ⑩ form.amount 前缀输入 → 通过校验，且生成 JSON 带完整字段名
+ok 44 - ⑩ form.amount 前缀输入 → 通过校验，且生成 JSON 带完整字段名
+# Subtest: 附加：右值输入框文本 → JSON 字面量（数字/布尔/null/数组）
+ok 45 - 附加：右值输入框文本 → JSON 字面量（数字/布尔/null/数组）
+# Subtest: 附加：is_null / not_null 不落 value 键（与后端求值形状一致）
+ok 46 - 附加：is_null / not_null 不落 value 键（与后端求值形状一致）
+# Subtest: 附加：in 的右值必须是数组（标量会被体检拦下）
+ok 47 - 附加：in 的右值必须是数组（标量会被体检拦下）
+# Subtest: 附加：单组 args 到 16 项封顶（后端 MAX_CONDITION_ARGS）
+ok 48 - 附加：单组 args 到 16 项封顶（后端 MAX_CONDITION_ARGS）
+# Subtest: 附加：addChild 造出来的分组自带一个空 cmp（点开就能填，且节点数 +2）
+ok 49 - 附加：addChild 造出来的分组自带一个空 cmp（点开就能填，且节点数 +2）
+# Subtest: 附加：非对象/未知算子反解不抛异常（老数据防御）
+ok 50 - 附加：非对象/未知算子反解不抛异常（老数据防御）
+# Subtest: 附加：semanticKey 忽略键顺序（避免 watch 回灌冲掉正在编辑的输入）
+ok 51 - 附加：semanticKey 忽略键顺序（避免 watch 回灌冲掉正在编辑的输入）
+# Subtest: D4 · 带出：只带待收 > 0 的行，数量默认 = 待收数量
+ok 52 - D4 · 带出：只带待收 > 0 的行，数量默认 = 待收数量
+# Subtest: D4 · 带出：单头（供应商 / 仓库 / 来源单号）全部来自源单
+ok 53 - D4 · 带出：单头（供应商 / 仓库 / 来源单号）全部来自源单
+# Subtest: D4 · 带出：NUMERIC 以字符串下发也能正确转数（"70.0000" → 70）
+ok 54 - D4 · 带出：NUMERIC 以字符串下发也能正确转数（"70.0000" → 70）
+# Subtest: D4 · 带出：一行待收都没有时留一个空行（界面不该是零行）
+ok 55 - D4 · 带出：一行待收都没有时留一个空行（界面不该是零行）
+# Subtest: D4 · 保存：每行带回 purchase_order_item_id + 单头带 purchase_order_id
+ok 56 - D4 · 保存：每行带回 purchase_order_item_id + 单头带 purchase_order_id
+# Subtest: D4 · 保存：手工建单（无来源）不带 purchase_order_id（给 null，不误挂单）
+ok 57 - D4 · 保存：手工建单（无来源）不带 purchase_order_id（给 null，不误挂单）
+# Subtest: D4 · 防超收：数量超过待收 → 前端先拦，文案点明本次上限与三个数
+ok 58 - D4 · 防超收：数量超过待收 → 前端先拦，文案点明本次上限与三个数
+# Subtest: D4 · 防超收：刚好等于待收（部分收货的极限）要放行
+ok 59 - D4 · 防超收：刚好等于待收（部分收货的极限）要放行
+# Subtest: D4 · 防超收：改小数量（部分收货是常态）不拦
+ok 60 - D4 · 防超收：改小数量（部分收货是常态）不拦
+# Subtest: D4/O3 · 筛选：按来源采购单号进查询参数，清空后不发
+ok 61 - D4/O3 · 筛选：按来源采购单号进查询参数，清空后不发
+# Subtest: D4/O3 · 筛选：只填采购单号也算「处于筛选态」（决定空表文案）
+ok 62 - D4/O3 · 筛选：只填采购单号也算「处于筛选态」（决定空表文案）
+# Subtest: d5 预填金额 = 后端 default_amount（部分已付时是 300 而不是 500）
+ok 63 - d5 预填金额 = 后端 default_amount（部分已付时是 300 而不是 500）
+# Subtest: d5 预填金额：整数分不丢精度（126.35 → 126.35）
+ok 64 - d5 预填金额：整数分不丢精度（126.35 → 126.35）
+# Subtest: d5 预填金额：后端没给 default_amount 时退回未付（灰度期的老响应）
+ok 65 - d5 预填金额：后端没给 default_amount 时退回未付（灰度期的老响应）
+# Subtest: d5 预填金额：不能付款时是 0（后端把 default_amount 归 0）
+ok 66 - d5 预填金额：不能付款时是 0（后端把 default_amount 归 0）
+# Subtest: d5 按钮：能付 + 有付款权限 → 显示
+ok 67 - d5 按钮：能付 + 有付款权限 → 显示
+# Subtest: d5 按钮：已结清 → 不显示（不是置灰）
+ok 68 - d5 按钮：已结清 → 不显示（不是置灰）
+# Subtest: d5 按钮：已作废 → 不显示
+ok 69 - d5 按钮：已作废 → 不显示
+# Subtest: d5 按钮：审批中（can_pay=false）→ 不显示，且原因要能透出给用户
+ok 70 - d5 按钮：审批中（can_pay=false）→ 不显示，且原因要能透出给用户
+# Subtest: d5 按钮：没有 business:erp:payable:pay 权限 → 不显示（后端仍会 403）
+ok 71 - d5 按钮：没有 business:erp:payable:pay 权限 → 不显示（后端仍会 403）
+# Subtest: d5 按钮：可付信息还没拉到（null）→ 不显示，避免闪现一个点不动的按钮
+ok 72 - d5 按钮：可付信息还没拉到（null）→ 不显示，避免闪现一个点不动的按钮
+# Subtest: d5 追溯：来源收货单 → 收货单页深链（带 in_id）
+ok 73 - d5 追溯：来源收货单 → 收货单页深链（带 in_id）
+# Subtest: d5 追溯：非收货来源 / 没有 id → 不给假链接
+ok 74 - d5 追溯：非收货来源 / 没有 id → 不给假链接
+# Subtest: d5 追溯：付款凭证号 → 凭证页深链；空号 → null
+ok 75 - d5 追溯：付款凭证号 → 凭证页深链；空号 → null
+# Subtest: d5 追溯：应付单号 → 应付页深链（付款记录点回来）
+ok 76 - d5 追溯：应付单号 → 应付页深链（付款记录点回来）
+# Subtest: D9 收货单：复制带出采购单 → 提示「请重新关联采购单」
+ok 77 - D9 收货单：复制带出采购单 → 提示「请重新关联采购单」
+# Subtest: D9 收货单：无源直收的单子复制 → 不提示（避免无意义打扰）
+ok 78 - D9 收货单：无源直收的单子复制 → 不提示（避免无意义打扰）
+# Subtest: D9 收货单：回填表单带 id（保存走改这张草稿，不会又建一张）
+ok 79 - D9 收货单：回填表单带 id（保存走改这张草稿，不会又建一张）
+# Subtest: D9 调拨单：原单带过序列号 → 提示「序列号不会复制」
+ok 80 - D9 调拨单：原单带过序列号 → 提示「序列号不会复制」
+# Subtest: D9 调拨单：原单没有序列号（数量物料）→ 不提示
+ok 81 - D9 调拨单：原单没有序列号（数量物料）→ 不提示
+# Subtest: D9 调拨单：复制出来的详情回填后明细一致、id 指向新单
+ok 82 - D9 调拨单：复制出来的详情回填后明细一致、id 指向新单
+# Subtest: ④ 采购类型选 CONTRACT：合同选择器出现、供应商变只读（模板接线 + 逻辑判据）
+ok 83 - ④ 采购类型选 CONTRACT：合同选择器出现、供应商变只读（模板接线 + 逻辑判据）
+# Subtest: ⑤ 采购类型选 SPOT：合同选择器不渲染、供应商可编辑
+ok 84 - ⑤ 采购类型选 SPOT：合同选择器不渲染、供应商可编辑
+# Subtest: ⑥ CONTRACT 型未选合同 → 提交被拦（且不误报「请选择供应商」）
+ok 85 - ⑥ CONTRACT 型未选合同 → 提交被拦（且不误报「请选择供应商」）
+# Subtest: ⑦ 选中合同 → 供应商字段被自动填入乙方名（id + 名称一把写）
+ok 86 - ⑦ 选中合同 → 供应商字段被自动填入乙方名（id + 名称一把写）
+# Subtest: ⑧ 编辑 CONTRACT 型单：采购类型只读、合同只读（不给换合同）
+ok 87 - ⑧ 编辑 CONTRACT 型单：采购类型只读、合同只读（不给换合同）
+# Subtest: ⑨ 列表显示「合同采购 / 现货采购」文案正确（且走同一个函数，不在模板里写三元）
+ok 88 - ⑨ 列表显示「合同采购 / 现货采购」文案正确（且走同一个函数，不在模板里写三元）
+# Subtest: ⑩ 列表合同号读快照字段 contract_no_snapshot（不是实时 JOIN / 不是 contract_id）
+ok 89 - ⑩ 列表合同号读快照字段 contract_no_snapshot（不是实时 JOIN / 不是 contract_id）
+# Subtest: ⑭ 原有「审批单 FLW-xxx」链接仍然存在且可点（这次改动不许弄丢）
+ok 90 - ⑭ 原有「审批单 FLW-xxx」链接仍然存在且可点（这次改动不许弄丢）
+# Subtest: 合同下拉只列「采购类 + 可下单状态」，状态口径与后端 USABLE_FOR_ORDER 逐字一致
+ok 91 - 合同下拉只列「采购类 + 可下单状态」，状态口径与后端 USABLE_FOR_ORDER 逐字一致
+# Subtest: 请求体口径：合同采购不发 supplier_id / 现货采购不带 contract_id
+ok 92 - 请求体口径：合同采购不发 supplier_id / 现货采购不带 contract_id
+# Subtest: ⑪ 入库单采购入库：供应商只读（值来自采购单）+ 采购单必选
+ok 93 - ⑪ 入库单采购入库：供应商只读（值来自采购单）+ 采购单必选
+# Subtest: ⑫ 入库单非采购入库（无源单据）：显示「无源单据」标记，供应商转手选且必须写备注
+ok 94 - ⑫ 入库单非采购入库（无源单据）：显示「无源单据」标记，供应商转手选且必须写备注
+# Subtest: ⑬ 入库单未选采购单 → 供应商显示「请先选择采购单」（不是空白、不是 —）
+ok 95 - ⑬ 入库单未选采购单 → 供应商显示「请先选择采购单」（不是空白、不是 —）
+# Subtest: 入库单：采购单下拉只列 APPROVED / PARTIAL_RECEIVED，且详情回填保留无源标记
+ok 96 - 入库单：采购单下拉只列 APPROVED / PARTIAL_RECEIVED，且详情回填保留无源标记
+# Subtest: ④ 列表渲染：有数据时行数与总数正确，空数据时判为空表
+ok 97 - ④ 列表渲染：有数据时行数与总数正确，空数据时判为空表
+# Subtest: ⑤ 列表空态：无数据给友好提示，且区分「筛不到」与「一条都没有」
+ok 98 - ⑤ 列表空态：无数据给友好提示，且区分「筛不到」与「一条都没有」
+# Subtest: ⑥ 状态徽标：6 个状态的文案与配色（照后端口径 status_label）
+ok 99 - ⑥ 状态徽标：6 个状态的文案与配色（照后端口径 status_label）
+# Subtest: ⑦ 状态按钮：只显示当前状态能走的合法边，且与前端的边表 = 后端状态机
+ok 100 - ⑦ 状态按钮：只显示当前状态能走的合法边，且与前端的边表 = 后端状态机
+# Subtest: ⑧ 表单校验：名称为空 → 提交被拦（且不再报其它无关错误）
+ok 101 - ⑧ 表单校验：名称为空 → 提交被拦（且不再报其它无关错误）
+# Subtest: ⑨ 表单校验：乙方未选 → 提交被拦
+ok 102 - ⑨ 表单校验：乙方未选 → 提交被拦
+# Subtest: ⑩ 表单校验：有效期止早于起 → 提交被拦；签订晚于生效 → 也拦
+ok 103 - ⑩ 表单校验：有效期止早于起 → 提交被拦；签订晚于生效 → 也拦
+# Subtest: ⑪ 编辑按钮：非 DRAFT 单不出现编辑入口（删除同理）
+ok 104 - ⑪ 编辑按钮：非 DRAFT 单不出现编辑入口（删除同理）
+# Subtest: ⑫ 金额显示：千分位 + ¥ 前缀
+ok 105 - ⑫ 金额显示：千分位 + ¥ 前缀
+# Subtest: ⑬ 请求体：空筛选不发、区间映射正确；建单/改单不带单号与状态
+ok 106 - ⑬ 请求体：空筛选不发、区间映射正确；建单/改单不带单号与状态
+# Subtest: ⑭ 编辑回填与类型下拉：详情 → 表单字段齐全，类型只放开「采购合同」
+ok 107 - ⑭ 编辑回填与类型下拉：详情 → 表单字段齐全，类型只放开「采购合同」
+# Subtest: CUSTOMER_COLUMNS 的 colKey 与后端 CustomerRes 逐字一致（不含 supplier_ 前缀）
+ok 108 - CUSTOMER_COLUMNS 的 colKey 与后端 CustomerRes 逐字一致（不含 supplier_ 前缀）
+# Subtest: CUSTOMER_STATUS_OPTIONS 是字符串域 ACTIVE/FROZEN，不是 1/0
+ok 109 - CUSTOMER_STATUS_OPTIONS 是字符串域 ACTIVE/FROZEN，不是 1/0
+# Subtest: buildCustomerQuery：空筛选只发 page/page_size（空串发出去会查出 0 行）
+ok 110 - buildCustomerQuery：空筛选只发 page/page_size（空串发出去会查出 0 行）
+# Subtest: buildCustomerQuery：code / name 各自 trim 后独立下发，status 精确透传
+ok 111 - buildCustomerQuery：code / name 各自 trim 后独立下发，status 精确透传
+# Subtest: isCustomerFiltered：任一条件有值即筛选态
+ok 112 - isCustomerFiltered：任一条件有值即筛选态
+# Subtest: 状态文案 / 主题 / 切换目标
+ok 113 - 状态文案 / 主题 / 切换目标
+# Subtest: formatCreditLimit：字符串裁尾零，0 说人话「不控额度」
+ok 114 - formatCreditLimit：字符串裁尾零，0 说人话「不控额度」
+# Subtest: creditLimitText：数字 → 字符串定点（不走 toFixed，避免二进制误差）
+ok 115 - creditLimitText：数字 → 字符串定点（不走 toFixed，避免二进制误差）
+# Subtest: contactLabel / textOr：空值统一显示 —
+ok 116 - contactLabel / textOr：空值统一显示 —
+# Subtest: isCustomerListEmpty
+ok 117 - isCustomerListEmpty
+# Subtest: validateCustomerForm：新建必填编码 + 名称，超长与负额度都要拦
+ok 118 - validateCustomerForm：新建必填编码 + 名称，超长与负额度都要拦
+# Subtest: validateCustomerForm：编辑态不再校验编码（只读，改不了）；0 额度合法
+ok 119 - validateCustomerForm：编辑态不再校验编码（只读，改不了）；0 额度合法
+# Subtest: buildCustomerCreatePayload：trim + 空串折 null + 额度转字符串定点 + 默认 ACTIVE
+ok 120 - buildCustomerCreatePayload：trim + 空串折 null + 额度转字符串定点 + 默认 ACTIVE
+# Subtest: buildCustomerCreatePayload：新建默认 credit_days = 0（= 现结，不是 30）
+ok 121 - buildCustomerCreatePayload：新建默认 credit_days = 0（= 现结，不是 30）
+# Subtest: formatCreditDays / isCashOnDelivery：0 说「现结」，> 0 显天数
+ok 122 - formatCreditDays / isCashOnDelivery：0 说「现结」，> 0 显天数
+# Subtest: creditDaysError：负数文案逐字照后端 require_credit_days，非整数/i32 越界也先拦
+ok 123 - creditDaysError：负数文案逐字照后端 require_credit_days，非整数/i32 越界也先拦
+# Subtest: creditDaysValue：兜底折成非负整数（脏值不漏给后端）
+ok 124 - creditDaysValue：兜底折成非负整数（脏值不漏给后端）
+# Subtest: validateCustomerForm：账期负数挂到 formErrors.credit_days，0 合法
+ok 125 - validateCustomerForm：账期负数挂到 formErrors.credit_days，0 合法
+# Subtest: buildCustomerUpdatePayload：账期按值比较（45→0 要发，0→0 不发）
+ok 126 - buildCustomerUpdatePayload：账期按值比较（45→0 要发，0→0 不发）
+# Subtest: buildCustomerUpdatePayload：没改就发空对象（省一次 PUT 和一条假成功）
+ok 127 - buildCustomerUpdatePayload：没改就发空对象（省一次 PUT 和一条假成功）
+# Subtest: buildCustomerUpdatePayload：只发改过的字段，其余缺席
+ok 128 - buildCustomerUpdatePayload：只发改过的字段，其余缺席
+# Subtest: buildCustomerUpdatePayload：文本从有到无发空串（后端约定 "" = 清空）
+ok 129 - buildCustomerUpdatePayload：文本从有到无发空串（后端约定 "" = 清空）
+# Subtest: buildCustomerUpdatePayload：额度与状态分开比较（0.0000 等于 0 不算改）
+ok 130 - buildCustomerUpdatePayload：额度与状态分开比较（0.0000 等于 0 不算改）
+# Subtest: buildCustomerStatusPayload：列表上的冻结/解冻只带 status
+ok 131 - buildCustomerStatusPayload：列表上的冻结/解冻只带 status
+# Subtest: customerFormFromRow：FROZEN 原样回填，null 文本折成空串（t-input 不吃 null）
+ok 132 - customerFormFromRow：FROZEN 原样回填，null 文本折成空串（t-input 不吃 null）
+# Subtest: 科目树：3 层结构逐层展开，父在前、子缩进深度 = level
+ok 133 - 科目树：3 层结构逐层展开，父在前、子缩进深度 = level
+# Subtest: 科目树：孤儿 / 自环 / 互指环都不会让整枝消失
+ok 134 - 科目树：孤儿 / 自环 / 互指环都不会让整枝消失
+# Subtest: 科目树：编码自然序（1405 < 2202 < 2221 < 2221.01 < 2221.02）
+ok 135 - 科目树：编码自然序（1405 < 2202 < 2221 < 2221.01 < 2221.02）
+# Subtest: 科目树：展开态 = 有下级的节点，折叠只动自己一个
+ok 136 - 科目树：展开态 = 有下级的节点，折叠只动自己一个
+# Subtest: 科目树：row-key 唯一（空 id 退到编码，重复补后缀）
+ok 137 - 科目树：row-key 唯一（空 id 退到编码，重复补后缀）
+# Subtest: 科目树：过滤保留祖先，但祖先不算命中
+ok 138 - 科目树：过滤保留祖先，但祖先不算命中
+# Subtest: 科目类型映射：ASSET/LIABILITY/EQUITY/COST/PROFIT_LOSS → 中文（卡面的 PROFIT 是别名）
+ok 139 - 科目类型映射：ASSET/LIABILITY/EQUITY/COST/PROFIT_LOSS → 中文（卡面的 PROFIT 是别名）
+# Subtest: 科目其余译名：余额方向 / 启用状态 / 层级
+ok 140 - 科目其余译名：余额方向 / 启用状态 / 层级
+# Subtest: 期间状态映射：NOT_OPENED/OPEN/CLOSED → 中文 + 配色
+ok 141 - 期间状态映射：NOT_OPENED/OPEN/CLOSED → 中文 + 配色
+# Subtest: 期间其余逻辑：标题 / 区间 / 天数 / 当月 / 结账时间 / 查询入参
+ok 142 - 期间其余逻辑：标题 / 区间 / 天数 / 当月 / 结账时间 / 查询入参
+# Subtest: ① 出入方向：IN→入库(绿) / OUT→出库(橙)，未知值不猜颜色
+ok 143 - ① 出入方向：IN→入库(绿) / OUT→出库(橙)，未知值不猜颜色
+# Subtest: ①附 流水数量签名：IN 加 +、OUT 用 U+2212 减号，库里 qty 恒正
+ok 144 - ①附 流水数量签名：IN 加 +、OUT 用 U+2212 减号，库里 qty 恒正
+# Subtest: ② 业务类型中文：PURCHASE_IN→采购入库，调拨区分进出，未知码原样返回
+ok 145 - ② 业务类型中文：PURCHASE_IN→采购入库，调拨区分进出，未知码原样返回
+# Subtest: ③ 可用数量 = qty − locked_qty（后端 Decimal 出的是字符串，不能直接减）
+ok 146 - ③ 可用数量 = qty − locked_qty（后端 Decimal 出的是字符串，不能直接减）
+# Subtest: ④ 三个 Tab 各带各的筛选：字段不串、空串不发、only_nonzero 只在开时发
+ok 147 - ④ 三个 Tab 各带各的筛选：字段不串、空串不发、only_nonzero 只在开时发
+# Subtest: ④附 Tab 与菜单路径互认：三条 sys_menu 路径都落到本页，不缺 Tab、不 404
+ok 148 - ④附 Tab 与菜单路径互认：三条 sys_menu 路径都落到本页，不缺 Tab、不 404
+# Subtest: ⑤ 筛选态判定与日期区间校验（空态文案、400 前置拦截都靠它）
+ok 149 - ⑤ 筛选态判定与日期区间校验（空态文案、400 前置拦截都靠它）
+# Subtest: ④ 巡检模式：只认 1 / true（大小写、空白、数组首值），拼错的参数退回普通库存
+ok 150 - ④ 巡检模式：只认 1 / true（大小写、空白、数组首值），拼错的参数退回普通库存
+# Subtest: ④ 漂移方向：diff 正=账多 / 负=账少 / 零=一致，文案·配色·符号三处一致
+ok 151 - ④ 漂移方向：diff 正=账多 / 负=账少 / 零=一致，文案·配色·符号三处一致
+# Subtest: ④ 可修正标记与结论文案：把 only-read 口径写进页面，别让用户以为点了就会改账
+ok 152 - ④ 可修正标记与结论文案：把 only-read 口径写进页面，别让用户以为点了就会改账
+# Subtest: ④ 空态文案：check=0（没有序列号物料）与「巡检干净」是两件事，别都说成没数据
+ok 153 - ④ 空态文案：check=0（没有序列号物料）与「巡检干净」是两件事，别都说成没数据
+# Subtest: ① 仓库筛选：只选仓库时，请求参数带 warehouse_id 且不带其它筛选键
+ok 154 - ① 仓库筛选：只选仓库时，请求参数带 warehouse_id 且不带其它筛选键
+# Subtest: ① 仓库筛选：不选仓库 = 跨仓总览（warehouse_id 整键缺席，不是空串）
+ok 155 - ① 仓库筛选：不选仓库 = 跨仓总览（warehouse_id 整键缺席，不是空串）
+# Subtest: ① 仓库筛选：换仓库 → 参数跟着换；关键词去掉首尾空格
+ok 156 - ① 仓库筛选：换仓库 → 参数跟着换；关键词去掉首尾空格
+# Subtest: ② 库位类型映射：后端 6 个枚举 → 中文（逐字对齐 dto.rs::LOCATION_TYPES）
+ok 157 - ② 库位类型映射：后端 6 个枚举 → 中文（逐字对齐 dto.rs::LOCATION_TYPES）
+# Subtest: ② 库位类型筛选：选中的类型进请求参数（原样大写枚举，不传中文）
+ok 158 - ② 库位类型筛选：选中的类型进请求参数（原样大写枚举，不传中文）
+# Subtest: ② 库位类型配色：每种类型都有 TDesign 主题，不写裸 hex
+ok 159 - ② 库位类型配色：每种类型都有 TDesign 主题，不写裸 hex
+# Subtest: ③ 启用状态映射：1 启用（success）/ 0 停用（default），未知值可见
+ok 160 - ③ 启用状态映射：1 启用（success）/ 0 停用（default），未知值可见
+# Subtest: ③ 启用状态筛选：选「停用」必须发出 status=0（number），不能被真假值判断丢掉
+ok 161 - ③ 启用状态筛选：选「停用」必须发出 status=0（number），不能被真假值判断丢掉
+# Subtest: ④ 所属仓库：列表接口没有 warehouse_name，用仓库树翻译成层级路径
+ok 162 - ④ 所属仓库：列表接口没有 warehouse_name，用仓库树翻译成层级路径
+# Subtest: ④ 仓库筛选下拉：列出**全部**仓库（非叶子也在），文案带层级路径与编码
+ok 163 - ④ 仓库筛选下拉：列出**全部**仓库（非叶子也在），文案带层级路径与编码
+# Subtest: ④ 行视图：类型/状态/仓库名/容量全部翻译好，原字段不动
+ok 164 - ④ 行视图：类型/状态/仓库名/容量全部翻译好，原字段不动
+# Subtest: ⑤ 是否处于筛选态：只看停用也算筛选（否则空态会说「还没有库位」）
+ok 165 - ⑤ 是否处于筛选态：只看停用也算筛选（否则空态会说「还没有库位」）
+# Subtest: ⑥ 时间格式化：RFC3339 → YYYY-MM-DD HH:mm，非法/空值回「—」
+ok 166 - ⑥ 时间格式化：RFC3339 → YYYY-MM-DD HH:mm，非法/空值回「—」
+# Subtest: ① 计量单位表格列 = 后端 UnitRes 的真字段（不自造列）
+ok 167 - ① 计量单位表格列 = 后端 UnitRes 的真字段（不自造列）
+# Subtest: ① 供应商表格列 = 后端 SupplierRes 的真字段（不是 code / name）
+ok 168 - ① 供应商表格列 = 后端 SupplierRes 的真字段（不是 code / name）
+# Subtest: ② 状态映射：1 启用绿 tag，0 停用灰 tag，脏值不染绿
+ok 169 - ② 状态映射：1 启用绿 tag，0 停用灰 tag，脏值不染绿
+# Subtest: ③ 空态：rows.length === 0 才空，null / [] / 有行
+ok 170 - ③ 空态：rows.length === 0 才空，null / [] / 有行
+# Subtest: ④ 查询参数：空串不发，page/page_size 是服务端字段
+ok 171 - ④ 查询参数：空串不发，page/page_size 是服务端字段
+# Subtest: ⑤ 折算单位：1 箱 = 12 个，基准单位恒等 1，基准下拉剔除自己
+ok 172 - ⑤ 折算单位：1 箱 = 12 个，基准单位恒等 1，基准下拉剔除自己
+# Subtest: ⑤ 计量单位请求体：基础单位不发 base_unit_id，折算单位必须带 rate
+ok 173 - ⑤ 计量单位请求体：基础单位不发 base_unit_id，折算单位必须带 rate
+# Subtest: ⑤ 编辑请求体：只发改过的字段；清空折算基准必须发 null（不是空串）
+ok 174 - ⑤ 编辑请求体：只发改过的字段；清空折算基准必须发 null（不是空串）
+# Subtest: ⑥ 供应商表单回填与请求体：空串转 null，只发改过的字段
+ok 175 - ⑥ 供应商表单回填与请求体：空串转 null，只发改过的字段
+# Subtest: ⑥ 供应商展示：账期 0 = 现结，额度裁尾零
+ok 176 - ⑥ 供应商展示：账期 0 = 现结，额度裁尾零
+# Subtest: ⑦ ERP-S1：系统预置单位打「系统」标签且不给删，客户自建可删
+ok 177 - ⑦ ERP-S1：系统预置单位打「系统」标签且不给删，客户自建可删
+# Subtest: ⑦ ERP-S1：小数位数进请求体（新建带上、编辑只发改过的）且校验 0–6
+ok 178 - ⑦ ERP-S1：小数位数进请求体（新建带上、编辑只发改过的）且校验 0–6
+# Subtest: ⑧ DC-09：折算单位返回灰字、基础单位不显示
+ok 179 - ⑧ DC-09：折算单位返回灰字、基础单位不显示
+# Subtest: serial_required 显示：true → 「★是」，false → 「否」
+ok 180 - serial_required 显示：true → 「★是」，false → 「否」
+# Subtest: 筛选参数：serial_required=true 带 true；all 时整键缺席（不是带 undefined / 空串）
+ok 181 - 筛选参数：serial_required=true 带 true；all 时整键缺席（不是带 undefined / 空串）
+# Subtest: 筛选参数：keyword 先 trim，空串 / 全空格不发；分类空串不发
+ok 182 - 筛选参数：keyword 先 trim，空串 / 全空格不发；分类空串不发
+# Subtest: 分页参数：page / page_size 正确（默认 1 / 10，非法值夹回合法值）
+ok 183 - 分页参数：page / page_size 正确（默认 1 / 10，非法值夹回合法值）
+# Subtest: 页码夹紧：total=5 / size=10 时第 3 页回到第 1 页
+ok 184 - 页码夹紧：total=5 / size=10 时第 3 页回到第 1 页
+# Subtest: 编辑请求体：无 material_code；serial_required 未改则缺席
+ok 185 - 编辑请求体：无 material_code；serial_required 未改则缺席
+# Subtest: 新建请求体：serial_required / costing_method 显式带上（不靠后端缺省）+ 空规格为 null
+ok 186 - 新建请求体：serial_required / costing_method 显式带上（不靠后端缺省）+ 空规格为 null
+# Subtest: 成本法：下拉只有 MOVING_AVG；历史值作为禁用项兜底；编辑请求体不带 costing_method
+ok 187 - 成本法：下拉只有 MOVING_AVG；历史值作为禁用项兜底；编辑请求体不带 costing_method
+# Subtest: 表单校验：编码 / 名称 / 单位，编辑态不校验编码
+ok 188 - 表单校验：编码 / 名称 / 单位，编辑态不校验编码
+# Subtest: 列表文案：单位译名、分类中文、状态
+ok 189 - 列表文案：单位译名、分类中文、状态
+# Subtest: 三个权限码与 V0189 的 sys_menu 节点逐字一致
+ok 190 - 三个权限码与 V0189 的 sys_menu 节点逐字一致
+# Subtest: 金额解析：字符串 / 数字都能量，非法一律 0（不抛错）
+ok 191 - 金额解析：字符串 / 数字都能量，非法一律 0（不抛错）
+# Subtest: 合计必须是数值相加，不是字符串拼接（Decimal 回来是 "50000.0000"）
+ok 192 - 合计必须是数值相加，不是字符串拼接（Decimal 回来是 "50000.0000"）
+# Subtest: 借贷平衡判定：差额保留两位，浮点噪声不算不平
+ok 193 - 借贷平衡判定：差额保留两位，浮点噪声不算不平
+# Subtest: 期初状态 → 中文与配色（NONE 未录 / ENTERED 已录 / LOCKED 已锁定）
+ok 194 - 期初状态 → 中文与配色（NONE 未录 / ENTERED 已录 / LOCKED 已锁定）
+# Subtest: 结账后整页只读 + 顶部文案点名期间；未开账也不能录
+ok 195 - 结账后整页只读 + 顶部文案点名期间；未开账也不能录
+# Subtest: 保存按钮：无权限 / 不平衡 / 只读 三种情况都不许点
+ok 196 - 保存按钮：无权限 / 不平衡 / 只读 三种情况都不许点
+# Subtest: 行级校验：空科目 / 负数 / 借贷同填 都要报出来
+ok 197 - 行级校验：空科目 / 负数 / 借贷同填 都要报出来
+# Subtest: 两列都为 0 的空行不参与提交（后端也会直接丢掉）
+ok 198 - 两列都为 0 的空行不参与提交（后端也会直接丢掉）
+# Subtest: 期初凭证摘要：没有凭证时说清楚，有凭证时报号 + 日期 + 分录数
+ok 199 - 期初凭证摘要：没有凭证时说清楚，有凭证时报号 + 日期 + 分录数
+# Subtest: 库存期初提示：金额为 0 时不打扰，非 0 时说明会自动生成 1405 / 3103 两行
+ok 200 - 库存期初提示：金额为 0 时不打扰，非 0 时说明会自动生成 1405 / 3103 两行
+# Subtest: 默认期间：当前月存在且 OPEN 时落当前月（不是最新的 2026-12）
+ok 201 - 默认期间：当前月存在且 OPEN 时落当前月（不是最新的 2026-12）
+# Subtest: 默认期间：当前月未开账时落最早的 OPEN 期间（倒序列表的最后一个）
+ok 202 - 默认期间：当前月未开账时落最早的 OPEN 期间（倒序列表的最后一个）
+# Subtest: 默认期间：没有 OPEN 时兜底最新一条，空清单返回空串（不抛错）
+ok 203 - 默认期间：没有 OPEN 时兜底最新一条，空清单返回空串（不抛错）
+# Subtest: 默认期间：输入顺序打乱也落同一期间（不依赖后端排序）
+ok 204 - 默认期间：输入顺序打乱也落同一期间（不依赖后端排序）
+# Subtest: 默认期间：月边界按北京时间取月（UTC 还是上个月时不能落错期间）
+ok 205 - 默认期间：月边界按北京时间取月（UTC 还是上个月时不能落错期间）
+# Subtest: ① 应付 4 态 → 中文 + 颜色（橙/蓝/绿/灰），未知状态原样返回
+ok 206 - ① 应付 4 态 → 中文 + 颜色（橙/蓝/绿/灰），未知状态原样返回
+# Subtest: ① 凭证 4 态 → 中文 + 颜色，来源/类型标签与后端逐字一致
+ok 207 - ① 凭证 4 态 → 中文 + 颜色，来源/类型标签与后端逐字一致
+# Subtest: ② 借贷平衡：Σ借 == Σ贷 → true，不等 → false（含后端 Decimal 字符串与浮点陷阱）
+ok 208 - ② 借贷平衡：Σ借 == Σ贷 → true，不等 → false（含后端 Decimal 字符串与浮点陷阱）
+# Subtest: ② 详情三方校验：前端逐行加 / 后端分录合计 / 单头合计 三者一致才算「真的平」
+ok 209 - ② 详情三方校验：前端逐行加 / 后端分录合计 / 单头合计 三者一致才算「真的平」
+# Subtest: ③ 余额恒等式：期初 + 本期借 − 本期贷 = 期末（逐行 + 合计 + 平衡判定）
+ok 210 - ③ 余额恒等式：期初 + 本期借 − 本期贷 = 期末（逐行 + 合计 + 平衡判定）
+# Subtest: ③ 流水逐行余额自洽：第 i 行 = 第 i−1 行 + 本行净额
+ok 211 - ③ 流水逐行余额自洽：第 i 行 = 第 i−1 行 + 本行净额
+# Subtest: ④ 查询参数：空串一律不发，科目/期间缺失时在界面上拦住
+ok 212 - ④ 查询参数：空串一律不发，科目/期间缺失时在界面上拦住
+# Subtest: ④ 应付页辅助判定：逾期 / 付款进度 / 未付兜底 / 来源文案
+ok 213 - ④ 应付页辅助判定：逾期 / 付款进度 / 未付兜底 / 来源文案
+# Subtest: ④ 金额格式化：整数分、千分位、负数（不出现 -0.00）
+ok 214 - ④ 金额格式化：整数分、千分位、负数（不出现 -0.00）
+# Subtest: 权限码与后端 V0188 / V0207 逐字一致（四个码必须分开）
+ok 215 - 权限码与后端 V0188 / V0207 逐字一致（四个码必须分开）
+# Subtest: 状态 → 动作：CLOSED 只能反结账，OPEN 只能结账，NOT_OPENED 只能开账
+ok 216 - 状态 → 动作：CLOSED 只能反结账，OPEN 只能结账，NOT_OPENED 只能开账
+# Subtest: 无权限 → 按钮不出（canRunPeriodAction=false，页面用 v-if 而不是 disabled）
+ok 217 - 无权限 → 按钮不出（canRunPeriodAction=false，页面用 v-if 而不是 disabled）
+# Subtest: 反结账原因：必填且 ≥ 10 字（与后端同一文案口径）
+ok 218 - 反结账原因：必填且 ≥ 10 字（与后端同一文案口径）
+# Subtest: 结账备注可选，只在超过 200 字时报错
+ok 219 - 结账备注可选，只在超过 200 字时报错
+# Subtest: 结账预检摘要：全绿说「可以结账」，有阻塞点名第一条 + 剩余条数
+ok 220 - 结账预检摘要：全绿说「可以结账」，有阻塞点名第一条 + 剩余条数
+# Subtest: 批量开账入参：严格 YYYY-MM、from ≤ to、一次最多 120 个月
+ok 221 - 批量开账入参：严格 YYYY-MM、from ≤ to、一次最多 120 个月
+# Subtest: 催办权限码与后端 V0207 一致
+ok 222 - 催办权限码与后端 V0207 一致
+# Subtest: 单据类型中文与后端 doc_type_label 一致，未知类型原样返回
+ok 223 - 单据类型中文与后端 doc_type_label 一致，未知类型原样返回
+# Subtest: 角色码翻译：已知岗位显示中文，未知原样，空 = 待分配
+ok 224 - 角色码翻译：已知岗位显示中文，未知原样，空 = 待分配
+# Subtest: 「该谁处理」文案：角色(姓名) / 只有角色 / 待分配
+ok 225 - 「该谁处理」文案：角色(姓名) / 只有角色 / 待分配
+# Subtest: 只有「待分配」的行不能催办（后端不猜处理人，前端也不给点）
+ok 226 - 只有「待分配」的行不能催办（后端不猜处理人，前端也不给点）
+# Subtest: 可催办明细过滤：待分配的留在表格里但不进催办列表
+ok 227 - 可催办明细过滤：待分配的留在表格里但不进催办列表
+# Subtest: 金额文案：两位小数 + 千分位；空值显示破折号
+ok 228 - 金额文案：两位小数 + 千分位；空值显示破折号
+# Subtest: 已等文案：小时 / 天 / 不到 1 小时 / 缺省
+ok 229 - 已等文案：小时 / 天 / 不到 1 小时 / 缺省
+# Subtest: 明细存在性与计数：空明细退回老样式
+ok 230 - 明细存在性与计数：空明细退回老样式
+# Subtest: 催办回执：优先用后端那句人话，缺失时按计数合成
+ok 231 - 催办回执：优先用后端那句人话，缺失时按计数合成
+# Subtest: decimalText：去掉 Decimal 串的尾随 0，整数位保留
+ok 232 - decimalText：去掉 Decimal 串的尾随 0，整数位保留
+# Subtest: decimalText：空值给「—」，不显示 0（区分「没填」与「填了 0」）
+ok 233 - decimalText：空值给「—」，不显示 0（区分「没填」与「填了 0」）
+# Subtest: taxRateText：量纲 0–100，0% 也照实显示
+ok 234 - taxRateText：量纲 0–100，0% 也照实显示
+# Subtest: receivedText：已收/应收，缺 received_qty 按 0
+ok 235 - receivedText：已收/应收，缺 received_qty 按 0
+# Subtest: isFullyReceived：按数值比较（"5.0000" 与 "5" 相等），qty<=0 不算收满
+ok 236 - isFullyReceived：按数值比较（"5.0000" 与 "5" 相等），qty<=0 不算收满
+# Subtest: buildItemQuery：空筛选只发分页（不发 ?order_id=）
+ok 237 - buildItemQuery：空筛选只发分页（不发 ?order_id=）
+# Subtest: buildItemQuery：两个 id 都给了就都发
+ok 238 - buildItemQuery：两个 id 都给了就都发
+# Subtest: labelOf：主数据缺行时退回短 id，绝不留白
+ok 239 - labelOf：主数据缺行时退回短 id，绝不留白
+# Subtest: buildSeqQuery：keyword 去空格、状态 0（停用）也要发
+ok 240 - buildSeqQuery：keyword 去空格、状态 0（停用）也要发
+# Subtest: nextNoOf：current_no + step；step 非法时退化成 1
+ok 241 - nextNoOf：current_no + step；step 非法时退化成 1
+# Subtest: seqStatus：1 启用（主色）/ 0 停用（灰）/ 未知原样
+ok 242 - seqStatus：1 启用（主色）/ 0 停用（灰）/ 未知原样
+# Subtest: datePatternText / periodKeyText：三种周期口径 + 未取号
+ok 243 - datePatternText / periodKeyText：三种周期口径 + 未取号
+# Subtest: separatorText：空串显示「无」而不是留白
+ok 244 - separatorText：空串显示「无」而不是留白
+# Subtest: ① 口径 A：qty=100 × 不含税单价 2，税率 13% → 价款 200 / 税额 26 / 价税合计 226
+ok 245 - ① 口径 A：qty=100 × 不含税单价 2，税率 13% → 价款 200 / 税额 26 / 价税合计 226
+# Subtest: ② 口径 B：qty=100 × 含税单价 2，税率 13% → 价款 176.99 / 税额 23.01 / 价税合计 200
+ok 246 - ② 口径 B：qty=100 × 含税单价 2，税率 13% → 价款 176.99 / 税额 23.01 / 价税合计 200
+# Subtest: ③ 口径切换：同一串录入数字被重新解释，各行金额全部重算（226.00 → 200.00）
+ok 247 - ③ 口径切换：同一串录入数字被重新解释，各行金额全部重算（226.00 → 200.00）
+# Subtest: ④ 收货单状态按钮显隐：DRAFT 显示编辑/过账，POSTED 只显示查看（作废另算）
+ok 248 - ④ 收货单状态按钮显隐：DRAFT 显示编辑/过账，POSTED 只显示查看（作废另算）
+# Subtest: ⑤ 过账弹窗：默认勾「发票已随货到达」，「发票未到」置灰且带 tooltip
+ok 249 - ⑤ 过账弹窗：默认勾「发票已随货到达」，「发票未到」置灰且带 tooltip
+# Subtest: ⑥ 请求体：不含税口径带 price_excl，含税口径带 price_incl，且都不传金额字段
+ok 250 - ⑥ 请求体：不含税口径带 price_excl，含税口径带 price_incl，且都不传金额字段
+# Subtest: ⑦ 表单校验：0 数量 / 负单价 / 越界税率 / 缺供应商都能拦住
+ok 251 - ⑦ 表单校验：0 数量 / 负单价 / 越界税率 / 缺供应商都能拦住
+# Subtest: ⑧ NUMERIC 字符串归一 + 取消带原因
+ok 252 - ⑧ NUMERIC 字符串归一 + 取消带原因
+# Subtest: status labels/themes cover the 7-value domain and fall back to the code
+ok 253 - status labels/themes cover the 7-value domain and fall back to the code
+# Subtest: action visibility follows LEGAL_EDGES, not "my own draft"
+ok 254 - action visibility follows LEGAL_EDGES, not "my own draft"
+# Subtest: reason is required only on the edges whose BASE edge says so
+ok 255 - reason is required only on the edges whose BASE edge says so
+# Subtest: filter → query drops empty fields and trims the order no
+ok 256 - filter → query drops empty fields and trims the order no
+# Subtest: empty-state copy distinguishes "no data" from "nothing matched"
+ok 257 - empty-state copy distinguishes "no data" from "nothing matched"
+# Subtest: line amounts: amount = round(price × qty, 4), tax = round(amount × rate / 100, 4)
+ok 258 - line amounts: amount = round(price × qty, 4), tax = round(amount × rate / 100, 4)
+# Subtest: order totals sum per-line rounded amounts (Totals::of 同口径)
+ok 259 - order totals sum per-line rounded amounts (Totals::of 同口径)
+# Subtest: date strings must be real calendar days
+ok 260 - date strings must be real calendar days
+# Subtest: form validation rejects every case the backend rejects
+ok 261 - form validation rejects every case the backend rejects
+# Subtest: form validation reports which line failed
+ok 262 - form validation reports which line failed
+# Subtest: line add/remove guards keep at least one line
+ok 263 - line add/remove guards keep at least one line
+# Subtest: item request carries only qty / price / tax_rate (amounts are server-side)
+ok 264 - item request carries only qty / price / tax_rate (amounts are server-side)
+# Subtest: create payload keeps dates and folds empty remark to null
+ok 265 - create payload keeps dates and folds empty remark to null
+# Subtest: update payload uses "" for cleared delivery date / remark (整单覆盖)
+ok 266 - update payload uses "" for cleared delivery date / remark (整单覆盖)
+# Subtest: detail → form round-trips the line values sorted by line_no
+ok 267 - detail → form round-trips the line values sorted by line_no
+# Subtest: null delivery date / remark in detail become empty strings in the form
+ok 268 - null delivery date / remark in detail become empty strings in the form
+# Subtest: ① 状态映射：IN_STOCK→在库/绿、OUTBOUND→已出库/蓝、SCRAPPED→已报废/灰
+ok 269 - ① 状态映射：IN_STOCK→在库/绿、OUTBOUND→已出库/蓝、SCRAPPED→已报废/灰
+# Subtest: ② 可流转：IN_STOCK 可出库可报废、OUTBOUND 只能报废、SCRAPPED 都不能
+ok 270 - ② 可流转：IN_STOCK 可出库可报废、OUTBOUND 只能报废、SCRAPPED 都不能
+# Subtest: ③ 扫码结果合并：命中行标 scanned=true，其余 false；不在本页时 hitOnPage=false
+ok 271 - ③ 扫码结果合并：命中行标 scanned=true，其余 false；不在本页时 hitOnPage=false
+# Subtest: 筛选参数：空值整键缺席，序列号去空白，状态 / 物料 / 仓库按选中带上
+ok 272 - 筛选参数：空值整键缺席，序列号去空白，状态 / 物料 / 仓库按选中带上
+# Subtest: 批量生成表单：物料 / 仓库 / 成本单价必填、数量 1..1000、请求体空值不发
+ok 273 - 批量生成表单：物料 / 仓库 / 成本单价必填、数量 1..1000、请求体空值不发
+# Subtest: 批量生成表单：成本单价四条校验（空 / 非数字 / ≤0 / 7 位小数），口径照后端 parse_unit_cost
+ok 274 - 批量生成表单：成本单价四条校验（空 / 非数字 / ≤0 / 7 位小数），口径照后端 parse_unit_cost
+# Subtest: 入库金额预览：数量 × 单价，4 位小数（与 biz_inventory.amount numeric(18,4) 一致）
+ok 275 - 入库金额预览：数量 × 单价，4 位小数（与 biz_inventory.amount numeric(18,4) 一致）
+# Subtest: 批量生成失败文案：400/10001 的 msg 原样透出，拿不到 msg 才兜底
+ok 276 - 批量生成失败文案：400/10001 的 msg 原样透出，拿不到 msg 才兜底
+# Subtest: 批量生成成功摘要：金额 / 结存用后端回显的字符串（前端不重算）
+ok 277 - 批量生成成功摘要：金额 / 结存用后端回显的字符串（前端不重算）
+# Subtest: 状态域 4 值且顺序与后端 STATUSES 一致
+ok 278 - 状态域 4 值且顺序与后端 STATUSES 一致
+# Subtest: 状态中文名与后端 status_label 逐字一致
+ok 279 - 状态中文名与后端 status_label 逐字一致
+# Subtest: 4 条合法边逐条等于后端 SHIPMENT_EDGES
+ok 280 - 4 条合法边逐条等于后端 SHIPMENT_EDGES
+# Subtest: 必填原因只有 PENDING_POST → CANCELLED（等于后端 SHIPMENT_REASON_EDGES）
+ok 281 - 必填原因只有 PENDING_POST → CANCELLED（等于后端 SHIPMENT_REASON_EDGES）
+# Subtest: 非法边一律不认：DRAFT→POSTED、POSTED→CANCELLED、CANCELLED→*
+ok 282 - 非法边一律不认：DRAFT→POSTED、POSTED→CANCELLED、CANCELLED→*
+# Subtest: allowedTargets 按边表顺序给出可选去向
+ok 283 - allowedTargets 按边表顺序给出可选去向
+# Subtest: 按钮矩阵：DRAFT 只能提交/作废，PENDING_POST 只能过账/作废，终态无动作
+ok 284 - 按钮矩阵：DRAFT 只能提交/作废，PENDING_POST 只能过账/作废，终态无动作
+# Subtest: 状态标签 / 配色：认不出的编码回落编码本身与 default
+ok 285 - 状态标签 / 配色：认不出的编码回落编码本身与 default
+# Subtest: 状态下拉：5 项（全部 + 4 态），首项 = 全部（value 空串）
+ok 286 - 状态下拉：5 项（全部 + 4 态），首项 = 全部（value 空串）
+# Subtest: 空筛选 ⇒ 请求只带分页（空串根本不发）
+ok 287 - 空筛选 ⇒ 请求只带分页（空串根本不发）
+# Subtest: 筛选参数：单号 trim、状态与客户精确带上
+ok 288 - 筛选参数：单号 trim、状态与客户精确带上
+# Subtest: 空态文案区分「没数据」与「筛出来没有」
+ok 289 - 空态文案区分「没数据」与「筛出来没有」
+# Subtest: 列表列与详情明细列的 colKey 与后端出参同名
+ok 290 - 列表列与详情明细列的 colKey 与后端出参同名
+# Subtest: 只带 remaining > 0 的行，按订单行号升序，数量默认未发量
+ok 291 - 只带 remaining > 0 的行，按订单行号升序，数量默认未发量
+# Subtest: 整张订单都发完了 ⇒ 带出 0 行（校验要拦住并给同一句口径）
+ok 292 - 整张订单都发完了 ⇒ 带出 0 行（校验要拦住并给同一句口径）
+# Subtest: qtyText 4 位定标：字符串数字、空值、非法值都归一
+ok 293 - qtyText 4 位定标：字符串数字、空值、非法值都归一
+# Subtest: 合计数量按行累加（4 位定标后取整到 4 位）
+ok 294 - 合计数量按行累加（4 位定标后取整到 4 位）
+# Subtest: 必填项：订单 / 仓库 / 日期格式 / 明细非空
+ok 295 - 必填项：订单 / 仓库 / 日期格式 / 明细非空
+# Subtest: 数量校验：0 / 负数 / 超过未发量都要拦住
+ok 296 - 数量校验：0 / 负数 / 超过未发量都要拦住
+# Subtest: 明细行数上限与备注上限
+ok 297 - 明细行数上限与备注上限
+# Subtest: isDateString 拒掉不存在的日期
+ok 298 - isDateString 拒掉不存在的日期
+# Subtest: 建单请求体：不带物料、qty 归一为 4 位定标、空白备注与空库位不发
+ok 299 - 建单请求体：不带物料、qty 归一为 4 位定标、空白备注与空库位不发
+# Subtest: 数量留空 = 交给服务端「该行全部未发量」
+ok 300 - 数量留空 = 交给服务端「该行全部未发量」
+# Subtest: 指定库位与行备注照发（库位是 biz_location.id）
+ok 301 - 指定库位与行备注照发（库位是 biz_location.id）
+# Subtest: isFullShipment：数量全等于未发量才算「整单全发」
+ok 302 - isFullShipment：数量全等于未发量才算「整单全发」
+# Subtest: 过账弹窗正文点名单据与合计，并说清三个真实效果
+ok 303 - 过账弹窗正文点名单据与合计，并说清三个真实效果
+# Subtest: 关联出库单号：过账后有号、未过账与出库单被删分开表达
+ok 304 - 关联出库单号：过账后有号、未过账与出库单被删分开表达
+# Subtest: 出库类型四值与中文名逐字对齐后端 OUT_TYPES
+ok 305 - 出库类型四值与中文名逐字对齐后端 OUT_TYPES
+# Subtest: 只有报废 / 盘亏必须填事由（要挂 1901）
+ok 306 - 只有报废 / 盘亏必须填事由（要挂 1901）
+# Subtest: 状态四值的中文名与标签主题
+ok 307 - 状态四值的中文名与标签主题
+# Subtest: 按钮 = next_statuses 的投影：只喂两个目标就只出两个按钮
+ok 308 - 按钮 = next_statuses 的投影：只喂两个目标就只出两个按钮
+# Subtest: next_statuses 为空 → 一个按钮都不出（已作废单据再也不能流转）
+ok 309 - next_statuses 为空 → 一个按钮都不出（已作废单据再也不能流转）
+# Subtest: 目标态文案看「当前状态」：PENDING_POST → DRAFT 是撤回，其它是退回
+ok 310 - 目标态文案看「当前状态」：PENDING_POST → DRAFT 是撤回，其它是退回
+# Subtest: next_statuses 里的未知目标被丢弃，重复目标只留一个
+ok 311 - next_statuses 里的未知目标被丢弃，重复目标只留一个
+# Subtest: 空领用单：缺仓库 / 缺物料 / 数量为 0 三处同时报错
+ok 312 - 空领用单：缺仓库 / 缺物料 / 数量为 0 三处同时报错
+# Subtest: 报废 / 盘亏没写事由被拦住，写了就放行
+ok 313 - 报废 / 盘亏没写事由被拦住，写了就放行
+# Subtest: 一物一码物料被前端提前拦下（后端会 400 指路序列号管理）
+ok 314 - 一物一码物料被前端提前拦下（后端会 400 指路序列号管理）
+# Subtest: 数量必须 > 0：0 与负数都拦
+ok 315 - 数量必须 > 0：0 与负数都拦
+# Subtest: 明细为空 / 超上限都被拦，且错误挂在 items 上
+ok 316 - 明细为空 / 超上限都被拦，且错误挂在 items 上
+# Subtest: 建单 body 只带后端认的字段：明细没有单价 / 金额 / 单位
+ok 317 - 建单 body 只带后端认的字段：明细没有单价 / 金额 / 单位
+# Subtest: 数量转字符串时去掉浮点尾巴
+ok 318 - 数量转字符串时去掉浮点尾巴
+# Subtest: 筛选条件：空串一律不发，日期区间拆成 date_from / date_to
+ok 319 - 筛选条件：空串一律不发，日期区间拆成 date_from / date_to
+# Subtest: isStockOutFiltered 只认真正填了的条件
+ok 320 - isStockOutFiltered 只认真正填了的条件
+# Subtest: 状态历史只为真实发生过的里程碑打点
+ok 321 - 状态历史只为真实发生过的里程碑打点
+# Subtest: 待过账的历史不编时间（后端没下发提交时间）
+ok 322 - 待过账的历史不编时间（后端没下发提交时间）
+# Subtest: 作废原因必填，且请求体把原因带上
+ok 323 - 作废原因必填，且请求体把原因带上
+# Subtest: 只有草稿能编辑 / 删除
+ok 324 - 只有草稿能编辑 / 删除
+# Subtest: 错误文案原样带后端 msg（负库存的「可用量」不能被吞掉）
+ok 325 - 错误文案原样带后端 msg（负库存的「可用量」不能被吞掉）
+# Subtest: 详情 → 编辑表单：数量转成数字，库位缺省为 null
+ok 326 - 详情 → 编辑表单：数量转成数字，库位缺省为 null
+# Subtest: API 层 6 个接口都写全了 /api 前缀（漏了会命中 SPA fallback 返回 HTML）
+ok 327 - API 层 6 个接口都写全了 /api 前缀（漏了会命中 SPA fallback 返回 HTML）
+# Subtest: 盘点类型两值与中文名逐字对齐后端 TAKE_TYPES
+ok 328 - 盘点类型两值与中文名逐字对齐后端 TAKE_TYPES
+# Subtest: 状态四值的译名与标签主题
+ok 329 - 状态四值的译名与标签主题
+# Subtest: 空表单默认全盘 + 今天（CST）+ 无范围行
+ok 330 - 空表单默认全盘 + 今天（CST）+ 无范围行
+# Subtest: 全盘不填范围也能通过校验（范围由服务端快照）
+ok 331 - 全盘不填范围也能通过校验（范围由服务端快照）
+# Subtest: 全盘带 items 必须报错（后端对 FULL + items 直接 400）
+ok 332 - 全盘带 items 必须报错（后端对 FULL + items 直接 400）
+# Subtest: 抽盘没有范围行必须报错
+ok 333 - 抽盘没有范围行必须报错
+# Subtest: 抽盘同一物料同一库位重复 → 报错（否则过账双倍调平）
+ok 334 - 抽盘同一物料同一库位重复 → 报错（否则过账双倍调平）
+# Subtest: 抽盘两个库位桶各一行是合法的（不算重复）
+ok 335 - 抽盘两个库位桶各一行是合法的（不算重复）
+# Subtest: 仓库 / 日期必填
+ok 336 - 仓库 / 日期必填
+# Subtest: 备注超 500 字报错（后端 MAX_REMARK_LEN）
+ok 337 - 备注超 500 字报错（后端 MAX_REMARK_LEN）
+# Subtest: 建单请求体：全盘 items 为空数组，抽盘只带 material_id / location_id
+ok 338 - 建单请求体：全盘 items 为空数组，抽盘只带 material_id / location_id
+# Subtest: 详情 → 实盘数编辑态：默认回显后端给的实盘数
+ok 339 - 详情 → 实盘数编辑态：默认回显后端给的实盘数
+# Subtest: 实盘数：空 / 非数字 / 负数都拦，0 合法
+ok 340 - 实盘数：空 / 非数字 / 负数都拦，0 合法
+# Subtest: 改单请求体：lines 用 item_id + actual_qty，日期与备注原样带
+ok 341 - 改单请求体：lines 用 item_id + actual_qty，日期与备注原样带
+# Subtest: 草稿态只出「提交审批 / 作废」两个按钮 —— 盘点没有「直接过账」
+ok 342 - 草稿态只出「提交审批 / 作废」两个按钮 —— 盘点没有「直接过账」
+# Subtest: 待过账态出「过账 / 撤回 / 作废」三个按钮
+ok 343 - 待过账态出「过账 / 撤回 / 作废」三个按钮
+# Subtest: 已过账态只剩作废（且必须写原因）
+ok 344 - 已过账态只剩作废（且必须写原因）
+# Subtest: 未知目标状态一律丢弃（不让页面渲出点不了 / 看不懂的按钮）
+ok 345 - 未知目标状态一律丢弃（不让页面渲出点不了 / 看不懂的按钮）
+# Subtest: 只有草稿能改 / 能删
+ok 346 - 只有草稿能改 / 能删
+# Subtest: 作废原因必填；已过账的报文要点名红字凭证
+ok 347 - 作废原因必填；已过账的报文要点名红字凭证
+# Subtest: 66033 才算「没配已发布审批流程」
+ok 348 - 66033 才算「没配已发布审批流程」
+# Subtest: 跳过审批理由 ≥ 10 字，请求体带 skip_approval + skip_reason
+ok 349 - 跳过审批理由 ≥ 10 字，请求体带 skip_approval + skip_reason
+# Subtest: 筛选 → 查询参数（空串一律不发）
+ok 350 - 筛选 → 查询参数（空串一律不发）
+# Subtest: 差异方向与符号：正数盘盈带 +，负数盘亏带 -，0 无符号
+ok 351 - 差异方向与符号：正数盘盈带 +，负数盘亏带 -，0 无符号
+# Subtest: 状态历史只为真实发生过的里程碑打点
+ok 352 - 状态历史只为真实发生过的里程碑打点
+# Subtest: 错误文案原样带上后端报文与错误码
+ok 353 - 错误文案原样带上后端报文与错误码
+# Subtest: aggregateDiff：按明细 diff_qty 汇总盘盈 / 盘亏数量
+ok 354 - aggregateDiff：按明细 diff_qty 汇总盘盈 / 盘亏数量
+# Subtest: gainLossDisplay：草稿按明细汇总（标 fromBackend=false），已过账用后端合计
+ok 355 - gainLossDisplay：草稿按明细汇总（标 fromBackend=false），已过账用后端合计
+# Subtest: V0211 的菜单 path 已在 router/index.ts 注册（n08 的前端侧镜像）
+ok 356 - V0211 的菜单 path 已在 router/index.ts 注册（n08 的前端侧镜像）
+# Subtest: 菜单 component 指向的视图文件真的存在
+ok 357 - 菜单 component 指向的视图文件真的存在
+# Subtest: 详情「差异凭证 / 红冲凭证」必须显示凭证号（PZ-… / PZR-…），不许拿 UUID 截断顶替
+ok 358 - 详情「差异凭证 / 红冲凭证」必须显示凭证号（PZ-… / PZR-…），不许拿 UUID 截断顶替
+# Subtest: 详情契约：单头扁平 + items + next_statuses
+ok 359 - 详情契约：单头扁平 + items + next_statuses
+# Subtest: ① 状态映射：6 种状态 → 中文 + 配色（紫没有语义槽 → primary/dark 顶替）
+ok 360 - ① 状态映射：6 种状态 → 中文 + 配色（紫没有语义槽 → primary/dark 顶替）
+# Subtest: ② 可流转判断：每种状态的按钮显隐（照卡面 §四·③）
+ok 361 - ② 可流转判断：每种状态的按钮显隐（照卡面 §四·③）
+# Subtest: ③ 建单校验：同仓报错 / 数量 ≤ 0 报错 / 序列号个数 ≠ 数量报错
+ok 362 - ③ 建单校验：同仓报错 / 数量 ≤ 0 报错 / 序列号个数 ≠ 数量报错
+# Subtest: ④ 查询参数空串不发 / 请求体省略空值 / 明细序列号只在非空时发
+ok 363 - ④ 查询参数空串不发 / 请求体省略空值 / 明细序列号只在非空时发
+# Subtest: ⑤ 审批进度：提交 → 审批人同意 → 完成（时间线三段拼接）
+ok 364 - ⑤ 审批进度：提交 → 审批人同意 → 完成（时间线三段拼接）
+# Subtest: ⑥ 超期在途：开关 → 请求参数 / 矛盾组合永不产生 / 红标与角标文案
+ok 365 - ⑥ 超期在途：开关 → 请求参数 / 矛盾组合永不产生 / 红标与角标文案
+# Subtest: ① 3 层树展平：长度 = 节点总数，parent_id 仍指向上级真实节点
+ok 366 - ① 3 层树展平：长度 = 节点总数，parent_id 仍指向上级真实节点
+# Subtest: ② 节点 key 生成：空 code 不产出 undefined，重复 code 也不撞 key
+ok 367 - ② 节点 key 生成：空 code 不产出 undefined，重复 code 也不撞 key
+# Subtest: ③ is_leaf 判定：有 children 的为 false，无 children 的为 true
+ok 368 - ③ is_leaf 判定：有 children 的为 false，无 children 的为 true
+# Subtest: ④ 点节点后 selectedWarehouseId 正确更新（含取消选中）
+ok 369 - ④ 点节点后 selectedWarehouseId 正确更新（含取消选中）
+# Subtest: 年结催办权限码与后端 V0208 逐字一致
+ok 370 - 年结催办权限码与后端 V0208 逐字一致
+# Subtest: 原有三个年结权限码没被改动（前缀是 yearend，不是 year-end）
+ok 371 - 原有三个年结权限码没被改动（前缀是 yearend，不是 year-end）
+# Subtest: 只有带明细的阻塞项上表格（其余三类不硬造空表）
+ok 372 - 只有带明细的阻塞项上表格（其余三类不硬造空表）
+# Subtest: 明细总条数按所有阻塞项累加（每类上限 50 由后端保证）
+ok 373 - 明细总条数按所有阻塞项累加（每类上限 50 由后端保证）
+# Subtest: 五项校验之外的附加闸仍单独归类（已结转 / 下年期初被占用）
+ok 374 - 五项校验之外的附加闸仍单独归类（已结转 / 下年期初被占用）
+# Subtest: 摘要数「几项通过」而不是「几项失败」
+ok 375 - 摘要数「几项通过」而不是「几项失败」
+# Subtest: 五项校验的固定顺序与后端 BLOCKER_* 常量一致
+ok 376 - 五项校验的固定顺序与后端 BLOCKER_* 常量一致
+# Subtest: shared/blocker-logic 的口径与结账页一致（抽取不许改行为）
+ok 377 - shared/blocker-logic 的口径与结账页一致（抽取不许改行为）
+# Subtest: 调拨页消费 transfer_no 深链（后端 route_of 的口径）
+ok 378 - 调拨页消费 transfer_no 深链（后端 route_of 的口径）
+# Subtest: 年结页 ?year= 深链（2000–2998 之外一律忽略，退回最新年度）
+ok 379 - 年结页 ?year= 深链（2000–2998 之外一律忽略，退回最新年度）
+# Subtest: 权限码与后端逐字一致（三个分开的码，不是复用期间码）
+ok 380 - 权限码与后端逐字一致（三个分开的码，不是复用期间码）
+# Subtest: 金额：字符串 / 数字都能算（后端 Decimal 经 JSON 回来是字符串或数字）
+ok 381 - 金额：字符串 / 数字都能算（后端 Decimal 经 JSON 回来是字符串或数字）
+# Subtest: 状态：未结转 / 已结转 的中文与 theme
+ok 382 - 状态：未结转 / 已结转 的中文与 theme
+# Subtest: 五项前置校验固定渲染五行，通过的也渲染 ✅
+ok 383 - 五项前置校验固定渲染五行，通过的也渲染 ✅
+# Subtest: 未结账时：❌ 行点名月份（后端给 periods + message）
+ok 384 - 未结账时：❌ 行点名月份（后端给 periods + message）
+# Subtest: 试算不平：detail 里必须带差额
+ok 385 - 试算不平：detail 里必须带差额
+# Subtest: 年结按钮：can_close + 有 close 权限 + 未结转 三条同时满足
+ok 386 - 年结按钮：can_close + 有 close 权限 + 未结转 三条同时满足
+# Subtest: 年结按钮禁用时必须说清原因（不是静默置灰）
+ok 387 - 年结按钮禁用时必须说清原因（不是静默置灰）
+# Subtest: 反年结按钮：已结转 + 有 reopen 权限
+ok 388 - 反年结按钮：已结转 + 有 reopen 权限
+# Subtest: 反年结原因：必填 + ≥ 10 字（与后端同判据）
+ok 389 - 反年结原因：必填 + ≥ 10 字（与后端同判据）
+# Subtest: 前置之外的附加阻塞项单独列出（下年期初被占用 / 已结转）
+ok 390 - 前置之外的附加阻塞项单独列出（下年期初被占用 / 已结转）
+# Subtest: 结转凭证摘要：空年度跳过凭证时不能说成「失败」
+ok 391 - 结转凭证摘要：空年度跳过凭证时不能说成「失败」
+# Subtest: 下年期初摘要：生成行数 / 未生成 两种口径
+ok 392 - 下年期初摘要：生成行数 / 未生成 两种口径
+# Subtest: 年结成功文案：带凭证号 / 空年度 两种情况
+ok 393 - 年结成功文案：带凭证号 / 空年度 两种情况
+# Subtest: parseMoney：后端字符串 → 四位定点 bigint，不经过 Number
+ok 394 - parseMoney：后端字符串 → 四位定点 bigint，不经过 Number
+# Subtest: 加减比较：0.1 + 0.2 精确等于 0.3
+ok 395 - 加减比较：0.1 + 0.2 精确等于 0.3
+# Subtest: isZeroMoney / formatMoney：-0.0001 展示不出现 -0.00
+ok 396 - isZeroMoney / formatMoney：-0.0001 展示不出现 -0.00
+# Subtest: formatRate：0.0500 → 5.00%
+ok 397 - formatRate：0.0500 → 5.00%
+# Subtest: previewDepreciation：100000 / 残值 5% / 36 个月 = 2638.8889，起提次月 1 日
+ok 398 - previewDepreciation：100000 / 残值 5% / 36 个月 = 2638.8889，起提次月 1 日
+# Subtest: previewDepreciation：短年限尾差补齐 / 入参不全返回 null
+ok 399 - previewDepreciation：短年限尾差补齐 / 入参不全返回 null
+# Subtest: periodAmountOf：第 1 月 = 月折旧，最后 1 月补尾差，提足后为 0
+ok 400 - periodAmountOf：第 1 月 = 月折旧，最后 1 月补尾差，提足后为 0
+# Subtest: periodAmountOf：处置当月仍提整月，处置次月起为 0；闲置照提
+ok 401 - periodAmountOf：处置当月仍提整月，处置次月起为 0；闲置照提
+# Subtest: summarizeDepreciation：已提 = POSTED 批次合计，差异给方向
+ok 402 - summarizeDepreciation：已提 = POSTED 批次合计，差异给方向
+# Subtest: diffDisplay / runResultText / K4 自检
+ok 403 - diffDisplay / runResultText / K4 自检
+# Subtest: 期间工具：上一会计月 / 期初期末 / 月差 / 下拉
+ok 404 - 期间工具：上一会计月 / 期初期末 / 月差 / 下拉
+# Subtest: validateAssetForm：必填与税额口径（镜像后端 400）
+ok 405 - validateAssetForm：必填与税额口径（镜像后端 400）
+# Subtest: applyStockInSource：金额预填 + 锁定，税额清零，购物口径 FROM_STOCK
+ok 406 - applyStockInSource：金额预填 + 锁定，税额清零，购物口径 FROM_STOCK
+# Subtest: toCreatePayload：金额补足四位、空串字段不发
+ok 407 - toCreatePayload：金额补足四位、空串字段不发
+# Subtest: validateDisposeForm：SALE 必须有售价，SCRAP/LOSS 不许有金额
+ok 408 - validateDisposeForm：SALE 必须有售价，SCRAP/LOSS 不许有金额
+# Subtest: disposeSummaryOf：净值 / 已提月数 / 剩余可提 全部取接口值
+ok 409 - disposeSummaryOf：净值 / 已提月数 / 剩余可提 全部取接口值
+# Subtest: 动作可见性：处置卡只读，在跑审批不再允许提交，已处置可作废
+ok 410 - 动作可见性：处置卡只读，在跑审批不再允许提交，已处置可作废
+# Subtest: 状态与变动文案：后端没给 label 时按词表兜底，未知值原样显示
+ok 411 - 状态与变动文案：后端没给 label 时按词表兜底，未知值原样显示
+# Subtest: errorText：66038/66039/66040/65019 补「怎么办」，普通错误带错误码
+ok 412 - errorText：66038/66039/66040/65019 补「怎么办」，普通错误带错误码
+# Subtest: 原因校验：普通原因非空，红冲原因 ≥ 2 字
+ok 413 - 原因校验：普通原因非空，红冲原因 ≥ 2 字
+# Subtest: validateCategoryForm：编码 / 月数 / 残值率 / 科目必填
+ok 414 - validateCategoryForm：编码 / 月数 / 残值率 / 科目必填
+# Subtest: 分类逻辑：科目只列末级、回填表单、方法译名
+ok 415 - 分类逻辑：科目只列末级、回填表单、方法译名
+# Subtest: 迁移里的三个菜单 component 都真实存在视图文件
+ok 416 - 迁移里的三个菜单 component 都真实存在视图文件
+# Subtest: router/index.ts 注册了三条固定资产路由（路径按菜单，不改路由）
+ok 417 - router/index.ts 注册了三条固定资产路由（路径按菜单，不改路由）
+# Subtest: splitPreview：6600 含税 / 6% → 不含税 6,226.42 + 税额 373.58（差额法，只舍入一次）
+ok 418 - splitPreview：6600 含税 / 6% → 不含税 6,226.42 + 税额 373.58（差额法，只舍入一次）
+# Subtest: splitPreview：不可抵扣（招待费）→ 税额恒 0、不含税 = 含税
+ok 419 - splitPreview：不可抵扣（招待费）→ 税额恒 0、不含税 = 含税
+# Subtest: splitPreview：税率 0 / 空值 / 非法值 → 税额 0（不抛异常）
+ok 420 - splitPreview：税率 0 / 空值 / 非法值 → 税额 0（不抛异常）
+# Subtest: splitPreview：税额取差额而不是 round(含税×税率)，避免多出一分
+ok 421 - splitPreview：税额取差额而不是 round(含税×税率)，避免多出一分
+# Subtest: sumSplits：逐行先拆再累加（不是先累加再拆）
+ok 422 - sumSplits：逐行先拆再累加（不是先累加再拆）
+# Subtest: typeDeductible：找不到类型时按可抵扣处理（最终以后端裁决为准）
+ok 423 - typeDeductible：找不到类型时按可抵扣处理（最终以后端裁决为准）
+# Subtest: previewItem：选业务招待费 → 行税额 0，且提示文案是 §4.10 原文
+ok 424 - previewItem：选业务招待费 → 行税额 0，且提示文案是 §4.10 原文
+# Subtest: previewTotals：两种类型混排仍按各自可抵扣性拆
+ok 425 - previewTotals：两种类型混排仍按各自可抵扣性拆
+# Subtest: rateText：0.0600 → 6%，0.13 → 13%，脏值原样返回
+ok 426 - rateText：0.0600 → 6%，0.13 → 13%，脏值原样返回
+# Subtest: 状态配色：DRAFT 默认 / SUBMITTED 警告 / APPROVED 主色 / PAID 成功 / CANCELLED 危险
+ok 427 - 状态配色：DRAFT 默认 / SUBMITTED 警告 / APPROVED 主色 / PAID 成功 / CANCELLED 危险
+# Subtest: statusText / payStatusText：优先后端下发的 label（前端不维护第二份译名）
+ok 428 - statusText / payStatusText：优先后端下发的 label（前端不维护第二份译名）
+# Subtest: 动作可用性：只有草稿能改 / 删 / 提交，只有审批中能撤回
+ok 429 - 动作可用性：只有草稿能改 / 删 / 提交，只有审批中能撤回
+# Subtest: 作废可用性：PAID / 已作废不许作废；已付过一分钱也不许（要先红冲付款）
+ok 430 - 作废可用性：PAID / 已作废不许作废；已付过一分钱也不许（要先红冲付款）
+# Subtest: 付款可用性：只有 APPROVED 且还有未付余额可付（部分付款后仍可付）
+ok 431 - 付款可用性：只有 APPROVED 且还有未付余额可付（部分付款后仍可付）
+# Subtest: cancelReasonError：空 / 少于 10 字报错，10 字通过
+ok 432 - cancelReasonError：空 / 少于 10 字报错，10 字通过
+# Subtest: validateExpenseForm：事由必填、明细至少一行
+ok 433 - validateExpenseForm：事由必填、明细至少一行
+# Subtest: validateExpenseForm：行级错误定位到 items.<index>.<field>
+ok 434 - validateExpenseForm：行级错误定位到 items.<index>.<field>
+# Subtest: validateExpenseForm：need_invoice_no 与 amount_limit 是行级业务校验
+ok 435 - validateExpenseForm：need_invoice_no 与 amount_limit 是行级业务校验
+# Subtest: validateExpenseForm：税率超出 0~1 报错（6% 要填 0.06 不是 6）
+ok 436 - validateExpenseForm：税率超出 0~1 报错（6% 要填 0.06 不是 6）
+# Subtest: toReportPayload：只提交含税，空串字段不发（空 reporter_id 会被后端当 UUID 解析 400）
+ok 437 - toReportPayload：只提交含税，空串字段不发（空 reporter_id 会被后端当 UUID 解析 400）
+# Subtest: formFromDetail：编辑草稿时把后端拆好的含税金额填回去
+ok 438 - formFromDetail：编辑草稿时把后端拆好的含税金额填回去
+# Subtest: emptyPayForm：金额预填**未付余额**（不是报销总额）
+ok 439 - emptyPayForm：金额预填**未付余额**（不是报销总额）
+# Subtest: validatePayForm：金额 > 0 且 ≤ 未付，付款日期必填
+ok 440 - validatePayForm：金额 > 0 且 ≤ 未付，付款日期必填
+# Subtest: toPayPayload：空账户 / 空备注不发
+ok 441 - toPayPayload：空账户 / 空备注不发
+# Subtest: validateTypeForm：编码大写字母开头、科目必填、上限非负
+ok 442 - validateTypeForm：编码大写字母开头、科目必填、上限非负
+# Subtest: toTypePayload：编码大写化、0 上限原样提交、备注空串不发
+ok 443 - toTypePayload：编码大写化、0 上限原样提交、备注空串不发
+# Subtest: budgetUsageRows：四要素齐全（部门 / 科目 / 占多少 / 占哪个月）
+ok 444 - budgetUsageRows：四要素齐全（部门 / 科目 / 占多少 / 占哪个月）
+# Subtest: 预算占用 / 付款 / 发票 / 方式的中文映射（未知值原样暴露脏数据）
+ok 445 - 预算占用 / 付款 / 发票 / 方式的中文映射（未知值原样暴露脏数据）
+# Subtest: 三页菜单 path / component 与迁移 V0242 逐字一致
+ok 446 - 三页菜单 path / component 与迁移 V0242 逐字一致
+# Subtest: router 手工注册了三条路由（漏一条 = 菜单可见但点进去 404）
+ok 447 - router 手工注册了三条路由（漏一条 = 菜单可见但点进去 404）
+# Subtest: API 层路径全部写全 /api（漏了会命中 SPA fallback 返回 HTML）
+ok 448 - API 层路径全部写全 /api（漏了会命中 SPA fallback 返回 HTML）
+# Subtest: 权限码只取 V0242 种的 12 个（白名单外一个都不加）
+ok 449 - 权限码只取 V0242 种的 12 个（白名单外一个都不加）
+# Subtest: 「我的报销」默认只查自己 + 招待费税额置灰（源码契约）
+ok 450 - 「我的报销」默认只查自己 + 招待费税额置灰（源码契约）
+# Subtest: 详情抽屉四块必备信息都在（审批轨迹 / 凭证号 / 付款记录 / 预算占用）
+ok 451 - 详情抽屉四块必备信息都在（审批轨迹 / 凭证号 / 付款记录 / 预算占用）
+# Subtest: ① 单链 A→B→C（TB）：x 相同、y 逐层递增
+ok 452 - ① 单链 A→B→C（TB）：x 相同、y 逐层递增
+# Subtest: ② 分支 A→B / A→C：B、C 同层（y 相同）、x 不同
+ok 453 - ② 分支 A→B / A→C：B、C 同层（y 相同）、x 不同
+# Subtest: ③ 菱形 A→B→D、A→C→D：B/C 同层，D 在最后一层
+ok 454 - ③ 菱形 A→B→D、A→C→D：B/C 同层，D 在最后一层
+# Subtest: ④ 孤立节点（无连线）：结果里有它，且不与任何节点重叠
+ok 455 - ④ 孤立节点（无连线）：结果里有它，且不与任何节点重叠
+# Subtest: ⑤ 空输入 → 返回空 Map，不崩
+ok 456 - ⑤ 空输入 → 返回空 Map，不崩
+# Subtest: ⑥ 自环边 A→A：不崩，A 仍有坐标（自环不参与层次划分）
+ok 457 - ⑥ 自环边 A→A：不崩，A 仍有坐标（自环不参与层次划分）
+# Subtest: ⑦ 成环 A→B→C→A：dagre 能处理，三个节点都有整数坐标
+ok 458 - ⑦ 成环 A→B→C→A：dagre 能处理，三个节点都有整数坐标
+# Subtest: ⑧ 节点尺寸差异大（120×52 / 220×76）：不重叠
+ok 459 - ⑧ 节点尺寸差异大（120×52 / 220×76）：不重叠
+# Subtest: ⑨ LR 方向：x 逐层递增、同层 y 相同
+ok 460 - ⑨ LR 方向：x 逐层递增、同层 y 相同
+# Subtest: ⑩ 结果坐标都是整数（Math.round 生效，落库 / 网格吸附都不会带小数）
+ok 461 - ⑩ 结果坐标都是整数（Math.round 生效，落库 / 网格吸附都不会带小数）
+# Subtest: ⑪ A→B 两条边（条件分支同向）：不崩，仍只有两个层次
+ok 462 - ⑪ A→B 两条边（条件分支同向）：不崩，仍只有两个层次
+# Subtest: ⑫ 边指向不存在的节点：忽略该边，不为幽灵节点造坐标
+ok 463 - ⑫ 边指向不存在的节点：忽略该边，不为幽灵节点造坐标
+# Subtest: 后端 FlowBizType 的落库字面量 = 前端 FLOW_BIZ_TYPES（逐字、同序，15 个）
+ok 464 - 后端 FlowBizType 的落库字面量 = 前端 FLOW_BIZ_TYPES（逐字、同序，15 个）
+# Subtest: 映射表的 key 只能取真实枚举字面量（不许自己编类型名）
+ok 465 - 映射表的 key 只能取真实枚举字面量（不许自己编类型名）
+# Subtest: 登记的恰好是「有详情页」的 10 种；盘点/费用/其他故意不登记
+ok 466 - 登记的恰好是「有详情页」的 10 种；盘点/费用/其他故意不登记
+# Subtest: 每条目标的路由 path 都在 router/index.ts 里真的注册过
+ok 467 - 每条目标的路由 path 都在 router/index.ts 里真的注册过
+# Subtest: 深链键取的是各详情页自己读的那个 query 参数（不发明新参数）
+ok 468 - 深链键取的是各详情页自己读的那个 query 参数（不发明新参数）
+# Subtest: 探测接口路径 = 后端 \#[nik::get(...)] 注解（逐字，含 /api 前缀）
+ok 469 - 探测接口路径 = 后端 \#[nik::get(...)] 注解（逐字，含 /api 前缀）
+# Subtest: 深链：任务/合同/采购/入库用 id，应付/凭证/调拨用单号，边配置定位实体
+ok 470 - 深链：任务/合同/采购/入库用 id，应付/凭证/调拨用单号，边配置定位实体
+# Subtest: 只认单号的页面：没记单号 ⇒ 不构造深链（按钮置灰提示，不跳空列表）
+ok 471 - 只认单号的页面：没记单号 ⇒ 不构造深链（按钮置灰提示，不跳空列表）
+# Subtest: edgeEntityOf：只认已知业务对象的第一段，别把半截字符串塞进 URL
+ok 472 - edgeEntityOf：只认已知业务对象的第一段，别把半截字符串塞进 URL
+# Subtest: 探测失败分三支：403 归「没权限」，404/不存在业务码归「已清场」，其余归「说不清」
+ok 473 - 探测失败分三支：403 归「没权限」，404/不存在业务码归「已清场」，其余归「说不清」
+# Subtest: 置灰文案逐字抄卡面，且不出现技术术语
+ok 474 - 置灰文案逐字抄卡面，且不出现技术术语
+# Subtest: ⓪ 解析正交 `d`：M/L 一律按绝对坐标取点，支持小数与负数
+ok 475 - ⓪ 解析正交 `d`：M/L 一律按绝对坐标取点，支持小数与负数
+# Subtest: ① 两点直线 → path 里没有 Q（直线不切圆角）
+ok 476 - ① 两点直线 → path 里没有 Q（直线不切圆角）
+# Subtest: ①-b 三点共线（折线但同向）→ 也不切圆角
+ok 477 - ①-b 三点共线（折线但同向）→ 也不切圆角
+# Subtest: ② 一个直角拐点 → 恰好 1 个 Q，半径 ≤ 8
+ok 478 - ② 一个直角拐点 → 恰好 1 个 Q，半径 ≤ 8
+# Subtest: ③ 两个拐点（Z 形）→ 2 个 Q
+ok 479 - ③ 两个拐点（Z 形）→ 2 个 Q
+# Subtest: ④ 段长 < 16px：半径自动减半，绝不超出段长
+ok 480 - ④ 段长 < 16px：半径自动减半，绝不超出段长
+# Subtest: ⑤ 起终点相同 / 单点 → 不产生非法 path
+ok 481 - ⑤ 起终点相同 / 单点 → 不产生非法 path
+# Subtest: ⑥ 真实折线（右向 / 回流绕行）都能圆化，且点数与线段数不变
+ok 482 - ⑥ 真实折线（右向 / 回流绕行）都能圆化，且点数与线段数不变
+# Subtest: ⑦ 边标签宽度：中文按整字宽、ASCII 按 0.55 字宽，且向上取整
+ok 483 - ⑦ 边标签宽度：中文按整字宽、ASCII 按 0.55 字宽，且向上取整
+# Subtest: ① `.flow-edge__hit` 必须 `fill: none`（P15 黑块根因）
+ok 484 - ① `.flow-edge__hit` 必须 `fill: none`（P15 黑块根因）
+# Subtest: ①-b 命中层的 `<path>` 也必须带 `fill="none"` 属性（样式若被 scoped 改名仍有兜底）
+ok 485 - ①-b 命中层的 `<path>` 也必须带 `fill="none"` 属性（样式若被 scoped 改名仍有兜底）
+# Subtest: ①-c 命中层仍是「只吃描边」的热区：pointer-events: stroke + 14px 描边（点击热区不能坏）
+ok 486 - ①-c 命中层仍是「只吃描边」的热区：pointer-events: stroke + 14px 描边（点击热区不能坏）
+# Subtest: ② `.flow-edge__line` 必须 `fill: none`（CSS + 模板属性双写）
+ok 487 - ② `.flow-edge__line` 必须 `fill: none`（CSS + 模板属性双写）
+# Subtest: ③ 箭头 marker 里的 path 是实心三角（`d` 以 z 闭合），必须由 `.flow-canvas__arrow` 给 fill
+ok 488 - ③ 箭头 marker 里的 path 是实心三角（`d` 以 z 闭合），必须由 `.flow-canvas__arrow` 给 fill
+# Subtest: ④ 网格用 pattern（circle + rect），没有任何裸 `<path>` 网格线
+ok 489 - ④ 网格用 pattern（circle + rect），没有任何裸 `<path>` 网格线
+# Subtest: ⑤ 每个 `<path>` 都要么带 fill 属性，要么属于「实心图形」白名单（新增 path 会被这条拦住）
+ok 490 - ⑤ 每个 `<path>` 都要么带 fill 属性，要么属于「实心图形」白名单（新增 path 会被这条拦住）
+# Subtest: ⑥ 拖拽中的虚线 path 也显式 fill="none"（同类问题，提前钉住）
+ok 491 - ⑥ 拖拽中的虚线 path 也显式 fill="none"（同类问题，提前钉住）
+# Subtest: ⑦ `.flow-node` 的 <g> 上不允许再出现 transform（Safari foreignObject 塌陷的根因）
+ok 492 - ⑦ `.flow-node` 的 <g> 上不允许再出现 transform（Safari foreignObject 塌陷的根因）
+# Subtest: ⑦-b foreignObject 用 node.x / node.y 定位（不再是 x="0" y="0"）
+ok 493 - ⑦-b foreignObject 用 node.x / node.y 定位（不再是 x="0" y="0"）
+# Subtest: ⑦-c 锚点 / 校验角标用绝对坐标（跟着 node.x / node.y 偏移，而不是靠 g 的 translate）
+ok 494 - ⑦-c 锚点 / 校验角标用绝对坐标（跟着 node.x / node.y 偏移，而不是靠 g 的 translate）
+# Subtest: ⑧ scene <g> 上不许有 transform，平移缩放必须挂在 svg 的 :style 上
+ok 495 - ⑧ scene <g> 上不许有 transform，平移缩放必须挂在 svg 的 :style 上
+# Subtest: ⑨ 卡片命中交给同位置的 SVG rect（否则 WebKit 下 HTML 卡片盖住锚点，拉不了线）
+ok 496 - ⑨ 卡片命中交给同位置的 SVG rect（否则 WebKit 下 HTML 卡片盖住锚点，拉不了线）
+# Subtest: ① 校验角标：issueKeys 命中 → has-issue（红虚线框 + 角标）；未命中不带
+ok 497 - ① 校验角标：issueKeys 命中 → has-issue（红虚线框 + 角标）；未命中不带
+# Subtest: ① 校验角标画在卡片**外面**（卡片 overflow:hidden，放里面会被裁成半圆）+ 带悬停原因
+ok 498 - ① 校验角标画在卡片**外面**（卡片 overflow:hidden，放里面会被裁成半圆）+ 带悬停原因
+# Subtest: ② 5 种状态：角标内容 / 文案 / 底色档位与老画布逐字一致
+ok 499 - ② 5 种状态：角标内容 / 文案 / 底色档位与老画布逐字一致
+# Subtest: ② 状态色 class + ACTIVE 脉冲动画都还在（脉冲是「当前走到哪」的关键视觉）
+ok 500 - ② 状态色 class + ACTIVE 脉冲动画都还在（脉冲是「当前走到哪」的关键视觉）
+# Subtest: ③ 只读态**仍然渲染** Handle（v-if 摘掉会让 Vue Flow 锚点退化成 bottom/top）
+ok 501 - ③ 只读态**仍然渲染** Handle（v-if 摘掉会让 Vue Flow 锚点退化成 bottom/top）
+# Subtest: ③ 节点上声明 sourcePosition/targetPosition 兜底（Handle 缺失也不会退化成上下）
+ok 502 - ③ 节点上声明 sourcePosition/targetPosition 兜底（Handle 缺失也不会退化成上下）
+# Subtest: ③ 锚点圆点用内嵌 SVG circle（r=5 / 描边 1.5），与老画布同一条几何
+ok 503 - ③ 锚点圆点用内嵌 SVG circle（r=5 / 描边 1.5），与老画布同一条几何
+# Subtest: ④ takenPairs 口径是 `${from}>${to}`（写错分隔符 → 进度图上整片不亮）
+ok 504 - ④ takenPairs 口径是 `${from}>${to}`（写错分隔符 → 进度图上整片不亮）
+# Subtest: ⑤ 选中态：class 由 props 驱动（不依赖 Vue Flow 内部 selection）
+ok 505 - ⑤ 选中态：class 由 props 驱动（不依赖 Vue Flow 内部 selection）
+# Subtest: ⑥ 只读态：不可拖 / 不可连 / Delete 无效（三个开关 + 键盘判断）
+ok 506 - ⑥ 只读态：不可拖 / 不可连 / Delete 无效（三个开关 + 键盘判断）
+# Subtest: ⑨ 键盘：Delete 删除、空格平移、Esc 取消（Esc 是本卡新增，老画布没有）
+ok 507 - ⑨ 键盘：Delete 删除、空格平移、Esc 取消（Esc 是本卡新增，老画布没有）
+# Subtest: ⑦ 左侧面板拖拽创建：调用方用 screenToCanvas 换算落点（两套画布同一入口）
+ok 508 - ⑦ 左侧面板拖拽创建：调用方用 screenToCanvas 换算落点（两套画布同一入口）
+# Subtest: ⑩ 底部提示：编辑态文案逐字一致；只读态改成只读说明（不再提示「拖出连线」）
+ok 509 - ⑩ 底部提示：编辑态文案逐字一致；只读态改成只读说明（不再提示「拖出连线」）
+# Subtest: ⑪ 副标题 11 种情况：会签 3 / 缺配置 2 / 类型说明 4 / 运行状态 2
+ok 510 - ⑪ 副标题 11 种情况：会签 3 / 缺配置 2 / 类型说明 4 / 运行状态 2
+# Subtest: ⑪ 副标题规则没有「两份实现漂移」：老画布里的每条文案在共用实现里都存在
+ok 511 - ⑪ 副标题规则没有「两份实现漂移」：老画布里的每条文案在共用实现里都存在
+# Subtest: ⑪ 图标 / 尺寸：9 种节点一个不落，尺寸口径与老画布同一份（NODE_META）
+ok 512 - ⑪ 图标 / 尺寸：9 种节点一个不落，尺寸口径与老画布同一份（NODE_META）
+# Subtest: ⑧ 条件标签：兜底分支显示「其他情况」、虚线；实线分支显示自身 label
+ok 513 - ⑧ 条件标签：兜底分支显示「其他情况」、虚线；实线分支显示自身 label
+# Subtest: ① props：新画布覆盖老画布全部字段（一个都不能少）
+ok 514 - ① props：新画布覆盖老画布全部字段（一个都不能少）
+# Subtest: ② props：新画布允许的额外字段只有 autoFit 兼容别名
+ok 515 - ② props：新画布允许的额外字段只有 autoFit 兼容别名
+# Subtest: ③ props：切换器声明了全部字段（否则调用方传参过不了 vue-tsc）
+ok 516 - ③ props：切换器声明了全部字段（否则调用方传参过不了 vue-tsc）
+# Subtest: ④ emits：两套画布事件名完全一致（10 个）
+ok 517 - ④ emits：两套画布事件名完全一致（10 个）
+# Subtest: ⑤ emits：切换器转发了全部事件（漏一个就是「点了没反应」）
+ok 518 - ⑤ emits：切换器转发了全部事件（漏一个就是「点了没反应」）
+# Subtest: ⑥ expose：新画布暴露的命令式 API 与老画布同名（7 个）
+ok 519 - ⑥ expose：新画布暴露的命令式 API 与老画布同名（7 个）
+# Subtest: ⑦ 节点卡片规格：11px 圆角 / 3.5px 色条 / 30×30 图标底块 两边都在
+ok 520 - ⑦ 节点卡片规格：11px 圆角 / 3.5px 色条 / 30×30 图标底块 两边都在
+# Subtest: ⑧ Handle 方向：target=Left + source=Right（不给 Handle 会兜底成 bottom→top）
+ok 521 - ⑧ Handle 方向：target=Left + source=Right（不给 Handle 会兜底成 bottom→top）
+# Subtest: ⑨ 连线几何仍复用 graph.ts / rounded-path.ts（不许另起一套坐标）
+ok 522 - ⑨ 连线几何仍复用 graph.ts / rounded-path.ts（不许另起一套坐标）
+# Subtest: ⑪ 切换器与老画布的 props 默认值一致（boolean 缺省会被 Vue 转成 false，必须显式对齐）
+ok 523 - ⑪ 切换器与老画布的 props 默认值一致（boolean 缺省会被 Vue 转成 false，必须显式对齐）
+# Subtest: ⑫ 老画布一行没改：仍是被切换器导入的回退实现
+ok 524 - ⑫ 老画布一行没改：仍是被切换器导入的回退实现
+# Subtest: ① 默认引擎是 vueflow（env / 参数都没给）
+ok 525 - ① 默认引擎是 vueflow（env / 参数都没给）
+# Subtest: ② env 生效：VITE_FLOW_CANVAS=vueflow
+ok 526 - ② env 生效：VITE_FLOW_CANVAS=vueflow
+# Subtest: ③ URL 参数优先于 env（运维灰度后，开发者仍能单页 A/B）
+ok 527 - ③ URL 参数优先于 env（运维灰度后，开发者仍能单页 A/B）
+# Subtest: ④ 非法值不生效（拼错参数不该把画布换掉）；回退到 native 一定有两条路
+ok 528 - ④ 非法值不生效（拼错参数不该把画布换掉）；回退到 native 一定有两条路
+# Subtest: ⑤ 参数解析：编码 / 别名 / 大小写
+ok 529 - ⑤ 参数解析：编码 / 别名 / 大小写
+# Subtest: ⑥ 九种节点都有图标 + 尺寸与 graph.ts 一致
+ok 530 - ⑥ 九种节点都有图标 + 尺寸与 graph.ts 一致
+# Subtest: ⑦ 副标题：九种类型逐条对齐老画布文案
+ok 531 - ⑦ 副标题：九种类型逐条对齐老画布文案
+# Subtest: ⑧ 运行状态叠加到副标题 + 状态点
+ok 532 - ⑧ 运行状态叠加到副标题 + 状态点
+# Subtest: ⑨ class 集合：选中 / 校验 / 紧凑 / 类型色 一个不落
+ok 533 - ⑨ class 集合：选中 / 校验 / 紧凑 / 类型色 一个不落
+# Subtest: ⑩ 主标题：name 为空时用类型中文名兜底
+ok 534 - ⑩ 主标题：name 为空时用类型中文名兜底
+# Subtest: ① 落点压在目标卡片内任意位置 → 返回目标节点（不要求靠近句柄）
+ok 535 - ① 落点压在目标卡片内任意位置 → 返回目标节点（不要求靠近句柄）
+# Subtest: ② 落点紧贴卡片左边缘外 5px（空白）→ 被入口锚点 40px 内吸附；右侧外沿则不吸附
+ok 536 - ② 落点紧贴卡片左边缘外 5px（空白）→ 被入口锚点 40px 内吸附；右侧外沿则不吸附
+# Subtest: ③ 落点回到起点卡片上 → 返回起点（交给页面提示「不能连到自己」）
+ok 537 - ③ 落点回到起点卡片上 → 返回起点（交给页面提示「不能连到自己」）
+# Subtest: ④ 起点与目标重叠时，优先返回「别的」节点（不能因为自环提示吞掉合法落点）
+ok 538 - ④ 起点与目标重叠时，优先返回「别的」节点（不能因为自环提示吞掉合法落点）
+# Subtest: ⑤ 落点在空白处、且离所有入口锚点都 > 40px → null（不乱连）
+ok 539 - ⑤ 落点在空白处、且离所有入口锚点都 > 40px → null（不乱连）
+# Subtest: ⑥ 落点在空白处、离入口锚点 40px 内 → 吸附最近节点（老画布的宽容度）
+ok 540 - ⑥ 落点在空白处、离入口锚点 40px 内 → 吸附最近节点（老画布的宽容度）
+# Subtest: ⑦ 没有起点（fromKey=null）：只走「压在别的卡片上」这一级，不做自环 / 吸附
+ok 541 - ⑦ 没有起点（fromKey=null）：只走「压在别的卡片上」这一级，不做自环 / 吸附
+# Subtest: ⑧ fromKey 不在节点表里（脏数据）：不抛错，仍能命中其它卡片
+ok 542 - ⑧ fromKey 不在节点表里（脏数据）：不抛错，仍能命中其它卡片
+# Subtest: ⑨ 卡片边界是闭区间（贴边走也算命中，避免差 1px 落空）
+ok 543 - ⑨ 卡片边界是闭区间（贴边走也算命中，避免差 1px 落空）
+# Subtest: ① 已知字段 → 中文标签（supplier_id / total_with_tax / price_mode）
+ok 544 - ① 已知字段 → 中文标签（supplier_id / total_with_tax / price_mode）
+# Subtest: ② 未知字段 → 降级显示原键名（不丢信息）
+ok 545 - ② 未知字段 → 降级显示原键名（不丢信息）
+# Subtest: ③ 嵌套字段（form.xxx）→ 展开成 form.amount 且标签取叶子键的中文
+ok 546 - ③ 嵌套字段（form.xxx）→ 展开成 form.amount 且标签取叶子键的中文
+# Subtest: ④ supplier_id 查到名称 → 「供应商：示例供应商（种子）」
+ok 547 - ④ supplier_id 查到名称 → 「供应商：示例供应商（种子）」
+# Subtest: ⑤ 查不到名称 → 显示 (ID: 前 8 位…)（不许空白、不许整条 uuid）
+ok 548 - ⑤ 查不到名称 → 显示 (ID: 前 8 位…)（不许空白、不许整条 uuid）
+# Subtest: ⑥ 空值（null / undefined / 空串）→ 「—」
+ok 549 - ⑥ 空值（null / undefined / 空串）→ 「—」
+# Subtest: ⑦ 金额：数字 226 与数字字符串 "226.0000" 都是 ¥226.00，且带千分位
+ok 550 - ⑦ 金额：数字 226 与数字字符串 "226.0000" 都是 ¥226.00，且带千分位
+# Subtest: ⑧ 枚举：EXCL → 不含税；SUBMITTED → 已提交；未知枚举原样
+ok 551 - ⑧ 枚举：EXCL → 不含税；SUBMITTED → 已提交；未知枚举原样
+# Subtest: ⑨ 日期 2026-10-31 → 原样（已可读，不重排、不加时区）
+ok 552 - ⑨ 日期 2026-10-31 → 原样（已可读，不重排、不加时区）
+# Subtest: ⑩ 数组明细 → 表格（3 行；列标题中文；单元格格式化；不是 JSON 字符串）
+ok 553 - ⑩ 数组明细 → 表格（3 行；列标题中文；单元格格式化；不是 JSON 字符串）
+# Subtest: ⑪ 数量 "100.0000" → 100（不能变 ¥100.00）；小数保留
+ok 554 - ⑪ 数量 "100.0000" → 100（不能变 ¥100.00）；小数保留
+# Subtest: ⑫ 布尔 → 是 / 否（发票已到这类开关字段）
+ok 555 - ⑫ 布尔 → 是 / 否（发票已到这类开关字段）
+# Subtest: ⑬ tax_rate 13 → "13"（比例类字段不许变成 ¥13.00）
+ok 556 - ⑬ tax_rate 13 → "13"（比例类字段不许变成 ¥13.00）
+# Subtest: ⑮ order_id 与 order_no 并存 → 只显示「采购单号」，不显示 (ID: …) 噪声
+ok 557 - ⑮ order_id 与 order_no 并存 → 只显示「采购单号」，不显示 (ID: …) 噪声
+# Subtest: ⑯ 字段按业务顺序排（单号 → 供应商 → 仓库 → 金额 → 数量 → 人），未知键排最后
+ok 558 - ⑯ 字段按业务顺序排（单号 → 供应商 → 仓库 → 金额 → 数量 → 人），未知键排最后
+# Subtest: ⑭ 待办卡片摘要：供应商 + 价税合计 + 数量合计（不带 order_id / create_by 噪声）
+ok 559 - ⑭ 待办卡片摘要：供应商 + 价税合计 + 数量合计（不带 order_id / create_by 噪声）
+# Subtest: 附加：空数组 → 「—」；字符串数组 → 「、」拼接；单行明细也成表
+ok 560 - 附加：空数组 → 「—」；字符串数组 → 「、」拼接；单行明细也成表
+# Subtest: ⑰ 新实例（form_data 有 *_name）：5 个名称键有中文标签，且 *_id 让位 —— 页面上不再有 (ID: …) 行
+ok 561 - ⑰ 新实例（form_data 有 *_name）：5 个名称键有中文标签，且 *_id 让位 —— 页面上不再有 (ID: …) 行
+# Subtest: ⑰b 调拨：调出 / 调入仓库只显示中文名（from_/to_warehouse_id 让位）
+ok 562 - ⑰b 调拨：调出 / 调入仓库只显示中文名（from_/to_warehouse_id 让位）
+# Subtest: ⑰c 制单人：译名拿不到 → 整行不显示（不留裸 ID）；拿到了 → 照常显示姓名
+ok 563 - ⑰c 制单人：译名拿不到 → 整行不显示（不留裸 ID）；拿到了 → 照常显示姓名
+# Subtest: ⑱ 名字为空 / 缺键 / 空串 → *_id 照常显示（不许把信息藏没）
+ok 564 - ⑱ 名字为空 / 缺键 / 空串 → *_id 照常显示（不许把信息藏没）
+# Subtest: ⑲ 待办卡片摘要：新实例显示中文名（不是 (ID: …)）；老实例口径不变
+ok 565 - ⑲ 待办卡片摘要：新实例显示中文名（不是 (ID: …)）；老实例口径不变
+# Subtest: ⑳ 快照明细（8 键）→ 表头全中文（含「单位」），数值仍是 100 / ¥80.00 / 13
+ok 566 - ⑳ 快照明细（8 键）→ 表头全中文（含「单位」），数值仍是 100 / ¥80.00 / 13
+# Subtest: ⑳b items 为空数组 → 不渲染表格（按「无明细」处理，不报错）
+ok 567 - ⑳b items 为空数组 → 不渲染表格（按「无明细」处理，不报错）
+# Subtest: ㉑ readItemSnapshot：老实例（无 items）→ legacy，空数组 / 自定义流程 → 不报 legacy
+ok 568 - ㉑ readItemSnapshot：老实例（无 items）→ legacy，空数组 / 自定义流程 → 不报 legacy
+# Subtest: 动作下拉：未接管动作置灰，文案带事务归属
+ok 569 - 动作下拉：未接管动作置灰，文案带事务归属
+# Subtest: 触发点 / 状态下拉：状态集来自后端下发，前端不自己维护
+ok 570 - 触发点 / 状态下拉：状态集来自后端下发，前端不自己维护
+# Subtest: 状态下拉文案：中文（编码），value 仍是编码（P1-FIX-12B）
+ok 571 - 状态下拉文案：中文（编码），value 仍是编码（P1-FIX-12B）
+# Subtest: 状态中文名查表：查不到回落编码（不显示空白）
+ok 572 - 状态中文名查表：查不到回落编码（不显示空白）
+# Subtest: 列表状态列：优先用后端行级中文名，缺字段回落编码
+ok 573 - 列表状态列：优先用后端行级中文名，缺字段回落编码
+# Subtest: 动作白名单说明：X 只数已实现动作，且明说不能自行新增（P1-FIX-12B）
+ok 574 - 动作白名单说明：X 只数已实现动作，且明说不能自行新增（P1-FIX-12B）
+# Subtest: 参数拼装：必填空值报错，可选空值不写进 payload
+ok 575 - 参数拼装：必填空值报错，可选空值不写进 payload
+# Subtest: 参数拼装：键集合只能来自动作声明（禁配 SQL 的结构性保证）
+ok 576 - 参数拼装：键集合只能来自动作声明（禁配 SQL 的结构性保证）
+# Subtest: 参数拼装：整数 / 区间 / 十进制 / 枚举 / UUID 列表
+ok 577 - 参数拼装：整数 / 区间 / 十进制 / 枚举 / UUID 列表
+# Subtest: 表单回填：布尔 → boolean，UUID 列表 → 逗号串，声明外的键忽略
+ok 578 - 表单回填：布尔 → boolean，UUID 列表 → 逗号串，声明外的键忽略
+# Subtest: 列表筛选：实体 / 只看启用 / 关键词（大小写不敏感）
+ok 579 - 列表筛选：实体 / 只看启用 / 关键词（大小写不敏感）
+# Subtest: 参数摘要 / 事务与等级文案 / 健康判定
+ok 580 - 参数摘要 / 事务与等级文案 / 健康判定
+# Subtest: 预览提醒：空执行链 / 回滚风险 / 全部提交后执行
+ok 581 - 预览提醒：空执行链 / 回滚风险 / 全部提交后执行
+# Subtest: 模板二选一：引用模式不带 inline，内联模式不带 template_code
+ok 582 - 模板二选一：引用模式不带 inline，内联模式不带 template_code
+# Subtest: 每个来源只带自己那个键
+ok 583 - 每个来源只带自己那个键
+# Subtest: 往返稳定：patch 之后再读回来是同一份状态
+ok 584 - 往返稳定：patch 之后再读回来是同一份状态
+# Subtest: 空的 targets 数组会退回一行默认来源（面板不能「一行都没有」）
+ok 585 - 空的 targets 数组会退回一行默认来源（面板不能「一行都没有」）
+# Subtest: 校验：条数 / 模板 / 必填三处的文案与后端一致
+ok 586 - 校验：条数 / 模板 / 必填三处的文案与后端一致
+# Subtest: 样例预览：已知变量替换、未知变量显示成〔path〕而不是空串
+ok 587 - 样例预览：已知变量替换、未知变量显示成〔path〕而不是空串
+# Subtest: 权限码与 edge_admin.rs / V0206 逐字一致
+ok 588 - 权限码与 edge_admin.rs / V0206 逐字一致
+# Subtest: mergeBaseEdges：没有配置行时原样用 BASE 边（configured=false / enabled=true）
+ok 589 - mergeBaseEdges：没有配置行时原样用 BASE 边（configured=false / enabled=true）
+# Subtest: mergeBaseEdges：有配置行 → configured=true，文案 / 权限码 / 启用取配置值
+ok 590 - mergeBaseEdges：有配置行 → configured=true，文案 / 权限码 / 启用取配置值
+# Subtest: mergeBaseEdges：requires_reason 只能加不能减（BASE true 时配置 false 也算 true）
+ok 591 - mergeBaseEdges：requires_reason 只能加不能减（BASE true 时配置 false 也算 true）
+# Subtest: mergeBaseEdges：配置行缺失但边不在 effective_edges 里 → 视为已禁用
+ok 592 - mergeBaseEdges：配置行缺失但边不在 effective_edges 里 → 视为已禁用
+# Subtest: edgeRowView：mandatory 边禁不掉、BASE 要求原因的边开关锁死
+ok 593 - edgeRowView：mandatory 边禁不掉、BASE 要求原因的边开关锁死
+# Subtest: changeFormOf：没有配置行时文案回填空串（不把 BASE 文案写死进库）
+ok 594 - changeFormOf：没有配置行时文案回填空串（不把 BASE 文案写死进库）
+# Subtest: buildChangeReq：confirm 恒为 true、空串归一成 null、理由 trim
+ok 595 - buildChangeReq：confirm 恒为 true、空串归一成 null、理由 trim
+# Subtest: buildChangeReq：BASE 要求原因的边，即使表单传 false 也必须提交 true
+ok 596 - buildChangeReq：BASE 要求原因的边，即使表单传 false 也必须提交 true
+# Subtest: changeReasonError：理由不能空、不能太短
+ok 597 - changeReasonError：理由不能空、不能太短
+# Subtest: changeSummary / changeResultText / pendingChangeText：文案分开「已送审」与「已生效」
+ok 598 - changeSummary / changeResultText / pendingChangeText：文案分开「已送审」与「已生效」
+# Subtest: 能力表覆盖 9 种节点，两种新节点各自的 config 分区正确
+ok 599 - 能力表覆盖 9 种节点，两种新节点各自的 config 分区正确
+# Subtest: capabilitiesOf 对未知类型兜底（不抛错），大小写不敏感
+ok 600 - capabilitiesOf 对未知类型兜底（不抛错），大小写不敏感
+# Subtest: graph.ts 的节点清单与能力表一致（含新增两种；needsAssignee 同口径）
+ok 601 - graph.ts 的节点清单与能力表一致（含新增两种；needsAssignee 同口径）
+# Subtest: TASK_NODE 的指派来源：非 TASK_ACCEPT 流程灰掉三个任务来源
+ok 602 - TASK_NODE 的指派来源：非 TASK_ACCEPT 流程灰掉三个任务来源
+# Subtest: TASK_NODE 的超时动作灰掉「自动通过 / 自动驳回」（活没干完不能算干完）
+ok 603 - TASK_NODE 的超时动作灰掉「自动通过 / 自动驳回」（活没干完不能算干完）
+# Subtest: 顺序①：先选 APPROVE → 再想勾验收（禁用）→ 仍是 APPROVE + 不验收
+ok 604 - 顺序①：先选 APPROVE → 再想勾验收（禁用）→ 仍是 APPROVE + 不验收
+# Subtest: 顺序②：先勾「需验收」→ 再选 APPROVE（灰掉）→ 落成 APPROVE + 不验收仍合法
+ok 605 - 顺序②：先勾「需验收」→ 再选 APPROVE（灰掉）→ 落成 APPROVE + 不验收仍合法
+# Subtest: 顺序③：选 VERIFY → 自动勾验收并锁定 → 想取消验收（禁用）→ 落成 DIRECT + 不验收
+ok 606 - 顺序③：选 VERIFY → 自动勾验收并锁定 → 想取消验收（禁用）→ 落成 DIRECT + 不验收
+# Subtest: 顺序④：DIRECT → 勾验收 → VERIFY → APPROVE → 回 DIRECT（每一步都合法）
+ok 607 - 顺序④：DIRECT → 勾验收 → VERIFY → APPROVE → 回 DIRECT（每一步都合法）
+# Subtest: 穷举：任意状态 × 任意一次操作，结果都过 R18 矩阵
+ok 608 - 穷举：任意状态 × 任意一次操作，结果都过 R18 矩阵
+# Subtest: checkMatrix 自身能判出两条违例（否则上面的穷举是空的）
+ok 609 - checkMatrix 自身能判出两条违例（否则上面的穷举是空的）
+# Subtest: APPROVE 不再是阶段闸：只剩 approve_biz_type 必填校验（P-FLOW-1B 收口）
+ok 610 - APPROVE 不再是阶段闸：只剩 approve_biz_type 必填校验（P-FLOW-1B 收口）
+# Subtest: 源码里不再有 1A 阶段闸的死码（删干净 = 验收 2/3）
+ok 611 - 源码里不再有 1A 阶段闸的死码（删干净 = 验收 2/3）
+# Subtest: taskConfigOf 对脏数据兜底（缺键 / 未知枚举 / 非对象都不抛错）
+ok 612 - taskConfigOf 对脏数据兜底（缺键 / 未知枚举 / 非对象都不抛错）
+# Subtest: taskConfigPatch：非 APPROVE 不带 approve_biz_type，空描述不落键（否则 65034）
+ok 613 - taskConfigPatch：非 APPROVE 不带 approve_biz_type，空描述不落键（否则 65034）
+# Subtest: taskConfigPatch：APPROVE 带 approve_biz_type；RELATIVE 期限只带 amount+unit
+ok 614 - taskConfigPatch：APPROVE 带 approve_biz_type；RELATIVE 期限只带 amount+unit
+# Subtest: dueIssue：三种模式的必备键与上限
+ok 615 - dueIssue：三种模式的必备键与上限
+# Subtest: 非流程任务：按钮组原样返回（普通任务行为一个字不变）
+ok 616 - 非流程任务：按钮组原样返回（普通任务行为一个字不变）
+# Subtest: 流程任务 DIRECT：只剩「完成」+ 取消（不再并列「提交验收」）
+ok 617 - 流程任务 DIRECT：只剩「完成」+ 取消（不再并列「提交验收」）
+# Subtest: 流程任务 VERIFY：只剩「提交验收」
+ok 618 - 流程任务 VERIFY：只剩「提交验收」
+# Subtest: 流程任务 APPROVE：主按钮是「完成」，副文案「完成后需审批」
+ok 619 - 流程任务 APPROVE：主按钮是「完成」，副文案「完成后需审批」
+# Subtest: 65034–65039 码值与 error_code.rs 一致
+ok 620 - 65034–65039 码值与 error_code.rs 一致
+# Subtest: 65038 的本地兜底文案指向「联系流程发起人」（不是「刷新重试」）
+ok 621 - 65038 的本地兜底文案指向「联系流程发起人」（不是「刷新重试」）
+# Subtest: taskNodeErrorText：后端原文优先，本地文案兜底（并标明来源）
+ok 622 - taskNodeErrorText：后端原文优先，本地文案兜底（并标明来源）
+# Subtest: exportFilterPayload：空筛选 → 一个键都不发（全选行为不变）
+ok 623 - exportFilterPayload：空筛选 → 一个键都不发（全选行为不变）
+# Subtest: exportFilterPayload：状态筛选 → status_code，且永远不带 status
+ok 624 - exportFilterPayload：状态筛选 → status_code，且永远不带 status
+# Subtest: exportFilterPayload：关键词与状态码同时带（顺序无关，值原样透传）
+ok 625 - exportFilterPayload：关键词与状态码同时带（顺序无关，值原样透传）
+# Subtest: exportFilterPayload：三张单据页的状态筛选码都能原样进 payload
+ok 626 - exportFilterPayload：三张单据页的状态筛选码都能原样进 payload
+# Subtest: 收货入库单页：批量导出 payload 透传列表状态筛选
+ok 627 - 收货入库单页：批量导出 payload 透传列表状态筛选
+# Subtest: 应付单页：批量导出 payload 透传列表状态筛选
+ok 628 - 应付单页：批量导出 payload 透传列表状态筛选
+# Subtest: 凭证页：批量导出 payload 透传列表状态筛选
+ok 629 - 凭证页：批量导出 payload 透传列表状态筛选
+# Subtest: api 类型：BatchExportPayload / createExport 都声明了 status_code 且保留 status
+ok 630 - api 类型：BatchExportPayload / createExport 都声明了 status_code 且保留 status
+# Subtest: 后端导出白名单：字段名与 status_code 契约逐字未变
+ok 631 - 后端导出白名单：字段名与 status_code 契约逐字未变
+# Subtest: 状态码漂移守卫：三页筛选项 = 后端导出白名单（集合相等）
+ok 632 - 状态码漂移守卫：三页筛选项 = 后端导出白名单（集合相等）
+# Subtest: 四类汇总：条数与合计正确，顺序与跳转路径固定
+ok 633 - 四类汇总：条数与合计正确，顺序与跳转路径固定
+# Subtest: collectUnread 并行取数：全部成功时逐类落到对应键
+ok 634 - collectUnread 并行取数：全部成功时逐类落到对应键
+# Subtest: collectUnread 单类失败按 0 计，不影响其它类别（无权限 403 不能让弹窗哑火）
+ok 635 - collectUnread 单类失败按 0 计，不影响其它类别（无权限 403 不能让弹窗哑火）
+# Subtest: collectUnread 缺 loader 的类别按 0 计（分阶段接接口时不会崩）
+ok 636 - collectUnread 缺 loader 的类别按 0 计（分阶段接接口时不会崩）
+# Subtest: 登录标记：未弹过 → 弹一次后标记 → 清标记后又能弹（退出登录再登录）
+ok 637 - 登录标记：未弹过 → 弹一次后标记 → 清标记后又能弹（退出登录再登录）
+# Subtest: 「有未读就弹 / 全空不弹」的判定口径：合计 > 0 才该弹
+ok 638 - 「有未读就弹 / 全空不弹」的判定口径：合计 > 0 才该弹
+# Subtest: 计数容错：负数 / 空串 / null / NaN 一律按 0（后端下发 null 时不能显示「NaN 条」）
+ok 639 - 计数容错：负数 / 空串 / null / NaN 一律按 0（后端下发 null 时不能显示「NaN 条」）
+# Subtest: 类别清单是四条且键名与后端取数一一对应
+ok 640 - 类别清单是四条且键名与后端取数一一对应
+# Subtest: useFormMemory ① 无记忆时 recall 返回空对象
+ok 641 - useFormMemory ① 无记忆时 recall 返回空对象
+# Subtest: useFormMemory ② remember 之后 recall 能原样拿到
+ok 642 - useFormMemory ② remember 之后 recall 能原样拿到
+# Subtest: useFormMemory ③ 只记指定字段，其他字段一律不落盘
+ok 643 - useFormMemory ③ 只记指定字段，其他字段一律不落盘
+# Subtest: useFormMemory ④ 空值不覆盖已有记忆（null / undefined / 空串跳过），但 0 与 false 算真实选择
+ok 644 - useFormMemory ④ 空值不覆盖已有记忆（null / undefined / 空串跳过），但 0 与 false 算真实选择
+# Subtest: useFormMemory ⑤ forget 之后没有任何记忆，且不留空壳 `{}`
+ok 645 - useFormMemory ⑤ forget 之后没有任何记忆，且不留空壳 `{}`
+# Subtest: useFormMemory ⑥ 全空值 remember 不落盘（避免「恢复了 0 项」的假提示）
+ok 646 - useFormMemory ⑥ 全空值 remember 不落盘（避免「恢复了 0 项」的假提示）
+# Subtest: useFormMemory ⑦ 提示条 labels：只报「记忆带出」的字段，源单已带出的不算
+ok 647 - useFormMemory ⑦ 提示条 labels：只报「记忆带出」的字段，源单已带出的不算
+# Subtest: useListMemory ① 完整存取：筛选 + 页码 + 每页条数 + Tab
+ok 648 - useListMemory ① 完整存取：筛选 + 页码 + 每页条数 + Tab
+# Subtest: useListMemory ② 损坏的 JSON → 返回空对象，不崩
+ok 649 - useListMemory ② 损坏的 JSON → 返回空对象，不崩
+# Subtest: useListMemory ③ forget 之后 recall 为空（关标签页语义）
+ok 650 - useListMemory ③ forget 之后 recall 为空（关标签页语义）
+# Subtest: 优先级 ① 源单带出的值覆盖上次记忆
+ok 651 - 优先级 ① 源单带出的值覆盖上次记忆
+# Subtest: 优先级 ② 没有源单时，记忆值覆盖系统默认
+ok 652 - 优先级 ② 没有源单时，记忆值覆盖系统默认
+# Subtest: 优先级 ③ 三层都没值时用系统默认
+ok 653 - 优先级 ③ 三层都没值时用系统默认
+# Subtest: 存储整体不可用（隐私模式 / 配额满）时 remember / recall 都不抛
+ok 654 - 存储整体不可用（隐私模式 / 配额满）时 remember / recall 都不抛
+# Subtest: run 在没有 localStorage 的宿主里：resolveStorage 退化成本次会话内的可用替身
+ok 655 - run 在没有 localStorage 的宿主里：resolveStorage 退化成本次会话内的可用替身
+# Subtest: memory-core 基础口径：isBlank / pickFields / mergeMemory
+ok 656 - memory-core 基础口径：isBlank / pickFields / mergeMemory
+# Subtest: latestItems 累积：后到的排在最前，条数逐条递增
+ok 657 - latestItems 累积：后到的排在最前，条数逐条递增
+# Subtest: latestItems 上限：第 6 条进来挤掉最旧的一条，恒不超过 5 条
+ok 658 - latestItems 上限：第 6 条进来挤掉最旧的一条，恒不超过 5 条
+# Subtest: 同一条消息（同 receiver_id）从不同通道重复送到时只入队一次
+ok 659 - 同一条消息（同 receiver_id）从不同通道重复送到时只入队一次
+# Subtest: 脏数据（缺 receiver_id / 缺 title / 非对象）不入队，也不抛错
+ok 660 - 脏数据（缺 receiver_id / 缺 title / 非对象）不入队，也不抛错
+# Subtest: 计时到期自动收起（8 秒的短时长等价用例）
+ok 661 - 计时到期自动收起（8 秒的短时长等价用例）
+# Subtest: 鼠标悬停暂停计时：暂停期间不收起，离开后按剩余时间继续
+ok 662 - 鼠标悬停暂停计时：暂停期间不收起，离开后按剩余时间继续
+# Subtest: 新消息到达时重新计满：两条消息间隔小于 8 秒也只收起一次
+ok 663 - 新消息到达时重新计满：两条消息间隔小于 8 秒也只收起一次
+# Subtest: cancel 之后不再触发收起（用户点 [×] 的情形）
+ok 664 - cancel 之后不再触发收起（用户点 [×] 的情形）
+# Subtest: 按 notice_type 区分图标、按 level 区分语义色、相对时间文案正确
+ok 665 - 按 notice_type 区分图标、按 level 区分语义色、相对时间文案正确
+# Subtest: appendPopupItem 不修改入参（store 里是 ref 数组，必须换新引用才触发渲染）
+ok 666 - appendPopupItem 不修改入参（store 里是 ref 数组，必须换新引用才触发渲染）
+# Subtest: SSE 帧解析：跨 chunk 的半截帧要拼接完整后才产出
+ok 667 - SSE 帧解析：跨 chunk 的半截帧要拼接完整后才产出
+# Subtest: SSE 心跳注释帧（`: keep-alive`）被忽略，不影响后续数据帧
+ok 668 - SSE 心跳注释帧（`: keep-alive`）被忽略，不影响后续数据帧
+# Subtest: filterArrivedSince 只留新到的：旧未读不因「拉最新 5 条」被误报成新消息
+ok 669 - filterArrivedSince 只留新到的：旧未读不因「拉最新 5 条」被误报成新消息
+# Subtest: filterArrivedSince 对脏 created_at 保留（宁可多显示一条，也不吞掉新消息）
+ok 670 - filterArrivedSince 对脏 created_at 保留（宁可多显示一条，也不吞掉新消息）
+# Subtest: 状态 → 允许的动作：草稿只有审核
+ok 671 - 状态 → 允许的动作：草稿只有审核
+# Subtest: 状态 → 允许的动作：已审核有反审核 + 记账（顺序即界面顺序）
+ok 672 - 状态 → 允许的动作：已审核有反审核 + 记账（顺序即界面顺序）
+# Subtest: 状态 → 允许的动作：已记账 / 已作废 / 未知状态一个都没有
+ok 673 - 状态 → 允许的动作：已记账 / 已作废 / 未知状态一个都没有
+# Subtest: 动作声明：权限码与后端 \#[alun::permission] 同名，且只有反审核要求原因
+ok 674 - 动作声明：权限码与后端 \#[alun::permission] 同名，且只有反审核要求原因
+# Subtest: 按钮清单：全权限 + 无自审 → 都可点且无置灰原因
+ok 675 - 按钮清单：全权限 + 无自审 → 都可点且无置灰原因
+# Subtest: 按钮清单：没权限 → 置灰并点名缺哪个权限码（不隐藏）
+ok 676 - 按钮清单：没权限 → 置灰并点名缺哪个权限码（不隐藏）
+# Subtest: 按钮清单：制单人自审 → 审核置灰（内控），反审核/记账不受影响
+ok 677 - 按钮清单：制单人自审 → 审核置灰（内控），反审核/记账不受影响
+# Subtest: 自审判定：两个 id 任一未知 → 不拦（宁可不拦，也不误拦）
+ok 678 - 自审判定：两个 id 任一未知 → 不拦（宁可不拦，也不误拦）
+# Subtest: 反审核原因必填：空白 / 只有空格 / null / undefined 全部拦下
+ok 679 - 反审核原因必填：空白 / 只有空格 / null / undefined 全部拦下
+# Subtest: 审核链说明文案：每个状态都说清「为什么没有按钮 / 下一步走哪」
+ok 680 - 审核链说明文案：每个状态都说清「为什么没有按钮 / 下一步走哪」
+# Subtest: 动作回执 / 确认文案：记账要写明「不可再反审核」
+ok 681 - 动作回执 / 确认文案：记账要写明「不可再反审核」
+# Subtest: 审批实例 id：红冲实例优先，其次审核实例，都没有 → null（进度块不渲染）
+ok 682 - 审批实例 id：红冲实例优先，其次审核实例，都没有 → null（进度块不渲染）
+# Subtest: 可用量 = 账面数量 − 锁定量（锁定量不能算成可调拨）
+ok 683 - 可用量 = 账面数量 − 锁定量（锁定量不能算成可调拨）
+# Subtest: 锁定量超过账面（脏数据）时可用量如实为负，默认带入数量仍是 0
+ok 684 - 锁定量超过账面（脏数据）时可用量如实为负，默认带入数量仍是 0
+# Subtest: from_location_id 口径：inventory_location_id 取库位库存行 id，location_id 单独保留
+ok 685 - from_location_id 口径：inventory_location_id 取库位库存行 id，location_id 单独保留
+# Subtest: 成本价取本仓该物料的汇总行均价，并标记 has_cost
+ok 686 - 成本价取本仓该物料的汇总行均价，并标记 has_cost
+# Subtest: 同物料多行库存里，零成本行不让位给有成本的行
+ok 687 - 同物料多行库存里，零成本行不让位给有成本的行
+# Subtest: 没有任何成本价时 has_cost=false（界面显示「无成本价」而不是 ¥0.0000 骗人）
+ok 688 - 没有任何成本价时 has_cost=false（界面显示「无成本价」而不是 ¥0.0000 骗人）
+# Subtest: 一物一码标记从物料主数据透传（物料不在主数据里时不报错，按非一物一码）
+ok 689 - 一物一码标记从物料主数据透传（物料不在主数据里时不报错，按非一物一码）
+# Subtest: 排序：可用量降序（有货的在最上面），同量按物料编码稳定
+ok 690 - 排序：可用量降序（有货的在最上面），同量按物料编码稳定
+# Subtest: 只带出「勾选了且数量 > 0」的行
+ok 691 - 只带出「勾选了且数量 > 0」的行
+# Subtest: 数量被夹在可用量以内（手工改大也不允许超发）
+ok 692 - 数量被夹在可用量以内（手工改大也不允许超发）
+# Subtest: 空表单（一行空行）带入 1 条：复用那行，不留空行
+ok 693 - 空表单（一行空行）带入 1 条：复用那行，不留空行
+# Subtest: 同物料 + 同库位 → 累加数量（不出现两行一样的物料）
+ok 694 - 同物料 + 同库位 → 累加数量（不出现两行一样的物料）
+# Subtest: 同物料不同库位 → 各占一行（库位是调出的真实来源，合并就丢了）
+ok 695 - 同物料不同库位 → 各占一行（库位是调出的真实来源，合并就丢了）
+# Subtest: 数量 <= 0 的选择被丢弃（不产生空明细行）
+ok 696 - 数量 <= 0 的选择被丢弃（不产生空明细行）
+# Subtest: 不改入参（返回新数组、新行对象）
+ok 697 - 不改入参（返回新数组、新行对象）
+# Subtest: ① 未评估（credit_exposure 为 null）= 显示「未评估」，不能显示成「额度内」
+ok 698 - ① 未评估（credit_exposure 为 null）= 显示「未评估」，不能显示成「额度内」
+# Subtest: ① 超限：红色标签 + tooltip 带累计与额度（后端 Decimal 出参是字符串，要格式化）
+ok 699 - ① 超限：红色标签 + tooltip 带累计与额度（后端 Decimal 出参是字符串，要格式化）
+# Subtest: ① 额度内：tooltip 给「累计 / 额度 / 剩余」三个数，且剩余 = 额度 − 累计
+ok 700 - ① 额度内：tooltip 给「累计 / 额度 / 剩余」三个数，且剩余 = 额度 − 累计
+# Subtest: ① 额度为 0（= 不限）：显示「额度不限」，不能显示「超 0」
+ok 701 - ① 额度为 0（= 不限）：显示「额度不限」，不能显示「超 0」
+# Subtest: ② 安全库存留空/0/负数/非数字 → 提交 0（= 不预警），绝不当成「阈值 0」
+ok 702 - ② 安全库存留空/0/负数/非数字 → 提交 0（= 不预警），绝不当成「阈值 0」
+# Subtest: ② 回填去掉 PG 的尾零（50.0000 → 50），用户不会以为自己填错
+ok 703 - ② 回填去掉 PG 的尾零（50.0000 → 50），用户不会以为自己填错
+# Subtest: ② 校验：留空合法；负数/非数字报错（与后端 require_non_negative 同口径）
+ok 704 - ② 校验：留空合法；负数/非数字报错（与后端 require_non_negative 同口径）
+# Subtest: ② 新建/编辑请求体都显式带 safety_stock（留空发 0，不靠后端缺省蒙对）
+ok 705 - ② 新建/编辑请求体都显式带 safety_stock（留空发 0，不靠后端缺省蒙对）
+# Subtest: ② 物料页有安全库存输入框 + 口径提示文案
+ok 706 - ② 物料页有安全库存输入框 + 口径提示文案
+# Subtest: ③ 库存页不再显示「锁定」列（locked_qty 恒 0，显示它等于骗人）
+ok 707 - ③ 库存页不再显示「锁定」列（locked_qty 恒 0，显示它等于骗人）
+# Subtest: ③ 采购单页显示超信用额度标签 + 详情信用结论
+ok 708 - ③ 采购单页显示超信用额度标签 + 详情信用结论
+# Subtest: map 命中 → 显示主档**现值**（改名后列表跟着变，快照不参与显示）
+ok 709 - map 命中 → 显示主档**现值**（改名后列表跟着变，快照不参与显示）
+# Subtest: map 未命中但有快照 → 显示**快照名**（主档软删 / 主数据没拉回来）
+ok 710 - map 未命中但有快照 → 显示**快照名**（主档软删 / 主数据没拉回来）
+# Subtest: 两者都没有 → `—`（不留白、不报错）
+ok 711 - 两者都没有 → `—`（不留白、不报错）
+# Subtest: 空串不算名字：主档名为空串 → 回落快照；快照为空串 → `—`
+ok 712 - 空串不算名字：主档名为空串 → 回落快照；快照为空串 → `—`
+# Subtest: 任何输入组合下输出都不含 uuid / uuid 短号（禁落 uuid 的回归闸门）
+ok 713 - 任何输入组合下输出都不含 uuid / uuid 短号（禁落 uuid 的回归闸门）
+# Subtest: 对照：`shortId(SUPPLIER_ID)` 确实会长成被禁的形态（证明上面的闸门抓得到东西）
+ok 714 - 对照：`shortId(SUPPLIER_ID)` 确实会长成被禁的形态（证明上面的闸门抓得到东西）
+# Subtest: 详情「供应商（现名）」用 `supplierCurrentNameOf`：只认现值，查不到给 `—`（不给 uuid）
+ok 715 - 详情「供应商（现名）」用 `supplierCurrentNameOf`：只认现值，查不到给 `—`（不给 uuid）
+# Subtest: 列表列走 `supplierDisplayOf(row)`（现名→快照→—），不再出现 `shortId(row.supplier_id)`
+ok 716 - 列表列走 `supplierDisplayOf(row)`（现名→快照→—），不再出现 `shortId(row.supplier_id)`
+# Subtest: `supplierDisplayOf` 的实现同时读 `supplier_id` 与 `supplier_name`（快照必须进排队列）
+ok 717 - `supplierDisplayOf` 的实现同时读 `supplier_id` 与 `supplier_name`（快照必须进排队列）
+# Subtest: 详情页并列两行：「供应商（现名）」在前、「下单时供应商快照」紧接其后
+ok 718 - 详情页并列两行：「供应商（现名）」在前、「下单时供应商快照」紧接其后
+# Subtest: 快照栏只读灰字、绑 `detail.supplier_name`，空则 `—`
+ok 719 - 快照栏只读灰字、绑 `detail.supplier_name`，空则 `—`
+# Subtest: 「供应商（现名）」栏绑 `supplierDisplayOf(detail)`（现值→快照→—），不再用裸 shortId
+ok 720 - 「供应商（现名）」栏绑 `supplierDisplayOf(detail)`（现值→快照→—），不再用裸 shortId
+# Subtest: 空表单 `project_id` 是空串（= 未选 / 不归集），不是 undefined 也不是 null
+ok 721 - 空表单 `project_id` 是空串（= 未选 / 不归集），不是 undefined 也不是 null
+# Subtest: 编辑回填：`project_id = X` → 表单 `X`；`null` / 缺字段 → 空串
+ok 722 - 编辑回填：`project_id = X` → 表单 `X`；`null` / 缺字段 → 空串
+# Subtest: `buildPurchasePayload` 带项目 → `project_id` 是 uuid 原文
+ok 723 - `buildPurchasePayload` 带项目 → `project_id` 是 uuid 原文
+# Subtest: `buildPurchasePayload` 未选项目 → `project_id: null`，**键必须存在**（改单不传即清空）
+ok 724 - `buildPurchasePayload` 未选项目 → `project_id: null`，**键必须存在**（改单不传即清空）
+# Subtest: 清空项目再保存 = 显式 `null`（不是空串、不是 uuid）
+ok 725 - 清空项目再保存 = 显式 `null`（不是空串、不是 uuid）
+# Subtest: 有 `project_name` → 显示名字（后端实时 JOIN 的现名，项目改名后跟着变）
+ok 726 - 有 `project_name` → 显示名字（后端实时 JOIN 的现名，项目改名后跟着变）
+# Subtest: 只有 `project_id`、没有名字 → 「（已删除项目）」（项目被软删）
+ok 727 - 只有 `project_id`、没有名字 → 「（已删除项目）」（项目被软删）
+# Subtest: id 与名字都没有 → `—`（未归集项目，不留白）
+ok 728 - id 与名字都没有 → `—`（未归集项目，不留白）
+# Subtest: 任何输入组合下都不出现 uuid / uuid 短号（禁落 uuid 的回归闸门）
+ok 729 - 任何输入组合下都不出现 uuid / uuid 短号（禁落 uuid 的回归闸门）
+# Subtest: 选项文案 = `名称（编码）`；**归档项目加后缀但不筛掉**
+ok 730 - 选项文案 = `名称（编码）`；**归档项目加后缀但不筛掉**
+# Subtest: 选中值在清单里 → 原样返回，不重复插兜底项
+ok 731 - 选中值在清单里 → 原样返回，不重复插兜底项
+# Subtest: 选中值**不在**清单里（未参与 / 已删）→ 补一条兜底项，别让选择器静默变空
+ok 732 - 选中值**不在**清单里（未参与 / 已删）→ 补一条兜底项，别让选择器静默变空
+# Subtest: 未选项目（空串）→ 不插兜底项（不能凭空给一个「空 uuid」选项）
+ok 733 - 未选项目（空串）→ 不插兜底项（不能凭空给一个「空 uuid」选项）
+# Subtest: 列表 columns 在「供应商」列之后加了「项目」列（宽 160 + 省略）
+ok 734 - 列表 columns 在「供应商」列之后加了「项目」列（宽 160 + 省略）
+# Subtest: 列表插槽走 `projectDisplayName(row.project_id, row.project_name)`，不许出现 shortId / uuid 短号
+ok 735 - 列表插槽走 `projectDisplayName(row.project_id, row.project_name)`，不许出现 shortId / uuid 短号
+# Subtest: 详情抽屉有「所属项目」一行，绑 `projectDisplayName(detail.project_id, detail.project_name)`
+ok 736 - 详情抽屉有「所属项目」一行，绑 `projectDisplayName(detail.project_id, detail.project_name)`
+# Subtest: 表单下拉：`purchase-project`、clearable + filterable、placeholder = NO_PROJECT_PLACEHOLDER
+ok 737 - 表单下拉：`purchase-project`、clearable + filterable、placeholder = NO_PROJECT_PLACEHOLDER
+# Subtest: 表单下拉接兜底选项 `projectSelectOptions`，数据源 `pageProjects` 失败不挡页面
+ok 738 - 表单下拉接兜底选项 `projectSelectOptions`，数据源 `pageProjects` 失败不挡页面
+# Subtest: `project_id` 不进表单记忆（否则下一张单会默默挂错项目）
+ok 739 - `project_id` 不进表单记忆（否则下一张单会默默挂错项目）
+# Subtest: ③ 付款成功后必须走 refreshDetail(id)，不能只把写回包的 detail 塞给抽屉
+ok 740 - ③ 付款成功后必须走 refreshDetail(id)，不能只把写回包的 detail 塞给抽屉
+# Subtest: ③ refreshDetail() 从读接口 fetchPayableDetail(id) 取权威快照，并重算可付信息
+ok 741 - ③ refreshDetail() 从读接口 fetchPayableDetail(id) 取权威快照，并重算可付信息
+# Subtest: ③ 刷新失败不能让抽屉静默停在旧数据（必须告警）
+ok 742 - ③ 刷新失败不能让抽屉静默停在旧数据（必须告警）
+# Subtest: ① 应付 PENDING_CANCEL → 「作废审批中」+ warning，文案与后端 status_label 逐字一致
+ok 743 - ① 应付 PENDING_CANCEL → 「作废审批中」+ warning，文案与后端 status_label 逐字一致
+# Subtest: ① 状态下拉能筛出「作废审批中」（共 6 项，值顺序稳定）
+ok 744 - ① 状态下拉能筛出「作废审批中」（共 6 项，值顺序稳定）
+# Subtest: ② 作废审批中：「付款」「作废」都不可点，「撤回作废」可点（且有权限时）
+ok 745 - ② 作废审批中：「付款」「作废」都不可点，「撤回作废」可点（且有权限时）
+# Subtest: ② 没有撤回权限时说清原因（不静默隐藏）
+ok 746 - ② 没有撤回权限时说清原因（不静默隐藏）
+# Subtest: ③ 后端 can_pay=true 但单据在作废审批中 → 抽屉不显示「发起付款」
+ok 747 - ③ 后端 can_pay=true 但单据在作废审批中 → 抽屉不显示「发起付款」
+# Subtest: ④ 送审 → info 且只说「已提交审批」，绝不出现「已作废」
+ok 748 - ④ 送审 → info 且只说「已提交审批」，绝不出现「已作废」
+# Subtest: ④ 未配流程降级直做 → success「已作废：单号」（老文案保留）
+ok 749 - ④ 未配流程降级直做 → success「已作废：单号」（老文案保留）
+# Subtest: ④ 未知 outcome → 用后端 message 兜底，不吞掉也不瞎猜
+ok 750 - ④ 未知 outcome → 用后端 message 兜底，不吞掉也不瞎猜
+# Subtest: ⑤ 撤回文案说清「回到什么状态」，不让人以为单据被删了
+ok 751 - ⑤ 撤回文案说清「回到什么状态」，不让人以为单据被删了
+# Subtest: ⑥ 凭证红冲送审 → info，绝不出现「已红冲」
+ok 752 - ⑥ 凭证红冲送审 → info，绝不出现「已红冲」
+# Subtest: ⑥ 未配流程降级直做 → success「已红冲：生成红字凭证 PZR-…」
+ok 753 - ⑥ 未配流程降级直做 → success「已红冲：生成红字凭证 PZR-…」
+# Subtest: ⑥ 徽标文案与卡面逐字一致
+ok 754 - ⑥ 徽标文案与卡面逐字一致
+# Subtest: ⑦ 红冲审批中：不能红冲（必 409），但可以撤回；状态仍是 POSTED
+ok 755 - ⑦ 红冲审批中：不能红冲（必 409），但可以撤回；状态仍是 POSTED
+# Subtest: ⑦ 老的红冲判据原样不变（红字 / 已红冲 / 非 POSTED 都不可红冲）
+ok 756 - ⑦ 老的红冲判据原样不变（红字 / 已红冲 / 非 POSTED 都不可红冲）
+# Subtest: ⑦ 没有撤回权限时凭证侧也说清原因
+ok 757 - ⑦ 没有撤回权限时凭证侧也说清原因
+# Subtest: ⑧ 凭证页不再有「审批实例分页」兜底（删干净，grep 无引用）
+ok 758 - ⑧ 凭证页不再有「审批实例分页」兜底（删干净，grep 无引用）
+# Subtest: ⑧ 新字段是「恒在的 string | null」：前端必填 + 后端 DTO 真的下发
+ok 759 - ⑧ 新字段是「恒在的 string | null」：前端必填 + 后端 DTO 真的下发
+# Subtest: ⑨ 抽屉进度按单据状态选：作废审批中 → 作废实例，否则付款实例
+ok 760 - ⑨ 抽屉进度按单据状态选：作废审批中 → 作废实例，否则付款实例
+# Subtest: ⑨ 作废原因：有值原样显示，null / 空白不渲染空行
+ok 761 - ⑨ 作废原因：有值原样显示，null / 空白不渲染空行
+# Subtest: ⑨ outcome 常量与后端逐字一致（送审/直做两条路的判据来源）
+ok 762 - ⑨ outcome 常量与后端逐字一致（送审/直做两条路的判据来源）
+# Subtest: ① 顶部「审批单 FLW-xxx」链接逐字未改（P-FLOW-3A 原样：v-if / 三元文案 / testid / 点击参数）
+ok 763 - ① 顶部「审批单 FLW-xxx」链接逐字未改（P-FLOW-3A 原样：v-if / 三元文案 / testid / 点击参数）
+# Subtest: ①-补 全抽屉只有一个审批单号：不许再在基本信息区/底部重复一份
+ok 764 - ①-补 全抽屉只有一个审批单号：不许再在基本信息区/底部重复一份
+# Subtest: ② 没挂审批实例的老单：底部显示「未发起审批」空态（不留白、不报错），顶部也没有链接
+ok 765 - ② 没挂审批实例的老单：底部显示「未发起审批」空态（不留白、不报错），顶部也没有链接
+# Subtest: ③ 审批详情拉不到：降级行 testid 保留，文案简化成「一句提示 + 单号链接」
+ok 766 - ③ 审批详情拉不到：降级行 testid 保留，文案简化成「一句提示 + 单号链接」
+# Subtest: ④ 渲染顺序：基本信息 → 收货进度 → 已生成收货单 → 明细 → 审批进度 → </t-drawer>
+ok 767 - ④ 渲染顺序：基本信息 → 收货进度 → 已生成收货单 → 明细 → 审批进度 → </t-drawer>
+# Subtest: ⑤ 跳过原因：SKIPPED 的审批人不被藏起来，原因（comment）原样带出
+ok 768 - ⑤ 跳过原因：SKIPPED 的审批人不被藏起来，原因（comment）原样带出
+# Subtest: ① 有 approval_instance_id → 拉一次实例 → 拿到 3 个节点，进度区块该渲染
+ok 769 - ① 有 approval_instance_id → 拉一次实例 → 拿到 3 个节点，进度区块该渲染
+# Subtest: ② 没有 approval_instance_id（草稿 / 已打回）→ 一次都不拉、进度与降级链接都不渲染
+ok 770 - ② 没有 approval_instance_id（草稿 / 已打回）→ 一次都不拉、进度与降级链接都不渲染
+# Subtest: ③ 拉节点抛错（权限 / 实例已归档）→ 不抛异常、退化成单号链接
+ok 771 - ③ 拉节点抛错（权限 / 实例已归档）→ 不抛异常、退化成单号链接
+# Subtest: ④ 节点状态映射：APPROVED→已通过、ACTIVE→处理中、PENDING→未到达，未知状态原样显示
+ok 772 - ④ 节点状态映射：APPROVED→已通过、ACTIVE→处理中、PENDING→未到达，未知状态原样显示
+# Subtest: ⑤ 三个审批人挂在「部门主管审批」下：姓名 / 状态 / 时间 / 意见都在
+ok 773 - ⑤ 三个审批人挂在「部门主管审批」下：姓名 / 状态 / 时间 / 意见都在
+# Subtest: ⑤-补 节点表里没有的节点（退回后的旧轮次）也要显示审批人，不许丢
+ok 774 - ⑤-补 节点表里没有的节点（退回后的旧轮次）也要显示审批人，不许丢
+# Subtest: ⑥ 提交审批后再开详情：换了实例 id 就拿到新节点；没有实例就清空
+ok 775 - ⑥ 提交审批后再开详情：换了实例 id 就拿到新节点；没有实例就清空
+# Subtest: ⑦ 后端节点按 node_key 排出来的「开始」在最后 → 进度条要 START 第一、END 最后
+ok 776 - ⑦ 后端节点按 node_key 排出来的「开始」在最后 → 进度条要 START 第一、END 最后
+# Subtest: 预览 · 单条件 + then：当 金额 ≥ 10000 时 → 由 角色 FINANCE_DIRECTOR 审批
+ok 777 - 预览 · 单条件 + then：当 金额 ≥ 10000 时 → 由 角色 FINANCE_DIRECTOR 审批
+# Subtest: 预览 · 双条件 AND：当 金额 ≥ 10000 且 部门 是 财务 时
+ok 778 - 预览 · 双条件 AND：当 金额 ≥ 10000 且 部门 是 财务 时
+# Subtest: 预览 · OR 混合：不同算子的子分组必须加括号
+ok 779 - 预览 · OR 混合：不同算子的子分组必须加括号
+# Subtest: 预览 · 同算子嵌套摊平（不丢语义、少一层括号）
+ok 780 - 预览 · 同算子嵌套摊平（不丢语义、少一层括号）
+# Subtest: 预览 · not 单独加括号：当 非(部门 是 财务) 时
+ok 781 - 预览 · not 单独加括号：当 非(部门 是 财务) 时
+# Subtest: 预览 · 空规则树 → 「尚未配置规则」
+ok 782 - 预览 · 空规则树 → 「尚未配置规则」
+# Subtest: 预览 · 非法节点（空字段）→ ⚠ 第 1 条规则有空字段
+ok 783 - 预览 · 非法节点（空字段）→ ⚠ 第 1 条规则有空字段
+# Subtest: 预览 · 非白名单字段 → 横幅提示带后端原句（不是「空字段」）
+ok 784 - 预览 · 非白名单字段 → 横幅提示带后端原句（不是「空字段」）
+# Subtest: 预览 · then 目标为空 → 句子占位 + 一条 65016 提醒
+ok 785 - 预览 · then 目标为空 → 句子占位 + 一条 65016 提醒
+# Subtest: 目标读法：10 种来源都能读成人话，保留词标「不支持」
+ok 786 - 目标读法：10 种来源都能读成人话，保留词标「不支持」
+# Subtest: 算术子与字面量读法：数组用「、」、空值有明确占位
+ok 787 - 算术子与字面量读法：数组用「、」、空值有明确占位
+# Subtest: 预览 · 面板直接可用的计数（8/8 层、23/64、2/32 条）
+ok 788 - 预览 · 面板直接可用的计数（8/8 层、23/64、2/32 条）
+# Subtest: 深度 8 层 → 通过（后端 MAX_CONDITION_DEPTH 边界值本身合法）
+ok 789 - 深度 8 层 → 通过（后端 MAX_CONDITION_DEPTH 边界值本身合法）
+# Subtest: 深度 9 层 → 报错，且文案是 65016 + 后端原文
+ok 790 - 深度 9 层 → 报错，且文案是 65016 + 后端原文
+# Subtest: 节点 64 个 → 通过（32 个叶子 + 32 个分组）
+ok 791 - 节点 64 个 → 通过（32 个叶子 + 32 个分组）
+# Subtest: 节点 65 个 → 报错（65016 节点数上限原文）
+ok 792 - 节点 65 个 → 报错（65016 节点数上限原文）
+# Subtest: 规则 32 条 → 通过
+ok 793 - 规则 32 条 → 通过
+# Subtest: 规则 33 条 → 报错，且是纯前端闸（不挂后端码）
+ok 794 - 规则 33 条 → 报错，且是纯前端闸（不挂后端码）
+# Subtest: 10 个固定字段 + form.* → 通过
+ok 795 - 10 个固定字段 + form.* → 通过
+# Subtest: 非白名单字段 → 报错，文案与 graph.rs 逐字一致
+ok 796 - 非白名单字段 → 报错，文案与 graph.rs 逐字一致
+# Subtest: 空字段 → 「cmp 节点缺少 field」，并定位到第 1 条规则
+ok 797 - 空字段 → 「cmp 节点缺少 field」，并定位到第 1 条规则
+# Subtest: then 目标为空 → 65016 + expression.rs 原文（不是卡面写的 65033）
+ok 798 - then 目标为空 → 65016 + expression.rs 原文（不是卡面写的 65033）
+# Subtest: then 目标 6 个（上限 5）→ 65016 超限原文
+ok 799 - then 目标 6 个（上限 5）→ 65016 超限原文
+# Subtest: PREV_APPROVER → 65033 + graph.rs 原文（本期唯一给 65033 的场景）
+ok 800 - PREV_APPROVER → 65033 + graph.rs 原文（本期唯一给 65033 的场景）
+# Subtest: 码值 65016 / 65033 与 error_code.rs 一致
+ok 801 - 码值 65016 / 65033 与 error_code.rs 一致
+# Subtest: 上限常量与 graph.rs / expression.rs 一致
+ok 802 - 上限常量与 graph.rs / expression.rs 一致
+# Subtest: FIXED_FIELDS 与 graph.rs 逐项一致（顺序也算）
+ok 803 - FIXED_FIELDS 与 graph.rs 逐项一致（顺序也算）
+# Subtest: 65016 / 65033 的文案模板在对应 .rs 里逐字存在
+ok 804 - 65016 / 65033 的文案模板在对应 .rs 里逐字存在
+# Subtest: 填模板的结果与 rust format! 的语义一致（占位按序 / 具名都能填）
+ok 805 - 填模板的结果与 rust format! 的语义一致（占位按序 / 具名都能填）
+# Subtest: 空条件树 = 无条件：合法，计数归零
+ok 806 - 空条件树 = 无条件：合法，计数归零
+# Subtest: 计数器与超限标记（面板 n/limit 渲染用）
+ok 807 - 计数器与超限标记（面板 n/limit 渲染用）
+# Subtest: ② 上传人显示名：姓名 → 用户名 → UUID，空值给破折号
+ok 808 - ② 上传人显示名：姓名 → 用户名 → UUID，空值给破折号
+# Subtest: ② 只请求没解析过的 id：本页去重 + 跨页复用，翻页不重复拉用户表
+ok 809 - ② 只请求没解析过的 id：本页去重 + 跨页复用，翻页不重复拉用户表
+# Subtest: ② 合并用户表：real_name 空则用 username，两者都空不写（继续回退 UUID）
+ok 810 - ② 合并用户表：real_name 空则用 username，两者都空不写（继续回退 UUID）
+# Subtest: ② 译名页大小与其它 ERP 译名页同口径（200）
+ok 811 - ② 译名页大小与其它 ERP 译名页同口径（200）
+# Subtest: prod（144）一律拒绝 —— 本次事故的目标
+ok 812 - prod（144）一律拒绝 —— 本次事故的目标
+# Subtest: prod 后端直连端口 8023 拒绝（哪怕 host 写成回环）
+ok 813 - prod 后端直连端口 8023 拒绝（哪怕 host 写成回环）
+# Subtest: dev 默认端口 5173 拒绝（vite 代理默认指 8023，容易「以为本地其实生产」）
+ok 814 - dev 默认端口 5173 拒绝（vite 代理默认指 8023，容易「以为本地其实生产」）
+# Subtest: 事故来源机 172.18.10.7 拒绝
+ok 815 - 事故来源机 172.18.10.7 拒绝
+# Subtest: 隔离实例（回环 + 5189 前端 / 18089 后端）放行
+ok 816 - 隔离实例（回环 + 5189 前端 / 18089 后端）放行
+# Subtest: 回环但端口不在隔离段 → 拒绝
+ok 817 - 回环但端口不在隔离段 → 拒绝
+# Subtest: E2E_ISOLATED_HOSTS 可显式放行 CI 容器名
+ok 818 - E2E_ISOLATED_HOSTS 可显式放行 CI 容器名
+# Subtest: 非法 URL → 拒绝且不抛异常
+ok 819 - 非法 URL → 拒绝且不抛异常
+# Subtest: assertIsolatedTarget：打 prod 抛错，报错里带「怎么起隔离实例」
+ok 820 - assertIsolatedTarget：打 prod 抛错，报错里带「怎么起隔离实例」
+# Subtest: escape hatch：只设 E2E_ALLOW_PROD=1 不给理由 → 仍然拒绝
+ok 821 - escape hatch：只设 E2E_ALLOW_PROD=1 不给理由 → 仍然拒绝
+# Subtest: escape hatch：flag + 理由都给了 → 放行，并打印 prod 后置检查清单
+ok 822 - escape hatch：flag + 理由都给了 → 放行，并打印 prod 后置检查清单
+# Subtest: 后置检查清单含 residue → backup → apply → invariants 四步
+ok 823 - 后置检查清单含 residue → backup → apply → invariants 四步
+# Subtest: PENDING + 王五 → 「✓ 审批中（王五）」（设计稿原文）
+ok 824 - PENDING + 王五 → 「✓ 审批中（王五）」（设计稿原文）
+# Subtest: 多人格式钉死：2 人逐个列、≥3 人折叠成「首人 等 N 人」
+ok 825 - 多人格式钉死：2 人逐个列、≥3 人折叠成「首人 等 N 人」
+# Subtest: 待办人去重、去空白、丢空串后仍按规则渲染
+ok 826 - 待办人去重、去空白、丢空串后仍按规则渲染
+# Subtest: APPROVED → 不显示「审批中」
+ok 827 - APPROVED → 不显示「审批中」
+# Subtest: approval = null（DIRECT 节点完成）→ 不显示「审批中」
+ok 828 - approval = null（DIRECT 节点完成）→ 不显示「审批中」
+# Subtest: approval = null 且节点仍 ACTIVE → 也不显示（不许拿 node_status 猜）
+ok 829 - approval = null 且节点仍 ACTIVE → 也不显示（不许拿 node_status 猜）
+# Subtest: PENDING 但待办人为空 → 不显示（没人可等）
+ok 830 - PENDING 但待办人为空 → 不显示（没人可等）
+# Subtest: 任务未 DONE（REVIEW / DOING）→ 即使审批 PENDING 也不显示
+ok 831 - 任务未 DONE（REVIEW / DOING）→ 即使审批 PENDING 也不显示
+# Subtest: 其它终态（REJECTED / CANCELLED / WITHDRAWN）→ 不显示
+ok 832 - 其它终态（REJECTED / CANCELLED / WITHDRAWN）→ 不显示
+# Subtest: flow 整段为 null（手工任务）→ 不显示
+ok 833 - flow 整段为 null（手工任务）→ 不显示
+# Subtest: 样例的 approval 字段恒在：APPROVED 时是对象、DIRECT 时是 null（不是缺字段）
+ok 834 - 样例的 approval 字段恒在：APPROVED 时是对象、DIRECT 时是 null（不是缺字段）
+# Subtest: 真接口样例 APPROVE → 完成方式是 APPROVE，副文案「完成后需审批」显示
+ok 835 - 真接口样例 APPROVE → 完成方式是 APPROVE，副文案「完成后需审批」显示
+# Subtest: APPROVE 走到按钮组：只剩一个主按钮「完成」+ 取消，副文案仍可见
+ok 836 - APPROVE 走到按钮组：只剩一个主按钮「完成」+ 取消，副文案仍可见
+# Subtest: on_complete=null（没配该项）+ 无需验收 → 推断 DIRECT，无副文案
+ok 837 - on_complete=null（没配该项）+ 无需验收 → 推断 DIRECT，无副文案
+# Subtest: on_complete=null（没配该项）+ 需验收 → 推断 VERIFY，主按钮「提交验收」，无副文案
+ok 838 - on_complete=null（没配该项）+ 需验收 → 推断 VERIFY，主按钮「提交验收」，无副文案
+# Subtest: 手工任务（flow=null）→ 完成上下文为 null，且不改变原有按钮
+ok 839 - 手工任务（flow=null）→ 完成上下文为 null，且不改变原有按钮
+# Subtest: 三个走向字段是必填：样例里 on_cancel=null 也在，类型上不能省
+ok 840 - 三个走向字段是必填：样例里 on_cancel=null 也在，类型上不能省
+# Subtest: TaskPageQuery 包含可选布尔 root_only（与后端 TaskPageQuery.root_only 同名）
+ok 841 - TaskPageQuery 包含可选布尔 root_only（与后端 TaskPageQuery.root_only 同名）
+# Subtest: 列表视图 loadList 的 pageTasks 调用带 root_only: true，且全页只出现一次
+ok 842 - 列表视图 loadList 的 pageTasks 调用带 root_only: true，且全页只出现一次
+# Subtest: 看板 / 燃尽图 / 甘特图 / 父任务选择器都不传 root_only（它们需要全部任务）
+ok 843 - 看板 / 燃尽图 / 甘特图 / 父任务选择器都不传 root_only（它们需要全部任务）
+# Subtest: 后端 dto / model / handler 三处与前端契约一致
+ok 844 - 后端 dto / model / handler 三处与前端契约一致
+# Subtest: toggleStatus 添加：[] → ["TODO"]
+ok 845 - toggleStatus 添加：[] → ["TODO"]
+# Subtest: toggleStatus 再点同一个：["TODO"] → []
+ok 846 - toggleStatus 再点同一个：["TODO"] → []
+# Subtest: toggleStatus 多选：["TODO","DOING"] 顺序保持（先点的在前）
+ok 847 - toggleStatus 多选：["TODO","DOING"] 顺序保持（先点的在前）
+# Subtest: clearStatuses：任意 → []
+ok 848 - clearStatuses：任意 → []
+# Subtest: 请求参数：statuses 数组 → 逗号串；空数组 → undefined（= 不筛）
+ok 849 - 请求参数：statuses 数组 → 逗号串；空数组 → undefined（= 不筛）
+# Subtest: 待勾选态判定：空数组不算筛选，有勾选才算
+ok 850 - 待勾选态判定：空数组不算筛选，有勾选才算
+# Subtest: 纯函数：不修改入参（Vue reactive 数组被原地改动会绕过赋值、触发不了依赖）
+ok 851 - 纯函数：不修改入参（Vue reactive 数组被原地改动会绕过赋值、触发不了依赖）
+# Subtest: FIXED_FIELDS 与 graph.rs 逐字一致（10 个，顺序也一致）
+ok 852 - FIXED_FIELDS 与 graph.rs 逐字一致（10 个，顺序也一致）
+# Subtest: TEMPLATE_ONLY_FIELDS 与 graph.rs 逐字一致（4 个只给模板用的根）
+ok 853 - TEMPLATE_ONLY_FIELDS 与 graph.rs 逐字一致（4 个只给模板用的根）
+# Subtest: MAX_VAR_SEGMENT 与 render.rs 的 MAX_VAR_NAME_LEN 一致
+ok 854 - MAX_VAR_SEGMENT 与 render.rs 的 MAX_VAR_NAME_LEN 一致
+# Subtest: TASK_ACCEPT 流程下 FIXED_FIELDS + TEMPLATE_ONLY_FIELDS 全量合法（14 条零 issue）
+ok 855 - TASK_ACCEPT 流程下 FIXED_FIELDS + TEMPLATE_ONLY_FIELDS 全量合法（14 条零 issue）
+# Subtest: 非 TASK_ACCEPT 流程里 task.* 判非法（65037），其余 6 个固定字段仍合法
+ok 856 - 非 TASK_ACCEPT 流程里 task.* 判非法（65037），其余 6 个固定字段仍合法
+# Subtest: bizType 大小写 / 前后空白不敏感（与后端 eq_ignore_ascii_case 同口径）
+ok 857 - bizType 大小写 / 前后空白不敏感（与后端 eq_ignore_ascii_case 同口径）
+# Subtest: form.* 合法形状：字母或下划线开头的标识符
+ok 858 - form.* 合法形状：字母或下划线开头的标识符
+# Subtest: form.* 非法形状：空段 / 数字开头 / 连字符 / 两层点号 / 缺段
+ok 859 - form.* 非法形状：空段 / 数字开头 / 连字符 / 两层点号 / 缺段
+# Subtest: 完全不存在的根（order.amount / unknown.field）判非法 65037
+ok 860 - 完全不存在的根（order.amount / unknown.field）判非法 65037
+# Subtest: 单个路径段超过 64 字符判语法错（65036），等于上限合法
+ok 861 - 单个路径段超过 64 字符判语法错（65036），等于上限合法
+# Subtest: 未闭合的占位符报 65036 且只报一条（后端的 ? 也是直接返回）
+ok 862 - 未闭合的占位符报 65036 且只报一条（后端的 ? 也是直接返回）
+# Subtest: 多于一层点号（form.a.b）判语法错 65036
+ok 863 - 多于一层点号（form.a.b）判语法错 65036
+# Subtest: 花括号内允许空白（{{ instance.biz_no }}），路径按 trim 解析
+ok 864 - 花括号内允许空白（{{ instance.biz_no }}），路径按 trim 解析
+# Subtest: extractPlaceholders 保持出现顺序并去重；start/end 含花括号
+ok 865 - extractPlaceholders 保持出现顺序并去重；start/end 含花括号
+# Subtest: 光标在中间插入：文本正确、光标落 `}}` 之后
+ok 866 - 光标在中间插入：文本正确、光标落 `}}` 之后
+# Subtest: 选中文字时替换选中段（不是插入到选区前面）
+ok 867 - 选中文字时替换选中段（不是插入到选区前面）
+# Subtest: 越界 / 反向 / 非数字的选区夹紧，不抛错
+ok 868 - 越界 / 反向 / 非数字的选区夹紧，不抛错
+# Subtest: 非 TASK_ACCEPT 流程的选择器不出现 task.* 组；TASK_ACCEPT 才出现
+ok 869 - 非 TASK_ACCEPT 流程的选择器不出现 task.* 组；TASK_ACCEPT 才出现
+# Subtest: 表单字段候选过滤掉非法名、去重、保持顺序（宁可少列，不可伪造）
+ok 870 - 表单字段候选过滤掉非法名、去重、保持顺序（宁可少列，不可伪造）
+# Subtest: 没有历史实例时表单组是空数组（组件据此只给手输，不伪造候选）
+ok 871 - 没有历史实例时表单组是空数组（组件据此只给手输，不伪造候选）
+# Subtest: 文法与 render.rs 的 validate_var_path 注释口径一致（最多一层点号）
+ok 872 - 文法与 render.rs 的 validate_var_path 注释口径一致（最多一层点号）
+# Subtest: ① 10 种来源逐条生成后端认得的 JSON（键名 = expression.rs 的 snake_case）
+ok 873 - ① 10 种来源逐条生成后端认得的 JSON（键名 = expression.rs 的 snake_case）
+# Subtest: ①-b 无需输入的五种来源只落 type 一个键（后端 deny_unknown_keys 会拒多余键）
+ok 874 - ①-b 无需输入的五种来源只落 type 一个键（后端 deny_unknown_keys 会拒多余键）
+# Subtest: ② ROLE 存的是 role_code（不是 role_id）：键名只能是 role_codes
+ok 875 - ② ROLE 存的是 role_code（不是 role_id）：键名只能是 role_codes
+# Subtest: ③ PREV_APPROVER 下拉里灰显不可选，且不产出 JSON（D-E8：不落 501）
+ok 876 - ③ PREV_APPROVER 下拉里灰显不可选，且不产出 JSON（D-E8：不落 501）
+# Subtest: ④ 空 then 数组 → 校验报错（整组问题，index = -1）
+ok 877 - ④ 空 then 数组 → 校验报错（整组问题，index = -1）
+# Subtest: ④-b 超过 5 个 / 不是数组 → 整组报错，不崩
+ok 878 - ④-b 超过 5 个 / 不是数组 → 整组报错，不崩
+# Subtest: ⑤ 写死 uuid 列表（卡面的 STATIC）= USER + 多个 user_ids
+ok 879 - ⑤ 写死 uuid 列表（卡面的 STATIC）= USER + 多个 user_ids
+# Subtest: ⑥ FORM_VAR 空输入 / 非法字段名 → 校验报错；合法名 → form_var_key
+ok 880 - ⑥ FORM_VAR 空输入 / 非法字段名 → 校验报错；合法名 → form_var_key
+# Subtest: ⑦ 每种来源对应的输入控件（无输入的不许有输入框）
+ok 881 - ⑦ 每种来源对应的输入控件（无输入的不许有输入框）
+# Subtest: ⑧ 往返稳定：JSON → 目标 → JSON 逐字一致（打开老数据不改写语义）
+ok 882 - ⑧ 往返稳定：JSON → 目标 → JSON 逐字一致（打开老数据不改写语义）
+# Subtest: ⑧-b 脏数据不崩：未知来源 / 非对象项 / 缺键都渲染成可修复的一行
+ok 883 - ⑧-b 脏数据不崩：未知来源 / 非对象项 / 缺键都渲染成可修复的一行
+# Subtest: 行样式：父任务 → task-row--parent，普通行 → 空串
+ok 884 - 行样式：父任务 → task-row--parent，普通行 → 空串
+# Subtest: 行样式：子行优先——孙任务（_isSub 且自己有子任务）仍按子行渲染，不挂 4px 竖条
+ok 885 - 行样式：子行优先——孙任务（_isSub 且自己有子任务）仍按子行渲染，不挂 4px 竖条
+# Subtest: 行样式：脏数据（child_count 为 undefined / 负数）不判成父任务
+ok 886 - 行样式：脏数据（child_count 为 undefined / 负数）不判成父任务
+# Subtest: 子任务进度百分比：1/3 取整 33、2/3 取整 67、3/3 = 100
+ok 887 - 子任务进度百分比：1/3 取整 33、2/3 取整 67、3/3 = 100
+# Subtest: 子任务进度百分比：分母为 0 / undefined / NaN 一律 0（不出现 NaN% 或 Infinity）
+ok 888 - 子任务进度百分比：分母为 0 / undefined / NaN 一律 0（不出现 NaN% 或 Infinity）
+# Subtest: 子任务进度百分比：done 越界先夹紧（并发下架子任务时不会出现 -50% / 150%）
+ok 889 - 子任务进度百分比：done 越界先夹紧（并发下架子任务时不会出现 -50% / 150%）
+# Subtest: 子任务分数文案：N/M 与百分比同源夹紧；分母 0 显示 0/0
+ok 890 - 子任务分数文案：N/M 与百分比同源夹紧；分母 0 显示 0/0
+# Subtest: 箭头列下标：任务号列 = 0（老大 2026-10-30 要求箭头放任务号前面）
+ok 891 - 箭头列下标：任务号列 = 0（老大 2026-10-30 要求箭头放任务号前面）
+# Subtest: 箭头列下标：在任务号前插一列后，箭头仍然跟着任务号列走（不写死数字的理由）
+ok 892 - 箭头列下标：在任务号前插一列后，箭头仍然跟着任务号列走（不写死数字的理由）
+# Subtest: 箭头列下标：找不到任务号列时兜底 0（不让树形彻底哑掉）
+ok 893 - 箭头列下标：找不到任务号列时兜底 0（不让树形彻底哑掉）
+# Subtest: 树形配置：treeNodeColumnIndex 对准任务号列（老大 2026-10-30 改）、缩进 24px
+ok 894 - 树形配置：treeNodeColumnIndex 对准任务号列（老大 2026-10-30 改）、缩进 24px
+# Subtest: ① 展平与层数：顶层只挂 parent 为空的仓库，深度算得出 3 层
+ok 895 - ① 展平与层数：顶层只挂 parent 为空的仓库，深度算得出 3 层
+# Subtest: ② 首屏默认展开 = 第 1 层里有孩子的节点（不 expandAll）
+ok 896 - ② 首屏默认展开 = 第 1 层里有孩子的节点（不 expandAll）
+# Subtest: ③ 逐节点独立折叠：只动自己，不联级
+ok 897 - ③ 逐节点独立折叠：只动自己，不联级
+# Subtest: ④ 搜索：命中第 3 层时保留祖先并给出要展开的 id（否则子树静默消失）
+ok 898 - ④ 搜索：命中第 3 层时保留祖先并给出要展开的 id（否则子树静默消失）
+# Subtest: ⑤ 按 id 找节点 + 路径文字（右面板「当前选中」副标题）
+ok 899 - ⑤ 按 id 找节点 + 路径文字（右面板「当前选中」副标题）
+# Subtest: ⑥ 层级推导：顶级 = 1，第 3 层仓库不能再有下级（66004）
+ok 900 - ⑥ 层级推导：顶级 = 1，第 3 层仓库不能再有下级（66004）
+# Subtest: ⑦ 叶子约束：非叶子仓库的「新建库位」必须禁用，且原因说清「不能设成叶子」
+ok 901 - ⑦ 叶子约束：非叶子仓库的「新建库位」必须禁用，且原因说清「不能设成叶子」
+# Subtest: ⑧ 新建仓库请求体：level 跟着父推导，**不带 is_leaf**，空串转 null
+ok 902 - ⑧ 新建仓库请求体：level 跟着父推导，**不带 is_leaf**，空串转 null
+# Subtest: ⑨ 编辑仓库请求体：只带真改过的字段，清空的可空字段显式传 null
+ok 903 - ⑨ 编辑仓库请求体：只带真改过的字段，清空的可空字段显式传 null
+# Subtest: ⑩ 库位请求体：新建带 warehouse_id，编辑不带（后端不许换仓库）
+ok 904 - ⑩ 库位请求体：新建带 warehouse_id，编辑不带（后端不许换仓库）
+# Subtest: ⑪ 仓库表单校验：编码 / 名称必填、长度上限照后端
+ok 905 - ⑪ 仓库表单校验：编码 / 名称必填、长度上限照后端
+# Subtest: ⑫ 枚举文案与选项：仓库 5 类 / 库位 6 类，与后端常量逐字对齐
+ok 906 - ⑫ 枚举文案与选项：仓库 5 类 / 库位 6 类，与后端常量逐字对齐
+# Subtest: ⑬ 前端分页：切片 / 夹紧越界页码（第 3 页删光后不空白）
+ok 907 - ⑬ 前端分页：切片 / 夹紧越界页码（第 3 页删光后不空白）
+# Subtest: ⑭ 父仓库选择器：剪掉第 3 层（不能再往下建），父节点不因剪枝丢失
+ok 908 - ⑭ 父仓库选择器：剪掉第 3 层（不能再往下建），父节点不因剪枝丢失
+# Subtest: ⑮ 所属仓库下拉：只给叶子仓库，文案带完整路径 + 编码（平铺也分得清）
+ok 909 - ⑮ 所属仓库下拉：只给叶子仓库，文案带完整路径 + 编码（平铺也分得清）
+# tests 909
+# suites 0
+# pass 909
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4389.494183

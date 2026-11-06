@@ -1,0 +1,371 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @cloudpivot/web@0.1.0 build /opt/cloudpivot/frontend
+> vue-tsc --noEmit && vite build
+
+vite v6.3.7 building for production...
+transforming...
+✓ 5323 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                                                   1.42 kB │ gzip:   0.85 kB
+dist/assets/EChart-CBtkWo53.css                                                   0.04 kB │ gzip:   0.06 kB
+dist/assets/UserSelect-B436yNgK.css                                               0.04 kB │ gzip:   0.06 kB
+dist/assets/FlowPreview-BJEsUxNM.css                                              0.08 kB │ gzip:   0.10 kB
+dist/assets/FileUploader-DF7156XO.css                                             0.11 kB │ gzip:   0.09 kB
+dist/assets/LocationFormDialog-BJjNC4eh.css                                       0.12 kB │ gzip:   0.12 kB
+dist/assets/StatusBadge-DpuFYDXn.css                                              0.14 kB │ gzip:   0.13 kB
+dist/assets/index-BWLRblPI.css                                                    0.32 kB │ gzip:   0.20 kB
+dist/assets/index-CmZsS8I8.css                                                    0.32 kB │ gzip:   0.20 kB
+dist/assets/index-DhajOaaP.css                                                    0.36 kB │ gzip:   0.21 kB
+dist/assets/index-BjkeXFqu.css                                                    0.39 kB │ gzip:   0.23 kB
+dist/assets/useListFilterMemory-B38iKhZ1.css                                      0.41 kB │ gzip:   0.24 kB
+dist/assets/useFormMemory-CccH-JK1.css                                            0.42 kB │ gzip:   0.23 kB
+dist/assets/ImportEntryButton-CeFid309.css                                        0.47 kB │ gzip:   0.21 kB
+dist/assets/index-D6GuI0lP.css                                                    0.52 kB │ gzip:   0.29 kB
+dist/assets/index-CTopka9g.css                                                    0.53 kB │ gzip:   0.24 kB
+dist/assets/index-EtDaQsAN.css                                                    0.53 kB │ gzip:   0.24 kB
+dist/assets/index-CsTIpoct.css                                                    0.53 kB │ gzip:   0.24 kB
+dist/assets/DocActionBar-B_gX95Q5.css                                             0.56 kB │ gzip:   0.31 kB
+dist/assets/ImportFieldTable-B-e6skG9.css                                         0.59 kB │ gzip:   0.23 kB
+dist/assets/change-password-2S89RJek.css                                          0.66 kB │ gzip:   0.34 kB
+dist/assets/NewDot-C9AF_qqb.css                                                   0.69 kB │ gzip:   0.30 kB
+dist/assets/profile-D3DHjSzr.css                                                  0.92 kB │ gzip:   0.35 kB
+dist/assets/index-Cccbdz2W.css                                                    1.05 kB │ gzip:   0.33 kB
+dist/assets/index-DyoxQY3_.css                                                    1.06 kB │ gzip:   0.34 kB
+dist/assets/index-DmAb1pzh.css                                                    1.23 kB │ gzip:   0.43 kB
+dist/assets/mapping-CyP57r_M.css                                                  1.27 kB │ gzip:   0.41 kB
+dist/assets/BlockerCheckPanel-DJVhF51Z.css                                        1.27 kB │ gzip:   0.43 kB
+dist/assets/useBatchSelection-BXGq_U-x.css                                        1.28 kB │ gzip:   0.47 kB
+dist/assets/index-CheUli4Y.css                                                    1.36 kB │ gzip:   0.43 kB
+dist/assets/index-Dfq09S24.css                                                    1.60 kB │ gzip:   0.48 kB
+dist/assets/DocAttachmentPanel-Da3OBp60.css                                       1.60 kB │ gzip:   0.52 kB
+dist/assets/index-DFgHLbMq.css                                                    1.62 kB │ gzip:   0.48 kB
+dist/assets/templates-BdlNSVtc.css                                                1.63 kB │ gzip:   0.49 kB
+dist/assets/index-baRwzEZS.css                                                    1.65 kB │ gzip:   0.49 kB
+dist/assets/index-C-x-T80C.css                                                    1.69 kB │ gzip:   0.50 kB
+dist/assets/index-weUNbvYM.css                                                    1.75 kB │ gzip:   0.52 kB
+dist/assets/index-CSY6FRHi.css                                                    1.90 kB │ gzip:   0.54 kB
+dist/assets/index-CxLEn83o.css                                                    1.95 kB │ gzip:   0.61 kB
+dist/assets/index-D0Qi1U_h.css                                                    1.99 kB │ gzip:   0.59 kB
+dist/assets/index-DVo0vl-Q.css                                                    2.00 kB │ gzip:   0.57 kB
+dist/assets/index-D_H9YS6o.css                                                    2.07 kB │ gzip:   0.55 kB
+dist/assets/index-CHSm9_0Q.css                                                    2.22 kB │ gzip:   0.66 kB
+dist/assets/index-DGB911bL.css                                                    2.28 kB │ gzip:   0.66 kB
+dist/assets/index-B_lDAqG4.css                                                    2.29 kB │ gzip:   0.62 kB
+dist/assets/index-Bbnr7sgT.css                                                    2.39 kB │ gzip:   0.63 kB
+dist/assets/index-CuRrukq2.css                                                    2.42 kB │ gzip:   0.67 kB
+dist/assets/index-DV94ApLY.css                                                    2.44 kB │ gzip:   0.72 kB
+dist/assets/index-OD71dPFa.css                                                    2.47 kB │ gzip:   0.73 kB
+dist/assets/index-CucBU_yh.css                                                    2.49 kB │ gzip:   0.66 kB
+dist/assets/index-DF6fVECV.css                                                    2.50 kB │ gzip:   0.60 kB
+dist/assets/index-TLQSovEi.css                                                    2.55 kB │ gzip:   0.67 kB
+dist/assets/index-BeW7yORn.css                                                    2.55 kB │ gzip:   0.78 kB
+dist/assets/index-C4UVMzhD.css                                                    2.66 kB │ gzip:   0.73 kB
+dist/assets/index-Buvr51yq.css                                                    2.68 kB │ gzip:   0.72 kB
+dist/assets/index-vWFjUmFC.css                                                    2.70 kB │ gzip:   0.79 kB
+dist/assets/index-B0XaN-Ju.css                                                    2.71 kB │ gzip:   0.65 kB
+dist/assets/index-exFWv_aC.css                                                    2.71 kB │ gzip:   0.74 kB
+dist/assets/ExpenseDetailDrawer-D5Y6sKef.css                                      2.71 kB │ gzip:   0.70 kB
+dist/assets/report-ya9o1gHI.css                                                   2.73 kB │ gzip:   0.72 kB
+dist/assets/index-BqKvsihJ.css                                                    2.75 kB │ gzip:   0.71 kB
+dist/assets/index-Bps9w9Wb.css                                                    2.78 kB │ gzip:   0.78 kB
+dist/assets/index-Di-rr5h5.css                                                    2.79 kB │ gzip:   0.80 kB
+dist/assets/index-BbpKHosk.css                                                    2.82 kB │ gzip:   0.68 kB
+dist/assets/index-CdPrRIYR.css                                                    2.88 kB │ gzip:   0.76 kB
+dist/assets/index-tshtFaKn.css                                                    2.88 kB │ gzip:   0.82 kB
+dist/assets/DataScopePanel-B9dCO80c.css                                           2.89 kB │ gzip:   0.66 kB
+dist/assets/index-DCucuROh.css                                                    2.90 kB │ gzip:   0.73 kB
+dist/assets/index-CGUAP-1e.css                                                    2.91 kB │ gzip:   0.73 kB
+dist/assets/index-CyAHO8QP.css                                                    2.92 kB │ gzip:   0.82 kB
+dist/assets/index-rjrdi_CJ.css                                                    2.95 kB │ gzip:   0.74 kB
+dist/assets/index-KB8ru_BJ.css                                                    3.04 kB │ gzip:   0.81 kB
+dist/assets/index-C_w-uRwS.css                                                    3.17 kB │ gzip:   0.83 kB
+dist/assets/index-BAhJ0s6S.css                                                    3.28 kB │ gzip:   0.79 kB
+dist/assets/index-DJ1YOX_P.css                                                    3.42 kB │ gzip:   0.86 kB
+dist/assets/index-Dj_B-AQa.css                                                    3.48 kB │ gzip:   0.96 kB
+dist/assets/index-BYkUQAIY.css                                                    3.48 kB │ gzip:   0.75 kB
+dist/assets/index-BEcyQU6n.css                                                    3.58 kB │ gzip:   0.84 kB
+dist/assets/index-vODhf6KT.css                                                    3.68 kB │ gzip:   0.91 kB
+dist/assets/index-sHuco4lP.css                                                    3.69 kB │ gzip:   0.95 kB
+dist/assets/index-DbDbUtF4.css                                                    3.84 kB │ gzip:   0.89 kB
+dist/assets/index-DM9bgobx.css                                                    3.96 kB │ gzip:   0.96 kB
+dist/assets/index-DWwN9XIp.css                                                    4.19 kB │ gzip:   0.86 kB
+dist/assets/FlowProgress-CVbj9FU4.css                                             4.20 kB │ gzip:   0.94 kB
+dist/assets/index-bFYuGdQw.css                                                    4.38 kB │ gzip:   0.94 kB
+dist/assets/gantt-CKLUNzcX.css                                                    4.44 kB │ gzip:   1.13 kB
+dist/assets/index-XBouhLdm.css                                                    4.54 kB │ gzip:   0.98 kB
+dist/assets/index-JXB3m58E.css                                                    4.56 kB │ gzip:   1.04 kB
+dist/assets/index-DcreP4IT.css                                                    4.63 kB │ gzip:   1.04 kB
+dist/assets/MarkdownViewer-GqN7gBIX.css                                           4.68 kB │ gzip:   1.18 kB
+dist/assets/index-3YbqCQTy.css                                                    4.71 kB │ gzip:   0.98 kB
+dist/assets/index-DX7inzVf.css                                                    4.81 kB │ gzip:   1.14 kB
+dist/assets/index-T20WSO7u.css                                                    4.91 kB │ gzip:   1.18 kB
+dist/assets/index-X756Rytv.css                                                    4.96 kB │ gzip:   1.07 kB
+dist/assets/index-Cfycucyn.css                                                    5.02 kB │ gzip:   1.15 kB
+dist/assets/index-R-gs0_Nm.css                                                    5.36 kB │ gzip:   1.21 kB
+dist/assets/detail-CeRBRq_S.css                                                   5.37 kB │ gzip:   1.14 kB
+dist/assets/index-DVxb34HU.css                                                    5.54 kB │ gzip:   1.20 kB
+dist/assets/index-DrTLPGXx.css                                                    5.74 kB │ gzip:   1.26 kB
+dist/assets/preference-D7zVN2R4.css                                               6.52 kB │ gzip:   1.33 kB
+dist/assets/index-Bnhfc4_3.css                                                    6.62 kB │ gzip:   1.45 kB
+dist/assets/index-qE1VNt1K.css                                                    6.98 kB │ gzip:   1.43 kB
+dist/assets/index-BdAPX2vC.css                                                    7.98 kB │ gzip:   1.99 kB
+dist/assets/index-BkH0njRs.css                                                    9.35 kB │ gzip:   1.98 kB
+dist/assets/FlowCanvasSwitch-BlHRq9co.css                                         9.70 kB │ gzip:   2.06 kB
+dist/assets/index-D4UUnzgv.css                                                   13.22 kB │ gzip:   2.63 kB
+dist/assets/detail-GKCIP7ah.css                                                  13.90 kB │ gzip:   2.60 kB
+dist/assets/BasicLayout-DTKH0vVU.css                                             15.23 kB │ gzip:   3.03 kB
+dist/assets/FlowCanvasVueFlow-CrGYbw5N.css                                       16.59 kB │ gzip:   3.22 kB
+dist/assets/edit--guRhR19.css                                                    21.94 kB │ gzip:   3.57 kB
+dist/assets/tdesign-E5ATeBiM.css                                                448.31 kB │ gzip:  51.33 kB
+dist/assets/logo-CxXS7KxG.js                                                      0.04 kB │ gzip:   0.06 kB
+dist/assets/_plugin-vue_export-helper-DlAUqK2U.js                                 0.09 kB │ gzip:   0.10 kB
+dist/assets/download-DSxzK7DZ.js                                                  0.30 kB │ gzip:   0.24 kB
+dist/assets/menu-api-D5o2Z_66.js                                                  0.35 kB │ gzip:   0.19 kB
+dist/assets/dept-api-KswmDaO3.js                                                  0.35 kB │ gzip:   0.19 kB
+dist/assets/format-B-IgrTlt.js                                                    0.36 kB │ gzip:   0.28 kB
+dist/assets/flow-business-items-CgSPWtc-.js                                       0.36 kB │ gzip:   0.27 kB
+dist/assets/changelog-api-DnswgWyZ.js                                             0.50 kB │ gzip:   0.31 kB
+dist/assets/dict-B8RBXWja.js                                                      0.53 kB │ gzip:   0.33 kB
+dist/assets/role-api-CQkHAaYd.js                                                  0.60 kB │ gzip:   0.24 kB
+dist/assets/NewDot-BaLWcVv-.js                                                    0.64 kB │ gzip:   0.44 kB
+dist/assets/user-api-Bra6LRIR.js                                                  0.65 kB │ gzip:   0.26 kB
+dist/assets/DocActionBar-BRGduqMC.js                                              0.65 kB │ gzip:   0.44 kB
+dist/assets/project-api-0gaDOoF1.js                                               0.71 kB │ gzip:   0.32 kB
+dist/assets/FlowPreview-B2bSh8nu.js                                               0.74 kB │ gzip:   0.46 kB
+dist/assets/dict-api-Dj-4RmDB.js                                                  0.75 kB │ gzip:   0.25 kB
+dist/assets/index-CI9kozUB.js                                                     0.77 kB │ gzip:   0.54 kB
+dist/assets/index-Vv9_O2Qf.js                                                     0.78 kB │ gzip:   0.55 kB
+dist/assets/StatusBadge-Dqz2p8IA.js                                               0.79 kB │ gzip:   0.51 kB
+dist/assets/index-mIM4wFag.js                                                     0.81 kB │ gzip:   0.56 kB
+dist/assets/memory-core-DucR4N1R.js                                               0.86 kB │ gzip:   0.44 kB
+dist/assets/index-CqdzXpad.js                                                     0.86 kB │ gzip:   0.30 kB
+dist/assets/money-DvpS0P-N.js                                                     0.91 kB │ gzip:   0.51 kB
+dist/assets/approval-progress-BShA-dvf.js                                         1.03 kB │ gzip:   0.51 kB
+dist/assets/budget-BsUqeg9N.js                                                    1.05 kB │ gzip:   0.50 kB
+dist/assets/DeptTreeSelect.vue_vue_type_script_setup_true_lang-Dbpp3xjK.js        1.07 kB │ gzip:   0.66 kB
+dist/assets/help-api-BqqlAfa_.js                                                  1.12 kB │ gzip:   0.41 kB
+dist/assets/approval-flow-oUX1e84k.js                                             1.20 kB │ gzip:   0.64 kB
+dist/assets/badge-BDJV3Ra8.js                                                     1.35 kB │ gzip:   0.73 kB
+dist/assets/announcement-api-Bt7ipl6K.js                                          1.36 kB │ gzip:   0.50 kB
+dist/assets/useFormMemory-CmZdIegf.js                                             1.45 kB │ gzip:   0.86 kB
+dist/assets/UserSelect-DiTjWzRd.js                                                1.58 kB │ gzip:   0.90 kB
+dist/assets/FileUploader-ZKcKMDYs.js                                              1.67 kB │ gzip:   0.97 kB
+dist/assets/index-CpdHvzO6.js                                                     1.69 kB │ gzip:   0.63 kB
+dist/assets/index-BKbkbKjY.js                                                     1.92 kB │ gzip:   0.92 kB
+dist/assets/EChart-BJalGXBC.js                                                    1.99 kB │ gzip:   1.07 kB
+dist/assets/flow-api-C-MskzVE.js                                                  2.09 kB │ gzip:   0.61 kB
+dist/assets/markdown-lite-C50M6HyA.js                                             2.13 kB │ gzip:   1.01 kB
+dist/assets/doc-kinds-D0tEwcea.js                                                 2.23 kB │ gzip:   1.05 kB
+dist/assets/ImportFieldTable-Bln0ziKR.js                                          2.44 kB │ gzip:   1.16 kB
+dist/assets/change-password-BketxyP2.js                                           3.03 kB │ gzip:   1.45 kB
+dist/assets/task-api-l7gNw0qu.js                                                  3.05 kB │ gzip:   1.06 kB
+dist/assets/useListFilterMemory-D0ba8iM7.js                                       3.14 kB │ gzip:   1.67 kB
+dist/assets/index-DMYJxjpQ.js                                                     3.39 kB │ gzip:   1.64 kB
+dist/assets/ImportEntryButton-Bf3tdKmf.js                                         3.51 kB │ gzip:   1.85 kB
+dist/assets/material-query-CGMBG8E2.js                                            4.02 kB │ gzip:   1.73 kB
+dist/assets/permissions-DMRrmxGM.js                                               4.09 kB │ gzip:   1.02 kB
+dist/assets/status-map-DG1yJMT8.js                                                4.32 kB │ gzip:   1.06 kB
+dist/assets/FlowProgress-BBeqmTUH.js                                              4.33 kB │ gzip:   1.78 kB
+dist/assets/index-9jZsfxHD.js                                                     4.49 kB │ gzip:   2.12 kB
+dist/assets/flow-error-codes-KUjSAnWS.js                                          4.64 kB │ gzip:   2.37 kB
+dist/assets/index-Bv-Na1W4.js                                                     4.80 kB │ gzip:   2.09 kB
+dist/assets/DocAttachmentPanel-CUrkP5zi.js                                        6.10 kB │ gzip:   2.89 kB
+dist/assets/index-zid74Ytq.js                                                     6.18 kB │ gzip:   2.88 kB
+dist/assets/notice-DPs3P0am.js                                                    6.41 kB │ gzip:   2.86 kB
+dist/assets/index-kf7rfKUo.js                                                     6.91 kB │ gzip:   3.09 kB
+dist/assets/profile-5-aS1Znw.js                                                   7.09 kB │ gzip:   2.68 kB
+dist/assets/dayjs.min-Dt7qDkBB.js                                                 7.16 kB │ gzip:   3.12 kB
+dist/assets/index-BZHLvXWI.js                                                     7.18 kB │ gzip:   3.01 kB
+dist/assets/index-DnznB4BS.js                                                     7.40 kB │ gzip:   3.07 kB
+dist/assets/index-DJ0fcp7z.js                                                     7.53 kB │ gzip:   3.23 kB
+dist/assets/index-XQJ1UYfg.js                                                     7.55 kB │ gzip:   1.87 kB
+dist/assets/MarkdownViewer-DzVEoltZ.js                                            7.85 kB │ gzip:   3.58 kB
+dist/assets/BlockerCheckPanel-BRmFec9E.js                                         7.98 kB │ gzip:   3.38 kB
+dist/assets/index-skMOpL2K.js                                                     8.04 kB │ gzip:   3.33 kB
+dist/assets/index-CHuKGTR6.js                                                     8.16 kB │ gzip:   3.53 kB
+dist/assets/index-VNmTIacx.js                                                     8.54 kB │ gzip:   3.61 kB
+dist/assets/index-B1VSvqme.js                                                     8.59 kB │ gzip:   3.46 kB
+dist/assets/index-DK2QHEi4.js                                                     8.66 kB │ gzip:   3.26 kB
+dist/assets/index-Bm7y4e0a.js                                                     9.17 kB │ gzip:   3.81 kB
+dist/assets/index-DHBnGBJd.js                                                     9.19 kB │ gzip:   3.28 kB
+dist/assets/use-flow-master-names-Cz1gyBzM.js                                     9.23 kB │ gzip:   3.86 kB
+dist/assets/report-652I7Iv7.js                                                    9.40 kB │ gzip:   3.58 kB
+dist/assets/expense-logic-Cz1mS5u-.js                                             9.81 kB │ gzip:   3.70 kB
+dist/assets/LocationFormDialog-DMKZpL7z.js                                        9.88 kB │ gzip:   3.89 kB
+dist/assets/index-BaortDYN.js                                                    10.05 kB │ gzip:   3.81 kB
+dist/assets/budget-logic-BhuMrPCQ.js                                             10.26 kB │ gzip:   4.15 kB
+dist/assets/preference-Y2EU7mH1.js                                               10.37 kB │ gzip:   4.39 kB
+dist/assets/index-BFE3MBL7.js                                                    10.54 kB │ gzip:   4.34 kB
+dist/assets/ExpenseDetailDrawer-C4CkylNi.js                                      10.56 kB │ gzip:   3.89 kB
+dist/assets/index-Dn7zWeVt.js                                                    10.65 kB │ gzip:   4.00 kB
+dist/assets/index-BTVuovXl.js                                                    10.80 kB │ gzip:   4.29 kB
+dist/assets/DataScopePanel-Bw1_PDNy.js                                           10.86 kB │ gzip:   4.12 kB
+dist/assets/useBatchSelection-BRq9gF5n.js                                        10.91 kB │ gzip:   4.44 kB
+dist/assets/index-7opt52Dm.js                                                    11.07 kB │ gzip:   4.31 kB
+dist/assets/index-3bH5cUtb.js                                                    11.17 kB │ gzip:   4.48 kB
+dist/assets/index-CdUSnYF5.js                                                    11.31 kB │ gzip:   4.23 kB
+dist/assets/index-vvyD88kC.js                                                    11.51 kB │ gzip:   4.21 kB
+dist/assets/index-Q1v8kEg4.js                                                    11.56 kB │ gzip:   3.91 kB
+dist/assets/asset-logic-Dlzfhjsj.js                                              11.62 kB │ gzip:   4.93 kB
+dist/assets/index-KoASLe-3.js                                                    11.67 kB │ gzip:   4.54 kB
+dist/assets/index-Cp-5qn6F.js                                                    11.67 kB │ gzip:   4.21 kB
+dist/assets/index-Zd5Vgo1N.js                                                    11.70 kB │ gzip:   4.55 kB
+dist/assets/mapping-Qdphc_0f.js                                                  11.95 kB │ gzip:   4.40 kB
+dist/assets/index-BZrJkEob.js                                                    11.97 kB │ gzip:   4.33 kB
+dist/assets/index-BLg5T25b.js                                                    12.02 kB │ gzip:   3.89 kB
+dist/assets/index-D6sqXGJJ.js                                                    12.13 kB │ gzip:   4.53 kB
+dist/assets/index-hazLzzx2.js                                                    12.89 kB │ gzip:   4.50 kB
+dist/assets/index-ByCForlr.js                                                    13.21 kB │ gzip:   4.17 kB
+dist/assets/index-DwhbVtYP.js                                                    13.23 kB │ gzip:   5.28 kB
+dist/assets/templates-CLw6nZCO.js                                                13.30 kB │ gzip:   4.91 kB
+dist/assets/graph-Dr23VDtv.js                                                    13.36 kB │ gzip:   5.13 kB
+dist/assets/index-4MgWuUO1.js                                                    13.54 kB │ gzip:   5.29 kB
+dist/assets/index-BwZCWxm1.js                                                    13.90 kB │ gzip:   5.02 kB
+dist/assets/index-iUGRbPsI.js                                                    13.91 kB │ gzip:   4.67 kB
+dist/assets/index-Ba-PIbPY.js                                                    13.95 kB │ gzip:   5.29 kB
+dist/assets/index-CKgo261n.js                                                    13.97 kB │ gzip:   4.91 kB
+dist/assets/index-C5z0mNkI.js                                                    14.20 kB │ gzip:   5.11 kB
+dist/assets/index-CJkoI_Gk.js                                                    15.07 kB │ gzip:   5.34 kB
+dist/assets/index-D9PnzRZI.js                                                    15.75 kB │ gzip:   5.99 kB
+dist/assets/index-B4MAd4tF.js                                                    16.04 kB │ gzip:   5.85 kB
+dist/assets/index-D99EVsTF.js                                                    16.52 kB │ gzip:   6.16 kB
+dist/assets/index-mMLnZCBp.js                                                    16.69 kB │ gzip:   6.01 kB
+dist/assets/index-oc7yas8y.js                                                    16.96 kB │ gzip:   5.82 kB
+dist/assets/index-DviFbYTd.js                                                    17.94 kB │ gzip:   6.49 kB
+dist/assets/index-BrzVR5ek.js                                                    18.07 kB │ gzip:   6.43 kB
+dist/assets/index-KGOLm3bP.js                                                    18.32 kB │ gzip:   6.65 kB
+dist/assets/index-CdPKuZz0.js                                                    18.63 kB │ gzip:   6.59 kB
+dist/assets/BasicLayout-B3SApI-u.js                                              18.76 kB │ gzip:   7.16 kB
+dist/assets/index-XkCGqMi7.js                                                    18.81 kB │ gzip:   7.07 kB
+dist/assets/index-0ja2q85A.js                                                    19.35 kB │ gzip:   6.57 kB
+dist/assets/index-De7ZJYAA.js                                                    19.90 kB │ gzip:   6.51 kB
+dist/assets/index-0qB6SHIZ.js                                                    20.74 kB │ gzip:   7.69 kB
+dist/assets/detail-6qkCXCYT.js                                                   21.27 kB │ gzip:   7.58 kB
+dist/assets/index-BUSdegUf.js                                                    22.02 kB │ gzip:   7.50 kB
+dist/assets/index-yNYEs-IT.js                                                    22.26 kB │ gzip:   7.14 kB
+dist/assets/gantt-M2D5HE-G.js                                                    23.06 kB │ gzip:   8.50 kB
+dist/assets/index-a9NJX4aW.js                                                    23.49 kB │ gzip:   7.87 kB
+dist/assets/index-C4PS9YQV.js                                                    24.40 kB │ gzip:   8.32 kB
+dist/assets/FlowCanvasSwitch.vue_vue_type_script_setup_true_lang-CAV_uwU7.js     24.91 kB │ gzip:   9.00 kB
+dist/assets/index-C36Y4Ibe.js                                                    25.93 kB │ gzip:   8.73 kB
+dist/assets/index-BFTDw1Rm.js                                                    28.00 kB │ gzip:   9.59 kB
+dist/assets/index-CfTH4S0j.js                                                    28.27 kB │ gzip:   9.41 kB
+dist/assets/index-DGXUuMRQ.js                                                    29.25 kB │ gzip:   9.74 kB
+dist/assets/index-DGbplRAb.js                                                    30.68 kB │ gzip:  10.51 kB
+dist/assets/index-y7I8-L8g.js                                                    31.59 kB │ gzip:   9.52 kB
+dist/assets/index-DUGzlK4-.js                                                    33.35 kB │ gzip:   9.83 kB
+dist/assets/index-CM3X0PBN.js                                                    33.36 kB │ gzip:  10.92 kB
+dist/assets/index-Dq34uqOr.js                                                    35.21 kB │ gzip:  11.47 kB
+dist/assets/index-B086jW8s.js                                                    39.87 kB │ gzip:  12.93 kB
+dist/assets/index-Cs7bmRCh.js                                                    40.95 kB │ gzip:  13.21 kB
+dist/assets/index-Fnjlb8pa.js                                                    41.43 kB │ gzip:  15.41 kB
+dist/assets/index-BjFzNKMc.js                                                    49.75 kB │ gzip:  15.54 kB
+dist/assets/index-Cw3ZUG6Y.js                                                    52.65 kB │ gzip:  17.11 kB
+dist/assets/index-IqM9ZXQu.js                                                    52.92 kB │ gzip:  13.16 kB
+dist/assets/detail-DJq6NjVO.js                                                   54.63 kB │ gzip:  18.63 kB
+dist/assets/index-CarhVScy.js                                                    55.62 kB │ gzip:  17.71 kB
+dist/assets/index-DQwzDA_Y.js                                                   122.68 kB │ gzip:  45.15 kB
+dist/assets/edit-mb1kpJp9.js                                                    196.19 kB │ gzip:  66.78 kB
+dist/assets/FlowCanvasVueFlow-Bqzch-dN.js                                       231.29 kB │ gzip:  76.71 kB
+dist/assets/echarts-CuV_skF0.js                                               1,026.96 kB │ gzip: 340.14 kB
+dist/assets/tdesign-B9Yx93ic.js                                               8,186.49 kB │ gzip: 793.71 kB
+
+(!) Some chunks are larger than 1500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 48.05s
+
+✨ [vite-plugin-compression]:algorithm=gzip - compressed file successfully: 
+dist//opt/cloudpivot/frontend/assets/BasicLayout-B3SApI-u.js.gz                                            18.32kb / gzip: 6.98kb
+dist//opt/cloudpivot/frontend/assets/DataScopePanel-Bw1_PDNy.js.gz                                         10.60kb / gzip: 4.01kb
+dist//opt/cloudpivot/frontend/assets/BasicLayout-DTKH0vVU.css.gz                                           14.87kb / gzip: 2.95kb
+dist//opt/cloudpivot/frontend/assets/ExpenseDetailDrawer-C4CkylNi.js.gz                                    10.32kb / gzip: 3.80kb
+dist//opt/cloudpivot/frontend/assets/FlowCanvasSwitch.vue_vue_type_script_setup_true_lang-CAV_uwU7.js.gz   24.33kb / gzip: 8.78kb
+dist//opt/cloudpivot/frontend/assets/FlowCanvasVueFlow-CrGYbw5N.css.gz                                     16.20kb / gzip: 3.11kb
+dist//opt/cloudpivot/frontend/assets/asset-logic-Dlzfhjsj.js.gz                                            11.34kb / gzip: 4.82kb
+dist//opt/cloudpivot/frontend/assets/budget-logic-BhuMrPCQ.js.gz                                           10.02kb / gzip: 4.05kb
+dist//opt/cloudpivot/frontend/assets/detail-GKCIP7ah.css.gz                                                13.57kb / gzip: 2.52kb
+dist//opt/cloudpivot/frontend/assets/edit--guRhR19.css.gz                                                  21.42kb / gzip: 3.47kb
+dist//opt/cloudpivot/frontend/assets/gantt-M2D5HE-G.js.gz                                                  22.52kb / gzip: 8.29kb
+dist//opt/cloudpivot/frontend/assets/graph-Dr23VDtv.js.gz                                                  13.04kb / gzip: 5.01kb
+dist//opt/cloudpivot/frontend/assets/index-0ja2q85A.js.gz                                                  18.89kb / gzip: 6.41kb
+dist//opt/cloudpivot/frontend/assets/index-3bH5cUtb.js.gz                                                  10.91kb / gzip: 4.38kb
+dist//opt/cloudpivot/frontend/assets/index-4MgWuUO1.js.gz                                                  13.22kb / gzip: 5.16kb
+dist//opt/cloudpivot/frontend/assets/index-7opt52Dm.js.gz                                                  10.81kb / gzip: 4.21kb
+dist//opt/cloudpivot/frontend/assets/index-B086jW8s.js.gz                                                  38.94kb / gzip: 12.60kb
+dist//opt/cloudpivot/frontend/assets/index-BFE3MBL7.js.gz                                                  10.29kb / gzip: 4.24kb
+dist//opt/cloudpivot/frontend/assets/index-B4MAd4tF.js.gz                                                  15.66kb / gzip: 5.71kb
+dist//opt/cloudpivot/frontend/assets/index-BFTDw1Rm.js.gz                                                  27.35kb / gzip: 9.35kb
+dist//opt/cloudpivot/frontend/assets/index-BLg5T25b.js.gz                                                  11.73kb / gzip: 3.80kb
+dist//opt/cloudpivot/frontend/assets/index-BTVuovXl.js.gz                                                  10.55kb / gzip: 4.17kb
+dist//opt/cloudpivot/frontend/assets/index-BUSdegUf.js.gz                                                  21.50kb / gzip: 7.31kb
+dist//opt/cloudpivot/frontend/assets/index-BZrJkEob.js.gz                                                  11.69kb / gzip: 4.22kb
+dist//opt/cloudpivot/frontend/assets/index-Ba-PIbPY.js.gz                                                  13.62kb / gzip: 5.16kb
+dist//opt/cloudpivot/frontend/assets/detail-6qkCXCYT.js.gz                                                 20.77kb / gzip: 7.39kb
+dist//opt/cloudpivot/frontend/assets/index-0qB6SHIZ.js.gz                                                  20.25kb / gzip: 7.50kb
+dist//opt/cloudpivot/frontend/assets/index-ByCForlr.js.gz                                                  12.90kb / gzip: 4.07kb
+dist//opt/cloudpivot/frontend/assets/index-C36Y4Ibe.js.gz                                                  25.32kb / gzip: 8.51kb
+dist//opt/cloudpivot/frontend/assets/index-BjFzNKMc.js.gz                                                  48.58kb / gzip: 15.16kb
+dist//opt/cloudpivot/frontend/assets/index-BrzVR5ek.js.gz                                                  17.65kb / gzip: 6.27kb
+dist//opt/cloudpivot/frontend/assets/index-C4PS9YQV.js.gz                                                  23.83kb / gzip: 8.11kb
+dist//opt/cloudpivot/frontend/assets/index-BwZCWxm1.js.gz                                                  13.57kb / gzip: 4.90kb
+dist//opt/cloudpivot/frontend/assets/index-C5z0mNkI.js.gz                                                  13.87kb / gzip: 4.98kb
+dist//opt/cloudpivot/frontend/assets/index-CKgo261n.js.gz                                                  13.64kb / gzip: 4.79kb
+dist//opt/cloudpivot/frontend/assets/index-CJkoI_Gk.js.gz                                                  14.71kb / gzip: 5.21kb
+dist//opt/cloudpivot/frontend/assets/index-CdPKuZz0.js.gz                                                  18.19kb / gzip: 6.43kb
+dist//opt/cloudpivot/frontend/assets/index-CM3X0PBN.js.gz                                                  32.58kb / gzip: 10.65kb
+dist//opt/cloudpivot/frontend/assets/index-CdUSnYF5.js.gz                                                  11.04kb / gzip: 4.12kb
+dist//opt/cloudpivot/frontend/assets/index-Cp-5qn6F.js.gz                                                  11.40kb / gzip: 4.10kb
+dist//opt/cloudpivot/frontend/assets/index-CfTH4S0j.js.gz                                                  27.61kb / gzip: 9.18kb
+dist//opt/cloudpivot/frontend/assets/index-D4UUnzgv.css.gz                                                 12.91kb / gzip: 2.56kb
+dist//opt/cloudpivot/frontend/assets/index-D6sqXGJJ.js.gz                                                  11.85kb / gzip: 4.42kb
+dist//opt/cloudpivot/frontend/assets/index-D9PnzRZI.js.gz                                                  15.38kb / gzip: 5.84kb
+dist//opt/cloudpivot/frontend/assets/index-Cs7bmRCh.js.gz                                                  39.99kb / gzip: 12.87kb
+dist//opt/cloudpivot/frontend/assets/index-D99EVsTF.js.gz                                                  16.13kb / gzip: 6.00kb
+dist//opt/cloudpivot/frontend/assets/index-DGbplRAb.js.gz                                                  29.96kb / gzip: 10.24kb
+dist//opt/cloudpivot/frontend/assets/index-DGXUuMRQ.js.gz                                                  28.56kb / gzip: 9.49kb
+dist//opt/cloudpivot/frontend/assets/index-De7ZJYAA.js.gz                                                  19.44kb / gzip: 6.34kb
+dist//opt/cloudpivot/frontend/assets/index-Dn7zWeVt.js.gz                                                  10.40kb / gzip: 3.91kb
+dist//opt/cloudpivot/frontend/assets/index-DviFbYTd.js.gz                                                  17.52kb / gzip: 6.33kb
+dist//opt/cloudpivot/frontend/assets/index-Dq34uqOr.js.gz                                                  34.39kb / gzip: 11.18kb
+dist//opt/cloudpivot/frontend/assets/index-DwhbVtYP.js.gz                                                  12.92kb / gzip: 5.15kb
+dist//opt/cloudpivot/frontend/assets/index-KoASLe-3.js.gz                                                  11.40kb / gzip: 4.43kb
+dist//opt/cloudpivot/frontend/assets/index-KGOLm3bP.js.gz                                                  17.89kb / gzip: 6.49kb
+dist//opt/cloudpivot/frontend/assets/index-Q1v8kEg4.js.gz                                                  11.29kb / gzip: 3.81kb
+dist//opt/cloudpivot/frontend/assets/index-a9NJX4aW.js.gz                                                  22.94kb / gzip: 7.68kb
+dist//opt/cloudpivot/frontend/assets/index-Fnjlb8pa.js.gz                                                  40.46kb / gzip: 15.04kb
+dist//opt/cloudpivot/frontend/assets/index-iUGRbPsI.js.gz                                                  13.58kb / gzip: 4.56kb
+dist//opt/cloudpivot/frontend/assets/index-Zd5Vgo1N.js.gz                                                  11.43kb / gzip: 4.43kb
+dist//opt/cloudpivot/frontend/assets/index-hazLzzx2.js.gz                                                  12.59kb / gzip: 4.39kb
+dist//opt/cloudpivot/frontend/assets/index-DUGzlK4-.js.gz                                                  32.57kb / gzip: 9.59kb
+dist//opt/cloudpivot/frontend/assets/index-vvyD88kC.js.gz                                                  11.24kb / gzip: 4.11kb
+dist//opt/cloudpivot/frontend/assets/index-oc7yas8y.js.gz                                                  16.56kb / gzip: 5.68kb
+dist//opt/cloudpivot/frontend/assets/index-yNYEs-IT.js.gz                                                  21.74kb / gzip: 6.96kb
+dist//opt/cloudpivot/frontend/assets/mapping-Qdphc_0f.js.gz                                                11.67kb / gzip: 4.29kb
+dist//opt/cloudpivot/frontend/assets/index-y7I8-L8g.js.gz                                                  30.85kb / gzip: 9.27kb
+dist//opt/cloudpivot/frontend/assets/preference-Y2EU7mH1.js.gz                                             10.13kb / gzip: 4.28kb
+dist//opt/cloudpivot/frontend/assets/templates-CLw6nZCO.js.gz                                              12.98kb / gzip: 4.79kb
+dist//opt/cloudpivot/frontend/assets/useBatchSelection-BRq9gF5n.js.gz                                      10.65kb / gzip: 4.33kb
+dist//opt/cloudpivot/frontend/demo/flow-poc/demo-logicflow.html.gz                                         11.90kb / gzip: 4.97kb
+dist//opt/cloudpivot/frontend/assets/index-mMLnZCBp.js.gz                                                  16.30kb / gzip: 5.87kb
+dist//opt/cloudpivot/frontend/assets/detail-DJq6NjVO.js.gz                                                 53.35kb / gzip: 18.16kb
+dist//opt/cloudpivot/frontend/assets/index-IqM9ZXQu.js.gz                                                  51.68kb / gzip: 12.85kb
+dist//opt/cloudpivot/frontend/demo/flow-poc/demo-vue-flow.html.gz                                          10.15kb / gzip: 4.24kb
+dist//opt/cloudpivot/frontend/assets/index-XkCGqMi7.js.gz                                                  18.37kb / gzip: 6.90kb
+dist//opt/cloudpivot/frontend/assets/index-CarhVScy.js.gz                                                  54.31kb / gzip: 17.26kb
+dist//opt/cloudpivot/frontend/assets/index-Cw3ZUG6Y.js.gz                                                  51.42kb / gzip: 16.68kb
+dist//opt/cloudpivot/frontend/demo/flow-poc/index.html.gz                                                  15.89kb / gzip: 5.76kb
+dist//opt/cloudpivot/frontend/demo/flow-poc/demo-native.html.gz                                            12.47kb / gzip: 4.84kb
+dist//opt/cloudpivot/frontend/assets/index-DQwzDA_Y.js.gz                                                  119.81kb / gzip: 44.01kb
+dist//opt/cloudpivot/frontend/assets/tdesign-E5ATeBiM.css.gz                                               437.80kb / gzip: 49.58kb
+dist//opt/cloudpivot/frontend/assets/edit-mb1kpJp9.js.gz                                                   191.59kb / gzip: 65.09kb
+dist//opt/cloudpivot/frontend/assets/FlowCanvasVueFlow-Bqzch-dN.js.gz                                      225.87kb / gzip: 74.78kb
+dist//opt/cloudpivot/frontend/demo/flow-poc/vendor/vue-flow.bundle.js.gz                                   283.84kb / gzip: 100.30kb
+dist//opt/cloudpivot/frontend/demo/flow-poc/vendor/logicflow.bundle.js.gz                                  384.37kb / gzip: 98.77kb
+dist//opt/cloudpivot/frontend/assets/echarts-CuV_skF0.js.gz                                                1002.89kb / gzip: 331.52kb
+dist//opt/cloudpivot/frontend/assets/tdesign-B9Yx93ic.js.gz                                                7994.62kb / gzip: 772.17kb
+
+

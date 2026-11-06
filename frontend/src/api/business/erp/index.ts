@@ -4290,6 +4290,11 @@ export interface Customer {
    * 不要 `parseFloat` 后再格式化 —— 会丢 4 位小数口径（与供应商页同规则）。
    */
   credit_limit: string;
+  /**
+   * 账期天数（`INT NOT NULL DEFAULT 0`，`V0289`）：**0 = 现结**（到期日 = 出库过账日），
+   * `> 0` 时应收到期日 = 过账日 + 该天数。与 `biz_supplier.credit_days` 同口径。
+   */
+  credit_days: number;
   /** 状态：`ACTIVE` / `FROZEN` */
   status: CustomerStatus;
   /** 备注 */
@@ -4322,6 +4327,8 @@ export interface CreateCustomerReq {
   address?: string | null;
   /** 信用额度（`>= 0`，字符串定点更稳：`"1000.5"`） */
   credit_limit?: string | number | null;
+  /** 账期天数（`>= 0` 整数，`0` = 现结；不传 = 后端默认 `0`） */
+  credit_days?: number | null;
   /** 状态（不传 = `ACTIVE`） */
   status?: CustomerStatus;
   /** 备注（≤2000） */
@@ -4349,6 +4356,8 @@ export interface UpdateCustomerReq {
   address?: string | null;
   /** 信用额度（不传 = 不改） */
   credit_limit?: string | number | null;
+  /** 账期天数（不传 = 不改；`0` = 现结，`>= 0` 整数） */
+  credit_days?: number | null;
   /** 状态（不传 = 不改） */
   status?: CustomerStatus;
   /** 备注（`''` = 清空） */

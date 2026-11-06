@@ -25,6 +25,13 @@
  * `NUMERIC(18,4)`，后端以**字符串**下发（`"200000.5000"`）。所以：
  * - 列表 / 详情按字符串裁尾零显示（`formatCreditLimit`，不 `parseFloat`）；
  * - 提交时转成字符串（`"200000.5"`），不把 `0.1 + 0.2 = 0.30000000000000004` 发给后端。
+ *
+ * # 账期天数 `credit_days`（SO-14 / `V0289`）
+ *
+ * `INT NOT NULL DEFAULT 0`，**`0` = 现结**（销售出库过账挂应收时 `due_date = 过账日`）。
+ * 后端 `customer_handler::require_credit_days` 只拒 `< 0`（`>= 0` 全合法，不设上限）；
+ * 前端在入口用同一条文案拦一次，省一次往返（错误挂在字段上比 toast 好找）。
+ * **新建默认 `0`，不要默认 30** —— 后端默认也是 `0`（硬编 30 会让新客户凭空多一个月账期）。
  */
 import type { PrimaryTableCol } from 'tdesign-vue-next';
 import type {
@@ -63,6 +70,9 @@ export const CUSTOMER_LIMITS = {
 
 /** 信用额度整数位上限：`NUMERIC(18,4)` → 14 位整数 + 4 位小数 */
 export const CUSTOMER_CREDIT_LIMIT_MAX = 99_999_999_999_999.9999;
+
+/** 账期天数上限：后端 `credit_days` 是 `i32`，超出这个数 JSON 反序列化就 400 */
+export const CUSTOMER_CREDIT_DAYS_MAX = 2_147_483_647;
 
 // ==================== 筛选 ====================
 
@@ -204,11 +214,38 @@ export function isCustomerListEmpty(rows: Pick<Customer, 'id'>[] | null | undefi
   return (rows?.length ?? 0) === 0;
 }
 
+/**
+ * 账期天数 → 列表 / 详情文案：`0` 说人话「现结」，`45` → `45 天`。
+ *
+ * 与 `formatCreditLimit` 的「不控额度」同思路：用户看到 `0` 容易误读成「没设置」，
+ * 其实 `0` 是有明确业务含义的（到期日 = 出库过账日）。
+ */
+export function formatCreditDays(value: number | string | null | undefined): string {
+  if (value === null || value === undefined || value === '') {
+    return '现结';
+  }
+  const days = Number(value);
+  if (!Number.isFinite(days) || days <= 0) {
+    return '现结';
+  }
+  return `${Math.trunc(days)} 天`;
+}
+
+/** 是否现结（`0` / 空 → 列表里灰显，与 `credit_limit === 0` 的 muted 同写法） */
+export function isCashOnDelivery(value: number | string | null | undefined): boolean {
+  if (value === null || value === undefined || value === '') {
+    return true;
+  }
+  const days = Number(value);
+  return !Number.isFinite(days) || days <= 0;
+}
+
 /** 表格列（colKey 与后端出参同名；`op` 是唯一非后端字段列） */
 export const CUSTOMER_COLUMNS: PrimaryTableCol[] = [
   { colKey: 'code', title: '客户编码', width: 150, fixed: 'left', ellipsis: true },
   { colKey: 'name', title: '客户名称', minWidth: 220, ellipsis: true },
   { colKey: 'contact_name', title: '联系人 / 电话', width: 200, ellipsis: true },
+  { colKey: 'credit_days', title: '账期(天)', width: 110, align: 'right' },
   { colKey: 'credit_limit', title: '信用额度', width: 140, align: 'right' },
   { colKey: 'status', title: '状态', width: 100 },
   { colKey: 'op', title: '操作', width: 220, fixed: 'right' },
@@ -237,6 +274,8 @@ export interface CustomerFormState {
   address: string;
   /** 信用额度（`0` = 不控额度） */
   credit_limit: number;
+  /** 账期天数（`0` = 现结；`> 0` = 出库过账后 N 天到期） */
+  credit_days: number;
   /** 状态 */
   status: CustomerStatus;
   /** 备注 */
@@ -253,6 +292,8 @@ export function emptyCustomerForm(): CustomerFormState {
     contact_phone: '',
     address: '',
     credit_limit: 0,
+    // 账期默认 0（= 现结）：后端 `credit_days.unwrap_or(0)`，硬编 30 会让新客户凭空多一个月账期
+    credit_days: 0,
     status: 'ACTIVE',
     remark: '',
   };
@@ -268,6 +309,7 @@ export function customerFormFromRow(row: Customer): CustomerFormState {
     contact_phone: row.contact_phone ?? '',
     address: row.address ?? '',
     credit_limit: Number(row.credit_limit ?? 0),
+    credit_days: Number(row.credit_days ?? 0) || 0,
     status: row.status === 'FROZEN' ? 'FROZEN' : 'ACTIVE',
     remark: row.remark ?? '',
   };
@@ -283,6 +325,7 @@ export type CustomerFieldErrors = Partial<
     | 'contact_phone'
     | 'address'
     | 'credit_limit'
+    | 'credit_days'
     | 'remark',
     string
   >
@@ -347,7 +390,34 @@ export function validateCustomerForm(
     errors.credit_limit = '信用额度超出可存范围（整数位最多 14 位）';
   }
 
+  const daysError = creditDaysError(form.credit_days);
+  if (daysError) {
+    errors.credit_days = daysError;
+  }
+
   return errors;
+}
+
+/**
+ * 账期天数校验：文案**逐字照** `customer_handler::require_credit_days`
+ * （`credit_days 不能为负数（当前 {value}）；0 表示现结（到期日 = 过账日）`），
+ * 只在入口多做两件后端不做的事：非整数 / 超 `i32` 也在前端先拦（后端会 400，但没说人话）。
+ */
+export function creditDaysError(value: number | string | null | undefined): string {
+  const days = Number(value ?? 0);
+  if (!Number.isFinite(days)) {
+    return '账期天数必须是数字（0 = 现结）';
+  }
+  if (!Number.isInteger(days)) {
+    return '账期天数必须是整数（按自然日计，0 = 现结）';
+  }
+  if (days < 0) {
+    return `credit_days 不能为负数（当前 ${days}）；0 表示现结（到期日 = 过账日）`;
+  }
+  if (days > CUSTOMER_CREDIT_DAYS_MAX) {
+    return `账期天数超出可存范围（最大 ${CUSTOMER_CREDIT_DAYS_MAX}）`;
+  }
+  return '';
 }
 
 /** 空串 → `null`（后端 `clean_optional` 也认空串，但 `null` 更干净） */
@@ -364,6 +434,15 @@ export function creditLimitText(value: number): string {
   return String(value);
 }
 
+/** 账期天数：折成合法整数（非法/负数 → 0，调用前 `validateCustomerForm` 已拦，这里只是兜底） */
+export function creditDaysValue(value: number | string | null | undefined): number {
+  const days = Number(value ?? 0);
+  if (!Number.isFinite(days) || days < 0) {
+    return 0;
+  }
+  return Math.trunc(days);
+}
+
 /** 新建请求体 */
 export function buildCustomerCreatePayload(form: CustomerFormState): CreateCustomerReq {
   return {
@@ -374,6 +453,8 @@ export function buildCustomerCreatePayload(form: CustomerFormState): CreateCusto
     contact_phone: nullable(form.contact_phone),
     address: nullable(form.address),
     credit_limit: creditLimitText(Number(form.credit_limit)),
+    // 新建一律带上：后端 `credit_days.unwrap_or(0)`，显式发 0 免得以后默认值变了偷偷改语义
+    credit_days: creditDaysValue(form.credit_days),
     status: form.status === 'FROZEN' ? 'FROZEN' : 'ACTIVE',
     remark: nullable(form.remark),
   };
@@ -421,6 +502,12 @@ export function buildCustomerUpdatePayload(
   const creditLimit = Number(form.credit_limit) || 0;
   if (creditLimit !== Number(original.credit_limit ?? 0)) {
     payload.credit_limit = creditLimitText(creditLimit);
+  }
+
+  // 账期与额度分开比较：`0` 是合法值（现结），不能因为「假值」就跳过
+  const creditDays = creditDaysValue(form.credit_days);
+  if (creditDays !== Number(original.credit_days ?? 0)) {
+    payload.credit_days = creditDays;
   }
 
   if (form.status !== original.status) {

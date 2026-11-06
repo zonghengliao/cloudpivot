@@ -16,6 +16,7 @@ import assert from 'node:assert/strict';
 import type { Customer } from '@/api/business/erp';
 import {
   CUSTOMER_COLUMNS,
+  CUSTOMER_CREDIT_DAYS_MAX,
   CUSTOMER_CREDIT_LIMIT_MAX,
   CUSTOMER_PAGE_SIZE,
   CUSTOMER_STATUS_OPTIONS,
@@ -24,6 +25,8 @@ import {
   buildCustomerStatusPayload,
   buildCustomerUpdatePayload,
   contactLabel,
+  creditDaysError,
+  creditDaysValue,
   creditLimitText,
   customerFormFromRow,
   customerStatusLabel,
@@ -31,8 +34,10 @@ import {
   customerToggleLabel,
   emptyCustomerFilter,
   emptyCustomerForm,
+  formatCreditDays,
   formatCreditLimit,
   hasCustomerFieldError,
+  isCashOnDelivery,
   isCustomerFiltered,
   isCustomerListEmpty,
   isCustomerUpdateEmpty,
@@ -52,6 +57,7 @@ function row(overrides: Partial<Customer> = {}): Customer {
     contact_phone: '13800000001',
     address: '北京市海淀区中关村大街 1 号',
     credit_limit: '200000.5000',
+    credit_days: 30,
     status: 'ACTIVE',
     remark: '种子客户',
     created_at: '2026-11-06T00:00:00Z',
@@ -62,7 +68,7 @@ function row(overrides: Partial<Customer> = {}): Customer {
 
 test('CUSTOMER_COLUMNS 的 colKey 与后端 CustomerRes 逐字一致（不含 supplier_ 前缀）', () => {
   const keys = CUSTOMER_COLUMNS.map((col) => col.colKey);
-  assert.deepEqual(keys, ['code', 'name', 'contact_name', 'credit_limit', 'status', 'op']);
+  assert.deepEqual(keys, ['code', 'name', 'contact_name', 'credit_days', 'credit_limit', 'status', 'op']);
   for (const key of keys) {
     // 供应商页的坑：照抄 supplier_code / supplier_name 会让整列空白且编译期不报错
     assert.ok(!String(key).includes('supplier_'), `列 ${String(key)} 抄成了供应商前缀`);
@@ -197,6 +203,7 @@ test('buildCustomerCreatePayload：trim + 空串折 null + 额度转字符串定
     contact_phone: '',
     address: '   ',
     credit_limit: 15000.25,
+    credit_days: 45,
     remark: '',
   });
   assert.deepEqual(payload, {
@@ -207,9 +214,81 @@ test('buildCustomerCreatePayload：trim + 空串折 null + 额度转字符串定
     contact_phone: null,
     address: null,
     credit_limit: '15000.25',
+    credit_days: 45,
     status: 'ACTIVE',
     remark: null,
   });
+});
+
+test('buildCustomerCreatePayload：新建默认 credit_days = 0（= 现结，不是 30）', () => {
+  assert.equal(emptyCustomerForm().credit_days, 0);
+  const payload = buildCustomerCreatePayload({ ...emptyCustomerForm(), code: 'C1', name: 'n' });
+  assert.equal(payload.credit_days, 0);
+});
+
+test('formatCreditDays / isCashOnDelivery：0 说「现结」，> 0 显天数', () => {
+  assert.equal(formatCreditDays(0), '现结');
+  assert.equal(formatCreditDays('0'), '现结');
+  assert.equal(formatCreditDays(null), '现结');
+  assert.equal(formatCreditDays(undefined), '现结');
+  assert.equal(formatCreditDays(45), '45 天');
+  assert.equal(formatCreditDays('30'), '30 天');
+
+  assert.equal(isCashOnDelivery(0), true);
+  assert.equal(isCashOnDelivery(null), true);
+  assert.equal(isCashOnDelivery(45), false);
+});
+
+test('creditDaysError：负数文案逐字照后端 require_credit_days，非整数/i32 越界也先拦', () => {
+  assert.equal(creditDaysError(0), '');
+  assert.equal(creditDaysError(45), '');
+  assert.equal(creditDaysError(CUSTOMER_CREDIT_DAYS_MAX), '');
+  assert.equal(
+    creditDaysError(-1),
+    'credit_days 不能为负数（当前 -1）；0 表示现结（到期日 = 过账日）',
+  );
+  assert.equal(creditDaysError(30.5), '账期天数必须是整数（按自然日计，0 = 现结）');
+  assert.equal(
+    creditDaysError(CUSTOMER_CREDIT_DAYS_MAX + 1),
+    `账期天数超出可存范围（最大 ${CUSTOMER_CREDIT_DAYS_MAX}）`,
+  );
+});
+
+test('creditDaysValue：兜底折成非负整数（脏值不漏给后端）', () => {
+  assert.equal(creditDaysValue(45), 45);
+  assert.equal(creditDaysValue(0), 0);
+  assert.equal(creditDaysValue(-3), 0);
+  assert.equal(creditDaysValue(Number.NaN), 0);
+  assert.equal(creditDaysValue(null), 0);
+});
+
+test('validateCustomerForm：账期负数挂到 formErrors.credit_days，0 合法', () => {
+  const negative = validateCustomerForm(
+    { ...emptyCustomerForm(), code: 'C1', name: 'n', credit_days: -1 },
+    false,
+  );
+  assert.equal(
+    negative.credit_days,
+    'credit_days 不能为负数（当前 -1）；0 表示现结（到期日 = 过账日）',
+  );
+
+  const cash = validateCustomerForm(
+    { ...emptyCustomerForm(), code: 'C1', name: 'n', credit_days: 0 },
+    false,
+  );
+  assert.deepEqual(cash, {});
+});
+
+test('buildCustomerUpdatePayload：账期按值比较（45→0 要发，0→0 不发）', () => {
+  const original = row({ credit_days: 45 });
+  const form = customerFormFromRow(original);
+  assert.deepEqual(buildCustomerUpdatePayload(form, original), {});
+
+  form.credit_days = 0;
+  assert.deepEqual(buildCustomerUpdatePayload(form, original), { credit_days: 0 });
+
+  form.credit_days = 60;
+  assert.deepEqual(buildCustomerUpdatePayload(form, original), { credit_days: 60 });
 });
 
 test('buildCustomerUpdatePayload：没改就发空对象（省一次 PUT 和一条假成功）', () => {
@@ -269,6 +348,9 @@ test('customerFormFromRow：FROZEN 原样回填，null 文本折成空串（t-in
   assert.equal(form.address, '');
   assert.equal(form.remark, '');
   assert.equal(form.credit_limit, 0);
+  assert.equal(form.credit_days, 30);
+  // 账期 0 也要能回填（不能因为假值折成 undefined，t-input-number 会显示空白）
+  assert.equal(customerFormFromRow(row({ credit_days: 0 })).credit_days, 0);
 
   // 脏状态不能让界面进入「未知」态：非 FROZEN 一律按 ACTIVE
   assert.equal(
