@@ -1,0 +1,14 @@
+health=200 pid=941145 log=/tmp/so25_server.log
+--- 迁移记账（最近 6 条）---
+301|sales_order_flow_is_system_and_snapshot|versioned|executed|t
+267|sales_menu|versioned|executed|t
+|workflow_permissions|seed|executed|t
+|voucher_three_state_permissions|seed|executed|t
+|task_project_permissions|seed|executed|t
+|task_permissions|seed|executed|t
+--- V0267 是否记账 ---
+1
+--- applied_via 分布（必须只有 executed/imported）---
+executed|227
+--- 本次启动应用的迁移数（重启应为 0）---
+数据库迁移完成: 应用 0 个迁移

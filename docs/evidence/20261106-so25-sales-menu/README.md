@@ -81,6 +81,20 @@ executed|227
 - 迁移回归 `migration-roundtrip.txt`：up 重放 **本次新增授权 0 行**；down 删 52 行 + 六页面 `sort:parent` 全还原
   `76:NULL,…,85:NULL` + 目录删除；再 up 后计数与基线一致（`52/6/1/1`）→ **PASS=4 FAIL=0**。
 
+### 6) 提交/重启后仍然自洽
+- `V0267__sales_menu.up.sql` 的 sha256 = `1d2914e19775a19fbd174a84c2987360220baffb63a60fb768a293cb04010155`
+  = `schema_migrations` 里 `version=267` 记录的 checksum —— 框架的「已应用迁移不可改」校验对象；
+- 提交后重启实例（`so25_menu_apply.sh start`）：`数据库迁移完成: 应用 0 个迁移`，
+  health=200、`applied_via` 仍只有 `executed`（`restart-console.txt`）；
+- 同一份库上再跑一遍验收：**PASS=60 FAIL=0**（`final-console.txt`）。
+- ⚠ 期间一次重启失败是**邻居卡**的原因：`V0301__sales_order_flow_is_system_and_snapshot`
+  （backend-developer 的未提交 WIP，工作区里持续在改）checksum 与其记账不符 → 启动中止。
+  与本卡无关（V0267 的 checksum 始终匹配），换一个时点重启即 0 迁移通过。
+
+### 7) 前端门禁
+`frontend-typecheck.txt`（`pnpm typecheck` EXIT=0）、`frontend-build.txt`
+（`pnpm build` EXIT=0；**默认堆会 OOM**，用 `NODE_OPTIONS=--max-old-space-size=6144`）。
+
 ---
 
 ## 三、与卡面不一致的地方（都给了理由，不是漏做）

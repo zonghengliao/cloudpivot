@@ -1,0 +1,16 @@
+{
+  "code": 0,
+  "msg": "ok",
+  "data": {
+    "access_token": "<redacted>",
+    "refresh_token": "<redacted>",
+    "token_type": "Bearer",
+    "expires_in": 900,
+    "user": {
+      "id": "01a1b195-dabc-7479-87dd-2ecd62ebda00",
+      "username": "laoliu",
+      "real_name": "刘销售（销售经理）"
+    },
+    "must_change_password": false
+  }
+}

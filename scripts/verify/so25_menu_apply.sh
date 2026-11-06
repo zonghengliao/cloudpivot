@@ -3,9 +3,10 @@
 # SO-25 菜单/授权迁移应用器（隔离库 + 真后端启动，真跑迁移）
 # =============================================================================
 #   bash scripts/verify/so25_menu_apply.sh up     # 建隔离库 cloudpivot_so25 + 起后端 :18225（自动迁移）
+#   bash scripts/verify/so25_menu_apply.sh start  # 不重建库，只重启实例（验「重启后迁移历史自洽」）
 #   bash scripts/verify/so25_menu_apply.sh down   # 停实例
 #
-# 库：cloudpivot_so25 = 从 cloudpivot_so23fresh（226 条迁移的干净装配库）复制
+# 库：cloudpivot_so25 = 从 cloudpivot_so24（225 条迁移的干净装配库）逻辑复制
 # 端口 18225 ∈ 隔离段 18000-18999（18223=SO-23 / 18224=SO-24，不撞）
 #
 # 为什么要真起后端：`[database.migration] auto_migrate = true` 是唯一的迁移执行路径
@@ -36,26 +37,7 @@ stop_instance() {
   rm -f "$PIDF"
 }
 
-case "${1:-up}" in
-up)
-  stop_instance
-  psql_super "-c \"select pg_terminate_backend(pid) from pg_stat_activity where datname='$DB'\"" >/dev/null
-  psql_super "-c 'DROP DATABASE IF EXISTS $DB'" >/dev/null || exit 1
-  # 用逻辑复制（pg_dump|psql）而不是 CREATE DATABASE … TEMPLATE：
-  # 模板库 cloudpivot_so23fresh 上常有别的验证卡实例在连（实测 10 个 idle 会话），
-  # TEMPLATE 复制会报 "is being accessed by other users"，而杀别人的会话是越界操作。
-  psql_super "-c 'CREATE DATABASE $DB OWNER alun'" >/dev/null || exit 1
-  pg_dump -h 127.0.0.1 -U alun -d "$SRC" --no-owner --no-privileges \
-    | psql -h 127.0.0.1 -U alun -d "$DB" -q -v ON_ERROR_STOP=1 >/dev/null || {
-      echo "FATAL: $SRC → $DB 逻辑复制失败"; exit 1; }
-  echo "✅ 库 $DB 已从 $SRC 逻辑复制（$(PSQLQ -c 'select count(*) from schema_migrations') 条迁移）"
-  stale=$(PSQLQ -c "select count(*) from schema_migrations where name = 'sales_menu'")
-  if [ "$stale" != "0" ]; then
-    echo "FATAL: 源库 $SRC 已带 V0267(sales_menu) 记账 —— 复制出来的库会因为 checksum 不符而启动失败。"
-    echo "       换一个不含 sales_menu 的源库：SO25_SRC_DB=<db> bash $0 up"
-    stop_instance; exit 1
-  fi
-
+launch() {
   cd "$ROOT/backend" || exit 1
   NIK_PROFILE=test \
   NIK_DATABASE_NAME="$DB" \
@@ -82,12 +64,40 @@ up)
   PSQLQ -c "select count(*) from schema_migrations where name = 'sales_menu' and success"
   echo "--- applied_via 分布（必须只有 executed/imported）---"
   PSQLQ -c "select applied_via, count(*) from schema_migrations group by 1 order by 1"
+  echo "--- 本次启动应用的迁移数（重启应为 0）---"
+  grep -oE "数据库迁移完成: 应用 [0-9]+ 个迁移" "$LOG" | tail -1
+}
+
+case "${1:-up}" in
+up)
+  stop_instance
+  psql_super "-c \"select pg_terminate_backend(pid) from pg_stat_activity where datname='$DB'\"" >/dev/null
+  psql_super "-c 'DROP DATABASE IF EXISTS $DB'" >/dev/null || exit 1
+  # 用逻辑复制（pg_dump|psql）而不是 CREATE DATABASE … TEMPLATE：
+  # 模板库 cloudpivot_so23fresh 上常有别的验证卡实例在连（实测 10 个 idle 会话），
+  # TEMPLATE 复制会报 "is being accessed by other users"，而杀别人的会话是越界操作。
+  psql_super "-c 'CREATE DATABASE $DB OWNER alun'" >/dev/null || exit 1
+  pg_dump -h 127.0.0.1 -U alun -d "$SRC" --no-owner --no-privileges \
+    | psql -h 127.0.0.1 -U alun -d "$DB" -q -v ON_ERROR_STOP=1 >/dev/null || {
+      echo "FATAL: $SRC → $DB 逻辑复制失败"; exit 1; }
+  echo "✅ 库 $DB 已从 $SRC 逻辑复制（$(PSQLQ -c 'select count(*) from schema_migrations') 条迁移）"
+  stale=$(PSQLQ -c "select count(*) from schema_migrations where name = 'sales_menu'")
+  if [ "$stale" != "0" ]; then
+    echo "FATAL: 源库 $SRC 已带 V0267(sales_menu) 记账 —— 复制出来的库会因为 checksum 不符而启动失败。"
+    echo "       换一个不含 sales_menu 的源库：SO25_SRC_DB=<db> bash $0 up"
+    stop_instance; exit 1
+  fi
+  launch
+  ;;
+start)
+  stop_instance
+  launch
   ;;
 down)
   stop_instance
   echo "✅ 已停实例"
   ;;
 *)
-  echo "用法：$0 {up|down}"; exit 2
+  echo "用法：$0 {up|start|down}"; exit 2
   ;;
 esac
