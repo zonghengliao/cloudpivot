@@ -1,0 +1,38 @@
+== pnpm typecheck ==
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> vue-tsc --noEmit
+
+
+== pnpm test:unit ==
+# tests 876
+# suites 0
+# pass 876
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3794.784242
+
+== pnpm check:palettes ==
+色阶算法断言：330 条，失败 0 条
+色板数据校验：通过
+
+[check-palettes] 全部通过 ✓
+
+== pnpm build ==
+dist//opt/cloudpivot/frontend/demo/flow-poc/vendor/vue-flow.bundle.js.gz                                   283.84kb / gzip: 100.30kb
+dist//opt/cloudpivot/frontend/demo/flow-poc/vendor/logicflow.bundle.js.gz                                  384.37kb / gzip: 98.77kb
+dist//opt/cloudpivot/frontend/assets/echarts-CuV_skF0.js.gz                                                1002.89kb / gzip: 331.52kb
+dist//opt/cloudpivot/frontend/assets/tdesign-B9Yx93ic.js.gz                                                7994.62kb / gzip: 772.17kb
+
+
+
+== 销售订单页 chunk 是否真的产出 ==
+-rw-r--r-- 1 root root    4706 Nov  6 12:06 index-3YbqCQTy.css
+-rw-r--r-- 1 root root   18626 Nov  6 12:06 index-5wH2iJud.js
+-rw-r--r-- 1 root root    6580 Nov  6 12:06 index-5wH2iJud.js.gz
+-rw-r--r-- 1 root root    2707 Nov  6 12:06 index-B0XaN-Ju.css
+-rw-r--r-- 1 root root    1902 Nov  6 12:06 index-B32Fa8vC.css
+
+== dist 时间戳 ==
+-rw-r--r-- 1 root root 1415 Nov  6 12:06 dist/index.html

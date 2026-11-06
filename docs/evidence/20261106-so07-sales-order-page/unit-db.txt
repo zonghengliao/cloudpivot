@@ -1,0 +1,22 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.31s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 9 tests
+test business::erp::sales_order_handler::tests::amounts_are_computed_server_side ... ok
+test business::erp::sales_order_handler::tests::approval_instance_id_is_detail_only ... ok
+test business::erp::sales_order_handler::tests::page_status_domain_is_checked_by_pure_rule ... ok
+test business::erp::sales_order_handler::tests::permission_codes_are_unique_and_prefixed ... ok
+test business::erp::sales_order_handler::tests::create_request_validation_rejects_bad_input ... ok
+test business::erp::sales_order_handler::tests::cancel_requires_reason_after_submit ... ok
+test business::erp::sales_order_handler::tests::status_machine_main_chain_and_illegal_transitions ... ok
+test business::erp::sales_order_handler::tests::submit_guards_reject_empty_items_frozen_customer_and_credit_overflow ... ok
+test business::erp::sales_order_handler::tests::update_page_and_detail_work_end_to_end ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 2729 filtered out; finished in 7.64s
+
+
+running 1 test
+test system::menu::tests::n08_menu_paths_all_resolve_in_frontend_router ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2737 filtered out; finished in 0.17s
+

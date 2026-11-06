@@ -1,0 +1,5 @@
+versioned|sales_order_menu_page|282|executed|t|migrations/business/V0282__sales_order_menu_page.up.sql
+business:erp:sale-order:create|3|business:erp:sale-order:create|||f|新建销售订单（取号 SO-yyyyMMdd-000001，客户必须存在且未冻结，至少 1 行明细）
+business:erp:sale-order:status|3|business:erp:sale-order:status|||f|销售订单状态流转（只走 LEGAL_EDGES 的 10 条合法边，非法迁移 409）
+business:erp:sale-order:update|3|business:erp:sale-order:update|||f|编辑销售订单（只有 DRAFT 能改，明细整单替换，金额由服务端重算）
+销售订单|2|business:erp:sale-order:list|/business/erp/sales-order|business/erp/sales-order/index|t|销售订单
