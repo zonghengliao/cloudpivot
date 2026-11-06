@@ -80,10 +80,16 @@ down 后两表 `<dropped>`、`biz_seq(SH)=0`；up 重放后表 / `uk_biz_shipmen
 
 | 门禁 | 结果 | 证据 |
 |------|------|------|
-| `cargo fmt -- --check` | rc=0（先 fmt 后 check） | `FMT_OK` |
-| `cargo clippy --all-targets --features test-hooks -- -D warnings` | 见 §3 附注 | — |
-| `cargo test --lib --features test-hooks business::erp::shipment_model`（真库 `ERP_DB_URL`，`--test-threads=1`） | **11 passed ×2 轮** | round-1 / round-2 |
-| `cargo test --lib --features test-hooks`（全量，真库） | 见 §3 附注 | — |
+| `cargo fmt -- --check` | rc=0（先 `cargo fmt` 后 check） | `FMT_OK` |
+| `cargo clippy --all-targets --features test-hooks -- -D warnings` | **0 warning**、`Finished dev profile in 1m 52s` | `clippy.txt` |
+| `cargo test --lib --features test-hooks business::erp::shipment_model`（真库 `ERP_DB_URL`，`--test-threads=1`） | **11 passed / 0 failed ×2 轮** | `round-1-unit-db.txt` / `round-2-unit-db.txt` |
+| `cargo test --lib --features test-hooks`（全量，真库 `cloudpivot_so08`，max=283） | `2749 passed / 2 failed`；2 条失败**均为既有的 SO-06 审批流问题**，与 V0283 无关 | `full-suite-round-1.txt` + `full-suite-attribution.md` |
+| 同上（`cloudpivot_so08_fresh`，`--skip p16_…`） | `2749 passed / 1 failed`（仅 three_tiers，同一既有问题） | `full-suite-fresh.txt` |
+| 基线对照（`cloudpivot_so08_base2`，**不含 V0283**，max=282） | `2744 passed / 7 failed` = three_tiers + p16（**同样既有**）+ 5 条 `shipment_model` 真库用例（**预期**：库里没这两张表） | `full-suite-base.txt` ⇒ **本卡未引入失败** |
+
+失败归因一句话：`p16_graph_snapshot_selfcheck_is_clean`（`so_approve` v1 快照 hash 漂移，V0281 遗留）与
+`three_tiers_start_flow_and_approve_to_approved`（全量顺序污染，单模块 9 passed）**在不含 V0283 的基线库上
+逐条复现相同**，详见 `full-suite-attribution.md`。
 
 前端无改动 ⇒ `pnpm typecheck && pnpm build` 不适用；无 API 改动（本卡只交付表 + 取号 + 超发守卫，
 接口在 SO-09）⇒ 真实 token curl 不适用。
