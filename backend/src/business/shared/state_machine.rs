@@ -120,6 +120,13 @@ pub const ENTITY_STOCK_OUT: &str = DocKind::StockOut.as_str();
 /// （明细 `biz_sales_order_item` 没有状态列，`delivered_qty` 由出库过账回写）。
 pub const ENTITY_SALES_ORDER: &str = DocKind::SaleOrder.as_str();
 
+/// 实体类型：发货单（`biz_shipment`，销售链 · SO-08/SO-09）。
+///
+/// 落库值 `SHIPMENT`（`DocKind::Shipment`）。状态机只在**单据头**上流转
+/// （明细 `biz_shipment_item` 没有状态列）；库存三本账由过账（SO-10）走
+/// `inventory_writer` 写，本实体只管状态与 `biz_status_log` 轨迹。
+pub const ENTITY_SHIPMENT: &str = DocKind::Shipment.as_str();
+
 /// 出库单合法边（与 `stockout_base::LEGAL_EDGES` 同源）。
 ///
 /// ```text
@@ -495,6 +502,29 @@ pub const SALES_ORDER_EDGES: [(&str, &str); 11] = [
     ("SUBMITTED", "DRAFT"),
 ];
 
+/// 发货单合法边（ARCH-7 §4.2，4 条，唯一真相）。
+///
+/// ```text
+/// DRAFT          → PENDING_POST   提交待过账（只改状态，库存一分没动）
+/// PENDING_POST   → POSTED         过账（SO-10：生成销售出库单 + 扣库存 + 回写 delivered_qty）
+/// DRAFT          → CANCELLED      草稿作废（从未占用过库存，不要原因）
+/// PENDING_POST   → CANCELLED      待过账作废（释放未发量占用，**要原因**）
+/// ```
+///
+/// **故意没有的边**（每条都是一个真问题）：
+/// - `POSTED → CANCELLED`：已过账的货已经出库、`delivered_qty` 已累加，
+///   作废要连带红冲凭证 / 回滚三本账（SO-10 的「已过账作废」卡），
+///   不能靠一条状态边假装账回来了；
+/// - `PENDING_POST → DRAFT`：提交后退回只发生在审批场景，发货单没有审批，
+///   需要改就先作废重建（少一条边就少一处「账没动但状态乱了」的窗口）；
+/// - `CANCELLED / POSTED → *`：两个终态，出了就不再动。
+pub const SHIPMENT_EDGES: [(&str, &str); 4] = [
+    ("DRAFT", "PENDING_POST"),
+    ("PENDING_POST", "POSTED"),
+    ("DRAFT", "CANCELLED"),
+    ("PENDING_POST", "CANCELLED"),
+];
+
 /// 应付单合法边（P7 的付款累计 + 作废；P-FLOW-3B 加 3 条作废审批边）。
 ///
 /// P-FLOW-3B 起多出 3 条**作废审批**边（改账动作必须先复核）：
@@ -629,6 +659,12 @@ pub const SALES_ORDER_REASON_EDGES: [(&str, &str); 4] = [
     ("APPROVED", "CLOSED"),
     ("PARTIAL_OUT", "CLOSED"),
 ];
+/// 需要 reason 的边：发货单「待过账作废」。
+///
+/// 只有 `PENDING_POST → CANCELLED` 要原因：这时单据已经占用了订单行的未发量
+/// （别处已经按「这批要发」排了货 / 通知了客户），作废必须能回答「为什么」。
+/// `DRAFT → CANCELLED` 不要原因 —— 草稿从未对外产生任何影响。
+pub const SHIPMENT_REASON_EDGES: [(&str, &str); 1] = [("PENDING_POST", "CANCELLED")];
 /// 需要 reason 的边：调拨单取消。
 pub const TRANSFER_REASON_EDGES: [(&str, &str); 2] =
     [("DRAFT", "CANCELLED"), ("PENDING", "CANCELLED")];
@@ -669,6 +705,11 @@ pub const PURCHASE_ORDER_LOCKED: [&str; 2] = ["RECEIVED", "PARTIAL_RECEIVED"];
 /// 这里列的是「一旦命中就绝不能再按普通改单写」的状态。
 pub const SALES_ORDER_LOCKED: [&str; 5] =
     ["APPROVED", "PARTIAL_OUT", "OUTBOUND", "CLOSED", "CANCELLED"];
+/// 发货单入账态：过账（库存已动 / 已回写 delivered_qty）与作废两个终态。
+///
+/// `PENDING_POST` **不在**入账态：提交待过账只是「排队」，改数量 / 改库位都没动过账，
+/// 允许撤回式修改（先作废重建）比锁死更省事，但**不允许原地改** —— 见 handler。
+pub const SHIPMENT_LOCKED: [&str; 2] = ["POSTED", "CANCELLED"];
 /// 调拨单入账态：审批通过即锁定（在途 / 完成都不可改）。
 pub const TRANSFER_LOCKED: [&str; 3] = ["APPROVED", "IN_TRANSIT", "DONE"];
 /// 应付入账态：已结清 / 已作废都锁定（作废的单子当然不能再改）。
@@ -918,6 +959,17 @@ pub const SALES_ORDER_BASE: [BaseEdge; 11] = [
     BaseEdge::mandatory("SUBMITTED", "DRAFT", "审批驳回打回草稿", false),
 ];
 
+/// 发货单的 BASE_EDGES（与 [`SHIPMENT_EDGES`] 逐条对应，顺序一致）。
+///
+/// 四条边全 `mandatory = true`：主链（提交 → 过账）与两个作废口，
+/// **没有可选边可关**（关掉「过账」等于让单据永远停在待过账）。
+pub const SHIPMENT_BASE: [BaseEdge; 4] = [
+    BaseEdge::mandatory("DRAFT", "PENDING_POST", "提交待过账", false),
+    BaseEdge::mandatory("PENDING_POST", "POSTED", "过账", false),
+    BaseEdge::mandatory("DRAFT", "CANCELLED", "草稿作废", false),
+    BaseEdge::mandatory("PENDING_POST", "CANCELLED", "待过账作废", true),
+];
+
 /// 库存调拨单的 BASE_EDGES（与 [`TRANSFER_EDGES`] 逐条对应，顺序一致）。
 ///
 /// 调拨六条边全是主链 / 撤销，**没有可选边**（没有捷径可关）。
@@ -1082,11 +1134,13 @@ pub enum Entity {
     ExpenseReport,
     /// 销售订单 `biz_sales_order`（销售链 · SO-05）。
     SaleOrder,
+    /// 发货单 `biz_shipment`（销售链 · SO-09）。
+    Shipment,
 }
 
 impl Entity {
     /// 全部实体（注册表全量，未知类型就是对表外的字符串）。
-    pub const ALL: [Entity; 15] = [
+    pub const ALL: [Entity; 16] = [
         Entity::StockIn,
         Entity::PurchaseOrder,
         Entity::Transfer,
@@ -1102,6 +1156,7 @@ impl Entity {
         Entity::Depreciation,
         Entity::ExpenseReport,
         Entity::SaleOrder,
+        Entity::Shipment,
     ];
 
     /// 落库的 `entity_type`。
@@ -1122,6 +1177,7 @@ impl Entity {
             Entity::Depreciation => ENTITY_DEPRECIATION,
             Entity::ExpenseReport => ENTITY_EXPENSE,
             Entity::SaleOrder => ENTITY_SALES_ORDER,
+            Entity::Shipment => ENTITY_SHIPMENT,
         }
     }
 
@@ -1148,6 +1204,7 @@ impl Entity {
             Entity::Depreciation => "折旧批次",
             Entity::ExpenseReport => "费用报销单",
             Entity::SaleOrder => "销售订单",
+            Entity::Shipment => "发货单",
         }
     }
 
@@ -1169,6 +1226,7 @@ impl Entity {
             Entity::Depreciation => &DEPRECIATION_EDGES,
             Entity::ExpenseReport => &EXPENSE_EDGES,
             Entity::SaleOrder => &SALES_ORDER_EDGES,
+            Entity::Shipment => &SHIPMENT_EDGES,
         }
     }
 
@@ -1193,6 +1251,7 @@ impl Entity {
             Entity::Depreciation => &DEPRECIATION_BASE,
             Entity::ExpenseReport => &EXPENSE_BASE,
             Entity::SaleOrder => &SALES_ORDER_BASE,
+            Entity::Shipment => &SHIPMENT_BASE,
         }
     }
 
@@ -1221,6 +1280,7 @@ impl Entity {
             Entity::Depreciation => &DEPRECIATION_REASON_EDGES,
             Entity::ExpenseReport => &EXPENSE_REASON_EDGES,
             Entity::SaleOrder => &SALES_ORDER_REASON_EDGES,
+            Entity::Shipment => &SHIPMENT_REASON_EDGES,
         }
     }
 
@@ -1242,6 +1302,7 @@ impl Entity {
             Entity::Depreciation => &DEPRECIATION_LOCKED,
             Entity::ExpenseReport => &EXPENSE_LOCKED,
             Entity::SaleOrder => &SALES_ORDER_LOCKED,
+            Entity::Shipment => &SHIPMENT_LOCKED,
         }
     }
 
@@ -4065,10 +4126,10 @@ mod contract_tests {
         );
         assert_eq!(
             Entity::ALL.len(),
-            15,
+            16,
             "注册表从 7 → 8（CONTRACT）→ 9（STOCK_OUT）→ 10（STOCK_TAKE）→ 11（BUDGET，FIN-1）\
              → 12（FIXED_ASSET，FIN-2）→ 13（DEPRECIATION，FIN-2）→ 14（EXPENSE_REPORT，FIN-3）\
-             → 15（SALE_ORDER，销售链 SO-05）"
+             → 15（SALE_ORDER，销售链 SO-05）→ 16（SHIPMENT，销售链 SO-09）"
         );
 
         // ③ as_str

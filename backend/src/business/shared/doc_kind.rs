@@ -120,11 +120,17 @@ pub enum DocKind {
     /// `OUTBOUND`/`CLOSED`/`CANCELLED`，边表在 `state_machine::SALES_ORDER_EDGES`。
     /// 明细 `biz_sales_order_item` 没有状态、也不单独记 `doc_type`（属单头）。
     SaleOrder,
+    /// 发货单 `biz_shipment`（销售链 · SO-08/SO-09）。
+    ///
+    /// 状态机 4 值（ARCH-7 §4.2）：`DRAFT`/`PENDING_POST`/`POSTED`/`CANCELLED`，
+    /// 边表在 `state_machine::SHIPMENT_EDGES`。明细 `biz_shipment_item` 没有状态、
+    /// 也不单独记 `doc_type`（属单头）。
+    Shipment,
 }
 
 impl DocKind {
     /// 全部业务对象（顺序 = 声明顺序；前端 TS 常量表与巡检按此顺序逐字比对）。
-    pub const ALL: [DocKind; 19] = [
+    pub const ALL: [DocKind; 20] = [
         DocKind::PurchaseOrder,
         DocKind::StockIn,
         DocKind::StockOut,
@@ -144,6 +150,7 @@ impl DocKind {
         DocKind::Depreciation,
         DocKind::ExpenseReport,
         DocKind::SaleOrder,
+        DocKind::Shipment,
     ];
 
     /// 落库值（大写下划线）。**唯一拼写**。
@@ -168,6 +175,7 @@ impl DocKind {
             DocKind::Depreciation => "DEPRECIATION",
             DocKind::ExpenseReport => "EXPENSE_REPORT",
             DocKind::SaleOrder => "SALE_ORDER",
+            DocKind::Shipment => "SHIPMENT",
         }
     }
 
@@ -193,6 +201,7 @@ impl DocKind {
             DocKind::Depreciation => "折旧批次",
             DocKind::ExpenseReport => "费用报销单",
             DocKind::SaleOrder => "销售订单",
+            DocKind::Shipment => "发货单",
         }
     }
 
@@ -217,6 +226,7 @@ impl DocKind {
             DocKind::Depreciation => "biz_depreciation_batch",
             DocKind::ExpenseReport => "biz_expense_report",
             DocKind::SaleOrder => "biz_sales_order",
+            DocKind::Shipment => "biz_shipment",
             // 年结没有实体表：状态记在 `biz_status_log`，`entity_id` 存结转凭证 id
             DocKind::AccountingYear => return None,
         })
@@ -240,6 +250,7 @@ impl DocKind {
                 | DocKind::Depreciation
                 | DocKind::ExpenseReport
                 | DocKind::SaleOrder
+                | DocKind::Shipment
         )
     }
 
@@ -259,6 +270,7 @@ impl DocKind {
             DocKind::Depreciation => "depreciation",
             DocKind::ExpenseReport => "expense",
             DocKind::SaleOrder => "sales-order",
+            DocKind::Shipment => "shipment",
             _ => return None,
         })
     }
@@ -1112,7 +1124,7 @@ pub struct ColumnDomain {
     pub axis: &'static str,
 }
 
-const DOC_KIND_VALUES: [&str; 19] = [
+const DOC_KIND_VALUES: [&str; 20] = [
     "PURCHASE_ORDER",
     "STOCK_IN",
     "STOCK_OUT",
@@ -1132,6 +1144,7 @@ const DOC_KIND_VALUES: [&str; 19] = [
     "DEPRECIATION",
     "EXPENSE_REPORT",
     "SALE_ORDER",
+    "SHIPMENT",
 ];
 
 const FLOW_BIZ_TYPE_VALUES: [&str; 15] = [

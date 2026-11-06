@@ -166,6 +166,7 @@ pub mod separation;
 pub mod serial_dto;
 pub mod serial_handler;
 pub mod serial_model;
+pub mod shipment_handler;
 pub mod shipment_model;
 pub mod stockin_bridge;
 pub mod stockin_dto;

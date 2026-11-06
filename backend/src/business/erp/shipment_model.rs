@@ -55,12 +55,17 @@
 //! SCOPE-EXEMPT: biz_seq 是全局取号规则字典，没有归属列。
 //! ```
 
-use nik::prelude::chrono::{DateTime, Utc};
+use nik::prelude::chrono::{DateTime, NaiveDate, Utc};
 use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::business::erp::model_base::{find_by_id, page_of};
 use crate::business::erp::serial_model::period_key_of;
+use crate::business::shared::{scope, state_machine};
+
+/// 分页口径（默认 20 / 上限 200 / `page_size = 0` 回落）直接复用底座。
+pub use crate::business::erp::model_base::{DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, normalize_page};
 
 // ==================== 表名 / 常量 ====================
 
@@ -440,6 +445,567 @@ pub struct ShippableItemRow {
     pub material_id: Uuid,
     /// 可发量快照。
     pub availability: SoItemAvailability,
+}
+
+// ==================== SO-09：读写 + 状态迁移落库 ====================
+//
+// 分工与 `sales_order_model` 一致：**本文件只做「行结构 + 读写 + 状态迁移落库」**，
+// 取号 / 单号解析 / 状态域 / 超发守卫都在本文件上半部分（SO-08 已交付，不另造一份）。
+//
+// 库存三本账**一行都不写**：过账的库存效果是 SO-10 的事，走 `inventory_writer`（唯一写入口）。
+// 本文件只用 `stockout_model::fifo_plan` 做**只读**的「够不够量」判定（与出库过账同一口径）。
+
+/// 单头列清单（与 V0283 逐列对应）。
+pub const SHIP_COLUMNS: &str = "id, ship_no, so_id, customer_id, warehouse_id, ship_date, \
+     status, total_qty, stock_out_id, remark, created_at, updated_at, \
+     create_by, update_by, deleted_at";
+
+/// 明细查询：`serial_nos` 是 `TEXT[]`，用 `array_to_string` 转成逗号串再在 Rust 侧拆
+/// （驱动没有 `text[]` 解码器，直读会在运行期炸 —— 与 `serial_model` 的数组坑同源）。
+const ITEM_SELECT: &str = "SELECT si.id, si.shipment_id, si.so_item_id, si.material_id, \
+     si.qty, si.location_id, \
+     COALESCE(array_to_string(si.serial_nos, ','), '') AS serial_nos, si.remark, \
+     COALESCE(oi.line_no, 0) AS line_no \
+     FROM biz_shipment_item si \
+     LEFT JOIN biz_sales_order_item oi ON oi.id = si.so_item_id";
+
+/// 合法边表：**唯一真相**在 `state_machine::SHIPMENT_EDGES`（本文件只引用，不复制）。
+pub const LEGAL_EDGES: [(&str, &str); 4] = state_machine::SHIPMENT_EDGES;
+
+/// 状态机判定：只有 [`LEGAL_EDGES`] 里的边放行（其余一律 409，见 handler）。
+pub fn can_transition(from: &str, to: &str) -> bool {
+    LEGAL_EDGES.iter().any(|(f, t)| *f == from && *t == to)
+}
+
+/// 从 `from` 出发的合法目标态（非法迁移的 409 文案里要列出来）。
+pub fn allowed_targets(from: &str) -> Vec<&'static str> {
+    LEGAL_EDGES
+        .iter()
+        .filter(|(f, _)| *f == from)
+        .map(|(_, t)| *t)
+        .collect()
+}
+
+/// 分页锚点（ERP 单据表，不参与数据范围）。
+pub const SHIP_TARGET: scope::ScopeTarget = scope::ScopeTarget::unscoped(SHIP_TABLE);
+
+/// 列表排序：发货日期倒序、同一天按单号倒序（最新单在前）。
+pub const SHIP_ORDER: &str = "ORDER BY ship_date DESC, ship_no DESC";
+
+/// 可发货的订单状态：只有审批通过 / 部分出库的订单能发货。
+///
+/// `DRAFT` / `SUBMITTED` 的订单还没被批准（批的是一张随时会改的单），
+/// `OUTBOUND` / `CLOSED` / `CANCELLED` 已经没有未发量（前者发完了，后两者是终态）。
+/// 与超发守卫是两道独立的闸：状态闸挡「给还没批的单发货」，数量闸挡「发超」。
+pub const SHIPPABLE_SO_STATUSES: [&str; 2] = ["APPROVED", "PARTIAL_OUT"];
+
+/// `biz_shipment` 一行。
+#[derive(Debug, Clone)]
+pub struct ShipmentRow {
+    /// 主键。
+    pub id: Uuid,
+    /// 单号（`SH-yyyyMMdd-000001`，存活行唯一）。
+    pub ship_no: String,
+    /// 来源销售订单（硬外键 RESTRICT）。
+    pub so_id: Uuid,
+    /// 客户（弱引用 `biz_customer.id`）。
+    pub customer_id: Uuid,
+    /// 发货仓库（弱引用 `biz_warehouse.id`）。
+    pub warehouse_id: Uuid,
+    /// 发货日期。
+    pub ship_date: NaiveDate,
+    /// 状态（4 值之一）。
+    pub status: String,
+    /// 明细数量合计。
+    pub total_qty: Decimal,
+    /// 过账后生成的销售出库单（SO-10 回填；未过账为 `None`）。
+    pub stock_out_id: Option<Uuid>,
+    /// 备注。
+    pub remark: Option<String>,
+    /// 创建时间。
+    pub created_at: DateTime<Utc>,
+    /// 更新时间。
+    pub updated_at: DateTime<Utc>,
+    /// 创建人。
+    pub create_by: Option<Uuid>,
+    /// 更新人。
+    pub update_by: Option<Uuid>,
+    /// 软删时间（`None` = 存活）。
+    pub deleted_at: Option<DateTime<Utc>>,
+}
+
+impl ShipmentRow {
+    /// 由查询行构造。
+    pub fn from_row(row: &Row) -> DbResult<Self> {
+        Ok(Self {
+            id: row.get_typed("id")?,
+            ship_no: row.get_typed("ship_no")?,
+            so_id: row.get_typed("so_id")?,
+            customer_id: row.get_typed("customer_id")?,
+            warehouse_id: row.get_typed("warehouse_id")?,
+            ship_date: row.get_typed("ship_date")?,
+            status: row.get_typed("status")?,
+            total_qty: row.get_typed("total_qty")?,
+            stock_out_id: row.get_typed("stock_out_id")?,
+            remark: row.get_typed("remark")?,
+            created_at: row.get_typed("created_at")?,
+            updated_at: row.get_typed("updated_at")?,
+            create_by: row.get_typed("create_by")?,
+            update_by: row.get_typed("update_by")?,
+            deleted_at: row.get_typed("deleted_at")?,
+        })
+    }
+
+    /// 是否终态（`POSTED` / `CANCELLED`，见 `state_machine::SHIPMENT_LOCKED`）。
+    pub fn is_locked(&self) -> bool {
+        state_machine::Entity::Shipment.is_locked(&self.status)
+    }
+}
+
+/// `biz_shipment_item` 一行（`line_no` 是订单行号，从 `biz_sales_order_item` 带出）。
+#[derive(Debug, Clone)]
+pub struct ShipmentItemRow {
+    /// 主键。
+    pub id: Uuid,
+    /// 所属发货单。
+    pub shipment_id: Uuid,
+    /// 对应的销售订单行。
+    pub so_item_id: Uuid,
+    /// 物料（弱引用 `biz_material.id`）。
+    pub material_id: Uuid,
+    /// 本次发货数量（> 0）。
+    pub qty: Decimal,
+    /// 发货库位（`None` = 整仓 / 未指定，过账按 FIFO 选）。
+    pub location_id: Option<Uuid>,
+    /// 序列号（只有序列号物料才非空）。
+    pub serial_nos: Vec<String>,
+    /// 行备注。
+    pub remark: Option<String>,
+    /// 订单行号（1 起；订单行已被物理删时回落 0）。
+    pub line_no: i32,
+}
+
+impl ShipmentItemRow {
+    /// 由查询行构造。
+    pub fn from_row(row: &Row) -> DbResult<Self> {
+        let serials: String = row.get_typed("serial_nos")?;
+        Ok(Self {
+            id: row.get_typed("id")?,
+            shipment_id: row.get_typed("shipment_id")?,
+            so_item_id: row.get_typed("so_item_id")?,
+            material_id: row.get_typed("material_id")?,
+            qty: row.get_typed("qty")?,
+            location_id: row.get_typed("location_id")?,
+            serial_nos: split_serials(&serials),
+            remark: row.get_typed("remark")?,
+            line_no: row.get_typed("line_no")?,
+        })
+    }
+}
+
+/// 逗号串 → 序列号列表（空串 / 全空白 → 空 vec；逐项 trim 后丢空项）。
+pub fn split_serials(raw: &str) -> Vec<String> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// 一行待落库的明细（`material_id` 由 handler 从订单行带出，不信请求体）。
+#[derive(Debug, Clone)]
+pub struct NewShipmentItem {
+    /// 对应的销售订单行。
+    pub so_item_id: Uuid,
+    /// 物料（取自 `biz_sales_order_item.material_id`）。
+    pub material_id: Uuid,
+    /// 发货数量（> 0，且 ≤ 未发量）。
+    pub qty: Decimal,
+    /// 发货库位（`None` = 由过账按 FIFO 选）。
+    pub location_id: Option<Uuid>,
+    /// 序列号。
+    pub serial_nos: Vec<String>,
+    /// 行备注。
+    pub remark: Option<String>,
+}
+
+/// 待落库的单头。
+#[derive(Debug, Clone)]
+pub struct NewShipment<'a> {
+    /// 来源销售订单。
+    pub so_id: Uuid,
+    /// 客户（取自订单，不信请求体）。
+    pub customer_id: Uuid,
+    /// 发货仓库。
+    pub warehouse_id: Uuid,
+    /// 发货日期。
+    pub ship_date: NaiveDate,
+    /// 备注。
+    pub remark: Option<&'a str>,
+}
+
+/// 明细数量合计（纯逻辑，建单与改单共用；**先逐行 trim 再求和**不改变精度）。
+pub fn total_qty_of(items: &[NewShipmentItem]) -> Decimal {
+    items
+        .iter()
+        .fold(Decimal::ZERO, |acc, item| acc + item.qty)
+        .round_dp(4)
+}
+
+/// 库存缺口（过账前置检查的结果行）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StockShortfall {
+    /// 订单行（报错文案里点名）。
+    pub so_item_id: Uuid,
+    /// 物料。
+    pub material_id: Uuid,
+    /// 本行要发多少。
+    pub needed: Decimal,
+    /// 该仓该物料可用合计。
+    pub available: Decimal,
+}
+
+impl StockShortfall {
+    /// 缺口数量（`needed - available`，恒 > 0）。
+    pub fn shortfall(&self) -> Decimal {
+        self.needed - self.available
+    }
+}
+
+/// 按主键取发货单（软删行不返回）。
+pub async fn find_shipment(id: Uuid) -> DbResult<Option<ShipmentRow>> {
+    find_by_id(SHIP_TABLE, SHIP_COLUMNS, id, true, ShipmentRow::from_row).await
+}
+
+/// 取一张发货单的明细（订单行号升序；订单行没了排最后）。
+pub async fn items_of(shipment_id: Uuid) -> DbResult<Vec<ShipmentItemRow>> {
+    let sql =
+        format!("{ITEM_SELECT} WHERE si.shipment_id = ? ORDER BY COALESCE(oi.line_no, 0), si.id");
+    let rows = db()
+        .find_with_params(&sql, vec![Value::from(shipment_id)])
+        .await?;
+    rows.iter().map(ShipmentItemRow::from_row).collect()
+}
+
+/// 分页：`ship_no`（模糊）/ `status`（精确）/ `so_id`（精确）/ `customer_id`（精确）。
+pub async fn shipment_page(
+    ship_no: Option<&str>,
+    status: Option<&str>,
+    so_id: Option<Uuid>,
+    customer_id: Option<Uuid>,
+    page: u64,
+    page_size: u64,
+) -> DbResult<(Vec<ShipmentRow>, i64)> {
+    let mut sql = format!("SELECT {SHIP_COLUMNS} FROM {SHIP_TABLE} WHERE deleted_at IS NULL");
+    let mut params: Vec<Value> = Vec::new();
+    if let Some(pattern) = crate::utils::like_pattern(ship_no) {
+        sql.push_str(" AND ship_no LIKE ?");
+        params.push(Value::from(pattern));
+    }
+    if let Some(status) = status.map(str::trim).filter(|text| !text.is_empty()) {
+        sql.push_str(" AND status = ?");
+        params.push(Value::from(status));
+    }
+    if let Some(so_id) = so_id {
+        sql.push_str(" AND so_id = ?");
+        params.push(Value::from(so_id));
+    }
+    if let Some(customer_id) = customer_id {
+        sql.push_str(" AND customer_id = ?");
+        params.push(Value::from(customer_id));
+    }
+    page_of(
+        SHIP_TARGET,
+        sql,
+        params,
+        SHIP_ORDER,
+        page,
+        page_size,
+        ShipmentRow::from_row,
+    )
+    .await
+}
+
+/// 订单行的 `(material_id, line_no)`：建单时**物料从订单行取**，不信请求体
+/// （否则可以给 A 物料的订单行开一张 B 物料的发货单，库存扣到别的物料上）。
+pub async fn so_item_brief(
+    ex: &impl SqlExecutor,
+    so_item_id: Uuid,
+) -> DbResult<Option<(Uuid, i32)>> {
+    // SCOPE-EXEMPT: 订单行明细表，ERP 单据，无归属列。
+    let rows = ex
+        .query_sql(
+            "SELECT material_id, line_no FROM biz_sales_order_item WHERE id = ?::uuid".to_string(),
+            vec![Value::from(so_item_id)],
+        )
+        .await?;
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+    Ok(Some((
+        row.get_typed("material_id")?,
+        row.get_typed("line_no")?,
+    )))
+}
+
+/// 订单状态（建单 / 提交时的状态闸用；订单不存在或已删 → `None`）。
+pub async fn so_status_of(ex: &impl SqlExecutor, so_id: Uuid) -> DbResult<Option<String>> {
+    // SCOPE-EXEMPT: 销售订单，ERP 单据，无归属列。
+    let rows = ex
+        .query_sql(
+            "SELECT status FROM biz_sales_order WHERE id = ?::uuid AND deleted_at IS NULL"
+                .to_string(),
+            vec![Value::from(so_id)],
+        )
+        .await?;
+    rows.first()
+        .map(|row| row.get_typed::<String>("status"))
+        .transpose()
+}
+
+/// 订单单号（详情 / 列表回显用；订单不存在 → `None`，不报错）。
+pub async fn so_no_of(ex: &impl SqlExecutor, so_id: Uuid) -> DbResult<Option<String>> {
+    // SCOPE-EXEMPT: 销售订单，ERP 单据，无归属列。
+    let rows = ex
+        .query_sql(
+            "SELECT so_no FROM biz_sales_order WHERE id = ?::uuid".to_string(),
+            vec![Value::from(so_id)],
+        )
+        .await?;
+    rows.first()
+        .map(|row| row.get_typed::<String>("so_no"))
+        .transpose()
+}
+
+/// 批量取「仓库 id → （编码, 名称）」，分页列表一次往返补齐（避免 N+1）。
+///
+/// 软删仓库不出现在结果里（调用方按缺失处理 = 两列留 `None`），
+/// 与 `sales_order_model::customer_labels` 同口径：历史单据照常显示，只是不再显示已删仓库的名字。
+pub async fn warehouse_labels(
+    ex: &impl SqlExecutor,
+    ids: &[Uuid],
+) -> DbResult<Vec<(Uuid, String, String)>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    let unique: Vec<Uuid> = ids.iter().copied().filter(|id| seen.insert(*id)).collect();
+    let placeholders = vec!["?::uuid"; unique.len()].join(", ");
+    let sql = format!(
+        "SELECT id, warehouse_code AS code, warehouse_name AS name FROM biz_warehouse \
+          WHERE id IN ({placeholders}) AND deleted_at IS NULL"
+    );
+    let params: Vec<Value> = unique.iter().map(Value::from).collect();
+    let rows = ex.query_sql(sql, params).await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        out.push((
+            row.get_typed("id")?,
+            row.get_typed("code")?,
+            row.get_typed("name")?,
+        ));
+    }
+    Ok(out)
+}
+
+/// 订单行是否属于该订单（防止把别的订单的行挂到本单上）。
+pub async fn so_item_belongs(
+    ex: &impl SqlExecutor,
+    so_item_id: Uuid,
+    so_id: Uuid,
+) -> DbResult<bool> {
+    // SCOPE-EXEMPT: 销售订单行，ERP 单据，无归属列。
+    let rows = ex
+        .query_sql(
+            "SELECT 1 AS hit FROM biz_sales_order_item WHERE id = ?::uuid AND so_id = ?::uuid"
+                .to_string(),
+            vec![Value::from(so_item_id), Value::from(so_id)],
+        )
+        .await?;
+    Ok(!rows.is_empty())
+}
+
+/// 仓库是否存在且未软删（弱引用，没外键兜）。返回 `(编码, 名称)`。
+pub async fn warehouse_label(
+    ex: &impl SqlExecutor,
+    warehouse_id: Uuid,
+) -> DbResult<Option<(String, String)>> {
+    // SCOPE-EXEMPT: 仓库主数据，无归属列（可见性由权限码控制）。
+    let rows = ex
+        .query_sql(
+            "SELECT warehouse_code, warehouse_name FROM biz_warehouse \
+              WHERE id = ?::uuid AND deleted_at IS NULL"
+                .to_string(),
+            vec![Value::from(warehouse_id)],
+        )
+        .await?;
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+    Ok(Some((
+        row.get_typed("warehouse_code")?,
+        row.get_typed("warehouse_name")?,
+    )))
+}
+
+/// **过账前的库存充足校验**（只读，不写三本账）。
+///
+/// 逐行调 `stockout_model::fifo_plan`（销售出库过账用的是同一个函数），
+/// 所以「这里说够 / 过账时说不够」不会出现两套口径。
+/// 返回空 vec = 全部够量；否则每行一条缺口（handler 拼文案回 409）。
+pub async fn stock_shortfalls(
+    ex: &impl SqlExecutor,
+    warehouse_id: Uuid,
+    items: &[ShipmentItemRow],
+) -> DbResult<Vec<StockShortfall>> {
+    let mut out = Vec::new();
+    for item in items {
+        let plan = crate::business::erp::stockout_model::fifo_plan(
+            ex,
+            item.material_id,
+            warehouse_id,
+            item.qty,
+        )
+        .await?;
+        if plan.shortfall > Decimal::ZERO {
+            out.push(StockShortfall {
+                so_item_id: item.so_item_id,
+                material_id: item.material_id,
+                needed: item.qty,
+                available: plan.available,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// 建单（`status = DRAFT`）：**取号 → 单头 → 明细 → 建单日志**，调用方负责事务边界。
+///
+/// 返回 `(新单 id, 单号)`。取号与单头同一事务：取号把 `biz_seq.current_no` 推了却没落单
+/// 会永久跳号（见 [`next_ship_no`] 的注释）。
+///
+/// ⚠ **超发守卫不在本函数里**：调用方必须先按
+/// [`lock_so_item`] → [`ensure_qty_within_remaining`] → [`create_shipment`] 的顺序执行，
+/// 否则两个并发建单会各看到同一份剩余量（SO-08 模块文档的「并发安全」段）。
+pub async fn create_shipment(
+    ex: &impl SqlExecutor,
+    new: &NewShipment<'_>,
+    items: &[NewShipmentItem],
+    operator: state_machine::Operator,
+    now: DateTime<Utc>,
+) -> DbResult<(Uuid, String)> {
+    let ship_no = next_ship_no(ex, now).await?;
+    let id = Uuid::now_v7();
+    let operator_text = Value::Text(
+        operator
+            .id
+            .map(|value| value.to_string())
+            .unwrap_or_default(),
+    );
+    ex.exec_sql(
+        format!(
+            "INSERT INTO {SHIP_TABLE} \
+                (id, ship_no, so_id, customer_id, warehouse_id, ship_date, status, \
+                 total_qty, remark, created_at, updated_at, create_by, update_by) \
+             VALUES (?, ?, ?, ?, ?, ?::text::date, ?, ?::text::numeric, NULLIF(?::text,''), \
+                 ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)"
+        ),
+        vec![
+            Value::from(&id),
+            Value::Text(ship_no.clone()),
+            Value::from(&new.so_id),
+            Value::from(&new.customer_id),
+            Value::from(&new.warehouse_id),
+            Value::Text(new.ship_date.to_string()),
+            Value::Text(STATUS_DRAFT.to_string()),
+            Value::Text(total_qty_of(items).to_string()),
+            Value::Text(new.remark.unwrap_or_default().to_string()),
+            Value::from(now),
+            Value::from(now),
+            operator_text.clone(),
+            operator_text,
+        ],
+    )
+    .await?;
+    insert_items(ex, id, items).await?;
+    state_machine::log_created(
+        ex,
+        state_machine::ENTITY_SHIPMENT,
+        id,
+        &ship_no,
+        STATUS_DRAFT,
+        operator,
+        None,
+    )
+    .await
+    .map_err(|error| DbError::InvalidValue(format!("[{}] {}", error.code, error.msg)))?;
+    Ok((id, ship_no))
+}
+
+/// 插明细（调用方保证单头已落、`so_item_id` 属于该单的订单）。
+///
+/// `serial_nos` 走 `string_to_array` + 一个 text 参数：驱动没有 `text[]` 编码器，
+/// 直绑 `?::text[]` 会 `error serializing parameter`（`serial_model` 实测坑）。
+async fn insert_items(
+    ex: &impl SqlExecutor,
+    shipment_id: Uuid,
+    items: &[NewShipmentItem],
+) -> DbResult<()> {
+    for item in items {
+        ex.exec_sql(
+            format!(
+                "INSERT INTO {ITEM_TABLE} \
+                    (shipment_id, so_item_id, material_id, qty, location_id, serial_nos, remark) \
+                 VALUES (?, ?, ?, ?::text::numeric, NULLIF(?::text,'')::uuid, \
+                    string_to_array(NULLIF(?::text,''), ','), NULLIF(?::text,''))"
+            ),
+            vec![
+                Value::from(&shipment_id),
+                Value::from(&item.so_item_id),
+                Value::from(&item.material_id),
+                Value::Text(item.qty.to_string()),
+                Value::Text(
+                    item.location_id
+                        .map(|id| id.to_string())
+                        .unwrap_or_default(),
+                ),
+                Value::Text(item.serial_nos.join(",")),
+                Value::Text(item.remark.clone().unwrap_or_default()),
+            ],
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+/// 状态迁移落库（CAS：`WHERE status = from`，返回 0 = 并发被别人推走）。
+///
+/// **调用方必须先过 `state_machine::transition`**（边表校验 + reason 校验 +
+/// 写 `biz_status_log`），本函数只改单据头的 `status` 列。
+pub async fn apply_status(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    from: &str,
+    to: &str,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    let operator_text = Value::Text(operator.map(|value| value.to_string()).unwrap_or_default());
+    ex.exec_sql(
+        format!(
+            "UPDATE {SHIP_TABLE} \
+                SET status = ?, updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
+              WHERE id = ? AND status = ? AND deleted_at IS NULL"
+        ),
+        vec![
+            Value::Text(to.to_string()),
+            Value::from(now),
+            operator_text,
+            Value::from(&id),
+            Value::Text(from.to_string()),
+        ],
+    )
+    .await
 }
 
 // ==================== 单测 ====================
@@ -1030,5 +1596,245 @@ mod tests {
         assert_eq!(items[0].so_item_id, item_b);
 
         cleanup().await;
+    }
+
+    // ---------- SO-09：CRUD / 状态落库 / 库存闸 的真库用例 ----------
+
+    /// 夹具仓库编码（清场按它定位：仓库表没有软删的话不能按单号删）。
+    const WAREHOUSE_CODE: &str = "SH9T-WH";
+
+    /// 建一个夹具仓库（`warehouse_path` / `level` / `is_leaf` 都有默认值，只填必填三列）。
+    ///
+    /// **幂等**：`warehouse_code` 是唯一键，上一轮留下的脏行不能让本轮炸
+    /// （先查再插；`ON CONFLICT (id)` 挡不住「同 code 不同 id」）。
+    async fn fixture_warehouse() -> Uuid {
+        let rows = db()
+            .query_sql(
+                "SELECT id FROM biz_warehouse WHERE warehouse_code = ? AND deleted_at IS NULL"
+                    .to_string(),
+                vec![Value::from(WAREHOUSE_CODE)],
+            )
+            .await
+            .expect("查夹具仓库应成功");
+        if let Some(row) = rows.first() {
+            return row.get_typed("id").expect("仓库 id 可读");
+        }
+        let warehouse_id = Uuid::now_v7();
+        db().execute_with_params(
+            "INSERT INTO biz_warehouse (id, warehouse_code, warehouse_name, warehouse_path) \
+             VALUES (?, ?, 'SO-09 夹具仓', ?)",
+            vec![
+                Value::from(warehouse_id),
+                Value::from(WAREHOUSE_CODE),
+                Value::from(format!("/{WAREHOUSE_CODE}")),
+            ],
+        )
+        .await
+        .expect("插夹具仓库应成功");
+        warehouse_id
+    }
+
+    /// 清掉库存闸夹具（库位账 → 仓库）。
+    async fn cleanup_stock_fixture() {
+        for sql in [
+            "DELETE FROM biz_inventory_location \
+              WHERE warehouse_id IN (SELECT id FROM biz_warehouse WHERE warehouse_code = ?)",
+            "DELETE FROM biz_inventory WHERE warehouse_id IN \
+              (SELECT id FROM biz_warehouse WHERE warehouse_code = ?)",
+            "DELETE FROM biz_warehouse WHERE warehouse_code = ?",
+        ] {
+            db().execute_with_params(sql, vec![Value::from(WAREHOUSE_CODE)])
+                .await
+                .expect("清理库存闸夹具应成功");
+        }
+    }
+
+    /// 建单：取号 `SH-yyyyMMdd-000001` 形态、`total_qty = Σqty`、明细行号可回读、
+    /// `biz_status_log` 有建单留痕（`from_status IS NULL`）。
+    #[tokio::test]
+    async fn create_shipment_writes_header_items_and_log() {
+        let Some(_guard) = setup().await else { return };
+        let (customer, so_id, item_a, item_b) = fixture().await;
+        let warehouse_id = fixture_warehouse().await;
+        let now = Utc::now();
+        let new = NewShipment {
+            so_id,
+            customer_id: customer,
+            warehouse_id,
+            ship_date: now.date_naive(),
+            remark: Some("SO-09 建单夹具"),
+        };
+        let items = vec![
+            NewShipmentItem {
+                so_item_id: item_a,
+                material_id: so_item_brief(db(), item_a)
+                    .await
+                    .expect("查订单行应成功")
+                    .expect("订单行必须存在")
+                    .0,
+                qty: dec("4"),
+                location_id: None,
+                serial_nos: vec!["SN-SO9-1".to_string(), "SN-SO9-2".to_string()],
+                remark: None,
+            },
+            NewShipmentItem {
+                so_item_id: item_b,
+                material_id: so_item_brief(db(), item_b)
+                    .await
+                    .expect("查订单行应成功")
+                    .expect("订单行必须存在")
+                    .0,
+                qty: dec("2.5"),
+                location_id: None,
+                serial_nos: Vec::new(),
+                remark: Some("第二行".to_string()),
+            },
+        ];
+        let (id, ship_no) =
+            create_shipment(db(), &new, &items, state_machine::Operator::default(), now)
+                .await
+                .expect("建单应成功");
+        assert!(
+            is_valid_ship_no(&ship_no),
+            "单号必须合 SH-yyyyMMdd-NNNNNN：{ship_no}"
+        );
+
+        let row = find_shipment(id)
+            .await
+            .expect("查单头应成功")
+            .expect("单头必须存在");
+        assert_eq!(row.ship_no, ship_no);
+        assert_eq!(row.status, STATUS_DRAFT, "新单必须是草稿");
+        assert_eq!(row.total_qty, dec("6.5"), "total_qty = Σqty");
+        assert_eq!(row.remark.as_deref(), Some("SO-09 建单夹具"));
+        assert!(row.stock_out_id.is_none(), "未过账不该有出库单");
+        assert!(!row.is_locked(), "草稿不是锁定态");
+
+        let lines = items_of(id).await.expect("查明细应成功");
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].so_item_id, item_a, "明细按订单行号升序");
+        assert_eq!(lines[0].line_no, 1);
+        assert_eq!(lines[0].serial_nos, vec!["SN-SO9-1", "SN-SO9-2"]);
+        assert_eq!(lines[1].line_no, 2);
+        assert_eq!(lines[1].qty, dec("2.5"));
+        assert_eq!(lines[1].remark.as_deref(), Some("第二行"));
+
+        // 建单留痕：biz_status_log 有 DRAFT 行（from_status 为空）
+        let rows = db()
+            .query_sql(
+                "SELECT from_status, to_status FROM biz_status_log \
+                  WHERE entity_type = 'SHIPMENT' AND entity_id = ?::uuid"
+                    .to_string(),
+                vec![Value::from(id)],
+            )
+            .await
+            .expect("查状态日志应成功");
+        let first = rows.first().expect("建单必须写一条状态日志");
+        assert_eq!(
+            first
+                .get_typed::<Option<String>>("to_status")
+                .expect("to_status 可读")
+                .as_deref(),
+            Some(STATUS_DRAFT)
+        );
+        assert!(
+            first
+                .get_typed::<Option<String>>("from_status")
+                .expect("from_status 可读")
+                .is_none(),
+            "建单行的 from_status 必须为空"
+        );
+
+        cleanup().await;
+        cleanup_stock_fixture().await;
+    }
+
+    /// 状态落库是 CAS：`WHERE status = from` 命中才改；旧 from 再写一次返回 0（并发被别人推走）。
+    #[tokio::test]
+    async fn apply_status_is_cas_guarded() {
+        let Some(_guard) = setup().await else { return };
+        let (customer, so_id, _item_a, _item_b) = fixture().await;
+        let id = insert_shipment(so_id, customer, STATUS_DRAFT).await;
+        let now = Utc::now();
+
+        let hit = apply_status(db(), id, STATUS_DRAFT, STATUS_PENDING_POST, None, now)
+            .await
+            .expect("首次流转应成功");
+        assert_eq!(hit, 1, "CAS 首次命中 1 行");
+        let row = find_shipment(id)
+            .await
+            .expect("查单头应成功")
+            .expect("单头存在");
+        assert_eq!(row.status, STATUS_PENDING_POST);
+
+        let miss = apply_status(db(), id, STATUS_DRAFT, STATUS_PENDING_POST, None, now)
+            .await
+            .expect("重复流转不应报 SQL 错");
+        assert_eq!(miss, 0, "期望态已被推走 ⇒ 0 行（handler 按 409 处理）");
+
+        cleanup().await;
+    }
+
+    /// 库存闸：按库位账的可用量判（与出库过账同一个 `fifo_plan`），
+    /// 不够量逐行给缺口；补足后为空。
+    #[tokio::test]
+    async fn stock_shortfalls_follow_location_ledger() {
+        let Some(_guard) = setup().await else { return };
+        let (_customer, _so_id, item_a, _item_b) = fixture().await;
+        let warehouse_id = fixture_warehouse().await;
+        let material_id = so_item_brief(db(), item_a)
+            .await
+            .expect("查订单行应成功")
+            .expect("订单行必须存在")
+            .0;
+        let item = ShipmentItemRow {
+            id: Uuid::now_v7(),
+            shipment_id: Uuid::now_v7(),
+            so_item_id: item_a,
+            material_id,
+            qty: dec("5"),
+            location_id: None,
+            serial_nos: Vec::new(),
+            remark: None,
+            line_no: 1,
+        };
+
+        // 一件库存都没有 ⇒ 整行缺口 5
+        let gaps = stock_shortfalls(db(), warehouse_id, std::slice::from_ref(&item))
+            .await
+            .expect("查缺口应成功");
+        assert_eq!(gaps.len(), 1, "没库存必须报缺口");
+        assert_eq!(gaps[0].available, Decimal::ZERO);
+        assert_eq!(gaps[0].shortfall(), dec("5"));
+
+        // 库位账只有 3（未分配桶）⇒ 缺 2
+        db().execute_with_params(
+            "INSERT INTO biz_inventory_location (material_id, warehouse_id, location_id, qty) \
+             VALUES (?, ?, NULL, 3)",
+            vec![Value::from(material_id), Value::from(warehouse_id)],
+        )
+        .await
+        .expect("插库位账应成功");
+        let gaps = stock_shortfalls(db(), warehouse_id, std::slice::from_ref(&item))
+            .await
+            .expect("再查缺口应成功");
+        assert_eq!(gaps[0].available, dec("3"));
+        assert_eq!(gaps[0].shortfall(), dec("2"));
+
+        // 补到 5 ⇒ 够量（`shortfall` 为 0 的行不进结果）
+        db().execute_with_params(
+            "UPDATE biz_inventory_location SET qty = 5 \
+              WHERE material_id = ? AND warehouse_id = ? AND location_id IS NULL",
+            vec![Value::from(material_id), Value::from(warehouse_id)],
+        )
+        .await
+        .expect("补库存应成功");
+        let gaps = stock_shortfalls(db(), warehouse_id, std::slice::from_ref(&item))
+            .await
+            .expect("三查缺口应成功");
+        assert!(gaps.is_empty(), "够量时不该报缺口：{gaps:?}");
+
+        cleanup().await;
+        cleanup_stock_fixture().await;
     }
 }
