@@ -1,0 +1,134 @@
+=== ① schema_migrations（V0309/V0310 记账口径） ===
+ version |   kind    | applied_via | success 
+---------+-----------+-------------+---------
+ 309     | versioned | executed    | t
+ 310     | versioned | executed    | t
+(2 rows)
+
+=== ② applied_via 全域（只许 executed / imported） ===
+ applied_via | count 
+-------------+-------
+ executed    |   238
+(1 row)
+
+=== ③ biz_sales_order.salesperson_id 列 / 外键 / 索引 ===
+  column_name   | data_type | is_nullable 
+----------------+-----------+-------------
+ salesperson_id | uuid      | YES
+(1 row)
+
+            conname             |                          pg_get_constraintdef                           
+--------------------------------+-------------------------------------------------------------------------
+ fk_biz_sales_order_salesperson | FOREIGN KEY (salesperson_id) REFERENCES sys_user(id) ON DELETE SET NULL
+(1 row)
+
+            indexname            |                                                                        indexdef                                                                         
+---------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ idx_biz_sales_order_salesperson | CREATE INDEX idx_biz_sales_order_salesperson ON public.biz_sales_order USING btree (salesperson_id, order_date DESC) WHERE (salesperson_id IS NOT NULL)
+(1 row)
+
+=== ④ 佣金三表列数 + 约束 ===
+        table_name         | cols 
+---------------------------+------
+ biz_commission_item       |   11
+ biz_commission_rule       |   17
+ biz_commission_settlement |   15
+(3 rows)
+
+            tbl            |                 conname                  | contype |                                                                                                     pg_get_constraintdef                                                                                                     
+---------------------------+------------------------------------------+---------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ biz_commission_rule       | ck_biz_cmrule_amount                     | c       | CHECK (((min_amount >= (0)::numeric) AND ((max_amount IS NULL) OR (max_amount >= min_amount))))
+ biz_commission_rule       | ck_biz_cmrule_calc                       | c       | CHECK (((calc_type)::text = ANY ((ARRAY['PERCENT'::character varying, 'FIXED'::character varying])::text[])))
+ biz_commission_rule       | ck_biz_cmrule_effective                  | c       | CHECK (((effective_to IS NULL) OR (effective_to >= effective_from)))
+ biz_commission_rule       | ck_biz_cmrule_rate                       | c       | CHECK (((rate >= (0)::numeric) AND (((calc_type)::text <> 'PERCENT'::text) OR (rate <= (100)::numeric))))
+ biz_commission_rule       | ck_biz_cmrule_scope                      | c       | CHECK (((scope_type)::text = ANY ((ARRAY['SALESPERSON'::character varying, 'MATERIAL_CATEGORY'::character varying, 'ALL'::character varying])::text[])))
+ biz_commission_rule       | ck_biz_cmrule_scope_id                   | c       | CHECK (((((scope_type)::text = 'ALL'::text) AND (scope_id IS NULL)) OR (((scope_type)::text = ANY ((ARRAY['SALESPERSON'::character varying, 'MATERIAL_CATEGORY'::character varying])::text[])) AND (scope_id IS NOT NULL))))
+ biz_commission_rule       | ck_biz_cmrule_status                     | c       | CHECK (((status)::text = ANY ((ARRAY['ACTIVE'::character varying, 'INACTIVE'::character varying])::text[])))
+ biz_commission_settlement | ck_biz_cmset_paid                        | c       | CHECK ((((status)::text = 'PAID'::text) = (paid_at IS NOT NULL)))
+ biz_commission_settlement | ck_biz_cmset_period                      | c       | CHECK (((period_code)::text ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'::text))
+ biz_commission_settlement | ck_biz_cmset_status                      | c       | CHECK (((status)::text = ANY ((ARRAY['DRAFT'::character varying, 'APPROVED'::character varying, 'PAID'::character varying])::text[])))
+ biz_commission_settlement | ck_biz_cmset_total_sales                 | c       | CHECK ((total_sales >= (0)::numeric))
+ biz_commission_settlement | fk_biz_commission_settlement_salesperson | f       | FOREIGN KEY (salesperson_id) REFERENCES sys_user(id) ON DELETE SET NULL
+ biz_commission_item       | ck_biz_cmitem_base                       | c       | CHECK ((base_amount >= (0)::numeric))
+ biz_commission_item       | ck_biz_cmitem_rate                       | c       | CHECK ((rate >= (0)::numeric))
+ biz_commission_item       | fk_biz_cmitem_settlement                 | f       | FOREIGN KEY (settlement_id) REFERENCES biz_commission_settlement(id) ON DELETE CASCADE
+(15 rows)
+
+      indexname      
+---------------------
+ uk_biz_cmset_no
+ uk_biz_cmset_period
+(2 rows)
+
+=== ⑤ 角色（SALES_MANAGER 口径 = SALES_SUPERVISOR）+ 授权 13 对 ===
+    role_code     | role_name | status 
+------------------+-----------+--------
+ FINANCE_MANAGER  | 财务经理  |      1
+ GENERAL_MANAGER  | 总经理    |      1
+ SALES_CLERK      | 销售员    |      1
+ SALES_SUPERVISOR | 销售主管  |      1
+(4 rows)
+
+    role_code     |               auth_code               | menu_type | is_visible 
+------------------+---------------------------------------+-----------+------------
+ FINANCE_MANAGER  | business:erp:commission-rule:list     |         2 | f
+ FINANCE_MANAGER  | business:erp:commission-settle:list   |         2 | f
+ FINANCE_MANAGER  | business:erp:commission-settle:status |         3 | f
+ GENERAL_MANAGER  | business:erp:commission-settle:list   |         2 | f
+ SALES_CLERK      | business:erp:commission-settle:list   |         2 | f
+ SALES_SUPERVISOR | business:erp:commission-rule:create   |         3 | f
+ SALES_SUPERVISOR | business:erp:commission-rule:delete   |         3 | f
+ SALES_SUPERVISOR | business:erp:commission-rule:list     |         2 | f
+ SALES_SUPERVISOR | business:erp:commission-rule:update   |         3 | f
+ SALES_SUPERVISOR | business:erp:commission-settle:create |         3 | f
+ SALES_SUPERVISOR | business:erp:commission-settle:list   |         2 | f
+(11 rows)
+
+    role_code     |          auth_code          
+------------------+-----------------------------
+ SALES_SUPERVISOR | business:flow:approve
+ SALES_SUPERVISOR | business:flow:instance:read
+ SALES_SUPERVISOR | business:flow:instance:read
+ SALES_SUPERVISOR | business:flow:read
+(4 rows)
+
+=== ⑥ 销售订单 ↔ 销售员 真数据（curl 留证建的单） ===
+ERROR:  column reference "status" is ambiguous
+LINE 1: select so_no, status, salesperson_id, u.real_name from biz_s...
+                      ^
+=== ⑥ 销售订单 ↔ 销售员 真数据（curl 留证建的单） ===
+       so_no        | status |            salesperson_id            | real_name  
+--------------------+--------+--------------------------------------+------------
+ SO-20261107-000010 | DRAFT  | 01a1b21b-48e0-7265-b036-314216d72454 | 超级管理员
+(1 row)
+
+=== ⑦ 佣金三表可写探针（真实 INSERT + 回滚，库层不拦合法数据） ===
+BEGIN
+ERROR:  new row for relation "biz_commission_rule" violates check constraint "ck_biz_cmrule_scope"
+DETAIL:  Failing row contains (d0359000-0000-4000-8000-000000000001, __SO35_PROBE__, SALESPEERSON, null, PERCENT, 5.0000, 0.0000, 1000.0000, 2026-11-01, null, ACTIVE, null, 2026-11-07 03:49:31.092599+08, 2026-11-07 03:49:31.092599+08, null, null, null).
+BEGIN
+ERROR:  new row for relation "biz_commission_rule" violates check constraint "ck_biz_cmrule_scope_id"
+DETAIL:  Failing row contains (d0359000-0000-4000-8000-000000000001, __SO35_PROBE__, SALESPERSON, null, PERCENT, 5.0000, 0.0000, 1000.0000, 2026-11-01, null, ACTIVE, null, 2026-11-07 03:49:31.113359+08, 2026-11-07 03:49:31.113359+08, null, null, null).
+=== ⑧ 合法数据必须能写入（真实 INSERT，事务内回滚不留痕） ===
+BEGIN
+      rule_name      | scope_type | calc_type |  rate  | status 
+---------------------+------------+-----------+--------+--------
+ __SO35_PROBE_RULE__ | ALL        | PERCENT   | 5.0000 | ACTIVE
+(1 row)
+
+INSERT 0 1
+   settlement_no   | period_code | status | paid_at 
+-------------------+-------------+--------+---------
+ __SO35_PROBE_CM__ | 2026-11     | DRAFT  | 
+(1 row)
+
+INSERT 0 1
+ base_amount |  rate  | commission 
+-------------+--------+------------
+  10000.0000 | 5.0000 |   500.0000
+(1 row)
+
+INSERT 0 1
+ROLLBACK
+--- 探针后残留检查（应 0 行） ---
+0

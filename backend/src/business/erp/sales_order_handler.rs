@@ -229,6 +229,12 @@ pub struct CreateSalesOrderReq {
     /// 并在事务里过额度守卫（累计订单额不得超合同金额，超出 409 `66019`）。
     #[serde(default)]
     pub contract_id: Option<String>,
+    /// 销售员 id（`sys_user.id`，可空 = 不指定）。
+    ///
+    /// V0309 / SO-35：填了就必须是「存在 + 未软删 + 启用」的账号（停用账号不允许再接新单计佣）；
+    /// **留空不默认成建单人** —— 佣金归属必须是人明确指定的，静默默认等于给建单的行政人员发钱。
+    #[serde(default)]
+    pub salesperson_id: Option<String>,
     /// 下单日期（`yyyy-MM-dd`，留空 = 今天）。
     #[serde(default)]
     pub order_date: Option<String>,
@@ -255,6 +261,12 @@ pub struct UpdateSalesOrderReq {
     /// 所以「解绑合同」不需要第二个布尔标志。
     #[serde(default)]
     pub contract_id: Option<String>,
+    /// 销售员 id（**不传 = 不改**；传空串 = 解绑销售员；传 id = 换成这个人）。
+    ///
+    /// 与 `contract_id` 同一口径：`Option<String>` + 空串代表「清空」。
+    /// 换人同样要过「存在 + 未软删 + 启用」（V0309 / SO-35）。
+    #[serde(default)]
+    pub salesperson_id: Option<String>,
     /// 下单日期（留空 = 不改）。
     #[serde(default)]
     pub order_date: Option<String>,
@@ -361,6 +373,10 @@ pub struct SalesOrderRes {
     /// 就得每行 JOIN 一次 `biz_contract`，或在内存里批量补一次；列表页当前不需要展示，
     /// 先用 `contract_id` 判断「有没有挂合同」。
     pub contract_no: Option<String>,
+    /// 销售员 id（未指定为 `null`）。V0309 / SO-35。
+    pub salesperson_id: Option<String>,
+    /// 销售员姓名（列表批量补齐 / 详情单查；账号已软删 ⇒ `null`）。
+    pub salesperson_name: Option<String>,
     /// 下单日期（`yyyy-MM-dd`）。
     pub order_date: String,
     /// 要求交期（`yyyy-MM-dd`，未约定为 `null`）。
@@ -403,6 +419,9 @@ impl SalesOrderRes {
             contract_id: row.contract_id.map(|id| id.to_string()),
             // 只由 `detail_of` 补（列表不发这条查询）；`of()` 保持纯函数
             contract_no: None,
+            salesperson_id: row.salesperson_id.map(|id| id.to_string()),
+            // 名字要查库（`sys_user`），`of()` 保持纯函数 ⇒ 由详情 / 列表批量补
+            salesperson_name: None,
             order_date: row.order_date.to_string(),
             delivery_date: row.delivery_date.map(|date| date.to_string()),
             status: row.status.clone(),
@@ -475,6 +494,32 @@ fn parse_contract_id(raw: Option<&str>) -> std::result::Result<Option<Uuid>, Api
     }
 }
 
+/// 可选销售员 id：与 [`parse_contract_id`] 同一口径（空白 / `None` → `None` = 不指定；
+/// 非空必须是合法 UUID，乱码 400）。
+fn parse_salesperson_id(raw: Option<&str>) -> std::result::Result<Option<Uuid>, ApiError> {
+    match raw.map(str::trim).filter(|text| !text.is_empty()) {
+        None => Ok(None),
+        Some(text) => parse_uuid(text, "salesperson_id").map(Some),
+    }
+}
+
+/// 销售员必须「存在 + 未软删 + 启用」（V0309 / SO-35）；返回姓名（写进错误文案 / 后续日志）。
+///
+/// 为什么不在库层直接靠外键：外键只保证「这个 id 在 sys_user 里存在」，
+/// **软删 / 停用**这两条业务口径它表达不了（也是为什么 V0303 起主数据一律弱引用 +
+/// handler 校验）。停用账号继续接新单计佣 = 给已离职员工发钱。
+async fn require_active_salesperson(user_id: Uuid) -> std::result::Result<String, ApiError> {
+    match model::active_salesperson(user_id)
+        .await
+        .map_err(|error| utils::db_error(error, "校验销售员"))?
+    {
+        Some(name) => Ok(name),
+        None => Err(bad_request(format!(
+            "销售员 {user_id} 不存在、已删除或已停用：只能选启用状态的账号（停用账号不该再接新单计佣）"
+        ))),
+    }
+}
+
 /// 校验 + 归一化整单入参：客户 id、合同 id、日期、明细（**至少 1 行**）。
 fn build_order<'a>(
     customer_id: &str,
@@ -526,6 +571,8 @@ fn build_order<'a>(
         NewSalesOrder {
             customer_id,
             contract_id,
+            // 销售员不在这里解析（要查库校验，属 handler 职责；build_order 保持纯逻辑）
+            salesperson_id: None,
             order_date,
             delivery_date,
             remark: remark.map(str::trim).filter(|text| !text.is_empty()),
@@ -719,6 +766,15 @@ async fn detail_of(id: Uuid) -> std::result::Result<SalesOrderRes, ApiError> {
         .map_err(|error| utils::db_error(error, "查询销售订单审批实例"))?;
     let mut res = SalesOrderRes::of(&row, items).with_customer(customer.as_ref());
     res.approval_instance_id = instance.map(|id| id.to_string());
+    // V0309：销售员姓名（不筛启用状态 —— 历史单上的停用 / 离职销售员仍要显示名字）
+    if let Some(salesperson_id) = row.salesperson_id {
+        res.salesperson_name = model::salesperson_labels(&[salesperson_id])
+            .await
+            .map_err(|error| utils::db_error(error, "查询销售订单销售员"))?
+            .into_iter()
+            .next()
+            .map(|(_, name)| name);
+    }
     // SO-27：合同号按 `contract_id` 现查（不落快照列 —— 合同号不可改，没有「当时是谁」的问题；
     // 合同被硬删时外键 SET NULL，这里也不会查）
     if let Some(contract_id) = row.contract_id {
@@ -735,7 +791,7 @@ pub async fn create_sales_order(
     operator: Option<Uuid>,
     req: CreateSalesOrderReq,
 ) -> std::result::Result<SalesOrderRes, ApiError> {
-    let (new, items) = build_order(
+    let (mut new, items) = build_order(
         &req.customer_id,
         req.contract_id.as_deref(),
         req.order_date.as_deref(),
@@ -743,6 +799,12 @@ pub async fn create_sales_order(
         req.remark.as_deref(),
         &req.items,
     )?;
+    // V0309 / SO-35：销售员（可空；填了必须存在 + 未软删 + 启用）。
+    // 放在 build_order 之外：它是「要查库的业务校验」，build_order 是纯逻辑（单测直接调）。
+    new.salesperson_id = parse_salesperson_id(req.salesperson_id.as_deref())?;
+    if let Some(salesperson_id) = new.salesperson_id {
+        require_active_salesperson(salesperson_id).await?;
+    }
     let customer = require_active_customer(new.customer_id).await?;
     // SO-27：合同的「类型 / 状态 / 乙方=客户」在事务外先拦（读一次即可），
     // 额度守卫必须在事务内（锁合同行 → 现算累计额），见 guard_contract_amount
@@ -819,6 +881,18 @@ pub async fn update_sales_order(
         None => current.contract_id,
         Some(text) => parse_contract_id(Some(text))?,
     };
+    // 销售员：不传 = 沿用；空串 = 解绑；传 id = 换人（换人也要过「存在 + 未软删 + 启用」）
+    let salesperson_id = match req.salesperson_id.as_deref() {
+        None => current.salesperson_id,
+        Some(text) => parse_salesperson_id(Some(text))?,
+    };
+    if salesperson_id != current.salesperson_id
+        && let Some(changed) = salesperson_id
+    {
+        // 只在校验「换成谁」时才查库：沿用原值时哪怕那个人后来被停用也不该卡住改单
+        // （停用是「不许再接新单」，不是「历史单必须改掉」）。
+        require_active_salesperson(changed).await?;
+    }
     let order_date =
         parse_date(req.order_date.as_deref(), "order_date")?.unwrap_or(current.order_date);
     let delivery_date = match req.delivery_date.as_deref() {
@@ -881,6 +955,7 @@ pub async fn update_sales_order(
     let new = NewSalesOrder {
         customer_id,
         contract_id,
+        salesperson_id,
         order_date,
         delivery_date,
         remark: remark.as_deref(),
@@ -966,6 +1041,14 @@ pub async fn page_sales_order(
         .into_iter()
         .map(|(id, code, name)| (id, (code, name)))
         .collect();
+    // V0309：销售员姓名一次往返补齐（一页里多张单常是同一个销售员）
+    let salesperson_ids: Vec<Uuid> = rows.iter().filter_map(|row| row.salesperson_id).collect();
+    let salespeople: std::collections::HashMap<Uuid, String> =
+        model::salesperson_labels(&salesperson_ids)
+            .await
+            .map_err(|error| utils::db_error(error, "批量查询销售订单销售员"))?
+            .into_iter()
+            .collect();
     let (page, page_size) = model::normalize_page(filter.page, filter.page_size);
     let list = rows
         .iter()
@@ -975,6 +1058,9 @@ pub async fn page_sales_order(
                 res.customer_code = Some(code.clone());
                 res.customer_name = Some(name.clone());
             }
+            res.salesperson_name = row
+                .salesperson_id
+                .and_then(|id| salespeople.get(&id).cloned());
             res
         })
         .collect();
@@ -1556,6 +1642,7 @@ mod tests {
         CreateSalesOrderReq {
             customer_id: customer.to_string(),
             contract_id: None,
+            salesperson_id: None,
             order_date: Some("2026-11-06".to_string()),
             delivery_date: None,
             remark: None,
@@ -1723,6 +1810,7 @@ mod tests {
             so_no: "SO-20261106-000001".to_string(),
             customer_id: new.customer_id,
             contract_id: new.contract_id,
+            salesperson_id: new.salesperson_id,
             order_date: new.order_date,
             delivery_date: None,
             status: model::STATUS_DRAFT.to_string(),
@@ -2413,5 +2501,120 @@ mod tests {
             .expect_err("不存在的单必须 404");
         assert_eq!(err.status, 404);
         cleanup().await;
+    }
+
+    /// V0309 / SO-35：销售员入参口径（纯逻辑）。
+    /// 「没传 / 传空白」= 不指定（不是 400）；「传乱码」必须 400。
+    #[test]
+    fn parse_salesperson_id_accepts_blank_and_rejects_garbage() {
+        assert_eq!(parse_salesperson_id(None).expect("None 合法"), None);
+        assert_eq!(
+            parse_salesperson_id(Some("   ")).expect("空白合法"),
+            None,
+            "空白 = 不指定销售员（与 contract_id 同口径）"
+        );
+        let raw = "d5050000-0000-4000-8000-0000000f0001";
+        assert_eq!(
+            parse_salesperson_id(Some(&format!("  {raw}  "))).expect("带空格的 id 合法"),
+            Some(Uuid::parse_str(raw).expect("夹具 uuid"))
+        );
+        let err = parse_salesperson_id(Some("not-a-uuid")).expect_err("乱码必须 400");
+        assert_eq!(err.status, 400);
+        assert!(
+            err.msg.contains("salesperson_id"),
+            "错误文案要点名字段：{}",
+            err.msg
+        );
+    }
+
+    /// V0309 / SO-35：建单挂销售员 → 出参带 id + 姓名；停用 / 不存在的账号 400。
+    #[tokio::test]
+    async fn create_order_binds_salesperson_and_rejects_inactive_user() {
+        let Some(_guard) = setup().await else { return };
+        let customer = fixture_customer("SO5HT-SP", "0", "ACTIVE").await;
+        let active = Uuid::parse_str("d0509000-0000-4000-8000-0000000000a1").expect("夹具 uuid");
+        let inactive = Uuid::parse_str("d0509000-0000-4000-8000-0000000000a2").expect("夹具 uuid");
+        for (id, name, status) in [
+            (active, "SO-35 销售员甲", 1),
+            (inactive, "SO-35 销售员乙（停用）", 0),
+        ] {
+            db().execute_with_params(
+                "INSERT INTO sys_user (id, username, password, real_name, status) \
+                 VALUES (?::uuid, ?, 'x', ?, ?) \
+                 ON CONFLICT (id) DO UPDATE SET real_name = EXCLUDED.real_name, \
+                                                status = EXCLUDED.status, deleted_at = NULL",
+                vec![
+                    Value::from(&id),
+                    Value::from(format!("SO5HT-SP-{id}")),
+                    Value::from(name),
+                    Value::from(status),
+                ],
+            )
+            .await
+            .expect("插夹具销售员应成功");
+        }
+
+        // ① 启用账号 → 建单成功，id / 姓名都回显
+        let mut req = order_req(&customer.to_string(), vec![item_req("1", "10", "0")]);
+        req.salesperson_id = Some(active.to_string());
+        let created = create_sales_order(None, req).await.expect("建单应成功");
+        let active_text = active.to_string();
+        assert_eq!(
+            created.salesperson_id.as_deref(),
+            Some(active_text.as_str())
+        );
+        assert_eq!(created.salesperson_name.as_deref(), Some("SO-35 销售员甲"));
+
+        // ② 停用账号 → 400（停用即停止接新单计佣）
+        let mut req = order_req(&customer.to_string(), vec![item_req("1", "10", "0")]);
+        req.salesperson_id = Some(inactive.to_string());
+        let err = create_sales_order(None, req)
+            .await
+            .expect_err("停用账号必须被拒");
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert!(err.msg.contains("停用"), "{}", err.msg);
+
+        // ③ 不存在的账号 → 400（不是 500、也不是静默落库）
+        let mut req = order_req(&customer.to_string(), vec![item_req("1", "10", "0")]);
+        req.salesperson_id = Some(Uuid::now_v7().to_string());
+        let err = create_sales_order(None, req)
+            .await
+            .expect_err("不存在的销售员必须被拒");
+        assert_eq!(err.status, 400, "{}", err.msg);
+
+        // ④ 列表批量补名：一页里能看到销售员姓名（不是只有 id）
+        let page = page_sales_order(SalesOrderFilter {
+            customer_id: Some(customer.to_string()),
+            ..Default::default()
+        })
+        .await
+        .expect("分页应成功");
+        assert_eq!(page.total, 1, "只有 ① 建单成功");
+        assert_eq!(
+            page.list[0].salesperson_name.as_deref(),
+            Some("SO-35 销售员甲")
+        );
+
+        // ⑤ 改单解绑（传空串）→ salesperson_id 变 null
+        let updated = update_sales_order(
+            None,
+            &created.id,
+            UpdateSalesOrderReq {
+                salesperson_id: Some(String::new()),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("改单解绑应成功");
+        assert_eq!(updated.salesperson_id, None);
+        assert_eq!(updated.salesperson_name, None);
+
+        cleanup().await;
+        db().execute_with_params(
+            "DELETE FROM sys_user WHERE id IN (?::uuid, ?::uuid)",
+            vec![Value::from(&active), Value::from(&inactive)],
+        )
+        .await
+        .expect("清夹具销售员应成功");
     }
 }

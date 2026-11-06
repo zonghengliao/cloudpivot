@@ -54,8 +54,9 @@ pub const ORDER_TABLE: &str = base::ORDER_TABLE;
 /// 明细表名。
 pub const ITEM_TABLE: &str = base::ITEM_TABLE;
 
-/// 单头列清单（与 V0264 + V0302 逐列对应；`contract_id` 由 V0302 补上）。
-pub const ORDER_COLUMNS: &str = "id, so_no, customer_id, contract_id, order_date, \
+/// 单头列清单（与 V0264 + V0302 + V0309 逐列对应；`contract_id` 由 V0302、
+/// `salesperson_id` 由 V0309 补上）。
+pub const ORDER_COLUMNS: &str = "id, so_no, customer_id, contract_id, salesperson_id, order_date, \
      delivery_date, status, total_amount, total_tax, total_with_tax, remark, \
      created_at, updated_at, create_by, update_by, deleted_at";
 
@@ -117,6 +118,11 @@ pub struct SalesOrderRow {
     /// 语义：只表达「这张订单算在哪张销售合同下」，合同额度守卫（handler
     /// `guard_contract_amount`）按它现算 `SUM(total_with_tax)`。
     pub contract_id: Option<Uuid>,
+    /// 销售员（`sys_user.id`，V0309 硬外键 ON DELETE SET NULL；`None` = 未指定）。
+    ///
+    /// 语义：这张订单的佣金算在谁头上（ARCH-7 §15.4）。**不回填历史单** ——
+    /// 历史订单真的没记过销售员，回填等于编造审计事实。
+    pub salesperson_id: Option<Uuid>,
     /// 下单日期。
     pub order_date: NaiveDate,
     /// 要求交期。
@@ -151,6 +157,7 @@ impl SalesOrderRow {
             so_no: row.get_typed("so_no")?,
             customer_id: row.get_typed("customer_id")?,
             contract_id: row.get_typed("contract_id")?,
+            salesperson_id: row.get_typed("salesperson_id")?,
             order_date: row.get_typed("order_date")?,
             delivery_date: row.get_typed("delivery_date")?,
             status: row.get_typed("status")?,
@@ -239,6 +246,9 @@ pub struct NewSalesOrder<'a> {
     pub customer_id: Uuid,
     /// 销售合同（`None` = 未挂合同；存在性 / 类型 / 状态 / 额度由 handler 校验）。
     pub contract_id: Option<Uuid>,
+    /// 销售员（`None` = 不指定；存在性 / 启用状态由 handler 校验 —— 弱表 sys_user 走软删，
+    /// 但 V0309 已建硬外键 ON DELETE SET NULL 兜「物理清场」这一路）。
+    pub salesperson_id: Option<Uuid>,
     /// 下单日期。
     pub order_date: NaiveDate,
     /// 要求交期。
@@ -425,6 +435,49 @@ pub async fn customer_labels(ids: &[Uuid]) -> DbResult<Vec<(Uuid, String, String
     Ok(out)
 }
 
+/// 销售员（`sys_user`）能不能挂到订单上：**存在 + 未软删 + 启用**才返回姓名。
+///
+/// 为什么不是「只判存在」：停用账号（`status = 0`）不该再继续接新单计佣，
+/// 但历史上已经记在这个人名下的订单不受影响（本函数只在建单 / 改单时用）。
+/// V0309 已建硬外键兜「物理清场」那一路，这里兜业务口径（软删 / 停用）。
+pub async fn active_salesperson(user_id: Uuid) -> DbResult<Option<String>> {
+    let rows = db()
+        .find_with_params(
+            "SELECT COALESCE(NULLIF(real_name, ''), username) AS name FROM sys_user \
+              WHERE id = ?::uuid AND deleted_at IS NULL AND status = 1",
+            vec![Value::from(&user_id)],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok(None),
+        Some(row) => Ok(Some(row.get_typed("name")?)),
+    }
+}
+
+/// 批量取「销售员 id → 姓名」，分页列表一次往返补齐（避免 N+1）。
+///
+/// 不筛 `status`（历史单上的停用销售员仍要显示名字）；软删账号不返回，
+/// 调用方按缺失处理 —— 与 [`customer_labels`] 同口径。
+pub async fn salesperson_labels(ids: &[Uuid]) -> DbResult<Vec<(Uuid, String)>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    let unique: Vec<Uuid> = ids.iter().copied().filter(|id| seen.insert(*id)).collect();
+    let placeholders = vec!["?"; unique.len()].join(", ");
+    let sql = format!(
+        "SELECT id, COALESCE(NULLIF(real_name, ''), username) AS name FROM sys_user \
+          WHERE id IN ({placeholders}) AND deleted_at IS NULL"
+    );
+    let params: Vec<Value> = unique.iter().map(Value::from).collect();
+    let rows = db().find_with_params(&sql, params).await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        out.push((row.get_typed("id")?, row.get_typed("name")?));
+    }
+    Ok(out)
+}
+
 /// 客户在手订单占用的信用额度（价税合计之和，只算 [`CREDIT_OCCUPYING_STATUSES`]）。
 ///
 /// `exclude` = 编辑 / 提交时把「本单自己」排除掉（否则一张已提交的单会把自己算两遍）。
@@ -552,10 +605,11 @@ pub async fn create_order(
     ex.exec_sql(
         format!(
             "INSERT INTO {ORDER_TABLE} \
-                (id, so_no, customer_id, contract_id, order_date, delivery_date, status, \
+                (id, so_no, customer_id, contract_id, salesperson_id, order_date, delivery_date, status, \
                  total_amount, total_tax, total_with_tax, remark, \
                  created_at, updated_at, create_by, update_by) \
-             VALUES (?, ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::date, NULLIF(?::text,'')::date, ?, \
+             VALUES (?, ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid, \
+                 NULLIF(?::text,'')::date, NULLIF(?::text,'')::date, ?, \
                  ?::text::numeric, ?::text::numeric, ?::text::numeric, NULLIF(?::text,''), \
                  ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)"
         ),
@@ -567,6 +621,12 @@ pub async fn create_order(
             // 不用 `?::uuid` 直接绑 Option<Uuid>：与本文件其它写法保持一致
             Value::Text(
                 new.contract_id
+                    .map(|value| value.to_string())
+                    .unwrap_or_default(),
+            ),
+            // V0309：销售员（None → 空串 → NULL）
+            Value::Text(
+                new.salesperson_id
                     .map(|value| value.to_string())
                     .unwrap_or_default(),
             ),
@@ -622,6 +682,7 @@ pub async fn update_order(
             format!(
                 "UPDATE {ORDER_TABLE} \
                         SET customer_id = ?, contract_id = NULLIF(?::text,'')::uuid, \
+                            salesperson_id = NULLIF(?::text,'')::uuid, \
                             order_date = NULLIF(?::text,'')::date, \
                             delivery_date = NULLIF(?::text,'')::date, \
                             total_amount = ?::text::numeric, total_tax = ?::text::numeric, \
@@ -633,6 +694,12 @@ pub async fn update_order(
                 Value::from(&new.customer_id),
                 Value::Text(
                     new.contract_id
+                        .map(|value| value.to_string())
+                        .unwrap_or_default(),
+                ),
+                // V0309：销售员（空串 → NULL = 解绑销售员）
+                Value::Text(
+                    new.salesperson_id
                         .map(|value| value.to_string())
                         .unwrap_or_default(),
                 ),
@@ -1133,6 +1200,7 @@ mod tests {
         NewSalesOrder {
             customer_id,
             contract_id: None,
+            salesperson_id: None,
             order_date: Utc::now().date_naive(),
             delivery_date: None,
             remark: Some(remark),
@@ -1449,5 +1517,103 @@ mod tests {
         let row = find_order(id).await.expect("查单").expect("必须存在");
         assert_eq!(row.status, STATUS_SUBMITTED);
         cleanup().await;
+    }
+
+    /// V0309（SO-35）：建单落销售员 → 读回一致；停用账号不可再挂；
+    /// 批量补名去重；改单不传销售员 = 解绑（NULL）。
+    #[tokio::test]
+    async fn salesperson_round_trip_and_unbind() {
+        let Some(_guard) = setup().await else { return };
+        let customer = fixture_customer().await;
+        let user_id = Uuid::parse_str("d0509000-0000-4000-8000-000000000001").expect("夹具 uuid");
+        let insert_user = |status: i32| {
+            let insert = format!(
+                "INSERT INTO sys_user (id, username, password, real_name, status) \
+                 VALUES (?::uuid, 'SO5T-SALES', 'x', 'SO5T 销售员', {status}) \
+                 ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, deleted_at = NULL"
+            );
+            async move {
+                // 上一次跑挂了可能留下同 username 的另一行（uk_sys_user_username 只约束存活行）
+                db().exec_sql(
+                    "DELETE FROM sys_user WHERE username = 'SO5T-SALES' AND id <> ?::uuid"
+                        .to_string(),
+                    vec![Value::from(&user_id)],
+                )
+                .await
+                .expect("清残留夹具销售员");
+                db().exec_sql(insert, vec![Value::from(&user_id)])
+                    .await
+                    .expect("建夹具销售员");
+            }
+        };
+        insert_user(1).await;
+
+        let items = vec![item("1", "10", "0")];
+        let totals = Totals::of(&items);
+        let mut new = new_order(customer, "SO-35 挂销售员");
+        new.salesperson_id = Some(user_id);
+        let tx = db().begin().await.expect("开事务");
+        let (id, _) = create_order(
+            &tx,
+            &new,
+            &items,
+            &totals,
+            state_machine::Operator::of(None),
+            Utc::now(),
+        )
+        .await
+        .expect("建单");
+        tx.commit().await.expect("提交");
+
+        let row = find_order(id).await.expect("查单").expect("必须存在");
+        assert_eq!(
+            row.salesperson_id,
+            Some(user_id),
+            "建单必须落 salesperson_id"
+        );
+
+        // 启用账号 → 能挂且能取到姓名
+        assert_eq!(
+            active_salesperson(user_id)
+                .await
+                .expect("查销售员")
+                .as_deref(),
+            Some("SO5T 销售员")
+        );
+        // 停用账号 → 不可再挂新单（业务口径：停用即停止计佣）
+        insert_user(0).await;
+        assert!(
+            active_salesperson(user_id)
+                .await
+                .expect("查停用销售员")
+                .is_none(),
+            "停用账号不该还能当销售员"
+        );
+        insert_user(1).await;
+
+        // 批量补名：同 id 传两次只回一行（分页里多张单同一个销售员）
+        let labels = salesperson_labels(&[user_id, user_id])
+            .await
+            .expect("批量取销售员姓名");
+        assert_eq!(labels, vec![(user_id, "SO5T 销售员".to_string())]);
+
+        // 改单不传销售员 = 解绑（与 contract_id 同口径：空 ⇒ NULL）
+        let unbound = new_order(customer, "SO-35 解绑销售员");
+        let tx = db().begin().await.expect("开事务");
+        let affected = update_order(&tx, id, &unbound, &items, &totals, None, Utc::now())
+            .await
+            .expect("改单");
+        assert_eq!(affected, 1);
+        tx.commit().await.expect("提交");
+        let row = find_order(id).await.expect("查单").expect("必须存在");
+        assert_eq!(row.salesperson_id, None, "不传销售员必须落 NULL");
+
+        cleanup().await;
+        db().exec_sql(
+            "DELETE FROM sys_user WHERE id = ?::uuid".to_string(),
+            vec![Value::from(&user_id)],
+        )
+        .await
+        .expect("清夹具销售员");
     }
 }

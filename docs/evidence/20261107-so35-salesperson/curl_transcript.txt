@@ -1,0 +1,40 @@
+
+### ① 登录拿 token（admin / SUPER_ADMIN 短路权限）
+token 长度 = 461
+
+### ② 取一个真实启用的销售员（GET /api/system/user/page，取 admin 自己的 id / 姓名）
+{'id': '01a1b21b-48e0-7265-b036-314216d72454', 'username': 'admin', 'real_name': '超级管理员'}
+salesperson_id = 01a1b21b-48e0-7265-b036-314216d72454
+
+### ③ 建单挂销售员（POST /api/business/erp/sales-order，salesperson_id=01a1b21b-48e0-7265-b036-314216d72454）
+{'so_no': 'SO-20261107-000010', 'salesperson_id': '01a1b21b-48e0-7265-b036-314216d72454', 'salesperson_name': '超级管理员', 'total_with_tax': '15.0516'}
+订单 id = 01a1b268-8598-7110-9e7f-b2101c726982
+
+### ④ 详情回读（GET /api/business/erp/sales-order/01a1b268-8598-7110-9e7f-b2101c726982）
+{'so_no': 'SO-20261107-000010', 'salesperson_id': '01a1b21b-48e0-7265-b036-314216d72454', 'salesperson_name': '超级管理员'}
+
+### ⑤ 分页列表补名（GET /api/business/erp/sales-order/page?so_no=…）
+{'total': 1, 'salesperson_id': '01a1b21b-48e0-7265-b036-314216d72454', 'salesperson_name': '超级管理员'}
+
+### ⑥ 改单解绑（PUT，salesperson_id = 空串 → NULL）
+{'salesperson_id': None, 'salesperson_name': None}
+
+### ⑦ 重新挂上（PUT，salesperson_id = 01a1b21b-48e0-7265-b036-314216d72454）
+{'salesperson_id': '01a1b21b-48e0-7265-b036-314216d72454', 'salesperson_name': '超级管理员'}
+
+### ⑧ 销售员不存在 → 400（不是 500，也不是静默落 NULL）
+HTTP 400
+{
+    "code": 10001,
+    "msg": "\u9500\u552e\u5458 63374ec8-bb21-4a3d-81cb-f1ae138825bd \u4e0d\u5b58\u5728\u3001\u5df2\u5220\u9664\u6216\u5df2\u505c\u7528\uff1a\u53ea\u80fd\u9009\u542f\u7528\u72b6\u6001\u7684\u8d26\u53f7\uff08\u505c\u7528\u8d26\u53f7\u4e0d\u8be5\u518d\u63a5\u65b0\u5355\u8ba1\u4f63\uff09"
+}
+
+### ⑨ 销售员传乱码 → 400
+HTTP 400
+{
+    "code": 66006,
+    "msg": "salesperson_id \u4e0d\u662f\u5408\u6cd5\u7684 UUID\uff1anot-a-uuid"
+}
+
+### ⑩ 无 token → 401（权限不是只靠前端隐藏按钮）
+HTTP 401

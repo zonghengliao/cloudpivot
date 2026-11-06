@@ -1,0 +1,67 @@
+===== scripts/verify/perm_menu_gate.py =====
+============================================================================================
+死权限码常驻闸 · perm_menu_gate.py（handler 注解码 − sys_menu.auth_code）
+============================================================================================
+代码侧：403 个非测试 .rs（跳过测试文件 78 个、cfg(test) 项内夹具码 0 处）→ 注解码 315 个（545 处）
+菜单侧：334 个活跃 auth_code（db=cloudpivot_so35@127.0.0.1:5432 user=alun）
+--------------------------------------------------------------------------------------------
+✓ missing_in_menu = 0   （代码在用的码全部有菜单承载，可被授予）
+ℹ unused_in_code  = 19  （只报告，不判红：行级校验 / 纯前端权限点都合法）
+  · business:attachment:delete         行级/常量引用  backend/src/business/attachment/dto.rs:31
+  · business:erp:commission-rule:create 源码零引用（纯前端权限点）
+  · business:erp:commission-rule:delete 源码零引用（纯前端权限点）
+  · business:erp:commission-rule:list  源码零引用（纯前端权限点）
+  · business:erp:commission-rule:update 源码零引用（纯前端权限点）
+  · business:erp:commission-settle:create 源码零引用（纯前端权限点）
+  · business:erp:commission-settle:list 源码零引用（纯前端权限点）
+  · business:erp:commission-settle:status 源码零引用（纯前端权限点）
+  · business:erp:skip-approval         行级/常量引用  backend/src/business/erp/approval_gate.rs:76
+  · business:flow:admin                行级/常量引用  backend/src/business/flow/handler.rs:1595
+  · business:project:delete            行级/常量引用  backend/src/business/project/handler.rs:57
+  · business:project:update            行级/常量引用  backend/src/business/project/handler.rs:55
+  · business:task:attachment:delete    行级/常量引用  backend/src/business/task/dto.rs:1407
+  · business:task:comment:delete       行级/常量引用  backend/src/business/task/dto.rs:1404
+  · business:task:dependency           行级/常量引用  backend/src/business/task/dto.rs:1093
+  · business:task:member               行级/常量引用  backend/src/business/task/dto.rs:107
+  · business:task:worklog              行级/常量引用  backend/src/business/task/dto.rs:1410
+  · system:field-mask:plain            行级/常量引用  backend/src/business/masking/registry.rs:47
+  · system:preference:view             源码零引用（纯前端权限点）
+============================================================================================
+==> 闸：PASS
+→ exit=0
+
+===== scripts/verify/role_code_gate.py =====
+============================================================================================
+迁移授权段角色码闸 · role_code_gate.py（INSERT INTO sys_role_menu 的 role_code 必须真实存在）
+============================================================================================
+扫描面：228 个 *.up.sql / 82 条 INSERT INTO sys_role_menu 语句 / 63 条带 role_code 字面量 / 6 条动态匹配（LIKE / 子查询，只能 WARN）
+白名单：14 个角色（生产活角色 12 + 迁移种子 10：DEPT_LEADER, FINANCE_DIRECTOR, FINANCE_MANAGER, FLOW_CONFIG_APPROVER, GENERAL_MANAGER, PURCHASE_MANAGER, SALES_CLERK, SALES_SUPERVISOR, SUPER_ADMIN, WAREHOUSE_MANAGER）
+历史基线：25 个文件（sha256 锁定，改动即失效）
+--------------------------------------------------------------------------------------------
+ℹ 历史基线豁免 29 条语句（存量授权段，文件指纹已锁）。
+⚠ 策略提示（WARN，不判红）：新增迁移里有 7 条 `INSERT INTO sys_role_menu` 授权段：
+  · backend/migrations/business/V0267__sales_menu.up.sql:357  INSERT INTO sys_role_menu  （无字面量，按子查询/矩阵）
+  · backend/migrations/business/V0267__sales_menu.up.sql:161  角色码矩阵块（temp 表 / CTE）  'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_CLERK'，'SALES_CLERK'，'SALES_CLERK'，'SALES_CLERK'，'WAREHOUSE_MANAGER'，'WAREHOUSE_MANAGER'，'WAREHOUSE_MANAGER'，'WAREHOUSE_MANAGER'，'FINANCE_MANAGER'，'FINANCE_MANAGER'，'FINANCE_MANAGER'，'FINANCE_MANAGER'，'FINANCE_MANAGER'，'FINANCE_MANAGER'，'FINANCE_MANAGER'，'FINANCE_MANAGER'，'FINANCE_MANAGER'，'FINANCE_MANAGER'，'FINANCE_MANAGER'，'FINANCE_MANAGER'，'FINANCE_MANAGER'，'FINANCE_MANAGER'，'FINANCE_MANAGER'，'FINANCE_MANAGER'，'FINANCE_MANAGER'，'GENERAL_MANAGER'，'GENERAL_MANAGER'，'GENERAL_MANAGER'，'GENERAL_MANAGER'，'GENERAL_MANAGER'，'GENERAL_MANAGER'，'GENERAL_MANAGER'，'GENERAL_MANAGER'，'GENERAL_MANAGER'，'GENERAL_MANAGER'
+  · backend/migrations/business/V0308__customer_price_menu.up.sql:136  INSERT INTO sys_role_menu  （无字面量，按子查询/矩阵）  ← 动态表达式（LIKE / 子查询），闸无法静态验证角色码，请人工确认
+  · backend/migrations/business/V0308__customer_price_menu.up.sql:118  角色码矩阵块（temp 表 / CTE）  'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_CLERK'，'SALES_CLERK'，'SALES_CLERK'，'SALES_SUPERVISOR'，'FINANCE_MANAGER'
+  · backend/migrations/business/V0308__customer_price_menu.up.sql:223  角色码矩阵块（temp 表 / CTE）  'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_CLERK'，'SALES_CLERK'，'SALES_CLERK'，'SALES_SUPERVISOR'，'FINANCE_MANAGER'
+  · backend/migrations/business/V0310__commission_permissions.up.sql:270  INSERT INTO sys_role_menu  （无字面量，按子查询/矩阵）
+  · backend/migrations/business/V0310__commission_permissions.up.sql:130  角色码矩阵块（temp 表 / CTE）  'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_SUPERVISOR'，'SALES_CLERK'，'FINANCE_MANAGER'，'FINANCE_MANAGER'，'FINANCE_MANAGER'，'GENERAL_MANAGER'
+  授权段优先走 V0258 业务角色矩阵（改矩阵）而不是在新迁移里再写一份：空库上 sys_role 还没种出业务角色 ⇒ 写死的 role_code 只会静默 0 行；见 docs/architecture/P2-新装配库权限矩阵-决策.md
+✓ 无**新增/改动**的未知角色码（历史基线全部按指纹豁免）
+→ exit=0
+
+===== scripts/verify/orphan_button_gate.py =====
+============================================================================================
+孤儿按钮常驻闸 · orphan_button_gate.py（角色拿到的按钮码 ⇒ 至少有一个可达父页）
+============================================================================================
+扫描面：活跃 sys_menu 380 行 / 带码父页的按钮节点 275 个 / 按钮授权 493 行
+--------------------------------------------------------------------------------------------
+✓ 孤儿 (角色,码) = 0   （每个按钮码都至少有一个角色看得见的父页）
+ℹ 冗余节点授权（同码另有可达节点，不判红）：WAREHOUSE_MANAGER business:erp:doc:cancel-cascade @ /business/erp/payable(business:erp:payable:list)（2/3 个节点可达）
+ℹ 冗余节点授权（同码另有可达节点，不判红）：WAREHOUSE_MANAGER business:erp:doc:cancel-impact @ /business/erp/payable(business:erp:payable:list)（2/3 个节点可达）
+ℹ 超管行（*:*:* 短路，对功能零影响，不判红）：SUPER_ADMIN business:erp:voucher:audit @ /business/erp/voucher(business:erp:voucher:list)
+ℹ 超管行（*:*:* 短路，对功能零影响，不判红）：SUPER_ADMIN business:erp:voucher:post @ /business/erp/voucher(business:erp:voucher:list)
+ℹ 超管行（*:*:* 短路，对功能零影响，不判红）：SUPER_ADMIN business:erp:voucher:un-audit @ /business/erp/voucher(business:erp:voucher:list)
+→ exit=0
+

@@ -1,0 +1,92 @@
+
+### 库：cloudpivot_so35p
+
+### ① up（第一轮，全新）
+-- psql -f V0309__sales_commission.up.sql
+NOTICE:  V0309 完成：salesperson_id + 佣金三表就位；存量订单 9 张（已关联销售员 0 张，不回填）
+-- psql -f V0310__commission_permissions.up.sql
+NOTICE:  table "_cm_matrix" does not exist, skipping
+NOTICE:  table "_cm_sel" does not exist, skipping
+NOTICE:  V0310 完成：佣金 7 码 / 2 页 / 5 按钮；授权新增 15 行，推进 token_version 的账号 0 个；卡面 SALES_MANAGER = 本仓 SALES_SUPERVISOR（V0267 决策，未新建同义角色）
+tables=3
+salesperson_col=1
+salesperson_fk=1
+commission_menu_rows=7
+commission_grants=11
+
+### ② up（第二轮，必须幂等：0 行新增 / 无 ERROR）
+-- psql -f V0309__sales_commission.up.sql
+NOTICE:  column "salesperson_id" of relation "biz_sales_order" already exists, skipping
+NOTICE:  relation "idx_biz_sales_order_salesperson" already exists, skipping
+NOTICE:  relation "biz_commission_rule" already exists, skipping
+NOTICE:  relation "idx_biz_cmrule_scope" already exists, skipping
+NOTICE:  relation "idx_biz_cmrule_effective" already exists, skipping
+NOTICE:  relation "idx_biz_cmrule_status" already exists, skipping
+NOTICE:  relation "biz_commission_settlement" already exists, skipping
+NOTICE:  relation "uk_biz_cmset_no" already exists, skipping
+NOTICE:  relation "uk_biz_cmset_period" already exists, skipping
+NOTICE:  relation "idx_biz_cmset_salesperson" already exists, skipping
+NOTICE:  relation "idx_biz_cmset_status" already exists, skipping
+NOTICE:  relation "biz_commission_item" already exists, skipping
+NOTICE:  relation "idx_biz_cmitem_settlement" already exists, skipping
+NOTICE:  relation "idx_biz_cmitem_so" already exists, skipping
+NOTICE:  relation "idx_biz_cmitem_receivable" already exists, skipping
+NOTICE:  V0309 完成：salesperson_id + 佣金三表就位；存量订单 9 张（已关联销售员 0 张，不回填）
+-- psql -f V0310__commission_permissions.up.sql
+NOTICE:  table "_cm_matrix" does not exist, skipping
+NOTICE:  table "_cm_sel" does not exist, skipping
+NOTICE:  V0310 完成：佣金 7 码 / 2 页 / 5 按钮；授权新增 0 行，推进 token_version 的账号 0 个；卡面 SALES_MANAGER = 本仓 SALES_SUPERVISOR（V0267 决策，未新建同义角色）
+tables=3
+salesperson_col=1
+salesperson_fk=1
+commission_menu_rows=7
+commission_grants=11
+
+### ③ 结构 + 域值抽检
+rule_cols=17
+settle_cols=15
+item_cols=11
+settle_fks=1
+item_fks=1
+uk_period=uk_biz_cmset_period
+roles=SALES_CLERK,SALES_SUPERVISOR
+
+### ④ down（两轮，必须都幂等）
+-- psql -f V0310__commission_permissions.down.sql
+NOTICE:  V0310 down：撤销 flow 缺口补丁 3 行
+NOTICE:  V0310 down：删除授权 11 行
+NOTICE:  V0310 down：删除菜单 7 行
+NOTICE:  V0310 down 完成：7 行菜单 + 其授权行已移除（角色本体不动 —— SALES_CLERK 由 V0267 建）
+-- psql -f V0309__sales_commission.down.sql
+NOTICE:  V0309 down 完成：三表 + 销售员列/外键/索引已全部移除（订单行 9 张，一行未改）
+tables=0
+salesperson_col=0
+salesperson_fk=0
+commission_menu_rows=0
+commission_grants=0
+-- psql -f V0310__commission_permissions.down.sql
+NOTICE:  V0310 down：撤销 flow 缺口补丁 0 行
+NOTICE:  V0310 down：删除授权 0 行
+NOTICE:  V0310 down：删除菜单 0 行
+NOTICE:  V0310 down 完成：7 行菜单 + 其授权行已移除（角色本体不动 —— SALES_CLERK 由 V0267 建）
+-- psql -f V0309__sales_commission.down.sql
+NOTICE:  table "biz_commission_item" does not exist, skipping
+NOTICE:  table "biz_commission_settlement" does not exist, skipping
+NOTICE:  table "biz_commission_rule" does not exist, skipping
+NOTICE:  index "idx_biz_sales_order_salesperson" does not exist, skipping
+NOTICE:  constraint "fk_biz_sales_order_salesperson" of relation "biz_sales_order" does not exist, skipping
+NOTICE:  column "salesperson_id" of relation "biz_sales_order" does not exist, skipping
+NOTICE:  V0309 down 完成：三表 + 销售员列/外键/索引已全部移除（订单行 9 张，一行未改）
+
+### ⑤ up（第三轮，从 down 状态恢复）
+-- psql -f V0309__sales_commission.up.sql
+NOTICE:  V0309 完成：salesperson_id + 佣金三表就位；存量订单 9 张（已关联销售员 0 张，不回填）
+-- psql -f V0310__commission_permissions.up.sql
+NOTICE:  table "_cm_matrix" does not exist, skipping
+NOTICE:  table "_cm_sel" does not exist, skipping
+NOTICE:  V0310 完成：佣金 7 码 / 2 页 / 5 按钮；授权新增 14 行，推进 token_version 的账号 0 个；卡面 SALES_MANAGER = 本仓 SALES_SUPERVISOR（V0267 决策，未新建同义角色）
+tables=3
+salesperson_col=1
+salesperson_fk=1
+commission_menu_rows=7
+commission_grants=11

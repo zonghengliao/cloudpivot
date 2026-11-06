@@ -549,6 +549,7 @@ mod tests {
             so_no: "SO-20261106-000001".to_string(),
             customer_id: Uuid::now_v7(),
             contract_id: None,
+            salesperson_id: None,
             order_date: nik::prelude::chrono::NaiveDate::from_ymd_opt(2026, 11, 6).unwrap(),
             delivery_date: None,
             status: STATUS_DRAFT.to_string(),
