@@ -1723,6 +1723,13 @@ async fn post_invoice_voucher(
             material_lines: Vec::new(),
             summary,
             remark: invoice.remark.as_deref(),
+            // **按本位币入账**（SO-41 / ARCH-7 §15.6.4 ②）：外币发票的凭证金额取建单时
+            // 按锁定汇率算出的 base_* 三列，而不是原币 —— 总账只认本位币。
+            base: Some(voucher::BaseAmounts {
+                amount: invoice.base_total_amount,
+                tax: invoice.base_total_tax,
+                with_tax: invoice.base_total_with_tax,
+            }),
         },
         operator,
         now,

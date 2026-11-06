@@ -1,0 +1,101 @@
+== 启动 pid=1727974 库=cloudpivot_so41_api 端口=18142
+== /health: 200
+== 汇率种子：
+USD->CNY 7.10000000 @2026-11-01
+USD->CNY 7.90000000 @2026-11-30
+== token 长度 461
+== 客户=d0260000-0000-4000-8000-000000000001
+== 建 USD 应收响应：
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "id": "d7d6da59-18c7-488a-9d33-33203ceedd38",
+        "ar_no": "AR-20261107-000001",
+        "customer_id": "d0260000-0000-4000-8000-000000000001",
+        "amount": "1130",
+        "received_amount": "0",
+        "unsettled_amount": "1130",
+        "credit_days": 0,
+        "due_date": "2026-11-07",
+        "period_code": "2026-11",
+        "status": "OPEN",
+        "status_label": "\u672a\u6536",
+        "currency_code": "USD",
+        "exchange_rate": "7.10000000",
+        "base_total_amount": "8023.0000",
+        "base_total_tax": "0",
+        "base_total_with_tax": "8023.0000"
+    }
+}
+== 库内该应收的双币列（原币 / 汇率 / 本位币含税）：
+USD | rate=7.10000000 | base_amount=8023.0000 | base_with_tax=8023.0000
+== 开票响应：
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "id": "bdb35fcc-9334-4875-bdec-7b3bfc282b87",
+        "invoice_no": "IV-20261107-000001",
+        "invoice_type": "OUT",
+        "invoice_type_label": "\u9500\u9879\u6b63\u7968",
+        "invoice_code": null,
+        "customer_id": "d0260000-0000-4000-8000-000000000001",
+        "customer_name": "\u5317\u4eac\u4e91\u67a2\u79d1\u6280\u6709\u9650\u516c\u53f8",
+        "invoice_date": "2026-11-07",
+        "amount": "1000.0000",
+        "tax_amount": "130.0000",
+        "total_with_tax": "1130.0000",
+        "tax_rate": "0.1300",
+        "status": "DRAFT",
+        "status_label": "\u8349\u7a3f",
+        "receivable_id": "d7d6da59-18c7-488a-9d33-33203ceedd38",
+        "source_type": "MANUAL",
+        "source_no": "MANUAL",
+        "voucher_id": null,
+        "remark": "SO-41 \u8bc1\u636e\uff1aUSD \u53d1\u7968",
+        "currency_code": "USD",
+        "exchange_rate": "7.10000000",
+        "base_total_amount": "7100.0000",
+        "base_total_tax": "923.0000",
+        "base_total_with_tax": "8023.0000",
+        "created_at": "2026-11-06T23:54:13.401686Z",
+        "updated_at": "2026-11-06T23:54:13.401686Z",
+        "voucher_no": null,
+        "receivable_no": "AR-20261107-000001",
+        "receivable_amount": "1130.0000",
+        "receivable_status": "OPEN",
+        "receivable_status_label": "\u672a\u6536",
+        "receivable_headroom": "0.0000"
+    }
+}
+== 库内发票双币列：
+USD | rate=7.10000000 | base_amount=7100.0000 | base_tax=923.0000 | base_with_tax=8023.0000
+== ISSUED（开票）响应摘要：
+{"code": 0, "msg": "ok", "status": "ISSUED", "voucher_id": "0e57c923-4465-4436-bafc-4f60464b1016"}
+== 收入凭证 0e57c923-4465-4436-bafc-4f60464b1016 的分录（借 1122 应 8023 / 贷 5001 7100 / 贷 2221.02 923）：
+1 | 1122 | 应收账款 | debit=8023.0000 | credit=0.0000
+2 | 5001 | 主营业务收入 | debit=0.0000 | credit=7100.0000
+3 | 2221.02 | 应交税费-销项税 | debit=0.0000 | credit=923.0000
+== 借贷合计与恒等式：
+debit=8023.0000 credit=8023.0000 balanced=true
+== 建 CNY 应收响应（只打 code/ar_no/currency）：
+{"code": 0, "ar_no": "AR-20261107-000002", "currency_code": "CNY", "amount": "500"}
+== 期间 2026-11 id=64fa6ba3-f3f7-1071-d22f-dab5ed2e6fb1 状态=OPEN
+== 结账预检：
+{"can_close": true, "blockers": [], "warnings": 0}
+== 结账响应（code / status）：
+{"code": 0, "msg": "ok", "status": "CLOSED", "closed_at": "2026-11-06T23:54:13.674621Z"}
+== 重估凭证 405e3fd8-0581-45b3-bb50-4f6d09aab8fb 摘要与分录（借 1122 904 / 贷 5603 904）：
+PZ-20261107-000002 | 2026-11 期末汇兑重估（1 笔外币应收，期末汇率取 2026-11-30） | date=2026-11-30 | source_type=FX_REVALUATION
+1 | 1122 | 应收账款 | summary=2026-11 期末汇兑重估（1 笔外币应收，期末汇率取 2026-11-30） 调增应收账款 | debit=904.0000 | credit=0.0000
+2 | 5603 | 财务费用 | summary=2026-11 期末汇兑重估（1 笔外币应收，期末汇率取 2026-11-30） 汇兑收益 | debit=0.0000 | credit=904.0000
+== 重估台账（只应有 USD 那一行；CNY 不许出现）：
+2026-11 | AR-20261107-000001 | USD | open=1130.0000 | book=8023.0000 | reval=8927.0000 | diff=904.0000
+== CNY 应收是否被重估（期望 0）：
+0
+== 重复结账响应（期望非 0 业务码 + 文案含已结账）：
+{"code": 10003, "msg": "会计期间 2026-11 已经结账（2026-11-06 23:54 结的），不能重复结账"}
+== 重估凭证条数（期望 1）：
+1
+== 完（实例仍在跑，pid=1727974；收工：kill $(cat /root/so41-evidence.pid)）

@@ -1250,6 +1250,33 @@ pub async fn close_period(
         )));
     }
 
+    // ⑤ 期末汇兑重估（SO-41 / ARCH-7 §15.6.4 ②）：未核销外币应收按**月末**汇率重估，
+    //    差额记 5603 财务费用-汇兑损益 / 1122 应收账款，凭证落在本期间。
+    //    必须在 `OPEN → CLOSED` 之前跑：`post_voucher` 的期间闸只放行 OPEN 期间，
+    //    状态先改再记账会自己把自己拦掉。
+    //    幂等：同一期间已提过 ⇒ `skipped = true`，不会重复计提（见 fx_revaluation 头注释）。
+    let fx = crate::business::erp::fx_revaluation::revalue_period(
+        &tx,
+        &row.period_code,
+        operator.id,
+        now,
+    )
+    .await?;
+    if fx.skipped {
+        tracing::info!(
+            period = %row.period_code,
+            "结账：该期间已提过汇兑重估，跳过"
+        );
+    } else if let Some(voucher_id) = fx.voucher_id {
+        tracing::info!(
+            period = %row.period_code,
+            voucher = %voucher_id,
+            net = %fx.net,
+            lines = fx.lines.len(),
+            "结账：已生成期末汇兑重估凭证"
+        );
+    }
+
     state_machine::transition(
         &tx,
         state_machine::ENTITY_PERIOD,

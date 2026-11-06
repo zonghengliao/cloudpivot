@@ -119,6 +119,7 @@ use nik::uuid::Uuid;
 
 use std::collections::BTreeMap;
 
+pub use crate::business::erp::currency::BaseAmounts;
 use crate::business::erp::serial_model;
 use crate::business::erp::stockin_model::StockInRow;
 use crate::business::shared::state_machine;
@@ -215,6 +216,17 @@ pub const ACCOUNT_REVENUE: &str = "5001";
 ///
 /// `2221` 是**汇总**科目，记账会被 [`post_voucher`] 的「只允许末级科目」闸拒掉。
 pub const ACCOUNT_OUTPUT_TAX: &str = "2221.02";
+
+/// 科目编码：财务费用（汇兑损益的对方科目，ARCH-7 §15.6.4 ②）。
+///
+/// 卡面写「6603 财务费用-汇兑损益」，但**本仓科目表是小企业准则**：损益类只有 `5xxx`，
+/// 财务费用 = `5603`（`V0183` 资产负债表映射 + `V0184` 利润表 `FINANCE_EXPENSE` 都按 5603 取数）。
+/// 与既有三次同类决策同口径（V0226 把 6602→5602、V0229 把 6602→5602.01、
+/// V0311 把 6601→5601）：新种 66xx 会让财务费用在利润表与预算科目树里凭空多出一份、
+/// 而 5603 那一份恒为 0。故落 `5603`（末级目录接用），
+/// 摘要统一写「汇兑损益」，人在总账里按摘要即可分辨（若要单列子科目，应由财务主数据维护，
+/// 不在本卡硬种 —— 科目编码一旦用过永久占用）。
+pub const ACCOUNT_FX_GAIN_LOSS: &str = "5603";
 
 /// 凭证来源类型：销售发票（`INVOICE`，与 `VoucherSourceType::Invoice` 同值）。
 ///
@@ -2745,6 +2757,14 @@ pub struct SalesRevenueVoucher<'a> {
     pub summary: String,
     /// 备注（发票备注；`None` = 不写）。
     pub remark: Option<&'a str>,
+    /// **本位币三连**（SO-41 / ARCH-7 §15.6.4 ②）：`Some` ⇒ 分录按本位币金额入账。
+    ///
+    /// 来源固定是单据的 `base_total_*` 三列（SO-40 在建单时按锁定汇率换算、尾差归含税列），
+    /// 于是「USD 单据 ⇒ 凭证金额 = 原币 × 锁定汇率」是**数据驱动**的，
+    /// 本函数不再自己乘汇率（汇率只有锁定那一刻算一次，后面任何汇率变动都不影响已开票金额）。
+    ///
+    /// `None` ⇒ 按原币入账（历史行为，兼容本位币单据：`rate = 1` 时两者逐分相等）。
+    pub base: Option<BaseAmounts>,
 }
 
 /// 校验「价税合计 = 不含税 + 税额」是否自洽，并返回**吸收尾差后**的贷方税额。
@@ -2810,12 +2830,11 @@ pub fn sales_revenue_split(
     revenue_total: Decimal,
     material_lines: &[VoucherMaterialLine],
 ) -> DbResult<Vec<VoucherMaterialLine>> {
-    let mut positives: Vec<VoucherMaterialLine> = VoucherMaterialLine::normalize(
-        material_lines.iter().cloned(),
-    )
-    .into_iter()
-    .filter(|line| line.amount > Decimal::ZERO)
-    .collect();
+    let mut positives: Vec<VoucherMaterialLine> =
+        VoucherMaterialLine::normalize(material_lines.iter().cloned())
+            .into_iter()
+            .filter(|line| line.amount > Decimal::ZERO)
+            .collect();
     if positives.is_empty() {
         return Ok(Vec::new());
     }
@@ -2825,6 +2844,82 @@ pub fn sales_revenue_split(
         line.amount = amount;
     }
     Ok(positives)
+}
+
+/// 本位币三连的**入账前校验**：非负 + 恒等式 `with_tax = amount + tax`，返回定标后的值。
+///
+/// 三列都来自单据（SO-40 的 `base_total_*`），库层已有 `ck_biz_*_base_amount` 兜底；
+/// 这里再校验一次的理由是**凭证是最终账**：单据列被非 API 写入绕过 CHECK 之前，
+/// 我们不能把「借 1122 1000 / 贷 5001 700 + 贷 2221.02 200」这种不平的凭证写进总账。
+///
+/// 尾差处理与 [`BaseAmounts::of`] 同口径：`with_tax` 取前两项之和（差额 ≤ 1 个最小单位
+/// 会落在这里，而不是让借贷差 0.0001 卡住结账）。
+pub fn validate_base_amounts(doc_no: &str, base: BaseAmounts) -> DbResult<BaseAmounts> {
+    let amount = base.amount.round_dp(4);
+    let tax = base.tax.round_dp(4);
+    let with_tax = base.with_tax.round_dp(4);
+    if amount < Decimal::ZERO || tax < Decimal::ZERO || with_tax < Decimal::ZERO {
+        return Err(DbError::InvalidValue(format!(
+            "收入凭证生成失败：本位币金额不能为负（单据 {doc_no} 传 不含税 {amount} / 税额 {tax} / \
+             含税 {with_tax}）；红字收入请走红字凭证，不要拿负数硬写蓝字凭证"
+        )));
+    }
+    let diff = (with_tax - (amount + tax)).abs();
+    if diff >= BALANCE_TOLERANCE {
+        return Err(DbError::InvalidValue(format!(
+            "收入凭证生成失败：本位币金额不自洽（单据 {doc_no}）—— 含税 {with_tax} ≠ 不含税 {amount} \
+             + 税额 {tax}（差额 {diff} ≥ {BALANCE_TOLERANCE}），借贷无法平衡；请先核对单据的 base_* 三列"
+        )));
+    }
+    Ok(BaseAmounts {
+        amount,
+        tax,
+        // 尾差归含税（与 `currency::BaseAmounts::of` 同一口径，不另立一套）
+        with_tax: amount + tax,
+    })
+}
+
+/// 把**本位币不含税合计**按原币的商品构成拆到各物料行（SO-41）。
+///
+/// 商品行只有原币金额（发票/订单明细本来就只有原币），本位币合计却来自单据的
+/// `base_total_amount`。两个金额之间只差一次汇率与逐项定标（≤ 每行 1 个最小单位），
+/// 所以按 `base_revenue / revenue_original` 的比例缩放每一行，再把尾差交给
+/// [`absorb_tail_diff`]（与出库 / 收入拆行**同一把尺子**）—— 不重算汇率、不另写拆分逻辑。
+///
+/// 三种退化：`material_lines` 为空 ⇒ 空 vec（调用方回退「贷 1 行」）；
+/// 原币不含税 ≤ 0（`revenue_base` 却 > 0 的脏单据）⇒ 同样回退单行，
+/// 宁可少拆行也不让比例除法把金额炸成天文数字。
+pub fn sales_revenue_split_in_base(
+    doc_no: &str,
+    revenue_original: Decimal,
+    revenue_base: Decimal,
+    material_lines: &[VoucherMaterialLine],
+) -> DbResult<Vec<VoucherMaterialLine>> {
+    if material_lines.is_empty() {
+        return Ok(Vec::new());
+    }
+    let original = revenue_original.round_dp(4);
+    if original <= Decimal::ZERO {
+        tracing::warn!(
+            doc_no,
+            revenue_original = %original,
+            revenue_base = %revenue_base,
+            "原币不含税金额 ≤ 0 却给了本位币金额：商品行无法按比例缩放，回退为贷 1 行汇总"
+        );
+        return Ok(Vec::new());
+    }
+    let ratio = revenue_base / original;
+    let scaled: Vec<VoucherMaterialLine> = material_lines
+        .iter()
+        .map(|line| VoucherMaterialLine {
+            material_id: line.material_id,
+            qty: line.qty,
+            amount: (line.amount * ratio).round_dp(4),
+            line_from: line.line_from,
+            line_to: line.line_to,
+        })
+        .collect();
+    sales_revenue_split(doc_no, revenue_base, &scaled)
 }
 
 /// 开票（收入确认）时生成蓝字凭证：**借 1122 应收账款（价税合计）/ 贷 5001 主营业务收入
@@ -2873,8 +2968,19 @@ pub async fn create_for_sales_revenue(
         );
         return Ok(None);
     }
-    let (revenue, tax) =
-        sales_revenue_amounts(req.invoice_no, total, req.amount, req.tax_amount)?;
+    let (revenue, tax, total) = match req.base {
+        // 本位币入账（SO-41 / ARCH-7 §15.6.4 ②）：外币单据的凭证金额 = 原币 × **锁定**汇率
+        Some(base) => {
+            let base = validate_base_amounts(req.invoice_no, base)?;
+            (base.amount, base.tax, base.with_tax)
+        }
+        // 兼容路径：没有 base_* 的调用方按原币入账（本位币单据 rate = 1 时两者逐分相等）
+        None => {
+            let (revenue, tax) =
+                sales_revenue_amounts(req.invoice_no, total, req.amount, req.tax_amount)?;
+            (revenue, tax, total)
+        }
+    };
 
     let ar_account = account_required(ex, ACCOUNT_AR, "收入凭证的借方科目 1122 应收账款").await?;
     let revenue_account =
@@ -2894,7 +3000,11 @@ pub async fn create_for_sales_revenue(
     }];
 
     // 贷：主营业务收入（不含税；按商品拆行时不带仓库辅助核算 —— 收入是全公司口径）
-    let split = sales_revenue_split(req.invoice_no, revenue, &req.material_lines)?;
+    let split = if req.base.is_some() {
+        sales_revenue_split_in_base(req.invoice_no, req.amount, revenue, &req.material_lines)?
+    } else {
+        sales_revenue_split(req.invoice_no, revenue, &req.material_lines)?
+    };
     if split.is_empty() {
         lines.push(EntryLine {
             line_no: 0,
@@ -2965,7 +3075,11 @@ pub async fn create_for_sales_revenue(
     }
     if diff > Decimal::ZERO {
         // < 0.01 的尾差落到最后一笔贷方行（上面已保证税额行是派生值，正常走不到这里）
-        if let Some(last) = lines.iter_mut().rev().find(|line| line.credit > Decimal::ZERO) {
+        if let Some(last) = lines
+            .iter_mut()
+            .rev()
+            .find(|line| line.credit > Decimal::ZERO)
+        {
             last.credit = (last.credit + diff).round_dp(4);
             tracing::warn!(
                 doc_no = req.invoice_no,
@@ -4197,7 +4311,8 @@ mod tests {
             .map(|row| {
                 (
                     row.get_typed::<i32>("line_no").expect("line_no"),
-                    row.get_typed::<String>("account_code").expect("account_code"),
+                    row.get_typed::<String>("account_code")
+                        .expect("account_code"),
                     row.get_typed::<Decimal>("d").expect("debit"),
                     row.get_typed::<Decimal>("c").expect("credit"),
                 )
@@ -4270,14 +4385,20 @@ mod tests {
         assert_eq!(split[0].line_from, 1);
         assert_eq!(split[0].line_to, 2);
         let sum: Decimal = split.iter().map(|l| l.amount).sum();
-        assert_eq!(sum, dec("1000"), "拆行后合计必须等于表头不含税金额（尾差吸收）");
+        assert_eq!(
+            sum,
+            dec("1000"),
+            "拆行后合计必须等于表头不含税金额（尾差吸收）"
+        );
         println!("[SO22-②] 合并 400+100=500 / 升序 / 尾差 0.01 吸收 → Σ=1000 ✓");
     }
 
     /// 真库：正常凭证 —— 借 1122 1130 / 贷 5001 1000 / 贷 2221.02 130，借贷相等。
     #[tokio::test]
     async fn sales_revenue_voucher_posts_balanced_entries() {
-        let Some(_guard) = setup().await else { return; };
+        let Some(_guard) = setup().await else {
+            return;
+        };
         cleanup_sales_revenue().await;
         let now = Utc::now();
         let voucher_id = create_for_sales_revenue(
@@ -4292,6 +4413,7 @@ mod tests {
                 material_lines: Vec::new(),
                 summary: "SO22 单测：正常收入凭证".to_string(),
                 remark: Some("SO22 单测"),
+                base: None,
             },
             None,
             now,
@@ -4324,8 +4446,14 @@ mod tests {
             .await
             .expect("查凭证头")
             .expect("凭证头应存在");
-        assert_eq!(header.get_typed::<String>("source_type").unwrap(), SOURCE_INVOICE);
-        assert_eq!(header.get_typed::<String>("source_no").unwrap(), "SO22-T-0001");
+        assert_eq!(
+            header.get_typed::<String>("source_type").unwrap(),
+            SOURCE_INVOICE
+        );
+        assert_eq!(
+            header.get_typed::<String>("source_no").unwrap(),
+            "SO22-T-0001"
+        );
         assert_eq!(header.get_typed::<String>("status").unwrap(), STATUS_POSTED);
         assert_eq!(header.get_typed::<i32>("entry_count").unwrap(), 3);
         cleanup_sales_revenue().await;
@@ -4335,7 +4463,9 @@ mod tests {
     /// 真库：多行科目 —— 按商品拆 2 行收入 + 1 行税，合计仍等于不含税 1000。
     #[tokio::test]
     async fn sales_revenue_voucher_splits_revenue_by_material() {
-        let Some(_guard) = setup().await else { return; };
+        let Some(_guard) = setup().await else {
+            return;
+        };
         cleanup_sales_revenue().await;
         let now = Utc::now();
         let line = |material: &str, amount: &str| VoucherMaterialLine {
@@ -4357,6 +4487,7 @@ mod tests {
                 material_lines: vec![line(MATERIAL_B, "600"), line(MATERIAL_A, "400")],
                 summary: "SO22 单测：多行科目".to_string(),
                 remark: None,
+                base: None,
             },
             None,
             now,
@@ -4366,7 +4497,11 @@ mod tests {
         .expect("应有凭证 id");
 
         let entries = so22_entries(&voucher_id).await;
-        assert_eq!(entries.len(), 4, "应为 借1 + 贷(收入2) + 贷(税1) = 4 行：{entries:?}");
+        assert_eq!(
+            entries.len(),
+            4,
+            "应为 借1 + 贷(收入2) + 贷(税1) = 4 行：{entries:?}"
+        );
         let revenue_lines: Vec<&(i32, String, Decimal, Decimal)> =
             entries.iter().filter(|e| e.1 == ACCOUNT_REVENUE).collect();
         assert_eq!(revenue_lines.len(), 2, "收入必须按商品拆成 2 行");
@@ -4383,7 +4518,9 @@ mod tests {
     /// 真库：期间已结账 ⇒ 拒绝（文案点明「已结账」），且库里不留半张凭证。
     #[tokio::test]
     async fn sales_revenue_voucher_rejects_closed_period() {
-        let Some(_guard) = setup().await else { return; };
+        let Some(_guard) = setup().await else {
+            return;
+        };
         cleanup_sales_revenue().await;
         let period = "2031-03";
         exec(&format!(
@@ -4409,6 +4546,7 @@ mod tests {
                 material_lines: Vec::new(),
                 summary: "SO22 单测：已结账期间".to_string(),
                 remark: None,
+                base: None,
             },
             None,
             now,
@@ -4442,7 +4580,9 @@ mod tests {
     /// 真库：价税合计为 0 ⇒ 不生成凭证（`Ok(None)`），也不报错。
     #[tokio::test]
     async fn sales_revenue_voucher_skips_zero_amount() {
-        let Some(_guard) = setup().await else { return; };
+        let Some(_guard) = setup().await else {
+            return;
+        };
         cleanup_sales_revenue().await;
         let now = Utc::now();
         let got = create_for_sales_revenue(
@@ -4457,6 +4597,7 @@ mod tests {
                 material_lines: Vec::new(),
                 summary: "SO22 单测：零金额".to_string(),
                 remark: None,
+                base: None,
             },
             None,
             now,
@@ -4472,7 +4613,9 @@ mod tests {
     /// 否则「应收冲销了、总账上 1122 还挂着」。
     #[tokio::test]
     async fn receivable_cancel_reds_the_revenue_voucher() {
-        let Some(_guard) = setup().await else { return; };
+        let Some(_guard) = setup().await else {
+            return;
+        };
         cleanup_sales_revenue().await;
         exec(
             "DELETE FROM biz_status_log WHERE entity_type = 'RECEIVABLE' AND entity_id IN \
@@ -4502,6 +4645,7 @@ mod tests {
                 material_lines: Vec::new(),
                 summary: "SO22 单测：应收冲销的红冲".to_string(),
                 remark: None,
+                base: None,
             },
             None,
             now,
@@ -4568,7 +4712,11 @@ mod tests {
 
         let blue_entries = so22_entries(&blue_id).await;
         let red_entries = so22_entries(&red_id).await;
-        assert_eq!(red_entries.len(), blue_entries.len(), "红字行数应与蓝字一致");
+        assert_eq!(
+            red_entries.len(),
+            blue_entries.len(),
+            "红字行数应与蓝字一致"
+        );
         for (blue_line, red_line) in blue_entries.iter().zip(red_entries.iter()) {
             assert_eq!(blue_line.1, red_line.1, "科目顺序应一致");
             assert_eq!(blue_line.2, red_line.3, "红字的贷方 = 蓝字的借方（反向）");
@@ -4584,5 +4732,272 @@ mod tests {
         exec("DELETE FROM biz_receivable WHERE ar_no LIKE 'SO22-AR-%'").await;
         cleanup_sales_revenue().await;
         println!("[SO22-⑦] 真库出库作废 → 应收 CANCELLED + 收入凭证红冲（反向分录逐行核对） ✓");
+    }
+
+    // ==================== SO-41：凭证本位币入账（ARCH-7 §15.6.4 ②） ====================
+
+    /// 清掉本卡用例造的凭证（分录 → 状态日志 → 凭证）。
+    async fn cleanup_so41() {
+        let sqls = [
+            "DELETE FROM biz_voucher_entry WHERE voucher_id IN \
+             (SELECT id FROM biz_voucher WHERE source_no LIKE 'SO41-%')",
+            "DELETE FROM biz_status_log WHERE entity_type = 'VOUCHER' AND entity_id IN \
+             (SELECT id FROM biz_voucher WHERE source_no LIKE 'SO41-%')",
+            "DELETE FROM biz_voucher WHERE source_no LIKE 'SO41-%'",
+        ];
+        for sql in sqls {
+            exec(sql).await;
+        }
+    }
+
+    /// `(account_code, debit, credit)` 逐行读回来。
+    async fn so41_entries(voucher_id: &Uuid) -> Vec<(String, Decimal, Decimal)> {
+        let rows = db()
+            .query_sql(
+                "SELECT line_no, account_code, COALESCE(debit_amount, 0) AS d, \
+                        COALESCE(credit_amount, 0) AS c \
+                   FROM biz_voucher_entry WHERE voucher_id = ?::uuid ORDER BY line_no"
+                    .to_string(),
+                vec![Value::from(voucher_id)],
+            )
+            .await
+            .expect("查凭证分录");
+        rows.iter()
+            .map(|row| {
+                (
+                    row.get_typed::<String>("account_code")
+                        .expect("account_code"),
+                    row.get_typed::<Decimal>("d").expect("debit"),
+                    row.get_typed::<Decimal>("c").expect("credit"),
+                )
+            })
+            .collect()
+    }
+
+    /// 纯逻辑：本位币三连的入账前校验（非负 + 恒等式 + 尾差归含税）。
+    #[test]
+    fn so41_validate_base_amounts_enforces_identity_and_sign() {
+        let ok = validate_base_amounts(
+            "SO41-T-0001",
+            BaseAmounts {
+                amount: dec("7100"),
+                tax: dec("923"),
+                with_tax: dec("8023"),
+            },
+        )
+        .expect("恒等式成立的三连必须通过");
+        assert_eq!(ok.amount, dec("7100"));
+        assert_eq!(ok.tax, dec("923"));
+        assert_eq!(ok.with_tax, dec("8023"));
+
+        let tail = validate_base_amounts(
+            "SO41-T-0002",
+            BaseAmounts {
+                amount: dec("7100.0001"),
+                tax: dec("923.0001"),
+                with_tax: dec("8023.0044"),
+            },
+        )
+        .expect("尾差 < 0.01 必须被吸收而不是拒绝");
+        assert_eq!(
+            tail.with_tax,
+            dec("8023.0002"),
+            "含税取前两项之和（与 currency::BaseAmounts::of 同口径，尾差落含税列）"
+        );
+
+        let err = validate_base_amounts(
+            "SO41-T-0003",
+            BaseAmounts {
+                amount: dec("7100"),
+                tax: dec("923"),
+                with_tax: dec("8000"),
+            },
+        )
+        .expect_err("含税 ≠ 不含税 + 税额（差 123）必须拒绝");
+        let text = format!("{err}");
+        assert!(text.contains("不自洽"), "文案必须点明不自洽：{text}");
+        assert!(text.contains("SO41-T-0003"), "文案必须点名单据：{text}");
+
+        let err = validate_base_amounts(
+            "SO41-T-0004",
+            BaseAmounts {
+                amount: dec("-1"),
+                tax: dec("0"),
+                with_tax: dec("-1"),
+            },
+        )
+        .expect_err("负数本位币金额必须拒绝（红字走红冲）");
+        assert!(format!("{err}").contains("不能为负"));
+
+        println!("[SO41-⓪] 纯逻辑：本位币三连校验（非负 / 恒等式 / 尾差归含税） ✓");
+    }
+
+    /// 纯逻辑：本位币收入按原币商品构成等比拆分，尾差吸收后 Σ = 本位币不含税。
+    #[test]
+    fn so41_split_in_base_scales_material_lines() {
+        let air = |material: &str, amount: &str| VoucherMaterialLine {
+            material_id: Uuid::from_str(material).expect("物料 id"),
+            qty: dec("1"),
+            amount: dec(amount),
+            line_from: 1,
+            line_to: 1,
+        };
+        // 原币 1000（400 + 600）@ 7.1 ⇒ 本位币 7100（2840 + 4260）
+        let split = sales_revenue_split_in_base(
+            "SO41-T-0005",
+            dec("1000"),
+            dec("7100"),
+            &[air(MATERIAL_A, "400"), air(MATERIAL_B, "600")],
+        )
+        .expect("按比例拆分应成功");
+        assert_eq!(split.len(), 2, "两个物料 ⇒ 两行收入：{split:?}");
+        let sum: Decimal = split.iter().map(|line| line.amount).sum();
+        assert_eq!(sum, dec("7100"), "拆行合计必须等于本位币不含税金额");
+        assert_eq!(split[0].amount, dec("2840"), "400 × 7.1 = 2840");
+        assert_eq!(split[1].amount, dec("4260"), "600 × 7.1 = 4260");
+
+        // 尾差场景：原币 300 拆 100 + 200，本位币 2131（比例为 7.1033…）
+        let split = sales_revenue_split_in_base(
+            "SO41-T-0006",
+            dec("300"),
+            dec("2131"),
+            &[air(MATERIAL_A, "100"), air(MATERIAL_B, "200")],
+        )
+        .expect("尾差应被吸收");
+        let sum: Decimal = split.iter().map(|line| line.amount).sum();
+        assert_eq!(sum, dec("2131"), "尾差必须吸收到最后一行");
+
+        // 退化：没有商品行 ⇒ 空 vec（调用方回退「贷 1 行」）
+        assert!(
+            sales_revenue_split_in_base("SO41-T-0007", dec("1000"), dec("7100"), &[])
+                .expect("空行不该报错")
+                .is_empty()
+        );
+        // 退化：原币不含税 ≤ 0 ⇒ 也不拆（不许除零/天文数字）
+        assert!(
+            sales_revenue_split_in_base(
+                "SO41-T-0008",
+                dec("0"),
+                dec("7100"),
+                &[air(MATERIAL_A, "10")]
+            )
+            .expect("原币为 0 不该报错")
+            .is_empty()
+        );
+
+        println!("[SO41-⓪] 纯逻辑：本位币收入等比拆分 + 尾差吸收 + 两种退化 ✓");
+    }
+
+    /// 真库：**USD 发票 ⇒ 凭证金额 = 原币 × 锁定汇率**（1000 USD @ 7.1 =
+    /// 借 1122 8023 / 贷 5001 7100 / 贷 2221.02 923），不是原币金额。
+    #[tokio::test]
+    async fn so41_revenue_voucher_books_base_currency_amounts() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        cleanup_so41().await;
+        let now = Utc::now();
+        // 原币 1000 + 税 130 = 1130 USD；锁定汇率 7.1 ⇒ 本位币 7100 / 923 / 8023
+        let base = BaseAmounts::of(dec("1000"), dec("130"), dec("7.1"));
+        assert_eq!(base.with_tax, dec("8023"), "USD 1130 × 7.1 = 8023");
+
+        let voucher_id = create_for_sales_revenue(
+            db(),
+            &SalesRevenueVoucher {
+                invoice_id: so22_invoice(41),
+                invoice_no: "SO41-T-0001",
+                voucher_date: today_cst(now),
+                amount: dec("1000"),
+                tax_amount: dec("130"),
+                total_with_tax: dec("1130"),
+                material_lines: Vec::new(),
+                summary: "SO41 单测：USD 发票按本位币入账".to_string(),
+                remark: None,
+                base: Some(base),
+            },
+            None,
+            now,
+        )
+        .await
+        .expect("USD 收入凭证应生成")
+        .expect("应有凭证 id");
+
+        let entries = so41_entries(&voucher_id).await;
+        assert_eq!(
+            entries.len(),
+            3,
+            "借 1122 + 贷 5001 + 贷 2221.02：{entries:?}"
+        );
+        assert_eq!(entries[0].0, ACCOUNT_AR, "借方必须是 1122 应收账款");
+        assert_eq!(
+            entries[0].1,
+            dec("8023"),
+            "借方 = 价税合计 × 汇率（8023，不是原币 1130）"
+        );
+        assert_eq!(entries[1].0, ACCOUNT_REVENUE);
+        assert_eq!(entries[1].2, dec("7100"), "贷方收入 = 1000 × 7.1");
+        assert_eq!(entries[2].0, ACCOUNT_OUTPUT_TAX);
+        assert_eq!(entries[2].2, dec("923"), "贷方税额 = 130 × 7.1");
+        let debit: Decimal = entries.iter().map(|entry| entry.1).sum();
+        let credit: Decimal = entries.iter().map(|entry| entry.2).sum();
+        assert_eq!(debit, credit, "借贷必须相等");
+
+        cleanup_so41().await;
+        println!("[SO41-①] 真库 USD 发票：借 1122 8023 / 贷 5001 7100 / 贷 2221.02 923 ✓");
+    }
+
+    /// 真库：出库成本结转凭证**本来就是本位币**（成本账 `biz_inventory.amount` 无币种），
+    /// 所以外币订单的出库单也**不许**再乘一次汇率 —— 凭证金额 = 账上真实扣减额。
+    #[tokio::test]
+    async fn so41_stock_out_voucher_stays_in_base_currency() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        cleanup_so41().await;
+        let now = Utc::now();
+        let doc_id = Uuid::from_str("b2c10041-0000-4000-8000-000000000001").expect("单据 id");
+        let voucher_id = create_for_stock_out(
+            db(),
+            &StockOutVoucher {
+                doc_id,
+                doc_no: "SO41-T-0100",
+                voucher_date: today_cst(now),
+                out_type: "ISSUE",
+                debit_code: ACCOUNT_MAIN_COST,
+                debit_name: "主营业务成本",
+                // 账上真实扣减额：500（本位币）。即使来源订单是 USD，成本账也不分币种，
+                // 传递进来的就必须是人民币，本函数不做任何换算。
+                material_lines: vec![VoucherMaterialLine {
+                    material_id: Uuid::from_str(MATERIAL_A).expect("物料 id"),
+                    qty: dec("5"),
+                    amount: dec("500"),
+                    line_from: 1,
+                    line_to: 1,
+                }],
+                aux_material_id: Some(Uuid::from_str(MATERIAL_A).expect("物料 id")),
+                warehouse_id: Uuid::from_str(WAREHOUSE).expect("仓库 id"),
+                amount: dec("500"),
+                summary: "SO41 单测：出库成本结转（本位币）".to_string(),
+            },
+            None,
+            now,
+        )
+        .await
+        .expect("成本结转凭证应生成")
+        .expect("应有凭证 id");
+
+        let entries = so41_entries(&voucher_id).await;
+        assert_eq!(entries.len(), 2, "借 6401 + 贷 1405：{entries:?}");
+        assert_eq!(entries[0].0, ACCOUNT_MAIN_COST);
+        assert_eq!(
+            entries[0].1,
+            dec("500"),
+            "借方成本 = 账上扣减额（不得再乘汇率）"
+        );
+        assert_eq!(entries[1].0, DEFAULT_INVENTORY_CODE);
+        assert_eq!(entries[1].2, dec("500"));
+
+        cleanup_so41().await;
+        println!("[SO41-②] 真库出库成本凭证：借 6401 500 / 贷 1405 500（本位币，不换算） ✓");
     }
 }

@@ -147,6 +147,7 @@ pub mod expense_dto;
 pub mod expense_handler;
 pub mod expense_model;
 pub mod form_snapshot;
+pub mod fx_revaluation;
 pub mod handler;
 pub mod income_statement;
 pub mod inventory_audit;
