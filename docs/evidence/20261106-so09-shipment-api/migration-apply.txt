@@ -1,0 +1,21 @@
+=== ① V0283 / V0284 应用痕迹（schema_migrations）===
+ version |   kind    | applied_via |                             checksum                             |            name            | success | execution_ms 
+---------+-----------+-------------+------------------------------------------------------------------+----------------------------+---------+--------------
+ 283     | versioned | executed    | 68246cae1290ff60fb96005f6a0a3f721cc4a99bea350398927d1970ecc4c1e9 | sales_shipment             | t       |           11
+ 284     | versioned | executed    | 7014d605933f77250e1ea307fee9f370b7098dd9b6cfd7b02fd50d81eb5c8357 | sales_shipment_permissions | t       |            0
+(2 rows)
+
+
+=== ② sys_menu 发货单三行（V0284：页面节点 + 2 个按钮，path 留 NULL 等 SO-11）===
+                  id                  |             name             | menu_type |          auth_code           | is_visible |  path  |              parent_id               
+--------------------------------------+------------------------------+-----------+------------------------------+------------+--------+--------------------------------------
+ 20000000-0000-0000-0000-000000002841 | 发货单                       |         2 | business:erp:shipment:list   | f          | (NULL) | 
+ 20000000-0000-0000-0000-000000002842 | business:erp:shipment:create |         3 | business:erp:shipment:create | f          | (NULL) | 20000000-0000-0000-0000-000000002841
+ 20000000-0000-0000-0000-000000002843 | business:erp:shipment:status |         3 | business:erp:shipment:status | f          | (NULL) | 20000000-0000-0000-0000-000000002841
+(3 rows)
+
+
+=== ③ 闸⑥ perm_menu_gate.py（注解里的每个权限码都必须能授出去）===
+  · system:preference:view             源码零引用（纯前端权限点）
+============================================================================================
+==> 闸：PASS

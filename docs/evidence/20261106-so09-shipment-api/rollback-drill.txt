@@ -1,0 +1,19 @@
+=== 回滚演练：V0284 down → 断言 0 行 → up 重放 → 断言 3 行 ===
+--- down.sql
+psql:backend/migrations/business/V0284__sales_shipment_permissions.down.sql:41: NOTICE:  V0284 回滚完成：发货单页面节点与 2 个按钮已删（授权行一并清理）
+DO
+--- down 之后剩余行数（应为 0）
+0
+--- up.sql 重放
+INSERT 0 1
+INSERT 0 2
+psql:backend/migrations/business/V0284__sales_shipment_permissions.up.sql:128: NOTICE:  V0284：发货单 3 个权限码已种（页面节点隐藏且 path 待前端卡补），2 个按钮挂在页面下
+DO
+--- up 之后行数（应为 3）与父子关系
+                  id                  | menu_type |          auth_code           |              parent_id               
+--------------------------------------+-----------+------------------------------+--------------------------------------
+ 20000000-0000-0000-0000-000000002841 |         2 | business:erp:shipment:list   | 
+ 20000000-0000-0000-0000-000000002842 |         3 | business:erp:shipment:create | 20000000-0000-0000-0000-000000002841
+ 20000000-0000-0000-0000-000000002843 |         3 | business:erp:shipment:status | 20000000-0000-0000-0000-000000002841
+(3 rows)
+

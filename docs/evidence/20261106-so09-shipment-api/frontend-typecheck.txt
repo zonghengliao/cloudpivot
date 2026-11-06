@@ -1,0 +1,13 @@
+=== pnpm typecheck（vue-tsc --noEmit）===
+rc=0（见下：无输出 = 0 个类型错误）
+
+=== pnpm build（NODE_OPTIONS=--max-old-space-size=6144）尾部 ===
+dist//opt/cloudpivot/frontend/demo/flow-poc/vendor/vue-flow.bundle.js.gz                                   283.84kb / gzip: 100.30kb
+dist//opt/cloudpivot/frontend/demo/flow-poc/vendor/logicflow.bundle.js.gz                                  384.37kb / gzip: 98.77kb
+dist//opt/cloudpivot/frontend/assets/echarts-CuV_skF0.js.gz                                                1002.89kb / gzip: 331.52kb
+dist//opt/cloudpivot/frontend/assets/tdesign-B9Yx93ic.js.gz                                                7994.62kb / gzip: 772.17kb
+
+
+
+dist/assets/flow-error-codes-KUjSAnWS.js                                          4.64 kB │ gzip:   2.37 kB
+✓ built in 39.78s
