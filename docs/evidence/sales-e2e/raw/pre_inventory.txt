@@ -1,0 +1,8 @@
+--- select 'inv: '||m.material_code||' wh='||w.warehouse_code||' qty='||i.qty||' avg='||i.avg_cost||' amt='||i.amount from biz_inventory i join biz_material m on m.id=i.material_id join biz_warehouse w on w.id=i.warehouse_id order by m.material_code select 'loc: '||m.material_code||' qty='||l.qty||' loc='||coalesce(l.location_id::text,'-') from biz_inventory_location l join biz_material m on m.id=l.material_id order by 1 select 'txn: '||txn_type||'|'||biz_type||'|'||qty||'|'||amount from biz_inventory_txn order by created_at select 'voucher: '||voucher_no||'|'||voucher_type||'|'||total_debit||'/'||total_credit from biz_voucher order by created_at
+inv: M-W1A-001 wh=WH01 qty=200.0000 avg=300.000000 amt=60000.0000
+inv: M-W1A-002 wh=WH01 qty=100.0000 avg=400.000000 amt=40000.0000
+loc: M-W1A-001 qty=200.0000 loc=-
+loc: M-W1A-002 qty=100.0000 loc=-
+txn: IN|OPENING|200.0000|60000.0000
+txn: IN|OPENING|100.0000|40000.0000
+voucher: PZ-20261106-000001|OPENING|100000.0000/100000.0000

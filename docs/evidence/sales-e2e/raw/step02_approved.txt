@@ -1,0 +1,5 @@
+--- select 'so:'||status||'|approval_inst='||coalesce(approval_instance_id::text,'-') from biz_sales_order where id='01a1b186-a222-7530-880b-755c35c0f5ce' select 'inst:'||status||'|ended='||coalesce(ended_at::text,'-') from biz_flow_instance where biz_id='01a1b186-a222-7530-880b-755c35c0f5ce' select 'task: '||node_key||'|'||status||'|'||coalesce(assignee_name,'-')||'|'||coalesce(comment,'-') from biz_flow_task where instance_id in (select id from biz_flow_instance where biz_id='01a1b186-a222-7530-880b-755c35c0f5ce') order by created_at
+so:APPROVED|approval_inst=01a1b186-a285-7063-80ed-c01187ee3ea1
+inst:APPROVED|ended=2026-11-06 23:42:33.343061+08
+task: n_sales|APPROVED|SO24 销售主管|SO-24 e2e 审批同意
+task: n_finance|APPROVED|SO24 销售主管|SO-24 e2e 审批同意

@@ -1,0 +1,6 @@
+DIFF-EMPTY：两轮逐行一致（UUID/单号已归一化）
+--- 校验项统计：
+round1 ✅=56
+round2 ✅=56
+round1 ❌=0
+round2 ❌=0

@@ -1,0 +1,4 @@
+--- select 'so: '||so_no||'|status='||status||'|amt='||total_amount||'|tax='||total_tax||'|total='||total_with_tax||'|cust='||(select name from biz_customer where id=customer_id) from biz_sales_order where id='01a1b186-a222-7530-880b-755c35c0f5ce' select 'item: '||i.line_no||'|'||m.material_code||'|qty='||i.qty||'|price='||i.price||'|amt='||i.amount||'|tax_rate='||i.tax_rate||'|tax_amt='||i.tax_amount||'|delivered='||i.delivered_qty from biz_sales_order_item i join biz_material m on m.id=i.material_id where i.so_id='01a1b186-a222-7530-880b-755c35c0f5ce' order by i.line_no
+so: SO-20261106-000001|status=DRAFT|amt=50000.0000|tax=6500.0000|total=56500.0000|cust=测试客户A
+item: 1|M-W1A-001|qty=100.0000|price=300.000000|amt=30000.0000|tax_rate=13.0000|tax_amt=3900.0000|delivered=0.0000
+item: 2|M-W1A-002|qty=50.0000|price=400.000000|amt=20000.0000|tax_rate=13.0000|tax_amt=2600.0000|delivered=0.0000

@@ -1,0 +1,13 @@
+--- select 'ar: '||ar_no||'|'||status||'|amt='||amount||'|received='||received_amount||'|unsettled='||unsettled_amount from biz_receivable order by created_at select 'alloc: '||(select ar_no from biz_receivable where id=a.receivable_id)||'|'||a.amount from biz_receipt_allocation a order by a.created_at select 'rc: '||receipt_no||'|'||status||'|amt='||amount||'|allocated='||allocated_amount from biz_receipt select 'cust_credit: '||code||'|limit='||credit_limit||'|open_ar='||(select coalesce(sum(unsettled_amount),0) from biz_receivable where customer_id=biz_customer.id) from biz_customer where code='C-SO24-001' select 'voucher_all: '||voucher_no||'|'||voucher_type||'|'||total_debit||'/'||total_credit from biz_voucher order by created_at
+ar: AR-20261106-000001|SETTLED|amt=33900.0000|received=33900.0000|unsettled=0.0000
+ar: AR-20261106-000002|SETTLED|amt=22600.0000|received=22600.0000|unsettled=0.0000
+alloc: AR-20261106-000002|22600.0000
+alloc: AR-20261106-000001|33900.0000
+rc: RC-20261106-000001|POSTED|amt=56500.0000|allocated=56500.0000
+cust_credit: C-SO24-001|limit=100000.0000|open_ar=0.0000
+voucher_all: PZ-20261106-000001|OPENING|100000.0000/100000.0000
+voucher_all: PZ-20261106-000002|AUTO|30000.0000/30000.0000
+voucher_all: PZ-20261106-000003|AUTO|20000.0000/20000.0000
+voucher_all: PZ-20261106-000004|AUTO|33900.0000/33900.0000
+voucher_all: PZ-20261106-000005|AUTO|22600.0000/22600.0000
+voucher_all: PZ-20261106-000006|AUTO|56500.0000/56500.0000

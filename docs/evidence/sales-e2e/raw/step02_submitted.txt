@@ -1,0 +1,4 @@
+--- select 'so:'||status from biz_sales_order where id='01a1b186-a222-7530-880b-755c35c0f5ce' select 'inst: '||instance_no||'|'||status||'|'||biz_type||'|'||flow_code from biz_flow_instance where biz_id='01a1b186-a222-7530-880b-755c35c0f5ce' select 'task: '||node_key||'|'||status||'|assignee='||coalesce(assignee_id::text,'-') from biz_flow_task where instance_id in (select id from biz_flow_instance where biz_id='01a1b186-a222-7530-880b-755c35c0f5ce') order by created_at
+so:SUBMITTED
+inst: FLW-20261106-6D361C39|PENDING|SO_APPROVE|so_approve
+task: n_sales|PENDING|assignee=01a1b186-9ea3-7520-9115-e233453e3e1b

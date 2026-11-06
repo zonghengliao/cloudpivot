@@ -1,0 +1,1 @@
+{"code":0,"msg":"ok","data":{"access_token":"<redacted>","refresh_token":"<redacted>","token_type":"Bearer","expires_in":900,"user":{"id":"01a1b186-9ea3-7520-9115-e233453e3e1b","username":"so24_sales_mgr","real_name":"SO24 销售主管"},"must_change_password":false}}

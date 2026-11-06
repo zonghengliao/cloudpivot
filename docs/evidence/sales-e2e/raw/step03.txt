@@ -1,0 +1,5 @@
+--- select 'sh: '||ship_no||'|'||status||'|so='||(select so_no from biz_sales_order where id=so_id) from biz_shipment where id='01a1b186-a438-74fc-849d-0761843e436b' select 'sh_item: so_line='||coalesce((select line_no from biz_sales_order_item where id=so_item_id)::text,'-')||'|qty='||qty||'|mat='||material_id from biz_shipment_item where shipment_id='01a1b186-a438-74fc-849d-0761843e436b' select 'so:'||status||'|delivered(line1)='||(select delivered_qty from biz_sales_order_item where id='bd8e418f-be74-4430-8101-cb7443252e34') from biz_sales_order where id='01a1b186-a222-7530-880b-755c35c0f5ce' select 'inv_qty: '||(select string_agg(m.material_code||'='||i.qty,', ' order by m.material_code) from biz_inventory i join biz_material m on m.id=i.material_id)
+sh: SH-20261106-000001|DRAFT|so=SO-20261106-000001
+sh_item: so_line=1|qty=100.0000|mat=d1370003-0000-4000-8000-000000000001
+so:APPROVED|delivered(line1)=0.0000
+inv_qty: M-W1A-001=200.0000, M-W1A-002=100.0000

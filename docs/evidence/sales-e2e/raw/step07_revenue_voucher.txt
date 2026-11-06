@@ -1,0 +1,11 @@
+--- select 'v: '||v.voucher_no||'|'||v.voucher_type||'|'||v.total_debit||'/'||v.total_credit||'|src='||v.source_type from biz_voucher v where v.source_type='INVOICE' order by v.created_at select 'e: '||v.voucher_no||'|'||e.account_code||'|'||e.account_name||'|D='||e.debit_amount||'|C='||e.credit_amount from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id where v.source_type='INVOICE' order by v.created_at, e.line_no select 'iv: '||invoice_no||'|'||status||'|amt='||amount||'|tax='||tax_amount||'|total='||total_with_tax||'|ar='||coalesce((select ar_no from biz_receivable where id=receivable_id),'-') from biz_invoice order by created_at
+v: PZ-20261106-000004|AUTO|33900.0000/33900.0000|src=INVOICE
+v: PZ-20261106-000005|AUTO|22600.0000/22600.0000|src=INVOICE
+e: PZ-20261106-000004|1122|应收账款|D=33900.0000|C=0.0000
+e: PZ-20261106-000004|5001|主营业务收入|D=0.0000|C=30000.0000
+e: PZ-20261106-000004|2221.02|应交税费-销项税|D=0.0000|C=3900.0000
+e: PZ-20261106-000005|1122|应收账款|D=22600.0000|C=0.0000
+e: PZ-20261106-000005|5001|主营业务收入|D=0.0000|C=20000.0000
+e: PZ-20261106-000005|2221.02|应交税费-销项税|D=0.0000|C=2600.0000
+iv: IV-20261106-000001|ISSUED|amt=30000.0000|tax=3900.0000|total=33900.0000|ar=AR-20261106-000001
+iv: IV-20261106-000002|ISSUED|amt=20000.0000|tax=2600.0000|total=22600.0000|ar=AR-20261106-000002

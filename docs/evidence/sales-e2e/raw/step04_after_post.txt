@@ -1,0 +1,18 @@
+--- select 'sh:'||status||'|out='||coalesce(stock_out_id::text,'-') from biz_shipment where id='01a1b186-a438-74fc-849d-0761843e436b' select 'stockout: '||out_no||'|out_type='||out_type||'|source_type='||source_type||'|amt='||total_amount||'|status='||status from biz_stock_out where id=(select stock_out_id from biz_shipment where id='01a1b186-a438-74fc-849d-0761843e436b') select 'inv: '||m.material_code||' qty='||i.qty||' amt='||i.amount||' avg='||i.avg_cost from biz_inventory i join biz_material m on m.id=i.material_id order by m.material_code select 'loc: '||m.material_code||' qty='||l.qty from biz_inventory_location l join biz_material m on m.id=l.material_id order by 1 select 'txn: '||txn_type||'|'||biz_type||'|'||m.material_code||'|'||qty||'|'||amount from biz_inventory_txn t join biz_material m on m.id=t.material_id order by t.created_at select 'voucher: '||voucher_no||'|'||voucher_type||'|'||total_debit||'/'||total_credit||'|'||source_type from biz_voucher order by created_at select 'entry: '||e.account_code||'|'||e.account_name||'|D='||e.debit_amount||'|C='||e.credit_amount from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id order by v.created_at, e.line_no select 'ar: '||ar_no||'|'||status||'|amt='||amount||'|received='||received_amount||'|unsettled='||unsettled_amount||'|src='||source_type from biz_receivable order by created_at select 'so:'||status||'|delivered(line1)='||(select delivered_qty from biz_sales_order_item where id='bd8e418f-be74-4430-8101-cb7443252e34') from biz_sales_order where id='01a1b186-a222-7530-880b-755c35c0f5ce'
+sh:POSTED|out=01a1b186-a4e1-749e-ac0b-37100352263e
+stockout: OUT-20261106-000001|out_type=OTHER|source_type=SALES|amt=30000.0000|status=POSTED
+inv: M-W1A-001 qty=100.0000 amt=30000.0000 avg=300.000000
+inv: M-W1A-002 qty=100.0000 amt=40000.0000 avg=400.000000
+loc: M-W1A-001 qty=100.0000
+loc: M-W1A-002 qty=100.0000
+txn: IN|OPENING|M-W1A-001|200.0000|60000.0000
+txn: IN|OPENING|M-W1A-002|100.0000|40000.0000
+txn: OUT|OTHER_OUT|M-W1A-001|100.0000|30000.0000
+voucher: PZ-20261106-000001|OPENING|100000.0000/100000.0000|OPENING
+voucher: PZ-20261106-000002|AUTO|30000.0000/30000.0000|STOCK_OUT
+entry: 1405|库存商品|D=100000.0000|C=0.0000
+entry: 3103|本年利润|D=0.0000|C=100000.0000
+entry: 6401|主营业务成本|D=30000.0000|C=0.0000
+entry: 1405|库存商品|D=0.0000|C=30000.0000
+ar: AR-20261106-000001|OPEN|amt=33900.0000|received=0.0000|unsettled=33900.0000|src=SALES_OUT
+so:PARTIAL_OUT|delivered(line1)=100.0000

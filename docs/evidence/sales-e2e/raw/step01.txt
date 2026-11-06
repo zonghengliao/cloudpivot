@@ -1,0 +1,3 @@
+--- select 'customer: '||code||'|'||name||'|credit_limit='||credit_limit||'|credit_days='||credit_days||'|status='||status from biz_customer where code='C-SO24-001' select 'docs_at_step01: so='||(select count(*) from biz_sales_order)||' sh='||(select count(*) from biz_shipment)||' ar='||(select count(*) from biz_receivable)||' 库存行='||(select count(*) from biz_inventory)
+customer: C-SO24-001|测试客户A|credit_limit=100000.0000|credit_days=30|status=ACTIVE
+docs_at_step01: so=0 sh=0 ar=0 库存行=0

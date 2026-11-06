@@ -1,0 +1,8 @@
+--- select 'so:'||status from biz_sales_order where id='01a1b186-a222-7530-880b-755c35c0f5ce' select 'sh: '||ship_no||'|'||status from biz_shipment where so_id='01a1b186-a222-7530-880b-755c35c0f5ce' order by created_at select 'ar: '||ar_no||'|'||status||'|'||amount||'|'||unsettled_amount from biz_receivable order by created_at select 'inv: '||m.material_code||' qty='||i.qty||' amt='||i.amount from biz_inventory i join biz_material m on m.id=i.material_id order by 1
+so:OUTBOUND
+sh: SH-20261106-000001|POSTED
+sh: SH-20261106-000002|POSTED
+ar: AR-20261106-000001|OPEN|33900.0000|33900.0000
+ar: AR-20261106-000002|OPEN|22600.0000|22600.0000
+inv: M-W1A-001 qty=100.0000 amt=30000.0000
+inv: M-W1A-002 qty=50.0000 amt=20000.0000
