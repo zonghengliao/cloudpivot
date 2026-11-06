@@ -1,0 +1,16 @@
+==> 启动 pid=538054 库=cloudpivot_so19 端口=18119
+==> 迁移与启动日志
+[2m2026-11-06T12:43:59.275589Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+[2m2026-11-06T12:43:59.278030Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m SSE 鉴权自检通过：EventSource 可用 ?token= 订阅实时通知 [3mendpoint[0m[2m=[0m/api/business/notice/stream [3mwhitelist[0m[2m=[0m["/api/business/notice/stream"]
+[2m2026-11-06T12:43:59.458838Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 孤儿任务依赖自检通过：0 条
+[2m2026-11-06T12:43:59.461755Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 测试残留自检通过：biz_flow_def / biz_flow_instance 均 0 行 E2E_*, D2_SMOKE
+[2m2026-11-06T12:43:59.463351Z[0m [32m INFO[0m [2mcloudpivot::shared::startup_guard[0m[2m:[0m AI 用户不变式自检通过：ROBOT 账号与 sys_ai_agent 一一对应
+[2m2026-11-06T12:43:59.463503Z[0m [32m INFO[0m [2mcloudpivot::business::shared::guard[0m[2m:[0m 数据权限自检通过：11 张登记表的部门列/归属列均存在，SUPER_ADMIN 角色存在
+[2m2026-11-06T12:43:59.467791Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 插件启动完成 [3melapsed_ms[0m[2m=[0m0
+[2m2026-11-06T12:43:59.625799Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m cloudpivot 启动完成, 耗时 585ms
+
+==> GET /health
+round 1: http=200 body={"code":0,"msg":"ok","data":{"status":"ok","app":"cloudpivot","profile":"test","time":"2026-11-06T12:44:00.055569511+00:00"}}
+round 2: http=200 body={"code":0,"msg":"ok","data":{"status":"ok","app":"cloudpivot","profile":"test","time":"2026-11-06T12:44:00.065131429+00:00"}}
+==> 端口残余监听数 = 0
+==> boot-health 通过

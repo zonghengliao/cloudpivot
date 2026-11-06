@@ -442,6 +442,8 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('VOUCHER_SOURCE', 'RECEIPT',              'biz_receipt',            'deleted_at', '收款单过账生成（销售链 SO-17）：source_id = 收款单 id，见 receipt::post_receipt_voucher'),
     -- 销售链 SO-14 遗留卡：收款退款单过账生成（借 1122 / 贷 1002），source_id = 退款单 id
     ('VOUCHER_SOURCE', 'RECEIPT_REFUND',       'biz_receipt_refund',     'deleted_at', '收款退款单过账生成（SO-14 遗留）：source_id = 退款单 id，见 receipt_refund::post_refund_voucher'),
+    -- 销售链 SO-20：发票开票生成收入凭证（借 1122 / 贷 5001 + 2221.02），作废红冲沿用同一来源
+    ('VOUCHER_SOURCE', 'INVOICE',              'biz_invoice',            'deleted_at', '发票开票生成（销售链 SO-20）：source_id = 发票 id，见 invoice::post_invoice_voucher'),
     -- ② 库存流水来源单据：biz_inventory_txn.doc_type + doc_id
     ('TXN_DOC', 'STOCK_IN',        'biz_stock_in',        'deleted_at', '收货过账的流水'),
     ('TXN_DOC', 'STOCK_OUT',       'biz_stock_out',       'deleted_at', '出库过账的流水'),
@@ -503,6 +505,8 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('STATUS_ENTITY', 'RECEIPT',           'biz_receipt',           'deleted_at', '收款单（销售链 SO-17）'),
     -- 销售链 SO-14 遗留：收款退款单进状态日志（建单 / 确认 / 过账 / 作废）
     ('STATUS_ENTITY', 'RECEIPT_REFUND',    'biz_receipt_refund',    'deleted_at', '收款退款单（SO-14 遗留）'),
+    -- 销售链 SO-20：发票进状态日志（`invoice.rs` 的建单 / 开票 / 归档 / 作废都写 entity_type=INVOICE）
+    ('STATUS_ENTITY', 'INVOICE',           'biz_invoice',           'deleted_at', '销售发票（销售链 SO-20）'),
     -- ⑤ 序列号来源：biz_material_serial.source_type + source_id（P2-6b 补全映射）
     ('SERIAL_SOURCE', 'PURCHASE', 'biz_stock_in',       'deleted_at', '收货过账生成（in_type=PURCHASE），source_id = 收货单 id'),
     ('SERIAL_SOURCE', 'RETURN',   'biz_stock_in',       'deleted_at', '退货入库生成（in_type=RETURN，同一张收货单表），source_id = 收货单 id'),

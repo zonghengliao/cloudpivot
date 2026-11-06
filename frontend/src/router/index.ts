@@ -618,13 +618,24 @@ const routes: RouteRecordRaw[] = [
       {
         // ==================== ERP 收款单（SO-18 前端 / 后端 SO-17） ====================
         // 菜单节点由 V0293 种下（id …2890，name「收款单」），当时 `path` / `component` /
-        // `is_visible` **故意留空**（「前端路由落地后一条 UPDATE 收尾」），由 V0294 补齐 →
+        // `is_visible` **故意留空**（「前端路由落地后一条 UPDATE 收尾」），由 V0296 补齐 →
         // 侧边栏「收款单」可见。`system::menu::tests::n08`（menu_type=2 的 path 必须能在
         // 本文件里解析）是真库硬门禁，所以**先注册路由、再填菜单**，顺序不能反。
         path: 'business/erp/receipt',
         name: 'BusinessErpReceipt',
         component: () => import('@/views/business/erp/receipt/index.vue'),
         meta: { title: '收款单', permission: 'business:erp:receipt:list' },
+      },
+      {
+        // ==================== ERP 销售发票（SO-21 前端 / 后端 SO-20） ====================
+        // 菜单节点由 V0299 种下（id …2895，name「销售发票」），当时 `path` / `component` /
+        // `is_visible` **故意留空**（「前端路由落地后一条 UPDATE 收尾」），由 V0300 补齐 →
+        // 侧边栏「销售发票」可见。`system::menu::tests::n08`（menu_type=2 的 path 必须能在
+        // 本文件里解析）是真库硬门禁，所以**先注册路由、再填菜单**，顺序不能反。
+        path: 'business/erp/invoice',
+        name: 'BusinessErpInvoice',
+        component: () => import('@/views/business/erp/invoice/index.vue'),
+        meta: { title: '销售发票', permission: 'business:erp:invoice:list' },
       },
       {
         // ==================== ERP 应付单（P2-E2） ====================

@@ -1,0 +1,9 @@
+### 引擎 APPLY 关键行（截自实例启动日志）
+[2m2026-11-06T12:41:55.156489Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0290 自检通过：ck_biz_ar_status 5 值（含 CANCELLED）/ ck_biz_ar_cancelled 拦住已收款作废 / 原有 4 值不受影响
+[2m2026-11-06T12:41:55.178207Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0292 自检通过：biz_receipt 16 列 / biz_receipt_allocation 7 列 / 5 约束 / 9 索引 / 外键(CASCADE+RESTRICT) / RC 取号=RC-20261106-000001
+[2m2026-11-06T12:41:55.204404Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0295 自检通过：biz_invoice 21 列 / 6 约束 / 7 索引 / 外键 RESTRICT / IV 取号=IV-20261106-000001
+[2m2026-11-06T12:41:55.239312Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 223 个迁移
+
+### 干净库指纹
+    schema_migrations(max|count) = 295|223
+    超管人数（= assignee_type=ADMIN 节点的会签人数） = 1

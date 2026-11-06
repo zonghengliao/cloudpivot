@@ -1,0 +1,96 @@
+### \d biz_invoice
+                                  Table "public.biz_invoice"
+     Column     |           Type           | Collation | Nullable |          Default           
+----------------+--------------------------+-----------+----------+----------------------------
+ id             | uuid                     |           | not null | gen_random_uuid()
+ invoice_no     | character varying(64)    |           | not null | 
+ invoice_type   | character varying(16)    |           | not null | 'OUT'::character varying
+ invoice_code   | character varying(32)    |           |          | 
+ customer_id    | uuid                     |           | not null | 
+ invoice_date   | date                     |           | not null | 
+ amount         | numeric(18,4)            |           | not null | 
+ tax_amount     | numeric(18,4)            |           | not null | 
+ total_with_tax | numeric(18,4)            |           | not null | 
+ tax_rate       | numeric(6,4)             |           | not null | 0.1300
+ status         | character varying(16)    |           | not null | 'DRAFT'::character varying
+ receivable_id  | uuid                     |           |          | 
+ source_type    | character varying(24)    |           |          | 
+ source_no      | character varying(32)    |           |          | 
+ voucher_id     | uuid                     |           |          | 
+ remark         | text                     |           |          | 
+ created_at     | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ updated_at     | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ create_by      | uuid                     |           |          | 
+ update_by      | uuid                     |           |          | 
+ deleted_at     | timestamp with time zone |           |          | 
+Indexes:
+    "biz_invoice_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_invoice_customer" btree (customer_id, invoice_date)
+    "idx_biz_invoice_date" btree (invoice_date)
+    "idx_biz_invoice_receivable" btree (receivable_id) WHERE receivable_id IS NOT NULL
+    "idx_biz_invoice_status" btree (status)
+    "idx_biz_invoice_voucher" btree (voucher_id) WHERE voucher_id IS NOT NULL
+    "uk_biz_invoice_no" UNIQUE, btree (invoice_no) WHERE deleted_at IS NULL
+Check constraints:
+    "ck_biz_invoice_amount" CHECK (total_with_tax = (amount + tax_amount))
+    "ck_biz_invoice_sign" CHECK (invoice_type::text = 'OUT'::text AND amount > 0::numeric AND tax_amount >= 0::numeric OR invoice_type::text = 'OUT_RED'::text AND amount < 0::numeric AND tax_amount <= 0::numeric)
+    "ck_biz_invoice_source" CHECK (source_type IS NULL OR (source_type::text = ANY (ARRAY['SALES_ORDER'::character varying, 'SHIPMENT'::character varying, 'SALES_OUT'::character varying, 'MANUAL'::character varying]::text[])))
+    "ck_biz_invoice_status" CHECK (status::text = ANY (ARRAY['DRAFT'::character varying, 'ISSUED'::character varying, 'POSTED'::character varying, 'VOID'::character varying]::text[]))
+    "ck_biz_invoice_tax_rate" CHECK (tax_rate >= 0::numeric AND tax_rate <= 1::numeric)
+    "ck_biz_invoice_type" CHECK (invoice_type::text = ANY (ARRAY['OUT'::character varying, 'OUT_RED'::character varying]::text[]))
+Foreign-key constraints:
+    "biz_invoice_receivable_id_fkey" FOREIGN KEY (receivable_id) REFERENCES biz_receivable(id) ON DELETE RESTRICT
+
+### CHECK 约束（pg_get_constraintdef 渲染形态）
+               conname               | contype |                                                                                                   pg_get_constraintdef                                                                                                   
+-------------------------------------+---------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ ck_biz_invoice_amount               | c       | CHECK ((total_with_tax = (amount + tax_amount)))
+ ck_biz_invoice_sign                 | c       | CHECK (((((invoice_type)::text = 'OUT'::text) AND (amount > (0)::numeric) AND (tax_amount >= (0)::numeric)) OR (((invoice_type)::text = 'OUT_RED'::text) AND (amount < (0)::numeric) AND (tax_amount <= (0)::numeric))))
+ ck_biz_invoice_source               | c       | CHECK (((source_type IS NULL) OR ((source_type)::text = ANY ((ARRAY['SALES_ORDER'::character varying, 'SHIPMENT'::character varying, 'SALES_OUT'::character varying, 'MANUAL'::character varying])::text[]))))
+ ck_biz_invoice_status               | c       | CHECK (((status)::text = ANY ((ARRAY['DRAFT'::character varying, 'ISSUED'::character varying, 'POSTED'::character varying, 'VOID'::character varying])::text[])))
+ ck_biz_invoice_tax_rate             | c       | CHECK (((tax_rate >= (0)::numeric) AND (tax_rate <= (1)::numeric)))
+ ck_biz_invoice_type                 | c       | CHECK (((invoice_type)::text = ANY ((ARRAY['OUT'::character varying, 'OUT_RED'::character varying])::text[])))
+ biz_invoice_receivable_id_fkey      | f       | FOREIGN KEY (receivable_id) REFERENCES biz_receivable(id) ON DELETE RESTRICT
+ biz_invoice_amount_not_null         | n       | NOT NULL amount
+ biz_invoice_created_at_not_null     | n       | NOT NULL created_at
+ biz_invoice_customer_id_not_null    | n       | NOT NULL customer_id
+ biz_invoice_id_not_null             | n       | NOT NULL id
+ biz_invoice_invoice_date_not_null   | n       | NOT NULL invoice_date
+ biz_invoice_invoice_no_not_null     | n       | NOT NULL invoice_no
+ biz_invoice_invoice_type_not_null   | n       | NOT NULL invoice_type
+ biz_invoice_status_not_null         | n       | NOT NULL status
+ biz_invoice_tax_amount_not_null     | n       | NOT NULL tax_amount
+ biz_invoice_tax_rate_not_null       | n       | NOT NULL tax_rate
+ biz_invoice_total_with_tax_not_null | n       | NOT NULL total_with_tax
+ biz_invoice_updated_at_not_null     | n       | NOT NULL updated_at
+ biz_invoice_pkey                    | p       | PRIMARY KEY (id)
+(20 rows)
+
+### 索引
+         indexname          |                                                          indexdef                                                           
+----------------------------+-----------------------------------------------------------------------------------------------------------------------------
+ biz_invoice_pkey           | CREATE UNIQUE INDEX biz_invoice_pkey ON public.biz_invoice USING btree (id)
+ idx_biz_invoice_customer   | CREATE INDEX idx_biz_invoice_customer ON public.biz_invoice USING btree (customer_id, invoice_date)
+ idx_biz_invoice_date       | CREATE INDEX idx_biz_invoice_date ON public.biz_invoice USING btree (invoice_date)
+ idx_biz_invoice_receivable | CREATE INDEX idx_biz_invoice_receivable ON public.biz_invoice USING btree (receivable_id) WHERE (receivable_id IS NOT NULL)
+ idx_biz_invoice_status     | CREATE INDEX idx_biz_invoice_status ON public.biz_invoice USING btree (status)
+ idx_biz_invoice_voucher    | CREATE INDEX idx_biz_invoice_voucher ON public.biz_invoice USING btree (voucher_id) WHERE (voucher_id IS NOT NULL)
+ uk_biz_invoice_no          | CREATE UNIQUE INDEX uk_biz_invoice_no ON public.biz_invoice USING btree (invoice_no) WHERE (deleted_at IS NULL)
+(7 rows)
+
+### 取号规则
+ seq_type |  seq_name  | prefix | date_pattern | separator | step | status 
+----------+------------+--------+--------------+-----------+------+--------
+ IV       | 销售发票号 | IV     | yyyyMMdd     | -         |    1 |      1
+(1 row)
+
+### schema_migrations 行
+-[ RECORD 1 ]+------------------------------------------------
+kind         | versioned
+version      | 295
+name         | sales_invoice
+applied_via  | executed
+success      | t
+execution_ms | 19
+source       | migrations/business/V0295__sales_invoice.up.sql
+

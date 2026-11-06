@@ -599,7 +599,8 @@
  * （`[坏账核销] …` / `[出库作废冲销] …`，一行一条）。前缀是硬契约，
  * 见 `receivable-logic.ts` 的 `WRITE_OFF_REMARK_PREFIX`；改了后端必须同步那里。
  */
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { MessagePlugin } from 'tdesign-vue-next';
 
 import {
@@ -649,6 +650,7 @@ import {
 } from './receivable-logic';
 
 const userStore = useUserStore();
+const route = useRoute();
 
 /** 主数据下拉一次拉多少（种子规模够用） */
 const OPTION_LIMIT = 200;
@@ -878,8 +880,33 @@ function formatDateTime(value: string | null | undefined): string {
 
 onMounted(() => {
   void loadCustomers();
+  applyArNoDeepLink();
   void loadReceivables(1);
 });
+
+/**
+ * 深链 `?ar_no=AR-…`（SO-21）：从销售发票页点「关联应收」跳过来时直接筛出这张单。
+ *
+ * 只读 query、只在有值时写 `filter.arNo`：不带参数进页面时**不能**清掉用户在筛选条里
+ * 手填的值（本页的筛选是页面状态，路由不是它的唯一来源）。
+ */
+function applyArNoDeepLink(): void {
+  const raw = route.query.ar_no;
+  const arNo = (typeof raw === 'string' ? raw : Array.isArray(raw) ? String(raw[0] ?? '') : '').trim();
+  if (arNo) {
+    filter.arNo = arNo;
+    activeTab.value = 'list';
+  }
+}
+
+watch(
+  () => route.query.ar_no,
+  (value) => {
+    if (!value) return;
+    applyArNoDeepLink();
+    void loadReceivables(1);
+  },
+);
 </script>
 
 <style scoped>

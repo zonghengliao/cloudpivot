@@ -1,0 +1,10 @@
+-[ RECORD 1 ]+-----------------------------------------------------------------
+kind         | versioned
+version      | 295
+name         | sales_invoice
+checksum     | 982a773f1aca0aee50bc55d2a8eaec889415af92b4451c3ae4e80a24bf92ca24
+applied_via  | executed
+success      | t
+execution_ms | 19
+source       | migrations/business/V0295__sales_invoice.up.sql
+

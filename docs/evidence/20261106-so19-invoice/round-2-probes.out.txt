@@ -1,0 +1,31 @@
+psql:constraint-probes.sql:243: NOTICE:  P01 PASS 结构 biz_invoice = 21 列（16 业务 + 5 审计）
+psql:constraint-probes.sql:243: NOTICE:  P02 PASS 结构 卡面 16 个业务字段逐字在位
+psql:constraint-probes.sql:243: NOTICE:  P03 PASS 结构 6 条 CHECK 在位
+psql:constraint-probes.sql:243: NOTICE:  P04 PASS 结构 索引 = 7（pkey + 唯一 + 5）
+psql:constraint-probes.sql:243: NOTICE:  P05 PASS 结构 金额三列 NUMERIC(18,4)
+psql:constraint-probes.sql:243: NOTICE:  P06 PASS 结构 tax_rate = NUMERIC(6,4)
+psql:constraint-probes.sql:243: NOTICE:  P07 PASS 外键 receivable_id → biz_receivable = RESTRICT
+psql:constraint-probes.sql:243: NOTICE:  P08 PASS 外键 仅 1 个（customer_id 弱引用无外键）
+psql:constraint-probes.sql:243: NOTICE:  P09 PASS 拒 ck_biz_invoice_amount（INSERT 1131 ≠ 1000+130）
+psql:constraint-probes.sql:243: NOTICE:  P10 PASS 拒 ck_biz_invoice_amount（UPDATE 565→600）
+psql:constraint-probes.sql:243: NOTICE:  P11 PASS 拒 ck_biz_invoice_sign（OUT amount=0）
+psql:constraint-probes.sql:243: NOTICE:  P12 PASS 拒 ck_biz_invoice_sign（OUT amount=-1000，红冲须走 OUT_RED）
+psql:constraint-probes.sql:243: NOTICE:  P13 PASS 拒 ck_biz_invoice_sign（OUT_RED amount=+1000，红字必须取负）
+psql:constraint-probes.sql:243: NOTICE:  P14 PASS 拒 ck_biz_invoice_type（IN 是进项票，本表只收销项）
+psql:constraint-probes.sql:243: NOTICE:  P15 PASS 拒 ck_biz_invoice_status（OPEN 属应收域）
+psql:constraint-probes.sql:243: NOTICE:  P16 PASS 拒 ck_biz_invoice_status（CONFIRMED 属收款域）
+psql:constraint-probes.sql:243: NOTICE:  P17 PASS 拒 ck_biz_invoice_status（发票作废 = VOID，不是 CANCELLED）
+psql:constraint-probes.sql:243: NOTICE:  P18 PASS 拒 ck_biz_invoice_source（稿面 SO 归一为 SALES_ORDER）
+psql:constraint-probes.sql:243: NOTICE:  P19 PASS 拒 ck_biz_invoice_tax_rate（-0.01）
+psql:constraint-probes.sql:243: NOTICE:  P20 PASS 拒 ck_biz_invoice_tax_rate（1.5 > 100%）
+psql:constraint-probes.sql:243: NOTICE:  P21 PASS 默认值 新单 = DRAFT|OUT|0.1300
+psql:constraint-probes.sql:243: NOTICE:  P22 PASS 拒 uk_biz_invoice_no（存活行重号）
+psql:constraint-probes.sql:243: NOTICE:  P23 PASS 软删后同号可复用（存活行 = 1）
+psql:constraint-probes.sql:243: NOTICE:  P24 PASS 精度 0.0002 不被截断（NUMERIC 18,4）
+psql:constraint-probes.sql:243: NOTICE:  P25 PASS 红字票正常路径（OUT_RED -1000/-130 → -1130.0000，POSTED 合法）
+psql:constraint-probes.sql:243: NOTICE:  P26 PASS 拒 悬空 receivable_id（23503）
+psql:constraint-probes.sql:243: NOTICE:  P27 PASS 拒 硬删被引用的应收（RESTRICT / 23001）
+psql:constraint-probes.sql:243: NOTICE:  P28 PASS 取号规则 IV|yyyyMMdd|-|1|1 → IV-20261106-000007
+psql:constraint-probes.sql:243: NOTICE:  P29 PASS 清场 探针行残留 = 0
+psql:constraint-probes.sql:243: NOTICE:  ===== 探针汇总：29 / 29 PASS =====
+DO

@@ -5015,3 +5015,168 @@ export function changeReceiptStatus(
 ): Promise<ReceiptDetail> {
   return patch<ReceiptDetail>(`${BASE}/receipt/${id}/status`, { status, reason });
 }
+
+// ==================== 销售发票（SO-20 后端 / SO-21 前端） ====================
+
+/**
+ * 发票状态域（逐字抄 `invoice::STATUSES` / `ck_biz_invoice_status`）。
+ *
+ * ⚠️ 三个域值都**不能**和别的台账混用：
+ * - `VOID` 是发票的作废（收款单 / 应收用 `CANCELLED`，传它给发票接口 400）；
+ * - `ISSUED` 是「已开票」（= 收入凭证已生成 + 应收已回写），`POSTED` 只是归档；
+ * - 没有任何边回到 `DRAFT`（发票一旦取号不能原地重开）。
+ */
+export type InvoiceStatus = 'DRAFT' | 'ISSUED' | 'POSTED' | 'VOID';
+
+/**
+ * 票种（`invoice::TYPES` / `ck_biz_invoice_type`）。
+ *
+ * `OUT_RED` 是销项红字票（金额为负），由退货流程生成 ——
+ * `POST /invoice` 传 `OUT_RED` 会被 400 拒（`invoice::validate_type`，文案指路退货流程）。
+ */
+export type InvoiceType = 'OUT' | 'OUT_RED';
+
+/** 来源类型（`invoice::SOURCE_TYPES` / `ck_biz_invoice_source`）。 */
+export type InvoiceSourceType = 'SALES_ORDER' | 'SHIPMENT' | 'SALES_OUT' | 'MANUAL';
+
+/**
+ * 发票（列表 / 详情单头，后端 `invoice::InvoiceRes`）。
+ *
+ * 金额是 `numeric(18,2)` → `rust_decimal`，JSON 里出**字符串**（`"1130.0000"`）；
+ * 比较 / 累加一律走 `views/business/erp/shared/money.ts` 的整数分，不要 `+`。
+ */
+export interface Invoice {
+  id: string;
+  /** 发票号 `IV-yyyyMMdd-000001`（`invoice::NO_PREFIX`）或手填税控号 */
+  invoice_no: string;
+  invoice_type: InvoiceType | string;
+  /** 票种中文（后端 `invoice::type_label`，前端只做兜底） */
+  invoice_type_label: string;
+  /** 发票代码（可空） */
+  invoice_code: string | null;
+  customer_id: string;
+  /** 客户名称（LEFT JOIN `biz_customer`，客户软删时是空串） */
+  customer_name: string;
+  /** 开票日期 `yyyy-MM-dd` */
+  invoice_date: string;
+  /** 不含税金额 */
+  amount: number | string;
+  /** 税额 */
+  tax_amount: number | string;
+  /** 价税合计（= amount + tax_amount，库层 CHECK 恒等） */
+  total_with_tax: number | string;
+  /** 税率（0.13 = 13%） */
+  tax_rate: number | string;
+  status: InvoiceStatus | string;
+  /** 状态中文（后端 `invoice::status_label`） */
+  status_label: string;
+  /** 关联应收（手工开票为 null） */
+  receivable_id: string | null;
+  source_type: InvoiceSourceType | string | null;
+  /** 来源单号（从应收开票时 = 应收的来源单号，如出库单号 / MANUAL） */
+  source_no: string | null;
+  /** 收入凭证（ISSUED 时生成，DRAFT / 手工票可能为 null） */
+  voucher_id: string | null;
+  remark: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+/**
+ * 发票详情（`invoice::InvoiceDetailRes` = `InvoiceRes` 展平 + 6 个关联字段）。
+ *
+ * `receivable_headroom` 是**不算本张**的剩余可开票额度
+ * （应收金额 − 其它存活发票的价税合计），前端据此提示「这张还能开多少」。
+ */
+export interface InvoiceDetail extends Invoice {
+  /** 收入 / 红冲凭证号（无凭证或凭证已删时 null） */
+  voucher_no: string | null;
+  /** 关联应收单号 `AR-yyyyMMdd-000001` */
+  receivable_no: string | null;
+  /** 关联应收金额 */
+  receivable_amount: number | string | null;
+  receivable_status: string | null;
+  receivable_status_label: string | null;
+  receivable_headroom: number | string | null;
+}
+
+/**
+ * 发票分页入参（逐字抄 `invoice::InvoicePageQuery`）。
+ *
+ * `invoice_no` 是**模糊**匹配（发票号 + 客户名两列），**不是** `keyword`；
+ * 状态 / 票种是白名单（传应收的 `OPEN` 或收款的 `CANCELLED` 直接 400）；
+ * 空串一律不发（`?customer_id=` 会被当非法 UUID 拒）。
+ */
+export interface InvoiceQuery {
+  page?: number;
+  page_size?: number;
+  status?: InvoiceStatus | '';
+  invoice_type?: InvoiceType | '';
+  customer_id?: string;
+  receivable_id?: string;
+  invoice_no?: string;
+  /** 开票日期下界（含）`yyyy-MM-dd` */
+  date_from?: string;
+  /** 开票日期上界（含）`yyyy-MM-dd` */
+  date_to?: string;
+}
+
+/** 发票分页（`GET /business/erp/invoice/page`，权限 `business:erp:invoice:list`）。 */
+export function fetchInvoicePage(query: InvoiceQuery = {}): Promise<PageData<Invoice>> {
+  return get<PageData<Invoice>>(`${BASE}/invoice/page`, asParams(query));
+}
+
+/** 发票详情（`GET /business/erp/invoice/{id}`，权限 `:detail`，含应收 / 凭证号 / 剩余额度）。 */
+export function fetchInvoiceDetail(id: string): Promise<InvoiceDetail> {
+  return get<InvoiceDetail>(`${BASE}/invoice/${id}`);
+}
+
+/**
+ * 开票请求（`invoice::CreateInvoiceReq`）。
+ *
+ * - **从应收开票**：只给 `receivable_id` 即可 —— 客户 / 来源单号自动带出，
+ *   `total_with_tax` 缺省 = 应收金额全额（后端 `create` 的 `resolve_amounts`）；
+ * - **手工开票**：给 `customer_id` + 金额（`total_with_tax` 或 `amount` + `tax_amount`），
+ *   `receivable_id` 留空，不受「不超过应收」约束；
+ * - `invoice_no` 留空才自动取 `IV-yyyyMMdd-000001`，手填税控号原样保留（重复 409）。
+ */
+export interface CreateInvoiceReq {
+  receivable_id?: string | null;
+  customer_id?: string | null;
+  /** 缺省 = 今天（CST） */
+  invoice_date?: string | null;
+  invoice_no?: string | null;
+  invoice_code?: string | null;
+  /** 只认 `OUT`（红字票走退货流程） */
+  invoice_type?: InvoiceType | null;
+  amount?: string | number | null;
+  tax_amount?: string | number | null;
+  /** 从应收开票时缺省 = 应收金额 */
+  total_with_tax?: string | number | null;
+  /** 缺省 0.13 */
+  tax_rate?: number | null;
+  source_type?: string | null;
+  source_no?: string | null;
+  remark?: string | null;
+}
+
+/** 开票（`POST /business/erp/invoice`，权限 `business:erp:invoice:create`），落 `DRAFT`。 */
+export function createInvoice(payload: CreateInvoiceReq): Promise<InvoiceDetail> {
+  return post<InvoiceDetail>(`${BASE}/invoice`, payload);
+}
+
+/**
+ * 状态迁移（`PATCH /business/erp/invoice/{id}/status`，权限 `:status`）。
+ *
+ * 合法边只有四条（`state_machine::INVOICE_EDGES`）：
+ * `DRAFT→ISSUED`（生成收入凭证 + 回写应收）、`ISSUED→POSTED`（归档）、
+ * `DRAFT→VOID` / `ISSUED→VOID`（作废，`reason` ≥4 字，ISSUED 来的必红冲）。
+ * `POSTED` 是终态（无作废边）；传 `DRAFT` 一律 400（没有回草稿的边）。
+ */
+export function changeInvoiceStatus(
+  id: string,
+  status: InvoiceStatus,
+  reason?: string,
+): Promise<InvoiceDetail> {
+  return patch<InvoiceDetail>(`${BASE}/invoice/${id}/status`, { status, reason });
+}

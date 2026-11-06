@@ -77,6 +77,7 @@
 //! | [`receivable_bridge`] | 销售出库过账 → **自动挂应收**（`source_type='SALES_OUT'`，与库存扣减 / 成本结转凭证同一事务；幂等靠 `uk_biz_ar_source`） | **SO-14** |
 //! | [`receipt`] | 收款单写侧 + 读侧（V0292）：登记（`RC-yyyyMMdd-000001`）/ 核销到多张应收（回写 `received_amount`+状态）/ 确认 / 过账（借 1002 / 贷 1122）/ 作废 | **SO-17** |
 //! | [`receipt_refund`] | 收款退款单（V0294/V0295）：登记（`RR-yyyyMMdd-000001`）/ 核销冲减应收已收（`received_amount -= 金额`，应收退回 `PARTIAL`/`OPEN`）/ 确认 / 过账（借 1122 / 贷 1002）/ 草稿作废 —— SO-14 遗留「已收款的应收作废出库单」的前置单据 | **SO-14 遗留** |
+//! | [`invoice`] | 销售发票写侧 + 读侧（V0298）：开票（`IV-yyyyMMdd-000001` / 从应收带金额 / 不超过应收）/ 开票生成收入凭证（借 1122 / 贷 5001 + 2221.02）并回写应收 / 归档 / 作废（红冲 + 撤回应收发票号） | **SO-20** |
 //!
 //! # 表结构的唯一依据
 //!
@@ -140,6 +141,7 @@ pub mod inventory_audit;
 /// P2-5A 收口：所有写 SQL 住在这里，业务模块只编排；闸门在
 /// `scripts/verify/inventory_write_gate.py`（非测试代码出现直接写 => 判红）。
 mod inventory_writer;
+pub mod invoice;
 pub mod ledger;
 pub mod model;
 pub mod opening;

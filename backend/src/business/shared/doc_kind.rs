@@ -144,11 +144,17 @@ pub enum DocKind {
     /// （`DRAFT`/`CONFIRMED`/`POSTED`/`CANCELLED`，边表在 `state_machine::RECEIPT_REFUND_EDGES`），
     /// 但过账后不可作废。明细 `biz_receipt_refund_allocation` 没有状态、也不单独记 `doc_type`。
     ReceiptRefund,
+    /// 销售发票 `biz_invoice`（销售链 · SO-19 / SO-20）。
+    ///
+    /// 状态机 4 值（ARCH-7 §4.5）：`DRAFT`/`ISSUED`/`POSTED`/`VOID`，边表在
+    /// `state_machine::INVOICE_EDGES`。**`VOID` 不是 `CANCELLED`**（稿面逐字），
+    /// 与收款单的域值不是一套；红字票 `OUT_RED` 金额为负（ARCH-7 §15.2.3）。
+    Invoice,
 }
 
 impl DocKind {
     /// 全部业务对象（顺序 = 声明顺序；前端 TS 常量表与巡检按此顺序逐字比对）。
-    pub const ALL: [DocKind; 23] = [
+    pub const ALL: [DocKind; 24] = [
         DocKind::PurchaseOrder,
         DocKind::StockIn,
         DocKind::StockOut,
@@ -172,6 +178,7 @@ impl DocKind {
         DocKind::Receivable,
         DocKind::Receipt,
         DocKind::ReceiptRefund,
+        DocKind::Invoice,
     ];
 
     /// 落库值（大写下划线）。**唯一拼写**。
@@ -200,6 +207,7 @@ impl DocKind {
             DocKind::Receivable => "RECEIVABLE",
             DocKind::Receipt => "RECEIPT",
             DocKind::ReceiptRefund => "RECEIPT_REFUND",
+            DocKind::Invoice => "INVOICE",
         }
     }
 
@@ -229,6 +237,7 @@ impl DocKind {
             DocKind::Receivable => "应收单",
             DocKind::Receipt => "收款单",
             DocKind::ReceiptRefund => "收款退款单",
+            DocKind::Invoice => "销售发票",
         }
     }
 
@@ -257,6 +266,7 @@ impl DocKind {
             DocKind::Receivable => "biz_receivable",
             DocKind::Receipt => "biz_receipt",
             DocKind::ReceiptRefund => "biz_receipt_refund",
+            DocKind::Invoice => "biz_invoice",
             // 年结没有实体表：状态记在 `biz_status_log`，`entity_id` 存结转凭证 id
             DocKind::AccountingYear => return None,
         })
@@ -284,6 +294,7 @@ impl DocKind {
                 | DocKind::Receivable
                 | DocKind::Receipt
                 | DocKind::ReceiptRefund
+                | DocKind::Invoice
         )
     }
 
@@ -306,6 +317,7 @@ impl DocKind {
             DocKind::Shipment => "shipment",
             DocKind::Receivable => "receivable",
             DocKind::Receipt => "receipt",
+            DocKind::Invoice => "invoice",
             _ => return None,
         })
     }
@@ -873,11 +885,14 @@ pub enum VoucherSourceType {
     Receipt,
     /// 收款退款单过账（借 1122 应收账款 / 贷 1002 银行存款，销售链 · SO-14 遗留卡）。
     ReceiptRefund,
+    /// 销售发票开票（借 1122 应收账款 / 贷 5001 主营业务收入 + 2221.02 销项税，
+    /// 销售链 · SO-20）。作废时的红字凭证沿用同一来源（`red_of` 指回这张蓝字凭证）。
+    Invoice,
 }
 
 impl VoucherSourceType {
     /// 全部来源（顺序 = 声明顺序）。
-    pub const ALL: [VoucherSourceType; 17] = [
+    pub const ALL: [VoucherSourceType; 18] = [
         VoucherSourceType::StockIn,
         VoucherSourceType::StockOut,
         VoucherSourceType::Payment,
@@ -895,6 +910,7 @@ impl VoucherSourceType {
         VoucherSourceType::ExpensePayment,
         VoucherSourceType::Receipt,
         VoucherSourceType::ReceiptRefund,
+        VoucherSourceType::Invoice,
     ];
 
     /// 落库值（大写下划线）。**唯一拼写**。
@@ -917,6 +933,7 @@ impl VoucherSourceType {
             VoucherSourceType::ExpensePayment => "EXPENSE_PAYMENT",
             VoucherSourceType::Receipt => "RECEIPT",
             VoucherSourceType::ReceiptRefund => "RECEIPT_REFUND",
+            VoucherSourceType::Invoice => "INVOICE",
         }
     }
 
@@ -940,6 +957,7 @@ impl VoucherSourceType {
             VoucherSourceType::ExpensePayment => "费用报销付款",
             VoucherSourceType::Receipt => "收款过账",
             VoucherSourceType::ReceiptRefund => "收款退款过账",
+            VoucherSourceType::Invoice => "发票开票",
         }
     }
 
@@ -965,6 +983,7 @@ impl VoucherSourceType {
             }
             VoucherSourceType::Receipt => DocKind::Receipt,
             VoucherSourceType::ReceiptRefund => DocKind::ReceiptRefund,
+            VoucherSourceType::Invoice => DocKind::Invoice,
         })
     }
 
@@ -1188,7 +1207,7 @@ pub struct ColumnDomain {
     pub axis: &'static str,
 }
 
-const DOC_KIND_VALUES: [&str; 23] = [
+const DOC_KIND_VALUES: [&str; 24] = [
     "PURCHASE_ORDER",
     "STOCK_IN",
     "STOCK_OUT",
@@ -1212,6 +1231,7 @@ const DOC_KIND_VALUES: [&str; 23] = [
     "RECEIVABLE",
     "RECEIPT",
     "RECEIPT_REFUND",
+    "INVOICE",
 ];
 
 const FLOW_BIZ_TYPE_VALUES: [&str; 16] = [
@@ -1269,7 +1289,7 @@ const TXN_DOC_TYPE_VALUES: [&str; 8] = [
     "ADJUST",
 ];
 
-const VOUCHER_SOURCE_VALUES: [&str; 17] = [
+const VOUCHER_SOURCE_VALUES: [&str; 18] = [
     "STOCK_IN",
     "STOCK_OUT",
     "PAYMENT",
@@ -1287,6 +1307,7 @@ const VOUCHER_SOURCE_VALUES: [&str; 17] = [
     "EXPENSE_PAYMENT",
     "RECEIPT",
     "RECEIPT_REFUND",
+    "INVOICE",
 ];
 
 const SERIAL_SOURCE_VALUES: [&str; 4] = ["PURCHASE", "TRANSFER", "PRODUCE", "RETURN"];
