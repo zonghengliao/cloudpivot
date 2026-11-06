@@ -1,0 +1,45 @@
+CREATE TABLE
+DELETE 0
+DO
+
+========== SO-39 外部探针结果 ==========
+                 id                  | result |           detail            
+-------------------------------------+--------+-----------------------------
+ C01 探针清场（汇率表回到 0 行）     | PASS   | 0
+ P01 第二个本位币被拒                | PASS   | 23505 unique_violation
+ P02 UPDATE 抢本位币被拒             | PASS   | 23505 unique_violation
+ P03 小写币种码被拒                  | PASS   | 23514 check_violation
+ P04 decimal_places=5 被拒           | PASS   | 23514 check_violation
+ P05 status=DELETED 被拒             | PASS   | 23514 check_violation
+ P06 rate=0 被拒                     | PASS   | 23514 check_violation
+ P07 负汇率被拒                      | PASS   | 23514 check_violation
+ P08 rate_type=AVG 被拒              | PASS   | 23514 check_violation
+ P09 自反币对被拒                    | PASS   | 23514 check_violation
+ P10 effective_date 无默认（必填）   | PASS   | 23502 not_null_violation
+ P11 不存在的原币被拒                | PASS   | 23503 foreign_key_violation
+ P12 8 位小数完整保留                | PASS   | 7.12345678
+ P13 rate_type 缺省 = SPOT           | PASS   | SPOT
+ P14 同币对同类型同生效日重复被拒    | PASS   | 23505 unique_violation
+ P15 换类型/换日放行（4 行合法汇率） | PASS   | 4
+ P16 取 <= 某日最新汇率              | PASS   | 7.12345678
+ S01 biz_currency 11 列              | PASS   | 11
+ S02 biz_exchange_rate 11 列         | PASS   | 11
+ S03 rate = numeric(18,8)            | PASS   | 18,8
+ S04 本位币部分唯一索引在位          | PASS   | 1
+ S05 汇率四列唯一索引在位            | PASS   | 1
+ S06 两条币种外键 RESTRICT           | PASS   | 2
+ S07 本卡表零 TRIGGER                | PASS   | 0
+ S08 4 个币种种子                    | PASS   | 4
+ S09 本位币恰好 1 行                 | PASS   | 1
+ S10 本位币 = CNY                    | PASS   | CNY
+ S11 HKD 符号 = HK$                  | PASS   | HKD:HK$
+(28 rows)
+
+
+   summary    
+--------------
+ 28 / 28 PASS
+(1 row)
+
+psql:docs/evidence/20261107-so39-currency/constraint-probes.sql:209: NOTICE:  SO-39 外部探针全部通过
+DO

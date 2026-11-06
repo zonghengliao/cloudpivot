@@ -1,0 +1,30 @@
+==> 0) 前置：源库 cloudpivot_so39_clean 必须存在且零连接
+    源库零连接 ✔
+==> 1) 克隆 cloudpivot_so39_clean → cloudpivot_so39_clean_drill
+==> 2) 迁移前基线（V0272 已在源库应用 ⇒ 克隆里也有）
+  [OK]   biz_currency 存在 = biz_currency
+  [OK]   biz_exchange_rate 存在 = biz_exchange_rate
+  [OK]   币种种子行数 = 4
+==> 3) 执行 down.sql（逆序删）
+  [OK]   down.sql 执行成功（3 条 NOTICE）
+         psql:/opt/cloudpivot/backend/migrations/business/V0272__sales_currency.down.sql:27: NOTICE:  SO-39 down: 删除 biz_exchange_rate（丢弃 0 行汇率历史）
+         psql:/opt/cloudpivot/backend/migrations/business/V0272__sales_currency.down.sql:40: NOTICE:  SO-39 down: 删除 biz_currency（丢弃 4 行币种主数据）
+         psql:/opt/cloudpivot/backend/migrations/business/V0272__sales_currency.down.sql:58: NOTICE:  SO-39 down 自检通过：两张表与其索引/约束均已移除
+  [OK]   biz_currency 已消失 = <null>
+  [OK]   biz_exchange_rate 已消失 = <null>
+  [OK]   本位币唯一索引已随表删除 = 0
+==> 4) 再执行 up.sql（回滚可逆）
+  [OK]   up.sql 重放成功
+         NOTICE  SO-39 自检通过：2 表 + 4 币种种子 + 本位币唯一 + rate>0 + 唯一索引 + 取汇率语义
+  [OK]   币种种子回来 = 4
+  [OK]   本位币 = CNY = CNY
+  [OK]   本位币行数 = 1
+==> 5) 第三轮：down→up 之后外部探针必须仍全 PASS
+  [OK]   外部探针 28 项全 PASS（28 / 28 PASS）
+==> 6) 幂等：up.sql 再跑一遍（DDL 全 skipping / 种子 0 行）
+  [OK]   第二次重放成功（幂等）
+  [OK]   种子插入 0 行（ON CONFLICT DO NOTHING） = 4
+==> 7) 清场
+    已删除 cloudpivot_so39_clean_drill
+
+===== 回滚演练 PASS（down 可逆 / 重放幂等 / 约束在 down-up 后仍全生效）=====

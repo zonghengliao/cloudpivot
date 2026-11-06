@@ -1,0 +1,10 @@
+==> 启动日志关键行
+    [2m2026-11-06T23:04:03.257813Z[0m [32m INFO[0m [2mnik_db::factory[0m[2m:[0m database connection established [3mdb_type[0m[2m=[0mpostgres [3murl[0m[2m=[0mpostgres://alun:***@127.0.0.1:5432/cloudpivot_so39_clean?sslmode=prefer
+    [2m2026-11-06T23:04:03.419939Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+  [OK]   连到目标库（不是跑错目录）
+  [OK]   应用 0 个迁移（V0272 已记账，不重放）
+  [OK]   /health = 200（{"code":0,"msg":"ok","data":{"status":"ok","app":"cloudpivot","profile":"test","time":"2026-11-06T23:04:04.170669515+00:）
+  [OK]   schema_migrations V0272 = 272|versioned|executed|true
+  [OK]   重启后本位币仍恰好 1 行
+
+===== boot health PASS =====

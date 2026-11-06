@@ -1,0 +1,92 @@
+# SO-39 迁移 APPLY_OK 证据（引擎真实应用，非手跑 psql）
+# 来源库：cloudpivot_so39_clean（RECREATE=1 空库 + scripts/verify/erp_clean_db.sh 一键迁移）
+# 迁移文件 sha256：86b921042af5fa65f9f333d9c5408f8c11451523b61018904740777dcb8c81a3
+# schema_migrations.checksum（引擎记账，须与上一行一致）：86b921042af5fa65f9f333d9c5408f8c11451523b61018904740777dcb8c81a3
+# 采集时间：2026-11-07T07:04:05+08:00
+
+## ① 引擎启动日志（/root/so39-clean.log）
+  2:2026-11-06T23:03:50.447189Z  INFO nik_db::factory: database connection established db_type=postgres url=postgres://alun:***@127.0.0.1:5432/cloudpivot_so39_clean?sslmode=prefer
+  40714:2026-11-06T23:03:51.607126Z  INFO nik_web::app: 数据库迁移完成: 应用 245 个迁移
+
+## ② 本迁移自检 NOTICE
+NOTICE: SO-39 自检通过：2 表 + 4 币种种子 + 本位币唯一 + rate>0 + 唯一索引 + 取汇率语义
+
+## ③ schema_migrations 记账（kind=versioned / applied_via=executed）
+ version |   kind    | applied_via | success | execution_ms |                      source                      
+---------+-----------+-------------+---------+--------------+--------------------------------------------------
+ 272     | versioned | executed    | t       |            9 | migrations/business/V0272__sales_currency.up.sql
+(1 row)
+
+## ④ 迁移总数与最大版本（245 = 原来的 244 + 本卡 1；最大号仍是 V0313 ⇒ 乱序补迁被接受）
+ max_version | total 
+-------------+-------
+         313 |   245
+(1 row)
+
+## ⑤ 币种种子（4 行，CNY 本位）
+ code |  name  | symbol | decimal_places | is_base | status 
+------+--------+--------+----------------+---------+--------
+ CNY  | 人民币 | ¥      |              2 | t       | ACTIVE
+ EUR  | 欧元   | €      |              2 | f       | ACTIVE
+ HKD  | 港币   | HK$    |              2 | f       | ACTIVE
+ USD  | 美元   | $      |              2 | f       | ACTIVE
+(4 rows)
+
+## ⑥ 唯一索引（本位币部分唯一 / 汇率四列唯一）
+          indexname          |                                                                 indexdef                                                                 
+-----------------------------+------------------------------------------------------------------------------------------------------------------------------------------
+ uk_biz_currency_single_base | CREATE UNIQUE INDEX uk_biz_currency_single_base ON public.biz_currency USING btree (is_base) WHERE is_base
+ uk_biz_exchange_rate        | CREATE UNIQUE INDEX uk_biz_exchange_rate ON public.biz_exchange_rate USING btree (from_currency, to_currency, rate_type, effective_date)
+(2 rows)
+
+## ⑦ 表结构（biz_currency / biz_exchange_rate）
+                                  Table "public.biz_currency"
+     Column     |           Type           | Collation | Nullable |           Default           
+----------------+--------------------------+-----------+----------+-----------------------------
+ code           | character varying(8)     |           | not null | 
+ name           | character varying(64)    |           | not null | 
+ symbol         | character varying(8)     |           | not null | 
+ decimal_places | integer                  |           | not null | 2
+ is_base        | boolean                  |           | not null | false
+ status         | character varying(16)    |           | not null | 'ACTIVE'::character varying
+ remark         | text                     |           |          | 
+ created_at     | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ updated_at     | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ create_by      | uuid                     |           |          | 
+ update_by      | uuid                     |           |          | 
+Indexes:
+    "biz_currency_pkey" PRIMARY KEY, btree (code)
+    "uk_biz_currency_single_base" UNIQUE, btree (is_base) WHERE is_base
+Check constraints:
+    "ck_biz_currency_code" CHECK (code::text ~ '^[A-Z]{3}$'::text)
+    "ck_biz_currency_decimal_places" CHECK (decimal_places >= 0 AND decimal_places <= 4)
+    "ck_biz_currency_status" CHECK (status::text = ANY (ARRAY['ACTIVE'::character varying, 'INACTIVE'::character varying]::text[]))
+Referenced by:
+    TABLE "biz_exchange_rate" CONSTRAINT "fk_biz_exchange_rate_from" FOREIGN KEY (from_currency) REFERENCES biz_currency(code) ON DELETE RESTRICT
+    TABLE "biz_exchange_rate" CONSTRAINT "fk_biz_exchange_rate_to" FOREIGN KEY (to_currency) REFERENCES biz_currency(code) ON DELETE RESTRICT
+
+                               Table "public.biz_exchange_rate"
+     Column     |           Type           | Collation | Nullable |          Default          
+----------------+--------------------------+-----------+----------+---------------------------
+ id             | uuid                     |           | not null | gen_random_uuid()
+ from_currency  | character varying(8)     |           | not null | 
+ to_currency    | character varying(8)     |           | not null | 
+ rate           | numeric(18,8)            |           | not null | 
+ rate_type      | character varying(16)    |           | not null | 'SPOT'::character varying
+ effective_date | date                     |           | not null | 
+ remark         | text                     |           |          | 
+ created_at     | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ updated_at     | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ create_by      | uuid                     |           |          | 
+ update_by      | uuid                     |           |          | 
+Indexes:
+    "biz_exchange_rate_pkey" PRIMARY KEY, btree (id)
+    "uk_biz_exchange_rate" UNIQUE, btree (from_currency, to_currency, rate_type, effective_date)
+Check constraints:
+    "ck_biz_exchange_rate_pair" CHECK (from_currency::text <> to_currency::text)
+    "ck_biz_exchange_rate_rate" CHECK (rate > 0::numeric)
+    "ck_biz_exchange_rate_type" CHECK (rate_type::text = ANY (ARRAY['SPOT'::character varying, 'MONTH_END'::character varying]::text[]))
+Foreign-key constraints:
+    "fk_biz_exchange_rate_from" FOREIGN KEY (from_currency) REFERENCES biz_currency(code) ON DELETE RESTRICT
+    "fk_biz_exchange_rate_to" FOREIGN KEY (to_currency) REFERENCES biz_currency(code) ON DELETE RESTRICT
+
