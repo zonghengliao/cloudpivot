@@ -1,0 +1,45 @@
+== SO-02 客户档案 API e2e · 2026-11-06 09:20:31 · BASE=http://127.0.0.1:18097
+[PASS] 登录成功（admin，token 长度 461）
+本轮测试编码 = SO2E2E-092032
+POST /api/business/erp/customer → 200
+{"code":0,"msg":"ok","data":{"id":"01a1ae71-6ffc-75bd-b4d5-eab9b70b21d4","code":"SO2E2E-092032","name":"e2e 客户甲","tax_no":"91110108E2E0001XY","contact_name":"张伟","contact_phone":"010-88886666","address":"北京市海淀区 1 号","credit_limit":"123456.7890","status":"ACTIVE","remark":"SO-02 e2e","created_at":"2026-11-06T01:20:32.252856Z","updated_at":"2026-11-06T01:20:32.252856Z"}}
+[PASS] POST 状态码 = 200
+[PASS] POST 回填 code（trim 后） = SO2E2E-092032
+[PASS] POST 默认 status = ACTIVE
+[PASS] POST 额度定点保真 = 123456.7890
+GET /api/business/erp/customer/01a1ae71-6ffc-75bd-b4d5-eab9b70b21d4 → 200
+{"code":0,"msg":"ok","data":{"id":"01a1ae71-6ffc-75bd-b4d5-eab9b70b21d4","code":"SO2E2E-092032","name":"e2e 客户甲","tax_no":"91110108E2E0001XY","contact_name":"张伟","contact_phone":"010-88886666","address":"北京市海淀区 1 号","credit_limit":"123456.7890","status":"ACTIVE","remark":"SO-02 e2e","created_at":"2026-11-06T01:20:32.252856Z","updated_at":"2026-11-06T01:20:32.252856Z"}}
+[PASS] GET 详情状态码 = 200
+[PASS] GET 详情 id 一致 = 01a1ae71-6ffc-75bd-b4d5-eab9b70b21d4
+PUT /api/business/erp/customer/01a1ae71-6ffc-75bd-b4d5-eab9b70b21d4 → 200
+{"code":0,"msg":"ok","data":{"id":"01a1ae71-6ffc-75bd-b4d5-eab9b70b21d4","code":"SO2E2E-092032","name":"e2e 客户甲（改名）","tax_no":"91110108E2E0001XY","contact_name":"张伟","contact_phone":"010-88886666","address":"北京市海淀区 1 号","credit_limit":"200000.5000","status":"FROZEN","remark":"SO-02 e2e","created_at":"2026-11-06T01:20:32.252856Z","updated_at":"2026-11-06T01:20:32.372616Z"}}
+[PASS] PUT 状态码 = 200
+[PASS] PUT 改名生效 = e2e 客户甲（改名）
+[PASS] PUT 额度生效 = 200000.5000
+[PASS] PUT 状态生效 = FROZEN
+[PASS] PUT 未传的 code 不变 = SO2E2E-092032
+POST 负额度 → 400 · {"code":10001,"msg":"credit_limit 不能为负数（当前 -1）；0 表示不控制额度"}
+[PASS] 负额度状态码 = 400
+[PASS] 负额度业务码 = 10001
+POST 重复编码 → 409 · {"code":66001,"msg":"客户编码 `SO2E2E-092032` 已存在（已软删的编码可以复用）"}
+[PASS] 重复编码状态码 = 409
+[PASS] 重复编码业务码 = 66001
+GET /api/business/erp/customer/page?code=SO2E2E-092032&status=FROZEN → 200
+{"code":0,"msg":"ok","data":{"list":[{"id":"01a1ae71-6ffc-75bd-b4d5-eab9b70b21d4","code":"SO2E2E-092032","name":"e2e 客户甲（改名）","tax_no":"91110108E2E0001XY","contact_name":"张伟","contact_phone":"010-88886666","address":"北京市海淀区 1 号","credit_limit":"200000.5000","status":"FROZEN","remark":"SO-02 e2e","created_at":"2026-11-06T01:20:32.252856Z","updated_at":"2026-11-06T01:20:32.372616Z"}],"total":1,"page":1,"page_size":10}}
+[PASS] 分页状态码 = 200
+[PASS] 分页 total（code+status 命中 1 条） = 1
+[PASS] 分页行 id 一致 = 01a1ae71-6ffc-75bd-b4d5-eab9b70b21d4
+GET /api/business/erp/customer/page?name=e2e 客户 → 200
+{"code":0,"msg":"ok","data":{"list":[{"id":"01a1ae71-6ffc-75bd-b4d5-eab9b70b21d4","code":"SO2E2E-092032","name":"e2e 客户甲（改名）","tax_no":"91110108E2E0001XY","contact_name":"张伟","contact_phone":"010-88886666","address":"北京市海淀区 1 号","credit_limit":"200000.5000","status":"FROZEN","remark":"SO-02 e2e","created_at":"2026-11-06T01:20:32.252856Z","updated_at":"2026-11-06T01:20:32.372616Z"}],"total":1,"page":1,"page_size":5}}
+[PASS] 按名称筛选状态码 = 200
+[PASS] 按名称筛选命中 ≥1 = 1
+DELETE /api/business/erp/customer/01a1ae71-6ffc-75bd-b4d5-eab9b70b21d4 → 200 · {"code":0,"msg":"ok","data":null}
+[PASS] DELETE 状态码 = 200
+GET 软删后详情 → 404 · {"code":10002,"msg":"客户不存在或已删除"}
+[PASS] 软删后详情 404 = 404
+[PASS] 软删后分页 total=0 = 0
+POST 复用已软删编码 → 200 · {"code":0,"msg":"ok","data":{"id":"01a1ae71-71a0-76d5-a131-28f71d011b58","code":"SO2E2E-092032","name":"复用编码重建","tax_no":null,"contact_name":null,"contact_phone":null,"address":null,"credit_limit":"0.0000","status":"ACTIVE","remark":null,"created_at":"2026-11-06T01:20:32.672296Z","updated_at":"2026-11-06T01:20:32.672296Z"}}
+[PASS] 软删后编码可复用 = 200
+---------------------------------------------
+结果：PASS=24 FAIL=0
+证据日志：/opt/cloudpivot/docs/evidence/20261106-so02-customer/e2e-092031.log
