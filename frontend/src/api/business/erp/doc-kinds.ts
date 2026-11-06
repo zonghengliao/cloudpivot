@@ -59,6 +59,7 @@ export const DOC_KINDS = [
   'SALE_ORDER',
   'SHIPMENT',
   'RECEIVABLE',
+  'RECEIPT',
 ] as const;
 
 /** 业务对象类型（联合类型 —— 写错编译期就报错）。 */
@@ -87,6 +88,7 @@ export const DOC_KIND_LABELS: Readonly<Record<DocKind, string>> = {
   SALE_ORDER: '销售订单',
   SHIPMENT: '发货单',
   RECEIVABLE: '应收单',
+  RECEIPT: '收款单',
 };
 
 /**
@@ -122,6 +124,7 @@ export const DOC_KIND_TABLES: Readonly<Partial<Record<DocKind, string>>> = {
   SALE_ORDER: 'biz_sales_order',
   SHIPMENT: 'biz_shipment',
   RECEIVABLE: 'biz_receivable',
+  RECEIPT: 'biz_receipt',
 };
 
 /**
@@ -136,6 +139,7 @@ export const DOC_KIND_ROUTES = {
   VOUCHER: 'voucher',
   STOCK_OUT: 'stock-out',
   STOCK_TRANSFER: 'stock-transfer',
+  RECEIPT: 'receipt',
 } as const;
 
 /** 支持联动作废的业务对象（`/cancel-impact`、`/cancel-cascade` 的可选项）。 */
@@ -330,6 +334,7 @@ export const VOUCHER_SOURCE_TYPES = [
   'DEPRECIATION',
   'EXPENSE_REPORT',
   'EXPENSE_PAYMENT',
+  'RECEIPT',
 ] as const;
 
 /** 凭证来源（联合类型）。 */
@@ -352,6 +357,7 @@ export const VOUCHER_SOURCE_TYPE_LABELS: Readonly<Record<VoucherSourceType, stri
   DEPRECIATION: '折旧计提',
   EXPENSE_REPORT: '费用报销入账',
   EXPENSE_PAYMENT: '费用报销付款',
+  RECEIPT: '收款过账',
 };
 
 // ==================== ⑥ 序列号来源 ====================

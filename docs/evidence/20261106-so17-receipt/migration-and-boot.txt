@@ -1,0 +1,20 @@
+# SO-17 隔离实例（cloudpivot_so17 / 127.0.0.1:8023）迁移与启动记录
+
+## schema_migrations（kind=versioned，applied_via=executed）
+kind|name|version|applied_via|applied_seq|execution_ms|success|source
+versioned|sales_receipt|292|executed|210|18|true|migrations/business/V0292__sales_receipt.up.sql
+versioned|sales_receipt_permissions|293|executed|211|3|true|migrations/business/V0293__sales_receipt_permissions.up.sql
+
+## 本卡 V0293 的权限码承载行（sys_menu，menu_type|auth_code|path|is_visible）
+2|business:erp:receipt:list|NULL|false
+3|business:erp:receipt:detail|NULL|false
+3|business:erp:receipt:create|NULL|false
+3|business:erp:receipt:allocate|NULL|false
+3|business:erp:receipt:status|NULL|false
+
+## /health
+HTTP 200
+
+## 说明
+首次启动经历 220 个迁移（含 V0292 SO-16 收款表 / V0293 本卡权限码），启动完成耗时 10291ms；
+V0293 初次因 sys_menu.title VARCHAR(100) 超长失败，缩短文案后由引擎重新应用成功（applied_seq=211）。

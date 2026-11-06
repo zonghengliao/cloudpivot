@@ -1,0 +1,103 @@
+==> 0. 夹具（1 客户 + 1 别家客户 + 4 张应收）
+      应收 4 张（600 / 500 / 300 本客户 + 300 别家客户），科目余额：2/2
+
+==> 1. 登录
+  PASS  拿到 access_token（admin）
+
+==> 2. 登记收款 POST /receipt
+      → {"code":0,"msg":"ok","receipt_no":"RC-20261106-000012","status":"DRAFT","allocated":"0.0000","unallocated":"1000.0000"}
+  PASS  登记 code（0）
+  PASS  状态 = DRAFT（DRAFT）
+  PASS  状态中文（草稿）
+  PASS  方式中文（银行转账）
+  PASS  已核销 = 0（0.0000）
+  PASS  未核销 = 1000（1000.0000）
+  PASS  单号形状 RC-yyyyMMdd-000001（RC-20261106-000012）
+      收款单 id=ea555a03-fccc-4804-aa1a-a33673cb78f0 单号=RC-20261106-000012
+  PASS  amount=0 → 400（10001）
+  PASS  method=ALIPAY → 400（10001）
+      method 文案：method 只认 ["BANK_TRANSFER", "CASH", "CHECK", "OTHER"]（收到「ALIPAY」）：银行卡 / 现金 / 支票之外的收款方式请用 OTHER
+  PASS  客户不存在 → 400（10001）
+
+==> 3. 详情 / 分页
+  PASS  详情 code（0）
+  PASS  详情客户名（收款演示客户）
+  PASS  详情核销明细为空（0）
+  PASS  分页 code（0）
+  PASS  分页命中 1 条（1）
+  PASS  分页状态标签（草稿）
+  PASS  分页 status=OPEN（应收域值）→ 400（10001）
+      分页拒收文案：status 只认 ["DRAFT", "CONFIRMED", "POSTED", "CANCELLED"]（收到「OPEN」）：OPEN / PARTIAL / PAID 这类应收 / 应付的域值不是收款单的状态
+
+==> 4. 核销 POST /receipt/{id}/allocate（一条收款 → 两张应收）
+      → {"code":0,"allocated":"1000.0000","unallocated":"0.0000","rows":2}
+  PASS  核销 code（0）
+  PASS  已核销 = 1000（1000.0000）
+  PASS  未核销 = 0（0.0000）
+  PASS  核销明细 2 行（2）
+      明细：[{"ar_no":"AR17-002","amount":"400.0000","ar_status":"PARTIAL","ar_unsettled_amount":"100.0000"},{"ar_no":"AR17-001","amount":"600.0000","ar_status":"SETTLED","ar_unsettled_amount":"0.0000"}]
+  PASS  AR17-001 状态 → SETTLED（SETTLED）
+  PASS  AR17-002 状态 → PARTIAL（PARTIAL）
+  PASS  AR17-002 未收 = 100（100.0000）
+  PASS  库：AR-001 received/unsettled/status（600.0000|0.0000|SETTLED）
+  PASS  库：AR-002 received/unsettled/status（400.0000|100.0000|PARTIAL）
+
+==> 5. 超额核销被拒
+  PASS  单张超额 → 400（10001）
+      文案：本次核销 301 超过应收 AR17-003 的可核销余额 300.0000（未收金额 + 本收款此前已核销的金额）：请按余额或更小的金额核销
+  PASS  核销总额超过收款金额 → 400（10001）
+      文案：核销总额 1001.0000 超过收款金额 1000.0000（收款单 RC-20261106-000012）：超收的部分核不出去，请减少核销金额
+  PASS  核到别家客户的应收 → 400（10001）
+      文案：应收单 AR17-004 的客户是 5a170000-0000-4000-8000-000000000002，与收款单 RC-20261106-000012 的客户 5a170000-0000-4000-8000-000000000001 不一致：收款只能核销同一个客户名下的应收
+  PASS  核到已结清应收 → 409（10003）
+      文案：应收单 AR17-001 当前是「已收清」，不能核销（只有未收 / 部分已收的应收能收款）：已结清 / 已坏账核销 / 已作废的应收都不能再收款
+  PASS  同一应收重复提交 → 400（10001）
+  PASS  负向用例后库：AR-003 未被扣款（0.0000）
+
+==> 6. 状态迁移 PATCH /receipt/{id}/status
+  PASS  status=OPEN → 400（10001）
+  PASS  DRAFT→POSTED 跳边 → 409（10003）
+      文案：收款单 RC-20261106-000012 不能从「草稿」变成「已过账」：合法去向是 CONFIRMED / CANCELLED
+  PASS  DRAFT→CONFIRMED（CONFIRMED）
+      → {"code":0,"status":"POSTED","voucher_no":"PZ-20261106-000004"}
+  PASS  CONFIRMED→POSTED（POSTED）
+  PASS  凭证号已生成（null）
+  PASS  biz_receipt.voucher_id 已回写（）
+  PASS  凭证来源 = RECEIPT（RECEIPT）
+  PASS  凭证状态 = POSTED（POSTED）
+  PASS  分录：借 1002 / 贷 1122 / 各 1000（1002:D:1000.0000,1122:C:1000.0000）
+  PASS  POSTED 后再核销 → 409（10003）
+      文案：收款单 RC-20261106-000012 当前是「已过账」，只有草稿 / 已确认的收款单能核销：已过账（POSTED）的金额与核销被凭证锁定，已作废（CANCELLED）的更不能再核
+  PASS  POSTED→CANCELLED → 409（10003）
+
+==> 7. 作废规则（第二张收款单）
+  PASS  第二张收款单登记（CASH）（现金）
+  PASS  作废缺原因 → 400（10001）
+      文案：[10001] 收款单 RC-20261106-000013 从 DRAFT 流转到 CANCELLED 必须给出原因（reason）：该动作会影响已入账的数据或已生效的承诺，原因要能追溯到为什么
+  PASS  第二张核销 100 到 AR17-003（100.0000）
+  PASS  AR17-003 状态 → PARTIAL（PARTIAL）
+  PASS  已核销的收款作废 → 409（10003）
+      文案：收款单 RC-20261106-000013 已核销 100.0000，不能直接作废：作废会让应收的「已收款」凭空多出来。请先反核销（删明细 + 回滚应收）再作废
+  PASS  第三张确认（CONFIRMED）
+  PASS  未核销满 → 过账 409（10003）
+      文案：收款单 RC-20261106-000014 还有 50.0000 未核销到应收（收款 50.0000 / 已核销 0.0000）：先核销满再过账，否则凭证会把未核销的钱贷记成应收账款收回
+  PASS  CONFIRMED→CANCELLED → 409（无此边）（10003）
+      文案：收款单 RC-20261106-000014 不能从「已确认」变成「已作废」：合法去向是 POSTED
+  PASS  未核销草稿作废 → CANCELLED（CANCELLED）
+  PASS  作废后 status_label（已作废）
+
+==> 8. 404 / 66006
+  PASS  不存在的收款单 → 404 + 10002（10002）
+  PASS  非法 UUID → 66006（66006）
+
+==> 9. 库层留痕
+      biz_status_log(RECEIPT)：NULL→DRAFT , DRAFT→CONFIRMED , CONFIRMED→POSTED
+  PASS  收款单状态日志 3 条（NULL→DRAFT / DRAFT→CONFIRMED / CONFIRMED→POSTED）（3）
+  PASS  作废原因落库（客户退回，重开一张）
+      应收核销留痕：OPEN→SETTLED , OPEN→PARTIAL
+  PASS  应收状态日志含 OPEN→SETTLED 与 OPEN→PARTIAL（1）
+  PASS  汇总：biz_receipt.allocated_amount = SUM(明细)（t）
+  PASS  核销明细行数（RC-1 两行 + RC-2 一行）（3）
+      凭证：PZ-20261106-000004 / id=b7088689-bce6-4c60-815e-56a05420c9de
+
+================ 汇总：PASS=61  FAIL=0 ================

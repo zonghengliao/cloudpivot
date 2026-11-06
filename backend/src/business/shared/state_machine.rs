@@ -135,6 +135,14 @@ pub const ENTITY_SHIPMENT: &str = DocKind::Shipment.as_str();
 /// 见 [`RECEIVABLE_EDGES`]。`biz_receivable` 没有明细子表，状态只在单头流转。
 pub const ENTITY_RECEIVABLE: &str = DocKind::Receivable.as_str();
 
+/// 实体类型：收款单（`biz_receipt`，销售链 · SO-17）。
+///
+/// 落库值 `RECEIPT`（`DocKind::Receipt`）。**不是**应收的镜像：收款单是**资金单据**，
+/// 走「登记 → 确认 → 过账」的台账流（ARCH-7 §4.4），状态域
+/// `DRAFT / CONFIRMED / POSTED / CANCELLED` 与应收 / 应付都不是一套值。
+/// 边表见 [`RECEIPT_EDGES`]；明细 `biz_receipt_allocation` 没有状态（属单头）。
+pub const ENTITY_RECEIPT: &str = DocKind::Receipt.as_str();
+
 /// 出库单合法边（与 `stockout_base::LEGAL_EDGES` 同源）。
 ///
 /// ```text
@@ -533,6 +541,26 @@ pub const SHIPMENT_EDGES: [(&str, &str); 4] = [
     ("PENDING_POST", "CANCELLED"),
 ];
 
+/// 收款单合法边（ARCH-7 §4.4，3 条，唯一真相）。
+///
+/// ```text
+/// DRAFT     → CONFIRMED   确认收款（金额 / 客户 / 方式核对过，进入可核销状态）
+/// CONFIRMED → POSTED      过账（生成收款凭证 借 1002 银行存款 / 贷 1122 应收账款）
+/// DRAFT     → CANCELLED   草稿作废（必须给原因；已核销的收款库层 CHECK 也会拒）
+/// ```
+///
+/// **故意没有的边**：
+/// - `CONFIRMED → CANCELLED`：确认过的收款已经在「可核销」承诺里，作废要走
+///   「反核销 → 回 DRAFT」或者后续的收款红冲单，不能一步抹掉（路线图里红冲属发票/红字单卡）；
+/// - `POSTED → *`：过账即生成凭证，退回必须红冲凭证（`voucher::reverse_posted`），
+///   不是状态机的一条边（与应付 `SETTLED` 之后同理）；
+/// - `* → DRAFT`：没有任何边回到草稿（回归语义会让「已确认」的审计链断掉）。
+pub const RECEIPT_EDGES: [(&str, &str); 3] = [
+    ("DRAFT", "CONFIRMED"),
+    ("CONFIRMED", "POSTED"),
+    ("DRAFT", "CANCELLED"),
+];
+
 /// 应收单合法边（ARCH-7 §4.3 + SO-14 遗留卡，6 条，唯一真相）。
 ///
 /// ```text
@@ -715,8 +743,17 @@ pub const SHIPMENT_REASON_EDGES: [(&str, &str); 1] = [("PENDING_POST", "CANCELLE
 ///
 /// 收款相关的三条边（`OPEN→PARTIAL` / `OPEN→SETTLED` / `PARTIAL→SETTLED`）**不要**原因：
 /// 那是正常业务推进，依据是收款单本身。
-pub const RECEIVABLE_REASON_EDGES: [(&str, &str); 3] =
-    [("OPEN", "WRITTEN_OFF"), ("PARTIAL", "WRITTEN_OFF"), ("OPEN", "CANCELLED")];
+pub const RECEIVABLE_REASON_EDGES: [(&str, &str); 3] = [
+    ("OPEN", "WRITTEN_OFF"),
+    ("PARTIAL", "WRITTEN_OFF"),
+    ("OPEN", "CANCELLED"),
+];
+/// 需要 reason 的边：收款单**作废**（`DRAFT → CANCELLED`）。
+///
+/// 作废一张已登记的收款单等于宣布「这笔钱没收到 / 记错了」，是**改账**动作：
+/// 审计要能回答「哪笔、为什么作废、谁批的」。`DRAFT → CONFIRMED` / `CONFIRMED → POSTED`
+/// 是正常推进（依据是收款单本身），不要原因。
+pub const RECEIPT_REASON_EDGES: [(&str, &str); 1] = [("DRAFT", "CANCELLED")];
 /// 需要 reason 的边：调拨单取消。
 pub const TRANSFER_REASON_EDGES: [(&str, &str); 2] =
     [("DRAFT", "CANCELLED"), ("PENDING", "CANCELLED")];
@@ -767,6 +804,11 @@ pub const SHIPMENT_LOCKED: [&str; 2] = ["POSTED", "CANCELLED"];
 /// `PARTIAL` **不在**入账态：部分收款之后还要继续核销（`PARTIAL → SETTLED` 的
 /// `received_amount` 会继续累加），锁死就没法收款了。
 pub const RECEIVABLE_LOCKED: [&str; 3] = ["SETTLED", "WRITTEN_OFF", "CANCELLED"];
+/// 收款单入账态：已过账（凭证已生成，金额 / 客户 / 核销都不许再动）与已作废。
+///
+/// `CONFIRMED` **不在**入账态：确认之后还要核销（`allocate` 要改 `allocated_amount`），
+/// 锁死就没法核销了 —— 与应收的 `PARTIAL` 同理。
+pub const RECEIPT_LOCKED: [&str; 2] = ["POSTED", "CANCELLED"];
 /// 调拨单入账态：审批通过即锁定（在途 / 完成都不可改）。
 pub const TRANSFER_LOCKED: [&str; 3] = ["APPROVED", "IN_TRANSIT", "DONE"];
 /// 应付入账态：已结清 / 已作废都锁定（作废的单子当然不能再改）。
@@ -1041,6 +1083,16 @@ pub const RECEIVABLE_BASE: [BaseEdge; 6] = [
     BaseEdge::mandatory("OPEN", "CANCELLED", "出库作废冲销应收", true),
 ];
 
+/// 收款单的 BASE_EDGES（与 [`RECEIPT_EDGES`] 逐条对应，顺序一致）。
+///
+/// 三条全 `mandatory = true`：确认 / 过账 / 作废都是账务动作，没有可选边
+/// （`optional_edges_are_exactly_the_documented_four` 钉死「可选边只有 4 条」）。
+pub const RECEIPT_BASE: [BaseEdge; 3] = [
+    BaseEdge::mandatory("DRAFT", "CONFIRMED", "确认收款", false),
+    BaseEdge::mandatory("CONFIRMED", "POSTED", "收款过账", false),
+    BaseEdge::mandatory("DRAFT", "CANCELLED", "草稿作废", true),
+];
+
 /// 库存调拨单的 BASE_EDGES（与 [`TRANSFER_EDGES`] 逐条对应，顺序一致）。
 ///
 /// 调拨六条边全是主链 / 撤销，**没有可选边**（没有捷径可关）。
@@ -1209,11 +1261,16 @@ pub enum Entity {
     Shipment,
     /// 应收单 `biz_receivable`（销售链 · SO-13）。
     Receivable,
+    /// 收款单 `biz_receipt`（销售链 · SO-17）。
+    ///
+    /// 资金单据的台账流（ARCH-7 §4.4）：`DRAFT → CONFIRMED → POSTED`，
+    /// `DRAFT → CANCELLED` 作废。**状态域与应收 / 应付都不是一套值**。
+    Receipt,
 }
 
 impl Entity {
     /// 全部实体（注册表全量，未知类型就是对表外的字符串）。
-    pub const ALL: [Entity; 17] = [
+    pub const ALL: [Entity; 18] = [
         Entity::StockIn,
         Entity::PurchaseOrder,
         Entity::Transfer,
@@ -1231,6 +1288,7 @@ impl Entity {
         Entity::SaleOrder,
         Entity::Shipment,
         Entity::Receivable,
+        Entity::Receipt,
     ];
 
     /// 落库的 `entity_type`。
@@ -1253,6 +1311,7 @@ impl Entity {
             Entity::SaleOrder => ENTITY_SALES_ORDER,
             Entity::Shipment => ENTITY_SHIPMENT,
             Entity::Receivable => ENTITY_RECEIVABLE,
+            Entity::Receipt => ENTITY_RECEIPT,
         }
     }
 
@@ -1281,6 +1340,7 @@ impl Entity {
             Entity::SaleOrder => "销售订单",
             Entity::Shipment => "发货单",
             Entity::Receivable => "应收单",
+            Entity::Receipt => "收款单",
         }
     }
 
@@ -1304,6 +1364,7 @@ impl Entity {
             Entity::SaleOrder => &SALES_ORDER_EDGES,
             Entity::Shipment => &SHIPMENT_EDGES,
             Entity::Receivable => &RECEIVABLE_EDGES,
+            Entity::Receipt => &RECEIPT_EDGES,
         }
     }
 
@@ -1330,6 +1391,7 @@ impl Entity {
             Entity::SaleOrder => &SALES_ORDER_BASE,
             Entity::Shipment => &SHIPMENT_BASE,
             Entity::Receivable => &RECEIVABLE_BASE,
+            Entity::Receipt => &RECEIPT_BASE,
         }
     }
 
@@ -1360,6 +1422,7 @@ impl Entity {
             Entity::SaleOrder => &SALES_ORDER_REASON_EDGES,
             Entity::Shipment => &SHIPMENT_REASON_EDGES,
             Entity::Receivable => &RECEIVABLE_REASON_EDGES,
+            Entity::Receipt => &RECEIPT_REASON_EDGES,
         }
     }
 
@@ -1383,6 +1446,7 @@ impl Entity {
             Entity::SaleOrder => &SALES_ORDER_LOCKED,
             Entity::Shipment => &SHIPMENT_LOCKED,
             Entity::Receivable => &RECEIVABLE_LOCKED,
+            Entity::Receipt => &RECEIPT_LOCKED,
         }
     }
 
@@ -4206,11 +4270,11 @@ mod contract_tests {
         );
         assert_eq!(
             Entity::ALL.len(),
-            17,
+            18,
             "注册表从 7 → 8（CONTRACT）→ 9（STOCK_OUT）→ 10（STOCK_TAKE）→ 11（BUDGET，FIN-1）\
              → 12（FIXED_ASSET，FIN-2）→ 13（DEPRECIATION，FIN-2）→ 14（EXPENSE_REPORT，FIN-3）\
              → 15（SALE_ORDER，销售链 SO-05）→ 16（SHIPMENT，销售链 SO-09）\
-             → 17（RECEIVABLE，销售链 SO-13）"
+             → 17（RECEIVABLE，销售链 SO-13）→ 18（RECEIPT，销售链 SO-17）"
         );
 
         // ③ as_str

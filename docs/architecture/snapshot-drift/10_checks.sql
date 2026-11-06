@@ -438,6 +438,8 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     -- 付款记录不是独立业务对象），漏登记 DI-22 会报登记缺口、DI-17 查不到悬空。
     ('VOUCHER_SOURCE', 'EXPENSE_REPORT',       'biz_expense_report',     'deleted_at', '费用报销入账生成（FIN-3）：source_id = 报销单 id'),
     ('VOUCHER_SOURCE', 'EXPENSE_PAYMENT',      'biz_expense_report',     'deleted_at', '费用报销付款生成（FIN-3）：source_id = 报销单 id（付款挂在报销单上）'),
+    -- 销售链 SO-17：收款单过账生成（借 1002 / 贷 1122），source_id = 收款单 id
+    ('VOUCHER_SOURCE', 'RECEIPT',              'biz_receipt',            'deleted_at', '收款单过账生成（销售链 SO-17）：source_id = 收款单 id，见 receipt::post_receipt_voucher'),
     -- ② 库存流水来源单据：biz_inventory_txn.doc_type + doc_id
     ('TXN_DOC', 'STOCK_IN',        'biz_stock_in',        'deleted_at', '收货过账的流水'),
     ('TXN_DOC', 'STOCK_OUT',       'biz_stock_out',       'deleted_at', '出库过账的流水'),
@@ -493,6 +495,8 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('STATUS_ENTITY', 'SHIPMENT',          'biz_shipment',          'deleted_at', '发货单（销售链 SO-09）'),
     -- 销售链 SO-13：应收单进状态日志（`receivable.rs` 的建单 / 核销都写 entity_type=RECEIVABLE）
     ('STATUS_ENTITY', 'RECEIVABLE',        'biz_receivable',        'deleted_at', '应收单（销售链 SO-13）'),
+    -- 销售链 SO-17：收款单进状态日志（`receipt.rs` 的建单 / 确认 / 过账 / 作废都写 entity_type=RECEIPT）
+    ('STATUS_ENTITY', 'RECEIPT',           'biz_receipt',           'deleted_at', '收款单（销售链 SO-17）'),
     -- ⑤ 序列号来源：biz_material_serial.source_type + source_id（P2-6b 补全映射）
     ('SERIAL_SOURCE', 'PURCHASE', 'biz_stock_in',       'deleted_at', '收货过账生成（in_type=PURCHASE），source_id = 收货单 id'),
     ('SERIAL_SOURCE', 'RETURN',   'biz_stock_in',       'deleted_at', '退货入库生成（in_type=RETURN，同一张收货单表），source_id = 收货单 id'),
