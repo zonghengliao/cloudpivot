@@ -1,0 +1,17 @@
+== ① 有退货入库单时 down 必须拒绝 ==
+  当前退货入库单：2 张
+  ✅ down 被守卫拒绝（文案点名业务事实）
+== ② 清掉退货入库单 / 红字发票后 down 成功 ==
+  down 后 biz_stock_in 来源列数=0（期望 0）
+  ✅ 发票来源白名单已回退（不含 SALES_RETURN）
+== ③ up 重新落结构 ==
+psql:/opt/cloudpivot/backend/migrations/business/V0305__sales_return_posting.up.sql:133: NOTICE:  V0305 OK：biz_stock_in 来源两列 + 部分唯一索引 + 发票来源白名单 SALES_RETURN
+  ✅ up 后两列回归（2）
+== ④ 二次 up 幂等 ==
+psql:/opt/cloudpivot/backend/migrations/business/V0305__sales_return_posting.up.sql:36: NOTICE:  column "source_type" of relation "biz_stock_in" already exists, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0305__sales_return_posting.up.sql:37: NOTICE:  column "source_id" of relation "biz_stock_in" already exists, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0305__sales_return_posting.up.sql:46: NOTICE:  relation "uk_biz_si_source_doc" already exists, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0305__sales_return_posting.up.sql:133: NOTICE:  V0305 OK：biz_stock_in 来源两列 + 部分唯一索引 + 发票来源白名单 SALES_RETURN
+  ✅ 二次 up 通过（幂等）
+  ✅ uk_biz_si_source_doc 仍唯一存在（1）
+== 演练完成：down 守卫 / down / up / 二次 up 全绿 ==

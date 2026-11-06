@@ -428,6 +428,15 @@ pub async fn customer_labels(ids: &[Uuid]) -> DbResult<Vec<(Uuid, String, String
 /// 客户在手订单占用的信用额度（价税合计之和，只算 [`CREDIT_OCCUPYING_STATUSES`]）。
 ///
 /// `exclude` = 编辑 / 提交时把「本单自己」排除掉（否则一张已提交的单会把自己算两遍）。
+///
+/// **已过账退货按含税金额抵减**（SO-30 / ARCH-7 §15.5.2 ③「退货过账 → 额度释放」）：
+/// 本仓**没有** `biz_customer.credit_used` 缓存列（V0260 只有 `credit_limit`），
+/// 占用一律**现算**（R1 单一数据源，缓存列必漂移 —— 见 V0215 头注释）。
+/// 「释放」因此不是改一个计数器，而是把**已过账退货的价税合计**从在手订单占用里扣掉：
+/// 货退回来了、应收也冲了，这笔额度本来就该还回去。抵减到底为止（不出现负占用）。
+///
+/// 为什么只算 `POSTED` 的退货：`DRAFT / SUBMITTED / APPROVED / PENDING_POST` 的退货
+/// 还没动账（库存没回、应收没冲），提前释放额度 = 让客户拿着一张没退成的单继续下单。
 pub async fn customer_open_credit(
     ex: &impl SqlExecutor,
     customer_id: Uuid,
@@ -449,10 +458,45 @@ pub async fn customer_open_credit(
     }
     let rows = ex.query_sql(sql, params).await?;
     let text: Option<String> = rows.first().and_then(|row| row.get_typed("used").ok());
-    Ok(text
+    let ordered = text
         .as_deref()
         .and_then(|value| value.parse::<Decimal>().ok())
-        .unwrap_or(Decimal::ZERO))
+        .unwrap_or(Decimal::ZERO);
+
+    // 已过账退货释放的额度（同一客户、未软删、状态 POSTED）
+    // SCOPE-EXEMPT: 退货单是 ERP 单据表，无归属列（可见性靠权限码）。
+    let rows = ex
+        .query_sql(
+            format!(
+                "SELECT COALESCE(SUM(total_with_tax), 0)::text AS returned \
+                   FROM {} WHERE customer_id = ? AND deleted_at IS NULL AND status = ?",
+                crate::business::erp::sales_return_model::TABLE
+            ),
+            vec![
+                Value::from(customer_id),
+                Value::Text(crate::business::erp::sales_return_model::STATUS_POSTED.to_string()),
+            ],
+        )
+        .await?;
+    let text: Option<String> = rows.first().and_then(|row| row.get_typed("returned").ok());
+    let returned = text
+        .as_deref()
+        .and_then(|value| value.parse::<Decimal>().ok())
+        .unwrap_or(Decimal::ZERO);
+    Ok(credited_after_returns(ordered, returned))
+}
+
+/// 在手订单占用减去已过账退货后仍然占用的额度（纯函数：底为 0，不出负数）。
+///
+/// 分开成纯函数是为了单测能钉住「抵减到底」这个边界：订单 100、退货 130（历史单
+/// 或跨订单退货）时占用必须是 0，不能是 -30（负占用会让下一张单白拿额度）。
+pub fn credited_after_returns(ordered: Decimal, returned: Decimal) -> Decimal {
+    let net = ordered - returned;
+    if net < Decimal::ZERO {
+        Decimal::ZERO
+    } else {
+        net
+    }
 }
 
 // ==================== 写入 ====================

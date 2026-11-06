@@ -1,0 +1,217 @@
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+warning: this `if` statement can be collapsed
+   --> src/business/erp/receipt.rs:857:9
+    |
+857 | /         if let Some(status) = self.status.as_deref().map(str::trim) {
+858 | |             if !status.is_empty() && !STATUSES.contains(&status) {
+859 | |                 return Err(bad_request(format!(
+860 | |                     "status 只认 {STATUSES:?}（收到「{status}」）：OPEN / PARTIAL / PAID 这类\
+...   |
+864 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#collapsible_if
+    = note: `#[warn(clippy::collapsible_if)]` on by default
+help: collapse nested if block
+    |
+857 ~         if let Some(status) = self.status.as_deref().map(str::trim)
+858 ~             && !status.is_empty() && !STATUSES.contains(&status) {
+859 |                 return Err(bad_request(format!(
+...
+862 |                 )));
+863 ~             }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src/business/erp/receipt.rs:865:9
+    |
+865 | /         if let Some(method) = self.method.as_deref().map(str::trim) {
+866 | |             if !method.is_empty() {
+867 | |                 validate_method(Some(method))?;
+868 | |             }
+869 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+865 ~         if let Some(method) = self.method.as_deref().map(str::trim)
+866 ~             && !method.is_empty() {
+867 |                 validate_method(Some(method))?;
+868 ~             }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src/business/erp/receipt.rs:870:9
+    |
+870 | /         if let Some(raw) = self.customer_id.as_deref().map(str::trim) {
+871 | |             if !raw.is_empty() {
+872 | |                 parse_uuid(raw, "customer_id")?;
+873 | |             }
+874 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+870 ~         if let Some(raw) = self.customer_id.as_deref().map(str::trim)
+871 ~             && !raw.is_empty() {
+872 |                 parse_uuid(raw, "customer_id")?;
+873 ~             }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src/business/erp/receipt.rs:875:9
+    |
+875 | /         if let Some(raw) = self.date_from.as_deref().map(str::trim) {
+876 | |             if !raw.is_empty() {
+877 | |                 parse_date_arg(raw, "date_from")?;
+878 | |             }
+879 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+875 ~         if let Some(raw) = self.date_from.as_deref().map(str::trim)
+876 ~             && !raw.is_empty() {
+877 |                 parse_date_arg(raw, "date_from")?;
+878 ~             }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src/business/erp/receipt.rs:880:9
+    |
+880 | /         if let Some(raw) = self.date_to.as_deref().map(str::trim) {
+881 | |             if !raw.is_empty() {
+882 | |                 parse_date_arg(raw, "date_to")?;
+883 | |             }
+884 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+880 ~         if let Some(raw) = self.date_to.as_deref().map(str::trim)
+881 ~             && !raw.is_empty() {
+882 |                 parse_date_arg(raw, "date_to")?;
+883 ~             }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src/business/erp/receipt.rs:896:9
+    |
+896 | /         if let Some(status) = self.status.as_deref().map(str::trim) {
+897 | |             if !status.is_empty() {
+898 | |                 filter.status = Some(status.to_string());
+899 | |             }
+900 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+896 ~         if let Some(status) = self.status.as_deref().map(str::trim)
+897 ~             && !status.is_empty() {
+898 |                 filter.status = Some(status.to_string());
+899 ~             }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src/business/erp/receipt.rs:901:9
+    |
+901 | /         if let Some(method) = self.method.as_deref().map(str::trim) {
+902 | |             if !method.is_empty() {
+903 | |                 filter.method = Some(method.to_string());
+904 | |             }
+905 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+901 ~         if let Some(method) = self.method.as_deref().map(str::trim)
+902 ~             && !method.is_empty() {
+903 |                 filter.method = Some(method.to_string());
+904 ~             }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src/business/erp/receipt.rs:906:9
+    |
+906 | /         if let Some(raw) = self.customer_id.as_deref().map(str::trim) {
+907 | |             if !raw.is_empty() {
+908 | |                 filter.customer_id = Some(parse_uuid(raw, "customer_id")?);
+909 | |             }
+910 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+906 ~         if let Some(raw) = self.customer_id.as_deref().map(str::trim)
+907 ~             && !raw.is_empty() {
+908 |                 filter.customer_id = Some(parse_uuid(raw, "customer_id")?);
+909 ~             }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src/business/erp/receipt.rs:911:9
+    |
+911 | /         if let Some(raw) = self.receipt_no.as_deref().map(str::trim) {
+912 | |             if !raw.is_empty() {
+913 | |                 filter.keyword = Some(raw.to_string());
+914 | |             }
+915 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+911 ~         if let Some(raw) = self.receipt_no.as_deref().map(str::trim)
+912 ~             && !raw.is_empty() {
+913 |                 filter.keyword = Some(raw.to_string());
+914 ~             }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src/business/erp/receipt.rs:916:9
+    |
+916 | /         if let Some(raw) = self.date_from.as_deref().map(str::trim) {
+917 | |             if !raw.is_empty() {
+918 | |                 filter.date_from = Some(parse_date_arg(raw, "date_from")?);
+919 | |             }
+920 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+916 ~         if let Some(raw) = self.date_from.as_deref().map(str::trim)
+917 ~             && !raw.is_empty() {
+918 |                 filter.date_from = Some(parse_date_arg(raw, "date_from")?);
+919 ~             }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src/business/erp/receipt.rs:921:9
+    |
+921 | /         if let Some(raw) = self.date_to.as_deref().map(str::trim) {
+922 | |             if !raw.is_empty() {
+923 | |                 filter.date_to = Some(parse_date_arg(raw, "date_to")?);
+924 | |             }
+925 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+921 ~         if let Some(raw) = self.date_to.as_deref().map(str::trim)
+922 ~             && !raw.is_empty() {
+923 |                 filter.date_to = Some(parse_date_arg(raw, "date_to")?);
+924 ~             }
+    |
+
+warning: `cloudpivot` (lib) generated 11 warnings (run `cargo clippy --fix --lib -p cloudpivot` to apply 11 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 45.67s
+EXIT=0

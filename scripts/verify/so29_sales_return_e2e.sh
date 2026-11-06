@@ -198,15 +198,16 @@ api st_pending PATCH "/business/erp/sales-return/$R1/status" "$T_ADMIN" '{"targe
 check "待过账 http" "$HTTP" "200"
 check "待过账后状态" "$(d '.data.status')" "PENDING_POST"
 
+# ⚠ SO-30 已解锁 PENDING_POST → POSTED（过账事务体在 sales_return_posting.rs）：
+#   本脚本原来断言的「409 + 点名 SO-30」是 SO-29 当时的占位行为，现已改为「过账成功」。
+#   过账的六件事（回库 / 红字入库凭证 / 冲应收 / 红字发票 / delivered_qty / 额度释放）
+#   由 scripts/verify/so30_return_posting_e2e.sh 逐条验证；本脚本只确认状态到了 POSTED。
 api st_posted PATCH "/business/erp/sales-return/$R1/status" "$T_ADMIN" '{"target_status":"POSTED"}'
-check "过账 http（本卡 409：链路由 SO-30 落地）" "$HTTP" "409"
-case "$(d '.msg')" in
-  *SO-30*) ok "409 文案点名 SO-30 与过账链路" ;;
-  *) bad "409 文案没点名 SO-30：$(d '.msg')" ;;
-esac
+check "过账 http（SO-30 解锁后应成功）" "$HTTP" "200"
+check "过账后状态" "$(d '.data.status')" "POSTED"
 
 trail=$(PSQLQ -c "select count(*) from biz_status_log where entity_type='SALES_RETURN' and entity_id='$R1'")
-check "biz_status_log 轨迹条数（建单 + 3 次流转）" "$trail" "4"
+check "biz_status_log 轨迹条数（建单 + 4 次流转）" "$trail" "5"
 trail_no=$(PSQLQ -c "select count(distinct entity_no) from biz_status_log where entity_type='SALES_RETURN' and entity_id='$R1'")
 check "轨迹里 entity_no 唯一（= 单号）" "$trail_no" "1"
 

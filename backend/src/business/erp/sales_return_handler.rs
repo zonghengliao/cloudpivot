@@ -1210,16 +1210,19 @@ pub async fn change_return_status(
     // ③ 业务闸
     match target.as_str() {
         model::STATUS_POSTED => {
-            // 过账执行体（回库 + 冲应收 + 红字发票 + 回写 delivered_qty）是 SO-30 的同一个事务。
-            // 本卡只把边登记进状态机；这里显式拒绝，避免「状态已过账、账上一分没动」。
-            return Err(conflict(format!(
-                "退货过账链路由 SO-30 落地：{}（{}）目前不能直接推到 POSTED。\
-                 已登记状态机边 PENDING_POST → POSTED，但过账要在一个事务里完成\
-                 「生成入库单（inventory_writer 回库）→ 红字入库凭证 → 冲减应收 → 红字发票 → 回写 delivered_qty」；\
-                 本卡（SO-29）只交付 CRUD + 状态机 + 超退守卫",
-                row.return_no,
-                model::status_label(&row.status)
-            )));
+            // 过账执行体在 `sales_return_posting::post_in_tx`（本函数的同一事务里调用）：
+            // 回库单（inventory_writer 三本账）+ 红字入库凭证 + 冲减应收 + 红字发票 +
+            // 回写 delivered_qty，六件事同生共死。这里只做「空单」这一条最廉价的闸，
+            // 其余判定（超退复核 / 期间闸 / 成本来源）全部在过账事务体内。
+            let items = model::items_of(id)
+                .await
+                .map_err(|error| utils::db_error(error, "查询销售退货单明细"))?;
+            if items.is_empty() {
+                return Err(bad_request(format!(
+                    "退货单 {} 没有明细，不能过账",
+                    row.return_no
+                )));
+            }
         }
         model::STATUS_SUBMITTED | model::STATUS_PENDING_POST => {
             let items = model::items_of(id)
@@ -1270,6 +1273,25 @@ pub async fn change_return_status(
                 "退货单 {} 的状态在本次流转期间已被改动（期望 {}），请刷新后重试",
                 row.return_no, row.status
             )));
+        }
+        // 过账：回库 / 红字入库凭证 / 冲减应收 / 红字发票 / 回写 delivered_qty。
+        // 与上面的状态 CAS **同一个事务**：任何一步失败，状态与六本账一起回滚
+        // （绝不出现「状态已过账、账上一分没动」的单）。
+        if target == model::STATUS_POSTED {
+            let posted =
+                crate::business::erp::sales_return_posting::post_in_tx(&tx, id, &op, now).await?;
+            tracing::info!(
+                return_no = %row.return_no,
+                stock_in_no = %posted.stock_in_no,
+                cost_total = %posted.cost_total,
+                cost_voucher = ?posted.cost_voucher_id,
+                receivable = ?posted.receivable_id,
+                receivable_unsettled = ?posted.receivable_unsettled,
+                red_invoice_no = ?posted.red_invoice_no,
+                revenue_voucher = ?posted.revenue_voucher_id,
+                delivered_lines = posted.delivered_lines,
+                "退货过账：状态与六本账已同事务落库"
+            );
         }
         Ok::<(), ApiError>(())
     }
