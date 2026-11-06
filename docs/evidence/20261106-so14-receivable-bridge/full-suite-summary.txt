@@ -1,0 +1,5 @@
+test business::erp::sales_approval_bridge::db_tests::three_tiers_start_flow_and_approve_to_approved ... FAILED
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_graph_snapshot_selfcheck_is_clean ... FAILED
+test result: FAILED. 2813 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1402.07s
+FULLSUITE_RC=101
+2816
