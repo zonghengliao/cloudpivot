@@ -571,6 +571,15 @@ async fn auto_decide(task: &DueTask, approve: bool) -> DbResult<bool> {
     }
     // 副作用锁外发送
     engine::flush_effects(outcome.effects.take()).await;
+    // ★ LNK-12：超时自动代点也可能把实例推到终态（自动通过 / 自动驳回）→
+    //   `FLOW_INSTANCE` 触发点。这条路径没有 HTTP handler、不经过业务桥，
+    //   漏了它就变成「人工审批会响、超时自动审批不响」——最坏的一种半接线。
+    crate::business::flow::instance_linkage::fire_after_commit(
+        outcome.instance_id,
+        &outcome.instance_status,
+        Some(task.assignee_id),
+    )
+    .await;
     tracing::info!(
         %task_id,
         %instance_id,

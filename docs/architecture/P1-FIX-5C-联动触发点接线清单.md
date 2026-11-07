@@ -143,7 +143,7 @@ P1-FIX-5C 之前，配置页只把「动作」这一侧的占位项置灰了，�
 | 12 | `ACCOUNTING_PERIOD` | ✅ | `erp/period.rs::close_period`（L≈1311，结账）/ `reopen_period`（L≈1400，反结账）；开账 `open_period` / `batch_open` 是建行，**不接**（见 §3.2） | 期间状态 CAS + 期末汇兑重估凭证（结账第 ⑤ 步） | 中高 | 已接（LNK-08） |
 | 13 | `FIXED_ASSET` | ✅ | `erp/asset_bridge.rs::execute` 第 ⑤ 步（审批通过 → `DISPOSED`）/ `erp/asset_handler.rs::asset_dispose_cancel` 第 ⑤ 步（→ `IN_USE`）/ `erp/asset_handler.rs::asset_status_change` 第 ⑦ 步（停用 → `IDLE`、启用 → `IN_USE`，见 §3.2 与本设计文档 `FIN-ASSET-ST02-资产停用启用接口设计.md`）；建卡是建行不接 | 处置凭证（1~3 张）+ 红冲 + 处置痕迹 + 状态 | 中 | 已接（LNK-09 两处 + ST02 停用/启用） |
 | 14 | `ACCOUNTING_YEAR` | ✅ | `erp/year_end.rs::close_year` 第 ④ 步（`NOT_CLOSED → CLOSED`）/ `reopen_year` 第 ⑤ 步（`CLOSED → NOT_CLOSED`）—— 两处都在**所有账写完、commit 之前**调 `year_end_linkage::run_in_tx`，commit 之后 `run_deferred_after_commit` | 年度结转凭证（`YEAR_END`，一年唯一）+ 下年期初台账 + 状态留痕（**全仓最长的账务事务**） | 中高 | 已接（LNK-11） |
-| 15 | `FLOW_INSTANCE` | ❌ | `flow/engine.rs`（`model::bump_instance`，L≈882）← `handler::approve_task` / `reject_task` / `withdraw_instance` | 实例状态 + 流程任务级联取消 + **业务单据状态（bridge）** | 需先定序 | D |
+| 15 | `FLOW_INSTANCE` | ✅ | `flow/instance_linkage.rs::fire_after_commit`（唯一 hook）← `handler::approve_task` / `reject_task` / `withdraw_instance`（三个都在 `drain` 之后、业务桥**之前**）+ `timeout::auto_decide`（超时自动代点，无 HTTP handler 的子路径） | 只有 `Phase::AfterCommit` 动作（通知 / 建任务）；改单据状态 / 库存 / 凭证一律禁配 + 运行时排除 —— 那部分归业务桥 | 中 | 已接（LNK-12） |
 
 > 表中「L≈」是开工时实测行号，会随重构漂移——**判据只看 `spec.rs` 的 `wired` 与 `tests_wiring` 的双向扫描**，不要拿行号当契约。
 
@@ -452,7 +452,7 @@ commit 之后
 | A | `PAYABLE`、`EXPENSE_REPORT`、`STOCK_TAKE`、`PURCHASE_ORDER` | 直接关系钱与库存差异，业务最痛；排除清单清楚（付款余额 / 盘盈亏库存 / 采购累计量） | 一张卡一格，可并行 |
 | B | `STOCK_TRANSFER`、`CONTRACT`、`VOUCHER`、`DEPRECIATION` | 中等价值；`VOUCHER` 有环风险、`DEPRECIATION` 有批量扇出风险，各自要专门断言 | 一张卡两格起 |
 | C | `ACCOUNTING_PERIOD`、`FIXED_ASSET` | `ACCOUNTING_PERIOD` 影响全员只读；`FIXED_ASSET` 要先统一「停用启用算不算状态变更」的口径 | 先设计再实现 |
-| D | `FLOW_INSTANCE` | 触发点重叠（审批通过会顺带改业务单据状态），必须单开设计卡 | 设计卡 → 实现卡 |
+| D | `FLOW_INSTANCE` | 触发点重叠（审批通过会顺带改业务单据状态），必须先定序 | ✅ 已完成（LNK-12）：**审批实例先、业务单据后**；`FLOW_INSTANCE` 只接提交后动作（通知 / 建任务），落账类动作配置期即 400 + 运行期排除；幂等键 `LNK:FLOW_INSTANCE:<状态>:<实例 id>` 让重放只发一条 |
 
 **每批的前置**：上一批的端到端证据已归档到 `docs/evidence/`，且 `wired_triggers()` 与本表一致
 （`tests_wiring` 会强制）。
@@ -595,8 +595,15 @@ EXIT=0
    **已定（FIN-ASSET-ST02）**：停用/启用是合法状态变更触发点，接口 `POST /business/erp/asset/{id}/status`
    走 `state_machine::transition`（mandatory 边 `IN_USE ⇄ IDLE`）+ CAS + 留痕 + 联动，
    **折旧照提、口径不动**；见 `docs/architecture/FIN-ASSET-ST02-资产停用启用接口设计.md`。
-4. **`FLOW_INSTANCE` 的职责划分只是建议**：审批侧 vs 业务侧的分工需要一张设计卡确认后
-   才能写进 `spec::wiring`，现在 `wired=false` 是**正确的**（不是因为懒）。
+4. ~~**`FLOW_INSTANCE` 的职责划分只是建议**：审批侧 vs 业务侧的分工需要一张设计卡确认后
+   才能写进 `spec::wiring`，现在 `wired=false` 是**正确的**（不是因为懒）。~~
+   **已定（LNK-12）**：顺序 = 审批实例先、业务单据后（业务桥是回调，错误被吞掉，排在后面就会丢通知）；
+   `FLOW_INSTANCE` 只挂提交后动作（`SEND_NOTICE` / `CREATE_TASK`），全部 `Phase::InTx` 动作
+   配置期 400 + 运行期排除（重复落账的唯一实现是业务桥）；可配状态收窄成三个**结论**
+   `APPROVED / REJECTED / WITHDRAWN`（`PENDING` 由流程通知节点负责、`SKIPPED` 从来不是实例状态、
+   `CANCELLED` 只来自级联终止且「删单据 → 终止」走 SQL 不经过引擎）；幂等键
+   `LNK:FLOW_INSTANCE:<状态>:<实例 id>`，重放只落一条通知。
+   设计原文见 `backend/src/business/flow/instance_linkage.rs` 文件头。
 5. **动作侧仍有 7 个占位**：即使把 12 个触发点全接上，「写库存 / 红冲 / 改状态 / 锁单」
    这些动作仍然配置不了。触发点接线与动作接管是两条并行线，不要互相当成前置。
 6. **截图 / 实测的时效**：本卡的验收是打在**共享工作区当时那棵树**上的；实现卡若在同一批文件上继续改动，

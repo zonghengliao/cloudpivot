@@ -128,7 +128,8 @@ fn trigger_specs_cover_whitelist_in_order() {
             "FIXED_ASSET",
             "DEPRECIATION",
             "EXPENSE_REPORT",
-            "TASK"
+            "TASK",
+            "FLOW_INSTANCE"
         ],
         "已接线的触发点：STOCK_IN（收货过账）、STOCK_OUT（出库过账，P1-FIX-5C 新接）、\
          STOCK_TRANSFER（库存调拨状态变更，LNK-01 新接）、\
@@ -142,13 +143,15 @@ fn trigger_specs_cover_whitelist_in_order() {
          FIXED_ASSET（资产处置 / 作废处置，LNK-09 新接）、\
          DEPRECIATION（折旧批次过账 / 红冲，LNK-10 新接）、\
          EXPENSE_REPORT（报销单提交 / 通过 / 付清 / 作废 / 打回，LNK-05 新接）、\
-         TASK（任务状态变更）；\
+         TASK（任务状态变更）、\
+         FLOW_INSTANCE（审批结论 APPROVED / REJECTED / WITHDRAWN，LNK-12 新接）；\
          接线状态变化时这份断言要跟着改，改之前先想清楚「真的有人调引擎了吗」"
     );
     assert_eq!(
         spec::unwired_triggers().len(),
-        1,
-        "其余 1 个仍未接线（FLOW_INSTANCE）"
+        0,
+        "15 个白名单触发点全部接线完成（FLOW_INSTANCE 由 LNK-12 接上）；\
+         新增白名单项时这里会重新变成 1+，请同时补 wired = true + proofs"
     );
 }
 
@@ -223,11 +226,11 @@ fn wired_triggers_match_call_sites() {
     }
     assert_eq!(
         actual.len(),
-        15,
-        "当前真实调用点 15 个文件（收货过账 / 出库过账 handler + 出库联动 hook + 调拨联动 hook + \
+        16,
+        "当前真实调用点 16 个文件（收货过账 / 出库过账 handler + 出库联动 hook + 调拨联动 hook + \
          采购联动 hook + 应付联动 hook + 盘点联动 hook + 报销联动 hook + 凭证联动 hook + \
          合同联动 hook + 会计期间联动 hook + 会计年度联动 hook + 固定资产联动 hook + \
-         折旧批次联动 hook + 任务状态通知）：{actual:?}\n\
+         折旧批次联动 hook + 任务状态通知 + 审批实例联动 hook）：{actual:?}\n\
          ⚠️ 本计数器是**文件级去重 + 只认 `linkage::engine::*` 直调**：\n\
          固定资产新增的「停用 / 启用」写在 `erp/asset_handler.rs` 里、只间接调\
          `asset_linkage::run_in_tx`（引擎在 hook 里被调），所以**不会**也不该让这个数字 +1；\n\
@@ -1403,4 +1406,142 @@ fn year_end_wires_generic_engine_and_excludes_ledger_actions() {
             "{code} 被误判成专用路由：年结的通知 / 建任务会静默不执行"
         );
     }
+}
+
+/// 审批实例（`FLOW_INSTANCE`）的接线细节（LNK-12）。
+///
+/// 这条防的是本卡最容易假绿的两件事：
+///
+/// 1. **只改 spec.rs 的 wired 标记**（P1-FIX-5C 的原罪）：所以逐个数调用点 ——
+///    `flow/handler.rs` 三个（approve / reject / withdraw）+ `flow/timeout.rs` 一个
+///    （超时自动代点，没有 HTTP handler 的子路径，最容易漏）；
+/// 2. **顺序反了**：`fire_after_commit` 必须排在 `task_bridge` / `purchase_bridge` 之前
+///    （实例是原因、单据是结果；桥的错误被吞掉，排在后面等于「桥挂了通知就没了」）。
+///
+/// 另外钉住「可配状态 = 会触发的状态」：`spec` 的 status_labels、写入口的
+/// `model::known_statuses`、hook 的入口状态闸三者同集，否则就是「配得上、永远不响」。
+#[test]
+fn flow_instance_wires_generic_engine_and_excludes_ledger_actions() {
+    // ---------- ① hook 本身真的调引擎（不是只有注释） ----------
+    let hook = include_str!("../instance_linkage.rs");
+    assert!(
+        hook.contains("linkage::engine::run_excluding("),
+        "审批实例联动 hook 必须调用通用引擎（run_excluding）：否则 FLOW_INSTANCE 的规则配了不触发"
+    );
+    assert!(
+        hook.contains("spec::FLOW_INSTANCE_EXCLUDED_ACTIONS"),
+        "调通用引擎时必须传 spec::FLOW_INSTANCE_EXCLUDED_ACTIONS（不许改成写死的空清单）"
+    );
+    assert!(
+        hook.contains("linkage::engine::run_deferred"),
+        "提交后动作必须交给 run_deferred（审批事务已提交，InTx 动作一律不许跑）"
+    );
+
+    // ---------- ② 四个调用点，一个不能少 ----------
+    let handler = include_str!("../handler.rs");
+    assert_eq!(
+        handler
+            .matches("instance_linkage::fire_after_commit(")
+            .count(),
+        3,
+        "approve_task / reject_task / withdraw_instance 三个审批回调都必须真的调 hook\
+         （只改 spec.rs 的 wired 标记不算接线）"
+    );
+    let timeout = include_str!("../timeout.rs");
+    assert!(
+        timeout.contains("instance_linkage::fire_after_commit("),
+        "超时自动代点（timeout::auto_decide）也必须调 hook：这条路径没有 HTTP handler，\
+         漏了就是「人工审批会响、自动审批不响」的半接线"
+    );
+
+    // ---------- ③ 顺序：审批实例先、业务单据后 ----------
+    let approve_start = handler
+        .find("pub async fn approve_task(")
+        .expect("handler.rs 必须有 approve_task");
+    let reject_start = handler
+        .find("pub async fn reject_task(")
+        .expect("handler.rs 必须有 reject_task");
+    assert!(
+        approve_start < reject_start,
+        "夹具：approve_task 应在 reject_task 之前"
+    );
+    let approve = &handler[approve_start..reject_start];
+    let fire = approve
+        .find("instance_linkage::fire_after_commit(")
+        .expect("approve_task 必须在审批事务提交之后调 hook");
+    let first_bridge = approve
+        .find("task_bridge::on_instance_settled(")
+        .expect("approve_task 必须调 task_bridge");
+    let po_bridge = approve
+        .find("purchase_bridge::on_po_settled(")
+        .expect("approve_task 必须调 purchase_bridge");
+    assert!(
+        fire < first_bridge && fire < po_bridge,
+        "FLOW_INSTANCE 触发点必须排在业务桥**之前**（当前 fire@{fire} / \
+         task_bridge@{first_bridge} / purchase_bridge@{po_bridge}）：\
+         业务桥的错误被吞掉，排在它们后面就是「桥挂了 → 审批通过的通知永远丢」"
+    );
+    let drain = approve
+        .find("drain(&mut out)")
+        .expect("approve_task 必须先 drain 引擎通知");
+    assert!(
+        drain < fire,
+        "hook 必须在 drain（事务后副作用）之后调，否则引擎自己的通知还没发出就跑了联动"
+    );
+
+    // ---------- ④ 排除清单真的有牙 ----------
+    for code in [
+        "WRITE_INVENTORY",
+        "WRITE_INVENTORY_TXN",
+        "UPDATE_COST",
+        spec::ACTION_GENERATE_VOUCHER,
+        "REVERSE_VOUCHER",
+        spec::ACTION_UPDATE_RECEIVED_QTY,
+        "UPDATE_PAYABLE_BALANCE",
+        "UPDATE_DOC_STATUS",
+        "LOCK_DOCUMENT",
+    ] {
+        assert!(
+            spec::FLOW_INSTANCE_EXCLUDED_ACTIONS.contains(&code),
+            "审批实例的排除清单漏了 {code}：它由业务桥的专用实现落账，通用引擎再跑一次就是重复落账"
+        );
+        assert!(
+            spec::FLOW_INSTANCE_FORBIDDEN_ACTIONS.contains(&code),
+            "配置期禁令漏了 {code}：能配得上但永远不执行（或更糟：跑成无事务裸写）"
+        );
+    }
+    for code in [spec::ACTION_SEND_NOTICE, spec::ACTION_CREATE_TASK] {
+        assert!(
+            !spec::FLOW_INSTANCE_EXCLUDED_ACTIONS.contains(&code),
+            "{code} 不能被排除：审批结论的「通知 / 建任务」就靠通用引擎的 AfterCommit 动作"
+        );
+    }
+    use crate::business::flow::linkage::engine;
+    for code in spec::FLOW_INSTANCE_EXCLUDED_ACTIONS {
+        assert!(
+            engine::is_routed_elsewhere(spec::FLOW_INSTANCE_EXCLUDED_ACTIONS, code),
+            "{code} 在排除清单里却没被判成「专用路由」：清单传下去也拦不住它"
+        );
+    }
+
+    // ---------- ⑤ 可配状态 = 会触发的状态（P1-FIX-5C：不许留「配了不响」的状态） ----------
+    let decl =
+        spec::trigger_spec(spec::TRIGGER_FLOW_INSTANCE).expect("FLOW_INSTANCE 必须在接线表里");
+    let codes: Vec<&str> = decl.status_labels.iter().map(|(code, _)| *code).collect();
+    assert_eq!(
+        codes,
+        vec!["APPROVED", "REJECTED", "WITHDRAWN"],
+        "审批实例只允许配三种**结论**：PENDING（发起，流程通知节点负责）/ SKIPPED（从来不是\
+         实例状态）/ CANCELLED（级联终止，其中删单据那条走 SQL 不经过引擎）配了都不会响"
+    );
+    assert_eq!(
+        super::model::known_statuses(spec::TRIGGER_FLOW_INSTANCE),
+        codes,
+        "写入口的 known_statuses 必须与 spec 的可配状态同集"
+    );
+    assert_eq!(
+        spec::forbidden_actions(spec::TRIGGER_FLOW_INSTANCE),
+        spec::FLOW_INSTANCE_EXCLUDED_ACTIONS,
+        "配置期禁令与运行时排除必须同集，否则会出现「配得上、跑起来被静默跳过」"
+    );
 }

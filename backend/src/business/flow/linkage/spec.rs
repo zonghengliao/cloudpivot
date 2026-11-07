@@ -716,18 +716,45 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     },
     TriggerSpec {
         entity: TRIGGER_FLOW_INSTANCE,
+        // 只列**真的会触发**的三个终态（审批结论）。刻意不含：
+        //
+        // - `PENDING`：发起那一刻由流程自己的通知节点负责（`notify_node`），在这条触发点上
+        //   再发一次就是同一件事两封站内信；而且 `PENDING` 不是「结论」，配了它的规则会
+        //   在每一次中间审批（会签第一票）时都被检查一遍，语义上说不通；
+        // - `SKIPPED`：节点 / 流程任务的状态，**从来不是实例状态**（`biz_flow_instance.status`
+        //   的 CHECK 里没有它），配得上就永远不会响；
+        // - `CANCELLED`：唯一来源是**级联 / 行政终止**（任务被取消、业务单据被删、报销单作废），
+        //   其中「单据被删 → 终止实例」走 `cancel_pending_of_biz` 直接 SQL，不经过引擎；
+        //   接在这里会造成「同一张单有时响、有时不响」——比不接更糟。这类通知由各自的
+        //   业务回调负责（见 `task_bridge` / `expense_bridge`）。
+        //
+        // 留下三个 = 审批的三种结论，与 `instance_linkage::TERMINAL_STATUSES` 逐字一致
+        // （单测 `statuses_match_fired_verdicts` 钉住）。
         status_labels: &[
-            ("PENDING", "审批中"),
             ("APPROVED", "已通过"),
             ("REJECTED", "已驳回"),
-            ("SKIPPED", "已跳过"),
-            ("CANCELLED", "已取消"),
+            ("WITHDRAWN", "已撤回"),
         ],
-        wired: false,
-        wiring: "未接线：审批实例状态在 flow 审批回调里推进（approve / reject / cancel），\
-                 那里的「审批通过」还会顺带改业务单据状态，两个触发点的先后顺序必须先定清楚\
-                 （否则同一次审批会跑两遍联动），属于必须单开卡设计的一条",
-        proofs: &[],
+        wired: true,
+        wiring: "已接线：flow/instance_linkage.rs::fire_after_commit —— 审批实例落终态\
+                 （APPROVED / REJECTED / WITHDRAWN）之后，在**审批事务提交之后**跑通用引擎：\
+                 run_excluding(spec::FLOW_INSTANCE_EXCLUDED_ACTIONS)（排除清单 = 全部 Phase::InTx\
+                 动作：改单据状态 / 写库存 / 出凭证 / 改累计量都归业务桥的专用实现）+\
+                 run_deferred。调用点四个：flow/handler.rs::approve_task、reject_task、\
+                 withdraw_instance（都在 drain 之后、业务桥之前）与 flow/timeout.rs::auto_decide\
+                 （超时自动代点）。顺序 = 审批实例先、业务单据后（业务桥由业务单据自己的\
+                 触发点再触发一次，两条规则互不重复落账）；幂等键 LNK:FLOW_INSTANCE:<状态>:<实例 id>\
+                 让同一次审批重放只发一条通知",
+        proofs: &[
+            (
+                "src/business/flow/instance_linkage.rs",
+                "linkage::engine::run_excluding",
+            ),
+            (
+                "src/business/flow/instance_linkage.rs",
+                "linkage::engine::run_deferred",
+            ),
+        ],
     },
 ];
 
@@ -1152,11 +1179,54 @@ pub const VOUCHER_FORBIDDEN_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER];
 /// 运行时另有一道 [`CONTRACT_EXCLUDED_ACTIONS`] 兜历史脏行 / 绕过 API 直接写库的行。
 pub const CONTRACT_FORBIDDEN_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER];
 
+/// **审批实例**（`FLOW_INSTANCE`，LNK-12）的排除清单 / 配置期禁令。
+///
+/// # 为什么这一条把「所有 `Phase::InTx` 动作」全排除，而不只是凭证三类
+///
+/// 审批实例的终态是**审批结论**（通过 / 驳回 / 撤回），它自己**不落任何账**：
+/// 真正改单据状态、写库存、出凭证的是审批回调之后的那一串业务桥
+/// （`purchase_bridge` / `stockin_bridge` / `expense_bridge` / `asset_bridge` …），
+/// 它们各自走专用实现、各自按业务单据触发点再跑一次联动。
+///
+/// 本触发点的接线点在**审批事务提交之后**（见 `flow::instance_linkage` 的设计说明），
+/// 此时进程里没有可用事务。`Phase::InTx` 的动作（写库存 / 改成本 / 生成凭证 /
+/// 改累计量 / 改单据状态 / 锁单据）在这里跑就是**无事务裸写**：
+///
+/// - `GENERATE_VOUCHER` / `UPDATE_RECEIVED_QTY`（当前仅有的两个已接管 InTx 动作）→
+///   与业务桥的专用实现**重复落账**（一张单两张凭证 / 累计量被推两次）；
+/// - `UPDATE_DOC_STATUS` → 与业务桥的 CAS 状态机抢写，绕过 `biz_status_log` 与版本号；
+/// - 其余占位 InTx 动作 → 阶段 3 之前一律 `Skipped`，配了也不会动。
+///
+/// 所以本触发点**只接「提交后」动作**（`SEND_NOTICE` / `CREATE_TASK`），并且
+/// **配置期就拒**（[`FLOW_INSTANCE_FORBIDDEN_ACTIONS`]），不是「配得上、跑起来被静默跳过」。
+/// 单测 `tests_wiring::flow_instance_wires_generic_engine_and_excludes_ledger_actions`
+/// 逐项钉住这张清单，并在 `instance_linkage::tests` 里核对
+/// 「FLOW_INSTANCE 上允许的已接管动作必须全部是 `Phase::AfterCommit`」。
+pub const FLOW_INSTANCE_EXCLUDED_ACTIONS: &[&str] = &[
+    "WRITE_INVENTORY",
+    "WRITE_INVENTORY_TXN",
+    "UPDATE_COST",
+    ACTION_GENERATE_VOUCHER,
+    "REVERSE_VOUCHER",
+    "UPDATE_RECEIVED_QTY",
+    "UPDATE_PAYABLE_BALANCE",
+    "UPDATE_DOC_STATUS",
+    "LOCK_DOCUMENT",
+];
+
+/// 审批实例上**根本不允许保存**的动作（配置期 400）：与排除清单同集。
+///
+/// 运行时排除只是兜住「历史脏行 / 绕过 API 直接写库」，不能让管理员配出一条
+/// 永远不执行的规则（本仓最讨厌的「看起来配好了」）。见
+/// [`FLOW_INSTANCE_EXCLUDED_ACTIONS`] 的理由。
+pub const FLOW_INSTANCE_FORBIDDEN_ACTIONS: &[&str] = FLOW_INSTANCE_EXCLUDED_ACTIONS;
+
 /// 某个触发实体上被**结构性禁止**的动作码（配置期 400）。
 ///
 /// 返回空切片 = 该实体没有实体级禁令（只受通用白名单约束）。
 pub fn forbidden_actions(trigger_entity: &str) -> &'static [&'static str] {
     match trigger_entity.trim() {
+        TRIGGER_FLOW_INSTANCE => FLOW_INSTANCE_FORBIDDEN_ACTIONS,
         state_machine::ENTITY_VOUCHER => VOUCHER_FORBIDDEN_ACTIONS,
         state_machine::ENTITY_CONTRACT => CONTRACT_FORBIDDEN_ACTIONS,
         _ => &[],
@@ -1174,6 +1244,14 @@ pub fn forbidden_action_reason(trigger_entity: &str, action_code: &str) -> Optio
         return None;
     }
     Some(match entity {
+        // 审批实例：不是「永不执行」，而是「执行了就是重复落账」——它自己没有账可落
+        TRIGGER_FLOW_INSTANCE => {
+            "审批实例是「审批结论」，自己不落任何账：改单据状态、写库存、生成凭证都由\
+             审批事务提交之后的业务桥（purchase_bridge / stockin_bridge / expense_bridge …）\
+             按各自单据的专用实现完成，在审批实例上再跑一次就是同一笔账落两遍\
+             （一张单两张凭证 / 累计量被推两次）。该动作在 FLOW_INSTANCE 上被结构性禁止：\
+             配置期直接拒绝，运行时也会排除；要落账请到业务单据自己的触发点上配"
+        }
         // 合同：不是死循环，是「永远什么都不会做」——合同没有借贷科目口径
         state_machine::ENTITY_CONTRACT => {
             "合同不产生任何凭证（合同号没有借贷科目口径，付款是采购单 / 应付单的事）：\

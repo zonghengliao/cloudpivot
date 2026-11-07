@@ -1172,7 +1172,8 @@ mod tests {
                 "FIXED_ASSET",
                 "DEPRECIATION",
                 "EXPENSE_REPORT",
-                "TASK"
+                "TASK",
+                "FLOW_INSTANCE"
             ],
             "已接线的触发点：STOCK_IN / STOCK_OUT（P1-FIX-5C 新接）/ \
              STOCK_TRANSFER（LNK-01 新接）/ PURCHASE_ORDER（LNK-02 新接）/ \
@@ -1181,7 +1182,7 @@ mod tests {
              CONTRACT（LNK-07 新接）/ \
              STOCK_TAKE（LNK-04 新接）/ FIXED_ASSET（LNK-09 新接）/ \
              DEPRECIATION（LNK-10 新接）/ \
-             EXPENSE_REPORT（LNK-05 新接）/ TASK"
+             EXPENSE_REPORT（LNK-05 新接）/ TASK / FLOW_INSTANCE（LNK-12 新接）"
         );
         for trigger in &triggers {
             assert!(
@@ -1245,23 +1246,40 @@ mod tests {
     }
 
     /// 未接线触发点的草稿必须在**预览阶段**就被拒（P1-FIX-5C：不许「看起来配好了」）。
+    ///
+    /// LNK-12 之后白名单 15 个触发点**全部接线**，所以本用例现在跑的是一个空循环；
+    /// 它留在这里是为了「将来新增白名单项但忘了接线」时自动生效 —— 新增的未接线触发点
+    /// 会被下面这圈断言当场抓住（草稿必须 ok=false 且文案点名「尚未接线」）。
     #[test]
     fn draft_check_rejects_unwired_trigger() {
         let rows: Vec<LinkageRuleRow> = Vec::new();
         let unwired = spec::unwired_triggers();
-        assert!(!unwired.is_empty(), "当前应有未接线的触发点");
-        let res = check_draft(
-            unwired[0],
-            "DRAFT",
-            "SEND_NOTICE",
-            serde_json::json!({"mode": "TAKEOVER"}),
-            &rows,
-        );
-        assert!(!res.ok, "未接线触发点上的草稿必须 ok=false");
+        for entity in &unwired {
+            // 未接线触发点的状态随便取一个合法值即可：拒绝的理由是「触发点没接线」，
+            // 与状态无关（状态校验排在后面）。
+            let status = spec::trigger_spec(entity)
+                .and_then(|decl| decl.status_labels.first())
+                .map(|(code, _)| *code)
+                .unwrap_or("DRAFT");
+            let res = check_draft(
+                entity,
+                status,
+                "SEND_NOTICE",
+                serde_json::json!({"mode": "TAKEOVER"}),
+                &rows,
+            );
+            assert!(!res.ok, "未接线触发点 {entity} 上的草稿必须 ok=false");
+            assert!(
+                res.message.contains("尚未接线"),
+                "拒绝原因必须点名「尚未接线」：{}",
+                res.message
+            );
+        }
+        // 当前状态：15 个全部接线（FLOW_INSTANCE 由 LNK-12 接上），未接线集合为空。
         assert!(
-            res.message.contains("尚未接线"),
-            "拒绝原因必须点名「尚未接线」：{}",
-            res.message
+            unwired.is_empty(),
+            "白名单里出现了未接线的触发点 {unwired:?}：要么接线（wired + proofs + 调用点），\
+             要么从白名单删掉"
         );
     }
 

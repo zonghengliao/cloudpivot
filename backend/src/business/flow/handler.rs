@@ -46,7 +46,9 @@ use crate::business::flow::graph::{
     self, AssigneeKind, EdgeSpec, FlowGraph, Issue, NodeSpec, NodeType,
 };
 use crate::business::flow::task_bridge;
-use crate::business::flow::{assignee, dto, model, node_config, task_node, template_vars};
+use crate::business::flow::{
+    assignee, dto, instance_linkage, model, node_config, task_node, template_vars,
+};
 use crate::business::notice::dto::ContentFormat;
 use crate::business::notice::render;
 use crate::shared::error_code;
@@ -1684,6 +1686,10 @@ pub async fn withdraw_instance(
     if let Some(error) = drain(&mut out).await {
         return Err(error);
     }
+    // ★ LNK-12：审批实例落终态（发起人撤回 = WITHDRAWN）→ `FLOW_INSTANCE` 触发点。
+    //   位置在业务桥之前：撤回同样要通知发起人 / 相关人；业务桥随后把单据打回草稿。
+    instance_linkage::fire_after_commit(out.instance_id, &out.instance_status, Some(operator))
+        .await;
     // P16：从审批中心撤回的也可能是一张「收货单作废」单 → 单据必须回到已过账。
     // 不做这一步就是 P11 的老坑：审批单 WITHDRAWN 了，单据永远停在「作废审批中」。
     crate::business::erp::stockin_bridge::on_cancel_settled(Some(instance_id), "WITHDRAWN").await;
@@ -1778,6 +1784,11 @@ pub async fn approve_task(
     if let Some(error) = drain(&mut out).await {
         return Err(error);
     }
+    // ★ LNK-12：审批实例落终态（APPROVED）→ `FLOW_INSTANCE` 触发点。
+    //   位置刻意在**业务桥之前**：实例是「原因」、单据状态是「结果」；业务桥的错误被吞掉，
+    //   排在它们后面就会「桥挂了 → 审批通过的通知永远丢」。设计见 flow/instance_linkage.rs 文件头。
+    instance_linkage::fire_after_commit(out.instance_id, &out.instance_status, Some(operator))
+        .await;
     // D3b：审批单可能已落终态（APPROVED）→ 以 FlowCallback 身份推进任务
     // （**事务已提交**：回调失败只记日志，不回滚审批单）
     task_bridge::on_instance_settled(out.instance_id, &out.instance_status).await;
@@ -1885,6 +1896,10 @@ pub async fn reject_task(
     if let Some(error) = drain(&mut out).await {
         return Err(error);
     }
+    // ★ LNK-12：审批实例落终态（驳回并终止 = REJECTED）→ `FLOW_INSTANCE` 触发点。
+    //   位置在业务桥之前（与 approve_task 同口径）；退回上一节点仍是 PENDING → 不触发。
+    instance_linkage::fire_after_commit(out.instance_id, &out.instance_status, Some(operator))
+        .await;
     // D3b：驳回并终止（REJECTED）→ 以 FlowCallback 身份把任务打回 DOING
     // （「退回上一节点」仍是 PENDING，回调不推进；落到 REJECTED 才动任务）
     task_bridge::on_instance_settled(out.instance_id, &out.instance_status).await;

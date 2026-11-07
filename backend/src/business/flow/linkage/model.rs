@@ -279,14 +279,17 @@ pub struct RulePatch {
 ///
 /// - 状态机实体：取 `base_edges()` 的 from/to 全集（代码里存在的状态就这些）；
 /// - `TASK`：任务状态机的 5 态；
-/// - `FLOW_INSTANCE`：审批实例状态（`PENDING/APPROVED/REJECTED/SKIPPED/CANCELLED`，
-///   与 `flow::model` 的终态判定同口径）。
+/// - `FLOW_INSTANCE`：审批的**三种结论**（`APPROVED/REJECTED/WITHDRAWN`，与
+///   `flow::instance_linkage::TERMINAL_STATUSES` 逐字一致 —— 这三个是 `fire_after_commit`
+///   真的会触发的状态）。`PENDING`（发起）由流程通知节点负责、`SKIPPED` 从来不是实例状态、
+///   `CANCELLED` 只来自级联 / 行政终止（其中「单据删除 → 终止」走 SQL 不经过引擎）——
+///   这三个都不许配：配了永远不会响，正是 P1-FIX-5C 那种「看起来配好了」。
 pub fn known_statuses(trigger_entity: &str) -> Vec<&'static str> {
     if trigger_entity == spec::TRIGGER_TASK {
         return vec!["TODO", "DOING", "REVIEW", "DONE", "CANCELLED"];
     }
     if trigger_entity == spec::TRIGGER_FLOW_INSTANCE {
-        return vec!["PENDING", "APPROVED", "REJECTED", "SKIPPED", "CANCELLED"];
+        return vec!["APPROVED", "REJECTED", "WITHDRAWN"];
     }
     match state_machine::Entity::parse(trigger_entity) {
         Some(entity) => {
