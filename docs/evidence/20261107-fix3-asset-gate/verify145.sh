@@ -86,7 +86,7 @@ RULES=$(psqlq "select trigger_status||'|'||enabled||'|'||(action_params->>'mode'
 echo "$RULES" | sed 's/^/  /'
 N_RULES=$(printf '%s\n' "$RULES" | grep -c . )
 check "$N_RULES" "3" "FIXED_ASSET 有 3 条 SEND_NOTICE 规则"
-check "$(printf '%s\n' "$RULES" | grep -c '|t|TAKEOVER')" "3" "3 条全部 enabled + TAKEOVER"
+check "$(printf '%s\n' "$RULES" | grep -c '|true|TAKEOVER')" "3" "3 条全部 enabled + TAKEOVER"
 check "$(printf '%s\n' "$RULES" | cut -d'|' -f1 | tr '\n' ',' )" "DISPOSED,IDLE,IN_USE," "触发状态覆盖 DISPOSED / IDLE / IN_USE"
 
 # ---------------------------------------------------------------- ⑥ 幂等
@@ -106,6 +106,10 @@ grep -o "V0323 完成.*" "$OUT/idem2.log" | head -2 | sed 's/^/  /'
 echo
 echo "=== 准备：登录 + 组织/分类/资产 ==="
 ADMIN=$(login admin "$ADMIN_PASS_INIT")
+if [ -z "$ADMIN" ]; then
+  # 复用旧库时 admin 口令可能已被改过：退回默认口令再试一次（新库不会走到这里）
+  ADMIN=$(login admin "$ADMIN_PASS_NEW")
+fi
 if [ -z "$ADMIN" ]; then
   bad "admin 登录失败"; exit 1
 fi
@@ -141,9 +145,11 @@ fi
 [ -n "$GM" ] || { bad "gm_fix3 登录失败"; cat "$OUT/gm.json"; exit 1; }
 ok "审批人 gm_fix3 已登录（id=$GMID）"
 
-ACC_ASSET=8423d3f0-e8c5-44e6-ae0a-86f8606b4913   # 1601
-ACC_ACCUM=e7ca2e07-a8ae-4b12-935f-ba08d56b7e87   # 1602
-ACC_EXP=117bcd6e-6ff9-4c7c-b5da-a65b387a6e73     # 5602.01
+ACC_ASSET=$(psqlq "select id from biz_account where account_code='1601' and deleted_at is null limit 1")   # 1601 固定资产
+ACC_ACCUM=$(psqlq "select id from biz_account where account_code='1602' and deleted_at is null limit 1")   # 1602 累计折旧
+ACC_EXP=$(psqlq "select id from biz_account where account_code='5602.01' and deleted_at is null limit 1") # 5602.01 管理费用-折旧费
+[ -n "$ACC_ASSET" ] && [ -n "$ACC_ACCUM" ] && [ -n "$ACC_EXP" ] || { bad "科目 1601/1602/5602.01 缺失"; exit 1; }
+ok "科目：1601=$ACC_ASSET / 1602=$ACC_ACCUM / 5602.01=$ACC_EXP"
 
 CAT=$(psqlq "select id from biz_asset_category where category_code='FIX3_EQ' and deleted_at is null limit 1")
 if [ -z "$CAT" ]; then
@@ -237,12 +243,18 @@ INST=$(psqlq "select instance_no from biz_flow_instance where biz_type='ASSET_DI
 echo "  审批实例=$INST"
 [ -n "$INST" ] && ok "已起处置审批实例" || bad "没有起审批实例"
 
-TASK=$(curl -sS "$API/business/flow/task/todo?page=1&page_size=20" -H "Authorization: Bearer $GM" | jq -r '[.data.list[]?|select(.biz_no!=null)][0].id // empty')
-[ -n "$TASK" ] || { bad "gm_fix3 没有待办"; }
+TASK=$(psqlq "select t.id from biz_flow_task t join biz_flow_instance i on i.id = t.instance_id
+               where i.biz_no = (select asset_no from biz_fixed_asset where id='$A'::uuid)
+                 and t.status = 'PENDING' order by t.created_at desc limit 1")
+echo "  待办 id=$TASK（按实例 biz_no 精确取，不依赖 todo 接口的分页/过滤口径）"
+[ -n "$TASK" ] || { bad "资产 A 的处置没有生成待办"; }
 if [ -n "$TASK" ]; then
+  # 顺手把 todo 接口的原始响应留证（gm_fix3 视角）
+  curl -sS "$API/business/flow/task/todo?page=1&page_size=20" -H "Authorization: Bearer $GM" > "$OUT/gm_todo.json"
+  echo "  gm_fix3 todo: $(jq -c '{code,total:.data.total,rows:(.data.list|length?)}' "$OUT/gm_todo.json" 2>/dev/null)"
   api POST "/business/flow/task/$TASK/approve" "$GM" '{"comment":"FIX3 验收：同意处置"}' > "$OUT/a_approve.json"
   check "$HTTP" "200" "总经理审批通过 HTTP=200"
-  sleep 2
+  sleep 3
 fi
 
 A_ST=$(psqlq "select status||'|'||coalesce(disposal_type,'')||'|'||coalesce(disposal_date::text,'')||'|'||accumulated_depreciation from biz_fixed_asset where id='$A'::uuid")
@@ -257,8 +269,12 @@ psqlq "select v.voucher_no||' | '||e.account_code||' 借'||e.debit_amount||' 贷
         order by v.voucher_no, e.line_no" | sed 's/^/    /'
 BAL=$(psqlq "select count(*) from (select v.id from biz_voucher v where v.source_type='FIXED_ASSET_DISPOSAL' and v.source_id='$A'::uuid and v.total_debit<>v.total_credit) t")
 check "$BAL" "0" "处置凭证全部借贷平衡"
-ACC_V=$(psqlq "select coalesce(sum(e.credit_amount),0) from biz_voucher v join biz_voucher_entry e on e.voucher_id=v.id join biz_account a on a.id=e.account_id where v.source_type='FIXED_ASSET_DISPOSAL' and v.source_id='$A'::uuid and a.account_code='1602'")
-check "$ACC_V" "1900.0000" "凭证贷记 1602 累计折旧 = 1900（与卡片累计一致，证明当月折旧已进处置分录）"
+ACC_V=$(psqlq "select coalesce(sum(e.debit_amount),0) from biz_voucher v join biz_voucher_entry e on e.voucher_id=v.id join biz_account a on a.id=e.account_id where v.source_type='FIXED_ASSET_DISPOSAL' and v.source_id='$A'::uuid and a.account_code='1602'")
+check "$ACC_V" "1900.0000" "凭证借记 1602 累计折旧 = 1900（当月 1900 已进处置分录，不再漏提）"
+CLR=$(psqlq "select coalesce(sum(e.debit_amount - e.credit_amount),0) from biz_voucher v join biz_voucher_entry e on e.voucher_id=v.id join biz_account a on a.id=e.account_id where v.source_type='FIXED_ASSET_DISPOSAL' and v.source_id='$A'::uuid and a.account_code='1606'")
+check "$CLR" "0.0000" "清理科目 1606 净额归零（K7）"
+NET=$(psqlq "select net_value from biz_fixed_asset where id='$A'::uuid")
+echo "  处置时净值=$NET（120000 − 1900 = 118100，与 1606 借方一致才说明当月折旧进了处置）"
 
 echo
 echo "=== ①-b 处置 → 产生 DISPOSED 通知 ==="

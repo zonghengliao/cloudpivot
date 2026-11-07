@@ -15,7 +15,10 @@ echo "=== 准备二进制（独立文件名，避免与服役实例抢同一个 
 cp -f target/debug/cloudpivot target/debug/cloudpivot-fix3 || exit 1
 ls -l target/debug/cloudpivot-fix3 | sed 's/^/  /'
 
-echo "=== 建库（不存在才建）==="
+echo "=== 建库（不存在才建；FRESH=1 先删后建，用于「新库跑全集迁移」取证）==="
+if [ "${FRESH:-0}" = "1" ]; then
+  su postgres -c "dropdb --if-exists $DB" && echo "  已删库 $DB（FRESH=1）"
+fi
 if psql -h 127.0.0.1 -U postgres -tAc "select 1 from pg_database where datname='$DB'" 2>/dev/null | grep -q 1; then
   echo "  库 $DB 已存在"
 else
