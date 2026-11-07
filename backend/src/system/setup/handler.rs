@@ -188,7 +188,8 @@ pub async fn assign(Json(req): Json<dto::SetupAssignReq>) -> ResResult<dto::Setu
 ///
 /// # 幂等
 ///
-/// 已存在的账号整条跳过（不覆盖密码 / 姓名 / 部门），角色绑定只增不减。
+/// 已存在的账号整条跳过（不覆盖密码 / 姓名 / 已有部门；`dept_id IS NULL` 的会补进演示部门），
+/// 角色绑定只增不减。
 ///
 /// # 异常情况
 ///
@@ -222,5 +223,6 @@ pub async fn demo_users(
         existed: outcome.existed,
         password_env: model::ENV_DEMO_PASSWORD.to_string(),
         bindings_added: outcome.bindings_added,
+        dept_backfilled: outcome.dept_backfilled,
     }))
 }

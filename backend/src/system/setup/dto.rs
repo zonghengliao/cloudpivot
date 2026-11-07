@@ -70,4 +70,6 @@ pub struct SetupDemoUsersRes {
     pub password_env: String,
     /// 本次新建立的「用户-角色」绑定条数。
     pub bindings_added: usize,
+    /// 本次补上部门的老账号数（`dept_id IS NULL → 演示部门`；全新库首启恒为 0）。
+    pub dept_backfilled: usize,
 }

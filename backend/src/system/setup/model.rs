@@ -17,7 +17,9 @@
 //!
 //! # 幂等（卡面验收 ③：145 已有 demo_lead，不许重复建）
 //!
-//! - 演示账号：按 `username` 判重，已存在**整条跳过**（不覆盖密码、不改姓名、不动部门）；
+//! - 演示账号：按 `username` 判重，已存在**整条跳过**（不覆盖密码、不改姓名、不动已有部门）；
+//! - 部门补漏（t_92234f6b）：对清单里的登录名（含内置 `admin`）只做 `dept_id IS NULL → 演示部门`
+//!   的**补写**，已有部门的一行都不碰 —— 于是「老库首启」和「全新库首启」落到同一终态；
 //! - 角色绑定：`INSERT ... WHERE NOT EXISTS`，已绑定的不动；
 //! - 演示部门：按 `dept_code` 判重。
 //!
@@ -150,15 +152,13 @@ pub struct DemoUser {
     pub real_name: &'static str,
     /// 绑定角色（可多个）。
     pub role_codes: &'static [&'static str],
-    /// 是否放进演示部门（放进去才有「直属上级」可解析）。
-    pub in_demo_dept: bool,
     /// 这个账号在哪条链上扮演谁（向导展示用）。
     pub note: &'static str,
 }
 
 /// 演示账号清单（卡面 8 个 + `demo_gm`）。
 ///
-/// # 两个口径说明（写在这里免得后面被当成 bug）
+/// # 三个口径说明（写在这里免得后面被当成 bug）
 ///
 /// 1. **`demo_purchase` / `demo_finance` 与各自的 `*_mgr` 绑同一个角色**：本仓的
 ///    角色矩阵（`V0258`）里**没有**「采购员 / 出纳」这两档 —— 采购建单权
@@ -167,71 +167,90 @@ pub struct DemoUser {
 ///    拦），账号角色相同不影响这一诉求。
 /// 2. **多一个 `demo_gm`**：卡面 8 个账号里没有总经理，但 `GENERAL_MANAGER` 是 4 条链的
 ///    必经审批岗（大额单据），少了它「六条链直接能跑」在金额跨档时会断。
+/// 3. **9 个账号全部挂演示部门（t_92234f6b）**：早先只有 5 个进部门、另外 4 个 + `admin`
+///    `dept_id IS NULL`，后果不是「少个字段」而是**权限静默缩水**（`principal` 解析不出部门
+///    ⇒ 部门类角色降级成「仅本人」）＋ 资产 `use_dept_id` / 折旧 / 预算槽一律 400，外加
+///    `erp_invariants` 的 N2 每次回归挂一条。所以「不属演示部门」这个开关被**删掉**了：
+///    分部门的语义靠**岗位/角色**表达（销售主管 / 财务主管 / 总经理都是角色，不是部门），
+///    组织树上他们同属「演示事业部」，`sys_dept.leader_id` 仍是 `demo_lead` 一人。
+/// 4. **`employee` 三兄弟带 `EMPLOYEE`（员工自助）**：`demo_sales` / `demo_purchase` /
+///    `demo_wh` 是「经办人=普通员工」，除岗位角色外再挂 `EMPLOYEE` —— 报销自助提报
+///    （建单 / 提交 / 撤回 / 看自己的单）靠它，而不是把报销权塞进销售员角色
+///    （否则采购员 / 仓管自己提报照样 403）。角色本体与授权在
+///    `migrations/seed/S__employee_self_service_permissions.sql`。
 pub const DEMO_USERS: &[DemoUser] = &[
     DemoUser {
         username: "demo_sales",
         real_name: "演示·销售员",
-        role_codes: &["SALES_CLERK"],
-        in_demo_dept: true,
-        note: "销售链的制单人",
+        role_codes: &["SALES_CLERK", "EMPLOYEE"],
+        note: "销售链的制单人（兼「员工自助提报」演示）",
     },
     DemoUser {
         username: "demo_sales_mgr",
         real_name: "演示·销售主管",
         role_codes: &["SALES_SUPERVISOR"],
-        in_demo_dept: false,
         note: "销售单审批（n_sales）",
     },
     DemoUser {
         username: "demo_purchase",
         real_name: "演示·采购员",
-        role_codes: &["PURCHASE_MANAGER"],
-        in_demo_dept: true,
-        note: "采购链的制单人",
+        role_codes: &["PURCHASE_MANAGER", "EMPLOYEE"],
+        note: "采购链的制单人（兼「员工自助提报」演示）",
     },
     DemoUser {
         username: "demo_purchase_mgr",
         real_name: "演示·采购主管",
         role_codes: &["PURCHASE_MANAGER"],
-        in_demo_dept: false,
         note: "采购单 / 合同审批（n_pm）",
     },
     DemoUser {
         username: "demo_finance",
         real_name: "演示·财务",
         role_codes: &["FINANCE_MANAGER"],
-        in_demo_dept: true,
         note: "报销 / 付款的制单人",
     },
     DemoUser {
         username: "demo_finance_mgr",
         real_name: "演示·财务主管",
         role_codes: &["FINANCE_MANAGER"],
-        in_demo_dept: false,
         note: "报销 / 付款 / 预算审批（n_fin）",
     },
     DemoUser {
         username: "demo_wh",
         real_name: "演示·仓管",
-        role_codes: &["WAREHOUSE_MANAGER"],
-        in_demo_dept: true,
+        role_codes: &["WAREHOUSE_MANAGER", "EMPLOYEE"],
         note: "入库 / 调拨 / 盘点审批（n_wh）",
     },
     DemoUser {
         username: "demo_lead",
         real_name: "演示·部门经理",
         role_codes: &["DEPT_LEADER"],
-        in_demo_dept: true,
         note: "部门主管审批（n_dept）+ 演示部门的直属上级",
     },
     DemoUser {
         username: "demo_gm",
         real_name: "演示·总经理",
         role_codes: &["GENERAL_MANAGER"],
-        in_demo_dept: false,
         note: "大额单据的总经理审批（n_gm）",
     },
 ];
+
+/// 员工自助角色编码（`EMPLOYEE`，由 `migrations/seed/S__employee_self_service_permissions.sql` 种）。
+pub const EMPLOYEE_ROLE_CODE: &str = "EMPLOYEE";
+
+/// 种子里**必须挂到演示部门**的登录名：9 个演示账号 + 内置超管 `admin`。
+///
+/// # 为什么连 `admin` 一起（不是顺手多算一个）
+///
+/// `erp_invariants.py` 的 N2（「在用 HUMAN 账号必须有部门」）把**所有**在用 HUMAN 账号
+/// 都算进来，超管也不例外；只补演示账号的话，全新演示库首启后 N2 仍然 WARN 一条
+/// （`admin`）—— 那正是本卡的现象①。
+pub fn dept_required_usernames() -> impl Iterator<Item = &'static str> {
+    DEMO_USERS
+        .iter()
+        .map(|user| user.username)
+        .chain(std::iter::once(crate::shared::constants::ADMIN_USERNAME))
+}
 
 // ==================== 查询：关键角色当前状态 ====================
 
@@ -489,13 +508,19 @@ pub struct DemoSeedOutcome {
     pub dept_created: bool,
     /// 本次新建立的「用户-角色」绑定条数。
     pub bindings_added: usize,
+    /// 本次补上部门的老账号数（`dept_id IS NULL → 演示部门`；已有部门的不算）。
+    ///
+    /// 全新库首启恒为 0（建号时就带了部门）；**老库升级后首启**才会非 0 ——
+    /// 这正是 t_92234f6b 修的那个洞（5 个账号 `dept_id IS NULL` → N2 WARN）。
+    pub dept_backfilled: usize,
 }
 
 /// 创建演示账号（`NIK_SEED_DEMO_USERS=true` 时；启动与接口共用）。
 ///
 /// # 幂等
 ///
-/// - 账号按 `username` 判重：已存在 ⇒ 整条跳过（不覆盖密码 / 姓名 / 部门）；
+/// - 账号按 `username` 判重：已存在 ⇒ 整条跳过（不覆盖密码 / 姓名 / **已有部门**）；
+/// - 部门补漏：见下方「④」—— 只补 `dept_id IS NULL`，已有部门的不动；
 /// - 角色绑定走 [`add_members`]（只增不减）；
 /// - 部门按 `dept_code` 判重。
 ///
@@ -527,7 +552,7 @@ pub async fn seed_demo_users(password: &str) -> DbResult<DemoSeedOutcome> {
 
     let mut user_ids: std::collections::HashMap<&'static str, Uuid> =
         std::collections::HashMap::new();
-    // ① 账号（顺手把「演示部门」里的成员设为部门负责人 = demo_lead）
+    // ① 账号（9 个全部落演示部门 —— 「不属演示部门」这个开关已被 t_92234f6b 删除）
     for spec in DEMO_USERS {
         let existing = db()
             .query_sql(
@@ -553,10 +578,7 @@ pub async fn seed_demo_users(password: &str) -> DbResult<DemoSeedOutcome> {
                 Value::Text(spec.username.to_string()),
                 Value::Text(hashed.clone()),
                 Value::Text(spec.real_name.to_string()),
-                match spec.in_demo_dept {
-                    true => Value::from(&dept_id),
-                    false => Value::Null,
-                },
+                Value::from(&dept_id),
                 Value::from(now),
                 Value::from(now),
             ],
@@ -599,6 +621,38 @@ pub async fn seed_demo_users(password: &str) -> DbResult<DemoSeedOutcome> {
         )
         .await?;
     }
+
+    // ④ 部门补漏（老库升级路径；**只补 NULL，覆盖是禁止的**）
+    //
+    // 为什么必须在这里补而不是「靠 ① 建号时带上就行」：
+    //   · 已有演示库（145 `cloudpivot_rev_demo` 之类）里的 9 个账号是本卡之前建的，
+    //     ① 会整条跳过 ⇒ 那 4 个 `dept_id IS NULL` 的账号**永远**补不上，N2 继续 WARN；
+    //   · `admin` 由 `bootstrap::seed_super_admin` 建，根本不经过 ①。
+    // 条件里带 `dept_id IS NULL`：管理员后来手工调整过部门的账号一行都不动（幂等 + 不越权）。
+    let names = dept_required_usernames()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    let rows = db()
+        .query_sql(
+            "UPDATE sys_user SET dept_id = ?::uuid, updated_at = now() \
+              WHERE dept_id IS NULL AND deleted_at IS NULL AND username = ANY(?::text::text[]) \
+             RETURNING username"
+                .to_string(),
+            vec![
+                Value::from(&dept_id),
+                Value::Text(format!("{{{}}}", names.join(","))),
+            ],
+        )
+        .await?;
+    for row in &rows {
+        let username: String = row.get_typed("username")?;
+        tracing::info!(
+            username,
+            dept = DEMO_DEPT_CODE,
+            "演示部门补漏：账号原先没有部门，已归入演示部门"
+        );
+    }
+    outcome.dept_backfilled = rows.len();
 
     Ok(outcome)
 }
@@ -687,16 +741,71 @@ mod tests {
         assert_eq!(codes.len(), KEY_ROLES.len(), "关键角色不许重复");
     }
 
-    /// ⑤ 演示部门里必须有且只有 demo_lead 一位「部门负责人候选」
+    /// ⑤ 演示部门里必须有且只有 demo_lead 一位「部门负责人候选」，
+    ///    且**9 个账号全部在部门里**（t_92234f6b：「不属演示部门」的口子已经删掉）
     #[test]
-    fn demo_dept_has_one_leader_candidate() {
+    fn demo_dept_holds_every_account_with_one_leader() {
         let leaders = DEMO_USERS
             .iter()
-            .filter(|user| user.in_demo_dept && user.username == "demo_lead")
+            .filter(|user| user.username == "demo_lead")
             .count();
         assert_eq!(leaders, 1, "演示部门的负责人只能是 demo_lead");
-        let members = DEMO_USERS.iter().filter(|user| user.in_demo_dept).count();
+        let members = dept_required_usernames()
+            .filter(|name| *name != crate::shared::constants::ADMIN_USERNAME)
+            .count();
+        assert_eq!(
+            members,
+            DEMO_USERS.len(),
+            "9 个演示账号必须全部落在演示部门（dept_id 为 NULL 会让 N2 挂 WARN、资产/预算 400）"
+        );
         assert!(members >= 4, "演示部门至少要容纳报销 / 采购的制单人");
+    }
+
+    /// ⑦ 部门补漏名单 = 9 个演示账号 + 内置 admin（N2 把超管也算「在用 HUMAN」）
+    #[test]
+    fn dept_backfill_covers_admin_and_every_demo_user() {
+        let names = dept_required_usernames().collect::<Vec<_>>();
+        assert_eq!(
+            names.len(),
+            DEMO_USERS.len() + 1,
+            "补漏名单 = 演示账号 + admin（不许有遗漏，也不许重复）"
+        );
+        let unique: std::collections::HashSet<_> = names.iter().collect();
+        assert_eq!(unique.len(), names.len(), "补漏名单不许重复");
+        assert!(
+            names.contains(&crate::shared::constants::ADMIN_USERNAME),
+            "admin 没有部门 ⇒ N2 照样 WARN（本卡现象①）"
+        );
+        for user in DEMO_USERS {
+            assert!(
+                names.contains(&user.username),
+                "{} 不在补漏名单里",
+                user.username
+            );
+        }
+    }
+
+    /// ⑧ 至少一个**非负责人**演示账号持有员工自助角色（卡面验收②：普通员工能自己提报）
+    #[test]
+    fn some_plain_employee_holds_self_service_role() {
+        let holders = DEMO_USERS
+            .iter()
+            .filter(|user| user.role_codes.contains(&EMPLOYEE_ROLE_CODE))
+            .collect::<Vec<_>>();
+        assert!(
+            !holders.is_empty(),
+            "没有任何演示账号持 EMPLOYEE —— 「员工自助提报」这条真实路径跑不通（403）"
+        );
+        assert!(
+            holders.iter().any(|user| user.username == "demo_sales"),
+            "demo_sales 必须是员工自助的演示账号（验收② 就是拿它提交报销）"
+        );
+        for user in holders {
+            assert_ne!(
+                user.username, "demo_lead",
+                "部门负责人不该靠 EMPLOYEE 提报（他自己提报会撞职责分离 65018）"
+            );
+        }
     }
 
     /// ⑥ 缺省口令非空且与卡面一致（写死在测试里 = 契约）

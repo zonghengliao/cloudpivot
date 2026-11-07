@@ -47,13 +47,20 @@ pub async fn bootstrap() {
     // 每步自身的失败处理（只记日志、不阻断启动）保持不变，
     // 仅启动日志的先后顺序不再固定。
     //
+    // ⚠ 例外（t_92234f6b）：`seed_super_admin` 与 `seed_demo_users` 之间**有依赖**，
+    //    必须串成一步按序执行 —— 演示账号种子的「部门补漏」要把内置超管 `admin` 一起补
+    //    （N2 把超管也算「在用 HUMAN」，漏了他照样 WARN）。两者并发时实测 admin 往往
+    //    后于演示账号落地（`join!` 不保证顺序），补漏那一句会 UPDATE 0 行。
+    //
     // 第 5 步 `preflight_permission` 是批次 B 的「闸 3」（架构 §2.4）：查
     // `information_schema` 确认登记表的部门列 / 归属列真实存在，并确认
     // `SUPER_ADMIN` 角色存在。它是**唯一**在「资源就绪、插件未启动」时执行的入口，
     // 因此把「部署即失败」的校验放在这里（与 `seed_super_admin` 的 prod `exit(1)` 先例一致）。
     tokio::join!(
-        seed_super_admin(),
-        seed_demo_users(),
+        async {
+            seed_super_admin().await;
+            seed_demo_users().await;
+        },
         load_scheduled_jobs(),
         crate::support::dict::model::warm_dict_cache(),
         load_runtime_config(),
@@ -82,9 +89,10 @@ pub async fn bootstrap() {
 ///
 /// # 幂等
 ///
-/// 已存在的账号整条跳过（见 [`crate::system::setup::model::seed_demo_users`]）。
+/// 已存在的账号整条跳过（见 [`crate::system::setup::model::seed_demo_users`]），
+/// 只对 `dept_id IS NULL` 的老账号补写部门（t_92234f6b）。
 /// 145 测试环境早就手工建过 `demo_lead`，本步只把它记进「跳过」列表，
-/// 不重复建、不改它的口令与部门。
+/// 不重复建、不改它的口令与已有部门。
 ///
 /// # 失败处理
 ///
@@ -111,6 +119,7 @@ async fn seed_demo_users() {
             existed = outcome.existed.len(),
             bindings_added = outcome.bindings_added,
             dept_created = outcome.dept_created,
+            dept_backfilled = outcome.dept_backfilled,
             created_users = ?outcome.created,
             existed_users = ?outcome.existed,
             "演示账号种子完成（幂等：已有账号不重复建）"
