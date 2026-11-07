@@ -63,7 +63,21 @@ BIZ_EXTRA_ROOTS="${MENU_BIZ_EXTRA_ROOTS-}"
 #   改名要同步动前端路由/硬编码跳转/文档，零功能收益。理由与复核证据见 scripts/verify/README.md。
 BIZ_EXTRA_IDS="${MENU_BIZ_EXTRA_IDS-20000000-0000-0000-0000-000000000710,20000000-0000-0000-0000-000000000410,23000000-0000-0000-0000-000000000010,23000000-0000-0000-0000-000000000020}"
 
-PSQL=(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$DB" -tA -q -v ON_ERROR_STOP=1)
+# ⚠ 必须钉死 locale（2026-11-08 假告警的根因，别再删）：
+#   本机 psql 是 Debian 的 pg_wrapper（`/usr/bin/psql -> ../share/postgresql-common/pg_wrapper`，Perl 实现）。
+#   当调用方环境带着目标机没装的 locale（cron / ssh `SendEnv LC_*` 会把本机 LANG=zh_CN.UTF-8 带进远端），
+#   Perl 会往 **stderr** 打十几行 "perl: warning: Setting locale failed…" 而 psql 本身**仍以 0 退出**。
+#   旧版 sql() 用 2>&1 把 stderr 并进返回值：select 1 的 "1" 变成「警告串+1」，连库自检判 != "1"
+#   ⇒ 打印「⛔ 连不上库」exit 2，145 测试与 144 生产同时假告警（deploy_check_v5 00:00 那条卡）。
+#   LC_ALL=C 让 Perl/psql 都不抱怨；PGCLIENTENCODING=UTF8 保住中文菜单名不被 SQL_ASCII 走样。
+export LC_ALL=C
+export LANG=C
+unset LANGUAGE 2>/dev/null || true
+export PERL_BADLANG=0
+export PGCLIENTENCODING=UTF8
+
+# -X：忽略 ~/.psqlrc（谁在里面写 `\timing on` 都会污染返回值，与 locale 同一类事故）
+PSQL=(psql -X -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$DB" -tA -q -v ON_ERROR_STOP=1)
 
 # 递归上溯 CTE：每个未删节点 → 其祖先链终点（根）的路径。深度上限 20 防环。
 UP_CTE="
@@ -98,13 +112,26 @@ ROOT_NOT_IN=''
 ID_NOT_IN=''
 [ -n "$IDS_SQL" ] && ID_NOT_IN="and r.id::text not in ('$IDS_SQL')"
 
-# sql <query> —— 返回单值/多行文本；查询失败直接退出 2
+# sql <query> —— 返回单值/多行文本（**只有 stdout**）；查询失败 → 全局记错，最终 exit 2
+#   硬规矩 1：stderr 永不并入返回值。值流里混进一行警告，所有 `!= "0"` 判定就全废
+#             （locale 假告警就是从这个 2>&1 漏进来的）。
+#   硬规矩 2：不能用 `exit 2` 表达失败——调用点都在 `$(sql …)` 子 shell 里，exit 只杀子 shell，
+#             主流程拿到空串会把「基础设施故障」误判成结构违规（rc=1）。失败写共享日志，
+#             结论前统一 `-s` 判定 → rc=2。
+SQL_ERR_LOG=$(mktemp "${TMPDIR:-/tmp}/menu_inv_err.XXXXXX") || { printf '⛔ mktemp 失败\n' >&2; exit 2; }
+trap 'rm -f "$SQL_ERR_LOG"' EXIT
+
 sql() {
-  local out
-  if ! out=$("${PSQL[@]}" -c "$1" 2>&1); then
-    printf '⛔ 查询失败（库 %s）：\n%s\n' "$DB" "$out" >&2
-    exit 2
+  local out err rc
+  err=$(mktemp "${TMPDIR:-/tmp}/menu_inv.XXXXXX") || { printf '⛔ mktemp 失败\n' >&2; exit 2; }
+  out=$("${PSQL[@]}" -c "$1" 2>"$err"); rc=$?
+  if [ "$rc" -ne 0 ]; then
+    printf '⛔ 查询失败（库 %s，psql rc=%s）：\n%s\n%s\n' "$DB" "$rc" "$(cat "$err")" "$out" >&2
+    printf '%s\trc=%s\t%s\n' "$(date '+%F %T')" "$rc" "$(head -2 "$err" | tr '\n' ' ')" >> "$SQL_ERR_LOG"
+    rm -f "$err"; return 2
   fi
+  [ -s "$err" ] && sed 's/^/    · psql 警告: /' "$err" >&2
+  rm -f "$err"
   printf '%s' "$out"
 }
 
@@ -125,8 +152,13 @@ detail() {  # detail <标题> <query>
 }
 
 # ── 连库自检 ────────────────────────────────────────────────────────────────
-if [ "$(sql 'select 1')" != "1" ]; then
-  printf '⛔ 连不上库 %s（%s@%s:%s）\n' "$DB" "$PGUSER" "$PGHOST" "$PGPORT" >&2
+# 自检改成「拿返回值说话」：连库失败走 sql() 的 rc=2（带 psql 报错）；能连但返回值不是 1
+# 属于脚本/客户端被污染，打印回来值便于定位，别再一律报「连不上库」。
+SELF_CHECK=$(sql 'select 1')
+if [ "$SELF_CHECK" != "1" ]; then
+  printf '⛔ 连库自检失败 %s（%s@%s:%s）：select 1 返回 [%s]\n' \
+    "$DB" "$PGUSER" "$PGHOST" "$PGPORT" "$SELF_CHECK" >&2
+  [ -s "$SQL_ERR_LOG" ] && sed 's/^/    · /' "$SQL_ERR_LOG" >&2
   exit 2
 fi
 
@@ -224,6 +256,14 @@ if [ "$N5" != "x" ] && [ "$N5" -ge "$TOTAL_MIN" ] 2>/dev/null && [ "$N5" -le "$T
 else
   line '⑤ 菜单总数:           ' "$N5" 0 " (期望 $TOTAL_MIN-$TOTAL_MAX)"
   FAILED=$((FAILED+1)); FAIL_NAMES+=('⑤菜单总数')
+fi
+
+# ── 基础设施兜底：任何一条查询 psql 失败 ⇒ rc=2（绝不降级成「结构违规」去骗迁移）──
+if [ -s "$SQL_ERR_LOG" ]; then
+  printf '⛔ 查询过程中 psql 失败 %s 次（基础设施问题，不是结构违规，别照着建迁移）：\n' \
+    "$(wc -l < "$SQL_ERR_LOG")" >&2
+  sed 's/^/    · /' "$SQL_ERR_LOG" >&2
+  exit 2
 fi
 
 # ── 结论 ────────────────────────────────────────────────────────────────────

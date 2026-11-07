@@ -407,6 +407,40 @@ echo $?     # 0=全绿 ｜ 1=有违规（明细已打印）｜ 2=连库/查询�
 - `test_deploy.sh` ⑦ 步：迁移 + 重启 + 登录冒烟之后跑本脚本，**只报警不阻断**（测试环境要能进去排查）；
 - `deploy_check_v5.sh` ⑦ 步：对 145 测试库与 144 生产库各跑一次，违规/执行失败 → 建（或追加到）`【MENU-STRUCT】` 卡。
 
+### rc=2 的两种成因，别再互相冒充（2026-11-08 假告警复盘）
+
+**事故**：`deploy_check_v5` 00:00 那轮，145 测试与 144 生产同时 `rc=2「⛔ 连不上库」`，建了 `【MENU-STRUCT】` 卡但卡面明细为空。
+实测两库 5 条断言全绿（菜单总数 410），**没有任何结构违规**，是脚本自身把「客户端噪声」当成了连库失败。
+
+**根因链**（两处叠加，缺一不犯）：
+1. 本机 `psql` 是 Debian 的 `pg_wrapper`（`/usr/bin/psql -> ../share/postgresql-common/pg_wrapper`，**Perl 实现**）；
+2. 调用方环境带着目标机没装的 locale —— cron/ssh 的 `SendEnv LANG LC_*`（`/etc/ssh/ssh_config:50`）会把开发机的 `LANG=zh_CN.UTF-8` 带进 145/144，而两台机都没装 zh_CN；
+   ⇒ Perl 往 **stderr** 打十几行 `perl: warning: Setting locale failed…`，**而 psql 本身仍以 0 退出**。
+3. 旧版 `sql()` 用 `2>&1` 把 stderr 并进返回值：`select 1` 的 `"1"` 变成「警告串 + 1」⇒ 连库自检判 `!= "1"` ⇒ 打印「⛔ 连不上库」并 `exit 2`。
+
+**修法**（`menu_invariants.sh` 内，共四处）：
+- 钉死 `LC_ALL=C` / `LANG=C` / `unset LANGUAGE` / `PERL_BADLANG=0`，并 `PGCLIENTENCODING=UTF8` 保住中文菜单名不被 `SQL_ASCII` 走样；
+- `psql` 加 `-X` 忽略 `~/.psqlrc`（谁在里面写 `\timing on` 会犯同一类病）；
+- `sql()` 改成 **stderr 永不并入返回值**：只把 stdout 当值，成功时的警告单独转本脚本 stderr；
+- `sql()` 失败不再 `exit 2`（调用点都在 `$(sql …)` 子 shell 里，`exit` 只杀子 shell，主流程会把空串误判成结构违规 rc=1）：改为写共享错误日志，**结论前统一 `-s` 判定 → rc=2**，并打印「基础设施问题，不是结构违规，别照着建迁移」。
+
+**实机验收（145 全量 8/8，144 只读 3/3）**：
+
+| 用例 | 期望 | 145 | 144 |
+|---|---|---|---|
+| 旧版 + `LC_ALL=zh_CN.UTF-8`（复现 00:00 输入） | rc=2「连不上库」 | ✅ 逐字复现 | ✅ 逐字复现 |
+| 新版 + `LC_ALL=zh_CN.UTF-8` | rc=0 全绿 | ✅ | ✅ |
+| 新版 + 默认 locale | rc=0 全绿 | ✅ | ✅ |
+| 错密码 | rc=2 + psql 报错明文 | ✅ | ✅ |
+| 空库（自检过、断言查不到 `sys_menu`） | **rc=2 而不是 rc=1** | ✅ | 未做（生产不建库） |
+| 副本库基线 / `MENU_BIZ_EXTRA_IDS=` / 注入 ② / 复原 | 0 / 1(③=4) / 1(②=1) / 0 | ✅ 全过 | 未做（生产不建库） |
+
+复现命令（任何装了 pg 的机器）：
+
+```bash
+LC_ALL=zh_CN.UTF-8 bash scripts/verify/menu_invariants.sh <库>; echo $?   # 旧版=2、新版=0
+```
+
 **自证脚本有牙**（测试库，改完立刻复原）：
 
 ```bash
