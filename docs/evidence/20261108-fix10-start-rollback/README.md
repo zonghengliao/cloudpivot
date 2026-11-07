@@ -143,7 +143,12 @@ cd backend && cargo test --lib business::flow::internal_control::db_tests -- --t
 ### 4.3 回归
 
 * `cargo check --all-targets`：0 warning / 0 error。
-* `cargo clippy --all-targets -- -D warnings`：见卡面汇报。
+* `cargo clippy --lib -- -D warnings`（干净树 `/root/wt-fix10` @ 9a34348）：
+  **只报 1 条既有告警** —— `src/business/erp/sales_order_model.rs:699 update_order`
+  的 `clippy::too_many_arguments (8/7)`（SO-40 双币字段 `bfd275a` 引入，本卡未触碰该文件）；
+  加 `-A clippy::too_many_arguments` 后 `Finished` 0 告警 ⇒ **本卡改动不新增任何 clippy 告警**。
+  （注：验票当时共享工作区里另有在改的 `purchase_requisition_handler.rs`，那是别人未提交的
+  WIP，与本次改动无关，故 clippy 在隔离 worktree 里对 9a34348 跑。）
 * `cargo test --lib -- --test-threads=1`（种子库 `cloudpivot_test_fix10`，由
   `scripts/verify/make_full_suite_db.sh` 建：演示组织 / 部门负责人 / 角色成员 / 16 条已发布流程）：
 
