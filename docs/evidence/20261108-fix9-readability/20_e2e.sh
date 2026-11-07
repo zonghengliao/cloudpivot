@@ -28,7 +28,7 @@ AH="Authorization: Bearer $ADMIN_TOK"
 CT='Content-Type: application/json'
 
 # ---------------------------------------------------------------- 夹具
-WH=$(sq "select id from biz_warehouse where is_leaf and status=1 and deleted_at is null order by warehouse_code limit 1")
+WH=$(sq "select id from biz_warehouse where is_leaf = 1 and status = 1 and deleted_at is null order by warehouse_code limit 1")
 SUP=$(sq "select id from biz_supplier where deleted_at is null order by supplier_code limit 1")
 MAT=$(sq "select id from biz_material where material_code='DEMO-P101' and deleted_at is null limit 1")
 MAT_ACCT=$(sq "select coalesce(inventory_account_id::text,'NULL') from biz_material where id='$MAT'::uuid")
