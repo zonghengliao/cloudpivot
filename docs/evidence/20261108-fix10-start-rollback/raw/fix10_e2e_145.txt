@@ -1,0 +1,52 @@
+================ t_0127714a 145 真机验收（http://127.0.0.1:8054 / cloudpivot_fix10_demo）================
+--- 基线
+migrations=261 users=10 flows=16
+--- 取夹具 id
+DEPT_DEMO=01a1b7e9-32ef-7411-b9cf-cca5b2ab79d9 leader=demo_lead(01a1b7e9-32f3-75ac-96c2-695742f85368) demo_finance=01a1b7e9-32f2-73c3-8999-ccee62324348 travel_type=2aa21379-9abf-4157-9d58-26da0282b629
+--- 登录
+  [curl] POST /api/system/auth/login user=admin → http=200
+  [curl] PUT /api/system/auth/password user=admin（首次登录强制改密）→ http=200
+  [curl] 改密后重登 user=admin → http=200
+  [curl] POST /api/system/auth/login user=demo_lead → http=200
+  [curl] PUT /api/system/auth/password user=demo_lead（首次登录强制改密）→ http=200
+  [curl] 改密后重登 user=demo_lead → http=200
+  [curl] POST /api/system/auth/login user=demo_finance → http=200
+  [curl] PUT /api/system/auth/password user=demo_finance（首次登录强制改密）→ http=200
+  [curl] 改密后重登 user=demo_finance → http=200
+  ✅ 三个令牌就绪（admin / demo_lead / demo_finance）
+
+=== ① 负责人本人提报（制单/发起人 = 该节点审批人）→ 期望 422/65018，且库里一行不留 ===
+  [curl] POST /business/erp/expense（reporter=01a1b7e9-32f3-75ac-96c2-695742f85368）→ http=200
+EXP1=01a1b7e9-3952-7496-be62-92add36211f5
+  [curl] POST /business/erp/expense/01a1b7e9-3952-7496-be62-92add36211f5/submit（as demo_lead）→ http=422
+  body: {"code":65018,"msg":"节点「直属上级审批」的审批人全部是制单人 / 发起人本人，内控（职责分离）不允许他们审批自己的单据，本节点没有一个可用审批人：演示·部门经理（内控：单据制单人不可审批自己制单的单据（职责分离），已跳过并留痕）。请先把该节点的审批岗位（角色成员 / 指定审批人）�
+  ✅ ①提交 http = 422
+  ✅ ①提交错误码 = 65018
+  ✅ ①单据状态（必须仍 DRAFT） = DRAFT
+  ✅ ①EXPENSE 实例条数（必须 0） = 0
+  ✅ ①该单关联待办条数（必须 0） = 0
+  ✅ ①该单 approval_instance_id（必须为空） = 
+  ✅ ①全库 EXPENSE 实例总数（必须 0） = 0
+
+=== ② demo_finance 正常路径 → 期望 200 / SUBMITTED / 实例 PENDING / 1 条 PENDING 待办 ===
+  [curl] POST /business/erp/expense（reporter=01a1b7e9-32f2-73c3-8999-ccee62324348）→ http=200
+EXP2=01a1b7e9-3a05-7158-8f40-99a45128813f
+  [curl] POST /business/erp/expense/01a1b7e9-3a05-7158-8f40-99a45128813f/submit（as demo_finance）→ http=200
+  ✅ ②提交 http = 200
+  ✅ ②响应业务码 = 0
+  ✅ ②单据状态 = SUBMITTED
+  ✅ ②实例状态 = PENDING
+  ✅ ②实例条数 = 1
+  ✅ ②PENDING 待办条数 = 1
+  ②待办审批人 = demo_lead
+  ✅ ②待办审批人不是发起人 = true
+  ✅ ②approval_instance_id 已回写 = true
+
+=== ③ ① 那张单**没有卡死**：仍是可流转的草稿 → 能正常作废（原缺陷里它已是 SUBMITTED，什么都做不了） ===
+  [curl] POST /business/erp/expense/01a1b7e9-3952-7496-be62-92add36211f5/cancel（as admin）→ http=200
+  ✅ ③草稿可作废 http = 200
+  ✅ ③作废后状态 = CANCELLED
+  ✅ ③作废后仍无 EXPENSE 实例 = 0
+  ✅ ③全库 EXPENSE 实例只剩正常路径那 1 条 = 1
+
+================ 结果：PASS=20 FAIL=0 ================
