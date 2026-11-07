@@ -1409,6 +1409,18 @@ pub const ERP_SO_CONTRACT_CUSTOMER_MISMATCH: i32 = 66045;
 /// 用在「已停用」场景会把排障直接指到错的方向。错误码不是权限码，加号不需要迁移。
 pub const ERP_ASSET_STATUS_ILLEGAL: i32 = 66046;
 
+/// 处置前置闸：**处置当月的折旧还没计提 / 没进 POSTED**（HTTP 409，FIX-3 方案 ①）。
+///
+/// 铁律②「当月减少当月照提」的落点：`scan_assets_for_period` 只扫
+/// `status IN ('IN_USE','IDLE')`，卡片一旦 `DISPOSED` 就被整类排除 ⇒ 月中处置的资产
+/// 当月一个月折旧提不到，而处置凭证已按处置时点的累计折旧落账（三处永久差一个月）。
+/// 所以处置前置校验「处置当月的折旧已过账」，不满足就 409 + 本码，报文点明
+/// 「请先在折旧计提里计提并过账处置当月的折旧，再提交处置」。
+///
+/// 为什么单独给码：前端要能把用户直接送到「折旧计提」页，而不是让人以为
+/// 「资产状态不对」（66040 / 66046）或「期间已结账」（66038）—— 三者处置动作完全不同。
+pub const ERP_ASSET_DEPRECIATION_PENDING: i32 = 66048;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1479,6 +1491,8 @@ mod tests {
             (ERP_SO_CONTRACT_CUSTOMER_MISMATCH, 66045),
             // FIN-ASSET-ST02 停用 / 启用（66046；66040 是「处置审批在跑」，语义不同不复用）
             (ERP_ASSET_STATUS_ILLEGAL, 66046),
+            // FIX-3 处置前置闸（66048；处置当月折旧未过账，与 66038 期间已结账 / 66040 审批在跑分开）
+            (ERP_ASSET_DEPRECIATION_PENDING, 66048),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");

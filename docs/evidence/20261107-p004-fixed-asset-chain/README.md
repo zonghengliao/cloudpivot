@@ -102,3 +102,25 @@
 | `08_final_checks.sh` | ⑨重跑幂等 + 详情/批次 API 口径 |
 | `09_verify.sql` / `09_verify_output.txt` | 终局核对（K2 缓存对账、逐月序列、凭证平衡、不变量、科目余额） |
 | `raw/` | 每步的 HTTP 响应体 + token（token 为临时凭证，不入库） |
+
+## 六、上线清单（资产模块 · 部署 / 升级后必查）
+
+本节的四条是**本模块专有的部署前提**，缺一条就会出现「页面能点、账是错的」或者
+「动作做了、通知一条不发」。逐条都有对应的库断言，部署后照抄即可。
+
+| # | 前提 | 为什么 | 部署后自检（SQL / 接口） |
+|---|---|---|---|
+| 1 | **资产通知依赖联动规则**：`biz_flow_linkage_rule` 里必须有 FIXED_ASSET 的 3 条 `SEND_NOTICE` 规则（`IN_USE` / `IDLE` / `DISPOSED`，`action_params.mode = TAKEOVER`） | 资产的停用 / 启用 / 处置 / 作废处置**没有一行旧代码在发通知**：`asset_linkage::AssetStatusChange::ctx` 只把「标题 + 正文 + 收件人」放进联动上下文，真正投递完全靠 `linkage::engine`。规则表里没有这三行 = 所有资产状态通知静默不发**且不报错**（P0-04 坑 #1）。`mode` 必须是 `TAKEOVER`：`SHADOW` 只做影子对比、不投递 | `select trigger_status, enabled, action_params->>'mode' from biz_flow_linkage_rule where trigger_entity='FIXED_ASSET' and deleted_at is null order by trigger_status;` → 3 行，全 `t` / `TAKEOVER`。<br>**V0323 迁移已预置**；运维若手工删过 / 停用过，迁移按 `ON CONFLICT DO NOTHING` 不会替你改回来 —— 请按上表核对后手工补 |
+| 2 | **处置前必须先计提处置当月的折旧**（FIX-3 方案 ①，口径定稿见 `asset_compute::disposal_dep_gate`） | 铁律②「当月减少当月照提」；而 `scan_assets_for_period` 只扫 `status IN ('IN_USE','IDLE')`，卡片一旦 `DISPOSED` 就被整类排除（P0-04 坑 #2）。所以顺序钉死为「**先计提当月 → 再提交处置**」，否则处置当月的折旧永远提不到、而处置凭证已按处置时点累计额落账 | `POST /api/business/erp/asset/{id}/dispose` 未计提当月折旧时返回 **409 + `code=66048`**，报文要求先计提；先 `POST /api/business/erp/depreciation/run {"period_code":"<处置当月>"}` 再处置 → 200 |
+| 3 | 折旧计提的**期间行**必须存在且 `status='OPEN'`（`biz_accounting_period`） | 空库迁移只种了 `2026-10` 一期；处置当月若没有期间行，第 2 条的前置计提本身做不了（409 `66038`），处置会一直卡住 | `select period_code, status from biz_accounting_period where period_code='<处置当月>';` → `OPEN`；没有就 `POST /api/business/erp/period` 开账 |
+| 4 | 处置审批流程 `asset_disposal` 必须已发布 | 处置强制走审批；流程没发布时 `POST .../dispose` 直接 409 `66033`（`APPROVAL_FLOW_NOT_CONFIGURED`），且不能绕过 | `select flow_code, biz_type, status from biz_flow_def where flow_code='asset_disposal' or biz_type='ASSET_DISPOSAL';` → `status='PUBLISHED'` 且 `current_version_id` 非空 |
+
+### 升级到含 FIX-3 的版本时会发生什么
+
+* **V0323 迁移**：向 `biz_flow_linkage_rule` 插入 3 条 FIXED_ASSET 规则（已存在的同键行原样保留，
+  迁移可重复执行、不会生出第二份）。**只影响通知**，不改任何账务数据。
+* **处置前置校验**：升级后所有「未计提当月折旧」的处置提交会开始返回 409 66048 —— 这是**预期行为**
+  （以前能提交，但那个月的折旧会静默漏掉）。财务口径的动作顺序从「先处置后计提」改成「先计提后处置」；
+  已提交 / 在审批中的旧处置单不受影响（它们已经在流程里，执行步不拦）。
+* 前端：`ASSET_ERROR_HINTS` 若未带 66048，用户仍能看到后端报文（`errorText` 以 message 为主），
+  只是少一句「怎么办」的补充提示。

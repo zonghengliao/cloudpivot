@@ -355,4 +355,163 @@ mod tests {
             );
         }
     }
+
+    // ==================== 预置规则（V0323 · FIX-3 问题 1） ====================
+    //
+    // 「接线了但没规则」的回归守卫：`spec::TRIGGER_SPECS` 标 wired、三处 hook 都在跑，
+    // 但迁移里 0 条 FIXED_ASSET 规则 ⇒ 停用 / 启用 / 处置一条通知都不发且不报错。
+    // 迁移一旦应用就不能改（指纹校验），所以这里用 `include_str!` 读**迁移原文**，
+    // 与代码侧的契约（触发点 / 状态 / 动作 / 参数 / TAKEOVER / 幂等写法）逐条对拍：
+    // 任何一处漂移 → 用例红，且文案直接说是哪条规则。
+
+    /// 迁移原文（up / down）。
+    const PRESET_UP: &str =
+        include_str!("../../../migrations/business/V0323__asset_linkage_rules.up.sql");
+    const PRESET_DOWN: &str =
+        include_str!("../../../migrations/business/V0323__asset_linkage_rules.down.sql");
+
+    /// 3 条预置规则（规则名 + 触发状态；触发状态 = 变更**之后**的目标态）。
+    const PRESETS: &[(&str, &str)] = &[
+        ("资产停用 → 通知制单人", asset_dto::STATUS_IDLE),
+        (
+            "资产启用 / 作废处置 → 通知制单人",
+            asset_dto::STATUS_IN_USE,
+        ),
+        ("资产处置 → 通知制单人", asset_dto::STATUS_DISPOSED),
+    ];
+
+    /// ① 迁移里正好 3 条规则，且**覆盖资产的每一个合法状态**（少一条 = 那个状态变更不发通知）。
+    #[test]
+    fn presets_cover_every_fixed_asset_status() {
+        assert_eq!(PRESETS.len(), 3, "卡面要求 3 条 FIXED_ASSET 规则");
+        let inserts = PRESET_UP.matches("gen_random_uuid()").count();
+        assert_eq!(
+            inserts, 3,
+            "迁移 up.sql 里应有 3 行 INSERT（实际 {inserts}）"
+        );
+        let known = linkage::model::known_statuses(state_machine::ENTITY_FIXED_ASSET);
+        let mut preset_statuses: Vec<&str> = PRESETS.iter().map(|(_, status)| *status).collect();
+        preset_statuses.sort_unstable();
+        let mut sorted_known = known.clone();
+        sorted_known.sort_unstable();
+        assert_eq!(
+            preset_statuses, sorted_known,
+            "预置规则的状态集必须等于资产的合法状态集（否则哪个状态漏了就永远不发通知）"
+        );
+        for (name, status) in PRESETS {
+            assert!(
+                known.contains(status),
+                "规则「{name}」的触发状态 {status} 不是 FIXED_ASSET 的合法状态"
+            );
+        }
+    }
+
+    /// ② 迁移原文逐条包含规则名 + 触发键 + 动作码（文本与代码对拍）。
+    #[test]
+    fn migration_seeds_every_preset_row() {
+        for (name, status) in PRESETS {
+            assert!(
+                PRESET_UP.contains(name),
+                "迁移里找不到规则名「{name}」"
+            );
+            assert!(
+                PRESET_UP.contains(&format!("'FIXED_ASSET', '{status}', 'SEND_NOTICE'")),
+                "迁移里找不到触发键 ('FIXED_ASSET', '{status}', 'SEND_NOTICE')"
+            );
+        }
+        assert!(
+            PRESET_UP.contains(&format!(
+                "trigger_entity = 'FIXED_ASSET'"
+            )),
+            "迁移的自检块必须按 FIXED_ASSET 过滤"
+        );
+    }
+
+    /// ③ 参数能过第 2 层校验，且**必须是 TAKEOVER**。
+    ///
+    /// `SHADOW` 只做影子对比、不发通知（`engine` 里非 TAKEOVER 直接跳过投递）；
+    /// 资产通知**没有旧代码在发**（`AssetStatusChange::ctx` 只把草稿塞进上下文，
+    /// 投递完全靠引擎）⇒ 写成 SHADOW 等于规则配了也一条不发。
+    #[test]
+    fn preset_params_are_takeover_and_valid() {
+        let params_literal = r#"{"mode": "TAKEOVER"}'::jsonb"#;
+        assert_eq!(
+            PRESET_UP.matches(params_literal).count(),
+            3,
+            "三条规则的参数必须都是 {params_literal}（资产通知没有旧代码兜底，只能 TAKEOVER）"
+        );
+        let action = linkage::spec::spec_of(linkage::spec::ACTION_SEND_NOTICE)
+            .expect("SEND_NOTICE 必须在动作白名单里");
+        assert!(action.implemented, "SEND_NOTICE 必须是已接管动作");
+        let params: serde_json::Value =
+            serde_json::from_str(r#"{"mode": "TAKEOVER"}"#).expect("合法 JSON");
+        if let Err(reason) = linkage::spec::validate_params(action, &params) {
+            panic!("预置规则的参数过不了第 2 层校验：{reason}");
+        }
+        assert_eq!(
+            params.get("mode").and_then(|value| value.as_str()),
+            Some("TAKEOVER")
+        );
+        for key in params.as_object().expect("参数必须是对象").keys() {
+            assert!(
+                !linkage::spec::is_forbidden_key(key),
+                "预置规则参数里出现禁用键 `{key}`（禁配 SQL）"
+            );
+        }
+    }
+
+    /// ④ 幂等写法：`ON CONFLICT (...) DO NOTHING`，**不许** DO UPDATE。
+    ///
+    /// 生产上可能已有运维手工配的规则（改过收件人 / 停用过 / 软删过），迁移重跑
+    /// 不能把它们刷回预置值 —— 那是替运维改配置。
+    #[test]
+    fn presets_are_idempotent_without_overwriting_manual_rules() {
+        assert_eq!(
+            PRESET_UP
+                .matches("ON CONFLICT (trigger_entity, trigger_status, action_code) DO NOTHING")
+                .count(),
+            1,
+            "预置迁移必须按唯一键 ON CONFLICT DO NOTHING（幂等且不覆盖手工配置）"
+        );
+        assert!(
+            !PRESET_UP.contains("DO UPDATE"),
+            "预置迁移不许 DO UPDATE：会把运维手工配的规则（收件人 / 启停 / 软删）刷回预置值"
+        );
+    }
+
+    /// ⑤ down 段删的是**同一批键**（不是按名字），并自检删干净。
+    #[test]
+    fn preset_down_removes_the_same_keys() {
+        for (_, status) in PRESETS {
+            assert!(
+                PRESET_DOWN.contains(&format!("('FIXED_ASSET', '{status}', 'SEND_NOTICE')")),
+                "down.sql 没有删 ('FIXED_ASSET', '{status}', 'SEND_NOTICE')：回滚会留下半套规则"
+            );
+        }
+        assert!(
+            PRESET_DOWN.contains("DELETE FROM biz_flow_linkage_rule"),
+            "down.sql 必须删规则行"
+        );
+    }
+
+    /// ⑥ 触发点必须真的接线（wired + 三处 hook 的存在性由 `flow::linkage::tests_wiring` 钉住；
+    ///    这里再确认「配了规则一定能命中」：FIXED_ASSET 在 `TRIGGER_SPECS` 里且 wired）。
+    #[test]
+    fn fixed_asset_trigger_is_wired_so_presets_can_fire() {
+        let trigger = linkage::spec::TRIGGER_SPECS
+            .iter()
+            .find(|spec| spec.entity == state_machine::ENTITY_FIXED_ASSET)
+            .expect("FIXED_ASSET 必须在 TRIGGER_SPECS 里（否则配置页都选不到它）");
+        assert!(
+            trigger.wired,
+            "FIXED_ASSET 必须标 wired=true（未接线的触发点配了规则也永远不触发）"
+        );
+        for (_, status) in PRESETS {
+            assert!(
+                linkage::spec::status_label_of(state_machine::ENTITY_FIXED_ASSET, status).is_some(),
+                "`{status}` 不在 FIXED_ASSET 的状态标签表里：规则永远等不到这个状态"
+            );
+        }
+    }
 }
+

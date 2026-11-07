@@ -112,6 +112,9 @@ async fn purge() {
     exec("DELETE FROM biz_flow_linkage_rule WHERE name LIKE 'LNK09-%'").await;
     // FIN-ASSET-ST02 的规则号段（与本文件 LNK09 段分开清，两条线互不干扰）
     exec("DELETE FROM biz_flow_linkage_rule WHERE name LIKE 'ST02-%'").await;
+    // 用例会把 V0323 的预置规则改成自己的参数再删掉：这里补回迁移口径，
+    // 让「跑过测试的库」与「刚跑完迁移的库」一致（见 [`restore_presets`]）。
+    restore_presets().await;
     exec("DELETE FROM sys_notice WHERE idempotency_key LIKE 'LNK:FIXED_ASSET:%'").await;
     // 按本文件的两个号段找残留（`FA-LNK09-` / `FA-ST02-` 前缀是本文件独占的卡片号）
     let assets = uuids_of(
@@ -371,12 +374,17 @@ async fn disposal_vouchers_of(asset_id: Uuid) -> i64 {
     .expect("查处置凭证")
 }
 
-/// 插一条 `FIXED_ASSET/<status>` 上的规则（绕过 API 写库：与「管理员在配置页配好」等价）。
+/// 插 / 改一条 `FIXED_ASSET/<status>` 上的规则（绕过 API 写库：与「管理员在配置页配好」等价）。
 async fn add_rule(status: &str, action: &str, params: &str) {
     add_rule_named("LNK09", status, action, params).await;
 }
 
 /// 同上，规则名前缀可变（`ST02-` = 停用 / 启用用例的号段，清场时按前缀删）。
+///
+/// 用 `ON CONFLICT (trigger_entity, trigger_status, action_code) DO UPDATE` 而不是裸 INSERT：
+/// V0323 起迁移**预置**了 FIXED_ASSET 三个状态上的 `SEND_NOTICE` 规则，同一触发点同一动作码
+/// 再插一行会撞 `uk_flow_linkage_rule`（用例直接红）。冲突时按用例给的参数覆盖，
+/// 用例收尾由 [`purge`] 删掉、再 [`restore_presets`] 把预置行补回去。
 async fn add_rule_named(prefix: &str, status: &str, action: &str, params: &str) {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -386,8 +394,35 @@ async fn add_rule_named(prefix: &str, status: &str, action: &str, params: &str) 
         "INSERT INTO biz_flow_linkage_rule \
             (id, name, trigger_entity, trigger_status, action_code, action_params, seq) \
          VALUES (gen_random_uuid(), '{prefix}-{status}-{action}-{nanos}', 'FIXED_ASSET', \
-                 '{status}', '{action}', '{params}'::jsonb, 10)"
+                 '{status}', '{action}', '{params}'::jsonb, 10) \
+         ON CONFLICT (trigger_entity, trigger_status, action_code) DO UPDATE \
+            SET name = EXCLUDED.name, action_params = EXCLUDED.action_params, \
+                enabled = true, updated_at = now(), deleted_at = NULL"
     ))
+    .await;
+}
+
+/// 把 V0323 预置的 3 条 FIXED_ASSET 规则刷回迁移口径（[`purge`] 的收尾）。
+///
+/// 为什么需要：本文件的用例要「这个触发点上有一条我配的规则」，而 V0323 之后这三个
+/// 触发点上**已经有预置规则**（唯一键）—— 用例先用 `ON CONFLICT DO UPDATE` 把它改成
+/// 自己的参数，收尾再按 `LNK09-` / `ST02-` 前缀删掉。删完不补回来的话，跑过测试的库
+/// 就与「刚跑完迁移的库」不一致（再断言「FIXED_ASSET 有 3 条规则」就会红）。
+async fn restore_presets() {
+    exec(
+        "INSERT INTO biz_flow_linkage_rule \
+            (id, name, trigger_entity, trigger_status, action_code, action_params, enabled, seq) \
+         VALUES \
+            (gen_random_uuid(), '资产停用 → 通知制单人', 'FIXED_ASSET', 'IDLE', 'SEND_NOTICE', \
+             '{\"mode\": \"TAKEOVER\"}'::jsonb, true, 10), \
+            (gen_random_uuid(), '资产启用 / 作废处置 → 通知制单人', 'FIXED_ASSET', 'IN_USE', 'SEND_NOTICE', \
+             '{\"mode\": \"TAKEOVER\"}'::jsonb, true, 10), \
+            (gen_random_uuid(), '资产处置 → 通知制单人', 'FIXED_ASSET', 'DISPOSED', 'SEND_NOTICE', \
+             '{\"mode\": \"TAKEOVER\"}'::jsonb, true, 10) \
+         ON CONFLICT (trigger_entity, trigger_status, action_code) DO UPDATE \
+            SET name = EXCLUDED.name, action_params = EXCLUDED.action_params, \
+                enabled = true, updated_at = now(), deleted_at = NULL",
+    )
     .await;
 }
 

@@ -857,6 +857,10 @@ pub async fn asset_custodian(
 }
 
 /// 提交处置审批（`asset_disposal`）：通过后由 `asset_bridge` 生成凭证并改状态。
+///
+/// **前置闸（FIX-3 方案 ①）**：处置当月的折旧必须先计提并过账，否则 409
+/// `ERP_ASSET_DEPRECIATION_PENDING`。口径与理由见 [`asset_compute::disposal_dep_gate`]
+/// 的文件注释（为什么把顺序钉成「先计提当月 → 再处置」，而不是让扫描纳入 `DISPOSED`）。
 #[nik::permission(
     path = "/business/erp/asset/{id}/dispose",
     method = "POST",
@@ -892,6 +896,59 @@ pub async fn asset_dispose(
                 status_label(&row.status)
             ),
         ));
+    }
+    // ── 铁律②「当月减少当月照提」的前置闸（FIX-3 方案 ①，口径定稿见
+    //    `asset_compute::disposal_dep_gate` 的文件注释：为什么不选「扫描纳入 DISPOSED
+    //    + 处置凭证延后」那条路，那里写清了）。
+    //
+    // 判据：**处置当月的折旧必须先计提并过账**。不满足 → 409 66048，报文指路。
+    // 闸门放在「提交处置」这一步（审批发起之前 fail fast）：放到审批落定后的执行步，
+    // 审批已通过、半路 409 只会把处置单卡在中间态，用户还得先作废审批。
+    //
+    // 两种放行的情况（当月本来不提折旧）：当月购入当月处置（起提日 = 次月 1 日）、
+    // 已提足（提足即停，扫描 SQL 也不再命中它）—— 都由闸门函数自己判，这里只拼报文。
+    let disposal_period = asset_compute::period_of(spec.disposal_date);
+    let dep_status = asset_model::depreciation_status_of(id, &disposal_period)
+        .await
+        .map_err(|error| db_err(error, "查询处置当月的折旧明细"))?;
+    match asset_compute::disposal_dep_gate(
+        &disposal_period,
+        row.start_depreciation_date,
+        row.depreciable_base,
+        row.accumulated_depreciation,
+        dep_status.as_deref(),
+    ) {
+        asset_compute::DisposalDepGate::Missing(miss) => {
+            return Err(ApiError::new(
+                409,
+                error_code::ERP_ASSET_DEPRECIATION_PENDING,
+                format!(
+                    "资产 {} 不能处置：{}。请先在「折旧计提」里计提并过账 {} 的折旧\
+                     （手动计提时 period_code 填 {}），再回来提交处置 —— \
+                     当月减少的资产当月照提，先处置会让这一个月的折旧永远提不到\
+                     （处置凭证已按处置时点的累计折旧落账）。\
+                     若该期间的批次已过账但不含本资产、或已被红冲，需先红冲该批次再重新计提。",
+                    row.asset_no, miss.label(), disposal_period, disposal_period
+                ),
+            ));
+        }
+        asset_compute::DisposalDepGate::NotRequired(skip) => {
+            tracing::info!(
+                asset_id = %id,
+                asset_no = %row.asset_no,
+                period = %disposal_period,
+                why = skip.label(),
+                "处置前置闸：当月无需计提折旧，放行"
+            );
+        }
+        asset_compute::DisposalDepGate::Posted => {
+            tracing::info!(
+                asset_id = %id,
+                asset_no = %row.asset_no,
+                period = %disposal_period,
+                "处置前置闸：处置当月折旧已过账"
+            );
+        }
     }
     let flow = asset_bridge::published_disposal_flow()
         .await

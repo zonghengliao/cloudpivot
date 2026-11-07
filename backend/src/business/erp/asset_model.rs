@@ -1516,6 +1516,33 @@ pub async fn details_of_asset(asset_id: Uuid) -> DbResult<Vec<DepDetailRow>> {
     rows.iter().map(DepDetailRow::from_row).collect()
 }
 
+/// 某台资产在某个会计期间的折旧明细**状态**（`None` = 这一期没有它的明细行）。
+///
+/// 只取「一台一期」这一行（`uk_biz_dep_asset_period` 唯一），给处置前置闸用
+/// （`asset_compute::disposal_dep_gate` / `asset_handler::asset_dispose`）：
+/// 处置当月的折旧必须先计提并过账，否则月中处置的资产会漏提一个月。
+///
+/// 返回 `Some("POSTED")` / `Some("REVERSED")`（取自 `biz_depreciation.status`，
+/// 取值域见 V0230 `ck_biz_dep_status`）/ `None`（没有明细）。
+pub async fn depreciation_status_of(asset_id: Uuid, period_code: &str) -> DbResult<Option<String>> {
+    // SCOPE-EXEMPT: 按 (资产, 期间) 唯一键取 1 行状态，与「谁能看到这张卡」无关。
+    let rows = db()
+        .find_with_params(
+            &format!(
+                "SELECT status FROM {DEP_TABLE} WHERE asset_id = ?::uuid AND period_code = ?"
+            ),
+            vec![
+                Value::from(&asset_id),
+                Value::Text(period_code.to_string()),
+            ],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok(None),
+        Some(row) => row.get_typed("status"),
+    }
+}
+
 /// 把批次明细标红冲（`POSTED → REVERSED`），返回受影响行数。
 pub async fn reverse_details(ex: &impl SqlExecutor, batch_id: Uuid) -> DbResult<u64> {
     // SCOPE-EXEMPT: 明细表按批次改。

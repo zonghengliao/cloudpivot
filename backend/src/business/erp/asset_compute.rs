@@ -168,6 +168,132 @@ pub fn is_last_month(card: &DepreciationCard) -> bool {
     card.months_done + 1 >= card.useful_life_months
 }
 
+// ==================== 规则②的落点：处置闸（FIX-3 方案 ①，口径定稿） ====================
+
+/// 「当月折旧未过账」的两种原因（handler 拼报文用；`label` 给日志）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DepGateMiss {
+    /// 处置当月**没有**该资产的折旧明细行（批次还没跑 / 跑了但不含它）。
+    NoDetail,
+    /// 处置当月的明细**被红冲**（批次红冲后没有重新计提：那一个月的折旧等于没提）。
+    Reversed,
+}
+
+impl DepGateMiss {
+    /// 人读原因（日志 / 报文）。
+    pub const fn label(self) -> &'static str {
+        match self {
+            DepGateMiss::NoDetail => "处置当月没有该资产的折旧明细（批次未计提，或批次已过账但不含本资产）",
+            DepGateMiss::Reversed => "处置当月的折旧明细已被红冲（批次红冲后没有重新计提）",
+        }
+    }
+}
+
+/// 「不用查当月折旧」的两种情形（放行，但要能说清为什么放行）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DepGateSkip {
+    /// 当月购入当月处置：起提日 = 购入次月 1 日，本月**本来就不提**（铁律①）。
+    BoughtThisMonth,
+    /// 已提足（累计 ≥ 可折旧总额）：提足即停，扫描 SQL 也不会再命中它。
+    FullyDepreciated,
+}
+
+impl DepGateSkip {
+    /// 人读原因（日志用）。
+    pub const fn label(self) -> &'static str {
+        match self {
+            DepGateSkip::BoughtThisMonth => "当月购入当月处置：本月本来不提折旧",
+            DepGateSkip::FullyDepreciated => "已提足折旧：本月本来不再计提",
+        }
+    }
+}
+
+/// 处置前置闸（「处置当月的折旧已计提并过账」）的判定结果（纯值，不碰库 / 不碰 HTTP）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DisposalDepGate {
+    /// 放行：当月本来不提折旧，无需明细（当月购入当月处置 / 已提足）。
+    NotRequired(DepGateSkip),
+    /// 放行：处置当月有 `POSTED` 的折旧明细。
+    Posted,
+    /// **拦截**：应提而未提 → handler 回 409 `ERP_ASSET_DEPRECIATION_PENDING`。
+    Missing(DepGateMiss),
+}
+
+impl DisposalDepGate {
+    /// 是否要拦下这次处置。
+    pub const fn is_blocked(self) -> bool {
+        matches!(self, DisposalDepGate::Missing(_))
+    }
+}
+
+/// 处置闸：给定卡片与「处置当月那台资产的折旧明细状态」，判这次处置能不能提交。
+///
+/// # 口径定稿（FIX-3，写死在这里；要改口径先改这张表，别只改代码）
+///
+/// 铁律②「当月减少当月照提」在代码里有**两个**落点，缺一个就会静默漏提一个月：
+///
+/// | # | 落点 | 位置 |
+/// |---|---|---|
+/// | 1 | 扫描条件 `disposal_date IS NULL OR disposal_date >= 期初` | [`crate::business::erp::asset_model::scan_assets_for_period`] |
+/// | 2 | **处置前置闸**「处置当月的折旧已计提并过账」 | 本函数 + `asset_handler::asset_dispose` |
+///
+/// ## 为什么选方案 ①（处置前置闸），不选方案 ②（扫描纳入本月处置 + 处置凭证延后）
+///
+/// FIX-3 之前的真实缺口：`scan_assets_for_period` 的状态条件只有
+/// `status IN ('IN_USE','IDLE')`，卡片一旦置 `DISPOSED` 就被**整类排除** ⇒
+/// 「6 月处置的资产，6 月的折旧批次里没有它」；而处置凭证已按处置时点的累计折旧落账
+/// ⇒ 卡片缓存 / 折旧明细 / 凭证三处永久差一个月（补提也补不回来：批次一期一条，
+/// 处置凭证不会跟着改）。
+///
+/// * **方案 ①（本实现）**：把动作顺序钉死成「**先计提当月 → 再提交处置**」。
+///   处置时点的累计折旧因此已含当月，处置凭证按它落账天然正确；扫描 SQL 一行不改，
+///   批次状态机 / 凭证时序零改动 —— 最小改动 + 不动账务口径。
+/// * **方案 ②（未采纳）**：扫描要纳入 `DISPOSED` 且 `disposal_date >= 期初` 的卡片，
+///   并让处置凭证延后到期末折旧后再出。它把「处置凭证的时点」绑到「批次什么时候跑」上：
+///   反结账 / 红冲 / 重提都会让凭证日期与审批通过日脱钩，等于重定义会计口径（需财务确认）。
+///
+/// 闸门放在**提交处置**（`asset_handler::asset_dispose`）这一步：fail fast、在审批之前，
+/// 不放审批落定后的执行步 —— 那时审批已通过，半路 409 只会把处置单卡在中间态。
+///
+/// # 三种放行 / 两种拦截
+///
+/// | 情形 | 判定 |
+/// |---|---|
+/// | 当月购入当月处置（起提日 = 处置月的**次月** 1 日 ⇒ 处置月 < 起提月） | 放行 [`DisposalDepGate::NotRequired`] |
+/// | 已提足（`accumulated >= depreciable_base`，提足即停） | 放行 [`DisposalDepGate::NotRequired`] |
+/// | 处置当月有 `POSTED` 明细 | 放行 [`DisposalDepGate::Posted`] |
+/// | 处置当月没有明细 | 拦截 [`DepGateMiss::NoDetail`] |
+/// | 处置当月的明细是 `REVERSED` | 拦截 [`DepGateMiss::Reversed`] |
+pub fn disposal_dep_gate(
+    // 处置**当月**的会计期间编码（`yyyy-MM`，由 `period_of(disposal_date)` 得到）
+    disposal_period: &str,
+    // 卡片起提日（购入次月 1 日，见 [`start_depreciation_date`]）
+    start_depreciation_date: NaiveDate,
+    // 卡片可折旧总额
+    depreciable_base: Decimal,
+    // 卡片累计折旧（处置时点的缓存值）
+    accumulated_depreciation: Decimal,
+    // `biz_depreciation.status`：`None` = 这一期没有该资产的明细行
+    detail_status: Option<&str>,
+) -> DisposalDepGate {
+    // ① 当月购入当月处置：`period_code` 是零填充的 `yyyy-MM`，字典序 = 时间序
+    if disposal_period < period_of(start_depreciation_date).as_str() {
+        return DisposalDepGate::NotRequired(DepGateSkip::BoughtThisMonth);
+    }
+    // ② 已提足：提足即停，本月没有明细是**正常**的（扫描 SQL 也不会命中）
+    if accumulated_depreciation >= depreciable_base {
+        return DisposalDepGate::NotRequired(DepGateSkip::FullyDepreciated);
+    }
+    match detail_status {
+        Some("POSTED") => DisposalDepGate::Posted,
+        Some("REVERSED") => DisposalDepGate::Missing(DepGateMiss::Reversed),
+        // `None` = 没有明细；`biz_depreciation.status` 的取值域只有 POSTED / REVERSED
+        // （V0230 `ck_biz_dep_status`），其余值按「未过账」处理（宁可拦，不放行算错的账）
+        _ => DisposalDepGate::Missing(DepGateMiss::NoDetail),
+    }
+}
+
+
 // ==================== 处置分录（ARCH-6 §5.6.4） ====================
 
 /// 处置方式（与 `ck_biz_fa_disposal` 逐字一致）。
@@ -707,4 +833,125 @@ mod tests {
         assert_eq!(DisposalKind::parse("DONATE"), None, "捐赠不在本期取值域");
         assert_eq!(DisposalKind::parse("sale"), None, "严格全等，不做归一");
     }
+
+    // ==================== 处置闸（FIX-3 方案 ①） ====================
+
+    /// 一台 120000 / 残值 6000 / 60 月资产的起提日（购入 2025-12-15 → 起提 2026-01-01）。
+    fn start_of(purchase: &str) -> NaiveDate {
+        start_depreciation_date(NaiveDate::parse_from_str(purchase, "%Y-%m-%d").expect("日期"))
+    }
+
+    /// 闸门：**处置当月没有明细** ⇒ 拦（这就是「6 月处置、6 月批次里没有它」那条漏提的入口）。
+    #[test]
+    fn gate_blocks_when_disposal_month_has_no_detail() {
+        let gate = disposal_dep_gate(
+            "2026-06",
+            start_of("2025-12-15"),
+            dec!(114000),
+            dec!(9500), // 已提 5 个月
+            None,
+        );
+        assert_eq!(gate, DisposalDepGate::Missing(DepGateMiss::NoDetail));
+        assert!(gate.is_blocked(), "没有当月折旧明细时必须拦下处置");
+    }
+
+    /// 闸门：**已计提并过账** ⇒ 放行（正常路径：先计提当月，再提交处置）。
+    #[test]
+    fn gate_passes_when_disposal_month_detail_posted() {
+        let gate = disposal_dep_gate(
+            "2026-06",
+            start_of("2025-12-15"),
+            dec!(114000),
+            dec!(9500),
+            Some("POSTED"),
+        );
+        assert_eq!(gate, DisposalDepGate::Posted);
+        assert!(!gate.is_blocked());
+    }
+
+    /// 闸门：**明细被红冲** ⇒ 拦（那一个月的折旧等于没提，不能按「有行」放行）。
+    #[test]
+    fn gate_blocks_when_detail_reversed() {
+        let gate = disposal_dep_gate(
+            "2026-06",
+            start_of("2025-12-15"),
+            dec!(114000),
+            dec!(9500),
+            Some("REVERSED"),
+        );
+        assert_eq!(gate, DisposalDepGate::Missing(DepGateMiss::Reversed));
+        assert!(gate.is_blocked());
+        assert!(
+            DepGateMiss::Reversed.label().contains("红冲"),
+            "报文要说清是「红冲过」，不能与「没计提」混成一句话"
+        );
+    }
+
+    /// 闸门：**当月购入当月处置** ⇒ 放行（铁律①：本月本来不提，没有明细才是对的）。
+    ///
+    /// 这是卡面点名的边界：购入 2026-06-10 → 起提 2026-07-01；6 月处置时
+    /// `biz_depreciation` 里本来就不会有 2026-06 这一行，不能因此拦下。
+    #[test]
+    fn gate_skips_asset_bought_and_disposed_in_same_month() {
+        let gate = disposal_dep_gate(
+            "2026-06",
+            start_of("2026-06-10"),
+            dec!(114000),
+            dec!(0),
+            None,
+        );
+        assert_eq!(
+            gate,
+            DisposalDepGate::NotRequired(DepGateSkip::BoughtThisMonth)
+        );
+        assert!(!gate.is_blocked());
+
+        // 跨年边界：2025-12 购入 → 起提 2026-01；2025-12 处置仍是「当月购入当月处置」
+        let gate = disposal_dep_gate(
+            "2025-12",
+            start_of("2025-12-31"),
+            dec!(114000),
+            dec!(0),
+            None,
+        );
+        assert_eq!(
+            gate,
+            DisposalDepGate::NotRequired(DepGateSkip::BoughtThisMonth),
+            "跨年时 12 月的起提日是次年 1 月 1 日，期间编码字典序比较仍然成立"
+        );
+
+        // 次月处置（2026-01）就不再有豁免：起提月 = 处置月 ⇒ 必须已计提
+        let gate = disposal_dep_gate(
+            "2026-01",
+            start_of("2025-12-31"),
+            dec!(114000),
+            dec!(0),
+            None,
+        );
+        assert_eq!(gate, DisposalDepGate::Missing(DepGateMiss::NoDetail));
+    }
+
+    /// 闸门：**已提足** ⇒ 放行（提足即停，扫描 SQL 也不再命中，没有明细是正常的）。
+    #[test]
+    fn gate_skips_fully_depreciated_asset() {
+        let gate = disposal_dep_gate(
+            "2026-06",
+            start_of("2020-01-10"),
+            dec!(114000),
+            dec!(114000), // 累计 == 可折旧总额
+            None,
+        );
+        assert_eq!(
+            gate,
+            DisposalDepGate::NotRequired(DepGateSkip::FullyDepreciated)
+        );
+        assert!(!gate.is_blocked());
+
+        // 高一分也算提足（脏数据 / 尾差）；低一分则必须已计提，不许蒙混
+        let over = disposal_dep_gate("2026-06", start_of("2020-01-10"), dec!(114000), dec!(114000.0001), None);
+        assert!(!over.is_blocked(), "累计超过可折旧总额同样是提足");
+        let under = disposal_dep_gate("2026-06", start_of("2020-01-10"), dec!(114000), dec!(113999.9999), None);
+        assert!(under.is_blocked(), "差一分也还没提足，当月折旧必须先计提");
+    }
 }
+
