@@ -1,0 +1,11 @@
+== ① 审批意见回写 biz_flow_instance.result_comment ==
+{"code":0,"msg":"ok","no":"ST-20261108-000002","status":"DRAFT"}
+提交审批 HTTP=200 {"code":0,"msg":"ok"}
+审批实例=01a1b764-195d-7250-8a7f-b1e8b03a2c41
+审批意见=FIX-9 ① 审批意见回写验证：实盘差异已核对，同意调平
+节点审批人候选：demo_lead
+第 1 票：demo_lead 审批 HTTP=200 {"code":0,"msg":"ok","status":"APPROVED"}
+实例状态=APPROVED（共投 1 票）
+--- 待办行（意见本来就在这里）---
+n_wh|APPROVED|01a1b5d2-2b59-72d3-b0c8-11a27064a7c8|FIX-9 ① 审批意见回写验证：实盘差异已核对，同意调平
+--- 实例 result_comment = 「FIX-9 ① 审批意见回写验证：实盘差异已核对，同意调平」---

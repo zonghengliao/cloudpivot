@@ -1,0 +1,5 @@
+# 迁移幂等证据（本卡未新增 / 未修改任何迁移；拷贝库是 cloudpivot_dev 的备份，启动时补迁移）
+3:[2m2026-11-07T19:02:17.776183Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+schema_migrations 行数: 264
+最新一条迁移: 330|inventory_biz_type_and_sourceless_in_type|2026-11-08 02:36:34+08
+本卡新增/修改迁移: 0（git diff --stat 只动 5 个 .rs + 2 个 .md）

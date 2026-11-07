@@ -1,0 +1,6 @@
+flow|payable_pay|PUBLISHED
+flow|stock_take_post|PUBLISHED
+material|DEMO-P101|NULL
+material|DEMO-P102|NULL
+user|admin|超级管理员
+user|demo_lead|演练审批人

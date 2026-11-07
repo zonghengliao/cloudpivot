@@ -1,0 +1,5 @@
+== ③ biz_status_log.operator_name 姓名快照 ==
+|DRAFT|01a17c3b-4f78-77c3-bbc5-1c1c2a412195|admin
+DRAFT|PENDING_POST|01a17c3b-4f78-77c3-bbc5-1c1c2a412195|admin
+PENDING_POST|POSTED|01a17c3b-4f78-77c3-bbc5-1c1c2a412195|超级管理员
+状态日志 3 行 / operator_name 为空 0 行
