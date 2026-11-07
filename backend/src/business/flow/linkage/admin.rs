@@ -1168,6 +1168,7 @@ mod tests {
                 "ACCOUNTING_PERIOD",
                 "CONTRACT",
                 "STOCK_TAKE",
+                "FIXED_ASSET",
                 "EXPENSE_REPORT",
                 "TASK"
             ],
@@ -1175,7 +1176,8 @@ mod tests {
              STOCK_TRANSFER（LNK-01 新接）/ PURCHASE_ORDER（LNK-02 新接）/ \
              PAYABLE（LNK-03 新接）/ VOUCHER（LNK-06 新接）/ ACCOUNTING_PERIOD（LNK-08 新接）/ \
              CONTRACT（LNK-07 新接）/ \
-             STOCK_TAKE（LNK-04 新接）/ EXPENSE_REPORT（LNK-05 新接）/ TASK"
+             STOCK_TAKE（LNK-04 新接）/ FIXED_ASSET（LNK-09 新接）/ \
+             EXPENSE_REPORT（LNK-05 新接）/ TASK"
         );
         for trigger in &triggers {
             assert!(

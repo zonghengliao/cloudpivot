@@ -43,6 +43,7 @@ use crate::business::erp::asset_dto::{
     ChangeRes, CreateAssetReq, CustodianReq, DepDetailRes, DisposeReq, IdRes, TransferReq,
     UpdateAssetReq, conflict, invalid, normalize_page, parse_uuid_text, status_label,
 };
+use crate::business::erp::asset_linkage;
 use crate::business::erp::asset_model::{self, AssetInsert, ChangeInsert};
 use crate::business::erp::voucher_multi;
 use crate::business::flow::{engine, model as flow_model};
@@ -1111,14 +1112,23 @@ pub async fn asset_dispose_cancel(
         )
         .await
         .map_err(|error| db_err(error, "写作废处置留痕"))?;
-        Ok::<usize, ApiError>(reds.len())
+        // ⑤ 跨单据联动（事务内动作；处置凭证已在 ① 步红冲 ⇒ 引擎排除
+        //    GENERATE_VOUCHER / REVERSE_VOUCHER，见 asset_linkage 文件头）。
+        //    目标态 = IN_USE：`FIXED_ASSET/IN_USE` 上的规则由「作废处置」触发
+        //    （建卡是建行、不接；停用 / 启用目前没有 HTTP 入口，见 spec.wiring）。
+        let change =
+            asset_linkage::run_in_tx(&tx, id, &row.asset_no, asset_dto::STATUS_IN_USE, operator)
+                .await?;
+        Ok::<(usize, asset_linkage::AssetStatusChange), ApiError>((reds.len(), change))
     }
     .await;
     match outcome {
-        Ok(count) => {
+        Ok((count, change)) => {
             tx.commit()
                 .await
                 .map_err(|error| db_err(error, "提交作废处置事务"))?;
+            // 铁律：通知 / 建任务只能在事务提交**之后**发（提交失败 = 作废没做成）
+            asset_linkage::run_deferred_after_commit(change).await;
             tracing::info!(%id, red_count = count, "资产处置已作废（凭证红冲 + 资产恢复在役）");
             Ok(Res::ok(detail_of(id).await?))
         }

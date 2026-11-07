@@ -124,6 +124,7 @@ fn trigger_specs_cover_whitelist_in_order() {
             "ACCOUNTING_PERIOD",
             "CONTRACT",
             "STOCK_TAKE",
+            "FIXED_ASSET",
             "EXPENSE_REPORT",
             "TASK"
         ],
@@ -135,11 +136,12 @@ fn trigger_specs_cover_whitelist_in_order() {
          ACCOUNTING_PERIOD（会计期间结账 / 反结账，LNK-08 新接）、\
          CONTRACT（合同提交审批 / 审批通过 / 驳回 / 生效 / 完成 / 终止，LNK-07 新接）、\
          STOCK_TAKE（盘点单过账 / 作废，LNK-04 新接）、\
+         FIXED_ASSET（资产处置 / 作废处置，LNK-09 新接）、\
          EXPENSE_REPORT（报销单提交 / 通过 / 付清 / 作废 / 打回，LNK-05 新接）、\
          TASK（任务状态变更）；\
          接线状态变化时这份断言要跟着改，改之前先想清楚「真的有人调引擎了吗」"
     );
-    assert_eq!(spec::unwired_triggers().len(), 4, "其余 4 个仍未接线");
+    assert_eq!(spec::unwired_triggers().len(), 3, "其余 3 个仍未接线");
 }
 
 /// 每条声明都要自洽：已接线的必须有证据对，未接线的必须给出原因且不能有证据对。
@@ -213,10 +215,10 @@ fn wired_triggers_match_call_sites() {
     }
     assert_eq!(
         actual.len(),
-        12,
-        "当前真实调用点 12 个文件（收货过账 / 出库过账 handler + 出库联动 hook + 调拨联动 hook + \
+        13,
+        "当前真实调用点 13 个文件（收货过账 / 出库过账 handler + 出库联动 hook + 调拨联动 hook + \
          采购联动 hook + 应付联动 hook + 盘点联动 hook + 报销联动 hook + 凭证联动 hook + \
-         合同联动 hook + 会计期间联动 hook + 任务状态通知）：{actual:?}"
+         合同联动 hook + 会计期间联动 hook + 固定资产联动 hook + 任务状态通知）：{actual:?}"
     );
 }
 
@@ -988,6 +990,140 @@ fn period_wires_generic_engine_and_excludes_ledger_actions() {
         assert!(
             !engine::is_routed_elsewhere(spec::PERIOD_EXCLUDED_ACTIONS, code),
             "{code} 被误判成专用路由：期间的通知 / 建任务会静默不执行"
+        );
+    }
+}
+
+/// 固定资产（`FIXED_ASSET`）的接线细节（LNK-09）：处置 / 作废处置两处都调 hook，
+/// 且必须排除会与 `asset_bridge` 的处置凭证 / 红冲重复落账的两类动作。
+///
+/// 这条防的五种漂移：
+///
+/// 1. 只在 `spec.rs` 把 `wired` 改成 true、`asset_bridge.rs` / `asset_handler.rs` 里没调用
+///    （P1-FIX-5C 的原罪：规则能保存、能启用、永远不触发）；
+/// 2. 只接「作废处置」漏掉「处置」→ 最关心的「资产被处置了」永远不响；
+///    （处置的真实入口在审批回调里，不在 handler 的 dispose 提交上 —— 提交只是发起审批）
+/// 3. 排除清单丢了 → 处置时通用引擎再跑一次 `GENERATE_VOUCHER`：一张卡两套处置凭证，
+///    1606 清理科目翻倍（巡检 K7 当场红）；作废处置再跑一次 `REVERSE_VOUCHER`：
+///    同一张蓝字凭证红冲两次 → 500；
+/// 4. 把 `run_deferred_after_commit` 挪进事务里（或在 `tx.commit()` 之前调）→
+///    通知先发、处置失败即幽灵通知；
+/// 5. 排除清单把通知 / 建任务也排掉 → 联动配了等于没配（不报错、不落账）。
+#[test]
+fn asset_wires_generic_engine_and_excludes_voucher() {
+    let hook = include_str!("../../erp/asset_linkage.rs");
+    assert!(
+        hook.contains("linkage::engine::run_excluding("),
+        "资产状态变更必须调用通用引擎（run_excluding）：否则 FIXED_ASSET 的联动规则配了不触发"
+    );
+    assert!(
+        hook.contains("&ctx, linkage::spec::FIXED_ASSET_EXCLUDED_ACTIONS"),
+        "资产调通用引擎时必须**真的把** spec::FIXED_ASSET_EXCLUDED_ACTIONS 传下去（不许改成 \
+         写死的空清单）：只在文档里提这个名字救不了重复落账"
+    );
+    assert!(
+        hook.contains("linkage::engine::run_deferred"),
+        "资产的提交后动作必须交给 run_deferred（commit 之后跑），否则通知 / 建任务永远不执行"
+    );
+    for code in [spec::ACTION_GENERATE_VOUCHER, "REVERSE_VOUCHER"] {
+        assert!(
+            spec::FIXED_ASSET_EXCLUDED_ACTIONS.contains(&code),
+            "固定资产的排除清单漏了 {code}：处置凭证 / 红冲由 asset_bridge 专用路径完成，\
+             通用引擎再跑一次就是重复落账"
+        );
+    }
+    for code in [spec::ACTION_SEND_NOTICE, spec::ACTION_CREATE_TASK] {
+        assert!(
+            !spec::FIXED_ASSET_EXCLUDED_ACTIONS.contains(&code),
+            "{code} 不能被资产排除：通知 / 建任务就靠通用引擎的 AfterCommit 动作"
+        );
+    }
+
+    // 两处真实状态推进：① 处置（asset_bridge::execute，审批通过后）② 作废处置（asset_dispose_cancel）
+    let bridge = include_str!("../../erp/asset_bridge.rs");
+    assert_eq!(
+        bridge.matches("asset_linkage::run_in_tx(").count(),
+        1,
+        "资产处置（asset_bridge::execute）必须真的调 asset_linkage::run_in_tx\
+         （只改 spec.rs 的 wired 标记不算接线）"
+    );
+    assert_eq!(
+        bridge
+            .matches("asset_linkage::run_deferred_after_commit(")
+            .count(),
+        1,
+        "处置入口必须在 commit 之后 flush（事务内发通知 = 回滚后幽灵通知）"
+    );
+
+    let handler = include_str!("../../erp/asset_handler.rs");
+    assert_eq!(
+        handler.matches("asset_linkage::run_in_tx(").count(),
+        1,
+        "作废处置（asset_dispose_cancel）必须真的调 asset_linkage::run_in_tx"
+    );
+    assert_eq!(
+        handler
+            .matches("asset_linkage::run_deferred_after_commit(")
+            .count(),
+        1,
+        "作废处置入口必须在 commit 之后 flush"
+    );
+
+    // 铁律：flush 必须排在 `tx.commit()` 之后。切片段时要避开注释里的字面量
+    // （本仓踩过：注释写 `tx.commit()` 会把 find 命中提前，断言假红）。
+    let execute = bridge
+        .find("async fn execute(instance_id: Uuid)")
+        .expect("asset_bridge.rs 必须有 execute");
+    let body = &bridge[execute..];
+    let commit = body.find("tx.commit()").expect("处置必须在事务里 commit");
+    let flush = body
+        .find("asset_linkage::run_deferred_after_commit(")
+        .expect("处置必须在提交之后 flush");
+    assert!(
+        commit < flush,
+        "asset_bridge::execute：run_deferred_after_commit 必须排在事务提交**之后**\
+         （当前 commit@{commit} / flush@{flush}）"
+    );
+    let run_in_tx = body
+        .find("asset_linkage::run_in_tx(")
+        .expect("处置必须在事务内调 run_in_tx");
+    assert!(
+        run_in_tx < commit,
+        "asset_bridge::execute：run_in_tx 必须在事务提交**之前**（事务内动作失败要整笔回滚）"
+    );
+
+    let cancel = handler
+        .find("pub async fn asset_dispose_cancel(")
+        .expect("asset_handler.rs 必须有 asset_dispose_cancel");
+    let body = &handler[cancel..];
+    let commit = body.find("tx.commit()").expect("作废处置必须 commit");
+    let flush = body
+        .find("asset_linkage::run_deferred_after_commit(")
+        .expect("作废处置必须在提交之后 flush");
+    assert!(
+        commit < flush,
+        "asset_dispose_cancel：flush 必须排在事务提交**之后**（当前 commit@{commit} / flush@{flush}）"
+    );
+    let run_in_tx = body
+        .find("asset_linkage::run_in_tx(")
+        .expect("作废处置必须在事务内调 run_in_tx");
+    assert!(
+        run_in_tx < commit,
+        "asset_dispose_cancel：run_in_tx 必须在事务提交**之前**"
+    );
+
+    // 排除清单在语义上真的会拦（不是只有字符串写对）
+    use crate::business::flow::linkage::engine;
+    for code in spec::FIXED_ASSET_EXCLUDED_ACTIONS {
+        assert!(
+            engine::is_routed_elsewhere(spec::FIXED_ASSET_EXCLUDED_ACTIONS, code),
+            "{code} 在资产的排除清单里却没被判成「专用路由」：清单传下去也拦不住它"
+        );
+    }
+    for code in [spec::ACTION_SEND_NOTICE, spec::ACTION_CREATE_TASK] {
+        assert!(
+            !engine::is_routed_elsewhere(spec::FIXED_ASSET_EXCLUDED_ACTIONS, code),
+            "{code} 被误判成专用路由：资产的通知 / 建任务会静默不执行"
         );
     }
 }

@@ -114,6 +114,7 @@ pub mod asset_bridge;
 pub mod asset_compute;
 pub mod asset_dto;
 pub mod asset_handler;
+pub mod asset_linkage;
 pub mod asset_model;
 pub mod batch;
 pub mod budget_bridge;
@@ -330,6 +331,11 @@ mod contract_linkage_tests;
 /// 事务回滚时通知不发、重复结账不重复触发、排除动作确实不跑）。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod period_linkage_tests;
+
+/// LNK-09 的真库单测（固定资产联动接线：处置触发一次、重复处置不重复触发、
+/// 作废处置触发、事务回滚通知不发、排除动作确实不跑）。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod asset_linkage_tests;
 
 /// 凭证辅助核算（DC-11 · P2-1）：写入口径 + 辅助账查询。只在 `cargo test` 时编译。
 #[cfg(test)]

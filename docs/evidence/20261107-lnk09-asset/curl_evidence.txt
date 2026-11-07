@@ -1,0 +1,37 @@
+## LNK-09 真机取证：固定资产（FIXED_ASSET）处置 / 作废处置 → 联动引擎
+
+# 超管 admin 登录成功，token 长度 = 461
+
+## ① GET /api/business/flow/linkage —— 配置页显示 FIXED_ASSET wired=true
+{
+ "entity": "FIXED_ASSET",
+ "wired": true,
+ "wiring": "已接线（两处真实状态推进）：① 处置 — erp/asset_bridge.rs::execute 第 ⑤ 步 （处置凭证 + 状态机 IN_USE|IDLE → DISPOSED + 卡片回填 + 变动留痕之后、commit 之前）调 asset_linkage::run_in_tx → 通用引擎 run_excluding(spec::FIXED_ASSET_EXCLUDED_ACTIONS)（处置凭证由本函数 ① 步出 1~3 张，GENERATE_VOUCHER 必须排除；作废处置的红冲由 asset_bridge::reverse_disposal_vouchers 做，REVERSE_VOUCHER 一并排除）；② 作废…"
+}
+
+## ② PUT /api/business/flow/linkage —— DISPOSED / IN_USE 各配一条 SEND_NOTICE（TAKEOVER→CREATOR）
+{"rules": ["01a1b54a-092d-7073-abc6-3363366bc23d", "01a1b54a-0933-71c8-bf6b-dbd57815224b"], "trigger_status": ["DISPOSED", "IN_USE"]}
+
+## ③ POST /api/system/dept + /api/system/user + /api/business/erp/asset —— 造夹具与建卡
+# 库里没有部门，已用 /api/system/dept 建夹具部门 01a1b54a-0983-732d-870e-696081af1c00
+# 已建制单人 lnk09_maker（01a1b54a-09ba-7748-a68f-e571c91bf1e3，SUPER_ADMIN 角色）
+# 制单人登录成功（token 长度 469）；分类 = ELEC(b88fb4bd-5ec2-4dc6-b818-bc942569385b)；部门 = 01a1b54a-0983-732d-870e-696081af1c00
+# admin 临时挂到 GENERAL_MANAGER（审批人要非制单人；结束时摘掉）
+# 卡片已建：id=01a1b54a-0c87-7340-83c8-414b284695fc no=FA-20261107-000003 status=IN_USE
+
+## ④ POST /api/business/erp/asset/{id}/dispose —— 提交处置审批（IN_USE → 待审批）
+# 提交后卡片状态 = IN_USE（审批未通过前必须仍在役）
+# 处置通知（此刻）= 0（提交不是触发点）
+
+## ⑤ POST /api/business/flow/task/{id}/approve —— 审批通过（asset_bridge::execute ⑤ 号调用点）
+# 审批结果：{"instance_id": "01a1b54a-0cad-72f7-9198-fc9e18d6634d", "instance_status": "APPROVED", "node_status": "APPROVED", "done": true, "idempotent": false, "next_nodes": [], "auto_passed_nodes": 0, "approver_count": 1, "approved_count": 1, "rejected_count": 0}
+# 卡片状态 = DISPOSED；sys_notice[LNK:FIXED_ASSET:DISPOSED:01a1b54a-0c87-7340-83c8-414b284695fc] = 1；处置凭证 = 3 张
+
+## ⑥ 再次 POST 同一条待办 /approve —— 幂等重放（重复触发抑制）
+# http=200 code=0 idempotent=True {"instance_id": "01a1b54a-0cad-72f7-9198-fc9e18d6634d", "instance_status": "APPROVED", "node_status": "APPROVED", "done": true, "idempotent": true, "next_nodes": [], "auto_passed_nodes": 0, "approver_
+# 重复 approve 之后：卡片状态 = DISPOSED，DISPOSED 通知 = 1（必须仍是 1），处置凭证 = 3（不许翻倍）
+
+## ⑦ POST /api/business/erp/asset/{id}/dispose/cancel —— 作废处置（红冲 + 恢复在役）
+# 卡片状态 = IN_USE；sys_notice[LNK:FIXED_ASSET:IN_USE:01a1b54a-0c87-7340-83c8-414b284695fc] = 1；处置蓝字凭证 = 6（红冲后 remaining 未删）
+
+## ALL PASS：FIXED_ASSET 处置 / 作废处置两处状态推进都真的触发联动，重复审批不重复触发，凭证没有翻倍

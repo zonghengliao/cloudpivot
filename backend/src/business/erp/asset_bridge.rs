@@ -35,6 +35,7 @@ use std::result::Result;
 
 use crate::business::erp::asset_compute::{self, DisposalAccounts, DisposalAmounts, DisposalKind};
 use crate::business::erp::asset_dto::{self, status_label};
+use crate::business::erp::asset_linkage;
 use crate::business::erp::asset_model::{self, AssetRow};
 use crate::business::erp::voucher;
 use crate::business::erp::voucher_multi;
@@ -201,7 +202,7 @@ async fn execute(instance_id: Uuid) -> std::result::Result<Option<Uuid>, ApiErro
             .await
             .map_err(|error| internal(error, "锁定资产卡片"))?
         else {
-            return Ok::<Option<Uuid>, ApiError>(None);
+            return Ok::<Option<(Uuid, asset_linkage::AssetStatusChange)>, ApiError>(None);
         };
         if !asset_dto::disposable(&asset.status) {
             return Err(ApiError::new(
@@ -286,15 +287,35 @@ async fn execute(instance_id: Uuid) -> std::result::Result<Option<Uuid>, ApiErro
         )
         .await
         .map_err(|error| internal(error, "写处置留痕"))?;
-        Ok(Some(asset.id))
+        // ⑤ 跨单据联动（事务内动作；处置凭证由本函数 ① 步出 ⇒ 引擎排除
+        //    GENERATE_VOUCHER / REVERSE_VOUCHER，见 asset_linkage 文件头）。
+        //    失败 → 整笔处置回滚（不会留下「卡已处置、联动没跑」的半截状态）。
+        let change = asset_linkage::run_in_tx(
+            &tx,
+            asset.id,
+            &asset.asset_no,
+            asset_dto::STATUS_DISPOSED,
+            Some(instance.initiator_id),
+        )
+        .await?;
+        Ok(Some((asset.id, change)))
     }
     .await;
     match outcome {
-        Ok(value) => {
+        Ok(Some((asset_id, change))) => {
             tx.commit()
                 .await
                 .map_err(|error| internal(error, "提交处置事务"))?;
-            Ok(value)
+            // 铁律：通知 / 建任务只能在事务提交**之后**发（提交失败 = 处置没做成，
+            // 先发通知就是幽灵通知）。
+            asset_linkage::run_deferred_after_commit(change).await;
+            Ok(Some(asset_id))
+        }
+        Ok(None) => {
+            tx.commit()
+                .await
+                .map_err(|error| internal(error, "提交处置事务"))?;
+            Ok(None)
         }
         Err(error) => {
             let _ = tx.rollback().await;

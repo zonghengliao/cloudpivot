@@ -295,9 +295,9 @@ pub struct TriggerSpec {
 
 /// 触发点接线表（顺序与 [`TRIGGERS`] 一致）。
 ///
-/// 当前 **11/15 已接线**（`STOCK_IN` · `STOCK_OUT` · `STOCK_TRANSFER` · `PURCHASE_ORDER` ·
+/// 当前 **12/15 已接线**（`STOCK_IN` · `STOCK_OUT` · `STOCK_TRANSFER` · `PURCHASE_ORDER` ·
 /// `PAYABLE` · `VOUCHER` · `ACCOUNTING_PERIOD` · `CONTRACT` · `STOCK_TAKE` · `EXPENSE_REPORT` ·
-/// `TASK`），4 个未接线；
+/// `FIXED_ASSET` · `TASK`），3 个未接线；
 /// 逐条原因见 `docs/architecture/P1-FIX-5C-联动触发点接线清单.md`。
 pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     TriggerSpec {
@@ -582,10 +582,31 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     TriggerSpec {
         entity: state_machine::ENTITY_FIXED_ASSET,
         status_labels: &[("IN_USE", "在役"), ("IDLE", "闲置"), ("DISPOSED", "已处置")],
-        wired: false,
-        wiring: "未接线：资产停用 / 启用 / 处置 / 作废在 erp/asset_handler.rs（+ asset_bridge.rs \
-                 抛凭证），没有联动调用点",
-        proofs: &[],
+        wired: true,
+        wiring: "已接线（两处真实状态推进）：① 处置 — erp/asset_bridge.rs::execute 第 ⑤ 步 \
+                 （处置凭证 + 状态机 IN_USE|IDLE → DISPOSED + 卡片回填 + 变动留痕之后、\
+                 commit 之前）调 asset_linkage::run_in_tx → 通用引擎 \
+                 run_excluding(spec::FIXED_ASSET_EXCLUDED_ACTIONS)（处置凭证由本函数 \
+                 ① 步出 1~3 张，GENERATE_VOUCHER 必须排除；作废处置的红冲由 \
+                 asset_bridge::reverse_disposal_vouchers 做，REVERSE_VOUCHER 一并排除）；\
+                 ② 作废处置 — erp/asset_handler.rs::asset_dispose_cancel 第 ⑤ 步 \
+                 （红冲 + DISPOSED → IN_USE + 恢复在役 + 留痕之后）调同一个 hook；\
+                 两处都在各自事务 commit 之后调 asset_linkage::run_deferred_after_commit → \
+                 linkage::engine::run_deferred。**两条边目前没有触发源**：建卡 \
+                 （NULL → IN_USE）是建行不接，停用 / 启用（IN_USE ↔ IDLE）在 \
+                 asset_handler.rs 的 14 个接口里没有入口（前端资产页也没有按钮），\
+                 所以 FIXED_ASSET/IDLE 上配的规则可以保存、暂不会触发 —— 补接口是\
+                 新功能（资产模块二开卡），本卡不虚造调用点",
+        proofs: &[
+            (
+                "src/business/erp/asset_linkage.rs",
+                "linkage::engine::run_excluding",
+            ),
+            (
+                "src/business/erp/asset_linkage.rs",
+                "linkage::engine::run_deferred",
+            ),
+        ],
     },
     TriggerSpec {
         entity: state_machine::ENTITY_DEPRECIATION,
@@ -963,6 +984,32 @@ pub const PERIOD_EXCLUDED_ACTIONS: &[&str] = &[
 /// 换个触发点（如 `PAYABLE/SETTLED`）通用路线仍然要能跑这些动作。
 /// 漂移守卫：`tests_wiring::expense_wires_generic_engine_and_excludes_voucher`。
 pub const EXPENSE_EXCLUDED_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER, "REVERSE_VOUCHER"];
+
+/// **固定资产**（`FIXED_ASSET`）的专用路由排除清单（LNK-09）。
+///
+/// 资产处置事务（`erp/asset_bridge.rs::execute`）自己就落了一类账：第 ① 步
+/// `post_disposal_vouchers` 按处置类型出 1~3 张处置凭证
+/// （出售：1606 清理 + 1002 收款 + 2221.02 销项；报废 / 盘亏：1606 + 1901 或 5711），
+/// 作废处置走 `reverse_disposal_vouchers` 原路红冲。所以通用引擎在这个触发点上
+/// 必须把两类凭证动作交给专用路径，否则就是**重复落账**：
+///
+/// - `GENERATE_VOUCHER` → 一张卡片两套处置凭证：总账 / 固定资产清理科目直接翻倍，
+///   巡检 K7「1606 / 1901 必须归零」当场红；而且该动作的取数口径只接管收货入库，
+///   挂在资产上一般是 `Skipped`（「配了看起来生效、账上一分没动」也是本仓讨厌的样子）；
+/// - `REVERSE_VOUCHER` → 同一张蓝字处置凭证被红冲两次：第二次撞「已经红冲」直接 500，
+///   或者（绕过校验的实现）红字流水翻倍、净值冲成负数。
+///
+/// 库存 / 余额类动作（`WRITE_INVENTORY` / `WRITE_INVENTORY_TXN` / `UPDATE_COST` /
+/// `UPDATE_PAYABLE_BALANCE`）**不列**：资产卡片上没有物料 / 余额列，它们在本触发点上
+/// 没有可写的东西，列进来只是噪音（与合同 `CONTRACT` 同口径）。
+///
+/// `SEND_NOTICE` / `CREATE_TASK` **不能排除**：处置完成 / 作废处置之后的「通知制单人 /
+/// 建清理待办」就靠通用引擎的 `Phase::AfterCommit` 动作，排掉等于接线了但永远不响。
+///
+/// 排除清单放在**调用方**（这里导出、`erp::asset_linkage` 传入）而不是写死在引擎里：
+/// 换个触发点（如 `PAYABLE/SETTLED`）通用路线仍然要能跑凭证动作。
+/// 漂移守卫：`tests_wiring::asset_wires_generic_engine_and_excludes_voucher`。
+pub const FIXED_ASSET_EXCLUDED_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER, "REVERSE_VOUCHER"];
 
 /// 凭证（`VOUCHER`）状态变更时**必须交给专用路径、通用引擎不许碰**的动作（LNK-06）。
 ///
