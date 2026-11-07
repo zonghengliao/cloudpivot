@@ -81,7 +81,7 @@ function row(overrides: Partial<Invoice> = {}): Invoice {
     amount: '1000.0000',
     tax_amount: '130.0000',
     total_with_tax: '1130.0000',
-    tax_rate: '0.1300',
+    tax_rate: '13.0000',
     status: 'DRAFT',
     status_label: '草稿',
     receivable_id: 'ar-1',
@@ -220,25 +220,30 @@ test('来源文案：单号 + 中文类型；手工挂账不重复成「MANUAL�
 // ==================== 金额 ====================
 
 test('税额拆分：先定不含税，税额 = 合计 − 不含税（两者相加恒等于合计）', () => {
-  assert.deepEqual(splitTaxCents(113000, 0.13), { amountCents: 100000, taxCents: 13000 });
-  assert.deepEqual(splitTaxCents(22600, 0.13), { amountCents: 20000, taxCents: 2600 });
-  assert.deepEqual(splitTaxCents(0, 0.13), { amountCents: 0, taxCents: 0 });
+  // FIX-6：税率是百分数（13 = 13%）⇒ 除数 = 1 + 13/100
+  assert.deepEqual(splitTaxCents(113000, 13), { amountCents: 100000, taxCents: 13000 });
+  assert.deepEqual(splitTaxCents(22600, 13), { amountCents: 20000, taxCents: 2600 });
+  assert.deepEqual(splitTaxCents(0, 13), { amountCents: 0, taxCents: 0 });
   // 0 税率：全额是不含税，税额 0
   assert.deepEqual(splitTaxCents(10000, 0), { amountCents: 10000, taxCents: 0 });
   // 红字票（负合计）对称
-  assert.deepEqual(splitTaxCents(-113000, 0.13), { amountCents: -100000, taxCents: -13000 });
+  assert.deepEqual(splitTaxCents(-113000, 13), { amountCents: -100000, taxCents: -13000 });
   // 除不尽时也不能出现「不含税 + 税额 ≠ 合计」
   for (const total of [1, 7, 99, 12345, 999999, 333333]) {
-    const { amountCents, taxCents } = splitTaxCents(total, 0.13);
+    const { amountCents, taxCents } = splitTaxCents(total, 13);
     assert.equal(amountCents + taxCents, total, `合计 ${total} 分摊后不守恒`);
   }
   // 非法税率不炸：按 0 处理
   assert.deepEqual(splitTaxCents(10000, Number.NaN), { amountCents: 10000, taxCents: 0 });
+  // 1% 与 13% 必须是两个不同的数（百分数口径下 1 不能被当成 100%）
+  assert.deepEqual(splitTaxCents(10100, 1), { amountCents: 10000, taxCents: 100 });
 });
 
-test('税率文案：0.13 → 13%，0 → 0%，缺失 → —', () => {
-  assert.equal(taxRateText('0.1300'), '13%');
-  assert.equal(taxRateText(0.09), '9%');
+test('税率文案：13 → 13%，0 → 0%，缺失 → —（百分数口径，不再 ×100）', () => {
+  assert.equal(taxRateText('13.0000'), '13%');
+  assert.equal(taxRateText(9), '9%');
+  assert.equal(taxRateText('0.1300'), '0.13%', '0.13 是 0.13%（FIX-6 前它才是 13%）');
+  assert.equal(taxRateText('6.0000'), '6%');
   assert.equal(taxRateText(0), '0%');
   assert.equal(taxRateText(null), '—');
   assert.equal(taxRateText(''), '—');
@@ -288,8 +293,11 @@ test('开票表单校验：应收必选 / 金额 > 0 / 不超额度 / 税率 0~1
   assert.match(invoiceFormError(form({ total: 1 }), { ...ctx, invoicedCents: 113000 }), /额度/);
   assert.match(invoiceFormError(form({ total: 0 }), { ...ctx, invoicedCents: 113000 }), /额度/);
 
-  assert.match(invoiceFormError(form({ taxRate: 1.5 }), ctx), /税率/);
+  // 税率百分数口径：0–100 合法，1 = 1%（不是 100%），> 100 / < 0 拒
+  assert.match(invoiceFormError(form({ taxRate: 100.01 }), ctx), /税率/);
   assert.match(invoiceFormError(form({ taxRate: -0.1 }), ctx), /税率/);
+  assert.equal(invoiceFormError(form({ taxRate: 1 }), ctx), '', '1 = 1%，合法');
+  assert.equal(invoiceFormError(form({ taxRate: 100 }), ctx), '', '100% 合法');
   // 0 税率合法（免税票）
   assert.equal(invoiceFormError(form({ taxRate: 0 }), ctx), '');
 
@@ -297,9 +305,9 @@ test('开票表单校验：应收必选 / 金额 > 0 / 不超额度 / 税率 0~1
   assert.match(invoiceFormError(form({ invoiceCode: 'x'.repeat(33) }), ctx), /32/);
 });
 
-test('开票弹窗默认税率 0.13（后端 default_tax_rate）', () => {
-  assert.equal(INVOICE_DEFAULT_TAX_RATE, 0.13);
-  assert.equal(form().taxRate, 0.13);
+test('开票弹窗默认税率 13（后端 default_tax_rate 的百分数口径）', () => {
+  assert.equal(INVOICE_DEFAULT_TAX_RATE, 13);
+  assert.equal(form().taxRate, 13);
 });
 
 // ==================== 作废原因 ====================

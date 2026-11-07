@@ -243,6 +243,7 @@ pub mod stocktake_bridge;
 pub mod stocktake_dto;
 pub mod stocktake_handler;
 pub mod stocktake_model;
+pub mod tax_rate;
 pub mod transfer_dto;
 pub mod transfer_handler;
 pub mod transfer_model;

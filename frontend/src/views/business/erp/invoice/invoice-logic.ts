@@ -42,8 +42,8 @@ export const RECEIVABLE_FETCH_LIMIT = 200;
 export const INVOICE_REASON_MIN = 4;
 export const INVOICE_REASON_MAX = 500;
 
-/** 发票默认税率 13%（`invoice::default_tax_rate` = `0.1300`） */
-export const INVOICE_DEFAULT_TAX_RATE = 0.13;
+/** 发票默认税率 13%（**百分数**：`invoice::default_tax_rate` = 13，FIX-6 统一标度） */
+export const INVOICE_DEFAULT_TAX_RATE = 13;
 
 /** 发票的 4 个权限码（`V0299` 种的 `sys_menu.auth_code`，逐字一致） */
 export const INVOICE_PERMS = {
@@ -234,12 +234,13 @@ export function invoiceTypeLabel(row: Pick<Invoice, 'invoice_type' | 'invoice_ty
   return row.invoice_type_label || INVOICE_TYPE_LABELS[row.invoice_type] || row.invoice_type || '—';
 }
 
-/** 税率 → 百分比文案（`0.13` → `13%`；0 税率显示 `0%`；缺失 / 非数字显示 `—`） */
+/** 税率 → 百分比文案（**百分数口径**：`13` → `13%`；0 税率显示 `0%`；缺失 / 非数字显示 `—`） */
 export function taxRateText(value: number | string | null | undefined): string {
   if (value === null || value === undefined || value === '') return '—';
   const rate = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(rate)) return '—';
-  const percent = Math.round(rate * 10000) / 100;
+  // FIX-6：库里的 tax_rate 已是百分数（13 = 13%），不再 ×100
+  const percent = Math.round(rate * 100) / 100;
   return `${percent}%`;
 }
 
@@ -259,7 +260,8 @@ export function splitTaxCents(
     return { amountCents: 0, taxCents: 0 };
   }
   const rate = Number.isFinite(taxRate) ? taxRate : 0;
-  const divisor = 1 + rate;
+  // FIX-6：税率是百分数（13 = 13%）⇒ 除数 = 1 + 13/100
+  const divisor = 1 + rate / 100;
   if (divisor <= 0) return { amountCents: totalCents, taxCents: 0 };
   const amountCents = Math.round(totalCents / divisor);
   return { amountCents, taxCents: totalCents - amountCents };
@@ -376,7 +378,7 @@ export interface InvoiceFormState {
   invoiceDate: string;
   /** 价税合计（元；自动带出 = 应收金额，可改小做分次开票） */
   total: number;
-  /** 税率（0~1，默认 0.13） */
+  /** 税率（**百分数** 0~100，默认 13 = 13%；FIX-6 与订单 / 收货同口径） */
   taxRate: number;
   /** 手填税控号（空 = 后端取 `IV-yyyyMMdd-000001`） */
   invoiceNo: string;
@@ -414,8 +416,8 @@ export function invoiceFormError(
     return '价税合计必须大于 0';
   }
   const rate = Number(form.taxRate);
-  if (!Number.isFinite(rate) || rate < 0 || rate > 1) {
-    return '税率必须在 0 ~ 1 之间（0.13 = 13%）';
+  if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
+    return '税率必须在 0 ~ 100 之间（百分数，13 = 13%）';
   }
   if (totalCents > headroom) {
     return `价税合计 ${formatCents(totalCents)} 超过这张应收的剩余可开票额度 ${formatCents(headroom)}`;

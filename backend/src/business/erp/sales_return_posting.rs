@@ -77,6 +77,7 @@ use crate::business::erp::stockin_base::{
 };
 use crate::business::erp::stockout_base::{DOC_TYPE_STOCK_OUT, TXN_TYPE_OUT};
 use crate::business::erp::stockout_model::{self as stock_out};
+use crate::business::erp::tax_rate as tax_rate_mod;
 use crate::business::erp::voucher::{
     self, ACCOUNT_AR, ACCOUNT_MAIN_COST, ACCOUNT_OUTPUT_TAX, ACCOUNT_REVENUE, EntryLine,
     PostVoucher, VOUCHER_TYPE_AUTO,
@@ -257,22 +258,12 @@ pub fn red_invoice_amounts(
     Some((amount, tax, total))
 }
 
-/// 红票税率（`biz_invoice.tax_rate` 是 0–1 的小数，退货单上是百分数）。
+/// 红票税率（**百分数**：`biz_invoice.tax_rate` 与退货单上的税率同口径，13 = 13%）。
 ///
-/// 按「税额 / 不含税金额」反算，四舍五入到 4 位并夹在 `[0, 1]`
-/// （`ck_biz_invoice_tax_rate: 0 <= tax_rate <= 1`）。
+/// 按「税额 / 不含税金额 × 100」反算，四舍五入到 4 位并夹在 `[0, 100]`
+/// （FIX-6 / V0327 之后 `ck_biz_invoice_tax_rate: 0 <= tax_rate <= 100`）。
 pub fn invoice_tax_rate(total_amount: Decimal, total_tax: Decimal) -> Decimal {
-    if total_amount <= Decimal::ZERO {
-        return Decimal::ZERO;
-    }
-    let rate = (total_tax / total_amount).round_dp(4);
-    if rate < Decimal::ZERO {
-        Decimal::ZERO
-    } else if rate > Decimal::ONE {
-        Decimal::ONE
-    } else {
-        rate
-    }
+    tax_rate_mod::percent_of(total_amount, total_tax)
 }
 
 /// 冲减后应收状态应该是什么（`SETTLED` / 保持原状态）。
@@ -1091,10 +1082,10 @@ async fn create_red_invoice(
         .query_first_sql(
             "INSERT INTO biz_invoice \
                 (invoice_no, invoice_type, invoice_code, customer_id, invoice_date, \
-                 amount, tax_amount, total_with_tax, tax_rate, status, receivable_id, \
+                 amount, tax_amount, total_with_tax, tax_rate, tax_rate_mode, status, receivable_id, \
                  source_type, source_no, remark, created_at, updated_at, create_by, update_by) \
              VALUES (?, ?, NULL, ?::uuid, ?::text::date, \
-                 ?::text::numeric, ?::text::numeric, ?::text::numeric, ?::text::numeric, ?, \
+                 ?::text::numeric, ?::text::numeric, ?::text::numeric, ?::text::numeric, 'PERCENT', ?, \
                  ?::uuid, ?, ?, ?, ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid) \
              RETURNING id"
                 .to_string(),
@@ -1686,12 +1677,12 @@ mod tests {
 
     /// ⑩ 红票税率按「税额 / 不含税金额」反算（0–1），并夹在合法区间。
     #[test]
-    fn invoice_tax_rate_is_fraction_and_clamped() {
-        assert_eq!(invoice_tax_rate(dec("1000"), dec("130")), dec("0.13"));
-        assert_eq!(invoice_tax_rate(dec("100"), dec("6")), dec("0.06"));
+    fn invoice_tax_rate_is_percent_and_clamped() {
+        assert_eq!(invoice_tax_rate(dec("1000"), dec("130")), dec("13"));
+        assert_eq!(invoice_tax_rate(dec("100"), dec("6")), dec("6"));
         assert_eq!(invoice_tax_rate(Decimal::ZERO, dec("13")), Decimal::ZERO);
-        // 脏数据把税率算成 > 1 → 夹到 1（否则 ck_biz_invoice_tax_rate 会炸）
-        assert_eq!(invoice_tax_rate(dec("10"), dec("30")), Decimal::ONE);
+        // 脏数据把税率算成 > 100 → 夹到 100（否则 ck_biz_invoice_tax_rate 会炸）
+        assert_eq!(invoice_tax_rate(dec("10"), dec("30")), Decimal::ONE_HUNDRED);
     }
 
     /// ⑪ 信用额度释放：已过账退货从在手占用里抵减，抵减到底不出负数。

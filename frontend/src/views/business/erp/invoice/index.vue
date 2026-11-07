@@ -369,15 +369,16 @@
               <t-input-number
                 v-model="createForm.taxRate"
                 :min="0"
-                :max="1"
-                :step="0.01"
+                :max="100"
+                :step="1"
                 :decimal-places="2"
                 theme="normal"
+                suffix="%"
                 data-testid="inv-create-rate"
               />
             </t-form-item>
           </div>
-          <p class="form-tip">税率按小数填（<code>0.13</code> = 13%）；当前 {{ taxRateText(createForm.taxRate) }}</p>
+          <p class="form-tip">税率按<strong>百分数</strong>填（<code>13</code> = 13%，与订单 / 收货同口径）；当前 {{ taxRateText(createForm.taxRate) }}</p>
 
           <t-form-item label="价税合计" required-mark>
             <t-input-number

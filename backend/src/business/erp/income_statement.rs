@@ -1171,6 +1171,7 @@ mod tests {
             formula: formula.map(str::to_string),
             is_deduction: false,
             sort_order: order,
+            reclass_negative_to: None,
         }
     }
 

@@ -81,6 +81,7 @@ use crate::business::erp::inventory_audit::AuditReport;
 use crate::business::erp::model::{
     self, InventoryLocationRow, InventoryRow, InventoryTxnRow, WarehouseRow,
 };
+use crate::business::erp::tax_rate as tax_rate_mod;
 use crate::business::erp::unit_guard;
 use crate::shared::error_code;
 use crate::utils;
@@ -1018,15 +1019,25 @@ pub async fn material_create(
         }
         None => None,
     };
+    // FIX-6：物料税率统一按**百分数**落库（V0327）。老前端传小数（0.13）按过渡期规则 ×100
+    //         并打 WARN；实际采用的标度写 `tax_rate_mode` 供审计（过渡期后删列）。
+    let material_tax = match req.tax_rate {
+        Some(rate) => Some(tax_rate_mod::normalize_with_mode(
+            rate,
+            tax_rate_mod::TaxRateMode::Legacy,
+            "物料 tax_rate",
+        )?),
+        None => None,
+    };
     let id = Uuid::now_v7();
     db().execute_with_params(
         "INSERT INTO biz_material \
              (id, material_code, material_name, spec, unit_id, material_type, \
               default_warehouse_id, safety_stock, costing_method, inventory_account_id, tax_rate, \
-              status, serial_required, remark, created_at, updated_at, create_by, update_by) \
+              tax_rate_mode, status, serial_required, remark, created_at, updated_at, create_by, update_by) \
              VALUES (?::uuid, ?, ?, ?, ?::uuid, ?, NULLIF(?::text,'')::uuid, \
                      COALESCE(NULLIF(?::text,''),'0')::numeric, ?, NULLIF(?::text,'')::uuid, \
-                     COALESCE(NULLIF(?::text,''),'0')::numeric, ?, ?, ?, now(), now(), \
+                     COALESCE(NULLIF(?::text,''),'0')::numeric, ?, ?, ?, ?, now(), now(), \
                      NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)",
         vec![
             Value::from(&id),
@@ -1039,7 +1050,16 @@ pub async fn material_create(
             decimal_text(req.safety_stock),
             Value::from(req.costing_method.clone()),
             uuid_text(inventory_account_id),
-            decimal_text(req.tax_rate),
+            Value::Text(
+                material_tax
+                    .map(|value| value.percent.to_string())
+                    .unwrap_or_else(|| "0".to_string()),
+            ),
+            Value::Text(
+                material_tax
+                    .map(|value| value.mode_text().to_string())
+                    .unwrap_or_else(|| tax_rate_mod::MODE_PERCENT.to_string()),
+            ),
             Value::I16(req.status),
             Value::from(req.serial_required.unwrap_or(false)),
             Value::from(req.remark.clone()),
@@ -1130,7 +1150,25 @@ pub async fn material_update(
             Some(account_id)
         }
     };
-    let tax_rate = req.tax_rate.unwrap_or(current.tax_rate);
+    // FIX-6：只有**请求显式给了**税率才归一（老前端传 0.13 → 13% + WARN）。
+    //         缺席就整列不写：库里已是百分数口径（V0327 迁过），再归一一次会把 0.5% 放大成 50%。
+    let (tax_clause, tax_params) = match req.tax_rate {
+        Some(rate) => {
+            let normalized = tax_rate_mod::normalize_with_mode(
+                rate,
+                tax_rate_mod::TaxRateMode::Legacy,
+                "物料 tax_rate",
+            )?;
+            (
+                " tax_rate = ?::numeric, tax_rate_mode = ?, ".to_string(),
+                vec![
+                    Value::Text(normalized.percent.to_string()),
+                    Value::Text(normalized.mode_text().to_string()),
+                ],
+            )
+        }
+        None => (String::new(), Vec::new()),
+    };
     let status = req.status.unwrap_or(current.status);
     // 一物一码开关：缺席 = 不改（不是「关掉」），与其余可选字段同口径。
     let (serial_clause, serial_param) = match req.serial_required {
@@ -1153,10 +1191,10 @@ pub async fn material_update(
         Value::Text(safety_stock.to_string()),
         Value::from(costing_method),
         uuid_text(inventory_account_id),
-        Value::Text(tax_rate.to_string()),
-        Value::I16(status),
-        Value::from(remark),
     ];
+    params.extend(tax_params);
+    params.push(Value::I16(status));
+    params.push(Value::from(remark));
     // 一物一码片段插在 status/remark 之后、updated_at 之前（占位符顺序必须与 vec 一致）
     if let Some(value) = serial_param {
         params.push(value);
@@ -1168,8 +1206,8 @@ pub async fn material_update(
             "UPDATE biz_material SET material_name = ?, spec = ?, unit_id = ?::uuid, \
              material_type = ?, default_warehouse_id = NULLIF(?::text,'')::uuid, \
              safety_stock = NULLIF(?::text,'')::numeric, costing_method = ?, \
-             inventory_account_id = NULLIF(?::text,'')::uuid, \
-             tax_rate = NULLIF(?::text,'')::numeric, status = ?, remark = ?,{serial_clause} \
+             inventory_account_id = NULLIF(?::text,'')::uuid,{tax_clause} \
+             status = ?, remark = ?,{serial_clause} \
              updated_at = now(), update_by = NULLIF(?::text,'')::uuid \
              WHERE id = ?::uuid AND deleted_at IS NULL"
         ),

@@ -58,9 +58,13 @@
 //!
 //! # 金额三列的口径
 //!
+//! - **税率是百分数**（FIX-6 · V0327）：`tax_rate = 13` 表示 13%，与
+//!   `biz_sales_order_item` / `biz_stock_in_item` 同口径；历史的小数入参（`0.13`）由
+//!   [`tax_rate`] 的过渡期规则自动 ×100 并打 WARN，实际采用的标度落 `tax_rate_mode`。
 //! - 用户可给 `amount`（不含税）、`tax_amount`、`total_with_tax`、`tax_rate` 的**任意组合**，
 //!   缺的由已知量推：
-//!   `tax = round(amount × rate, 4)`、`total = amount + tax`、`amount = round(total / (1+rate), 4)`；
+//!   `tax = round(amount × rate / 100, 4)`、`total = amount + tax`、
+//!   `amount = round(total / (1 + rate/100), 4)`；
 //! - 三列**都给了**就必须自洽（`total == amount + tax`，误差 0，四位小数内逐分相等），
 //!   否则 400 —— 别等库层 `ck_biz_invoice_amount` 抛 23514（报错只给约束名，看不出是哪个数错）。
 //! - 从应收开票时 `total_with_tax` 缺省 = **应收金额全额**（卡面「自动带出金额」）。
@@ -96,6 +100,7 @@ use crate::business::erp::currency;
 use crate::business::erp::model::normalize_page;
 use crate::business::erp::period;
 use crate::business::erp::receivable::{self, ReceivableRow};
+use crate::business::erp::tax_rate as tax_rate_mod;
 use crate::business::erp::voucher::{self, ReversalInput, SeqSpec};
 use crate::business::shared::doc_kind::VoucherSourceType;
 use crate::business::shared::scope;
@@ -144,9 +149,9 @@ pub const TYPES: [&str; 2] = [TYPE_OUT, TYPE_OUT_RED];
 /// 来源类型白名单（与 `ck_biz_invoice_source` 逐字一致）。
 pub const SOURCE_TYPES: [&str; 4] = ["SALES_ORDER", "SHIPMENT", "SALES_OUT", "MANUAL"];
 
-/// 默认税率 13%（`biz_invoice.tax_rate` 的库层默认值是 0.1300）。
+/// 默认税率 13%（百分数口径，FIX-6 起 `biz_invoice.tax_rate` 存 `13.0000`）。
 pub fn default_tax_rate() -> Decimal {
-    Decimal::new(1300, 4)
+    Decimal::from(13)
 }
 
 /// 发票号前缀 / `biz_seq` 号段（SO-19 已种 `seq_type='IV'`）。
@@ -194,7 +199,7 @@ pub const CODE_MAX_CHARS: usize = 32;
 
 /// `biz_invoice` 列清单（与 V0298 + V0314 逐列对应）。
 pub const COLUMNS: &str = "id, invoice_no, invoice_type, invoice_code, customer_id, invoice_date, \
-     amount, tax_amount, total_with_tax, tax_rate, status, receivable_id, source_type, source_no, \
+     amount, tax_amount, total_with_tax, tax_rate, tax_rate_mode, status, receivable_id, source_type, source_no, \
      voucher_id, remark, \
      currency_code, exchange_rate, base_total_amount, base_total_tax, base_total_with_tax, \
      created_at, updated_at";
@@ -202,7 +207,7 @@ pub const COLUMNS: &str = "id, invoice_no, invoice_type, invoice_code, customer_
 /// 列表列（带客户名，别名 `p` / `c`）。
 pub const LIST_COLUMNS: &str = "p.id, p.invoice_no, p.invoice_type, p.invoice_code, p.customer_id, \
      COALESCE(c.name, '') AS customer_name, p.invoice_date, p.amount, p.tax_amount, \
-     p.total_with_tax, p.tax_rate, p.status, p.receivable_id, p.source_type, p.source_no, \
+     p.total_with_tax, p.tax_rate, p.tax_rate_mode, p.status, p.receivable_id, p.source_type, p.source_no, \
      p.voucher_id, p.remark, p.currency_code, p.exchange_rate, p.base_total_amount, \
      p.base_total_tax, p.base_total_with_tax, p.created_at, p.updated_at";
 
@@ -243,9 +248,9 @@ pub fn is_actionable(status: &str) -> bool {
     matches!(status, STATUS_DRAFT | STATUS_ISSUED)
 }
 
-/// 由不含税金额与税率算税额（四位小数定标，与 `ck_biz_invoice_amount` 同精度）。
+/// 由不含税金额与税率（**百分数**）算税额（四位小数定标，与 `ck_biz_invoice_amount` 同精度）。
 pub fn tax_of(amount: Decimal, tax_rate: Decimal) -> Decimal {
-    (amount * tax_rate).round_dp(4)
+    tax_rate_mod::tax_of(amount, tax_rate)
 }
 
 /// 价税合计 = 不含税 + 税额。
@@ -253,15 +258,12 @@ pub fn total_of(amount: Decimal, tax_amount: Decimal) -> Decimal {
     (amount + tax_amount).round_dp(4)
 }
 
-/// 由价税合计与税率倒推 `(不含税, 税额)`。
+/// 由价税合计与税率（**百分数**）倒推 `(不含税, 税额)`。
 ///
-/// 先定不含税（`total / (1+rate)` 四位定标）、再让税额 = 合计 - 不含税，
+/// 先定不含税（`total / (1 + rate/100)` 四位定标）、再让税额 = 合计 - 不含税，
 /// 这样**两者相加恒等于合计**（反过来先定税额会有 1 分尾差，撞 `ck_biz_invoice_amount`）。
 pub fn split_tax(total_with_tax: Decimal, tax_rate: Decimal) -> (Decimal, Decimal) {
-    let divisor = Decimal::ONE + tax_rate;
-    let amount = (total_with_tax / divisor).round_dp(4);
-    let tax_amount = (total_with_tax - amount).round_dp(4);
-    (amount, tax_amount)
+    tax_rate_mod::split(total_with_tax, tax_rate)
 }
 
 /// 税额是否与「不含税 × 税率」自洽（1 分以内即视为自洽，手工票允许四舍五入差）。
@@ -271,11 +273,14 @@ pub fn tax_is_consistent(amount: Decimal, tax_amount: Decimal, tax_rate: Decimal
     diff <= Decimal::new(1, 2)
 }
 
-/// 税率校验：`0 ~ 1`（0.13 = 13%），并定标到四位。
+/// 税率校验（**百分数** `0 ~ 100`，`13` = 13%），并定标到四位。
+///
+/// FIX-6 起 `biz_invoice.tax_rate` 与订单 / 收货明细同口径。入参归一（含过渡期小数兼容）
+/// 走 [`tax_rate::normalize_with_mode`]；本函数只做「已是百分数」的区间判定。
 pub fn validate_tax_rate(rate: Decimal) -> std::result::Result<Decimal, ApiError> {
-    if rate < Decimal::ZERO || rate > Decimal::ONE {
+    if rate < Decimal::ZERO || rate > tax_rate_mod::PERCENT_MAX {
         return Err(bad_request(format!(
-            "tax_rate 必须落在 0~1（0.13 表示 13%），收到 {rate}"
+            "tax_rate 必须落在 0~100（百分数，13 表示 13%），收到 {rate}"
         )));
     }
     Ok(rate.round_dp(4))
@@ -591,7 +596,7 @@ fn write_error(err: DbError, ctx: &str) -> ApiError {
             let hint = match constraint.as_deref().unwrap_or("") {
                 "ck_biz_invoice_amount" => "合计必须等于不含税 + 税额（金额三列不自洽）",
                 "ck_biz_invoice_sign" => "正票金额必须 > 0 / 红字票必须 < 0（符号搞反了）",
-                "ck_biz_invoice_tax_rate" => "税率必须落在 0~1",
+                "ck_biz_invoice_tax_rate" => "税率必须落在 0~100（百分数，13 = 13%）",
                 "ck_biz_invoice_status" => "状态只认 DRAFT / ISSUED / POSTED / VOID",
                 "ck_biz_invoice_type" => "票种只认 OUT / OUT_RED",
                 "ck_biz_invoice_source" => "来源只认 SALES_ORDER / SHIPMENT / SALES_OUT / MANUAL",
@@ -630,8 +635,10 @@ pub struct InvoiceRow {
     pub tax_amount: Decimal,
     /// 价税合计。
     pub total_with_tax: Decimal,
-    /// 税率。
+    /// 税率（百分数 0–100，FIX-6 起与订单 / 收货同口径）。
     pub tax_rate: Decimal,
+    /// 税率标度（`PERCENT` / `DECIMAL`；FIX-6 过渡期审计位）。
+    pub tax_rate_mode: Option<String>,
     /// 状态。
     pub status: String,
     /// 关联应收。
@@ -674,6 +681,7 @@ impl InvoiceRow {
             tax_amount: row.get_typed("tax_amount")?,
             total_with_tax: row.get_typed("total_with_tax")?,
             tax_rate: row.get_typed("tax_rate")?,
+            tax_rate_mode: row.get_typed("tax_rate_mode").ok(),
             status: row.get_typed("status")?,
             receivable_id: row.get_typed("receivable_id")?,
             source_type: row.get_typed("source_type")?,
@@ -821,8 +829,10 @@ pub struct InvoiceRes {
     pub tax_amount: Decimal,
     /// 价税合计。
     pub total_with_tax: Decimal,
-    /// 税率。
+    /// 税率（百分数 0–100，`13` = 13%）。
     pub tax_rate: Decimal,
+    /// 税率标度（`PERCENT` / `DECIMAL`；FIX-6 过渡期审计位，老前端按小数提交时记 `DECIMAL`）。
+    pub tax_rate_mode: Option<String>,
     /// 状态。
     pub status: String,
     /// 状态中文。
@@ -869,6 +879,7 @@ impl InvoiceRes {
             tax_amount: row.tax_amount,
             total_with_tax: row.total_with_tax,
             tax_rate: row.tax_rate,
+            tax_rate_mode: row.tax_rate_mode.clone(),
             status: row.status.clone(),
             status_label: status_label(&row.status).to_string(),
             receivable_id: row.receivable_id.map(|id| id.to_string()),
@@ -1001,8 +1012,13 @@ pub struct CreateInvoiceReq {
     pub tax_amount: Option<Decimal>,
     /// 价税合计（从应收开票时缺省 = 应收金额）。
     pub total_with_tax: Option<Decimal>,
-    /// 税率（缺省 0.13）。
+    /// 税率（**百分数** `0–100`，缺省 13 = 13%；FIX-6 起与订单 / 收货同口径）。
     pub tax_rate: Option<Decimal>,
+    /// 税率标度声明（FIX-6 过渡期）：`PERCENT`（13 = 13%）/ `DECIMAL`（0.13 = 13%）/ 缺省。
+    ///
+    /// 缺省时按过渡期规则自动识别：`0 < 税率 ≤ 1` 视为小数并 ×100（打 WARN 日志），
+    /// 其余按百分数。要表达「1%」请显式传 `PERCENT`（否则 `1` 会被当成 100%）。
+    pub tax_rate_mode: Option<String>,
     /// 来源类型（从应收开票时自动带出）。
     pub source_type: Option<String>,
     /// 来源单号（从应收开票时自动带出）。
@@ -1247,10 +1263,18 @@ pub async fn create(
     let invoice_type = validate_type(req.invoice_type.as_deref())?;
     let invoice_no = validate_invoice_no(req.invoice_no.as_deref())?;
     let invoice_code = validate_invoice_code(req.invoice_code.as_deref())?;
-    let tax_rate = match req.tax_rate {
-        Some(rate) => validate_tax_rate(rate)?,
-        None => default_tax_rate(),
+    // FIX-6：税率一律按**百分数**落库。老前端传小数（0.13）时按过渡期规则 ×100 并打 WARN，
+    //        实际采用的标度写进 `tax_rate_mode` 供审计（PRD：「过渡期后删除」）。
+    let tax_mode = tax_rate_mod::TaxRateMode::parse(req.tax_rate_mode.as_deref())?;
+    let normalized = match req.tax_rate {
+        Some(rate) => tax_rate_mod::normalize_with_mode(rate, tax_mode, "开票 tax_rate")?,
+        None => tax_rate_mod::Normalized {
+            percent: default_tax_rate(),
+            mode: tax_rate_mod::MODE_PERCENT,
+        },
     };
+    let tax_rate = normalized.percent;
+    let tax_rate_mode = normalized.mode_text();
     let invoice_date = match req.invoice_date.as_deref().map(str::trim) {
         Some(raw) if !raw.is_empty() => parse_date_arg(raw, "invoice_date")?,
         _ => today_cst(),
@@ -1403,13 +1427,13 @@ pub async fn create(
                 format!(
                     "INSERT INTO {TABLE} \
                         (invoice_no, invoice_type, invoice_code, customer_id, invoice_date, \
-                         amount, tax_amount, total_with_tax, tax_rate, status, receivable_id, \
+                         amount, tax_amount, total_with_tax, tax_rate, tax_rate_mode, status, receivable_id, \
                          source_type, source_no, remark, \
                          currency_code, exchange_rate, base_total_amount, base_total_tax, base_total_with_tax, \
                          created_at, updated_at, create_by, update_by) \
                      VALUES (?, ?, NULLIF(?::text,''), ?::uuid, ?::text::date, \
                              NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                             NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                             NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, ?, \
                              '{STATUS_DRAFT}', NULLIF(?::text,'')::uuid, \
                              NULLIF(?::text,''), NULLIF(?::text,''), NULLIF(?::text,''), \
                              ?, ?::text::numeric, ?::text::numeric, ?::text::numeric, ?::text::numeric, \
@@ -1426,6 +1450,7 @@ pub async fn create(
                     Value::Text(tax_amount.to_string()),
                     Value::Text(total_with_tax.to_string()),
                     Value::Text(tax_rate.to_string()),
+                    Value::Text(tax_rate_mode.to_string()),
                     Value::Text(receivable_id.map(|id| id.to_string()).unwrap_or_default()),
                     Value::Text(resolved_source_type.clone().unwrap_or_default()),
                     Value::Text(resolved_source_no.clone().unwrap_or_default()),
@@ -2053,26 +2078,28 @@ mod tests {
 
     #[test]
     fn tax_and_total_math_is_self_consistent() {
-        // 13% 正票：1000 不含税 → 130 税 → 1130 合计
-        assert_eq!(tax_of(dec(1000.0), dec(0.13)), dec(130.0));
+        // 13%（百分数）正票：1000 不含税 → 130 税 → 1130 合计
+        assert_eq!(tax_of(dec(1000.0), dec(13.0)), dec(130.0));
         assert_eq!(total_of(dec(1000.0), dec(130.0)), dec(1130.0));
         // 价税合计倒推：1130 / 1.13 = 1000
-        let (amount, tax) = split_tax(dec(1130.0), dec(0.13));
+        let (amount, tax) = split_tax(dec(1130.0), dec(13.0));
         assert_eq!(amount, dec(1000.0));
         assert_eq!(tax, dec(130.0));
         assert_eq!(total_of(amount, tax), dec(1130.0), "倒推后必须恒等");
         // 除不尽的尾差落到税（合计恒等，库层 ck_biz_invoice_amount 才不会炸）
-        let (amount, tax) = split_tax(dec(100.0), dec(0.13));
+        let (amount, tax) = split_tax(dec(100.0), dec(13.0));
         assert_eq!(total_of(amount, tax), dec(100.0));
         // 0 税率：全额是收入
         let (amount, tax) = split_tax(dec(500.0), Decimal::ZERO);
         assert_eq!(amount, dec(500.0));
         assert_eq!(tax, Decimal::ZERO);
+        // FIX-6 回归：百分数口径下 0.13 是「0.13%」，与 13（13%）差 100 倍 —— 这正是统一标度要防的错
+        assert_eq!(tax_of(dec(1000.0), Decimal::new(13, 2)), dec(0.13));
     }
 
     #[test]
     fn resolve_amounts_covers_every_combination() {
-        let rate = dec(0.13);
+        let rate = dec(13.0);
         // 只给合计：按税率倒推
         let (amount, tax, total) =
             resolve_amounts(None, None, Some(dec(1130.0)), rate).expect("只给合计可推");
@@ -2112,18 +2139,20 @@ mod tests {
 
     #[test]
     fn tax_rate_bounds() {
-        assert_eq!(validate_tax_rate(dec(0.13)).expect("13% 可过"), dec(0.13));
+        // FIX-6：百分数口径 0–100；13 = 13%，1 = 1%，100 = 100%
+        assert_eq!(validate_tax_rate(dec(13.0)).expect("13% 可过"), dec(13.0));
         assert_eq!(
             validate_tax_rate(Decimal::ZERO).expect("0 税率可过"),
             Decimal::ZERO
         );
+        assert_eq!(validate_tax_rate(Decimal::ONE).expect("1 = 1% 可过"), Decimal::ONE);
         assert_eq!(
-            validate_tax_rate(Decimal::ONE).expect("100% 可过"),
-            Decimal::ONE
+            validate_tax_rate(Decimal::ONE_HUNDRED).expect("100% 可过"),
+            Decimal::ONE_HUNDRED
         );
-        assert!(validate_tax_rate(dec(1.01)).is_err(), "超过 100% 要拒");
+        assert!(validate_tax_rate(dec(100.01)).is_err(), "超过 100% 要拒");
         assert!(validate_tax_rate(dec(-0.01)).is_err(), "负税率要拒");
-        assert_eq!(default_tax_rate(), dec(0.13), "库层默认 0.1300");
+        assert_eq!(default_tax_rate(), dec(13.0), "默认 13%（V0327 的库层默认值）");
     }
 
     #[test]

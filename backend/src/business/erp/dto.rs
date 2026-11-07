@@ -45,6 +45,7 @@ use crate::business::erp::model::{
     LocationRow, MaterialRow, PeriodRow, PurchaseOrderItemRow, PurchaseOrderRow, SeqRow,
     SupplierRow, UnitRow, WarehouseRow,
 };
+use crate::business::erp::tax_rate as tax_rate_mod;
 use crate::shared::error_code;
 
 // ==================== 枚举白名单（与 DB 的 CHECK 逐字一致） ====================
@@ -198,11 +199,15 @@ fn require_precision(value: i16) -> std::result::Result<(), ApiError> {
     )))
 }
 
-/// 税率（`0 <= rate <= 1`）。
+/// 税率（**百分数** `0 <= rate <= 100`，`13` = 13%；FIX-6 / V0327 起与订单、收货同口径）。
+///
+/// 过渡期的**小数入参**（`0.13`）不在这里拦：建 / 改物料的 handler 会先过
+/// [`crate::business::erp::tax_rate::normalize_with_mode`] 归一（×100 + WARN），
+/// 本校验只保证「归一之后落到 0–100」。这样老前端传 0.13 不会被 400 挡掉。
 fn require_tax_rate(value: Decimal) -> std::result::Result<(), ApiError> {
-    if value < Decimal::ZERO || value > Decimal::ONE {
+    if value < Decimal::ZERO || value > Decimal::ONE_HUNDRED {
         return Err(bad_request(format!(
-            "tax_rate 必须在 0 与 1 之间（当前 {value}，0.13 表示 13%）"
+            "tax_rate 必须在 0 与 100 之间（百分数，当前 {value}，13 表示 13%）"
         )));
     }
     Ok(())
@@ -992,7 +997,7 @@ pub struct CreateMaterialReq {
     /// 存货科目。
     #[serde(default)]
     pub inventory_account_id: Option<String>,
-    /// 税率（`0`–`1`，缺省 0）。
+    /// 税率（**百分数** `0`–`100`，缺省 0；FIX-6 起与订单 / 发票同口径，13 = 13%）。
     #[serde(default)]
     pub tax_rate: Option<Decimal>,
     /// 启用状态（缺省 1）。
@@ -2545,7 +2550,7 @@ pub struct CreatePurchaseOrderItemReq {
     pub qty: Decimal,
     /// 单价（`>= 0`）。
     pub price: Decimal,
-    /// 税率（`0`–`1`，缺省 0）。
+    /// 税率（**百分数** `0`–`100`，缺省 0；FIX-6 起与 `biz_purchase_order_item` 同口径）。
     #[serde(default)]
     pub tax_rate: Option<Decimal>,
     /// 备注。
@@ -2559,10 +2564,11 @@ impl CreatePurchaseOrderItemReq {
         (self.qty * self.price).round_dp(4)
     }
 
-    /// 税额（`amount × tax_rate`）。
+    /// 税额（`amount × tax_rate / 100`：税率是**百分数**，与落库列 `biz_purchase_order_item`
+    /// 及订单侧的 `purchase_model::line_amounts` 同一套口径）。
     pub fn tax_amount(&self) -> Decimal {
         let rate = self.tax_rate.unwrap_or(Decimal::ZERO);
-        (self.amount() * rate).round_dp(4)
+        tax_rate_mod::tax_of(self.amount(), rate)
     }
 
     /// 含税金额（`amount + tax_amount`，与被 DB 约束校验的值同源）。
@@ -3447,10 +3453,12 @@ mod tests {
         assert!(material.validate().is_err(), "未知计价方式被拒");
 
         material.costing_method = "MOVING_AVG".to_string();
-        material.tax_rate = Some(dec("1.13"));
-        assert!(material.validate().is_err(), "税率 > 1 被拒");
+        material.tax_rate = Some(dec("100.5"));
+        assert!(material.validate().is_err(), "税率 > 100 被拒");
+        material.tax_rate = Some(dec("13"));
+        assert!(material.validate().is_ok(), "13 = 13%（百分数）");
         material.tax_rate = Some(dec("0.13"));
-        assert!(material.validate().is_ok());
+        assert!(material.validate().is_ok(), "0.13 在 0–100 内（0.13%，归一在 handler）");
     }
 
     /// 成本法收敛（V0201 / ARCH-3 DC-10）：只有移动加权可选。

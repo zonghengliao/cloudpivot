@@ -48,9 +48,13 @@
 //!
 //! # 库存期初与「手工 1405 期初」互斥
 //!
-//! 库存期初会**自动**产出 `借 1405 / 贷 3103`。如果财务同时在方式 A 里手录了 1405 借方
-//! （或 3103 贷方），1405 就会被计两次 → 库存金额 ≠ 总账 1405 余额（巡检 B2 直接红）。
-//! 所以保存时会**拦住并点名**：同一期间只能用一种口径录 1405 / 3103。
+//! 库存期初会**自动**产出 `借 1405 / 贷 <对方科目>`。如果财务同时在方式 A 里手录了 1405 借方
+//! （或对方科目贷方），1405 就会被计两次 → 库存金额 ≠ 总账 1405 余额（巡检 B2 直接红）。
+//! 所以保存时会**拦住并点名**：同一期间只能用一种口径录 1405 / 对方科目。
+//!
+//! 对方科目**可配**（FIX-6 / V0328）：`sys_config.inventory_opening_equity_account`，
+//! 缺省 `3103`（本年利润）。生成凭证、互斥校验、返回体提示三处都读它
+//! （[`inventory_equity_account_code`]），**不要**再直接引用常量 `ACCOUNT_INVENTORY_OFFSET`。
 //!
 //! # 数据权限（门禁闸①/②）
 //!
@@ -78,6 +82,7 @@ use crate::business::erp::period;
 use crate::business::erp::stockin_model::{self, CostBasis};
 use crate::business::erp::voucher::{self, AccountRef, EntryLine, PostVoucher};
 use crate::shared::error_code;
+use crate::support::config::model::SysConfigModel;
 use crate::utils;
 
 // ==================== 常量 ====================
@@ -112,8 +117,14 @@ pub const SOURCE_NO_PREFIX: &str = "OPENING-";
 
 /// 库存期初自动产出的借方科目（库存商品）。
 pub const ACCOUNT_INVENTORY: &str = "1405";
-/// 库存期初自动产出的贷方科目（本年利润；卡面 §一 方式 B 的既定口径）。
+/// 库存期初自动产出的贷方科目（对方科目）的**默认值**：本年利润。
+///
+/// FIX-6 起可配：`sys_config.inventory_opening_equity_account`（见
+/// [`inventory_equity_account_code`]）。常量只作为「配置缺省 / 配置为空」时的兜底，
+/// 生成期初凭证、互斥校验、返回体提示三处**都必须读配置**，不许直接引用本常量。
 pub const ACCOUNT_INVENTORY_OFFSET: &str = "3103";
+/// 库存期初对方科目的 `sys_config` 键（`config_value` 存科目编码，如 `3103` / `3101`）。
+pub const CONFIG_INVENTORY_EQUITY_ACCOUNT: &str = "inventory_opening_equity_account";
 
 /// 状态：未录。
 pub const STATE_NONE: &str = "NONE";
@@ -572,6 +583,7 @@ pub async fn load_opening_in(
         STATE_NONE
     };
 
+    let equity_code = inventory_equity_account_code().await;
     let mut hints: Vec<String> = Vec::new();
     if !difference.is_zero() {
         hints.push(format!(
@@ -581,8 +593,9 @@ pub async fn load_opening_in(
     }
     if inventory_amount > Decimal::ZERO {
         hints.push(format!(
-            "库存期初 {inventory_amount} 已自动生成「借 {ACCOUNT_INVENTORY} / 贷 \
-             {ACCOUNT_INVENTORY_OFFSET}」；方式 A 里不要再单独录这两个科目的期初（会重复计数）"
+            "库存期初 {inventory_amount} 已自动生成「借 {ACCOUNT_INVENTORY} / 贷 {equity_code}」\
+             （对方科目由系统参数 {CONFIG_INVENTORY_EQUITY_ACCOUNT} 指定）；\
+             方式 A 里不要再单独录这两个科目的期初（会重复计数）"
         ));
     }
     if entries.iter().any(|row| row.source == SOURCE_YEAR_END) {
@@ -619,7 +632,7 @@ pub async fn load_opening_in(
         inventory,
         inventory_amount,
         inventory_debit_account: ACCOUNT_INVENTORY.to_string(),
-        inventory_credit_account: ACCOUNT_INVENTORY_OFFSET.to_string(),
+        inventory_credit_account: equity_code,
         combined_debit_total: combined_debit,
         combined_credit_total: combined_credit,
         balanced: difference.is_zero(),
@@ -686,7 +699,11 @@ fn build_lines(
     lines
 }
 
-/// 取库存期初的两个固定科目（`1405` / `3103`）。
+/// 取库存期初的两个固定科目（`1405` / 配置的对方科目）。
+///
+/// 对方科目读 `sys_config.inventory_opening_equity_account`（缺省 [`ACCOUNT_INVENTORY_OFFSET`]
+/// = 3103 本年利润）。配置成不存在的科目 / 汇总科目 → 400 点名字段，别让它静默回落到 3103
+/// （静默回落会让「改了配置却没生效」这种事查不出来）。
 async fn inventory_accounts(
     ex: &impl SqlExecutor,
 ) -> std::result::Result<(AccountRef, AccountRef), ApiError> {
@@ -699,16 +716,30 @@ async fn inventory_accounts(
                  请先在「会计科目」页启用"
             ))
         })?;
-    let credit = voucher::account_by_code(ex, ACCOUNT_INVENTORY_OFFSET)
+    let equity_code = inventory_equity_account_code().await;
+    let credit = voucher::account_by_code(ex, &equity_code)
         .await
-        .map_err(|error| write_error(error, "解析库存对方科目 3103"))?
+        .map_err(|error| write_error(error, "解析库存期初对方科目"))?
         .ok_or_else(|| {
             bad_request(format!(
-                "科目 {ACCOUNT_INVENTORY_OFFSET}（本年利润）不存在或已停用：库存期初要贷它，\
-                 请先在「会计科目」页启用"
+                "科目 {equity_code} 不存在或已停用：库存期初要贷它（对方科目由系统参数 \
+                 {CONFIG_INVENTORY_EQUITY_ACCOUNT} 指定，缺省 {ACCOUNT_INVENTORY_OFFSET} = 本年利润）—— \
+                 请改系统参数或先在「会计科目」页启用该科目"
             ))
         })?;
     Ok((debit, credit))
+}
+
+/// 库存期初对方科目编码：`sys_config.inventory_opening_equity_account` → 缺省 `3103`。
+///
+/// 读失败 / 配置为空一律回退 [`ACCOUNT_INVENTORY_OFFSET`]：这条参数是「期初贷哪个权益科目」
+/// 的账务口径，读不到就整条链路 500 等于期初录不进去，代价远大于「按默认 3103 记账」。
+pub async fn inventory_equity_account_code() -> String {
+    SysConfigModel::read_text(CONFIG_INVENTORY_EQUITY_ACCOUNT)
+        .await
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| ACCOUNT_INVENTORY_OFFSET.to_string())
 }
 
 /// 生成 / 覆盖该期间的期初凭证（**不 commit**）。
@@ -1117,7 +1148,8 @@ pub async fn save_opening_in(
         .await
         .map_err(|error| write_error(error, "读库存期初合计"))?;
 
-    // 互斥：库存期初已经产出了 借1405 / 贷3103，方式 A 里再录就是重复计数
+    // 互斥：库存期初已经产出了 借1405 / 贷<对方科目>，方式 A 里再录就是重复计数
+    let equity_code = inventory_equity_account_code().await;
     if inventory_amount > Decimal::ZERO {
         if let Some(row) = flat
             .iter()
@@ -1132,12 +1164,12 @@ pub async fn save_opening_in(
         }
         if let Some(row) = flat
             .iter()
-            .find(|row| row.account.code == ACCOUNT_INVENTORY_OFFSET && row.credit > Decimal::ZERO)
+            .find(|row| row.account.code == equity_code && row.credit > Decimal::ZERO)
         {
             return Err(bad_request(format!(
                 "科目 {} 已经有库存期初 {}（自动生成 贷{}），不能再单独录贷方期初 {}：\
                  两个口径会重复计数。要么删掉这一行，要么先把库存期初清零",
-                row.account.code, inventory_amount, ACCOUNT_INVENTORY_OFFSET, row.credit
+                row.account.code, inventory_amount, equity_code, row.credit
             )));
         }
     }
@@ -1479,7 +1511,8 @@ pub async fn save_inventory_in(
         old_map.insert((material_id, warehouse_id), (row.qty, row.amount));
     }
 
-    // 互斥：方式 A 里已经有 1405 借方 / 3103 贷方时，库存期初会重复计数
+    // 互斥：方式 A 里已经有 1405 借方 / 对方科目贷方时，库存期初会重复计数
+    let equity_code = inventory_equity_account_code().await;
     let period_entries = load_balance_rows(tx, period_code)
         .await
         .map_err(|error| write_error(error, "读科目期初"))?;
@@ -1496,12 +1529,12 @@ pub async fn save_inventory_in(
         }
         if let Some(row) = period_entries
             .iter()
-            .find(|row| row.account_code == ACCOUNT_INVENTORY_OFFSET && row.credit > Decimal::ZERO)
+            .find(|row| row.account_code == equity_code && row.credit > Decimal::ZERO)
         {
             return Err(bad_request(format!(
-                "科目 {} 已有手工期初 {}（贷方）：库存期初会自动生成 贷{}，两个口径会重复计数。\
-                 请先删掉科目期初里的 3103 那一行，再录库存期初",
-                ACCOUNT_INVENTORY_OFFSET, row.credit, ACCOUNT_INVENTORY_OFFSET
+                "科目 {} 已有手工期初 {}（贷方）：库存期初会自动生成 贷{}（对方科目由系统参数 {} \
+                 指定），两个口径会重复计数。请先删掉科目期初里的 {} 那一行，再录库存期初",
+                equity_code, row.credit, equity_code, CONFIG_INVENTORY_EQUITY_ACCOUNT, equity_code
             )));
         }
     }
@@ -1819,6 +1852,7 @@ mod tests {
     use crate::business::erp::income_statement;
     use crate::business::erp::report;
     use crate::business::shared::state_machine;
+    use crate::support::config::model::reload_runtime_snapshot;
     use std::str::FromStr;
 
     /// 真库用例串行跑。
@@ -1904,6 +1938,14 @@ mod tests {
 
     /// 清掉本模块造的所有夹具（按前缀收敛，**不碰 2026-xx 的生产期间**）。
     async fn cleanup() {
+        // FIX-6 夹具可能把「期初对方科目」写成 3101（用例中途 panic 不会走还原）：
+        // 只回退这个精确值，运维手工配的别的科目一律不动。
+        sql(&format!(
+            "UPDATE sys_config SET config_value = '{ACCOUNT_INVENTORY_OFFSET}' \
+              WHERE config_key = '{CONFIG_INVENTORY_EQUITY_ACCOUNT}' \
+                AND config_value = '3101' AND deleted_at IS NULL"
+        ))
+        .await;
         // 状态日志没有外键，必须按期间编码先删（期间行一删就查不到 id）
         sql(
             "DELETE FROM biz_status_log WHERE entity_type = 'ACCOUNTING_PERIOD' \
@@ -2094,6 +2136,36 @@ mod tests {
         )
         .await
         .expect("统计流水")
+    }
+
+    /// 期初对方科目的夹具值（FIX-6 可配用例）——写 3101，测完还原 3103。
+    ///
+    /// 写完必须 `reload_runtime_snapshot`：`SysConfigModel::read_text` 优先读**进程内快照**，
+    /// 同进程里别的用例可能已经把快照装载过，只改库不重载会读到旧值（假绿/假红都出现过）。
+    async fn set_equity_config(value: &str) {
+        sql(&format!(
+            "INSERT INTO sys_config (config_key, config_value, config_type, description, category, \
+                                    config_level, is_modifiable, status) \
+             VALUES ('{CONFIG_INVENTORY_EQUITY_ACCOUNT}', '{value}', 'STRING', \
+                     '库存期初对方科目（FIX-6 夹具）', 'erp', 2, TRUE, 1) \
+             ON CONFLICT (config_key) WHERE deleted_at IS NULL \
+             DO UPDATE SET config_value = EXCLUDED.config_value"
+        ))
+        .await;
+        reload_runtime_snapshot()
+            .await
+            .expect("本夹具改完参数必须能重载运行时快照");
+    }
+
+    /// 还原期初对方科目为默认 3103（只回退本夹具写过的 3101，不动运维手工配置）。
+    async fn restore_equity_config() {
+        sql(&format!(
+            "UPDATE sys_config SET config_value = '{ACCOUNT_INVENTORY_OFFSET}' \
+              WHERE config_key = '{CONFIG_INVENTORY_EQUITY_ACCOUNT}' \
+                AND config_value = '3101' AND deleted_at IS NULL"
+        ))
+        .await;
+        let _ = reload_runtime_snapshot().await;
     }
 
     /// 期初凭证里某科目的借方合计。
@@ -2753,6 +2825,49 @@ mod tests {
             "1002 借 / 1405 借 / 3001 贷 / 3103 贷"
         );
         assert_eq!(voucher.total_debit, dec("51000"));
+    }
+
+    /// ⑩b FIX-6：期初对方科目**可配** —— 把系统参数改成 3101（盈余公积），
+    /// 新生成的期初凭证必须贷 3101 而不是写死的 3103；返回体与互斥提示同步换科目。
+    #[tokio::test]
+    async fn r5_10b_inventory_offset_account_follows_config() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        open_at(2035, 7).await;
+        let material = make_material("R5-M-010B", false).await;
+        let warehouse = make_warehouse("R5-WH1B").await;
+
+        set_equity_config("3101").await;
+        let saved = save_inventory(
+            Some("2035-07"),
+            &[item(material, warehouse, "100", "10")],
+            Some(uid()),
+        )
+        .await;
+        restore_equity_config().await;
+        let res = saved.expect("库存期初应保存成功");
+
+        assert_eq!(
+            res.inventory_credit_account, "3101",
+            "返回体必须回显配置的对方科目"
+        );
+        assert_eq!(
+            voucher_entry_of("2035-07", "3101", "credit").await,
+            dec("1000"),
+            "生成期初凭证时必须贷配置的 3101（不再是写死的 3103）"
+        );
+        assert_eq!(
+            voucher_entry_of("2035-07", "3103", "credit").await,
+            Decimal::ZERO,
+            "3103 一分钱都不该有"
+        );
+        assert_eq!(
+            voucher_entry_of("2035-07", ACCOUNT_INVENTORY, "debit").await,
+            dec("1000"),
+            "借方仍是 1405，借贷平衡不变"
+        );
+        assert!(res.balanced, "换对方科目之后仍必须借贷平衡");
     }
 
     /// ⑬ 库存期初覆盖：按差额调整，不重复计数（含清空）。

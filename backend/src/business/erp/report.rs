@@ -269,6 +269,29 @@ pub struct ReportItemDef {
     pub is_deduction: bool,
     /// 显示顺序（同时决定公式求值顺序）。
     pub sort_order: i32,
+    /// 负数重分类的目标项编码（FIX-6，`biz_report_item.reclass_negative_to`）。
+    ///
+    /// 期初 / 期末为借方余额的负债类科目（典型：`2221 应交税费` 的留抵税额）在某些口径下
+    /// 不该以负数挂在负债侧，而是重分类到资产侧某项列报。本项算出负数时，把 `-金额`
+    /// 加到这个目标项上、自己显示 0（借贷两侧同额移动，勾稽恒等式不变）。
+    pub reclass_negative_to: Option<String>,
+}
+
+/// 一次「负数重分类」的明细（出参附注用，可审计）。
+#[derive(Debug, Clone, Serialize)]
+pub struct ReclassRes {
+    /// 来源项编码（算出了负数的那一项）。
+    pub from_item: String,
+    /// 来源项名称。
+    pub from_item_name: String,
+    /// 目标项编码（负数被搬过去的那一项）。
+    pub to_item: String,
+    /// 目标项名称。
+    pub to_item_name: String,
+    /// 搬走的金额（正数）。
+    pub amount: Decimal,
+    /// 搬走的科目编码（来源项命中的科目）。
+    pub accounts: Vec<String>,
 }
 
 /// 报表行（出参，同时是前端渲染的唯一依据）。
@@ -384,6 +407,10 @@ pub struct BalanceSheetRes {
     pub liabilities: Vec<ReportLineRes>,
     /// 所有者权益侧。
     pub equity: Vec<ReportLineRes>,
+    /// 负数重分类明细（FIX-6：如「应交税费」的留抵税额重分类到「其他流动资产」）。
+    pub reclass: Vec<ReclassRes>,
+    /// 报表附注（人话；FIX-6 起至少涵盖留抵税额那句话，没有重分类时为空）。
+    pub notes: Vec<String>,
     /// 勾稽校验。
     pub check: BalanceCheckRes,
 }
@@ -563,6 +590,8 @@ pub struct ComputedSheet {
     pub side_totals: HashMap<String, Decimal>,
     /// 未归类科目。
     pub unmapped: Vec<UnmappedAccountRes>,
+    /// 负数重分类明细（FIX-6：留抵税额等）。
+    pub reclass: Vec<ReclassRes>,
 }
 
 impl ComputedSheet {
@@ -631,6 +660,57 @@ pub fn compute(
             .entry(item.side.clone())
             .or_insert(Decimal::ZERO);
         *entry = zero_norm(*entry + if item.is_deduction { -sum } else { sum });
+    }
+
+    // ---------- 第 1.5 遍：负数重分类（FIX-6「留抵税额」） ----------
+    //
+    // `2221 应交税费` 期末是借方余额（进项 > 销项）时，按科目余额方向算出来是**负数**。
+    // 挂在负债侧显示 -208 既难看也不合报表口径：应当重分类到资产侧「其他流动资产」列报。
+    //
+    // 关键点（改动前请先读完，否则很容易把报表改成不平）：
+    // * 只搬**列报金额**（`amounts`），不动 `contributions` —— 后者是「这一侧的科目净额被
+    //   哪些报表项认领了」，用它算未归类差额。科目还是负债类科目，认领关系没变，
+    //   所以两侧的 UNMAPPED_* 仍然是 0；搬走同额后「资产总计 = 负债+权益总计」也保持不变。
+    // * 目标项若本身没算过（无 pattern / 无 formula 的纯接收项），先补 0 再累加。
+    let mut reclass: Vec<ReclassRes> = Vec::new();
+    let mut reclass_moved: HashMap<String, Decimal> = HashMap::new();
+    for item in &sorted {
+        let Some(target) = item.reclass_negative_to.as_deref() else {
+            continue;
+        };
+        let amount = amounts
+            .get(&item.item_code)
+            .copied()
+            .unwrap_or(Decimal::ZERO);
+        if amount >= Decimal::ZERO {
+            continue;
+        }
+        let moved = zero_norm(-amount);
+        let entry = amounts.entry(target.to_string()).or_insert(Decimal::ZERO);
+        *entry = zero_norm(*entry + moved);
+        amounts.insert(item.item_code.clone(), Decimal::ZERO);
+        reclass_moved.insert(item.item_code.clone(), moved);
+        // 目标行的科目清单补上来源科目（报表上看得出这 208 是从 2221.01 搬过来的）
+        let source_codes = owned.get(&item.item_code).cloned().unwrap_or_default();
+        let target_codes = owned.entry(target.to_string()).or_default();
+        for code in &source_codes {
+            if !target_codes.contains(code) {
+                target_codes.push(code.clone());
+            }
+        }
+        target_codes.sort();
+        reclass.push(ReclassRes {
+            from_item: item.item_code.clone(),
+            from_item_name: item.item_name.clone(),
+            to_item: target.to_string(),
+            to_item_name: sorted
+                .iter()
+                .find(|row| row.item_code == target)
+                .map(|row| row.item_name.clone())
+                .unwrap_or_else(|| target.to_string()),
+            amount: moved,
+            accounts: source_codes,
+        });
     }
 
     // ---------- 未归类差额：每侧类别净额 − 已映射金额 ----------
@@ -709,10 +789,23 @@ pub fn compute(
             previous_amount: None,
             is_deduction: item.is_deduction,
             is_total: item.formula.is_some(),
-            detail: item
-                .account_pattern
-                .clone()
-                .or_else(|| item.formula.clone()),
+            detail: match reclass_moved.get(&item.item_code) {
+                // 负数已重分类：把「为什么这一行是 0」写进取数说明，别让人以为取数失败
+                Some(moved) => Some(format!(
+                    "{pattern}（期末为借方余额 {moved}，即留抵税额：已重分类到「{target}」列报，\
+                     负数 = 留抵税额，可结转下期继续抵扣；本行按 0 列示）",
+                    pattern = item
+                        .account_pattern
+                        .clone()
+                        .or_else(|| item.formula.clone())
+                        .unwrap_or_default(),
+                    target = item.reclass_negative_to.clone().unwrap_or_default(),
+                )),
+                None => item
+                    .account_pattern
+                    .clone()
+                    .or_else(|| item.formula.clone()),
+            },
             accounts: owned.get(&item.item_code).cloned().unwrap_or_default(),
         };
         push_side(&item.side, &mut assets, &mut liabilities, &mut equity, line);
@@ -745,6 +838,7 @@ pub fn compute(
         amounts,
         side_totals,
         unmapped,
+        reclass,
     })
 }
 
@@ -1000,7 +1094,7 @@ pub async fn load_items(tx: &Transaction) -> DbResult<Vec<ReportItemDef>> {
 pub async fn load_items_of(tx: &Transaction, report_code: &str) -> DbResult<Vec<ReportItemDef>> {
     let sql = format!(
         "SELECT item_code, item_name, item_level, parent_code, side, account_pattern, formula, \
-                is_deduction, sort_order \
+                is_deduction, sort_order, reclass_negative_to \
            FROM {ITEM_TABLE} WHERE report_code = ? AND is_active = 1 \
           ORDER BY sort_order, item_code"
     );
@@ -1019,6 +1113,7 @@ pub async fn load_items_of(tx: &Transaction, report_code: &str) -> DbResult<Vec<
             formula: row.get_typed("formula").ok(),
             is_deduction: row.get_typed::<bool>("is_deduction")?,
             sort_order: row.get_typed("sort_order")?,
+            reclass_negative_to: row.get_typed("reclass_negative_to").ok(),
         });
     }
     Ok(out)
@@ -1330,6 +1425,24 @@ pub fn into_response(
         unbalanced_vouchers,
     } = snapshot;
     attach_previous(&mut sheet, previous_sheet.as_ref());
+    // FIX-6 附注：留抵税额重分类必须写清楚「负数是留抵、可结转下期抵扣」，
+    // 否则看报表的人只会看到「应交税费 = 0」而不知道那 208 去哪儿了。
+    let mut notes: Vec<String> = Vec::new();
+    for row in &sheet.reclass {
+        notes.push(format!(
+            "「{from}」期末为借方余额 {amount} 元（进项税额大于销项税额 ⇒ 留抵税额），\
+             已按报表口径重分类到「{to} - 待抵扣进项税额」列报（涉及科目：{accounts}）：\
+             负数 = 留抵税额，可结转下期继续抵扣",
+            from = row.from_item_name,
+            amount = row.amount,
+            to = row.to_item_name,
+            accounts = if row.accounts.is_empty() {
+                "—".to_string()
+            } else {
+                row.accounts.join(" / ")
+            }
+        ));
+    }
     let mut check = build_check(
         &sheet,
         ledger_debit_total,
@@ -1361,6 +1474,8 @@ pub fn into_response(
         assets: sheet.assets,
         liabilities: sheet.liabilities,
         equity: sheet.equity,
+        reclass: sheet.reclass,
+        notes,
         check,
     }
 }
@@ -1666,6 +1781,7 @@ mod tests {
             formula: formula.map(str::to_string),
             is_deduction: deduction,
             sort_order: order,
+            reclass_negative_to: None,
         }
     }
 
@@ -1898,6 +2014,138 @@ mod tests {
         );
         assert!(sheet.diff().is_zero(), "300 资产 = 300 应交税费");
         println!("[R1-⑤] 应交税费明细汇总 = 300 ✓");
+    }
+
+    // ---------- ⑤b FIX-6：留抵税额重分类到「其他流动资产」 ----------
+
+    /// ⑤b 应交税费期末为借方余额（进项 260 > 销项 52 ⇒ 留抵 208）时：
+    /// 负债侧「应交税费」按 0 列示、资产侧「其他流动资产」+208，报表仍然平衡，
+    /// 且 `reclass` 里留下可审计的一条（谁搬的、搬了多少、涉及哪些科目）。
+    #[test]
+    fn r1_fix6_negative_tax_reclassified_to_other_current_assets() {
+        let mut items = vec![
+            item("CASH", "ASSET", 2, Some("1001"), None, false, 10),
+            item("OTHER_CURRENT", "ASSET", 2, Some("1901"), None, false, 20),
+            item(
+                "ASSETS_SUB",
+                "ASSET",
+                2,
+                None,
+                Some("CASH + OTHER_CURRENT"),
+                false,
+                30,
+            ),
+            item("TOTAL_ASSETS", "ASSET", 1, None, Some("ASSETS_SUB"), false, 40),
+            item("TAX", "LIABILITY", 2, Some("2221"), None, false, 50),
+            item("LIAB_SUB", "LIABILITY", 2, None, Some("TAX"), false, 60),
+            item(
+                "TOTAL_LIABILITIES_AND_EQUITY",
+                "EQUITY",
+                1,
+                None,
+                Some("LIAB_SUB"),
+                false,
+                70,
+            ),
+        ];
+        items[4].reclass_negative_to = Some("OTHER_CURRENT".to_string());
+
+        let accounts = vec![
+            // 借 1001 库存现金 500（资产）
+            account("1001", "ASSET", "DEBIT", 0, 500),
+            // 2221.01 进项税 借 260 / 2221.02 销项税 贷 52 ⇒ 净借方 208（留抵）
+            account("2221.01", "LIABILITY", "CREDIT", 0, 260),
+            account("2221.02", "LIABILITY", "CREDIT", 0, -52),
+        ];
+        let sheet = compute(&items, &accounts).expect("配置正确");
+
+        assert_eq!(
+            sheet.amounts.get("TAX").copied(),
+            Some(Decimal::ZERO),
+            "应交税费不再显示 -208，而是按 0 列示"
+        );
+        assert_eq!(
+            sheet.amounts.get("OTHER_CURRENT").copied(),
+            Some(Decimal::from(208)),
+            "留抵 208 重分类到其他流动资产"
+        );
+        assert_eq!(sheet.assets_total(), Decimal::from(708), "500 + 208");
+        assert_eq!(
+            sheet.liability_equity_total(),
+            Decimal::from(708),
+            "负债+权益同步减 208（原先是 -208）"
+        );
+        assert!(sheet.diff().is_zero(), "重分类不得破坏勾稽");
+        assert!(
+            sheet.unmapped.is_empty(),
+            "重分类的科目仍算已映射（不是未归类）"
+        );
+        assert_eq!(sheet.reclass.len(), 1, "留一条可审计的重分类明细");
+        let row = &sheet.reclass[0];
+        assert_eq!(row.from_item, "TAX");
+        assert_eq!(row.to_item, "OTHER_CURRENT");
+        assert_eq!(row.amount, Decimal::from(208));
+        assert_eq!(
+            row.accounts,
+            vec!["2221.01".to_string(), "2221.02".to_string()],
+            "明细要带出是哪两个明细科目凑出的留抵"
+        );
+        // 目标行的科目清单也要能追到 2221.01/2221.02
+        let target = line(&sheet.assets, "OTHER_CURRENT");
+        assert_eq!(
+            target.accounts,
+            vec!["2221.01".to_string(), "2221.02".to_string()],
+            "其他流动资产行要能追溯到留抵来源科目"
+        );
+        // 取数说明点明「负数是留抵」，别让人以为这一行取数失败
+        let source = line(&sheet.liabilities, "TAX");
+        let detail = source.detail.clone().unwrap_or_default();
+        assert!(
+            detail.contains("留抵税额"),
+            "取数说明要点明留抵：{detail}"
+        );
+        println!("[R1-⑤b] 留抵税额重分类 = 208 ✓");
+    }
+
+    /// ⑤c 应交税费为**贷方**余额（正常要交税）时不动它：重分类只在负数时触发。
+    #[test]
+    fn r1_fix6_positive_tax_stays_on_liability_side() {
+        let mut items = vec![
+            item("OTHER_CURRENT", "ASSET", 2, Some("1901"), None, false, 20),
+            item(
+                "TOTAL_ASSETS",
+                "ASSET",
+                1,
+                None,
+                Some("OTHER_CURRENT"),
+                false,
+                40,
+            ),
+            item("TAX", "LIABILITY", 2, Some("2221"), None, false, 50),
+            item(
+                "TOTAL_LIABILITIES_AND_EQUITY",
+                "EQUITY",
+                1,
+                None,
+                Some("TAX"),
+                false,
+                70,
+            ),
+        ];
+        items[2].reclass_negative_to = Some("OTHER_CURRENT".to_string());
+        let accounts = vec![account("2221.02", "LIABILITY", "CREDIT", 0, -520)];
+        let sheet = compute(&items, &accounts).expect("配置正确");
+
+        assert!(
+            sheet.reclass.is_empty(),
+            "贷方余额（应交 520）不触发重分类"
+        );
+        assert_eq!(sheet.amounts.get("TAX").copied(), Some(Decimal::from(520)));
+        assert_eq!(
+            sheet.amounts.get("OTHER_CURRENT").copied(),
+            Some(Decimal::ZERO)
+        );
+        assert!(sheet.diff().is_zero());
     }
 
     // ---------- ⑥ 纯逻辑：不平要报出来 ----------
