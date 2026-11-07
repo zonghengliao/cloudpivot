@@ -1,0 +1,129 @@
+[step] 三种状态按钮可见性（停用前）: {"FA-20261105-000001":{"idle":true,"enable":false,"status":"在役"},"FA-20261105-000003":{"idle":false,"enable":true,"status":"闲置"},"FA-20261105-000004":{"idle":false,"enable":false,"status":"已处置"}}
+[step] 停用弹窗: {"header":"停用资产","hasIdleAlert":true,"hasRecoverHint":true,"reasonField":true,"dateField":true,"footerBtns":[{"text":"取消","cls":"t-button t-button--variant-base t-button--theme-default t-button--shape-rectangle t-dialog__cancel"},{"text":"确认停用","cls":"t-button t-button--variant-base t-button--theme-warning t-button--shape-rectangle t-dialog__confirm"}],"width":157}
+[step] 空原因前置校验: {"blocked":true,"help":"原因 0/255 停用原因必填（留痕要能回答「为什么」）"}
+[step] 停用请求: {"status":200,"target_status":"IDLE","reason_len":28,"change_date":"2026-11-07","resp_asset_status":"IDLE","resp_changes":13,"typed_reason_ok":true}
+[step] 停用后列表: {"idle":false,"enable":true,"status":"闲置"}
+[step] 详情时间线: {"timeline":["在役 → 闲置","在役 → 闲置","闲置 → 在役","在役 → 闲置","在役 → 闲置","闲置 → 在役","在役 → 闲置","在役 → 闲置","闲置 → 在役","在役 → 闲置","FIN2 产品部 → FIN2 产品部；已处置 → 在役","FIN2 产品部 → —；在役 → 已处置","FIN2 研发部 → FIN2 产品部；在役 → 在役"],"hasInUseToIdle":true}
+[step] 启用弹窗: {"header":"启用资产","alertText":true,"footerBtns":[{"text":"取消","cls":"t-button t-button--variant-base t-button--theme-default t-button--shape-rectangle t-dialog__cancel"},{"text":"确认启用","cls":"t-button t-button--variant-base t-button--theme-primary t-button--shape-rectangle t-dialog__confirm"}]}
+[step] 启用请求: {"status":200,"target_status":"IN_USE","resp_asset_status":"IN_USE"}
+[step] 启用后列表: {"idle":true,"enable":false,"status":"在役"}
+[step] 同态重复请求: {"status":409,"code":66046,"msg":"资产 FA-20261105-000001 当前已经是「在役」：重复启用不是状态变更（不会重复通知）"}
+
+===RESULT===
+{
+  "steps": [
+    {
+      "step": "三种状态按钮可见性（停用前）",
+      "FA-20261105-000001": {
+        "idle": true,
+        "enable": false,
+        "status": "在役"
+      },
+      "FA-20261105-000003": {
+        "idle": false,
+        "enable": true,
+        "status": "闲置"
+      },
+      "FA-20261105-000004": {
+        "idle": false,
+        "enable": false,
+        "status": "已处置"
+      }
+    },
+    {
+      "step": "停用弹窗",
+      "header": "停用资产",
+      "hasIdleAlert": true,
+      "hasRecoverHint": true,
+      "reasonField": true,
+      "dateField": true,
+      "footerBtns": [
+        {
+          "text": "取消",
+          "cls": "t-button t-button--variant-base t-button--theme-default t-button--shape-rectangle t-dialog__cancel"
+        },
+        {
+          "text": "确认停用",
+          "cls": "t-button t-button--variant-base t-button--theme-warning t-button--shape-rectangle t-dialog__confirm"
+        }
+      ],
+      "width": 157
+    },
+    {
+      "step": "空原因前置校验",
+      "blocked": true,
+      "help": "原因 0/255 停用原因必填（留痕要能回答「为什么」）"
+    },
+    {
+      "step": "停用请求",
+      "status": 200,
+      "target_status": "IDLE",
+      "reason_len": 28,
+      "change_date": "2026-11-07",
+      "resp_asset_status": "IDLE",
+      "resp_changes": 13,
+      "typed_reason_ok": true
+    },
+    {
+      "step": "停用后列表",
+      "idle": false,
+      "enable": true,
+      "status": "闲置"
+    },
+    {
+      "step": "详情时间线",
+      "timeline": [
+        "在役 → 闲置",
+        "在役 → 闲置",
+        "闲置 → 在役",
+        "在役 → 闲置",
+        "在役 → 闲置",
+        "闲置 → 在役",
+        "在役 → 闲置",
+        "在役 → 闲置",
+        "闲置 → 在役",
+        "在役 → 闲置",
+        "FIN2 产品部 → FIN2 产品部；已处置 → 在役",
+        "FIN2 产品部 → —；在役 → 已处置",
+        "FIN2 研发部 → FIN2 产品部；在役 → 在役"
+      ],
+      "hasInUseToIdle": true
+    },
+    {
+      "step": "启用弹窗",
+      "header": "启用资产",
+      "alertText": true,
+      "footerBtns": [
+        {
+          "text": "取消",
+          "cls": "t-button t-button--variant-base t-button--theme-default t-button--shape-rectangle t-dialog__cancel"
+        },
+        {
+          "text": "确认启用",
+          "cls": "t-button t-button--variant-base t-button--theme-primary t-button--shape-rectangle t-dialog__confirm"
+        }
+      ]
+    },
+    {
+      "step": "启用请求",
+      "status": 200,
+      "target_status": "IN_USE",
+      "resp_asset_status": "IN_USE"
+    },
+    {
+      "step": "启用后列表",
+      "idle": true,
+      "enable": false,
+      "status": "在役"
+    },
+    {
+      "step": "同态重复请求",
+      "status": 409,
+      "code": 66046,
+      "msg": "资产 FA-20261105-000001 当前已经是「在役」：重复启用不是状态变更（不会重复通知）"
+    }
+  ],
+  "consoleErrors": [],
+  "failedRequests": [],
+  "ok": true
+}

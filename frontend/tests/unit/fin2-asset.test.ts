@@ -23,6 +23,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  ASSET_ERROR_HINTS,
   addMoney,
   applyStockInSource,
   assetStatusLabel,
@@ -30,6 +31,8 @@ import {
   canDeleteAsset,
   canDisposeAsset,
   canEditAsset,
+  canEnableAsset,
+  canIdleAsset,
   canTransferAsset,
   changeSummary,
   clearSource,
@@ -552,6 +555,22 @@ test('动作可见性：处置卡只读，在跑审批不再允许提交，已�
   assert.equal(canReverseBatch(batch({ status: 'SKIPPED' })), false);
 });
 
+// ==================== ⑤b 停用 / 启用（IN_USE ⇄ IDLE） ====================
+
+test('停用 / 启用按钮可见性真值表：IN_USE 只停用、IDLE 只启用、DISPOSED 都不给', () => {
+  // 在役：只能停用（启用按钮不出现）
+  assert.equal(canIdleAsset(asset({ status: 'IN_USE' })), true);
+  assert.equal(canEnableAsset(asset({ status: 'IN_USE' })), false);
+  // 闲置：只能启用
+  assert.equal(canIdleAsset(asset({ status: 'IDLE' })), false);
+  assert.equal(canEnableAsset(asset({ status: 'IDLE' })), true);
+  // 已处置 / 已作废：两个都不给（已处置要先作废处置）
+  for (const status of ['DISPOSED', 'CANCELLED']) {
+    assert.equal(canIdleAsset(asset({ status })), false, `${status} 不该出现停用`);
+    assert.equal(canEnableAsset(asset({ status })), false, `${status} 不该出现启用`);
+  }
+});
+
 // ==================== ⑥ 文案 / 校验 / 错误码 ====================
 
 test('状态与变动文案：后端没给 label 时按词表兜底，未知值原样显示', () => {
@@ -588,6 +607,42 @@ test('errorText：66038/66039/66040/65019 补「怎么办」，普通错误带�
   assert.match(errorText({ code: 10001, message: '参数错误' }), /错误码 10001/);
   assert.match(errorText('网络错误'), /网络错误/);
   assert.match(errorText(null), /没有返回说明/);
+});
+
+test('66046：停用 / 启用状态冲突有专属「怎么办」，不被 66040 的处置文案抢走', () => {
+  const hint = ASSET_ERROR_HINTS[66046];
+  assert.ok(typeof hint === 'string' && hint.trim().length > 0, '缺 66046 的提示文案');
+  assert.match(hint, /停用 \/ 启用/);
+  assert.match(hint, /作废处置/);
+  assert.match(hint, /重复通知/);
+  // 页面只走 errorText，禁止把 66046 硬编码在 .vue 里
+  assert.match(errorText({ code: 66046, message: '该资产当前状态不允许本次停用 / 启用' }), /作废处置/);
+  assert.match(errorText({ code: 66046, message: '状态冲突' }), /66046/);
+});
+
+test('changeSummary：状态留痕行（部门 / 使用人全 null）自动输出「在役 → 闲置」', () => {
+  const base = {
+    id: 'c1',
+    change_label: '停用',
+    change_date: '2026-11-07',
+    from_dept_name: null,
+    to_dept_name: null,
+    from_user_name: null,
+    to_user_name: null,
+    voucher_id: null,
+    approval_instance_id: null,
+    operator_name: '管理员',
+    remark: null,
+    created_at: '2026-11-07T02:00:00Z',
+  };
+  assert.equal(
+    changeSummary({ ...base, change_type: 'IDLE', from_status: 'IN_USE', to_status: 'IDLE', reason: '设备封存' }),
+    '在役 → 闲置',
+  );
+  assert.equal(
+    changeSummary({ ...base, change_type: 'ENABLE', from_status: 'IDLE', to_status: 'IN_USE', reason: '恢复使用' }),
+    '闲置 → 在役',
+  );
 });
 
 test('原因校验：普通原因非空，红冲原因 ≥ 2 字', () => {
@@ -680,4 +735,27 @@ test('router/index.ts 注册了三条固定资产路由（路径按菜单，不�
     assert.ok(routerSource.includes(`path: '${path}'`), `缺少路由：${path}`);
     assert.ok(routerSource.includes(`component: () => import('${view}')`), `缺少组件映射：${view}`);
   }
+});
+
+// ==================== ⑨ 停用 / 启用接线（源码护栏） ====================
+
+test('停用 / 启用接线：api 路径写全 /api（含 id 与 /status），页面给出两个 testid', () => {
+  const apiSource = readFileSync(resolve(FRONTEND_ROOT, 'src/api/business/erp/asset.ts'), 'utf8');
+  // 路径必须走 BASE（= /api/business/erp）；写死 '/business/...' 会命中 SPA fallback 返回 HTML
+  assert.ok(apiSource.includes('/asset/${id}/status'), 'api 层缺少 /asset/{id}/status 调用');
+  assert.match(apiSource, /target_status: 'IDLE' \| 'IN_USE'/);
+
+  const viewSource = readFileSync(
+    resolve(FRONTEND_ROOT, 'src/views/business/erp/asset/index.vue'),
+    'utf8',
+  );
+  assert.ok(viewSource.includes('asset-btn-idle-'), '列表操作列缺少停用按钮 testid');
+  assert.ok(viewSource.includes('asset-btn-enable-'), '列表操作列缺少启用按钮 testid');
+  assert.ok(viewSource.includes('data-testid="asset-status-reason"'), '弹窗缺少原因字段');
+  assert.ok(viewSource.includes('data-testid="asset-status-date"'), '弹窗缺少变动日期字段');
+  // 权限码复用 asset:update（禁止新增 PERM.idle / PERM.enable 之类的新码）
+  assert.ok(viewSource.includes("update: 'business:erp:asset:update'"), '权限码口径变了');
+  assert.ok(!/PERM\.(idle|enable|status)/i.test(viewSource), '不许新增权限码');
+  // 66046 只在 asset-logic 里，不硬编码在页面
+  assert.ok(!viewSource.includes('66046'), '66046 不该硬编码在页面里（走 ASSET_ERROR_HINTS）');
 });

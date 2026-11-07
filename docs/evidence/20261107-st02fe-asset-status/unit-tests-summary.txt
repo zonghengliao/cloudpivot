@@ -1,0 +1,16 @@
+not ok 358 - create payload keeps dates and folds empty remark to null
+not ok 588 - 后端 FlowBizType 的落库字面量 = 前端 FLOW_BIZ_TYPES（逐字、同序，15 个）
+# tests 1033
+# pass 1031
+# fail 2
+# skipped 0
+# duration_ms 5654.899083
+
+--- fin2-asset.test.ts 单跑（本卡 4 条新增用例）---
+  ok 18 - 停用 / 启用按钮可见性真值表：IN_USE 只停用、IDLE 只启用、DISPOSED 都不给
+  ok 21 - 66046：停用 / 启用状态冲突有专属「怎么办」，不被 66040 的处置文案抢走
+  ok 22 - changeSummary：状态留痕行（部门 / 使用人全 null）自动输出「在役 → 闲置」
+  ok 28 - 停用 / 启用接线：api 路径写全 /api（含 id 与 /status），页面给出两个 testid
+  # tests 28
+  # pass 28
+  # fail 0

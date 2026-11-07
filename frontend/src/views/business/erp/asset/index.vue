@@ -169,6 +169,24 @@
               换人
             </t-link>
             <t-link
+              v-if="canIdleAsset(row)"
+              v-privilege="[PERM.update]"
+              theme="warning"
+              :data-testid="`asset-btn-idle-${row.asset_no}`"
+              @click="openStatusChange(row, 'IDLE')"
+            >
+              停用
+            </t-link>
+            <t-link
+              v-if="canEnableAsset(row)"
+              v-privilege="[PERM.update]"
+              theme="primary"
+              :data-testid="`asset-btn-enable-${row.asset_no}`"
+              @click="openStatusChange(row, 'IN_USE')"
+            >
+              启用
+            </t-link>
+            <t-link
               v-if="canTransferAsset(row)"
               v-privilege="[PERM.dispose]"
               theme="warning"
@@ -696,6 +714,53 @@
         </t-form-item>
       </t-form>
     </t-dialog>
+
+    <!-- ==================== ⑨ 停用 / 启用（一个弹窗两种语义） ==================== -->
+    <t-dialog
+      v-model:visible="statusChangeVisible"
+      :header="statusChangeKind === 'IDLE' ? '停用资产' : '启用资产'"
+      width="520px"
+      :confirm-btn="{
+        content: statusChangeKind === 'IDLE' ? '确认停用' : '确认启用',
+        loading: submitting,
+        theme: statusChangeKind === 'IDLE' ? 'warning' : 'primary',
+      }"
+      data-testid="asset-status-dialog"
+      @confirm="submitStatusChange"
+    >
+      <t-alert
+        v-if="statusChangeKind === 'IDLE'"
+        theme="warning"
+        message="停用后资产变为「闲置」：仍按月计提折旧（口径不变），仍可转移 / 处置；恢复使用点「启用」。"
+      />
+      <t-alert
+        v-else
+        theme="info"
+        message="启用后资产回到「在役」，继续按月计提折旧。"
+      />
+      <t-form label-width="92px" class="cancel-form">
+        <t-form-item
+          label="原因"
+          :help="statusChangeError"
+          :status="statusChangeError ? 'error' : undefined"
+        >
+          <t-textarea
+            v-model="statusChangeForm.reason"
+            :maxlength="255"
+            placeholder="必填：为什么停用 / 启用（内控留痕）"
+            data-testid="asset-status-reason"
+          />
+        </t-form-item>
+        <t-form-item label="变动日期" help="仅留痕，不参与折旧计算">
+          <t-date-picker
+            v-model="statusChangeForm.change_date"
+            format="YYYY-MM-DD"
+            clearable
+            data-testid="asset-status-date"
+          />
+        </t-form-item>
+      </t-form>
+    </t-dialog>
   </div>
 </template>
 
@@ -706,6 +771,7 @@ import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-n
 import { fetchStockInPage, fetchSupplierOptions, type StockInRow, type Supplier } from '@/api/business/erp';
 import {
   cancelAssetDispose,
+  changeAssetStatus,
   createAsset,
   custodianAsset,
   deleteAsset,
@@ -734,6 +800,8 @@ import {
   canDeleteAsset,
   canDisposeAsset,
   canEditAsset,
+  canEnableAsset,
+  canIdleAsset,
   canTransferAsset,
   changeLabel,
   changeSummary,
@@ -752,6 +820,7 @@ import {
   requireReasonError,
   toCreatePayload,
   toDisposePayload,
+  todayString,
   validateAssetForm,
   validateDisposeForm,
   type AssetFormState,
@@ -1338,6 +1407,55 @@ async function submitCancelDispose(): Promise<void> {
     detail.value = await cancelAssetDispose(target.id, cancelReason.value.trim());
     cancelDisposeVisible.value = false;
     MessagePlugin.success('已作废处置：红字回滚完成，资产恢复在役');
+    await loadRows();
+  } catch (error) {
+    MessagePlugin.error(errorText(error));
+  } finally {
+    submitting.value = false;
+  }
+}
+
+// ==================== 停用 / 启用（IN_USE ⇄ IDLE） ====================
+
+/** 打开的是哪一个动作：`IDLE` = 停用、`IN_USE` = 启用（一个弹窗两种语义）。 */
+const statusChangeKind = ref<'IDLE' | 'IN_USE'>('IDLE');
+const statusChangeVisible = ref(false);
+const statusChangeForm = reactive({ reason: '', change_date: '' });
+const statusChangeError = ref('');
+const statusChangeTarget = ref<AssetRow | null>(null);
+
+function openStatusChange(row: AssetRow, target: 'IDLE' | 'IN_USE'): void {
+  statusChangeTarget.value = row;
+  statusChangeKind.value = target;
+  statusChangeForm.reason = '';
+  statusChangeForm.change_date = todayString();
+  statusChangeError.value = '';
+  statusChangeVisible.value = true;
+}
+
+async function submitStatusChange(): Promise<void> {
+  const target = statusChangeTarget.value;
+  if (!target) {
+    return;
+  }
+  const idling = statusChangeKind.value === 'IDLE';
+  const reasonError = requireReasonError(statusChangeForm.reason, idling ? '停用原因' : '启用原因');
+  if (reasonError) {
+    statusChangeError.value = reasonError;
+    return;
+  }
+  submitting.value = true;
+  try {
+    const res = await changeAssetStatus(target.id, {
+      target_status: statusChangeKind.value,
+      reason: statusChangeForm.reason.trim(),
+      change_date: statusChangeForm.change_date || undefined,
+    });
+    statusChangeVisible.value = false;
+    detail.value = res;
+    MessagePlugin.success(
+      idling ? '已停用：资产转为「闲置」（折旧照提）' : '已启用：资产恢复「在役」',
+    );
     await loadRows();
   } catch (error) {
     MessagePlugin.error(errorText(error));

@@ -1,0 +1,298 @@
+/**
+ * FIN-ASSET-ST02-FE 真机验收：资产页「停用 / 启用」按钮 + 原因弹窗 + 状态留痕。
+ *
+ * 环境：vite dev :5183（源码即产物）→ 反代隔离后端 :18151 → 隔离库 cloudpivot_st02fe
+ * 证据：<evidence>/ 下的截图 + stdout 的 JSON
+ *
+ * 跑法：node verify.mjs <evidenceDir>
+ */
+import { chromium } from '@playwright/test';
+import { mkdirSync } from 'node:fs';
+
+const BASE = process.env.FE_BASE || 'http://127.0.0.1:5183';
+const API = process.env.BE_BASE || 'http://127.0.0.1:18151';
+const EVID = process.argv[2] || '/root/st02fe-verify/evidence';
+mkdirSync(EVID, { recursive: true });
+
+const A1 = 'FA-20261105-000001'; // IN_USE → 用来验证停用 / 启用往返
+const A3 = 'FA-20261105-000003'; // 夹具置为 IDLE → 只应出现「启用」
+const A4 = 'FA-20261105-000004'; // 夹具置为 DISPOSED → 两个按钮都不应出现
+
+const result = { steps: [], consoleErrors: [], failedRequests: [], ok: false };
+
+function log(step, data) {
+  result.steps.push({ step, ...data });
+  console.log(`[step] ${step}: ${JSON.stringify(data)}`);
+}
+
+async function login() {
+  const res = await fetch(`${API}/api/system/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username: 'admin', password: 'Admin@123456' }),
+  });
+  const body = await res.json();
+  if (!res.ok) throw new Error(`登录失败 ${res.status} ${JSON.stringify(body)}`);
+  return body.data;
+}
+
+async function rowButtons(page, assetNo) {
+  return page.evaluate((no) => {
+    const has = (t) => !!document.querySelector(`[data-testid="${t}"]`);
+    const tag = document.querySelector(`[data-testid="asset-status-${no}"]`);
+    return {
+      idle: has(`asset-btn-idle-${no}`),
+      enable: has(`asset-btn-enable-${no}`),
+      status: tag ? tag.textContent.trim() : null,
+    };
+  }, assetNo);
+}
+
+async function waitRowStatus(page, assetNo, expected, timeout = 20000) {
+  await page.waitForFunction(
+    ([no, want]) => {
+      const tag = document.querySelector(`[data-testid="asset-status-${no}"]`);
+      return !!tag && tag.textContent.trim() === want;
+    },
+    [assetNo, expected],
+    { timeout },
+  );
+}
+
+async function fillReason(page, text) {
+  const ta = page.locator('[data-testid="asset-status-reason"] textarea');
+  await ta.waitFor({ state: 'visible' });
+  await ta.click();
+  await page.keyboard.press('Control+a');
+  await page.keyboard.press('Backspace');
+  await ta.type(text, { delay: 8 });
+  const value = await ta.inputValue();
+  return value;
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+(async () => {
+  const tokens = await login();
+  const browser = await chromium.launch();
+  const context = await browser.newContext({ viewport: { width: 1600, height: 1000 } });
+  await context.addInitScript(
+    ([access, refresh]) => {
+      localStorage.setItem('x_access_token', access);
+      localStorage.setItem('x_refresh_token', refresh);
+      localStorage.setItem('cp-onboarding-done', '1');
+      sessionStorage.setItem('login-unread-shown', '1');
+    },
+    [tokens.access_token, tokens.refresh_token],
+  );
+  const page = await context.newPage();
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') result.consoleErrors.push(msg.text().slice(0, 200));
+  });
+  page.on('requestfailed', (req) => {
+    result.failedRequests.push(`${req.method()} ${req.url()} ${req.failure()?.errorText}`);
+  });
+
+  await page.goto(`${BASE}/business/erp/asset`, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(
+    (no) => !!document.querySelector(`[data-testid="asset-no-${no}"]`),
+    A1,
+    { timeout: 30000 },
+  );
+
+  // ① 三种状态的按钮可见性（DISPOSED 行是 SQL 夹具，见 README）
+  const truth = {
+    [A1]: await rowButtons(page, A1),
+    [A3]: await rowButtons(page, A3),
+    [A4]: await rowButtons(page, A4),
+  };
+  log('三种状态按钮可见性（停用前）', truth);
+  await page.screenshot({ path: `${EVID}/01-list-before.png`, fullPage: false });
+
+  // ② 点「停用」→ 弹窗语义
+  await page.locator(`[data-testid="asset-btn-idle-${A1}"]`).click();
+  await page.waitForSelector('[data-testid="asset-status-dialog"] .t-dialog__body', {
+    state: 'visible',
+  });
+  const dialogText = await page.locator('[data-testid="asset-status-dialog"]').innerText();
+  const dialogMeta = await page.evaluate(() => {
+    const root = document.querySelector('[data-testid="asset-status-dialog"]');
+    const dialog =
+      root?.querySelector('.t-dialog') || (root?.classList?.contains('t-dialog') ? root : null);
+    const btn = dialog?.querySelector('.t-dialog__footer button:last-child, .t-dialog__footer button');
+    const footerBtns = [...(dialog?.querySelectorAll('.t-dialog__footer button') ?? [])].map((b) => ({
+      text: b.textContent.trim(),
+      cls: b.getAttribute('class') ?? '',
+    }));
+    const datePanel = !!document.querySelector('[data-testid="asset-status-date"]');
+    const reasonArea = !!document.querySelector('[data-testid="asset-status-reason"] textarea');
+    return { header: dialog?.querySelector('.t-dialog__header')?.textContent.trim() ?? null, footerBtns, datePanel, reasonArea, width: dialog?.getBoundingClientRect().width ?? 0 };
+  });
+  log('停用弹窗', {
+    header: dialogMeta.header,
+    hasIdleAlert: dialogText.includes('仍按月计提折旧'),
+    hasRecoverHint: dialogText.includes('恢复使用点「启用」'),
+    reasonField: dialogMeta.reasonArea,
+    dateField: dialogMeta.datePanel,
+    footerBtns: dialogMeta.footerBtns,
+    width: Math.round(dialogMeta.width),
+  });
+  await page.screenshot({ path: `${EVID}/02-idle-dialog.png` });
+
+  // ③ 空原因先拦一道（不发请求）
+  let idleRequests = 0;
+  page.on('request', (req) => {
+    if (req.method() === 'POST' && req.url().includes('/asset/') && req.url().endsWith('/status')) {
+      idleRequests += 1;
+    }
+  });
+  await page.getByRole('button', { name: '确认停用', exact: true }).click();
+  await sleep(500);
+  const emptyReasonBlocked = idleRequests === 0;
+  const emptyReasonHelp = await page
+    .locator('[data-testid="asset-status-dialog"] .t-form__item')
+    .first()
+    .innerText();
+  log('空原因前置校验', { blocked: emptyReasonBlocked, help: emptyReasonHelp.replace(/\s+/g, ' ').slice(0, 60) });
+
+  // ④ 填原因 + 提交，等 200
+  const typed = await fillReason(page, '设备封存（FIN-ASSET-ST02-FE 真机验收）');
+  const [idleResp] = await Promise.all([
+    page.waitForResponse(
+      (r) => r.request().method() === 'POST' && /\/asset\/[^/]+\/status$/.test(r.url()),
+      { timeout: 20000 },
+    ),
+    page.getByRole('button', { name: '确认停用', exact: true }).click(),
+  ]);
+  const idleBody = await idleResp.json();
+  const idlePayload = JSON.parse(idleResp.request().postData() || '{}');
+  log('停用请求', {
+    status: idleResp.status(),
+    target_status: idlePayload.target_status,
+    reason_len: (idlePayload.reason ?? '').length,
+    change_date: idlePayload.change_date,
+    resp_asset_status: idleBody?.data?.asset?.status,
+    resp_changes: idleBody?.data?.changes?.length,
+    typed_reason_ok: typed.length > 0,
+  });
+  await page.waitForSelector('[data-testid="asset-status-dialog"] .t-dialog__body', {
+    state: 'hidden',
+  });
+  await waitRowStatus(page, A1, '闲置');
+  const afterIdle = await rowButtons(page, A1);
+  log('停用后列表', afterIdle);
+  await page.screenshot({ path: `${EVID}/03-list-after-idle.png` });
+
+  // ⑤ 详情时间线出现「在役 → 闲置」
+  await page.locator(`[data-testid="asset-btn-detail-${A1}"]`).click();
+  await page.waitForFunction(
+    () => !!document.querySelector('.timeline__meta'),
+    null,
+    { timeout: 20000 },
+  );
+  const timeline = await page.evaluate(() =>
+    [...document.querySelectorAll('.timeline__meta')].map((el) => el.textContent.trim()),
+  );
+  log('详情时间线', { timeline, hasInUseToIdle: timeline.includes('在役 → 闲置') });
+  await sleep(1200); // 抽屉是滑入动画，立刻截图会拍到半截（证据图要求可读）
+  await page.locator('.timeline').first().scrollIntoViewIfNeeded();
+  await sleep(300);
+  await page.screenshot({ path: `${EVID}/04-detail-timeline.png` });
+  // 关抽屉：header 属性不渲染关闭按钮，且遮罩点击偶发不生效 → 点抽屉外的区域 + 轮询 class 判关闭
+  await page.mouse.click(200, 500);
+  await page
+    .waitForFunction(
+      () => {
+        const d = document.querySelector('[data-testid="asset-detail-drawer"]');
+        return !d || !d.classList.contains('t-drawer--open');
+      },
+      null,
+      { timeout: 15000 },
+    )
+    .catch(async () => {
+      await page.keyboard.press('Escape');
+      await sleep(600);
+    });
+  await sleep(500);
+
+  // ⑥ 再点「启用」→ 回到在役
+  await page.locator(`[data-testid="asset-btn-enable-${A1}"]`).click();
+  await page.waitForSelector('[data-testid="asset-status-dialog"] .t-dialog__body', {
+    state: 'visible',
+  });
+  const enableText = await page.locator('[data-testid="asset-status-dialog"]').innerText();
+  const enableHeader = await page.evaluate(() => {
+    const root = document.querySelector('[data-testid="asset-status-dialog"]');
+    const dialog = root?.querySelector('.t-dialog') || root;
+    const btns = [...(dialog?.querySelectorAll('.t-dialog__footer button') ?? [])].map((b) => ({
+      text: b.textContent.trim(),
+      cls: b.getAttribute('class') ?? '',
+    }));
+    return { header: dialog?.querySelector('.t-dialog__header')?.textContent.trim() ?? null, btns };
+  });
+  log('启用弹窗', {
+    header: enableHeader.header,
+    alertText: enableText.includes('启用后资产回到「在役」'),
+    footerBtns: enableHeader.btns,
+  });
+  await page.screenshot({ path: `${EVID}/05-enable-dialog.png` });
+  await fillReason(page, '恢复使用（FIN-ASSET-ST02-FE 真机验收）');
+  const [enableResp] = await Promise.all([
+    page.waitForResponse(
+      (r) => r.request().method() === 'POST' && /\/asset\/[^/]+\/status$/.test(r.url()),
+      { timeout: 20000 },
+    ),
+    page.getByRole('button', { name: '确认启用', exact: true }).click(),
+  ]);
+  const enableBody = await enableResp.json();
+  const enablePayload = JSON.parse(enableResp.request().postData() || '{}');
+  log('启用请求', {
+    status: enableResp.status(),
+    target_status: enablePayload.target_status,
+    resp_asset_status: enableBody?.data?.asset?.status,
+  });
+  await sleep(400);
+  await waitRowStatus(page, A1, '在役');
+  const afterEnable = await rowButtons(page, A1);
+  log('启用后列表', afterEnable);
+  await page.screenshot({ path: `${EVID}/06-list-after-enable.png` });
+
+  // ⑦ 重复点击（同态）→ 409 66046（后端语义，走 errorText 提示）
+  const repeat = await fetch(`${API}/api/business/erp/asset/${idleBody.data.asset.id}/status`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${tokens.access_token}` },
+    body: JSON.stringify({ target_status: 'IN_USE', reason: '同态重复点击验证（当前就是在役）' }),
+  });
+  const repeatBody = await repeat.json();
+  log('同态重复请求', { status: repeat.status, code: repeatBody?.code, msg: repeatBody?.msg });
+
+  result.ok =
+    truth[A1].idle === true &&
+    truth[A1].enable === false &&
+    truth[A1].status === '在役' &&
+    truth[A3].idle === false &&
+    truth[A3].enable === true &&
+    truth[A3].status === '闲置' &&
+    truth[A4].idle === false &&
+    truth[A4].enable === false &&
+    emptyReasonBlocked &&
+    idleResp.status() === 200 &&
+    afterIdle.idle === false &&
+    afterIdle.enable === true &&
+    afterIdle.status === '闲置' &&
+    timeline.includes('在役 → 闲置') &&
+    enableResp.status() === 200 &&
+    afterEnable.idle === true &&
+    afterEnable.enable === false &&
+    afterEnable.status === '在役' &&
+    repeat.status === 409 &&
+    repeatBody?.code === 66046;
+
+  await browser.close();
+  console.log('\n===RESULT===');
+  console.log(JSON.stringify(result, null, 2));
+  process.exit(result.ok ? 0 : 1);
+})().catch((error) => {
+  console.error('VERIFY FAILED:', error);
+  process.exit(2);
+});

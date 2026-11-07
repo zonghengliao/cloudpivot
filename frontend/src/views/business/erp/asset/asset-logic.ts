@@ -529,6 +529,20 @@ export function canCancelDispose(asset: Pick<AssetRow, 'status'>): boolean {
   return asset.status === 'DISPOSED';
 }
 
+/**
+ * 是否可停用（只有在役的卡）。
+ *
+ * 已处置的要先作废处置；闲置的重复停用会被后端 409 `66046` 挡住 —— 按钮层面直接不给。
+ */
+export function canIdleAsset(asset: Pick<AssetRow, 'status'>): boolean {
+  return asset.status === 'IN_USE';
+}
+
+/** 是否可启用（只有闲置的卡）。 */
+export function canEnableAsset(asset: Pick<AssetRow, 'status'>): boolean {
+  return asset.status === 'IDLE';
+}
+
 /** 是否可删（未处置的卡才允许软删；已处置的卡是台账凭证，不能删）。 */
 export function canDeleteAsset(asset: Pick<AssetRow, 'status'>): boolean {
   return canTransferAsset(asset);
@@ -868,6 +882,7 @@ export const ASSET_ERROR_HINTS: Readonly<Record<number, string>> = {
   66038: '该会计期间已结账，不能补提折旧：请先反结账，或改在未结账期间计提',
   66039: '批次当前状态不允许该操作：只有已过账（POSTED）的批次可以红冲',
   66040: '该资产已有在跑的处置审批：请先在流程中心处理完，或作废该审批',
+  66046: '该资产当前状态不允许本次停用 / 启用：已处置的请先作废处置；重复点击不会重复通知（刷新即可）',
   65019: '发起人不能审批自己提交的处置：请换有审批权的账号（内控要求）',
 };
 

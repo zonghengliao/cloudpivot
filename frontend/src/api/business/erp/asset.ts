@@ -417,6 +417,22 @@ export interface AssetCustodianPayload {
   reason?: string;
 }
 
+/**
+ * 停用 / 启用入参（逐字抄 `StatusChangeReq`，`IN_USE ⇄ IDLE`）。
+ *
+ * ⚠️ `target_status` 只接受这两个值：`DISPOSED` 后端会 400 点名走 `/asset/{id}/dispose`
+ * （处置要审批 + 落凭证，不能从这个口开后门）。`change_date` 只进留痕，
+ * **不参与折旧计算**（`IDLE` 照样按月计提，FIN-ASSET-ST02 D4）。
+ */
+export interface AssetStatusChangePayload {
+  /** 目标状态：`IDLE`（停用）/ `IN_USE`（启用） */
+  target_status: 'IDLE' | 'IN_USE';
+  /** 原因（必填，≤255，内控留痕） */
+  reason: string;
+  /** 变动日期 `YYYY-MM-DD`（可空 = 今天） */
+  change_date?: string;
+}
+
 /** 提交处置入参（`DisposeReq`）。 */
 export interface AssetDisposePayload {
   /** 处置类型 */
@@ -469,6 +485,19 @@ export function custodianAsset(id: string, payload: AssetCustodianPayload): Prom
 /** 提交处置（`POST /asset/{id}/dispose`，走 `asset_disposal` 审批流） */
 export function disposeAsset(id: string, payload: AssetDisposePayload): Promise<AssetDetail> {
   return post<AssetDetail>(`${BASE}/asset/${id}/dispose`, payload);
+}
+
+/**
+ * 停用 / 启用（`POST /asset/{id}/status`，`IN_USE ⇄ IDLE`；不产生凭证、不改折旧口径，只留痕）。
+ *
+ * 目标态 == 当前态时后端回 409 `code=66046`（重复点击不会重复通知）；
+ * 卡片不是在役 / 闲置（已处置要先作废处置）也是同一个码。
+ */
+export function changeAssetStatus(
+  id: string,
+  payload: AssetStatusChangePayload,
+): Promise<AssetDetail> {
+  return post<AssetDetail>(`${BASE}/asset/${id}/status`, payload);
 }
 
 /** 作废处置（`POST /asset/{id}/dispose/cancel`，红字回滚后资产回在役） */
