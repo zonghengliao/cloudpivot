@@ -53,6 +53,32 @@
 //! （ARCH-6 D3）。BLOCK 必须由客户显式打开（槽级 `biz_budget.control_mode` 或全局
 //! `sys_config erp.budget.control_mode`）。
 //!
+//! # 「未编制预算」≠「超预算」（FIX-5）
+//!
+//! 该槽根本没有本期生效的 ACTIVE 预算时（`missing_budget = true`）：
+//!
+//! ```text
+//! over        = false        -- 没编预算不代表花超了
+//! over_amount = None         -- 落库 NULL，不是「全额超支」
+//! ```
+//!
+//! 为什么改：旧实现里 `missing_budget=true` 与 `over=true` 同时成立，于是「没编预算」的单据
+//! 全部 `over_budget=1 / over_amount=全额`，列表页一片「超预算」，业务分不清「真超支」和
+//! 「压根没编预算」。现在两者是两个互斥的事实：**真超支**（有预算、花过了）才置 `over`，
+//! **未编制**只置 `missing_budget`（列表页标黄）。
+//!
+//! 副作用（有意为之）：`blocks()` = `mode == BLOCK && over`，所以 BLOCK 策略下「未编预算」
+//! **不再** 409 放行/拦截判据 —— 它的判据是「超了额度」而不是「没有额度」。
+//! 需要「严格管控必须编预算」时应另设一条独立校验，不要靠 `over` 兼职。
+//!
+//! # 409 报文里说哪条策略（FIX-5）
+//!
+//! 阻断可能来自**槽级** `control_mode`（`biz_budget.control_mode`）也可能来自**全局**
+//! `sys_config`，两者可以不同（典型：全局 WARN + 槽级 BLOCK）。报文必须用
+//! **触发阻断那条 check 自己的** `verdict.mode` + [`ModeSource`]（「槽级策略 BLOCK」
+//! / 「全局策略 BLOCK」），而不是 `global.label()` —— 否则会出现「策略 标记并强制审批」
+//! 却把单子拦下来的自相矛盾。
+//!
 //! # 并发（不锁，靠唯一键 + 快照，ARCH-6 §3.6）
 //!
 //! 两张单同时提交都超预算 → 两张都带标记进审批（可接受：人都能看见）；
@@ -153,6 +179,28 @@ impl ControlMode {
     }
 }
 
+/// 一条预算判定的策略**来源**（FIX-5：报文里必须说清是「槽级」还是「全局」）。
+///
+/// 槽级 `biz_budget.control_mode` 会覆盖全局 `sys_config`，所以同一个槽的 `mode` 可能
+/// 与全局不同（典型：全局 WARN、槽级 BLOCK）。用全局标签解释槽级阻断 = 报文自相矛盾。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModeSource {
+    /// 槽级没有配置，继承 `sys_config erp.budget.control_mode`。
+    Global,
+    /// 槽级 `biz_budget.control_mode` 显式指定。
+    Slot,
+}
+
+impl ModeSource {
+    /// 报文前缀（「全局策略」/「槽级策略」）。
+    pub const fn label(self) -> &'static str {
+        match self {
+            ModeSource::Global => "全局策略",
+            ModeSource::Slot => "槽级策略",
+        }
+    }
+}
+
 /// 一个预算「槽」= 部门 × 预算科目 × 年度（D5：usage 绑槽不绑版本）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Slot {
@@ -244,6 +292,9 @@ pub struct BudgetVerdict {
 
 impl BudgetVerdict {
     /// 判定（纯函数）。**`this == 可用` 不算超**（边界不能靠 `>=` 的直觉）。
+    ///
+    /// `missing_budget`（该槽没有本期生效的 ACTIVE 预算）时**不算超支**：
+    /// `over = false`、`over_amount = None`（FIX-5，见模块文档）。
     pub fn evaluate(
         mode: ControlMode,
         year_limit: Decimal,
@@ -256,6 +307,8 @@ impl BudgetVerdict {
         let month_avail = (month_limit - month_used).max(Decimal::ZERO);
         let year_gap = (this_amount - year_avail).max(Decimal::ZERO);
         let month_gap = (this_amount - month_avail).max(Decimal::ZERO);
+        // 未编制预算 = 额度 0 且历史上也没占用过（有占用说明预算被删了，那是另一回事）
+        let missing_budget = year_limit <= Decimal::ZERO && year_used <= Decimal::ZERO;
         Self {
             mode,
             year_limit,
@@ -265,14 +318,27 @@ impl BudgetVerdict {
             this_amount,
             year_gap,
             month_gap,
-            over: year_gap > Decimal::ZERO || month_gap > Decimal::ZERO,
-            missing_budget: year_limit <= Decimal::ZERO && year_used <= Decimal::ZERO,
+            // 没编预算 ≠ 超预算（FIX-5）：两者互斥，别让「没额度」冒充「花超了」
+            over: !missing_budget && (year_gap > Decimal::ZERO || month_gap > Decimal::ZERO),
+            missing_budget,
         }
     }
 
     /// 超支额 = 两个缺口里更大的那个（报文与快照都用它）。
+    ///
+    /// **不超支时返回 0**（保留旧签名，`Decimal` 方便算术）；要区分「没超」与「超了 0」
+    /// 请用 [`Self::over_amount_opt`]。
     pub fn over_amount(&self) -> Decimal {
-        self.year_gap.max(self.month_gap)
+        self.over_amount_opt().unwrap_or(Decimal::ZERO)
+    }
+
+    /// 超支额的**可空**形式：`None` = 没超支（含「未编制预算」）。
+    ///
+    /// 落库用它：`over_amount` 列超支才有值，否则写 `NULL`（FIX-5 验收：未编预算
+    /// → `over_budget=0 / missing_budget=1 / over_amount=null`）。
+    pub fn over_amount_opt(&self) -> Option<Decimal> {
+        let amount = self.year_gap.max(self.month_gap);
+        (self.over && amount > Decimal::ZERO).then_some(amount)
     }
 
     /// 年可用（额度 − 已用，负数截零）。
@@ -542,7 +608,7 @@ pub async fn occupy(
                     source_no = ?, \
                     budget_id = NULLIF(?::text,'')::uuid, \
                     over_budget = ?, \
-                    over_amount = ?::text::numeric, \
+                    over_amount = NULLIF(?::text,'')::numeric, \
                     released_at = NULL, \
                     release_reason = NULL, \
                     consumed_at = NULL, \
@@ -560,7 +626,7 @@ pub async fn occupy(
                 Value::Text(source_no.to_string()),
                 Value::Text(budget_id.clone()),
                 Value::from(i32::from(verdict.over)),
-                Value::Text(verdict.over_amount().to_string()),
+                Value::Text(over_amount_text(verdict)),
                 Value::Text(source_type.to_string()),
                 Value::from(&source_id),
                 Value::from(&slot.dept_id),
@@ -581,8 +647,8 @@ pub async fn occupy(
                  amount, amount_net, source_type, source_id, source_no,
                  status, budget_id, over_budget, over_amount, create_by)
              VALUES (?, ?::uuid, ?::uuid, ?::int, ?, ?::text::numeric, ?::text::numeric,
-                     ?, ?::uuid, ?, 'OCCUPIED', NULLIF(?::text,'')::uuid, ?::int, ?::text::numeric,
-                     NULLIF(?::text,'')::uuid)"
+                     ?, ?::uuid, ?, 'OCCUPIED', NULLIF(?::text,'')::uuid, ?::int,
+                     NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::uuid)"
                 .to_string(),
             vec![
                 Value::from(&id),
@@ -597,7 +663,7 @@ pub async fn occupy(
                 Value::Text(source_no.to_string()),
                 Value::Text(budget_id),
                 Value::from(i32::from(verdict.over)),
-                Value::Text(verdict.over_amount().to_string()),
+                Value::Text(over_amount_text(verdict)),
                 Value::Text(operator.map(|id| id.to_string()).unwrap_or_default()),
             ],
         )
@@ -727,8 +793,8 @@ pub struct UsageRow {
     pub status: String,
     /// 提交时点是否超预算。
     pub over_budget: bool,
-    /// 提交时点超支额。
-    pub over_amount: Decimal,
+    /// 提交时点超支额（`None` = 当时没超支；FIX-5 起未编预算的单据也是 `None`）。
+    pub over_amount: Option<Decimal>,
     /// 来源单据类型（`EXPENSE_REPORT` / `PURCHASE_ORDER`）。
     pub source_type: String,
     /// 来源单据 id。
@@ -752,7 +818,9 @@ impl UsageRow {
             amount: parse_amount(&row.get_typed::<String>("amount")?),
             status: row.get_typed("status")?,
             over_budget: row.get_typed("over_budget")?,
-            over_amount: parse_amount(&row.get_typed::<String>("over_amount")?),
+            over_amount: row
+                .get_typed::<Option<String>>("over_amount")?
+                .map(|text| parse_amount(&text)),
             source_type: row.get_typed("source_type")?,
             source_id: row.get_typed("source_id")?,
             source_no: row.get_typed("source_no")?,
@@ -764,6 +832,32 @@ impl UsageRow {
 
 fn parse_amount(text: &str) -> Decimal {
     text.parse::<Decimal>().unwrap_or(Decimal::ZERO)
+}
+
+/// 金额的**人话**文本：去掉无意义的尾随 0（`3500.0000` → `3500`，`833.3300` → `833.33`）。
+///
+/// 只用于报文 / 日志（给业务人员看）；落库与 JSON 出参仍然用 `Decimal` 原样。
+pub fn amount_text(amount: Decimal) -> String {
+    amount.round_dp(4).normalize().to_string()
+}
+
+/// 期间码 `yyyy-MM` → `yyyy年M月`（报文用；非法输入原样回显，不吞）。
+pub fn period_label(period_code: &str) -> String {
+    match (period_code.get(0..4), period_code.get(5..7)) {
+        (Some(year), Some(month)) => match month.trim_start_matches('0').parse::<u32>() {
+            Ok(month) => format!("{year}年{month}月"),
+            Err(_) => period_code.to_string(),
+        },
+        _ => period_code.to_string(),
+    }
+}
+
+/// 落库用的超支额文本：**没超支 → 空串**（SQL 侧 `NULLIF(?,'')` 转 `NULL`）。
+fn over_amount_text(verdict: &BudgetVerdict) -> String {
+    verdict
+        .over_amount_opt()
+        .map(amount_text)
+        .unwrap_or_default()
 }
 
 fn truncate(text: &str, max: usize) -> String {
@@ -1176,6 +1270,75 @@ pub struct ExpenseSlotCheck {
     pub verdict: BudgetVerdict,
     /// 快照（`budget_id` 写进 usage 作审计）。
     pub snapshot: SlotSnapshot,
+    /// 科目编码（报文用；科目表查不到就 `None`）。
+    pub account_code: Option<String>,
+    /// 科目名称（报文用）。
+    pub account_name: Option<String>,
+    /// 这个槽的策略来自槽级还是全局（报文必须说清楚，FIX-5）。
+    pub mode_source: ModeSource,
+}
+
+impl ExpenseSlotCheck {
+    /// 科目显示名：`5602.02 差旅费`（编码 / 名称缺就退化成另一项，都没有才用 id）。
+    pub fn account_label(&self) -> String {
+        match (&self.account_code, &self.account_name) {
+            (Some(code), Some(name)) if !name.trim().is_empty() => format!("{code} {name}"),
+            (Some(code), _) => code.clone(),
+            (None, Some(name)) if !name.trim().is_empty() => name.clone(),
+            _ => self.slot.account_id.to_string(),
+        }
+    }
+
+    /// 这个槽的一句话现状（409 报文 / 日志 / 审批备注共用，避免三处各写一套文案）。
+    ///
+    /// 三种形态：**未编制预算** / **额度内** / **超支**。超支时按「咬得最狠」的那道闸
+    /// （月度闸优先）报数，并点明策略是 `槽级策略` 还是 `全局策略`。
+    pub fn describe(&self) -> String {
+        let period = period_label(&self.slot.period_code);
+        let verdict = &self.verdict;
+        if verdict.missing_budget {
+            return format!(
+                "科目「{}」{period}：未编制预算（本次 {} 只登记占用，不按超支处理）",
+                self.account_label(),
+                amount_text(self.amount)
+            );
+        }
+        if !verdict.over {
+            return format!(
+                "科目「{}」{period}：额度内（剩余 {}），本次 {}",
+                self.account_label(),
+                amount_text(verdict.year_available().min(verdict.month_available())),
+                amount_text(self.amount)
+            );
+        }
+        let (gate, used, limit, gap) =
+            if verdict.month_gap >= verdict.year_gap && verdict.month_gap > Decimal::ZERO {
+                (
+                    "月度",
+                    verdict.month_used,
+                    verdict.month_limit,
+                    verdict.month_gap,
+                )
+            } else {
+                (
+                    "年度",
+                    verdict.year_used,
+                    verdict.year_limit,
+                    verdict.year_gap,
+                )
+            };
+        format!(
+            "科目「{}」{period}：{} {}（{}），{gate}已用 {} / {gate}预算 {}，本次 {}，超支 {}",
+            self.account_label(),
+            self.mode_source.label(),
+            verdict.mode.as_str(),
+            verdict.mode.label(),
+            amount_text(used),
+            amount_text(limit),
+            amount_text(self.amount),
+            amount_text(gap)
+        )
+    }
 }
 
 /// 报销提交时的预算判定汇总。
@@ -1195,19 +1358,56 @@ pub struct ExpenseBudget {
 }
 
 impl ExpenseBudget {
-    /// 是否有任一槽超预算。
+    /// 是否有任一槽超预算（真超支；「未编制预算」不算，见模块文档 FIX-5）。
     pub fn over(&self) -> bool {
         self.checks.iter().any(|check| check.verdict.over)
     }
 
-    /// 是否应该 409 阻断（`BLOCK` + 超预算）。
-    pub fn blocks(&self) -> bool {
-        self.checks
-            .iter()
-            .any(|check| check.verdict.blocks() && check.verdict.over)
+    /// 是否有任一槽「未编制预算」（该槽没有本期生效的 ACTIVE 预算）。
+    pub fn missing_budget(&self) -> bool {
+        self.checks.iter().any(|check| check.verdict.missing_budget)
     }
 
-    /// 超支额（多槽取最大；与 `form_data.over_amount` 同口径）。
+    /// 是否应该 409 阻断（`BLOCK` + 超预算）。
+    pub fn blocks(&self) -> bool {
+        self.checks.iter().any(|check| check.verdict.blocks())
+    }
+
+    /// 触发阻断的槽（`BLOCK` + 真超支），按超支额降序（报文最严重的排第一）。
+    pub fn blocking_checks(&self) -> Vec<&ExpenseSlotCheck> {
+        let mut blocking: Vec<&ExpenseSlotCheck> = self
+            .checks
+            .iter()
+            .filter(|check| check.verdict.blocks())
+            .collect();
+        blocking.sort_by(|a, b| {
+            b.verdict
+                .over_amount()
+                .cmp(&a.verdict.over_amount())
+                .then_with(|| a.slot.account_id.cmp(&b.slot.account_id))
+        });
+        blocking
+    }
+
+    /// 409 报文的**按槽正文**（`None` = 没有槽需要阻断）。
+    ///
+    /// FIX-5 问题 1：每行用**触发阻断那条 check 自己**的策略（`槽级策略 BLOCK` /
+    /// `全局策略 BLOCK`），不再拿全局 `global.label()` 解释槽级阻断。
+    pub fn block_reason(&self) -> Option<String> {
+        let blocking = self.blocking_checks();
+        if blocking.is_empty() {
+            return None;
+        }
+        Some(
+            blocking
+                .iter()
+                .map(|check| format!("· {}", check.describe()))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+    }
+
+    /// 超支额（多槽取最大；与 `form_data.over_amount` 同口径；没超支 = 0）。
     pub fn over_amount(&self) -> Decimal {
         self.checks
             .iter()
@@ -1215,6 +1415,14 @@ impl ExpenseBudget {
             .map(|check| check.verdict.over_amount())
             .max()
             .unwrap_or(Decimal::ZERO)
+    }
+
+    /// 超支额的**可空**形式（没超支 → `None`，落库写 `NULL`；FIX-5）。
+    pub fn over_amount_opt(&self) -> Option<Decimal> {
+        self.checks
+            .iter()
+            .filter_map(|check| check.verdict.over_amount_opt())
+            .max()
     }
 
     /// 是否需要写占用（`OFF` 策略不写）。
@@ -1272,6 +1480,12 @@ pub async fn check_for_expense(
             });
         };
         let slot_mode = active_control_mode(ex, &slot).await?;
+        // 策略来源：槽级显式配了就是槽级，否则继承全局（报文要说清楚，FIX-5）
+        let mode_source = if slot_mode.as_deref().and_then(ControlMode::parse).is_some() {
+            ModeSource::Slot
+        } else {
+            ModeSource::Global
+        };
         let mode = ControlMode::resolve(slot_mode.as_deref(), global);
         let snapshot = slot_snapshot(ex, &slot).await?;
         let verdict = BudgetVerdict::evaluate(
@@ -1282,35 +1496,48 @@ pub async fn check_for_expense(
             snapshot.month_used,
             item.amount,
         );
+        // 科目编码 / 名称：只给报文用，查不到不报错（报文退化成 id）
+        let (account_code, account_name) = account_label_of(ex, item.account_id).await?;
         checks.push(ExpenseSlotCheck {
             slot,
             amount: item.amount,
             amount_net: item.amount_net,
             verdict,
             snapshot,
+            account_code,
+            account_name,
+            mode_source,
         });
     }
-    let over_slots = checks.iter().filter(|check| check.verdict.over).count();
-    // 文案里的策略取「实际参与判定的最严槽级策略」，与单据记账口径（`recorded_mode`）一致：
-    // 全局 WARN + 槽级 BLOCK 时，说「策略 标记并强制审批」会让人误判。
-    let recorded = checks
+    // 文案只列**真正超支**的槽（逐槽说出「槽级策略 BLOCK」这类事实），
+    // 「未编制预算」单独计数 —— 它是标记，不是超支（FIX-5）。
+    let over_checks: Vec<&ExpenseSlotCheck> =
+        checks.iter().filter(|check| check.verdict.over).collect();
+    let missing_slots = checks
         .iter()
-        .map(|check| check.verdict.mode)
-        .max_by_key(|mode| mode.strictness())
-        .unwrap_or(global);
-    let reason = if over_slots == 0 {
-        format!("{} 个预算槽均在额度内", checks.len())
+        .filter(|check| check.verdict.missing_budget)
+        .count();
+    let reason = if over_checks.is_empty() {
+        if missing_slots > 0 {
+            format!(
+                "{missing_slots}/{} 个预算槽未编制预算（只标记、不按超支处理）",
+                checks.len()
+            )
+        } else {
+            format!("{} 个预算槽均在额度内", checks.len())
+        }
     } else {
-        format!(
-            "{over_slots}/{} 个预算槽超额度，超支额最大 {}（策略 {}）",
-            checks.len(),
-            checks
-                .iter()
-                .map(|check| check.verdict.over_amount())
-                .max()
-                .unwrap_or(Decimal::ZERO),
-            recorded.label()
-        )
+        let mut text = over_checks
+            .iter()
+            .map(|check| check.describe())
+            .collect::<Vec<_>>()
+            .join("；");
+        if missing_slots > 0 {
+            text.push_str(&format!(
+                "；另有 {missing_slots} 个预算槽未编制预算（不按超支处理）"
+            ));
+        }
+        text
     };
     Ok(ExpenseBudget {
         mode: global,
@@ -1319,6 +1546,28 @@ pub async fn check_for_expense(
         checks,
         reason,
     })
+}
+
+/// 预算科目的编码 / 名称（409 报文用；科目表查不到就 `None`，不报错 ——
+/// 报文是附加信息，不能因为缺科目把提交拦掉）。
+async fn account_label_of(
+    ex: &impl SqlExecutor,
+    account_id: Uuid,
+) -> DbResult<(Option<String>, Option<String>)> {
+    // SCOPE-EXEMPT: 科目表按主键取 1 行。
+    let rows = ex
+        .query_sql(
+            "SELECT account_code, account_name FROM biz_account WHERE id = ?::uuid".to_string(),
+            vec![Value::from(&account_id)],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok((None, None)),
+        Some(row) => Ok((
+            row.get_typed::<Option<String>>("account_code")?,
+            row.get_typed::<Option<String>>("account_name")?,
+        )),
+    }
 }
 
 /// 写报销单的占用行（`OCCUPIED`）。**与「状态 → SUBMITTED」同事务**。

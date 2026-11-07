@@ -348,7 +348,7 @@ pub async fn type_soft_delete(
 const REPORT_COLUMNS: &str = "e.id, e.report_no, e.reporter_id, e.reporter_name, e.dept_id, \
      e.dept_name, e.title, e.expense_date, e.period_code, e.total_amount::text AS total_amount, \
      e.total_tax::text AS total_tax, e.total_with_tax::text AS total_with_tax, e.item_count, \
-     e.over_budget, e.over_amount::text AS over_amount, e.budget_mode, e.status, \
+     e.over_budget, e.missing_budget, e.over_amount::text AS over_amount, e.budget_mode, e.status, \
      e.approval_instance_id, e.voucher_id, e.paid_amount::text AS paid_amount, \
      e.unpaid_amount::text AS unpaid_amount, e.pay_status, e.last_pay_date, e.submitted_at, \
      e.submitted_by, e.approved_at, e.approved_by, e.cancel_reason, e.cancelled_at, \
@@ -385,8 +385,10 @@ pub struct ReportRow {
     pub item_count: i32,
     /// 提交时点是否超预算。
     pub over_budget: bool,
-    /// 提交时点超支额。
-    pub over_amount: Decimal,
+    /// 提交时点是否「未编制预算」（该槽没有本期生效的 ACTIVE 预算，FIX-5）。
+    pub missing_budget: bool,
+    /// 提交时点超支额（`None` = 没超支，落库 `NULL`）。
+    pub over_amount: Option<Decimal>,
     /// 提交时的控制策略快照。
     pub budget_mode: Option<String>,
     /// 状态。
@@ -442,7 +444,10 @@ impl ReportRow {
             total_with_tax: parse_amount(&row.get_typed::<String>("total_with_tax")?),
             item_count: row.get_typed("item_count")?,
             over_budget: row.get_typed::<i16>("over_budget")? == 1,
-            over_amount: parse_amount(&row.get_typed::<String>("over_amount")?),
+            missing_budget: row.get_typed::<i16>("missing_budget")? == 1,
+            over_amount: row
+                .get_typed::<Option<String>>("over_amount")?
+                .map(|text| parse_amount(&text)),
             budget_mode: row.get_typed("budget_mode")?,
             status: row.get_typed("status")?,
             approval_instance_id: row.get_typed("approval_instance_id")?,
@@ -958,13 +963,17 @@ pub async fn items_sum(
 }
 
 /// 提交：置 `SUBMITTED` + 挂实例 + 冻结预算快照（**只允许从 DRAFT**）。
+///
+/// FIX-5：`missing_budget` 与 `over_amount` 一起冻结 —— 没编预算的单据 `over_budget=0` /
+/// `missing_budget=1` / `over_amount=NULL`（「没编预算」不是「超了全款」）。
 #[allow(clippy::too_many_arguments)]
 pub async fn report_mark_submitted(
     ex: &impl SqlExecutor,
     id: Uuid,
     instance_id: Uuid,
     over_budget: bool,
-    over_amount: Decimal,
+    missing_budget: bool,
+    over_amount: Option<Decimal>,
     budget_mode: Option<&str>,
     operator: Uuid,
     now: DateTime<Utc>,
@@ -973,7 +982,8 @@ pub async fn report_mark_submitted(
     ex.exec_sql(
         format!(
             "UPDATE {TABLE} SET status = 'SUBMITTED', approval_instance_id = ?::uuid, \
-                    over_budget = ?::int, over_amount = ?::text::numeric, budget_mode = ?, \
+                    over_budget = ?::int, missing_budget = ?::int, \
+                    over_amount = NULLIF(?::text,'')::numeric, budget_mode = ?, \
                     submitted_at = ?::text::timestamptz, submitted_by = ?::uuid, \
                     updated_at = now(), update_by = ?::uuid \
               WHERE id = ?::uuid AND deleted_at IS NULL AND status = 'DRAFT'"
@@ -981,7 +991,12 @@ pub async fn report_mark_submitted(
         vec![
             Value::from(&instance_id),
             Value::from(i32::from(bool_int(over_budget))),
-            Value::Text(over_amount.to_string()),
+            Value::from(i32::from(bool_int(missing_budget))),
+            Value::Text(
+                over_amount
+                    .map(|amount| amount.normalize().to_string())
+                    .unwrap_or_default(),
+            ),
             opt_text(budget_mode),
             Value::Text(now.to_rfc3339()),
             Value::from(&operator),
@@ -1003,7 +1018,7 @@ pub async fn report_mark_draft(
     ex.exec_sql(
         format!(
             "UPDATE {TABLE} SET status = 'DRAFT', approval_instance_id = NULL, \
-                    over_budget = 0, over_amount = 0, budget_mode = NULL, \
+                    over_budget = 0, missing_budget = 0, over_amount = NULL, budget_mode = NULL, \
                     remark = CASE WHEN NULLIF(?::text,'') IS NULL THEN remark \
                                   ELSE coalesce(remark || E'\\n', '') || ?::text END, \
                     updated_at = now(), update_by = NULLIF(?::text,'')::uuid \

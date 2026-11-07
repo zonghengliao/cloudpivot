@@ -598,8 +598,8 @@ pub struct UsageRes {
     pub status: String,
     /// 超预算标记。
     pub over_budget: bool,
-    /// 超支额。
-    pub over_amount: Decimal,
+    /// 超支额（`null` = 提交时没超支，含「未编制预算」）。
+    pub over_amount: Option<Decimal>,
     /// 释放原因。
     pub release_reason: Option<String>,
 }
@@ -649,8 +649,10 @@ pub struct ReportRes {
     pub last_pay_date: Option<NaiveDate>,
     /// 超预算标记。
     pub over_budget: bool,
-    /// 提交时点的超支额。
-    pub over_amount: Decimal,
+    /// 未编制预算标记（该槽没有本期生效的预算；与 `over_budget` 互斥，FIX-5）。
+    pub missing_budget: bool,
+    /// 提交时点的超支额（`null` = 没超支）。
+    pub over_amount: Option<Decimal>,
     /// 提交时**实际生效的槽级控制策略**快照（`OFF` / `WARN` / `BLOCK`；`null` = 从未提交过）。
     ///
     /// FIX-2 问题 4：审计要能看出「这单被哪条策略管过」——槽级 BLOCK、全局 WARN 时必须记 BLOCK。

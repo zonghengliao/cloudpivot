@@ -105,6 +105,18 @@
         :message="`提交时超预算 ${formatMoney(report.over_amount)}：财务审批链会看到这条标记（预算按部门 + 科目 + 月份占用）`"
       />
 
+      <!--
+        FIX-5：未编制预算 ≠ 超预算。该单提交时没有任何生效预算管着它 ——
+        标黄说明「钱没被预算管」，与「真超支」的红标分开，别让业务以为自己超了。
+      -->
+      <t-alert
+        v-if="report.missing_budget && !report.over_budget"
+        theme="info"
+        class="detail__alert"
+        data-testid="expense-detail-missing-budget"
+        message="提交时未编制预算：本单涉及的预算科目在该期间没有生效的预算额度，因此不按超支处理（也不会占用额度）。如需管控，请财务先编制并审批通过预算。"
+      />
+
       <t-alert
         v-if="report.status === 'CANCELLED' && report.cancel_reason"
         theme="info"

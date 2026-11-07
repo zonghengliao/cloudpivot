@@ -988,5 +988,5 @@ export function usageOverText(usage: Pick<BudgetUsageRow, 'over_budget' | 'over_
   if (!usage.over_budget) {
     return '';
   }
-  return `提交时超支 ${formatCents(toCents(usage.over_amount))}`;
+  return `提交时超支 ${formatCents(toCents(usage.over_amount ?? '0'))}`;
 }

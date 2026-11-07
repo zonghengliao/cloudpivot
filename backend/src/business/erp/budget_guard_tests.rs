@@ -89,20 +89,29 @@ fn both_over_takes_the_worse_gap() {
     assert!(v.describe().contains("超出预算"), "{}", v.describe());
 }
 
-/// ⑤ 无预算（该槽没有 ACTIVE 版本）：额度按 0 → `missing_budget` 且超支；
-///    但 `OFF` 策略下不阻断（忘编预算不等于停业，ARCH-6 D3）。
+/// ⑤ 无预算（该槽没有 ACTIVE 版本）：只标 `missing_budget`，**不算超支**（FIX-5）；
+///    但 `OFF` 策略下当然也不阻断（忘编预算不等于停业，ARCH-6 D3）。
 #[test]
-fn missing_budget_is_flagged_but_off_mode_never_blocks() {
+fn missing_budget_is_flagged_but_never_over() {
     let warn = verdict(ControlMode::Warn, "0", "0", "0", "0", "1000");
-    assert!(warn.over);
+    assert!(!warn.over, "没编预算 ≠ 超预算：{}", warn.describe());
     assert!(warn.missing_budget);
-    assert_eq!(warn.over_amount(), dec("1000"));
+    assert_eq!(warn.over_amount(), Decimal::ZERO, "超支额 0，不是全额");
+    assert_eq!(warn.over_amount_opt(), None, "落库口径是 NULL 而不是全额");
     assert!(!warn.blocks());
 
     let off = verdict(ControlMode::Off, "0", "0", "0", "0", "1000");
     assert!(
         !off.blocks(),
         "OFF 模式即使超支也不阻断（调用方也不会写 usage）"
+    );
+
+    // FIX-5 的语义后果：BLOCK 的判据是「超了额度」而不是「没有额度」
+    let block = verdict(ControlMode::Block, "0", "0", "0", "0", "1000");
+    assert!(block.missing_budget);
+    assert!(
+        !block.blocks(),
+        "BLOCK 策略下「未编预算」不按超支拦（要拦必须另设「必须编预算」校验）"
     );
 }
 
@@ -282,12 +291,18 @@ fn slot_year_window_is_inclusive() {
 fn missing_budget_only_when_no_limit_and_no_usage() {
     let nothing = verdict(ControlMode::Warn, "0", "0", "0", "0", "100");
     assert!(nothing.missing_budget, "额度 0 + 已用 0 = 未编制预算");
+    assert!(!nothing.over, "未编制预算不算超支");
 
     let spent_without_limit = verdict(ControlMode::Warn, "0", "500", "0", "0", "100");
     assert!(
         !spent_without_limit.missing_budget,
         "有历史占用说明预算曾经存在过，不能报「未编制」"
     );
+    assert!(
+        spent_without_limit.over,
+        "预算被删/额度调零而历史占用还在 → 这是真超支（本次全额），不是「未编制」"
+    );
+    assert_eq!(spent_without_limit.over_amount(), dec("100"));
 
     let has_limit = verdict(ControlMode::Warn, "5000", "0", "0", "0", "100");
     assert!(!has_limit.missing_budget);
@@ -446,6 +461,9 @@ fn slot_check(dept: Uuid, account: Uuid, mode: ControlMode, amount: &str) -> Exp
             month_limit: dec("1000"),
             month_used: Decimal::ZERO,
         },
+        account_code: Some("5602.02".to_string()),
+        account_name: Some("差旅费".to_string()),
+        mode_source: ModeSource::Slot,
     }
 }
 
@@ -558,4 +576,210 @@ fn pending_warning_message_carries_amount_and_period() {
     let warnings = pending_warnings(&[pending("DRAFT", None)], "2026-11");
     assert!(warnings[0].message.contains("10000"));
     assert!(warnings[0].message.contains("2026-11"));
+}
+
+// ==================== FIX-5：409 报文按槽说话 + 未编预算不冒充超支 ====================
+
+/// 造一个「已用 ~ 额度」的槽（`used` 与 `limit` 由用例给，便于钉报文数字）。
+fn slot_of(
+    account_code: &str,
+    account_name: &str,
+    mode: ControlMode,
+    mode_source: ModeSource,
+    used: &str,
+    limit: &str,
+    this: &str,
+) -> ExpenseSlotCheck {
+    let slot = Slot::new(Uuid::now_v7(), Uuid::now_v7(), "2026-11").expect("槽");
+    ExpenseSlotCheck {
+        slot,
+        amount: dec(this),
+        amount_net: dec(this),
+        verdict: verdict(mode, limit, used, limit, used, this),
+        snapshot: SlotSnapshot {
+            budget_id: None,
+            year_limit: dec(limit),
+            year_used: dec(used),
+            month_limit: dec(limit),
+            month_used: dec(used),
+        },
+        account_code: Some(account_code.to_string()),
+        account_name: Some(account_name.to_string()),
+        mode_source,
+    }
+}
+
+fn expense_budget(global: ControlMode, checks: Vec<ExpenseSlotCheck>) -> ExpenseBudget {
+    ExpenseBudget {
+        mode: global,
+        dept_id: Uuid::now_v7(),
+        period_code: "2026-11".to_string(),
+        checks,
+        reason: String::new(),
+    }
+}
+
+/// ㉗ 问题 1 的钉子：全局 WARN + 槽级 BLOCK 超支 → 报文必须说 **槽级策略 BLOCK**，
+/// 绝不能再说「标记并强制审批」（那是全局 WARN 的标签，用户看不懂为什么被拦）。
+#[test]
+fn block_reason_says_slot_level_block_not_global_label() {
+    let budget = expense_budget(
+        ControlMode::Warn,
+        vec![
+            slot_of(
+                "5602.02",
+                "差旅费",
+                ControlMode::Block,
+                ModeSource::Slot,
+                "9500",
+                "10000",
+                "1000",
+            ),
+            slot_of(
+                "5602.03",
+                "办公费",
+                ControlMode::Warn,
+                ModeSource::Slot,
+                "0",
+                "8000",
+                "500",
+            ),
+        ],
+    );
+    assert!(budget.blocks(), "槽级 BLOCK + 超支必须阻断");
+    let reason = budget.block_reason().expect("有阻断槽就有正文");
+    assert!(reason.contains("槽级策略 BLOCK"), "报文：{reason}");
+    assert!(
+        reason.contains("科目「5602.02 差旅费」2026年11月"),
+        "报文：{reason}"
+    );
+    assert!(
+        reason.contains("月度已用 9500 / 月度预算 10000"),
+        "报文：{reason}"
+    );
+    assert!(reason.contains("本次 1000"), "报文：{reason}");
+    assert!(reason.contains("超支 500"), "报文：{reason}");
+    assert!(
+        !reason.contains("标记并强制审批"),
+        "全局 WARN 的标签不能用来解释槽级阻断：{reason}"
+    );
+    // 只列阻断的那个槽（另一个在额度内，不该混进 409 正文）
+    assert_eq!(reason.lines().count(), 1, "只列阻断槽：{reason}");
+}
+
+/// ㉘ 槽级没配策略（继承全局）时，报文要说「全局策略 BLOCK」，不能张冠李戴成槽级。
+#[test]
+fn block_reason_says_global_policy_when_inherited() {
+    let budget = expense_budget(
+        ControlMode::Block,
+        vec![slot_of(
+            "5602.01",
+            "基本工资",
+            ControlMode::Block,
+            ModeSource::Global,
+            "10000",
+            "10000",
+            "3500",
+        )],
+    );
+    let reason = budget.block_reason().expect("正文");
+    assert!(reason.contains("全局策略 BLOCK"), "报文：{reason}");
+    assert!(!reason.contains("槽级策略"), "报文：{reason}");
+    assert!(reason.contains("超支 3500"), "报文：{reason}");
+}
+
+/// ㉙ 多个槽都阻断：逐槽列出，超支额大的排前面（业务先看最严重的）。
+#[test]
+fn block_reason_lists_every_blocking_slot_worst_first() {
+    let budget = expense_budget(
+        ControlMode::Block,
+        vec![
+            slot_of(
+                "5602.05",
+                "招待费",
+                ControlMode::Block,
+                ModeSource::Slot,
+                "1000",
+                "1000",
+                "200",
+            ),
+            slot_of(
+                "5602.02",
+                "差旅费",
+                ControlMode::Block,
+                ModeSource::Slot,
+                "10000",
+                "10000",
+                "3500",
+            ),
+        ],
+    );
+    let reason = budget.block_reason().expect("正文");
+    let lines: Vec<&str> = reason.lines().collect();
+    assert_eq!(lines.len(), 2, "两个阻断槽各一行：{reason}");
+    assert!(
+        lines[0].contains("差旅费"),
+        "超支 3500 的排在前面：{reason}"
+    );
+    assert!(lines[1].contains("招待费"), "报文：{reason}");
+    assert!(
+        lines.iter().all(|line| line.starts_with("· ")),
+        "逐槽用 · 起行：{reason}"
+    );
+}
+
+/// ㉚ 未编预算的槽：正文说「未编制预算」，既不说超支也不说策略 —— 它不是阻断原因。
+#[test]
+fn missing_budget_slot_describe_is_not_a_block() {
+    let missing = slot_of(
+        "5602.09",
+        "培训费",
+        ControlMode::Warn,
+        ModeSource::Global,
+        "0",
+        "0",
+        "800",
+    );
+    assert!(missing.verdict.missing_budget);
+    assert!(!missing.verdict.over, "没编预算不算超支");
+    let text = missing.describe();
+    assert!(text.contains("未编制预算"), "文案：{text}");
+    assert!(!text.contains("，超支"), "文案：{text}");
+    assert!(!text.contains("BLOCK"), "文案：{text}");
+
+    // 整单只有未编预算的槽 → 没有阻断正文、也不阻断
+    let budget = expense_budget(ControlMode::Block, vec![missing]);
+    assert!(!budget.blocks(), "未编预算不阻断");
+    assert!(budget.block_reason().is_none());
+    assert!(budget.missing_budget());
+    assert!(!budget.over());
+    assert_eq!(budget.over_amount_opt(), None, "落库写 NULL");
+}
+
+/// ㉛ 额度内的槽：正文说「额度内」并给剩余额度（报文能自证没超）。
+#[test]
+fn within_budget_slot_describe_shows_remainder() {
+    let ok = slot_of(
+        "5602.03",
+        "办公费",
+        ControlMode::Warn,
+        ModeSource::Slot,
+        "2000",
+        "10000",
+        "500",
+    );
+    let text = ok.describe();
+    assert!(text.contains("额度内"), "文案：{text}");
+    assert!(text.contains("剩余 8000"), "文案：{text}");
+}
+
+/// ㉜ 报文helper：金额去尾零、期间码转中文月份（非法输入原样回显）。
+#[test]
+fn amount_and_period_text_are_human_readable() {
+    assert_eq!(amount_text(dec("3500.0000")), "3500");
+    assert_eq!(amount_text(dec("833.3300")), "833.33");
+    assert_eq!(amount_text(Decimal::ZERO), "0");
+    assert_eq!(period_label("2026-11"), "2026年11月");
+    assert_eq!(period_label("2026-01"), "2026年1月");
+    assert_eq!(period_label("bad"), "bad", "非法期间原样回显，不 panic");
 }

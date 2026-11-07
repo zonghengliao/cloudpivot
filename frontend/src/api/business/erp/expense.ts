@@ -220,8 +220,8 @@ export interface ExpenseBudgetUsage {
   status: string;
   /** 超预算标记 */
   over_budget: boolean;
-  /** 超支额 */
-  over_amount: string;
+  /** 超支额（`null` = 提交时没超支，含「未编制预算」） */
+  over_amount: string | null;
   /** 释放原因 */
   release_reason: string | null;
 }
@@ -270,8 +270,14 @@ export interface ExpenseReport {
   last_pay_date: string | null;
   /** 超预算标记 */
   over_budget: boolean;
-  /** 提交时点的超支额 */
-  over_amount: string;
+  /**
+   * 未编制预算标记（提交时该单有受控科目「压根没编预算」，FIX-5）。
+   *
+   * 与 `over_budget` **互斥**：真超支才 `over_budget=1`；「没编预算」只标这里（列表页黄标）。
+   */
+  missing_budget: boolean;
+  /** 提交时点的超支额（`null` = 没超支） */
+  over_amount: string | null;
   /**
    * 提交时**实际生效的槽级控制策略**快照（`OFF` / `WARN` / `BLOCK`；`null` = 从未提交过）。
    *

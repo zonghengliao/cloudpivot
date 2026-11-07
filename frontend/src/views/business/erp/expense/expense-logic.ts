@@ -631,8 +631,8 @@ export interface BudgetUsageRow {
   status_text: string;
   /** 是否超预算 */
   over_budget: boolean;
-  /** 超支额 */
-  over_amount: string;
+  /** 超支额（`null` = 当时没超支） */
+  over_amount: string | null;
   /** 释放原因 */
   release_reason: string | null;
 }
@@ -678,6 +678,25 @@ export function budgetUsageRows(
       release_reason: usage.release_reason,
     };
   });
+}
+
+/**
+ * 列表页「预算」列的标记（FIX-5）：**真超支**标红「超预算」，**未编预算**标黄「未编预算」，
+ * 两者都 false → 返回 `null`（正常，页面显示 `—`）。
+ *
+ * 为什么必须分开：修复前「没编预算」的单据也落 `over_budget=1 / over_amount=全额`，
+ * 列表页一片红「超预算」，业务分不清「真花超了」和「压根没编预算」。
+ */
+export function budgetFlag(
+  row: Pick<ExpenseReport, 'over_budget' | 'missing_budget'>,
+): { text: string; theme: 'danger' | 'warning' } | null {
+  if (row.over_budget) {
+    return { text: '超预算', theme: 'danger' };
+  }
+  if (row.missing_budget) {
+    return { text: '未编预算', theme: 'warning' };
+  }
+  return null;
 }
 
 /** 付款记录的状态配色（付款行状态：PENDING / APPROVED / REJECTED / CANCELLED …）。 */

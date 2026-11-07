@@ -25,6 +25,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  budgetFlag,
   budgetUsageRows,
   canCancelReport,
   canDeleteReport,
@@ -521,6 +522,26 @@ test('budgetUsageRows：四要素齐全（部门 / 科目 / 占多少 / 占哪�
   assert.equal(rows[0]!.period_text, '2026-11');
   assert.equal(rows[0]!.status_text, '占用中');
   assert.equal(rows[0]!.over_budget, true);
+});
+
+test('budgetFlag：真超支标红、未编预算标黄、正常为空（FIX-5 列表页区分）', () => {
+  // 真超支：有预算、花过了 → 红「超预算」
+  assert.deepEqual(budgetFlag({ over_budget: true, missing_budget: false }), {
+    text: '超预算',
+    theme: 'danger',
+  });
+  // 没编预算：不是超支 → 黄「未编预算」（修复前这里也是红「超预算」）
+  assert.deepEqual(budgetFlag({ over_budget: false, missing_budget: true }), {
+    text: '未编预算',
+    theme: 'warning',
+  });
+  // 两者都 false → 正常，页面显示 —
+  assert.equal(budgetFlag({ over_budget: false, missing_budget: false }), null);
+  // 两者同时 true（多槽混合：一个真超支、一个没编预算）→ 红「超预算」优先
+  assert.deepEqual(budgetFlag({ over_budget: true, missing_budget: true }), {
+    text: '超预算',
+    theme: 'danger',
+  });
 });
 
 test('预算占用 / 付款 / 发票 / 方式的中文映射（未知值原样暴露脏数据）', () => {

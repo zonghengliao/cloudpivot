@@ -260,7 +260,7 @@ fn usage_row(source_type: &str) -> UsageRow {
         amount: dec("1500"),
         status: "OCCUPIED".to_string(),
         over_budget: true,
-        over_amount: dec("500"),
+        over_amount: Some(dec("500")),
         source_type: source_type.to_string(),
         source_id: Uuid::now_v7(),
         source_no: "EXP-20261107-000001".to_string(),
@@ -283,7 +283,7 @@ fn usage_res_keeps_row_source_type() {
     assert_eq!(expense_res.source_no, "EXP-20261107-000001");
     assert_eq!(expense_res.status_label, "占用中");
     assert!(expense_res.over_budget);
-    assert_eq!(expense_res.over_amount, dec("500"));
+    assert_eq!(expense_res.over_amount, Some(dec("500")));
 
     let purchase_res = UsageRes::of(&purchase);
     assert_eq!(purchase_res.source_type, "PURCHASE_ORDER");

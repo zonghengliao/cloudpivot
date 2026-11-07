@@ -536,6 +536,7 @@ async fn report_res(row: &ReportRow) -> ReportRes {
         unpaid_amount: row.unpaid_amount,
         last_pay_date: row.last_pay_date,
         over_budget: row.over_budget,
+        missing_budget: row.missing_budget,
         over_amount: row.over_amount,
         budget_mode: row.budget_mode.clone(),
         approval_instance_id: row.approval_instance_id.map(|id| id.to_string()),
@@ -896,13 +897,17 @@ pub async fn report_submit(
         .await
         .map_err(|error| db_err(error, "预算校验"))?;
     if budget.blocks() {
+        // FIX-5：报文按槽列出**触发阻断的那条策略**（槽级 / 全局），不再用全局标签解释槽级阻断。
+        let detail = budget
+            .block_reason()
+            .unwrap_or_else(|| budget.reason.clone());
         return Err(ApiError::new(
             409,
             error_code::ERP_BUDGET_EXCEEDED,
             format!(
-                "报销单 {} 超出预算额度（{}）：当前策略是 BLOCK，提交被拒绝。\
-                 请联系财务调整预算，或让管理员把控制策略改为 WARN（标记 + 强制审批）。",
-                row.report_no, budget.reason
+                "报销单 {} 超出预算额度，提交被拒绝：\n{}\n\
+                 请联系财务调整预算，或让管理员把该科目的控制策略改为「标记并强制审批」（WARN）。",
+                row.report_no, detail
             ),
         ));
     }
@@ -942,7 +947,8 @@ pub async fn report_submit(
                 id,
                 instance_id,
                 budget.over(),
-                budget.over_amount(),
+                budget.missing_budget(),
+                budget.over_amount_opt(),
                 Some(budget.recorded_mode().as_str()),
                 operator,
                 Utc::now(),
@@ -1096,7 +1102,11 @@ fn submit_form_data(
         "item_count": row.item_count,
         "expense_types": type_names.join(","),
         "over_budget": budget.over(),
-        "over_amount": amount_number(budget.over_amount()),
+        "missing_budget": budget.missing_budget(),
+        "over_amount": budget
+            .over_amount_opt()
+            .map(amount_number)
+            .unwrap_or(serde_json::Value::Null),
         "budget_mode": budget.recorded_mode().as_str(),
         "voucher_summary": format!("报销-{}", row.title),
     }))

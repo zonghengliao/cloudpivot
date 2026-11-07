@@ -129,6 +129,18 @@
         <template #total_with_tax="{ row }">
           <span class="money money--strong">{{ formatMoney(row.total_with_tax) }}</span>
         </template>
+        <template #budget="{ row }">
+          <t-tag
+            v-if="budgetFlag(row)"
+            size="small"
+            variant="light"
+            :theme="budgetCell(row).theme"
+            :data-testid="`expense-budget-${row.report_no}`"
+          >
+            {{ budgetCell(row).text }}
+          </t-tag>
+          <span v-else class="muted">—</span>
+        </template>
         <template #status="{ row }">
           <t-tag
             size="small"
@@ -465,6 +477,7 @@ import {
 import { useUserStore } from '@/stores/user';
 import { formatMoney } from '@/views/business/erp/shared/money';
 import {
+  budgetFlag,
   canCancelReport,
   canDeleteReport,
   canEditReport,
@@ -554,10 +567,17 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'title', title: '事由 / 报销人 · 部门', width: 200, ellipsis: true },
   { colKey: 'expense_date', title: '发生日', width: 92 },
   { colKey: 'total_with_tax', title: '价税合计', width: 100, align: 'right' },
+  // FIX-5：真超支（红「超预算」）与没编预算（黄「未编预算」）必须一眼分得开
+  { colKey: 'budget', title: '预算', width: 92 },
   { colKey: 'status', title: '状态', width: 104 },
   { colKey: 'pay_status', title: '付款', width: 76 },
   { colKey: 'op', title: '操作', width: 220, fixed: 'right' },
 ];
+
+/** 列表格里的预算标记（`null` → 灰色 `—`，模板里不用写非空断言）。 */
+function budgetCell(row: ExpenseReport): { text: string; theme: 'default' | 'danger' | 'warning' } {
+  return budgetFlag(row) ?? { text: '—', theme: 'default' };
+}
 
 async function loadRows(): Promise<void> {
   loading.value = true;

@@ -168,8 +168,8 @@ export interface BudgetUsageRow {
   source_no: string;
   /** 提交时是否超预算（**提交那一刻的快照**，额度后来调高也不会变） */
   over_budget: boolean;
-  /** 提交时超支额 */
-  over_amount: string;
+  /** 提交时超支额（`null` = 当时没超支，含「未编制预算」） */
+  over_amount: string | null;
   /** 释放原因 */
   release_reason: string | null;
 }

@@ -461,8 +461,8 @@ pub struct UsageRes {
     pub source_no: String,
     /// 提交时是否超预算。
     pub over_budget: bool,
-    /// 提交时超支额。
-    pub over_amount: Decimal,
+    /// 提交时超支额（`null` = 当时没超支）。
+    pub over_amount: Option<Decimal>,
     /// 释放原因。
     pub release_reason: Option<String>,
 }
