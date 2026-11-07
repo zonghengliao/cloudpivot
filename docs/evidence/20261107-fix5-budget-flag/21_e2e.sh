@@ -37,6 +37,11 @@ echo "ACC_TRAVEL=$ACC_TRAVEL $ACC_TRAVEL_NAME"
 echo "ACC_TEL=$ACC_TEL $ACC_TEL_NAME"
 [ -n "$DEPT" ] && [ -n "$ACC_TRAVEL" ] && [ -n "$ACC_TEL" ] || { echo "FATAL: 夹具前置数据缺失"; exit 1; }
 
+# 报销人必须有归属部门（报销单的部门是预算维度）。admin 在云端 dev 库里没有部门，
+# 这里把**拷贝库**里的 admin 指到「演练设备部」——只改隔离库，不动共享库。
+psqlc -q -c "update sys_user set dept_id='$DEPT'::uuid, updated_at=now() where username='admin'"
+echo "admin 归属部门已指向演练设备部：$(psqlc -tAc "select dept_id from sys_user where username='admin'")"
+
 # ---------- 费用类型（幂等：先查后建） ----------
 ensure_type() { # $1=code $2=name $3=account_id → id
   local code="$1" name="$2" account="$3" list id body
