@@ -1,0 +1,45 @@
+## LNK-10 真机取证：折旧批次（DEPRECIATION）过账 / 红冲 → 联动引擎
+# 实例 http://127.0.0.1:18061 / 库 cloudpivot_lnk09n / 期间 2047-08
+
+# 超管 admin 登录成功，token 长度 = 461
+
+## ① GET /api/business/flow/linkage —— 配置页显示 DEPRECIATION wired=true
+{
+ "entity": "DEPRECIATION",
+ "wired": true,
+ "wiring": "已接线（两处真实状态推进）：① 过账 — erp/depreciation_model.rs::run_batch 第 ⑤ 步（明细 + 多借方凭证 + 回写卡片 + 批次 CAS CALCULATED → POSTED 之后、commit 之前）调 depreciation_linkage::run_in_tx → 通用引擎 run_excluding(spec::DEPRECIATION_EXCLUDED_ACTIONS)（计提凭证由本函数第 ④ 步 voucher_multi::post_multi_debit 出，GENERATE_VOUCHER 必须排除；红冲凭证由 reverse_batch 的 voucher::reverse_posted 做，REVERSE_VOUCHER 一并排除）；② 红冲…"
+}
+
+## ② PUT /api/business/flow/linkage —— POSTED / REVERSED 各配一条 SEND_NOTICE（TAKEOVER→CREATOR）
+{"rules": ["01a1b56a-1f35-7549-bdc0-a20d615dd1e8", "01a1b56a-1f3f-7408-8595-1989d8e77ae8"]}
+
+## ③ POST /api/business/erp/period —— 开账 2047-08
+# http=200 period=2047-08
+
+## ④ POST /api/business/erp/asset × 3 —— 建卡（起提日 2047-01-01，本期应提）
+# 库里没有部门，已用 /api/system/dept 建夹具部门 01a1b56a-1f82-7386-b0a1-5c9bd0a2b91a
+# 建卡 http=200 asset=01a1b56a-1f8b-77f5-8faa-13050c050acc
+# 建卡 http=200 asset=01a1b56a-1fa2-7577-98b0-8211b3f33ede
+# 建卡 http=200 asset=01a1b56a-1faa-7640-a14b-e63bb6cd23bf
+
+## ⑤ POST /api/business/erp/depreciation/run —— 手动计提（过账）
+{"http": 200, "outcome": "POSTED", "batch": {"id": "01a1b56a-1fb8-731e-8ee5-69160490076c", "status": "POSTED", "asset_count": 3, "total_amount": "7916.6667"}}
+# 通知条数（LNK:DEPRECIATION:POSTED:<批次>:*）= 1
+# 通知正文 = 折旧批次「DEP-20261107-000008」（期间 2047-08，涉及 3 台资产）状态已变更为「已过账」
+# 计提凭证张数（source=DEPRECIATION）= 1
+
+## ⑥ 再次 POST depreciation/run —— 幂等闸（Exists），通知不增、凭证不增
+{"http": 200, "outcome": "EXISTS", "message": "期间 2047-08 已有批次 DEP-20261107-000008（状态 POSTED）：不重复计提"}
+# 通知条数 = 1（必须仍是 1）
+# 凭证张数 = 1（必须仍是 1）
+
+## ⑦ POST /api/business/erp/depreciation/{id}/reverse —— 红冲
+{"http": 200, "status": "REVERSED"}
+# REVERSED 通知条数 = 1
+# REVERSED 通知正文 = 折旧批次「DEP-20261107-000008」（期间 2047-08，涉及 3 台资产）状态已变更为「已红冲」
+
+## ⑧ 再次 reverse —— 状态机挡住（非 0 code），通知不增
+{"http": 409, "code": 66039, "msg": "折旧批次 DEP-20261107-000008 当前是「REVERSED」：只有已过账（POSTED）的批次能红冲"}
+# REVERSED 通知条数 = 1（必须仍是 1）
+
+## ALL PASS：过账 1 条聚合通知 / 重复计提不翻倍 / 红冲 1 条 / 重复红冲被挡

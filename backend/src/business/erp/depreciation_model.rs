@@ -38,6 +38,7 @@ use nik::uuid::Uuid;
 use crate::business::erp::asset_compute::{self, DepreciationCard};
 use crate::business::erp::asset_dto::{self, DepRunKind, DepRunOutcome, STATUS_DISPOSED};
 use crate::business::erp::asset_model::{self, DepBatchRow, DepDetailRow, DepInsert};
+use crate::business::erp::depreciation_linkage;
 use crate::business::erp::voucher;
 use crate::business::erp::voucher_multi;
 use crate::business::shared::state_machine;
@@ -317,7 +318,7 @@ pub async fn run_batch(
         .await
         .map_err(|error| db_err(error, "开启计提事务"))?;
     let outcome = async {
-        let batch_id = match existing.as_ref() {
+        let (batch_id, batch_no) = match existing.as_ref() {
             Some(batch) if rerun => {
                 // 红冲后重跑：复用同一行（uk_biz_dep_batch_period 挡着不能新建）
                 state_machine::transition(
@@ -357,7 +358,7 @@ pub async fn run_batch(
                 )
                 .await
                 .map_err(|error| db_err(error, "重置批次金额"))?;
-                batch.id
+                (batch.id, batch.batch_no.clone())
             }
             _ => {
                 let batch_no = asset_model::next_batch_no(&tx, now)
@@ -376,7 +377,7 @@ pub async fn run_batch(
                 )
                 .await
                 .map_err(|error| db_err(error, "写折旧批次"))?;
-                id
+                (id, batch_no)
             }
         };
 
@@ -464,11 +465,30 @@ pub async fn run_batch(
                 "折旧批次状态在计提期间被改动，请刷新后重试",
             ));
         }
-        Ok::<(Uuid, Uuid), ApiError>((batch_id, voucher_id))
+
+        // ⑤' 联动（LNK-10）：批次已置 POSTED，事务内动作在这里跑，通知等 commit 之后。
+        // 触发单据是**批次**（不是每台资产）：300 台资产也只跑一遍规则、只发一条通知；
+        // 凭证由第 ④ 步 `post_multi_debit` 自己出，所以传
+        // `DEPRECIATION_EXCLUDED_ACTIONS`（GENERATE_VOUCHER / REVERSE_VOUCHER 交给专用路径）。
+        // `event_ref = voucher_id`：同一笔过账重放只发一条，红冲后重跑（新凭证）会再发一条。
+        let change = depreciation_linkage::run_in_tx(
+            &tx,
+            batch_id,
+            &batch_no,
+            &period,
+            asset_dto::DEP_POSTED,
+            i32::try_from(details.len()).unwrap_or(0),
+            voucher_id,
+            operator,
+        )
+        .await?;
+        Ok::<(Uuid, Uuid, depreciation_linkage::DepBatchStatusChange), ApiError>((
+            batch_id, voucher_id, change,
+        ))
     }
     .await;
 
-    let (batch_id, voucher_id) = match outcome {
+    let (batch_id, voucher_id, change) = match outcome {
         Ok(value) => value,
         Err(error) => {
             let _ = tx.rollback().await;
@@ -478,6 +498,9 @@ pub async fn run_batch(
     tx.commit()
         .await
         .map_err(|error| db_err(error, "提交计提事务"))?;
+    // 提交之后的联动动作（通知 / 建任务）：批次是大批量长事务，必须在 commit 后才发 ——
+    // 事务内发通知一旦回滚就是「财务收到某月已计提、实际没提」
+    depreciation_linkage::run_deferred_after_commit(change).await;
     let batch = asset_model::batch_find(batch_id)
         .await
         .map_err(|error| db_err(error, "查询折旧批次"))?;
@@ -669,19 +692,39 @@ pub async fn reverse_batch(
                 "折旧批次状态在红冲期间被改动，请刷新后重试",
             ));
         }
-        Ok::<(), ApiError>(())
+
+        // ⑥ 联动（LNK-10）：批次已置 REVERSED，事务内动作在这里跑，通知等 commit 之后。
+        // 触发单据同样是**批次**：几百条明细也只跑一遍规则、只发一条通知；
+        // 红字凭证由第 ② 步 `reverse_posted` 自己出，所以传
+        // `DEPRECIATION_EXCLUDED_ACTIONS`（GENERATE_VOUCHER / REVERSE_VOUCHER 交给专用路径）。
+        // `event_ref = 红字凭证 id`：同一笔红冲重放只发一条，重跑再红冲（新凭证）会再发一条。
+        let change = depreciation_linkage::run_in_tx(
+            &tx,
+            batch_id,
+            &batch.batch_no,
+            &batch.period_code,
+            asset_dto::DEP_REVERSED,
+            i32::try_from(details.len()).unwrap_or(0),
+            reds.last().copied().unwrap_or_else(Uuid::now_v7),
+            operator,
+        )
+        .await?;
+        Ok::<depreciation_linkage::DepBatchStatusChange, ApiError>(change)
     }
     .await;
-    match outcome {
-        Ok(()) => {}
+    let change = match outcome {
+        Ok(change) => change,
         Err(error) => {
             let _ = tx.rollback().await;
             return Err(error);
         }
-    }
+    };
     tx.commit()
         .await
         .map_err(|error| db_err(error, "提交红冲事务"))?;
+    // 提交之后的联动动作（通知 / 建任务）：红冲同样是长事务（红字凭证 + 逐台回滚卡片），
+    // 必须在 commit 后才发 —— 事务内发通知一旦回滚就是「财务收到某月已红冲、实际没冲」
+    depreciation_linkage::run_deferred_after_commit(change).await;
     tracing::info!(%batch_id, period = %batch.period_code, "折旧批次已红冲（凭证 + 卡片回滚）");
     asset_model::batch_find(batch_id)
         .await

@@ -139,7 +139,7 @@ P1-FIX-5C 之前，配置页只把「动作」这一侧的占位项置灰了，�
 | 8 | `STOCK_TRANSFER` | ❌ | `erp/transfer_handler_status.rs::apply_transition`（L≈55，`IN_TRANSIT→DONE` 同事务结算） | 库存双写（`transfer_model::settle_transfer`） | 中 | B |
 | 9 | `CONTRACT` | ✅ | `erp/contract_handler.rs::contract_change_status`（提交审批分支 + 通用分支）+ `erp/contract_bridge.rs::settle`（审批通过 / 驳回） | 审批实例发起 + 状态机（合同**不落账**） | 高 | 已接（LNK-07） |
 | 10 | `VOUCHER` | ✅ | `erp/voucher_write.rs::transition_voucher_in_tx`（L≈535，审核/记账/反记账共用）+ `manual_in_tx` / `reverse_in_tx` / `reverse_after_approval` | 分录行 + 记账戳 + 期间闸 | 中 | 已接（LNK-06） |
-| 11 | `DEPRECIATION` | ❌ | `erp/depreciation_model.rs::run_batch`（L≈323）/ `reverse_batch`（L≈639） | 折旧明细批量写 + 凭证 | 中 | B |
+| 11 | `DEPRECIATION` | ✅ | `erp/depreciation_model.rs::run_batch`（⑤ 步，`CALCULATED → POSTED`）/ `reverse_batch`（⑥ 步，`POSTED → REVERSED`）—— 手动计提与定时任务共用同一条 `run_batch` | 折旧明细批量写 + 多借方凭证 + 卡片回写（凭证专用路由，通用引擎排除） | 中 | 已接（LNK-10） |
 | 12 | `ACCOUNTING_PERIOD` | ✅ | `erp/period.rs::close_period`（L≈1311，结账）/ `reopen_period`（L≈1400，反结账）；开账 `open_period` / `batch_open` 是建行，**不接**（见 §3.2） | 期间状态 CAS + 期末汇兑重估凭证（结账第 ⑤ 步） | 中高 | 已接（LNK-08） |
 | 13 | `FIXED_ASSET` | ✅ | `erp/asset_bridge.rs::execute` 第 ⑤ 步（审批通过 → `DISPOSED`）/ `erp/asset_handler.rs::asset_dispose_cancel` 第 ⑤ 步（→ `IN_USE`）；**停用/启用没有 HTTP 入口**（见 §3.2），建卡是建行不接 | 处置凭证（1~3 张）+ 红冲 + 处置痕迹 + 状态 | 中 | 已接（LNK-09） |
 | 14 | `ACCOUNTING_YEAR` | ❌ | `erp/year_end.rs::close_year`（L≈1382）/ `reopen_year`（L≈1520） | 年度结转凭证 + 下年期初台账（**长事务**） | 中 | D |
@@ -285,12 +285,31 @@ commit 之后
   （避免嵌套联动）。
 - 典型用法：记账完成 → 通知财务主管；反记账 → 建异常跟进任务。
 
-**`DEPRECIATION`（折旧批次 · 过账/红冲）**
+**`DEPRECIATION`（折旧批次 · 过账/红冲）— LNK-10 已接**
 
-- 入口：`depreciation_model.rs::run_batch`（L≈323）/ `reverse_batch`（L≈639）。
-- 批量操作：一份批次可能涉及成百上千张资产卡片。**通知一律 `AfterCommit`**（且必须做扇出上限与
-  汇总文案，否则一条规则能瞬间给一个人发上千条）；事务内只放必要动作。
-- 典型用法：批次过账 → 通知财务主管 + 汇总邮件。
+- 入口：① 过账 `erp/depreciation_model.rs::run_batch` 第 ⑤ 步（明细 + 多借方凭证 +
+  回写卡片 + 批次 CAS `CALCULATED → POSTED` 之后、commit 之前）；
+  ② 红冲 `erp/depreciation_model.rs::reverse_batch` 第 ⑥ 步（红字凭证 + 明细 `REVERSED` +
+  卡片回滚 + 批次 CAS `POSTED → REVERSED` 之后）。唯一 hook 是
+  `erp/depreciation_linkage.rs`（`run_excluding(spec::DEPRECIATION_EXCLUDED_ACTIONS)`
+  + commit 后 `run_deferred_after_commit`）。手动计提（`depreciation_handler`）与定时任务
+  （`run_scheduled`）都走同一条 `run_batch`，接线点只有一个。
+- **批量操作 + 聚合口径（卡面重点）**：一次计提可能涉及几百台资产，但**触发单据是批次**
+  （`ctx.doc_id = 批次 id`），300 台的批次和 1 台的批次都只跑一遍规则、只发**一条**通知，
+  台数写在正文里（「涉及 N 台资产」）——不存在「一人收 300 条」的扇出。
+- **通知一律 `AfterCommit`**：计提 / 红冲都是长事务（扫几百台 + 逐台回写 + 出凭证），
+  事务内发通知一旦回滚就是「财务收到某月已计提、实际没提」；`run_in_tx` 只跑 `Phase::InTx`
+  动作，提交后才 `run_deferred_after_commit` 发通知 / 建任务。
+- **排除清单**：`GENERATE_VOUCHER`（计提凭证由 `voucher_multi::post_multi_debit` 出一张
+  多借方凭证，再跑一张 = 累计折旧科目翻倍）+ `REVERSE_VOUCHER`（红冲由
+  `voucher::reverse_posted` 做，再冲一次撞「已经红冲」→ 500）。库存 / 余额类动作不列
+  （批次明细只有资产 / 金额 / 部门，与 `FIXED_ASSET` / `CONTRACT` 同口径）。
+- **不接的两条边**：`CALCULATED` 是一次计提的中间态（同事务里紧接着置 `POSTED`，挂上去
+  一次计提发两条 = 刷屏）；`SKIPPED` 是合法空跑（0 台 / 0 金额 / 不出凭证，没有账要通知谁）。
+- 幂等：通知幂等键 `LNK:DEPRECIATION:<状态>:<批次 id>:<本次事件凭证 id>` —— 同一笔过账
+  重放只发一条；红冲后重跑是新的一笔（新凭证），会再发一条。
+- 真库用例：`erp/depreciation_linkage_tests.rs` 5 条（过账触发聚合成 1 条 / 重复计提不重复
+  触发 / 红冲触发 + 重复红冲不增 / 事务回滚不发通知 / 排除动作确实不跑、凭证只有一张）。
 
 #### C. 中价值但风险/复杂度更高（批次 C）
 

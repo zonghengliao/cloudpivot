@@ -125,6 +125,7 @@ fn trigger_specs_cover_whitelist_in_order() {
             "CONTRACT",
             "STOCK_TAKE",
             "FIXED_ASSET",
+            "DEPRECIATION",
             "EXPENSE_REPORT",
             "TASK"
         ],
@@ -137,11 +138,16 @@ fn trigger_specs_cover_whitelist_in_order() {
          CONTRACT（合同提交审批 / 审批通过 / 驳回 / 生效 / 完成 / 终止，LNK-07 新接）、\
          STOCK_TAKE（盘点单过账 / 作废，LNK-04 新接）、\
          FIXED_ASSET（资产处置 / 作废处置，LNK-09 新接）、\
+         DEPRECIATION（折旧批次过账 / 红冲，LNK-10 新接）、\
          EXPENSE_REPORT（报销单提交 / 通过 / 付清 / 作废 / 打回，LNK-05 新接）、\
          TASK（任务状态变更）；\
          接线状态变化时这份断言要跟着改，改之前先想清楚「真的有人调引擎了吗」"
     );
-    assert_eq!(spec::unwired_triggers().len(), 3, "其余 3 个仍未接线");
+    assert_eq!(
+        spec::unwired_triggers().len(),
+        2,
+        "其余 2 个仍未接线（YEAR_END / FLOW_INSTANCE）"
+    );
 }
 
 /// 每条声明都要自洽：已接线的必须有证据对，未接线的必须给出原因且不能有证据对。
@@ -215,10 +221,11 @@ fn wired_triggers_match_call_sites() {
     }
     assert_eq!(
         actual.len(),
-        13,
-        "当前真实调用点 13 个文件（收货过账 / 出库过账 handler + 出库联动 hook + 调拨联动 hook + \
+        14,
+        "当前真实调用点 14 个文件（收货过账 / 出库过账 handler + 出库联动 hook + 调拨联动 hook + \
          采购联动 hook + 应付联动 hook + 盘点联动 hook + 报销联动 hook + 凭证联动 hook + \
-         合同联动 hook + 会计期间联动 hook + 固定资产联动 hook + 任务状态通知）：{actual:?}"
+         合同联动 hook + 会计期间联动 hook + 固定资产联动 hook + 折旧批次联动 hook + \
+         任务状态通知）：{actual:?}"
     );
 }
 
@@ -1124,6 +1131,111 @@ fn asset_wires_generic_engine_and_excludes_voucher() {
         assert!(
             !engine::is_routed_elsewhere(spec::FIXED_ASSET_EXCLUDED_ACTIONS, code),
             "{code} 被误判成专用路由：资产的通知 / 建任务会静默不执行"
+        );
+    }
+}
+
+/// 折旧批次（`DEPRECIATION`）的接线细节（LNK-10）：过账 / 红冲两处都调 hook，
+/// 且必须排除会与批次自己的凭证落账重复的两类动作。
+///
+/// 这条防的五种漂移：
+///
+/// 1. 只在 `spec.rs` 把 `wired` 改成 true、`depreciation_model.rs` 里没调用
+///    （P1-FIX-5C 的原罪：规则能保存、能启用、永远不触发）；
+/// 2. 只接「过账」漏掉「红冲」→ `DEPRECIATION/REVERSED` 上的规则永远不响；
+/// 3. 排除清单丢了 → 过账时通用引擎再跑一次 `GENERATE_VOUCHER`：同一期间第二张折旧凭证，
+///    累计折旧科目直接翻倍；红冲时再跑 `REVERSE_VOUCHER`：同一张蓝字凭证被红冲两次 → 500；
+/// 4. 把 `run_deferred_after_commit` 挪进事务里（或在 `tx.commit()` 之前调）→
+///    批次是**大批量长事务**，通知先发、计提失败即「财务收到某月已计提、实际没提」；
+/// 5. 排除清单把通知 / 建任务也排掉 → 联动配了等于没配（不报错、不落账）。
+#[test]
+fn depreciation_wires_generic_engine_and_excludes_voucher() {
+    let hook = include_str!("../../erp/depreciation_linkage.rs");
+    assert!(
+        hook.contains("linkage::engine::run_excluding("),
+        "折旧批次状态变更必须调用通用引擎（run_excluding）：否则 DEPRECIATION 的联动规则配了不触发"
+    );
+    assert!(
+        hook.contains("&ctx, linkage::spec::DEPRECIATION_EXCLUDED_ACTIONS"),
+        "折旧批次调通用引擎时必须**真的把** spec::DEPRECIATION_EXCLUDED_ACTIONS 传下去\
+         （不许改成写死的空清单）：只在文档里提这个名字救不了重复落账"
+    );
+    assert!(
+        hook.contains("linkage::engine::run_deferred"),
+        "折旧批次的提交后动作必须交给 run_deferred（commit 之后跑），否则通知 / 建任务永远不执行"
+    );
+    for code in [spec::ACTION_GENERATE_VOUCHER, "REVERSE_VOUCHER"] {
+        assert!(
+            spec::DEPRECIATION_EXCLUDED_ACTIONS.contains(&code),
+            "折旧批次的排除清单漏了 {code}：计提凭证由 voucher_multi::post_multi_debit 出、\
+             红冲由 voucher::reverse_posted 做，通用引擎再跑一次就是重复落账"
+        );
+    }
+    for code in [spec::ACTION_SEND_NOTICE, spec::ACTION_CREATE_TASK] {
+        assert!(
+            !spec::DEPRECIATION_EXCLUDED_ACTIONS.contains(&code),
+            "{code} 不能被折旧批次排除：通知 / 建任务就靠通用引擎的 AfterCommit 动作"
+        );
+    }
+
+    // 两处真实状态推进：① 过账（run_batch ⑤ 步）② 红冲（reverse_batch ⑥ 步）
+    let model = include_str!("../../erp/depreciation_model.rs");
+    assert_eq!(
+        model.matches("depreciation_linkage::run_in_tx(").count(),
+        2,
+        "折旧批次必须在**两处**真的调 depreciation_linkage::run_in_tx（过账 + 红冲）：
+         只改 spec.rs 的 wired 标记不算接线"
+    );
+    assert_eq!(
+        model
+            .matches("depreciation_linkage::run_deferred_after_commit(")
+            .count(),
+        2,
+        "过账与红冲都必须在 commit 之后 flush（事务内发通知 = 回滚后幽灵通知）"
+    );
+
+    // 铁律：flush 必须排在 `tx.commit()` 之后、`run_in_tx` 必须排在之前。
+    // 切片段时避开注释里的字面量（本仓踩过：注释写 `tx.commit()` 会把 find 命中提前，断言假红）。
+    for (marker, label) in [
+        ("pub async fn run_batch(", "过账（run_batch）"),
+        ("pub async fn reverse_batch(", "红冲（reverse_batch）"),
+    ] {
+        let start = model
+            .find(marker)
+            .unwrap_or_else(|| panic!("depreciation_model.rs 必须有 {label}"));
+        let body = &model[start..];
+        let commit = body
+            .find("tx.commit()")
+            .unwrap_or_else(|| panic!("{label} 必须在事务里 commit"));
+        let flush = body
+            .find("depreciation_linkage::run_deferred_after_commit(")
+            .unwrap_or_else(|| panic!("{label} 必须在提交之后 flush"));
+        assert!(
+            commit < flush,
+            "{label}：run_deferred_after_commit 必须排在事务提交**之后**\
+             （当前 commit@{commit} / flush@{flush}）"
+        );
+        let run_in_tx = body
+            .find("depreciation_linkage::run_in_tx(")
+            .unwrap_or_else(|| panic!("{label} 必须在事务内调 run_in_tx"));
+        assert!(
+            run_in_tx < commit,
+            "{label}：run_in_tx 必须在事务提交**之前**（事务内动作失败要整笔回滚）"
+        );
+    }
+
+    // 排除清单在语义上真的会拦（不是只有字符串写对）
+    use crate::business::flow::linkage::engine;
+    for code in spec::DEPRECIATION_EXCLUDED_ACTIONS {
+        assert!(
+            engine::is_routed_elsewhere(spec::DEPRECIATION_EXCLUDED_ACTIONS, code),
+            "{code} 在折旧批次的排除清单里却没被判成「专用路由」：清单传下去也拦不住它"
+        );
+    }
+    for code in [spec::ACTION_SEND_NOTICE, spec::ACTION_CREATE_TASK] {
+        assert!(
+            !engine::is_routed_elsewhere(spec::DEPRECIATION_EXCLUDED_ACTIONS, code),
+            "{code} 被误判成专用路由：折旧批次的通知 / 建任务会静默不执行"
         );
     }
 }
