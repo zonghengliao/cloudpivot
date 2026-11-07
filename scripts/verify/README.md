@@ -370,12 +370,38 @@ echo $?     # 0=全绿 ｜ 1=有违规（明细已打印）｜ 2=连库/查询�
 |---|---|---|
 | ① | 孤儿 parent | `parent_id` 指向不存在或已软删的记录 ⇒ 0 |
 | ② | /system/ 归属 | `path ~ '/system/%'` 的页面/按钮（menu_type 2/3）必须挂在 `system` 目录（`10000000-…-0001`）下 |
-| ③ | /business/ 归属 | `path ~ '/business/%'` 沿 parent 链上溯到的**根**必须落在 /business 命名空间 |
+| ③ | /business/ 归属 | `path ~ '/business/%'` 沿 parent 链上溯到的**根**必须落在 /business 命名空间（两个显式豁免见下） |
 | ④ | path 唯一性 | `menu_type=2` 且未软删的记录中同一 `path` 不得出现多次 |
 | ⑤ | 菜单总数 | 未软删总数 ∈ [400, 420]（`MENU_TOTAL_MIN`/`MENU_TOTAL_MAX` 可覆盖） |
 
 **③ 的口径与卡面字面写法不同，这是故意的**：本仓库 ERP 各模块目录（`/business/erp/{finance,sales,warehouse,purchase}-mgmt`、`master-data`、`contract`）本身就是一级根，`/business` 通用底座并没有把它们挂在下面——按「必须找到 `path='/business'` 的祖先」的字面口径，既有基线就有 63 条"违规"，脚本会永远红。所以 ③ 判的是**「/business 子树不能挂到非 /business 命名空间的根上」**（例如误挂到 `/system`、`/project` 下），这才是 MENU-01 那类错位的回归面。
-白名单 `MENU_BIZ_EXTRA_ROOTS`（默认 `/notice-center`）：公告中心根历史上承载 `/business/notice/*`、`/business/announcement` 4 条，属既有基线，不在此卡收敛范围。
+
+### ③ 的两个显式豁免（卡 t_197ecb8e 评估结论：**不动**）
+
+`/notice-center`（公告与消息）是一级根，其下 4 条页面 `path` 仍在 `/business/` 命名空间：
+
+| id | path | name | 出处 |
+|---|---|---|---|
+| `20000000-…-0710` | `/business/announcement` | 公告管理 | V0085 |
+| `20000000-…-0410` | `/business/notice/template` | 消息通知 | V0065 |
+| `23000000-…-0010` | `/business/notice/message` | 消息中心 | V0065 |
+| `23000000-…-0020` | `/business/notice/send` | 发送通知 | V0065（410 的子节点） |
+
+**为什么不收敛（改 path 或改挂）**：
+1. 根是产品决策 —— `V0133` 是老大 2026-10-30 明确要求「公告与消息」目录，把 4 个菜单收进来；`path` 是菜单被搬进该目录**之前**的历史值，不是搬家时改错了。
+2. 改名不是只改数据库：前端 `router/index.ts` 的静态路由 `path` 必须与 `sys_menu.path` **逐字一致**（否则侧栏点了 404），另有 `NoticeBell.vue` / `NoticeToast.vue` / `stores/badge.ts` / `utils/login-unread.ts` / 通知模板页与发送页之间的 `router.push` 硬编码及文档，属净做工作量、零功能收益的回归面。
+3. 结构闸门的真实回归面是「误挂到别的命名空间」，本例外是**产品分组**而非错位；显式登记比改数据更安全。
+
+两个环境变量（默认值即下表，置空＝关闭该豁免）：
+
+| 变量 | 默认 | 含义 |
+|---|---|---|
+| `MENU_BIZ_EXTRA_ROOTS` | 空（不启用） | 根级白名单：这些根下**任意** `/business/*` 都放过。默认不启用——它会把未来的新错位一起放过 |
+| `MENU_BIZ_EXTRA_IDS` | 上表 4 个 id | 行级例外表：**只有这 4 行**豁免，新错位照样报红 |
+
+行级例外表每次运行都做体检：例外 id 缺失（被软删 / 已改名出 `/business/*`）或已合规（父链已落在 /business 命名空间）时打印 `⚠ 失配 N` 要求清理；**只提示不改退出码**（例外过期不等于结构坏了）。
+
+**复现判据（注意）**：旧版写 `${MENU_BIZ_EXTRA_ROOTS:-…}`，空串会回落默认值，`MENU_BIZ_EXTRA_ROOTS=` 根本关不掉——MENU-02 卡面「把白名单置空即会报这 4 条」是不成立的。现已改 `${VAR-default}`：`MENU_BIZ_EXTRA_IDS= bash scripts/verify/menu_invariants.sh <db>` 才真能复现 ③=4 / rc=1（145 测试库与 144 生产库实测一致）。
 
 **挂进流程**（`/root/test_deploy.sh` 与 `/root/.hermes/profiles/laoliu/scripts/deploy_check_v5.sh`，均在仓库外）：
 - `test_deploy.sh` ⑦ 步：迁移 + 重启 + 登录冒烟之后跑本脚本，**只报警不阻断**（测试环境要能进去排查）；
@@ -390,3 +416,22 @@ psql ... -c "update sys_menu set parent_id='10000000-0000-0000-0000-000000000001
              where path='/system/user';"
 bash scripts/verify/menu_invariants.sh <db>; echo $?                          # 期望 0
 ```
+
+③ 的牙（基线 4 条例外不会被误报，新错位照样报红）：
+
+```bash
+# ① 基线：关掉例外表 → 只剩那 4 条，rc=1
+MENU_BIZ_EXTRA_IDS= bash scripts/verify/menu_invariants.sh <db>; echo $?      # ③=4、rc=1
+# ② 新错位：把 /business/storage/file 误挂到 /notice-center 根（例外表在，仍须报红）
+psql ... -c "update sys_menu set parent_id='20000000-0000-0000-0000-000000000880'
+             where id='21000000-0000-0000-0000-000000000020';"
+bash scripts/verify/menu_invariants.sh <db>; echo $?                          # ③=1（文件管理）、rc=1
+psql ... -c "update sys_menu set parent_id='21000000-0000-0000-0000-000000000001'
+             where id='21000000-0000-0000-0000-000000000020';"
+# ③ 例外过期：把例外行改成合规 → 不报红，但打印「失配 1」
+psql ... -c "update sys_menu set parent_id='21000000-0000-0000-0000-000000000001'
+             where id='20000000-0000-0000-0000-000000000710';"
+bash scripts/verify/menu_invariants.sh <db>; echo $?                          # ③=0、rc=0、⚠ 失配 1
+```
+
+以上 ①②③ 在 145 `cloudpivot_dev` 实测：注入前/复原后整表 md5 一致（`c8530451…`），复原后 rc=0。

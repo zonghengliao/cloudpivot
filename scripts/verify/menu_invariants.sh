@@ -14,8 +14,15 @@
 #   ② /system/ 归属   path ~ '/system/%' 的页面/按钮（menu_type 2/3）必须挂在 system 目录下
 #   ③ /business/ 归属 path ~ '/business/%' 的节点沿 parent 链上溯到的**根**必须落在
 #                     /business 命名空间：根 path 为 '/business'（通用底座）或 '/business/<模块>'
-#                     （一级业务模块根）；白名单 '/notice-center'（公告中心历史上承载
-#                     /business/notice/*、/business/announcement，见 MENU-02 卡面说明）
+#                     （一级业务模块根）。两个显式豁免（默认值见下方变量，置空即关闭）：
+#                       MENU_BIZ_EXTRA_ROOTS 根级白名单（默认空，不启用）
+#                       MENU_BIZ_EXTRA_IDS   行级例外表（默认 /notice-center 根下那 4 条
+#                                            /business/* 页面：公告管理 / 消息中心 / 消息通知 /
+#                                            发送通知；卡 t_197ecb8e 评估结论＝不动，理由见 README）
+#                     行级例外表的意义：根级白名单一放就是「这个根下任何 /business/* 都放过」，
+#                     以后谁把别的 /business 页面误挂到 /notice-center 也不会报；加上 ID 例外后
+#                     只有这 4 条被豁免，新错位照样报红。例外行失配（被删/被改名/已合规）会打印
+#                     ⚠ 提示要求清理，但不改变退出码。
 #   ④ path 唯一性     menu_type=2 的未删记录中同一 path 不得出现多次
 #   ⑤ 菜单总数        未删记录总数必须落在 [MENU_TOTAL_MIN, MENU_TOTAL_MAX]（默认 400-420）
 #
@@ -44,8 +51,17 @@ export PGPASSWORD PGHOST PGPORT PGUSER
 SYSTEM_DIR_ID="${MENU_SYSTEM_DIR_ID:-10000000-0000-0000-0000-000000000001}"
 TOTAL_MIN="${MENU_TOTAL_MIN:-400}"
 TOTAL_MAX="${MENU_TOTAL_MAX:-420}"
-# ③ 白名单：这些根允许承载 path ~ '/business/%' 的子节点（逗号分隔，可环境覆盖）
-BIZ_EXTRA_ROOTS="${MENU_BIZ_EXTRA_ROOTS:-/notice-center}"
+# ③ 豁免：根级白名单（这些根允许承载 path ~ '/business/%' 的子节点，逗号分隔）。默认空：
+#   根级白名单一放就是「这个根下任何 /business/* 都放过」，会掩盖未来新错位，所以默认不启用；
+#   公告中心那 4 条走下面的行级 ID 例外，只豁免已知行，新错位照样报红。
+# ⚠ 用 ${VAR-default} 而不是 ${VAR:-default}：空串要能真正关掉豁免（MENU_BIZ_EXTRA_ROOTS= ），
+#   否则「置空即复现基线」这个判据根本不成立（旧版就是 :-，置空会回落默认值）。
+BIZ_EXTRA_ROOTS="${MENU_BIZ_EXTRA_ROOTS-}"
+# ③ 豁免：行级例外表（只有这些菜单 id 允许上溯到非 /business 根；逗号分隔，置空即关闭）
+#   卡 t_197ecb8e 评估结论＝不动：/notice-center 是产品级一级根（V0133，老大 2026-10-30 明确要求
+#   「公告与消息」目录），4 条子菜单的 /business/* path 是 V0085/V0087/V0065 的历史既有值，
+#   改名要同步动前端路由/硬编码跳转/文档，零功能收益。理由与复核证据见 scripts/verify/README.md。
+BIZ_EXTRA_IDS="${MENU_BIZ_EXTRA_IDS-20000000-0000-0000-0000-000000000710,20000000-0000-0000-0000-000000000410,23000000-0000-0000-0000-000000000010,23000000-0000-0000-0000-000000000020}"
 
 PSQL=(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$DB" -tA -q -v ON_ERROR_STOP=1)
 
@@ -72,6 +88,15 @@ with recursive up as (
 
 FAILED=0
 FAIL_NAMES=()
+
+# 逗号分隔 → SQL in-list 文本（a,b → a','b）；空串返回空
+sqllist() { printf '%s' "$1" | tr -d ' ' | sed "s/,/','/g"; }
+ROOTS_SQL=$(sqllist "$BIZ_EXTRA_ROOTS")
+IDS_SQL=$(sqllist "$BIZ_EXTRA_IDS")
+ROOT_NOT_IN=''
+[ -n "$ROOTS_SQL" ] && ROOT_NOT_IN="and coalesce(r.root_path,'') not in ('$ROOTS_SQL')"
+ID_NOT_IN=''
+[ -n "$IDS_SQL" ] && ID_NOT_IN="and r.id::text not in ('$IDS_SQL')"
 
 # sql <query> —— 返回单值/多行文本；查询失败直接退出 2
 sql() {
@@ -141,11 +166,12 @@ fi
 
 # ── ③ /business/ 归属（递归上溯到根）─────────────────────────────────────────
 Q3="$UP_CTE
-select count(*) from rooted
- where path like '/business/%'
-   and coalesce(root_path,'') <> '/business'
-   and coalesce(root_path,'') not like '/business/%'
-   and coalesce(root_path,'') not in ('$(printf '%s' "$BIZ_EXTRA_ROOTS" | sed "s/,/','/g")')"
+select count(*) from rooted r
+ where r.path like '/business/%'
+   and coalesce(r.root_path,'') <> '/business'
+   and coalesce(r.root_path,'') not like '/business/%'
+   $ROOT_NOT_IN
+   $ID_NOT_IN"
 N3=$(sql "$Q3"); N3=${N3:-x}
 if [ "$N3" = "0" ]; then line '③ /business/ 归属:    ' "$N3" 1; else
   line '③ /business/ 归属:    ' "$N3" 0; FAILED=$((FAILED+1)); FAIL_NAMES+=('③/business归属')
@@ -156,8 +182,25 @@ if [ "$N3" = "0" ]; then line '③ /business/ 归属:    ' "$N3" 1; else
       where r.path like '/business/%'
         and coalesce(r.root_path,'') <> '/business'
         and coalesce(r.root_path,'') not like '/business/%'
-        and coalesce(r.root_path,'') not in ('$(printf '%s' "$BIZ_EXTRA_ROOTS" | sed "s/,/','/g")')
+        $ROOT_NOT_IN
+        $ID_NOT_IN
       order by r.root_path, r.path limit 10"
+fi
+
+# ③ 附注：行级例外表体检（失配＝该 id 已软删/改名出 /business 或已合规 ⇒ 例外该删了）。
+# 只提示不改退出码：例外表过期不等于结构坏了，但留着会掩盖未来的新错位。
+if [ -n "$IDS_SQL" ]; then
+  EXC_CHECK=$(sql "$UP_CTE
+    select count(*) filter (where r.id is null) as missing,
+           count(*) filter (where r.id is not null and (coalesce(r.root_path,'') = '/business'
+                                                       or coalesce(r.root_path,'') <> '' and coalesce(r.root_path,'') like '/business/%')) as passed,
+           count(*) as total
+      from (select unnest(array['$IDS_SQL'])::uuid as id) e
+      left join rooted r on r.id = e.id")
+  EXC_MISS=${EXC_CHECK%%|*}; EXC_REST=${EXC_CHECK#*|}
+  printf '    ↳ 例外表：%s 条 path 豁免（/notice-center 根），失配 %s（缺失/已合规）\n' \
+    "${EXC_REST#*|}" "$(( ${EXC_MISS:-0} + ${EXC_REST%%|*} ))"
+  [ "${EXC_MISS:-0}" != "0" ] && printf '       ⚠ MENU_BIZ_EXTRA_IDS 里有 id 不在未删菜单里（缺失 %s 条）——收敛/改名后请同步删例外\n' "$EXC_MISS"
 fi
 
 # ── ④ path 唯一性 ───────────────────────────────────────────────────────────
