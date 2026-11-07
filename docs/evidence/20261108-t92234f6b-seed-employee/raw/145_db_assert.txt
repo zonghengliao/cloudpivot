@@ -1,0 +1,93 @@
+-- ① 在用 HUMAN 账号的部门归属（145 全新库 cloudpivot_seed_emp）
+     username      | user_type |   dept    
+-------------------+-----------+-----------
+ admin             | HUMAN     | DEPT_DEMO
+ demo_finance      | HUMAN     | DEPT_DEMO
+ demo_finance_mgr  | HUMAN     | DEPT_DEMO
+ demo_gm           | HUMAN     | DEPT_DEMO
+ demo_lead         | HUMAN     | DEPT_DEMO
+ demo_purchase     | HUMAN     | DEPT_DEMO
+ demo_purchase_mgr | HUMAN     | DEPT_DEMO
+ demo_sales        | HUMAN     | DEPT_DEMO
+ demo_sales_mgr    | HUMAN     | DEPT_DEMO
+ demo_wh           | HUMAN     | DEPT_DEMO
+(10 rows)
+
+-- ② N2 违规行数（在用 HUMAN 账号 dept_id IS NULL；期望 0）
+ n2_violations 
+---------------
+             0
+(1 row)
+
+-- ③ EMPLOYEE 角色（data_scope=4 仅本人）+ 授权行数
+ role_code | role_name | data_scope | status | granted_rows 
+-----------+-----------+------------+--------+--------------
+ EMPLOYEE  | 员工自助  |          4 |      1 |           26
+(1 row)
+
+-- ④ EMPLOYEE 持有的业务权限码（'' 以外的 auth_code）
+           auth_code            
+--------------------------------
+ business:erp:expense:create
+ business:erp:expense:delete
+ business:erp:expense:detail
+ business:erp:expense:list
+ business:erp:expense:submit
+ business:erp:expense-type:list
+ business:erp:expense:update
+ business:flow:instance:read
+ business:flow:read
+ business:project:create
+ business:project:read
+ business:project:read
+ business:task:create
+ business:task:delete
+ business:task:progress
+ business:task:read
+ business:task:read
+ business:task:read
+ business:task:status
+ business:task:subtask
+ business:task:update
+ support:invariant:list
+ system:preference:view
+(23 rows)
+
+-- ⑤ 演示账号的直属上级（INITIATOR_SUPERIOR 沿 dept 取 leader_id）
+     username      | superior  
+-------------------+-----------
+ demo_finance      | demo_lead
+ demo_finance_mgr  | demo_lead
+ demo_gm           | demo_lead
+ demo_lead         | demo_lead
+ demo_purchase     | demo_lead
+ demo_purchase_mgr | demo_lead
+ demo_sales        | demo_lead
+ demo_sales_mgr    | demo_lead
+ demo_wh           | demo_lead
+(9 rows)
+
+-- ⑥ demo_sales 实持角色
+   username    |           roles            
+---------------+----------------------------
+ demo_purchase | EMPLOYEE,PURCHASE_MANAGER
+ demo_sales    | EMPLOYEE,SALES_CLERK
+ demo_wh       | EMPLOYEE,WAREHOUSE_MANAGER
+(3 rows)
+
+-- ⑦ 员工自助链单据（本次实测的报销单 + 付款）
+      report_no      | status | pay_status | total_with_tax |  reporter  | dept_code 
+---------------------+--------+------------+----------------+------------+-----------
+ EXP-20261108-000001 | PAID   | PAID       |       300.0000 | demo_sales | DEPT_DEMO
+(1 row)
+
+-- ⑧ 该单的审批轨迹（节点 / 审批人来源 / 审批人 / 状态 / 意见）
+   node_key |  assignee_source   | assignee  |  status  |              comment               
+------------+--------------------+-----------+----------+------------------------------------
+ n_sup      | INITIATOR_SUPERIOR | demo_lead | APPROVED | SEEDEMP 部门经理同意（员工自助链）
+(1 row)
+
+  status  |           result_comment           
+----------+------------------------------------
+ APPROVED | SEEDEMP 部门经理同意（员工自助链）
+(1 row)

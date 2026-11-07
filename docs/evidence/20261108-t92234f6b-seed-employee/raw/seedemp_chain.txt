@@ -1,0 +1,112 @@
+==============================================================================
+t_92234f6b 员工自助提报全链  BASE=http://127.0.0.1:8053 DB=cloudpivot_seed_emp
+==============================================================================
+
+[①] 在用 HUMAN 账号的部门归属 + N2 不变量
+    admin|DEPT_DEMO
+    demo_finance|DEPT_DEMO
+    demo_finance_mgr|DEPT_DEMO
+    demo_gm|DEPT_DEMO
+    demo_lead|DEPT_DEMO
+    demo_purchase|DEPT_DEMO
+    demo_purchase_mgr|DEPT_DEMO
+    demo_sales|DEPT_DEMO
+    demo_sales_mgr|DEPT_DEMO
+    demo_wh|DEPT_DEMO
+  ✅ ① N2 不变量：在用 HUMAN 账号无部门数 = 0  [0]
+  ✅ ① 9 个演示账号 + admin 全部挂 DEPT_DEMO  [0]
+  ✅ ① 账号数 = 部门归属数（10 个）  [10]
+  ✅ ① 演示部门负责人 = demo_lead  [demo_lead]
+
+[授权] EMPLOYEE 角色与授权行
+  ✅ EMPLOYEE 角色存在且启用  [EMPLOYEE|员工自助|4|1]
+  ✅ EMPLOYEE 持有 business:erp:expense:list  [True]
+  ✅ EMPLOYEE 持有 business:erp:expense:create  [True]
+  ✅ EMPLOYEE 持有 business:erp:expense:update  [True]
+  ✅ EMPLOYEE 持有 business:erp:expense:delete  [True]
+  ✅ EMPLOYEE 持有 business:erp:expense:submit  [True]
+  ✅ EMPLOYEE 持有 business:erp:expense:detail  [True]
+  ✅ EMPLOYEE 持有 business:erp:expense-type:list  [True]
+  ✅ EMPLOYEE 持有 business:flow:instance:read  [True]
+  ✅ EMPLOYEE 未持有 expense:pay（不碰钱）  [0]
+  ✅ demo_sales 的角色 = EMPLOYEE + SALES_CLERK  [EMPLOYEE,SALES_CLERK]
+
+[登录] admin / demo_sales / demo_lead / demo_finance / demo_finance_mgr
+  ✅ admin 首次登录强制改密 + 重登  [must_change_password 流程真实走通]
+  ✅ demo_sales 首次登录强制改密 + 重登  [must_change_password 流程真实走通]
+  ✅ demo_lead 首次登录强制改密 + 重登  [must_change_password 流程真实走通]
+  ✅ demo_finance 首次登录强制改密 + 重登  [must_change_password 流程真实走通]
+  ✅ demo_finance_mgr 首次登录强制改密 + 重登  [must_change_password 流程真实走通]
+
+[②] demo_sales（普通员工）自助建单 + 提交
+  ✅ ② 员工能取费用类型下拉（expense-type:list）http  [200]
+    费用类型下拉条数 = 0
+  ✅ ② 员工建单 http  [200]
+    单号 = EXP-20261108-000001  id=01a1b81d-359c-7101-a2ec-250bb8ba9328
+  ✅ ② 建单人（report_id 默认取当前用户）= demo_sales  [01a1b81c-fff1-74fc-8ed9-61a3fff774d2]
+  ✅ ② 单据部门 = DEPT_DEMO（不是 NULL）  [01a1b81c-ffef-716b-bcc3-51d37afb8c95]
+  ✅ ② 员工本人提交审批 http（曾经 403）  [200]
+  ✅ ② 提交后单据 SUBMITTED  [SUBMITTED]
+  ✅ ② 生成审批实例  [True]
+  ✅ ② 待办审批人 = 直属上级 demo_lead（INITIATOR_SUPERIOR 解析成功）  [demo_lead]
+
+[③] demo_lead 在待办里看到该单并审批通过
+  ✅ ③ 部门经理待办列表 http  [200]
+    待办条数 = 1
+  ✅ ③ 待办里能看到该实例  [True]
+  ✅ ③ 部门经理审批 http  [200]
+  ✅ ③ 单据 APPROVED  [APPROVED]
+
+[④] demo_finance 付款 → PAID + 凭证借贷平衡
+  ✅ ④ 财务付款 http  [200]
+  ✅ ④ 单据 pay_status = PAID  [PAID]
+  ✅ ④ 全库已过账凭证借贷平衡（差异行 = 0）  [0]
+  ✅ ④ 该单已生成付款凭证  [True]
+
+[⑤] 反向断言：员工没有付款 / 红冲作废权
+  ✅ ⑤ demo_sales 付款 → 403  [403]
+  ✅ ⑤ demo_sales 作废（红冲）→ 403  [403]
+  ✅ ⑤ demo_sales 删已审批单 → 非 200（状态机拒绝）  [True]
+
+==============================================================================
+结果：39 通过 / 0 失败
+==============================================================================
+PASS | ① N2 不变量：在用 HUMAN 账号无部门数 = 0 | 0
+PASS | ① 9 个演示账号 + admin 全部挂 DEPT_DEMO | 0
+PASS | ① 账号数 = 部门归属数（10 个） | 10
+PASS | ① 演示部门负责人 = demo_lead | demo_lead
+PASS | EMPLOYEE 角色存在且启用 | EMPLOYEE|员工自助|4|1
+PASS | EMPLOYEE 持有 business:erp:expense:list | True
+PASS | EMPLOYEE 持有 business:erp:expense:create | True
+PASS | EMPLOYEE 持有 business:erp:expense:update | True
+PASS | EMPLOYEE 持有 business:erp:expense:delete | True
+PASS | EMPLOYEE 持有 business:erp:expense:submit | True
+PASS | EMPLOYEE 持有 business:erp:expense:detail | True
+PASS | EMPLOYEE 持有 business:erp:expense-type:list | True
+PASS | EMPLOYEE 持有 business:flow:instance:read | True
+PASS | EMPLOYEE 未持有 expense:pay（不碰钱） | 0
+PASS | demo_sales 的角色 = EMPLOYEE + SALES_CLERK | EMPLOYEE,SALES_CLERK
+PASS | admin 首次登录强制改密 + 重登 | must_change_password 流程真实走通
+PASS | demo_sales 首次登录强制改密 + 重登 | must_change_password 流程真实走通
+PASS | demo_lead 首次登录强制改密 + 重登 | must_change_password 流程真实走通
+PASS | demo_finance 首次登录强制改密 + 重登 | must_change_password 流程真实走通
+PASS | demo_finance_mgr 首次登录强制改密 + 重登 | must_change_password 流程真实走通
+PASS | ② 员工能取费用类型下拉（expense-type:list）http | 200
+PASS | ② 员工建单 http | 200
+PASS | ② 建单人（report_id 默认取当前用户）= demo_sales | 01a1b81c-fff1-74fc-8ed9-61a3fff774d2
+PASS | ② 单据部门 = DEPT_DEMO（不是 NULL） | 01a1b81c-ffef-716b-bcc3-51d37afb8c95
+PASS | ② 员工本人提交审批 http（曾经 403） | 200
+PASS | ② 提交后单据 SUBMITTED | SUBMITTED
+PASS | ② 生成审批实例 | True
+PASS | ② 待办审批人 = 直属上级 demo_lead（INITIATOR_SUPERIOR 解析成功） | demo_lead
+PASS | ③ 部门经理待办列表 http | 200
+PASS | ③ 待办里能看到该实例 | True
+PASS | ③ 部门经理审批 http | 200
+PASS | ③ 单据 APPROVED | APPROVED
+PASS | ④ 财务付款 http | 200
+PASS | ④ 单据 pay_status = PAID | PAID
+PASS | ④ 全库已过账凭证借贷平衡（差异行 = 0） | 0
+PASS | ④ 该单已生成付款凭证 | True
+PASS | ⑤ demo_sales 付款 → 403 | 403
+PASS | ⑤ demo_sales 作废（红冲）→ 403 | 403
+PASS | ⑤ demo_sales 删已审批单 → 非 200（状态机拒绝） | True
