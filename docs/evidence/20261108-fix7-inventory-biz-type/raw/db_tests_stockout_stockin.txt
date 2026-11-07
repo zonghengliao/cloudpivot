@@ -1,0 +1,43 @@
+warning: unused import: `nik::prelude::*`
+  --> src/business/erp/payable_payment/tests/payable_linkage_db_tests.rs:37:5
+   |
+37 | use nik::prelude::*;
+   |     ^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `nik::prelude::*`
+  --> src/business/erp/stockout_tests.rs:29:5
+   |
+29 | use nik::prelude::*;
+   |     ^^^^^^^^^^^^^^^
+
+warning: unused import: `nik::prelude::*`
+  --> src/business/erp/stockout_fifo_tests.rs:20:5
+   |
+20 | use nik::prelude::*;
+   |     ^^^^^^^^^^^^^^^
+
+warning: `cloudpivot` (lib test) generated 3 warnings (run `cargo fix --lib -p cloudpivot --tests` to apply 3 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-2bc4559acd705713)
+
+running 15 tests
+test business::erp::stockin_model::tests::cancel_sentinels_are_distinct ... ok
+test business::erp::stockin_model::tests::cost_basis_is_net_amount_per_unit ... ok
+test business::erp::stockin_model::tests::derived_before_is_exact_inverse_of_addition ... ok
+test business::erp::stockin_model::tests::in_no_format ... ok
+test business::erp::stockin_model::tests::pending_cancel_is_locked ... ok
+test business::erp::stockin_model::tests::serial_status_label_covers_all_states ... ok
+test business::erp::stockin_model::tests::unit_cost_rounds_half_up_to_six_places ... ok
+test business::erp::stockin_model::tests::only_six_legal_edges ... ok
+test business::erp::stockout_model::tests::dc13_full_chain_keeps_six_ledgers_green ... ok
+test business::erp::stockout_model::tests::dc13_permission_codes_match_migration ... ok
+test business::erp::stockout_model::tests::dc13_cancel_restores_ledgers_and_reverses_voucher ... ok
+test business::erp::stockout_model::tests::dc13_allow_negative_warehouse_lets_qty_go_negative_but_amount_clamps ... ok
+test business::erp::stockout_model::tests::dc13_negative_stock_is_blocked_and_rolled_back ... ok
+test business::erp::stockout_model::tests::dc13_state_machine_and_guards ... ok
+test business::erp::stockout_model::tests::zz_dc13_fixtures_are_cleaned ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 3314 filtered out; finished in 8.24s
+

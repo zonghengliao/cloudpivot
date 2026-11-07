@@ -1,0 +1,32 @@
+=== FIX-7 幂等 / 空库首启 2026-11-08 01:59:57 db=cloudpivot_fix7_idem_20261108015948 ===
+--- ① 同库再启一次：迁移器应「应用 0 个迁移」---
+health=200 (cloudpivot_fix7_idem_20261108015948 @ 8048)
+  ✅ schema_migrations 指纹前后不变（264|f51f0a8ff54e3a91cdd9e5f06116c08c）（264|f51f0a8ff54e3a91cdd9e5f06116c08c）
+    [2m2026-11-07T18:00:01.426043Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+  ✅ 本次启动没有新应用迁移（0）
+--- ② V0330 up 直接再跑两遍（幂等）---
+  第 1 遍 exit=0
+    UPDATE 0
+    UPDATE 0
+  ✅ V0330 up 第 1 遍执行成功（0）
+  第 2 遍 exit=0
+    UPDATE 0
+    UPDATE 0
+  ✅ V0330 up 第 2 遍执行成功（0）
+  ✅ 重跑后仍无 OTHER_OUT 的销售流水（0）
+  ✅ 重跑后仍无「无源 + PURCHASE」（0）
+--- ②b down → up 往返 ---
+  ✅ down 之后 SOURCELESS 归零（0）
+  ✅ down 之后销售流水回到 OTHER_OUT（4）
+  ✅ 再 up 之后无源单重新变成 SOURCELESS（0）
+--- ③ 空库首启（新环境路径）---
+CREATE DATABASE
+health=200 (cloudpivot_fix7_fresh_020004 @ 8049)
+    [2m2026-11-07T18:00:08.168930Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 261 个迁移
+  ✅ 空库首启后 admin 能登录（迁移链建出的种子可用）（0）
+  ✅ 空库含 V0330（1）
+  ✅ 空库 ck_biz_si_type 含 SOURCELESS（1）
+DROP DATABASE
+health=200 (cloudpivot_fix7_idem_20261108015948 @ 8048)
+
+RESULT: ALL PASS

@@ -1,0 +1,74 @@
+=== FIX-7 E2E 2026-11-08 01:48:48 db=cloudpivot_fix7_20261108014720 base=http://127.0.0.1:8048 ===
+token ok (len=461)
+--- 0) V0330 已应用到拷贝库 + 约束已换 ----------
+  ✅ V0330 已应用（330）
+  ✅ ck_biz_si_type 含 SOURCELESS（1）
+  ✅ ck_biz_si_supplier_scope 覆盖 SOURCELESS（1）
+--- 1) 存量回填：销售出库 OTHER_OUT → SALE_OUT；无源单 PURCHASE → SOURCELESS ----------
+  ✅ 销售出库单下已无 OTHER_OUT 流水（0）
+  ✅ 存量流水已迁成 SALE_OUT（迁移前 OTHER_OUT 4 条 / 现在 SALE_OUT 5 条）
+  ✅ 手工其他出库的 OTHER_OUT 一条没被误伤（0）
+  ✅ 已无「无源 + PURCHASE」的单（0）
+  ✅ 存量无源单全部迁成 SOURCELESS（迁移前无源单 2 张 / 现在 SOURCELESS 4 张）
+  ✅ 所有 SOURCELESS 单都有供应商（约束口径成立）（0）
+mat=01a1b5d9-420f-735d-bdb6-80b22842d3dc wh=01a1b5d9-5e84-7173-a4f0-a4744f8d19b9 sup=01a1b5d2-504f-72f7-92b2-00f884285a2c cus=d0260000-0000-4000-8000-000000000002 unit=68725745-ee24-4d9d-8ede-8fd28e6068f0
+--- 3) 无源入库单：is_sourceless=true → in_type=SOURCELESS ----------
+  ✅ 无源入库建单（HTTP 200）
+  ✅ 库内 in_type（SOURCELESS）
+  ✅ 库内 is_sourceless + 供应商（true）
+  ✅ 无源入库金额 900（<1000 走免审自动过账）（900.0000）
+  ✅ 无源入库提交过账（HTTP 200）
+  ✅ 无源入库落 POSTED（POSTED）
+  ✅ 无源入库的流水 biz_type 仍是 PURCHASE_IN（本次只改单据侧 in_type，已知口径见报告）（PURCHASE_IN）
+--- 4) 手工领用出库 30 件 → 流水 ISSUE_OUT ----------
+  ✅ 手工领用出库建单（HTTP 200）
+  ✅ 手工领用出库过账（HTTP 200）
+  ✅ 手工出库流水 biz_type（回归：仍 ISSUE_OUT）（ISSUE_OUT）
+--- 5) 销售出库：APPROVED 订单（SQL 夹具）→ 建发货单 → 过账 → 流水 SALE_OUT ----------
+  ✅ 建发货单（HTTP 200）
+  ✅ 发货单提交待过账（HTTP 200）
+  ✅ 发货单过账（同一事务里生成并过账销售出库单）（HTTP 200）
+  ✅ 销售出库单 source_type（SALES）
+  ✅ 销售出库单 out_type 仍是 OTHER（两维度不变）（OTHER）
+  ✅ ★ 销售出库流水 biz_type = SALE_OUT（改之前是 OTHER_OUT）（SALE_OUT）
+  ✅ 该单流水只有一种 biz_type（1）
+  ✅ SALE_OUT 流水数量 = 发货 5 件（5.0000）
+  ✅ 按 biz_type 统计销售出库：统计前 23.0000 + 本次 5 = 统计后 28.0000（28.0000）
+--- 6) 对账：库存 vs 流水按 (物料,仓库) 聚合；逐桶只比 成本账 vs 库位账 ----------
+  ✅ 库存 vs 流水：(物料,仓库) 聚合差异行数（与迁移前一致）（0）
+  ✅ 逐桶：成本账 vs 库位账 差异行数（0）
+  ✅ 流水自洽 after_qty-before_qty = ±qty（0）
+  ℹ️ 金额口径：库存金额 vs 流水金额（容许 4 位标度误差，仅记录）
+ inv_amount | txn_amount |  diff  
+------------+------------+--------
+ 24373.7963 | 24373.7963 | 0.0000
+(1 row)
+
+--- 7) 巡检脚本（本卡口径固化的 B1 / B1b / B4）----------
+  erp_invariants --group 账账 exit=0
+      ✅ [账账] B1 库位账合计 = 成本账 qty
+      ✅ [账账] B1b 逐桶 成本账 = 库位账（物料×仓库×库位）
+      ✅ [账账] B4 流水累计 = 当前库存
+  ✅ 巡检「账账」组 BLOCKER 全绿（退出码 0）（0）
+
+RESULT: ALL PASS
+--- 关键落值快照（供人工复核）---
+       out_no        | out_type | source_type | biz_type | txn_type |   qty   
+---------------------+----------+-------------+----------+----------+---------
+ OUT-20261108-000005 | OTHER    | SALES       | SALE_OUT | OUT      |  5.0000
+ OUT-20261108-000003 | OTHER    | SALES       | SALE_OUT | OUT      |  5.0000
+ OUT-20261107-000002 | OTHER    | SALES       | SALE_OUT | OUT      |  2.0000
+ OUT-20261107-000002 | OTHER    | SALES       | SALE_OUT | OUT      |  1.0000
+ OUT-20261107-000001 | OTHER    | SALES       | SALE_OUT | OUT      | 10.0000
+ OUT-20261107-000001 | OTHER    | SALES       | SALE_OUT | OUT      |  5.0000
+(6 rows)
+
+       in_no        |  in_type   | is_sourceless | has_supplier 
+--------------------+------------+---------------+--------------
+ IN-20261108-000003 | SOURCELESS | t             | t
+ IN-20261108-000002 | SOURCELESS | t             | t
+ IN-20261108-000001 | SOURCELESS | t             | t
+ IN-20261107-000004 | SOURCELESS | t             | t
+ IN-20261107-000003 | SOURCELESS | t             | t
+(5 rows)
+

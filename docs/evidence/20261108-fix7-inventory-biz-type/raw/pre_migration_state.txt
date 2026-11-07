@@ -1,0 +1,9 @@
+sales_out_docs|2
+sales_txn_other_out|4
+sales_txn_sale_out|0
+manual_other_out_txn|0
+sourceless_docs|2
+sourceless_purchase|2
+inventory_rows|8
+txn_rows|20
+reconcile_qty_diff|0

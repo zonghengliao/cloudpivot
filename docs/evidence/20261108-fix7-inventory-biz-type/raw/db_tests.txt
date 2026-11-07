@@ -1,0 +1,79 @@
+=== FIX-7 真库用例 2026-11-08 01:50:18 db=cloudpivot_fix7_20261108014720 ===
+warning: unused import: `nik::prelude::*`
+  --> src/business/erp/payable_payment/tests/payable_linkage_db_tests.rs:37:5
+   |
+37 | use nik::prelude::*;
+   |     ^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `nik::prelude::*`
+  --> src/business/erp/stockout_tests.rs:29:5
+   |
+29 | use nik::prelude::*;
+   |     ^^^^^^^^^^^^^^^
+
+warning: unused import: `nik::prelude::*`
+  --> src/business/erp/stockout_fifo_tests.rs:20:5
+   |
+20 | use nik::prelude::*;
+   |     ^^^^^^^^^^^^^^^
+
+warning: `cloudpivot` (lib test) generated 3 warnings (run `cargo fix --lib -p cloudpivot --tests` to apply 3 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.52s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-2bc4559acd705713)
+
+running 49 tests
+test business::erp::shipment_posting::tests::order_status_constants_are_the_module_constants ... ok
+test business::erp::shipment_posting::tests::order_status_domain_matches_check_constraint ... ok
+test business::erp::shipment_posting::tests::late_failure_rolls_back_the_whole_posting ... ok
+test business::erp::shipment_posting::tests::reason_and_line_remark_are_traceable ... ok
+test business::erp::shipment_posting::tests::normal_post_deducts_three_books_and_closes_order ... ok
+test business::erp::shipment_posting::tests::sales_source_is_not_an_out_type ... ok
+test business::erp::stockin_base::tests::in_type_vocabulary_matches_doc_kind ... ok
+test business::erp::stockin_base::tests::sourceless_has_no_serial_source ... ok
+test business::erp::stockin_base::tests::sourceless_stock_in_is_not_purchase ... ok
+test business::erp::shipment_posting::tests::insufficient_stock_leaves_everything_untouched ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_01_purchase_with_source_derives_supplier ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_02_purchase_without_source_is_400 ... ok
+test business::erp::shipment_posting::tests::partial_post_moves_to_partial_out_then_outbound ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_03_source_order_missing_is_400 ... ok
+test business::erp::shipment_posting::tests::repeated_post_is_idempotent ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_04_source_order_not_receivable_is_400 ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_05_client_supplier_mismatch_is_400 ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_06_sourceless_requires_flag_and_reason ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_07_non_purchase_with_supplier_db_rejects ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_08_over_receipt_is_400 ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_09_list_and_detail_expose_snapshot_columns ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_10_posting_rechecks_supplier ... ok
+test business::erp::stockout_base::tests::manual_out_types_keep_their_own_biz_type ... ok
+test business::erp::stockout_base::tests::sales_stock_out_is_sale_out_not_other_out ... ok
+test business::erp::stockout_base::tests::stock_out_vocabulary_matches_doc_kind ... ok
+test business::shared::doc_kind::doc_kind_tests::approval_entries_use_registered_biz_types ... ok
+test business::shared::doc_kind::doc_kind_tests::attachment_doc_types_match_rust ... ok
+test business::shared::doc_kind::doc_kind_tests::cross_axis_mappings_are_consistent ... ok
+test business::shared::doc_kind::doc_kind_tests::doc_kind_registries_match_doc_kind_table ... ok
+test business::shared::doc_kind::doc_kind_tests::domain_columns_exist_and_cover_all_axes ... ok
+test business::shared::doc_kind::doc_kind_tests::domain_consts_match_enums ... ok
+test business::shared::doc_kind::doc_kind_tests::entity_registry_is_covered_by_doc_kind ... ok
+test business::shared::doc_kind::doc_kind_tests::every_axis_value_is_uppercase_underscore ... ok
+test business::shared::doc_kind::doc_kind_tests::every_enum_has_a_label ... ok
+test business::shared::doc_kind::doc_kind_tests::flow_cc_source_map_matches_snapshot_registry ... ok
+test business::shared::doc_kind::doc_kind_tests::flow_health_list_matches_registry ... ok
+test business::shared::doc_kind::doc_kind_tests::frontend_ts_labels_match_rust ... ok
+test business::shared::doc_kind::doc_kind_tests::frontend_ts_mirror_matches_rust ... ok
+test business::shared::doc_kind::doc_kind_tests::no_legacy_transfer_entity_type ... ok
+test business::shared::doc_kind::doc_kind_tests::parse_is_strict ... ok
+test business::shared::doc_kind::doc_kind_tests::routes_are_unique_and_round_trip ... ok
+test business::shared::doc_kind::doc_kind_tests::serial_source_map_matches_snapshot_registry ... ok
+test business::shared::doc_kind::doc_kind_tests::test_residue_predicate_matches_python_and_sql ... ok
+test business::shared::doc_kind::doc_kind_tests::txn_doc_map_matches_snapshot_registry ... ok
+test business::shared::doc_kind::doc_kind_tests::values_are_unique_per_axis ... ok
+test business::shared::doc_kind::doc_kind_tests::voucher_source_map_matches_snapshot_registry ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_11_post_and_cancel_keep_purchase_chain ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_12_copy_marks_sourceless ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_13_draft_update_cannot_hand_pick_supplier ... ok
+
+test result: ok. 49 passed; 0 failed; 0 ignored; 0 measured; 3280 filtered out; finished in 23.32s
+
+cargo test exit=0
