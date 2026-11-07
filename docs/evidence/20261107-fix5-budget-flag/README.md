@@ -50,17 +50,18 @@
 
 ### 后端
 
-| 文件 | 改动 | 行数 |
+| 文件 | 改动 | 行数（+新增/−删除） |
 |---|---|---|
-| `backend/src/business/erp/budget_guard.rs` | `evaluate` 收 `budget_id` 判 `missing_budget`；`over` 与 `missing_budget` 互斥；新增 `over_amount_opt()` / `ModeSource` / `ExpenseSlotCheck::{account_label,describe}` / `ExpenseBudget::{missing_budget,blocking_checks,block_reason,block_headline,over_amount_opt}` / `amount_text` / `period_label`；占用写入 `over_amount` 改 `NULLIF(?,'')::numeric`；模块文档 | +317/−40 |
-| `backend/src/business/erp/expense_handler.rs` | 409 报文改按槽正文 + 第一句分岔；`form_data` 补 `missing_budget`；`report_mark_submitted` 传 `missing_budget` / `Option` 超支额 | +20/−9 |
-| `backend/src/business/erp/expense_model.rs` | `REPORT_COLUMNS` 带 `missing_budget`；`ReportRow.missing_budget` / `over_amount: Option<Decimal>`；提交写入与「回草稿」清零 | +31/−11 |
-| `backend/src/business/erp/expense_dto.rs` | `ReportRes.missing_budget`、`ReportRes/UsageRes.over_amount: Option<Decimal>` | +10/−4 |
-| `backend/src/business/erp/budget_dto.rs` | `UsageRes.over_amount: Option<Decimal>` | +4/−4 |
+| `backend/src/business/erp/budget_guard.rs` | `evaluate` 收 `budget_id` 判 `missing_budget`；`over` 与 `missing_budget` 互斥；新增 `over_amount_opt()` / `ModeSource` / `ExpenseSlotCheck::{account_label,describe}` / `ExpenseBudget::{missing_budget,blocking_checks,block_reason,block_headline,over_amount_opt}` / `amount_text` / `period_label`；占用写入 `over_amount` 改 `NULLIF(?,'')::numeric`；模块文档 | +323/−36 |
+| `backend/src/business/erp/expense_handler.rs` | 409 报文改按槽正文 + 第一句分岔；`form_data` 补 `missing_budget`；`report_mark_submitted` 传 `missing_budget` / `Option` 超支额 | +18/−5 |
+| `backend/src/business/erp/expense_model.rs` | `REPORT_COLUMNS` 带 `missing_budget`；`ReportRow.missing_budget` / `over_amount: Option<Decimal>`；提交写入与「回草稿」清零 | +23/−8 |
+| `backend/src/business/erp/expense_dto.rs` | `ReportRes.missing_budget`、`ReportRes/UsageRes.over_amount: Option<Decimal>` | +6/−4 |
+| `backend/src/business/erp/budget_dto.rs` | `UsageRes.over_amount: Option<Decimal>` | +2/−2 |
+| `backend/src/business/erp/budget_dto_tests.rs` | 占用行 `over_amount` 断言同步 `Option` | +2/−2 |
 | `backend/migrations/business/V0325__budget_missing_flag.{up,down}.sql` | `biz_expense_report.missing_budget`（0/1 + CHECK，幂等）；两张表 `over_amount` 放开 NOT NULL；自检 | 新增 90 / 24 |
-| `backend/migrations/business/V0326__budget_over_amount_no_default.{up,down}.sql` | 去掉两张表 `over_amount` 的 `DEFAULT 0`（草稿不再落 `0.0000`，与「NULL = 没超支」一致） | 新增 47 / 12 |
-| `backend/src/business/erp/budget_guard_tests.rs` | ⑥ 新增 6 条：报文按槽、槽级/全局标签、多槽排序、未编预算不算超支 + BLOCK 仍拦、额度内文案、金额/期间格式化；⑮ 重写（判据 = 有没有预算行）；⑤ 补 BLOCK 分支 | +240 |
-| `backend/src/business/erp/expense_model_tests.rs` | `evaluate` 调用点补 `budget_id` | +1 |
+| `backend/migrations/business/V0326__budget_over_amount_no_default.{up,down}.sql` | 去掉两张表 `over_amount` 的 `DEFAULT 0`（草稿不再落 `0.0000`，与「NULL = 没超支」一致） | 新增 36 / 9 |
+| `backend/src/business/erp/budget_guard_tests.rs` | ⑥ 新增 6 条：报文按槽、槽级/全局标签、多槽排序、未编预算不算超支 + BLOCK 仍拦、额度内文案、金额/期间格式化；⑮ 重写（判据 = 有没有预算行）；⑤ 补 BLOCK 分支 | +282/−13 |
+| `backend/src/business/erp/expense_model_tests.rs` | `evaluate` 调用点补 `budget_id` | +1/−0 |
 
 **口径（三处同改，别只改一处）**
 
@@ -78,13 +79,13 @@ over_amount    = over ? max(年缺口, 月缺口) : None   →  落库 NULL / JS
 
 | 文件 | 改动 |
 |---|---|
-| `frontend/src/api/business/erp/expense.ts` | `ExpenseReport.missing_budget`；`over_amount: string \| null`（列表 + 占用） |
-| `frontend/src/api/business/erp/budget.ts` | 占用行 `over_amount: string \| null` |
-| `frontend/src/views/business/erp/expense/expense-logic.ts` | 新增 `budgetFlag()`（红「超预算」/ 黄「未编预算」/ null）；类型放宽 |
-| `frontend/src/views/business/erp/expense/index.vue` | 列表新增「预算」列（`budgetCell` 兜底灰色 —） |
-| `frontend/src/views/business/erp/expense/ExpenseDetailDrawer.vue` | 详情补「提交时未编制预算」提示（与红「超预算」分开）；`over_amount` 空值安全 |
-| `frontend/src/views/business/erp/budget/budget-logic.ts` | `usageOverText` 空值安全 |
-| `frontend/tests/unit/fin3-expense.test.ts` | `budgetFlag` 4 例（含「两者都为真时红标优先」） |
+| `frontend/src/api/business/erp/expense.ts` | `ExpenseReport.missing_budget`；`over_amount: string \| null`（列表 + 占用） | `+10/−4` |
+| `frontend/src/api/business/erp/budget.ts` | 占用行 `over_amount: string \| null` | `+2/−2` |
+| `frontend/src/views/business/erp/expense/expense-logic.ts` | 新增 `budgetFlag()`（红「超预算」/ 黄「未编预算」/ null）；类型放宽 | `+21/−2` |
+| `frontend/src/views/business/erp/expense/index.vue` | 列表新增「预算」列（`budgetCell` 兜底灰色 —） | `+20/−0` |
+| `frontend/src/views/business/erp/expense/ExpenseDetailDrawer.vue` | 详情补「提交时未编制预算」提示（与红「超预算」分开） | `+12/−0` |
+| `frontend/src/views/business/erp/budget/budget-logic.ts` | `usageOverText` 空值安全 | `+1/−1` |
+| `frontend/tests/unit/fin3-expense.test.ts` | `budgetFlag` 4 例（含「两者都为真时红标优先」） | `+21/−0` |
 
 ---
 
@@ -128,7 +129,7 @@ over_amount    = over ? max(年缺口, 月缺口) : None   →  落库 NULL / JS
 
 ## 6. 本卡发现的既有缺陷（未在本卡修，已另行建卡）
 
-1. **报销列表带任何筛选时，非超管用户 500**（`code=10004`）：
+1. **报销列表带任何筛选时，非超管用户 500**（`code=10004`）→ 已建卡 **t_be428a39**（gated by 本卡）：
    `scope::paginate` 要求 `base_sql` 带 `{FILTER}` 标记，报销分页的 `base_sql` 没带 →
    `分页查询报销单: base_sql 带 4 个业务参数但没有 {FILTER} 标记`。8033 现役实例上同样可复现
    （`raw/list_page_emp_500.json`，`emp_drill` + `keyword/status` 均 500，不带筛选 200）。
