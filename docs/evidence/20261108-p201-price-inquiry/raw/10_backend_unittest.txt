@@ -1,0 +1,29 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 41.73s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 20 tests
+test business::erp::price_inquiry_dto::tests::award_reason_needs_at_least_ten_chars ... ok
+test business::erp::price_inquiry_dto::tests::award_requires_some_target ... ok
+test business::erp::price_inquiry_dto::tests::award_rejects_duplicate_line_and_foreign_item ... ok
+test business::erp::price_inquiry_dto::tests::delivery_days_must_not_be_negative ... ok
+test business::erp::price_inquiry_dto::tests::award_shortcut_assigns_every_line ... ok
+test business::erp::price_inquiry_dto::tests::group_by_supplier_is_deterministic ... ok
+test business::erp::price_inquiry_dto::tests::permissions_are_the_five_documented_codes ... ok
+test business::erp::price_inquiry_dto::tests::price_incl_is_server_side_and_rounds_to_six ... ok
+test business::erp::price_inquiry_dto::tests::page_filter_normalizes_and_rejects_bad_dates ... ok
+test business::erp::price_inquiry_dto::tests::price_must_not_be_negative_and_tax_in_range ... ok
+test business::erp::price_inquiry_dto::tests::award_per_line_supports_split_suppliers ... ok
+test business::erp::price_inquiry_dto::tests::qty_must_be_positive ... ok
+test business::erp::price_inquiry_dto::tests::award_must_cover_all_lines ... ok
+test business::erp::price_inquiry_dto::tests::remark_is_trimmed_and_capped ... ok
+test business::erp::price_inquiry_dto::tests::single_source_detection_uses_quote_count_per_line ... ok
+test business::erp::price_inquiry_dto::tests::status_normalization_and_labels ... ok
+test business::erp::price_inquiry_model::tests::optional_values_fold_to_empty_text ... ok
+test business::erp::price_inquiry_model::tests::period_key_is_cst ... ok
+test business::erp::price_inquiry_model::tests::inquiry_no_format_is_zero_padded ... ok
+test business::erp::price_inquiry_dto::tests::unmatched_awards_flag_supplier_without_quote ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 3336 filtered out; finished in 0.01s
+
+TEST_EXIT=0

@@ -1,0 +1,126 @@
+Pager usage is off.
+=== A. 询价单头：状态 / 定标 / 转单 / po_refs ===
+     inquiry_no      |  status   |  award_mode   | has_award_supplier | has_awarded_at | has_converted_at | po_count 
+---------------------+-----------+---------------+--------------------+----------------+------------------+----------
+ PIQ-20261108-000001 | CONVERTED | MULTI         | t                  | t              | t                |        1
+ PIQ-20261108-000002 | AWARDED   | SINGLE_SOURCE | t                  | t              | f                |        0
+ PIQ-20261108-000003 | QUOTING   | -             | f                  | f              | f                |        0
+ PIQ-20261108-000004 | CONVERTED | MULTI         | f                  | t              | t                |        2
+(4 rows)
+
+=== B. PIQ-000001 比价与中标：3 物料 × 3 家 = 9 条报价，中标 3 条且只落一家 ===
+ quotes | awarded | bidders | lines 
+--------+---------+---------+-------
+      9 |       3 |       3 |     3
+(1 row)
+
+ awarded_suppliers 
+-------------------
+                 1
+(1 row)
+
+=== C. 单价传递：采购明细价 = 中标报价价（逐行，0 差异才算过） ===
+ compared_lines | price_equal_lines | qty_equal_lines | tax_equal_lines 
+----------------+-------------------+-----------------+-----------------
+              3 |                 3 |               3 |               3
+(1 row)
+
+=== D. 转单后单据：采购单头金额 ===
+      order_no      | status | total_amount | total_tax | total_with_tax |             warehouse_id             
+--------------------+--------+--------------+-----------+----------------+--------------------------------------
+ PO-20261108-000001 | DRAFT  |    1750.0000 |  227.5000 |      1977.5000 | d1370001-0000-4000-8000-000000000001
+ PO-20261108-000002 | DRAFT  |     120.0000 |   15.6000 |       135.6000 | d1370001-0000-4000-8000-000000000001
+ PO-20261108-000003 | DRAFT  |     360.0000 |   46.8000 |       406.8000 | d1370001-0000-4000-8000-000000000001
+(3 rows)
+
+=== E. 一单拆多单：PIQ-000004 产出 2 张采购单，分别挂 A / B ===
+     inquiry_no      | po_count | distinct_suppliers | total_lines 
+---------------------+----------+--------------------+-------------
+ PIQ-20261108-000004 |        2 |                  2 |           2
+(1 row)
+
+=== F. 单位止血：询价明细单位 = 物料基础单位（DC-09） ===
+ items | unit_matches_material 
+-------+-----------------------
+     7 |                     7
+(1 row)
+
+=== G. 状态不变式：AWARDED/CONVERTED ⇔ awarded_at 非空；含税价独立复算 ===
+ bad_missing_awarded_at | bad_extra_awarded_at | bad_price_incl 
+------------------------+----------------------+----------------
+                      0 |                    0 |              0
+(1 row)
+
+=== H. 单源例外留痕：SINGLE_SOURCE 必须有 ≥10 字理由 ===
+     inquiry_no      |  award_mode   | reason_len 
+---------------------+---------------+------------
+ PIQ-20261108-000002 | SINGLE_SOURCE |         20
+(1 row)
+
+=== I. 取号：biz_seq(PIQ) 已推进（本次跑满 4 张单） ===
+ seq_type | prefix | date_pattern | period_key | current_no 
+----------+--------+--------------+------------+------------
+ PIQ      | PIQ    | yyyyMMdd     | 20261108   |          4
+(1 row)
+
+=== J. 菜单与权限码（5 个码各有且仅有 1 行承载） ===
+             auth_code             |    name    | carriers 
+-----------------------------------+------------+----------
+ business:erp:price-inquiry:award  | 定标       |        1
+ business:erp:price-inquiry:create | 询价单新建 |        1
+ business:erp:price-inquiry:list   | 询比价     |        1
+ business:erp:price-inquiry:quote  | 录入报价   |        1
+ business:erp:price-inquiry:to-po  | 转采购订单 |        1
+(5 rows)
+
+=== K. 菜单树：页面节点挂在「采购管理」下，按钮挂页面下 ===
+                  id                  |    name    | menu_type |            path             |            component             | parent_name 
+--------------------------------------+------------+-----------+-----------------------------+----------------------------------+-------------
+ 20000000-0000-0000-0000-000000003321 | 询比价     |         2 | /business/erp/price-inquiry | business/erp/price-inquiry/index | 采购管理
+ 20000000-0000-0000-0000-000000003322 | 询价单新建 |         3 |                             |                                  | 询比价
+ 20000000-0000-0000-0000-000000003323 | 录入报价   |         3 |                             |                                  | 询比价
+ 20000000-0000-0000-0000-000000003324 | 定标       |         3 |                             |                                  | 询比价
+ 20000000-0000-0000-0000-000000003325 | 转采购订单 |         3 |                             |                                  | 询比价
+(5 rows)
+
+=== L. 角色授权：PURCHASE_MANAGER 拿到 5 个码 / WAREHOUSE_MANAGER 只读 ===
+     role_code     | granted_menus 
+-------------------+---------------
+ PURCHASE_MANAGER  |             5
+ WAREHOUSE_MANAGER |             1
+(2 rows)
+
+=== M. 第三方真相复核：用纯 SQL 重算「中标单价 × 数量」= 采购单不含税额 ===
+ expected_amount | po_amount | match 
+-----------------+-----------+-------
+       1750.0000 | 1750.0000 | t
+(1 row)
+
+=== N. 汇总判据（全 PASS 才算过） ===
+          check           |   got   |  want   | verdict 
+--------------------------+---------+---------+---------
+ A 转单头                 | 2       | >=1     | PASS
+ G 缺 awarded_at          | 0       | 0       | PASS
+ B 报价/中标/家数         | 9/3/3   | 9/3/3   | PASS
+ B 中标只落一家           | 1       | 1       | PASS
+ C 单价/数量/税率逐行一致 | 3/3     | 3/3     | PASS
+ E 一单拆两张             | 2       | 2       | PASS
+ J 权限码承载行           | 5码/5行 | 5码/5行 | PASS
+(7 rows)
+
+=== O. 库级兜底：uk_biz_price_quote_awarded 存在，且真能拒「同一明细两家中标」 ===
+         indexname          |                                                    indexdef                                                     
+----------------------------+-----------------------------------------------------------------------------------------------------------------
+ uk_biz_price_quote_awarded | CREATE UNIQUE INDEX uk_biz_price_quote_awarded ON public.biz_price_quote USING btree (item_id) WHERE is_awarded
+(1 row)
+
+BEGIN
+psql:02_db_assert.sql:196: NOTICE:  PASS: 同一明细第二家中标被 uk_biz_price_quote_awarded 拒绝
+DO
+ROLLBACK
+=== P. 收尾：确认 SELFTEST-AWARDED-ONLY 没有残留（期望 0） ===
+ selftest_rows 
+---------------
+             0
+(1 row)
+

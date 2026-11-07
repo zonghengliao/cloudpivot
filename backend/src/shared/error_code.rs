@@ -1421,6 +1421,18 @@ pub const ERP_ASSET_STATUS_ILLEGAL: i32 = 66046;
 /// 「资产状态不对」（66040 / 66046）或「期间已结账」（66038）—— 三者处置动作完全不同。
 pub const ERP_ASSET_DEPRECIATION_PENDING: i32 = 66048;
 
+// ---------- P2-01 询比价定标闸（接在 66046 之后） ----------
+
+/// 定标被比价规则挡住（HTTP 409）：
+/// ① 某条明细只有 1 家报价（或尚未报价），且没有给单源例外理由；
+/// ② 请求里的中标组合与已录报价对不上（该供应商没给这条明细报价）；
+/// ③ 询价单状态不允许定标（已定标 / 已转单）。
+///
+/// **不复用** `RESOURCE_CONFLICT`（通用 409）：前端要能一眼区分「数据状态冲突」
+/// 与「比价规则拒绝」，并直接给出「补报价 / 填单源理由」的下一步动作。
+/// 错误码不是权限码，加号不需要迁移。
+pub const ERP_PRICE_INQUIRY_AWARD_GUARD: i32 = 66047;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1493,6 +1505,8 @@ mod tests {
             (ERP_ASSET_STATUS_ILLEGAL, 66046),
             // FIX-3 处置前置闸（66048；处置当月折旧未过账，与 66038 期间已结账 / 66040 审批在跑分开）
             (ERP_ASSET_DEPRECIATION_PENDING, 66048),
+            // P2-01 询比价定标闸（66047；单源例外 / 报价不匹配 / 状态不允许定标）
+            (ERP_PRICE_INQUIRY_AWARD_GUARD, 66047),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");

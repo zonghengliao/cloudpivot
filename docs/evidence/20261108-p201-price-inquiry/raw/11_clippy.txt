@@ -1,0 +1,96 @@
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+warning: this function has too many arguments (8/7)
+   --> src/business/erp/sales_order_model.rs:699:1
+    |
+699 | / pub async fn update_order(
+700 | |     ex: &impl SqlExecutor,
+701 | |     id: Uuid,
+702 | |     new: &NewSalesOrder<'_>,
+...   |
+707 | |     now: DateTime<Utc>,
+708 | | ) -> DbResult<u64> {
+    | |__________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#too_many_arguments
+    = note: `#[warn(clippy::too_many_arguments)]` on by default
+
+warning: `cloudpivot` (lib) generated 1 warning
+warning: useless use of `format!`
+   --> src/business/erp/asset_linkage.rs:423:33
+    |
+423 |               PRESET_UP.contains(&format!(
+    |  _________________________________^
+424 | |                 "trigger_entity = 'FIXED_ASSET'"
+425 | |             )),
+    | |_____________^ help: consider using `.to_string()`: `"trigger_entity = 'FIXED_ASSET'".to_string()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#useless_format
+    = note: `#[warn(clippy::useless_format)]` on by default
+
+warning: useless use of `format!`
+   --> src/business/erp/fx_revaluation.rs:788:13
+    |
+788 | /             format!(
+789 | |                 "INSERT INTO biz_exchange_rate \
+790 | |                     (from_currency, to_currency, rate_type, effective_date, rate) \
+791 | |                  VALUES (?, 'CNY', 'SPOT', ?::text::date, ?::text::numeric) \
+792 | |                  ON CONFLICT (from_currency, to_currency, rate_type, effective_date) \
+793 | |                  DO UPDATE SET rate = EXCLUDED.rate"
+794 | |             ),
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#useless_format
+help: consider using `.to_string()`
+    |
+788 ~             "INSERT INTO biz_exchange_rate \
+789 +                     (from_currency, to_currency, rate_type, effective_date, rate) \
+790 +                  VALUES (?, 'CNY', 'SPOT', ?::text::date, ?::text::numeric) \
+791 +                  ON CONFLICT (from_currency, to_currency, rate_type, effective_date) \
+792 ~                  DO UPDATE SET rate = EXCLUDED.rate".to_string(),
+    |
+
+warning: binary comparison to literal `Option::None`
+    --> src/business/erp/opening.rs:2738:43
+     |
+2738 |             buckets.iter().all(|(loc, _)| *loc != None),
+     |                                           ^^^^^^^^^^^^ help: use `Option::is_some()` instead: `loc.is_some()`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#partialeq_to_none
+     = note: `#[warn(clippy::partialeq_to_none)]` on by default
+
+warning: this call to `clone` can be replaced with `std::slice::from_ref`
+    --> src/business/erp/voucher.rs:5258:74
+     |
+5258 |         let map = material_inventory_accounts(db(), Some(&rule_account), &[material_line.clone()])
+     |                                                                          ^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `std::slice::from_ref(&material_line)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#cloned_ref_to_slice_refs
+     = note: `#[warn(clippy::cloned_ref_to_slice_refs)]` on by default
+
+warning: this call to `clone` can be replaced with `std::slice::from_ref`
+    --> src/business/erp/voucher.rs:5287:13
+     |
+5287 |             &[material_line.clone()],
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `std::slice::from_ref(&material_line)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#cloned_ref_to_slice_refs
+
+warning: `format!` in `format!` args
+   --> src/business/erp/year_end_linkage_tests.rs:214:17
+    |
+214 |       scalar_i64(&format!(
+    |  _________________^
+215 | |         "SELECT count(*) FROM biz_voucher \
+216 | |           WHERE voucher_type = 'YEAR_END' AND period = '{}' AND deleted_at IS NULL",
+217 | |         format!("{}-12", support::YEAR)
+218 | |     ))
+    | |_____^
+    |
+    = help: combine the `format!(..)` arguments with the outer `format!(..)` call
+    = help: or consider changing `format!` to `format_args!`
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#format_in_format_args
+    = note: `#[warn(clippy::format_in_format_args)]` on by default
+
+warning: `cloudpivot` (lib test) generated 7 warnings (1 duplicate) (run `cargo clippy --fix --lib -p cloudpivot --tests` to apply 3 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 58.96s
+CLIPPY_EXIT=0

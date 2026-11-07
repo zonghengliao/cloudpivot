@@ -1,0 +1,118 @@
+  ✓ 首登强制改密 200
+  ✓ 管理员登录 200：{'code': 0, 'msg': 'ok', 'data': {'access_token': 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJqdGkiOiI0YzIxMTg3Yi02Yzg1LTRkMWQtOWRlNi1kMWM3M2IzNDczM2IiLCJzdWIiOiIwMWExYjdmYy02Y2ZjLTc2ZTktODk3YS00OThmMDBkNDNmODIiLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZXMiOlsiU1VQRVJfQURNSU4iXSwicGVybWlzc2lvbnMiOlsiKjoqOioiXSwidG9rZW5fdHlwZSI6ImFjY2VzcyIsImV4cCI6MTc5NDA4OTExMSwiaWF0IjoxNzk0MDg4MjExLCJzaWF0IjoxNzk0MDg4MjExLCJ2ZXIiOjEsInNpZCI6Ijg2YmYxZGQ2LTNlYzQtNDE4Mi1hMDZiLTJlMTQ1MmZkYWJhNiJ9.TXCOSbyxDZwPL7hJav8Xtoxxh6CysaRgZ9oWF1dorfU', 'refresh_token': 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJqdGkiOiI4Y2UxOWQyOC1mNjQ0LTQxNTQtYmZjYS1iZjJmMmVkZTc2MzMiLCJzdWIiOiIwMWExYjdmYy02Y2ZjLTc2ZTktODk3YS00OThmMDBkNDNmODIiLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZXMiOlsiU1VQRVJfQURNSU4iXSwicGVybWlzc2lvbnMiOlsiKjoqOioiXSwidG9rZW5fdHlwZSI6InJlZnJlc2giLCJleHAiOjE3OTQxNzQ2MTEsImlhdCI6MTc5NDA4ODIxMSwic2lhdCI6MTc5NDA4ODIxMSwic2lkIjoiODZiZjFkZDYtM2VjNC00MTgyLWEwNmItMmUxNDUyZmRhYmE2IiwidmVyIjoxfQ.1lXP4y7f7QmqftfUSiBjoHkaOJNg58_QRc-qoKnBkbY', 'token_type': 'Bearer', 'expires_in': 900, 'user': {'id': '01a1b7fc-6cfc-76e9-897a-498f00d43f82', 'username': 'admin', 'real_name': '超级管理员'}, 'must_change_password': False}}
+  ✓ 物料种子里至少有 3 个（实得 5）
+
+=== 准备：3 家供应商 ===
+  ✓ 三家供应商 id 互不相同
+
+=== ① 建询价单（3 个物料） ===
+  ✓ 建询价单 200：{"code": 0, "msg": "ok", "data": {"head": {"id": "01a1b7fd-95c6-7477-8428-732088b0618e", "inquiry_no": "PIQ-20261108-000001", "inquiry_date": "2026-11-08", "buy
+  ✓ 初始状态 DRAFT（实得 DRAFT）
+  ✓ 明细 3 行（实得 3）
+  ✓ 收货仓库取自建单请求
+  ✓ 采购员由当前登录人快照
+  ✓ 明细单位由物料带出（客户端没传 unit_id）
+  ✓ item_count = 3
+
+=== ② 3 家供应商分别报价 ===
+  ✓ 报价入库（供应商 01a1b7fd）200
+  ✓ 报价入库（供应商 01a1b7fd）200
+  ✓ 报价入库（供应商 01a1b7fd）200
+  ✓ 状态推进到 QUOTING（实得 QUOTING）
+  ✓ 报价 3 家 × 3 行 = 9 条（实得 9）
+  ✓ 报价家数 3（实得 3）
+  ✓ 含税单价服务端算：100 × 1.13 = 113.000000
+  ✓ 同一供应商重复报价返回 200（改价语义）
+
+=== ③ 比价表横向对比（同物料不同供应商的价格 / 交期 / 最低价） ===
+  ✓ 比价表 3 行（实得 3）
+  ✓ 行 1 有 3 家报价（实得 3）
+  ✓ 行 1 满足 ≥2 家
+  ✓ 行 1 三家名称不重复：['P201 丙供应商', 'P201 甲供应商', 'P201 乙供应商']
+  ✓ 行 1 只有一个最低价（[('P201 甲供应商', '100.000000')]）
+  ✓ 行 1 交期可横向对比：{'P201 丙供应商': 7, 'P201 甲供应商': 30, 'P201 乙供应商': 15}
+  ✓ 行 2 有 3 家报价（实得 3）
+  ✓ 行 2 满足 ≥2 家
+  ✓ 行 2 三家名称不重复：['P201 丙供应商', 'P201 甲供应商', 'P201 乙供应商']
+  ✓ 行 2 只有一个最低价（[('P201 丙供应商', '48.000000')]）
+  ✓ 行 2 交期可横向对比：{'P201 丙供应商': 7, 'P201 甲供应商': 30, 'P201 乙供应商': 15}
+  ✓ 行 3 有 3 家报价（实得 3）
+  ✓ 行 3 满足 ≥2 家
+  ✓ 行 3 三家名称不重复：['P201 丙供应商', 'P201 甲供应商', 'P201 乙供应商']
+  ✓ 行 3 只有一个最低价（[('P201 乙供应商', '190.000000')]）
+  ✓ 行 3 交期可横向对比：{'P201 丙供应商': 7, 'P201 甲供应商': 30, 'P201 乙供应商': 15}
+  ✓ 第 1 行最低价是甲（实得 P201 甲供应商）
+  ✓ 第 2 行最低价是丙（实得 P201 丙供应商）
+  ✓ 第 3 行最低价是乙（实得 P201 乙供应商）
+  ✓ （占位：最低价格口径按不含税单价）
+
+=== ④ 定标 A 供应商 ===
+  ✓ 定标成功 200：{"code": 0, "msg": "ok", "data": {"head": {"id": "01a1b7fd-95c6-7477-8428-732088b0618e", "inquiry_no": "PIQ-20261108-000001", "inquiry_date": "2026-11-08", "buyer_id": "01a1b7fc-6cfc-76e9-897a-498f00d
+  ✓ 状态 AWARDED（实得 AWARDED）
+  ✓ 定标方式 MULTI（实得 MULTI）
+  ✓ 单一供应商定标写入 award_supplier_id
+  ✓ 定标时间已落库
+  ✓ 中标标记只落在 A 的 3 条报价上（实得 3 条）
+  ✓ can_to_po = true
+  ✓ 重复定标被 409/66047 挡住（实得 409/66047）
+
+=== ⑤ 转采购订单（单价 = A 的报价） ===
+  ✓ 转单成功 200：{"code": 0, "msg": "ok", "data": {"inquiry_id": "01a1b7fd-95c6-7477-8428-732088b0618e", "inquiry_no": "PIQ-20261108-000001", "status": "CONVERTED", "purchase_orders": [{"po_id": "01a1b7fd-960a-774e-8e42-cb1052858884", "po_no": "PO-20261108-000001", "supplier_id": "01a1b7fd-95b4-751e-b594-f7e56950d88
+  ✓ 状态 CONVERTED（实得 CONVERTED）
+  ✓ 单一供应商 → 1 张采购订单（实得 1）
+  ✓ 采购订单挂 A 供应商
+  ✓ 采购订单 3 行（实得 3）
+  ✓ 采购单 PO-20261108-000001 能在采购订单台账里查到
+  ✓ 采购单不含税金额 = 100×10 + 50×5 + 200×2.5 = 1750（实得 1750.0000）
+  ✓ 价税合计 = 1750 × 1.13 = 1977.5（实得 1977.5000）
+  ✓ 采购明细 3 行（实得 3）
+  ✓ 采购明细物料 d1370003 能对上中标报价
+  ✓ 单价传递：物料 d1370003 采购单价 100.000000 = A 报价 100.000000
+  ✓ 数量传递：10.0000 = 询价数量 10.0000
+  ✓ 税率传递 13%（实得 13.0000）
+  ✓ 采购明细物料 d1370003 能对上中标报价
+  ✓ 单价传递：物料 d1370003 采购单价 50.000000 = A 报价 50.000000
+  ✓ 数量传递：5.0000 = 询价数量 5.0000
+  ✓ 税率传递 13%（实得 13.0000）
+  ✓ 采购明细物料 d1370003 能对上中标报价
+  ✓ 单价传递：物料 d1370003 采购单价 200.000000 = A 报价 200.000000
+  ✓ 数量传递：2.5000 = 询价数量 2.5000
+  ✓ 税率传递 13%（实得 13.0000）
+  ✓ 重复转单被 409 挡住（实得 409/10003）
+
+=== ⑥ 单源例外：只有 1 家报价时，没理由 409，有理由放行 ===
+  ✓ 建询价单 200：{"code": 0, "msg": "ok", "data": {"head": {"id": "01a1b7fd-9623-7715-a61e-8ae1092536a9", "inquiry_no": "PIQ-20261108-000002", "inquiry_date": "2026-11-08", "buy
+  ✓ 单源报价入库
+  ✓ 只有 1 家报价、没填理由 → 409/66047（实得 409/66047）
+  ✓ 409 文案点名 single_source_reason
+  ✓ 理由 < 10 字同样 409（实得 409）
+  ✓ 填理由后定标放行 200
+  ✓ award_mode = SINGLE_SOURCE（实得 SINGLE_SOURCE）
+
+=== ⑥b 反证：中标供应商没报过价 → 409 ===
+  ✓ 建询价单 200：{"code": 0, "msg": "ok", "data": {"head": {"id": "01a1b7fd-963f-72c6-aa21-7c6e8dfab640", "inquiry_no": "PIQ-20261108-000003", "inquiry_date": "2026-11-08", "buy
+  ✓ 未报价的中标组合被 409/66047 挡住（实得 409/66047）
+  ✓ 409 文案说明缺报价
+
+=== ⑦ 一单拆多单：物料 1 → A，物料 2 → B ===
+  ✓ 建询价单 200：{"code": 0, "msg": "ok", "data": {"head": {"id": "01a1b7fd-9653-7659-a165-37ea32989432", "inquiry_no": "PIQ-20261108-000004", "inquiry_date": "2026-11-08", "buy
+  ✓ 按行定标（A 供物料 1 / B 供物料 2）200
+  ✓ 两家都比过价 → MULTI
+  ✓ 多供应商定标不写单一 award_supplier_id
+  ✓ 拆单转采购 200
+  ✓ 按供应商拆成 2 张采购单（实得 2）
+  ✓ 两张采购单分别挂 A / B
+  ✓ A 的采购单只有物料 1 一行
+  ✓ A 单价税合计 = 30×4×1.13 = 135.6（实得 135.6000）
+  ✓ B 单价税合计 = 60×6×1.13 = 406.8（实得 406.8000）
+
+=== ⑧ 分页与过滤 ===
+  ✓ 分页 total ≥ 4（实得 4）
+  ✓ 状态过滤只返回 CONVERTED
+  ✓ 关键字能按单号命中
+  ✓ 非法状态过滤 400（实得 400）
+
+关键单号：询价单 PIQ-20261108-000001（01a1b7fd-95c6-7477-8428-732088b0618e） 采购单 PO-20261108-000001
+
+断言：93 通过 / 0 失败
+E2E_EXIT=0

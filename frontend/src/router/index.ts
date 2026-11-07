@@ -549,6 +549,16 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '采购订单', permission: 'business:erp:purchase-order:list' },
       },
       {
+        // ==================== ERP 询比价（P2-01 · 采购寻源） ====================
+        // `sys_menu`（V0321 种子 …3321）path = `/business/erp/price-inquiry`，
+        // component `business/erp/price-inquiry/index`。**路由手工注册**（没有 views 自动扫描），
+        // 漏了 = 点菜单进 404（`system::menu::tests::n08` 真库档也会当场红）。
+        path: 'business/erp/price-inquiry',
+        name: 'BusinessErpPriceInquiry',
+        component: () => import('@/views/business/erp/price-inquiry/index.vue'),
+        meta: { title: '询比价', permission: 'business:erp:price-inquiry:list' },
+      },
+      {
         // ==================== ERP 合同管理（A5） ====================
         // `sys_menu`（V0197 …1100，V0241 改名前缀）path = `/business/erp/contract`、component
         // `business/erp/contract/index`，**根级页面**（与「采购管理」「基础数据」同级，

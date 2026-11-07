@@ -86,6 +86,9 @@
 //! | [`commission_rule_dto`] | 佣金规则契约（V0309 §②）：范围 / 计算方式 / 比率金额校验 + 部分更新三态合并 | **SO-36b** |
 //! | [`commission_rule_model`] | 佣金规则数据层（`biz_commission_rule` 17 列）：分页（含 `scope_name` 派生列）/ 建改软删 / 引用计数 | **SO-36b** |
 //! | [`commission_rule_handler`] | 佣金规则 4 个接口：分页 / 新建 / 编辑（停用）/ 软删（`SO-37` 前端依赖） | **SO-36b** |
+//! | [`price_inquiry_dto`] | 询比价契约（P2-01）：建单 / 报价 / 定标 / 转单入参 + 定标规则纯函数 + 比价表出参 | **P2-01** |
+//! | [`price_inquiry_model`] | 询比价数据层（V0321）：取号 `PIQ-yyyyMMdd-6` / 报价 upsert / 定标置位 / 转单锁单头 | **P2-01** |
+//! | [`price_inquiry_handler`] | 询比价 6 个接口：建单 / 分页 / 详情（比价表）/ 录报价 / 定标 / 转采购订单 | **P2-01** |
 //!
 //! # 表结构的唯一依据
 //!
@@ -193,6 +196,9 @@ pub mod price_admin_handler;
 pub mod price_admin_model;
 pub mod price_dto;
 pub mod price_handler;
+pub mod price_inquiry_dto;
+pub mod price_inquiry_handler;
+pub mod price_inquiry_model;
 pub mod price_model;
 pub mod purchase_bridge;
 pub mod purchase_credit;
