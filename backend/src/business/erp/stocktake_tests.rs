@@ -48,6 +48,8 @@ use super::stocktake_model::{
     self as model, STATUS_CANCELLED, STATUS_DRAFT, STATUS_PENDING_POST, STATUS_POSTED,
 };
 use crate::business::flow::engine;
+use crate::business::flow::linkage;
+use crate::business::flow::linkage::spec;
 use crate::shared::error_code;
 
 // ---------- 夹具常量 ----------
@@ -165,6 +167,10 @@ async fn purge_fixtures() {
             (SELECT id FROM biz_flow_instance WHERE biz_type = 'STOCK_TAKE_POST')"
             .to_string(),
         "DELETE FROM biz_flow_instance WHERE biz_type = 'STOCK_TAKE_POST'".to_string(),
+        // LNK-04 联动夹具：规则 / 通知（接收人随 notice 级联）/ 探针任务
+        "DELETE FROM biz_flow_linkage_rule WHERE name LIKE 'LNK04%'".to_string(),
+        "DELETE FROM sys_notice WHERE idempotency_key LIKE 'LNK:STOCK_TAKE:%'".to_string(),
+        "DELETE FROM biz_task WHERE title LIKE 'LNK04 %'".to_string(),
         "DELETE FROM biz_status_log WHERE entity_type = 'STOCK_TAKE'".to_string(),
         "DELETE FROM biz_stock_take WHERE take_no LIKE 'ST-%'".to_string(),
         "DELETE FROM biz_voucher WHERE source_type = 'STOCK_TAKE'".to_string(),
@@ -1125,6 +1131,370 @@ async fn withdraw_and_delete_terminate_running_approval() {
     .expect("草稿删除应成功");
     let missing = stock_take_detail(Path(take.header.id.clone())).await;
     assert!(missing.is_err(), "删掉的单详情必须 404");
+}
+
+// ==================== LNK-04：盘点单联动接线（真库） ====================
+//
+// 这一组用例回答的是「配一条规则，盘点过账 / 作废它真的执行，而且**不重复落账**」。
+// 纯逻辑守卫（`linkage::tests_wiring::stocktake_wires_*`）只能证明源码里有调用，
+// 证明不了：
+//
+// - 规则读得到 → 事务内动作落库 → commit 之后通知真的发出去（`sys_notice` 有行）；
+// - 盘盈盘亏只落一次账（成本账 = 实盘、流水净额 = 差异、凭证恰好一张）；
+// - 重复过账（第二次点「过账」）不会第二次触发联动；
+// - 排除清单里的 `WRITE_INVENTORY` / `GENERATE_VOUCHER` 确实没跑（反证：规则真的读到了）。
+//
+// 夹具规则名 `LNK04-*`、通知幂等键 `LNK:STOCK_TAKE:*`、探针任务标题 `LNK04 *`，
+// 由 `purge_fixtures()` 与每个用例开头/结尾各自清一遍（软删的规则仍占唯一索引坑位，
+// 只能硬删）。
+
+/// 本卡联动夹具的规则名前缀。
+const LNK04: &str = "LNK04";
+
+/// 插一条 `STOCK_TAKE/<status>` 上的规则（绕过 API 写库：与「管理员在配置页配好」等价）。
+async fn add_linkage_rule(status: &str, action: &str, params: &str) {
+    exec(&format!(
+        "INSERT INTO biz_flow_linkage_rule \
+            (id, name, trigger_entity, trigger_status, action_code, action_params, seq) \
+         VALUES (gen_random_uuid(), '{LNK04}-{status}-{action}', 'STOCK_TAKE', '{status}', \
+                 '{action}', '{params}'::jsonb, 10)"
+    ))
+    .await;
+}
+
+/// 数一行（失败即 panic）。
+async fn scalar_i64(sql: &str, params: Vec<Value>, label: &str) -> i64 {
+    db().scalar_with_params::<i64>(sql, params)
+        .await
+        .unwrap_or_else(|error| panic!("{label}：{error}"))
+}
+
+/// 按幂等键数通知条数。
+async fn notices_of_key(key: &str) -> i64 {
+    scalar_i64(
+        "SELECT count(*) FROM sys_notice WHERE idempotency_key = ?",
+        vec![Value::Text(key.to_string())],
+        "查联动通知",
+    )
+    .await
+}
+
+/// 某个盘点单名下的差异凭证条数（**应当是 1**：`post_tx` ⑤ 那一张）。
+async fn take_vouchers(take_id: &str) -> i64 {
+    scalar_i64(
+        "SELECT count(*) FROM biz_voucher \
+          WHERE source_type = 'STOCK_TAKE' AND source_id = ?::uuid AND deleted_at IS NULL",
+        vec![Value::from(&uid(take_id))],
+        "查盘点凭证",
+    )
+    .await
+}
+
+/// 本卡探针任务条数（`CREATE_TASK` 没有幂等键，多跑一次就多一行 —— 比通知更能证明
+/// 「引擎真的只跑了一次」）。
+async fn probe_tasks() -> i64 {
+    scalar_i64(
+        "SELECT count(*) FROM biz_task WHERE title = 'LNK04 盘点复核'",
+        vec![],
+        "查联动任务",
+    )
+    .await
+}
+
+/// ⑱ 过账触发联动：`STOCK_TAKE/POSTED` 上的 `SEND_NOTICE` 在 commit 之后真的发出来，
+/// 且三本账与实盘一致（盘点后库存 = 实盘数）。
+#[tokio::test]
+async fn lnk04_post_triggers_linkage_notice() {
+    let Some(_guard) = setup().await else { return };
+    // SEND_NOTICE 是 AfterCommit 动作：必须由 commit 之后的 run_deferred_after_commit 执行
+    add_linkage_rule(
+        STATUS_POSTED,
+        spec::ACTION_SEND_NOTICE,
+        r#"{"mode":"TAKEOVER","recipient":"CREATOR"}"#,
+    )
+    .await;
+
+    seed_stock(MATERIAL_A, "100", "8").await;
+    seed_stock(MATERIAL_B, "10", "5").await;
+    let take = make_full_take("LNK04 过账触发").await;
+    let take = set_actual(&take, MATERIAL_A, "92").await;
+    let _ = submit_and_approve_single(&take).await;
+    let posted = transition(&take.header.id, STATUS_POSTED, None).await;
+    assert_eq!(posted.header.status, STATUS_POSTED);
+
+    let key = format!("LNK:STOCK_TAKE:{STATUS_POSTED}:{}", take.header.id);
+    assert_eq!(
+        notices_of_key(&key).await,
+        1,
+        "STOCK_TAKE/POSTED 上配的 SEND_NOTICE 必须真的发出一条通知（幂等键 {key}）—— \
+         只改 spec.rs 的 wired 标记、handler 不调引擎时这里会是 0"
+    );
+    let rows = db()
+        .find_with_params(
+            "SELECT title, biz_type, biz_id, link_url, sender_name FROM sys_notice \
+              WHERE idempotency_key = ?",
+            vec![Value::Text(key.clone())],
+        )
+        .await
+        .expect("查通知行");
+    let notice = rows.first().expect("通知行");
+    assert_eq!(
+        notice.get_typed::<String>("title").expect("title"),
+        "盘点单已过账",
+        "标题来自触发点基稿（目标态中文名），不是配置凭空生成"
+    );
+    assert_eq!(
+        notice.get_typed::<String>("biz_type").expect("biz_type"),
+        "STOCK_TAKE"
+    );
+    assert_eq!(
+        notice.get_typed::<String>("biz_id").expect("biz_id"),
+        take.header.id
+    );
+    assert!(
+        notice
+            .get_typed::<String>("link_url")
+            .expect("link_url")
+            .contains(&take.header.id),
+        "通知必须链回盘点单详情"
+    );
+
+    // 三账一致：成本账 / 库位账 / 流水都按实盘数落过账，且只落一次
+    let (qty, amount) = cost_ledger(MATERIAL_A).await;
+    assert_eq!(qty, dec("92"), "盘点后库存 = 实盘 92（不是 84）");
+    assert_eq!(amount, dec("736"));
+    assert_eq!(location_ledger(MATERIAL_A).await, dec("92"));
+    assert_eq!(take_txn_total(MATERIAL_A).await, dec("-8"));
+    assert_eq!(
+        take_vouchers(&take.header.id).await,
+        1,
+        "一张盘点单恰好一张差异凭证（联动不许再生成一张）"
+    );
+}
+
+/// ⑲ 已过账作废触发联动：`STOCK_TAKE/CANCELLED` 的通知在 commit 之后发出来，
+/// 且三本账回滚到基线（库里不残留「作废了但账还在」）。
+#[tokio::test]
+async fn lnk04_cancel_after_post_triggers_linkage_notice() {
+    let Some(_guard) = setup().await else { return };
+    add_linkage_rule(
+        STATUS_CANCELLED,
+        spec::ACTION_SEND_NOTICE,
+        r#"{"mode":"TAKEOVER","recipient":"CREATOR"}"#,
+    )
+    .await;
+
+    seed_stock(MATERIAL_A, "100", "8").await;
+    seed_stock(MATERIAL_B, "10", "5").await;
+    let take = make_full_take("LNK04 作废触发").await;
+    let take = set_actual(&take, MATERIAL_A, "92").await;
+    let _ = submit_and_approve_single(&take).await;
+    let posted = transition(&take.header.id, STATUS_POSTED, None).await;
+    assert_eq!(take_vouchers(&take.header.id).await, 1);
+
+    let cancelled = transition(
+        &take.header.id,
+        STATUS_CANCELLED,
+        Some("LNK04 用例：实盘数填错，作废重盘"),
+    )
+    .await;
+    assert_eq!(cancelled.header.status, STATUS_CANCELLED);
+
+    let key = format!("LNK:STOCK_TAKE:{STATUS_CANCELLED}:{}", take.header.id);
+    assert_eq!(
+        notices_of_key(&key).await,
+        1,
+        "作废这条边必须触发联动（本卡接线前它永远不响）"
+    );
+    let rows = db()
+        .find_with_params(
+            "SELECT title FROM sys_notice WHERE idempotency_key = ?",
+            vec![Value::Text(key.clone())],
+        )
+        .await
+        .expect("查作废通知");
+    assert_eq!(
+        rows.first()
+            .expect("作废通知行")
+            .get_typed::<String>("title")
+            .expect("title"),
+        "盘点单已作废"
+    );
+
+    // 作废把三本账原路回滚（正向流水 + 冲销流水净额为 0）
+    let (qty, amount) = cost_ledger(MATERIAL_A).await;
+    assert_eq!((qty, amount), (dec("100"), dec("800")), "作废后库存回基线");
+    assert_eq!(location_ledger(MATERIAL_A).await, dec("100"));
+    assert_eq!(take_txn_total(MATERIAL_A).await, dec("0"));
+    assert!(posted.header.voucher_id.is_some(), "过账那张蓝字凭证还在");
+}
+
+/// ⑳ 未过账作废（草稿 → 已作废）也触发联动：三条来源态里最容易漏的一条
+/// （`cancel_tx` 在「账没动过」处提前 return，不接线就只有 POSTED 那条能响）。
+#[tokio::test]
+async fn lnk04_cancel_draft_triggers_linkage_notice() {
+    let Some(_guard) = setup().await else { return };
+    add_linkage_rule(
+        STATUS_CANCELLED,
+        spec::ACTION_SEND_NOTICE,
+        r#"{"mode":"TAKEOVER","recipient":"CREATOR"}"#,
+    )
+    .await;
+
+    seed_stock(MATERIAL_A, "100", "8").await;
+    seed_stock(MATERIAL_B, "10", "5").await;
+    let take = make_full_take("LNK04 草稿作废").await;
+
+    let cancelled = transition(
+        &take.header.id,
+        STATUS_CANCELLED,
+        Some("LNK04 用例：建错仓库，草稿作废"),
+    )
+    .await;
+    assert_eq!(cancelled.header.status, STATUS_CANCELLED);
+
+    assert_eq!(
+        notices_of_key(&format!(
+            "LNK:STOCK_TAKE:{STATUS_CANCELLED}:{}",
+            take.header.id
+        ))
+        .await,
+        1,
+        "草稿作废也要触发联动（cancel_tx 的提前 return 分支漏接就没这一条）"
+    );
+    // 账没动过：库位账与流水都不该有任何盘点痕迹
+    assert_eq!(take_txn_total(MATERIAL_A).await, dec("0"));
+    assert_eq!(take_vouchers(&take.header.id).await, 0);
+}
+
+/// ㉑ 重复过账不重复触发：第二次点「过账」被状态闸挡住（409），联动不会跑第二次。
+#[tokio::test]
+async fn lnk04_repeat_post_does_not_trigger_twice() {
+    let Some(_guard) = setup().await else { return };
+    // CREATE_TASK 没有幂等键兜底：重复触发一次就多一个任务行
+    add_linkage_rule(
+        STATUS_POSTED,
+        spec::ACTION_CREATE_TASK,
+        r#"{"title":"LNK04 盘点复核","assignee_strategy":"OPERATOR"}"#,
+    )
+    .await;
+
+    seed_stock(MATERIAL_A, "100", "8").await;
+    seed_stock(MATERIAL_B, "10", "5").await;
+    let take = make_full_take("LNK04 重复过账").await;
+    let take = set_actual(&take, MATERIAL_A, "92").await;
+    let _ = submit_and_approve_single(&take).await;
+    let _ = transition(&take.header.id, STATUS_POSTED, None).await;
+    assert_eq!(probe_tasks().await, 1, "正常触发一次：建 1 个任务");
+
+    // 第二次过账：状态已经是 POSTED，过账闸 409（账只动一次）
+    let err = transition_expect_err(&take.header.id, STATUS_POSTED, None).await;
+    assert_eq!(
+        err.status, 409,
+        "已过账的单再过账必须 409，实际：{}",
+        err.msg
+    );
+    assert_eq!(
+        probe_tasks().await,
+        1,
+        "被拦下的第二次过账不许再触发一次联动（任务数从 1 变 2 = 引擎被重复调用）"
+    );
+    // 库存也只落过一次
+    let (qty, _) = cost_ledger(MATERIAL_A).await;
+    assert_eq!(qty, dec("92"), "重复过账不许把库存再扣一次");
+}
+
+/// ㉒ 排除动作确实不跑：配了 `WRITE_INVENTORY` / `GENERATE_VOUCHER` 也不重复落账。
+///
+/// 反证分两层：
+///
+/// 1. **已实现动作**（`GENERATE_VOUCHER`，TAKEOVER 会真落库）→ 盘点单名下凭证仍然只有
+///    `post_tx` ⑤ 那一张；
+/// 2. **占位动作**（`WRITE_INVENTORY` 尚未接管）→ 排除清单生效时引擎**不产生任何
+///    `RuleRun`**；把排除清单去掉后同一份规则会被读到（`Skipped` 或关键动作 `Err`）
+///    —— 否则上面的「没重复写」只是「规则根本没读到」的假绿。
+#[tokio::test]
+async fn lnk04_excluded_inventory_actions_do_not_double_write() {
+    let Some(_guard) = setup().await else { return };
+    add_linkage_rule(
+        STATUS_POSTED,
+        "WRITE_INVENTORY",
+        r#"{"direction":"INCREASE","qty":"1000"}"#,
+    )
+    .await;
+    add_linkage_rule(
+        STATUS_POSTED,
+        spec::ACTION_GENERATE_VOUCHER,
+        r#"{"biz_type":"STOCK_TAKE","mode":"TAKEOVER"}"#,
+    )
+    .await;
+
+    seed_stock(MATERIAL_A, "100", "8").await;
+    seed_stock(MATERIAL_B, "10", "5").await;
+    let take = make_full_take("LNK04 排除动作").await;
+    let take = set_actual(&take, MATERIAL_A, "92").await;
+    let _ = submit_and_approve_single(&take).await;
+    let posted = transition(&take.header.id, STATUS_POSTED, None).await;
+    assert_eq!(
+        posted.header.status, STATUS_POSTED,
+        "排除清单生效时过账必须成功"
+    );
+
+    // ① 库存只按差异落一次：100 - 8 = 92（排除清单丢了会是 1092 / 84 之类）
+    let (qty, amount) = cost_ledger(MATERIAL_A).await;
+    assert_eq!(qty, dec("92"), "库存只能按实盘落一次");
+    assert_eq!(amount, dec("736"));
+    assert_eq!(location_ledger(MATERIAL_A).await, dec("92"));
+    assert_eq!(take_txn_total(MATERIAL_A).await, dec("-8"));
+    // ② 凭证只有 post_tx ⑤ 那一张（TAKEOVER 要是跑起来会多一张）
+    assert_eq!(
+        take_vouchers(&take.header.id).await,
+        1,
+        "差异凭证由 post_tx ⑤ 独占：联动不许再生成一张"
+    );
+
+    // ③ 反证：同一份规则，去掉排除清单后引擎真的会去读它
+    let row = model::find(db(), uid(&take.header.id))
+        .await
+        .expect("读盘点单")
+        .expect("盘点单存在");
+    let ctx = linkage::LinkageContext::new(
+        crate::business::shared::state_machine::ENTITY_STOCK_TAKE,
+        STATUS_POSTED,
+        row.id,
+        &row.take_no,
+        Some(uid(U_MAKER)),
+    )
+    .with_people(Some(uid(U_MAKER)), Some(uid(U_MAKER)), None);
+    let excluded = linkage::engine::run_excluding(db(), &ctx, spec::STOCKTAKE_EXCLUDED_ACTIONS)
+        .await
+        .expect("排除清单下引擎必须正常返回");
+    assert!(
+        excluded.runs.is_empty() && excluded.deferred.is_empty(),
+        "排除清单里的动作不许产生任何执行记录，实际：{:?}",
+        excluded
+            .runs
+            .iter()
+            .map(|item| (&item.action_code, item.outcome.label()))
+            .collect::<Vec<_>>()
+    );
+    match linkage::engine::run_excluding(db(), &ctx, &[]).await {
+        Ok(run) => assert!(
+            run.runs
+                .iter()
+                .any(|item| item.action_code == "WRITE_INVENTORY"),
+            "不传排除清单时规则必须被执行到，实际：{:?}",
+            run.runs
+                .iter()
+                .map(|item| (&item.action_code, item.outcome.label()))
+                .collect::<Vec<_>>()
+        ),
+        Err(error) => assert!(
+            error.msg.contains(spec::ACTION_GENERATE_VOUCHER) || error.msg.contains("凭证"),
+            "关键动作失败必须点名动作 / 原因，实际：{}",
+            error.msg
+        ),
+    }
 }
 
 /// ⑰ 收尾：把本模块夹具清干净（`zz_` 前缀 → 本文件里最后跑）。

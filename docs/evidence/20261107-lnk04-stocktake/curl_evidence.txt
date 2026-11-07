@@ -1,0 +1,49 @@
+## LNK-04 真机取证：盘点单（STOCK_TAKE）过账 / 作废 → 联动
+
+# 超管登录成功，token 长度 = 461
+# 夹具：仓 d1a40400-0000-4000-8000-000000000001 / 物料 d1a40400-0000-4000-8000-000000000011 / 单位 f891de64-b515-4f23-aeed-de7591c4dc48 / 账面 100 @ 8 = 800
+
+## ① GET /api/business/flow/linkage?trigger_entity=STOCK_TAKE —— 配置页显示 wired=true
+{
+ "entity": "STOCK_TAKE",
+ "wired": true,
+ "wiring": "已接线：erp/stocktake_handler.rs::post_tx 第 ⑥ 步（过账 PENDING_POST → POSTED）与 cancel_tx 第 ③ 步（作废 → CANCELLED）调 stocktake_linkage::run_in_tx → 通用引擎 run_excluding(spec::STOCKTAKE_EXCLUDED_ACTIONS)（成本账 / 库位账 / …"
+}
+
+## ② PUT /api/business/flow/linkage —— STOCK_TAKE/POSTED + /CANCELLED → SEND_NOTICE
+{"id": "01a1b48d-0d80-7211-9785-c87a672560b6", "trigger": "STOCK_TAKE/POSTED", "action": "SEND_NOTICE", "phase": "AFTER_COMMIT", "implemented": true, "problems": []}
+{"id": "01a1b48d-0d87-75d9-bb28-c144e8e9e952", "trigger": "STOCK_TAKE/CANCELLED", "action": "SEND_NOTICE", "phase": "AFTER_COMMIT", "implemented": true, "problems": []}
+
+# stock_take_post 流程 PUBLISHED → DRAFT（取证完毕恢复）
+# 盘点日期取未结账期间 2000-12 的首日 2000-12-01（期间闸只读已结账月份）
+
+## ④ POST /api/business/erp/stock-take + PUT 填实盘数 92（盘亏 8）
+# HTTP 200 单号 ST-20261107-000002 id=01a1b48d-3793-75f8-aee1-92f6201c78e3 明细 1 行
+# 明细：物料 d1a40400-0000-4000-8000-000000000011 账面 100.0000 实盘 100.0000
+# 实盘写入后：账面合计 100.0000 / 实盘合计 92.0000 / 差异 -8.0000
+
+## ⑤ PATCH /status PENDING_POST（skip_approval）→ PATCH /status POSTED
+# HTTP 200 状态 POSTED 凭证 PZ-20261107-000538
+{"total_gain_qty": "0.0000", "total_loss_qty": "8.0000", "total_loss_amount": "64.0000"}
+
+## ⑥ 库内物证（after 过账）
+- 成本账 qty|amount = 92.0000|736.0000（期望 92.0000|736.0000：只按差异落一次）
+- 库位账 qty = 92.0000（期望 92.0000）
+- 盘点流水净额 = -8.0000（期望 -8.0000）
+- 盘点差异凭证 = 1 张（期望 1：联动不许再生成一张）
+- 过账联动通知标题 = 「盘点单已过账」（期望「盘点单已过账」）
+
+## ⑦ PATCH /status CANCELLED（已过账作废：账回滚 + 红冲）
+# HTTP 200 状态 CANCELLED 红字凭证 PZR-20261107-000105
+
+## ⑧ 库内物证（after 作废）
+- 成本账 qty|amount = 100.0000|800.0000（期望 100.0000|800.0000：回到基线）
+- 库位账 qty = 100.0000（期望 100.0000）
+- 盘点流水净额 = 0.0000（期望 0.0000：正向 + 冲销）
+- 红字凭证 = 1 张（期望 1）
+- 作废联动通知标题 = 「盘点单已作废」（期望「盘点单已作废」）
+
+## ⑨ 结论
+过账 / 作废两条边都真的触发了联动通知；库存按实盘只落一次账（92 / 736），
+作废后原路回滚（100 / 800）；每张盘点单差异凭证恰好 1 张（联动排除清单生效）。
+ALL PASS

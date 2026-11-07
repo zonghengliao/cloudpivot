@@ -120,15 +120,17 @@ fn trigger_specs_cover_whitelist_in_order() {
             "STOCK_TRANSFER",
             "PURCHASE_ORDER",
             "PAYABLE",
+            "STOCK_TAKE",
             "TASK"
         ],
         "已接线的触发点：STOCK_IN（收货过账）、STOCK_OUT（出库过账，P1-FIX-5C 新接）、\
          STOCK_TRANSFER（库存调拨状态变更，LNK-01 新接）、\
          PURCHASE_ORDER（采购单状态变更 + 部分/全部收货，LNK-02 新接）、\
-         PAYABLE（应付单付款 / 部分付款 / 结清，LNK-03 新接）、TASK（任务状态变更）；\
+         PAYABLE（应付单付款 / 部分付款 / 结清，LNK-03 新接）、\
+         STOCK_TAKE（盘点单过账 / 作废，LNK-04 新接）、TASK（任务状态变更）；\
          接线状态变化时这份断言要跟着改，改之前先想清楚「真的有人调引擎了吗」"
     );
-    assert_eq!(spec::unwired_triggers().len(), 9, "其余 9 个仍未接线");
+    assert_eq!(spec::unwired_triggers().len(), 8, "其余 8 个仍未接线");
 }
 
 /// 每条声明都要自洽：已接线的必须有证据对，未接线的必须给出原因且不能有证据对。
@@ -202,9 +204,9 @@ fn wired_triggers_match_call_sites() {
     }
     assert_eq!(
         actual.len(),
-        7,
-        "当前真实调用点 7 个文件（收货过账 / 出库过账 handler + 出库联动 hook + 调拨联动 hook + \
-         采购联动 hook + 应付联动 hook + 任务状态通知）：{actual:?}"
+        8,
+        "当前真实调用点 8 个文件（收货过账 / 出库过账 handler + 出库联动 hook + 调拨联动 hook + \
+         采购联动 hook + 应付联动 hook + 盘点联动 hook + 任务状态通知）：{actual:?}"
     );
 }
 
@@ -494,6 +496,90 @@ fn payable_excluded_actions_are_routed_elsewhere() {
         assert!(
             !engine::is_routed_elsewhere(spec::PAYABLE_EXCLUDED_ACTIONS, code),
             "{code} 被误判成专用路由：应付单的通知 / 建任务会静默不执行"
+        );
+    }
+}
+
+/// 盘点单（`STOCK_TAKE`）的接线细节（LNK-04）：**过账与作废两条路都要调引擎**，
+/// 且必须排除会与 `post_tx` / `cancel_tx` 专用落账重复的动作。
+///
+/// 这条防的四种漂移：
+///
+/// 1. 只在 `spec.rs` 把 `wired` 改成 true、handler 里没调用（P1-FIX-5C 的原罪：
+///    规则能保存、能启用、永远不触发）；
+/// 2. 只接过账、漏掉作废 → `STOCK_TAKE/CANCELLED` 的规则永远不响（作废后要通知
+///    制单人 / 冲销待办这类需求全部失效）；
+/// 3. 排除清单丢了 → 通用引擎在过账时再写一次库存 / 流水 / 差异凭证
+///    （盘盈盘亏落两次账、「盘点后库存 = 实盘」直接失效）；
+/// 4. 排除清单把通知 / 建任务也排掉 → 联动配了等于没配（不报错、不落账）。
+#[test]
+fn stocktake_wires_generic_engine_and_excludes_inventory() {
+    let hook = include_str!("../../erp/stocktake_linkage.rs");
+    assert!(
+        hook.contains("linkage::engine::run_excluding("),
+        "盘点单状态变更必须调用通用引擎（run_excluding）：否则 STOCK_TAKE 的联动规则配了不触发"
+    );
+    assert!(
+        hook.contains("linkage::spec::STOCKTAKE_EXCLUDED_ACTIONS"),
+        "盘点单调通用引擎时必须传 spec::STOCKTAKE_EXCLUDED_ACTIONS（不许改成写死的空清单）"
+    );
+    assert!(
+        hook.contains("linkage::engine::run_deferred"),
+        "盘点单的提交后动作必须交给 run_deferred（commit 之后跑），否则通知 / 建任务永远不执行"
+    );
+    for code in [
+        "WRITE_INVENTORY",
+        "WRITE_INVENTORY_TXN",
+        spec::ACTION_GENERATE_VOUCHER,
+    ] {
+        assert!(
+            spec::STOCKTAKE_EXCLUDED_ACTIONS.contains(&code),
+            "盘点单的排除清单漏了 {code}：它在 post_tx ③⑤ / cancel_tx 回滚里有专用落账，\
+             通用引擎再跑一次就是重复落账"
+        );
+    }
+    for code in [spec::ACTION_SEND_NOTICE, spec::ACTION_CREATE_TASK] {
+        assert!(
+            !spec::STOCKTAKE_EXCLUDED_ACTIONS.contains(&code),
+            "{code} 不能被盘点单排除：通知 / 建任务就靠通用引擎的 AfterCommit 动作"
+        );
+    }
+
+    // 两条状态变更路（过账 post_tx + 作废 cancel_tx）都要在事务内调 hook，
+    // 且两个入口都要在 commit 之后 flush。
+    let handler = include_str!("../../erp/stocktake_handler.rs");
+    assert_eq!(
+        handler.matches("stocktake_linkage::run_in_tx(").count(),
+        2,
+        "盘点单过账（post_tx ⑥）与作废（cancel_tx ③）都必须真的调 \
+         stocktake_linkage::run_in_tx（只改 spec.rs 的 wired 标记不算接线）"
+    );
+    assert_eq!(
+        handler
+            .matches("stocktake_linkage::run_deferred_after_commit(")
+            .count(),
+        2,
+        "过账 / 作废两个入口都要在 commit 之后 flush（少一处，那条路径的通知永远不发）"
+    );
+}
+
+/// 盘点单的排除清单在**语义上**真的会把那三类动作拦下来（不是只有字符串写对）。
+///
+/// `engine::is_routed_elsewhere` 是引擎判定「这条规则交给专用路径」的唯一判据：
+/// 命中的规则**不产生 `RuleRun`**（`run_excluding` 里 `continue`）。
+#[test]
+fn stocktake_excluded_actions_are_routed_elsewhere() {
+    use crate::business::flow::linkage::engine;
+    for code in spec::STOCKTAKE_EXCLUDED_ACTIONS {
+        assert!(
+            engine::is_routed_elsewhere(spec::STOCKTAKE_EXCLUDED_ACTIONS, code),
+            "{code} 在排除清单里却没被判成「专用路由」：清单传下去也拦不住它"
+        );
+    }
+    for code in [spec::ACTION_SEND_NOTICE, spec::ACTION_CREATE_TASK] {
+        assert!(
+            !engine::is_routed_elsewhere(spec::STOCKTAKE_EXCLUDED_ACTIONS, code),
+            "{code} 被误判成专用路由：盘点单的通知 / 建任务会静默不执行"
         );
     }
 }

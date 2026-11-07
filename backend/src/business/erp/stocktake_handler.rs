@@ -42,6 +42,10 @@ use crate::shared::error_code;
 use crate::utils;
 
 use super::stocktake_bridge as bridge;
+// 联动 hook（LNK-04）。`#[path]` 写在本文件而不是挂到 `erp/mod.rs`：多 worker 并行时
+// `mod.rs` 是冲突热点（与 `payable_payment.rs` 的同一做法）。
+#[path = "stocktake_linkage.rs"]
+mod stocktake_linkage;
 use super::stocktake_dto::{
     CreateStockTakeReq, StockTakeDetailRes, StockTakeEnvelope, StockTakePageQuery,
     StockTakePageRes, StockTakeRes, StockTakeStatusReq, UpdateStockTakeReq,
@@ -740,10 +744,12 @@ pub async fn post_stock_take(
         .map_err(|error| utils::db_error(error, "开启过账事务"))?;
     let outcome = post_tx(&tx, id, &op, reason, now).await;
     match outcome {
-        Ok(()) => {
+        Ok(change) => {
             tx.commit()
                 .await
                 .map_err(|error| utils::db_error(error, "提交过账事务"))?;
+            // 提交后才跑通知 / 建任务（`Phase::AfterCommit`）：失败只记日志，不回滚已经落定的账
+            stocktake_linkage::run_deferred_after_commit(change).await;
             Ok(())
         }
         Err(error) => {
@@ -759,7 +765,7 @@ async fn post_tx(
     operator: &state_machine::Operator,
     reason: Option<&str>,
     now: nik::prelude::chrono::DateTime<Utc>,
-) -> std::result::Result<(), ApiError> {
+) -> std::result::Result<stocktake_linkage::StockTakeStatusChange, ApiError> {
     // ① 锁单头
     let header = model::lock(ex, id)
         .await
@@ -933,7 +939,19 @@ async fn post_tx(
         voucher = voucher_id.map(|v| v.to_string()).unwrap_or_default(),
         "盘点单过账完成：三本账已按差异动过，盘点差异凭证已生成"
     );
-    Ok(())
+
+    // ⑥ 跨单据联动（通用引擎，LNK-04）：触发点 = `STOCK_TAKE/POSTED`。
+    //
+    // ③ 已经把盘盈盘亏写进成本账 / 库位账 / 流水，⑤ 已经出了盘点差异凭证，
+    // 所以这里必须把 `WRITE_INVENTORY` / `WRITE_INVENTORY_TXN` / `GENERATE_VOUCHER`
+    // 交给专用路径（`spec::STOCKTAKE_EXCLUDED_ACTIONS`），否则同一笔差异落两次账。
+    // 其余事务内动作照跑；`deferred`（发通知 / 建任务）由 `post_stock_take` 在
+    // commit 之后交给 `run_deferred_after_commit`。
+    //
+    // 读规则失败 = 空规则集 = 行为与配置前逐字相同（`model::rules_for` fail-safe）；
+    // 关键动作失败 → `Err` → 调用方整笔回滚（与本函数其它步骤同一口径）。
+    let change = stocktake_linkage::run_in_tx(ex, &header, STATUS_POSTED, operator.id).await?;
+    Ok(change)
 }
 
 // ==================== 作废 ====================
@@ -953,10 +971,12 @@ pub async fn cancel_stock_take(
         .map_err(|error| utils::db_error(error, "开启作废事务"))?;
     let outcome = cancel_tx(&tx, id, reason, &op, now).await;
     match outcome {
-        Ok(()) => {
+        Ok(change) => {
             tx.commit()
                 .await
                 .map_err(|error| utils::db_error(error, "提交作废事务"))?;
+            // 提交后才跑通知 / 建任务：失败只记日志，不回滚已经回滚过的账
+            stocktake_linkage::run_deferred_after_commit(change).await;
             Ok(())
         }
         Err(error) => {
@@ -972,7 +992,7 @@ async fn cancel_tx(
     reason: &str,
     operator: &state_machine::Operator,
     now: nik::prelude::chrono::DateTime<Utc>,
-) -> std::result::Result<(), ApiError> {
+) -> std::result::Result<stocktake_linkage::StockTakeStatusChange, ApiError> {
     let header = model::lock(ex, id)
         .await
         .map_err(|error| utils::db_error(error, "锁定盘点单"))?
@@ -1020,6 +1040,16 @@ async fn cancel_tx(
             header.take_no, from_status
         )));
     }
+    // ③ 跨单据联动（通用引擎，LNK-04）：触发点 = `STOCK_TAKE/CANCELLED`。
+    //
+    // 三个来源态（DRAFT / PENDING_POST / POSTED）都走同一处：状态已经 CAS 落定，
+    // 规则读的是「作废」这件事，与账有没有动过无关。
+    // 盘点差异的库存回滚（下面 ④）与红冲凭证都在这个事务里由专用路径做，
+    // 所以 `WRITE_INVENTORY` / `WRITE_INVENTORY_TXN` / `GENERATE_VOUCHER` 必须排除
+    // （`spec::STOCKTAKE_EXCLUDED_ACTIONS`）；in-tx 其余动作都是占位动作，
+    // 放在回滚之前跑不会读到「还没回滚」的中间态。
+    let change = stocktake_linkage::run_in_tx(ex, &header, STATUS_CANCELLED, operator.id).await?;
+
     // 草稿 / 待过账：从未动过账，到此为止
     if from_status != STATUS_POSTED {
         tracing::info!(
@@ -1028,7 +1058,7 @@ async fn cancel_tx(
             from = %from_status,
             "盘点单作废（未过账，三本账未动）"
         );
-        return Ok(());
+        return Ok(change);
     }
 
     // 已过账 → 三本账原路回滚（数量与金额都按过账时写下的事实）
@@ -1066,7 +1096,7 @@ async fn cancel_tx(
         red_voucher = red.map(|v| v.to_string()).unwrap_or_default(),
         "盘点单作废：三本账已回滚，原凭证已红冲"
     );
-    Ok(())
+    Ok(change)
 }
 
 // ==================== 详情 / 分页 ====================
