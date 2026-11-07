@@ -300,7 +300,62 @@ def group_b():
           f"应付模块未付 {ap_unpaid} / 总账 2202 {ap_gl} / 差 {ap_unpaid - ap_gl}"
           + ("\n        （若刚做了付款但未生成凭证，差异合理；否则说明付款没记账）" if abs(ap_unpaid - ap_gl) > TOL else ""))
 
+    # B1b 逐桶：成本账 vs 库位账 —— **(物料, 仓库, 库位字典)** 粒度、按桶键 FULL JOIN
+    #
+    # 口径（FIX-7 统一，别再各写一套）：
+    #   · `biz_inventory` 是**桶表**（唯一键含 `location_id`），同一物料同仓天然多行；
+    #   · `biz_inventory_txn` **没有库位列**，方向列叫 `txn_type`(IN/OUT)、`qty` 恒正；
+    #   ⇒ 「库存 = 流水」只能按 (物料, 仓库) 聚合比（B4）；
+    #     逐桶只能比「成本账 vs 库位账」，且必须按桶键 FULL JOIN ——
+    #     直接 `i.qty <> il.qty`（LEFT JOIN 后比）会把「未分配桶」全判成差异（假红）。
+    bad1b = q("""
+        with cost as (
+            select i.material_id, i.warehouse_id,
+                   coalesce(il.location_id::text, '(未分配)') as bucket,
+                   sum(i.qty) as q
+            from biz_inventory i
+            left join biz_inventory_location il on il.id = i.location_id
+            group by 1, 2, 3
+        ), loc as (
+            select material_id, warehouse_id,
+                   coalesce(location_id::text, '(未分配)') as bucket,
+                   sum(qty) as q
+            from biz_inventory_location
+            group by 1, 2, 3
+        )
+        select coalesce(c.material_id,l.material_id)::text,
+               coalesce(c.warehouse_id,l.warehouse_id)::text,
+               coalesce(c.bucket,l.bucket),
+               coalesce(c.q,0)::text, coalesce(l.q,0)::text
+        from cost c full outer join loc l
+          on c.material_id = l.material_id and c.warehouse_id = l.warehouse_id
+         and c.bucket = l.bucket
+        where abs(coalesce(c.q,0) - coalesce(l.q,0)) > 0.0001
+    """)
+    check("B1b 逐桶 成本账 = 库位账（物料×仓库×库位）", "账账", "WARN", not bad1b,
+          f"{len(bad1b)} 个桶两账不符（合计可能仍相等：库位级错位）" if bad1b else "逐桶全部相符",
+          """with cost as (select i.material_id, i.warehouse_id,
+                                coalesce(il.location_id::text,'(未分配)') bucket, sum(i.qty) q
+                           from biz_inventory i
+                           left join biz_inventory_location il on il.id = i.location_id
+                          group by 1,2,3),
+                  loc as (select material_id, warehouse_id,
+                                 coalesce(location_id::text,'(未分配)') bucket, sum(qty) q
+                            from biz_inventory_location group by 1,2,3)
+             select m.material_code, w.warehouse_name, coalesce(c.bucket,l.bucket) as 桶,
+                    coalesce(c.q,0)::text as 成本账, coalesce(l.q,0)::text as 库位账
+             from cost c full outer join loc l on c.material_id=l.material_id
+              and c.warehouse_id=l.warehouse_id and c.bucket=l.bucket
+             left join biz_material m on m.id=coalesce(c.material_id,l.material_id)
+             left join biz_warehouse w on w.id=coalesce(c.warehouse_id,l.warehouse_id)
+             where abs(coalesce(c.q,0)-coalesce(l.q,0)) > 0.0001""")
+
     # B4 流水累计 = 当前库存（按方向加减）
+    #
+    # ⚠ 口径铁律（FIX-7）：`biz_inventory_txn` **没有库位列**，所以这条只能按
+    #   **(物料, 仓库)** 聚合比 —— 流水一侧按物料+仓 GROUP BY 一次即可，不能 JOIN 到
+    #   每个库存桶上（那会把整仓流水乘上桶数，得到满屏假差异）。逐桶看 B1b。
+    #   方向列是 `txn_type`（IN/OUT），不是 `direction`；`qty` 恒正。
     bad4 = q("""
         with txn as (
             select material_id, warehouse_id,

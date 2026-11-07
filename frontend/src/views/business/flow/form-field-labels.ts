@@ -148,6 +148,8 @@ export const FORM_ENUM_LABELS: Record<string, Record<string, string>> = {
     PRODUCE: '生产入库',
     RETURN: '退货入库',
     OTHER: '其他入库',
+    // FIX-7：无源入库（is_sourceless=true，有供应商但没走采购单）
+    SOURCELESS: '无源入库',
   },
   status: {
     DRAFT: '草稿',

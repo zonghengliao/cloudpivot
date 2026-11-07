@@ -85,13 +85,15 @@ pub async fn create(
     let in_no = next_in_no(ex, now).await?;
     let id = Uuid::now_v7();
     let operator_text = Value::Text(operator.id.map(|v| v.to_string()).unwrap_or_default());
+    // `in_type` 由「是否无源」唯一决定（FIX-7）：无源落 SOURCELESS，有采购单落 PURCHASE。
+    // 之前这里把 `PURCHASE` 直接拼进 SQL，无源单（is_sourceless=true）跟着一起冒充采购入库。
     ex.exec_sql(
         format!(
             "INSERT INTO {TABLE} \
                 (id, in_no, in_type, source_order_id, supplier_id, is_sourceless, warehouse_id, in_date, status, \
                  total_qty, total_amount, total_tax, total_with_tax, invoice_received, remark, \
                  created_at, updated_at, create_by, update_by) \
-             VALUES (?, ?, '{IN_TYPE_PURCHASE}', NULLIF(?::text,'')::uuid, ?::uuid, ?, ?::uuid, \
+             VALUES (?, ?, ?, NULLIF(?::text,'')::uuid, ?::uuid, ?, ?::uuid, \
                  NULLIF(?::text,'')::date, '{STATUS_DRAFT}', \
                  NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
                  NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, ?, NULLIF(?::text,''), \
@@ -100,6 +102,7 @@ pub async fn create(
         vec![
             Value::from(&id),
             Value::Text(in_no.clone()),
+            Value::from(in_type_of(new.is_sourceless)),
             Value::Text(
                 new.source_order_id
                     .map(|v| v.to_string())
@@ -154,7 +157,7 @@ pub async fn update(
         .exec_sql(
             format!(
                 "UPDATE {TABLE} \
-                    SET source_order_id = NULLIF(?::text,'')::uuid, supplier_id = ?::uuid, \
+                    SET in_type = ?, source_order_id = NULLIF(?::text,'')::uuid, supplier_id = ?::uuid, \
                         is_sourceless = ?, \
                         warehouse_id = ?::uuid, in_date = NULLIF(?::text,'')::date, \
                         total_qty = NULLIF(?::text,'')::numeric, \
@@ -166,6 +169,8 @@ pub async fn update(
                   WHERE id = ?::uuid AND status = '{STATUS_DRAFT}' AND deleted_at IS NULL"
             ),
             vec![
+                // 草稿改单允许在「有源 / 无源」之间切换，`in_type` 跟着来源一起刷新（FIX-7）
+                Value::from(in_type_of(new.is_sourceless)),
                 Value::Text(
                     new.source_order_id
                         .map(|v| v.to_string())

@@ -25,6 +25,12 @@
 
 ### 关键口径（与卡面不同的地方，都以实测为准）
 
+> **口径已收口到单独文档**：[`docs/ERP-库存对账口径.md`](../../ERP-库存对账口径.md)（FIX-7）。
+> 本目录 `09_reconcile.sql` / `13_final_reconcile.sql` 里的对账 SQL **就是正确口径**
+> （按 (物料, 仓库) 聚合比库存 vs 流水；逐桶按桶键 FULL JOIN 比成本账 vs 库位账），
+> 卡面 ⑦ 那段「直接在 `biz_inventory` 上 GROUP BY 再 JOIN 流水」的写法**不可用**——
+> 同一物料同仓两个桶会被整仓流水各乘一遍，得到满屏假差异。下面 1–3 条是当初的定位依据。
+
 1. **`biz_inventory` 是「桶」表**：主键唯一键是 `(material_id, warehouse_id, COALESCE(location_id))`。
    期初落「未分配桶」（`location_id IS NULL`）、收货落「默认库位桶」（`location_id = 库位库存行 id`），
    所以同一物料同一仓**天然会有两行**。卡面 ⑦ 的 SQL 直接在 `biz_inventory` 上
@@ -145,10 +151,10 @@
 | # | 问题 | 严重度 | 复现步骤 | 建议 |
 |---|---|---|---|---|
 | 1 | **调拨结算分库位库存永久漂移（已修）**：同仓同时存在「整仓汇总桶」与「具体库位桶」时，明细带 `from_location_id` → 成本账按「汇总桶优先」扣汇总桶、库位账按明细库位扣具体库位桶。两本账**合计**仍相等（`assert_settle_invariants` 第 4 条看不出来），分库位数量永久错位。实测：调拨 40 件后库位桶 成本 50 / 库位账 10，汇总桶 成本 42 / 库位账 82 | **P1** | ①期初 100（落汇总桶）→ ②收货 50（落默认库位桶）→ ③调拨 40 且明细指该库位桶 → ④按 `(物料,仓,库位字典)` 对账 | **本卡已修**：`resolve_inventory_row` 一并返回库存桶的 `location_id`，调出/调入两侧的 `apply_location_qty` 与序列号落点都用「成本账实际动的那个桶」（commit `ce548eb`，含真库回归用例 `p003_settle_deducts_the_same_bucket_in_both_books`） |
-| 2 | 库存是「桶」表、流水无库位列 → 卡面 ⑦ 的 SQL 口径不成立（同一物料同仓两行会被流水重复放大）。方向列名是 `txn_type` 不是 `direction`，盘点差异 `biz_type` 是 `STOCK_TAKE_GAIN/LOSS` 不是 `ADJUST` | P3（口径） | 直接跑卡面 SQL 会得到假差异 | 巡检/对账 SQL 统一按 (物料, 仓库) 聚合比较库存与流水；逐桶只比「库位账 vs 成本账」 |
+| 2 | 库存是「桶」表、流水无库位列 → 卡面 ⑦ 的 SQL 口径不成立（同一物料同仓两行会被流水重复放大）。方向列名是 `txn_type` 不是 `direction`，盘点差异 `biz_type` 是 `STOCK_TAKE_GAIN/LOSS` 不是 `ADJUST` | P3（口径） | 直接跑卡面 SQL 会得到假差异 | **已修（FIX-7）**：口径收口到 `docs/ERP-库存对账口径.md`，巡检固化为 `scripts/verify/erp_invariants.py` 的 B1 / **B1b（逐桶）** / B4；本目录 09/13 的 SQL 即正确口径 |
 | 3 | 期初落「未分配桶」、收货落「默认库位桶」—— 同仓两桶并存是**常态**，正是 #1 的触发条件；且现有汇总不变式（合计相等）对这种错位无感 | P2（设计） | 见 #1 | ①期初也落「默认库位桶」（与收货一致）；或②在 `assert_settle_invariants` / 巡检里加**逐桶**断言（本卡只在演练脚本里补，未改生产断言，避免引入新的结算失败点） |
 | 4 | 调拨明细指定了具体库位，但「汇总桶优先」策略会静默改扣汇总桶：不报错、不提示，审批人看到的是库位级意图、账上动的是汇总桶 | P3 | 同 #1 场景，观察 `biz_inventory.location_id` 未变而汇总桶减少 | 要么改为「按库位精确匹配、无该桶才回退汇总桶」，要么在调拨详情/审批表单里显式标注「本次按汇总桶记账」 |
-| 5 | 无源入库单（`is_sourceless=true`）的 `in_type` 仍是 `PURCHASE` | P4 | `POST /business/erp/stock-in` 无 `source_order_id` → 详情 `in_type=PURCHASE` | 无源场景建议用 `OTHER`/`OPENING`，便于报表区分 |
+| 5 | 无源入库单（`is_sourceless=true`）的 `in_type` 仍是 `PURCHASE` | P4 | `POST /business/erp/stock-in` 无 `source_order_id` → 详情 `in_type=PURCHASE` | **已修（FIX-7）**：新增 `in_type='SOURCELESS'`（无采购单、有供应商），代码走 `stockin_base::in_type_of` + V0330 迁移把存量无源单一起迁过来 |
 | 6 | 盘点审批通过只到 `PENDING_POST`，还要人工再点一次「过账」；卡面写的 `/stock-take/{id}/confirm` 不存在 | P4（文档） | `PATCH /stock-take/{id}/status {"status":"POSTED"}` | 前端/文档统一到真实路径；若希望审批通过即过账，需要流程回调里做过账（当前设计是两步，属安全考虑） |
 | 7 | 单号取号器是全局单行，演练期间被并行卡/单测推进（本次调拨单号跳到 `TK-20261107-000093`） | P4 | 观察 `biz_stock_transfer.transfer_no` 跳号 | 无功能影响；若要求单号连续，需要按业务类型独立号段 |
 

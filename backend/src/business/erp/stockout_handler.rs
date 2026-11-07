@@ -574,7 +574,10 @@ async fn post_out_tx(
         .await
         .map_err(|error| utils::db_error(error, "查询仓库负库存策略"))?
         .ok_or_else(|| reference_missing("出库单的仓库不存在或已删除"))?;
-    let biz_type = biz_type_of(&header.out_type);
+    // 流水业务类型：`out_type` 与 `source_type` **一起**看（FIX-7）——
+    // 销售出库单的 out_type 固定 OTHER，只按 out_type 会把它记成 OTHER_OUT，
+    // 「按 biz_type 统计销售出库」就全漏了。见 `stockout_base::biz_type_of_doc`。
+    let biz_type = biz_type_of_doc(&header.out_type, header.source_type.as_deref());
     let mut total_amount = Decimal::ZERO;
     // 按物料聚合的存货行（P2-1b §4.2）：每行的金额是**账上真实扣减额** `applied.amount`，
     // 循环结束后用 `VoucherMaterialLine::normalize` 合并同物料多行（金额、数量相加）。

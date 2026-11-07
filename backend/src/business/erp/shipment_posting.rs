@@ -888,6 +888,18 @@ mod tests {
         })
     }
 
+    /// 出库流水的业务类型（FIX-7：销售出库必须是 `SALE_OUT`，不许是 `OTHER_OUT`）。
+    async fn stock_out_txn_biz_type(ship_id: Uuid) -> Option<String> {
+        text_of(
+            "SELECT t.biz_type FROM biz_inventory_txn t \
+               JOIN biz_stock_out s ON s.id = t.doc_id \
+              WHERE s.source_id = ?::uuid AND t.doc_type = 'STOCK_OUT' AND t.txn_type = 'OUT' \
+              LIMIT 1",
+            vec![Value::from(ship_id)],
+        )
+        .await
+    }
+
     /// **正常发货**：全量发货 → 三本账负向 + 成本结转凭证 + delivered_qty + 订单 OUTBOUND。
     #[tokio::test]
     async fn normal_post_deducts_three_books_and_closes_order() {
@@ -930,6 +942,13 @@ mod tests {
             "库位账应 20 − 10 = 10"
         );
         assert_eq!(txn_net(MAT_A).await, dec("-10"), "流水净额应为 −10");
+        // FIX-7：销售出库流水的 biz_type 必须是 SALE_OUT（记成 OTHER_OUT 的话
+        // 「按 biz_type 统计销售出库」一条都数不到，与手工其他出库混在一起）
+        assert_eq!(
+            stock_out_txn_biz_type(ship_id).await.as_deref(),
+            Some("SALE_OUT"),
+            "销售出库流水必须记 SALE_OUT（source_type='SALES' ⇒ 不看 out_type 的 OTHER）"
+        );
 
         // 订单行已发 + 订单状态
         let delivered = text_of(

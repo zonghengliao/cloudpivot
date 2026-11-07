@@ -25,6 +25,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::voucher;
+use crate::business::shared::doc_kind::{DocSubtype, TxnBizType, TxnDocType};
 use crate::business::shared::scope;
 use crate::business::shared::state_machine;
 
@@ -46,15 +47,15 @@ pub const STATUS_POSTED: &str = "POSTED";
 pub const STATUS_CANCELLED: &str = "CANCELLED";
 
 /// 出库类型：领用（借 6401 主营业务成本）。
-pub const OUT_TYPE_ISSUE: &str = "ISSUE";
+pub const OUT_TYPE_ISSUE: &str = DocSubtype::Issue.as_str();
 /// 出库类型：报废（借 1901 待处理财产损溢）。
-pub const OUT_TYPE_SCRAP: &str = "SCRAP";
+pub const OUT_TYPE_SCRAP: &str = DocSubtype::Scrap.as_str();
 /// 出库类型：盘亏（借 1901 待处理财产损溢）。
-pub const OUT_TYPE_LOSS: &str = "LOSS";
+pub const OUT_TYPE_LOSS: &str = DocSubtype::Loss.as_str();
 /// 出库类型：其他（借 6401，口径同领用）。
-pub const OUT_TYPE_OTHER: &str = "OTHER";
+pub const OUT_TYPE_OTHER: &str = DocSubtype::OtherOut.as_str();
 
-/// 四种出库类型（唯一真相，DTO 校验与巡检共用）。
+/// 四种出库类型（唯一真相，DTO 校验与巡检共用；取值来自 [`DocSubtype`]）。
 pub const OUT_TYPES: [&str; 4] = [
     OUT_TYPE_ISSUE,
     OUT_TYPE_SCRAP,
@@ -68,10 +69,13 @@ pub const TXN_TYPE_OUT: &str = "OUT";
 pub const TXN_TYPE_IN: &str = "IN";
 
 /// 流水来源单据类型（`biz_inventory_txn.doc_type`）。
-pub const DOC_TYPE_STOCK_OUT: &str = "STOCK_OUT";
+pub const DOC_TYPE_STOCK_OUT: &str = TxnDocType::StockOut.as_str();
 
-/// 出库流水的业务类型（`biz_inventory_txn.biz_type`，四种出库各一个值）。
-pub const BIZ_TYPE_ISSUE: &str = "ISSUE_OUT";
+/// 出库流水的业务类型（`biz_inventory_txn.biz_type`）。
+///
+/// **取值一律来自 [`TxnBizType`]（词表唯一真相）**，这里只是给 erp 侧一个好念的别名：
+/// 手写字符串会和 `doc_kind.rs` / 前端 `doc-kinds.ts` 的词表悄悄漂开（FIX-7 起因）。
+pub const BIZ_TYPE_ISSUE: &str = TxnBizType::IssueOut.as_str();
 
 /// 单据来源类型：销售发货（`source_type`，V0285）。
 ///
@@ -81,13 +85,28 @@ pub const BIZ_TYPE_ISSUE: &str = "ISSUE_OUT";
 pub const SOURCE_TYPE_SALES: &str = "SALES";
 
 /// 报废流水的业务类型。
-pub const BIZ_TYPE_SCRAP: &str = "SCRAP_OUT";
+pub const BIZ_TYPE_SCRAP: &str = TxnBizType::ScrapOut.as_str();
 /// 盘亏流水的业务类型。
-pub const BIZ_TYPE_LOSS: &str = "LOSS_OUT";
+pub const BIZ_TYPE_LOSS: &str = TxnBizType::LossOut.as_str();
 /// 其他出库流水的业务类型。
-pub const BIZ_TYPE_OTHER: &str = "OTHER_OUT";
+pub const BIZ_TYPE_OTHER: &str = TxnBizType::OtherOut.as_str();
+/// 销售出库流水的业务类型（`source_type='SALES'` 的出库单**专属**，FIX-7）。
+///
+/// 与 [`BIZ_TYPE_OTHER`] 的分工：销售出库的 `out_type` 也是 `OTHER`（四值里没有「销售」），
+/// 单看 `out_type` 会把它记成 `OTHER_OUT` —— 按 `biz_type` 统计销售出库就全漏了。
+/// 判据只能是**来源列** `source_type='SALES'`，取值走词表 [`TxnBizType::SaleOut`]（`SALE_OUT`）。
+pub const BIZ_TYPE_SALE_OUT: &str = TxnBizType::SaleOut.as_str();
 /// 作废冲销流水的业务类型（方向 IN）。
-pub const BIZ_TYPE_STOCK_OUT_CANCEL: &str = "STOCK_OUT_CANCEL";
+pub const BIZ_TYPE_STOCK_OUT_CANCEL: &str = TxnBizType::StockOutCancel.as_str();
+
+/// 出库方向流水可能出现的全部业务类型（供 `txn_report` 之类的 IN 列表使用）。
+pub const OUT_TXN_BIZ_TYPES: [&str; 5] = [
+    BIZ_TYPE_ISSUE,
+    BIZ_TYPE_SCRAP,
+    BIZ_TYPE_LOSS,
+    BIZ_TYPE_OTHER,
+    BIZ_TYPE_SALE_OUT,
+];
 
 /// 单号前缀 / 取号类型（`OUT-yyyyMMdd-000001`）。
 pub const NO_PREFIX: &str = "OUT";
@@ -157,13 +176,32 @@ pub fn debit_account_of(out_type: &str) -> (&'static str, &'static str) {
     }
 }
 
-/// `out_type` → 流水业务类型。
+/// `out_type` → 流水业务类型（**手工出库单**的四种类型各一个值）。
+///
+/// 销售出库单的 `out_type` 也是 `OTHER`，所以这个函数**不能**独立决定出库流水的
+/// `biz_type`——过账请用 [`biz_type_of_doc`]，它会把来源列一起看。
 pub fn biz_type_of(out_type: &str) -> &'static str {
     match out_type {
         OUT_TYPE_SCRAP => BIZ_TYPE_SCRAP,
         OUT_TYPE_LOSS => BIZ_TYPE_LOSS,
         OUT_TYPE_OTHER => BIZ_TYPE_OTHER,
         _ => BIZ_TYPE_ISSUE,
+    }
+}
+
+/// （`out_type`, `source_type`）→ 流水业务类型 —— **出库过账唯一取 biz_type 的入口**。
+///
+/// FIX-7：`source_type='SALES'`（发货单过账自动生成）的出库流必须是 `SALE_OUT`，
+/// 不能落到 `OTHER_OUT`。原因见 [`BIZ_TYPE_SALE_OUT`]：销售出库的 `out_type` 固定 `OTHER`，
+/// 单看 `out_type` 会把「销售出库」和手工「其他出库」记成同一个业务动作，
+/// 按 `biz_type` 统计销售出库直接归零（报表 / 巡检 / 追溯都给假答案）。
+///
+/// 取值全部来自词表 [`TxnBizType`]（`doc_kind.rs` 唯一真相），没有裸字面量。
+pub fn biz_type_of_doc(out_type: &str, source_type: Option<&str>) -> &'static str {
+    if source_type == Some(SOURCE_TYPE_SALES) {
+        BIZ_TYPE_SALE_OUT
+    } else {
+        biz_type_of(out_type)
     }
 }
 
@@ -417,4 +455,57 @@ pub struct StockOutFilter {
     pub page: u64,
     /// 每页条数。
     pub page_size: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 出库流水的 biz_type / out_type / doc_type 必须逐字等于词表（`doc_kind.rs`）：
+    /// 手写字符串一旦与词表漂开，前端 `doc-kinds.ts` 的镜像单测与库里存量值三方打架。
+    #[test]
+    fn stock_out_vocabulary_matches_doc_kind() {
+        assert_eq!(BIZ_TYPE_ISSUE, TxnBizType::IssueOut.as_str());
+        assert_eq!(BIZ_TYPE_SCRAP, TxnBizType::ScrapOut.as_str());
+        assert_eq!(BIZ_TYPE_LOSS, TxnBizType::LossOut.as_str());
+        assert_eq!(BIZ_TYPE_OTHER, TxnBizType::OtherOut.as_str());
+        assert_eq!(BIZ_TYPE_SALE_OUT, TxnBizType::SaleOut.as_str());
+        assert_eq!(
+            BIZ_TYPE_STOCK_OUT_CANCEL,
+            TxnBizType::StockOutCancel.as_str()
+        );
+        assert_eq!(DOC_TYPE_STOCK_OUT, TxnDocType::StockOut.as_str());
+        assert_eq!(OUT_TYPES, DocSubtype::OUT_TYPES.map(DocSubtype::as_str));
+        // 五个出库 biz_type 互不相同（否则报表按 biz_type 分组会把两种业务合并）
+        let mut seen = std::collections::BTreeSet::new();
+        for value in OUT_TXN_BIZ_TYPES {
+            assert!(seen.insert(value), "{value} 在 OUT_TXN_BIZ_TYPES 里重复");
+        }
+        assert_eq!(OUT_TXN_BIZ_TYPES.len(), 5);
+    }
+
+    /// FIX-7 的靶心：销售出库（`source_type='SALES'`）的 `out_type` 是 `OTHER`，
+    /// 但流水必须记 `SALE_OUT` —— 记成 `OTHER_OUT` 就等于「销售出库」从统计里消失。
+    #[test]
+    fn sales_stock_out_is_sale_out_not_other_out() {
+        assert_eq!(
+            biz_type_of_doc(OUT_TYPE_OTHER, Some(SOURCE_TYPE_SALES)),
+            "SALE_OUT"
+        );
+        // 同一 out_type + 没有来源 = 真的手工其他出库，仍记 OTHER_OUT
+        assert_eq!(biz_type_of_doc(OUT_TYPE_OTHER, None), "OTHER_OUT");
+        // 来源列只认 SALES：别的来源类型不改变 out_type 的口径
+        assert_eq!(biz_type_of_doc(OUT_TYPE_OTHER, Some("MANUAL")), "OTHER_OUT");
+    }
+
+    /// 手工出库单的四种类型仍各记各的（改动不许波及非销售路径）。
+    #[test]
+    fn manual_out_types_keep_their_own_biz_type() {
+        assert_eq!(biz_type_of_doc(OUT_TYPE_ISSUE, None), "ISSUE_OUT");
+        assert_eq!(biz_type_of_doc(OUT_TYPE_SCRAP, None), "SCRAP_OUT");
+        assert_eq!(biz_type_of_doc(OUT_TYPE_LOSS, None), "LOSS_OUT");
+        assert_eq!(biz_type_of_doc(OUT_TYPE_OTHER, None), "OTHER_OUT");
+        // 未登记的类型按领用兜底（历史行为，保持不变）
+        assert_eq!(biz_type_of("WHATEVER"), BIZ_TYPE_ISSUE);
+    }
 }

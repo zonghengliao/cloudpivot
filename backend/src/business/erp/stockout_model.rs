@@ -1107,23 +1107,26 @@ pub async fn txn_report(
     doc_id: Uuid,
 ) -> DbResult<Vec<(i32, Decimal, Decimal, i64)>> {
     // SCOPE-EXEMPT: 库存流水是仓储台账，无归属列。
+    // biz_type 列表直接取自 `stockout_base::OUT_TXN_BIZ_TYPES`（含销售出库的 SALE_OUT）：
+    // 漏一个值 = 作废前完整性闸看不见那条流水（FIX-7），所以不在这里再抄一遍清单。
+    let biz_types = super::stockout_base::OUT_TXN_BIZ_TYPES;
+    let marks = vec!["?"; biz_types.len()].join(", ");
+    let mut params = vec![
+        Value::from(DOC_TYPE_STOCK_OUT),
+        Value::from(&doc_id),
+        Value::from(TXN_TYPE_OUT),
+    ];
+    params.extend(biz_types.iter().map(|value| Value::from(*value)));
     let rows = ex
         .query_sql(
-            "SELECT line_no, sum(qty) AS txn_qty, sum(amount) AS txn_amount, count(*) AS cnt \
-               FROM biz_inventory_txn \
-              WHERE doc_type = ? AND doc_id = ?::uuid AND txn_type = ? \
-                AND biz_type IN (?, ?, ?, ?) \
-              GROUP BY line_no ORDER BY line_no"
-                .to_string(),
-            vec![
-                Value::from(DOC_TYPE_STOCK_OUT),
-                Value::from(&doc_id),
-                Value::from(TXN_TYPE_OUT),
-                Value::from(BIZ_TYPE_ISSUE),
-                Value::from(BIZ_TYPE_SCRAP),
-                Value::from(BIZ_TYPE_LOSS),
-                Value::from(BIZ_TYPE_OTHER),
-            ],
+            format!(
+                "SELECT line_no, sum(qty) AS txn_qty, sum(amount) AS txn_amount, count(*) AS cnt \
+                   FROM biz_inventory_txn \
+                  WHERE doc_type = ? AND doc_id = ?::uuid AND txn_type = ? \
+                    AND biz_type IN ({marks}) \
+                  GROUP BY line_no ORDER BY line_no"
+            ),
+            params,
         )
         .await?;
     let mut out = Vec::with_capacity(rows.len());

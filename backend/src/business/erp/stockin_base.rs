@@ -13,6 +13,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::serial_model;
+use crate::business::shared::doc_kind::DocSubtype;
 use crate::business::shared::scope;
 use crate::business::shared::state_machine;
 
@@ -30,8 +31,37 @@ pub const TABLE: &str = "biz_stock_in";
 /// 明细表（无 `deleted_at`，主单软删后明细留在库里）。
 pub const ITEM_TABLE: &str = "biz_stock_in_item";
 
-/// 入库类型：采购入库（本卡唯一产生的类型）。
-pub const IN_TYPE_PURCHASE: &str = "PURCHASE";
+/// 入库类型：采购入库（有源单：`source_order_id` 必填，供应商由采购单带出）。
+pub const IN_TYPE_PURCHASE: &str = DocSubtype::Purchase.as_str();
+/// 入库类型：退货入库（销售退货回库，同一张 `biz_stock_in` 表）。
+pub const IN_TYPE_RETURN: &str = DocSubtype::Return.as_str();
+/// 入库类型：其他入库（没有采购单、也没有供应商，杂项入库）。
+pub const IN_TYPE_OTHER: &str = DocSubtype::OtherIn.as_str();
+/// 入库类型：**无源入库**（没有采购单、但有供应商，`is_sourceless = true`）。
+///
+/// FIX-7 之前无源单沿用 `PURCHASE` —— 等于自称「有采购单」，与 `is_sourceless=true`
+/// 自相矛盾，按 `in_type` 统计时也把「没走采购的入库」混进了采购口径。
+pub const IN_TYPE_SOURCELESS: &str = DocSubtype::Sourceless.as_str();
+
+/// 全部入库类型（唯一真相是 [`DocSubtype::IN_TYPES`]，这里只是给 erp 侧的好念别名）。
+pub const IN_TYPES: [&str; 4] = [
+    IN_TYPE_PURCHASE,
+    IN_TYPE_RETURN,
+    IN_TYPE_OTHER,
+    IN_TYPE_SOURCELESS,
+];
+
+/// 「无源标记 → 落库的 `in_type`」的**唯一入口**（建单 / 改单都走它）。
+///
+/// 无源（`is_sourceless = true`，期初 / 复制 / 其他补录）落 [`IN_TYPE_SOURCELESS`]；
+/// 其余（有采购单的入库）落 [`IN_TYPE_PURCHASE`]。
+pub fn in_type_of(is_sourceless: bool) -> &'static str {
+    if is_sourceless {
+        IN_TYPE_SOURCELESS
+    } else {
+        IN_TYPE_PURCHASE
+    }
+}
 
 /// 状态：草稿。
 pub const STATUS_DRAFT: &str = "DRAFT";
@@ -89,8 +119,9 @@ pub const DOC_TYPE_STOCK_IN: &str = "STOCK_IN";
 pub fn serial_source_of_in_type(in_type: &str) -> Option<&'static str> {
     use crate::business::shared::doc_kind::SerialSourceType;
     match in_type {
-        "PURCHASE" => Some(SerialSourceType::Purchase.as_str()),
-        "RETURN" => Some(SerialSourceType::Return.as_str()),
+        IN_TYPE_PURCHASE => Some(SerialSourceType::Purchase.as_str()),
+        IN_TYPE_RETURN => Some(SerialSourceType::Return.as_str()),
+        // 其他入库 / 无源入库都不在序列号来源的 4 类域内 ⇒ 来源不记（FIX-7 起含 SOURCELESS）
         _ => None,
     }
 }
@@ -630,3 +661,43 @@ pub const LIST_ORDER: &str = "ORDER BY in_date DESC, in_no DESC";
 
 /// `biz_stock_in` 的分页锚点（13 张 ERP 表都不参与数据权限）。
 pub const LIST_TARGET: scope::ScopeTarget = scope::ScopeTarget::unscoped("biz_stock_in");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 入库类型必须逐字等于词表（`doc_kind.rs` 的 `DocSubtype::IN_TYPES` /
+    /// 前端 `doc-kinds.ts` 的 `IN_TYPES`），否则 `biz_type_domain.py` 巡检与镜像单测三方打架。
+    #[test]
+    fn in_type_vocabulary_matches_doc_kind() {
+        assert_eq!(IN_TYPE_PURCHASE, DocSubtype::Purchase.as_str());
+        assert_eq!(IN_TYPE_RETURN, DocSubtype::Return.as_str());
+        assert_eq!(IN_TYPE_OTHER, DocSubtype::OtherIn.as_str());
+        assert_eq!(IN_TYPE_SOURCELESS, DocSubtype::Sourceless.as_str());
+        assert_eq!(IN_TYPES, DocSubtype::IN_TYPES.map(DocSubtype::as_str));
+        // 四个值互不相同（重复 = 两种业务一个名字）
+        let mut seen = std::collections::BTreeSet::new();
+        for value in IN_TYPES {
+            assert!(seen.insert(value), "{value} 在 IN_TYPES 里重复");
+        }
+    }
+
+    /// FIX-7 的靶心：无源（`is_sourceless=true`）不许再落 `PURCHASE`。
+    #[test]
+    fn sourceless_stock_in_is_not_purchase() {
+        assert_eq!(in_type_of(true), "SOURCELESS");
+        assert_eq!(in_type_of(false), "PURCHASE");
+        assert_ne!(in_type_of(true), IN_TYPE_PURCHASE);
+        // 词表里有它（否则写库撞 ck_biz_si_type）
+        assert!(IN_TYPES.contains(&in_type_of(true)));
+    }
+
+    /// 序列号来源映射：只有采购 / 退货两型有来源，无源入库不冒充采购（防「追溯给假答案」）。
+    #[test]
+    fn sourceless_has_no_serial_source() {
+        assert_eq!(serial_source_of_in_type(IN_TYPE_PURCHASE), Some("PURCHASE"));
+        assert_eq!(serial_source_of_in_type(IN_TYPE_RETURN), Some("RETURN"));
+        assert_eq!(serial_source_of_in_type(IN_TYPE_SOURCELESS), None);
+        assert_eq!(serial_source_of_in_type(IN_TYPE_OTHER), None);
+    }
+}

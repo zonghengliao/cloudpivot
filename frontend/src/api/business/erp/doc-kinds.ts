@@ -396,8 +396,13 @@ export const SERIAL_SOURCE_TYPE_LABELS: Readonly<Record<SerialSourceType, string
 
 // ==================== ⑦ 单据子类型 ====================
 
-/** 收货单子类型（`biz_stock_in.in_type`，与 `ck_biz_si_type` 一致）。 */
-export const IN_TYPES = ['PURCHASE', 'RETURN', 'OTHER'] as const;
+/**
+ * 收货单子类型（`biz_stock_in.in_type`，与 `ck_biz_si_type` 一致）。
+ *
+ * `SOURCELESS` = 无源入库（`is_sourceless=true`：没有采购单、但有供应商），
+ * 与 `OTHER`（其他入库：没有采购单也没有供应商）分开，报表按 in_type 就能数出「没走采购的入库」。
+ */
+export const IN_TYPES = ['PURCHASE', 'RETURN', 'OTHER', 'SOURCELESS'] as const;
 /** 收货单子类型（联合类型）。 */
 export type InType = (typeof IN_TYPES)[number];
 
@@ -416,6 +421,7 @@ export const IN_TYPE_LABELS: Readonly<Record<InType, string>> = {
   PURCHASE: '采购入库',
   RETURN: '退货入库',
   OTHER: '其他入库',
+  SOURCELESS: '无源入库',
 };
 
 /** 出库子类型 → 中文（与 Rust `DocSubtype::label` 一致）。 */

@@ -1113,6 +1113,14 @@ pub enum DocSubtype {
     Return,
     /// 其他入库（`in_type = 'OTHER'`）。
     OtherIn,
+    /// 无源入库（`in_type = 'SOURCELESS'`，**没有采购单**但**有供应商**，FIX-7）。
+    ///
+    /// 与「其他入库 `OTHER`」的区别是**为什么**没有采购单：
+    /// `OTHER` 是杂项入库（供应商为空，`ck_biz_si_supplier_scope` 只允许它 NULL）；
+    /// `SOURCELESS` 是「有供货方、但没有走采购单」的入库（期初 / 复制 / 补录）——
+    /// `is_sourceless = true` 的单子按它落 `in_type`，报表一眼能数出「有多少货没走采购」。
+    /// 之前这类单据沿用 `PURCHASE`，语义上等于自称「有采购单」，与 `is_sourceless` 自相矛盾。
+    Sourceless,
     /// 领用出库（`out_type = 'ISSUE'`，借 6401）。
     Issue,
     /// 报废出库（`out_type = 'SCRAP'`，借 1901）。
@@ -1125,10 +1133,12 @@ pub enum DocSubtype {
 
 impl DocSubtype {
     /// 收货单 `in_type` 的全部取值（顺序与 `ck_biz_si_type` 一致）。
-    pub const IN_TYPES: [DocSubtype; 3] = [
+    pub const IN_TYPES: [DocSubtype; 4] = [
         DocSubtype::Purchase,
         DocSubtype::Return,
         DocSubtype::OtherIn,
+        // FIX-7：无源入库（`is_sourceless=true`）落这个值，不再冒充 PURCHASE
+        DocSubtype::Sourceless,
     ];
 
     /// 出库单 `out_type` 的全部取值（顺序与 `ck_biz_so_type` 一致）。
@@ -1145,6 +1155,7 @@ impl DocSubtype {
             DocSubtype::Purchase => "PURCHASE",
             DocSubtype::Return => "RETURN",
             DocSubtype::OtherIn | DocSubtype::OtherOut => "OTHER",
+            DocSubtype::Sourceless => "SOURCELESS",
             DocSubtype::Issue => "ISSUE",
             DocSubtype::Scrap => "SCRAP",
             DocSubtype::Loss => "LOSS",
@@ -1158,6 +1169,7 @@ impl DocSubtype {
             DocSubtype::Return => "退货入库",
             DocSubtype::OtherIn => "其他入库",
             DocSubtype::OtherOut => "其他出库",
+            DocSubtype::Sourceless => "无源入库",
             DocSubtype::Issue => "领用出库",
             DocSubtype::Scrap => "报废出库",
             DocSubtype::Loss => "盘亏出库",
@@ -1172,10 +1184,11 @@ impl DocSubtype {
     }
 
     /// 全部子类型（`OTHER` 两轴共用同一个字面量，故只出现一次）。
-    pub const ALL: [DocSubtype; 6] = [
+    pub const ALL: [DocSubtype; 7] = [
         DocSubtype::Purchase,
         DocSubtype::Return,
         DocSubtype::OtherIn,
+        DocSubtype::Sourceless,
         DocSubtype::Issue,
         DocSubtype::Scrap,
         DocSubtype::Loss,
@@ -1338,7 +1351,7 @@ const VOUCHER_SOURCE_VALUES: [&str; 19] = [
 ];
 
 const SERIAL_SOURCE_VALUES: [&str; 4] = ["PURCHASE", "TRANSFER", "PRODUCE", "RETURN"];
-const IN_TYPE_VALUES: [&str; 3] = ["PURCHASE", "RETURN", "OTHER"];
+const IN_TYPE_VALUES: [&str; 4] = ["PURCHASE", "RETURN", "OTHER", "SOURCELESS"];
 const OUT_TYPE_VALUES: [&str; 4] = ["ISSUE", "SCRAP", "LOSS", "OTHER"];
 const TAKE_TYPE_VALUES: [&str; 2] = ["FULL", "PARTIAL"];
 

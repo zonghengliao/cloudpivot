@@ -198,7 +198,7 @@ async fn a4_06_sourceless_requires_flag_and_reason() {
     assert_eq!(err.code, error_code::ERP_SI_SOURCELESS_CONFLICT);
     assert!(err.msg.contains("remark"), "{}", err.msg);
 
-    // ③ 无源 + 标记 + 原因 → 成功，落库 is_sourceless = true
+    // ③ 无源 + 标记 + 原因 → 成功，落库 is_sourceless = true + in_type = SOURCELESS（FIX-7）
     let ok = CreateStockInReq {
         remark: Some("期初补录：2026-10 前的手工库存".to_string()),
         ..no_reason
@@ -210,6 +210,11 @@ async fn a4_06_sourceless_requires_flag_and_reason() {
     assert!(row.is_sourceless, "无源标记必须落库");
     assert_eq!(row.source_order_id, None);
     assert_eq!(row.supplier_id, Some(Uuid::parse_str(SUPPLIER).unwrap()));
+    // FIX-7：无源 ≠ 有采购单 —— in_type 不许再自称 PURCHASE
+    assert_eq!(
+        row.in_type, "SOURCELESS",
+        "is_sourceless=true 必须落 in_type='SOURCELESS'（记成 PURCHASE 等于自称有采购单）"
+    );
 
     // ④ 有源单却声明无源 → 以**来源单为准**归一化（不拒单、也不静默改供应商）：
     //    标记本来就等价于「没有来源单」，多带的 true 是冗余而非谎言，落库仍是
@@ -225,18 +230,22 @@ async fn a4_06_sourceless_requires_flag_and_reason() {
     let row = stockin_model::find_stock_in(id).await.unwrap().unwrap();
     assert!(!row.is_sourceless, "有源单落库必须是无源 = false");
     assert_eq!(
+        row.in_type, "PURCHASE",
+        "有采购单的入库必须仍是 PURCHASE（SOURCELESS 只属于无源单）"
+    );
+    assert_eq!(
         row.supplier_id,
         Some(Uuid::parse_str(A4_SUPPLIER_B).unwrap()),
         "供应商仍取自采购单"
     );
 }
 
-/// ⑦ + ⑧（DB 层）：非 PURCHASE 型入库单带着供应商 → 撞 `ck_biz_si_supplier_scope`；
-/// 无源却不打标记 → 撞 `ck_biz_si_sourceless_pair`。
+/// ⑦ + ⑧（DB 层）：非 PURCHASE / SOURCELESS 型入库单带着供应商 → 撞 `ck_biz_si_supplier_scope`；
+/// 无源却不打标记 → 撞 `ck_biz_si_sourceless_pair`；`SOURCELESS` 反过来**必须**带供应商。
 ///
-/// 为什么用裸 SQL 而不是 DTO：`create` 路径把 `in_type` 硬编码成 `'PURCHASE'`，
-/// 接口层根本造不出 `RETURN` / `OTHER`（A4 不扩枚举，设计 §4.4 要求「未来新增枚举值」
-/// 而不是放宽现有约束）。这两条约束必须由 DB 兜住，才挡得住绕过接口的写入。
+/// 为什么用裸 SQL 而不是 DTO：接口层只会产出 `PURCHASE`（有源单）/ `SOURCELESS`
+/// （无源单，FIX-7 起）/ `RETURN`（销售退货回库），造不出 `OTHER` 带供应商这种组合；
+/// 这两条约束必须由 DB 兜住，才挡得住绕过接口的写入。
 #[tokio::test]
 async fn a4_07_non_purchase_with_supplier_db_rejects() {
     let _db = match setup().await {
@@ -287,6 +296,28 @@ async fn a4_07_non_purchase_with_supplier_db_rejects() {
         .await
         .unwrap();
     assert_eq!(left, 0, "反例一行都不该落库");
+
+    // ④ SOURCELESS 的两向约束（FIX-7）：
+    //    · 带供应商 → 允许（无源 = 没有采购单，不是没有供货方）
+    //    · 不带供应商 → 撞 ck_biz_si_supplier_scope
+    db().execute_with_params(&insert("SOURCELESS", true, true), vec![])
+        .await
+        .expect("SOURCELESS + 供应商 + 无源标记 必须允许（V0330 的约束口径）");
+    let err = db()
+        .execute_with_params(&insert("SOURCELESS", true, false), vec![])
+        .await
+        .expect_err("SOURCELESS 不带供应商必须被 DB 拒");
+    assert!(
+        format!("{err}").contains("ck_biz_si_supplier_scope"),
+        "应当撞 ck_biz_si_supplier_scope：{err}"
+    );
+    // 把正向探针清掉，别留残渣（清理口径只碰本用例自己的前缀）
+    db().execute_with_params(
+        "DELETE FROM biz_stock_in WHERE in_no LIKE 'B1-A4-NEG-%'",
+        vec![],
+    )
+    .await
+    .expect("清理探针行");
 }
 
 /// ⑩：超收（本次数量 > 采购单待收）→ 400（D4 的老校验还在）。
