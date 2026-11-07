@@ -110,5 +110,10 @@ cargo test --lib cancel_cascade                    ✅ 14 passed / 0 failed（�
 - `cloudpivot_so44` 留 3 张取证采购单（PO-20261107-000003/000004/000005，均 `PARTIAL_RECEIVED`）
   与 3 张已过账收货单，是本卡的真机物证；已过账单据按业务规则不可硬删。
 - 取证规则已按写入口 DELETE 软删（`deleted_at` 非空，不再生效），库里无活跃的 `PURCHASE_ORDER` 规则。
+- ⚠️ 唯一索引 `uk_flow_linkage_rule(trigger_entity, trigger_status, action_code)` **不带**
+  `WHERE deleted_at IS NULL`：软删的取证规则仍占着
+  `PURCHASE_ORDER / PARTIAL_RECEIVED / SEND_NOTICE` 这个坑位，重跑真库用例会撞唯一约束。
+  所以 `purchase_linkage_db_tests::purge_rules` 用 `LIKE 'LNK02%'` 硬删（不带连字符，
+  同时覆盖取证脚本的「LNK02 采购…」与夹具的「LNK02-<状态>-<动作>」两种命名）。
 - 取证账号 `lnk02_buyer`（采购经理角色）留在库里，供复跑脚本使用（幂等：已存在就跳过创建）。
 - 本卡**未新增迁移**（只接线不改表）。
