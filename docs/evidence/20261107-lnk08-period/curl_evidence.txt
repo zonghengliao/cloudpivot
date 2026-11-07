@@ -1,0 +1,36 @@
+## LNK-08 真机取证：会计期间（ACCOUNTING_PERIOD）结账 / 反结账 → 联动引擎
+
+# 超管 admin 登录成功，token 长度 = 461
+
+## ① GET /api/business/flow/linkage —— 配置页显示 ACCOUNTING_PERIOD wired=true
+{
+ "entity": "ACCOUNTING_PERIOD",
+ "wired": true,
+ "wiring": "已接线（LNK-08）：erp/period_linkage.rs 是唯一 hook，接在两个状态推进点上 —— ① 结账 erp/period.rs::close_period（四项校验 + 期末汇兑重估 + 状态 CAS 成功后，OPEN → CLOSED，commit 前）；② 反结账 erp/period.rs::reopen_period（后续期间校验 + 状态 CAS 成功后，CLOSED → OPEN，commit 前）。事务内 run_excluding(spec::PERIOD_EXCLUDED_…"
+}
+
+## ② PUT /api/business/flow/linkage —— 结账 / 反结账各配一条 SEND_NOTICE（TAKEOVER→OPERATOR）
+{"rules": ["01a1b52d-e09e-77b8-a8d7-60c62f7901fb", "01a1b52d-e0a6-73de-ad50-71524d15f307"], "trigger_status": ["CLOSED", "OPEN"]}
+
+## ③ POST /api/business/erp/period —— 开账 2033-05
+# 期间 id = 01a1b52d-e0ae-7195-93e8-e2e6cd163007，status = OPEN
+
+## ④ POST /api/business/erp/period/01a1b52d-e0ae-7195-93e8-e2e6cd163007/close —— 结账（事务内跑联动、commit 后发通知）
+# http = 200，返回 status = CLOSED
+# sys_notice LNK:PERIOD:CLOSED:01a1b52d-e0ae-7195-93e8-e2e6cd163007 = 1（期望 1）
+
+## ⑤ 重复 close —— 期望 409，且通知不增（重复过账不重复触发）
+# http = 409（期望 409/400），通知仍 = 1
+
+## ⑥ POST /api/business/erp/period/01a1b52d-e0ae-7195-93e8-e2e6cd163007/reopen —— 反结账
+# http = 200，返回 status = OPEN
+# sys_notice LNK:PERIOD:OPEN:01a1b52d-e0ae-7195-93e8-e2e6cd163007 = 1（期望 1）
+
+## ⑦ 回滚场景：开 2033-06 → 注入 commit 期失败 → 结账 500 且通知 0 条
+# close http = 500（期望 500），期间 status = OPEN（期望 OPEN），通知 = 0（期望 0）
+# 拆掉注入后 close 成功，期间 status = CLOSED，通知 = 1（期望 1）
+
+## 收尾：删除规则（走 API，留审计）+ 清夹具
+# 规则已按 API 删除；期间 / 通知 / 注入触发器由 cleanup() 清
+
+ALL PASS

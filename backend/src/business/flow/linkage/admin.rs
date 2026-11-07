@@ -1165,6 +1165,7 @@ mod tests {
                 "PURCHASE_ORDER",
                 "PAYABLE",
                 "VOUCHER",
+                "ACCOUNTING_PERIOD",
                 "CONTRACT",
                 "STOCK_TAKE",
                 "EXPENSE_REPORT",
@@ -1172,7 +1173,8 @@ mod tests {
             ],
             "已接线的触发点：STOCK_IN / STOCK_OUT（P1-FIX-5C 新接）/ \
              STOCK_TRANSFER（LNK-01 新接）/ PURCHASE_ORDER（LNK-02 新接）/ \
-             PAYABLE（LNK-03 新接）/ VOUCHER（LNK-06 新接）/ CONTRACT（LNK-07 新接）/ \
+             PAYABLE（LNK-03 新接）/ VOUCHER（LNK-06 新接）/ ACCOUNTING_PERIOD（LNK-08 新接）/ \
+             CONTRACT（LNK-07 新接）/ \
              STOCK_TAKE（LNK-04 新接）/ EXPENSE_REPORT（LNK-05 新接）/ TASK"
         );
         for trigger in &triggers {

@@ -89,6 +89,7 @@ use std::str::FromStr;
 use crate::business::erp::dto::PeriodRes;
 use crate::business::erp::model::{self, PeriodRow};
 use crate::business::erp::period_items::{self, BlockingItem, OwnerResolver};
+use crate::business::erp::period_linkage;
 use crate::business::erp::voucher;
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
@@ -1309,10 +1310,20 @@ pub async fn close_period(
         )));
     }
 
+    // ⑥ 跨单据联动（LNK-08）：期间真的从 OPEN 推进到 CLOSED 之后才跑。
+    //    事务内只跑关键动作（`run_excluding` 排除库存 / 余额 / 凭证三类 ——
+    //    凭证由 ⑤ 的汇兑重估专用路径出，见 `period_linkage` 文件头）；
+    //    通知这类 AfterCommit 动作在事务提交**之后**才发（结账是长事务，
+    //    事务内发通知一旦回滚就是「通知已发、结账失败」）。
+    let linkage =
+        period_linkage::run_in_tx(&tx, row.id, &row.period_code, STATUS_CLOSED, operator.id)
+            .await?;
+
     let res = load_res(&tx, row.id).await?;
     tx.commit()
         .await
         .map_err(|error| db_error(error, "提交结账事务"))?;
+    period_linkage::run_deferred_after_commit(linkage).await;
     tracing::info!(period = %row.period_code, "会计期间已结账");
     Ok(res)
 }
@@ -1389,10 +1400,18 @@ pub async fn reopen_period(
         )));
     }
 
+    // ⑥ 跨单据联动（LNK-08）：期间真的从 CLOSED 退回 OPEN 之后才跑。
+    //    排除清单与事务边界同结账（见 `period_linkage` 文件头）：事务内只跑关键动作，
+    //    通知在事务提交**之后**才发 —— 反结账把已经发出的「月结完成」通知留在原地，
+    //    但「已反结账」这条新通知必须与状态一起生效，不能先发后回滚。
+    let linkage =
+        period_linkage::run_in_tx(&tx, row.id, &row.period_code, STATUS_OPEN, operator.id).await?;
+
     let res = load_res(&tx, row.id).await?;
     tx.commit()
         .await
         .map_err(|error| db_error(error, "提交反结账事务"))?;
+    period_linkage::run_deferred_after_commit(linkage).await;
     tracing::warn!(period = %row.period_code, reason = %reason, "会计期间已反结账");
     Ok(res)
 }

@@ -177,6 +177,8 @@ pub mod payable_payment;
 pub mod payable_query;
 pub mod period;
 pub mod period_items;
+/// LNK-08 会计期间结账 / 反结账的联动 hook（唯一一份上下文 / 排除清单 / 幂等口径）。
+pub(crate) mod period_linkage;
 pub mod period_owner;
 pub mod period_remind;
 pub mod price_admin_handler;
@@ -323,6 +325,11 @@ mod voucher_linkage_tests;
 /// 排除动作确实不跑、人工流转触发）。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod contract_linkage_tests;
+
+/// LNK-08 的真库单测（会计期间联动接线：结账 / 反结账各触发一次、
+/// 事务回滚时通知不发、重复结账不重复触发、排除动作确实不跑）。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod period_linkage_tests;
 
 /// 凭证辅助核算（DC-11 · P2-1）：写入口径 + 辅助账查询。只在 `cargo test` 时编译。
 #[cfg(test)]

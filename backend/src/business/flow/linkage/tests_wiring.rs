@@ -121,6 +121,7 @@ fn trigger_specs_cover_whitelist_in_order() {
             "PURCHASE_ORDER",
             "PAYABLE",
             "VOUCHER",
+            "ACCOUNTING_PERIOD",
             "CONTRACT",
             "STOCK_TAKE",
             "EXPENSE_REPORT",
@@ -131,13 +132,14 @@ fn trigger_specs_cover_whitelist_in_order() {
          PURCHASE_ORDER（采购单状态变更 + 部分/全部收货，LNK-02 新接）、\
          PAYABLE（应付单付款 / 部分付款 / 结清，LNK-03 新接）、\
          VOUCHER（凭证手工落草稿 / 审核 / 反审核 / 记账 / 红冲，LNK-06 新接）、\
+         ACCOUNTING_PERIOD（会计期间结账 / 反结账，LNK-08 新接）、\
          CONTRACT（合同提交审批 / 审批通过 / 驳回 / 生效 / 完成 / 终止，LNK-07 新接）、\
          STOCK_TAKE（盘点单过账 / 作废，LNK-04 新接）、\
          EXPENSE_REPORT（报销单提交 / 通过 / 付清 / 作废 / 打回，LNK-05 新接）、\
          TASK（任务状态变更）；\
          接线状态变化时这份断言要跟着改，改之前先想清楚「真的有人调引擎了吗」"
     );
-    assert_eq!(spec::unwired_triggers().len(), 5, "其余 5 个仍未接线");
+    assert_eq!(spec::unwired_triggers().len(), 4, "其余 4 个仍未接线");
 }
 
 /// 每条声明都要自洽：已接线的必须有证据对，未接线的必须给出原因且不能有证据对。
@@ -211,10 +213,10 @@ fn wired_triggers_match_call_sites() {
     }
     assert_eq!(
         actual.len(),
-        11,
-        "当前真实调用点 11 个文件（收货过账 / 出库过账 handler + 出库联动 hook + 调拨联动 hook + \
+        12,
+        "当前真实调用点 12 个文件（收货过账 / 出库过账 handler + 出库联动 hook + 调拨联动 hook + \
          采购联动 hook + 应付联动 hook + 盘点联动 hook + 报销联动 hook + 凭证联动 hook + \
-         合同联动 hook + 任务状态通知）：{actual:?}"
+         合同联动 hook + 会计期间联动 hook + 任务状态通知）：{actual:?}"
     );
 }
 
@@ -869,6 +871,123 @@ fn contract_wires_generic_engine_and_excludes_voucher() {
         assert!(
             !engine::is_routed_elsewhere(spec::CONTRACT_EXCLUDED_ACTIONS, code),
             "{code} 被误判成专用路由：合同的通知 / 建任务会静默不执行"
+        );
+    }
+}
+
+/// 会计期间（`ACCOUNTING_PERIOD`）的接线细节（LNK-08）：结账 / 反结账两处都调 hook，
+/// 且**通知必须排在 `tx.commit()` 之后**（结账是长事务，事务内发通知一旦回滚就是
+/// 「通知已发、结账失败」——这是卡面点名的理由）。
+///
+/// 这条防的五种漂移：
+///
+/// 1. 只在 `spec.rs` 把 `wired` 改成 true、`period.rs` 里没调用（P1-FIX-5C 的原罪：
+///    规则能保存、能启用、永远不触发）；
+/// 2. 只接结账、漏掉反结账 → `ACCOUNTING_PERIOD/OPEN` 上配的「反结账要上报」永远不响；
+/// 3. 排除清单丢了 → 通用引擎在结账事务里再跑 `GENERATE_VOUCHER`（结账第 ⑤ 步已经
+///    出过期末汇兑重估凭证）或写库存 / 应付余额（期间根本没有这些明细列）；
+/// 4. 把 `run_deferred_after_commit` 挪进事务里（或在 `tx.commit()` 之前调）→
+///    通知先发、结账失败即幽灵通知；
+/// 5. 排除清单把通知 / 建任务也排掉 → 联动配了等于没配（不报错、不落账）。
+#[test]
+fn period_wires_generic_engine_and_excludes_ledger_actions() {
+    let hook = include_str!("../../erp/period_linkage.rs");
+    assert!(
+        hook.contains("linkage::engine::run_excluding("),
+        "会计期间状态变更必须调用通用引擎（run_excluding）：否则 ACCOUNTING_PERIOD 的联动规则配了不触发"
+    );
+    assert!(
+        hook.contains("&ctx, linkage::spec::PERIOD_EXCLUDED_ACTIONS"),
+        "期间调通用引擎时必须**真的把** spec::PERIOD_EXCLUDED_ACTIONS 传下去（不许改成写死的 \
+         空清单）：只在文档里提这个名字救不了重复落账"
+    );
+    assert!(
+        hook.contains("linkage::engine::run_deferred"),
+        "期间的提交后动作必须交给 run_deferred（commit 之后跑），否则通知 / 建任务永远不执行"
+    );
+    for code in [
+        "WRITE_INVENTORY",
+        "WRITE_INVENTORY_TXN",
+        "UPDATE_COST",
+        "UPDATE_PAYABLE_BALANCE",
+        spec::ACTION_GENERATE_VOUCHER,
+    ] {
+        assert!(
+            spec::PERIOD_EXCLUDED_ACTIONS.contains(&code),
+            "期间的排除清单漏了 {code}：结账第 ⑤ 步自己出汇兑重估凭证，期间又没有库存 / \
+             应付明细列，通用引擎再跑一次就是重复落账或 ERROR 噪音"
+        );
+    }
+    for code in [spec::ACTION_SEND_NOTICE, spec::ACTION_CREATE_TASK] {
+        assert!(
+            !spec::PERIOD_EXCLUDED_ACTIONS.contains(&code),
+            "{code} 不能被期间排除：通知 / 建任务就靠通用引擎的 AfterCommit 动作"
+        );
+    }
+
+    // 两个状态推进点：结账（OPEN → CLOSED）与反结账（CLOSED → OPEN）
+    let source = include_str!("../../erp/period.rs");
+    assert_eq!(
+        source.matches("period_linkage::run_in_tx(").count(),
+        2,
+        "结账 close_period 与反结账 reopen_period 都必须真的调 period_linkage::run_in_tx\
+         （只改 spec.rs 的 wired 标记不算接线）"
+    );
+    assert_eq!(
+        source
+            .matches("period_linkage::run_deferred_after_commit(")
+            .count(),
+        2,
+        "结账 / 反结账两个入口都要在 commit 之后 flush（少一处，那条路径的通知永远不发）"
+    );
+
+    // 铁律：flush 必须在 `tx.commit()` 之后（事务内发通知 = 回滚后幽灵通知）
+    let close_start = source
+        .find("pub async fn close_period(")
+        .expect("period.rs 必须有 close_period");
+    let reopen_start = source
+        .find("pub async fn reopen_period(")
+        .expect("period.rs 必须有 reopen_period");
+    assert!(
+        close_start < reopen_start,
+        "夹具：close_period 应在 reopen_period 之前"
+    );
+    for (name, body) in [
+        ("close_period", &source[close_start..reopen_start]),
+        ("reopen_period", &source[reopen_start..]),
+    ] {
+        let commit = body
+            .find("tx.commit()")
+            .unwrap_or_else(|| panic!("{name} 必须在事务里 commit"));
+        let flush = body
+            .find("period_linkage::run_deferred_after_commit(")
+            .unwrap_or_else(|| panic!("{name} 必须在 commit 之后调 run_deferred_after_commit"));
+        assert!(
+            commit < flush,
+            "{name}：run_deferred_after_commit 必须排在 tx.commit() **之后**（当前 commit@{commit} \
+             / flush@{flush}）—— 事务内发通知一旦回滚就是「通知已发、结账失败」"
+        );
+        let run_in_tx = body
+            .find("period_linkage::run_in_tx(")
+            .unwrap_or_else(|| panic!("{name} 必须在事务内调 run_in_tx"));
+        assert!(
+            run_in_tx < commit,
+            "{name}：run_in_tx 必须在 tx.commit() **之前**（事务内动作失败要整笔回滚）"
+        );
+    }
+
+    // 排除清单在语义上真的会拦（不是只有字符串写对）
+    use crate::business::flow::linkage::engine;
+    for code in spec::PERIOD_EXCLUDED_ACTIONS {
+        assert!(
+            engine::is_routed_elsewhere(spec::PERIOD_EXCLUDED_ACTIONS, code),
+            "{code} 在期间的排除清单里却没被判成「专用路由」：清单传下去也拦不住它"
+        );
+    }
+    for code in [spec::ACTION_SEND_NOTICE, spec::ACTION_CREATE_TASK] {
+        assert!(
+            !engine::is_routed_elsewhere(spec::PERIOD_EXCLUDED_ACTIONS, code),
+            "{code} 被误判成专用路由：期间的通知 / 建任务会静默不执行"
         );
     }
 }

@@ -295,8 +295,9 @@ pub struct TriggerSpec {
 
 /// 触发点接线表（顺序与 [`TRIGGERS`] 一致）。
 ///
-/// 当前 **10/15 已接线**（`STOCK_IN` · `STOCK_OUT` · `STOCK_TRANSFER` · `PURCHASE_ORDER` ·
-/// `PAYABLE` · `VOUCHER` · `CONTRACT` · `STOCK_TAKE` · `EXPENSE_REPORT` · `TASK`），5 个未接线；
+/// 当前 **11/15 已接线**（`STOCK_IN` · `STOCK_OUT` · `STOCK_TRANSFER` · `PURCHASE_ORDER` ·
+/// `PAYABLE` · `VOUCHER` · `ACCOUNTING_PERIOD` · `CONTRACT` · `STOCK_TAKE` · `EXPENSE_REPORT` ·
+/// `TASK`），4 个未接线；
 /// 逐条原因见 `docs/architecture/P1-FIX-5C-联动触发点接线清单.md`。
 pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     TriggerSpec {
@@ -483,10 +484,30 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
             ("OPEN", "已开启"),
             ("CLOSED", "已结账"),
         ],
-        wired: false,
-        wiring: "未接线：会计期间结账 / 反结账在 erp/period.rs（apply_status + \
-                 state_machine::transition），没有联动调用点。接线要动：月结事务内 + commit 后",
-        proofs: &[],
+        wired: true,
+        wiring: "已接线（LNK-08）：erp/period_linkage.rs 是唯一 hook，接在两个状态推进点上 —— \
+                 ① 结账 erp/period.rs::close_period（四项校验 + 期末汇兑重估 + 状态 CAS 成功后，\
+                 OPEN → CLOSED，commit 前）；② 反结账 erp/period.rs::reopen_period\
+                 （后续期间校验 + 状态 CAS 成功后，CLOSED → OPEN，commit 前）。\
+                 事务内 run_excluding(spec::PERIOD_EXCLUDED_ACTIONS)（结账第 ⑤ 步自己出期末汇兑\
+                 重估凭证，GENERATE_VOUCHER 必须排除：同一期间两张重估凭证就是重复落账；库存 / 余额\
+                 类动作也排除：期间没有明细行，封账不该产生业务落账），\
+                 commit 后 run_deferred_after_commit → run_deferred（结账是长事务，\
+                 事务内发通知一旦回滚就是「通知已发、结账失败」）。\
+                 ⚠ PERIOD/OPEN 状态目前只在**反结账**（CLOSED → OPEN）上触发；\
+                 开账（open_period 的 NOT_OPENED → OPEN、以及 batch_open / 启动时\
+                 ensure_year_periods 建行）**不接**：那是建行 / 批量补行，挂上就是启动扇出 N 条通知。\
+                 要按「开账」通知请走单月开账后的其它触发点",
+        proofs: &[
+            (
+                "src/business/erp/period_linkage.rs",
+                "linkage::engine::run_excluding",
+            ),
+            (
+                "src/business/erp/period_linkage.rs",
+                "linkage::engine::run_deferred",
+            ),
+        ],
     },
     TriggerSpec {
         entity: state_machine::ENTITY_YEAR_END,
@@ -888,6 +909,36 @@ pub const STOCKTAKE_EXCLUDED_ACTIONS: &[&str] = &[
 /// 换个触发点（如 `PURCHASE_ORDER/APPROVED`）通用路线仍然要能跑凭证动作。
 /// 漂移守卫：`tests_wiring::contract_wires_generic_engine_and_excludes_voucher`。
 pub const CONTRACT_EXCLUDED_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER];
+
+/// **会计期间**（`ACCOUNTING_PERIOD`）的专用路由排除清单（LNK-08）。
+///
+/// 结账事务（`erp/period.rs::close_period`）自己就落了一类账：第 ⑤ 步
+/// `fx_revaluation::revalue_period` 把未核销外币应收按月末汇率重估，差额记
+/// 5603 / 1122，凭证落在本期间（幂等：同期间已提过即 `skipped`）。所以通用引擎在
+/// 这个触发点上必须把三类动作交给专用路径：
+///
+/// - `GENERATE_VOUCHER` → 同一期间两张（或更多）汇兑重估凭证：总账按凭证汇总就翻倍。
+///   该动作目前的取数口径只接管收货入库，挂在期间上一般是 `Skipped`；
+///   但「配了永远只被跳过」本身也是本仓讨厌的「看起来配好了」，所以运行时明确排除，
+///   将来取数口径扩到别的来源单据时也不会突然开始重复落账；
+/// - `WRITE_INVENTORY` / `WRITE_INVENTORY_TXN` / `UPDATE_COST` → 期间**没有明细行**，
+///   封账是「全系统只读」的开关，不是业务单据：这些动作要么取数失败产出 ERROR 噪音，
+///   要么（接管后）把库存当成结账的副作用写一遍；
+/// - `UPDATE_PAYABLE_BALANCE` → 同理：期间没有余额列，应付台账不是结账动作维护的。
+///
+/// `SEND_NOTICE` / `CREATE_TASK` **不能排除**：月结完成 / 反结账之后的通知与待办
+/// 就靠通用引擎的 `Phase::AfterCommit` 动作（卡面的正经用处），排掉等于接线了但永远不响。
+///
+/// 排除清单放在**调用方**（这里导出、`erp::period_linkage` 传入）而不是写死在引擎里：
+/// 换个触发点（如 `PAYABLE/SETTLED`）通用路线仍然要能跑凭证动作。
+/// 漂移守卫：`tests_wiring::period_wires_generic_engine_and_excludes_ledger_actions`。
+pub const PERIOD_EXCLUDED_ACTIONS: &[&str] = &[
+    "WRITE_INVENTORY",
+    "WRITE_INVENTORY_TXN",
+    "UPDATE_COST",
+    "UPDATE_PAYABLE_BALANCE",
+    ACTION_GENERATE_VOUCHER,
+];
 
 /// **费用报销单**的专用路由排除清单（LNK-05）。
 ///

@@ -140,7 +140,7 @@ P1-FIX-5C 之前，配置页只把「动作」这一侧的占位项置灰了，�
 | 9 | `CONTRACT` | ✅ | `erp/contract_handler.rs::contract_change_status`（提交审批分支 + 通用分支）+ `erp/contract_bridge.rs::settle`（审批通过 / 驳回） | 审批实例发起 + 状态机（合同**不落账**） | 高 | 已接（LNK-07） |
 | 10 | `VOUCHER` | ✅ | `erp/voucher_write.rs::transition_voucher_in_tx`（L≈535，审核/记账/反记账共用）+ `manual_in_tx` / `reverse_in_tx` / `reverse_after_approval` | 分录行 + 记账戳 + 期间闸 | 中 | 已接（LNK-06） |
 | 11 | `DEPRECIATION` | ❌ | `erp/depreciation_model.rs::run_batch`（L≈323）/ `reverse_batch`（L≈639） | 折旧明细批量写 + 凭证 | 中 | B |
-| 12 | `ACCOUNTING_PERIOD` | ❌ | `erp/period.rs::open_period` / `close_period` / `reopen_period`（L≈783/1253/1343） | 期间状态 + 结账快照 | 中高 | C |
+| 12 | `ACCOUNTING_PERIOD` | ✅ | `erp/period.rs::close_period`（L≈1311，结账）/ `reopen_period`（L≈1400，反结账）；开账 `open_period` / `batch_open` 是建行，**不接**（见 §3.2） | 期间状态 CAS + 期末汇兑重估凭证（结账第 ⑤ 步） | 中高 | 已接（LNK-08） |
 | 13 | `FIXED_ASSET` | ❌ | `erp/asset_handler.rs::asset_dispose`（L≈864）/ `asset_dispose_cancel`（L≈1020）；停用/启用/转移走 `asset_model` CAS UPDATE，**不经状态机** | 处置凭证 + 处置痕迹 + 状态 | 中 | C |
 | 14 | `ACCOUNTING_YEAR` | ❌ | `erp/year_end.rs::close_year`（L≈1382）/ `reopen_year`（L≈1520） | 年度结转凭证 + 下年期初台账（**长事务**） | 中 | D |
 | 15 | `FLOW_INSTANCE` | ❌ | `flow/engine.rs`（`model::bump_instance`，L≈882）← `handler::approve_task` / `reject_task` / `withdraw_instance` | 实例状态 + 流程任务级联取消 + **业务单据状态（bridge）** | 需先定序 | D |
@@ -251,6 +251,26 @@ commit 之后
 - 典型用法：合同生效 → 建履约计划任务 + 通知商务；终止 → 通知制单人。
 - 物证：`docs/evidence/20261107-lnk07-contract/`（真机 HTTP：提交/审批/生效各一条通知、
   重复审批幂等且通知不增、配 GENERATE_VOUCHER 400、合同名下 0 张凭证）。
+
+**`ACCOUNTING_PERIOD`（会计期间 · 结账/反结账）— LNK-08 已接**
+
+- 入口：`period.rs::close_period`（四项校验 + 汇兑重估 + 状态 CAS 成功后，`OPEN → CLOSED`）与
+  `period.rs::reopen_period`（后续期间校验 + 状态 CAS 成功后，`CLOSED → OPEN`）。唯一 hook 是
+  `erp/period_linkage.rs`（`run_excluding(spec::PERIOD_EXCLUDED_ACTIONS)` + commit 后
+  `run_deferred_after_commit` → `run_deferred`）。
+- **事务边界是这张卡的重点**：结账是长事务（全期间凭证聚合 + 汇兑重估），通知一律在
+  `tx.commit()` 之后发 —— 事务内发通知一旦回滚就是「财务收到月结完成、实际那个月还开着」。
+  `tests_wiring::period_wires_generic_engine_and_excludes_ledger_actions` 用源码切片钉住
+  「`run_in_tx` 在 commit 前 / `run_deferred_after_commit` 在 commit 后」。
+- **排除清单**：`GENERATE_VOUCHER`（结账第 ⑤ 步 `fx_revaluation::revalue_period` 自己出期末
+  汇兑重估凭证）+ `WRITE_INVENTORY` / `WRITE_INVENTORY_TXN` / `UPDATE_COST` /
+  `UPDATE_PAYABLE_BALANCE`（期间没有明细行 / 余额列，封账是只读开关，不是业务单据）。
+- ⚠ **开账不接**：`open_period`（`NOT_OPENED → OPEN`）、`batch_open`、启动时
+  `ensure_year_periods` 都是**建行 / 批量补行**，挂引擎就是启动扇出 N 条通知。所以
+  `PERIOD/OPEN` 状态只在**反结账**上触发，`spec::TRIGGER_SPECS` 的 `wiring` 文案里写明了。
+- 幂等：通知幂等键 `LNK:PERIOD:<状态>:<期间 id>`；重复结账被状态闸 409 挡住、联动不跑第二遍。
+- 真库用例：`erp/period_linkage_tests.rs` 6 条（结账触发 / 反结账触发 / **事务回滚与 commit
+  失败都不发通知** / 重复结账不重复触发 / 排除动作确实不跑）。
 
 **`VOUCHER`（凭证 · 落草稿/审核/反审核/记账/红冲）— LNK-06 已接**
 
