@@ -225,7 +225,11 @@ fn wired_triggers_match_call_sites() {
         "当前真实调用点 14 个文件（收货过账 / 出库过账 handler + 出库联动 hook + 调拨联动 hook + \
          采购联动 hook + 应付联动 hook + 盘点联动 hook + 报销联动 hook + 凭证联动 hook + \
          合同联动 hook + 会计期间联动 hook + 固定资产联动 hook + 折旧批次联动 hook + \
-         任务状态通知）：{actual:?}"
+         任务状态通知）：{actual:?}\n\
+         ⚠️ 本计数器是**文件级去重 + 只认 `linkage::engine::*` 直调**：\n\
+         固定资产新增的「停用 / 启用」写在 `erp/asset_handler.rs` 里、只间接调\
+         `asset_linkage::run_in_tx`（引擎在 hook 里被调），所以**不会**也不该让这个数字 +1；\n\
+         那条触发点的守卫在 `asset_wires_generic_engine_and_excludes_voucher` 的函数内计数上。"
     );
 }
 
@@ -1046,7 +1050,9 @@ fn asset_wires_generic_engine_and_excludes_voucher() {
         );
     }
 
-    // 两处真实状态推进：① 处置（asset_bridge::execute，审批通过后）② 作废处置（asset_dispose_cancel）
+    // 三处真实状态推进：① 处置（asset_bridge::execute，审批通过后）② 作废处置（asset_dispose_cancel）
+    // ③ 停用 / 启用（asset_status_change，FIN-ASSET-ST02）—— 后两者都在 handler 里，
+    //    所以下面对 handler 的 `run_in_tx(` / `run_deferred_after_commit(` 计数是 **2**。
     let bridge = include_str!("../../erp/asset_bridge.rs");
     assert_eq!(
         bridge.matches("asset_linkage::run_in_tx(").count(),
@@ -1065,15 +1071,16 @@ fn asset_wires_generic_engine_and_excludes_voucher() {
     let handler = include_str!("../../erp/asset_handler.rs");
     assert_eq!(
         handler.matches("asset_linkage::run_in_tx(").count(),
-        1,
-        "作废处置（asset_dispose_cancel）必须真的调 asset_linkage::run_in_tx"
+        2,
+        "作废处置（asset_dispose_cancel）与停用 / 启用（asset_status_change）都必须真的调 \
+         asset_linkage::run_in_tx（只改 spec.rs 的 wired 标记不算接线）"
     );
     assert_eq!(
         handler
             .matches("asset_linkage::run_deferred_after_commit(")
             .count(),
-        1,
-        "作废处置入口必须在 commit 之后 flush"
+        2,
+        "作废处置与停用 / 启用两个入口都必须在 commit 之后 flush（事务内发通知 = 回滚后幽灵通知）"
     );
 
     // 铁律：flush 必须排在 `tx.commit()` 之后。切片段时要避开注释里的字面量
@@ -1117,6 +1124,41 @@ fn asset_wires_generic_engine_and_excludes_voucher() {
     assert!(
         run_in_tx < commit,
         "asset_dispose_cancel：run_in_tx 必须在事务提交**之前**"
+    );
+
+    // ③ 停用 / 启用（FIN-ASSET-ST02）：handler 必须存在、状态 / 变动类型只用常量，
+    //    且 `run_in_tx < tx.commit() < run_deferred_after_commit`（与另两处同序）。
+    assert!(
+        handler.contains("pub async fn asset_status_change("),
+        "asset_handler.rs 必须有 asset_status_change：没有 HTTP 入口时，\
+         FIXED_ASSET/IDLE 上配的规则能保存、永远不触发（本卡要修的就是这个）"
+    );
+    for literal in [
+        "asset_dto::STATUS_IDLE",
+        "asset_dto::CHANGE_IDLE",
+        "asset_dto::CHANGE_ENABLE",
+    ] {
+        assert!(
+            handler.contains(literal),
+            "停用 / 启用必须直接用状态 / 变动类型常量 {literal}\
+             （写字符串字面量会与状态机 / 词表悄悄漂移）"
+        );
+    }
+    let status_change = handler
+        .find("pub async fn asset_status_change(")
+        .expect("asset_handler.rs 必须有 asset_status_change");
+    let body = &handler[status_change..];
+    let run_in_tx = body
+        .find("asset_linkage::run_in_tx(")
+        .expect("停用 / 启用必须在事务内调 run_in_tx");
+    let commit = body.find("tx.commit()").expect("停用 / 启用必须 commit");
+    let flush = body
+        .find("asset_linkage::run_deferred_after_commit(")
+        .expect("停用 / 启用必须在提交之后 flush");
+    assert!(
+        run_in_tx < commit && commit < flush,
+        "asset_status_change 的顺序必须是 run_in_tx < tx.commit() < run_deferred_after_commit\
+         （当前 run_in_tx@{run_in_tx} / commit@{commit} / flush@{flush}）"
     );
 
     // 排除清单在语义上真的会拦（不是只有字符串写对）

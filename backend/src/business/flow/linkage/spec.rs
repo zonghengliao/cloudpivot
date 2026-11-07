@@ -583,20 +583,20 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
         entity: state_machine::ENTITY_FIXED_ASSET,
         status_labels: &[("IN_USE", "在役"), ("IDLE", "闲置"), ("DISPOSED", "已处置")],
         wired: true,
-        wiring: "已接线（两处真实状态推进）：① 处置 — erp/asset_bridge.rs::execute 第 ⑤ 步 \
-                 （处置凭证 + 状态机 IN_USE|IDLE → DISPOSED + 卡片回填 + 变动留痕之后、\
-                 commit 之前）调 asset_linkage::run_in_tx → 通用引擎 \
-                 run_excluding(spec::FIXED_ASSET_EXCLUDED_ACTIONS)（处置凭证由本函数 \
-                 ① 步出 1~3 张，GENERATE_VOUCHER 必须排除；作废处置的红冲由 \
-                 asset_bridge::reverse_disposal_vouchers 做，REVERSE_VOUCHER 一并排除）；\
-                 ② 作废处置 — erp/asset_handler.rs::asset_dispose_cancel 第 ⑤ 步 \
-                 （红冲 + DISPOSED → IN_USE + 恢复在役 + 留痕之后）调同一个 hook；\
-                 两处都在各自事务 commit 之后调 asset_linkage::run_deferred_after_commit → \
-                 linkage::engine::run_deferred。**两条边目前没有触发源**：建卡 \
-                 （NULL → IN_USE）是建行不接，停用 / 启用（IN_USE ↔ IDLE）在 \
-                 asset_handler.rs 的 14 个接口里没有入口（前端资产页也没有按钮），\
-                 所以 FIXED_ASSET/IDLE 上配的规则可以保存、暂不会触发 —— 补接口是\
-                 新功能（资产模块二开卡），本卡不虚造调用点",
+        wiring: "已接线（三处状态推进）：① 处置 — erp/asset_bridge.rs::execute 第 ⑤ 步（处置凭证 + \
+                 状态机 IN_USE|IDLE → DISPOSED + 卡片回填 + 变动留痕之后、commit 之前）调 \
+                 asset_linkage::run_in_tx → 通用引擎 \
+                 run_excluding(spec::FIXED_ASSET_EXCLUDED_ACTIONS)（GENERATE_VOUCHER / \
+                 REVERSE_VOUCHER 排除：处置凭证由 asset_bridge 专用路径出 1~3 张、红冲由 \
+                 reverse_disposal_vouchers 做）；② 作废处置 — \
+                 erp/asset_handler.rs::asset_dispose_cancel 第 ⑤ 步（红冲 + DISPOSED → IN_USE + \
+                 恢复在役 + 留痕之后）调同一个 hook；③ 停用 / 启用 — \
+                 erp/asset_handler.rs::asset_status_change 第 ⑦ 步（状态机 IN_USE ⇄ IDLE + CAS \
+                 回写 + 变动留痕之后）调同一个 hook。三处都在各自事务 commit 之后调 \
+                 asset_linkage::run_deferred_after_commit → linkage::engine::run_deferred。\
+                 建卡（NULL → IN_USE）是建行动作、不接。通知幂等键含本次变动行 id\
+                 （LNK:FIXED_ASSET:<状态>:<卡片 id>:<变动行 id>），所以可逆边（停用/启用、\
+                 处置/作废处置）重复发生会各发一条。",
         proofs: &[
             (
                 "src/business/erp/asset_linkage.rs",

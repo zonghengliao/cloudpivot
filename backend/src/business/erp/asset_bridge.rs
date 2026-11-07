@@ -254,8 +254,9 @@ async fn execute(instance_id: Uuid) -> std::result::Result<Option<Uuid>, ApiErro
                 ),
             ));
         }
-        // ④ 变动留痕（DISPOSAL，append-only）
-        asset_model::insert_change(
+        // ④ 变动留痕（DISPOSAL，append-only）。返回的变动行 id 就是**本次事件标识**：
+        //    通知幂等键要用它（同一张卡「处置 → 作废 → 再处置」的第二次必须能发通知）。
+        let event_ref = asset_model::insert_change(
             &tx,
             asset.id,
             &asset_model::ChangeInsert {
@@ -290,12 +291,14 @@ async fn execute(instance_id: Uuid) -> std::result::Result<Option<Uuid>, ApiErro
         // ⑤ 跨单据联动（事务内动作；处置凭证由本函数 ① 步出 ⇒ 引擎排除
         //    GENERATE_VOUCHER / REVERSE_VOUCHER，见 asset_linkage 文件头）。
         //    失败 → 整笔处置回滚（不会留下「卡已处置、联动没跑」的半截状态）。
+        //    `event_ref` = ④ 的变动行 id：进通知幂等键，事件维度去重。
         let change = asset_linkage::run_in_tx(
             &tx,
             asset.id,
             &asset.asset_no,
             asset_dto::STATUS_DISPOSED,
             Some(instance.initiator_id),
+            event_ref,
         )
         .await?;
         Ok(Some((asset.id, change)))

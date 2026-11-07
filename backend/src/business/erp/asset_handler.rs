@@ -16,6 +16,7 @@
 //! | POST | `/business/erp/asset/{id}/custodian` | `asset:update` | 使用人变更（无凭证，留痕） |
 //! | POST | `/business/erp/asset/{id}/dispose` | `asset:dispose` | 提交处置审批（`asset_disposal`） |
 //! | POST | `/business/erp/asset/{id}/dispose/cancel` | `asset:dispose` | 作废处置（红冲 + 恢复在役） |
+//! | POST | `/business/erp/asset/{id}/status` | `asset:update` | 停用 / 启用（`IN_USE ⇄ IDLE`；无凭证，折旧照提） |
 //!
 //! # 三条硬约束（写在这里免得后人「顺手优化」）
 //!
@@ -40,8 +41,8 @@ use crate::business::erp::asset_bridge;
 use crate::business::erp::asset_compute;
 use crate::business::erp::asset_dto::{
     self, AssetDetailRes, AssetFilter, AssetRes, CategoryFilter, CategoryReq, CategoryRes,
-    ChangeRes, CreateAssetReq, CustodianReq, DepDetailRes, DisposeReq, IdRes, TransferReq,
-    UpdateAssetReq, conflict, invalid, normalize_page, parse_uuid_text, status_label,
+    ChangeRes, CreateAssetReq, CustodianReq, DepDetailRes, DisposeReq, IdRes, StatusChangeReq,
+    TransferReq, UpdateAssetReq, conflict, invalid, normalize_page, parse_uuid_text, status_label,
 };
 use crate::business::erp::asset_linkage;
 use crate::business::erp::asset_model::{self, AssetInsert, ChangeInsert};
@@ -1085,8 +1086,9 @@ pub async fn asset_dispose_cancel(
         if affected == 0 {
             return Err(conflict("资产状态在作废处置期间被改动，请刷新后重试"));
         }
-        // ④ 变动留痕（ENABLE：恢复在役；词表里没有 UNDISPOSE，理由写进 reason）
-        asset_model::insert_change(
+        // ④ 变动留痕（ENABLE：恢复在役；词表里没有 UNDISPOSE，理由写进 reason）。
+        //    返回的变动行 id = **本次事件标识**：进通知幂等键（可逆边第二次事件要能发）。
+        let event_ref = asset_model::insert_change(
             &tx,
             id,
             &ChangeInsert {
@@ -1114,11 +1116,17 @@ pub async fn asset_dispose_cancel(
         .map_err(|error| db_err(error, "写作废处置留痕"))?;
         // ⑤ 跨单据联动（事务内动作；处置凭证已在 ① 步红冲 ⇒ 引擎排除
         //    GENERATE_VOUCHER / REVERSE_VOUCHER，见 asset_linkage 文件头）。
-        //    目标态 = IN_USE：`FIXED_ASSET/IN_USE` 上的规则由「作废处置」触发
-        //    （建卡是建行、不接；停用 / 启用目前没有 HTTP 入口，见 spec.wiring）。
-        let change =
-            asset_linkage::run_in_tx(&tx, id, &row.asset_no, asset_dto::STATUS_IN_USE, operator)
-                .await?;
+        //    目标态 = IN_USE：`FIXED_ASSET/IN_USE` 上的规则由「作废处置」与「启用」两处触发
+        //    （建卡是建行、不接）；`event_ref` = ④ 的变动行 id ⇒ 幂等键按事件区分。
+        let change = asset_linkage::run_in_tx(
+            &tx,
+            id,
+            &row.asset_no,
+            asset_dto::STATUS_IN_USE,
+            operator,
+            event_ref,
+        )
+        .await?;
         Ok::<(usize, asset_linkage::AssetStatusChange), ApiError>((reds.len(), change))
     }
     .await;
@@ -1130,6 +1138,165 @@ pub async fn asset_dispose_cancel(
             // 铁律：通知 / 建任务只能在事务提交**之后**发（提交失败 = 作废没做成）
             asset_linkage::run_deferred_after_commit(change).await;
             tracing::info!(%id, red_count = count, "资产处置已作废（凭证红冲 + 资产恢复在役）");
+            Ok(Res::ok(detail_of(id).await?))
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(error)
+        }
+    }
+}
+
+// ==================== 停用 / 启用（IN_USE ⇄ IDLE） ====================
+
+/// 停用 / 启用（`IN_USE ⇄ IDLE`）：**只改状态**，不落凭证、不走审批、折旧照提。
+///
+/// 事务顺序（与处置 / 作废处置同序，别调换）：
+/// ② 锁卡（`FOR UPDATE`，并发两次只有一个进来）→ ③ 同态 / 可停用判定（409 66046）→
+/// ④ 状态机（唯一状态写入口，写 `biz_status_log`）→ ⑤ CAS 回写（0 行 = 有别的写入路径，
+/// 必须报错不能静默）→ ⑥ 变动留痕（部门 / 使用人四组全 `None`）→ ⑦ 事务内跑联动 →
+/// ⑧ commit → ⑨ 提交后跑通知 → ⑩ 返回详情。
+///
+/// **不做期间结账校验**：不落凭证 ⇒ 与 `biz_accounting_period` 无关（别照抄处置那段）。
+#[nik::permission(
+    path = "/business/erp/asset/{id}/status",
+    method = "POST",
+    permission = "business:erp:asset:update"
+)]
+#[nik::post("/business/erp/asset/{id}/status")]
+pub async fn asset_status_change(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    Json(req): Json<StatusChangeReq>,
+) -> ResResult<AssetDetailRes> {
+    let id = parse_uuid_text(&id, "id")?;
+    let operator = operator_of(&claims);
+    let spec = asset_dto::validate_status_change(&req, voucher_today())?;
+    let operator_name = operator_name_of(&claims);
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| db_err(error, "开启停用 / 启用事务"))?;
+    let outcome = async {
+        // ② 锁卡：并发两次停用只有一个能进来（否则两条状态日志 + 两条通知）
+        let row = asset_model::asset_lock_in(&tx, id)
+            .await
+            .map_err(|error| db_err(error, "锁定资产卡片"))?
+            .ok_or_else(not_found)?;
+        // ③-a 同态：重复点击不是状态变更（也因此不会重复通知）
+        if row.status == spec.target_status {
+            return Err(ApiError::new(
+                409,
+                error_code::ERP_ASSET_STATUS_ILLEGAL,
+                format!(
+                    "资产 {} 当前已经是「{}」：重复{}不是状态变更（不会重复通知）",
+                    row.asset_no,
+                    status_label(&row.status),
+                    if spec.target_status == asset_dto::STATUS_IDLE {
+                        "停用"
+                    } else {
+                        "启用"
+                    }
+                ),
+            ));
+        }
+        // ③-b 只有「在役 / 闲置」能停用 / 启用（已处置 / 已作废先作废处置）
+        if !asset_dto::disposable(&row.status) {
+            return Err(ApiError::new(
+                409,
+                error_code::ERP_ASSET_STATUS_ILLEGAL,
+                format!(
+                    "资产 {} 当前是「{}」：只有「在役 / 闲置」的卡片能停用 / 启用；\
+                     已处置的请先作废处置",
+                    row.asset_no,
+                    status_label(&row.status)
+                ),
+            ));
+        }
+        // ④ 状态机（边校验 + `biz_status_log`）：与处置 / 作废处置同序 —— 先判边，再落地
+        state_machine::transition(
+            &tx,
+            state_machine::ENTITY_FIXED_ASSET,
+            row.id,
+            &row.asset_no,
+            &asset_bridge::asset_bridge_edges(),
+            &row.status,
+            spec.target_status,
+            operator,
+            Some(spec.reason.as_str()),
+            None,
+        )
+        .await?;
+        // ⑤ CAS 回写（WHERE status = row.status）：0 行 = 锁后仍被改，必须报错不能静默
+        let affected =
+            asset_model::apply_asset_status(&tx, id, &row.status, spec.target_status, operator)
+                .await
+                .map_err(|error| db_err(error, "回写资产状态"))?;
+        if affected == 0 {
+            return Err(conflict("资产状态在停用 / 启用期间被改动，请刷新后重试"));
+        }
+        // ⑥ 变动留痕：变动的是**状态**，部门 / 使用人四组全 None（时间线据 from/to_status 渲染）。
+        //    变动类型只可能是两个词表值：停用 `CHANGE_IDLE` / 启用 `CHANGE_ENABLE`
+        //    （映射只写在 `asset_dto::change_type_of` 一处，这里再钉一道防漂移断言）。
+        let change_type = asset_dto::change_type_of(spec.target_status);
+        debug_assert!(
+            matches!(
+                change_type,
+                asset_dto::CHANGE_IDLE | asset_dto::CHANGE_ENABLE
+            ),
+            "停用 / 启用的变动类型只可能是 IDLE / ENABLE"
+        );
+        let event_ref = asset_model::insert_change(
+            &tx,
+            id,
+            &ChangeInsert {
+                change_type,
+                change_date: spec.change_date,
+                from_dept_id: None,
+                from_dept_name: None,
+                to_dept_id: None,
+                to_dept_name: None,
+                from_user_id: None,
+                from_user_name: None,
+                to_user_id: None,
+                to_user_name: None,
+                from_status: Some(&row.status),
+                to_status: Some(spec.target_status),
+                reason: &spec.reason,
+                voucher_id: None,
+                approval_instance_id: None,
+                operator_id: operator,
+                operator_name: Some(operator_name.as_str()),
+                remark: Some("停用 / 启用：不落凭证，折旧口径不变"),
+            },
+        )
+        .await
+        .map_err(|error| db_err(error, "写停用 / 启用留痕"))?;
+        // ⑦ 跨单据联动（事务内；`event_ref` = ⑥ 的变动行 id ⇒ 可逆边第二次照样发通知）
+        let change = asset_linkage::run_in_tx(
+            &tx,
+            id,
+            &row.asset_no,
+            spec.target_status,
+            operator,
+            event_ref,
+        )
+        .await?;
+        Ok::<asset_linkage::AssetStatusChange, ApiError>(change)
+    }
+    .await;
+    match outcome {
+        Ok(change) => {
+            tx.commit()
+                .await
+                .map_err(|error| db_err(error, "提交停用 / 启用事务"))?;
+            // 铁律：通知 / 建任务只能在事务提交**之后**发（提交失败 = 状态没改）
+            asset_linkage::run_deferred_after_commit(change).await;
+            tracing::info!(
+                %id,
+                status = spec.target_status,
+                "资产状态变更完成（停用 / 启用：不落凭证、折旧照提）"
+            );
             Ok(Res::ok(detail_of(id).await?))
         }
         Err(error) => {

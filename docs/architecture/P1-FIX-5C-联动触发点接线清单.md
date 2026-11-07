@@ -141,7 +141,7 @@ P1-FIX-5C 之前，配置页只把「动作」这一侧的占位项置灰了，�
 | 10 | `VOUCHER` | ✅ | `erp/voucher_write.rs::transition_voucher_in_tx`（L≈535，审核/记账/反记账共用）+ `manual_in_tx` / `reverse_in_tx` / `reverse_after_approval` | 分录行 + 记账戳 + 期间闸 | 中 | 已接（LNK-06） |
 | 11 | `DEPRECIATION` | ✅ | `erp/depreciation_model.rs::run_batch`（⑤ 步，`CALCULATED → POSTED`）/ `reverse_batch`（⑥ 步，`POSTED → REVERSED`）—— 手动计提与定时任务共用同一条 `run_batch` | 折旧明细批量写 + 多借方凭证 + 卡片回写（凭证专用路由，通用引擎排除） | 中 | 已接（LNK-10） |
 | 12 | `ACCOUNTING_PERIOD` | ✅ | `erp/period.rs::close_period`（L≈1311，结账）/ `reopen_period`（L≈1400，反结账）；开账 `open_period` / `batch_open` 是建行，**不接**（见 §3.2） | 期间状态 CAS + 期末汇兑重估凭证（结账第 ⑤ 步） | 中高 | 已接（LNK-08） |
-| 13 | `FIXED_ASSET` | ✅ | `erp/asset_bridge.rs::execute` 第 ⑤ 步（审批通过 → `DISPOSED`）/ `erp/asset_handler.rs::asset_dispose_cancel` 第 ⑤ 步（→ `IN_USE`）；**停用/启用没有 HTTP 入口**（见 §3.2），建卡是建行不接 | 处置凭证（1~3 张）+ 红冲 + 处置痕迹 + 状态 | 中 | 已接（LNK-09） |
+| 13 | `FIXED_ASSET` | ✅ | `erp/asset_bridge.rs::execute` 第 ⑤ 步（审批通过 → `DISPOSED`）/ `erp/asset_handler.rs::asset_dispose_cancel` 第 ⑤ 步（→ `IN_USE`）/ `erp/asset_handler.rs::asset_status_change` 第 ⑦ 步（停用 → `IDLE`、启用 → `IN_USE`，见 §3.2 与本设计文档 `FIN-ASSET-ST02-资产停用启用接口设计.md`）；建卡是建行不接 | 处置凭证（1~3 张）+ 红冲 + 处置痕迹 + 状态 | 中 | 已接（LNK-09 两处 + ST02 停用/启用） |
 | 14 | `ACCOUNTING_YEAR` | ❌ | `erp/year_end.rs::close_year`（L≈1382）/ `reopen_year`（L≈1520） | 年度结转凭证 + 下年期初台账（**长事务**） | 中 | D |
 | 15 | `FLOW_INSTANCE` | ❌ | `flow/engine.rs`（`model::bump_instance`，L≈882）← `handler::approve_task` / `reject_task` / `withdraw_instance` | 实例状态 + 流程任务级联取消 + **业务单据状态（bridge）** | 需先定序 | D |
 
@@ -319,12 +319,15 @@ commit 之后
 - 典型用法：月结完成 → 通知财务全组；反结账 → 上报财务负责人。
 - 风险：结账是「全系统只读」的开关，联动做错的影响面是全员，先只接通知类动作。
 
-**`FIXED_ASSET`（固定资产 · 处置 / 作废处置）— LNK-09 已接**
+**`FIXED_ASSET`（固定资产 · 处置 / 作废处置 / 停用启用）— LNK-09 + FIN-ASSET-ST02 已接**
 
 - 入口：① 处置 `erp/asset_bridge.rs::execute` 第 ⑤ 步（审批通过 → 处置凭证 + 状态机
   `IN_USE|IDLE → DISPOSED` + 卡片回填 + 变动留痕之后、commit 之前）；
   ② 作废处置 `erp/asset_handler.rs::asset_dispose_cancel` 第 ⑤ 步（红冲 + `DISPOSED → IN_USE`
-  + 恢复在役 + 留痕之后）。唯一 hook 是 `erp/asset_linkage.rs`
+  + 恢复在役 + 留痕之后）；③ **停用 / 启用** `erp/asset_handler.rs::asset_status_change` 第 ⑦ 步
+  （状态机 `IN_USE ⇄ IDLE` + CAS 回写 + 变动留痕之后、commit 之前；`POST /business/erp/asset/{id}/status`，
+  权限复用 `business:erp:asset:update`，不落凭证、不走审批、**折旧照提**）。
+  唯一 hook 是 `erp/asset_linkage.rs`
   （`run_excluding(spec::FIXED_ASSET_EXCLUDED_ACTIONS)` + commit 后 `run_deferred_after_commit`）。
 - **处置的真实入口是审批回调，不是 `POST /asset/{id}/dispose`**：提交只是发起审批，
   卡片仍在役（真机取证里「提交后通知 = 0」）。只接 submit 会在生产环境（配了已发布
@@ -332,17 +335,22 @@ commit 之后
 - **排除清单**：`GENERATE_VOUCHER`（处置凭证由 `post_disposal_vouchers` 出 1~3 张）+
   `REVERSE_VOUCHER`（作废处置走 `reverse_disposal_vouchers` 原路红冲；再跑一次撞
   「已经红冲」→ 500）。库存 / 余额类动作不列（资产卡片没有这些列，与 `CONTRACT` 同口径）。
-- **停用 / 启用（`IN_USE ⇄ IDLE`）不接：这两条边目前没有 HTTP 入口**。`state_machine`
-  里有 mandatory 边、`doc_kind` 有 `IDLE`/`ENABLE` 变动类型，但 `asset_handler.rs` 的 14 个
-  接口里没有状态变更接口（`asset_model::apply_asset_status` 的调用方只有单测），
-  前端资产页也只有转移 / 换人 / 处置 / 作废处置四个按钮。补接口属于资产模块二开（新功能），
-  本卡不虚造调用点；`spec::TRIGGER_SPECS.wiring` 已把这一点写给配置页看
-  （`FIXED_ASSET/IDLE` 上的规则「可保存、暂无触发源」）。
+  停用 / 启用本来不落凭证也照样排除：**一个实体一张排除清单**，否则「停用会不会落凭证」
+  就取决于运营怎么配规则。
+- **停用 / 启用为什么算触发点**：`state_machine` 里 `IN_USE ⇄ IDLE` 是 mandatory 边、
+  `doc_kind` 有 `IDLE` / `ENABLE` 词表、`spec::TRIGGER_SPECS` 早已向配置页列出
+  `FIXED_ASSET/IDLE` —— 缺的一直是**触发源**，不是触发点资格。判定与口径见设计文档
+  `docs/architecture/FIN-ASSET-ST02-资产停用启用接口设计.md`（D1–D7；最关键的是 D4：
+  **闲置继续计提折旧，折旧口径一处不改**，否则停用就成了无凭证、无审批的损益调节器）。
 - 建卡（`NULL → IN_USE`）是**建行**不接（与开账同口径：导入 N 张卡不能扇出 N 条通知）。
-- 幂等：通知幂等键 `LNK:FIXED_ASSET:<状态>:<卡片 id>`；重复审批 / 重复处置被
-  `disposable()` + `asset_mark_disposed` 的 CAS 挡住，联动不跑第二遍。
-- 真库用例：`erp/asset_linkage_tests.rs` 5 条（处置触发 / 重复处置不重复触发 /
-  作废处置触发 / 事务回滚不发通知 / 排除动作确实不跑、凭证只有一套）。
+- 幂等：通知幂等键 `LNK:FIXED_ASSET:<状态>:<卡片 id>:<变动行 id>`（**事件维度**，FIN-ASSET-ST02 D5）。
+  旧键只有「状态 + 卡片」而 `uk_sys_notice_idem` 是单列唯一 ⇒ 可逆边第二次事件会被吞
+  （停用 → 启用 → 再停用 / 处置 → 作废 → 再处置的第二条都不发），本卡一并修掉。
+  重复动作本身由 `disposable()` / 同态判定（409 `ERP_ASSET_STATUS_ILLEGAL` 66046）+
+  CAS 挡住，联动不跑第二遍。
+- 真库用例：`erp/asset_linkage_tests.rs` 11 条 —— LNK-09 的 5 条 + FIN-ASSET-ST02 的 6 条
+  （停用触发 / 启用触发 / 重复停用 409 且计数不变 / 排除动作不跑 / 可逆边发 3 条 /
+  处置-作废-再处置发 2 条）。
 - 物证：`docs/evidence/20261107-lnk09-asset/`（真机 HTTP：审批通过 → 卡片 DISPOSED +
   通知 1 条 + 3 张处置凭证；重复 approve 幂等且通知/凭证不增；作废处置 → IN_USE + 通知 1 条）。
 
@@ -567,8 +575,10 @@ EXIT=0
 1. **12 个触发点未接线**：本卡只做防误配 + 分批计划，没有在这些触发点上加任何 `run(...)` 调用。
 2. **`wired` 证明的是「调了引擎」，不是「行为正确」**：排除清单 / 上下文 / 幂等键的正确性
    只能由端到端证据保证（§6 DoD ⑤）。守卫对这三件事无能为力。
-3. **`FIXED_ASSET` 的口径未定**：停用/启用走 `asset_model` CAS + `log_event`，不经状态机。
-   「它们算不算触发点」需要产品与财务一起定，本卡只列风险。
+3. ~~**`FIXED_ASSET` 的口径未定**：停用/启用走 `asset_model` CAS + `log_event`，不经状态机。~~
+   **已定（FIN-ASSET-ST02）**：停用/启用是合法状态变更触发点，接口 `POST /business/erp/asset/{id}/status`
+   走 `state_machine::transition`（mandatory 边 `IN_USE ⇄ IDLE`）+ CAS + 留痕 + 联动，
+   **折旧照提、口径不动**；见 `docs/architecture/FIN-ASSET-ST02-资产停用启用接口设计.md`。
 4. **`FLOW_INSTANCE` 的职责划分只是建议**：审批侧 vs 业务侧的分工需要一张设计卡确认后
    才能写进 `spec::wiring`，现在 `wired=false` 是**正确的**（不是因为懒）。
 5. **动作侧仍有 7 个占位**：即使把 12 个触发点全接上，「写库存 / 红冲 / 改状态 / 锁单」

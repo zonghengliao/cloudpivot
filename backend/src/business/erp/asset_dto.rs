@@ -698,6 +698,89 @@ pub fn validate_custodian(req: &CustodianReq, today: NaiveDate) -> Result<Custod
     })
 }
 
+/// 停用 / 启用（`IN_USE ⇄ IDLE`）的请求体。
+///
+/// 与 `transfer` / `custodian` 同形（`change_date` 可空 = 今天、`reason` 必填）：
+/// 三个接口改的都是「卡片状态 / 归属」，不该有两套字段口径。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatusChangeReq {
+    /// 目标状态：只接受 `IDLE`（停用）/ `IN_USE`（启用）。
+    pub target_status: Option<String>,
+    /// 变动日期（默认今天；**只进留痕，不参与任何计算**，与折旧口径无关）。
+    pub change_date: Option<NaiveDate>,
+    /// 原因（必填，内控留痕）。
+    pub reason: Option<String>,
+}
+
+/// 校验通过后的停用 / 启用参数。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatusChangeSpec {
+    /// 目标状态（只可能是 `STATUS_IDLE` / `STATUS_IN_USE`）。
+    pub target_status: &'static str,
+    /// 变动日期。
+    pub change_date: NaiveDate,
+    /// 原因。
+    pub reason: String,
+}
+
+/// 停用 / 启用校验：目标态只接受 `IDLE` / `IN_USE`。
+///
+/// **`DISPOSED` 明确拒绝**：处置要出凭证、要审批（`asset_disposal` 流程），
+/// 放它进来就等于给「无凭证、无审批的处置」开后门（FIN-ASSET-ST02 D2）。
+/// 报文直接点名该走哪个接口，别让调用方猜。
+pub fn validate_status_change(
+    req: &StatusChangeReq,
+    today: NaiveDate,
+) -> Result<StatusChangeSpec, ApiError> {
+    let raw = req
+        .target_status
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .ok_or_else(|| {
+            invalid(format!(
+                "目标状态必填：只能是 {STATUS_IDLE}（停用）/ {STATUS_IN_USE}（启用）"
+            ))
+        })?;
+    let target_status = match raw {
+        STATUS_IDLE => STATUS_IDLE,
+        STATUS_IN_USE => STATUS_IN_USE,
+        STATUS_DISPOSED => {
+            return Err(invalid(
+                "处置不能走本接口：请调用 POST /business/erp/asset/{id}/dispose 提交处置审批 \
+                 （处置要落凭证、要走审批，本接口只做「在役 ⇄ 闲置」）",
+            ));
+        }
+        other => {
+            return Err(invalid(format!(
+                "目标状态只能是 {STATUS_IDLE}（停用）/ {STATUS_IN_USE}（启用）（当前 {other}）"
+            )));
+        }
+    };
+    Ok(StatusChangeSpec {
+        target_status,
+        change_date: req.change_date.unwrap_or(today),
+        reason: require_reason(req.reason.as_deref(), "停用 / 启用原因")?,
+    })
+}
+
+/// 停用 / 启用对应的变动类型（`biz_fixed_asset_change.change_type` 的词表值）。
+///
+/// `IDLE` → `CHANGE_IDLE`（停用）、`IN_USE` → `CHANGE_ENABLE`（启用）：
+/// 时间线按 `from_status/to_status` 渲染文案，`change_type` 只做分类统计，
+/// 所以这里不加新词表值（`doc_kinds.ts` 与巡检脚本都按既有 5 个值对拍）。
+pub fn change_type_of(target_status: &str) -> &'static str {
+    debug_assert!(
+        target_status == STATUS_IDLE || target_status == STATUS_IN_USE,
+        "change_type_of 只接受 IDLE / IN_USE：调用点必须先过 validate_status_change"
+    );
+    if target_status == STATUS_IDLE {
+        CHANGE_IDLE
+    } else {
+        CHANGE_ENABLE
+    }
+}
+
 fn require_reason(raw: Option<&str>, field: &str) -> Result<String, ApiError> {
     let text = raw
         .map(str::trim)
@@ -1509,7 +1592,90 @@ mod tests {
         assert!(validate_custodian(&empty, today).is_err(), "新使用人必填");
     }
 
-    /// ⑪ 分页归一化：页码 ≥1、每页上限 100。
+    /// ⑪ 停用 / 启用：目标态白名单（`DISPOSED` 必须拒绝并指向 `/dispose`）、原因必填、日期默认今天。
+    #[test]
+    fn status_change_validation() {
+        let today = NaiveDate::from_ymd_opt(2026, 11, 7).expect("日期");
+        let idle = StatusChangeReq {
+            target_status: Some("IDLE".to_string()),
+            change_date: None,
+            reason: Some("  生产线搬迁，设备暂不外借  ".to_string()),
+        };
+        let spec = validate_status_change(&idle, today).expect("停用必须通过");
+        assert_eq!(spec.target_status, STATUS_IDLE);
+        assert_eq!(spec.change_date, today, "不传变动日期 → 今天（只留痕）");
+        assert_eq!(spec.reason, "生产线搬迁，设备暂不外借", "原因要去首尾空白");
+        assert_eq!(
+            change_type_of(spec.target_status),
+            CHANGE_IDLE,
+            "停用的变动类型必须是 IDLE（时间线与统计按它分类）"
+        );
+
+        let enable = StatusChangeReq {
+            target_status: Some("IN_USE".to_string()),
+            change_date: NaiveDate::from_ymd_opt(2026, 11, 1),
+            reason: Some("恢复使用".to_string()),
+        };
+        let spec = validate_status_change(&enable, today).expect("启用必须通过");
+        assert_eq!(spec.target_status, STATUS_IN_USE);
+        assert_eq!(
+            spec.change_date,
+            NaiveDate::from_ymd_opt(2026, 11, 1).expect("日期"),
+            "传了变动日期就用传的"
+        );
+        assert_eq!(change_type_of(spec.target_status), CHANGE_ENABLE);
+
+        // DISPOSED 必须明确拒绝，且报文点名走 /dispose（只写「非法」等于把人晾在原地）
+        let disposed = StatusChangeReq {
+            target_status: Some("DISPOSED".to_string()),
+            ..idle.clone()
+        };
+        let err = validate_status_change(&disposed, today).expect_err("处置不许走本接口");
+        assert_eq!(err.status, 400, "处置走错接口是参数问题，不是状态冲突");
+        assert!(
+            err.msg.contains("/dispose"),
+            "报文必须指向处置接口：{}",
+            err.msg
+        );
+
+        for bad in ["", "   ", "CANCELLED", "in_use"] {
+            let req = StatusChangeReq {
+                target_status: Some(bad.to_string()),
+                ..idle.clone()
+            };
+            assert!(
+                validate_status_change(&req, today).is_err(),
+                "`{bad}` 不在白名单里，必须 400"
+            );
+        }
+        let missing = StatusChangeReq {
+            target_status: None,
+            ..idle.clone()
+        };
+        assert!(
+            validate_status_change(&missing, today).is_err(),
+            "目标状态必填"
+        );
+
+        let no_reason = StatusChangeReq {
+            reason: Some("  ".to_string()),
+            ..idle.clone()
+        };
+        assert!(
+            validate_status_change(&no_reason, today).is_err(),
+            "停用 / 启用必须有原因（内控留痕）"
+        );
+        let too_long = StatusChangeReq {
+            reason: Some("停".repeat(MAX_REASON_LEN + 1)),
+            ..idle
+        };
+        assert!(
+            validate_status_change(&too_long, today).is_err(),
+            "原因最长 {MAX_REASON_LEN} 字符"
+        );
+    }
+
+    /// ⑫ 分页归一化：页码 ≥1、每页上限 100。
     #[test]
     fn page_normalization() {
         assert_eq!(normalize_page(0, 0), (1, DEFAULT_PAGE_SIZE));

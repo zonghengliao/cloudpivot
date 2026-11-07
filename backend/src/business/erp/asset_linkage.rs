@@ -1,38 +1,26 @@
 // ============================================================================
-// asset_linkage.rs —— 固定资产（FIXED_ASSET）状态变更的**跨单据联动**接线（LNK-09）
+// asset_linkage.rs —— 固定资产（FIXED_ASSET）状态变更的**跨单据联动**接线（LNK-09 / ST02）
 //
-// 资产的联动上下文 / 排除清单 / 幂等口径只在本文件写一份，触发点只有两个**真实存在**
-// 的状态推进（第三个「建卡」是建行，不接；「停用 / 启用」目前没有 HTTP 入口，见文末）：
+// 资产的联动上下文 / 排除清单 / 幂等口径只在本文件写一份，触发点是三处**真实存在**的
+// 状态推进（「建卡」是建行，不接）：
 //
 // | 触发点 | 入口 | 目标态 |
 // |--------|------|--------|
 // | 处置（审批通过） | `asset_bridge.rs::execute` 第 ⑤ 步（凭证 + 状态机 + 卡片回填 + 留痕之后、`tx.commit()` 之前） | `IN_USE\|IDLE → DISPOSED` |
 // | 作废处置 | `asset_handler.rs::asset_dispose_cancel` 第 ⑤ 步（红冲 + 状态机 + 恢复在役 + 留痕之后、`tx.commit()` 之前） | `DISPOSED → IN_USE` |
+// | 停用 / 启用 | `asset_handler.rs::asset_status_change` 第 ⑦ 步（状态机 `IN_USE ⇄ IDLE` + CAS + 留痕之后、`tx.commit()` 之前） | `IN_USE ⇄ IDLE` |
 //
 // # 为什么「建卡」不接
 //
 // 建卡是 `NULL → IN_USE` 的**建行**动作（`asset_handler::asset_create` 写的是
 // `log_event` 而不是状态流转），与「新建单据不算触发点」同一口径：挂上就是
-// 「导入 N 张卡 = 扇出 N 条通知」。`FIXED_ASSET/IN_USE` 上的规则因此只由**作废处置**
-// （`DISPOSED → IN_USE`）触发，这一点写进 `linkage::spec::TRIGGER_SPECS` 的 `wiring` 文案。
+// 「导入 N 张卡 = 扇出 N 条通知」。
 //
-// # 为什么「停用 / 启用」这两条边没有接线（卡面「四处状态推进」的实况）
+// # 停用 / 启用的口径（FIN-ASSET-ST02 D4/D7，别顺手改）
 //
-// `state_machine::FIXED_ASSET_EDGES` 里确实有 `IN_USE ↔ IDLE` 两条 mandatory 边，
-// `doc_kind` 的变动类型词表里也有 `IDLE` / `ENABLE`，但**当前代码里没有任何 HTTP 入口
-// 会走这两条边**（`grep -rn "STATUS_IDLE" backend/src` 只命中 `asset_dto.rs` 的常量与
-// `LIVE_STATUSES`；`asset_handler.rs` 的 14 个接口里没有状态变更接口，
-// `asset_model::apply_asset_status` 的调用方只有单测）。也就是说：
-//
-// * 不是「接线漏了」，而是**功能本身没有入口**（前端资产页同样只有转移 / 换人 / 处置 /
-//   作废处置四个按钮）；
-// * 在本卡里凭空虚造一个 `POST /asset/{id}/status` 属于新功能，不是接线 —— 会把
-//   「联动接线卡」变成「资产模块二次开发卡」，而且新增接口还要动权限种子 / 前端，
-//   与本卡 1.5 小时的边界冲突。
-//
-// 所以本文件只接**真实存在的两处**状态推进，并把这个缺口写进 `wiring` 文案与证据文档
-// （宁可承认「IDLE 上的规则目前没有触发源」，也不要在 `wired = true` 里塞一条假调用）。
-// 漂移守卫：`linkage::tests_wiring::asset_wires_generic_engine_and_excludes_voucher`。
+// 停用只改状态标签与动作可见性：**折旧照提**（`scan_assets_for_period` 的
+// `status IN ('IN_USE','IDLE')` / `in_depreciation_scope` / 边标签「停用（闲置，照提折旧）」
+// 一律不动），不落凭证、不走审批。所以本 hook 的排除清单与处置完全一致（见下）。
 //
 // # 为什么资产也要「排除清单」（卡面重点：凭证不重复）
 //
@@ -45,12 +33,25 @@
 //   巡检 K7「1606 / 1901 必须归零」当场红）；
 // * `REVERSE_VOUCHER` → 同一张蓝字处置凭证被红冲两次（第二次撞「已经红冲」→ 500）。
 //
+// 停用 / 启用本来不落凭证，为什么也要排除？—— **一个实体一张排除清单**：否则
+// 「停用会不会落凭证」就取决于运营怎么配规则；统一排除 = 资产域任何状态变更都不由通用引擎落账。
+//
 // 库存 / 余额类动作（`WRITE_INVENTORY` / `UPDATE_COST` / `UPDATE_PAYABLE_BALANCE`）
 // 不列进来：资产卡片上没有物料 / 余额列，列进来只是噪音（与合同 `CONTRACT` 同口径）。
 //
+// # 通知幂等键 = 事件维度（FIN-ASSET-ST02 D5，修 LNK-09 遗留 bug）
+//
+// 键 = `LNK:FIXED_ASSET:<目标态>:<卡片 id>:<event_ref>`，`event_ref` = 本次写入的
+// `biz_fixed_asset_change.id`（append-only 事件本体）。
+//
+// 旧键只有「状态 + 卡片」，而 `uk_sys_notice_idem` 是**单列唯一**（V0049）⇒ 可逆边第二
+// 次事件必然被吞：停用 → 启用 → 再停用（第二次停用不发），处置 → 作废处置 → 再处置
+// （第二次处置不发，LNK-09 遗留）。同型先例是 LNK-10 的 `depreciation_linkage::event_ref`
+// （= 本次凭证 id），字段名沿用同一个，别造第二个概念。
+//
 // # 事务边界（铁律 ④）
 //
-// - 事务内：`run_in_tx` → `engine::run_excluding`，关键动作失败 → 整笔处置 / 作废回滚
+// - 事务内：`run_in_tx` → `engine::run_excluding`，关键动作失败 → 整笔处置 / 作废 / 停用回滚
 //   （不会留下「卡已处置、联动没跑」的半截状态）；
 // - 提交后：`run_deferred_after_commit` → `engine::run_deferred`，通知 / 建任务这类
 //   `Phase::AfterCommit` 动作**永不回滚业务**（资产状态已落定，一封站内信失败不该把
@@ -82,8 +83,14 @@ pub(crate) struct AssetStatusChange {
     pub(crate) asset_no: String,
     /// 变更**之后**的状态（触发点状态）。
     pub(crate) status: String,
-    /// 操作人（处置发起人 / 作废处置的人）。
+    /// 操作人（处置发起人 / 作废处置的人 / 停用启用的人）。
     pub(crate) operator: Option<Uuid>,
+    /// **本次事件标识** = 本次写入的 `biz_fixed_asset_change.id`（通知幂等键用它）。
+    ///
+    /// 为什么要它：可逆边（停用 ⇄ 启用、处置 ⇄ 作废处置）会**重复落到同一个目标态**，
+    /// 只按「状态 + 卡片」去重会把第二次真实事件吞掉（LNK-09 遗留 bug）。字段名与
+    /// LNK-10 的 `depreciation_linkage::event_ref` 同名同义。
+    pub(crate) event_ref: Uuid,
     /// 制单人（`biz_fixed_asset.create_by`，`recipient = CREATOR` / 默认收件人）。
     pub(crate) creator: Option<Uuid>,
     /// 事务内动作的执行结果（`deferred` 待提交后跑）。
@@ -117,8 +124,20 @@ impl AssetStatusChange {
         draft.sender_name = Some("固定资产".to_string());
         // 状态变更是知情类通知，尊重 notify.inbox（漏看不造成损失）
         draft.force = false;
-        // 幂等键：同一卡片 + 同一状态只发一条（CAS 之外的第二道闸，见文件头）
-        draft.idempotency_key = Some(format!("LNK:FIXED_ASSET:{}:{}", self.status, self.asset_id));
+        // 幂等键 = **事件维度**（状态 + 卡片 + 本次变动行 id）：同一事件重放只发一条
+        // （CAS 之外的第二道闸），不同事件（可逆边的第二次）各发一条。见文件头 §幂等键。
+        let key = format!(
+            "LNK:FIXED_ASSET:{}:{}:{}",
+            self.status, self.asset_id, self.event_ref
+        );
+        // `sys_notice.idempotency_key` 是 VARCHAR(128)（V0043）；本键最长 98 字符。
+        // 钉住它，免得将来有人把状态名写长之后才在库里撞列宽（LNK-10 同款断言）。
+        assert!(
+            key.len() <= 128,
+            "通知幂等键超长（{}/128）：{key}",
+            key.len()
+        );
+        draft.idempotency_key = Some(key);
         linkage::LinkageContext::new(
             state_machine::ENTITY_FIXED_ASSET,
             &self.status,
@@ -142,12 +161,15 @@ pub(crate) async fn run_in_tx(
     asset_no: &str,
     status: &str,
     operator: Option<Uuid>,
+    // 本次事件标识（= 调用方刚写入的变动行 id）：进通知幂等键，**必填**
+    event_ref: Uuid,
 ) -> std::result::Result<AssetStatusChange, ApiError> {
     let mut change = AssetStatusChange {
         asset_id,
         asset_no: asset_no.to_string(),
         status: status.to_string(),
         operator,
+        event_ref,
         creator: creator_of(ex, asset_id).await,
         run: linkage::LinkageRun::default(),
     };
@@ -160,6 +182,7 @@ pub(crate) async fn run_in_tx(
             asset_id = %change.asset_id,
             asset_no = change.asset_no,
             status,
+            event_ref = %change.event_ref,
             in_tx_rules = change.run.runs.len(),
             deferred_rules = change.run.deferred.len(),
             "固定资产状态变更：跨单据联动已执行（事务内动作已落库，提交后动作待 commit）"
@@ -219,24 +242,38 @@ async fn creator_of(ex: &impl SqlExecutor, asset_id: Uuid) -> Option<Uuid> {
 mod tests {
     use super::*;
 
-    fn change(status: &str) -> AssetStatusChange {
+    fn change(status: &str, event_ref: Uuid) -> AssetStatusChange {
         AssetStatusChange {
             asset_id: Uuid::parse_str("018f0000-0000-7000-8000-000000000003").expect("uuid"),
             asset_no: "FA-20990115-000001".to_string(),
             status: status.to_string(),
             operator: None,
+            event_ref,
             creator: None,
             run: linkage::LinkageRun::default(),
         }
     }
 
-    /// ① 通知幂等键必须是「状态 + 卡片」维度：同一张卡先处置后作废各一条，
-    /// 同一状态重复推进只落一条（CAS 之外的第三道保险）。
+    /// 两次事件的两条变动行 id（模拟「处置一次 / 再处置一次」两个 append-only 行）。
+    fn event_a() -> Uuid {
+        Uuid::parse_str("018f0000-0000-7000-8000-0000000000a1").expect("uuid")
+    }
+
+    fn event_b() -> Uuid {
+        Uuid::parse_str("018f0000-0000-7000-8000-0000000000b2").expect("uuid")
+    }
+
+    /// ① 通知幂等键必须是**事件**维度：同一事件重放只发一条，不同事件各发一条。
+    ///
+    /// 这条同时是 LNK-09 遗留 bug 的回归守卫：旧键只有「状态 + 卡片」，
+    /// 「处置 → 作废 → 再处置」的第二次处置与第一次同状态 ⇒ 撞 `uk_sys_notice_idem`
+    /// 被 `ON CONFLICT DO NOTHING` 吞掉，用户永远收不到第二条。可逆边（停用 / 启用）
+    /// 更是必然第二次失效。
     #[test]
-    fn notice_idempotency_key_is_per_status_and_asset() {
-        let disposed = change(asset_dto::STATUS_DISPOSED);
-        let restored = change(asset_dto::STATUS_IN_USE);
-        let disposed_again = change(asset_dto::STATUS_DISPOSED);
+    fn notice_idempotency_key_is_per_event_and_asset() {
+        let disposed = change(asset_dto::STATUS_DISPOSED, event_a());
+        let restored = change(asset_dto::STATUS_IN_USE, event_b());
+        let disposed_again = change(asset_dto::STATUS_DISPOSED, event_b());
         let key = |ctx: &linkage::LinkageContext<'_>| {
             ctx.notice
                 .as_ref()
@@ -248,22 +285,36 @@ mod tests {
             key(&restored.ctx()),
             "处置与作废处置必须是不同幂等键"
         );
-        assert_eq!(
+        assert_ne!(
             key(&disposed.ctx()),
             key(&disposed_again.ctx()),
-            "同一卡片同一状态重复推进必须撞同一个幂等键（只发一条）"
+            "同一张卡两次处置（不同变动行）必须是不同幂等键：否则第二次真实事件被静默吞掉"
+        );
+        assert_eq!(
+            key(&disposed.ctx()),
+            key(&change(asset_dto::STATUS_DISPOSED, event_a()).ctx()),
+            "同一事件重放（同一变动行 id）必须撞同一个幂等键（重试不重复发）"
+        );
+        let sample = key(&disposed.ctx());
+        assert!(
+            sample.starts_with("LNK:FIXED_ASSET:"),
+            "幂等键前缀是清理夹具与排障的判据：{sample}"
         );
         assert!(
-            key(&disposed.ctx()).starts_with("LNK:FIXED_ASSET:"),
-            "幂等键前缀是清理夹具与排障的判据：{}",
-            key(&disposed.ctx())
+            sample.ends_with(&event_a().to_string()),
+            "幂等键必须以本次变动行 id 结尾（事件维度）：{sample}"
+        );
+        assert!(
+            sample.len() <= 128,
+            "`sys_notice.idempotency_key` 是 VARCHAR(128)，当前键长 {}：{sample}",
+            sample.len()
         );
     }
 
     /// ② 通知文案 / 链接 / 业务类型取自卡片本身（状态中文名来自 `spec::TRIGGER_SPECS`）。
     #[test]
     fn notice_draft_carries_asset_context() {
-        let disposed = change(asset_dto::STATUS_DISPOSED);
+        let disposed = change(asset_dto::STATUS_DISPOSED, event_a());
         let ctx = disposed.ctx();
         let draft = ctx.notice.as_ref().expect("必须带通知草稿");
         assert_eq!(draft.biz_type.as_deref(), Some(NOTICE_BIZ_TYPE));
