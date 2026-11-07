@@ -92,7 +92,10 @@ echo "$FRESH" > /root/backup/.fix7_fresh_db
 stop_instance
 start_instance 8049 "$FRESH" /root/backup/fix7_fresh.log
 grep -E "数据库迁移完成" /root/backup/fix7_fresh.log | tail -2 | sed 's/^/    /'
-ADMIN2=$(login admin "$ADMIN_PASS")
+# 空库实例在 8049 上（$API 指的是 8048 的拷贝库实例），登录要打对端口
+ADMIN2=$(curl -sS -X POST "http://127.0.0.1:8049/api/system/auth/login" \
+  -H 'Content-Type: application/json' \
+  -d "{\"username\":\"admin\",\"password\":\"$ADMIN_PASS\"}" | jq -r '.data.access_token // empty')
 check_eq "0" "$( [ -n "$ADMIN2" ] && echo 0 || echo 1 )" "空库首启后 admin 能登录（迁移链建出的种子可用）"
 FRESH_SQ() { psql -h 127.0.0.1 -U cloudpivot -d "$FRESH" -X -tAc "$1" | tr -d '[:space:]'; }
 check_eq "1" "$(FRESH_SQ "select count(*) from schema_migrations where name='inventory_biz_type_and_sourceless_in_type'")" "空库含 V0330"
