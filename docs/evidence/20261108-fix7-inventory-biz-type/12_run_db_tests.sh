@@ -26,13 +26,12 @@ cd /opt/cloudpivot/backend
 set +e
 cargo test --lib -- \
   business::erp::shipment_posting::tests \
-  business::erp::stockin_handler_tests_a4 \
+  business::erp::stockin_handler::stockin_handler_tests_a4 \
+  business::erp::stockin_model::stockin_tests \
+  business::erp::stockout_model::stockout_tests \
   business::erp::stockout_base::tests \
   business::erp::stockin_base::tests \
-  business::erp::stockout_tests \
-  business::erp::stockin_tests \
-  business::erp::stockin_cancel \
-  business::shared::doc_kind 2>&1 | tail -60
+  business::shared::doc_kind 2>&1 | tail -80
 RC=${PIPESTATUS[0]}
 echo "cargo test exit=$RC"
 echo "$RC" > /tmp/_fix7_db_tests_rc
