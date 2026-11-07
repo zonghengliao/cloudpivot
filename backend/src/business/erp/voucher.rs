@@ -5000,4 +5000,210 @@ mod tests {
         cleanup_so41().await;
         println!("[SO41-②] 真库出库成本凭证：借 6401 500 / 贷 1405 500（本位币，不换算） ✓");
     }
+
+    // ==================== FIX-8：取号器并发 + 按单据类型独立（t_6ddb0036） ====================
+    //
+    // 卡面问题 1「取号器是不是全局单行」的结论：**不是**。`biz_seq` 是「一个 `seq_type` 一行」
+    // （`uk_biz_seq_type` 部分唯一索引，V0137 §1.1），调拨单号跳到 `TK-20261107-000093`
+    // 是并行的单测 / 演练把 `TK` 这一行推上去了 —— 跳号允许（ERP 只禁重号）。
+    //
+    // 但「本来没坏」不等于「有证据」：取号代码是 `UPDATE … RETURNING`（单语句原子），
+    // 一旦有人把它改成「先 SELECT 再 UPDATE」就会同时冒重号，且只看代码看不出来。
+    // 所以把口径钉成两条可执行断言：
+    //   ① 同一号段 10 个**并发事务**取号 → 号码两两不同，计数器正好前进 10；
+    //   ② 不同 `seq_type` 各自递增、互不影响（A 抢 6 个号时 B 一个号都不动）。
+    //
+    // 都走 `next_doc_no`（生产唯一入口：盘点 / 凭证 / 应付 / 销售 / 调拨……全部经它），
+    // 因此证明的是框架级取号语义，不是某个单据的私有实现。
+
+    /// `biz_seq` 的读状态（`(period_key, current_no)`），`None` = 这行不存在。
+    async fn seq_state(seq_type: &str) -> Option<(String, i64)> {
+        let row = db()
+            .query_first_sql(
+                "SELECT period_key, current_no FROM biz_seq \
+                  WHERE seq_type = ? AND deleted_at IS NULL"
+                    .to_string(),
+                vec![Value::Text(seq_type.to_string())],
+            )
+            .await
+            .unwrap_or_else(|err| panic!("读 biz_seq({seq_type}) 失败：{err}"));
+        row.as_ref().map(|row| {
+            (
+                row.get_typed::<String>("period_key").expect("period_key"),
+                row.get_typed::<i64>("current_no").expect("current_no"),
+            )
+        })
+    }
+
+    /// 全部号段的 `(seq_type, current_no)` 快照（用来自证「别的号段纹丝不动」）。
+    async fn seq_snapshot() -> std::collections::BTreeMap<String, i64> {
+        let rows = db()
+            .query_sql(
+                "SELECT seq_type, current_no FROM biz_seq WHERE deleted_at IS NULL".to_string(),
+                vec![],
+            )
+            .await
+            .expect("读 biz_seq 全表失败");
+        rows.iter()
+            .map(|row| {
+                (
+                    row.get_typed::<String>("seq_type").expect("seq_type"),
+                    row.get_typed::<i64>("current_no").expect("current_no"),
+                )
+            })
+            .collect()
+    }
+
+    /// FIX-8 用例专用号段（`seq_type` 无白名单约束；用例开头结尾都删，不污染共享库）。
+    const FIX8_CONC: SeqSpec<'static> = SeqSpec {
+        seq_type: "FIX8_CONC",
+        prefix: "F8",
+        seq_name: "FIX-8 并发取号",
+        remark: "FIX-8 单测专用号段：10 并发取号不重号",
+    };
+    const FIX8_A: SeqSpec<'static> = SeqSpec {
+        seq_type: "FIX8_A",
+        prefix: "FA",
+        seq_name: "FIX-8 号段 A",
+        remark: "FIX-8 单测专用号段：验证按单据类型独立递增",
+    };
+    const FIX8_B: SeqSpec<'static> = SeqSpec {
+        seq_type: "FIX8_B",
+        prefix: "FB",
+        seq_name: "FIX-8 号段 B",
+        remark: "FIX-8 单测专用号段：验证按单据类型独立递增",
+    };
+
+    async fn drop_fix8_seq_rows() {
+        exec("DELETE FROM biz_seq WHERE seq_type LIKE 'FIX8\\_%'").await;
+    }
+
+    /// 验收①：10 个**并发事务**取同一个号段，号码不许重号。
+    ///
+    /// 用「事务 + 提交」而不是裸语句，是因为生产路径（建单）就是这样：事务持有 `biz_seq`
+    /// 那一行的行锁直到提交，后来者必须等 —— 这正是「重号」最容易漏掉的地方。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn fix8_concurrent_takes_never_duplicate() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let now = Utc::now();
+        let period_key = serial_model::period_key_of(now);
+        drop_fix8_seq_rows().await;
+
+        let mut handles = Vec::new();
+        for _ in 0..10 {
+            handles.push(tokio::spawn(async move {
+                let tx = db().begin().await.expect("开事务");
+                let no = next_doc_no(&tx, &FIX8_CONC, now)
+                    .await
+                    .expect("并发取号不应失败");
+                tx.commit().await.expect("提交");
+                no
+            }));
+        }
+        let mut numbers = Vec::new();
+        for handle in handles {
+            numbers.push(handle.await.expect("取号任务 panic"));
+        }
+
+        let mut unique = numbers.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(
+            unique.len(),
+            10,
+            "10 个并发取号必须两两不同（重号是生产事故）：{numbers:?}"
+        );
+        // 号码必须是同一号段的连续 1..=10：不是「各自从 0 起」也不是「跳着走」
+        let expected: Vec<String> = (1..=10)
+            .map(|no| format_doc_no("F8", &period_key, no))
+            .collect();
+        assert_eq!(
+            unique, expected,
+            "并发取到的应是 {period_key} 号段的 1..=10"
+        );
+        // 计数器只前进 10 步：多推 = 有人读了旧值再写（丢号不算错，但说明实现退化）
+        let (key, current) = seq_state("FIX8_CONC").await.expect("号段行应存在");
+        assert_eq!(key, period_key, "周期键应停在本次取号的周期");
+        assert_eq!(current, 10, "10 次取号后计数器必须正好是 10");
+
+        drop_fix8_seq_rows().await;
+        println!("[FIX-8 ①] 10 并发取号 {unique:?} 两两不同，计数器 = 10 ✓");
+    }
+
+    /// 验收②：取号器**按单据类型分行**，A 号段抢号时 B 号段一个号都不动。
+    ///
+    /// 这条同时是「不是全局单行」的回归护栏：如果哪天有人把号段改成共用一行，
+    /// A 取 6 个号会让 B 从 7 开始，断言立刻红。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn fix8_seq_types_advance_independently() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let now = Utc::now();
+        let period_key = serial_model::period_key_of(now);
+        drop_fix8_seq_rows().await;
+        let before = seq_snapshot().await;
+
+        let mut handles = Vec::new();
+        for idx in 0..10 {
+            let spec = if idx % 5 < 3 { FIX8_A } else { FIX8_B }; // A 6 个号 / B 4 个号，交替发起
+            handles.push(tokio::spawn(async move {
+                let tx = db().begin().await.expect("开事务");
+                let no = next_doc_no(&tx, &spec, now).await.expect("取号");
+                tx.commit().await.expect("提交");
+                no
+            }));
+        }
+        let mut numbers = Vec::new();
+        for handle in handles {
+            numbers.push(handle.await.expect("取号任务 panic"));
+        }
+        let mut a: Vec<String> = numbers
+            .iter()
+            .filter(|no| no.starts_with("FA-"))
+            .cloned()
+            .collect();
+        let mut b: Vec<String> = numbers
+            .iter()
+            .filter(|no| no.starts_with("FB-"))
+            .cloned()
+            .collect();
+        a.sort();
+        b.sort();
+        let expected_a: Vec<String> = (1..=6)
+            .map(|no| format_doc_no("FA", &period_key, no))
+            .collect();
+        let expected_b: Vec<String> = (1..=4)
+            .map(|no| format_doc_no("FB", &period_key, no))
+            .collect();
+        assert_eq!(a, expected_a, "A 号段应独立从 1 递增到 6：{numbers:?}");
+        assert_eq!(b, expected_b, "B 号段应独立从 1 递增到 4：{numbers:?}");
+        assert_eq!(
+            seq_state("FIX8_A").await.expect("A 号段行"),
+            (period_key.clone(), 6)
+        );
+        assert_eq!(
+            seq_state("FIX8_B").await.expect("B 号段行"),
+            (period_key.clone(), 4)
+        );
+
+        // 其它号段（PO / TK / STOCK_TAKE / PZ …）纹丝不动
+        let after = seq_snapshot().await;
+        for (seq_type, current) in &before {
+            if seq_type.starts_with("FIX8_") {
+                continue;
+            }
+            assert_eq!(
+                after.get(seq_type),
+                Some(current),
+                "取 FIX8 的号不该推进别的号段 {seq_type}（{current} → {:?}）",
+                after.get(seq_type)
+            );
+        }
+
+        drop_fix8_seq_rows().await;
+        println!("[FIX-8 ②] 按单据类型独立递增：A=1..=6 / B=1..=4，其它 24 个号段不动 ✓");
+    }
 }
