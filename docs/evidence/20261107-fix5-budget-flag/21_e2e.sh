@@ -72,10 +72,13 @@ echo "TYPE_TRAVEL=$TYPE_TRAVEL  TYPE_OTHER=$TYPE_OTHER  TYPE_FRESH=$TYPE_FRESH"
 # effective_from = NULL（对 2026-11 生效）；只给 11 月分解 10000（月闸先于年闸）。
 # 5602.09 故意**不编预算**（未编预算场景），且清空该槽占用让算术确定。
 psqlc -v ON_ERROR_STOP=1 -q <<SQL
+delete from biz_budget_period where budget_id = '01a1b6f0-0000-4000-8000-00000000f501'::uuid;
 delete from biz_budget_period where budget_id in (
   select id from biz_budget
    where dept_id='$DEPT'::uuid and account_id='$ACC_TRAVEL'::uuid and fiscal_year=2026
      and status='ACTIVE' and deleted_at is null);
+delete from biz_budget
+ where id = '01a1b6f0-0000-4000-8000-00000000f501'::uuid;
 delete from biz_budget
  where dept_id='$DEPT'::uuid and account_id='$ACC_TRAVEL'::uuid and fiscal_year=2026
    and status='ACTIVE' and deleted_at is null;
@@ -177,7 +180,12 @@ check_eq "1|0|NULL|OCCUPIED" "$ROWS|$UOV|$UAMT|$UST" "④ 占用行同口径（0
 
 echo
 echo "=========== ⑤ 列表接口：over_budget=false / missing_budget=true 都在 ==========="
-api GET "/business/erp/expense/page?page=1&page_size=50&keyword=FIX-5" "$REPORTER" > "$EV/raw/list_page.json"
+# ⚠️ 用 admin 令牌查列表：非超管（emp_drill）带**任何筛选**时后端 500，这是本卡之前就有的缺陷
+#    （`scope::paginate` 要求 base_sql 带 `{FILTER}` 标记，报销分页的 base_sql 没有；
+#    8033 现役实例上同样可复现，见 raw/list_page_emp_500.json 与 README）。与 FIX-5 无关。
+api GET "/business/erp/expense/page?page=1&page_size=50&keyword=FIX-5" "$REPORTER" > "$EV/raw/list_page_emp_500.json"
+echo "（旁证）emp_drill 带筛选查列表：http=$HTTP $(jq -c '{code,msg}' "$EV/raw/list_page_emp_500.json")"
+api GET "/business/erp/expense/page?page=1&page_size=50&keyword=FIX-5" "$ADMIN" > "$EV/raw/list_page.json"
 LIST_HTTP="$HTTP"
 ROW=$(jq -c --arg id "$R3" '[.data.list[]?|select(.id==$id)][0] // {}' "$EV/raw/list_page.json")
 echo "list_http=$LIST_HTTP"
