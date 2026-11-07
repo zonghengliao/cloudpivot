@@ -42,7 +42,14 @@ use crate::business::flow::linkage::spec;
 use crate::business::shared::state_machine;
 
 /// 夹具规则的命名前缀（本卡专用，与其它卡 / 生产的规则互不影响）。
-const RULE_PREFIX: &str = "LNK02-";
+///
+/// ⚠️ 清理用的是 `LIKE 'LNK02%'`（**不带连字符**）：真机取证脚本的规则名是
+/// 「LNK02 采购部分收货 → 通知制单人」（`LNK02` + 空格），而唯一索引
+/// `uk_flow_linkage_rule(trigger_entity, trigger_status, action_code)` **不带**
+/// `WHERE deleted_at IS NULL` —— 取证规则软删之后仍然占着
+/// `PURCHASE_ORDER / PARTIAL_RECEIVED / SEND_NOTICE` 这个坑位，
+/// 用 `LNK02-%` 清不到它，再插同名规则就撞唯一约束（假红）。
+const RULE_PREFIX: &str = "LNK02";
 
 /// 制单人 / 默认收件人：`FIXTURES` 里种入的仓管员（非超管，避免任何提权短路）。
 const PO_CREATOR: &str = "b2b10009-0000-4000-8000-000000000001";
@@ -105,7 +112,7 @@ async fn add_rule(status: &str, action: &str, params: &str) {
             (id, name, trigger_entity, trigger_status, action_code, action_params, seq) \
          VALUES (gen_random_uuid(), ?, 'PURCHASE_ORDER', ?, ?, ?::jsonb, 10)",
         vec![
-            Value::Text(format!("{RULE_PREFIX}{status}-{action}")),
+            Value::Text(format!("{RULE_PREFIX}-{status}-{action}")),
             Value::Text(status.to_string()),
             Value::Text(action.to_string()),
             // jsonb 参数必须用 `Value::Json`（与 `linkage::model::upsert_rule` 同口径）
