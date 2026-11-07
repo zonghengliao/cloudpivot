@@ -211,7 +211,7 @@ asset_status_change(claims, id, req)
 | 2 | 口径函数显式返回 `true` | `backend/src/business/erp/depreciation_model.rs::in_depreciation_scope` | `status != STATUS_DISPOSED && asset_dto::disposable(status)`；单测 `assert!(in_depreciation_scope("IDLE"))` |
 | 3 | 状态机边标签写死 | `backend/src/business/shared/state_machine.rs::FIXED_ASSET_BASE` | `BaseEdge::mandatory("IN_USE", "IDLE", "停用（闲置，照提折旧）", true)` |
 | 4 | 页面口径文案 | `backend/src/business/erp/asset_dto.rs::scan_caption` | 「在役 + 闲置、已到计提起始日、未提足、本期处置的也算」 |
-| 5 | 设计基线 | `docs/architecture/ARCH-6-财务扩展设计.md` §5.5.2 筛选 SQL | `AND a.status IN ('IN_USE','IDLE')  -- 在役 / 闲置都要提` |
+| 5 | 设计基线 | `docs/architecture/ARCH-6-财务扩展设计.md` **§5.5.2** 筛选 SQL（注：卡面写的 §5.3 是「卡片字段口径：原值/残值/购入模式」，折旧筛选 SQL 在 §5.5.2；两处都读过，口径一致） | `AND a.status IN ('IN_USE','IDLE')  -- 在役 / 闲置都要提` |
 | 6 | 准则口径 | 《企业会计准则第 4 号——固定资产》 | 「对所有固定资产计提折旧」，仅豁免「已提足折旧仍继续使用」与「单独计价入账的土地」；「当月减少的固定资产当月仍计提，从下月起不提」——**停用 / 闲置不构成"减少"，减少只由处置（出售/报废/毁损/盘亏）构成**。条文号请财务复核（本卡只按口径引用，未逐字核对条序） |
 
 ### 4.3 反面推演：如果停用即停提，会发生什么
