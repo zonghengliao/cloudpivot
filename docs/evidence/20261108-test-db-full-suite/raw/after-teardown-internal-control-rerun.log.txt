@@ -1,0 +1,20 @@
+
+running 15 tests
+test business::flow::internal_control::db_tests::countersign_all_excluded_fails_closed ... ok
+test business::flow::internal_control::db_tests::countersign_one_excluded_then_two_approve_passes ... ok
+test business::flow::internal_control::db_tests::countersign_two_excluded_then_one_approves ... ok
+test business::flow::internal_control::db_tests::excluded_user_cannot_bypass_by_calling_approve ... ok
+test business::flow::internal_control::db_tests::remaining_approver_votes_normally ... ok
+test business::flow::internal_control::db_tests::role_members_are_not_excluded ... ok
+test business::flow::internal_control::db_tests::skipped_task_is_not_in_my_todo ... ok
+test business::flow::internal_control::db_tests::zz_purge_module_fixtures ... ok
+test business::flow::internal_control::tests::business_roles_leave_nobody_excluded ... ok
+test business::flow::internal_control::tests::creator_in_approvers_is_skipped_not_pending ... ok
+test business::flow::internal_control::tests::initiator_in_approvers_is_skipped ... ok
+test business::flow::internal_control::tests::nobody_excluded_keeps_everyone_pending ... ok
+test business::flow::internal_control::tests::reasons_are_human_readable ... ok
+test business::flow::internal_control::tests::same_person_keeps_one_reason ... ok
+test business::flow::internal_control::tests::ungovened_business_is_untouched ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 3315 filtered out; finished in 10.60s
+

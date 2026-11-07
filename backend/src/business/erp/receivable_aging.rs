@@ -1115,6 +1115,29 @@ mod tests {
         // 账龄报表是**全库口径**（接口没有客户过滤参数），所以夹具必须清全表：
         // 只清自己的前缀会让并行模块的夹具（receivable / receivable_query 的
         // Q1301 / SO13T 单）混进汇总，doc_count / 客户数全部对不上。
+        //
+        // ⚠️ 直接 `DELETE FROM biz_receivable` 会被外键挡住：别的模块留下的
+        // `biz_invoice` / `biz_receipt_allocation` / `biz_receipt_refund_allocation`
+        // 都挂着 `receivable_id`（`confdeltype = r`，RESTRICT）⇒ 报 `23503` / 上层只剩
+        // 一句 `db error`（实测：整轮全量在 invoice 段之后跑本模块，3 条用例集体红）。
+        // 所以先「解绑」再删表：
+        //   · `biz_invoice.receivable_id` 可空 → 置 NULL（发票本身不动，只摘掉指向应收的指针）；
+        //   · 两张核销明细表该列 NOT NULL → 只能删行（核销明细离开应收就没有意义，受款单保留）。
+        exec(
+            "UPDATE biz_invoice SET receivable_id = NULL WHERE receivable_id IS NOT NULL",
+            vec![],
+        )
+        .await;
+        exec(
+            "DELETE FROM biz_receipt_allocation WHERE receivable_id IS NOT NULL",
+            vec![],
+        )
+        .await;
+        exec(
+            "DELETE FROM biz_receipt_refund_allocation WHERE receivable_id IS NOT NULL",
+            vec![],
+        )
+        .await;
         exec("DELETE FROM biz_receivable", vec![]).await;
         exec("DELETE FROM biz_customer WHERE code LIKE 'QR13-%'", vec![]).await;
         // uuid 一律内联成字面量：`Value::Text` 绑到 `?::uuid` 在 nik-db 上序列化失败（实测）

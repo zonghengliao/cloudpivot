@@ -299,8 +299,9 @@ pub async fn write_cancel_txn(
 ///
 /// `batch.source_type` 由调用方按本单 `in_type` 决定（采购入库 / 退货入库，见
 /// [`super::stockin_base::serial_source_of_in_type`]）；`None` = 该 `in_type`
-/// 不在序列号来源 4 类域内（其他入库）⇒ `source_type` / `source_id` **都不写**，
-/// 保证「有类型必有 id、有 id 必有类型」这条不变量从写入点就成立。
+/// 不在序列号来源 4 类域内（其他入库 / 无源入库）⇒ **只写 `source_id`（恒写本单 id）、
+/// `source_type` 留空**。理由：`source_id` 是「号挂在哪张单」的唯一线索，详情计数与
+/// 作废退号都靠它；来源**类型**只是分类标签，缺了不影响任何链路（见 [`insert_serials`]）。
 ///
 /// 参数直接收 `&SerialBatch`（而不是 8 个散参数）：clippy 的 `too_many_arguments`
 /// 只是症状，真问题是「谁的号 / 落在哪 / 来自哪张单」散着传时调用点读不出来。
@@ -323,13 +324,18 @@ pub(super) async fn insert_serials(
     }
     let payload = serial_model::pair_payload(pairs);
     let operator_text = Value::Text(operator.map(|v| v.to_string()).unwrap_or_default());
-    // 没有来源类型 ⇒ 连 id 一起留空（半个来源比没有来源更难查）。
+    // 来源类型：只有 `PURCHASE` / `RETURN` 在序列号来源的 4 类域内才写
+    // （其他入库 / 无源入库 `in_type = SOURCELESS` 时不写类型）。
     let source_type_text = Value::Text(source_type.unwrap_or_default().to_string());
-    let source_id_text = Value::Text(
-        source_type
-            .map(|_| stock_in_id.to_string())
-            .unwrap_or_default(),
-    );
+    // 来源单据：**恒写本单 id**。
+    //
+    // 旧写法是「没有来源类型 ⇒ 连 source_id 一起留空」（追求「有类型必有 id、有 id 必有类型」）。
+    // 代价太大：`biz_material_serial.source_id` 是**唯一能把序列号挂回收货单**的线索，
+    // 留空之后
+    //   · 详情 `serial_count_of(单)` 恒 0（FIX-7 之后无源入库的序列号全成孤儿）；
+    //   · 作废收货单时 `serial_by_source(单)` 查不到号 ⇒ **号不退、库存与序列号台账漂移**。
+    // 所以改成「source_id 恒写，source_type 可空」：一对多的关联是事实，类型只是分类标签。
+    let source_id_text = Value::Text(stock_in_id.to_string());
     ex.exec_sql(
         "INSERT INTO biz_material_serial \
              (id, serial_no, material_id, warehouse_id, location_id, batch_no, status, inbound_at, \

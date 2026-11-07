@@ -1279,4 +1279,94 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
         assert_eq!(sc.node_approver_count("n1").await, 2);
         assert_eq!(sc.instance_status().await, "PENDING");
     }
+
+    /// 收尾：把本模块的 `p0fix_*` 夹具**从库里彻底清掉**（模块跑完的最后一条用例）。
+    ///
+    /// # 为什么必须是模块级收尾（而不是每例 `setup` 自清）
+    ///
+    /// 这些夹具的 `biz_flow_def` 是 `biz_type = 'PO_APPROVE'` + `status = 'PUBLISHED'`，
+    /// 还会留下 `PENDING` 的 `PO_APPROVE` 实例、且 7 个版本的 `graph_hash` 是 `0…0`（夹具不写哈希）。
+    /// 同一个库连跑第二轮时：
+    /// * `purchase_handler`（erp 段，排在 flow 段之前）的「没配流程必须 409」「额度内可显式跳过」
+    ///   「模块收尾不许剩 PENDING 采购审批实例」会先跑，被上一轮的残留打成假红（实测 4 条）；
+    /// * `stockin` 的全局「审批图自检」（`flow::maintain::run_once`）会把这 7 个零哈希版本
+    ///   报成 7 条 `RowsEdited` 漂移（实测 1 条）。
+    ///
+    /// 本用例名以 `zz_` 开头：串行跑（`--test-threads=1`）时排在本模块最后，
+    /// 删掉的正好是本模块自己留下的行；断言是**库侧复查**（不信 self-report）。
+    #[tokio::test]
+    async fn zz_purge_module_fixtures() {
+        if !ensure_db().await {
+            return;
+        }
+        let _guard = DB_LOCK.lock().await;
+        // 删除顺序按外键依赖：状态日志（无外键，先删）→ 实例子表 → 实例 → 采购单 → 流程图 → 定义 → 人。
+        let stmts = [
+            "DELETE FROM biz_status_log WHERE entity_id IN \
+             (SELECT id FROM biz_flow_instance WHERE biz_no LIKE 'P0FIX-%')",
+            "DELETE FROM biz_status_log WHERE entity_id IN \
+             (SELECT id FROM biz_purchase_order WHERE order_no LIKE 'P0FIX-%')",
+            "DELETE FROM biz_flow_task WHERE instance_id IN \
+             (SELECT id FROM biz_flow_instance WHERE biz_no LIKE 'P0FIX-%')",
+            "DELETE FROM biz_flow_instance_node WHERE instance_id IN \
+             (SELECT id FROM biz_flow_instance WHERE biz_no LIKE 'P0FIX-%')",
+            "DELETE FROM biz_flow_cc WHERE instance_id IN \
+             (SELECT id FROM biz_flow_instance WHERE biz_no LIKE 'P0FIX-%')",
+            // 自引用外键（prev_instance_id）先解开，再删本体
+            "UPDATE biz_flow_instance SET prev_instance_id = NULL WHERE biz_no LIKE 'P0FIX-%'",
+            "DELETE FROM biz_flow_instance WHERE biz_no LIKE 'P0FIX-%'",
+            "DELETE FROM biz_purchase_order_item WHERE order_id IN \
+             (SELECT id FROM biz_purchase_order WHERE order_no LIKE 'P0FIX-%')",
+            "DELETE FROM biz_purchase_order WHERE order_no LIKE 'P0FIX-%'",
+            "DELETE FROM biz_flow_edge WHERE version_id IN \
+             (SELECT v.id FROM biz_flow_def_version v JOIN biz_flow_def d ON d.id = v.def_id \
+               WHERE d.flow_code LIKE 'p0fix\\_%')",
+            "DELETE FROM biz_flow_node_assignee WHERE node_id IN \
+             (SELECT n.id FROM biz_flow_node n JOIN biz_flow_def_version v ON v.id = n.version_id \
+                JOIN biz_flow_def d ON d.id = v.def_id WHERE d.flow_code LIKE 'p0fix\\_%')",
+            "DELETE FROM biz_flow_node WHERE version_id IN \
+             (SELECT v.id FROM biz_flow_def_version v JOIN biz_flow_def d ON d.id = v.def_id \
+               WHERE d.flow_code LIKE 'p0fix\\_%')",
+            "DELETE FROM biz_flow_def_version WHERE def_id IN \
+             (SELECT id FROM biz_flow_def WHERE flow_code LIKE 'p0fix\\_%')",
+            "DELETE FROM biz_flow_def WHERE flow_code LIKE 'p0fix\\_%'",
+            "DELETE FROM sys_user_role WHERE user_id IN \
+             (SELECT id FROM sys_user WHERE username LIKE 'p0fix\\_%')",
+            "DELETE FROM sys_user_role WHERE role_id IN \
+             (SELECT id FROM sys_role WHERE role_code LIKE 'P0FIX\\_%')",
+            "DELETE FROM sys_role WHERE role_code LIKE 'P0FIX\\_%'",
+            "DELETE FROM sys_user WHERE username LIKE 'p0fix\\_%'",
+        ];
+        for sql in stmts {
+            if let Err(error) = db().execute_with_params(sql, vec![]).await {
+                panic!("模块收尾失败：{error}\nSQL: {sql}");
+            }
+        }
+        // 库侧复查（不信 self-report）：残留必须为 0
+        for (label, sql) in [
+            (
+                "p0fix 流程定义",
+                "SELECT count(*) FROM biz_flow_def WHERE flow_code LIKE 'p0fix\\_%'",
+            ),
+            (
+                "P0FIX 采购单",
+                "SELECT count(*) FROM biz_purchase_order WHERE order_no LIKE 'P0FIX-%'",
+            ),
+            (
+                "P0FIX 审批实例",
+                "SELECT count(*) FROM biz_flow_instance WHERE biz_no LIKE 'P0FIX-%'",
+            ),
+            (
+                "p0fix 夹具用户",
+                "SELECT count(*) FROM sys_user WHERE username LIKE 'p0fix\\_%'",
+            ),
+        ] {
+            let left: i64 = db()
+                .scalar_with_params(sql, vec![])
+                .await
+                .unwrap_or_else(|error| panic!("复查{label}失败：{error}"));
+            assert_eq!(left, 0, "模块收尾后{label}必须为 0（否则同库第二轮会假红）");
+        }
+        println!("[internal_control] 模块收尾：p0fix 夹具已从库里清空");
+    }
 }

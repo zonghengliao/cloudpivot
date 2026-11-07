@@ -254,14 +254,19 @@ async fn serial_material_generates_serials_in_receipt_warehouse() {
         assert_eq!(warehouse.to_string(), WAREHOUSE, "序列号必须落在收货仓");
         let status: String = row.get_typed("status").unwrap();
         assert_eq!(status, "IN_STOCK");
-        let source_type: String = row.get_typed("source_type").unwrap();
-        assert_eq!(source_type, "PURCHASE");
+        // FIX-7 口径：**无源入库（本用例没有采购单）不记来源类型** ⇒ `source_type` 为 NULL。
+        // 有源（采购 / 退货）入库才是 `PURCHASE` / `RETURN`，见 `serial_source_of_in_type`。
+        let source_type: Option<String> = row.get_typed("source_type").unwrap();
+        assert!(
+            source_type.is_none(),
+            "无源入库的序列号不该记来源类型（实际 {source_type:?}）"
+        );
         // P2-6b：来源 id 必须回指本收货单（写入点补 id 的验收点）
         let source_id: Option<Uuid> = row.get_typed("source_id").unwrap();
         assert_eq!(
             source_id,
             Some(id),
-            "序列号必须回指本收货单（source_type=PURCHASE ⇒ source_id = biz_stock_in.id）"
+            "序列号必须回指本收货单（source_id 恒写，来源类型才是可空的）"
         );
     }
     // 账面数量与序列号件数一致（不变式①）

@@ -309,6 +309,16 @@ pub(super) async fn cleanup_fixtures() {
             "DELETE FROM biz_material_serial WHERE source_type = 'PURCHASE' AND source_id IN \
          (SELECT id FROM biz_stock_in WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid))"
         ),
+        // ⚠️ 上面那条**只清 PURCHASE 来源**的序列号；FIX-7 之后「无源入库」生成的序列号
+        // `source_type` 是 NULL（`serial_source_of_in_type` 对 SOURCELESS 返回 None），
+        // 一条都删不到 ⇒ 残留在 `biz_material_serial` 里，下面删 `biz_inventory_location`
+        // 时撞 `biz_material_serial_location_id_fkey`（实测：第二次 `setup()` 起 43 条用例集体红）。
+        // 口径与下面「按夹具物料 × 夹具仓库」清流水/库存一致 —— 这台库上这些物料只属于本模块。
+        format!(
+            "DELETE FROM biz_material_serial WHERE material_id IN \
+         ('{MATERIAL_A}'::uuid, '{MATERIAL_B}'::uuid, '{MATERIAL_SN}'::uuid) \
+         AND warehouse_id = '{WAREHOUSE}'::uuid"
+        ),
         format!(
             "DELETE FROM biz_inventory_txn WHERE doc_type = 'STOCK_IN' AND doc_id IN \
          (SELECT id FROM biz_stock_in WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid))"

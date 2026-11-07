@@ -738,11 +738,16 @@ mod db_tests {
         .expect("查 admin")
     }
 
-    /// 当前在跑的待办（按创建顺序）→ `(task_id, node_key)`。
-    async fn pending_tasks(instance_id: Uuid) -> Vec<(Uuid, String)> {
+    /// 当前在跑的待办（按创建顺序）→ `(task_id, node_key, assignee_id)`。
+    ///
+    /// **必须带上 `assignee_id`**：节点是 `assignee_type='ROLE'`，受派人由「角色在职成员」展开
+    /// （`join_mode='AND'` = 会签）。库里有几个该角色的人就有几条待办，用 admin 去代点会被
+    /// 引擎按「非受派人」拒掉（返回 `instance_status = ""`）。所以用例只认**库给的受派人**，
+    /// 不假设审批人是谁 —— 这样在「空库 + 兜底超管」和「演示组织种子库」上都成立。
+    async fn pending_tasks(instance_id: Uuid) -> Vec<(Uuid, String, Uuid)> {
         let rows = db()
             .find_with_params(
-                "SELECT t.id AS task_id, t.node_key \
+                "SELECT t.id AS task_id, t.node_key, t.assignee_id \
                    FROM biz_flow_task t \
                   WHERE t.instance_id = ?::uuid AND t.status = 'PENDING' \
                   ORDER BY t.created_at, t.node_key",
@@ -755,6 +760,7 @@ mod db_tests {
                 (
                     row.get_typed::<Uuid>("task_id").expect("task id"),
                     row.get_typed::<String>("node_key").expect("node key"),
+                    row.get_typed::<Uuid>("assignee_id").expect("assignee id"),
                 )
             })
             .collect()
@@ -793,7 +799,12 @@ mod db_tests {
         let Some(_guard) = setup().await else {
             return;
         };
-        let admin = admin_id().await;
+        // 不再用 admin 代点：受派人由角色成员展开，必须用库给的受派人（见 `pending_tasks`）。
+        // 这里仍取一次 admin，作为「库里必须有超管」的前置断言。
+        assert!(
+            !admin_id().await.is_nil(),
+            "库里必须有 admin（bootstrap 超管）"
+        );
         // (金额, 期望串行节点数) —— < 1 万 / 1–10 万 / ≥ 10 万
         for (amount, hops) in [("5000.0000", 1usize), ("50000.0000", 2), ("150000.0000", 3)] {
             let order_id = fixture_order(amount).await;
@@ -812,34 +823,36 @@ mod db_tests {
             assert_eq!(status, STATUS_SUBMITTED);
             let instance_id = instance_id.expect("提交后必须挂审批实例");
 
-            // 逐节点审批：每次只应有 1 条 PENDING（串行链，不是会签）
+            // 逐节点审批：**同一节点的所有待办都要点完**（`join_mode=AND` 会签 ⇒
+            // 该角色有 N 个在职成员就有 N 条待办；演示组织种子库里 n_finance 有 2 个财务）。
+            // 用每条待办自己的受派人去点，不对「审批人是谁」作任何假设。
+            let mut last_status = String::new();
             for hop in 0..hops {
                 let tasks = pending_tasks(instance_id).await;
-                assert_eq!(
-                    tasks.len(),
-                    1,
-                    "金额 {amount} 第 {} 跳应只有 1 条待办（串行审批），实际 {:?}",
-                    hop + 1,
-                    tasks
+                assert!(
+                    !tasks.is_empty(),
+                    "金额 {amount} 第 {} 跳应当还有待办，实际没有",
+                    hop + 1
                 );
-                let (task_id, node_key) = tasks[0].clone();
                 let expected_node = match hop {
                     0 => "n_sales",
                     1 => "n_finance",
                     _ => "n_gm",
                 };
-                assert_eq!(
-                    node_key,
-                    expected_node,
-                    "金额 {amount} 第 {} 跳节点不对",
-                    hop + 1
-                );
-                let instance_status = approve_task(task_id, admin).await;
+                for (task_id, node_key, assignee) in tasks {
+                    assert_eq!(
+                        node_key,
+                        expected_node,
+                        "金额 {amount} 第 {} 跳节点不对",
+                        hop + 1
+                    );
+                    last_status = approve_task(task_id, assignee).await;
+                }
                 let expect_final = hop + 1 == hops;
                 if expect_final {
-                    assert_eq!(instance_status, "APPROVED");
+                    assert_eq!(last_status, "APPROVED");
                 } else {
-                    assert_eq!(instance_status, "PENDING", "未走完的实例必须还在跑");
+                    assert_eq!(last_status, "PENDING", "未走完的实例必须还在跑");
                 }
             }
             let (status, instance_id) = status_of(order_id).await;
@@ -860,7 +873,6 @@ mod db_tests {
         let Some(_guard) = setup().await else {
             return;
         };
-        let admin = admin_id().await;
         let order_id = fixture_order("150000.0000").await;
         sales_order_handler::submit_approval(
             Some(maker()),
@@ -872,14 +884,14 @@ mod db_tests {
         let (_, instance_id) = status_of(order_id).await;
         let instance_id = instance_id.expect("实例 id");
         let tasks = pending_tasks(instance_id).await;
-        let (task_id, node_key) = tasks.first().cloned().expect("第一跳待办");
+        let (task_id, node_key, assignee) = tasks.first().cloned().expect("第一跳待办");
         assert_eq!(node_key, "n_sales");
         let out = db()
             .transaction(|tx| async move {
                 engine::reject(
                     &tx,
                     task_id,
-                    admin,
+                    assignee,
                     "金额与合同不符，退回重报",
                     engine::ReturnTo::Final,
                 )
@@ -925,7 +937,7 @@ mod db_tests {
         .expect("提交审批成功");
         let (_, instance_id) = status_of(order_id).await;
         let tasks = pending_tasks(instance_id.expect("实例 id")).await;
-        let (task_id, _) = tasks.first().cloned().expect("待办");
+        let (task_id, _, _) = tasks.first().cloned().expect("待办");
         let err = guard_self_approval(task_id, maker())
             .await
             .expect_err("制单人批自己的单必须被拒");

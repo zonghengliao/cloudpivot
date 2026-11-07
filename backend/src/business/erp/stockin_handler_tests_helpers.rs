@@ -505,6 +505,9 @@ pub(super) async fn voucher_count(doc: Uuid, red: Option<i16>) -> i64 {
 
 // ==================== P10：作废退序列号（卡面 §一） ====================
 /// 某张单生成的序列号：`(存活条数, 已软删条数)`。
+///
+/// 与产品口径一致：`source_id` 就是收货单 id，**不按 `source_type` 过滤**
+/// （FIX-7 起无源入库的序列号 `source_type` 为 NULL，加条件会一律查成 0 条）。
 pub(super) async fn serial_counts_of(doc: Uuid) -> (i64, i64) {
     let mut out = [0i64; 2];
     for (slot, cond) in out
@@ -513,7 +516,7 @@ pub(super) async fn serial_counts_of(doc: Uuid) -> (i64, i64) {
     {
         let sql = format!(
             "SELECT count(*) FROM biz_material_serial \
-              WHERE source_id = ?::uuid AND source_type = 'PURCHASE' AND {cond}"
+              WHERE source_id = ?::uuid AND {cond}"
         );
         *slot = db()
             .scalar_with_params(&sql, vec![Value::from(&doc)])

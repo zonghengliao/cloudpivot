@@ -285,12 +285,18 @@ pub async fn order_nos_of(ids: &[Uuid]) -> DbResult<std::collections::HashMap<Uu
 // （`POSTED_RECEIVED_SQL` 只算 `POSTED`），作废把单头状态改成 `CANCELLED` 就够了。
 
 /// 收货单已生成的序列号数量（详情展示 / 单测断言）。
+///
+/// ⚠️ **不能**再按 `source_type = 'PURCHASE'` 过滤：FIX-7 把「无源入库」记成
+/// `in_type = SOURCELESS`，而 `serial_source_of_in_type` 对 SOURCELESS 返回 `None`
+/// ⇒ 这类收货单生成的序列号 `source_type` 是 NULL。`source_id` 本身就是收货单 id
+/// （一张单的序列号不可能属于别的单据），按它查就够，加来源条件会把无源入库的序列号
+/// 全部当成「0 条」（实测：detail 的 `serial_count` 显示 0，作废用例的前置断言当场红）。
 pub async fn serial_count_of(stock_in_id: Uuid) -> DbResult<i64> {
     // SCOPE-EXEMPT: 序列号台账是仓储数据，无归属列。
     let count: i64 = db()
         .scalar_with_params(
             "SELECT count(*) FROM biz_material_serial \
-              WHERE source_id = ?::uuid AND source_type = 'PURCHASE' AND deleted_at IS NULL",
+              WHERE source_id = ?::uuid AND deleted_at IS NULL",
             vec![Value::from(&stock_in_id)],
         )
         .await?;

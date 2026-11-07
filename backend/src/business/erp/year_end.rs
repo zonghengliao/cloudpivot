@@ -2691,6 +2691,16 @@ mod tests {
             .await
             .expect("统计下年期初");
         assert_eq!(opening, 0, "被拒的年结不许写下年期初");
+
+        // 收尾：本用例造的「历史脏数据」必须自己删掉。
+        //
+        // 它是一张 **POSTED 且落在 5602（非末级）** 的凭证，而 `ensure_no_non_leaf_balance`
+        // 的判据是「累计到年末仍有余额」（`voucher_date <= end`，不按年度切分）⇒ 只要它留在库里，
+        // **后面任何一次年结都会被拦住**。实测：本用例曾在 2021-05 留下一笔「借 5602 100」，
+        // 同库随后跑 `year_end_linkage_tests`（2037 年结）5 条集体 409（`lnk11_*`）。
+        // 造脏数据验证 fail-closed 是正当的，但**造完必须收干净**。
+        sql("DELETE FROM biz_voucher WHERE voucher_word = '记' AND voucher_no = 'R4-NONLEAF-2'")
+            .await;
     }
 
     /// ⑩ 12 月保持 CLOSED，结转凭证落在 12 月（已结账期间）。
