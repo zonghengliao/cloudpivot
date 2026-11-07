@@ -540,7 +540,7 @@ pub(super) async fn ensure_seq_row(ex: &impl SqlExecutor) -> DbResult<()> {
                               current_no, step, separator, status, remark) \
          SELECT ?, 'TK', '库存调拨单号', 'TK', 'yyyyMMdd', '', 0, 1, '-', 1, \
                 '库存调拨单单号：TK-yyyyMMdd-000001，按天（CST）滚动' \
-          WHERE NOT EXISTS (SELECT 1 FROM biz_seq WHERE seq_type = 'TK' AND deleted_at IS NULL)"
+         ON CONFLICT (seq_type) WHERE deleted_at IS NULL DO NOTHING"
             .to_string(),
         vec![Value::from(Uuid::now_v7())],
     )

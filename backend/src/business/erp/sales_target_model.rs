@@ -810,6 +810,9 @@ pub fn format_no(prefix: &str, period_key: &str, no: i64) -> String {
 }
 
 /// `biz_seq` 缺失时幂等补一行（正常库有 V0318 的种子）。
+///
+/// 用 `ON CONFLICT … DO NOTHING` 而不是「捕获唯一键冲突」：失败的语句会把当前事务打成
+/// aborted（PG `25P02`），取号在建单事务内 ⇒ 首次并发建单会 500（FIX-8 实测）。
 async fn ensure_seq_row(
     ex: &impl SqlExecutor,
     seq_type: &str,
@@ -821,7 +824,7 @@ async fn ensure_seq_row(
         "INSERT INTO biz_seq (id, seq_type, seq_name, prefix, date_pattern, period_key, \
                               current_no, step, separator, status, remark) \
          SELECT ?, ?, ?, ?, 'yyyyMMdd', '', 0, 1, '-', 1, ? \
-          WHERE NOT EXISTS (SELECT 1 FROM biz_seq WHERE seq_type = ? AND deleted_at IS NULL)"
+         ON CONFLICT (seq_type) WHERE deleted_at IS NULL DO NOTHING"
             .to_string(),
         vec![
             Value::from(Uuid::now_v7()),
@@ -829,7 +832,6 @@ async fn ensure_seq_row(
             Value::Text(seq_name.to_string()),
             Value::Text(seq_type.to_string()),
             Value::Text(remark.to_string()),
-            Value::Text(seq_type.to_string()),
         ],
     )
     .await

@@ -219,7 +219,7 @@ async fn ensure_seq_row(ex: &impl SqlExecutor) -> DbResult<()> {
                               current_no, step, separator, status, remark) \
          SELECT ?, 'SR', '销售退货单号', 'SR', 'yyyyMMdd', '', 0, 1, '-', 1, \
                 '销售退货单单号：SR-yyyyMMdd-000001，按天（CST）滚动' \
-          WHERE NOT EXISTS (SELECT 1 FROM biz_seq WHERE seq_type = 'SR' AND deleted_at IS NULL)"
+         ON CONFLICT (seq_type) WHERE deleted_at IS NULL DO NOTHING"
             .to_string(),
         vec![Value::from(Uuid::now_v7())],
     )

@@ -276,14 +276,20 @@ pub fn format_doc_no(prefix: &str, period_key: &str, no: i64) -> String {
     format!("{prefix}-{period_key}-{no:0NO_SEQ_WIDTH$}")
 }
 
-/// `biz_seq(seq_type=?)` 缺失时幂等补一行（并发下唯一键冲突视为已存在）。
+/// `biz_seq(seq_type=?)` 缺失时幂等补一行。
+///
+/// **必须是 `ON CONFLICT … DO NOTHING`，不能靠「捕获唯一键冲突」**：一条失败的语句会把
+/// 当前事务打成 aborted（PG `25P02`），之后同事务里所有语句都报
+/// 「current transaction is aborted」—— 取号发生在建单事务内，等于把「首次并发建单」
+/// 变成 500。`ON CONFLICT (seq_type) WHERE deleted_at IS NULL` 与
+/// `uk_biz_seq_type` 这个**部分唯一索引**逐字对应（FIX-8 实测）。
 async fn ensure_seq_row(ex: &impl SqlExecutor, spec: &SeqSpec<'_>) -> DbResult<()> {
     // SCOPE-EXEMPT: biz_seq 是全局取号规则字典，没有归属列。
     ex.exec_sql(
         "INSERT INTO biz_seq (id, seq_type, seq_name, prefix, date_pattern, period_key, \
                               current_no, step, separator, status, remark) \
          SELECT ?, ?, ?, ?, 'yyyyMMdd', '', 0, 1, '-', 1, ? \
-          WHERE NOT EXISTS (SELECT 1 FROM biz_seq WHERE seq_type = ? AND deleted_at IS NULL)"
+         ON CONFLICT (seq_type) WHERE deleted_at IS NULL DO NOTHING"
             .to_string(),
         vec![
             Value::from(&Uuid::now_v7()),
@@ -291,7 +297,6 @@ async fn ensure_seq_row(ex: &impl SqlExecutor, spec: &SeqSpec<'_>) -> DbResult<(
             Value::Text(spec.seq_name.to_string()),
             Value::Text(spec.prefix.to_string()),
             Value::Text(spec.remark.to_string()),
-            Value::Text(spec.seq_type.to_string()),
         ],
     )
     .await
