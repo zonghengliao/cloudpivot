@@ -60,6 +60,7 @@
 | ① | `cloudpivot_rev_demo`（1 张 DISPOSED） | BLOCKER 0 | **77/79，BLOCKER 0，exit 0** | `raw/after_cloudpivot_rev_demo.txt`（改前：`raw/before_cloudpivot_rev_demo.txt`） |
 | ② | 副本库 + **人为制造「1602 与卡片不符」**：`PZ…000009` 的 1602 贷方 +1000、`5602.01` 借方 +1000、凭证头同步（凭证仍平） | K5 必须报红 | **76/79，BLOCKER 1**：`K5 — 1602 余额 = 1000.0000 / 在役卡片 Σ = 0.0000`；K5b 仍绿（隔离到位），exit 1 | `raw/N2_tamper1602_cp_k5t1.txt` |
 | ③ | 副本库原样（对照组，证明 ② 的差异只来自注入） | BLOCKER 0 | **77/79，BLOCKER 0** | `raw/N1_copy_asis_cp_k5t1.txt` |
+| ③b | **「没有处置的库」**：副本还原成从未处置（删处置凭证 + 卡片回 IN_USE）→ 再篡改 1602 +1000（凭证仍平） | 还原后绿；篡改后 K5 必须红 | 还原：**11/11，BLOCKER 0**（1602 = 3166.6667 = 在役卡 Σ）；篡改：**10/11，BLOCKER 1**（`1602 余额 = 4166.6667 / 在役卡片 Σ = 3166.6667`），exit 1 | `raw/N4a_no_disposal_clean_cp_k5t5.txt`、`raw/N4b_no_disposal_tamper_cp_k5t5.txt` |
 | ④ | 副本库删掉 3 张处置凭证（= 处置没记账、卡片仍 DISPOSED） | K5 + K5b 必须报红（证明排除 DISPOSED 不放水） | **74/79，BLOCKER 3**：K5（1602 = 3166.6667 / 在役 0）、K5b（`FA-…0001 卡片 3166.6667 / 处置凭证借 1602 0`）、K6（1601 = 240000 / 在役 120000） | `raw/N3_clean_no_disposal_voucher_cp_k5t3.txt` |
 | ⑤ | 无资产的库 `cloudpivot_rev_admin`（全新库只有 admin） | 不误伤 | **78/79，BLOCKER 0**（WARN 1 = N2 无部门，种子问题），exit 0 | `raw/C1_rev_admin_cloudpivot_rev_admin.txt` |
 | ⑥ | 6 个含 DISPOSED 卡的历史库（fix4legacy / fix6_suite / fix7_idem / fix8_fresh / fix9 / rev_…0348） | 全绿（无新的假红） | 逐个 **11/11，BLOCKER 0，exit 0** | `raw/C2_*.txt` |
@@ -68,6 +69,10 @@
 
 > ⑥ 的 6 个库每张 2 张 DISPOSED 卡、`Σ累计折旧 = 10450.0000`，K5/K5b 均绿 —— 说明「排除 DISPOSED」
 > 不是只在 rev_demo 这一份数据上凑出来的。
+>
+> **交付态复验**：145 的 worktree 已快进到最终提交 `3d26eaa`（含本证据），在
+> `cloudpivot_rev_demo` 上重跑 → `77/79 通过  BLOCKER 0  WARN 2`，exit 0
+> （`raw/final_after_3d26eaa.txt`）。
 
 副本库统一用 `pg_dump cloudpivot_rev_demo | psql -d <copy>` 造，**跑完全部 drop**（已核 `pg_database` 0 残留）。
 
@@ -82,6 +87,9 @@ scp scripts/k5_neg_145.sh root@172.18.10.145:/root/k5_neg.sh && ssh root@172.18.
 
 # ④ 干净副本的「处置没记账」
 scp scripts/k5_n3_clean.sh root@172.18.10.145:/root/k5_n3.sh && ssh root@172.18.10.145 'bash /root/k5_n3.sh'
+
+# ③b 「没有处置的库」还原 + 篡改
+scp scripts/k5_n4_145.sh root@172.18.10.145:/root/k5_n4.sh && ssh root@172.18.10.145 'bash /root/k5_n4.sh'
 
 # ⑦ ⑧ 作废 / 重新处置
 scp scripts/k5_edge_145.sh scripts/k5_cancel.sql scripts/k5_redispose.sql root@172.18.10.145:/root/ \
