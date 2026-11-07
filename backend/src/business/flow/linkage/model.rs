@@ -426,6 +426,17 @@ pub async fn upsert_rule(
         ));
     }
 
+    // 第 1.5 层：实体级禁令（LNK-06）。有的实体上某些动作是**结构性**成立的死循环，
+    // 不是「配了不触发」而是「一触发就无限递归」—— 这类动作在保存时就 400，
+    // 不靠运行时排除兜底（运行时排除只负责历史脏行 / 绕过 API 直接写库的行）。
+    if let Some(reason) = spec::forbidden_action_reason(trigger_entity, action_code) {
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!("动作 {action_code} 不能配置在触发点 {trigger_entity} 上：{reason}"),
+        ));
+    }
+
     // 第 2 层：参数键 / 必填 / 类型
     spec::validate_params(action, &patch.action_params)
         .map_err(|reason| ApiError::new(400, error_code::PARAM_INVALID, reason))?;

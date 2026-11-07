@@ -73,6 +73,7 @@ use crate::business::erp::approval_gate;
 use crate::business::erp::separation;
 use crate::business::erp::voucher::{self, AccountRef, EntryLine, ReversalInput};
 use crate::business::erp::voucher_bridge;
+use crate::business::erp::voucher_linkage;
 use crate::business::erp::voucher_query::{self, VoucherDetailRes};
 use crate::business::flow::{engine, model as flow_model};
 use crate::business::shared::state_machine;
@@ -263,29 +264,31 @@ pub async fn reverse_voucher(
         .await
         .map_err(|error| utils::db_error(error, "开启红冲事务"))?;
     let result = reverse_in_tx(&tx, id, reason, operator, now).await;
-    let red_id = match result {
-        Ok(red_id) => {
+    let (red_id, change) = match result {
+        Ok(pair) => {
             tx.commit()
                 .await
                 .map_err(|error| utils::db_error(error, "提交红冲事务"))?;
-            red_id
+            pair
         }
         Err(error) => {
             let _ = tx.rollback().await;
             return Err(error);
         }
     };
+    // 提交后动作（通知 / 建任务）：永不回滚业务
+    voucher_linkage::run_deferred_after_commit(change).await;
     voucher_query::voucher_detail(red_id).await
 }
 
-/// 红冲的事务体（返回红字凭证 id）。
+/// 红冲的事务体（返回红字凭证 id + 联动结果）。
 async fn reverse_in_tx(
     tx: &Transaction,
     id: Uuid,
     reason: &str,
     operator: Option<Uuid>,
     now: nik::prelude::chrono::DateTime<Utc>,
-) -> std::result::Result<Uuid, ApiError> {
+) -> std::result::Result<(Uuid, voucher_linkage::VoucherStatusChange), ApiError> {
     let original = voucher::find_voucher_locked(tx, id)
         .await
         .map_err(|error| utils::db_error(error, "锁定凭证"))?
@@ -324,7 +327,7 @@ async fn reverse_in_tx(
         )));
     }
 
-    voucher::reverse_posted(
+    let red_id = voucher::reverse_posted(
         tx,
         &original,
         ReversalInput {
@@ -335,7 +338,22 @@ async fn reverse_in_tx(
         now,
     )
     .await
-    .map_err(|error| write_error(error, "红冲凭证"))
+    .map_err(|error| write_error(error, "红冲凭证"))?;
+
+    // ② 联动（LNK-06）：红字凭证落库即 `POSTED`，同样是一次「凭证过账」——
+    //    `VOUCHER/POSTED` 上的规则（通知 / 建任务）不能因为它是红字就静默不响。
+    let red = voucher::find_voucher(tx, red_id)
+        .await
+        .map_err(|error| utils::db_error(error, "读取红字凭证"))?
+        .ok_or_else(|| {
+            ApiError::new(
+                500,
+                error_code::INTERNAL_ERROR,
+                format!("红字凭证 {red_id} 刚落库却读不到（同一事务内）"),
+            )
+        })?;
+    let change = voucher_linkage::run_in_tx(tx, &red, voucher::STATUS_POSTED, operator).await?;
+    Ok((red_id, change))
 }
 
 // ==================== ③ 改凭证摘要（P10 入账后只读）====================
@@ -487,11 +505,11 @@ fn check_self_audit(
     ))
 }
 
-/// 审核链的事务体：行锁 → 状态核对 → 内控闸 → 状态机 → 改状态列。
+/// 审核链的事务体：行锁 → 状态核对 → 内控闸 → 状态机 → 改状态列 → 联动（LNK-06）。
 async fn transition_voucher_in_tx(
     tx: &Transaction,
     input: VoucherTransition<'_>,
-) -> std::result::Result<(), ApiError> {
+) -> std::result::Result<voucher_linkage::VoucherStatusChange, ApiError> {
     let row = voucher::find_voucher_locked(tx, input.id)
         .await
         .map_err(|error| utils::db_error(error, "锁定凭证"))?
@@ -598,7 +616,12 @@ async fn transition_voucher_in_tx(
     tx.exec_sql(sql, params)
         .await
         .map_err(|error| utils::db_error(error, "回写凭证状态"))?;
-    Ok(())
+
+    // ⑥ 联动（LNK-06）：这里是凭证状态列的**唯一写入点**，所以审核（DRAFT → AUDITED）、
+    //    反审核（AUDITED → DRAFT）、记账（AUDITED → POSTED）三条边共用这一处接线。
+    //    排除清单见 `spec::VOUCHER_EXCLUDED_ACTIONS`：在凭证上跑 GENERATE_VOUCHER 是
+    //    「凭证生凭证」的死循环（运行时排除 + 配置期 400 双闸）。
+    voucher_linkage::run_in_tx(tx, &row, input.to, input.operator).await
 }
 
 /// 审核（`DRAFT → AUDITED`，PRD E4-09）。
@@ -679,7 +702,7 @@ pub async fn post_audited_voucher(
     .await
 }
 
-/// 审核链的公共外壳：开事务 → 事务体 → 提交 → 回详情。
+/// 审核链的公共外壳：开事务 → 事务体 → 提交 → 提交后联动（通知 / 建任务）→ 回详情。
 async fn run_voucher_transition(
     input: VoucherTransition<'_>,
 ) -> std::result::Result<VoucherDetailRes, ApiError> {
@@ -688,17 +711,20 @@ async fn run_voucher_transition(
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启凭证状态变更事务"))?;
-    match transition_voucher_in_tx(&tx, input).await {
-        Ok(()) => {
+    let change = match transition_voucher_in_tx(&tx, input).await {
+        Ok(change) => {
             tx.commit()
                 .await
                 .map_err(|error| utils::db_error(error, "提交凭证状态变更事务"))?;
+            change
         }
         Err(error) => {
             let _ = tx.rollback().await;
             return Err(error);
         }
-    }
+    };
+    // 提交后动作（通知 / 建任务）：永不回滚业务（账已落定，一封信失败不该把过账退回去）
+    voucher_linkage::run_deferred_after_commit(change).await;
     voucher_query::voucher_detail(id).await
 }
 
@@ -754,18 +780,20 @@ pub async fn create_manual_voucher(
         },
     )
     .await;
-    let voucher_id = match result {
-        Ok(id) => {
+    let (voucher_id, change) = match result {
+        Ok(pair) => {
             tx.commit()
                 .await
                 .map_err(|error| utils::db_error(error, "提交手工凭证事务"))?;
-            id
+            pair
         }
         Err(error) => {
             let _ = tx.rollback().await;
             return Err(error);
         }
     };
+    // 提交后动作（通知 / 建任务）：永不回滚业务
+    voucher_linkage::run_deferred_after_commit(change).await;
     voucher_query::voucher_detail(voucher_id).await
 }
 
@@ -871,11 +899,11 @@ struct ManualVoucher<'a> {
     now: nik::prelude::chrono::DateTime<Utc>,
 }
 
-/// 手工凭证的事务体：期间校验 → 科目快照 → 落库。
+/// 手工凭证的事务体：期间校验 → 科目快照 → 落库 → 联动（LNK-06）。
 async fn manual_in_tx(
     tx: &Transaction,
     input: ManualVoucher<'_>,
-) -> std::result::Result<Uuid, ApiError> {
+) -> std::result::Result<(Uuid, voucher_linkage::VoucherStatusChange), ApiError> {
     let ManualVoucher {
         raw,
         debit_total,
@@ -947,7 +975,7 @@ async fn manual_in_tx(
     }
 
     let source_no = format!("手工凭证 {debit_total}");
-    voucher::post_voucher(
+    let voucher_id = voucher::post_voucher(
         tx,
         &voucher::PostVoucher {
             voucher_type: voucher::VOUCHER_TYPE_MANUAL,
@@ -965,7 +993,23 @@ async fn manual_in_tx(
         now,
     )
     .await
-    .map_err(|error| write_error(error, "生成手工凭证"))
+    .map_err(|error| write_error(error, "生成手工凭证"))?;
+
+    // ② 联动（LNK-06）：手工凭证落 `DRAFT` 也是一次「状态推进」—— `DRAFT` 是能走到的状态
+    //    （反审核 / 手工新增都会到它），不接这一条 `VOUCHER/DRAFT` 上的规则就成了
+    //    「能存能启永远不触发」（P1-FIX-5C 的原病）。
+    let created = voucher::find_voucher(tx, voucher_id)
+        .await
+        .map_err(|error| utils::db_error(error, "读取新建的手工凭证"))?
+        .ok_or_else(|| {
+            ApiError::new(
+                500,
+                error_code::INTERNAL_ERROR,
+                "手工凭证刚落库却读不到（同一事务内）".to_string(),
+            )
+        })?;
+    let change = voucher_linkage::run_in_tx(tx, &created, voucher::STATUS_DRAFT, operator).await?;
+    Ok((voucher_id, change))
 }
 
 // ==================== 接口层 ====================
@@ -1427,14 +1471,29 @@ pub async fn reverse_after_approval(
         )
         .await
         .map_err(|error| write_error(error, "红冲凭证"))?;
-        Ok::<Uuid, ApiError>(red_id)
+        // ③ 联动（LNK-06）：红字凭证落库即 POSTED（与手工红冲 `reverse_in_tx` 同一口径）
+        let red = voucher::find_voucher(&tx, red_id)
+            .await
+            .map_err(|error| utils::db_error(error, "读取红字凭证"))?
+            .ok_or_else(|| {
+                ApiError::new(
+                    500,
+                    error_code::INTERNAL_ERROR,
+                    format!("红字凭证 {red_id} 刚落库却读不到（同一事务内）"),
+                )
+            })?;
+        let change =
+            voucher_linkage::run_in_tx(&tx, &red, voucher::STATUS_POSTED, operator).await?;
+        Ok::<(Uuid, voucher_linkage::VoucherStatusChange), ApiError>((red_id, change))
     }
     .await;
     match result {
-        Ok(red_id) => {
+        Ok((red_id, change)) => {
             tx.commit()
                 .await
                 .map_err(|error| utils::db_error(error, "提交红冲执行事务"))?;
+            // 提交后动作（通知 / 建任务）：永不回滚业务
+            voucher_linkage::run_deferred_after_commit(change).await;
             Ok(red_id)
         }
         Err(error) => {

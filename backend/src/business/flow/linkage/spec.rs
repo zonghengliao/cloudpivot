@@ -295,8 +295,8 @@ pub struct TriggerSpec {
 
 /// 触发点接线表（顺序与 [`TRIGGERS`] 一致）。
 ///
-/// 当前 **8/15 已接线**（`STOCK_IN` · `STOCK_OUT` · `STOCK_TRANSFER` · `PURCHASE_ORDER` ·
-/// `PAYABLE` · `STOCK_TAKE` · `EXPENSE_REPORT` · `TASK`），7 个未接线；逐条原因见
+/// 当前 **9/15 已接线**（`STOCK_IN` · `STOCK_OUT` · `STOCK_TRANSFER` · `PURCHASE_ORDER` ·
+/// `PAYABLE` · `STOCK_TAKE` · `EXPENSE_REPORT` · `VOUCHER` · `TASK`），6 个未接线；逐条原因见
 /// `docs/architecture/P1-FIX-5C-联动触发点接线清单.md`。
 pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     TriggerSpec {
@@ -453,11 +453,28 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
             ("AUDITED", "已审核"),
             ("POSTED", "已记账"),
         ],
-        wired: false,
-        wiring: "未接线：凭证过账 / 反过账在 erp/voucher_write.rs（append / reverse_posted 已抽成\
-                 唯一实现），但没有联动调用点。注意：在凭证状态上配 GENERATE_VOUCHER 会造「凭证\
-                 生凭证」的环，接线时必须把该动作排除或直接禁止",
-        proofs: &[],
+        wired: true,
+        wiring: "已接线（LNK-06）：erp/voucher_linkage.rs 是唯一 hook。凭证自己的状态推进点全部走\
+                 它（都是事务入口，且都自己 commit）：手工凭证落草稿 manual_in_tx → DRAFT、审核 \
+                 audit_voucher → AUDITED、反审核 un_audit_voucher → DRAFT、记账 post_audited_voucher \
+                 → POSTED（三条状态边共用 transition_voucher_in_tx）、红冲 reverse_in_tx / \
+                 reverse_after_approval → 红字凭证 POSTED。事务内 \
+                 run_excluding(spec::VOUCHER_EXCLUDED_ACTIONS)（GENERATE_VOUCHER 必须排除：凭证\
+                 过账再生成凭证就是「凭证生凭证」的死循环，且配置期已被 spec::VOUCHER_FORBIDDEN_ACTIONS \
+                 直接 400 拒绝），commit 后 run_deferred_after_commit → run_deferred。\
+                 口径：只接「凭证自身的人工 / 红冲状态流转」，来源单据（收货/付款/报销…）在 \
+                 voucher::post_voucher 里自动落 POSTED 的凭证不再触发一次 —— 那条路径本身跑在\
+                 别的单据的联动事务里，嵌套调引擎会让同一次业务动作跑两遍联动。",
+        proofs: &[
+            (
+                "src/business/erp/voucher_linkage.rs",
+                "linkage::engine::run_excluding",
+            ),
+            (
+                "src/business/erp/voucher_linkage.rs",
+                "linkage::engine::run_deferred",
+            ),
+        ],
     },
     TriggerSpec {
         entity: state_machine::ENTITY_PERIOD,
@@ -854,6 +871,59 @@ pub const STOCKTAKE_EXCLUDED_ACTIONS: &[&str] = &[
 /// 换个触发点（如 `PAYABLE/SETTLED`）通用路线仍然要能跑这些动作。
 /// 漂移守卫：`tests_wiring::expense_wires_generic_engine_and_excludes_voucher`。
 pub const EXPENSE_EXCLUDED_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER, "REVERSE_VOUCHER"];
+
+/// 凭证（`VOUCHER`）状态变更时**必须交给专用路径、通用引擎不许碰**的动作（LNK-06）。
+///
+/// 凭证自己就是「生成凭证」这个动作的产物与触发源：在凭证状态上跑一遍
+/// `GENERATE_VOUCHER` = 过账 → 生成凭证 → 过账 → …，是一条**结构性死循环**
+/// （不是「重复落账」那么轻：它会一直生成新凭证直到事务栈/数据量爆掉）。
+///
+/// 两道闸，缺一不可（调用方与写入口各自一份，单测双向钉住）：
+///
+/// 1. **运行时**（这里）：`erp::voucher_linkage::run_in_tx` 调
+///    `engine::run_excluding(spec::VOUCHER_EXCLUDED_ACTIONS)`，命中的规则不产生
+///    `RuleRun`、直接交给专用路由（凭证只能由来源单据的记账路径生成）；
+/// 2. **配置期**（[`VOUCHER_FORBIDDEN_ACTIONS`]）：保存规则时直接 400 —— 运行时排除
+///    只是兜住「历史脏行 / 绕过 API 直接写库」，不能让管理员配得上一条永远不执行的规则。
+///
+/// `REVERSE_VOUCHER` 不列入：它仍是占位动作（`implemented = false`），配置期就被
+/// 「尚未接管」拒掉；凭证红冲走自己的 `reverse_posted`（借贷互换 + 回写 `reversed_by`），
+/// 不是联动动作能复现的。
+/// 漂移守卫：`tests_wiring::voucher_wires_generic_engine_excludes_and_forbids_generate`。
+pub const VOUCHER_EXCLUDED_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER];
+
+/// 在某个触发实体上**根本不允许保存**的动作（配置期 400，不只是运行时排除）。
+///
+/// 与 [`VOUCHER_EXCLUDED_ACTIONS`] 同一条理由，但作用在更早的时点：
+/// 保存接口直接拒绝，配置页预览也当场标红（`admin::check_draft`）——
+/// 「配得上但永远不执行」是本仓最讨厌的一种「看起来配好了」。
+pub const VOUCHER_FORBIDDEN_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER];
+
+/// 某个触发实体上被**结构性禁止**的动作码（配置期 400）。
+///
+/// 返回空切片 = 该实体没有实体级禁令（只受通用白名单约束）。
+pub fn forbidden_actions(trigger_entity: &str) -> &'static [&'static str] {
+    match trigger_entity.trim() {
+        state_machine::ENTITY_VOUCHER => VOUCHER_FORBIDDEN_ACTIONS,
+        _ => &[],
+    }
+}
+
+/// 被实体级禁令拦下的原因（`None` = 没被禁）。
+///
+/// 文案只写一份：保存接口（`model::upsert_rule`）、配置页预览（`admin::check_draft`）、
+/// 规则体检（`admin::rule_problems`）与单测都读它，不各写一套。
+pub fn forbidden_action_reason(trigger_entity: &str, action_code: &str) -> Option<&'static str> {
+    let code = action_code.trim();
+    if !forbidden_actions(trigger_entity).contains(&code) {
+        return None;
+    }
+    Some(
+        "在凭证状态上生成凭证是「凭证生凭证」的死循环（凭证过账 → 生成凭证 → 再过账 → …）：\
+         凭证只能由来源单据的记账路径生成（收货 / 付款 / 报销 / 红冲各自的专用实现）。\
+         该动作在凭证实体上被结构性禁止，运行时会排除、配置期直接拒绝",
+    )
+}
 
 // ==================== 禁用键（SQL 禁令） ====================
 

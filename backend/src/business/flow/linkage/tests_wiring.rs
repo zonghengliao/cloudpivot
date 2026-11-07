@@ -120,6 +120,7 @@ fn trigger_specs_cover_whitelist_in_order() {
             "STOCK_TRANSFER",
             "PURCHASE_ORDER",
             "PAYABLE",
+            "VOUCHER",
             "STOCK_TAKE",
             "EXPENSE_REPORT",
             "TASK"
@@ -128,12 +129,13 @@ fn trigger_specs_cover_whitelist_in_order() {
          STOCK_TRANSFER（库存调拨状态变更，LNK-01 新接）、\
          PURCHASE_ORDER（采购单状态变更 + 部分/全部收货，LNK-02 新接）、\
          PAYABLE（应付单付款 / 部分付款 / 结清，LNK-03 新接）、\
+         VOUCHER（凭证手工落草稿 / 审核 / 反审核 / 记账 / 红冲，LNK-06 新接）、\
          STOCK_TAKE（盘点单过账 / 作废，LNK-04 新接）、\
          EXPENSE_REPORT（报销单提交 / 通过 / 付清 / 作废 / 打回，LNK-05 新接）、\
          TASK（任务状态变更）；\
          接线状态变化时这份断言要跟着改，改之前先想清楚「真的有人调引擎了吗」"
     );
-    assert_eq!(spec::unwired_triggers().len(), 7, "其余 7 个仍未接线");
+    assert_eq!(spec::unwired_triggers().len(), 6, "其余 6 个仍未接线");
 }
 
 /// 每条声明都要自洽：已接线的必须有证据对，未接线的必须给出原因且不能有证据对。
@@ -207,9 +209,9 @@ fn wired_triggers_match_call_sites() {
     }
     assert_eq!(
         actual.len(),
-        9,
-        "当前真实调用点 9 个文件（收货过账 / 出库过账 handler + 出库联动 hook + 调拨联动 hook + \
-         采购联动 hook + 应付联动 hook + 盘点联动 hook + 报销联动 hook + 任务状态通知）：{actual:?}"
+        10,
+        "当前真实调用点 10 个文件（收货过账 / 出库过账 handler + 出库联动 hook + 调拨联动 hook + \
+         采购联动 hook + 应付联动 hook + 盘点联动 hook + 报销联动 hook + 凭证联动 hook + 任务状态通知）：{actual:?}"
     );
 }
 
@@ -682,6 +684,88 @@ fn expense_excluded_actions_are_routed_elsewhere() {
         assert!(
             !engine::is_routed_elsewhere(spec::EXPENSE_EXCLUDED_ACTIONS, code),
             "{code} 被误判成专用路由：报销单的通知 / 建任务会静默不执行"
+        );
+    }
+}
+
+/// 凭证（`VOUCHER`）的接线细节（LNK-06）：**两条闸都要在**，且四个事务入口都真的调 hook。
+///
+/// 这条防的四种漂移（凭证是唯一一个「配错就死循环」的实体，所以比别的触发点多一道闸）：
+///
+/// 1. 只在 `spec.rs` 把 `wired` 改成 true、`voucher_write.rs` 里没调用（P1-FIX-5C 的原罪）；
+/// 2. **运行时排除清单丢了** → 凭证过账时通用引擎跑一遍 `GENERATE_VOUCHER`：
+///    生成新凭证（`POSTED`）→ 又触发 → 不收敛的「凭证生凭证」递归；
+/// 3. **配置期禁令丢了** → 管理员能存一条永远不执行的规则（`run_excluding` 会把它静默跳过），
+///    配置页看起来「生效中」，账上一分没动；
+/// 4. 只接记账、漏了手工落草稿（`DRAFT`）与红冲（红字凭证也是 `POSTED`）→ 两个能走到的
+///    状态上配规则永远不响。
+#[test]
+fn voucher_wires_generic_engine_excludes_and_forbids_generate() {
+    let hook = include_str!("../../erp/voucher_linkage.rs");
+    assert!(
+        hook.contains("linkage::engine::run_excluding("),
+        "凭证状态变更必须调用通用引擎（run_excluding）：否则 VOUCHER 的联动规则配了不触发"
+    );
+    assert!(
+        hook.contains("linkage::spec::VOUCHER_EXCLUDED_ACTIONS"),
+        "凭证调通用引擎时必须传 spec::VOUCHER_EXCLUDED_ACTIONS（不许改成写死的空清单）"
+    );
+    assert!(
+        hook.contains("linkage::engine::run_deferred"),
+        "凭证的提交后动作必须交给 run_deferred（commit 之后跑），否则通知 / 建任务永远不执行"
+    );
+    assert!(
+        spec::VOUCHER_EXCLUDED_ACTIONS.contains(&spec::ACTION_GENERATE_VOUCHER),
+        "凭证的运行时排除清单漏了 GENERATE_VOUCHER：过账 → 生成凭证 → 再过账，死循环"
+    );
+    for code in [spec::ACTION_SEND_NOTICE, spec::ACTION_CREATE_TASK] {
+        assert!(
+            !spec::VOUCHER_EXCLUDED_ACTIONS.contains(&code),
+            "{code} 不能被凭证排除：通知 / 建任务就靠通用引擎的 AfterCommit 动作"
+        );
+    }
+
+    // 第二道闸：配置期（保存接口 + 配置页预览）必须真的读实体级禁令。
+    assert!(
+        spec::forbidden_actions(crate::business::shared::state_machine::ENTITY_VOUCHER)
+            .contains(&spec::ACTION_GENERATE_VOUCHER),
+        "凭证实体没有声明 GENERATE_VOUCHER 禁令：保存时拦不住「凭证生凭证」"
+    );
+    let model = include_str!("model.rs");
+    assert!(
+        model.contains("spec::forbidden_action_reason("),
+        "写规则的唯一入口 model::upsert_rule 必须读 spec::forbidden_action_reason：\
+         只在 spec 里加常量不算「保存时 400」"
+    );
+    let admin = include_str!("admin.rs");
+    assert!(
+        admin.contains("spec::forbidden_action_reason("),
+        "配置页预览 check_draft / 规则体检也必须读同一条禁令（否则配置页显示「可保存」）"
+    );
+
+    // 四个事务入口：审核链（审核 / 反审核 / 记账共用 transition_voucher_in_tx）、
+    // 手工凭证落草稿、手工红冲、红冲审批通过。每个都要调 hook 并在 commit 之后 flush。
+    let write = include_str!("../../erp/voucher_write.rs");
+    assert_eq!(
+        write.matches("voucher_linkage::run_in_tx(").count(),
+        4,
+        "凭证的四个事务入口（手工落草稿 / 审核链 / 手工红冲 / 红冲审批通过）都必须真的调 \
+         voucher_linkage::run_in_tx（只改 spec.rs 的 wired 标记不算接线）"
+    );
+    assert_eq!(
+        write
+            .matches("voucher_linkage::run_deferred_after_commit(")
+            .count(),
+        4,
+        "四个入口都要在 commit 之后 flush（少一处，那条路径的通知永远不发）"
+    );
+
+    // 排除清单在语义上真的会拦（不是只有字符串写对）
+    use crate::business::flow::linkage::engine;
+    for code in spec::VOUCHER_EXCLUDED_ACTIONS {
+        assert!(
+            engine::is_routed_elsewhere(spec::VOUCHER_EXCLUDED_ACTIONS, code),
+            "{code} 在凭证的排除清单里却没被判成「专用路由」：清单传下去也拦不住它"
         );
     }
 }

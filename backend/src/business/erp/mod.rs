@@ -238,6 +238,7 @@ pub mod transfer_overdue;
 pub mod unit_guard;
 pub mod voucher;
 pub mod voucher_bridge;
+pub(crate) mod voucher_linkage;
 pub mod voucher_multi;
 pub mod voucher_query;
 pub mod voucher_write;
@@ -310,6 +311,11 @@ mod cancel_cascade_tests;
 /// 凭证不被重复生成，重复操作不重复触发）。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod expense_linkage_tests;
+
+/// LNK-06 的真库单测（凭证联动接线：过账 / 反审核 / 红冲触发，配 GENERATE_VOUCHER
+/// 被 400 拒绝、绕过 API 写库的行运行时被排除，重复过账不重复触发）。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod voucher_linkage_tests;
 
 /// 凭证辅助核算（DC-11 · P2-1）：写入口径 + 辅助账查询。只在 `cargo test` 时编译。
 #[cfg(test)]

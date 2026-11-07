@@ -871,6 +871,14 @@ fn check_draft(
             ),
         );
     }
+    // 实体级禁令（LNK-06）：与 `model::upsert_rule` 同一份判据，预览阶段当场标红，
+    // 而不是等保存时才 400。
+    if let Some(reason) = spec::forbidden_action_reason(entity, code) {
+        return base(
+            false,
+            format!("动作 {code} 不能配置在触发点 {entity} 上：{reason}"),
+        );
+    }
     match spec::validate_params(action, &params) {
         Ok(()) => base(true, String::new()),
         Err(reason) => base(false, reason),
@@ -904,6 +912,15 @@ fn rule_problems(row: &LinkageRuleRow) -> Vec<String> {
                 problems.push(format!(
                     "动作 {}（{}）尚未接管：运行时会被跳过",
                     action.code, action.label
+                ));
+            }
+            // 实体级禁令：历史上直接写库塞进来的行（LNK-06），运行时会被排除，
+            // 必须在配置页标出来，否则管理员会以为它生效了。
+            if spec::forbidden_action_reason(&row.trigger_entity, &row.action_code).is_some() {
+                problems.push(format!(
+                    "动作 {} 在触发点 {} 上被结构性禁止（运行时排除、保存接口 400）：\
+                     这条规则不会执行，请删除",
+                    row.action_code, row.trigger_entity
                 ));
             }
             if let Err(reason) = spec::validate_params(action, &row.action_params) {
@@ -1147,13 +1164,14 @@ mod tests {
                 "STOCK_TRANSFER",
                 "PURCHASE_ORDER",
                 "PAYABLE",
+                "VOUCHER",
                 "STOCK_TAKE",
                 "EXPENSE_REPORT",
                 "TASK"
             ],
             "已接线的触发点：STOCK_IN / STOCK_OUT（P1-FIX-5C 新接）/ \
              STOCK_TRANSFER（LNK-01 新接）/ PURCHASE_ORDER（LNK-02 新接）/ \
-             PAYABLE（LNK-03 新接）/ STOCK_TAKE（LNK-04 新接）/ \
+             PAYABLE（LNK-03 新接）/ VOUCHER（LNK-06 新接）/ STOCK_TAKE（LNK-04 新接）/ \
              EXPENSE_REPORT（LNK-05 新接）/ TASK"
         );
         for trigger in &triggers {

@@ -1,0 +1,44 @@
+## LNK-06 真机取证：凭证（VOUCHER）手工落草稿 / 审核 / 记账 → 联动 + 死循环保护
+
+# 超管 admin 登录成功，token 长度 = 461
+
+## ⓪ 夹具：so44_sales_a 临时授 SUPER_ADMIN（取证完毕删除授权）
+# 复核人 so44_sales_a 登录成功（原本未授超管 = True），token 长度 = 471
+
+## ① GET /api/business/flow/linkage?trigger_entity=VOUCHER —— 配置页显示 wired=true
+{
+ "entity": "VOUCHER",
+ "wired": true,
+ "wiring": "已接线（LNK-06）：erp/voucher_linkage.rs 是唯一 hook。凭证自己的状态推进点全部走它（都是事务入口，且都自己 commit）：手工凭证落草稿 manual_in_tx → DRAFT、审核 audit_voucher → AUDITED、反审核 un_audit_voucher → DRAFT、记账 post_audited_voucher → POSTED（三条状…"
+}
+
+## ② PUT /api/business/flow/linkage —— VOUCHER/POSTED 上配 GENERATE_VOUCHER（应 400）
+# HTTP 400 code=10001 msg=动作 GENERATE_VOUCHER 不能配置在触发点 VOUCHER 上：在凭证状态上生成凭证是「凭证生凭证」的死循环（凭证过账 → 生成凭证 → 再过账 → …）：凭证只能由来源单据的记账路径生成（收货 / 付款 / 报销 / 红冲各自的专用实现）。该动作在凭证实体上被结构性禁止，运行时会排除、配置期直接拒绝
+# 库里没有落这条规则（拒绝发生在写入之前）
+
+## ③ PUT /api/business/flow/linkage —— DRAFT / AUDITED / POSTED 各一条 SEND_NOTICE
+{"id": "01a1b4c6-daeb-703e-8f46-1d3ec2f5765d", "trigger": "VOUCHER/DRAFT", "action": "SEND_NOTICE", "phase": "AFTER_COMMIT", "problems": []}
+{"id": "01a1b4c6-daf3-7141-bec3-ac3dd837b8d4", "trigger": "VOUCHER/AUDITED", "action": "SEND_NOTICE", "phase": "AFTER_COMMIT", "problems": []}
+{"id": "01a1b4c6-dafa-7474-a1a9-1c9af1d1eb43", "trigger": "VOUCHER/POSTED", "action": "SEND_NOTICE", "phase": "AFTER_COMMIT", "problems": []}
+# 记账科目 借 1405（d1370004-0000-4000-8000-000000000001）/ 贷 2202（d1370004-0000-4000-8000-000000000002），期间 2026-11 首日 2026-11-01
+
+## ⑤ POST /api/business/erp/voucher —— 手工凭证落 DRAFT（admin 制单）
+# HTTP 200 凭证号 PZ-20261107-000595 状态 DRAFT id 87c465c5-c274-4337-9738-0d3c536e9167
+# 通知 LNK:VOUCHER:DRAFT:<id> 条数 1 标题「凭证草稿」
+
+## ⑥ POST /api/business/erp/voucher/{id}/audit（复核人 ≠ 制单人）
+# HTTP 200 审核后状态 AUDITED
+# 通知 LNK:VOUCHER:AUDITED:<id> 条数 1 标题「凭证已审核」
+
+## ⑦ POST /api/business/erp/voucher/{id}/post —— 记账（AUDITED → POSTED）
+# HTTP 200 记账后状态 POSTED 记账人 aa440000-0000-4000-8000-000000000002
+# 通知 LNK:VOUCHER:POSTED:<id> 条数 1 标题「凭证已记账」
+
+## ⑧ 再 POST 一次 /post —— 409，通知仍是 1 条
+# HTTP 409 code=10003 msg=凭证 PZ-20261107-000595 当前是「已记账」，不能记账：只有已审核（AUDITED）的凭证能记账；草稿要先审核（制单 ≠ 审核）。当前可选动作：没有可选动作（该状态是终态，要更正请红冲后重开）
+# 通知 LNK:VOUCHER:POSTED:<id> 条数 1（必须仍是 1）
+
+## ⑨ 库内物证：凭证条数（配不了 GENERATE_VOUCHER，不存在「凭证生凭证」）
+# summary LIKE 'LNK06%' 的凭证条数 1（应为 1：只有手工凭证本身）
+
+ALL PASS：wired=true → 配 GENERATE_VOUCHER 被 400 → DRAFT/AUDITED/POSTED 各发一条通知 → 重复记账 409 不重复触发 → 只有 1 张凭证

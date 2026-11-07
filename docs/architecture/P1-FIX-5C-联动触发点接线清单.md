@@ -138,7 +138,7 @@ P1-FIX-5C 之前，配置页只把「动作」这一侧的占位项置灰了，�
 | 7 | `PURCHASE_ORDER` | ❌ | `erp/stockin_purchase.rs::sync_purchase_status`（`transition_if_changed`）+ `erp/purchase_model.rs::apply_status` | 累计收货量派生（只校验不落库） | 高 | A |
 | 8 | `STOCK_TRANSFER` | ❌ | `erp/transfer_handler_status.rs::apply_transition`（L≈55，`IN_TRANSIT→DONE` 同事务结算） | 库存双写（`transfer_model::settle_transfer`） | 中 | B |
 | 9 | `CONTRACT` | ❌ | `erp/contract_handler.rs::contract_change_status`（L≈786）/ `submit_approval_tx`（L≈1015） | 审批实例发起（`flow::engine::start`） | 高 | B |
-| 10 | `VOUCHER` | ❌ | `erp/voucher_write.rs::transition_voucher_in_tx`（L≈535，审核/记账/反记账共用） | 分录行 + 记账戳 + 期间闸 | 中 | B |
+| 10 | `VOUCHER` | ✅ | `erp/voucher_write.rs::transition_voucher_in_tx`（L≈535，审核/记账/反记账共用）+ `manual_in_tx` / `reverse_in_tx` / `reverse_after_approval` | 分录行 + 记账戳 + 期间闸 | 中 | 已接（LNK-06） |
 | 11 | `DEPRECIATION` | ❌ | `erp/depreciation_model.rs::run_batch`（L≈323）/ `reverse_batch`（L≈639） | 折旧明细批量写 + 凭证 | 中 | B |
 | 12 | `ACCOUNTING_PERIOD` | ❌ | `erp/period.rs::open_period` / `close_period` / `reopen_period`（L≈783/1253/1343） | 期间状态 + 结账快照 | 中高 | C |
 | 13 | `FIXED_ASSET` | ❌ | `erp/asset_handler.rs::asset_dispose`（L≈864）/ `asset_dispose_cancel`（L≈1020）；停用/启用/转移走 `asset_model` CAS UPDATE，**不经状态机** | 处置凭证 + 处置痕迹 + 状态 | 中 | C |
@@ -243,12 +243,17 @@ commit 之后
   必须先定「谁负责什么」（见 §3.3-D FLOW_INSTANCE），否则同一件事跑两遍通知。
 - 典型用法：合同生效 → 建履约计划任务 + 通知商务。
 
-**`VOUCHER`（凭证 · 审核/记账/反记账）**
+**`VOUCHER`（凭证 · 落草稿/审核/反审核/记账/红冲）— LNK-06 已接**
 
-- 入口：`voucher_write.rs::transition_voucher_in_tx`（L≈535），三条分支共用。
-- ⚠ **环风险**：在凭证状态上配 `GENERATE_VOUCHER` = 凭证生凭证。接线时**必须**把
-  `GENERATE_VOUCHER` / `REVERSE_VOUCHER` 放进排除清单（或在写入口禁止这两种组合）。
+- 入口：`voucher_write.rs::transition_voucher_in_tx`（L≈535，三条状态边共用）+
+  `manual_in_tx`（DRAFT）、`reverse_in_tx` / `reverse_after_approval`（红字凭证 POSTED）。
+  唯一 hook 是 `erp/voucher_linkage.rs`（`run_excluding` + commit 后 `run_deferred`）。
+- ⚠ **环风险**：在凭证状态上配 `GENERATE_VOUCHER` = 凭证生凭证。两道闸：
+  运行时 `spec::VOUCHER_EXCLUDED_ACTIONS` 排除，配置期 `spec::VOUCHER_FORBIDDEN_ACTIONS`
+  + `spec::forbidden_action_reason` 让 `model::upsert_rule` / `admin::check_draft` 直接 400。
   这是唯一一个「不自带排除清单就会产生逻辑环」的触发点。
+- 口径：只接凭证自身的人工 / 红冲状态流转；来源单据自动落的 `POSTED` 凭证不重复触发
+  （避免嵌套联动）。
 - 典型用法：记账完成 → 通知财务主管；反记账 → 建异常跟进任务。
 
 **`DEPRECIATION`（折旧批次 · 过账/红冲）**
