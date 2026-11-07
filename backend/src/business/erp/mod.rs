@@ -291,6 +291,10 @@ mod transfer_handler_query; // 只读：分页 / 详情 / 涉及序列号 / 在�
 mod transfer_handler_status; // 六态状态机：审核 / 发出 / 在途 / 收货（含结算）/ 作废 + 审批发起
 #[cfg(test)]
 mod transfer_handler_test_support; // 测试支撑：把审批实例批到终态（真库用例共用）
+// LNK-01 的**唯一**联动接线（人工流转 + 审批回调两条路共用）。`pub(crate)` 而不是私有：
+// 审批回调在 `flow::task_bridge` 里，跨模块必须够得着，才不至于让「配了已发布流程时
+// STOCK_TRANSFER/APPROVED 的规则永远不触发」这条静默缺口复活。
+pub(crate) mod transfer_linkage;
 
 /// R-P1-5 的真库单测（联动作废：影响分析 / 执行顺序 / 中途失败回滚 / 无下游直接作废）。
 /// 只在 `cargo test` 时编译。

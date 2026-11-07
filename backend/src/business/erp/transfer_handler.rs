@@ -112,3 +112,11 @@ mod db_books;
 #[cfg(test)]
 #[path = "transfer_handler_db_tests_query.rs"]
 mod db_query;
+
+/// 真库：状态变更的跨单据联动（LNK-01）——正常触发 / 重复结算不重复触发 / 排除动作不跑。
+///
+/// 文件名必须 `*_tests.rs` 结尾：`tests_wiring::engine_call_sites` 把这类文件当测试代码
+/// 排除在「调用点扫描」之外（用例里直接调 `engine::run_excluding` 不算生产接线）。
+#[cfg(test)]
+#[path = "transfer_handler_db_linkage_tests.rs"]
+mod db_linkage;

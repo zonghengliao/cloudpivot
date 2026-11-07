@@ -70,6 +70,9 @@ pub enum SettleError {
     /// 折算单位（箱/打）的单必须在这里拦下。载荷是 `unit_guard` 已经组好的 `ApiError`
     /// （`400 + ERP_UNIT_NOT_BASE` + 折算建议），handler 原样透出，文案只此一份。
     UnitGuard(ApiError),
+    /// 跨单据联动（LNK-01）的关键动作失败：引擎已经组好「哪个规则、哪个动作、为什么」的
+    /// `ApiError`，handler 原样透出并整笔回滚（不允许「状态改了、联动没跑」的半条账）。
+    Linkage(ApiError),
 }
 
 impl From<DbError> for SettleError {

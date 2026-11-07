@@ -34,11 +34,12 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::changelog::{self, Action, ChangeCtx, ChangeTarget, DiffInput};
+use crate::business::erp::transfer_linkage;
 use crate::business::erp::transfer_model as erp_transfer;
 use crate::business::flow::graph;
 use crate::business::flow::node_config::{self, OnCancel, OnComplete, OnReject, TaskNodeConfig};
 use crate::business::flow::task_node;
-use crate::business::flow::{engine, model, settle_guard};
+use crate::business::flow::{engine, linkage, model, settle_guard};
 use crate::business::task::model as task_model;
 use crate::business::task::state::{self, ActorKind, TaskStatus};
 use crate::shared::error_code;
@@ -1584,9 +1585,13 @@ async fn settle_transfer(instance_id: Uuid, approved: bool) -> DbResult<Option<U
     let approver = latest_completed_assignee(instance_id).await?;
     // 时间点在 Rust 侧算好（与日志 / 详情同一个值）
     let now = chrono::Utc::now();
-    let affected = db()
+    // 联动上下文要用的快照（事务闭包里按值捕获，避免闭包内外借同一份 row）
+    let transfer_no_for_linkage = row.transfer_no.clone();
+    let transfer_no_in_tx = transfer_no_for_linkage.clone();
+    let creator = row.create_by;
+    let (affected, linkage_run) = db()
         .transaction(move |tx| async move {
-            erp_transfer::settle_approval(
+            let affected = erp_transfer::settle_approval(
                 &tx,
                 transfer_id,
                 approved,
@@ -1594,12 +1599,41 @@ async fn settle_transfer(instance_id: Uuid, approved: bool) -> DbResult<Option<U
                 approver,
                 now,
             )
+            .await?;
+            if affected == 0 {
+                // CAS 落空（单据已被别的路径推走）→ 不触发联动，与「状态没变就不通知」同口径
+                return Ok((0u64, linkage::LinkageRun::default()));
+            }
+            // LNK-01：审批回调是**独立于 `change_transfer_status` 的状态变更点**。
+            // 只接人工流转会让「配了已发布流程」的生产环境里 STOCK_TRANSFER/APPROVED
+            // 的规则永远不触发（P1-FIX-5C 那类静默失效），所以这里同样走通用引擎，
+            // 排除清单与人工流转**共用** `transfer_linkage` 里的那一份。
+            let run = transfer_linkage::run_in_tx(
+                &tx,
+                transfer_id,
+                &transfer_no_in_tx,
+                target,
+                approver,
+                creator,
+            )
             .await
+            .map_err(|error| DbError::InvalidValue(format!("[{}] {}", error.code, error.msg)))?;
+            Ok((affected, run))
         })
         .await?;
     if affected == 0 {
         return Ok(None);
     }
+    // 提交**之后**才跑 AfterCommit 动作（发通知 / 建任务）：失败只记日志，不回滚审批结论。
+    transfer_linkage::run_deferred_after_commit(
+        transfer_id,
+        &transfer_no_for_linkage,
+        target,
+        approver,
+        creator,
+        linkage_run,
+    )
+    .await;
     if !approved && let Some(opinion) = opinion.as_deref() {
         tracing::info!(%transfer_id, opinion, "调拨单被审批驳回，已打回草稿");
     }

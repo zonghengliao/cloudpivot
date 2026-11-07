@@ -193,6 +193,9 @@ pub(super) fn settle_error(err: SettleError) -> ApiError {
         ),
         // DC-09 补口：单位止血闸已经组好 400 + ERP_UNIT_NOT_BASE 与折算建议，原样透出
         SettleError::UnitGuard(inner) => inner,
+        // LNK-01：联动引擎已经组好「哪条规则 / 哪个动作 / 为什么失败」，原样透出
+        // （关键动作失败 ⇒ 调用方整笔回滚，不会留下「状态改了、联动没跑」的半条账）
+        SettleError::Linkage(inner) => inner,
     }
 }
 

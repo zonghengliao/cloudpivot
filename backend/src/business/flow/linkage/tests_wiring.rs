@@ -114,12 +114,12 @@ fn trigger_specs_cover_whitelist_in_order() {
     assert_eq!(entities.len(), 15, "当前白名单是 15 个触发点");
     assert_eq!(
         spec::wired_triggers(),
-        vec!["STOCK_IN", "STOCK_OUT", "TASK"],
+        vec!["STOCK_IN", "STOCK_OUT", "STOCK_TRANSFER", "TASK"],
         "已接线的触发点：STOCK_IN（收货过账）、STOCK_OUT（出库过账，P1-FIX-5C 新接）、\
-         TASK（任务状态变更）；接线状态变化时这份断言要跟着改，改之前先想清楚\
-         「真的有人调引擎了吗」"
+         STOCK_TRANSFER（库存调拨状态变更，LNK-01 新接）、TASK（任务状态变更）；\
+         接线状态变化时这份断言要跟着改，改之前先想清楚「真的有人调引擎了吗」"
     );
-    assert_eq!(spec::unwired_triggers().len(), 12, "其余 12 个仍未接线");
+    assert_eq!(spec::unwired_triggers().len(), 11, "其余 11 个仍未接线");
 }
 
 /// 每条声明都要自洽：已接线的必须有证据对，未接线的必须给出原因且不能有证据对。
@@ -193,8 +193,9 @@ fn wired_triggers_match_call_sites() {
     }
     assert_eq!(
         actual.len(),
-        4,
-        "当前真实调用点 4 个文件（收货过账 / 出库过账 handler + 出库联动 hook / 任务状态通知）：{actual:?}"
+        5,
+        "当前真实调用点 5 个文件（收货过账 / 出库过账 handler + 出库联动 hook + 调拨联动 hook + \
+         任务状态通知）：{actual:?}"
     );
 }
 
@@ -235,4 +236,93 @@ fn stockout_post_wires_generic_engine_and_excludes_dedicated_actions() {
         hook.contains("linkage::engine::run_deferred"),
         "出库过账的提交后动作必须交给 run_deferred（commit 之后跑），否则通知 / 建任务永远不执行"
     );
+}
+
+/// 库存调拨（`STOCK_TRANSFER`）的接线细节（LNK-01）：**两条状态变更路都要调引擎**，
+/// 且必须排除会与 `settle_transfer` 重复落账的动作。
+///
+/// 这条防的三种漂移：
+///
+/// 1. 只在 `spec.rs` 把 `wired` 改成 true、handler 里没调用（P1-FIX-5C 的原罪）；
+/// 2. 排除清单丢了 → 调拨收货时同一行明细扣两次库存、一张单四条流水（e2e 抓得到，
+///    但改一行代码就静默发生）；
+/// 3. 只接人工流转、漏掉审批回调 → 「配了已发布流程」的生产环境里
+///    `STOCK_TRANSFER/APPROVED` 的规则永远不触发（最坏的一种：能保存、能启用、永远不响）。
+#[test]
+fn transfer_status_wires_generic_engine_and_excludes_inventory() {
+    let hook = include_str!("../../erp/transfer_linkage.rs");
+    assert!(
+        hook.contains("linkage::engine::run_excluding("),
+        "调拨状态变更必须调用通用引擎（run_excluding）：否则 STOCK_TRANSFER 的联动规则配了不触发"
+    );
+    assert!(
+        hook.contains("linkage::spec::TRANSFER_EXCLUDED_ACTIONS"),
+        "调拨调通用引擎时必须传 spec::TRANSFER_EXCLUDED_ACTIONS（不许改成写死的空清单）"
+    );
+    assert!(
+        hook.contains("linkage::engine::run_deferred"),
+        "调拨的提交后动作必须交给 run_deferred（commit 之后跑），否则通知 / 建任务永远不执行"
+    );
+    for code in [
+        "WRITE_INVENTORY",
+        "WRITE_INVENTORY_TXN",
+        spec::ACTION_GENERATE_VOUCHER,
+    ] {
+        assert!(
+            spec::TRANSFER_EXCLUDED_ACTIONS.contains(&code),
+            "调拨的排除清单漏了 {code}：它由 settle_transfer 专用落账，通用引擎再跑一次就是重复落账"
+        );
+    }
+    for code in [spec::ACTION_SEND_NOTICE, spec::ACTION_CREATE_TASK] {
+        assert!(
+            !spec::TRANSFER_EXCLUDED_ACTIONS.contains(&code),
+            "{code} 不能被调拨排除：通知 / 建任务就靠通用引擎的 AfterCommit 动作"
+        );
+    }
+
+    // 人工流转：状态事务内接线 + commit 后延迟接线
+    let handler = include_str!("../../erp/transfer_handler_status.rs");
+    assert!(
+        handler.contains("transfer_linkage::run_in_tx("),
+        "transfer_handler_status::apply_transition 必须真的调 transfer_linkage::run_in_tx\
+         （只改 spec.rs 的 wired 标记不算接线）"
+    );
+    assert!(
+        handler.contains("transfer_linkage::run_deferred_after_commit("),
+        "change_transfer_status 必须在 commit 之后调 run_deferred_after_commit\
+         （在事务里发通知，一旦回滚就是「用户看到通知、单子没动」）"
+    );
+
+    // 审批回调：PENDING → APPROVED / DRAFT 走的是 task_bridge，不经过 change_transfer_status
+    let bridge = include_str!("../../flow/task_bridge.rs");
+    assert!(
+        bridge.contains("transfer_linkage::run_in_tx("),
+        "审批回调（flow::task_bridge::settle_transfer）也必须调 transfer_linkage::run_in_tx：\
+         否则配了已发布流程的环境里 STOCK_TRANSFER/APPROVED 的规则永远不触发"
+    );
+    assert!(
+        bridge.contains("transfer_linkage::run_deferred_after_commit("),
+        "审批回调的提交后动作同样必须在 commit 之后跑（run_deferred_after_commit）"
+    );
+}
+
+/// 调拨的排除清单在**语义上**真的会把那三类动作拦下来（不是只有字符串写对）。
+///
+/// `engine::is_routed_elsewhere` 是引擎判定「这条规则交给专用路径」的唯一判据：
+/// 命中的规则**不产生 `RuleRun`**（`run_excluding` 里 `continue`）。
+#[test]
+fn transfer_excluded_actions_are_routed_elsewhere() {
+    use crate::business::flow::linkage::engine;
+    for code in spec::TRANSFER_EXCLUDED_ACTIONS {
+        assert!(
+            engine::is_routed_elsewhere(spec::TRANSFER_EXCLUDED_ACTIONS, code),
+            "{code} 在排除清单里却没被判成「专用路由」：清单传下去也拦不住它"
+        );
+    }
+    for code in [spec::ACTION_SEND_NOTICE, spec::ACTION_CREATE_TASK] {
+        assert!(
+            !engine::is_routed_elsewhere(spec::TRANSFER_EXCLUDED_ACTIONS, code),
+            "{code} 被误判成专用路由：调拨的通知 / 建任务会静默不执行"
+        );
+    }
 }

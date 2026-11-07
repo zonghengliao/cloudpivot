@@ -295,7 +295,7 @@ pub struct TriggerSpec {
 
 /// 触发点接线表（顺序与 [`TRIGGERS`] 一致）。
 ///
-/// 当前 **3/15 已接线**（`STOCK_IN` · `STOCK_OUT` · `TASK`），12 个未接线；逐条原因见
+/// 当前 **4/15 已接线**（`STOCK_IN` · `STOCK_OUT` · `STOCK_TRANSFER` · `TASK`），11 个未接线；逐条原因见
 /// `docs/architecture/P1-FIX-5C-联动触发点接线清单.md`。
 pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     TriggerSpec {
@@ -361,11 +361,26 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
             ("DONE", "已完成"),
             ("CANCELLED", "已取消"),
         ],
-        wired: false,
-        wiring: "未接线：状态变更点在 erp/transfer_handler_status.rs（调 \
-                 state_machine::transition + transfer_write::apply_status），同样没有联动调用点。\
-                 接线要动：状态事务内 run_excluding(库存类动作) + commit 后 run_deferred",
-        proofs: &[],
+        wired: true,
+        wiring: "已接线（LNK-01）：erp/transfer_handler_status.rs::apply_transition 第 ⑥ 步 \
+                 （提交 / 审核 / 发运 / 收货 / 作废 六态流转的**唯一**状态写入点，CAS 成功才跑）\
+                 调 erp::transfer_linkage::run_in_tx → linkage::engine::run_excluding(\
+                 spec::TRANSFER_EXCLUDED_ACTIONS)（库存 / 流水由 settle_transfer 落账，必须排除，\
+                 否则同一行明细扣两次、一张单四条流水）；commit 后 \
+                 change_transfer_status 调 run_deferred_after_commit → run_deferred。\
+                 审批通过 / 驳回（流程回调）同样接：flow::task_bridge::settle_transfer 事务内 \
+                 run_in_tx + commit 后 run_deferred（不接这条，配了已发布流程的生产环境里 \
+                 STOCK_TRANSFER/APPROVED 的规则永远不触发）",
+        proofs: &[
+            (
+                "src/business/erp/transfer_linkage.rs",
+                "linkage::engine::run_excluding",
+            ),
+            (
+                "src/business/erp/transfer_linkage.rs",
+                "linkage::engine::run_deferred",
+            ),
+        ],
     },
     TriggerSpec {
         entity: state_machine::ENTITY_PURCHASE_ORDER,
@@ -667,6 +682,30 @@ pub const STOCKOUT_EXCLUDED_ACTIONS: &[&str] = &[
     "WRITE_INVENTORY",
     "WRITE_INVENTORY_TXN",
     "UPDATE_COST",
+    ACTION_GENERATE_VOUCHER,
+];
+
+/// **库存调拨单**的专用路由排除清单（LNK-01）。
+///
+/// 调拨的库存落账**不在通用引擎里**：`IN_TRANSIT → DONE` 由
+/// `erp/transfer_settle.rs::settle_transfer` 在同一个事务里把调出仓 −、调入仓 +、写两条
+/// `TRANSFER_OUT` / `TRANSFER_IN` 流水、并把成本原价从调出仓搬到调入仓。所以这条
+/// 触发点上通用引擎必须把这 3 类动作交给专用路径：
+///
+/// - `WRITE_INVENTORY` / `WRITE_INVENTORY_TXN` → 同一行明细扣/加两次，流水翻倍；
+/// - `GENERATE_VOUCHER` → 调拨不抛凭证（只搬成本），且该动作目前只接管 `STOCK_IN`
+///   的取数口径，挂在调拨上只会产生一条「跳过」噪音。
+///
+/// `UPDATE_COST` **刻意不排除**：调拨的成本转移只在 `settle_transfer` 里做，通用引擎
+/// 在别的目标态（如 `APPROVED`）上仍可能需要它；而 `settle_transfer` 那条路上
+/// `UPDATE_COST` 没有对应的取数实现（占位动作，执行时 Skipped），不会重复落账。
+///
+/// 排除清单放在**调用方**（这里导出、`erp::transfer_linkage` 传入）而不是写死在引擎里：
+/// 换个触发点（如 `PAYABLE/SETTLED`）通用路线仍然要能跑这些动作。
+/// 漂移守卫：`tests_wiring::transfer_status_wires_generic_engine_and_excludes_inventory`。
+pub const TRANSFER_EXCLUDED_ACTIONS: &[&str] = &[
+    "WRITE_INVENTORY",
+    "WRITE_INVENTORY_TXN",
     ACTION_GENERATE_VOUCHER,
 ];
 

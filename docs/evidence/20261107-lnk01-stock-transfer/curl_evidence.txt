@@ -1,0 +1,40 @@
+
+TOKEN 长度 = 461
+
+$ curl -X PUT /api/business/flow/linkage   # 配规则：STOCK_TRANSFER / PENDING → SEND_NOTICE
+{"id": "01a1b428-fffc-7443-bdb3-ba6cb10dfb46", "name": "LNK01 调拨提交 → 通知制单人", "trigger": "STOCK_TRANSFER/PENDING", "action": "SEND_NOTICE", "phase": "AFTER_COMMIT", "implemented": true, "problems": []}
+
+$ curl /api/business/flow/linkage?trigger_entity=STOCK_TRANSFER   # 触发点字典里 wired 应为 true
+{
+ "rules": [
+  {
+   "action": "SEND_NOTICE",
+   "status": "PENDING",
+   "enabled": true
+  }
+ ],
+ "trigger": {
+  "entity": "STOCK_TRANSFER",
+  "wired": true,
+  "wiring": "已接线（LNK-01）：erp/transfer_handler_status.rs::apply_transition 第 ⑥ 步 （提交 / 审核 / 发运 / 收货 / 作废…"
+ }
+}
+
+$ curl -X POST /api/business/erp/transfer   # 建单（WH01 → WH02，原料A × 2）
+{"id": "01a1b429-3655-753b-bdcf-b35bd6265802", "transfer_no": "TK-20261107-000070", "status": "DRAFT", "total_qty": "2.0000"}
+
+transfer id=01a1b429-3655-753b-bdcf-b35bd6265802 no=TK-20261107-000070
+
+$ curl -X PATCH /api/business/erp/transfer/{id}/status  {"status":"PENDING"}
+{"code": 0, "msg": "ok", "status": "PENDING", "submitted_at": "2026-11-07T03:59:22.271602Z"}
+
+# 落库真值：联动通知（幂等键 LNK:STOCK_TRANSFER:PENDING:<id>）
+NTW202611070359221ceba30b | 调拨单待审批 | USER | STOCK_TRANSFER | LNK:STOCK_TRANSFER:PENDING:01a1b429-3655-753b-bdcf-b35bd6265802
+
+# 落库真值：状态日志（状态机唯一入口）
+
+STOCK_TRANSFER DRAFT→PENDING
+
+# 收尾：删掉取证规则（库里恢复 3 条预置）+ 删掉取证单据（DRAFT 可删）
+{"code":0,"msg":"ok","data":null}
+{"code":10003,"msg":"调拨单当前是「待审批」（PENDING），只有草稿（DRAFT）/ 已取消（CANCELLED）能删：在途 / 已完成的单据是库存与审批的事实，不能删"}

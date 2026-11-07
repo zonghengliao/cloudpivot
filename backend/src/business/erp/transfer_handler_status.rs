@@ -8,6 +8,7 @@
 
 use super::transfer_handler_common::*;
 use super::transfer_handler_query::*;
+use super::transfer_linkage;
 use crate::business::erp::form_snapshot;
 use crate::business::erp::separation;
 use crate::business::erp::transfer_dto::{TransferDetailRes, TransferStatusReq};
@@ -15,6 +16,7 @@ use crate::business::erp::transfer_model::{
     self, ALL_STATUSES, STATUS_PENDING, SettleError, TransferRow, transition_effect,
     transition_rejected_message,
 };
+use crate::business::flow::linkage;
 use crate::business::flow::{engine, model as flow_model, task_bridge as flow_task_bridge};
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
@@ -38,18 +40,36 @@ pub(super) struct TransitionContext<'a> {
     from_warehouse_id: Uuid,
     /// 调入仓库（`DONE` 时结算要读它：库存增加 + 流水挂仓）。
     to_warehouse_id: Uuid,
+    /// 制单人（联动上下文的 `creator`：通知默认收件人 / `recipient = CREATOR` 策略）。
+    creator: Option<Uuid>,
     /// 提交审批时要发起的审批单参数（`None` = 没配流程 / 其它目标态）。
     start: Option<engine::StartReq>,
+}
+
+/// 一次流转的落库结果（`apply_transition` → `change_transfer_status`）。
+///
+/// `linkage.deferred` 是**提交后**才跑的联动动作（发通知 / 建任务），必须由调用方在
+/// `commit()` 成功之后交给 [`transfer_linkage::run_deferred_after_commit`]：
+/// 在事务里发通知，一旦回滚就是「用户看到通知、单子没动」。
+pub(super) struct TransitionOutcome {
+    /// 受影响行数（`0` = CAS 失败，由调用方翻 409）。
+    pub affected: u64,
+    /// 本次状态变更触发的联动结果。
+    pub linkage: linkage::LinkageRun,
 }
 
 /// 事务内的状态写入（`affected = 0` 表示 CAS 失败，由调用方翻 409）。
 ///
 /// `IN_TRANSIT → DONE` 时**同事务**再做库存双写（[`transfer_model::settle_transfer`]）：
 /// 结算失败就把整笔（含刚写的 `DONE`）一起回滚，调拨单仍是 `IN_TRANSIT`。
+///
+/// 最后一步（⑥ 跨单据联动，LNK-01）：事务内跑通用引擎但**排除调拨专用落账动作**
+/// （库存 / 流水 / 凭证由 `settle_transfer` 或多个转移路径自己负责，
+/// 见 `linkage::spec::TRANSFER_EXCLUDED_ACTIONS`），提交后动作交给调用方。
 pub(super) async fn apply_transition(
     tx: &Transaction,
     ctx: &TransitionContext<'_>,
-) -> std::result::Result<u64, SettleError> {
+) -> std::result::Result<TransitionOutcome, SettleError> {
     // P10 铁律 ③：状态变更先过唯一入口（边表 + reason 校验 + 写 biz_status_log），
     // 与「写状态 / 结算库存 / 发起审批」同一事务。CAS 落空时上层整笔回滚，日志不留下。
     state_machine::transition(
@@ -139,7 +159,28 @@ pub(super) async fn apply_transition(
             );
         }
     }
-    Ok(affected)
+    // ⑥ 跨单据联动（LNK-01）：状态已经落库（`affected > 0`）才跑，CAS 落空不触发。
+    //    调拨的库存 / 流水由 ④ 的 `settle_transfer` 自己落账，通用引擎必须**显式排除**
+    //    那几类动作（否则同一行明细扣两次库存、一张单四条流水）；排除清单在
+    //    `spec::TRANSFER_EXCLUDED_ACTIONS`，不是写死在引擎里（换个触发点仍可用通用路线）。
+    //
+    //    读规则失败 = 空规则集 = 行为与配置前逐字相同（`model::rules_for` fail-safe）；
+    //    关键动作失败 → `Err` → 整笔回滚（与本函数其它步骤同一口径）。
+    //    提交后动作（发通知 / 建任务）放进 `deferred`，由 `change_transfer_status` 在 commit 之后跑。
+    let mut linkage = linkage::LinkageRun::default();
+    if affected > 0 {
+        linkage = transfer_linkage::run_in_tx(
+            tx,
+            ctx.id,
+            ctx.transfer_no,
+            ctx.effect.status,
+            Some(ctx.operator),
+            ctx.creator,
+        )
+        .await
+        .map_err(SettleError::Linkage)?;
+    }
+    Ok(TransitionOutcome { affected, linkage })
 }
 
 /// 提交审批前准备好审批单参数（**不写库**）。
@@ -337,6 +378,7 @@ pub async fn change_transfer_status(
         now,
         from_warehouse_id: row.from_warehouse_id,
         to_warehouse_id: row.to_warehouse_id,
+        creator: row.create_by,
         start,
     };
     let tx = db()
@@ -344,17 +386,31 @@ pub async fn change_transfer_status(
         .await
         .map_err(|error| utils::db_error(error, "开启状态流转事务"))?;
     match apply_transition(&tx, &ctx).await {
-        Ok(0) => {
+        Ok(TransitionOutcome {
+            affected: 0,
+            linkage: _,
+        }) => {
             let _ = tx.rollback().await;
             Err(conflict(format!(
                 "调拨单状态在本次流转期间已被改动（期望 {}），请刷新后重试",
                 row.status
             )))
         }
-        Ok(_) => {
+        Ok(outcome) => {
             tx.commit()
                 .await
                 .map_err(|error| utils::db_error(error, "提交状态流转事务"))?;
+            // 提交**之后**才跑 AfterCommit 动作（发通知 / 建任务）：它们在独立事务里，
+            // 失败只记日志，不回滚已经落定的状态与库存。
+            transfer_linkage::run_deferred_after_commit(
+                id,
+                &row.transfer_no,
+                effect.status,
+                Some(operator),
+                row.create_by,
+                outcome.linkage,
+            )
+            .await;
             Ok(())
         }
         Err(SettleError::Db(error)) => {
