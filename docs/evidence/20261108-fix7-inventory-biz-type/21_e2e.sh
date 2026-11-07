@@ -20,6 +20,7 @@ echo "=== FIX-7 E2E $(date '+%F %T') db=$DBNAME base=$BASE ==="
 # ---------- 登录 ----------
 ADMIN=$(login admin "$ADMIN_PASS")
 if [ -z "$ADMIN" ]; then echo "FATAL: admin 登录失败"; exit 1; fi
+TOK="$ADMIN"   # api() 用它；401 时自愈换新
 echo "$ADMIN" > "$(tokf admin)"
 echo "token ok (len=${#ADMIN})"
 
@@ -61,7 +62,7 @@ TAG="FIX7-$(date +%H%M%S)"
 
 # ---------- 3. 无源入库（HTTP）→ in_type = SOURCELESS（acceptance ④）----------
 echo "--- 3) 无源入库单：is_sourceless=true → in_type=SOURCELESS ----------"
-BODY=$(api POST '/business/erp/stock-in' "$ADMIN" "{
+BODY=$(api POST '/business/erp/stock-in' "" "{
   \"is_sourceless\": true,
   \"supplier_id\": \"$SUP\",
   \"warehouse_id\": \"$WH\",
@@ -74,7 +75,7 @@ check_eq "SOURCELESS" "$(printf '%s' "$BODY" | jq -r '.data.in_type // empty')" 
 check_eq "SOURCELESS" "$(sq "select in_type from biz_stock_in where id='$IN_ID'::uuid")" "库内 in_type"
 check_eq "t" "$(sq "select (is_sourceless and supplier_id='$SUP'::uuid)::text from biz_stock_in where id='$IN_ID'::uuid")" "库内 is_sourceless + 供应商"
 
-api POST "/business/erp/stock-in/$IN_ID/submit-post" "$ADMIN" '{}' > /dev/null
+api POST "/business/erp/stock-in/$IN_ID/submit-post" "" '{}' > /dev/null
 check_http "200" "无源入库提交过账（金额 1000 恰好走到审批线以下则自动过账）"
 check_eq "POSTED" "$(sq "select status from biz_stock_in where id='$IN_ID'::uuid")" "无源入库落 POSTED"
 check_eq "PURCHASE_IN" "$(sq "select biz_type from biz_inventory_txn where doc_type='STOCK_IN' and doc_id='$IN_ID'::uuid limit 1")" \
@@ -82,13 +83,13 @@ check_eq "PURCHASE_IN" "$(sq "select biz_type from biz_inventory_txn where doc_t
 
 # ---------- 4. 手工出库（HTTP）→ ISSUE_OUT 不受影响（回归）----------
 echo "--- 4) 手工领用出库 30 件 → 流水 ISSUE_OUT ----------"
-BODY=$(api POST '/business/erp/stock-out' "$ADMIN" "{
+BODY=$(api POST '/business/erp/stock-out' "" "{
   \"out_type\": \"ISSUE\", \"warehouse_id\": \"$WH\", \"reason\": \"$TAG 手工领用（回归：非销售出库不许变 SALE_OUT）\",
   \"items\": [{\"material_id\": \"$MAT\", \"qty\": 30}]
 }")
 check_http "200" "手工领用出库建单"
 SO_ID=$(printf '%s' "$BODY" | jq -r '.data.id // empty')
-api PATCH "/business/erp/stock-out/$SO_ID/status" "$ADMIN" '{"status":"POSTED"}' > /dev/null
+api PATCH "/business/erp/stock-out/$SO_ID/status" "" '{"status":"POSTED"}' > /dev/null
 check_http "200" "手工领用出库过账"
 check_eq "ISSUE_OUT" "$(sq "select biz_type from biz_inventory_txn where doc_type='STOCK_OUT' and doc_id='$SO_ID'::uuid limit 1")" \
   "手工出库流水 biz_type（回归：仍 ISSUE_OUT）"
@@ -105,12 +106,12 @@ VALUES ('$ITEM_UUID', '$SO_UUID'::uuid, 1, '$MAT'::uuid, 5, 10, 50, 0, 0);
 SQL
 BEFORE_SALE_QTY=$(sq "select coalesce(sum(qty),0) from biz_inventory_txn where biz_type='SALE_OUT'")
 
-BODY=$(api POST '/business/erp/shipment' "$ADMIN" "{
+BODY=$(api POST '/business/erp/shipment' "" "{
   \"so_id\": \"$SO_UUID\", \"warehouse_id\": \"$WH\", \"remark\": \"$TAG 销售出库\"
 }")
 check_http "200" "建发货单"
 SHIP_ID=$(printf '%s' "$BODY" | jq -r '.data.id // empty')
-api PATCH "/business/erp/shipment/$SHIP_ID/status" "$ADMIN" '{"target_status":"POSTED"}' > /dev/null
+api PATCH "/business/erp/shipment/$SHIP_ID/status" "" '{"target_status":"POSTED"}' > /dev/null
 check_http "200" "发货单过账（同一事务里生成并过账销售出库单）"
 
 OUT_ID=$(sq "select id from biz_stock_out where source_id='$SHIP_ID'::uuid and source_type='SALES' and deleted_at is null")

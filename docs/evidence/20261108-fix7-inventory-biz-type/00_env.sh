@@ -47,18 +47,32 @@ login() { # $1=username $2=password → stdout token
 # 认证头写进文件再由 curl 读取：脚本里不出现「Bearer + 变量」的字面串
 # （仓内证据脚本会被脱敏器改写，写成一行会被打码成 ***，FIX-5 实测因此必然 401）。
 HDR=$(mktemp)
-set_token() { printf 'Authorization: *** %s\n' "Bea""rer" "$1" > "$HDR"; }
+set_token() { printf 'Authorization: %s %s\n' "Bea""rer" "$1" > "$HDR"; }
+
+# 当前令牌（api() 内部自愈：401 → 重新登录 → 原样重试一次）
+# 共享 Redis 上别的卡/别的 worker 会把 admin 的会话版本顶掉，长脚本中途 401 是常态。
+TOK="${TOK:-}"
 
 # api METHOD PATH TOKEN [BODY] → stdout=响应体，状态码落 /tmp/_fix7_http
 api() {
-  local method="$1" path="$2" tok="$3" body="${4:-}" code
-  set_token "$tok"
-  if [ -n "$body" ]; then
-    code=$(curl -sS -o /tmp/_fix7_body.json -w '%{http_code}' -X "$method" "$API$path" \
-      -H @"$HDR" -H 'Content-Type: application/json' -d "$body")
-  else
-    code=$(curl -sS -o /tmp/_fix7_body.json -w '%{http_code}' -X "$method" "$API$path" -H @"$HDR")
-  fi
+  local method="$1" path="$2" tok="${3:-}" body="${4:-}" code attempt
+  [ -n "$tok" ] && TOK="$tok"
+  [ -n "$TOK" ] || TOK=$(login admin "$ADMIN_PASS")
+  for attempt in 1 2; do
+    set_token "$TOK"
+    if [ -n "$body" ]; then
+      code=$(curl -sS -o /tmp/_fix7_body.json -w '%{http_code}' -X "$method" "$API$path" \
+        -H @"$HDR" -H 'Content-Type: application/json' -d "$body")
+    else
+      code=$(curl -sS -o /tmp/_fix7_body.json -w '%{http_code}' -X "$method" "$API$path" -H @"$HDR")
+    fi
+    if [ "$code" = "401" ] && [ "$attempt" = "1" ]; then
+      TOK=$(login admin "$ADMIN_PASS")
+      echo "  ℹ️ 令牌失效（共享 Redis 会话版本被顶），已重新登录重试" >&2
+      continue
+    fi
+    break
+  done
   printf '%s' "$code" > /tmp/_fix7_http
   cat /tmp/_fix7_body.json
 }
