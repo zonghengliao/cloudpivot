@@ -1,0 +1,95 @@
+═══ 新环境初始化：库 cloudpivot_fresh ═══
+仓根: /root/mirror
+连接: cloudpivot@127.0.0.1:5432（owner=cloudpivot，profile=dev，二进制=/opt/cloudpivot/backend/target/debug/cloudpivot）
+==> 已删除旧库：cloudpivot_fresh（RECREATE=1）
+==> 空库已建：cloudpivot_fresh（owner=cloudpivot）
+==> 迁移实例已启动 pid=102956 端口=18097 日志=/tmp/setup_new_env_cloudpivot_fresh.log
+==> 实例已停止（迁移日志：1 条完成标记）
+==> schema_migrations: versioned 242/242 条 ｜ seed 10/10 条 ｜ 失败 0 条 ｜ 最大版本 V320
+
+── 菜单结构不变量 ──────────────────────────────────────────────
+═══ 菜单结构不变量 ═══
+库: cloudpivot_fresh
+① 孤儿 parent:           0  ✅
+② /system/ 归属:         0  ✅
+③ /business/ 归属:       0  ✅
+    ↳ 例外表：4 条 path 豁免（/notice-center 根），失配 0（缺失/已合规）
+④ path 唯一性:           0  ✅
+⑤ 菜单总数:            408  ✅ (400-420)
+结果: 全绿 ✅
+
+── 菜单树摘要 ──────────────────────────────────────────────────
+菜单总数（未删）: 408
+顶级菜单: 19 个
+  [2] /dashboard                   工作台
+  [1] /system                      system
+  [1] /notice-center               notice-center
+  [1] /support                     support
+  [1] /flow                        审批流
+  [1] /task                        工作任务
+  [1] /business/erp/purchase-mgmt  采购管理
+  [1] /business/erp/sales-mgmt     销售管理
+  [2] /project                     项目
+  [1] /business/erp/warehouse-mgmt 仓库管理
+  [1] /content                     content
+  [1] /business/erp/finance-mgmt   财务管理
+  [1] /business                    通用底座
+  [2] /business/erp/contract       合同管理
+  [1] /business/erp/master-data    基础数据
+  [2] /help                        帮助中心
+  [2] ~NULL~                       价格查询
+  [2] ~NULL~                       收款退款单
+  [2] /user/preference             外观设置
+
+── 比对①：新库 vs 生产结构 ────────────────────────────────────
+═══ 菜单结构比对（path|parent_path|menu_type）═══
+A（新库）: 连库现取：cloudpivot_fresh@127.0.0.1  →  408 个节点
+B（对照）: 文件：/root/mirror/scripts/verify/baseline/prod_menu_structure.txt（md5 acb46924f172ba635481a9f4cdeec633）  →  408 个节点
+相同（归一后）: 408
+
+已备案的等价规则（/root/mirror/scripts/verify/baseline/menu_struct_equiv.tsv）：
+  · path   /business/erp/purchase → /business/erp/purchase-order（命中 8 行）：同一逻辑菜单的两种路径：前端 router/index.ts:545-546 为 path='business/erp/purchase-order' + alias=['business/erp/purchase']，两者指向同一组件 views/business/erp/purchase/index.vue。seed（V0141）历史路径=purchase-order，144 生产存量=别名路径 purchase（V0319 已裁定「不 INSERT 第二条」，见该迁移注释）。canonical 取迁移链的 purchase-order。
+  · parent /business/erp/seq：/business/erp/finance-mgmt → /business/erp/master-data（命中 1 行）：「单号序列」归属项：MENU-01B（V0320__seq_menu_move_to_master_data）判定其为配置类，从「财务管理」移到「基础数据」。145/新库已跑 V0320；144 生产 HEAD=5b0a1f5d 尚未部署该迁移，部署后自动收敛（届时本行不再命中，脚本会提示清理）。
+
+原始差异: 仅 A 9 ｜ 仅 B 9
+归一后差异: 仅 A 0 ｜ 仅 B 0
+
+原始差异明细（< 仅 A ｜ > 仅 B，最多各 20 条）：
+  < /business/erp/purchase-order|/business/erp/purchase-mgmt|2
+  < /business/erp/seq|/business/erp/master-data|2
+  < ~NULL~|/business/erp/purchase-order|3
+  < ~NULL~|/business/erp/purchase-order|3
+  < ~NULL~|/business/erp/purchase-order|3
+  < ~NULL~|/business/erp/purchase-order|3
+  < ~NULL~|/business/erp/purchase-order|3
+  < ~NULL~|/business/erp/purchase-order|3
+  < ~NULL~|/business/erp/purchase-order|3
+  > /business/erp/purchase|/business/erp/purchase-mgmt|2
+  > /business/erp/seq|/business/erp/finance-mgmt|2
+  > ~NULL~|/business/erp/purchase|3
+  > ~NULL~|/business/erp/purchase|3
+  > ~NULL~|/business/erp/purchase|3
+  > ~NULL~|/business/erp/purchase|3
+  > ~NULL~|/business/erp/purchase|3
+  > ~NULL~|/business/erp/purchase|3
+  > ~NULL~|/business/erp/purchase|3
+
+✅ 结构一致（归一后 0 差异；原始差异 18 处均为已备案等价表示）
+
+── 比对②：新库 vs 迁移链基线（canonical，未来新机器准绳）────────
+═══ 菜单结构比对（path|parent_path|menu_type）═══
+A（新库）: 连库现取：cloudpivot_fresh@127.0.0.1  →  408 个节点
+B（对照）: 文件：/root/mirror/scripts/verify/baseline/menu_structure_baseline.txt（md5 a5709c4a6d9d26c5cd9cf3566246b3d2）  →  408 个节点
+相同（归一后）: 408
+（本次比对未触达任何等价规则：两侧均为 canonical 表示）
+
+原始差异: 仅 A 0 ｜ 仅 B 0
+归一后差异: 仅 A 0 ｜ 仅 B 0
+
+✅ 结构一致（严格模式：原始与归一后均 0 差异）
+
+✅ 新环境菜单结构与生产一致
+   比对① 与生产（快照文件：/root/mirror/scripts/verify/baseline/prod_menu_structure.txt）归一后 0 差异（已备案等价规则见 scripts/verify/baseline/menu_struct_equiv.tsv）
+   比对② 与迁移链基线（--strict）0 差异
+
+库 cloudpivot_fresh 保留（供以后对比基线）；不需要时：dropdb cloudpivot_fresh

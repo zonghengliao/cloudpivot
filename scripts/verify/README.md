@@ -435,3 +435,72 @@ bash scripts/verify/menu_invariants.sh <db>; echo $?                          # 
 ```
 
 以上 ①②③ 在 145 `cloudpivot_dev` 实测：注入前/复原后整表 md5 一致（`c8530451…`），复原后 rc=0。
+
+## 菜单结构导出 / 跨环境比对 / 新环境初始化（卡 MENU-03）
+
+三个脚本一条链：**导出**（归一化）→ **比对**（含等价规则）→ **新库从零重建并自检**。
+配套文档：`docs/新机器部署-纯迁移重建.md`。
+
+```bash
+# ① 归一化导出（每行 path|parent_path|menu_type，只含未软删记录）
+bash scripts/verify/menu_structure_dump.sh cloudpivot_fresh            # stdout
+bash scripts/verify/menu_structure_dump.sh cloudpivot_fresh out.txt    # 写文件
+
+# ② 两个来源比对（第二个参数可以是库名，也可以是文件）
+bash scripts/verify/menu_struct_compare.sh cloudpivot_fresh \
+     scripts/verify/baseline/menu_structure_baseline.txt
+bash scripts/verify/menu_struct_compare.sh cloudpivot_fresh cloudpivot_dev --strict
+
+# ③ 全新库：建库 → 纯跑全部迁移 → 不变量 → 树摘要 → 双向结构比对
+bash scripts/setup_new_env.sh cloudpivot_fresh          # 库已存在则拒绝
+RECREATE=1 bash scripts/setup_new_env.sh cloudpivot_fresh
+```
+
+退出码统一：`0` 通过 ｜ `1` 违规/差异 ｜ `2` 连库或参数问题。
+
+### 口径：只比 path / parent_path / menu_type
+
+`name` / `title` / `sort_order` / `icon` / `is_visible` 是业务数据或审美差异，改它们不会让侧栏"乱"；
+层级与类型才会。三种特殊标注保证缺陷不被 `coalesce` 抹平：
+
+| 标注 | 含义 |
+|---|---|
+| `-ROOT-` | 节点自身是顶级（`parent_id IS NULL`） |
+| `-MISSING-` | 父节点不存在或已软删（孤儿 ⇒ 缺陷可见） |
+| `~NULLPATH~` / `~NULL~` | 父节点存在但 path 为空 / 节点自身 path 为空（例如生产里 `/receipt-refund` 这类只种了页面行的菜单） |
+
+### 等价表示登记表（不是白名单）
+
+`scripts/verify/baseline/menu_struct_equiv.tsv`：`path` / `parent` 两类规则，每条带**理由与出处**。
+比对前对两侧同时归一，输出永远同时打印「原始差异」和「归一后差异」，并统计每条规则命中几行：
+
+```
+已备案的等价规则（…/menu_struct_equiv.tsv）：
+  · path   /business/erp/purchase → /business/erp/purchase-order（命中 8 行）：…
+  · parent /business/erp/seq：/business/erp/finance-mgmt → /business/erp/master-data（命中 1 行）：…
+原始差异: 仅 A 9 ｜ 仅 B 9
+归一后差异: 仅 A 0 ｜ 仅 B 0
+```
+
+判据：**规则只能登记"同一菜单的另一种合法写法"**（如前端 `router` alias），
+"有人手工改过库"必须补幂等迁移，不许往表里塞规则。`--strict` 要求原始差异也为 0，
+用来审计旧规则是否已收敛；规则不再命中时脚本打 `⚠ 未被命中的规则…建议清理`。
+关掉全部规则：`MENU_STRUCT_EQUIV=/dev/null`。
+
+### 基线文件（随仓库提交）
+
+| 文件 | 内容 | 何时更新 |
+|---|---|---|
+| `baseline/menu_structure_baseline.txt` | 纯迁移重建得到的 canonical 结构（408 行） | 迁移**故意**改导航结构时重新生成，commit 写清原因 |
+| `baseline/prod_menu_structure.txt` | 144 生产快照（408 行，md5 `acb46924…`） | 生产菜单变更后重新导出 |
+| `baseline/menu_struct_equiv.tsv` | 等价表示登记表 | 见上，只在论证后新增 |
+
+### 自证（145 实测，2026-11-07）
+
+| 用例 | 期望 | 实测 |
+|---|---|---|
+| 新库 vs 迁移链基线（`--strict`） | rc=0 | rc=0（408/408，原始与归一后均 0 差异） |
+| 生产快照里插一条幽灵菜单 | 规则不得掩盖 ⇒ rc=1 | 归一后报 1 处（`/business/erp/ghost-page`），rc=1 |
+| `MENU_STRUCT_EQUIV=/dev/null`（关规则） | 露出原始 18 处 ⇒ rc=1 | 归一后 18 处，rc=1 |
+| 新库 vs 生产快照 `--strict` | 规则仍在生效 ⇒ rc=1 | `--strict：归一后虽一致，但原始差异 18 处`，rc=1 |
+| 规则文件路径不存在 | 不得静默放过 ⇒ rc=1 | 18 处差异，rc=1（规则文件不存在时该节不打印） |

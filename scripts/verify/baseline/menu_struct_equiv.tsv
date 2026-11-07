@@ -1,0 +1,18 @@
+# 菜单结构「等价表示」登记表（卡 MENU-03）
+#
+# 作用：menu_struct_compare.sh 比对前，用本表把**两侧**同时归一，避免"硬比字符串永远红"。
+# 规则只登记**已经论证过、且不改导航语义**的等价表示，每条必须写理由与出处；
+# 新规则往这里加之前先问一句：这是等价表示，还是有人手工改库了？
+# 后者应当补一条幂等迁移把它固化（见 docs/后端二开指南.md「迁移」一节），不是加规则。
+#
+# 格式（TAB 分隔，一行一条）：
+#   kind    subject    from    to    理由
+#   path    -          <旧路径>  <canonical 路径>     两侧都归一：节点 path 与 parent_path 都替换
+#   parent  <子节点 path>  <旧父 path>  <canonical 父 path>   只替换该子节点的父路径
+# 方向恒为「历史/环境特例 → 迁移链 canonical」，因为迁移链是新机器的唯一结构来源。
+# 整份关掉：MENU_STRUCT_EQUIV=/dev/null bash scripts/verify/menu_struct_compare.sh ... --strict
+# 规则不再命中（两边已一致）时脚本会打 ⚠ 提示，此时应删掉该行。
+#
+# ------------------------------------------------------------------------------
+path	-	/business/erp/purchase	/business/erp/purchase-order	同一逻辑菜单的两种路径：前端 router/index.ts:545-546 为 path='business/erp/purchase-order' + alias=['business/erp/purchase']，两者指向同一组件 views/business/erp/purchase/index.vue。seed（V0141）历史路径=purchase-order，144 生产存量=别名路径 purchase（V0319 已裁定「不 INSERT 第二条」，见该迁移注释）。canonical 取迁移链的 purchase-order。
+parent	/business/erp/seq	/business/erp/finance-mgmt	/business/erp/master-data	「单号序列」归属项：MENU-01B（V0320__seq_menu_move_to_master_data）判定其为配置类，从「财务管理」移到「基础数据」。145/新库已跑 V0320；144 生产 HEAD=5b0a1f5d 尚未部署该迁移，部署后自动收敛（届时本行不再命中，脚本会提示清理）。
