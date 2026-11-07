@@ -927,4 +927,290 @@ mod db {
         assert_eq!(usages[0].status, "OCCUPIED");
         cleanup(&[id]).await;
     }
+
+    // ==================== 17) 分页 SQL 契约（SCOPE-PAGE 回归；不连库，永远跑） ====================
+
+    /// 与 `report_page` **同一条**组装路径：基础 SQL（带 `{FILTER}`）+ 业务过滤片段。
+    fn report_page_sql(
+        q: &crate::business::erp::expense_dto::ReportFilter,
+    ) -> (String, Vec<Value>) {
+        let mut params: Vec<Value> = Vec::new();
+        let filters = crate::business::erp::expense_model::report_page_filters(q, &mut params)
+            .expect("组装报销分页过滤片段");
+        let mut sql = crate::business::erp::expense_model::report_page_base_sql();
+        sql.push_str(&filters);
+        (sql, params)
+    }
+
+    /// `{FILTER}` 必须**恰好一次**：0 次就是 SCOPE-PAGE 卡的现场（片段只能追加到末尾 → 非超管带筛选
+    /// 500），2 次 `scope::paginate` 会直接拒（无法判断插哪个）。
+    #[test]
+    fn page_base_sql_has_exactly_one_filter_marker() {
+        let sql = crate::business::erp::expense_model::report_page_base_sql();
+        assert_eq!(
+            sql.matches(scope::FILTER_MARKER).count(),
+            1,
+            "报销分页的 base_sql 必须恰好一个 {{FILTER}}：{sql}"
+        );
+        assert!(
+            sql.contains("e.deleted_at IS NULL"),
+            "恒真条件不能丢：{sql}"
+        );
+        assert!(!sql.contains('?'), "基础 SQL 不得自带业务参数：{sql}");
+    }
+
+    /// 片段参数恒前置（架构 §2.6）：`{FILTER}` 必须在**所有业务 `?` 之前**，且 `?` 个数
+    /// 等于参数个数 —— 顺序错位比报错更危险，所以逐组合锁死。
+    #[test]
+    fn business_params_always_follow_the_filter_marker() {
+        use crate::business::erp::expense_dto::ReportFilter;
+        use nik::prelude::chrono::NaiveDate;
+        let day = NaiveDate::from_ymd_opt(2026, 11, 1).unwrap();
+        let dept = Uuid::now_v7().to_string();
+        let reporter = Uuid::now_v7().to_string();
+        let cases: Vec<(&str, ReportFilter)> = vec![
+            ("无筛选", ReportFilter::default()),
+            (
+                "keyword",
+                ReportFilter {
+                    keyword: Some("差旅".into()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "status",
+                ReportFilter {
+                    status: Some("DRAFT".into()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "pay_status",
+                ReportFilter {
+                    pay_status: Some("UNPAID".into()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "reporter_id",
+                ReportFilter {
+                    reporter_id: Some(reporter.clone()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "dept_id",
+                ReportFilter {
+                    dept_id: Some(dept.clone()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "period_code",
+                ReportFilter {
+                    period_code: Some("2026-11".into()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "date_from",
+                ReportFilter {
+                    date_from: Some(day),
+                    ..Default::default()
+                },
+            ),
+            (
+                "date_to",
+                ReportFilter {
+                    date_to: Some(day),
+                    ..Default::default()
+                },
+            ),
+            (
+                "全部同时",
+                ReportFilter {
+                    keyword: Some("差旅".into()),
+                    status: Some("DRAFT".into()),
+                    pay_status: Some("UNPAID".into()),
+                    reporter_id: Some(reporter),
+                    dept_id: Some(dept),
+                    period_code: Some("2026-11".into()),
+                    date_from: Some(day),
+                    date_to: Some(day),
+                    page: Some(1),
+                    page_size: Some(20),
+                },
+            ),
+        ];
+        for (name, filter) in cases {
+            let (sql, params) = report_page_sql(&filter);
+            let marker = sql
+                .find(scope::FILTER_MARKER)
+                .unwrap_or_else(|| panic!("【{name}】base_sql 缺 {{FILTER}}：{sql}"));
+            assert_eq!(
+                sql.matches('?').count(),
+                params.len(),
+                "【{name}】`?` 个数必须等于参数个数（游标/类型别名也算占位）：{sql}"
+            );
+            if let Some(first) = sql.find('?') {
+                assert!(
+                    marker < first,
+                    "【{name}】{{FILTER}} 必须在第一个业务 `?` 之前：{sql}"
+                );
+            }
+            // 真机上 500 的那道守卫：直接跑一遍，任何组合都不许被拒。
+            crate::business::shared::scope::ensure_injection_point(&sql, params.len())
+                .unwrap_or_else(|err| panic!("【{name}】注入位置契约校验失败：{err}"));
+        }
+    }
+
+    /// 反证：SCOPE-PAGE 卡的旧写法（业务条件拼在恒真条件后、不留标记）必须被守卫拒绝 ——
+    /// 这条锁住「为什么非超管带筛选会 500」的机制，防止以后又被「顺手拼 WHERE」退化。
+    #[test]
+    fn old_shape_without_marker_is_rejected_by_guard() {
+        let old = "SELECT 1 FROM biz_expense_report e WHERE e.deleted_at IS NULL AND e.status = ?";
+        let error = crate::business::shared::scope::ensure_injection_point(old, 1)
+            .expect_err("带业务参数却没有 {FILTER} 必须报错");
+        let text = format!("{error}");
+        assert!(
+            text.contains("{FILTER}"),
+            "错误信息要点名标记，便于定位：{text}"
+        );
+    }
+
+    // ==================== 18) 带筛选 + 数据权限裁剪（SCOPE-PAGE 真库回归） ====================
+
+    /// 取 `n` 个不同部门（构造「本部门 / 他部门」两张单）。
+    async fn some_depts(n: usize) -> Vec<Uuid> {
+        let rows = db()
+            .query_sql(
+                format!(
+                    "SELECT id FROM sys_dept WHERE deleted_at IS NULL \
+                      ORDER BY parent_id NULLS FIRST, sort_order, id LIMIT {n}"
+                ),
+                vec![],
+            )
+            .await
+            .unwrap_or_default();
+        rows.iter()
+            .filter_map(|row| row.get_typed::<Uuid>("id").ok())
+            .collect()
+    }
+
+    /// **SCOPE-PAGE 回归（真库）**：有数据权限裁剪的 principal 带 keyword / status / pay_status
+    /// 的分页必须成功（旧代码在 `scope::paginate` 的注入守卫直接 500），且行数按范围收敛；
+    /// 同一组筛选的超管路径结果不受影响（两张都看得见）。
+    #[tokio::test]
+    async fn page_with_filters_is_scoped_and_never_fails() {
+        use crate::business::erp::expense_dto::ReportFilter;
+        use crate::business::shared::principal::ScopedPrincipal;
+        use crate::business::shared::scope::ScopeKind;
+        if !ensure_db().await {
+            return;
+        }
+        let (Some(user), Some(kind)) = (any_user().await, travel_type().await) else {
+            println!("SKIP: 库缺用户 / 费用类型种子");
+            return;
+        };
+        let depts = some_depts(2).await;
+        if depts.len() < 2 {
+            println!("SKIP: 库少于 2 个可用部门（无法构造跨部门夹具）");
+            return;
+        }
+        let (mine, other) = (depts[0], depts[1]);
+        let keyword = format!("SCOPE-REGRESS-{}", uniq());
+        let mut mine_insert =
+            insert_of(format!("EXP-S1-{}", uniq()), mine, user, &kind, dec!(1060));
+        mine_insert.title = format!("{keyword} 本部门");
+        let mut other_insert =
+            insert_of(format!("EXP-S2-{}", uniq()), other, user, &kind, dec!(1060));
+        other_insert.title = format!("{keyword} 他部门");
+        let mine_id = create_report(&mine_insert).await;
+        let other_id = create_report(&other_insert).await;
+
+        // 「本部门」范围的非超管：片段是 ` AND e.dept_id = ?`（1 个参数）→ 旧代码在这里 500。
+        let restricted =
+            ScopedPrincipal::for_test(user, Some(mine), false, ScopeKind::Dept, vec![mine], false);
+        let super_admin =
+            ScopedPrincipal::for_test(user, Some(mine), true, ScopeKind::All, Vec::new(), false);
+
+        let cases: Vec<(&str, ReportFilter)> = vec![
+            (
+                "keyword",
+                ReportFilter {
+                    keyword: Some(keyword.clone()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "keyword+status",
+                ReportFilter {
+                    keyword: Some(keyword.clone()),
+                    status: Some("DRAFT".into()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "keyword+pay_status",
+                ReportFilter {
+                    keyword: Some(keyword.clone()),
+                    pay_status: Some("UNPAID".into()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "keyword+status+pay_status+period",
+                ReportFilter {
+                    keyword: Some(keyword.clone()),
+                    status: Some("DRAFT".into()),
+                    pay_status: Some("UNPAID".into()),
+                    period_code: Some("2026-11".into()),
+                    ..Default::default()
+                },
+            ),
+        ];
+        for (name, filter) in &cases {
+            let (rows, total) = expense_model::report_page(filter, 1, 50, &restricted)
+                .await
+                .unwrap_or_else(|err| {
+                    panic!("【{name}】非超管带筛选的分页必须成功（旧代码 500）：{err}")
+                });
+            assert_eq!(
+                total, 1,
+                "【{name}】范围裁剪后只该看见本部门那张，total={total}"
+            );
+            assert_eq!(rows.len(), 1, "【{name}】");
+            assert!(
+                rows.iter().all(|row| row.dept_id == mine),
+                "【{name}】返回行必须都在数据范围内"
+            );
+            assert!(
+                rows.iter().any(|row| row.id == mine_id),
+                "【{name}】本部门那张必须在结果里"
+            );
+            // 修复不能改坏超管路径：超管不做裁剪，两张都看得见。
+            let (super_rows, super_total) = expense_model::report_page(filter, 1, 50, &super_admin)
+                .await
+                .unwrap_or_else(|err| panic!("【{name}】超管分页失败：{err}"));
+            assert_eq!(
+                super_total, 2,
+                "【{name}】超管看见两张，total={super_total}"
+            );
+            assert!(
+                super_rows.iter().any(|row| row.id == other_id),
+                "【{name}】超管要能看见他部门那张"
+            );
+        }
+        // 无筛选（空条件，不触发注入校验）也必须按范围裁剪。
+        let (all_rows, _) =
+            expense_model::report_page(&ReportFilter::default(), 1, 200, &restricted)
+                .await
+                .expect("无筛选分页必须成功");
+        assert!(
+            all_rows.iter().all(|row| row.dept_id == mine),
+            "无筛选也必须按数据范围裁剪"
+        );
+
+        cleanup(&[mine_id, other_id]).await;
+    }
 }

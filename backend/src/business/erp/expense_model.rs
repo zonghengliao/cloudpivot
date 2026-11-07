@@ -470,15 +470,30 @@ impl ReportRow {
     }
 }
 
-/// 报销单分页（软删不返回；按 `dept_id` 做行级范围）。
-pub async fn report_page(
-    q: &ReportFilter,
-    page: u64,
-    page_size: u64,
-    principal: &ScopedPrincipal,
-) -> DbResult<(Vec<ReportRow>, i64)> {
+/// 报销单分页的**基础 SQL**（不含业务过滤条件）：`{FILTER}` 紧跟恒真条件之后。
+///
+/// # 为什么占位符是契约而不是风格（SCOPE-PAGE 卡的现场）
+///
+/// [`scope::paginate`] 把数据范围片段的参数**恒前置**到 `base_params` 之前（架构 §2.6），
+/// 所以片段在 SQL 文本里也必须排在业务 `?` 之前。此前这里没有占位符，业务筛选被直接拼在
+/// `WHERE` 后面 → 片段只能追加到末尾 → `?` 顺序与参数顺序错位，`scope::paginate` 直接
+/// 报错（`InvalidValue`），于是**非超管一带筛选就 500**；超管的片段没有绑定参数（`AND 1 = 1`），
+/// 走「追加到末尾」的安全分支，所以完全看不出来。
+///
+/// 标记的两种写法等价（`report_page` 用 [`scope::FILTER_MARKER`] 追加，与
+/// `impexp` / `notice` 一致）；`inject_filter` 会自己保证两侧空格（B5 真机踩过 `NULLAND`）。
+fn report_page_base_sql() -> String {
     let mut sql = format!("SELECT {REPORT_COLUMNS} FROM {TABLE} e WHERE e.deleted_at IS NULL");
-    let mut params: Vec<Value> = Vec::new();
+    sql.push_str(scope::FILTER_MARKER);
+    sql
+}
+
+/// 报销单分页的业务过滤片段（**参数顺序 = SQL 里 `?` 的文本顺序**）。
+///
+/// 只返回 ` AND …` 片段并往 `params` 里追加参数，不碰基础 SQL：这样
+/// 「片段参数恒前置」的契约就能被单测逐字校验（`expense_model_tests` 的「分页 SQL 契约」三条）。
+fn report_page_filters(q: &ReportFilter, params: &mut Vec<Value>) -> DbResult<String> {
+    let mut sql = String::new();
     if let Some(keyword) = q
         .keyword
         .as_deref()
@@ -541,6 +556,20 @@ pub async fn report_page(
         sql.push_str(" AND e.expense_date <= ?::text::date");
         params.push(Value::Text(to.to_string()));
     }
+    Ok(sql)
+}
+
+/// 报销单分页（软删不返回；按 `dept_id` 做行级范围）。
+pub async fn report_page(
+    q: &ReportFilter,
+    page: u64,
+    page_size: u64,
+    principal: &ScopedPrincipal,
+) -> DbResult<(Vec<ReportRow>, i64)> {
+    let mut params: Vec<Value> = Vec::new();
+    let filters = report_page_filters(q, &mut params)?;
+    let mut sql = report_page_base_sql();
+    sql.push_str(&filters);
     let result = scope::paginate(
         REPORT_TARGET,
         &sql,
@@ -565,9 +594,11 @@ pub async fn report_payable_page(
     page_size: u64,
     principal: &ScopedPrincipal,
 ) -> DbResult<(Vec<ReportRow>, i64)> {
+    // 与 `report_page` 同口径：`{FILTER}` 在恒真条件之后（片段参数恒前置，§2.6）。
+    // 本函数目前没有业务参数（追加到末尾也安全），但占位符留着 —— 以后加筛选不会踩同一个坑。
     let sql = format!(
         "SELECT {REPORT_COLUMNS} FROM {TABLE} e \
-          WHERE e.deleted_at IS NULL AND e.status = 'APPROVED' AND e.pay_status <> 'PAID'"
+          WHERE e.deleted_at IS NULL {{FILTER}} AND e.status = 'APPROVED' AND e.pay_status <> 'PAID'"
     );
     let result = scope::paginate(
         REPORT_TARGET,

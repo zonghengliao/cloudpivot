@@ -293,13 +293,16 @@ pub async fn find_in(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<BudgetR
     rows.first().map(BudgetRow::from_row).transpose()
 }
 
-/// 分页（软删行不返回；按部门数据权限裁剪）。
-pub async fn budget_page(
-    q: &BudgetFilter,
-    principal: &crate::business::shared::principal::ScopedPrincipal,
-) -> DbResult<(Vec<BudgetRow>, i64)> {
+/// 预算分页的基础 SQL（不含业务过滤）：`{FILTER}` 紧跟恒真条件之后（架构 §2.6）。
+fn budget_page_base_sql() -> String {
     let mut sql = format!("SELECT {BUDGET_COLUMNS} FROM biz_budget b WHERE b.deleted_at IS NULL");
-    let mut params: Vec<Value> = Vec::new();
+    sql.push_str(scope::FILTER_MARKER);
+    sql
+}
+
+/// 预算分页的业务过滤片段（参数顺序 = SQL 里 `?` 的文本顺序）。
+fn budget_page_filters(q: &BudgetFilter, params: &mut Vec<Value>) -> DbResult<String> {
+    let mut sql = String::new();
     if let Some(year) = q.fiscal_year {
         sql.push_str(" AND b.fiscal_year = ?");
         params.push(Value::from(i32::from(year)));
@@ -327,6 +330,19 @@ pub async fn budget_page(
             params.push(Value::from(pattern.clone()));
         }
     }
+    Ok(sql)
+}
+
+/// 分页（软删行不返回；按部门数据权限裁剪）。
+pub async fn budget_page(
+    q: &BudgetFilter,
+    principal: &crate::business::shared::principal::ScopedPrincipal,
+) -> DbResult<(Vec<BudgetRow>, i64)> {
+    // `{FILTER}` 紧跟恒真条件之后（片段参数恒前置，架构 §2.6）：SCOPE-PAGE 卡同款隐患
+    // ——此前业务筛选直接拼在 `WHERE` 后，非超管一带筛选就被 `scope::paginate` 拒（500）。
+    let mut sql = budget_page_base_sql();
+    let mut params: Vec<Value> = Vec::new();
+    sql.push_str(&budget_page_filters(q, &mut params)?);
     let result = scope::paginate(
         BUDGET_TARGET,
         &sql,

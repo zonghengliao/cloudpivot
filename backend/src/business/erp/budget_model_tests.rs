@@ -483,4 +483,101 @@ mod db {
 
         cleanup_maps(&ids).await;
     }
+
+    // ==================== SCOPE-PAGE 卡同款隐患回归：预算分页的 `{FILTER}` 契约（不连库） ====================
+
+    /// 与 `budget_page` 同一条组装路径：基础 SQL（带 `{FILTER}`）+ 业务过滤片段。
+    fn budget_page_sql(q: &BudgetFilter) -> (String, Vec<Value>) {
+        let mut params: Vec<Value> = Vec::new();
+        let filters = crate::business::erp::budget_model::budget_page_filters(q, &mut params)
+            .expect("组装预算分页过滤");
+        let mut sql = crate::business::erp::budget_model::budget_page_base_sql();
+        sql.push_str(&filters);
+        (sql, params)
+    }
+
+    /// 预算分页的 `base_sql` 必须恰好一个 `{FILTER}`，且它排在所有业务 `?` 之前
+    /// （片段参数恒前置，架构 §2.6）—— 否则非超管一带筛选就 500（t_be428a39 同类）。
+    #[test]
+    fn budget_page_sql_keeps_filter_marker_first() {
+        let dept = Uuid::now_v7().to_string();
+        let account = Uuid::now_v7().to_string();
+        let cases: Vec<(&str, BudgetFilter)> = vec![
+            ("无筛选", BudgetFilter::default()),
+            (
+                "fiscal_year",
+                BudgetFilter {
+                    fiscal_year: Some(2026),
+                    ..Default::default()
+                },
+            ),
+            (
+                "dept_id",
+                BudgetFilter {
+                    dept_id: Some(dept.clone()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "account_id",
+                BudgetFilter {
+                    account_id: Some(account.clone()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "status+change_type",
+                BudgetFilter {
+                    status: Some("ACTIVE".into()),
+                    change_type: Some("ORIGINAL".into()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "keyword",
+                BudgetFilter {
+                    keyword: Some("差旅".into()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "全部同时",
+                BudgetFilter {
+                    fiscal_year: Some(2026),
+                    dept_id: Some(dept),
+                    account_id: Some(account),
+                    status: Some("ACTIVE".into()),
+                    change_type: Some("ORIGINAL".into()),
+                    keyword: Some("差旅".into()),
+                    page: Some(1),
+                    page_size: Some(20),
+                },
+            ),
+        ];
+        for (name, filter) in cases {
+            let (sql, params) = budget_page_sql(&filter);
+            assert_eq!(
+                sql.matches(crate::business::shared::scope::FILTER_MARKER)
+                    .count(),
+                1,
+                "【{name}】预算分页 base_sql 必须恰好一个 {{FILTER}}：{sql}"
+            );
+            assert_eq!(
+                sql.matches('?').count(),
+                params.len(),
+                "【{name}】`?` 个数必须等于参数个数：{sql}"
+            );
+            let marker = sql
+                .find(crate::business::shared::scope::FILTER_MARKER)
+                .expect("标记位置");
+            if let Some(first) = sql.find('?') {
+                assert!(
+                    marker < first,
+                    "【{name}】{{FILTER}} 必须在第一个业务 `?` 之前：{sql}"
+                );
+            }
+            crate::business::shared::scope::ensure_injection_point(&sql, params.len())
+                .unwrap_or_else(|err| panic!("【{name}】注入位置契约校验失败：{err}"));
+        }
+    }
 }
