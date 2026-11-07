@@ -43,7 +43,7 @@
 | 全量 | `cargo test --features test-hooks`（不设 `ERP_DB_URL`，真库用例 SKIP） | **23 个测试目标 3554 passed / 0 failed**，exit 0 |
 | 调拨结算（真库） | `ERP_DB_URL=... cargo test --lib business::erp::transfer_handler::db_settle` | **26 passed / 0 failed**（含改写的 P0-03 回归 + 4 条新增） |
 | 库存期初（真库） | `ERP_DB_URL=... cargo test --lib business::erp::opening` | **18 passed / 0 failed**（含 2 条新增） |
-| 邻接模块（真库） | stockin_handler / stockout / stocktake / inventory_audit / serial | 见 `raw/`（本机日志） |
+| 邻接模块（真库） | stockin_handler(196) / serial(68) / inventory_audit(13) | **277 passed / 0 failed**（`raw/local-neighbor-db-tests.log`） |
 | clippy / check | `cargo check --all-targets --features test-hooks` | 零 warning |
 
 ## 三、145 真机验收（真实 token curl + DB 断言）
