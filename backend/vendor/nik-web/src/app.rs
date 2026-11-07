@@ -13,9 +13,7 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-#[cfg(feature = "cache")]
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::services::ServeDir;
@@ -95,6 +93,15 @@ pub struct App {
     route_layers: Vec<Box<dyn FnOnce(Router) -> Router + Send>>,
     /// 自定义启动钩子（**可注册多个**，在全局资源初始化之后、插件启动之前按注册顺序执行）
     startup_hooks: Vec<Box<dyn FnOnce() -> StartupHookFuture + Send>>,
+    /// **关停钩子**（可注册多个，收到 SIGTERM/SIGINT 之后、等待连接排空之**前**按注册顺序执行）。
+    ///
+    /// 用于把「永远不结束的响应体」主动收尾——最典型的是 SSE：
+    /// 长连接在 `graceful shutdown` 里**不会**被关闭（它不算「空闲连接」），
+    /// 会让 `axum::serve(..).with_graceful_shutdown(..).await` 永远不返回。
+    /// 钩子里关掉广播频道，订阅流返回 `None`，连接即正常结束。
+    ///
+    /// 钩子自身**必须有界**（内部要自带超时），框架不会再给单个钩子加超时。
+    shutdown_hooks: Vec<Box<dyn FnOnce() -> ShutdownHookFuture + Send>>,
     /// 显式注册模块贡献的权限规则（`#[nik::routes]` 模块 / [`App::permission_defs`]）。
     ///
     /// 与 `#[nik::permission]` 经分布式切片收集到的规则**合并**——后者依赖链接器
@@ -106,6 +113,32 @@ pub struct App {
 
 /// 启动钩子返回的异步任务类型（装箱 + `Send`），用别名收敛字段签名。
 type StartupHookFuture = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
+
+/// 关停钩子返回的异步任务类型（装箱 + `Send`）。
+type ShutdownHookFuture = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
+
+/// 连接排空（graceful shutdown）的默认预算。
+///
+/// 语义：SIGTERM 之后**最多**等这么久让在途请求跑完；到点即强制退出，
+/// 不再等 systemd 的 `TimeoutStopUSec`（默认 90s）兜底 SIGKILL。
+///
+/// 为什么必须有一个上界：`axum`/`hyper` 的 graceful shutdown 只对**完全空闲**的
+/// 连接生效（`hyper::proto::h1::Conn::disable_keep_alive` 判 `KA::Idle`）；
+/// 处于「交换中」的连接——半截请求头、半截请求体、**永远不结束的流式响应（SSE）**——
+/// 会被无限期等待，`WithGracefulShutdown::run()` 里的 `close_tx.closed().await` 永不返回。
+const DEFAULT_SHUTDOWN_GRACE_SECS: u64 = 25;
+
+/// 读取关停预算：`NIK_SERVER_SHUTDOWN_GRACE_SECS` 覆盖，非法值回落默认。
+///
+/// 下界钳到 1s（0 会让 `timeout` 立即触发，等于放弃优雅关闭）。
+fn shutdown_grace() -> Duration {
+    let secs = std::env::var("NIK_SERVER_SHUTDOWN_GRACE_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(DEFAULT_SHUTDOWN_GRACE_SECS)
+        .max(1);
+    Duration::from_secs(secs)
+}
 
 impl App {
     /// 从默认 `config/` 目录加载配置并构建 App
@@ -168,6 +201,7 @@ impl App {
             router_extensions: Vec::new(),
             route_layers: Vec::new(),
             startup_hooks: Vec::new(),
+            shutdown_hooks: Vec::new(),
             extra_permissions: Vec::new(),
             extra_no_auth: Vec::new(),
             #[cfg(feature = "db")]
@@ -297,6 +331,7 @@ impl App {
             router_extensions: Vec::new(),
             route_layers: Vec::new(),
             startup_hooks: Vec::new(),
+            shutdown_hooks: Vec::new(),
             extra_permissions: Vec::new(),
             extra_no_auth: Vec::new(),
             #[cfg(feature = "db")]
@@ -520,6 +555,26 @@ impl App {
     {
         // 追加而非覆盖：多个模块各自注册启动钩子时互不影响
         self.startup_hooks.push(Box::new(|| Box::pin(hook())));
+        self
+    }
+
+    /// 注册**关停钩子**：收到 SIGTERM / SIGINT 之后、等待连接排空之**前**执行。
+    ///
+    /// 用途：主动结束「永远不会自然结束」的响应体，最典型是 SSE 长连接。
+    /// 不做这件事时，这类连接会把 `with_graceful_shutdown` 拖到预算耗尽
+    /// （见 [`shutdown_grace`]），所有浏览器打开着通知流的部署都会白等一整个预算。
+    ///
+    /// # 约束
+    ///
+    /// - 钩子**按注册顺序**串行执行，**必须自带超时**（框架不再加一层）；
+    /// - 钩子是 `FnOnce`，只能执行一次；抛 panic 会中断后续钩子（框架不 catch）；
+    /// - 钩子里**不要**再发 HTTP 请求（此时已不再接受新连接）。
+    pub fn on_shutdown<F, Fut>(mut self, hook: F) -> Self
+    where
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
+        self.shutdown_hooks.push(Box::new(|| Box::pin(hook())));
         self
     }
 
@@ -1076,14 +1131,98 @@ impl App {
         info!("{} 启动完成, 耗时 {}ms", app_name, startup_ms);
 
         let listener = tokio::net::TcpListener::bind(socket_addr).await?;
-        axum::serve(
+
+        // ── 关停：分三段、每段都有上界 ───────────────────────────────────
+        //
+        // 历史缺陷（2026-11-07 生产实测）：这里原先直接
+        //     axum::serve(..).with_graceful_shutdown(shutdown_signal()).await
+        // 而 `axum` 的 graceful shutdown 语义是「等**所有连接任务**自己结束」
+        // （`WithGracefulShutdown::run()` 里 `close_tx.closed().await`），
+        // 且 `hyper` 只在连接**完全空闲**时才主动关闭（`disable_keep_alive` 判 `KA::Idle`）。
+        // 于是任何「交换中」的连接——半截请求头、半截请求体、**SSE 这种永不结束的流式响应**——
+        // 都会让这个 await 永远不返回：`plugins.stop_all()` 从不执行，后台定时器继续每 30s 打日志，
+        // 进程只能等 systemd 的 `TimeoutStopUSec=90s` 兜底 SIGKILL。
+        //
+        // 三段式（顺序不可换）：
+        //   1) 收到信号 → 打日志 → 跑**关停钩子**（业务侧主动收尾无限流，如关掉 SSE 频道）；
+        //   2) 等连接排空，上限 `shutdown_grace()`（默认 25s）——在途**有限**请求在此跑完；
+        //   3) 停插件，上限 10s（`SchedulerPlugin::stop` 会 await 正在跑的任务）。
+        let shutdown_hooks = std::mem::take(&mut self.shutdown_hooks);
+        let shutdown_grace_dur = shutdown_grace();
+        // 收到信号的时刻（钩子跑完之后才回写，供下面算**关停**耗时；不是进程运行时长）
+        let shutdown_at: Arc<parking_lot::Mutex<Option<Instant>>> =
+            Arc::new(parking_lot::Mutex::new(None));
+        // 「信号 + 钩子都已完成」的闸门：排水预算**从这里**开始计时。
+        // 不能用 `timeout(grace, serve)`——那个 deadline 在创建时就固定了，
+        // 等价于「从进程启动算起」，跑过 grace 之后 SIGTERM 会立刻超时、等于放弃优雅关闭。
+        let (drain_gate_tx, drain_gate_rx) = tokio::sync::watch::channel(false);
+        let signal = {
+            let shutdown_at = shutdown_at.clone();
+            async move {
+                shutdown_signal().await;
+                *shutdown_at.lock() = Some(Instant::now());
+                for (idx, hook) in shutdown_hooks.into_iter().enumerate() {
+                    let hook_started = Instant::now();
+                    hook().await;
+                    info!(
+                        hook_index = idx,
+                        elapsed_ms = hook_started.elapsed().as_millis() as u64,
+                        "关停钩子执行完成"
+                    );
+                }
+                let _ = drain_gate_tx.send(true);
+            }
+        };
+        // 自 SIGTERM 起的毫秒数（信号还没到就一直 0）
+        let since_signal = |at: &Arc<parking_lot::Mutex<Option<Instant>>>| -> u64 {
+            at.lock()
+                .map(|t| t.elapsed().as_millis() as u64)
+                .unwrap_or(0)
+        };
+
+        let server = axum::serve(
             listener,
             axum_router.into_make_service_with_connect_info::<SocketAddr>(),
         )
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+        .with_graceful_shutdown(signal);
 
-        self.plugins.stop_all().await;
+        // axum 的 `WithGracefulShutdown` 只实现 `IntoFuture`（不是 `Future`），
+        // 想 `select!` 必须先显式转换。
+        let server = std::future::IntoFuture::into_future(server);
+
+        // 排水硬上界：等「信号 + 钩子」都完成后再起算 grace
+        let drain_deadline = async move {
+            let mut gate = drain_gate_rx;
+            let _ = gate.wait_for(|fired| *fired).await;
+            tokio::time::sleep(shutdown_grace_dur).await;
+        };
+        tokio::pin!(server);
+        tokio::select! {
+            result = &mut server => {
+                result?;
+                info!(elapsed_ms = since_signal(&shutdown_at), "连接排空完成");
+            }
+            _ = drain_deadline => {
+                // 不是错误：预算内该跑完的已经跑完，到点强制退出即可。
+                // 打 WARN 是为了留下「这次发版硬切了哪些连接」的线索。
+                warn!(
+                    grace_secs = shutdown_grace_dur.as_secs(),
+                    elapsed_ms = since_signal(&shutdown_at),
+                    "优雅关闭超时：仍有连接未在预算内结束，强制退出（在途请求可能被截断）"
+                );
+            }
+        }
+
+        match tokio::time::timeout(Duration::from_secs(10), self.plugins.stop_all()).await {
+            Ok(()) => info!(
+                elapsed_ms = since_signal(&shutdown_at),
+                "插件已全部停止，关停完成"
+            ),
+            Err(_) => warn!(
+                elapsed_ms = since_signal(&shutdown_at),
+                "停止插件超时（10s），强制退出"
+            ),
+        }
         Ok(())
     }
 
@@ -1756,6 +1895,7 @@ impl Default for App {
             router_extensions: Vec::new(),
             route_layers: Vec::new(),
             startup_hooks: Vec::new(),
+            shutdown_hooks: Vec::new(),
             extra_permissions: Vec::new(),
             extra_no_auth: Vec::new(),
             #[cfg(feature = "db")]

@@ -86,6 +86,12 @@ pub async fn run() -> Result<()> {
         // 任一不健康回 503 —— 两者语义分开，避免下游依赖抖动把容器探针打成重启风暴。
         .get("/health/deps", support::health::health_deps)
         .on_startup(bootstrap::bootstrap)
+        // 关停钩子（必须在框架等待连接排空**之前**跑）：
+        // SSE 是「永不结束的响应体」，不主动收尾就会让 graceful shutdown 无限等待，
+        // 进程只能被 systemd `TimeoutStopUSec=90s` SIGKILL（2026-11-07 生产实测）。
+        .on_shutdown(|| async {
+            business::notice::sse_hub::shutdown();
+        })
         // 启动守卫必须**注册在最前**：插件按注册顺序（无依赖者）依次启动，
         // 密钥不合格时会在其余插件启动之前就中止启动，绝不带着空签名密钥对外提供服务
         .plugin(shared::startup_guard::AuthSecretGuardPlugin::new())

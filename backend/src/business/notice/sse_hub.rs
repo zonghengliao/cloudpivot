@@ -61,6 +61,7 @@ use nik::prelude::*;
 use nik::sse::Broadcaster;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
+use tokio::sync::watch;
 
 use crate::business::notice::dto::{StreamStatsRes, StreamUserStat};
 use crate::task::Scheduler;
@@ -137,6 +138,39 @@ fn read_hub() -> RwLockReadGuard<'static, HashMap<uuid::Uuid, ChannelEntry>> {
 /// 写锁（同上）。
 fn write_hub() -> RwLockWriteGuard<'static, HashMap<uuid::Uuid, ChannelEntry>> {
     hub().write().unwrap_or_else(|poison| poison.into_inner())
+}
+
+/// 关停信号（进程级单例）：置位后所有 SSE 流**正常结束**。
+fn shutdown_tx() -> &'static watch::Sender<bool> {
+    static TX: OnceLock<watch::Sender<bool>> = OnceLock::new();
+    TX.get_or_init(|| watch::channel(false).0)
+}
+
+/// **服务关停**：让所有 `GET /business/notice/stream` 的响应体正常结束。
+///
+/// 必须由 `App::on_shutdown` 注册（框架在收到 SIGTERM 后、等待连接排空之**前**调用）。
+///
+/// # 为什么必须做这件事
+///
+/// SSE 是「**永远不会结束**的响应体」。`axum` 的 graceful shutdown 只对**完全空闲**的
+/// 连接主动关闭，对流式响应会一直等到客户端断开；而客户端（浏览器）不会主动断。
+/// 结果：`axum::serve(..).with_graceful_shutdown(..).await` 永不返回 → `plugins.stop_all()`
+/// 从不执行 → 进程只能被 systemd 的 `TimeoutStopUSec=90s` **SIGKILL**（2026-11-07 生产
+/// 连续两轮部署实测均为 90s/92s，且在途请求被硬切）。
+///
+/// 关掉频道后订阅流返回 `None`，连接以正常 EOF 收尾，排水阶段即刻完成（实测 < 50ms）。
+///
+/// # 返回值
+///
+/// 被结束的订阅端数量（观测用；0 表示关停时没有在线 SSE 连接）。
+pub fn shutdown() -> usize {
+    let receivers = total_receivers();
+    let _ = shutdown_tx().send(true);
+    tracing::info!(
+        receivers,
+        "SSE 频道关停：已通知所有订阅端结束流（浏览器会自动重连到新进程）"
+    );
+    receivers
 }
 
 /// 取某用户的频道（**惰性创建**，同一用户永远拿到同一个广播器）。
@@ -378,29 +412,44 @@ impl Subscription {
     /// `Sse`：事件名 [`EVENT_NAME`]，每 [`HEARTBEAT_SECS`] 秒一条 `: keep-alive` 注释帧。
     pub fn into_sse(self) -> Sse<impl Stream<Item = std::result::Result<Event, Infallible>>> {
         let event_name = EVENT_NAME;
-        let stream = unfold(Some(self), move |state| async move {
-            let mut subscription = state?;
-            loop {
-                let received = match subscription.rx.as_mut() {
-                    Some(rx) => rx.recv().await,
-                    None => return None,
-                };
-                match received {
-                    Ok(payload) => {
-                        let event = Event::default().event(event_name).data(payload);
-                        return Some((Ok(event), Some(subscription)));
+        let shutdown_rx = shutdown_tx().subscribe();
+        let stream = unfold(Some(self), move |state| {
+            // `watch::Receiver` 是 Clone，每次进 future 克隆一份——
+            // `unfold` 的闭包不能把捕获的可变引用借给返回的 future。
+            let mut shutdown_rx = shutdown_rx.clone();
+            async move {
+                let mut subscription = state?;
+                loop {
+                    // 关停（见 [`shutdown`]）：正常结束流，连接随之干净关闭。
+                    if *shutdown_rx.borrow() {
+                        return None;
                     }
-                    // 订阅端消费不及：跳过被丢弃的旧消息，**断开不是选项**
-                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                        tracing::warn!(
-                            user_id = %subscription.user_id,
-                            skipped,
-                            "SSE 订阅端消费不及，已跳过积压消息（连接保持）"
-                        );
-                        continue;
+                    let received = match subscription.rx.as_mut() {
+                        Some(rx) => {
+                            tokio::select! {
+                                received = rx.recv() => received,
+                                _ = shutdown_rx.changed() => return None,
+                            }
+                        }
+                        None => return None,
+                    };
+                    match received {
+                        Ok(payload) => {
+                            let event = Event::default().event(event_name).data(payload);
+                            return Some((Ok(event), Some(subscription)));
+                        }
+                        // 订阅端消费不及：跳过被丢弃的旧消息，**断开不是选项**
+                        Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                            tracing::warn!(
+                                user_id = %subscription.user_id,
+                                skipped,
+                                "SSE 订阅端消费不及，已跳过积压消息（连接保持）"
+                            );
+                            continue;
+                        }
+                        // 频道关闭（正常关停）：结束流
+                        Err(broadcast::error::RecvError::Closed) => return None,
                     }
-                    // 频道关闭（正常关停）：结束流
-                    Err(broadcast::error::RecvError::Closed) => return None,
                 }
             }
         });
