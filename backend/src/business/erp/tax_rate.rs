@@ -330,14 +330,26 @@ mod tests {
         assert!(normalize(dec("-0.01"), TaxRateMode::Legacy, "t").is_err());
     }
 
-    /// ④ 归一必须幂等：把归一后的百分数再喂一次还是它自己（否则重放会 ×100 两次）。
+    /// ④ 归一在「结果是百分数」时幂等（重放不会 ×100 两次）。
+    ///
+    /// ⚠ 例外必须说清楚：`0.005 → 0.5` 仍在「歧义带 `(0,1]`」里，**再次归一会被 ×100 成 50**。
+    /// 所以过渡期兼容的幂等**不靠**这个函数，而靠迁移的 `tax_rate_mode IS NULL` 闸
+    /// （V0327 的两次 up 实测：0.005 只放大一次；见 `idem_backfill_fix6.sh`）。
     #[test]
     fn normalize_is_idempotent_for_percent_output() {
-        for raw in ["0.13", "0.06", "0.005", "1"] {
+        for raw in ["0.13", "0.06", "1"] {
             let once = normalize(dec(raw), TaxRateMode::Legacy, "t").unwrap();
             let twice = normalize(once, TaxRateMode::Legacy, "t").unwrap();
-            assert_eq!(once, twice, "{raw} 归一后再归一必须不变");
+            assert_eq!(once, twice, "{raw} 归一后再归一必须不变（结果已 > 1）");
         }
+        // 反例（写进测试是为了让下一个人别误以为「函数自带幂等」）
+        let once = normalize(dec("0.005"), TaxRateMode::Legacy, "t").unwrap();
+        assert_eq!(once, dec("0.5"), "0.005 → 0.5（0.5%），仍落在歧义带");
+        assert_eq!(
+            normalize(once, TaxRateMode::Legacy, "t").unwrap(),
+            dec("50"),
+            "同值再走一次 LEGACY 会被再 ×100 —— 所以落库幂等只能靠 mode 标记，不靠启发式"
+        );
     }
 
     /// ⑤ 税额 / 拆分：百分数口径，且「合计 = 不含税 + 税额」恒成立。

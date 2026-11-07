@@ -2023,6 +2023,8 @@ mod tests {
     /// 且 `reclass` 里留下可审计的一条（谁搬的、搬了多少、涉及哪些科目）。
     #[test]
     fn r1_fix6_negative_tax_reclassified_to_other_current_assets() {
+        // 一张**借贷平衡**的最小报表结构（会计分录总和必须为 0，否则勾稽天然不平）：
+        //   借 1001 500 / 借 2221.01 260 / 贷 2221.02 52 / 贷 3001 708
         let mut items = vec![
             item("CASH", "ASSET", 2, Some("1001"), None, false, 10),
             item("OTHER_CURRENT", "ASSET", 2, Some("1901"), None, false, 20),
@@ -2038,14 +2040,24 @@ mod tests {
             item("TOTAL_ASSETS", "ASSET", 1, None, Some("ASSETS_SUB"), false, 40),
             item("TAX", "LIABILITY", 2, Some("2221"), None, false, 50),
             item("LIAB_SUB", "LIABILITY", 2, None, Some("TAX"), false, 60),
+            item("EQUITY", "EQUITY", 2, Some("3001"), None, false, 65),
+            item(
+                "LIAB_EQ",
+                "EQUITY",
+                2,
+                None,
+                Some("LIAB_SUB + EQUITY"),
+                false,
+                70,
+            ),
             item(
                 "TOTAL_LIABILITIES_AND_EQUITY",
                 "EQUITY",
                 1,
                 None,
-                Some("LIAB_SUB"),
+                Some("LIAB_EQ"),
                 false,
-                70,
+                80,
             ),
         ];
         items[4].reclass_negative_to = Some("OTHER_CURRENT".to_string());
@@ -2056,6 +2068,8 @@ mod tests {
             // 2221.01 进项税 借 260 / 2221.02 销项税 贷 52 ⇒ 净借方 208（留抵）
             account("2221.01", "LIABILITY", "CREDIT", 0, 260),
             account("2221.02", "LIABILITY", "CREDIT", 0, -52),
+            // 贷 3001 实收资本 708（把凭证配平：500 + 260 − 52 − 708 = 0）
+            account("3001", "EQUITY", "CREDIT", 0, -708),
         ];
         let sheet = compute(&items, &accounts).expect("配置正确");
 
@@ -2110,14 +2124,16 @@ mod tests {
     /// ⑤c 应交税费为**贷方**余额（正常要交税）时不动它：重分类只在负数时触发。
     #[test]
     fn r1_fix6_positive_tax_stays_on_liability_side() {
+        // 借 1001 520 / 贷 2221.02 520（销项税，正常要交税）
         let mut items = vec![
+            item("CASH", "ASSET", 2, Some("1001"), None, false, 10),
             item("OTHER_CURRENT", "ASSET", 2, Some("1901"), None, false, 20),
             item(
                 "TOTAL_ASSETS",
                 "ASSET",
                 1,
                 None,
-                Some("OTHER_CURRENT"),
+                Some("CASH + OTHER_CURRENT"),
                 false,
                 40,
             ),
@@ -2132,8 +2148,11 @@ mod tests {
                 70,
             ),
         ];
-        items[2].reclass_negative_to = Some("OTHER_CURRENT".to_string());
-        let accounts = vec![account("2221.02", "LIABILITY", "CREDIT", 0, -520)];
+        items[3].reclass_negative_to = Some("OTHER_CURRENT".to_string());
+        let accounts = vec![
+            account("1001", "ASSET", "DEBIT", 0, 520),
+            account("2221.02", "LIABILITY", "CREDIT", 0, -520),
+        ];
         let sheet = compute(&items, &accounts).expect("配置正确");
 
         assert!(
@@ -2145,6 +2164,8 @@ mod tests {
             sheet.amounts.get("OTHER_CURRENT").copied(),
             Some(Decimal::ZERO)
         );
+        assert_eq!(sheet.assets_total(), Decimal::from(520));
+        assert_eq!(sheet.liability_equity_total(), Decimal::from(520));
         assert!(sheet.diff().is_zero());
     }
 
