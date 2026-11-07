@@ -1,0 +1,73 @@
+================================================================================================
+FIX-8 问题 1 真机验收：http://127.0.0.1:8048 / 库 cloudpivot_fix8_fresh_20261108022816 / 并发 10
+================================================================================================
+
+① 号段快照（biz_seq：一个 seq_type 一行）
+    AP           prefix=AP       period=20261107   current_no=4
+    AR           prefix=AR       period=20261107   current_no=2
+    BDG          prefix=BDG      period=20261107   current_no=5
+    CM           prefix=CM       period=(空)        current_no=0
+    CT           prefix=HT       period=20261107   current_no=1
+    DEP          prefix=DEP      period=20261107   current_no=5
+    EXP          prefix=EXP      period=20261107   current_no=14
+    EXP_PAY      prefix=PAY-EXP  period=20261107   current_no=1
+    FA           prefix=FA       period=20261107   current_no=2
+    IN           prefix=IN       period=20261107   current_no=4
+    IV           prefix=IV       period=20261107   current_no=2
+    PM           prefix=PM       period=20261107   current_no=1
+    PO           prefix=PO       period=20261107   current_no=3
+    PZ           prefix=PZ       period=20261108   current_no=1
+    PZR          prefix=PZR      period=20261108   current_no=1
+    RC           prefix=RC       period=20261107   current_no=1
+    RR           prefix=RR       period=(空)        current_no=0
+    SFC          prefix=SFC      period=(空)        current_no=0
+    SH           prefix=SH       period=20261107   current_no=2
+    SN           prefix=SN       period=(空)        current_no=0
+    SO           prefix=SO       period=20261107   current_no=2
+    SR           prefix=SR       period=(空)        current_no=0
+    STG          prefix=STG      period=(空)        current_no=0
+    STOCK_OUT    prefix=OUT      period=20261107   current_no=4
+    STOCK_TAKE   prefix=ST       period=20261108   current_no=1
+    TK           prefix=TK       period=20261107   current_no=98
+[PASS] 号段行数 = 26（>5 即不可能是一个全局计数器）
+[PASS] TK / STOCK_TAKE / PO 各占一行（调拨与盘点不同号段）
+
+② 重号扫描（基线）
+  · 重号扫描（基线）：26 张单据主表的单号列
+[PASS] 全库单号列无重号
+[PASS] 找到一个有库存的仓库用于全盘
+    · 盘点仓库 = d1370001-0000-4000-8000-000000000001
+
+③ 10 个并发 POST /api/business/erp/stock-take
+[PASS] 并发建单 #0 200
+[PASS] 并发建单 #1 200
+[PASS] 并发建单 #2 200
+[PASS] 并发建单 #3 200
+[PASS] 并发建单 #4 200
+[PASS] 并发建单 #5 200
+[PASS] 并发建单 #6 200
+[PASS] 并发建单 #7 200
+[PASS] 并发建单 #8 200
+[PASS] 并发建单 #9 200
+[PASS] 10 个并发建单全部成功
+    · 拿到的单号：['ST-20261108-000002', 'ST-20261108-000003', 'ST-20261108-000004', 'ST-20261108-000005', 'ST-20261108-000006', 'ST-20261108-000007', 'ST-20261108-000008', 'ST-20261108-000009', 'ST-20261108-000010', 'ST-20261108-000011']
+[PASS] 单号两两不同（无重号）
+[PASS] 全部是 ST- 前缀（STOCK_TAKE 号段）
+[PASS] 单号的 (前缀, 日期) 都等于 biz_seq 里的 (ST, 20261108)
+[PASS] 取到的正是号段里接下来的 10 个连号（ST-20261108-000002 … ST-20261108-000011）
+
+④ 计数器变化（按单据类型独立递增）
+    · STOCK_TAKE: 1 → 11（Δ=10）
+[PASS] STOCK_TAKE 计数器正好前进 10（Δ=10）
+[PASS] 其余 25 个号段的 current_no 纹丝不动
+
+⑤ 重号扫描（并发建单之后）
+  · 重号扫描（并发之后）：26 张单据主表的单号列
+[PASS] 并发建单之后仍然无重号
+
+⑥ 清理本轮建的草稿盘点单
+[PASS] 本轮夹具已清空
+
+================================================================================================
+结果：23 通过 / 0 失败
+================================================================================================

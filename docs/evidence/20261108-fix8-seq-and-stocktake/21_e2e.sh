@@ -35,6 +35,15 @@ grep -E '^结果|FAIL|❌' "$RAW/00_invariants_baseline.txt" | tail -5
 # ---------- 段 A：问题 2 盘点两步 ----------
 echo
 echo "===== 段 A：问题 2 盘点「审批 → 待过账 → 过账 → 库存变动」 ====="
+# 前置：审批节点是 ROLE（WAREHOUSE_MANAGER）——**角色里每个成员都会各拿一个待办**，
+# 拷贝库里除了本卡造的 p13_keeper 还留着演练账号（演练审批人），它不点就永远 PENDING，
+# 过账必然 409「审批尚未通过」。这是拷贝库的既有数据，不是代码问题：
+# 正式环境一个角色多人 = 会签，本来就该所有人都批。这里把成员收敛成只有 p13_keeper。
+psqlc -q -c "DELETE FROM sys_user_role
+              WHERE role_id = '20000000-0000-4000-8000-0000000f0004'::uuid
+                AND user_id NOT IN (SELECT id FROM sys_user WHERE username = 'p13_keeper')" \
+  > /dev/null 2>&1 || true
+echo "    角色 WAREHOUSE_MANAGER 现有成员：$(sq "SELECT count(*) FROM sys_user_role WHERE role_id = '20000000-0000-4000-8000-0000000f0004'::uuid")"
 P13_BASE="$BASE" \
 P13_DB_HOST=127.0.0.1 P13_DB_PORT=5432 P13_DB_USER=cloudpivot \
 P13_DB_PASSWORD="$NIK_DATABASE_PASSWORD" P13_DB_NAME="$DBNAME" \

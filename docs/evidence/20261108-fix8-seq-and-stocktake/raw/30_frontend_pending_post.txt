@@ -1,0 +1,31 @@
+### 前端「待过账」提示 + 「过账」按钮（既有实现，本卡只取证不改）
+
+--- 状态标签（stock-take-logic.ts）
+10: *    这条边（必须先审批 + 独立过账）。前端若照着出库单抄一份状态机，就会给用户
+15: * 4. **已过账作废必须写原因**（红字凭证摘要 + 审计追溯都靠它），空理由提交就是白跑；
+62:  { label: '待过账', value: 'PENDING_POST' },
+63:  { label: '已过账', value: 'POSTED' },
+78:    case 'PENDING_POST':
+79:      return '待过账';
+81:      return '已过账';
+92: * `PENDING_POST` 用 `warning`：「等过账」是盘点的关键交接位（审批过了但账没动），
+101:    case 'PENDING_POST':
+247:        errors[`${prefix}.material_id`] = '同一物料同一库位重复：同一库存桶只能盘一次（否则过账会双倍调平）';
+369:  /** 点下去要不要先弹确认弹窗（过账会真动账） */
+378: * 盘点特有的一条：`DRAFT → PENDING_POST` 是**提交审批**（不是出库单那句「提交待过账」）
+383:    case 'PENDING_POST':
+395:        label: '过账',
+404:        label: current === 'PENDING_POST' ? '撤回（回草稿）' : '退回草稿',
+418:const KNOWN_TARGETS: ReadonlyArray<StockTakeStatus> = ['POSTED', 'PENDING_POST', 'DRAFT', 'CANCELLED'];
+424: * 特别注意草稿态只有 `PENDING_POST` 与 `CANCELLED` 两个目标 —— **没有「直接过账」**，
+466:      ? '作废已过账的盘点单必须写原因：它会进状态日志与红字凭证摘要，审计要能回答「为什么这笔盘盈盘亏被撤销」'
+510:  return { status: 'PENDING_POST', skip_approval: true, skip_reason: reason.trim() };
+539:  if (detail.status === 'PENDING_POST') {
+
+--- 详情抽屉按钮（index.vue）
+591:          :data-testid="confirmTarget === 'POSTED' ? 'btn-stocktake-post-confirm' : 'btn-stocktake-submit-confirm'"
+594:          {{ confirmTarget === 'POSTED' ? '确认过账' : '提交审批' }}
+1260:const confirmHeader = computed(() => (confirmTarget.value === 'POSTED' ? '确认过账' : '提交盘点审批'));
+
+--- 过账二次确认文案
+1263:    return `过账后会把 ${detail.value?.take_no ?? ''} 的差异按正负分别走入库 / 出库（三本账一起调平），并生成盘点差异凭证。过账不可撤销，要走回头路只能「作废」（按快照回滚 + 红冲）。`;

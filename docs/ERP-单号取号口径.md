@@ -94,6 +94,18 @@ UPDATE biz_seq
    归零会把当天已发出的号整段撞掉（W2b 实测踩过）。
 3. **失败不落号**：取号在业务事务内，业务回滚时号也回滚（这次不占号）；已提交再作废的单据
    则永久占号 —— 这就是「跳号」的唯一来源。
+4. **补行必须 `ON CONFLICT … DO NOTHING`**（FIX-8 修复）：号段行不存在时（空库首启 / 新单据
+   上线首日）两个请求并发建单，输的那个 `INSERT … WHERE NOT EXISTS` 会被 PG 判失败，
+   事务立刻 `aborted`（`25P02`）——Rust 侧捕获错误也没用，紧接着的 `UPDATE … RETURNING`
+   直接 500。`uk_biz_seq_type` 是**部分唯一索引**，所以冲突目标要连谓词一起写：
+
+   ```sql
+   INSERT INTO biz_seq (…) SELECT …
+    ON CONFLICT (seq_type) WHERE deleted_at IS NULL DO NOTHING;
+   ```
+
+   取号入口自己负责补行 ⇒ **不要**在迁移里给每个号段都种行（种了也挡不住新单据类型），
+   也不要改成「先查再插」（那会重号）。
 
 ## 5. 跳号 vs 重号
 

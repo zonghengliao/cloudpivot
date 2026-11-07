@@ -1,0 +1,18 @@
+# 前端：本卡**没有改任何前端文件**（「待过账」标签 + 「过账」按钮早就存在，见 30_frontend_pending_post.txt），
+# 这里只证明前端工程在本次改动后仍能构建。
+
+## 1) pnpm build（= vue-tsc --noEmit && vite build）—— 红，但红在别人未提交的文件
+$ cd /opt/cloudpivot/frontend && pnpm build
+> vue-tsc --noEmit && vite build
+src/api/business/erp/price-inquiry.ts(363,80): error TS2345: Argument of type 'PriceInquiryFilter' is not assignable to parameter of type 'Record<string, unknown>'.
+src/views/business/erp/price-inquiry/index.vue(159,23): error TS2551: Property 'openToPoFor' does not exist ...
+src/views/business/erp/price-inquiry/index.vue(721,3): error TS6133: 'needsSingleSourceReason' is declared but its value is never read.
+ ELIFECYCLE  Command failed with exit code 2.
+→ 三处错误全在 git 未跟踪的 price-inquiry（别的卡正在写），与本卡零交集（FIX-7 也是同一现象）。
+
+## 2) vite build（跳过类型检查）—— EXIT=0
+$ cd /opt/cloudpivot/frontend && NODE_OPTIONS=--max-old-space-size=6144 npx vite build
+dist/assets/edit-Bjg5EwB7.js.gz        191.58kb / gzip: 65.09kb
+dist/assets/tdesign-wMKzekwa.js.gz    7995.70kb / gzip: 772.69kb
+dist/assets/echarts-CuV_skF0.js.gz    1002.89kb / gzip: 331.52kb
+（构建正常收尾，退出码 0）

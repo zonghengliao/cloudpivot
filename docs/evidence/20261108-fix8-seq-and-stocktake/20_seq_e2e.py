@@ -44,9 +44,42 @@ CONCURRENCY = int(os.environ.get("F8_CONCURRENCY", "10"))
 PASSED = []
 FAILED = []
 
-# 不是「单据号」的 _no 列（行号 / 节点号 / 排序号），重号扫描要排除
+# 不是「单据号」的 _no 列（行号 / 节点号 / 排序号）：本卡的重号扫描只用下面的白名单，
+# 这两组常量留给人工排查时参考（说明「为什么不能全表扫」）。
 NON_DOC_COLUMNS = {"line_no", "node_no", "sort_no", "step_no", "seq_no", "item_no"}
 NON_DOC_TABLES = ("biz_flow_", "biz_voucher_entry")
+
+# **单据号的本表唯一性**只能在这张表上判：一行 = 一张单。
+# 明细表 / 台账表 / 日志表的 *_no 列天然重复（一张单 5 行明细就有 5 行 doc_no），
+# 拿它们扫重号是假阳性 —— 首轮实测踩过（biz_inventory_txn.doc_no、biz_expense_item.invoice_no…）。
+DUP_SCAN_TARGETS = [
+    ("biz_purchase_order", "order_no"),          # PO
+    ("biz_stock_in", "in_no"),                   # IN
+    ("biz_stock_out", "out_no"),                 # STOCK_OUT
+    ("biz_stock_transfer", "transfer_no"),       # TK
+    ("biz_stock_take", "take_no"),               # STOCK_TAKE
+    ("biz_voucher", "voucher_no"),               # PZ / PZR
+    ("biz_material_serial", "serial_no"),        # SN
+    ("biz_payable", "payable_no"),               # AP
+    ("biz_payment", "payment_no"),               # PM
+    ("biz_receivable", "ar_no"),                 # AR
+    ("biz_contract", "contract_no"),             # CT
+    ("biz_shipment", "ship_no"),                 # SH
+    ("biz_sales_order", "so_no"),                # SO
+    ("biz_sales_return", "return_no"),           # SR
+    ("biz_receipt", "receipt_no"),               # RC
+    ("biz_receipt_refund", "refund_no"),         # RR
+    ("biz_invoice", "invoice_no"),               # IV
+    ("biz_expense_report", "report_no"),         # EXP
+    ("biz_expense_payment", "payment_no"),       # EXP_PAY
+    ("biz_budget", "budget_no"),                 # BDG
+    ("biz_commission_settlement", "settlement_no"),  # CM
+    ("biz_fixed_asset", "asset_no"),             # FA
+    ("biz_depreciation_batch", "batch_no"),      # DEP
+    ("biz_sales_forecast", "forecast_no"),       # SFC
+    ("biz_sales_target", "target_no"),           # STG
+    ("biz_flow_instance", "instance_no"),        # 流程实例号
+]
 
 
 def check(ok, name, detail=""):
@@ -130,31 +163,10 @@ def seq_snapshot():
     return {row[0]: (row[1], row[2], int(row[3])) for row in rows}
 
 
-def doc_no_columns():
-    """所有「单据号」列（table, column），从 information_schema 现取（新增单据自动纳入）。"""
-    rows = psql(
-        "SELECT c.table_name, c.column_name "
-        "  FROM information_schema.columns c "
-        "  JOIN information_schema.tables t "
-        "    ON t.table_schema = c.table_schema AND t.table_name = c.table_name "
-        " WHERE c.table_schema = 'public' AND t.table_type = 'BASE TABLE' "
-        "   AND c.table_name LIKE 'biz\\_%' ESCAPE '\\' "
-        "   AND c.column_name LIKE '%\\_no' ESCAPE '\\' "
-        "   AND c.data_type LIKE 'character%' "
-        " ORDER BY 1, 2"
-    )
-    pairs = []
-    for table, column in rows:
-        if column in NON_DOC_COLUMNS or str(table).startswith(NON_DOC_TABLES):
-            continue
-        pairs.append((table, column))
-    return pairs
-
-
 def dup_scan(label):
-    """逐表逐列扫重号；返回 [(table, column, cnt, sample)]。"""
-    pairs = doc_no_columns()
-    print(f"  · 重号扫描（{label}）：{len(pairs)} 个单号列")
+    """逐「单据主表」扫重号；返回 [(table, column, cnt, sample)]。"""
+    pairs = DUP_SCAN_TARGETS
+    print(f"  · 重号扫描（{label}）：{len(pairs)} 张单据主表的单号列")
     found = []
     for table, column in pairs:
         rows = psql(

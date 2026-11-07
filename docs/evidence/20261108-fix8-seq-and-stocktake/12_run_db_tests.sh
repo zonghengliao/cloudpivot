@@ -29,7 +29,7 @@ cd /opt/cloudpivot/backend
 set +e
 cargo test --lib -- \
   business::erp::voucher::tests::fix8 \
-  business::erp::budget_guard::tests 2>&1 | tail -40
+  business::erp::budget_guard 2>&1 | tail -40
 RC=${PIPESTATUS[0]}
 echo "cargo test exit=$RC"
 echo "$RC" > /tmp/_fix8_db_tests_rc
