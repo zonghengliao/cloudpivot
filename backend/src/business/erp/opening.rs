@@ -35,7 +35,8 @@
 //!
 //! ```text
 //! ① biz_inventory           qty += Δqty、amount += Δamount、avg_cost 重算（成本账，唯一真相）
-//! ② biz_inventory_location  qty += Δqty（location_id = NULL 的未分配库位桶）
+//! ② biz_inventory_location  qty += Δqty（**仓库默认库位桶**，与收货过账同口径；
+//!                            该仓没有默认库位时才落 location_id = NULL 的未分配库位桶 —— FIX-4 问题 1）
 //! ③ biz_inventory_txn       txn_type = Δqty>0 ? 'IN' : 'OUT'，biz_type='OPENING'
 //! ④ 期初凭证的 借1405 = Σ(biz_opening_inventory.amount)
 //! ```
@@ -1351,6 +1352,71 @@ pub async fn save_inventory(
     }
 }
 
+/// 可空 UUID → 参数（`Value::Null` 绑 `?::uuid` 在驱动侧会编码失败，统一走「空串 + NULLIF」）。
+fn uuid_text(value: Option<Uuid>) -> Value {
+    Value::Text(value.map(|id| id.to_string()).unwrap_or_default())
+}
+
+/// 读本期已有库存期初行落在哪个库位桶：`(物料, 仓库) → 库位账行 id`。
+///
+/// `None` = 该行没有记录桶（V0324 之前写的老行 / 该仓当时没有默认库位），
+/// 调用方按「当前默认库位」重新解析。
+async fn load_opening_buckets(
+    ex: &impl SqlExecutor,
+    period_code: &str,
+) -> DbResult<std::collections::BTreeMap<(Uuid, Uuid), Option<Uuid>>> {
+    // SCOPE-EXEMPT: 期初台账无归属列（见模块文档）。
+    let rows = ex
+        .query_sql(
+            format!(
+                "SELECT material_id, warehouse_id, location_row_id FROM {TABLE_INVENTORY} \
+                  WHERE period_code = ?"
+            ),
+            vec![Value::Text(period_code.to_string())],
+        )
+        .await?;
+    let mut out = std::collections::BTreeMap::new();
+    for row in &rows {
+        out.insert(
+            (
+                row.get_typed::<Uuid>("material_id")?,
+                row.get_typed::<Uuid>("warehouse_id")?,
+            ),
+            row.get_typed::<Option<Uuid>>("location_row_id")?,
+        );
+    }
+    Ok(out)
+}
+
+/// 库存期初该落哪个库位桶（**FIX-4 问题 1**）：与收货过账同口径 —— 仓库默认库位桶。
+///
+/// 返回 `None` = 落「未分配库位桶」（该仓没有默认库位 / 默认库位已停用），
+/// 与收货过账的兜底逐字一致（详情里会提示「先设一个默认库位」）。
+///
+/// 库位账行走 [`stockin_model::ensure_location_row`] find-or-create：期初不需要用户
+/// 先在收货表单里造出「某物料的库存账行」，与 P2-4 的收货路径共用同一个原语。
+async fn opening_location_row(
+    ex: &impl SqlExecutor,
+    material_id: Uuid,
+    warehouse_id: Uuid,
+    now: DateTime<Utc>,
+) -> std::result::Result<Option<Uuid>, ApiError> {
+    let Some(dict) = stockin_model::default_location_in(ex, warehouse_id)
+        .await
+        .map_err(|error| write_error(error, "查询仓库默认库位"))?
+    else {
+        return Ok(None);
+    };
+    // 停用的默认库位不接受新入库（与收货 `plan_lines` 的判据一致）
+    if dict.status != 1 {
+        return Ok(None);
+    }
+    stockin_model::ensure_location_row(ex, material_id, warehouse_id, dict.id, now)
+        .await
+        .map(Some)
+        .map_err(|error| write_error(error, "库存期初按默认库位建账"))
+}
+
 /// 保存库存期初（事务内实现，单测可直接调用）。
 ///
 /// # 覆盖语义（卡面 ③）
@@ -1367,6 +1433,19 @@ pub async fn save_inventory(
 ///
 /// 差额法的好处：期初之后发生的收货/出库不会被覆盖动作抹掉（它们的增减都叠加在
 /// 同一个库存行上，按差额调整只会挪动期初那一份）。
+///
+/// # 期初落哪个库位桶（FIX-4 问题 1）
+///
+/// 修复前：期初一律写 `location_id = NULL` 的「未分配库位桶」，而收货过账写
+/// 「仓库默认库位桶」（`biz_location.is_default = 1`）—— 同一个仓同一个物料两桶并存，
+/// 这正是「分库位库存永久漂移」的触发条件（汇总不变式只比合计，对错位无感）。
+///
+/// 现在与收货**同一口径**：落该仓的默认库位桶（经 `stockin_model::ensure_location_row`
+/// find-or-create 出库位账行）；该仓没有默认库位时仍落「未分配」桶（与收货的兜底一致，
+/// 详情里会提示先设默认库位）。
+///
+/// 重录 / 取消必须落**同一个桶**：已记录在 `biz_opening_inventory.location_row_id` 上的
+/// 桶优先（V0324 新增列），Δ 才冲得准；只有新行 / 存量无记录的旧行才按「当前默认库位」解析。
 pub async fn save_inventory_in(
     tx: &impl SqlExecutor,
     period_code: &str,
@@ -1429,15 +1508,31 @@ pub async fn save_inventory_in(
 
     // 差额落地：三本账 + 流水
     let doc_no = format!("{SOURCE_NO_PREFIX}{period_code}");
+    // 本期已有期初行落在哪个库位桶（重录要冲同一个桶，见函数文档「期初落哪个库位桶」）
+    let old_buckets = load_opening_buckets(tx, period_code)
+        .await
+        .map_err(|error| write_error(error, "读旧库存期初的库位桶"))?;
     let mut new_keys: std::collections::BTreeSet<(Uuid, Uuid)> = std::collections::BTreeSet::new();
+    let mut bucket_of: std::collections::BTreeMap<(Uuid, Uuid), Option<Uuid>> =
+        std::collections::BTreeMap::new();
     for row in &flat {
-        new_keys.insert((row.material_id, row.warehouse_id));
+        let key = (row.material_id, row.warehouse_id);
+        new_keys.insert(key);
         let (old_qty, old_amount) = old_map
-            .get(&(row.material_id, row.warehouse_id))
+            .get(&key)
             .copied()
             .unwrap_or((Decimal::ZERO, Decimal::ZERO));
         let delta_qty = row.qty - old_qty;
         let delta_amount = row.amount - old_amount;
+        // 桶：已记录的沿用（Δ 冲回同一个桶）；新行才按「仓库默认库位桶」解析。
+        // 零差额不解析 —— 解析会 find-or-create 出一条 0 数量的库位账行，
+        // 白白把「库位库存」Tab 撑出空行（与收货过账「不落空账行」同口径）。
+        let location_row = match old_buckets.get(&key).copied().flatten() {
+            Some(row_id) => Some(row_id),
+            None if delta_qty.is_zero() && delta_amount.is_zero() => None,
+            None => opening_location_row(tx, key.0, key.1, now).await?,
+        };
+        bucket_of.insert(key, location_row);
         if delta_qty.is_zero() && delta_amount.is_zero() {
             continue;
         }
@@ -1446,15 +1541,21 @@ pub async fn save_inventory_in(
             amount: delta_amount,
             unit_cost: row.unit_cost,
         };
-        let applied =
-            stockin_model::apply_cost(tx, row.material_id, row.warehouse_id, None, cost, now)
-                .await
-                .map_err(|error| write_error(error, "库存期初写入成本账"))?;
+        let applied = stockin_model::apply_cost(
+            tx,
+            row.material_id,
+            row.warehouse_id,
+            location_row,
+            cost,
+            now,
+        )
+        .await
+        .map_err(|error| write_error(error, "库存期初写入成本账"))?;
         stockin_model::apply_location_qty(
             tx,
             row.material_id,
             row.warehouse_id,
-            None,
+            location_row,
             delta_qty,
             now,
         )
@@ -1504,17 +1605,30 @@ pub async fn save_inventory_in(
         } else {
             (*old_amount / *old_qty).round_dp(6)
         };
+        // 退回**同一只桶**（与写入时同一个判据：已记录优先，否则按当前默认库位解析）
+        let location_row = match old_buckets.get(&(*material_id, *warehouse_id)).copied().flatten() {
+            Some(row_id) => Some(row_id),
+            None => opening_location_row(tx, *material_id, *warehouse_id, now).await?,
+        };
         let cost = CostBasis {
             qty: -*old_qty,
             amount: -*old_amount,
             unit_cost,
         };
-        let applied = stockin_model::apply_cost(tx, *material_id, *warehouse_id, None, cost, now)
-            .await
-            .map_err(|error| write_error(error, "库存期初退回成本账"))?;
-        stockin_model::apply_location_qty(tx, *material_id, *warehouse_id, None, -*old_qty, now)
-            .await
-            .map_err(|error| write_error(error, "库存期初退回库位账"))?;
+        let applied =
+            stockin_model::apply_cost(tx, *material_id, *warehouse_id, location_row, cost, now)
+                .await
+                .map_err(|error| write_error(error, "库存期初退回成本账"))?;
+        stockin_model::apply_location_qty(
+            tx,
+            *material_id,
+            *warehouse_id,
+            location_row,
+            -*old_qty,
+            now,
+        )
+        .await
+        .map_err(|error| write_error(error, "库存期初退回库位账"))?;
         // P2-5A：流水 SQL 收口到唯一写入口 [`inventory_writer::insert_txn`]。
         let remark = format!("库存期初取消（{doc_no}）");
         inventory_writer::insert_txn(
@@ -1555,10 +1669,10 @@ pub async fn save_inventory_in(
             format!(
                 "INSERT INTO {TABLE_INVENTORY} \
                     (period_code, material_id, warehouse_id, qty, unit_cost, amount, remark, \
-                     created_at, updated_at, create_by, update_by) \
+                     location_row_id, created_at, updated_at, create_by, update_by) \
                  VALUES (?, ?::uuid, ?::uuid, NULLIF(?::text,'')::numeric, \
                          NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                         NULLIF(?::text,''), ?, ?, NULLIF(?::text,'')::uuid, \
+                         NULLIF(?::text,''), NULLIF(?::text,'')::uuid, ?, ?, NULLIF(?::text,'')::uuid, \
                          NULLIF(?::text,'')::uuid)"
             ),
             vec![
@@ -1569,6 +1683,8 @@ pub async fn save_inventory_in(
                 Value::Text(row.unit_cost.to_string()),
                 Value::Text(row.amount.to_string()),
                 Value::Text(row.remark.clone().unwrap_or_default()),
+                // 期初落在哪个库位桶：重录 / 取消时按它冲回同一个桶（FIX-4 问题 1）
+                uuid_text(bucket_of.get(&(row.material_id, row.warehouse_id)).copied().flatten()),
                 Value::from(now),
                 Value::from(now),
                 Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
@@ -1811,17 +1927,21 @@ mod tests {
              OR period_code LIKE '2035-%'",
         )
         .await;
-        // 库存三本账按夹具物料收敛（biz_inventory 无 deleted_at，物理删）
+        // 库存三本账按夹具物料收敛（biz_inventory 无 deleted_at，物理删）。
+        // FK 顺序（FIX-4 起期初会落「默认库位桶」，成本账的 location_id 指向库位账行）：
+        // 流水（无外键）→ **成本账先删**（它 FK 指向库位账行）→ 库位账 → 物料
         sql("DELETE FROM biz_inventory_txn WHERE material_id IN \
-             (SELECT id FROM biz_material WHERE material_code LIKE 'R5-%')")
-        .await;
-        sql("DELETE FROM biz_inventory_location WHERE material_id IN \
              (SELECT id FROM biz_material WHERE material_code LIKE 'R5-%')")
         .await;
         sql("DELETE FROM biz_inventory WHERE material_id IN \
              (SELECT id FROM biz_material WHERE material_code LIKE 'R5-%')")
         .await;
+        sql("DELETE FROM biz_inventory_location WHERE material_id IN \
+             (SELECT id FROM biz_material WHERE material_code LIKE 'R5-%')")
+        .await;
         sql("DELETE FROM biz_material WHERE material_code LIKE 'R5-%'").await;
+        // FIX-4 夹具库位（默认库位桶用例造的）：biz_location 对 warehouse 是弱引用，先按库位编码清
+        sql("DELETE FROM biz_location WHERE location_code LIKE 'R5-LOC-%'").await;
         sql("DELETE FROM biz_warehouse WHERE warehouse_code LIKE 'R5-%'").await;
         sql(
             "DELETE FROM biz_accounting_period WHERE period_code LIKE '2034-%' \
@@ -2380,6 +2500,207 @@ mod tests {
         assert_eq!(row.get_typed::<Decimal>("qty").unwrap(), dec("100"));
         assert_eq!(row.get_typed::<Decimal>("amount").unwrap(), dec("1000"));
         assert_eq!(row.get_typed::<String>("period_code").unwrap(), "2034-09");
+    }
+
+    // ========================================================================
+    // FIX-4 问题 1（t_763677cd）：期初落「默认库位桶」，与收货过账同一个桶
+    //
+    // 修复前期初一律写 `location_id IS NULL` 的「未分配库位桶」，收货过账写
+    // 「仓库默认库位桶」⇒ 同仓同物料两桶并存，「分库位库存永久漂移」的触发条件。
+    // 汇总不变式只比合计，对这种错位完全无感（所以必须从「落在哪个桶」上断言）。
+    // ========================================================================
+
+    /// 给夹具仓库设一个默认库位（`is_default = 1`、启用、未软删），返回库位字典 id。
+    async fn make_default_location(warehouse: Uuid, code: &str) -> Uuid {
+        let id = Uuid::now_v7();
+        sql(&format!(
+            "INSERT INTO biz_location (id, location_code, location_name, warehouse_id, \
+                                       location_type, is_default, capacity, status, sort_order) \
+             VALUES ('{id}', '{code}', 'R5 夹具默认库位', '{warehouse}', 'STORAGE', 1, NULL, 1, 1)"
+        ))
+        .await;
+        id
+    }
+
+    /// 某物料在某仓的**全部库存桶**（`(库位字典 id, 数量)`；`None` = 未分配桶）。
+    async fn buckets_of(material: Uuid, warehouse: Uuid) -> Vec<(Option<Uuid>, Decimal)> {
+        let rows = db()
+            .find_with_params(
+                "SELECT il.location_id, i.qty FROM biz_inventory_location il \
+                   LEFT JOIN biz_inventory i \
+                          ON i.material_id = il.material_id AND i.warehouse_id = il.warehouse_id \
+                         AND i.location_id = il.id \
+                  WHERE il.material_id = ?::uuid AND il.warehouse_id = ?::uuid \
+                  ORDER BY il.location_id NULLS LAST",
+                vec![Value::from(&material), Value::from(&warehouse)],
+            )
+            .await
+            .expect("读库存桶");
+        rows.iter()
+            .map(|row| {
+                (
+                    row.get_typed::<Option<Uuid>>("location_id").expect("库位"),
+                    row.get_typed::<Option<Decimal>>("qty")
+                        .expect("qty")
+                        .unwrap_or(Decimal::ZERO),
+                )
+            })
+            .collect()
+    }
+
+    /// 期初台账里这行的库位桶（`biz_opening_inventory.location_row_id`）。
+    async fn opening_bucket(period_code: &str, material: Uuid, warehouse: Uuid) -> Option<Uuid> {
+        let rows = db()
+            .find_with_params(
+                "SELECT location_row_id FROM biz_opening_inventory \
+                  WHERE period_code = ? AND material_id = ?::uuid AND warehouse_id = ?::uuid",
+                vec![
+                    Value::Text(period_code.to_string()),
+                    Value::from(&material),
+                    Value::from(&warehouse),
+                ],
+            )
+            .await
+            .expect("读期初台账的库位桶");
+        rows.first()
+            .map(|row| row.get_typed::<Option<Uuid>>("location_row_id"))
+            .transpose()
+            .expect("解析期初台账的库位桶")
+            .flatten()
+    }
+
+    /// ⑨b 期初落**默认库位桶**（不是未分配桶），重录 / 取消都冲回同一个桶。
+    #[tokio::test]
+    async fn r5_16_inventory_opening_lands_on_default_location_bucket() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        open_month(8).await;
+        let material = make_material("R5-M-016", false).await;
+        let warehouse = make_warehouse("R5-WH16").await;
+        let dict = make_default_location(warehouse, "R5-LOC-16").await;
+
+        save_inventory(
+            Some("2034-08"),
+            &[item(material, warehouse, "100", "10")],
+            Some(uid()),
+        )
+        .await
+        .expect("库存期初应保存成功");
+
+        // ① 只有一个桶，且是默认库位桶（不是「未分配桶」）
+        let buckets = buckets_of(material, warehouse).await;
+        assert_eq!(
+            buckets,
+            vec![(Some(dict), dec("100"))],
+            "期初必须落「默认库位桶」，不许再落「未分配库位桶」（实际 {buckets:?}）"
+        );
+        // ② 成本账同一行同一桶（数量 / 金额 / 均价）
+        let cost = db()
+            .find_with_params(
+                "SELECT i.qty, i.amount, i.avg_cost FROM biz_inventory i \
+                   JOIN biz_inventory_location il ON il.id = i.location_id \
+                  WHERE i.material_id = ?::uuid AND i.warehouse_id = ?::uuid \
+                    AND il.location_id = ?::uuid",
+                vec![
+                    Value::from(&material),
+                    Value::from(&warehouse),
+                    Value::from(&dict),
+                ],
+            )
+            .await
+            .expect("读成本账");
+        assert_eq!(cost.len(), 1, "成本账只有默认库位桶这一行");
+        assert_eq!(cost[0].get_typed::<Decimal>("qty").unwrap(), dec("100"));
+        assert_eq!(cost[0].get_typed::<Decimal>("amount").unwrap(), dec("1000"));
+        assert_eq!(cost[0].get_typed::<Decimal>("avg_cost").unwrap(), dec("10"));
+        // ③ 期初台账记下了「这笔期初落在哪个桶」
+        let row_id: Uuid = db()
+            .scalar_with_params(
+                "SELECT il.id FROM biz_inventory_location il \
+                  WHERE il.material_id = ?::uuid AND il.warehouse_id = ?::uuid \
+                    AND il.location_id = ?::uuid",
+                vec![
+                    Value::from(&material),
+                    Value::from(&warehouse),
+                    Value::from(&dict),
+                ],
+            )
+            .await
+            .expect("读库位账行");
+        assert_eq!(
+            opening_bucket("2034-08", material, warehouse).await,
+            Some(row_id),
+            "期初台账必须记下落在哪个库位桶（重录时按它冲销）"
+        );
+
+        // ④ 重录成 80：差额 20 从**同一个桶**退回（不是新开一个未分配桶）
+        save_inventory(
+            Some("2034-08"),
+            &[item(material, warehouse, "80", "10")],
+            Some(uid()),
+        )
+        .await
+        .expect("期初重录");
+        assert_eq!(
+            buckets_of(material, warehouse).await,
+            vec![(Some(dict), dec("80"))],
+            "重录必须冲回同一个默认库位桶"
+        );
+        assert_eq!(
+            opening_bucket("2034-08", material, warehouse).await,
+            Some(row_id),
+            "重录后桶不变"
+        );
+
+        // ⑤ 取消期初（传空明细）：整笔从同一个桶退干净，桶结构不变、总数归零
+        save_inventory(Some("2034-08"), &[], Some(uid()))
+            .await
+            .expect("取消期初");
+        let buckets = buckets_of(material, warehouse).await;
+        assert!(
+            buckets.iter().all(|(_, qty)| qty.is_zero()),
+            "取消期初后数量必须归零（实际 {buckets:?}）"
+        );
+        assert!(
+            buckets.iter().all(|(loc, _)| *loc != None),
+            "取消期初不许凭空造出「未分配库位桶」（实际 {buckets:?}）"
+        );
+        assert_eq!(
+            opening_bucket("2034-08", material, warehouse).await,
+            None,
+            "期初台账已清空"
+        );
+    }
+
+    /// ⑨c 没有默认库位的仓：期初仍落「未分配库位桶」（与收货的兜底逐字一致）。
+    #[tokio::test]
+    async fn r5_17_inventory_opening_without_default_location_keeps_unassigned() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        open_month(11).await;
+        let material = make_material("R5-M-017", false).await;
+        let warehouse = make_warehouse("R5-WH17").await;
+
+        save_inventory(
+            Some("2034-11"),
+            &[item(material, warehouse, "30", "5")],
+            Some(uid()),
+        )
+        .await
+        .expect("库存期初应保存成功");
+
+        assert_eq!(
+            location_qty(material, warehouse).await,
+            dec("30"),
+            "没有默认库位时仍落「未分配库位桶」（与收货过账的兜底一致）"
+        );
+        let (qty, amount, _) = cost_row(material, warehouse)
+            .await
+            .expect("成本账汇总桶行必须存在");
+        assert_eq!(qty, dec("30"));
+        assert_eq!(amount, dec("150"));
     }
 
     /// ⑩ 库存期初金额累加到 1405 借方（对方科目 3103 贷方）。

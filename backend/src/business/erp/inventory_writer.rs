@@ -479,11 +479,16 @@ pub(crate) async fn try_deduct_cost(
     }
 }
 
-/// 按 `(物料, 仓库, 库位)` 锁读并返回库存行 `(id, 账面三值)`（**汇总桶优先**）。
+/// 按 `(物料, 仓库, 库位)` 锁读并返回库存行 `(id, 账面三值)`（**精确匹配优先**）。
 ///
-/// 调拨调入要「先按汇总桶优先选行再锁」：`ORDER BY (location_id IS NULL) DESC`
-/// 让 `location_id IS NULL` 的整仓汇总桶排在具体库位桶前面 —— 移动加权必须基于
-/// **本事务锁住的**旧值，否则两笔并发调入会各自算出一个 `avg_cost`，后写的把先写的覆盖掉。
+/// 调拨调入要「先按明细库位选行再锁」：`ORDER BY (location_id IS NOT DISTINCT FROM 明细库位) DESC`
+/// 让**明细指定的那个库位桶**排在前面 —— 与 `transfer_settle::pick_bucket` 同一个口径
+/// （FIX-4 问题 2：明细点名库位就动那个库位桶，不再「有汇总桶就只动汇总桶」）。
+/// 明细没给库位（参数 `None`）时排序表达式退化成 `location_id IS NULL`，命中整仓汇总桶，
+/// 与历史口径逐字一致。
+///
+/// 为什么必须「先锁后改」：移动加权要基于**本事务锁住的**旧值，否则两笔并发调入会各自
+/// 算出一个 `avg_cost`，后写的把先写的覆盖掉。
 pub(crate) async fn lock_cost_bucket(
     ex: &impl SqlExecutor,
     material_id: Uuid,
@@ -498,13 +503,14 @@ pub(crate) async fn lock_cost_bucket(
               WHERE material_id = ?::uuid AND warehouse_id = ?::uuid \
                 AND (location_id IS NULL \
                      OR location_id IS NOT DISTINCT FROM NULLIF(?::text,'')::uuid) \
-              ORDER BY (location_id IS NULL) DESC \
+              ORDER BY (location_id IS NOT DISTINCT FROM NULLIF(?::text,'')::uuid) DESC \
               LIMIT 1 \
                 FOR UPDATE"
                 .to_string(),
             vec![
                 Value::from(&material_id),
                 Value::from(&warehouse_id),
+                uuid_text(location_id),
                 uuid_text(location_id),
             ],
         )

@@ -149,14 +149,54 @@ pub(super) fn settle_error(err: SettleError) -> ApiError {
             material_code,
             required,
             available,
+            location,
         } => ApiError::new(
             409,
             error_code::ERP_CODE_CONFLICT,
             format!(
-                "调出仓库存不足：物料 {material_code} 本次需要 {required}，当前可用 {available}。\
-                 另一张调拨单可能刚扣走同一批库存，请刷新库存后重新提交"
+                "调出仓库存不足：物料 {material_code} 本次需要 {required}，当前可用 {available}{}。\
+                 另一张调拨单可能刚扣走同一批库存，请刷新库存后重新提交",
+                location
+                    .map(|label| format!("（{label}）"))
+                    .unwrap_or_default()
             ),
         ),
+        // FIX-4 问题 2：明细点名了调出库位、该库位却没有这个物料的库存账 —— 明确报错，
+        // 不再「有汇总桶就静默改扣汇总桶」（库位级意图与账上动的地方必须一致）。
+        SettleError::LocationBucketEmpty {
+            line_no,
+            material_code,
+            location,
+            required,
+            summary_available,
+        } => ApiError::new(
+            409,
+            error_code::ERP_CODE_CONFLICT,
+            format!(
+                "第 {line_no} 行指定的调出{location}上没有物料 {material_code} 的库存（本次需要 \
+                 {required}，该库位可用 0）{}：调拨不会改扣整仓汇总桶。请把这一行的库位改成有货的库位、\
+                 先把货收进该库位，或去掉库位按整仓汇总桶记账",
+                match summary_available {
+                    Some(available) =>
+                        format!("；整仓汇总桶上该物料还有 {available}"),
+                    None => String::new(),
+                }
+            ),
+        ),
+        // FIX-4 问题 2：明细没指定库位、库存却分散在多个库位桶 —— 不猜，要求点名
+        SettleError::LocationAmbiguous {
+            line_no,
+            material_code,
+            buckets,
+        } => ApiError::new(
+            409,
+            error_code::ERP_CODE_CONFLICT,
+            format!(
+                "第 {line_no} 行没有指定调出库位，但物料 {material_code} 在该仓的库存分散在 \
+                 {buckets} 个库位桶上：无法判断该扣哪个库位。请在明细里指定调出库位"
+            ),
+        ),
+
         SettleError::SerialMismatch {
             line_no,
             qty,

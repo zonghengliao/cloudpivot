@@ -43,6 +43,37 @@ pub enum SettleError {
         required: Decimal,
         /// 该库存行当前可用多少（行不存在 = 0）。
         available: Decimal,
+        /// 实际动的是哪个库位桶的人话标签（`None` = 该物料在该仓没有库存账）。
+        ///
+        /// FIX-4 问题 2 配套：指定库位后有「库位不够」和「整仓都不够」两种情形，
+        /// 报文必须点名到底是哪个桶不够，否则用户只会看到「当前可用 3」却不知道该去改哪。
+        location: Option<String>,
+    },
+    /// 明细指定了调出库位，但该库位上没有这个物料的库存账（FIX-4 问题 2）。
+    ///
+    /// 修复前的口径是「有整仓汇总桶就只动汇总桶」：用户在明细里点名库位 A，
+    /// 账上却扣了汇总桶，既不报错也不提示（审批人看到库位级意图、账上动的是汇总桶）。
+    /// 现在按卡面推荐方案 ① 改为**精确匹配优先 + 不够就明确报错**，绝不静默改扣。
+    LocationBucketEmpty {
+        /// 明细行号。
+        line_no: i32,
+        /// 物料编码。
+        material_code: String,
+        /// 明细指定的库位的人话标签。
+        location: String,
+        /// 本次需要调出多少。
+        required: Decimal,
+        /// 整仓汇总桶上该物料还有多少（`None` = 连汇总桶都没有）。
+        summary_available: Option<Decimal>,
+    },
+    /// 未指定调出库位，但该仓该物料的库存分散在多个库位桶上（无法判断该扣哪个）。
+    LocationAmbiguous {
+        /// 明细行号。
+        line_no: i32,
+        /// 物料编码。
+        material_code: String,
+        /// 该仓该物料有几个库位桶。
+        buckets: usize,
     },
     /// 一物一码物料：明细数量与序列号个数不一致（建单后被改库 / 历史脏单）。
     SerialMismatch {
@@ -174,7 +205,8 @@ pub(super) struct StockTxn<'a> {
 ///
 /// 1. 幂等闸：本单已有 `doc_type='STOCK_TRANSFER'` 的流水 → 直接返回 `settled = false`；
 /// 2. 读明细（含 `serial_required` 与序列号），**先把「序列号个数 == 数量」校验掉**；
-/// 3. 逐行：调出仓条件扣减（`AND qty >= ?`）→ **调出仓库位账 -qty** → 调入仓加库存（不存在则建档）
+/// 3. 逐行：**选桶**（[`pick_bucket`]：明细指定了库位就动那个库位桶，不够就报错，绝不改扣汇总桶）
+///    → 调出仓条件扣减（`AND qty >= ?`）→ **调出仓库位账 -qty** → 调入仓加库存（不存在则建档）
 ///    → **调入仓库位账 +qty** → 序列号移仓 → 回填明细；
 /// 4. 回写单据头 `total_amount`；
 /// 5. 不变式断言（负库存 / 一物一码件数 / 成本守恒 / **库位账合计 == 成本账 qty**），
@@ -269,20 +301,59 @@ pub async fn settle_transfer(
     let mut moved_serials = 0_u64;
 
     for line in &lines {
-        // ③ 调出仓：锁行（或锁唯一键上的那一行）→ 条件扣减 → 回读快照
-        let out_row = resolve_inventory_row(
+        // ③ 调出仓：先选桶（FIX-4 问题 2 —— 明细指定库位就动那个库位桶，不静默改扣汇总桶）
+        let out_bucket = match pick_bucket(
             ex,
             line.material_id,
             from_warehouse_id,
             line.from_location_id,
         )
-        .await?;
-        let Some(out_bucket) = out_row else {
-            return Err(SettleError::Insufficient {
-                material_code: line.material_code.clone(),
-                required: line.qty,
-                available: Decimal::ZERO,
-            });
+        .await?
+        {
+            // 明细指定的库位桶（精确命中 = 用户意图）
+            BucketPick::Exact(bucket) => bucket,
+            // 未指定库位时的兜底桶（汇总桶 → 默认库位桶 → 唯一库位桶），来源写进日志便于事后追账
+            BucketPick::Unspecified { bucket, how } => {
+                tracing::debug!(
+                    transfer_no = %transfer_no,
+                    line_no = line.line_no,
+                    bucket = how,
+                    material_code = %line.material_code,
+                    "调拨明细未指定调出库位：按兜底顺序选桶"
+                );
+                bucket
+            }
+            // 明细点名了库位，但该库位没有该物料的库存账：**明确报错**（不再静默改扣汇总桶）
+            BucketPick::SpecifiedMissing { summary } => {
+                let summary_available = match summary {
+                    Some(bucket) => current_qty(ex, bucket.inventory_id).await?,
+                    None => None,
+                };
+                return Err(SettleError::LocationBucketEmpty {
+                    line_no: line.line_no,
+                    material_code: line.material_code.clone(),
+                    location: bucket_label(ex, line.from_location_id).await?,
+                    required: line.qty,
+                    summary_available,
+                });
+            }
+            // 未指定库位、库存却分散在多个库位桶：不知道扣哪个 —— 要求明细点名库位
+            BucketPick::Ambiguous => {
+                let buckets = bucket_count(ex, line.material_id, from_warehouse_id).await?;
+                return Err(SettleError::LocationAmbiguous {
+                    line_no: line.line_no,
+                    material_code: line.material_code.clone(),
+                    buckets,
+                });
+            }
+            BucketPick::Missing => {
+                return Err(SettleError::Insufficient {
+                    material_code: line.material_code.clone(),
+                    required: line.qty,
+                    available: Decimal::ZERO,
+                    location: None,
+                });
+            }
         };
         let Some(out) = deduct_inventory_row(ex, out_bucket.inventory_id, line.qty, now).await?
         else {
@@ -293,6 +364,7 @@ pub async fn settle_transfer(
                 material_code: line.material_code.clone(),
                 required: line.qty,
                 available,
+                location: Some(bucket_label(ex, out_bucket.location_id).await?),
             });
         };
         tracing::debug!(
@@ -354,16 +426,21 @@ pub async fn settle_transfer(
         )
         .await?;
 
-        // ④a 先定「调入侧要动的那个桶」：仓里有汇总桶 → 汇总桶（`None`）；没有 → 明细库位。
-        //     判据必须与成本账（`credit_inventory_row` → `lock_cost_bucket`，汇总桶优先）一致，
+        // ④a 先定「调入侧要动的那个桶」：与成本账（`credit_inventory_row` → `lock_cost_bucket`）同一判据
+        //     —— FIX-4 起两边都是「精确匹配优先」（明细点名库位就落那个库位桶），
         //     否则库位账加到明细库位桶、成本账加到汇总桶，分库位库存永久漂移（P0-03）。
         let in_bucket_location =
-            match resolve_inventory_row(ex, line.material_id, to_warehouse_id, line.to_location_id)
-                .await?
-            {
-                Some(bucket) => bucket.location_id,
+            match pick_bucket(ex, line.material_id, to_warehouse_id, line.to_location_id).await? {
+                BucketPick::Exact(bucket) | BucketPick::Unspecified { bucket, .. } => {
+                    bucket.location_id
+                }
+                // 明细库位还没有库存账：`credit_cost` 的 `lock_cost_bucket` 也是「精确优先」——
+                // 有整仓汇总桶就落汇总桶，没有就按明细库位建档，两本账仍是同一个桶。
+                BucketPick::SpecifiedMissing { summary } => {
+                    summary.map_or(line.to_location_id, |bucket| bucket.location_id)
+                }
                 // 仓里还没有这个物料的库存行：credit 会按明细库位建档 → 两本账同一个桶
-                None => line.to_location_id,
+                BucketPick::Missing | BucketPick::Ambiguous => line.to_location_id,
             };
         // ④ 调入仓：加库存（行不存在就建档）+ 移动加权重算 avg_cost
         let ins = credit_inventory_row(
@@ -564,39 +641,116 @@ pub(super) struct InventoryBucket {
     pub location_id: Option<Uuid>,
 }
 
-/// 选目标库存行：**有整仓汇总桶就只动汇总桶**，没有才按库位精确匹配。
+/// 选桶的结果（**FIX-4 问题 2** 的核心：调拨明细指定了库位就动那个库位桶）。
 ///
-/// 返回 `None` = 该物料在这个仓还没有任何库存行（调入侧要建档；调出侧 = 库存 0）。
+/// 成本账（`biz_inventory`）是「桶」：`(material, warehouse, location_id)`，本枚举回答
+/// 「这一行到底该动哪一个桶」；调用方必须拿同一个桶去写库位账（`biz_inventory_location`），
+/// 否则就会出现 P0-03 实测到的漂移（成本账扣汇总桶、库位账扣库位桶：总量仍然相等、
+/// 汇总不变式看不出来，但分库位库存永久错位）。
 ///
-/// # 为什么要把 `location_id` 一起返回
+/// # 口径（卡面推荐方案 ①：精确匹配优先）
 ///
-/// 成本账（`biz_inventory`）是「桶」：`(material, warehouse, location_id)`。
-/// 本函数按「汇总桶优先」选出**要动哪一个桶**；调用方必须拿同一个桶去写库位账
-/// （`biz_inventory_location`），否则就会出现 P0-03 实测到的漂移：
+/// ```text
+/// 明细指定了库位
+///   ① 该库位有库存账行            → Exact（扣它；不够就报 Insufficient，绝不改扣别的桶）
+///   ② 该库位没有库存账行          → SpecifiedMissing（调出侧报错，见 SettleError::LocationBucketEmpty）
+/// 明细没指定库位
+///   ③ 整仓汇总桶（location_id IS NULL）→ Unspecified（历史口径，零变化）
+///   ④ 仓库默认库位桶（is_default=1）  → Unspecified（与收货过账 / 库存期初同一个桶）
+///   ⑤ 该仓该物料只有唯一一个库位桶    → Unspecified（只有这一个可选，不算「改扣」）
+///   ⑥ 多个库位桶并存               → Ambiguous（要求明细点名库位，不猜）
+///   ⑦ 一行库存账都没有             → Missing（调入侧按明细库位建档）
+/// ```
 ///
-/// - 成本账按本函数选桶 → 命中 `location_id IS NULL` 的汇总桶；
-/// - 库位账按明细的 `from_location_id` / `to_location_id` 走 → 命中具体库位桶。
+/// ③④⑤ 的顺序就是「不指定库位时」的兜底顺序：先历史汇总桶（老数据不受影响），
+/// 再仓库默认库位桶（FIX-4 问题 1 之后期初 / 收货都落这里，是主路径），
+/// 最后「唯一库位桶」。⑥ 之所以不自动挑一个，是因为「随便挑一个桶扣」正是本卡要消灭的静默行为。
+#[derive(Debug, Clone, Copy)]
+pub(super) enum BucketPick {
+    /// 明细指定的库位桶（精确命中）。
+    Exact(InventoryBucket),
+    /// 明细指定的库位没有该物料的库存账行（`summary` = 整仓汇总桶，若存在）。
+    SpecifiedMissing {
+        /// 整仓汇总桶（`None` = 连汇总桶都没有）。
+        summary: Option<InventoryBucket>,
+    },
+    /// 明细没指定库位，按兜底顺序命中（`how` 是命中来源的人话标签，写日志用）。
+    Unspecified {
+        /// 命中的桶。
+        bucket: InventoryBucket,
+        /// 命中来源（`整仓汇总桶` / `仓库默认库位桶` / `唯一的库位桶`）。
+        how: &'static str,
+    },
+    /// 该物料在这个仓一行库存账都没有。
+    Missing,
+    /// 明细没指定库位，但该仓该物料的库存分散在多个库位桶上（不知道该扣哪个）。
+    Ambiguous,
+}
+
+/// 选桶（口径见 [`BucketPick`] 的文档）。
 ///
-/// 同仓同时存在「汇总桶 + 库位桶」时（期初落汇总桶、收货落库位桶就会这样），
-/// 两本账各自扣到不同的桶上：总量仍然相等（汇总不变式看不出来），但
-/// **分库位库存永久错位**（P0-03 演练：调拨 40 件后，库位桶成本账 50 / 库位账 10，
-/// 汇总桶成本账 42 / 库位账 82）。所以返回 `(inventory_id, location_id)` 成对使用。
-pub(super) async fn resolve_inventory_row(
+/// `location_id` 传的是**库位库存行 id**（`biz_inventory_location.id`，V0139 口径），
+/// 与 `biz_inventory.location_id` 同一个 id 空间 —— 所以「精确匹配」就是按这一列等值。
+pub(super) async fn pick_bucket(
+    ex: &impl SqlExecutor,
+    material_id: Uuid,
+    warehouse_id: Uuid,
+    location_id: Option<Uuid>,
+) -> DbResult<BucketPick> {
+    // ① 明细点名了库位：只认那个桶（不再「有汇总桶就只动汇总桶」）
+    if location_id.is_some() {
+        if let Some(bucket) = bucket_of_row(ex, material_id, warehouse_id, location_id).await? {
+            return Ok(BucketPick::Exact(bucket));
+        }
+        let summary = bucket_of_row(ex, material_id, warehouse_id, None).await?;
+        return Ok(BucketPick::SpecifiedMissing { summary });
+    }
+
+    // ③ 未指定库位：整仓汇总桶（历史口径优先，老单据行为零变化）
+    if let Some(bucket) = bucket_of_row(ex, material_id, warehouse_id, None).await? {
+        return Ok(BucketPick::Unspecified {
+            bucket,
+            how: "整仓汇总桶",
+        });
+    }
+    // ④ 仓库默认库位桶（FIX-4 问题 1 之后期初 / 收货都落这里）
+    if let Some(bucket) = default_location_bucket(ex, material_id, warehouse_id).await? {
+        return Ok(BucketPick::Unspecified {
+            bucket,
+            how: "仓库默认库位桶",
+        });
+    }
+    // ⑤ 唯一库位桶：只有一行可选，扣它不算「改扣」
+    let buckets = bucket_count_rows(ex, material_id, warehouse_id).await?;
+    match buckets.len() {
+        0 => Ok(BucketPick::Missing),
+        1 => Ok(BucketPick::Unspecified {
+            bucket: buckets[0],
+            how: "该仓该物料唯一的库位桶",
+        }),
+        // ⑥ 多个库位桶并存：不猜，交给调用方报错要求点名库位
+        _ => Ok(BucketPick::Ambiguous),
+    }
+}
+
+/// 按「库位库存行 id」取成本账行（`None` = 取整仓汇总桶那一行）。
+async fn bucket_of_row(
     ex: &impl SqlExecutor,
     material_id: Uuid,
     warehouse_id: Uuid,
     location_id: Option<Uuid>,
 ) -> DbResult<Option<InventoryBucket>> {
     // SCOPE-EXEMPT: 库存是仓储数据，无归属列（口径同 erp/model.rs）。
+    // 命中条件与唯一索引 `uk_biz_inv_mat_wh_loc` 的表达式完全一致（否则走不上索引）。
     let row = ex
         .query_first_sql(
-            "SELECT id, location_id FROM biz_inventory \
-              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid \
-                AND (location_id IS NULL \
-                     OR location_id IS NOT DISTINCT FROM NULLIF(?::text,'')::uuid) \
-              ORDER BY (location_id IS NULL) DESC \
-              LIMIT 1"
-                .to_string(),
+            format!(
+                "SELECT id, location_id FROM biz_inventory \
+                  WHERE material_id = ?::uuid AND warehouse_id = ?::uuid \
+                    AND COALESCE(location_id, {BUCKET_LOCATION_SQL}) \
+                      = COALESCE(NULLIF(?::text,'')::uuid, {BUCKET_LOCATION_SQL}) \
+                  LIMIT 1"
+            ),
             vec![
                 Value::from(&material_id),
                 Value::from(&warehouse_id),
@@ -604,13 +758,108 @@ pub(super) async fn resolve_inventory_row(
             ],
         )
         .await?;
-    match row {
-        None => Ok(None),
-        Some(row) => Ok(Some(InventoryBucket {
-            inventory_id: row.get_typed::<Uuid>("id")?,
-            location_id: row.get_typed::<Option<Uuid>>("location_id")?,
-        })),
-    }
+    row.as_ref().map(bucket_from_row).transpose()
+}
+
+/// 取「仓库默认库位」对应的库存桶（`biz_location.is_default = 1` 且启用、未软删）。
+async fn default_location_bucket(
+    ex: &impl SqlExecutor,
+    material_id: Uuid,
+    warehouse_id: Uuid,
+) -> DbResult<Option<InventoryBucket>> {
+    // SCOPE-EXEMPT: 库存 / 库位是仓储数据，无归属列（口径同 erp/model.rs）。
+    let row = ex
+        .query_first_sql(
+            "SELECT i.id, i.location_id \
+               FROM biz_inventory i \
+               JOIN biz_inventory_location il ON il.id = i.location_id \
+               JOIN biz_location l ON l.id = il.location_id \
+              WHERE i.material_id = ?::uuid AND i.warehouse_id = ?::uuid \
+                AND l.warehouse_id = ?::uuid \
+                AND l.is_default = 1 AND l.status = 1 AND l.deleted_at IS NULL \
+              LIMIT 1"
+                .to_string(),
+            vec![
+                Value::from(&material_id),
+                Value::from(&warehouse_id),
+                Value::from(&warehouse_id),
+            ],
+        )
+        .await?;
+    row.as_ref().map(bucket_from_row).transpose()
+}
+
+/// 该物料在这个仓的所有库存桶（最多取 2 行：调用方只需要区分「0 / 1 / 多个」）。
+async fn bucket_count_rows(
+    ex: &impl SqlExecutor,
+    material_id: Uuid,
+    warehouse_id: Uuid,
+) -> DbResult<Vec<InventoryBucket>> {
+    // SCOPE-EXEMPT: 库存是仓储数据，无归属列（口径同 erp/model.rs）。
+    let rows = ex
+        .query_sql(
+            "SELECT id, location_id FROM biz_inventory \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid \
+              ORDER BY location_id \
+              LIMIT 2"
+                .to_string(),
+            vec![Value::from(&material_id), Value::from(&warehouse_id)],
+        )
+        .await?;
+    rows.iter().map(bucket_from_row).collect()
+}
+
+/// 该物料在这个仓有几个库存桶（只用于报错文案里的「N 个库位桶」）。
+async fn bucket_count(
+    ex: &impl SqlExecutor,
+    material_id: Uuid,
+    warehouse_id: Uuid,
+) -> DbResult<usize> {
+    // SCOPE-EXEMPT: 库存是仓储数据，无归属列（口径同 erp/model.rs）。
+    let count: i64 = ex
+        .scalar_sql(
+            "SELECT COUNT(*) FROM biz_inventory \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid"
+                .to_string(),
+            vec![Value::from(&material_id), Value::from(&warehouse_id)],
+        )
+        .await?;
+    Ok(usize::try_from(count).unwrap_or(usize::MAX))
+}
+
+/// 库位桶的人话标签（报错文案用）：`库位 A-01-03` / `整仓汇总桶（未分配库位）`。
+pub(super) async fn bucket_label(
+    ex: &impl SqlExecutor,
+    location_row_id: Option<Uuid>,
+) -> DbResult<String> {
+    let Some(row_id) = location_row_id else {
+        return Ok("整仓汇总桶（未分配库位）".to_string());
+    };
+    // SCOPE-EXEMPT: 库位是仓储数据，无归属列（口径同 erp/model.rs）。
+    let code: Option<String> = ex
+        .query_first_sql(
+            "SELECT l.location_code FROM biz_inventory_location il \
+               JOIN biz_location l ON l.id = il.location_id \
+              WHERE il.id = ?::uuid"
+                .to_string(),
+            vec![Value::from(&row_id)],
+        )
+        .await?
+        .map(|row| row.get_typed::<String>("location_code"))
+        .transpose()?;
+    Ok(match code {
+        Some(code) => format!("库位 {code}"),
+        // 库位主数据被删（弱引用）或该行是「未分配」桶：仍然点名是哪一行，别让报错无从下手
+        None => format!("库位账行 {row_id}"),
+    })
+}
+
+/// `biz_inventory` 一行 → [`InventoryBucket`]。
+fn bucket_from_row(row: &Row) -> DbResult<InventoryBucket> {
+    Ok(InventoryBucket {
+        inventory_id: row.get_typed::<Uuid>("id")?,
+        location_id: row.get_typed::<Option<Uuid>>("location_id")?,
+    })
 }
 
 /// 该库存行当前账面数量（`None` = 行已不存在）。

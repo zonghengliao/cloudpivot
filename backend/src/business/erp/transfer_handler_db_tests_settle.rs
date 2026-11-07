@@ -892,34 +892,34 @@ async fn p003_settle_deducts_the_same_bucket_in_both_books() {
     .await;
     assert_two_books(M_PLAIN, "构造基线").await;
 
-    // ④ 调拨 3 件：明细指定「具体库位」，但该仓有整仓汇总桶
+    // ④ 调拨 3 件：明细指定「具体库位」，同仓另有 100 的整仓汇总桶
     let mut line = item(M_PLAIN, "3");
     line.from_location_id = Some(LOC_FROM.to_string());
     let id = create_and_ship(vec![line]).await;
     receive_ok(id).await;
 
-    // ⑤ 成本账：汇总桶 100 → 97（既有策略「有汇总桶就只动汇总桶」不变）
-    assert_eq!(
-        bucket_qty(M_PLAIN, WH_FROM).await,
-        Some(dec("97")),
-        "调出：汇总桶成本账必须扣 3"
-    );
-    // ⑥ 库位账必须扣**同一个桶**：汇总桶 100 → 97，具体库位桶仍是 6
-    let summary = query(
-        "SELECT COALESCE(SUM(qty), 0)::numeric(18,4) AS qty FROM biz_inventory_location \
-          WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL",
-        vec![Value::from(&uuid(M_PLAIN)), Value::from(&uuid(WH_FROM))],
-    )
-    .await;
-    assert_eq!(
-        summary[0].get_typed::<Decimal>("qty").expect("qty"),
-        dec("97"),
-        "调出：汇总桶库位账必须与成本账同桶（扣 3）"
-    );
+    // ⑤ FIX-4 问题 2（改口径）：**扣的就是明细指定的库位桶** 6 → 3（金额 24 → 3×4=12）。
+    //    修复前是「有整仓汇总桶就只扣汇总桶」—— 审批人看到的是库位级意图、账上动的是汇总桶。
+    let (qty, amount) = cost_bucket_of(M_PLAIN, WH_FROM, Some(LOC_FROM))
+        .await
+        .expect("指定库位桶的成本账行必须还在");
+    assert_eq!(qty, dec("3"), "调出：指定库位桶成本账 6 → 3");
+    assert_eq!(amount, dec("12"), "调出：指定库位桶金额 24 → 12（原价 4）");
+    // ⑥ 整仓汇总桶一分不动（成本账 100 / 1250，库位账 100）
+    let (summary_qty, summary_amount) = cost_bucket_of(M_PLAIN, WH_FROM, None)
+        .await
+        .expect("整仓汇总桶的成本账行必须还在");
+    assert_eq!(summary_qty, dec("100"), "调出：整仓汇总桶成本账不许被动");
+    assert_eq!(summary_amount, dec("1250"), "调出：整仓汇总桶金额不许被动");
     assert_eq!(
         location_row(LOC_FROM).await,
-        dec("6"),
-        "调出：明细指定的具体库位桶库位账不许被动（成本账没扣它）"
+        dec("3"),
+        "调出：指定库位桶的库位账必须与成本账同桶（6 → 3）"
+    );
+    assert_eq!(
+        summary_ledger_qty(M_PLAIN, WH_FROM).await,
+        dec("100"),
+        "调出：整仓汇总桶的库位账不许被动"
     );
     // ⑦ 逐桶对账：每个 (物料, 仓, 库位桶) 上成本账 == 库位账（0 行差异）
     let broken = query(
@@ -952,3 +952,345 @@ async fn p003_settle_deducts_the_same_bucket_in_both_books() {
         broken.len()
     );
 }
+
+// ============================================================================
+// FIX-4 问题 2（t_763677cd）：调拨明细指定库位 → 扣的就是那个库位桶
+//
+// 修复前：`resolve_inventory_row` 是「有整仓汇总桶就只动汇总桶」（`ORDER BY (location_id
+// IS NULL) DESC`），明细点名库位 A 也不报错、不提示，账上扣的是汇总桶 —— 审批人看到
+// 库位级意图、账上动的是汇总桶（P2）。修复后 `pick_bucket` 是「精确匹配优先」：
+// 指定了库位就只动那个库位桶，该桶不够/不存在就**明确报错**，绝不静默改扣。
+// ============================================================================
+
+/// 给 WH_FROM 造一条「具体库位桶」的库存账 + 库位账（物料 M_PLAIN）。
+///
+/// 返回 `(库位字典 id, 库位账行 id)`；数量为 0 时只建库位账行、**不建成本账行**
+/// （= 「该库位没有这个物料的库存账」，FIX-4 报错路径的触发条件）。
+async fn seed_plain_location_bucket(
+    dict_id: &str,
+    dict_code: &str,
+    row_id: &str,
+    qty: Option<&str>,
+) -> (Uuid, Uuid) {
+    exec(
+        "INSERT INTO biz_location (id, location_code, location_name, warehouse_id, location_type, \
+                                   is_default, capacity, status, sort_order) \
+         VALUES (?::uuid, ?, 'FIX-4 夹具库位', ?::uuid, 'STORAGE', 0, NULL, 1, 9) \
+         ON CONFLICT DO NOTHING",
+        vec![
+            Value::from(&uuid(dict_id)),
+            Value::Text(dict_code.to_string()),
+            Value::from(&uuid(WH_FROM)),
+        ],
+        "FIX-4 夹具库位字典",
+    )
+    .await;
+    exec(
+        "INSERT INTO biz_inventory_location (id, material_id, warehouse_id, location_id, qty, locked_qty) \
+         VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 0, 0) ON CONFLICT DO NOTHING",
+        vec![
+            Value::from(&uuid(row_id)),
+            Value::from(&uuid(M_PLAIN)),
+            Value::from(&uuid(WH_FROM)),
+            Value::from(&uuid(dict_id)),
+        ],
+        "FIX-4 夹具库位账行",
+    )
+    .await;
+    if let Some(qty) = qty {
+        exec(
+            "INSERT INTO biz_inventory (id, material_id, warehouse_id, location_id, qty, locked_qty, \
+                                        avg_cost, amount) \
+             VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid, NULLIF(?::text,'')::numeric, 0, 4, \
+                     NULLIF(?::text,'')::numeric * 4) ON CONFLICT DO NOTHING",
+            vec![
+                Value::from(&uuid(M_PLAIN)),
+                Value::from(&uuid(WH_FROM)),
+                Value::from(&uuid(row_id)),
+                Value::Text(qty.to_string()),
+                Value::Text(qty.to_string()),
+            ],
+            "FIX-4 夹具库位成本账行",
+        )
+        .await;
+        exec(
+            "UPDATE biz_inventory_location SET qty = NULLIF(?::text,'')::numeric, updated_at = now() \
+              WHERE id = ?::uuid",
+            vec![
+                Value::Text(qty.to_string()),
+                Value::from(&uuid(row_id)),
+            ],
+            "FIX-4 夹具库位账数量",
+        )
+        .await;
+    }
+    (uuid(dict_id), uuid(row_id))
+}
+
+/// 某库存桶的成本账 `(qty, amount)`：`None` = 整仓汇总桶。
+async fn cost_bucket_of(material: &str, warehouse: &str, row: Option<&str>) -> Option<(Decimal, Decimal)> {
+    let rows = query(
+        "SELECT qty::numeric(18,4) AS qty, amount::numeric(18,4) AS amount FROM biz_inventory \
+          WHERE material_id = ?::uuid AND warehouse_id = ?::uuid \
+            AND COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid) \
+              = COALESCE(NULLIF(?::text,'')::uuid, '00000000-0000-0000-0000-000000000000'::uuid)",
+        vec![
+            Value::from(&uuid(material)),
+            Value::from(&uuid(warehouse)),
+            Value::Text(row.unwrap_or_default().to_string()),
+        ],
+    )
+    .await;
+    rows.first().map(|row| {
+        (
+            row.get_typed::<Decimal>("qty").expect("qty"),
+            row.get_typed::<Decimal>("amount").expect("amount"),
+        )
+    })
+}
+
+/// 整仓汇总桶（`location_id IS NULL`）的库位账数量。
+async fn summary_ledger_qty(material: &str, warehouse: &str) -> Decimal {
+    let rows = query(
+        "SELECT COALESCE(SUM(qty), 0)::numeric(18,4) AS qty FROM biz_inventory_location \
+          WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL",
+        vec![Value::from(&uuid(material)), Value::from(&uuid(warehouse))],
+    )
+    .await;
+    rows[0].get_typed::<Decimal>("qty").expect("汇总桶库位账")
+}
+
+/// 指定库位桶的成本账 + 库位账数量（断言「明确报错时账一分不动」）。
+async fn bucket_snapshot(row: Option<&str>) -> (Option<(Decimal, Decimal)>, Decimal) {
+    let cost = match row {
+        Some(row_id) => cost_bucket_of(M_PLAIN, WH_FROM, Some(row_id)).await,
+        None => cost_bucket_of(M_PLAIN, WH_FROM, None).await,
+    };
+    let ledger = match row {
+        Some(row_id) => location_row(row_id).await,
+        None => summary_ledger_qty(M_PLAIN, WH_FROM).await,
+    };
+    (cost, ledger)
+}
+
+/// 明细指定库位、但该库位桶的库存**不够**：409 + 点名库位与可用量，账一分不动。
+#[tokio::test]
+async fn fix4_settle_rejects_when_specified_location_short() {
+    let Some(_guard) = prepare().await else {
+        return;
+    };
+    const LOC_DICT: &str = "d1370002-0000-4000-8000-000000000001";
+    // 指定库位桶 6 件（成本账 6 @4 = 24），同仓另有 100 的整仓汇总桶
+    exec(
+        "UPDATE biz_inventory_location SET location_id = ?::uuid, qty = 6, updated_at = now() \
+          WHERE id = ?::uuid",
+        vec![Value::from(&uuid(LOC_DICT)), Value::from(&uuid(LOC_FROM))],
+        "库位账：具体库位桶 6",
+    )
+    .await;
+    exec(
+        "INSERT INTO biz_inventory_location \
+             (id, material_id, warehouse_id, location_id, qty, locked_qty) \
+         VALUES (gen_random_uuid(), ?::uuid, ?::uuid, NULL, 100, 0)",
+        vec![Value::from(&uuid(M_PLAIN)), Value::from(&uuid(WH_FROM))],
+        "库位账：汇总桶 100",
+    )
+    .await;
+    exec(
+        "INSERT INTO biz_inventory (id, material_id, warehouse_id, location_id, qty, locked_qty, \
+                                    avg_cost, amount) \
+         VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid, 6, 0, 4, 24)",
+        vec![
+            Value::from(&uuid(M_PLAIN)),
+            Value::from(&uuid(WH_FROM)),
+            Value::from(&uuid(LOC_FROM)),
+        ],
+        "成本账：具体库位桶 6",
+    )
+    .await;
+    // 库位字典的编码（报错文案里点名用）
+    let dict_code: String = query(
+        "SELECT location_code FROM biz_location WHERE id = ?::uuid",
+        vec![Value::from(&uuid(LOC_DICT))],
+    )
+    .await[0]
+        .get_typed::<String>("location_code")
+        .expect("库位编码");
+
+    let mut line = item(M_PLAIN, "10"); // 该库位只有 6 → 不够（汇总桶有 100 也不许改扣）
+    line.from_location_id = Some(LOC_FROM.to_string());
+    let id = create_and_ship(vec![line]).await;
+    let error = receive(id).await.expect_err("指定库位不够必须报错，不许静默改扣汇总桶");
+    assert_eq!(error.status, 409, "{}", error.msg);
+    assert_eq!(error.code, error_code::ERP_CODE_CONFLICT, "{}", error.msg);
+    assert!(
+        error.msg.contains("当前可用 6") && error.msg.contains(&dict_code),
+        "报文必须点名「哪个库位桶不够、可用多少」：{}",
+        error.msg
+    );
+
+    // 整笔回滚：单据留在 IN_TRANSIT，两本账 + 流水一分不动
+    assert_eq!(
+        refresh(id).await.status,
+        STATUS_IN_TRANSIT,
+        "被拒的结算不能把单据推到 DONE"
+    );
+    let (cost, ledger) = bucket_snapshot(Some(LOC_FROM)).await;
+    assert_eq!(cost, Some((dec("6"), dec("24"))), "指定库位桶成本账不许动");
+    assert_eq!(ledger, dec("6"), "指定库位桶库位账不许动");
+    let (summary_cost, summary_ledger) = bucket_snapshot(None).await;
+    assert_eq!(
+        summary_cost,
+        Some((dec("100"), dec("1250"))),
+        "整仓汇总桶不许被改扣"
+    );
+    assert_eq!(summary_ledger, dec("100"), "整仓汇总桶库位账不许被改扣");
+    assert!(txns_of(id).await.is_empty(), "被拒的结算不许写流水");
+}
+
+/// 明细指定库位、但该库位**没有该物料的库存账**：409 + 明确说「不会改扣汇总桶」。
+#[tokio::test]
+async fn fix4_settle_rejects_when_specified_location_has_no_bucket() {
+    let Some(_guard) = prepare().await else {
+        return;
+    };
+    const LOC_DICT2: &str = "d3b0000e-0000-4000-8000-0000000000f4";
+    const LOC_ROW2: &str = "d3b0000f-0000-4000-8000-0000000000f4";
+    // 新库位：只有库位账行（qty 0），**没有成本账行** —— 历史漂移 / 刚建的库位就是这个样子
+    seed_plain_location_bucket(LOC_DICT2, "W3B-L-FIX4", LOC_ROW2, None).await;
+
+    let mut line = item(M_PLAIN, "3");
+    line.from_location_id = Some(LOC_ROW2.to_string());
+    let id = create_and_ship(vec![line]).await;
+    let error = receive(id).await.expect_err("指定库位没有库存账时必须报错");
+    assert_eq!(error.status, 409, "{}", error.msg);
+    assert!(
+        error.msg.contains("调拨不会改扣整仓汇总桶"),
+        "报文必须明确「不改扣汇总桶」：{}",
+        error.msg
+    );
+    assert!(
+        error.msg.contains("整仓汇总桶上该物料还有 100"),
+        "报文要给出汇总桶可用量，便于用户判断下一步：{}",
+        error.msg
+    );
+    assert_eq!(refresh(id).await.status, STATUS_IN_TRANSIT);
+    let (summary_cost, summary_ledger) = bucket_snapshot(None).await;
+    assert_eq!(
+        summary_cost,
+        Some((dec("100"), dec("1250"))),
+        "整仓汇总桶不许被改扣"
+    );
+    assert_eq!(summary_ledger, dec("100"), "整仓汇总桶库位账不许被改扣");
+    assert!(txns_of(id).await.is_empty(), "被拒的结算不许写流水");
+}
+
+/// 未指定库位、该物料在该仓**只有一个库位桶**：扣它（唯一可选，不算改扣）。
+#[tokio::test]
+async fn fix4_settle_deducts_the_only_location_bucket_when_unspecified() {
+    let Some(_guard) = prepare().await else {
+        return;
+    };
+    // 纯库位记账的仓：没有整仓汇总桶，只有 LOC_FROM 这一行
+    exec(
+        "DELETE FROM biz_inventory WHERE material_id = ?::uuid AND warehouse_id = ANY(?::text::uuid[])",
+        vec![
+            Value::from(&uuid(M_PLAIN)),
+            array_param(&[uuid(WH_FROM), uuid(WH_TO)]),
+        ],
+        "清掉汇总桶",
+    )
+    .await;
+    exec(
+        "INSERT INTO biz_inventory (id, material_id, warehouse_id, location_id, qty, locked_qty, \
+                                    avg_cost, amount) \
+         VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid, 7, 0, 4, 28)",
+        vec![
+            Value::from(&uuid(M_PLAIN)),
+            Value::from(&uuid(WH_FROM)),
+            Value::from(&uuid(LOC_FROM)),
+        ],
+        "库位库存行",
+    )
+    .await;
+    exec(
+        "UPDATE biz_inventory_location SET qty = 7, updated_at = now() WHERE id = ?::uuid",
+        vec![Value::from(&uuid(LOC_FROM))],
+        "库位账 LOC_FROM = 7",
+    )
+    .await;
+    exec(
+        "UPDATE biz_inventory_location SET qty = 0, updated_at = now() WHERE id = ?::uuid",
+        vec![Value::from(&uuid(LOC_TO))],
+        "库位账 LOC_TO = 0",
+    )
+    .await;
+
+    // 明细**不指定**调出库位：唯一库位桶可扣 → 走它
+    let id = create_and_ship(vec![item(M_PLAIN, "3")]).await;
+    receive_ok(id).await;
+    let (qty, amount) = cost_bucket_of(M_PLAIN, WH_FROM, Some(LOC_FROM))
+        .await
+        .expect("唯一库位桶的成本账行");
+    assert_eq!(qty, dec("4"), "未指定库位 → 扣唯一库位桶 7 → 4");
+    assert_eq!(amount, dec("16"), "金额 28 → 16（原价 4）");
+    assert_eq!(location_row(LOC_FROM).await, dec("4"), "库位账同桶 7 → 4");
+    assert_two_books(M_PLAIN, "唯一库位桶结算后").await;
+}
+
+/// 未指定库位、库存分散在**多个库位桶**：409 要求点名库位（不猜）。
+#[tokio::test]
+async fn fix4_settle_rejects_ambiguous_bucket_when_unspecified() {
+    let Some(_guard) = prepare().await else {
+        return;
+    };
+    const LOC_DICT2: &str = "d3b0000e-0000-4000-8000-0000000000f5";
+    const LOC_ROW2: &str = "d3b0000f-0000-4000-8000-0000000000f5";
+    // 两个库位桶，没有整仓汇总桶
+    exec(
+        "DELETE FROM biz_inventory WHERE material_id = ?::uuid AND warehouse_id = ANY(?::text::uuid[])",
+        vec![
+            Value::from(&uuid(M_PLAIN)),
+            array_param(&[uuid(WH_FROM), uuid(WH_TO)]),
+        ],
+        "清掉汇总桶",
+    )
+    .await;
+    exec(
+        "INSERT INTO biz_inventory (id, material_id, warehouse_id, location_id, qty, locked_qty, \
+                                    avg_cost, amount) \
+         VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid, 7, 0, 4, 28)",
+        vec![
+            Value::from(&uuid(M_PLAIN)),
+            Value::from(&uuid(WH_FROM)),
+            Value::from(&uuid(LOC_FROM)),
+        ],
+        "库位桶 1 的成本账",
+    )
+    .await;
+    exec(
+        "UPDATE biz_inventory_location SET qty = 7, updated_at = now() WHERE id = ?::uuid",
+        vec![Value::from(&uuid(LOC_FROM))],
+        "库位桶 1 的库位账",
+    )
+    .await;
+    exec(
+        "UPDATE biz_inventory_location SET qty = 0, updated_at = now() WHERE id = ?::uuid",
+        vec![Value::from(&uuid(LOC_TO))],
+        "库位账 LOC_TO = 0",
+    )
+    .await;
+    seed_plain_location_bucket(LOC_DICT2, "W3B-L-FIX4B", LOC_ROW2, Some("3")).await;
+
+    let id = create_and_ship(vec![item(M_PLAIN, "2")]).await;
+    let error = receive(id).await.expect_err("多库位桶且未指定库位必须报错");
+    assert_eq!(error.status, 409, "{}", error.msg);
+    assert!(
+        error.msg.contains("分散在 2 个库位桶") && error.msg.contains("请在明细里指定调出库位"),
+        "报文必须要求点名库位：{}",
+        error.msg
+    );
+    assert_eq!(refresh(id).await.status, STATUS_IN_TRANSIT);
+    assert!(txns_of(id).await.is_empty(), "被拒的结算不许写流水");
+}
+
