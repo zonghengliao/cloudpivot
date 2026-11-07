@@ -43,6 +43,7 @@ use crate::business::erp::expense_dto::{
     ReportRes, TypeFilter, TypeReq, TypeRes, UsageRes, conflict, invalid, normalize_page,
     parse_uuid_text, status_label,
 };
+use crate::business::erp::expense_linkage;
 use crate::business::erp::expense_model::{
     self, ItemInsert, PaymentInsert, ReportInsert, ReportRow, TypeRow,
 };
@@ -889,7 +890,7 @@ pub async fn report_submit(
         initiator_dept_id,
         form_data,
     };
-    let mut out = {
+    let out = {
         let tx = db()
             .begin()
             .await
@@ -930,18 +931,28 @@ pub async fn report_submit(
                 None,
             )
             .await?;
+            // ⑥ 跨单据联动（LNK-05）：状态已是 SUBMITTED，事务内动作与业务同生共死。
+            //    凭证类动作被 EXPENSE_EXCLUDED_ACTIONS 排除（计提凭证由 bridge 出），
+            //    通知 / 建任务落 deferred，commit 之后才跑。
+            let change = expense_linkage::run_in_tx(
+                &tx,
+                &row,
+                expense_dto::STATUS_SUBMITTED,
+                Some(operator),
+            )
+            .await?;
             let out = engine::start(&tx, &start)
                 .await
                 .map_err(|error| db_err(error, "发起报销审批单"))?;
-            Ok::<engine::ActionOut, ApiError>(out)
+            Ok::<(engine::ActionOut, expense_linkage::ExpenseStatusChange), ApiError>((out, change))
         }
         .await;
         match outcome {
-            Ok(out) => {
+            Ok((out, change)) => {
                 tx.commit()
                     .await
                     .map_err(|error| db_err(error, "提交报销审批事务"))?;
-                out
+                (out, change)
             }
             Err(error) => {
                 let _ = tx.rollback().await;
@@ -949,6 +960,10 @@ pub async fn report_submit(
             }
         }
     };
+    // 事务已提交 → 才跑 Phase::AfterCommit 的联动动作（发通知 / 建任务）。
+    // 放在 rejected 判断之前：单据状态已经落库了，通知不跟着库走就是「库里审批中、用户没收到信」。
+    expense_linkage::run_deferred_after_commit(out.1).await;
+    let mut out = out.0;
     if let Some(rejected) = out.rejected.take() {
         return Err(ApiError::new(rejected.status, rejected.code, rejected.msg));
     }
@@ -1243,14 +1258,21 @@ pub async fn report_cancel(
         budget_guard::release(&tx, budget_guard::SOURCE_EXPENSE, id, "CANCELLED")
             .await
             .map_err(|error| db_err(error, "释放预算占用"))?;
-        Ok::<usize, ApiError>(reds.len())
+        // ⑥ 跨单据联动（LNK-05）：作废后的通知 / 待办。红冲凭证已在 ② 由 bridge 出，
+        //    所以 GENERATE_VOUCHER / REVERSE_VOUCHER 必须被排除清单挡掉（不再重复红冲）。
+        let change =
+            expense_linkage::run_in_tx(&tx, &current, expense_dto::STATUS_CANCELLED, operator)
+                .await?;
+        Ok::<(usize, expense_linkage::ExpenseStatusChange), ApiError>((reds.len(), change))
     }
     .await;
     let red_count = match outcome {
-        Ok(count) => {
+        Ok((count, change)) => {
             tx.commit()
                 .await
                 .map_err(|error| db_err(error, "提交作废事务"))?;
+            // 事务已提交 → 才跑提交后的联动动作
+            expense_linkage::run_deferred_after_commit(change).await;
             count
         }
         Err(error) => {
@@ -1406,6 +1428,7 @@ pub async fn report_pay(
             ));
         }
         // ⑤ 付清 → 状态机 APPROVED → PAID（部分付款不改状态，只改 pay_status）
+        let mut change = None;
         if new_status == expense_dto::STATUS_PAID {
             state_machine::transition_if_changed(
                 &tx,
@@ -1420,15 +1443,26 @@ pub async fn report_pay(
                 Some((expense_bridge::SOURCE_PAYMENT, payment_no.as_str())),
             )
             .await?;
+            // ⑥ 跨单据联动（LNK-05）：只有**付清**才触发 —— 部分付款状态不动（APPROVED →
+            //    APPROVED），配一条「报销付清」规则却按付款笔数发信是错的。
+            //    付款凭证已在 ② 由 bridge 出，GENERATE_VOUCHER 被排除清单挡掉。
+            change = Some(
+                expense_linkage::run_in_tx(&tx, &current, expense_dto::STATUS_PAID, operator)
+                    .await?,
+            );
         }
-        Ok::<String, ApiError>(payment_no)
+        Ok::<(String, Option<expense_linkage::ExpenseStatusChange>), ApiError>((payment_no, change))
     }
     .await;
     let payment_no = match outcome {
-        Ok(no) => {
+        Ok((no, change)) => {
             tx.commit()
                 .await
                 .map_err(|error| db_err(error, "提交付款事务"))?;
+            // 事务已提交 → 才跑提交后的联动动作（付清通知）
+            if let Some(change) = change {
+                expense_linkage::run_deferred_after_commit(change).await;
+            }
             no
         }
         Err(error) => {

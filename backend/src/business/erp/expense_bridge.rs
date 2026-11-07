@@ -36,6 +36,7 @@ use std::result::Result;
 
 use crate::business::erp::expense_compute;
 use crate::business::erp::expense_dto::{self, STATUS_APPROVED, STATUS_PAID, STATUS_SUBMITTED};
+use crate::business::erp::expense_linkage;
 use crate::business::erp::expense_model::{self, ItemRow, ReportRow};
 use crate::business::erp::{budget_guard, voucher, voucher_multi};
 use crate::business::flow::model as flow_model;
@@ -166,6 +167,18 @@ pub async fn on_expense_settled(instance_id: Option<Uuid>, instance_status: &str
     }
 }
 
+/// 报销审批回调事务的返回值：单据 id + 待提交后跑的联动上下文。
+///
+/// 用结构体而不是元组：两个字段都是 `Option`，元组在调用处 `value.0 / value.1`
+/// 读起来完全看不出哪个是单据、哪个是联动（这份代码里已经有太多 `Option<Uuid>`）。
+#[derive(Default)]
+struct ApprovalOutcome {
+    /// 报销单 id（`None` = 单据 / 审批实例不存在，调用方按幂等处理）。
+    report_id: Option<Uuid>,
+    /// 事务内联动的执行结果（`deferred` 待 commit 之后跑）。
+    linkage: Option<expense_linkage::ExpenseStatusChange>,
+}
+
 /// 入账（审批通过）：凭证 + 单据回写 + usage CONSUMED + 状态流转，**一个事务**。
 async fn execute_approval(instance_id: Uuid) -> Result<Option<Uuid>, ApiError> {
     let Some(instance) = flow_model::find_instance(instance_id)
@@ -191,7 +204,7 @@ async fn execute_approval(instance_id: Uuid) -> Result<Option<Uuid>, ApiError> {
             .await
             .map_err(|error| internal(error, "锁定报销单"))?
         else {
-            return Ok::<Option<Uuid>, ApiError>(None);
+            return Ok::<ApprovalOutcome, ApiError>(ApprovalOutcome::default());
         };
         if report.status != STATUS_SUBMITTED {
             // 已经入账过（重复回调）或已被人工处理：幂等返回，不重复记账
@@ -200,7 +213,10 @@ async fn execute_approval(instance_id: Uuid) -> Result<Option<Uuid>, ApiError> {
                 status = %report.status,
                 "报销单不在 SUBMITTED（重复回调 / 已处理）：跳过入账"
             );
-            return Ok(Some(report.id));
+            return Ok(ApprovalOutcome {
+                report_id: Some(report.id),
+                linkage: None,
+            });
         }
         let items = expense_model::items_of(&tx, report.id)
             .await
@@ -256,7 +272,16 @@ async fn execute_approval(instance_id: Uuid) -> Result<Option<Uuid>, ApiError> {
             Some((BIZ_TYPE, instance.instance_no.as_str())),
         )
         .await?;
-        Ok(Some(report.id))
+        // ⑤ 跨单据联动（LNK-05）：状态已是 APPROVED。计提凭证在第 ① 步由
+        //    post_report_voucher 出过了，GENERATE_VOUCHER 必须被排除清单挡掉，
+        //    否则一张报销单两张计提凭证。
+        let linkage =
+            expense_linkage::run_in_tx(&tx, &report, STATUS_APPROVED, Some(instance.initiator_id))
+                .await?;
+        Ok(ApprovalOutcome {
+            report_id: Some(report.id),
+            linkage: Some(linkage),
+        })
     }
     .await;
     match outcome {
@@ -264,7 +289,11 @@ async fn execute_approval(instance_id: Uuid) -> Result<Option<Uuid>, ApiError> {
             tx.commit()
                 .await
                 .map_err(|error| internal(error, "提交报销入账事务"))?;
-            Ok(value)
+            // 事务已提交 → 才跑提交后的联动动作（审批通过通知）
+            if let Some(linkage) = value.linkage {
+                expense_linkage::run_deferred_after_commit(linkage).await;
+            }
+            Ok(value.report_id)
         }
         Err(error) => {
             let _ = tx.rollback().await;
@@ -296,10 +325,13 @@ async fn revert_to_draft(instance_id: Uuid) -> Result<Option<Uuid>, ApiError> {
             .await
             .map_err(|error| internal(error, "锁定报销单"))?
         else {
-            return Ok::<Option<Uuid>, ApiError>(None);
+            return Ok::<ApprovalOutcome, ApiError>(ApprovalOutcome::default());
         };
         if report.status != STATUS_SUBMITTED {
-            return Ok(Some(report.id));
+            return Ok(ApprovalOutcome {
+                report_id: Some(report.id),
+                linkage: None,
+            });
         }
         let comment = instance
             .result_comment
@@ -316,7 +348,10 @@ async fn revert_to_draft(instance_id: Uuid) -> Result<Option<Uuid>, ApiError> {
         .await
         .map_err(|error| internal(error, "报销单回草稿"))?;
         if affected == 0 {
-            return Ok(Some(report.id));
+            return Ok(ApprovalOutcome {
+                report_id: Some(report.id),
+                linkage: None,
+            });
         }
         let reason = match instance.status.as_str() {
             "WITHDRAWN" => "WITHDRAWN",
@@ -339,7 +374,21 @@ async fn revert_to_draft(instance_id: Uuid) -> Result<Option<Uuid>, ApiError> {
             Some((BIZ_TYPE, instance.instance_no.as_str())),
         )
         .await?;
-        Ok(Some(report.id))
+        // ④ 跨单据联动（LNK-05）：状态已是 DRAFT。驳回 / 撤回都落这里 ——
+        //    不接这一条，`EXPENSE_REPORT/DRAFT` 上配的规则又能保存、又能启用、永远不触发
+        //    （P1-FIX-5C 那个病）。打回**不动账**（凭证在审批通过时才出，此时还没出），
+        //    所以这里只有通知 / 待办类动作真会执行。
+        let linkage = expense_linkage::run_in_tx(
+            &tx,
+            &report,
+            expense_dto::STATUS_DRAFT,
+            Some(instance.initiator_id),
+        )
+        .await?;
+        Ok(ApprovalOutcome {
+            report_id: Some(report.id),
+            linkage: Some(linkage),
+        })
     }
     .await;
     match outcome {
@@ -347,7 +396,11 @@ async fn revert_to_draft(instance_id: Uuid) -> Result<Option<Uuid>, ApiError> {
             tx.commit()
                 .await
                 .map_err(|error| internal(error, "提交报销打回事务"))?;
-            Ok(value)
+            // 事务已提交 → 才跑提交后的联动动作（打回通知）
+            if let Some(linkage) = value.linkage {
+                expense_linkage::run_deferred_after_commit(linkage).await;
+            }
+            Ok(value.report_id)
         }
         Err(error) => {
             let _ = tx.rollback().await;

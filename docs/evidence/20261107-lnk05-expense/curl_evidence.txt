@@ -1,0 +1,47 @@
+# 取证时间：2026-11-07 14:20:32.015976+08
+## LNK-05 真机取证：费用报销（EXPENSE_REPORT）提交 / 通过 / 付清 → 联动
+
+# 超管 admin 登录成功，token 长度 = 461
+
+## ⓪ 夹具：so44_sales_a 临时授 SUPER_ADMIN（取证完毕删除该授权）
+# 角色 22f0c63f-a975-4368-99ab-bef23e727235 已授予 aa440000-0000-4000-8000-000000000002（原未授予 = True）
+# 销售员甲 so44_sales_a 登录成功（唯一带部门的用户），token 长度 = 471
+
+## ① GET /api/business/flow/linkage?trigger_entity=EXPENSE_REPORT —— 配置页显示 wired=true
+{
+ "entity": "EXPENSE_REPORT",
+ "wired": true,
+ "wiring": "已接线：五个状态推进点各调 erp/expense_linkage.rs::run_in_tx → 通用引擎 run_excluding(spec::EXPENSE_EXCLUDED_ACTIONS)（凭证由 expense_bridge 专用 路径生成 / 红冲，必须排除以免重复落账）：① 提交 expense_handler.rs::report_sub…"
+}
+
+## ② PUT /api/business/flow/linkage —— 三条 SEND_NOTICE + 一条 GENERATE_VOUCHER
+{"id": "01a1b4aa-71cf-7745-8c57-67c8e11f6fa0", "trigger": "EXPENSE_REPORT/SUBMITTED", "action": "SEND_NOTICE", "phase": "AFTER_COMMIT", "implemented": true, "problems": []}
+{"id": "01a1b4aa-71d4-741c-be2d-49c745664062", "trigger": "EXPENSE_REPORT/APPROVED", "action": "SEND_NOTICE", "phase": "AFTER_COMMIT", "implemented": true, "problems": []}
+{"id": "01a1b4aa-71d8-76a4-8c28-53a0d5ae2183", "trigger": "EXPENSE_REPORT/PAID", "action": "SEND_NOTICE", "phase": "AFTER_COMMIT", "implemented": true, "problems": []}
+{"id": "01a1b4aa-71dd-7714-a7f0-3e47c6cc211d", "trigger": "EXPENSE_REPORT/APPROVED", "action": "GENERATE_VOUCHER", "phase": "IN_TX", "implemented": true, "problems": []}
+
+## ③ 夹具：销售一部负责人临时设为 admin（审批人是报销人的上级，不是本人）
+# 销售一部 leader_id：空 → 01a1b3b9-fe6a-72ae-98e4-4894a4f42adb
+# 费用发生日取未结账期间 2026-11 的首日 2026-11-01
+# 费用类型 TRAVEL（f97445d3-aa89-49fc-b3df-c083b89919c4）
+
+## ④ POST /api/business/erp/expense（销售员甲）+ POST /{id}/submit
+# HTTP 200 单号 EXP-20261107-000004 状态 DRAFT 含税合计 500.0000
+# HTTP 200 提交后状态 SUBMITTED 审批单 01a1b4aa-726e-73e3-84f5-fa937aaf8eb9
+
+## ⑤ 库内物证（提交后）
+# 通知 LNK:EXPENSE:SUBMITTED:<id> 条数 1 标题「报销单审批中」
+
+## ⑥ POST /api/business/flow/task/{id}/approve（admin，报销人不是 admin）
+# 待办 01a1b4aa-7278-7584-aab5-c6054a50c16c 审批人 admin（01a1b3b9-fe6a-72ae-98e4-4894a4f42adb）
+# HTTP 200 审批结果 {"instance_id": "01a1b4aa-726e-73e3-84f5-fa937aaf8eb9", "instance_status": "APPROVED", "node_status": "APPROVED", "done": true, "idempotent": false, "next_nodes": [], "auto_passed_nodes": 0, "approver
+# 报销单状态 APPROVED
+# 通知 LNK:EXPENSE:APPROVED:<id> 条数 1 标题「报销单已审批（待付款）」
+# 该报销单名下凭证总数 1（配了 GENERATE_VOUCHER 规则，排除清单应挡掉 → 恰好 1 张）
+
+## ⑦ POST /api/business/erp/expense/{id}/pay（全额 500）→ PAID
+# HTTP 200 状态 PAID 已付 500.0000 未付 0.0000
+# 通知 LNK:EXPENSE:PAID:<id> 条数 1
+# 凭证总数 2（计提 1 + 付款 1 = 2）
+
+ALL PASS：报销提交 / 审批通过 / 付清三段都触发了联动通知，凭证未被重复生成

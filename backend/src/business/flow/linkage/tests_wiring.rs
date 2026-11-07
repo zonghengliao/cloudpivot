@@ -121,16 +121,19 @@ fn trigger_specs_cover_whitelist_in_order() {
             "PURCHASE_ORDER",
             "PAYABLE",
             "STOCK_TAKE",
+            "EXPENSE_REPORT",
             "TASK"
         ],
         "已接线的触发点：STOCK_IN（收货过账）、STOCK_OUT（出库过账，P1-FIX-5C 新接）、\
          STOCK_TRANSFER（库存调拨状态变更，LNK-01 新接）、\
          PURCHASE_ORDER（采购单状态变更 + 部分/全部收货，LNK-02 新接）、\
          PAYABLE（应付单付款 / 部分付款 / 结清，LNK-03 新接）、\
-         STOCK_TAKE（盘点单过账 / 作废，LNK-04 新接）、TASK（任务状态变更）；\
+         STOCK_TAKE（盘点单过账 / 作废，LNK-04 新接）、\
+         EXPENSE_REPORT（报销单提交 / 通过 / 付清 / 作废 / 打回，LNK-05 新接）、\
+         TASK（任务状态变更）；\
          接线状态变化时这份断言要跟着改，改之前先想清楚「真的有人调引擎了吗」"
     );
-    assert_eq!(spec::unwired_triggers().len(), 8, "其余 8 个仍未接线");
+    assert_eq!(spec::unwired_triggers().len(), 7, "其余 7 个仍未接线");
 }
 
 /// 每条声明都要自洽：已接线的必须有证据对，未接线的必须给出原因且不能有证据对。
@@ -204,9 +207,9 @@ fn wired_triggers_match_call_sites() {
     }
     assert_eq!(
         actual.len(),
-        8,
-        "当前真实调用点 8 个文件（收货过账 / 出库过账 handler + 出库联动 hook + 调拨联动 hook + \
-         采购联动 hook + 应付联动 hook + 盘点联动 hook + 任务状态通知）：{actual:?}"
+        9,
+        "当前真实调用点 9 个文件（收货过账 / 出库过账 handler + 出库联动 hook + 调拨联动 hook + \
+         采购联动 hook + 应付联动 hook + 盘点联动 hook + 报销联动 hook + 任务状态通知）：{actual:?}"
     );
 }
 
@@ -580,6 +583,105 @@ fn stocktake_excluded_actions_are_routed_elsewhere() {
         assert!(
             !engine::is_routed_elsewhere(spec::STOCKTAKE_EXCLUDED_ACTIONS, code),
             "{code} 被误判成专用路由：盘点单的通知 / 建任务会静默不执行"
+        );
+    }
+}
+
+/// 费用报销（`EXPENSE_REPORT`）的接线细节（LNK-05）：**五个状态推进点都要调引擎**，
+/// 且必须排除会与 `expense_bridge` 重复落账的两类凭证动作。
+///
+/// 这条防的五种漂移：
+///
+/// 1. 只在 `spec.rs` 把 `wired` 改成 true、handler / bridge 里没调用（P1-FIX-5C 的原罪：
+///    规则能保存、能启用、永远不触发）；
+/// 2. 只接 handler 里的提交 / 付清 / 作废，漏掉 bridge 里的通过 / 打回 →
+///    `EXPENSE_REPORT/APPROVED`（财务最关心的「报销通过了」）与 `DRAFT`（驳回 / 撤回）
+///    的规则永远不响；
+/// 3. 排除清单丢了 → 审批通过时通用引擎再跑一次 `GENERATE_VOUCHER`：一张报销单两张计提
+///    凭证；作废时再跑一次 `REVERSE_VOUCHER`：同一张蓝字被红冲两次；
+/// 4. 排除清单把通知 / 建任务也排掉 → 联动配了等于没配（不报错、不落账）；
+/// 5. 只接「付清」却漏了「部分付款不触发」的判断 → 配一条「报销付清」规则，付几笔发几条信。
+#[test]
+fn expense_wires_generic_engine_and_excludes_voucher() {
+    let hook = include_str!("../../erp/expense_linkage.rs");
+    assert!(
+        hook.contains("linkage::engine::run_excluding("),
+        "报销单状态变更必须调用通用引擎（run_excluding）：否则 EXPENSE_REPORT 的联动规则配了不触发"
+    );
+    assert!(
+        hook.contains("linkage::spec::EXPENSE_EXCLUDED_ACTIONS"),
+        "报销单调通用引擎时必须传 spec::EXPENSE_EXCLUDED_ACTIONS（不许改成写死的空清单）"
+    );
+    assert!(
+        hook.contains("linkage::engine::run_deferred"),
+        "报销单的提交后动作必须交给 run_deferred（commit 之后跑），否则通知 / 建任务永远不执行"
+    );
+    for code in [spec::ACTION_GENERATE_VOUCHER, "REVERSE_VOUCHER"] {
+        assert!(
+            spec::EXPENSE_EXCLUDED_ACTIONS.contains(&code),
+            "报销单的排除清单漏了 {code}：凭证由 expense_bridge 的专用路径出（计提 / 付款 / 红冲），\
+             通用引擎再跑一次就是重复落账"
+        );
+    }
+    for code in [spec::ACTION_SEND_NOTICE, spec::ACTION_CREATE_TASK] {
+        assert!(
+            !spec::EXPENSE_EXCLUDED_ACTIONS.contains(&code),
+            "{code} 不能被报销单排除：通知 / 建任务就靠通用引擎的 AfterCommit 动作"
+        );
+    }
+
+    // handler 里三条路：提交（DRAFT → SUBMITTED）/ 付清（APPROVED → PAID）/ 作废（→ CANCELLED），
+    // 每条都要在事务内调 hook，并在 commit 之后 flush。
+    let handler = include_str!("../../erp/expense_handler.rs");
+    assert_eq!(
+        handler.matches("expense_linkage::run_in_tx(").count(),
+        3,
+        "报销单提交 / 付清 / 作废三条路都必须真的调 expense_linkage::run_in_tx\
+         （只改 spec.rs 的 wired 标记不算接线）"
+    );
+    assert_eq!(
+        handler
+            .matches("expense_linkage::run_deferred_after_commit(")
+            .count(),
+        3,
+        "提交 / 付清 / 作废三个入口都要在 commit 之后 flush（少一处，那条路径的通知永远不发）"
+    );
+
+    // bridge 里两条路：审批通过（SUBMITTED → APPROVED）/ 打回（驳回 / 撤回 → DRAFT）。
+    // 不接这两条，配了已发布 expense 流程的生产环境里 APPROVED / DRAFT 的规则永远不触发。
+    let bridge = include_str!("../../erp/expense_bridge.rs");
+    assert_eq!(
+        bridge.matches("expense_linkage::run_in_tx(").count(),
+        2,
+        "审批回调（expense_bridge::execute_approval）与打回（revert_to_draft）都必须调 \
+         expense_linkage::run_in_tx：否则「报销审批通过 → 通知财务待付款」配了也不触发"
+    );
+    assert_eq!(
+        bridge
+            .matches("expense_linkage::run_deferred_after_commit(")
+            .count(),
+        2,
+        "审批通过 / 打回两个事务都在 commit 之后 flush（少一处，那条路径的通知永远不发）"
+    );
+}
+
+/// 报销单的排除清单在**语义上**真的会把那两类凭证动作拦下来（不是只有字符串写对）。
+///
+/// `engine::is_routed_elsewhere` 是引擎判定「这条规则交给专用路径」的唯一判据：
+/// 命中的规则**不产生 `RuleRun`**（`run_excluding` 里 `continue`）。
+#[test]
+fn expense_excluded_actions_are_routed_elsewhere() {
+    use crate::business::flow::linkage::engine;
+    for code in spec::EXPENSE_EXCLUDED_ACTIONS {
+        assert!(
+            engine::is_routed_elsewhere(spec::EXPENSE_EXCLUDED_ACTIONS, code),
+            "{code} 在排除清单里却没被判成「专用路由」：清单传下去也拦不住它"
+        );
+    }
+    for code in [spec::ACTION_SEND_NOTICE, spec::ACTION_CREATE_TASK] {
+        assert!(
+            !engine::is_routed_elsewhere(spec::EXPENSE_EXCLUDED_ACTIONS, code),
+            "{code} 被误判成专用路由：报销单的通知 / 建任务会静默不执行"
         );
     }
 }

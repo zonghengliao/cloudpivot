@@ -295,8 +295,8 @@ pub struct TriggerSpec {
 
 /// 触发点接线表（顺序与 [`TRIGGERS`] 一致）。
 ///
-/// 当前 **7/15 已接线**（`STOCK_IN` · `STOCK_OUT` · `STOCK_TRANSFER` · `PURCHASE_ORDER` ·
-/// `PAYABLE` · `STOCK_TAKE` · `TASK`），8 个未接线；逐条原因见
+/// 当前 **8/15 已接线**（`STOCK_IN` · `STOCK_OUT` · `STOCK_TRANSFER` · `PURCHASE_ORDER` ·
+/// `PAYABLE` · `STOCK_TAKE` · `EXPENSE_REPORT` · `TASK`），7 个未接线；逐条原因见
 /// `docs/architecture/P1-FIX-5C-联动触发点接线清单.md`。
 pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     TriggerSpec {
@@ -550,10 +550,28 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
             ("PAID", "已付清"),
             ("CANCELLED", "已作废"),
         ],
-        wired: false,
-        wiring: "未接线：报销单提交 / 通过 / 付清 / 作废在 erp/expense_handler.rs（+ \
-                 expense_bridge.rs 建应付 / 凭证），没有联动调用点",
-        proofs: &[],
+        wired: true,
+        wiring: "已接线：五个状态推进点各调 erp/expense_linkage.rs::run_in_tx → 通用引擎 \
+                 run_excluding(spec::EXPENSE_EXCLUDED_ACTIONS)（凭证由 expense_bridge 专用 \
+                 路径生成 / 红冲，必须排除以免重复落账）：① 提交 \
+                 expense_handler.rs::report_submit 事务内（DRAFT → SUBMITTED）；② 通过 \
+                 expense_bridge.rs::execute_approval 事务内（SUBMITTED → APPROVED）；\
+                 ③ 付清 expense_handler.rs::report_pay 事务内（仅 new_status = PAID，\
+                 部分付款不改状态所以不触发）；④ 作废 expense_handler.rs::report_cancel \
+                 事务内（→ CANCELLED）；⑤ 打回 expense_bridge.rs::revert_to_draft \
+                 （驳回 / 撤回 → DRAFT，不接这一条 DRAFT 上配的规则永远不触发）。\
+                 每个入口都在自己的事务 commit 之后调 \
+                 expense_linkage::run_deferred_after_commit → linkage::engine::run_deferred",
+        proofs: &[
+            (
+                "src/business/erp/expense_linkage.rs",
+                "linkage::engine::run_excluding",
+            ),
+            (
+                "src/business/erp/expense_linkage.rs",
+                "linkage::engine::run_deferred",
+            ),
+        ],
     },
     TriggerSpec {
         entity: TRIGGER_TASK,
@@ -812,6 +830,30 @@ pub const STOCKTAKE_EXCLUDED_ACTIONS: &[&str] = &[
     "WRITE_INVENTORY_TXN",
     ACTION_GENERATE_VOUCHER,
 ];
+
+/// **费用报销单**的专用路由排除清单（LNK-05）。
+///
+/// 报销单的状态推进事务**自己写完了凭证**（`erp/expense_bridge.rs`）：
+/// 审批通过在 `post_report_voucher` 出计提凭证（借 费用科目×N + 借 2221.01 / 贷 2241.01），
+/// 付款在 `post_payment_voucher` 出付款凭证（借 2241.01 / 贷 1002），
+/// 作废在 `reverse_report_vouchers` 把蓝字原路红冲。所以通用引擎在这个触发点
+/// 必须把两类凭证动作交给专用路径，否则就是**重复落账**：
+///
+/// - `GENERATE_VOUCHER` → 一张报销单两张计提凭证、一笔付款两张付款凭证，
+///   总账按凭证汇总就翻倍（巡检 L5 / L8 会直接红）；
+/// - `REVERSE_VOUCHER` → 同一张蓝字凭证被红冲两次：第二次撞「已红冲」直接 500，
+///   或者（绕过校验的实现）红字流水翻倍、费用冲成负数。
+///
+/// 库存 / 余额类动作不列进来：报销单**不动库存、不写应付台账**（贷方直接走 2241.01，
+/// 不经 `biz_payable`），列进来只是噪音。
+///
+/// `SEND_NOTICE` / `CREATE_TASK` **不能排除**：提交 / 通过 / 付清 / 作废之后的
+/// 通知与待办就靠通用引擎的 `Phase::AfterCommit` 动作，排掉等于接线了但永远不响。
+///
+/// 排除清单放在**调用方**（这里导出、`erp::expense_linkage` 传入）而不是写死在引擎里：
+/// 换个触发点（如 `PAYABLE/SETTLED`）通用路线仍然要能跑这些动作。
+/// 漂移守卫：`tests_wiring::expense_wires_generic_engine_and_excludes_voucher`。
+pub const EXPENSE_EXCLUDED_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER, "REVERSE_VOUCHER"];
 
 // ==================== 禁用键（SQL 禁令） ====================
 
