@@ -659,7 +659,7 @@ CREATE TABLE IF NOT EXISTS biz_budget (
     change_reason          VARCHAR(500),                           -- 调整原因（ADJUST 必填）
     status                 VARCHAR(16)   NOT NULL DEFAULT 'DRAFT', -- 状态机见 §3.3
     approval_instance_id   UUID,                                   -- 审批实例（PENDING 必有值，与 po 同款）
-    effective_from         DATE,                                   -- 生效起始日（审批通过日的次月 1 日或当期 1 日）
+    effective_from         DATE,                                   -- 生效起始日（`budget_bridge::effective_from_of` = 审批通过日的次月 1 日；判定口径见 §3.5.5）
     submitted_at           TIMESTAMPTZ,
     submitted_by           UUID,
     approved_at            TIMESTAMPTZ,
@@ -1155,6 +1155,49 @@ impl BudgetVerdict {
 | 无预算 | limit=0 | limit=0 | `missing_budget=true`，按 mode 处置 |
 | 额度刚好用完 | M = 可用 | M = 可用 | `over=false`（**等于不算超**，边界用例必须有） |
 
+### 3.5.5 `effective_from` 参与判定（FIX-2 定稿：选项 A）与「未生效」提示
+
+> 本条是**口径变更**，2026-11 由 FIX-2 定稿。改之前：控制只看 `status='ACTIVE'`，
+> `effective_from`（= 审批通过次月 1 日）形同虚设 —— 11 月审批通过的预算，11 月的单据
+> 就按新额度占用和拦截，与「次月生效」的业务语义相反。
+
+**判定条件**（`budget_guard::active_control_mode` / `slot_snapshot` / 报表同口径）：
+
+```text
+生效 ⟺ effective_from IS NULL OR effective_from <= 期间月末
+```
+
+| 场景 | 期间 | 月末 | effective_from | 是否生效 |
+|---|---|---|---|---|
+| 11 月审批通过，11 月的报销 | 2026-11 | 11-30 | 2026-12-01 | ❌ 不生效（额度按 0、槽级策略继承全局） |
+| 同上，12 月的报销 | 2026-12 | 12-31 | 2026-12-01 | ✅ 生效 |
+| 历史数据（ACTIVE 但没写生效日） | 任意 | — | NULL | ✅ 生效（兼容） |
+
+* 为什么按**期间月末**而不是单据日期：月度闸是月粒度（月额度整月有效），月中生效会出现
+  「半个月的额度按整月校验」；按月末判等于判「这整个月是否已生效」。
+* 为什么选 A 不选 B（把 `effective_from_of` 改成当月 1 日）：B 会改掉「审批通过次月生效」
+  这个已经写进业务流程与客户手册的语义，且当月生效会让「月中批预算」变成追溯生效。
+* **三处必须一起改**（否则报表和控制两套逻辑）：`active_control_mode`、`slot_snapshot`、
+  `budget_model::report`（报表行带 `effective_from` + `effective`，前端标「未生效」）。
+
+**「预算没生效」只提示、不拦**（`budget_guard::pending_budgets` / `pending_warnings`）：
+
+* 触发面：该 `(部门, 科目, 年度)` 存在 `DRAFT` / `SUBMITTED` / `ACTIVE 且未到生效日` 的预算；
+* 出口：报销单详情 `budget_warnings[]`、采购单详情 `order.budget_warnings[]`（提交接口回的就是
+  详情，所以「提交时」也拿得到）；`code = BUDGET_NOT_EFFECTIVE`，文案带科目 / 状态 / 预算单号 /
+  额度 / 受影响期间；
+* **不阻断**：控制口径不变（DRAFT 预算本来就不参与判定），提示只是让用户知道「钱没被预算管着」；
+* 前端：`ExpenseDetailDrawer` 与采购详情抽屉各一条 `t-alert theme="warning"`。
+
+**占用记录（`usages[]`）按槽查**（FIX-2 问题 3）：`biz_budget_usage.budget_id` 只是写入时命中的
+版本快照（D5 不参与计算），用「预算单 id」当「源单据 id」查永远是 0 行；详情改为
+`usages_of_slot(dept_id, account_id, fiscal_year)`，`source_type` 取行上的实际值
+（`EXPENSE_REPORT` / `PURCHASE_ORDER`）并带出 `source_id`。
+
+**单据上的 `budget_mode` 记槽级策略**（FIX-2 问题 4）：`ExpenseBudget::recorded_mode()` =
+「实际参与判定的槽级策略里最严的那条」（`OFF < WARN < BLOCK`），不再记全局默认值 ——
+槽级 BLOCK、全局 WARN 时，事后审计必须能看出「这单被 BLOCK 管过」。
+
 ## 3.6 并发与幂等（不锁，靠唯一键 + 快照）
 
 ### 3.6.1 三种并发场景
@@ -1207,6 +1250,7 @@ impl BudgetVerdict {
 | 可用 | 额度 − 占用 − 执行 |
 | 执行率 | (占用 + 执行) / 额度 |
 | 超支标记 | 任一月份 `可用 < 0` → 标红 + 超支额 |
+| 生效标记 | `effective_from` + `effective`（`effective_from <= 本月月末`）；未生效行仍列出但标「未生效」，与 §3.5.5 的控制口径一致 |
 
 ### 3.8.2 预算 vs 实际（对账表）
 

@@ -1290,6 +1290,32 @@ export interface PurchaseOrderRow {
   created_at: string;
   /** 更新时间 */
   updated_at: string;
+  /**
+   * 预算尚未生效的提示（FIX-2 ①）。
+   *
+   * **只在详情接口回填**（列表不带这个字段，后端 `skip_serializing_if` 空数组）。
+   * 含义：该科目存在 DRAFT / 审批中 / 未到生效日的预算 → 本期的超支**不受它控制**。
+   * 只提示、不阻断（提交照常放行）。
+   */
+  budget_warnings?: BudgetWarningRow[];
+}
+
+/** 预算未生效提示（`budget_dto::BudgetWarningRes`，报销单 / 采购单共用）。 */
+export interface BudgetWarningRow {
+  /** 提示码（固定 `BUDGET_NOT_EFFECTIVE`） */
+  code: string;
+  /** 预算科目 id */
+  account_id: string;
+  /** 预算科目编码 */
+  account_code: string;
+  /** 预算单号 */
+  budget_no: string;
+  /** DRAFT / SUBMITTED / ACTIVE */
+  status: string;
+  /** 状态中文 */
+  status_label: string;
+  /** 一句话说明（直接展示） */
+  message: string;
 }
 
 /**

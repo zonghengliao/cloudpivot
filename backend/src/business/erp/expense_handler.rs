@@ -458,7 +458,47 @@ pub async fn detail_of(id: Uuid) -> Result<ReportDetailRes, ApiError> {
         items: items.iter().map(item_res).collect(),
         payments: payment_list,
         budget_usages: usage_list,
+        budget_warnings: budget_warnings_of(&row, &items).await,
     })
+}
+
+/// 该单涉及科目的「预算尚未生效」提示（FIX-2 ①：只提示、不阻断）。
+///
+/// 口径：该 (部门, 年度) 下这些科目存在 DRAFT / SUBMITTED / 未到生效日的 ACTIVE 预算
+/// —— 也就是「你以为有预算管着，其实没有」。明细里没有任何科目时返回空。
+async fn budget_warnings_of(
+    row: &ReportRow,
+    items: &[expense_model::ItemRow],
+) -> Vec<crate::business::erp::budget_dto::BudgetWarningRes> {
+    let mut account_ids: Vec<Uuid> = items.iter().map(|item| item.account_id).collect();
+    account_ids.sort_unstable();
+    account_ids.dedup();
+    let Some(fiscal_year) = row
+        .period_code
+        .get(0..4)
+        .and_then(|text| text.parse::<i16>().ok())
+    else {
+        return Vec::new();
+    };
+    match budget_guard::pending_budgets(
+        db(),
+        row.dept_id,
+        fiscal_year,
+        &account_ids,
+        &row.period_code,
+    )
+    .await
+    {
+        Ok(pending) => budget_guard::pending_warnings(&pending, &row.period_code)
+            .iter()
+            .map(crate::business::erp::budget_dto::BudgetWarningRes::from)
+            .collect(),
+        // 提示是**附加信息**：查不到不能让详情页挂掉（控制口径在提交时已经判过）
+        Err(error) => {
+            tracing::warn!(%error, report_no = %row.report_no, "查询预算生效状态失败（详情提示降级为空）");
+            Vec::new()
+        }
+    }
 }
 
 async fn account_code_of(account_id: Uuid) -> Option<String> {
@@ -497,6 +537,7 @@ async fn report_res(row: &ReportRow) -> ReportRes {
         last_pay_date: row.last_pay_date,
         over_budget: row.over_budget,
         over_amount: row.over_amount,
+        budget_mode: row.budget_mode.clone(),
         approval_instance_id: row.approval_instance_id.map(|id| id.to_string()),
         voucher_id: row.voucher_id.map(|id| id.to_string()),
         voucher_no: voucher_no_of(row.voucher_id).await,
@@ -902,7 +943,7 @@ pub async fn report_submit(
                 instance_id,
                 budget.over(),
                 budget.over_amount(),
-                Some(budget.mode.as_str()),
+                Some(budget.recorded_mode().as_str()),
                 operator,
                 Utc::now(),
             )
@@ -1056,7 +1097,7 @@ fn submit_form_data(
         "expense_types": type_names.join(","),
         "over_budget": budget.over(),
         "over_amount": amount_number(budget.over_amount()),
-        "budget_mode": budget.mode.as_str(),
+        "budget_mode": budget.recorded_mode().as_str(),
         "voucher_summary": format!("报销-{}", row.title),
     }))
 }

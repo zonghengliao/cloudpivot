@@ -1843,6 +1843,8 @@ pub async fn purchase_order_detail(Path(id): Path<String>) -> ResResult<Purchase
         &mut res,
     ))
     .await;
+    // FIX-2 ①：预算尚未生效的提示（草稿 / 审批中 / 未到生效日），只提示不阻断
+    res.budget_warnings = crate::business::erp::purchase_handler::budget_warnings_of(&row).await;
     Ok(Res::ok(res))
 }
 

@@ -537,10 +537,48 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<PurchaseOrderDetailRes, 
     fill_project_names(std::slice::from_mut(&mut order)).await;
     // P2-9：详情口径 = 仓库现名（查不到回落快照）
     fill_warehouse_name_current(std::slice::from_mut(&mut order)).await;
+    // FIX-2 ①：预算尚未生效的提示（草稿 / 审批中 / 未到生效日），只提示不阻断
+    order.budget_warnings = budget_warnings_of(&row).await;
     Ok(PurchaseOrderDetailRes {
         order,
         items: items.iter().map(PurchaseOrderLineRes::from).collect(),
     })
+}
+
+/// 该采购单「预算尚未生效」的提示（FIX-2 ①：只提示、不阻断）。
+///
+/// 科目走与提交完全相同的解析链（[`budget_guard::check_for_purchase`]）：物料 → 类型 → 仓库
+/// → 默认兜底，所以「提交时按哪个科目判」和「详情提示哪个科目」永远是同一套映射 ——
+/// 否则提示指向的科目和实际占用的科目会对不上。
+pub(crate) async fn budget_warnings_of(
+    row: &crate::business::erp::model::PurchaseOrderRow,
+) -> Vec<crate::business::erp::budget_dto::BudgetWarningRes> {
+    // 未开预算校验（`erp.budget.enforce_on_po = false`）时整条链不参与，没有提示可给
+    let Ok(check) = budget_guard::check_for_purchase(db(), row, None).await else {
+        tracing::warn!(order_no = %row.order_no, "查询采购预算生效状态失败（详情提示降级为空）");
+        return Vec::new();
+    };
+    let (Some(account_id), Some(slot)) = (check.account_id, check.slot.as_ref()) else {
+        return Vec::new();
+    };
+    match budget_guard::pending_budgets(
+        db(),
+        slot.dept_id,
+        slot.fiscal_year,
+        &[account_id],
+        &slot.period_code,
+    )
+    .await
+    {
+        Ok(pending) => budget_guard::pending_warnings(&pending, &slot.period_code)
+            .iter()
+            .map(crate::business::erp::budget_dto::BudgetWarningRes::from)
+            .collect(),
+        Err(error) => {
+            tracing::warn!(%error, order_no = %row.order_no, "查询采购预算生效状态失败（详情提示降级为空）");
+            Vec::new()
+        }
+    }
 }
 
 /// 回填审批单号（`approval_instance_no`）：一次查完整页的实例号，逐行按 id 对上。

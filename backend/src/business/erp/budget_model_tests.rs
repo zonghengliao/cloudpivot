@@ -21,6 +21,8 @@ fn report_row(total: &str, occupied: &str, consumed: &str) -> ReportRow {
         total_amount: dec(total),
         occupied: dec(occupied),
         consumed: dec(consumed),
+        effective_from: None,
+        effective: true,
         months: vec![],
     }
 }

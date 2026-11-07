@@ -1,0 +1,104 @@
+
+===== 0. 登录（admin 首登强制改密 + 演示账号 demo_sales） =====
+  admin token=461  demo_sales token=1561
+  dept(DEPT_DEMO)=01a1b65d-2a69-7712-b910-bccc8a4c1cb7
+  A1(5602.02)=1c62613d-a4c6-42ab-99f0-0c2fb1604766  A2(5602.03)=6fc05d83-3362-40f5-924a-18932ac1d9ed  A3(5602.05)=c1aab0ef-e483-4b3c-adb1-3540dd569c93
+
+===== 0b. 夹具：把 business:erp:expense% 的一组权限授给 demo_sales 的角色（SALES_CLERK） =====
+INSERT 0 13
+  demo_sales 现有 expense 权限条数: 13
+  ✅ 0b. demo_sales 令牌非空 = yes
+
+===== 1. 建 3 个受预算控制的费用类型（分别绑 5602.02 / .03 / .05） =====
+  F2_DRAFT_1107221533 http=200 {"code":0,"msg":"ok","account_code":"5602.02","budget_controlled":true}
+  F2_PENDING_1107221533 http=200 {"code":0,"msg":"ok","account_code":"5602.03","budget_controlled":true}
+  F2_ACTIVE_1107221533 http=200 {"code":0,"msg":"ok","account_code":"5602.05","budget_controlled":true}
+  TY1=01a1b65d-59db-7030-bca4-28bd264bf845 TY2=01a1b65d-59e7-7232-a966-a056b20703ee TY3=01a1b65d-59f2-7322-a2dc-f33996d2d857
+
+===== 2. 编制三份预算（槽级策略 BLOCK；全局策略保持默认 WARN） =====
+  全局控制策略 config = WARN（无行 = 代码缺省 WARN）
+  draft http=200 {"code":0,"msg":"ok","no":"BDG-20261107-000001","status":"DRAFT","mode":"BLOCK","total":"10000.0000"}
+  pending http=200 {"code":0,"msg":"ok","no":"BDG-20261107-000002","status":"DRAFT","mode":"BLOCK","total":"20000.0000"}
+  active http=200 {"code":0,"msg":"ok","no":"BDG-20261107-000003","status":"DRAFT","mode":"BLOCK","total":"10000.0000"}
+  B1(DRAFT)=01a1b65d-5a16-7170-b646-18a2badfb2f6  B2(未到生效日)=01a1b65d-5a2c-743a-9ca9-34ca7449ff6a  B3(已生效)=01a1b65d-5a40-77ca-832b-a7f161677a9f
+
+===== 2b. 夹具：B2 → ACTIVE + effective_from=2026-12-01（次月 1 日）；B3 → ACTIVE + effective_from=2026-01-01 =====
+      budget_no      | status | control_mode | total_amount | effective_from 
+---------------------+--------+--------------+--------------+----------------
+ BDG-20261107-000001 | DRAFT  | BLOCK        |   10000.0000 | 
+ BDG-20261107-000002 | ACTIVE | BLOCK        |   20000.0000 | 2026-12-01
+ BDG-20261107-000003 | ACTIVE | BLOCK        |   10000.0000 | 2026-01-01
+(3 rows)
+
+
+===== ① DRAFT 预算（槽级 BLOCK）+ 超支报销 15000/10000 → 放行 + 「预算未生效」提示 =====
+  [draft] create http=200 {"code":0,"msg":"ok","no":"EXP-20261107-000001"}
+  [draft] submit http=200 {"code":0,"msg":"ok","status":"SUBMITTED","over_budget":true,"over_amount":"15000.0000","budget_mode":"WARN","warnings":[{"code":"BUDGET_NOT_EFFECTIVE","status":"DRAFT","status_label":"草稿"}],"usages":1}
+  ✅ ① 单据状态（放行） = SUBMITTED
+  ✅ ① 提示条数 = 1
+  ✅ ① 提示码 = BUDGET_NOT_EFFECTIVE
+  ✅ ① 提示里的预算状态 = DRAFT
+  提示全文：科目 5602.02 的预算尚未生效（当前状态：草稿，预算单 BDG-20261107-000001，额度 10000.0000）：2026-11 的超支将不受该预算控制。请提交审批使其生效
+  ✅ ① DB 单据状态 = SUBMITTED
+  ✅ ① DB 占用已写（放行 = 照常占用） = 1
+  ✅ ① 槽级 BLOCK 未生效 → 额度按 0，只标记不拦截（over_budget=1） = 1
+
+===== ② ACTIVE 预算 effective_from=2026-12-01 → 11 月单据不受新额度约束（超支额 = 全额） =====
+  [pending] create http=200 {"code":0,"msg":"ok","no":"EXP-20261107-000002"}
+  [pending] submit http=200 {"code":0,"msg":"ok","status":"SUBMITTED","over_budget":true,"over_amount":"2000.0000","budget_mode":"WARN","warnings":[{"code":"BUDGET_NOT_EFFECTIVE","status":"ACTIVE","status_label":"已生效（未到生效日）"}],"usages":1}
+  ✅ ② 单据状态（放行） = SUBMITTED
+  ✅ ② 提示里的预算状态 = ACTIVE
+  ✅ ② 提示状态中文（未到生效日） = 已生效（未到生效日）
+  ✅ ② 超支额 = 全额（12 月额度没被算进 11 月） = 2000.0000
+  提示全文：科目 5602.03 的预算尚未生效（当前状态：已生效（未到生效日），预算单 BDG-20261107-000002，额度 20000.0000）：2026-11 的超支将不受该预算控制。2026-12-01 起生效
+  ✅ ② DB 占用 over_amount = 2000.0000
+
+===== ②反证 同槽 12 月单据 15000 → 生效日后额度开始管：年度 20000−已用 2000=18000、月 10000 → 超 5000 且 BLOCK → 409 =====
+  [pending_dec] create http=200 {"code":0,"msg":"ok","no":"EXP-20261107-000003"}
+  [pending_dec] submit http=409 {"code":66037,"msg":"报销单 EXP-20261107-000003 超出预算额度（1/1 个预算槽超额度，超支额最大 5000.0000（策略 阻断提交））：当前策略是 BLOCK，提交被拒绝。请联系财务调整预算，或让管理员把控制策略改为 WARN（标记 + 强制审批）。","status":null,"over_budget":null,"over_amount":null,"budget_mode":null,"warnings":[],"usages":0}
+  ✅ ②反证 无「未生效」提示 = 0
+  ✅ ②反证 超支错误码 = 66037
+  ✅ ②反证 单据仍 DRAFT = DRAFT
+
+===== ③ ACTIVE 预算 effective_from=2026-01-01 → 正常占用（3000）+ 超支 20000 被 409 拦截 =====
+  [active] create http=200 {"code":0,"msg":"ok","no":"EXP-20261107-000004"}
+  [active] submit http=200 {"code":0,"msg":"ok","status":"SUBMITTED","over_budget":false,"over_amount":"0.0000","budget_mode":"BLOCK","warnings":[],"usages":1}
+  ✅ ③ 额度内单据状态 = SUBMITTED
+  ✅ ③ 额度内无「未生效」提示 = 0
+  ✅ ③ 单据 budget_mode（槽级 BLOCK） = BLOCK
+  ✅ ③ DB 占用 OCCUPIED/未超 = OCCUPIED/0
+  ✅ ③ DB 单据 budget_mode = BLOCK
+  [active_over] create http=200 {"code":0,"msg":"ok","no":"EXP-20261107-000005"}
+  [active_over] submit http=409 {"code":66037,"msg":"报销单 EXP-20261107-000005 超出预算额度（1/1 个预算槽超额度，超支额最大 13000.0000（策略 阻断提交））：当前策略是 BLOCK，提交被拒绝。请联系财务调整预算，或让管理员把控制策略改为 WARN（标记 + 强制审批）。","status":null,"over_budget":null,"over_amount":null,"budget_mode":null,"warnings":[],"usages":0}
+  超支提交报文：{"code":66037,"msg":"报销单 EXP-20261107-000005 超出预算额度（1/1 个预算槽超额度，超支额最大 13000.0000（策略 阻断提交））：当前策略是 BLOCK，提交被拒绝。请联系财务调整预算，或让管理员把控制策略改为 WARN（标记 + 强制审批）。"}
+  ✅ ③ 超支错误码（ERP_BUDGET_EXCEEDED） = 66037
+  ✅ ③ 超支后单据仍是 DRAFT = DRAFT
+  ✅ ③ 超支后零占用行（事务回滚） = 0
+
+===== ④ 预算详情 usages[] 能看到报销占用（source_type / source_id / 金额） =====
+  http=200
+{"year_used":"3000.0000","year_available":"7000.0000","usages":[{"source_type":"EXPENSE_REPORT","source_type_label":"费用报销单","source_id":"01a1b65d-5b96-7511-8e87-ff8501abcc4e","source_no":"EXP-20261107-000004","amount":"3000.0000","status":"OCCUPIED"}]}
+  ✅ ④ usages 条数 = 1
+  ✅ ④ source_type = EXPENSE_REPORT
+  ✅ ④ source_type_label = 费用报销单
+  ✅ ④ source_id = 报销单 id = 01a1b65d-5b96-7511-8e87-ff8501abcc4e
+  ✅ ④ 金额 = 3000.0000
+  ✅ ④ year_used 与占用合计一致 = 3000.0000
+  ✅ ④ DRAFT 槽（B1）也能看到自己那笔报销占用 = 1
+  ✅ ④ DRAFT 槽 usages[0].source_no = EXP-20261107-000001
+
+===== ⑤ 槽级 BLOCK 的单据 budget_mode 记 BLOCK（不是全局默认 WARN） =====
+  ✅ ⑤ 全局策略 = WARN（槽级 BLOCK 才是实际生效策略） = WARN
+  ✅ ⑤ 单据 budget_mode（11 月额度内、槽级 BLOCK） = BLOCK
+  ✅ ⑤ 同槽 11 月占用 over_budget = 0
+  ⑤ 说明：修复前这里记的是全局 WARN；同槽超支时直接 409（③），不会落一张「记错策略」的单
+
+===== ⑥ 执行报表：未到生效日 effective=false / 已生效 effective=true（与控制同口径） =====
+  http=200
+[{"account_code":"5602.03","effective":false,"effective_from":"2026-12-01","total_amount":"20000.0000","used":"2000.0000","available":"18000.0000"},{"account_code":"5602.05","effective":true,"effective_from":"2026-01-01","total_amount":"10000.0000","used":"3000.0000","available":"7000.0000"}]
+  ✅ ⑥ B2（未到生效日）effective = false
+  ✅ ⑥ B2 effective_from = 2026-12-01
+  ✅ ⑥ B3（已生效）effective = true
+
+================ 汇总 ================
+PASS=38 FAIL=0

@@ -371,3 +371,191 @@ fn over_amount_is_max_and_never_negative() {
     assert_eq!(none.over_amount(), Decimal::ZERO);
     assert!(!none.over);
 }
+
+// ==================== FIX-2：effective_from 参与判定的口径 ====================
+
+fn date(text: &str) -> NaiveDate {
+    text.parse::<NaiveDate>().expect("日期字面量非法")
+}
+
+/// ⑳ 期间月末：平年 2 月 28、闰年 2 月 29、11 月 30、12 月 31（跨年进位不能错）。
+#[test]
+fn period_end_of_month_is_last_day() {
+    assert_eq!(period_end_of("2026-11"), Some(date("2026-11-30")));
+    assert_eq!(period_end_of("2026-02"), Some(date("2026-02-28")));
+    assert_eq!(period_end_of("2024-02"), Some(date("2024-02-29")));
+    assert_eq!(period_end_of("2026-12"), Some(date("2026-12-31")));
+    assert_eq!(period_end_of("2026-01"), Some(date("2026-01-31")));
+    // 非法期间码一律 None（调用方按「不生效」处理，绝不 panic）
+    assert_eq!(period_end_of("2026-13"), None);
+    assert_eq!(period_end_of("2026"), None);
+    assert_eq!(period_end_of(""), None);
+}
+
+/// ㉑ **口径变更的钉子**（FIX-2 选项 A）：
+/// `effective_from = 2026-12-01`（审批通过次月 1 日）→ 11 月的单据**不生效**，12 月才生效。
+#[test]
+fn effective_from_next_month_does_not_govern_this_month() {
+    let slot_nov = Slot::new(Uuid::now_v7(), Uuid::now_v7(), "2026-11").expect("槽");
+    let slot_dec = Slot::new(Uuid::now_v7(), Uuid::now_v7(), "2026-12").expect("槽");
+    let effective_from = date("2026-12-01");
+    assert_eq!(
+        slot_nov.period_end(),
+        Some(date("2026-11-30")),
+        "11 月的月末是 11-30"
+    );
+    assert!(
+        effective_from > slot_nov.period_end().expect("月末"),
+        "12-01 晚于 11-30 → 该版本对 11 月不生效（修复前 11 月就被 12 月额度管住）"
+    );
+    assert!(
+        effective_from <= slot_dec.period_end().expect("月末"),
+        "12-01 不晚于 12-31 → 12 月生效"
+    );
+    // 月末当天生效算生效（`<=` 不是 `<`）
+    let same_day = date("2026-11-30");
+    assert!(same_day <= slot_nov.period_end().expect("月末"));
+}
+
+/// ㉒ 非法期间码不会让 `period_end_text` 崩：退化成 None（SQL 侧用 9999-12-31 兜底）。
+#[test]
+fn invalid_period_has_no_end_text() {
+    let slot = Slot {
+        dept_id: Uuid::now_v7(),
+        account_id: Uuid::now_v7(),
+        fiscal_year: 2026,
+        period_code: "bad".to_string(),
+    };
+    assert_eq!(slot.period_end(), None);
+    assert_eq!(slot.period_end_text(), None);
+}
+
+// ==================== FIX-2：记账口径（budget_mode 取槽级最严） ====================
+
+fn slot_check(dept: Uuid, account: Uuid, mode: ControlMode, amount: &str) -> ExpenseSlotCheck {
+    let slot = Slot::new(dept, account, "2026-11").expect("槽");
+    ExpenseSlotCheck {
+        slot,
+        amount: dec(amount),
+        amount_net: dec(amount),
+        verdict: verdict(mode, "1000", "0", "1000", "0", amount),
+        snapshot: SlotSnapshot {
+            budget_id: None,
+            year_limit: dec("1000"),
+            year_used: Decimal::ZERO,
+            month_limit: dec("1000"),
+            month_used: Decimal::ZERO,
+        },
+    }
+}
+
+/// ㉓ 全局 WARN + 槽级 BLOCK → 单据记账口径必须是 **BLOCK**（问题 4 的钉子）。
+#[test]
+fn recorded_mode_takes_strictest_slot_mode() {
+    let dept = Uuid::now_v7();
+    let budget = ExpenseBudget {
+        mode: ControlMode::Warn, // 全局默认
+        dept_id: dept,
+        period_code: "2026-11".to_string(),
+        checks: vec![
+            slot_check(dept, Uuid::now_v7(), ControlMode::Block, "1500"),
+            slot_check(dept, Uuid::now_v7(), ControlMode::Warn, "100"),
+        ],
+        reason: String::new(),
+    };
+    assert_eq!(budget.recorded_mode(), ControlMode::Block);
+    assert_eq!(budget.recorded_mode().as_str(), "BLOCK");
+    assert!(budget.blocks(), "槽级 BLOCK 必须拦住");
+
+    // 没有受控槽 → 回落到全局（与修复前行为一致）
+    let empty = ExpenseBudget {
+        mode: ControlMode::Warn,
+        dept_id: dept,
+        period_code: "2026-11".to_string(),
+        checks: Vec::new(),
+        reason: String::new(),
+    };
+    assert_eq!(empty.recorded_mode(), ControlMode::Warn);
+
+    // 槽级 OFF（不校验）不参与记账，取有校验的 WARN
+    let mixed = ExpenseBudget {
+        mode: ControlMode::Warn,
+        dept_id: dept,
+        period_code: "2026-11".to_string(),
+        checks: vec![
+            slot_check(dept, Uuid::now_v7(), ControlMode::Off, "100"),
+            slot_check(dept, Uuid::now_v7(), ControlMode::Warn, "100"),
+        ],
+        reason: String::new(),
+    };
+    assert_eq!(mixed.recorded_mode(), ControlMode::Warn);
+}
+
+/// ㉔ 严格度排序：OFF < WARN < BLOCK（`max_by_key` 取的就是它）。
+#[test]
+fn strictness_orders_off_warn_block() {
+    assert!(ControlMode::Off.strictness() < ControlMode::Warn.strictness());
+    assert!(ControlMode::Warn.strictness() < ControlMode::Block.strictness());
+}
+
+// ==================== FIX-2：未生效预算的提示文案 ====================
+
+fn pending(status: &str, effective_from: Option<NaiveDate>) -> PendingBudget {
+    PendingBudget {
+        account_id: Uuid::now_v7(),
+        account_code: "5602.02".to_string(),
+        budget_no: "BDG-20261107-000001".to_string(),
+        status: status.to_string(),
+        effective_from,
+        total_amount: dec("10000"),
+    }
+}
+
+/// ㉕ DRAFT / SUBMITTED / ACTIVE 未到生效日 → 三种提示都在，码统一、文案可读。
+#[test]
+fn pending_warnings_cover_three_states() {
+    let rows = vec![
+        pending("DRAFT", None),
+        pending("SUBMITTED", None),
+        pending("ACTIVE", Some(date("2026-12-01"))),
+    ];
+    let warnings = pending_warnings(&rows, "2026-11");
+    assert_eq!(warnings.len(), 3);
+    for warning in &warnings {
+        assert_eq!(warning.code, WARN_BUDGET_NOT_EFFECTIVE);
+        assert!(
+            warning.message.contains("预算尚未生效"),
+            "文案要直说「未生效」：{}",
+            warning.message
+        );
+        assert!(
+            warning.message.contains("2026-11"),
+            "文案要带上受影响的期间：{}",
+            warning.message
+        );
+        assert!(
+            warning.message.contains("BDG-20261107-000001"),
+            "文案要能定位到预算单：{}",
+            warning.message
+        );
+    }
+    assert_eq!(warnings[0].status_label, "草稿");
+    assert!(warnings[0].message.contains("请提交审批"));
+    assert_eq!(warnings[1].status_label, "审批中");
+    assert_eq!(warnings[2].status_label, "已生效（未到生效日）");
+    assert!(
+        warnings[2].message.contains("2026-12-01 起生效"),
+        "未到生效日的提示要说清哪天生效：{}",
+        warnings[2].message
+    );
+    // 空输入 → 空输出（没编预算不该冒出提示）
+    assert!(pending_warnings(&[], "2026-11").is_empty());
+}
+
+/// ㉖ 提示必须带上额度与期间 —— 用户看到的是「本来能管多少、哪个月没管住」。
+#[test]
+fn pending_warning_message_carries_amount_and_period() {
+    let warnings = pending_warnings(&[pending("DRAFT", None)], "2026-11");
+    assert!(warnings[0].message.contains("10000"));
+    assert!(warnings[0].message.contains("2026-11"));
+}

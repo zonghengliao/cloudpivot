@@ -272,6 +272,12 @@ export interface ExpenseReport {
   over_budget: boolean;
   /** 提交时点的超支额 */
   over_amount: string;
+  /**
+   * 提交时**实际生效的槽级控制策略**快照（`OFF` / `WARN` / `BLOCK`；`null` = 从未提交过）。
+   *
+   * FIX-2：槽级 BLOCK、全局 WARN 时这里记的是 `BLOCK` —— 审计要能看出这单被哪条策略管过。
+   */
+  budget_mode: string | null;
   /** 审批实例 id */
   approval_instance_id: string | null;
   /** 计提凭证 id */
@@ -300,8 +306,28 @@ export interface ExpenseDetail {
   payments: ExpensePayment[];
   /** 预算占用 */
   budget_usages: ExpenseBudgetUsage[];
+  /** 预算尚未生效的提示（FIX-2：DRAFT / 审批中 / 未到生效日；**只提示不阻断**） */
+  budget_warnings: ExpenseBudgetWarning[];
   /** 金额分级文案（「≤1000 元一级审批」这类） */
   tier_label: string;
+}
+
+/** 预算未生效提示（逐字抄 `budget_dto::BudgetWarningRes`）。 */
+export interface ExpenseBudgetWarning {
+  /** 提示码（固定 `BUDGET_NOT_EFFECTIVE`） */
+  code: string;
+  /** 预算科目 id */
+  account_id: string;
+  /** 预算科目编码 */
+  account_code: string;
+  /** 预算单号 */
+  budget_no: string;
+  /** DRAFT / SUBMITTED / ACTIVE */
+  status: string;
+  /** 状态中文 */
+  status_label: string;
+  /** 一句话说明（直接展示） */
+  message: string;
 }
 
 /** 报销单筛选（`ReportFilter`）。 */

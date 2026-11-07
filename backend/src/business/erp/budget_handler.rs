@@ -185,15 +185,13 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<BudgetDetailRes, ApiErro
         .map_err(|error| utils::db_error(error, "查询预算"))?
         .ok_or_else(not_found)?;
     // 当月已用（现算；口径与 budget_guard 完全一致）
-    let slot_probe = budget_guard::Slot::new(row.dept_id, row.account_id, "2000-01");
-    let _ = slot_probe;
-    let usage_rows = budget_guard::usages_of(db(), budget_guard::SOURCE_PURCHASE, row.id)
-        .await
-        .unwrap_or_default();
-    let usages: Vec<UsageRes> = usage_rows
-        .iter()
-        .map(|usage| UsageRes::of(usage, budget_guard::SOURCE_PURCHASE))
-        .collect();
+    // 占用记录按**槽**查（FIX-2 问题 3）：预算单 id ≠ 源单据 id，且同一槽下的占用可能来自
+    // 报销 / 采购多种来源、还可能是旧版本写的 —— 按 `budget_id` 或写死来源都会漏。
+    let usage_rows =
+        budget_guard::usages_of_slot(db(), row.dept_id, row.account_id, row.fiscal_year)
+            .await
+            .unwrap_or_default();
+    let usages: Vec<UsageRes> = usage_rows.iter().map(UsageRes::of).collect();
     let periods = budget_model::periods_of(db(), row.id)
         .await
         .map_err(|error| utils::db_error(error, "查询预算月度分解"))?;

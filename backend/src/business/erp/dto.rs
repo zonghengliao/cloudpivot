@@ -2465,6 +2465,12 @@ pub struct PurchaseOrderRes {
     pub created_at: DateTime<Utc>,
     /// 更新时间。
     pub updated_at: DateTime<Utc>,
+    /// 预算尚未生效的提示（FIX-2 ①：DRAFT / 审批中 / 未到生效日）。
+    ///
+    /// **只在详情回填**（`From<&Row>` 给空）：列表页不为每行跑一遍预算映射查询。
+    /// 空数组不序列化，前端老版本拿到的是「没有这个字段」，不会被打断。
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub budget_warnings: Vec<crate::business::erp::budget_dto::BudgetWarningRes>,
 }
 
 impl From<&PurchaseOrderRow> for PurchaseOrderRes {
@@ -2510,6 +2516,7 @@ impl From<&PurchaseOrderRow> for PurchaseOrderRes {
             credit_limit_snapshot: row.credit_limit_snapshot,
             created_at: row.created_at,
             updated_at: row.updated_at,
+            budget_warnings: Vec::new(),
         }
     }
 }

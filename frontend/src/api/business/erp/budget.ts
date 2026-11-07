@@ -158,8 +158,12 @@ export interface BudgetUsageRow {
   status: string;
   /** 状态中文 */
   status_label: string;
-  /** 来源类型（本期只有 `PURCHASE`） */
+  /** 来源类型（`EXPENSE_REPORT` / `PURCHASE_ORDER`，按占用行实际值展示） */
   source_type: string;
+  /** 来源类型中文（费用报销单 / 采购订单） */
+  source_type_label: string;
+  /** 来源单据 id */
+  source_id: string;
   /** 来源单号 */
   source_no: string;
   /** 提交时是否超预算（**提交那一刻的快照**，额度后来调高也不会变） */
@@ -230,6 +234,10 @@ export interface BudgetReportRow {
   exec_ratio: string;
   /** 是否超支（后端算好，前端不重算） */
   over: boolean;
+  /** 生效起始日（`effective_from`，null = 历史数据没有生效日） */
+  effective_from: string | null;
+  /** 报表时点是否已生效（`effective_from <= 本月月末`，与控制同口径） */
+  effective: boolean;
   /** 分月明细 */
   months: BudgetReportMonth[];
 }

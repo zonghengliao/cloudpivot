@@ -247,3 +247,48 @@ fn page_normalization() {
     assert_eq!(normalize_page(3, 5000), (3, MAX_PAGE_SIZE));
     assert_eq!(normalize_page(2, 50), (2, 50));
 }
+
+// ==================== FIX-2 问题 3：占用记录按行取来源 ====================
+
+fn usage_row(source_type: &str) -> UsageRow {
+    UsageRow {
+        id: Uuid::now_v7(),
+        dept_id: Uuid::now_v7(),
+        account_id: Uuid::now_v7(),
+        fiscal_year: 2026,
+        period_code: "2026-11".to_string(),
+        amount: dec("1500"),
+        status: "OCCUPIED".to_string(),
+        over_budget: true,
+        over_amount: dec("500"),
+        source_type: source_type.to_string(),
+        source_id: Uuid::now_v7(),
+        source_no: "EXP-20261107-000001".to_string(),
+        released_at: None,
+        release_reason: None,
+    }
+}
+
+/// ⑫ 占用行的 `source_type` **不许写死**：报销占用要显示报销、采购占用要显示采购，
+/// 且必须带出 `source_id`（详情页要能跳到源单据）。
+#[test]
+fn usage_res_keeps_row_source_type() {
+    let expense = usage_row(crate::business::erp::budget_guard::SOURCE_EXPENSE);
+    let purchase = usage_row(crate::business::erp::budget_guard::SOURCE_PURCHASE);
+
+    let expense_res = UsageRes::of(&expense);
+    assert_eq!(expense_res.source_type, "EXPENSE_REPORT");
+    assert_eq!(expense_res.source_type_label, "费用报销单");
+    assert_eq!(expense_res.source_id, expense.source_id.to_string());
+    assert_eq!(expense_res.source_no, "EXP-20261107-000001");
+    assert_eq!(expense_res.status_label, "占用中");
+    assert!(expense_res.over_budget);
+    assert_eq!(expense_res.over_amount, dec("500"));
+
+    let purchase_res = UsageRes::of(&purchase);
+    assert_eq!(purchase_res.source_type, "PURCHASE_ORDER");
+    assert_eq!(purchase_res.source_type_label, "采购订单");
+    assert_eq!(purchase_res.source_id, purchase.source_id.to_string());
+    // 未知来源原样回显，不吞
+    assert_eq!(source_type_label("MANUAL_ADJUST"), "MANUAL_ADJUST");
+}

@@ -173,6 +173,13 @@
         </template>
         <template #over="{ row }">
           <t-tag v-if="row.over" size="small" variant="light" theme="danger">超支</t-tag>
+          <t-tag
+            v-else-if="row.effective === false"
+            size="small"
+            variant="light"
+            theme="warning"
+            :title="`生效起始日 ${row.effective_from ?? '—'}：本月单据不受这份额度控制`"
+          >未生效</t-tag>
           <span v-else class="muted">正常</span>
         </template>
         <template #expandedRow="{ row }">

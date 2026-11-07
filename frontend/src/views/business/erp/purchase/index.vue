@@ -686,6 +686,19 @@
           </t-tooltip>
         </div>
 
+        <!--
+          FIX-2 ①：预算尚未生效（草稿 / 审批中 / 未到生效日）→ 标黄提示，**不阻断**。
+          只在详情接口回填（列表不带），空数组时后端不序列化该字段。
+        -->
+        <t-alert
+          v-for="warning in detail.budget_warnings ?? []"
+          :key="warning.account_id + warning.budget_no"
+          theme="warning"
+          class="detail__alert"
+          data-testid="purchase-detail-budget-warning"
+          :message="warning.message"
+        />
+
         <div class="detail__grid">
           <!-- A6：采购类型 + 合同号（合同号可点 → 合同详情；与下方「审批单 FLW-xxx」链接并存，互不影响） -->
           <div class="detail-field">

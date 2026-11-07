@@ -651,6 +651,10 @@ pub struct ReportRes {
     pub over_budget: bool,
     /// 提交时点的超支额。
     pub over_amount: Decimal,
+    /// 提交时**实际生效的槽级控制策略**快照（`OFF` / `WARN` / `BLOCK`；`null` = 从未提交过）。
+    ///
+    /// FIX-2 问题 4：审计要能看出「这单被哪条策略管过」——槽级 BLOCK、全局 WARN 时必须记 BLOCK。
+    pub budget_mode: Option<String>,
     /// 审批实例 id。
     pub approval_instance_id: Option<String>,
     /// 计提凭证 id。
@@ -680,6 +684,8 @@ pub struct ReportDetailRes {
     pub payments: Vec<PaymentRes>,
     /// 预算占用。
     pub budget_usages: Vec<UsageRes>,
+    /// 预算尚未生效的提示（FIX-2：DRAFT / 审批中 / 未到生效日），前端标黄、不阻断。
+    pub budget_warnings: Vec<crate::business::erp::budget_dto::BudgetWarningRes>,
     /// 金额分级（当前档位中文，便于详情页提示「还要几道审批」）。
     pub tier_label: String,
 }

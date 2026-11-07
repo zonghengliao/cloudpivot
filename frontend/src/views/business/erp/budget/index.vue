@@ -621,6 +621,7 @@ const periodColumns: PrimaryTableCol[] = [
 ];
 
 const usageColumns: PrimaryTableCol[] = [
+  { colKey: 'source_type_label', title: '来源类型', width: 108 },
   { colKey: 'source_no', title: '来源单号', width: 180 },
   { colKey: 'period_code', title: '期间', width: 92 },
   { colKey: 'amount', title: '金额', width: 120, align: 'right' },

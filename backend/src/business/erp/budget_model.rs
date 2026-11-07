@@ -666,6 +666,10 @@ pub struct ReportRow {
     pub occupied: Decimal,
     /// 已执行。
     pub consumed: Decimal,
+    /// 生效起始日（`effective_from`；NULL = 历史数据没有生效日）。
+    pub effective_from: Option<NaiveDate>,
+    /// 报表时点是否已生效（`effective_from <= 本月月末`，与控制的期间月末口径一致）。
+    pub effective: bool,
     /// 当前月在审 / 已用的分月明细（`period_code → (额度, 已用)`）。
     pub months: Vec<(String, Decimal, Decimal)>,
 }
@@ -698,7 +702,7 @@ impl ReportRow {
 pub async fn report(q: &BudgetFilter) -> DbResult<Vec<ReportRow>> {
     let mut sql = String::from(
         "SELECT b.id, b.fiscal_year, b.dept_id, b.dept_name, b.account_id, b.account_code,
-                b.account_name, b.total_amount::text AS total_amount
+                b.account_name, b.total_amount::text AS total_amount, b.effective_from
            FROM biz_budget b
           WHERE b.status = 'ACTIVE' AND b.deleted_at IS NULL",
     );
@@ -719,6 +723,9 @@ pub async fn report(q: &BudgetFilter) -> DbResult<Vec<ReportRow>> {
     // SCOPE-EXEMPT: 只读报表，行集已在 SQL 里按 ACTIVE + 显式筛选收敛；
     // 报表是给财务的横向视图（跨部门对比），按部门再裁一次会让「全公司执行率」失真。
     let rows = db().query_sql(sql, params).await?;
+    // 报表时点 = 本月月末（与 budget_guard 的期间月末口径一致：`effective_from <= 期间月末`）
+    let now_period = Utc::now().format("%Y-%m").to_string();
+    let period_end = crate::business::erp::budget_guard::period_end_of(&now_period);
     let mut out = Vec::with_capacity(rows.len());
     for row in rows.iter() {
         let budget_id: Uuid = row.get_typed("id")?;
@@ -726,6 +733,14 @@ pub async fn report(q: &BudgetFilter) -> DbResult<Vec<ReportRow>> {
         let dept_id: Uuid = row.get_typed("dept_id")?;
         let account_id: Uuid = row.get_typed("account_id")?;
         let total_amount = parse_amount(&row.get_typed::<String>("total_amount")?);
+        let effective_from: Option<NaiveDate> = row.get_typed("effective_from")?;
+        // 未到生效日的行照样出现在报表里（财务要看得到「已经批了但还没开始管」的预算），
+        // 但打上 effective = false，避免「报表说有钱、提交却说超了」的分叉。
+        let effective = match (effective_from, period_end) {
+            (None, _) => true,
+            (Some(_), None) => true,
+            (Some(from), Some(end)) => from <= end,
+        };
         // 已用（年度）
         let usage = db()
             .query_sql(
@@ -761,6 +776,8 @@ pub async fn report(q: &BudgetFilter) -> DbResult<Vec<ReportRow>> {
             total_amount,
             occupied,
             consumed,
+            effective_from,
+            effective,
             months,
         });
     }

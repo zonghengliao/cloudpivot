@@ -15,6 +15,32 @@
 //!   `biz_budget_usage.budget_id` 只是「当时命中的版本」审计快照，**不参与计算**（D5）。
 //! * **`M = 可用` 不算超**（边界用例，见单测 `boundary_equal_is_not_over`）。
 //!
+//! # `effective_from` 参与判定（FIX-2 定稿：选项 A）
+//!
+//! 预算审批通过时写 `effective_from = 审批通过次月 1 日`（[`crate::business::erp::budget_bridge::effective_from_of`]）。
+//! 控制 / 占用的判定条件是 **`effective_from IS NULL OR effective_from <= 期间月末`**
+//! （[`period_end_of`]）：
+//!
+//! ```text
+//! 期间 2026-11（月末 11-30），预算 effective_from = 2026-12-01
+//!   → 12-01 > 11-30 → 该版本对 11 月「不生效」：额度 0、槽级策略继承全局
+//! 期间 2026-12（月末 12-31）
+//!   → 12-01 <= 12-31 → 生效
+//! ```
+//!
+//! 为什么按「期间月末」而不是「单据日期」：月度闸本身就是月粒度（月额度整月有效），
+//! 月中生效会出现「半个月的额度按整月校验」；按月末判等于「这一整个月是否已经生效」。
+//! `NULL` 放行是为了兼容选项 A 之前落库的 ACTIVE 行（那些行没有生效日，本来就该算生效）。
+//!
+//! 同口径必须一起改，否则报表和控制分叉（ARCH-6 §3.8.1）：[`active_control_mode`]、
+//! [`slot_snapshot`]、`budget_model::report`（报表标注 `effective` / `effective_from`）。
+//!
+//! # 「预算没生效」只提示、不拦（[`pending_budgets`] / [`pending_warnings`]）
+//!
+//! DRAFT / SUBMITTED / ACTIVE-未到生效日 的预算**不参与控制**（口径不变），
+//! 但提交与详情会带回 `budget_warnings[]`（`BUDGET_NOT_EFFECTIVE`），前端标黄提示 ——
+//! 否则「预算编了但没送审 → 超支直接放行」是个静默黑洞。
+//!
 //! # 超预算怎么办：策略 B（标记 + 强制审批），409 只在显式 BLOCK
 //!
 //! | mode | 行为 |
@@ -37,7 +63,7 @@
 //! `BLOCK` 模式若真要做到「一分不超」，才需要 `pg_advisory_xact_lock(hashtext(dept||account||year))`
 //! —— 本设计**预留但不实现**（§3.6.2 已论证代价）。
 
-use nik::prelude::chrono::{DateTime, Utc};
+use nik::prelude::chrono::{DateTime, NaiveDate, Utc};
 use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
@@ -51,6 +77,12 @@ pub const CONFIG_ENFORCE_ON_PO: &str = "erp.budget.enforce_on_po";
 pub const SOURCE_EXPENSE: &str = "EXPENSE_REPORT";
 /// 占用来源：采购订单（本卡接线）。
 pub const SOURCE_PURCHASE: &str = "PURCHASE_ORDER";
+
+/// 提示码：该槽存在预算但**尚未生效**（DRAFT / SUBMITTED / 未到 `effective_from`）。
+///
+/// 这是**提示**不是错误：控制口径不变（DRAFT 预算不参与判定，见 [`active_control_mode`]），
+/// 只是让用户知道「钱没被预算管着」。
+pub const WARN_BUDGET_NOT_EFFECTIVE: &str = "BUDGET_NOT_EFFECTIVE";
 
 /// usage 状态：占用中。
 pub const USAGE_OCCUPIED: &str = "OCCUPIED";
@@ -110,6 +142,15 @@ impl ControlMode {
     pub const fn enforces(self) -> bool {
         !matches!(self, ControlMode::Off)
     }
+
+    /// 严格程度（`OFF` < `WARN` < `BLOCK`）：多槽汇总时取最严的那条记账。
+    pub const fn strictness(self) -> u8 {
+        match self {
+            ControlMode::Off => 0,
+            ControlMode::Warn => 1,
+            ControlMode::Block => 2,
+        }
+    }
 }
 
 /// 一个预算「槽」= 部门 × 预算科目 × 年度（D5：usage 绑槽不绑版本）。
@@ -145,6 +186,35 @@ impl Slot {
     pub fn year_text(&self) -> String {
         format!("{} 年", self.fiscal_year)
     }
+
+    /// 期间月末日期（`effective_from` 判定用；期间码非法 → `None`）。
+    pub fn period_end(&self) -> Option<NaiveDate> {
+        period_end_of(&self.period_code)
+    }
+
+    /// 期间末月的 `yyyy-MM-dd`（拼 SQL 参数用；非法期间退化成 `None`）。
+    pub fn period_end_text(&self) -> Option<String> {
+        self.period_end().map(|date| date.to_string())
+    }
+}
+
+/// 期间码（`yyyy-MM`）的**月末日期**。
+///
+/// 口径（ARCH-6 §3.2.2，FIX-2 定稿的选项 A）：`effective_from <= 期间月末` 才参与该期间的
+/// 控制与占用判定 —— 也就是「按月末那一刻是否已生效」判，与「审批通过次月 1 日生效」
+/// 的业务语义一致：11 月的单据不会受 12-01 才生效的额度约束。
+pub fn period_end_of(period_code: &str) -> Option<NaiveDate> {
+    let year: i32 = period_code.get(0..4)?.parse().ok()?;
+    let month: u32 = period_code.get(5..7)?.parse().ok()?;
+    if !(1..=12).contains(&month) {
+        return None;
+    }
+    let (next_year, next_month) = if month == 12 {
+        (year + 1, 1)
+    } else {
+        (year, month + 1)
+    };
+    NaiveDate::from_ymd_opt(next_year, next_month, 1)?.pred_opt()
 }
 
 /// 判定结果（**纯数据，不碰库**，六个数全给，便于日志与单测）。
@@ -305,20 +375,29 @@ pub async fn enforce_on_po(ex: &impl SqlExecutor) -> DbResult<bool> {
 /// 读一个槽的现状（现算，不缓存）。
 ///
 /// 三条聚合都走 `idx_biz_budget_usage_slot*`（ARCH-6 红线 2 的实测依据）。
+///
+/// **`effective_from` 参与判定**（FIX-2 / 选项 A）：只有 `effective_from IS NULL`（历史数据）
+/// 或 `effective_from <= 期间月末` 的 ACTIVE 版本才算「本期生效」，未到生效日的版本
+/// 额度按 0 处理 —— 否则「审批通过次月 1 日生效」形同虚设（11 月单据被 12 月额度管）。
 pub async fn slot_snapshot(ex: &impl SqlExecutor, slot: &Slot) -> DbResult<SlotSnapshot> {
-    // ① 最新 ACTIVE 版本（槽级唯一索引保证最多 1 行）
+    // ① 最新 ACTIVE 版本（槽级唯一索引保证最多 1 行；`effective_from` 未到 → 视为没有预算）
+    let period_end = slot
+        .period_end_text()
+        .unwrap_or_else(|| "9999-12-31".to_string());
     let active = ex
         .query_sql(
             "SELECT id, total_amount::text AS total_amount \
                FROM biz_budget \
               WHERE dept_id = ?::uuid AND account_id = ?::uuid AND fiscal_year = ?::int \
                 AND status = 'ACTIVE' AND deleted_at IS NULL \
+                AND (effective_from IS NULL OR effective_from <= ?::text::date) \
               LIMIT 1"
                 .to_string(),
             vec![
                 Value::from(&slot.dept_id),
                 Value::from(&slot.account_id),
                 Value::from(i32::from(slot.fiscal_year)),
+                Value::Text(period_end),
             ],
         )
         .await?;
@@ -584,7 +663,7 @@ pub async fn usages_of(
         .query_sql(
             "SELECT id, dept_id, account_id, fiscal_year, period_code, amount::text AS amount, \
                     status, (over_budget <> 0) AS over_budget, over_amount::text AS over_amount, \
-                    source_no, released_at, release_reason \
+                    source_type, source_id, source_no, released_at, release_reason \
                FROM biz_budget_usage \
               WHERE source_type = ? AND source_id = ?::uuid AND deleted_at IS NULL \
               ORDER BY created_at"
@@ -595,24 +674,38 @@ pub async fn usages_of(
             ],
         )
         .await?;
-    rows.iter()
-        .map(|row| {
-            Ok(UsageRow {
-                id: row.get_typed("id")?,
-                dept_id: row.get_typed("dept_id")?,
-                account_id: row.get_typed("account_id")?,
-                fiscal_year: row.get_typed("fiscal_year")?,
-                period_code: row.get_typed("period_code")?,
-                amount: parse_amount(&row.get_typed::<String>("amount")?),
-                status: row.get_typed("status")?,
-                over_budget: row.get_typed("over_budget")?,
-                over_amount: parse_amount(&row.get_typed::<String>("over_amount")?),
-                source_no: row.get_typed("source_no")?,
-                released_at: row.get_typed("released_at")?,
-                release_reason: row.get_typed("release_reason")?,
-            })
-        })
-        .collect()
+    rows.iter().map(UsageRow::from_row).collect()
+}
+
+/// 某个**槽**（部门 × 科目 × 年度）下的全部占用（预算详情页用，FIX-2）。
+///
+/// 详情页拿到的是「预算单 id」，而 `biz_budget_usage.budget_id` 只是写入时命中的版本快照
+/// （D5：不参与计算，历史 usage 可能指向旧版本甚至为空）—— 所以按**槽**查而不是按
+/// `budget_id` 查，否则「报销产生的占用一条都看不到」（year_used 却是对的）。
+pub async fn usages_of_slot(
+    ex: &impl SqlExecutor,
+    dept_id: Uuid,
+    account_id: Uuid,
+    fiscal_year: i16,
+) -> DbResult<Vec<UsageRow>> {
+    let rows = ex
+        .query_sql(
+            "SELECT id, dept_id, account_id, fiscal_year, period_code, amount::text AS amount, \
+                    status, (over_budget <> 0) AS over_budget, over_amount::text AS over_amount, \
+                    source_type, source_id, source_no, released_at, release_reason \
+               FROM biz_budget_usage \
+              WHERE dept_id = ?::uuid AND account_id = ?::uuid AND fiscal_year = ?::int \
+                AND deleted_at IS NULL \
+              ORDER BY period_code, created_at"
+                .to_string(),
+            vec![
+                Value::from(&dept_id),
+                Value::from(&account_id),
+                Value::from(i32::from(fiscal_year)),
+            ],
+        )
+        .await?;
+    rows.iter().map(UsageRow::from_row).collect()
 }
 
 /// 一条占用记录（读模型）。
@@ -636,12 +729,37 @@ pub struct UsageRow {
     pub over_budget: bool,
     /// 提交时点超支额。
     pub over_amount: Decimal,
+    /// 来源单据类型（`EXPENSE_REPORT` / `PURCHASE_ORDER`）。
+    pub source_type: String,
+    /// 来源单据 id。
+    pub source_id: Uuid,
     /// 来源单号。
     pub source_no: String,
     /// 释放时间。
     pub released_at: Option<DateTime<Utc>>,
     /// 释放原因。
     pub release_reason: Option<String>,
+}
+
+impl UsageRow {
+    fn from_row(row: &Row) -> DbResult<Self> {
+        Ok(Self {
+            id: row.get_typed("id")?,
+            dept_id: row.get_typed("dept_id")?,
+            account_id: row.get_typed("account_id")?,
+            fiscal_year: row.get_typed("fiscal_year")?,
+            period_code: row.get_typed("period_code")?,
+            amount: parse_amount(&row.get_typed::<String>("amount")?),
+            status: row.get_typed("status")?,
+            over_budget: row.get_typed("over_budget")?,
+            over_amount: parse_amount(&row.get_typed::<String>("over_amount")?),
+            source_type: row.get_typed("source_type")?,
+            source_id: row.get_typed("source_id")?,
+            source_no: row.get_typed("source_no")?,
+            released_at: row.get_typed("released_at")?,
+            release_reason: row.get_typed("release_reason")?,
+        })
+    }
 }
 
 fn parse_amount(text: &str) -> Decimal {
@@ -806,19 +924,28 @@ pub async fn check_for_purchase(
     })
 }
 
-/// 该槽 ACTIVE 预算的控制策略（`None` = 没预算 / 没配 → 继承全局）。
+/// 该槽本期**生效**预算的控制策略（`None` = 没预算 / 没配 / 尚未到生效日 → 继承全局）。
+///
+/// `effective_from` 口径与 [`slot_snapshot`] 完全一致（FIX-2 选项 A）：未到生效日的版本
+/// 既不提供额度、也不提供槽级策略 —— 否则「12 月才生效的 BLOCK 预算」会拦 11 月的单据。
 pub async fn active_control_mode(ex: &impl SqlExecutor, slot: &Slot) -> DbResult<Option<String>> {
     // SCOPE-EXEMPT: 槽级精确查询，返回 0..1 行的单列。
+    let period_end = slot
+        .period_end_text()
+        .unwrap_or_else(|| "9999-12-31".to_string());
     let rows = ex
         .query_sql(
             "SELECT control_mode FROM biz_budget \
               WHERE dept_id = ?::uuid AND account_id = ?::uuid AND fiscal_year = ?::int \
-                AND status = 'ACTIVE' AND deleted_at IS NULL LIMIT 1"
+                AND status = 'ACTIVE' AND deleted_at IS NULL \
+                AND (effective_from IS NULL OR effective_from <= ?::text::date) \
+              LIMIT 1"
                 .to_string(),
             vec![
                 Value::from(&slot.dept_id),
                 Value::from(&slot.account_id),
                 Value::from(i32::from(slot.fiscal_year)),
+                Value::Text(period_end),
             ],
         )
         .await?;
@@ -826,6 +953,142 @@ pub async fn active_control_mode(ex: &impl SqlExecutor, slot: &Slot) -> DbResult
         None => Ok(None),
         Some(row) => row.get_typed("control_mode"),
     }
+}
+
+/// 一条「已有预算但本期不生效」的事实（喂给 [`pending_warnings`] 拼文案）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingBudget {
+    /// 预算科目。
+    pub account_id: Uuid,
+    /// 科目编码（文案用）。
+    pub account_code: String,
+    /// 预算单号。
+    pub budget_no: String,
+    /// `DRAFT` / `SUBMITTED` / `ACTIVE`（后者 = 已生效但未到 `effective_from`）。
+    pub status: String,
+    /// 生效起始日（仅 ACTIVE 有值）。
+    pub effective_from: Option<NaiveDate>,
+    /// 年度额度（文案里带上，让用户知道「本来能管多少」）。
+    pub total_amount: Decimal,
+}
+
+/// 一条**提示**（不是错误）：该槽的预算还没生效，本单的超支不会被它控制。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BudgetWarning {
+    /// 提示码（[`WARN_BUDGET_NOT_EFFECTIVE`]）。
+    pub code: String,
+    /// 预算科目。
+    pub account_id: Uuid,
+    /// 科目编码。
+    pub account_code: String,
+    /// 预算单号。
+    pub budget_no: String,
+    /// 预算状态（`DRAFT` / `SUBMITTED` / `ACTIVE`）。
+    pub status: String,
+    /// 状态中文。
+    pub status_label: String,
+    /// 一句话说明（前端直接展示）。
+    pub message: String,
+}
+
+/// 查「(部门, 年度) 下这些科目存在但本期不生效的预算」。
+///
+/// 三种情况都算「不生效」：
+/// * `DRAFT` —— 编完没送审；
+/// * `SUBMITTED` —— 送审了还没批下来；
+/// * `ACTIVE` 且 `effective_from > 期间月末` —— 批了但还没到生效日。
+///
+/// **只读、不参与控制**：控制口径见 [`active_control_mode`] / [`slot_snapshot`]
+/// （依然是「只认本期生效的 ACTIVE」）。本函数只解决「用户不知道预算没生效」。
+pub async fn pending_budgets(
+    ex: &impl SqlExecutor,
+    dept_id: Uuid,
+    fiscal_year: i16,
+    account_ids: &[Uuid],
+    period_code: &str,
+) -> DbResult<Vec<PendingBudget>> {
+    if account_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let period_end = period_end_of(period_code)
+        .map(|date| date.to_string())
+        .unwrap_or_else(|| "9999-12-31".to_string());
+    // SCOPE-EXEMPT: 槽级精确查询（部门 + 年度 + 状态收敛），行数 = 该部门该年度的预算条数。
+    let rows = ex
+        .query_sql(
+            "SELECT account_id, account_code, budget_no, status, effective_from, \
+                    total_amount::text AS total_amount \
+               FROM biz_budget \
+              WHERE dept_id = ?::uuid AND fiscal_year = ?::int AND deleted_at IS NULL \
+                AND (status IN ('DRAFT','SUBMITTED') \
+                     OR (status = 'ACTIVE' AND effective_from IS NOT NULL \
+                         AND effective_from > ?::text::date)) \
+              ORDER BY account_code, version_no DESC"
+                .to_string(),
+            vec![
+                Value::from(&dept_id),
+                Value::from(i32::from(fiscal_year)),
+                Value::Text(period_end),
+            ],
+        )
+        .await?;
+    let mut out = Vec::new();
+    for row in rows.iter() {
+        let account_id: Uuid = row.get_typed("account_id")?;
+        if !account_ids.contains(&account_id) {
+            continue;
+        }
+        // 同一科目只提示最相关的一条（同科目多版本时取版本号最大那行 —— SQL 已按其倒序）。
+        if out
+            .iter()
+            .any(|item: &PendingBudget| item.account_id == account_id)
+        {
+            continue;
+        }
+        out.push(PendingBudget {
+            account_id,
+            account_code: row.get_typed("account_code")?,
+            budget_no: row.get_typed("budget_no")?,
+            status: row.get_typed("status")?,
+            effective_from: row.get_typed("effective_from")?,
+            total_amount: parse_amount(&row.get_typed::<String>("total_amount")?),
+        });
+    }
+    Ok(out)
+}
+
+/// 把「未生效预算」拼成人话提示（纯函数，单测钉文案口径）。
+pub fn pending_warnings(pending: &[PendingBudget], period_code: &str) -> Vec<BudgetWarning> {
+    pending
+        .iter()
+        .map(|item| {
+            let (status_label, hint) = match item.status.as_str() {
+                "DRAFT" => ("草稿", "请提交审批使其生效".to_string()),
+                "SUBMITTED" => ("审批中", "审批通过后次月 1 日生效".to_string()),
+                "ACTIVE" => (
+                    "已生效（未到生效日）",
+                    match item.effective_from {
+                        Some(date) => format!("{date} 起生效"),
+                        None => "生效日待定".to_string(),
+                    },
+                ),
+                other => (other, String::new()),
+            };
+            BudgetWarning {
+                code: WARN_BUDGET_NOT_EFFECTIVE.to_string(),
+                account_id: item.account_id,
+                account_code: item.account_code.clone(),
+                budget_no: item.budget_no.clone(),
+                status: item.status.clone(),
+                status_label: status_label.to_string(),
+                message: format!(
+                    "科目 {} 的预算尚未生效（当前状态：{}，预算单 {}，额度 {}）：\
+                     {period_code} 的超支将不受该预算控制。{hint}",
+                    item.account_code, status_label, item.budget_no, item.total_amount
+                ),
+            }
+        })
+        .collect()
 }
 
 /// 物料的类型编码（`biz_material.material_type`）—— 供 MATERIAL_TYPE 映射命中。
@@ -958,6 +1221,19 @@ impl ExpenseBudget {
     pub fn should_occupy(&self) -> bool {
         self.mode.enforces() && !self.checks.is_empty()
     }
+
+    /// **记账口径**的策略：实际参与判定的槽级策略里最严的那条（没有槽 → 全局）。
+    ///
+    /// 为什么不是 `self.mode`：`mode` 是全局策略，槽级 `control_mode` 会覆盖它。
+    /// 单据上的 `budget_mode` 是**事后审计**用的，必须记「这单真的被哪条策略管过」——
+    /// 槽级 BLOCK、全局 WARN 时记 WARN，等于审计看不出这单被拦过（FIX-2 问题 4）。
+    pub fn recorded_mode(&self) -> ControlMode {
+        self.checks
+            .iter()
+            .map(|check| check.verdict.mode)
+            .max_by_key(|mode| mode.strictness())
+            .unwrap_or(self.mode)
+    }
 }
 
 /// 报销提交时的预算判定（**只读**，不写 usage）。
@@ -1015,6 +1291,13 @@ pub async fn check_for_expense(
         });
     }
     let over_slots = checks.iter().filter(|check| check.verdict.over).count();
+    // 文案里的策略取「实际参与判定的最严槽级策略」，与单据记账口径（`recorded_mode`）一致：
+    // 全局 WARN + 槽级 BLOCK 时，说「策略 标记并强制审批」会让人误判。
+    let recorded = checks
+        .iter()
+        .map(|check| check.verdict.mode)
+        .max_by_key(|mode| mode.strictness())
+        .unwrap_or(global);
     let reason = if over_slots == 0 {
         format!("{} 个预算槽均在额度内", checks.len())
     } else {
@@ -1026,7 +1309,7 @@ pub async fn check_for_expense(
                 .map(|check| check.verdict.over_amount())
                 .max()
                 .unwrap_or(Decimal::ZERO),
-            global.label()
+            recorded.label()
         )
     };
     Ok(ExpenseBudget {

@@ -451,8 +451,12 @@ pub struct UsageRes {
     pub status: String,
     /// 状态中文。
     pub status_label: String,
-    /// 来源类型。
+    /// 来源类型（`EXPENSE_REPORT` / `PURCHASE_ORDER`，按占用行实际值展示）。
     pub source_type: String,
+    /// 来源类型中文。
+    pub source_type_label: String,
+    /// 来源单据 id。
+    pub source_id: String,
     /// 来源单号。
     pub source_no: String,
     /// 提交时是否超预算。
@@ -465,7 +469,10 @@ pub struct UsageRes {
 
 impl UsageRes {
     /// 从模型行组装。
-    pub fn of(row: &UsageRow, source_type: &str) -> Self {
+    ///
+    /// `source_type` **取自占用行本身**（FIX-2 问题 3：原来写死 `PURCHASE_ORDER`，
+    /// 导致按槽查出来的报销占用被标成采购单）。
+    pub fn of(row: &UsageRow) -> Self {
         Self {
             id: row.id.to_string(),
             period_code: row.period_code.clone(),
@@ -478,11 +485,57 @@ impl UsageRes {
                 _ => "未知",
             }
             .to_string(),
-            source_type: source_type.to_string(),
+            source_type: row.source_type.clone(),
+            source_type_label: source_type_label(&row.source_type).to_string(),
+            source_id: row.source_id.to_string(),
             source_no: row.source_no.clone(),
             over_budget: row.over_budget,
             over_amount: row.over_amount,
             release_reason: row.release_reason.clone(),
+        }
+    }
+}
+
+/// 占用来源的中文名（未知来源原样回显，不吞掉）。
+pub fn source_type_label(source_type: &str) -> &str {
+    match source_type {
+        crate::business::erp::budget_guard::SOURCE_EXPENSE => "费用报销单",
+        crate::business::erp::budget_guard::SOURCE_PURCHASE => "采购订单",
+        other => other,
+    }
+}
+
+/// 「该科目预算尚未生效」提示（出参，报销单 / 采购单详情共用）。
+///
+/// 只提示、不阻断：控制口径仍是「只认本期生效的 ACTIVE 预算」（见 `budget_guard` 模块文档）。
+#[derive(Debug, Clone, Serialize)]
+pub struct BudgetWarningRes {
+    /// 提示码（`BUDGET_NOT_EFFECTIVE`）。
+    pub code: String,
+    /// 预算科目 id。
+    pub account_id: String,
+    /// 预算科目编码。
+    pub account_code: String,
+    /// 预算单号。
+    pub budget_no: String,
+    /// 预算状态（`DRAFT` / `SUBMITTED` / `ACTIVE`）。
+    pub status: String,
+    /// 状态中文。
+    pub status_label: String,
+    /// 一句话说明（前端直接展示）。
+    pub message: String,
+}
+
+impl From<&crate::business::erp::budget_guard::BudgetWarning> for BudgetWarningRes {
+    fn from(warning: &crate::business::erp::budget_guard::BudgetWarning) -> Self {
+        Self {
+            code: warning.code.clone(),
+            account_id: warning.account_id.to_string(),
+            account_code: warning.account_code.clone(),
+            budget_no: warning.budget_no.clone(),
+            status: warning.status.clone(),
+            status_label: warning.status_label.clone(),
+            message: warning.message.clone(),
         }
     }
 }
@@ -518,6 +571,10 @@ pub struct ReportRes {
     pub exec_ratio: Decimal,
     /// 是否超支。
     pub over: bool,
+    /// 生效起始日（`effective_from`，NULL = 历史数据没有生效日）。
+    pub effective_from: Option<chrono::NaiveDate>,
+    /// 报表时点是否已生效（`effective_from <= 本月月末`；与控制的期间月末口径一致）。
+    pub effective: bool,
     /// 分月：期间 / 额度 / 已用。
     pub months: Vec<MonthRes>,
 }
@@ -554,6 +611,8 @@ impl From<&ReportRow> for ReportRes {
             available,
             exec_ratio: row.exec_ratio(),
             over: available < Decimal::ZERO,
+            effective_from: row.effective_from,
+            effective: row.effective,
             months: row
                 .months
                 .iter()

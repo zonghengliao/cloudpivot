@@ -55,6 +55,16 @@
           <t-tag v-if="detail.tier_label" size="small" variant="outline" data-testid="expense-detail-tier">
             {{ detail.tier_label }}
           </t-tag>
+          <!-- FIX-2：提交时实际生效的槽级预算策略（BLOCK 时单独标红，审计一眼能看出被谁管过） -->
+          <t-tag
+            v-if="report.budget_mode"
+            size="small"
+            variant="outline"
+            :theme="report.budget_mode === 'BLOCK' ? 'danger' : report.budget_mode === 'OFF' ? 'default' : 'warning'"
+            data-testid="expense-detail-budget-mode"
+          >
+            预算策略 {{ report.budget_mode }}
+          </t-tag>
         </div>
         <div class="detail__subject" data-testid="expense-detail-title">{{ report.title }}</div>
       </div>
@@ -101,6 +111,19 @@
         class="detail__alert"
         :message="`作废原因：${report.cancel_reason}`"
         data-testid="expense-detail-cancel-reason"
+      />
+
+      <!--
+        FIX-2 ①：预算尚未生效（草稿 / 审批中 / 未到生效日）→ 标黄提示，**不阻断**。
+        口径不变（DRAFT 预算本来就不参与控制），这里只解决「用户不知道预算没生效」。
+      -->
+      <t-alert
+        v-for="warning in detail.budget_warnings"
+        :key="warning.account_id + warning.budget_no"
+        theme="warning"
+        class="detail__alert"
+        data-testid="expense-detail-budget-warning"
+        :message="warning.message"
       />
 
       <p v-if="report.remark" class="drawer-note">备注：{{ report.remark }}</p>
