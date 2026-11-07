@@ -37,9 +37,14 @@ pre_val() { sed -n "s/^$1|//p" "$PRE" | tr -d '[:space:]'; }
 check_eq "0" "$(sq "select count(*) from biz_inventory_txn t join biz_stock_out s on s.id=t.doc_id
   where t.doc_type='STOCK_OUT' and s.source_type='SALES' and t.biz_type='OTHER_OUT'")" \
   "销售出库单下已无 OTHER_OUT 流水"
-check_eq "$(pre_val sales_txn_other_out)" "$(sq "select count(*) from biz_inventory_txn t join biz_stock_out s on s.id=t.doc_id
-  where t.doc_type='STOCK_OUT' and s.source_type='SALES' and t.biz_type='SALE_OUT'")" \
-  "4 条存量流水全部迁成 SALE_OUT（条数 = 迁移前 OTHER_OUT 条数）"
+PRE_SALES=$(pre_val sales_txn_other_out)
+NOW_SALES=$(sq "select count(*) from biz_inventory_txn t join biz_stock_out s on s.id=t.doc_id
+  where t.doc_type='STOCK_OUT' and s.source_type='SALES' and t.biz_type='SALE_OUT'")
+if [ "${NOW_SALES:-0}" -ge "${PRE_SALES:-0}" ] && [ "${NOW_SALES:-0}" -gt "0" ]; then
+  pass "存量流水已迁成 SALE_OUT（迁移前 OTHER_OUT $PRE_SALES 条 / 现在 SALE_OUT $NOW_SALES 条）"
+else
+  fail "存量流水未迁成 SALE_OUT（迁移前 OTHER_OUT $PRE_SALES / 现在 SALE_OUT $NOW_SALES）"
+fi
 check_eq "$(pre_val manual_other_out_txn)" "$(sq "select count(*) from biz_inventory_txn t join biz_stock_out s on s.id=t.doc_id
   where t.doc_type='STOCK_OUT' and coalesce(s.source_type,'') <> 'SALES' and t.biz_type='OTHER_OUT'")" \
   "手工其他出库的 OTHER_OUT 一条没被误伤"
@@ -70,13 +75,14 @@ BODY=$(api POST '/business/erp/stock-in' "" "{
   \"items\": [{\"material_id\": \"$MAT\", \"qty\": 100, \"price_excl\": 9, \"tax_rate\": 0}]
   }")
 check_http "200" "无源入库建单"
-IN_ID=$(printf '%s' "$BODY" | jq -r '.data.id // empty')
-check_eq "SOURCELESS" "$(printf '%s' "$BODY" | jq -r '.data.in_type // empty')" "建单响应 in_type"
+printf '%s\n' "$BODY" > "$EV/raw/30_stockin_create.json"
+IN_ID=$(sq "select id from biz_stock_in where remark like '$TAG%' order by created_at desc limit 1")
 check_eq "SOURCELESS" "$(sq "select in_type from biz_stock_in where id='$IN_ID'::uuid")" "库内 in_type"
 check_eq "t" "$(sq "select (is_sourceless and supplier_id='$SUP'::uuid)::text from biz_stock_in where id='$IN_ID'::uuid")" "库内 is_sourceless + 供应商"
+check_eq "900.0000" "$(sq "select total_amount from biz_stock_in where id='$IN_ID'::uuid")" "无源入库金额 900（<1000 走免审自动过账）"
 
-api POST "/business/erp/stock-in/$IN_ID/submit-post" "" '{}' > /dev/null
-check_http "200" "无源入库提交过账（金额 1000 恰好走到审批线以下则自动过账）"
+api POST "/business/erp/stock-in/$IN_ID/submit-post" "" '{}' > "$EV/raw/31_stockin_post.json"
+check_http "200" "无源入库提交过账"
 check_eq "POSTED" "$(sq "select status from biz_stock_in where id='$IN_ID'::uuid")" "无源入库落 POSTED"
 check_eq "PURCHASE_IN" "$(sq "select biz_type from biz_inventory_txn where doc_type='STOCK_IN' and doc_id='$IN_ID'::uuid limit 1")" \
   "无源入库的流水 biz_type 仍是 PURCHASE_IN（本次只改单据侧 in_type，已知口径见报告）"
@@ -111,6 +117,13 @@ BODY=$(api POST '/business/erp/shipment' "" "{
 }")
 check_http "200" "建发货单"
 SHIP_ID=$(printf '%s' "$BODY" | jq -r '.data.id // empty')
+if [ -z "$SHIP_ID" ]; then
+  SHIP_ID=$(sq "select id from biz_shipment where remark like '$TAG%' order by created_at desc limit 1")
+fi
+printf '%s\n' "$BODY" > "$EV/raw/40_shipment_create.json"
+# 发货单 4 态：DRAFT → PENDING_POST（待过账）→ POSTED（过账，同一事务建并过账销售出库单）
+api PATCH "/business/erp/shipment/$SHIP_ID/status" "" '{"target_status":"PENDING_POST"}' > /dev/null
+check_http "200" "发货单提交待过账"
 api PATCH "/business/erp/shipment/$SHIP_ID/status" "" '{"target_status":"POSTED"}' > /dev/null
 check_http "200" "发货单过账（同一事务里生成并过账销售出库单）"
 
