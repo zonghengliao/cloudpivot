@@ -1,0 +1,628 @@
+{
+  "steps": [
+    "  ✓ admin 首登强制改密 200",
+    "  ✓ 管理员登录成功",
+    "\n=== 准备：两个部门 + 两个申请人（DEPT_LEADER）+ 预算夹具 ===",
+    "  ✓ 两个申请人各自登录成功（非 admin，避免自审批）",
+    "  ✓ 预算夹具就位：部门B 1405 科目 2026 年度 1000 元（ACTIVE）",
+    "\n=== ① 部门 A 申请 100 个物料 X ===",
+    "  ✓ 建申请 200：{\"code\": 0, \"msg\": \"ok\", \"data\": {\"requisition\": {\"id\": \"01a1b812-1bfb-724a-acb9-491318864c85\", \"req_no\": \"PRQ-20261108-000001\", \"req_date\": \"2026-11-08\", \"dept_id\": \"01a1b812-16c7-7035-ad81-a2ff33a67",
+    "  ✓ A 初始 DRAFT（实得 DRAFT）",
+    "  ✓ A 申请部门 = P202 需求部A",
+    "  ✓ A 部门名快照落库",
+    "  ✓ A 预估金额 100×10 = 1000.0000",
+    "  ✓ A 明细单位由物料带出（客户端没传 unit_id）",
+    "  ✓ A 含税单价服务端算 10×1.13 = 11.300000",
+    "\n=== ② 部门 B 申请 50 个物料 X ===",
+    "  ✓ 建申请 200：{\"code\": 0, \"msg\": \"ok\", \"data\": {\"requisition\": {\"id\": \"01a1b812-1c06-7786-b8f2-1ee7d0a22444\", \"req_no\": \"PRQ-20261108-000002\", \"req_date\": \"2026-11-08\", \"dept_id\": \"01a1b812-16cb-7181-a491-17073e960",
+    "  ✓ B 预估金额 50×10 = 500.0000",
+    "\n=== ③ 两张申请都提交审批（走 pr_approve 流程；B 超预算 → 加财务经理） ===",
+    "  ✓ A 提交审批 200",
+    "  ✓ A 状态 SUBMITTED（实得 SUBMITTED）",
+    "  ✓ A 回写了审批实例 id",
+    "  ✓ A 无预算科目 → 不超预算（budget_checked=false）",
+    "  ✓ B 提交审批 200",
+    "  ✓ B 状态 SUBMITTED（实得 SUBMITTED）",
+    "  ✓ B 超预算被标出（over_amount=500.0000）",
+    "  ✓ 重复提交 A → 409/66049（实得 409/66049）",
+    "\n=== ④ 审批：A 一票通过；B 采购经理 → 财务经理（超预算特殊审批） ===",
+    "  ✓ A 只有 1 条待办（实得 1）['PRQ-20261108-000002 采购申请审批', 'PRQ-20261108-000001 采购申请审批']",
+    "  ✓ B 首节点只有 1 条待办（实得 1）",
+    "  ✓ A 审批通过 200",
+    "  ✓ B 采购经理审批通过 200",
+    "  ✓ B 超预算 → 出现财务经理待办（实得 1）",
+    "  ✓ B 财务经理审批通过 200",
+    "  ✓ A 审批后 APPROVED（实得 APPROVED）",
+    "  ✓ B 审批后 APPROVED（实得 APPROVED）",
+    "\n=== ⑤ 合并转一张采购订单（150 个物料 X） ===",
+    "  ✓ 合并转单 200：{\"code\": 0, \"msg\": \"ok\", \"data\": {\"purchase_order\": {\"po_id\": \"01a1b812-1cbc-72ef-b7b4-bce74c5c5a9c\", \"po_no\": \"PO-20261108-000001\", \"supplier_id\": \"01a1b812-16a7-70a5-a1ad-5601af5ba1ac\", \"supplier_name\": \"P202 甲供应商\", \"line_count\": 1, \"total_with_tax\": \"1695.0000\"}, \"requisition_nos\": [\"PRQ-20261108",
+    "  ✓ 合并 2 张申请单（实得 2）",
+    "  ✓ 同物料并成 1 行（实得 1）",
+    "  ✓ 合并数量 100+50 = 150.0000",
+    "  ✓ 加权单价 = 10.000000",
+    "  ✓ 合并行标注了两张来源申请单",
+    "  ✓ 采购订单 1 行（实得 1）",
+    "  ✓ 价税合计 1500×1.13 = 1695.0000",
+    "\n=== ⑥ 两张申请单状态 = 已转单，指向同一个 PO ===",
+    "  ✓ 两张都 CONVERTED（A=CONVERTED B=CONVERTED）",
+    "  ✓ 两张指向同一个 PO（PO-20261108-000001）",
+    "  ✓ PO 号回写到申请单",
+    "  ✓ 明细回写了「并进采购单的哪一行」（同物料同一行）",
+    "\n=== ⑦ 反证：重复转单 / 未审批转单 / 自审批 ===",
+    "  ✓ 重复转单 → 409/66049（实得 409/66049）",
+    "  ✓ 建申请 200：{\"code\": 0, \"msg\": \"ok\", \"data\": {\"requisition\": {\"id\": \"01a1b812-1cd9-7361-a20e-c4135e52bac0\", \"req_no\": \"PRQ-20261108-000003\", \"req_date\": \"2026-11-08\", \"dept_id\": \"01a1b812-16c7-7035-ad81-a2ff33a67",
+    "  ✓ DRAFT 转单 → 409/66049（实得 409/66049）",
+    "  ✓ 建申请 200：{\"code\": 0, \"msg\": \"ok\", \"data\": {\"requisition\": {\"id\": \"01a1b812-1ce6-724e-8731-5c50aebdaf4e\", \"req_no\": \"PRQ-20261108-000004\", \"req_date\": \"2026-11-08\", \"dept_id\": \"01a1b812-16c7-7035-ad81-a2ff33a67",
+    "  ✓ 9% 申请提交成功 200",
+    "  ✓ 草稿 C 提交成功 200",
+    "  ✓ 同物料税率不一致合并 → 409/66050（实得 409/66050）：物料 d1370003-0000-4000-8000-000000000001 在各申请单上的税率不一致（9.0000% / 13.0000%）：请先把税率改成",
+    "  ✓ A 仍是 CONVERTED（反证未污染）"
+  ],
+  "fails": [],
+  "raw": [
+    {
+      "name": "create_a",
+      "payload": {
+        "requisition": {
+          "id": "01a1b812-1bfb-724a-acb9-491318864c85",
+          "req_no": "PRQ-20261108-000001",
+          "req_date": "2026-11-08",
+          "dept_id": "01a1b812-16c7-7035-ad81-a2ff33a671d3",
+          "dept_name": "P202 需求部A",
+          "applicant_id": "01a1b812-16d0-7436-ac66-3274111dd0e5",
+          "applicant_name": "P202 申请人A",
+          "demand_date": "2026-12-20",
+          "warehouse_id": "d1370001-0000-4000-8000-000000000001",
+          "warehouse_name": "总仓（种子）",
+          "status": "DRAFT",
+          "status_label": "草稿",
+          "est_amount": "1000.0000",
+          "item_count": 1,
+          "over_budget": false,
+          "over_amount": "0.0000",
+          "budget_reason": null,
+          "budget_checked": false,
+          "approval_instance_id": null,
+          "po_id": null,
+          "po_no": null,
+          "converted_at": null,
+          "remark": "P2-02 验收：部门A 100 个",
+          "created_at": "2026-11-07T22:12:36.985959+00:00"
+        },
+        "items": [
+          {
+            "id": "01a1b812-1bfc-7186-8adf-6e5b2a9e1ae6",
+            "line_no": 1,
+            "material_id": "d1370003-0000-4000-8000-000000000001",
+            "material_code": "M-W1A-001",
+            "material_name": "原料A（种子）",
+            "unit_id": "d1370000-0000-4000-8000-000000000002",
+            "unit_name": "千克",
+            "qty": "100.0000",
+            "est_price": "10.000000",
+            "est_price_incl": "11.300000",
+            "tax_rate": "13.0000",
+            "amount": "1000.0000",
+            "demand_date": "2026-12-20",
+            "suggest_supplier_id": "01a1b812-16a7-70a5-a1ad-5601af5ba1ac",
+            "suggest_supplier_name": "P202 甲供应商",
+            "po_item_id": null,
+            "remark": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "create_b",
+      "payload": {
+        "requisition": {
+          "id": "01a1b812-1c06-7786-b8f2-1ee7d0a22444",
+          "req_no": "PRQ-20261108-000002",
+          "req_date": "2026-11-08",
+          "dept_id": "01a1b812-16cb-7181-a491-17073e9602bb",
+          "dept_name": "P202 需求部B",
+          "applicant_id": "01a1b812-1809-70d1-9b96-04226b69b63b",
+          "applicant_name": "P202 申请人B",
+          "demand_date": "2026-12-10",
+          "warehouse_id": "d1370001-0000-4000-8000-000000000001",
+          "warehouse_name": "总仓（种子）",
+          "status": "DRAFT",
+          "status_label": "草稿",
+          "est_amount": "500.0000",
+          "item_count": 1,
+          "over_budget": false,
+          "over_amount": "0.0000",
+          "budget_reason": null,
+          "budget_checked": false,
+          "approval_instance_id": null,
+          "po_id": null,
+          "po_no": null,
+          "converted_at": null,
+          "remark": "P2-02 验收：部门B 50 个",
+          "created_at": "2026-11-07T22:12:36.997933+00:00"
+        },
+        "items": [
+          {
+            "id": "01a1b812-1c07-72b1-acd2-03eebddfee2c",
+            "line_no": 1,
+            "material_id": "d1370003-0000-4000-8000-000000000001",
+            "material_code": "M-W1A-001",
+            "material_name": "原料A（种子）",
+            "unit_id": "d1370000-0000-4000-8000-000000000002",
+            "unit_name": "千克",
+            "qty": "50.0000",
+            "est_price": "10.000000",
+            "est_price_incl": "11.300000",
+            "tax_rate": "13.0000",
+            "amount": "500.0000",
+            "demand_date": "2026-12-10",
+            "suggest_supplier_id": "01a1b812-16a7-70a5-a1ad-5601af5ba1ac",
+            "suggest_supplier_name": "P202 甲供应商",
+            "po_item_id": null,
+            "remark": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "submit_b",
+      "payload": {
+        "code": 0,
+        "msg": "ok",
+        "data": {
+          "requisition": {
+            "id": "01a1b812-1c06-7786-b8f2-1ee7d0a22444",
+            "req_no": "PRQ-20261108-000002",
+            "req_date": "2026-11-08",
+            "dept_id": "01a1b812-16cb-7181-a491-17073e9602bb",
+            "dept_name": "P202 需求部B",
+            "applicant_id": "01a1b812-1809-70d1-9b96-04226b69b63b",
+            "applicant_name": "P202 申请人B",
+            "demand_date": "2026-12-10",
+            "warehouse_id": "d1370001-0000-4000-8000-000000000001",
+            "warehouse_name": "总仓（种子）",
+            "status": "SUBMITTED",
+            "status_label": "审批中",
+            "est_amount": "500.0000",
+            "item_count": 1,
+            "over_budget": true,
+            "over_amount": "500.0000",
+            "budget_reason": "超出预算（超支 500.0000）：本次 500.0000 ｜ 年度 额度 1000.0000 / 已用 0 / 可用 1000.0000 ｜ 月度 额度 0 / 已用 0 / 可用 0 ｜ 策略 WARN（标记并强制审批）",
+            "budget_checked": true,
+            "approval_instance_id": "01a1b812-1c2a-721e-a1ba-8688bf4784c0",
+            "po_id": null,
+            "po_no": null,
+            "converted_at": null,
+            "remark": "P2-02 验收：部门B 50 个\nP2-02 验收：B 提交（超预算）",
+            "created_at": "2026-11-07T22:12:36.997933+00:00"
+          },
+          "items": [
+            {
+              "id": "01a1b812-1c07-72b1-acd2-03eebddfee2c",
+              "line_no": 1,
+              "material_id": "d1370003-0000-4000-8000-000000000001",
+              "material_code": "M-W1A-001",
+              "material_name": "原料A（种子）",
+              "unit_id": "d1370000-0000-4000-8000-000000000002",
+              "unit_name": "千克",
+              "qty": "50.0000",
+              "est_price": "10.000000",
+              "est_price_incl": "11.300000",
+              "tax_rate": "13.0000",
+              "amount": "500.0000",
+              "demand_date": "2026-12-10",
+              "suggest_supplier_id": "01a1b812-16a7-70a5-a1ad-5601af5ba1ac",
+              "suggest_supplier_name": "P202 甲供应商",
+              "po_item_id": null,
+              "remark": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "todos_after_submit",
+      "payload": [
+        {
+          "id": "01a1b812-1c30-765a-80c2-ac76a3087e0e",
+          "instance_id": "01a1b812-1c2a-721e-a1ba-8688bf4784c0",
+          "instance_no": "FLW-20261107-3762D49E",
+          "title": "PRQ-20261108-000002 采购申请审批",
+          "flow_name": "采购申请审批（标准·超预算加签）",
+          "initiator_name": "P202 申请人B",
+          "current_node_name": "采购经理审批",
+          "arrived_at": "2026-11-07T22:12:37.034611Z",
+          "node_key": "n_pm",
+          "round": 1,
+          "task_kind": "APPROVAL",
+          "assignee_id": "01a1b812-0a6d-7081-8e4b-93652df5025c",
+          "assignee_name": "超级管理员",
+          "assignee_source": "ADMIN",
+          "status": "PENDING",
+          "instance_status": "PENDING",
+          "form_data": {
+            "applicant_name": "P202 申请人B",
+            "budget_reason": "超出预算（超支 500.0000）：本次 500.0000 ｜ 年度 额度 1000.0000 / 已用 0 / 可用 1000.0000 ｜ 月度 额度 0 / 已用 0 / 可用 0 ｜ 策略 WARN（标记并强制审批）",
+            "demand_date": "2026-12-10",
+            "dept_name": "P202 需求部B",
+            "est_amount": 500.0,
+            "items": [
+              {
+                "amount": "500.0000",
+                "est_price": "10.000000",
+                "line_no": 1,
+                "material_code": "M-W1A-001",
+                "material_id": "d1370003-0000-4000-8000-000000000001",
+                "material_name": "原料A（种子）",
+                "qty": "50.0000",
+                "unit_name": "千克"
+              }
+            ],
+            "over_budget": true,
+            "over_budget_amount": 500.0,
+            "req_date": "2026-11-08",
+            "req_no": "PRQ-20261108-000002",
+            "warehouse_name": "总仓（种子）"
+          },
+          "is_added_sign": false,
+          "is_self_approval": false,
+          "is_auto": false,
+          "comment": "",
+          "transferred_from": "",
+          "created_at": "2026-11-07T22:12:37.034611Z",
+          "completed_at": null
+        },
+        {
+          "id": "01a1b812-1c19-75fd-a50a-41c39aa9be40",
+          "instance_id": "01a1b812-1c12-72aa-99f2-484dce3f6ef2",
+          "instance_no": "FLW-20261107-98A5D9C2",
+          "title": "PRQ-20261108-000001 采购申请审批",
+          "flow_name": "采购申请审批（标准·超预算加签）",
+          "initiator_name": "P202 申请人A",
+          "current_node_name": "采购经理审批",
+          "arrived_at": "2026-11-07T22:12:37.010250Z",
+          "node_key": "n_pm",
+          "round": 1,
+          "task_kind": "APPROVAL",
+          "assignee_id": "01a1b812-0a6d-7081-8e4b-93652df5025c",
+          "assignee_name": "超级管理员",
+          "assignee_source": "ADMIN",
+          "status": "PENDING",
+          "instance_status": "PENDING",
+          "form_data": {
+            "applicant_name": "P202 申请人A",
+            "budget_reason": "申请未匹配到预算科目（部门 01a1b812-16c7-7035-ad81-a2ff33a671d3 / 仓库 d1370001-0000-4000-8000-000000000001）：本单不计入预算；请管理员在「预算科目映射」里配置（物料 / 物料类型 / 仓库 / 默认兜底）",
+            "demand_date": "2026-12-20",
+            "dept_name": "P202 需求部A",
+            "est_amount": 1000.0,
+            "items": [
+              {
+                "amount": "1000.0000",
+                "est_price": "10.000000",
+                "line_no": 1,
+                "material_code": "M-W1A-001",
+                "material_id": "d1370003-0000-4000-8000-000000000001",
+                "material_name": "原料A（种子）",
+                "qty": "100.0000",
+                "unit_name": "千克"
+              }
+            ],
+            "over_budget": false,
+            "over_budget_amount": 0.0,
+            "req_date": "2026-11-08",
+            "req_no": "PRQ-20261108-000001",
+            "warehouse_name": "总仓（种子）"
+          },
+          "is_added_sign": false,
+          "is_self_approval": false,
+          "is_auto": false,
+          "comment": "",
+          "transferred_from": "",
+          "created_at": "2026-11-07T22:12:37.010250Z",
+          "completed_at": null
+        }
+      ]
+    },
+    {
+      "name": "todos_after_first_approve",
+      "payload": [
+        {
+          "id": "01a1b812-1c77-73c6-82a4-f31e16bbd0d8",
+          "instance_id": "01a1b812-1c2a-721e-a1ba-8688bf4784c0",
+          "instance_no": "FLW-20261107-3762D49E",
+          "title": "PRQ-20261108-000002 采购申请审批",
+          "flow_name": "采购申请审批（标准·超预算加签）",
+          "initiator_name": "P202 申请人B",
+          "current_node_name": "财务经理审批（超预算特殊审批）",
+          "arrived_at": "2026-11-07T22:12:37.103124Z",
+          "node_key": "n_fin",
+          "round": 1,
+          "task_kind": "APPROVAL",
+          "assignee_id": "01a1b812-0a6d-7081-8e4b-93652df5025c",
+          "assignee_name": "超级管理员",
+          "assignee_source": "ADMIN",
+          "status": "PENDING",
+          "instance_status": "PENDING",
+          "form_data": {
+            "applicant_name": "P202 申请人B",
+            "budget_reason": "超出预算（超支 500.0000）：本次 500.0000 ｜ 年度 额度 1000.0000 / 已用 0 / 可用 1000.0000 ｜ 月度 额度 0 / 已用 0 / 可用 0 ｜ 策略 WARN（标记并强制审批）",
+            "demand_date": "2026-12-10",
+            "dept_name": "P202 需求部B",
+            "est_amount": 500.0,
+            "items": [
+              {
+                "amount": "500.0000",
+                "est_price": "10.000000",
+                "line_no": 1,
+                "material_code": "M-W1A-001",
+                "material_id": "d1370003-0000-4000-8000-000000000001",
+                "material_name": "原料A（种子）",
+                "qty": "50.0000",
+                "unit_name": "千克"
+              }
+            ],
+            "over_budget": true,
+            "over_budget_amount": 500.0,
+            "req_date": "2026-11-08",
+            "req_no": "PRQ-20261108-000002",
+            "warehouse_name": "总仓（种子）"
+          },
+          "is_added_sign": false,
+          "is_self_approval": false,
+          "is_auto": false,
+          "comment": "",
+          "transferred_from": "",
+          "created_at": "2026-11-07T22:12:37.103124Z",
+          "completed_at": null
+        }
+      ]
+    },
+    {
+      "name": "detail_a_after_approve",
+      "payload": {
+        "requisition": {
+          "id": "01a1b812-1bfb-724a-acb9-491318864c85",
+          "req_no": "PRQ-20261108-000001",
+          "req_date": "2026-11-08",
+          "dept_id": "01a1b812-16c7-7035-ad81-a2ff33a671d3",
+          "dept_name": "P202 需求部A",
+          "applicant_id": "01a1b812-16d0-7436-ac66-3274111dd0e5",
+          "applicant_name": "P202 申请人A",
+          "demand_date": "2026-12-20",
+          "warehouse_id": "d1370001-0000-4000-8000-000000000001",
+          "warehouse_name": "总仓（种子）",
+          "status": "APPROVED",
+          "status_label": "已审批",
+          "est_amount": "1000.0000",
+          "item_count": 1,
+          "over_budget": false,
+          "over_amount": "0.0000",
+          "budget_reason": "申请未匹配到预算科目（部门 01a1b812-16c7-7035-ad81-a2ff33a671d3 / 仓库 d1370001-0000-4000-8000-000000000001）：本单不计入预算；请管理员在「预算科目映射」里配置（物料 / 物料类型 / 仓库 / 默认兜底）",
+          "budget_checked": false,
+          "approval_instance_id": "01a1b812-1c12-72aa-99f2-484dce3f6ef2",
+          "po_id": null,
+          "po_no": null,
+          "converted_at": null,
+          "remark": "P2-02 验收：部门A 100 个\nP2-02 验收：A 提交\n采购申请审批通过",
+          "created_at": "2026-11-07T22:12:36.985959+00:00"
+        },
+        "items": [
+          {
+            "id": "01a1b812-1bfc-7186-8adf-6e5b2a9e1ae6",
+            "line_no": 1,
+            "material_id": "d1370003-0000-4000-8000-000000000001",
+            "material_code": "M-W1A-001",
+            "material_name": "原料A（种子）",
+            "unit_id": "d1370000-0000-4000-8000-000000000002",
+            "unit_name": "千克",
+            "qty": "100.0000",
+            "est_price": "10.000000",
+            "est_price_incl": "11.300000",
+            "tax_rate": "13.0000",
+            "amount": "1000.0000",
+            "demand_date": "2026-12-20",
+            "suggest_supplier_id": "01a1b812-16a7-70a5-a1ad-5601af5ba1ac",
+            "suggest_supplier_name": "P202 甲供应商",
+            "po_item_id": null,
+            "remark": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "detail_b_after_approve",
+      "payload": {
+        "requisition": {
+          "id": "01a1b812-1c06-7786-b8f2-1ee7d0a22444",
+          "req_no": "PRQ-20261108-000002",
+          "req_date": "2026-11-08",
+          "dept_id": "01a1b812-16cb-7181-a491-17073e9602bb",
+          "dept_name": "P202 需求部B",
+          "applicant_id": "01a1b812-1809-70d1-9b96-04226b69b63b",
+          "applicant_name": "P202 申请人B",
+          "demand_date": "2026-12-10",
+          "warehouse_id": "d1370001-0000-4000-8000-000000000001",
+          "warehouse_name": "总仓（种子）",
+          "status": "APPROVED",
+          "status_label": "已审批",
+          "est_amount": "500.0000",
+          "item_count": 1,
+          "over_budget": true,
+          "over_amount": "500.0000",
+          "budget_reason": "超出预算（超支 500.0000）：本次 500.0000 ｜ 年度 额度 1000.0000 / 已用 0 / 可用 1000.0000 ｜ 月度 额度 0 / 已用 0 / 可用 0 ｜ 策略 WARN（标记并强制审批）",
+          "budget_checked": true,
+          "approval_instance_id": "01a1b812-1c2a-721e-a1ba-8688bf4784c0",
+          "po_id": null,
+          "po_no": null,
+          "converted_at": null,
+          "remark": "P2-02 验收：部门B 50 个\nP2-02 验收：B 提交（超预算）\n采购申请审批通过",
+          "created_at": "2026-11-07T22:12:36.997933+00:00"
+        },
+        "items": [
+          {
+            "id": "01a1b812-1c07-72b1-acd2-03eebddfee2c",
+            "line_no": 1,
+            "material_id": "d1370003-0000-4000-8000-000000000001",
+            "material_code": "M-W1A-001",
+            "material_name": "原料A（种子）",
+            "unit_id": "d1370000-0000-4000-8000-000000000002",
+            "unit_name": "千克",
+            "qty": "50.0000",
+            "est_price": "10.000000",
+            "est_price_incl": "11.300000",
+            "tax_rate": "13.0000",
+            "amount": "500.0000",
+            "demand_date": "2026-12-10",
+            "suggest_supplier_id": "01a1b812-16a7-70a5-a1ad-5601af5ba1ac",
+            "suggest_supplier_name": "P202 甲供应商",
+            "po_item_id": null,
+            "remark": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "to_po",
+      "payload": {
+        "purchase_order": {
+          "po_id": "01a1b812-1cbc-72ef-b7b4-bce74c5c5a9c",
+          "po_no": "PO-20261108-000001",
+          "supplier_id": "01a1b812-16a7-70a5-a1ad-5601af5ba1ac",
+          "supplier_name": "P202 甲供应商",
+          "line_count": 1,
+          "total_with_tax": "1695.0000"
+        },
+        "requisition_nos": [
+          "PRQ-20261108-000001",
+          "PRQ-20261108-000002"
+        ],
+        "lines": [
+          {
+            "line_no": 1,
+            "material_id": "d1370003-0000-4000-8000-000000000001",
+            "material_code": "",
+            "material_name": "",
+            "qty": "150.0000",
+            "est_price": "10.000000",
+            "tax_rate": "13.0000",
+            "demand_date": "2026-12-10",
+            "source_req_nos": [
+              "PRQ-20261108-000001",
+              "PRQ-20261108-000002"
+            ],
+            "source_item_ids": [
+              "01a1b812-1bfc-7186-8adf-6e5b2a9e1ae6",
+              "01a1b812-1c07-72b1-acd2-03eebddfee2c"
+            ],
+            "po_item_id": "01a1b812-1cbd-774f-a364-03c6e0caaec8"
+          }
+        ],
+        "merged_count": 2
+      }
+    },
+    {
+      "name": "detail_a_after_to_po",
+      "payload": {
+        "requisition": {
+          "id": "01a1b812-1bfb-724a-acb9-491318864c85",
+          "req_no": "PRQ-20261108-000001",
+          "req_date": "2026-11-08",
+          "dept_id": "01a1b812-16c7-7035-ad81-a2ff33a671d3",
+          "dept_name": "P202 需求部A",
+          "applicant_id": "01a1b812-16d0-7436-ac66-3274111dd0e5",
+          "applicant_name": "P202 申请人A",
+          "demand_date": "2026-12-20",
+          "warehouse_id": "d1370001-0000-4000-8000-000000000001",
+          "warehouse_name": "总仓（种子）",
+          "status": "CONVERTED",
+          "status_label": "已转单",
+          "est_amount": "1000.0000",
+          "item_count": 1,
+          "over_budget": false,
+          "over_amount": "0.0000",
+          "budget_reason": "申请未匹配到预算科目（部门 01a1b812-16c7-7035-ad81-a2ff33a671d3 / 仓库 d1370001-0000-4000-8000-000000000001）：本单不计入预算；请管理员在「预算科目映射」里配置（物料 / 物料类型 / 仓库 / 默认兜底）",
+          "budget_checked": false,
+          "approval_instance_id": "01a1b812-1c12-72aa-99f2-484dce3f6ef2",
+          "po_id": "01a1b812-1cbc-72ef-b7b4-bce74c5c5a9c",
+          "po_no": "PO-20261108-000001",
+          "converted_at": "2026-11-07T22:12:37.169172+00:00",
+          "remark": "P2-02 验收：部门A 100 个\nP2-02 验收：A 提交\n采购申请审批通过",
+          "created_at": "2026-11-07T22:12:36.985959+00:00"
+        },
+        "items": [
+          {
+            "id": "01a1b812-1bfc-7186-8adf-6e5b2a9e1ae6",
+            "line_no": 1,
+            "material_id": "d1370003-0000-4000-8000-000000000001",
+            "material_code": "M-W1A-001",
+            "material_name": "原料A（种子）",
+            "unit_id": "d1370000-0000-4000-8000-000000000002",
+            "unit_name": "千克",
+            "qty": "100.0000",
+            "est_price": "10.000000",
+            "est_price_incl": "11.300000",
+            "tax_rate": "13.0000",
+            "amount": "1000.0000",
+            "demand_date": "2026-12-20",
+            "suggest_supplier_id": "01a1b812-16a7-70a5-a1ad-5601af5ba1ac",
+            "suggest_supplier_name": "P202 甲供应商",
+            "po_item_id": "01a1b812-1cbd-774f-a364-03c6e0caaec8",
+            "remark": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "detail_b_after_to_po",
+      "payload": {
+        "requisition": {
+          "id": "01a1b812-1c06-7786-b8f2-1ee7d0a22444",
+          "req_no": "PRQ-20261108-000002",
+          "req_date": "2026-11-08",
+          "dept_id": "01a1b812-16cb-7181-a491-17073e9602bb",
+          "dept_name": "P202 需求部B",
+          "applicant_id": "01a1b812-1809-70d1-9b96-04226b69b63b",
+          "applicant_name": "P202 申请人B",
+          "demand_date": "2026-12-10",
+          "warehouse_id": "d1370001-0000-4000-8000-000000000001",
+          "warehouse_name": "总仓（种子）",
+          "status": "CONVERTED",
+          "status_label": "已转单",
+          "est_amount": "500.0000",
+          "item_count": 1,
+          "over_budget": true,
+          "over_amount": "500.0000",
+          "budget_reason": "超出预算（超支 500.0000）：本次 500.0000 ｜ 年度 额度 1000.0000 / 已用 0 / 可用 1000.0000 ｜ 月度 额度 0 / 已用 0 / 可用 0 ｜ 策略 WARN（标记并强制审批）",
+          "budget_checked": true,
+          "approval_instance_id": "01a1b812-1c2a-721e-a1ba-8688bf4784c0",
+          "po_id": "01a1b812-1cbc-72ef-b7b4-bce74c5c5a9c",
+          "po_no": "PO-20261108-000001",
+          "converted_at": "2026-11-07T22:12:37.169172+00:00",
+          "remark": "P2-02 验收：部门B 50 个\nP2-02 验收：B 提交（超预算）\n采购申请审批通过",
+          "created_at": "2026-11-07T22:12:36.997933+00:00"
+        },
+        "items": [
+          {
+            "id": "01a1b812-1c07-72b1-acd2-03eebddfee2c",
+            "line_no": 1,
+            "material_id": "d1370003-0000-4000-8000-000000000001",
+            "material_code": "M-W1A-001",
+            "material_name": "原料A（种子）",
+            "unit_id": "d1370000-0000-4000-8000-000000000002",
+            "unit_name": "千克",
+            "qty": "50.0000",
+            "est_price": "10.000000",
+            "est_price_incl": "11.300000",
+            "tax_rate": "13.0000",
+            "amount": "500.0000",
+            "demand_date": "2026-12-10",
+            "suggest_supplier_id": "01a1b812-16a7-70a5-a1ad-5601af5ba1ac",
+            "suggest_supplier_name": "P202 甲供应商",
+            "po_item_id": "01a1b812-1cbd-774f-a364-03c6e0caaec8",
+            "remark": null
+          }
+        ]
+      }
+    }
+  ]
+}

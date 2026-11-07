@@ -1433,6 +1433,28 @@ pub const ERP_ASSET_DEPRECIATION_PENDING: i32 = 66048;
 /// 错误码不是权限码，加号不需要迁移。
 pub const ERP_PRICE_INQUIRY_AWARD_GUARD: i32 = 66047;
 
+// ---------- P2-02 采购申请（需求申请 → 审批 → 转采购订单） ----------
+
+/// 采购申请的状态不允许本次动作（HTTP 409）：
+/// ① 提交审批时不是 DRAFT（已在审批中 / 已通过 / 已转单）；
+/// ② 转单时不是 APPROVED，或已经转过（`po_id` 非空）；
+/// ③ 状态 CAS 回写 0 行（锁后状态仍被改，说明有别的写入路径）。
+///
+/// **不复用** `RESOURCE_CONFLICT`（通用 409）：前端要能一眼看出「这张申请单的
+/// 状态不适合这个动作」，并直接把用户引到「看审批中心 / 看已转的 PO」。
+/// 错误码不是权限码，加号不需要迁移。
+pub const ERP_REQUISITION_STATUS_GUARD: i32 = 66049;
+
+/// 合并转采购订单被合并规则挡住（HTTP 409）：
+/// ① 同物料在多张申请单上的税率不一致；
+/// ② 各申请单的建议供应商不一致（合并单只能是同一个供应商）；
+/// ③ 一张单都没填建议供应商（必须显式指定）；
+/// ④ 各申请单的收货仓库不一致（必须显式指定）。
+///
+/// **不复用** [`ERP_REQUISITION_STATUS_GUARD`]：单据状态是对的，是**合并口径**谈不拢，
+/// 用户要做的动作是「回申请单改税率 / 补供应商 / 指定仓库」，与状态问题完全不同。
+pub const ERP_REQUISITION_MERGE_MISMATCH: i32 = 66050;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1507,6 +1529,9 @@ mod tests {
             (ERP_ASSET_DEPRECIATION_PENDING, 66048),
             // P2-01 询比价定标闸（66047；单源例外 / 报价不匹配 / 状态不允许定标）
             (ERP_PRICE_INQUIRY_AWARD_GUARD, 66047),
+            // P2-02 采购申请（66049–66050；状态闸与合并口径分离，前端文案不同）
+            (ERP_REQUISITION_STATUS_GUARD, 66049),
+            (ERP_REQUISITION_MERGE_MISMATCH, 66050),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");

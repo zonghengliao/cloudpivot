@@ -1,0 +1,99 @@
+Pager usage is off.
+=== A 表结构 / 索引 / 约束在位 ===
+ tables_expect_2 | indexes_expect_4 | checks_expect_6 
+-----------------+------------------+-----------------
+               2 |                4 |               6
+(1 row)
+
+=== B 验收 4/5：两张申请单都 CONVERTED、指向同一 PO，PO 只有一行 150 ===
+       req_no        |  status   |       po_no        |                po_id                 | est_amount | req_qty  | est_price |              po_item_id              
+---------------------+-----------+--------------------+--------------------------------------+------------+----------+-----------+--------------------------------------
+ PRQ-20261108-000001 | CONVERTED | PO-20261108-000001 | 01a1b812-1cbc-72ef-b7b4-bce74c5c5a9c |  1000.0000 | 100.0000 | 10.000000 | 01a1b812-1cbd-774f-a364-03c6e0caaec8
+ PRQ-20261108-000002 | CONVERTED | PO-20261108-000001 | 01a1b812-1cbc-72ef-b7b4-bce74c5c5a9c |   500.0000 |  50.0000 | 10.000000 | 01a1b812-1cbd-774f-a364-03c6e0caaec8
+(2 rows)
+
+ distinct_po | converted_rows 
+-------------+----------------
+           1 |              2
+(1 row)
+
+=== C 采购订单：一行 150 / 单价 10 / 税率 13 / 价税合计 1695 ===
+      order_no      | status | total_amount | total_tax | total_with_tax | lines | qty_sum  | price_min | price_max | tax_min | tax_max 
+--------------------+--------+--------------+-----------+----------------+-------+----------+-----------+-----------+---------+---------
+ PO-20261108-000001 | DRAFT  |    1500.0000 |  195.0000 |      1695.0000 |     1 | 150.0000 | 10.000000 | 10.000000 | 13.0000 | 13.0000
+(1 row)
+
+=== D 合并对应关系：两条申请明细都指向采购单的同一条明细 ===
+ req_items | distinct_po_items | all_match_po_line 
+-----------+-------------------+-------------------
+         2 |                 1 | t
+(1 row)
+
+=== E 审批流：PR_APPROVE 两个实例；超预算那张走了 2 个节点 ===
+       req_no        | over_budget |      instance_no      | instance_status |  biz_type  | task_count |    nodes     
+---------------------+-------------+-----------------------+-----------------+------------+------------+--------------
+ PRQ-20261108-000001 | f           | FLW-20261107-98A5D9C2 | APPROVED        | PR_APPROVE |          1 | n_pm
+ PRQ-20261108-000002 | t           | FLW-20261107-3762D49E | APPROVED        | PR_APPROVE |          2 | n_pm → n_fin
+(2 rows)
+
+=== F 超预算快照落库（B 单）：over_budget / over_amount / budget 科目与期间 ===
+       req_no        | budget_checked | over_budget | over_amount | budget_period_code | has_account |                       reason_head                        
+---------------------+----------------+-------------+-------------+--------------------+-------------+----------------------------------------------------------
+ PRQ-20261108-000001 | f              | f           |      0.0000 |                    | f           | 申请未匹配到预算科目（部门 01a1b812-16c7-7035-ad81-a2
+ PRQ-20261108-000002 | t              | t           |    500.0000 | 2026-11            | t           | 超出预算（超支 500.0000）：本次 500.0000 ｜ 年度 额度 10
+(2 rows)
+
+=== G 权限码 / 菜单 / 角色授权 ===
+ menu_type |                auth_code                 |                path                |              parent_id               
+-----------+------------------------------------------+------------------------------------+--------------------------------------
+         3 | business:erp:purchase-requisition:create |                                    | 20000000-0000-0000-0000-000000003331
+         2 | business:erp:purchase-requisition:list   | /business/erp/purchase-requisition | 20000000-0000-0000-0000-000000000946
+         3 | business:erp:purchase-requisition:submit |                                    | 20000000-0000-0000-0000-000000003331
+         3 | business:erp:purchase-requisition:to-po  |                                    | 20000000-0000-0000-0000-000000003331
+(4 rows)
+
+    role_code     | granted 
+------------------+---------
+ DEPT_LEADER      |       3
+ FINANCE_MANAGER  |       1
+ PURCHASE_MANAGER |       4
+(3 rows)
+
+=== H 流程种子：pr_approve（PUBLISHED / 默认 / 5 节点 5 边 / 条件边） ===
+ flow_code  |  biz_type  |  status   | is_default | current_version_no |                            graph_hash                            | node_count | edge_count | conditional_edges | assignees 
+------------+------------+-----------+------------+--------------------+------------------------------------------------------------------+------------+------------+-------------------+-----------
+ pr_approve | PR_APPROVE | PUBLISHED | t          |                  1 | c0abd5f5c2c6ad8ece740cbd5b77d82dac0550097aa746ab0bb2b233d8c5f437 |          5 |          5 |                 1 |         2
+(1 row)
+
+=== I 负向注入 ①：已转单却没有 PO 号 → 必须被 ck_biz_prq_converted 拒 ===
+BEGIN
+psql:02_db_assert.sql:101: NOTICE:  PASS: 已转单没有 PO 号被 ck_biz_prq_converted 拒绝（new row for relation "biz_purchase_requisition" violates check constraint "ck_biz_prq_converted"）
+DO
+ROLLBACK
+=== J 负向注入 ②：审批中却没有审批实例 → 必须被 ck_biz_prq_instance 拒 ===
+BEGIN
+psql:02_db_assert.sql:113: NOTICE:  PASS: 审批中缺少审批实例被 ck_biz_prq_instance 拒绝（new row for relation "biz_purchase_requisition" violates check constraint "ck_biz_prq_instance"）
+DO
+ROLLBACK
+=== K 负向注入 ③：超预算标记与超出额不一致 → 必须被 ck_biz_prq_over_consistency 拒 ===
+BEGIN
+psql:02_db_assert.sql:125: NOTICE:  PASS: 超预算标记与金额不一致被 ck_biz_prq_over_consistency 拒绝（new row for relation "biz_purchase_requisition" violates check constraint "ck_biz_prq_over_consistency"）
+DO
+ROLLBACK
+=== L 负向注入 ④：同一张申请单两个相同行号 → 必须被 uk_biz_prqi_line 拒 ===
+BEGIN
+psql:02_db_assert.sql:140: NOTICE:  PASS: 同单重复行号被 uk_biz_prqi_line 拒绝（duplicate key value violates unique constraint "uk_biz_prqi_line"）
+DO
+ROLLBACK
+=== M 负向注入不污染证据库（残留必须为 0） ===
+ negative_residue 
+------------------
+                0
+(1 row)
+
+=== N 汇总判据（一行看结果） ===
+ converted_expect_2 | distinct_po_expect_1 | items_with_po_line_expect_2 | po_line_expect_1 | acceptance_instances_expect_2 
+--------------------+----------------------+-----------------------------+------------------+-------------------------------
+                  2 |                    1 |                           2 |                1 |                             2
+(1 row)
+

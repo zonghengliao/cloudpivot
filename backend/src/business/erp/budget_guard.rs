@@ -1200,7 +1200,10 @@ pub fn pending_warnings(pending: &[PendingBudget], period_code: &str) -> Vec<Bud
 }
 
 /// 物料的类型编码（`biz_material.material_type`）—— 供 MATERIAL_TYPE 映射命中。
-async fn material_type_code_of(
+///
+/// `pub(crate)`：采购申请（P2-02）的预算判定要不重写一遍同样的取数口径 ——
+/// 两个入口对「物料类型」的理解必须同源，否则同一个物料在申请与下单时命中不同科目。
+pub(crate) async fn material_type_code_of(
     ex: &impl SqlExecutor,
     material_id: Uuid,
 ) -> DbResult<Option<String>> {

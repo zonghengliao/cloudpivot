@@ -124,6 +124,13 @@ pub async fn of(instance: &flow_model::InstanceRow) -> DbResult<Control> {
         let creator = purchase_bridge::internal_control_creator(instance.biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
+    } else if biz_type == crate::business::erp::requisition_bridge::BIZ_TYPE {
+        // P2-02：采购申请的 `biz_id` 是**申请单 id**（提单人不能批自己提的需求）
+        let creator =
+            crate::business::erp::requisition_bridge::internal_control_creator(instance.biz_id)
+                .await?;
+        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
+        true
     } else if biz_type == stockin_bridge::POST_BIZ_TYPE || biz_type == stockin_bridge::BIZ_TYPE {
         let creator = stockin_bridge::internal_control_creator(instance.biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
