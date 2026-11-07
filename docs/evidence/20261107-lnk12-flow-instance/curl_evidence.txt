@@ -1,0 +1,41 @@
+===== LNK-12 FLOW_INSTANCE HTTP 取证 @ http://127.0.0.1:8033 =====
+[OK ] 登录 → HTTP 200 (POST /system/auth/login)
+      {"code": 0, "msg": "ok", "data": {"access_token": "<REDACTED_JWT>", "refresh_token": "<REDACTED_JWT>
+      token 长度 461
+[OK ] 触发点字典 → HTTP 200 (GET /business/flow/linkage)
+      {"code": 0, "msg": "ok", "data": {"rules": [{"id": "7630d15f-5ff9-4bfc-8082-2f1a311e1d42", "name": "收货过账 → 生成凭证（联动接管）", "trigger_entity": "STOCK_IN", "trigger_entity_label": "收货入库单", "trigger_status": "POSTED", "trigger_status_label": "已过账", "action_code": "GENERATE_VOUCHER", "action_label": "生成凭证", "phase": "IN_TX", "severity": "CRITICAL", "implemented": true, "action_params": {"biz_type": "PURCHASE_IN", "mode": "TAKEOVER"}, "enabled": true, "seq": 10, "created_at": "2026-11-05T17:18:32.625091+00:00", "updated_at": "2026-11-05T17:18:32.625091+00:00", "problems": []}, {"id": "dcaeb5ef-aca3-40f
+      wired=True statuses=['APPROVED', 'REJECTED', 'WITHDRAWN']
+[OK ] FLOW_INSTANCE 上配 GENERATE_VOUCHER（应 400） → HTTP 400 (PUT /business/flow/linkage)
+      {"code": 10001, "msg": "动作 GENERATE_VOUCHER 不能配置在触发点 FLOW_INSTANCE 上：审批实例是「审批结论」，自己不落任何账：改单据状态、写库存、生成凭证都由审批事务提交之后的业务桥（purchase_bridge / stockin_bridge / expense_bridge …）按各自单据的专用实现完成，在审批实例上再跑一次就是同一笔账落两遍（一张单两张凭证 / 累计量被推两次）。该动作在 FLOW_INSTANCE 上被结构性禁止：配置期直接拒绝，运行时也会排除；要落账请到业务单据自己的触发点上配"}
+[OK ] FLOW_INSTANCE/PENDING 配规则（应 400） → HTTP 400 (PUT /business/flow/linkage)
+      {"code": 10001, "msg": "FLOW_INSTANCE 没有状态「PENDING」：可用 APPROVED / REJECTED / WITHDRAWN（写错状态的规则永远不触发）"}
+[OK ] 配 FLOW_INSTANCE/APPROVED → 通知 → HTTP 200 (PUT /business/flow/linkage)
+      {"code": 0, "msg": "ok", "data": {"id": "01a1b5b4-b150-75b9-acc8-987523679a93", "name": "LNK12-740D2AE8", "trigger_entity": "FLOW_INSTANCE", "trigger_entity_label": "审批实例", "trigger_status": "APPROVED", "trigger_status_label": "已通过", "action_code": "SEND_NOTICE", "action_label": "发通知", "phase": "AFTER_COMMIT", "severity": "NON_CRITICAL", "implemented": true, "action_params": {"content": "LNK12：这张审批单已通过（真机取证）", "mode": "TAKEOVER", "title": "LNK12 审批通过取证"}, "enabled": true, "seq": 0, "created_at": "2026-11-07T11:11:20.400358+00:00", "updated_at": "2026-11-07T11:11:51.923143+00:00", "problems": [
+[OK ] 发起审批单 → HTTP 200 (POST /business/flow/instance)
+      {"code": 0, "msg": "ok", "data": {"instance_id": "01a1b5b5-2c79-7379-a47f-e8dfb510579e", "instance_status": "PENDING", "node_status": "", "done": false, "idempotent": false, "next_nodes": [], "auto_passed_nodes": 0, "approver_count": 0, "approved_count": 0, "rejected_count": 0}}
+      instance_id=01a1b5b5-2c79-7379-a47f-e8dfb510579e status=PENDING
+[OK ] 审批单详情 → HTTP 200 (GET /business/flow/instance/01a1b5b5-2c79-7379-a47f-e8dfb510579e)
+      {"code": 0, "msg": "ok", "data": {"instance": {"id": "01a1b5b5-2c79-7379-a47f-e8dfb510579e", "instance_no": "FLW-20261107-E82525BE", "flow_code": "flow_edge_config", "flow_name": "状态机配置变更审批（改流程规则前先过复核）", "version_no": 1, "biz_type": "FLOW_EDGE_CFG", "biz_id": "", "biz_no": "", "title": "LNK12 联动取证 740D2AE8", "status": "PENDING", "initiator_id": "01a17c3b-4f78-77c3-bbc5-1c1c2a412195", "initiator_name": "超级管理员", "initiator_dept_id": "", "form_data": {}, "auto_passed_nodes": 0, "round_total": 1, "result_comment": "", "started_at": "2026-11-07T11:11:51.929842Z", "ended_at": null, "created_at": "20
+[OK ] 同意前：本卡配置的通知条数 → HTTP 200 (GET /business/notice/mine?page=1&page_size=100)
+      {"code": 0, "msg": "ok", "data": {"list": [{"receiver_id": "cc1d55a4-9628-4ee7-b04f-dc2f7c8456bc", "notice_id": "01a1b5b5-2c84-7667-98a2-e93b9981dd9a", "notice_no": "NTT202611071111519981dd9a", "notice_type": "TODO", "level": "INFO", "title": "待你审批：LNK12 联动取证 740D2AE8", "content": "审批单 FLW-20261107-E82525BE（状态机配置变更审批（改流程规则前先过复核））到达节点「流程配置复核」，请及时处理。", "content_format": "TEXT", "link_url": "/flow/instance/01a1b5b5-2c79-7379-a47f-e8dfb510579e", "read_flag": false, "read_at": null, "created_at": "2026-11-07T11:11:51.940988Z"}, {"receiver_id": "34281746-2ac8-41ec-b749-9bfae41edda4", "notice_id": "0
+      标题==「LNK12 审批通过取证」的通知 0 条
+[OK ] 同意待办（第一次） → HTTP 200 (POST /business/flow/task/01a1b5b5-2c80-7486-b927-f2e6b2e367b2/approve)
+      {"code": 0, "msg": "ok", "data": {"instance_id": "01a1b5b5-2c79-7379-a47f-e8dfb510579e", "instance_status": "APPROVED", "node_status": "APPROVED", "done": true, "idempotent": false, "next_nodes": [], "auto_passed_nodes": 0, "approver_count": 1, "approved_count": 1, "rejected_count": 0}}
+      审批后实例状态 = APPROVED
+[OK ] 同意后：应 +1 → HTTP 200 (GET /business/notice/mine?page=1&page_size=100)
+      {"code": 0, "msg": "ok", "data": {"list": [{"receiver_id": "730f8054-b7da-4484-9841-878a1cc36617", "notice_id": "01a1b5b5-2cac-77db-9676-8e74b4dc5b01", "notice_no": "NTW20261107111151b4dc5b01", "notice_type": "WORKFLOW", "level": "INFO", "title": "LNK12 审批通过取证", "content": "LNK12：这张审批单已通过（真机取证）", "content_format": "TEXT", "link_url": "/business/flow/instance?id=01a1b5b5-2c79-7379-a47f-e8dfb510579e", "read_flag": false, "read_at": null, "created_at": "2026-11-07T11:11:51.981005Z"}, {"receiver_id": "aee26ff2-ff8b-42e1-9074-655bf88c0e28", "notice_id": "01a1b5b5-2ca7-7045-b958-8da169ce2814", "noti
+      标题==「LNK12 审批通过取证」的通知 1 条
+      · NTW20261107111151b4dc5b01 / 2026-11-07T11:11:51.981005Z
+[OK ] 重复同意同一待办（引擎幂等放行） → HTTP 200 (POST /business/flow/task/01a1b5b5-2c80-7486-b927-f2e6b2e367b2/approve)
+      {"code": 0, "msg": "ok", "data": {"instance_id": "01a1b5b5-2c79-7379-a47f-e8dfb510579e", "instance_status": "APPROVED", "node_status": "APPROVED", "done": true, "idempotent": true, "next_nodes": [], "auto_passed_nodes": 0, "approver_count": 0, "approved_count": 0, "rejected_count": 0}}
+      idempotent=True status=APPROVED
+[OK ] 重复同意后：应不变 → HTTP 200 (GET /business/notice/mine?page=1&page_size=100)
+      {"code": 0, "msg": "ok", "data": {"list": [{"receiver_id": "730f8054-b7da-4484-9841-878a1cc36617", "notice_id": "01a1b5b5-2cac-77db-9676-8e74b4dc5b01", "notice_no": "NTW20261107111151b4dc5b01", "notice_type": "WORKFLOW", "level": "INFO", "title": "LNK12 审批通过取证", "content": "LNK12：这张审批单已通过（真机取证）", "content_format": "TEXT", "link_url": "/business/flow/instance?id=01a1b5b5-2c79-7379-a47f-e8dfb510579e", "read_flag": false, "read_at": null, "created_at": "2026-11-07T11:11:51.981005Z"}, {"receiver_id": "aee26ff2-ff8b-42e1-9074-655bf88c0e28", "notice_id": "01a1b5b5-2ca7-7045-b958-8da169ce2814", "noti
+      标题==「LNK12 审批通过取证」的通知 1 条
+      · NTW20261107111151b4dc5b01 / 2026-11-07T11:11:51.981005Z
+[OK ] 清场：删规则 → HTTP 200 (DELETE /business/flow/linkage?id=01a1b5b4-b150-75b9-acc8-987523679a93&confirm=true)
+      {"code": 0, "msg": "ok", "data": null}
+
+取证实例保留（便于人工复核）：01a1b5b5-2c79-7379-a47f-e8dfb510579e
+
+===== ALL PASS =====
