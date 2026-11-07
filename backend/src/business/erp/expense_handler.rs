@@ -897,7 +897,8 @@ pub async fn report_submit(
         .await
         .map_err(|error| db_err(error, "预算校验"))?;
     if budget.blocks() {
-        // FIX-5：报文按槽列出**触发阻断的那条策略**（槽级 / 全局），不再用全局标签解释槽级阻断。
+        // FIX-5：报文按槽列出**触发阻断的那条策略**（槽级 / 全局），不再用全局标签解释槽级阻断；
+        // 第一句区分「超出预算额度」与「未编制预算」（后者只在 BLOCK 下才拦）。
         let detail = budget
             .block_reason()
             .unwrap_or_else(|| budget.reason.clone());
@@ -905,9 +906,11 @@ pub async fn report_submit(
             409,
             error_code::ERP_BUDGET_EXCEEDED,
             format!(
-                "报销单 {} 超出预算额度，提交被拒绝：\n{}\n\
+                "报销单 {} {}，提交被拒绝：\n{}\n\
                  请联系财务调整预算，或让管理员把该科目的控制策略改为「标记并强制审批」（WARN）。",
-                row.report_no, detail
+                row.report_no,
+                budget.block_headline(),
+                detail
             ),
         ));
     }

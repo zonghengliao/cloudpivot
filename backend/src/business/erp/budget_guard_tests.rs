@@ -18,12 +18,31 @@ fn verdict(
     month_used: &str,
     this: &str,
 ) -> BudgetVerdict {
+    // 这批用例默认「槽里有生效预算」（额度或已用有任何一项即可视为编过）；
+    // 「压根没编预算」的用例走 verdict_without_budget（判据是库里的 budget_id，不是额度）。
+    let has_budget = [year_limit, year_used, month_limit, month_used]
+        .iter()
+        .any(|text| dec(text) > Decimal::ZERO);
     BudgetVerdict::evaluate(
         mode,
+        has_budget.then(Uuid::nil),
         dec(year_limit),
         dec(year_used),
         dec(month_limit),
         dec(month_used),
+        dec(this),
+    )
+}
+
+/// 该槽**没有本期生效的 ACTIVE 预算**（`budget_id = None`）。
+fn verdict_without_budget(mode: ControlMode, year_used: &str, this: &str) -> BudgetVerdict {
+    BudgetVerdict::evaluate(
+        mode,
+        None,
+        Decimal::ZERO,
+        dec(year_used),
+        Decimal::ZERO,
+        Decimal::ZERO,
         dec(this),
     )
 }
@@ -106,12 +125,13 @@ fn missing_budget_is_flagged_but_never_over() {
         "OFF 模式即使超支也不阻断（调用方也不会写 usage）"
     );
 
-    // FIX-5 的语义后果：BLOCK 的判据是「超了额度」而不是「没有额度」
+    // FIX-5：BLOCK 下「未编预算」仍然拦（强管控 = 没有额度不许花），但理由不是「超支」
     let block = verdict(ControlMode::Block, "0", "0", "0", "0", "1000");
     assert!(block.missing_budget);
+    assert!(!block.over, "未编预算不算超支");
     assert!(
-        !block.blocks(),
-        "BLOCK 策略下「未编预算」不按超支拦（要拦必须另设「必须编预算」校验）"
+        block.blocks(),
+        "BLOCK 策略下未编预算仍要拦（否则等于把强管控放松成 WARN）"
     );
 }
 
@@ -286,23 +306,27 @@ fn slot_year_window_is_inclusive() {
     assert_eq!(slash.period_code, "2026/03", "原始期间码原样保留");
 }
 
-/// ⑮ `missing_budget` 只看「年度额度与年度已用都 <= 0」：额度为 0 但有历史占用不算「未编制」。
+/// ⑮ `missing_budget` 的判据是**库里有没有本期生效的 ACTIVE 预算**（`budget_id`），
+/// 不是「额度是否为 0」：额度 0 但有预算行 = 真超支；没预算行（哪怕历史有占用）= 未编制。
 #[test]
-fn missing_budget_only_when_no_limit_and_no_usage() {
-    let nothing = verdict(ControlMode::Warn, "0", "0", "0", "0", "100");
-    assert!(nothing.missing_budget, "额度 0 + 已用 0 = 未编制预算");
+fn missing_budget_follows_budget_row_not_limit() {
+    let nothing = verdict_without_budget(ControlMode::Warn, "0", "100");
+    assert!(nothing.missing_budget, "没有生效预算行 = 未编制");
     assert!(!nothing.over, "未编制预算不算超支");
 
-    let spent_without_limit = verdict(ControlMode::Warn, "0", "500", "0", "0", "100");
+    // 没预算行但历史上有占用（预算被删 / 上一版过期）：仍然是「未编制」，不是「超支」
+    let spent_without_budget = verdict_without_budget(ControlMode::Warn, "500", "100");
+    assert!(spent_without_budget.missing_budget);
     assert!(
-        !spent_without_limit.missing_budget,
-        "有历史占用说明预算曾经存在过，不能报「未编制」"
+        !spent_without_budget.over,
+        "没编预算的槽被报过一次之后已用 > 0，不能因此变成「超支」（旧口径的坑）"
     );
-    assert!(
-        spent_without_limit.over,
-        "预算被删/额度调零而历史占用还在 → 这是真超支（本次全额），不是「未编制」"
-    );
-    assert_eq!(spent_without_limit.over_amount(), dec("100"));
+
+    // 有预算行但额度被编成 0：这是「编了预算没给钱」→ 真超支
+    let zero_limit = verdict(ControlMode::Warn, "0", "500", "0", "0", "100");
+    assert!(!zero_limit.missing_budget, "有预算行就不是「未编制」");
+    assert!(zero_limit.over, "额度 0 + 本次 100 → 全线超支");
+    assert_eq!(zero_limit.over_amount(), dec("100"));
 
     let has_limit = verdict(ControlMode::Warn, "5000", "0", "0", "0", "100");
     assert!(!has_limit.missing_budget);
@@ -665,6 +689,7 @@ fn block_reason_says_slot_level_block_not_global_label() {
     );
     // 只列阻断的那个槽（另一个在额度内，不该混进 409 正文）
     assert_eq!(reason.lines().count(), 1, "只列阻断槽：{reason}");
+    assert_eq!(budget.block_headline(), "超出预算额度", "超支的第一句");
 }
 
 /// ㉘ 槽级没配策略（继承全局）时，报文要说「全局策略 BLOCK」，不能张冠李戴成槽级。
@@ -747,13 +772,33 @@ fn missing_budget_slot_describe_is_not_a_block() {
     assert!(!text.contains("，超支"), "文案：{text}");
     assert!(!text.contains("BLOCK"), "文案：{text}");
 
-    // 整单只有未编预算的槽 → 没有阻断正文、也不阻断
-    let budget = expense_budget(ControlMode::Block, vec![missing]);
-    assert!(!budget.blocks(), "未编预算不阻断");
-    assert!(budget.block_reason().is_none());
-    assert!(budget.missing_budget());
-    assert!(!budget.over());
-    assert_eq!(budget.over_amount_opt(), None, "落库写 NULL");
+    // WARN：整单只有未编预算的槽 → 放行（只标记），没有阻断正文
+    let warn = expense_budget(ControlMode::Warn, vec![missing]);
+    assert!(!warn.blocks(), "WARN 下未编预算放行（只标记）");
+    assert!(warn.block_reason().is_none());
+    assert!(warn.missing_budget());
+    assert!(!warn.over());
+    assert_eq!(warn.over_amount_opt(), None, "落库写 NULL");
+
+    // BLOCK：同一张单 → 拦，但第一句说「未编制预算」而不是「超出预算额度」
+    let missing_block = slot_of(
+        "5602.09",
+        "培训费",
+        ControlMode::Block,
+        ModeSource::Slot,
+        "0",
+        "0",
+        "800",
+    );
+    let block = expense_budget(ControlMode::Block, vec![missing_block]);
+    assert!(block.blocks(), "BLOCK 下未编预算必拦（强管控不许放松）");
+    assert_eq!(
+        block.block_headline(),
+        "涉及的预算科目未编制（当前策略 BLOCK，不予放行）"
+    );
+    let reason = block.block_reason().expect("阻断正文");
+    assert!(reason.contains("未编制预算"), "报文：{reason}");
+    assert!(reason.contains("槽级策略 BLOCK"), "报文：{reason}");
 }
 
 /// ㉛ 额度内的槽：正文说「额度内」并给剩余额度（报文能自证没超）。

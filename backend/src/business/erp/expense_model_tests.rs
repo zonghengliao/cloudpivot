@@ -833,6 +833,7 @@ mod db {
             .expect("槽（期间码合法）");
         let verdict = budget_guard::BudgetVerdict::evaluate(
             budget_guard::ControlMode::Warn,
+            Some(Uuid::now_v7()),
             dec!(100000),
             Decimal::ZERO,
             dec!(100000),

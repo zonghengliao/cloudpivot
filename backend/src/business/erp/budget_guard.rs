@@ -67,9 +67,9 @@
 //! 「压根没编预算」。现在两者是两个互斥的事实：**真超支**（有预算、花过了）才置 `over`，
 //! **未编制**只置 `missing_budget`（列表页标黄）。
 //!
-//! 副作用（有意为之）：`blocks()` = `mode == BLOCK && over`，所以 BLOCK 策略下「未编预算」
-//! **不再** 409 放行/拦截判据 —— 它的判据是「超了额度」而不是「没有额度」。
-//! 需要「严格管控必须编预算」时应另设一条独立校验，不要靠 `over` 兼职。
+//! 拦截口径（`blocks()`）**不变**：`BLOCK` 策略下「超支」与「未编制预算」都会被拦，
+//! 只是两种理由分开说（`over` / `missing_budget`）—— 强管控的语义是「没有额度就不许花」。
+//! `WARN`（出厂默认）/ `OFF` 下未编预算仍然照常提交，只打标记。
 //!
 //! # 409 报文里说哪条策略（FIX-5）
 //!
@@ -293,10 +293,15 @@ pub struct BudgetVerdict {
 impl BudgetVerdict {
     /// 判定（纯函数）。**`this == 可用` 不算超**（边界不能靠 `>=` 的直觉）。
     ///
-    /// `missing_budget`（该槽没有本期生效的 ACTIVE 预算）时**不算超支**：
-    /// `over = false`、`over_amount = None`（FIX-5，见模块文档）。
+    /// `budget_id` = 该槽**本期生效的 ACTIVE 预算版本**（[`slot_snapshot`] 的 `budget_id`）：
+    /// * `None`（没有预算）→ `missing_budget = true`、`over = false`（FIX-5：没编预算 ≠ 超预算）；
+    /// * `Some(..)`（有预算）→ 按两道闸算缺口，缺口 > 0 即 `over`。
+    ///
+    /// 为什么用「有没有预算行」而不是「额度是否为 0」：没编预算的槽被报过一次之后
+    /// 已用就 > 0，用额度推断会把「未编制」误判成「超支」（列表页又变回一片红）。
     pub fn evaluate(
         mode: ControlMode,
+        budget_id: Option<Uuid>,
         year_limit: Decimal,
         year_used: Decimal,
         month_limit: Decimal,
@@ -307,8 +312,8 @@ impl BudgetVerdict {
         let month_avail = (month_limit - month_used).max(Decimal::ZERO);
         let year_gap = (this_amount - year_avail).max(Decimal::ZERO);
         let month_gap = (this_amount - month_avail).max(Decimal::ZERO);
-        // 未编制预算 = 额度 0 且历史上也没占用过（有占用说明预算被删了，那是另一回事）
-        let missing_budget = year_limit <= Decimal::ZERO && year_used <= Decimal::ZERO;
+        // 没有本期生效的 ACTIVE 预算 = 未编制（与额度 / 已用无关）
+        let missing_budget = budget_id.is_none();
         Self {
             mode,
             year_limit,
@@ -351,9 +356,16 @@ impl BudgetVerdict {
         (self.month_limit - self.month_used).max(Decimal::ZERO)
     }
 
-    /// 是否应该阻断（`BLOCK` 且真的超了）。
+    /// 是否应该阻断（`BLOCK` 且「超支」或「未编制预算」）。
+    ///
+    /// 「未编制预算」也算阻断**只在 BLOCK 下成立**：强管控的语义是「没有额度就不许花」，
+    /// 与 ARCH-6 §3.2.5「配置缺失在 BLOCK 下是硬错误」一致。`WARN` / `OFF` 下
+    /// 未编预算仍然照常提交（只标记 `missing_budget`），所以默认配置的业务不受影响。
+    /// 0 元单永远不拦（没有钱发生，拦它只会挡住冲销/补录类草稿）。
     pub fn blocks(&self) -> bool {
-        self.mode == ControlMode::Block && self.over
+        self.mode == ControlMode::Block
+            && self.this_amount > Decimal::ZERO
+            && (self.over || self.missing_budget)
     }
 
     /// 一句话结论（日志 / 409 报文 / 审批备注共用，避免三处各写一套文案）。
@@ -542,6 +554,7 @@ pub async fn check_slot(
     let snapshot = slot_snapshot(ex, slot).await?;
     Ok(BudgetVerdict::evaluate(
         mode,
+        snapshot.budget_id,
         snapshot.year_limit,
         snapshot.year_used,
         snapshot.month_limit,
@@ -1001,6 +1014,7 @@ pub async fn check_for_purchase(
     let snapshot = slot_snapshot(ex, &slot).await?;
     let verdict = BudgetVerdict::evaluate(
         mode,
+        snapshot.budget_id,
         snapshot.year_limit,
         snapshot.year_used,
         snapshot.month_limit,
@@ -1297,11 +1311,21 @@ impl ExpenseSlotCheck {
         let period = period_label(&self.slot.period_code);
         let verdict = &self.verdict;
         if verdict.missing_budget {
-            return format!(
-                "科目「{}」{period}：未编制预算（本次 {} 只登记占用，不按超支处理）",
+            let base = format!(
+                "科目「{}」{period}：未编制预算（该期间没有生效的预算额度），本次 {}",
                 self.account_label(),
                 amount_text(self.amount)
             );
+            // 被 BLOCK 拦下时要说明是**哪一级**策略拦的（WARN 下未编预算只是标记，不写策略）
+            if verdict.blocks() {
+                return format!(
+                    "{base}，{} {}（{}）",
+                    self.mode_source.label(),
+                    verdict.mode.as_str(),
+                    verdict.mode.label()
+                );
+            }
+            return base;
         }
         if !verdict.over {
             return format!(
@@ -1407,6 +1431,19 @@ impl ExpenseBudget {
         )
     }
 
+    /// 409 报文的第一句：**超支**和**未编制预算**是两种不同的拒绝理由，别混着说。
+    pub fn block_headline(&self) -> &'static str {
+        if self
+            .blocking_checks()
+            .iter()
+            .any(|check| check.verdict.over)
+        {
+            "超出预算额度"
+        } else {
+            "涉及的预算科目未编制（当前策略 BLOCK，不予放行）"
+        }
+    }
+
     /// 超支额（多槽取最大；与 `form_data.over_amount` 同口径；没超支 = 0）。
     pub fn over_amount(&self) -> Decimal {
         self.checks
@@ -1490,6 +1527,7 @@ pub async fn check_for_expense(
         let snapshot = slot_snapshot(ex, &slot).await?;
         let verdict = BudgetVerdict::evaluate(
             mode,
+            snapshot.budget_id,
             snapshot.year_limit,
             snapshot.year_used,
             snapshot.month_limit,
