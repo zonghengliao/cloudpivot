@@ -325,6 +325,13 @@ pub struct StockOutRes {
     pub reason: Option<String>,
     /// 备注。
     pub remark: Option<String>,
+    /// 单据来源类型（`SALES` = 销售发货过账自动生成；手工建单为 `null`）。
+    ///
+    /// 销售出库的 `out_type` 固定 `OTHER`，**只能靠本字段区分**「销售发货」与
+    /// 「手工其他出库」，前端列表 / 详情 / 追溯发货单都用它。
+    pub source_type: Option<String>,
+    /// 来源单据 id（销售链 = 发货单 id）。
+    pub source_id: Option<String>,
     /// 创建时间（RFC 3339）。
     pub created_at: String,
     /// 制单人。
@@ -348,6 +355,8 @@ impl StockOutRes {
             voucher_id: row.voucher_id.map(|id| id.to_string()),
             reason: row.reason.clone(),
             remark: row.remark.clone(),
+            source_type: row.source_type.clone(),
+            source_id: row.source_id.map(|id| id.to_string()),
             created_at: row.created_at.to_rfc3339(),
             create_by: row.create_by.map(|id| id.to_string()),
         }

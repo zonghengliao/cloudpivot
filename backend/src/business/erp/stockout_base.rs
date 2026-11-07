@@ -258,9 +258,16 @@ impl Totals {
 // ==================== 行结构 ====================
 
 /// 单头列清单（`SELECT` 与 `from_row` 必须同步）。
+///
+/// `source_type` / `source_id`（V0285）**必须**在这里：销售出库的 `out_type` 固定是
+/// `OTHER`（领用 / 报废 / 盘亏 / 其他 四值里没有「销售」），来源列是**唯一**能区分
+/// 「这张出库单是发货过账自动生成的」与「手工其他出库」的字段。读接口漏了这两列，
+/// 前端出库列表就只能看到一堆 `OTHER`，追溯不到发货单（P0-01 演练实测：库里
+/// `source_type='SALES'`，接口返回 `null`）。
 pub const HEADER_COLUMNS: &str = "id, out_no, out_type, warehouse_id, out_date, status, \
      total_qty, total_amount, voucher_id, reason, remark, posted_at, posted_by, \
-     cancelled_at, cancelled_by, cancel_reason, created_at, updated_at, create_by, update_by";
+     cancelled_at, cancelled_by, cancel_reason, source_type, source_id, \
+     created_at, updated_at, create_by, update_by";
 
 /// 单头行。
 #[derive(Debug, Clone)]
@@ -297,6 +304,10 @@ pub struct StockOutRow {
     pub cancelled_by: Option<Uuid>,
     /// 作废原因。
     pub cancel_reason: Option<String>,
+    /// 单据来源类型（`SALES` = 销售发货过账自动生成；手工建单为 `None`）。
+    pub source_type: Option<String>,
+    /// 来源单据 id（销售链 = `biz_shipment.id`）。
+    pub source_id: Option<Uuid>,
     /// 创建时间。
     pub created_at: DateTime<Utc>,
     /// 更新时间。
@@ -327,6 +338,8 @@ impl StockOutRow {
             cancelled_at: row.get_typed("cancelled_at")?,
             cancelled_by: row.get_typed("cancelled_by")?,
             cancel_reason: row.get_typed("cancel_reason")?,
+            source_type: row.get_typed("source_type")?,
+            source_id: row.get_typed("source_id")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
             create_by: row.get_typed("create_by")?,
