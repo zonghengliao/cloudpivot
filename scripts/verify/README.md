@@ -351,3 +351,42 @@ DB=cloudpivot_ftwice bash scripts/verify/erp_fixture_residue_check.sh
 口径与实证（含一条真跑的对照：改动前 2323 passed / 1 failed → 改动后两轮 0 failed）见
 [`docs/evidence/20261104-testfix-parallel/README.md`](../../docs/evidence/20261104-testfix-parallel/README.md)。
 铁律：**同一批全局行 = 同一把锁**；清场只许动「本用例造的行」；整库型断言必须能容忍别人正在删的瞬时窗口。
+
+---
+
+## 菜单结构不变量（`menu_invariants.sh`，卡 MENU-02）
+
+防止「迁移/datafix 把 `sys_menu` 结构改坏」的机械闸门。纯只读（只 SELECT），任何环境都能直接跑。
+
+```bash
+# 连接参数取 NIK_DATABASE_*（或 PG*），库名可显式给
+bash scripts/verify/menu_invariants.sh cloudpivot_dev
+echo $?     # 0=全绿 ｜ 1=有违规（明细已打印）｜ 2=连库/查询失败
+```
+
+5 条断言（任一不过 → 打印前 10 条明细 + exit 1）：
+
+| # | 断言 | 判据 |
+|---|---|---|
+| ① | 孤儿 parent | `parent_id` 指向不存在或已软删的记录 ⇒ 0 |
+| ② | /system/ 归属 | `path ~ '/system/%'` 的页面/按钮（menu_type 2/3）必须挂在 `system` 目录（`10000000-…-0001`）下 |
+| ③ | /business/ 归属 | `path ~ '/business/%'` 沿 parent 链上溯到的**根**必须落在 /business 命名空间 |
+| ④ | path 唯一性 | `menu_type=2` 且未软删的记录中同一 `path` 不得出现多次 |
+| ⑤ | 菜单总数 | 未软删总数 ∈ [400, 420]（`MENU_TOTAL_MIN`/`MENU_TOTAL_MAX` 可覆盖） |
+
+**③ 的口径与卡面字面写法不同，这是故意的**：本仓库 ERP 各模块目录（`/business/erp/{finance,sales,warehouse,purchase}-mgmt`、`master-data`、`contract`）本身就是一级根，`/business` 通用底座并没有把它们挂在下面——按「必须找到 `path='/business'` 的祖先」的字面口径，既有基线就有 63 条"违规"，脚本会永远红。所以 ③ 判的是**「/business 子树不能挂到非 /business 命名空间的根上」**（例如误挂到 `/system`、`/project` 下），这才是 MENU-01 那类错位的回归面。
+白名单 `MENU_BIZ_EXTRA_ROOTS`（默认 `/notice-center`）：公告中心根历史上承载 `/business/notice/*`、`/business/announcement` 4 条，属既有基线，不在此卡收敛范围。
+
+**挂进流程**（`/root/test_deploy.sh` 与 `/root/.hermes/profiles/laoliu/scripts/deploy_check_v5.sh`，均在仓库外）：
+- `test_deploy.sh` ⑦ 步：迁移 + 重启 + 登录冒烟之后跑本脚本，**只报警不阻断**（测试环境要能进去排查）；
+- `deploy_check_v5.sh` ⑦ 步：对 145 测试库与 144 生产库各跑一次，违规/执行失败 → 建（或追加到）`【MENU-STRUCT】` 卡。
+
+**自证脚本有牙**（测试库，改完立刻复原）：
+
+```bash
+psql ... -c "update sys_menu set parent_id=null where path='/system/user';"   # 制造 ②
+bash scripts/verify/menu_invariants.sh <db>; echo $?                          # 期望 1、② 报 1
+psql ... -c "update sys_menu set parent_id='10000000-0000-0000-0000-000000000001'
+             where path='/system/user';"
+bash scripts/verify/menu_invariants.sh <db>; echo $?                          # 期望 0
+```
