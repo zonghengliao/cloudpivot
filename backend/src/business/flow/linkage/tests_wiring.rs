@@ -1443,9 +1443,9 @@ fn flow_instance_wires_generic_engine_and_excludes_ledger_actions() {
         handler
             .matches("instance_linkage::fire_after_commit(")
             .count(),
-        3,
-        "approve_task / reject_task / withdraw_instance 三个审批回调都必须真的调 hook\
-         （只改 spec.rs 的 wired 标记不算接线）"
+        4,
+        "approve_task / reject_task / withdraw_instance / create_instance（发起即自动走完）\
+         四个位置都必须真的调 hook（只改 spec.rs 的 wired 标记不算接线）"
     );
     let timeout = include_str!("../timeout.rs");
     assert!(

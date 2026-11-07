@@ -740,9 +740,9 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
                  （APPROVED / REJECTED / WITHDRAWN）之后，在**审批事务提交之后**跑通用引擎：\
                  run_excluding(spec::FLOW_INSTANCE_EXCLUDED_ACTIONS)（排除清单 = 全部 Phase::InTx\
                  动作：改单据状态 / 写库存 / 出凭证 / 改累计量都归业务桥的专用实现）+\
-                 run_deferred。调用点四个：flow/handler.rs::approve_task、reject_task、\
-                 withdraw_instance（都在 drain 之后、业务桥之前）与 flow/timeout.rs::auto_decide\
-                 （超时自动代点）。顺序 = 审批实例先、业务单据后（业务桥由业务单据自己的\
+                 run_deferred。调用点五个：flow/handler.rs::approve_task、reject_task、\
+                 withdraw_instance、create_instance（发起即自动走完的实例）\
+                 与 flow/timeout.rs::auto_decide（超时自动代点）。顺序 = 审批实例先、业务单据后（业务桥由业务单据自己的\
                  触发点再触发一次，两条规则互不重复落账）；幂等键 LNK:FLOW_INSTANCE:<状态>:<实例 id>\
                  让同一次审批重放只发一条通知",
         proofs: &[

@@ -1484,6 +1484,12 @@ pub async fn create_instance(
     if let Some(error) = drain(&mut out).await {
         return Err(error);
     }
+    // ★ LNK-12：发起时**整条流程自动走完**（全节点 `SKIP` / 空指派自动通过）也会落终态
+    //   `APPROVED` —— 那一瞬间没有任何 approve handler 可走，只能在这里补一次；
+    //   否则就是「配了 FLOW_INSTANCE/APPROVED 的规则有时响、有时不响」。
+    //   正常发起（停在 PENDING）时 `instance_status = PENDING`，hook 直接返回 0。
+    instance_linkage::fire_after_commit(out.instance_id, &out.instance_status, Some(operator))
+        .await;
     tracing::info!(
         %instance_id,
         flow_code = %def.flow_code,
