@@ -28,19 +28,30 @@ stop_instance() {
   rm -f /root/backup/.fix7_pid
 }
 
+# 端口级兜底：按进程名全清（这些进程只可能来自本卡的隔离实例）。
+# 不做的话，上一次 run 留在 8049 的实例会占着端口，新一轮的健康检查读到**旧进程**（假 200），
+# 空库其实没起起来（实测：FATAL 服务启动失败: Address already in use + 旧进程继续应答 health）。
+kill_all() { pkill -f 'target/debug/cloudpivot-fix7' 2>/dev/null || true; sleep 2; }
+
 start_instance() { # $1=port $2=db $3=log
   ( cd /opt/cloudpivot/backend && \
     NIK_DATABASE_NAME="$2" NIK_SERVER_LISTEN="127.0.0.1:$1" \
     setsid nohup ./target/debug/cloudpivot-fix7 > "$3" 2>&1 < /dev/null &
     echo $! > /root/backup/.fix7_pid )
+  if grep -q '服务启动失败' "$3" 2>/dev/null; then echo "启动失败：$3"; tail -5 "$3"; return 1; fi
   for _ in $(seq 1 120); do
     code=$(curl -s -m 2 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$1/health" || true)
-    [ "$code" = "200" ] && { echo "health=200 ($2 @ $1)"; return 0; }
+    if [ "$code" = "200" ]; then
+      if grep -q '服务启动失败' "$3" 2>/dev/null; then echo "启动失败：$3"; tail -5 "$3"; return 1; fi
+      echo "health=200 ($2 @ $1)"; return 0
+    fi
+    if grep -q '服务启动失败' "$3" 2>/dev/null; then echo "启动失败：$3"; tail -5 "$3"; return 1; fi
     sleep 1
   done
   echo "health 未就绪：$3"; tail -20 "$3"; return 1
 }
 
+kill_all
 echo "--- ① 同库再启一次：迁移器应「应用 0 个迁移」---"
 FP_BEFORE=$(sq "select count(*)||'|'||md5(string_agg(version||name, ',' order by version)) from schema_migrations")
 stop_instance
@@ -72,6 +83,7 @@ check_eq "$(sed -n 's/^sales_txn_other_out|//p' "$EV/raw/pre_migration_state.txt
 psqlc -v ON_ERROR_STOP=1 -f "$EV/../../../backend/migrations/business/V0330__inventory_biz_type_and_sourceless_in_type.up.sql" > /dev/null 2>&1
 check_eq "0" "$(sq "select count(*) from biz_stock_in where is_sourceless and in_type='PURCHASE'")" "再 up 之后无源单重新变成 SOURCELESS"
 
+kill_all
 echo "--- ③ 空库首启（新环境路径）---"
 FRESH="cloudpivot_fix7_fresh_$(date +%H%M%S)"
 psql -h 127.0.0.1 -U cloudpivot -d postgres -c "CREATE DATABASE $FRESH OWNER cloudpivot" 2>/dev/null \
@@ -87,7 +99,7 @@ check_eq "1" "$(FRESH_SQ "select count(*) from schema_migrations where name='inv
 check_eq "1" "$(FRESH_SQ "select count(*) from pg_constraint where conname='ck_biz_si_type' and pg_get_constraintdef(oid) like '%SOURCELESS%'")" "空库 ck_biz_si_type 含 SOURCELESS"
 
 # 收尾：空库实例停掉、库删掉；拷贝库实例重新起回 8048（后续收尾步骤用）
-stop_instance
+kill_all
 psql -h 127.0.0.1 -U cloudpivot -d postgres -c "DROP DATABASE IF EXISTS $FRESH" 2>/dev/null || true
 start_instance 8048 "$DBNAME" /root/backup/fix7_instance.log
 
