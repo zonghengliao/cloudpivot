@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# t_0127714a：在 145 上重建全新演示库并起隔离实例（端口 8054；不碰 8023/8033/cloudpivot_dev/144）
+# t_0127714a：重建全新演示库并起隔离实例（任意宿主机，用 DB/PORT/BIN 覆盖；只停目标端口，不碰服役实例）
 set -uo pipefail
 ENVF=/etc/cloudpivot/cloudpivot-dev.env
 DB=${DB:-cloudpivot_fix10_demo}

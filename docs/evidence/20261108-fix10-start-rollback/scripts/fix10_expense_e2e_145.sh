@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# t_0127714a 验收：145 真机 HTTP + 库断言
+# t_0127714a 验收：真机 HTTP + 库断言（任意宿主机：BIN/DB/PORT 可覆盖）
 #  ① demo_lead（= DEPT_DEMO 负责人本人）提报 → 422/65018，单据仍 DRAFT、不残留 EXPENSE 实例
 #  ② demo_finance 提报（正常路径）→ 200，单据 SUBMITTED、实例 PENDING、1 条 PENDING 待办
 #  ③ 再把 ① 那张单交给 demo_finance 提交 → 200（证明「失败后没有卡死，可以重提」）
@@ -53,7 +53,7 @@ login() { # login USER PW -> 打印 token（必要时走强制改密）
   printf '%s' "$tok"
 }
 
-say "================ t_0127714a 145 真机验收（$BASE / $DB）================"
+say "================ t_0127714a 真机验收（$BASE / $DB）================"
 say "--- 基线"
 say "migrations=$(q 'select count(*) from schema_migrations') users=$(q 'select count(*) from sys_user where deleted_at is null') flows=$(q "select count(*) from biz_flow_def where status='PUBLISHED' and deleted_at is null")"
 

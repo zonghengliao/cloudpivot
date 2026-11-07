@@ -2,7 +2,8 @@
 
 ## 1. 卡面现象（100% 可复现）
 
-环境：145 / 全新演示库（261 迁移 + 演示种子）/ 隔离实例。
+环境：全新演示库（261 迁移 + 演示种子）+ 隔离实例。卡面记录的是 145；
+本次证据采集**实际跑在 144 的隔离实例 8054 上**（详见 §4.4「环境与副作用」，含 144 的复核与还原）。
 
 1. 报销人 = **部门负责人本人**（`demo_lead`，`DEPT_DEMO.leader_id`）时提交报销单
    `POST /business/erp/expense/{id}/submit` → **422 / 65018**（职责分离：该节点解析到的
@@ -106,10 +107,11 @@ export ERP_DB_URL=… SYS_DB_URL=$ERP_DB_URL TASK_DB_URL=$ERP_DB_URL P0FIX_DB_UR
 cd backend && cargo test --lib business::flow::internal_control::db_tests -- --test-threads=1
 ```
 
-### 4.2 145 真机（全新演示库 + 隔离实例 8054）
+### 4.2 真机验收（全新演示库 + 隔离实例 8054，宿主机 144）
 
 脚本：`scripts/fix10_reset_145.sh`（重建库 + 带种子首启）、
-`scripts/fix10_expense_e2e_145.sh`（curl + psql 断言）。
+`scripts/fix10_expense_e2e_145.sh`（curl + psql 断言；脚本内 `BIN`/`DB`/`PORT` 均可覆盖，
+在任意宿主机上给个二进制就能跑）。
 原始输出：`raw/fix10_e2e_145.txt`（**PASS=20 FAIL=0**）。
 
 | # | 断言 | 实测 |
@@ -159,8 +161,25 @@ cd backend && cargo test --lib business::flow::internal_control::db_tests -- --t
 ## 5. 复跑
 
 ```bash
-# 145（不碰 8023 服役实例、不碰 144）
-BIN=/opt/cloudpivot/backend/target/release/cloudpivot DB=cloudpivot_fix10_demo PORT=8054 \
+# 任意宿主机（隔离库 + 隔离端口；服役实例 8023 全程未重启）
+BIN=<被测树的 target/release/cloudpivot> DB=cloudpivot_fix10_demo PORT=8054 \
   bash scripts/fix10_reset_145.sh
 BASE=http://127.0.0.1:8054 DB=cloudpivot_fix10_demo bash scripts/fix10_expense_e2e_145.sh
 ```
+
+## 6. 环境与副作用（如实记录）
+
+* 证据采集跑在 **144**（不是我原本以为的 145）：`git pull` 到本卡提交 →
+  `cargo build --release` → 只用 `cloudpivot_fix10_demo` 全新库 + `127.0.0.1:8054` 隔离实例；
+  验收跑完即停掉 8054。
+* **服役实例（systemd `cloudpivot`，`127.0.0.1:8023`）全程没有重启、没有 deploy**：
+  进程 PID 2189214 未变，`health=200`。
+* 但 `cargo build --release` 覆盖了 `target/release/cloudpivot` 这个**部署位**上的文件，
+  收尾已把运行中进程的镜像原样写回该路径：`md5(disk) == md5(/proc/<pid>/exe) ==
+  afe489590c6f6c8cb1082feb0d54c4a9`（即部署版本 c8f82c06 的二进制），恢复到「盘上==进程」。
+* 144 的 checkout 因 `git pull` 前进到本卡提交（9808f3c）。是否把它并入正式发布，
+  交给 DEPLOY-SYNC 卡统一收敛（本卡不重启、不改 nginx、不动生产库）。
+* 留存：库 `cloudpivot_fix10_demo`（144，仅本卡夹具）、`/root/fix10_evidence_e2e.log`、
+  `/root/cloudpivot-deployed-restore`（部署二进制副本）。
+* 145 上未做任何写入；bare 仓 `/opt/git/cloudpivot.git`（145）已推到 `9808f3c`。
+
