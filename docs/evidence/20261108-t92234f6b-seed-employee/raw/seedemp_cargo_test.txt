@@ -1,0 +1,50 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 3377 tests
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_graph_snapshot_selfcheck_is_clean ... FAILED
+test business::flow::linkage::tests_wiring::wired_triggers_match_call_sites ... FAILED
+test business::shared::doc_kind::doc_kind_tests::doc_kind_registries_match_doc_kind_table ... FAILED
+test business::shared::doc_kind::doc_kind_tests::frontend_ts_mirror_matches_rust ... FAILED
+
+failures:
+
+---- business::erp::stockin_handler::stockin_handler_tests_p16::p16_graph_snapshot_selfcheck_is_clean stdout ----
+
+thread 'business::erp::stockin_handler::stockin_handler_tests_p16::p16_graph_snapshot_selfcheck_is_clean' (3944975) panicked at src/business/erp/stockin_handler_tests_p16.rs:784:5:
+审批图自检必须 0 漂移（行 / 快照 / graph_hash 三方对账）：flow_graph_selfcheck: batches=1 versions=22 drifted=1 missing_hash=0 failed=0 audit_failed=0 | [Drift { version_id: 20000000-0000-4000-8000-0000000e0332, def_id: 20000000-0000-4000-8000-0000000e0331, flow_code: "prt_approve", version_no: 1, kind: RowsEdited, stored_hash: "9debbf67fd8f3404a828bd626c614753b308b70e8b7de49c212b86869842507c", recomputed_hash: "7cd8074808f0be0289f777d74a8d272f6b17525a84ee5718ef32b44146f3fd1e", snapshot_hash: Some("9debbf67fd8f3404a828bd626c614753b308b70e8b7de49c212b86869842507c") }]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- business::flow::linkage::tests_wiring::wired_triggers_match_call_sites stdout ----
+
+thread 'business::flow::linkage::tests_wiring::wired_triggers_match_call_sites' (3966935) panicked at src/business/flow/linkage/tests_wiring.rs:219:9:
+联动引擎的调用点与 spec::TRIGGER_SPECS 不一致：
+- 调了引擎但没登记（多接了触发点却没写 wired = true）：["src/business/erp/purchase_return_handler.rs"]
+- 登记了但没调（调用被删 / 路径改了）：[]
+实际扫描到：{"src/business/erp/asset_linkage.rs", "src/business/erp/contract_linkage.rs", "src/business/erp/depreciation_linkage.rs", "src/business/erp/expense_linkage.rs", "src/business/erp/payable_linkage.rs", "src/business/erp/period_linkage.rs", "src/business/erp/purchase_linkage.rs", "src/business/erp/purchase_return_handler.rs", "src/business/erp/stockin_handler_post.rs", "src/business/erp/stockout_handler.rs", "src/business/erp/stockout_linkage.rs", "src/business/erp/stocktake_linkage.rs", "src/business/erp/transfer_linkage.rs", "src/business/erp/voucher_linkage.rs", "src/business/erp/year_end_linkage.rs", "src/business/flow/instance_linkage.rs", "src/business/task/task_handler_notice.rs"}
+已登记：{"src/business/erp/asset_linkage.rs", "src/business/erp/contract_linkage.rs", "src/business/erp/depreciation_linkage.rs", "src/business/erp/expense_linkage.rs", "src/business/erp/payable_linkage.rs", "src/business/erp/period_linkage.rs", "src/business/erp/purchase_linkage.rs", "src/business/erp/stockin_handler_post.rs", "src/business/erp/stockout_handler.rs", "src/business/erp/stockout_linkage.rs", "src/business/erp/stocktake_linkage.rs", "src/business/erp/transfer_linkage.rs", "src/business/erp/voucher_linkage.rs", "src/business/erp/year_end_linkage.rs", "src/business/flow/instance_linkage.rs", "src/business/task/task_handler_notice.rs"}
+
+---- business::shared::doc_kind::doc_kind_tests::doc_kind_registries_match_doc_kind_table stdout ----
+
+thread 'business::shared::doc_kind::doc_kind_tests::doc_kind_registries_match_doc_kind_table' (3970142) panicked at src/business/shared/doc_kind_tests.rs:815:9:
+assertion `left == right` failed: STATUS_ENTITY 登记行数不符（SQL [("PURCHASE_ORDER", Some("biz_purchase_order")), ("STOCK_IN", Some("biz_stock_in")), ("STOCK_OUT", Some("biz_stock_out")), ("STOCK_TRANSFER", Some("biz_stock_transfer")), ("STOCK_TAKE", Some("biz_stock_take")), ("PAYABLE", Some("biz_payable")), ("PAYMENT", Some("biz_payment")), ("VOUCHER", Some("biz_voucher")), ("CONTRACT", Some("biz_contract")), ("INVENTORY", Some("biz_inventory")), ("ACCOUNTING_PERIOD", Some("biz_accounting_period")), ("FLOW_EDGE_CFG", Some("biz_flow_edge")), ("FLOW_LINKAGE_CFG", Some("biz_flow_linkage_rule")), ("ACCOUNTING_YEAR", None), ("BUDGET", Some("biz_budget")), ("FIXED_ASSET", Some("biz_fixed_asset")), ("DEPRECIATION", Some("biz_depreciation_batch")), ("EXPENSE_REPORT", Some("biz_expense_report")), ("SALE_ORDER", Some("biz_sales_order")), ("SHIPMENT", Some("biz_shipment")), ("RECEIVABLE", Some("biz_receivable")), ("RECEIPT", Some("biz_receipt")), ("RECEIPT_REFUND", Some("biz_receipt_refund")), ("INVOICE", Some("biz_invoice")), ("SALES_RETURN", Some("biz_sales_return")), ("PURCHASE_RETURN", Some("biz_purchase_return"))] / Rust [("PURCHASE_ORDER", Some("biz_purchase_order")), ("STOCK_IN", Some("biz_stock_in")), ("STOCK_OUT", Some("biz_stock_out")), ("STOCK_TRANSFER", Some("biz_stock_transfer")), ("STOCK_TAKE", Some("biz_stock_take")), ("PAYABLE", Some("biz_payable")), ("PAYMENT", Some("biz_payment")), ("VOUCHER", Some("biz_voucher")), ("CONTRACT", Some("biz_contract")), ("INVENTORY", Some("biz_inventory")), ("ACCOUNTING_PERIOD", Some("biz_accounting_period")), ("ACCOUNTING_YEAR", None), ("FLOW_EDGE_CFG", Some("biz_flow_edge")), ("FLOW_LINKAGE_CFG", Some("biz_flow_linkage_rule")), ("BUDGET", Some("biz_budget")), ("FIXED_ASSET", Some("biz_fixed_asset")), ("DEPRECIATION", Some("biz_depreciation_batch")), ("EXPENSE_REPORT", Some("biz_expense_report")), ("SALE_ORDER", Some("biz_sales_order")), ("SHIPMENT", Some("biz_shipment")), ("RECEIVABLE", Some("biz_receivable")), ("RECEIPT", Some("biz_receipt")), ("RECEIPT_REFUND", Some("biz_receipt_refund")), ("INVOICE", Some("biz_invoice")), ("SALES_RETURN", Some("biz_sales_return"))]）
+  left: 26
+ right: 25
+
+---- business::shared::doc_kind::doc_kind_tests::frontend_ts_mirror_matches_rust stdout ----
+
+thread 'business::shared::doc_kind::doc_kind_tests::frontend_ts_mirror_matches_rust' (3970151) panicked at src/business/shared/doc_kind_tests.rs:88:5:
+assertion `left == right` failed: 前端 DOC_KINDS 与 Rust DocKind::ALL 不一致（顺序也要一致）—— 改了后端枚举就必须同步 frontend/src/api/business/erp/doc-kinds.ts
+  left: ["PURCHASE_ORDER", "STOCK_IN", "STOCK_OUT", "STOCK_TRANSFER", "STOCK_TAKE", "PAYABLE", "PAYMENT", "VOUCHER", "CONTRACT", "INVENTORY", "ACCOUNTING_PERIOD", "ACCOUNTING_YEAR", "FLOW_EDGE_CFG", "FLOW_LINKAGE_CFG", "BUDGET", "FIXED_ASSET", "DEPRECIATION", "EXPENSE_REPORT", "SALE_ORDER", "SHIPMENT", "RECEIVABLE", "RECEIPT", "RECEIPT_REFUND", "INVOICE", "SALES_RETURN", "PURCHASE_RETURN"]
+ right: ["PURCHASE_ORDER", "STOCK_IN", "STOCK_OUT", "STOCK_TRANSFER", "STOCK_TAKE", "PAYABLE", "PAYMENT", "VOUCHER", "CONTRACT", "INVENTORY", "ACCOUNTING_PERIOD", "ACCOUNTING_YEAR", "FLOW_EDGE_CFG", "FLOW_LINKAGE_CFG", "BUDGET", "FIXED_ASSET", "DEPRECIATION", "EXPENSE_REPORT", "SALE_ORDER", "SHIPMENT", "RECEIVABLE", "RECEIPT", "RECEIPT_REFUND", "INVOICE", "SALES_RETURN"]
+
+
+failures:
+    business::erp::stockin_handler::stockin_handler_tests_p16::p16_graph_snapshot_selfcheck_is_clean
+    business::flow::linkage::tests_wiring::wired_triggers_match_call_sites
+    business::shared::doc_kind::doc_kind_tests::doc_kind_registries_match_doc_kind_table
+    business::shared::doc_kind::doc_kind_tests::frontend_ts_mirror_matches_rust
+
+test result: FAILED. 3373 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1730.85s
+
+error: test failed, to rerun pass `--lib`

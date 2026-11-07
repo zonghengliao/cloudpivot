@@ -16,7 +16,7 @@
 | ① 全新库 `NIK_SEED_DEMO_USERS=true` 首启后 N2 = 0 | ✅ `erp_invariants --group 权限` 2/2 通过，N2 ✅，BLOCKER 0 / WARN 0；DB 直查 `n2_violations = 0` | `raw/seedemp_inv_perm.txt`、`raw/145_db_assert.txt` ①/② |
 | ② `demo_sales` 提报 → `demo_lead` 待办审批 → `demo_finance` 付款 全链走通 | ✅ 真机 39/39 断言通过（含审批人来源 `INITIATOR_SUPERIOR` = demo_lead、单据 APPROVED → PAID、凭证借贷平衡） | `raw/seedemp_chain.txt`、`raw/145_db_assert.txt` ⑦/⑧ |
 | ③ 种子幂等不变：同库重启 → `created=0 existed=9` | ✅ 第二次启动日志逐字：`created=0 existed=9 bindings_added=0 dept_created=false dept_backfilled=0`，`应用 0 个迁移` | `raw/145_boot_seed.log` |
-| ④ `cargo test` 全绿 + 145 curl/DB 留证 + 不碰 144 + 不改已应用迁移 | ✅ 见 §5（全量套件结果）/ 本轮新增 1 条 **可重复种子**、0 条版本化迁移、0 处已应用迁移改动 | `raw/seedemp_cargo_test.log` |
+| ④ `cargo test` 全绿 + 145 curl/DB 留证 + 不碰 144 + 不改已应用迁移 | ⚠️ 全量 `3373 passed / 4 failed`，**4 条全部可追溯到他人未提交的「采购退货」WIP**（`V0332` + `purchase_return_handler.rs`，均为未跟踪文件），本卡改动面 0 失败；两条 DB 相关的失败在「不含 V0332 的干净树」库上实测 **ok**。详见 §5 | `raw/seedemp_cargo_test.txt`、`raw/attribute_p16_failure.txt` |
 | 顺带：`报销` 不变量组 | ✅ 9/9 通过，BLOCKER 0 / WARN 0 | `raw/seedemp_inv_exp.txt` |
 
 ---
@@ -163,14 +163,30 @@ erp_invariants --group 报销 : 结果 9/9 通过  🚨 BLOCKER 0  ⚠️ WARN 0
 - `cargo clippy --all-targets`：**本卡 4 个文件 0 新增告警**（既有 8 条全在
   `sales_order_model/asset_linkage/fx_revaluation/opening/purchase_requisition_dto/voucher/year_end_linkage_tests`，
   均为他人代码，本卡未改）；
-- `cargo test --lib system::setup`：8/8（新增/改写 3 条单测：演示部门必须容纳全部 9 个账号、
+- `cargo test --lib system::setup`：**8/8**（新增/改写 3 条单测：演示部门必须容纳全部 9 个账号、
   补漏名单必须含 admin、至少一个非负责人账号持 EMPLOYEE）；
-- 全量 `cargo test --lib -- --test-threads=1`（种子完备库 `cloudpivot_test_seedemp`，
-  由 `scripts/verify/make_full_suite_db.sh` 用**本卡二进制**造库）：结果见
-  `raw/seedemp_cargo_test.log`；
+- **全量 `cargo test --lib -- --test-threads=1`（种子完备库 `cloudpivot_test_seedemp`，
+  由 `scripts/verify/make_full_suite_db.sh` 用本卡二进制造库）：
+  `3373 passed; 4 failed`**（`raw/seedemp_cargo_test.txt`）。
+
+### 4 条 FAILED 的归属：**全部是他人未提交的「采购退货」WIP，与本卡无关**
+
+| 失败用例 | 直接原因 | 归属证据 |
+|----------|----------|----------|
+| `p16_graph_snapshot_selfcheck_is_clean` | 审批图自检报 `flow_code="prt_approve"` **RowsEdited**（stored `9debbf6…` ≠ recomputed `7cd8074…`） | `prt_approve` 只存在于 `backend/migrations/business/V0332__purchase_return.up.sql`，而该文件在工作区是**未跟踪**（`??`）；`git grep prt_approve 3022a2f -- backend/migrations/` = **0 处**。在「不含 V0332 的干净树」建的库上复跑 → **1 passed**（`raw/attribute_p16_failure.txt` ④） |
+| `doc_kind_registries_match_doc_kind_table` | `STATUS_ENTITY` 行数 SQL 26 vs Rust 25 | 多出来的那行是 V0332 种进 `biz_doc_kind` 的 `PURCHASE_RETURN`；同一干净库复跑 → **ok** |
+| `frontend_ts_mirror_matches_rust` | Rust `DocKind::ALL` 比前端 `doc-kinds.ts` 多一个（同样是 `PURCHASE_RETURN`） | 同上，属其 WIP 的枚举同步未完成 |
+| `wired_triggers_match_call_sites` | 断言原文点名 `src/business/erp/purchase_return_handler.rs`：「调了引擎但没登记」 | 该 `.rs` 同样是**未跟踪**的新文件；本卡提交 `3022a2f` 里没有它 |
+
+> 结论：本卡改的是「种子 / 权限数据」，**0 处流程定义、0 处联动登记、0 处 DocKind 枚举**，
+> 4 条失败无一触及本卡改动面。补齐这 4 条要等采购退货那张卡自己的 WIP 收口
+> （它在共享工作区里还没提交，我无法也不应替它改）。
+
 - 99 全新库冒烟（`cloudpivot_seedemp_0621`）：链路断言 39/39；同库二次启动
   `created=0 existed=9 dept_backfilled=0`；把 3 个账号部门抹成 NULL 后第三次启动
   `dept_backfilled=3`、N2 `3 → 0`（老库升级路径实证）。
+- `python3 scripts/verify/role_code_gate.py` → `✓ 无新增/改动的未知角色码`，退出码 0
+  （新种子的 `EMPLOYEE` 走 `INSERT INTO sys_role … VALUES` 形状，被闸自动并入白名单）。
 
 ---
 

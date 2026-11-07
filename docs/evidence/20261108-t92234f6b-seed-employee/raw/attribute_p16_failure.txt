@@ -1,0 +1,26 @@
+===== ① 全量套件里失败的那条 =====
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_graph_snapshot_selfcheck_is_clean ... FAILED
+
+===== ② 漂移事实（审计行，selfcheck 自己写的）=====
+2026-11-08 06:42:28.280843+08|FLOW_GRAPH_HASH_DRIFT|20000000-0000-4000-8000-0000000e0332|{"kind": "ROWS_EDITED", "def_id": "20000000-0000-4000-8000-0000000e0331", "reason": "发布版本的 node/edge 行被直接修改，与发布时的 graph_hash 不一致", "checker": "flow_graph_selfcheck", "flow_code": "prt_approve", "version_no": 1, "snapshot_hash": "9debbf67fd8f3404a828bd626c614753b308b70e8b7de49c212b86869842507c"}
+
+===== ③ prt_approve 出自哪个文件 / 是否被本卡提交 =====
+backend/migrations/business/V0332__purchase_return.up.sql
+--- git 是否跟踪该文件 ---
+?? backend/migrations/business/V0332__purchase_return.up.sql
+--- 本卡提交 3022a2f 的迁移目录里有没有 prt_approve ---
+本卡提交内 0 处（V0332 未被任何提交跟踪）
+
+===== ④ 干净树（不含 V0332）建库后，同一条测试复跑 =====
+[2m2026-11-07T22:48:29.568011Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 上传目录就绪 path=uploads max_size_mb=128
+[2m2026-11-07T22:48:29.568036Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 下载目录就绪 path=downloads
+[2m2026-11-07T22:48:29.751469Z[0m [32m INFO[0m [2mcloudpivot::business::shared::guard[0m[2m:[0m 数据权限自检通过：12 张登记表的部门列/归属列均存在，SUPER_ADMIN 角色存在
+[2m2026-11-07T22:48:29.915904Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 已写入管理员角色绑定种子数据 [3musername[0m[2m=[0m"admin" [3mrole_code[0m[2m=[0m"SUPER_ADMIN"
+[2m2026-11-07T22:48:30.266729Z[0m [32m INFO[0m [2mcloudpivot::system::setup::model[0m[2m:[0m 演示部门补漏：账号原先没有部门，已归入演示部门 [3musername[0m[2m=[0m"admin" [3mdept[0m[2m=[0m"DEPT_DEMO"
+[2m2026-11-07T22:48:30.287864Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 请求体上限就绪 max_request_bytes=167772160（由 [upload].max_size_mb=128 + multipart 余量推导）
+
+running 1 test
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_graph_snapshot_selfcheck_is_clean ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3391 filtered out; finished in 5.55s
+
