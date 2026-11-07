@@ -9,22 +9,20 @@
 |---|---|
 | 全量套件跑在哪种库上 | **全量迁移 + 产品自带演示组织种子（`NIK_SEED_DEMO_USERS=true`）+ 零业务单据**；四条 URL 同库；库名以 `cloudpivot_test` 开头 |
 | 怎么造 | `bash scripts/verify/make_full_suite_db.sh`（先删后建，约 20 秒，末尾逐项自检，见 `raw/make-db-selfcheck.txt`） |
-| 结果 | `cargo test --lib -- --test-threads=1` → **3329 passed / 0 failed / 0 ignored**（连跑两轮都绿：`raw/run1-full.log.txt`、`raw/run2-full.log.txt`） |
-| 之前为什么跑不绿 | 两类库各缺一半条件：只跑迁移的库**没有演示组织**（审批链 65018 / 夹具 panic），历史快照库**有别人的单据**（整期/整表口径断言被打红）；种子补上后又暴露 **4 处夹具/接线缺陷**（§4） |
+| 结果 | `cargo test --lib -- --test-threads=1` → **3335 passed / 0 failed / 0 ignored**；**同一个库连跑两轮都绿**（`raw/final-run1-full.log.txt`、`raw/final-run2-full.log.txt`，树 = 本卡提交 `4f0f204`） |
+| 之前为什么跑不绿 | 两类库各缺一半条件：只跑迁移的库**没有演示组织**（审批链 65018 / 夹具 panic），历史快照库**有别人的单据**（整期/整表口径断言被打红）；种子补上后又暴露 **5 处夹具/接线缺陷**（§4） |
 
 ## 1. 环境与基线
 
 | 项 | 值 |
 |---|---|
 | 机器 | 99 开发机（`ubuntu-svr`，4C / 15G） |
-| 基线提交 | `50a9063`（干净树：`git archive HEAD` ⇒ 避开共享主仓里别人的未提交文件） |
-| 迁移 | `schema_migrations` **261** 条，最新版本 **330**，`public` 表 **142** 张 |
+| 取证基线 | **`4f0f204`**（本卡提交；干净树 = `git archive 4f0f204`，避开共享主仓里别人的未提交文件）+ 该树自编二进制 ⇒ **3335** 条用例 |
+| 修前对照基线 | `50a9063`（同法干净树）⇒ 3329 条用例（差 6 条是其后 FIX-8/9 新增的用例，不是被跳过） |
+| 迁移 | `schema_migrations` **261** 条，最新版本 **330**，`public` 表 **142** 张（FIX-8/9 未加迁移） |
 | 二进制 | 隔离树自编（`CARGO_TARGET_DIR=/root/t13db/target`），`migrations/` 编译期内嵌 |
-| 库 | `cloudpivot_test_fs1`（本卡脚本造，owner=`alun`）；`cloudpivot_test_fs2` 用于「造库自检 + 幂等复跑」取证 |
+| 库 | `cloudpivot_test_fin`（本卡脚本造，owner=`alun`）；`cloudpivot_test_fs1` / `fs2` 是过程中的库 |
 | 跑法 | `ERP_DB_URL=SYS_DB_URL=TASK_DB_URL=P0FIX_DB_URL=postgres://…/<库>` + `cargo test --lib -- --test-threads=1`，**无 `--skip` / `--ignored`** |
-
-> 用例数说明：干净树 `50a9063` 是 **3329** 条；`raw/before-empty-db-full.log.txt` 那轮用的是共享主仓
-> （含别人未提交的 `price_inquiry` 模块）的二进制，多 14 条 ⇒ 3343。数字差异来自树，不是用例被跳。
 
 ## 2. 修前：两类库各红一批（对照）
 
@@ -69,16 +67,18 @@ business::erp::purchase_handler + p16       → 82 passed / 0 failed（raw/after
 
 全量两轮（同一份库、同一二进制）的最终结果见 §3.2。
 
-### 3.2 最终两轮全量
+### 3.2 最终两轮全量（提交后的树 `4f0f204`，同一个库）
 
 ```text
-# 第一轮（新建库）
-test result: ok. … passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
-# 第二轮（同一个库，带第一轮残留）
-test result: ok. … passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+# 第一轮（新建库 cloudpivot_test_fin，04:33:48 → 05:03:09）
+test result: ok. 3335 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1761.28s
+# 第二轮（同一个库，带第一轮残留，同一二进制，05:04:49 → 05:35:34）
+test result: ok. 3335 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1845.46s
 ```
 
-原始日志：`raw/final-run1-full.log.txt`、`raw/final-run2-full.log.txt`（提交后的树，见 §1 基线）。
+原始日志：`raw/final-run1-full.log.txt`、`raw/final-run2-full.log.txt`；造库自检：`raw/make-db-selfcheck-4f0f204.txt`。
+此前第二轮必红的 5 条（`purchase_handler::dc01_*` / `p2_2_credit_*`×2 / `zz_teardown_purges_po_approval_residue` /
+`p16_graph_snapshot_selfcheck_is_clean`）在第二轮里逐条 `ok`。
 
 造库自检（`raw/make-db-selfcheck.txt`）：迁移 261/330、表 142、`sys_user` 10（admin + 9 个 demo）、
 `sys_dept` 1（`DEPT_DEMO`）、`biz_flow_def(PUBLISHED)` 16、`biz_account` 66、`biz_report_item` 53、
@@ -87,7 +87,7 @@ test result: ok. … passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 种子幂等（`raw/make-db-keeepdb-reseed.txt` + `raw/idem-counts-{before,after}.txt`）：
 `KEEP_DB=1` 再跑一次造库脚本，`sys_user|sys_user_role|sys_dept|sys_role` = `10|10|1|10` 前后**逐字一致**。
 
-## 4. 改了什么（4 处夹具/接线 + 1 个库脚本 + 1 篇口径）
+## 4. 改了什么（5 处夹具/接线 + 1 个库脚本 + 1 篇口径）
 
 | 文件 | 改动 | 为什么不是「放宽判据」 |
 |---|---|---|

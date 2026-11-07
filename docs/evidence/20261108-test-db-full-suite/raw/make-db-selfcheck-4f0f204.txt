@@ -1,0 +1,46 @@
+==> 仓根 /root/t13db/tree
+==> 二进制 /root/t13db/target/debug/cloudpivot（migrations 编译期内嵌，必须是被测树自己编的）
+==> 库 cloudpivot_test_fin 表属主 alun
+==> 已删除旧库 cloudpivot_test_fin
+==> 已建空库 cloudpivot_test_fin（owner=alun）
+==> 启动 pid=3597707 端口=18249 日志=/root/t13db/mkdb7.log（migrations + bootstrap + 演示组织）
+==> 实例已停（日志尾部）
+    [2m2026-11-07T20:33:45.821233Z[0m [32m INFO[0m [2mnik_core::plugin[0m[2m:[0m 停止插件: x-log-bus
+    [2m2026-11-07T20:33:45.821377Z[0m [32m INFO[0m [2mnik_core::plugin[0m[2m:[0m 停止插件: startup-auth-secret-guard
+    [2m2026-11-07T20:33:45.821395Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 插件已全部停止，关停完成 [3melapsed_ms[0m[2m=[0m5
+==> 自检
+    schema_migrations(条数)                      261          ✓
+    迁移最新版本                             330          ✓
+    public 表数                                  142          ✓
+    sys_user(含 admin)                            10           ✓
+    sys_role                                       10           ✓
+    sys_menu(种子菜单)                         410          ✓
+    biz_account(科目表)                         66           ✓
+    biz_flow_def(已发布审批流)               16           ✓
+    biz_report_item(报表项)                     53           ✓
+    sys_dept(演示组织/部门)                  1            ✓
+    演示部门 DEPT_DEMO                         DEPT_DEMO    ✓
+    角色 SALES_SUPERVISOR 在职成员数        1            ✓
+    角色 PURCHASE_MANAGER 在职成员数        2            ✓
+    角色 FINANCE_MANAGER 在职成员数         2            ✓
+    角色 DEPT_LEADER 在职成员数             1            ✓
+    角色 WAREHOUSE_MANAGER 在职成员数       1            ✓
+    角色 GENERAL_MANAGER 在职成员数         1            ✓
+    biz_voucher(应为 0：无历史凭证)        0            ✓
+    biz_sales_order(应为 0)                      0            ✓
+    biz_purchase_order(应为 0)                   0            ✓
+    biz_flow_instance(应为 0)                    0            ✓
+
+==> 就绪：cloudpivot_test_fin
+
+四条连接串（**必须同一个库**，原因见脚本头注释）：
+  export ERP_DB_URL='postgres://alun:alun@127.0.0.1:5432/cloudpivot_test_fin'
+  export SYS_DB_URL="$ERP_DB_URL"
+  export TASK_DB_URL="$ERP_DB_URL"
+  export P0FIX_DB_URL="$ERP_DB_URL"
+
+全量套件（串行；不许 --skip / --ignored）：
+  cd /root/t13db/tree/backend
+  cargo test --lib -- --test-threads=1
+
+口径文档：docs/测试库口径-全量套件.md
