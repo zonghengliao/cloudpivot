@@ -97,8 +97,23 @@ python3 scripts/verify/so44_sales_target_e2e.py         # 77 断言
 `docs/evidence/20261107-so44-sales-target/curl_evidence.txt`（`scripts/verify/so44_curl_evidence.sh` 生成），
 含两个口径的看板 JSON、目标 / 预测的创建与分页、5 条负向 HTTP 码、干净退出前的清理 DELETE。
 
-### 3.5 静态检查
+### 3.5 前端看板真机走查（`pnpm dev` + 真后端 18044）
 
+`BACKEND_ORIGIN=http://127.0.0.1:18044 pnpm dev` → `admin` 登录 → `/business/erp/sales-target`：
+
+```
+达成率看板（按订单金额）  目标合计 12,500.50 | 实际合计 11,300.00 | 90.40% | 缺口 1,200.50 | 另一口径 4,000.00（32.00%）
+达成率看板（按已收款金额）目标合计 12,500.50 | 实际合计  4,000.00 | 32.00% | 缺口 8,500.50 | 另一口径 11,300.00（90.40%）
+```
+
+截图：`ui_board_receipt.png`（收款口径 + 进度条 + 缺口；页签、期间、范围、口径切换器均在位）。
+
+**走查当场抓到一个前端缺陷并已修**：`basis` / `boardScopeType` 变了没有重新取数 ——
+服务端把「选中口径」放进 `actual_amount`，只改本地状态就会「标签写按已收款、数字还是按订单」。
+修法：`watch([basis, boardScopeType], () => void loadBoard())`（改完实测数字随口径切换，
+上表两组数就是修后取的）。
+
+### 3.6 静态检查
 | 项 | 结果 |
 |----|------|
 | `rustfmt +1.94.1 --edition 2024 --check`（本卡 3 文件） | 无 diff |

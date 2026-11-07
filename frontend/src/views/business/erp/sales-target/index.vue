@@ -497,7 +497,7 @@
  * 6 个操作按钮走 `v-privilege`（仅隐藏按钮，接口侧后端再判一次）；
  * 看板与目标列表共用 `business:erp:sales-target:list`。
  */
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
 import { fetchCustomerPage, fetchMaterialPage, type MaterialRow } from '@/api/business/erp';
@@ -1133,6 +1133,12 @@ async function fetchTargetCustomerOptions(): Promise<{ id: string; name: string 
 }
 
 // ==================== 生命周期 ====================
+// 切口径 / 换范围必须重新取数：服务端把「选中口径」放进 `actual_amount`，
+// 只改本地状态的话会出现「标签写按已收款、数字还是按订单」的假看板（真机走查踩过）。
+watch([basis, boardScopeType], () => {
+  void loadBoard();
+});
+
 onMounted(() => {
   void loadBoard();
   void loadTargets();
