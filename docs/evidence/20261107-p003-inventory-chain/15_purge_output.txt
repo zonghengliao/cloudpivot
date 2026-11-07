@@ -1,0 +1,17 @@
+===== 清理前：夹具残留 =====
+ warehouse_code | material_code |   qty    
+----------------+---------------+----------
+ WH-W3B-1       | W3B-M-PLAIN   | 100.0000
+ WH-W3B-1       | W3B-M-SN      |   2.0000
+ WH-W3B-2       | W3B-M-PLAIN   |  10.0000
+(3 rows)
+
+BEGIN
+DELETE 3
+DELETE 3
+COMMIT
+===== 清理后：夹具残留（期望 0 行）=====
+ warehouse_code | material_code | qty 
+----------------+---------------+-----
+(0 rows)
+
