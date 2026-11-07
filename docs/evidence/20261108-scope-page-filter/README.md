@@ -106,6 +106,13 @@ test result: FAILED. 0 passed; 2 failed; ...
 （`raw/deploy145.txt`）。日志行：`服务: active / PID 217325 / health 200`、`✓ 登录 OK /
 task 接口 200`、`菜单总数: 410 ✅`。
 
+收尾再跑一次已收敛到 `a19b1b30`（= origin/main = 99 HEAD，含 3 个 docs 提交；二进制行为与
+`d94462e2` 相同）：`服务: active / PID 251353 / health 200`、菜单不变量全绿。
+**踩到的坑**：第一次 ff-merge 报「分叉」，真因不是分叉而是工作区里有**未跟踪**文件
+（`docs/evidence/20261108-fix6-tax-and-accounts/{README.md,14_kill_instance.sh}`，已被别人提交进
+main），`git merge --ff-only` 拒绝覆盖未跟踪文件；`test_deploy.sh` 只对「已跟踪的改动」做 stash，
+所以它自愈不了。处置：`git stash push -u -m … -- <该目录>` 后重跑即过（未丢任何人的东西）。
+
 ### 5.2 `emp_drill`（非超管，带裁剪）—— 卡面三条 URL 全 200
 
 身份：`emp_drill` / `DRILL_CLERK` / `data_scope=4(SELF)` / 部门=演练费用部。

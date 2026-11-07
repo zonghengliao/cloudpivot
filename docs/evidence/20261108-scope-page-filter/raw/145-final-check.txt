@@ -1,0 +1,8 @@
+HEAD=a19b1b30 service=active health=200
+临时探针账号残留：0 行
+临时探针角色绑定残留：0 行（孤儿绑定）
+--- 卡面三条 URL（emp_drill）
+无筛选          http=200
+&keyword=x         http=200
+&status=DRAFT      http=200
+&pay_status=UNPAID http=200
