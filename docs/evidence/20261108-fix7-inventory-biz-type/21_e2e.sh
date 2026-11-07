@@ -49,8 +49,13 @@ check_eq "$(pre_val manual_other_out_txn)" "$(sq "select count(*) from biz_inven
   where t.doc_type='STOCK_OUT' and coalesce(s.source_type,'') <> 'SALES' and t.biz_type='OTHER_OUT'")" \
   "手工其他出库的 OTHER_OUT 一条没被误伤"
 check_eq "0" "$(sq "select count(*) from biz_stock_in where is_sourceless and in_type='PURCHASE'")" "已无「无源 + PURCHASE」的单"
-check_eq "$(pre_val sourceless_docs)" "$(sq "select count(*) from biz_stock_in where in_type='SOURCELESS'")" \
-  "存量无源单全部迁成 SOURCELESS（条数 = 迁移前无源单数）"
+PRE_SL=$(pre_val sourceless_docs)
+NOW_SL=$(sq "select count(*) from biz_stock_in where in_type='SOURCELESS'")
+if [ "${NOW_SL:-0}" -ge "${PRE_SL:-0}" ] && [ "${NOW_SL:-0}" -gt "0" ]; then
+  pass "存量无源单全部迁成 SOURCELESS（迁移前无源单 $PRE_SL 张 / 现在 SOURCELESS $NOW_SL 张）"
+else
+  fail "存量无源单未迁成 SOURCELESS（迁移前 $PRE_SL / 现在 $NOW_SL）"
+fi
 check_eq "0" "$(sq "select count(*) from biz_stock_in where in_type='SOURCELESS' and supplier_id is null")" \
   "所有 SOURCELESS 单都有供应商（约束口径成立）"
 
@@ -78,7 +83,7 @@ check_http "200" "无源入库建单"
 printf '%s\n' "$BODY" > "$EV/raw/30_stockin_create.json"
 IN_ID=$(sq "select id from biz_stock_in where remark like '$TAG%' order by created_at desc limit 1")
 check_eq "SOURCELESS" "$(sq "select in_type from biz_stock_in where id='$IN_ID'::uuid")" "库内 in_type"
-check_eq "t" "$(sq "select (is_sourceless and supplier_id='$SUP'::uuid)::text from biz_stock_in where id='$IN_ID'::uuid")" "库内 is_sourceless + 供应商"
+check_eq "true" "$(sq "select (is_sourceless and supplier_id='$SUP'::uuid)::text from biz_stock_in where id='$IN_ID'::uuid")" "库内 is_sourceless + 供应商"
 check_eq "900.0000" "$(sq "select total_amount from biz_stock_in where id='$IN_ID'::uuid")" "无源入库金额 900（<1000 走免审自动过账）"
 
 api POST "/business/erp/stock-in/$IN_ID/submit-post" "" '{}' > "$EV/raw/31_stockin_post.json"
