@@ -162,7 +162,7 @@ check_eq "APPROVED" "$INST_STATUS" "审批实例到终态 APPROVED"
 echo "--- 待办行（意见本来就在这里）---" | tee -a "$RAW/40_result_comment.txt"
 psqlc -tAF'|' -c "select node_key, status, assignee_id, coalesce(comment,'<NULL>') from biz_flow_task
                     where instance_id='$INST'::uuid order by created_at" | tee -a "$RAW/40_result_comment.txt"
-TASK_COMMENT=$(sq "select coalesce(comment,'') from biz_flow_task where instance_id='$INST'::uuid and status='APPROVED' order by completed_at desc limit 1")
+TASK_COMMENT=$(psqlc -tAc "select coalesce(comment,'') from biz_flow_task where instance_id='$INST'::uuid and status='APPROVED' order by completed_at desc limit 1")
 contains "$TASK_COMMENT" "$COMMENT" "待办行 comment 有审批意见（引擎原本的落点）"
 
 RESULT_COMMENT=$(psqlc -tAc "select coalesce(result_comment,'<NULL>') from biz_flow_instance where id='$INST'::uuid")
