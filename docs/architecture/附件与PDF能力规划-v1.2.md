@@ -1,7 +1,10 @@
 # 云枢附件能力与 PDF 导出 · 补全规划
 
-> 版本 **v1.1** · 2026-11-07（据用户拍板更新）
+> 版本 **v1.2** · 2026-11-07（据用户二次拍板更新）
 > 状态：**规划中（等 P0 演练 / P2 采购补齐 / P3 工作流引擎 跑完后再派卡）**
+>
+> v1.2 变更（用户 2026-11-07 二次拍板）：
+> - **PDF 技术方案定为 headless Chromium**（不用 typst / printpdf）
 >
 > v1.1 变更（用户 2026-11-07 拍板）：
 > 1. **PDF 必须「点按钮直接下载文件」** → 改为后端生成（不是前端打印）
@@ -238,37 +241,152 @@ zip/rar/7z  → 压缩包图标（只下载）
 | 工单 / 任务单 | 派工单打印 | P1 |
 | 报表（资产负债表/利润表/现金流量表） | 财务归档、报送 | P2 |
 
-### 4.2 技术选型（三个方案，我推荐 typst）
+### 4.2 技术选型（**用户拍板：headless Chromium**）
 
-| 方案 | 原理 | 优点 | 缺点 | 评价 |
+| 方案 | 原理 | 优点 | 缺点 | 状态 |
 |---|---|---|---|---|
-| **A. typst**（推荐） | Rust 原生库，编译进二进制，标记语言排版 | 无外部依赖、单文件部署、中文字体可控、排版能力强、生成快 | 要学 typst 语法、字体文件要打包 | ⭐ **首选** |
-| **B. printpdf** | Rust 底层 PDF 库，手写坐标 | 纯 Rust、完全可控 | 表格分页要手算坐标，开发量极大 | 不推荐（太原始） |
-| **C. headless Chromium** | HTML → PDF（`--print-to-pdf`） | 模板就是 HTML/CSS，前端能复用、渲染最准 | 要装 Chromium（~300MB）、内存吃、启动慢（每个请求 1-2s） | 备选（若要极致排版） |
+| **C. headless Chromium** | HTML → PDF（`Page.printToPDF` via CDP） | **模板就是 HTML/CSS**（前端样式可复用）、渲染最准（就是网页效果）、字体用系统字体、表格自动分页 | 要装 Chromium（~300MB）+ 中文字体（~200MB）、内存吃（常驻 300MB）、空闲退出策略要设计 | ✅ **已选** |
+| A. typst | Rust 原生库，编译进二进制 | 无外部依赖、生成快 | 要学 typst 语法、模板与前端样式脱节 | ❌ 未选 |
+| B. printpdf | Rust 底层 PDF 库 | 纯 Rust | 表格分页手算坐标，开发量极大 | ❌ 未选 |
 
-**我的建议：typst**。
+#### 4.2.1 为什么 headless Chromium 是最优（用户的选择有道理）
 
-理由：
 ```
-① 编译进二进制，144/145 不用额外装东西（运维简单）
-② 中文支持：嵌入思源黑体/宋体（字体文件打进 repo，约 10-20MB）
-③ 生成速度快（毫秒级，Chromium 要 1-2 秒）
-④ 模板可版本化（.typ 文件跟着代码走，改样式就是改文本）
-⑤ 表格自动分页、页码、页眉页脚都是内置能力
+① 模板即网页：单据 PDF 的 HTML 与前端详情页共用样式/组件思路，改版一致
+② 渲染完全准确：CSS 里怎么排，PDF 就是怎么排（表头跨页、flex 布局、中文字体）
+③ 中文字体：直接用系统装的 Noto CJK，不用打包字体文件进 repo
+④ 复杂排版：明细表 500 行、跨页、合计行、签字栏 —— CSS 全能表达
+⑤ 维护成本低：改样式就是改 CSS，不用学新语言
 ```
 
-**依赖与验证**（派卡时要先做技术验证）：
+#### 4.2.2 已实测的环境现状（必须解决的两个缺口）
+
+```
+144 生产：7.2G 内存 / 4 核 / available 5.8G
+         ❌ chromium 未安装
+         ❌ 中文字体 0 个（fc-list :lang=zh 为空）
+
+145 测试：7.2G 内存 / 4 核 / available 6.6G
+         ❌ chromium 未安装
+         ❌ 中文字体 0 个
+
+99 开发：15G 内存 / 4 核 / available 12G（宽裕）
+```
+
+**必须装的东西**：
+
+```bash
+# Debian/Ubuntu
+apt-get install -y chromium fonts-noto-cjk fonts-noto-cjk-extra
+# 约 300MB + 200MB
+```
+
+**不装字体的后果**：PDF 里所有中文变成方框 `□□□□`，这是最容易踩的坑。
+
+#### 4.2.3 架构设计：常驻 CDP 服务（不是每次启动）
+
+```
+┌─────────────────────────────────────────┐
+│  systemd: chromium-pdf.service          │
+│  /usr/bin/chromium --headless            │
+│    --remote-debugging-port=9222          │
+│    --disable-gpu --no-sandbox            │
+│    --memory-pressure-off                 │
+│    --font-render-hinting=none            │
+└────────────────┬────────────────────────┘
+                 │ CDP (WebSocket)
+                 ▼
+┌─────────────────────────────────────────┐
+│  Rust 后端（cloudpivot）                 │
+│  chromiumoxide / headless_chrome         │
+│    ├─ 连接池（3 个 target）              │
+│    ├─ 信号量（最多 3 个并发 PDF）        │
+│    ├─ HTML 模板（Tera/Askama）           │
+│    └─ Page.navigate → Page.printToPDF    │
+└─────────────────────────────────────────┘
+```
+
+**为什么常驻**：
+```
+按需启动：每次 1-2 秒（Chromium 冷启动），用户点下载要等半天 ❌
+常驻：首次连接后 <200ms 出 PDF ✅
+```
+
+**内存与防泄漏**：
+```
+常驻 Chromium 空载约 200-300MB
+每个活跃 target 约 100-150MB
+并发 3 个 → 峰值约 700MB
+
+144/145 都只有 7.2G，available 5.8-6.6G → 能撑，但要：
+· 限制并发 3（信号量）
+· systemd 每天凌晨重启一次（防内存泄漏累积）
+· --disable-dev-shm-usage（容器/低内存环境必备）
+```
+
+#### 4.2.4 Rust 依赖选型
+
 ```toml
 [dependencies]
-typst = "0.13"          # 或者用 typst-as-lib
-typst-pdf = "0.13"
+# 方案1（推荐）：chromiumoxide —— 异步 CDP 客户端，支持连接池
+chromiumoxide = { version = "0.7", features = ["tokio-runtime"] }
+
+# 方案2：headless_chrome —— 同步 API，简单但阻塞
+# headless_chrome = "1.0"
+
+# HTML 模板渲染
+tera = "1"          # 或 askama（编译期模板）
 ```
+
+#### 4.2.5 PDF 生成的完整流程
+
 ```
-验证点：
-· 中文字体能否正确嵌入（不能显示方框）
-· 表格跨页表头是否重复
-· 生成的 PDF 能否在 Windows/Mac 预览正常
-· 单页生成耗时（目标 < 200ms）
+① 后端收到 GET /api/business/erp/purchase-order/{id}/pdf
+② 权限校验（复用单据查看权限）
+③ 查数据（主表 + 明细 + 关联的客户/供应商/仓库/审批记录）
+④ 渲染 HTML（Tera 模板 + 数据）→ 字符串
+⑤ 通过 CDP：
+   a) 拿一个可用的 target（连接池）
+   b) Page.navigate 到 data:text/html;base64,{html}  或 写临时文件 file://
+   c) 等待 Page.loadEventFired
+   d) Page.printToPDF {
+        printBackground: true,
+        paperWidth: 8.27,      // A4 210mm
+        paperHeight: 11.69,    // A4 297mm
+        marginTop: 0.59, ...   // 15mm
+        displayHeaderFooter: true,
+        headerTemplate: '<div style="font-size:8px">云枢 · 采购订单</div>',
+        footerTemplate: '<div style="font-size:8px">第 <span class="pageNumber"></span> 页 / 共 <span class="totalPages"></span> 页</div>',
+      }
+   e) 拿到 base64 PDF
+⑥ 返回 application/pdf（带 Content-Disposition）
+⑦ 写 operation_log（谁导了哪张单）
+```
+
+**注意 `data:` URL 的长度限制**（Chrome 约 2MB）→ 大单据（500 行明细）建议用**临时文件 `file://`** 方式。
+
+#### 4.2.6 样式与字体规范
+
+```css
+/* PDF 模板专用样式 */
+@page {
+  size: A4;
+  margin: 15mm;
+}
+
+body {
+  font-family: "Noto Sans CJK SC", "Noto Serif CJK SC", sans-serif;
+  font-size: 10pt;
+  color: #000;
+}
+
+table { width: 100%; border-collapse: collapse; }
+thead { display: table-header-group; }   /* 跨页重复表头 —— 关键 */
+tr { page-break-inside: avoid; }         /* 行不被截断 */
+
+.amount { text-align: right; font-variant-numeric: tabular-nums; }
+.signature-row { page-break-inside: avoid; margin-top: 20mm; }
+.watermark { position: fixed; ... }       /* 作废/测试水印 */
 ```
 
 ### 4.3 接口设计
@@ -335,7 +453,7 @@ async function downloadPdf(id, module) {
 
 | 卡 | 内容 | 估算 |
 |---|---|---|
-| **PDF-01** | **技术验证 + 基础设施**：typst 接入、中文字体嵌入、通用布局库（页眉页脚/表格跨页/金额大写）、技术验证报告 | 3-4h |
+| **PDF-01** | **环境搭建 + 技术验证 + 基础设施**：装 chromium + 中文字体、systemd 常驻 CDP 服务、Rust CDP 客户端、通用 HTML 布局库（页眉页脚/表格跨页/金额大写）、14 项技术验证报告 | 4-5h |
 | **PDF-02** | 单据 PDF-1：采购订单 + 销售订单（高频单据，验证模板通用性） | 3-4h |
 | **PDF-03** | 单据 PDF-2：合同 + 入库单 + 出库单 | 3-4h |
 | **PDF-04** | 单据 PDF-3：调拨单 + 盘点单 + 退货单 | 3-4h |
@@ -347,16 +465,33 @@ async function downloadPdf(id, module) {
 ### 4.6 PDF-01 必须先做的技术验证（关键风险）
 
 ```
-本卡第一步是「可行性验证」，结论决定后续 7 张卡怎么做：
+本卡第一步是「可行性与环境验证」，结论决定后续 7 张卡怎么做：
 
-1. typst 0.13 能否在 Rust 1.99 下编译通过？
-2. 嵌入中文字体（思源黑体/宋体）后，中文是否正常显示（不是方框）？
-3. 表格 500 行跨页，表头是否自动重复？
-4. 生成一份 A4 单页 PDF 耗时？（目标 < 200ms）
-5. PDF 在 Windows（Adobe/Edge）、Mac（预览）、手机 上是否都能正常打开？
-6. 生成的文件大小？（目标 < 200KB/页，否则邮件附件太大）
+【环境】
+1. apt 装 chromium + fonts-noto-cjk 后，`chromium --version` 正常？
+2. `fc-list :lang=zh` 有中文字体？`fc-match "Noto Sans CJK SC"` 命中？
+3. headless 模式能启动？`chromium --headless --dump-dom about:blank` 有输出？
+4. CDP 端口 9222 能连？（curl http://127.0.0.1:9222/json/version）
 
-如果 typst 有硬伤 → 降级到 headless Chromium 方案（要改设计）
+【渲染正确性】
+5. 一份含中文的 HTML → PDF，中文是否正常显示（**不是方框**）？
+6. 明细表 500 行跨页，表头是否自动重复（`thead { display: table-header-group }`）？
+7. 合计行、签字栏是否被正确推到最后（不跨页断裂）？
+8. 金额右对齐 + 等宽数字（tabular-nums）是否正常？
+
+【性能与资源】
+9. 单页生成耗时？（目标 < 500ms，含 CDP 往返）
+10. 500 行单据生成耗时？（目标 < 2s）
+11. 并发 3 个请求，内存增长多少？是否稳定（不泄漏）？
+12. 生成的文件大小？（目标 < 200KB/页）
+
+【兼容性】
+13. PDF 在 Windows（Edge/Adobe）、Mac（预览）、手机 上都能正常打开？
+
+【兜底】
+14. 如果 Chromium 方案有硬伤（内存撑不住/渲染错乱）→ 降级方案：
+    · 方案 A：改 typst（要重做模板）
+    · 方案 B：降低并发到 1 + 加缓存
 ```
 
 ---
@@ -394,6 +529,7 @@ async function downloadPdf(id, module) {
 | 1 | PDF 导出方式 | **要「点按钮直接下载 PDF 文件」** → 后端生成 |
 | 2 | 发票附件 | **非电子票传扫描件/照片；电子票可用 PDF** |
 | 3 | Office 文档 | **只提供下载**，由用户本地 Office/WPS 打开（不做在线预览） |
+| 4 | PDF 技术方案 | **headless Chromium**（不用 typst / printpdf） |
 
 ---
 
