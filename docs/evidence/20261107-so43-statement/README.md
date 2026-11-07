@@ -11,10 +11,10 @@
 | `backend/src/business/erp/mod.rs` | `pub mod statement;`（一处） |
 | `backend/migrations/business/V0317__statement_confirm.{up,down}.sql` | `biz_statement_confirm` 24 列 + 5 个权限码（挂在「应收台账」页下）+ 角色授权 + 自检块（含 4 条行为探针） |
 | `scripts/verify/so43_seed.sql` | 验收夹具（期初 / 挂账 / 退货 / 坏账 / 收款 / 退款 / 作废应收 七种形态） |
-| `scripts/verify/so43_statement_e2e.py` | 真实 token + 真实 HTTP 的 46 项断言 |
+| `scripts/verify/so43_statement_e2e.py` | 真实 token + 真实 HTTP 的 48 项断言 |
 | `scripts/verify/so43_verify.sh` | 一键：重放夹具 → e2e → 台账落库核对 |
 | `scripts/verify/so43_curl_evidence.sh` | 原始 curl 取证（响应头 / xlsx 字节 / 无 token 401） |
-| `docs/evidence/20261107-so43-statement/api_evidence.txt` | e2e 全量输出（46 PASS / 0 FAIL） |
+| `docs/evidence/20261107-so43-statement/api_evidence.txt` | e2e 全量输出（48 PASS / 0 FAIL） |
 | `docs/evidence/20261107-so43-statement/curl_evidence.txt` | curl 原始输出（含 xlsx 头与 sharedStrings 片段） |
 
 ## 2. 口径（为什么这么算）
@@ -71,7 +71,7 @@ CLOUDPIVOT_STORAGE_MASTER_KEY='0123...(64 hex)' X_CONFIG_SECRET_KEY='so43-...' \
   ./target/debug/cloudpivot      # 日志：数据库迁移完成: 应用 249 个迁移
 
 # ③ 验收
-bash scripts/verify/so43_verify.sh        # 46 PASS / 0 FAIL
+bash scripts/verify/so43_verify.sh        # 48 PASS / 0 FAIL
 bash scripts/verify/so43_curl_evidence.sh # 原始 curl 取证
 ```
 

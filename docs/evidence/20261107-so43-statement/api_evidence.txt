@@ -28,18 +28,20 @@ token 已获取（长度 461）
 [PASS] xlsx 含期末 11500.00 | values=['收款退款', 'RR-SO43-0001', '退款冲回 AR-SO43-0001', '500.00', '11500.00', '2026-10-31', '期末', '期末余额（期初 + 本期发生 = 5 笔）', '-500.00', '11500.00']
 [PASS] xlsx 含 5 笔明细的余额列 | 余额列齐全
 [PASS] xlsx 行数 = 信息行 + 期初 + 5 明细 + 期末 = 8 | 列数=6
-[PASS] 签发 200 + SENT | status=200 body={'code': 0, 'msg': 'ok', 'data': {'id': '2d106c85-3813-4123-859a-74ed53332ae1', 'customer_id': 'aa430000-0000-4000-8000-000000000001', 'customer_name': '联调客户（SO-43）', 'period_from': '2026-10-01', 'period_to': '2026-10-31', 'currency': 'CNY', 'total_amount': '11500.00', 'opening_balance': '12000.00',
+[PASS] format=xlsx → 200 xlsx | status=200 magic=b'PK\x03\x04'
+[PASS] format=csv → 400 | status=400 body={'code': 10001, 'msg': 'format 只支持 xlsx（收到 csv）：客户对账单只导出 Excel'}
+[PASS] 签发 200 + SENT | status=200 body={'code': 0, 'msg': 'ok', 'data': {'id': 'd002600b-d6da-401b-8112-d8b862166c89', 'customer_id': 'aa430000-0000-4000-8000-000000000001', 'customer_name': '联调客户（SO-43）', 'period_from': '2026-10-01', 'period_to': '2026-10-31', 'currency': 'CNY', 'total_amount': '11500.00', 'opening_balance': '12000.00',
 [PASS] 签发金额 = 期末 11500 | total=11500.00
 [PASS] 签发快照带期初/发生额 | snapshot={'opening_balance': '12000.00', 'total_invoiced': '5000.00', 'item_count': 5}
-[PASS] SENT 可重发且同一行 | status=200 id=2d106c85-3813-4123-859a-74ed53332ae1 vs 2d106c85-3813-4123-859a-74ed53332ae1
+[PASS] SENT 可重发且同一行 | status=200 id=d002600b-d6da-401b-8112-d8b862166c89 vs d002600b-d6da-401b-8112-d8b862166c89
 [PASS] 确认缺确认人 → 400 | status=400 body={'code': 10001, 'msg': 'confirmed_by 必填：客户方确认人姓名至少 2 个字'}
-[PASS] 客户确认 → CONFIRMED | status=200 body={'code': 0, 'msg': 'ok', 'data': {'id': '2d106c85-3813-4123-859a-74ed53332ae1', 'customer_id': 'aa430000-0000-4000-8000-000000000001', 'customer_name': '联调客户（SO-43）', 'period_from': '2026-10-01', 'period_to': '2026-10-31', 'currency': 'CNY', 'total_amount': '11500.00', 'opening_balance': '12000.00',
-[PASS] 确认落 confirmed_by / confirmed_at | by=张三（客户财务） at=2026-11-07T01:19:19.126221Z
+[PASS] 客户确认 → CONFIRMED | status=200 body={'code': 0, 'msg': 'ok', 'data': {'id': 'd002600b-d6da-401b-8112-d8b862166c89', 'customer_id': 'aa430000-0000-4000-8000-000000000001', 'customer_name': '联调客户（SO-43）', 'period_from': '2026-10-01', 'period_to': '2026-10-31', 'currency': 'CNY', 'total_amount': '11500.00', 'opening_balance': '12000.00',
+[PASS] 确认落 confirmed_by / confirmed_at | by=张三（客户财务） at=2026-11-07T01:30:17.202658Z
 [PASS] 已确认后再提异议 → 409 | status=409 body={'code': 10003, 'msg': '该对账单当前是「客户已确认」，不能再提出异议：只有「已签发」的对账单等待客户回执'}
 [PASS] 已确认后再签发 → 409 | status=409 body={'code': 10003, 'msg': '该对账单当前是「客户已确认」，不能再重新签发：只有「已签发」的对账单等待客户回执'}
 [PASS] 九月签发 200 | status=200
 [PASS] 异议原因过短 → 400 | status=400 body={'code': 10001, 'msg': 'dispute_reason 必填：异议原因至少 4 个字（客户凭什么不认这张对账单，要能追溯）'}
-[PASS] 异议 → DISPUTED | status=200 body={'code': 0, 'msg': 'ok', 'data': {'id': '69fd99e9-74fa-49bb-8428-d229e7b19345', 'customer_id': 'aa430000-0000-4000-8000-000000000001', 'customer_name': '联调客户（SO-43）', 'period_from': '2026-09-01', 'per
+[PASS] 异议 → DISPUTED | status=200 body={'code': 0, 'msg': 'ok', 'data': {'id': '938647ac-7cef-473a-a101-9639037a3028', 'customer_id': 'aa430000-0000-4000-8000-000000000001', 'customer_name': '联调客户（SO-43）', 'period_from': '2026-09-01', 'per
 [PASS] 异议原因落库 | reason=AR-SO43-0003 那笔坏账我们不认
 [PASS] 台账 2 行 | status=200 total=2
 [PASS] 按状态筛（小写也认） | status=200 total=1
@@ -52,7 +54,7 @@ token 已获取（长度 461）
 [PASS] 客户不存在 → 404 | status=404 body={'code': 10002, 'msg': '客户 aa430000-0000-4000-8000-0000000000ff 不存在或已删除'}
 [PASS] 无 token → 401 | status=401
 
-===== 汇总：PASS 46 / FAIL 0 =====
+===== 汇总：PASS 48 / FAIL 0 =====
 ===== 3) 台账落库核对（签发快照 vs 实时算） =====
 2026-09-01~2026-09-30 CNY DISPUTED 12000.0000 open=0.0000 close=12000.0000 inv=12000.0000 rcpt=0.0000 ret=0.0000 items=2
 2026-10-01~2026-10-31 CNY CONFIRMED 11500.0000 open=12000.0000 close=11500.0000 inv=5000.0000 rcpt=3000.0000 ret=1000.0000 items=5

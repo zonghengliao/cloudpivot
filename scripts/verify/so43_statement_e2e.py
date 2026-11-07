@@ -203,6 +203,19 @@ def main():
     check("xlsx 行数 = 信息行 + 期初 + 5 明细 + 期末 = 8",
           len({re.sub(r"\d+", "", ref) for ref in texts}) == 6, f"列数={len({re.sub(r'\d+','',r) for r in texts})}")
 
+    # format 参数：xlsx 认、其他必须 400（不能静默给 xlsx）
+    status, payload, _ = req(
+        "GET", "/api/business/erp/receivable/statement/export" + q({
+            "customer_id": CUSTOMER, "period_from": "2026-10-01", "period_to": "2026-10-31",
+            "format": "xlsx"}), token, raw=True)
+    check("format=xlsx → 200 xlsx", status == 200 and payload[:4] == b"PK\x03\x04",
+          f"status={status} magic={payload[:4]!r}")
+    status, body, _ = req(
+        "GET", "/api/business/erp/receivable/statement/export" + q({
+            "customer_id": CUSTOMER, "period_from": "2026-10-01", "period_to": "2026-10-31",
+            "format": "csv"}), token)
+    check("format=csv → 400", status == 400, f"status={status} body={str(body)[:160]}")
+
     # ---------- ⑤ 签发 / 重发 / 确认 / 异议 ----------
     status, body, _ = req("POST", "/api/business/erp/receivable/statement/confirm", token, {
         "customer_id": CUSTOMER, "period_from": "2026-10-01", "period_to": "2026-10-31",

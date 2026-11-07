@@ -218,6 +218,8 @@ pub struct StatementQuery {
     pub period_to: Option<String>,
     /// 币种（ISO 4217；客户多币种往来时必填）。
     pub currency: Option<String>,
+    /// 导出格式（仅 `/export` 用：只认 `xlsx`，缺省 = xlsx；其他值 400 而不是静默给 xlsx）。
+    pub format: Option<String>,
 }
 
 /// 签发对账单入参（客户 + 期间 + 币种；金额**不接受客户端传**，一律服务端重算）。
@@ -647,6 +649,17 @@ pub fn resolve_currency(
                 available.join(" / ")
             ))),
         },
+    }
+}
+
+/// 导出格式校验：只认 `xlsx`（缺省即 xlsx；其他值 400 —— 静默返回 xlsx 会让调用方以为拿到了 csv）。
+pub fn parse_format(raw: Option<&str>) -> std::result::Result<&'static str, ApiError> {
+    match raw.map(str::trim).filter(|text| !text.is_empty()) {
+        None => Ok("xlsx"),
+        Some(text) if text.eq_ignore_ascii_case("xlsx") => Ok("xlsx"),
+        Some(text) => Err(bad_request(format!(
+            "format 只支持 xlsx（收到 {text}）：客户对账单只导出 Excel"
+        ))),
     }
 }
 
@@ -1123,6 +1136,7 @@ pub async fn statement_handler(Query(query): Query<StatementQuery>) -> ResResult
 pub async fn statement_export_handler(
     Query(query): Query<StatementQuery>,
 ) -> std::result::Result<Response, ApiError> {
+    parse_format(query.format.as_deref())?;
     let statement = build_statement(&query).await?;
     let (headers, rows) = export_table(&statement);
     let bytes = crate::business::impexp::engine::write_sheet(&headers, &rows)?;
@@ -1156,6 +1170,7 @@ pub async fn statement_send_handler(
         period_from: req.period_from.clone(),
         period_to: req.period_to.clone(),
         currency: req.currency.clone(),
+        format: None,
     })
     .await?;
     let customer_id = parse_uuid_param(&req.customer_id, "customer_id")?;
@@ -1946,5 +1961,19 @@ mod tests {
         // 空事件流的合计 = ZERO，经过 money() 后仍是两位小数
         let empty = sum_before(&[], date("2026-10-01"));
         assert_eq!(money(empty).to_string(), "0.00");
+    }
+
+    /// ⑬ 导出格式：缺省 / xlsx / 大小写混写都认；csv 必须 400（不能静默给 xlsx）。
+    #[test]
+    fn export_format_validation() {
+        assert_eq!(parse_format(None).unwrap(), "xlsx");
+        assert_eq!(parse_format(Some("  ")).unwrap(), "xlsx");
+        assert_eq!(parse_format(Some("xlsx")).unwrap(), "xlsx");
+        assert_eq!(parse_format(Some("XLSX")).unwrap(), "xlsx");
+        for bad in ["csv", "pdf", "xls"] {
+            let error = parse_format(Some(bad)).expect_err("非 xlsx 必须 400");
+            assert_eq!(error.status, 400, "{bad}");
+            assert!(error.msg.contains("xlsx"), "报错要点名支持的格式");
+        }
     }
 }
