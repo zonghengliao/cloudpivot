@@ -1,0 +1,8 @@
+cost_qty=714.0000
+cost_amount=23580.0000
+loc_qty=714.0000
+null_bucket_rows=4
+wh_with_default_location=3
+null_bucket_in_default_wh=0
+two_books_broken=0
+inv_vs_txn_broken=0

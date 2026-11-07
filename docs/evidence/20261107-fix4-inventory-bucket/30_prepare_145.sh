@@ -14,9 +14,11 @@ cd /opt/cloudpivot
 git pull --ff-only origin main
 echo "HEAD=$(git rev-parse --short HEAD) $(git log -1 --format=%s)"
 
+cd /opt/cloudpivot/backend
 cargo build --bin cloudpivot
 install -m 0755 target/debug/cloudpivot target/debug/cloudpivot-fix4
 echo "binary_ok=$(stat -c %s target/debug/cloudpivot-fix4) bytes"
+cd /opt/cloudpivot
 
 export PGPASSWORD=$(awk -F= '/^NIK_DATABASE_PASSWORD/{print $2}' /etc/cloudpivot/cloudpivot-dev.env)
 mkdir -p /root/backup
