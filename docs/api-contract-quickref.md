@@ -55,10 +55,11 @@
 ```text
 POST /api/business/erp/payable/{id}/pay
   body: {"amount":"2000.0000", "pay_date":"2026-11-08", "pay_method":"BANK_TRANSFER"}
-  → 202 + 审批实例（付款单要审批后才记账）
+  → 202 + {"outcome":"PENDING_APPROVAL", "payment_no":"PM-…", "approval_instance_id":"…"}
+    （付款单要审批后才记账，此刻账还没动）
 ```
 
-- 有已发布的 `payable_pay` 流程 ⇒ **202**，响应带 `instance_id` / `payment_no`，钱还没动；
+- 有已发布的 `payable_pay` 流程 ⇒ **202**，响应带 `approval_instance_id` / `payment_no`（`outcome = PENDING_APPROVAL`），钱还没动；
 - 没配流程 ⇒ **409 + `APPROVAL_FLOW_NOT_CONFIGURED`（fail-closed）**，只有「持 `business:erp:skip-approval` + `skip_reason` ≥10 字」才能显式跳过直付，理由进 `biz_status_log`；
 - 想看这单能付多少：`GET /api/business/erp/payable/{id}/payment-info`（详情抽屉「发起付款」的唯一读数）。
 - 出处：`backend/src/business/erp/payable_payment.rs::submit_payment` 文档注释（"卡面 ③：改成先发起审批，返回 202"）。
