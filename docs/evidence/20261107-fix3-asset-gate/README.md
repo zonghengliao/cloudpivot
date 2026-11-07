@@ -1,9 +1,10 @@
 # FIX-3 资产两连 · 验收证据（145 真机 · 全新库 cloudpivot_fix3n · 隔离实例 8041）
 
 > 卡：`t_0fa8d2c3`「FIX-3 资产两连：FIXED_ASSET 联动规则缺失 + 处置当月漏提折旧」
-> 代码 commit：`93e0ffc`（origin/main = github/main，145 已 pull 到该 commit）
+> 代码 commit：**`93e0ffc`**（运行时行为全在这里；origin/main = github/main = 145 已 pull）
+> 后续两个 commit 不含运行时改动：`c896f18`（本证据文档 + 脚本）、`5780949`（+1 条纯逻辑守卫用例）
 > 环境：145 测试机，全新库 `cloudpivot_fix3n`（`FRESH=1` 删库重建，跑完整迁移集），实例 `127.0.0.1:8041`（隔离，`target/debug/cloudpivot-fix3`，验完已停）
-> 结论：**37/37 断言全绿（FAIL=0）**，`cargo test` 23 个目标 **3547 passed / 0 failed**，本卡资产真库用例 **11/11**。
+> 结论：**37/37 断言全绿（FAIL=0）**，`cargo test` 23 个目标 **3548 passed / 0 failed**，本卡资产真库用例 **11/11**。
 
 ---
 
@@ -49,7 +50,7 @@
 | `backend/src/business/erp/asset_compute.rs` | **+247**：`DisposalDepGate` / `DepGateMiss` / `DepGateSkip` / `disposal_dep_gate()` + 口径定稿注释 + 5 条用例 |
 | `backend/src/business/erp/asset_model.rs` | **+27**：`depreciation_status_of(asset_id, period_code)`（一台一期一行状态） |
 | `backend/src/business/erp/asset_handler.rs` | **+57**：`asset_dispose` 处置前置闸（409 66048 + 两种放行的 info 日志）+ 函数注释 |
-| `backend/src/business/erp/asset_linkage.rs` | **+159**：6 条预置规则 ↔ 代码契约的纯逻辑用例（`include_str!` 读迁移原文） |
+| `backend/src/business/erp/asset_linkage.rs` | **+159**（`93e0ffc`）+ **+44**（`5780949`）：7 条纯逻辑用例 —— 6 条钉「迁移原文 ↔ 代码契约」（`include_str!`），1 条钉「处置闸真的接在 handler 提交步且不许挪到执行步」 |
 | `backend/src/business/erp/asset_linkage_tests.rs` | **+39/-2**：插规则改 upsert + `restore_presets()` |
 | `backend/src/shared/error_code.rs` | **+14**：`ERP_ASSET_DEPRECIATION_PENDING = 66048` + 码值登记表一行 |
 | `docs/evidence/20261107-p004-fixed-asset-chain/README.md` | **+22**：新增「六、上线清单（资产模块 · 部署 / 升级必查）」四条 + 升级影响说明 |
@@ -148,8 +149,8 @@ msg=资产 FA-20261107-000001 不能处置：处置当月没有该资产的折�
 
 | 项 | 结果 |
 |---|---|
-| `cargo test --features test-hooks`（99 工作区） | **23 个测试目标 / 3547 passed / 0 failed**（11 ignored 全在既有 doctest 目标，非本卡新增） |
-| 本卡新增纯逻辑用例 | `asset_compute` 5 条（闸门）+ `asset_linkage` 6 条（迁移↔代码契约）全绿 |
+| `cargo test --features test-hooks`（99 工作区，最终 commit `5780949`） | **23 个测试目标 / 3548 passed / 0 failed**（11 ignored 全在既有 doctest 目标，非本卡新增） |
+| 本卡新增纯逻辑用例 | `asset_compute` 5 条（闸门判据）+ `asset_linkage` 7 条（6 条迁移↔代码契约 + 1 条 handler 调用点漂移守卫）全绿 |
 | 资产**真库**用例（`ERP_DB_URL` 指向已跑迁移的新库） | `business::erp::asset_linkage_tests` **11/11 passed**（含 `lnk09_*` 5 条 + `st02_*` 6 条；证明预置规则与用例夹具共存、预置行按迁移口径复原） |
 | clippy | 本卡改动文件零告警（仓库基线 `sales_order_model.rs:699 too_many_arguments` 为既有问题，未触碰） |
 
