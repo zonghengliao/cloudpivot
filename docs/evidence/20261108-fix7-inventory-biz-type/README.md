@@ -194,6 +194,12 @@ bash docs/evidence/20261108-fix7-inventory-biz-type/14_kill_instance.sh # 收尾
 
 ## 8. commit
 
-* `c8307e6` — 功能：SALE_OUT / SOURCELESS / V0330 / 口径文档 / 巡检 B1b / 单测
-* `3ef63fe`、`a4e339a`、`e6b…`（取证脚本修正若干）— 均在 `docs/evidence/20261108-fix7-inventory-biz-type/`
-* 最终 HEAD 见卡内汇报的 commit hash（含本 README 与 raw 证据）
+功能改动（唯一一个动代码的提交）：
+
+* `c8307e6` — 功能：`SALE_OUT` / `SOURCELESS` / V0330 / 口径文档 / 巡检 B1b / 单测
+
+取证脚本与报告（同卡补充提交，只动 `docs/evidence/20261108-fix7-inventory-biz-type/`）：
+`3ef63fe`、`a4e339a`、`1bb30df`、`d3a2702`、`90500f1`、`50a9063`、`af26e35`、`535a3e4`（本报告 + raw 证据）、
+其后一条只更新本节的收尾提交。
+
+> 代码侧要回滚只需 revert `c8307e6`（含迁移 V0330 的 down）；取证脚本无副作用。
