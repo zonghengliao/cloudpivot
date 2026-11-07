@@ -12,12 +12,15 @@
 #   bash scripts/deploy/deploy.sh --dry-run       # 只体检 + 打印计划，不写任何东西
 #   bash scripts/deploy/deploy.sh --skip-migrate --skip-frontend
 #   bash scripts/deploy/deploy.sh --skip-backend --skip-frontend   # 只跑迁移
+#   bash scripts/deploy/deploy.sh --skip-migrate --skip-backend --force-frontend  # 只重建前端
 #   bash scripts/deploy/deploy.sh --tag mylabel   # 指定备份/构建标签（默认时间戳）
 #
 # 选项：
 #   --skip-migrate    不跑新迁移（默认：自动检测并逐条跑）
 #   --skip-backend    不编译/不重启后端
 #   --skip-frontend   不构建/不替换前端 dist
+#   --force-frontend  无视「前端无改动」判据，强制 typecheck + build + 换 dist
+#                     （补装前端 / 复现 build 问题时用；仍受 --skip-frontend 压制）
 #   --dry-run         只打印计划
 #   --tag <label>     备份与构建目录标签
 #   -h|--help
@@ -27,6 +30,10 @@
 #   DEPLOY_ENV_FILE    生产环境变量文件，默认 /etc/cloudpivot/cloudpivot.env
 #   DEPLOY_SERVICE     systemd 服务名，默认 cloudpivot
 #   CARGO_BUILD_JOBS   默认 1（7GB 机器上高并发会 OOM）
+#   NODE_MAX_OLD_SPACE 前端 build 的 node 老生代上限（MB），默认 4096
+#                      （本项目 378 assets / tdesign chunk 8MB，默认堆 ~2GB 必 OOM；
+#                        144 实测 4608 可用、4096 留余量。日志里出现
+#                        "Reached heap limit / JavaScript heap out of memory" 就是这个值不够）
 #
 # 退出码：0 成功；1 失败（已按需回滚后端/前端，详细提示见日志尾）
 # 日志：/var/log/cloudpivot-deploy-<TAG>.log
@@ -48,16 +55,20 @@ TAG="$(date +%Y%m%d-%H%M%S)"
 SKIP_MIGRATE=0
 SKIP_BACKEND=0
 SKIP_FRONTEND=0
+FORCE_FRONTEND=0
 DRY_RUN=0
+# 前端 build 的 node 堆上限：不设就吃默认（这台 7GB/aarch64 上 ~2GB，本轮实测 OOM）
+NODE_MAX_OLD_SPACE="${NODE_MAX_OLD_SPACE:-4096}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --skip-migrate)  SKIP_MIGRATE=1 ;;
     --skip-backend)  SKIP_BACKEND=1 ;;
     --skip-frontend) SKIP_FRONTEND=1 ;;
+    --force-frontend) FORCE_FRONTEND=1 ;;
     --dry-run)       DRY_RUN=1 ;;
     --tag)           TAG="${2:?--tag 需要值}"; shift ;;
-    -h|--help)       sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)       sed -n '2,/^set -uo pipefail/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "未知参数：$1（--help 看用法）" >&2; exit 2 ;;
   esac
   shift
@@ -226,6 +237,7 @@ fi
 
 [ -n "$(git diff --name-only "$OLD_HEAD" "$NEW_HEAD" -- Cargo.toml Cargo.lock rust-toolchain.toml backend/Cargo.toml backend/Cargo.lock backend/rust-toolchain.toml 2>/dev/null)" ] && BE_CHANGED=1
 
+[ "$FORCE_FRONTEND" = "1" ] && [ -z "$FE_CHANGED" ] && { FE_CHANGED="forced"; say "（--force-frontend：无视「前端无改动」，强制重建 dist）"; }
 [ "$SKIP_BACKEND" = "1" ] && BE_CHANGED="" && say "（--skip-backend：忽略后端改动）"
 [ "$SKIP_FRONTEND" = "1" ] && FE_CHANGED="" && say "（--skip-frontend：忽略前端改动）"
 say "后端改动：$([ -n "$BE_CHANGED" ] && echo 有 || echo 无)　　前端改动：$([ -n "$FE_CHANGED" ] && echo 有 || echo 无)　　待应用迁移：${#PENDING_PAIRS[@]} 个（口径：磁盘全部 up.sql − 库内 success 记录）"
@@ -429,17 +441,29 @@ fi
 # ----------------------------------------------------------------------------
 step "[7/8] 前端（只在有前端改动时 typecheck + build，并比对入口指纹）"
 if [ -z "$FE_CHANGED" ]; then
-  say "无前端改动，跳过 dist 构建"
+  say "无前端改动，跳过 dist 构建（要强制重建加 --force-frontend）"
 elif [ "$DRY_RUN" = "1" ]; then
-  say "dry-run：将 pnpm typecheck → vite build --outDir dist-$TAG → 双 rename → curl $WEB_URL 比对入口 chunk"
+  say "dry-run：将 export NODE_OPTIONS=--max-old-space-size=$NODE_MAX_OLD_SPACE → pnpm typecheck → vite build --outDir dist-$TAG → 双 rename → curl $WEB_URL 比对入口 chunk"
 else
   cd "$FRONTEND_DIR" || die "cd frontend 失败"
+  # 必须显式抬堆：这台 7GB / aarch64 机器上 node 默认老生代上限约 2GB，
+  # 本项目 dist（378 assets、tdesign chunk 8MB）在 rendering chunks 阶段必 OOM
+  # （2026-11-08 生产部署实测：默认堆 → FATAL ERROR: Reached heap limit @ ~2002MB；
+  #   4608 后同一条 build 37s 通过）。不继承外部环境，脚本自己钉住口径。
+  export NODE_OPTIONS="--max-old-space-size=$NODE_MAX_OLD_SPACE"
+  say "node $(command -v node) $(node -v 2>/dev/null)　NODE_OPTIONS=$NODE_OPTIONS"
   say "pnpm typecheck …"
   pnpm typecheck || die "pnpm typecheck 有错（按规范前端 0 错才允许上线）"
   ok "typecheck 0 错"
 
   say "vite build → dist-$TAG …"
-  pnpm exec vite build --outDir "dist-$TAG" --emptyOutDir || die "vite build 失败"
+  VITE_T0=$(date +%s)
+  if ! pnpm exec vite build --outDir "dist-$TAG" --emptyOutDir; then
+    # 把「怎么修」写进失败提示：本卡就是被这一条咬出来的
+    say "（build 失败；若日志含 'Reached heap limit' / 'JavaScript heap out of memory' / Mark-Compact，就是堆上限不够）"
+    die "vite build 失败（NODE_OPTIONS=$NODE_OPTIONS）。堆不够时这样重跑前端：NODE_MAX_OLD_SPACE=5120 bash scripts/deploy/deploy.sh --skip-migrate --skip-backend --force-frontend"
+  fi
+  ok "vite build 完成（$(( $(date +%s) - VITE_T0 ))s，NODE_OPTIONS=$NODE_OPTIONS）"
   NEW_ENTRY=$(grep -o 'assets/index-[^"]*\.js' "dist-$TAG/index.html" | head -1)
   [ -n "$NEW_ENTRY" ] || die "新 dist 里找不到入口 chunk"
   ok "新入口：$NEW_ENTRY"
