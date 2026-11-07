@@ -513,5 +513,49 @@ mod tests {
             );
         }
     }
+
+    /// ⑦ 处置闸必须真的接在 handler 的**提交步**（FIX-3 方案 ①）。
+    ///
+    /// 纯函数判据再好，调用点被删一行就静默失效 —— 这条与 `flow::linkage::tests_wiring`
+    /// 的「调用点漂移」口径一致：用 `include_str!` 读 handler 原文断关键片段与顺序。
+    #[test]
+    fn disposal_dep_gate_is_wired_into_dispose_handler() {
+        let handler = include_str!("asset_handler.rs");
+        let dispose = handler
+            .find("pub async fn asset_dispose(")
+            .expect("asset_handler.rs 必须有 asset_dispose");
+        let body = &handler[dispose..];
+        // ① 判据必须来自纯函数（不许在 handler 里重写一套「当月有没有明细」的 if）
+        let gate = body
+            .find("asset_compute::disposal_dep_gate(")
+            .expect("处置入口必须调 asset_compute::disposal_dep_gate（判据只有一份实现）");
+        // ② 未过账必须回 409 + 66048（不许只打日志放行）
+        assert!(
+            body.contains("error_code::ERP_ASSET_DEPRECIATION_PENDING"),
+            "处置闸未过账必须回 ERP_ASSET_DEPRECIATION_PENDING（66048）"
+        );
+        assert!(
+            body.contains("409,"),
+            "处置闸未过账必须是 409（业务冲突），不是 400/500"
+        );
+        // ③ 顺序：闸门必须在「查流程 / 起审批」之前（fail fast，失败在提交前）
+        let flow = body
+            .find("asset_bridge::published_disposal_flow()")
+            .expect("处置入口必须查处置审批流程");
+        assert!(
+            gate < flow,
+            "处置闸必须排在查流程 / 起审批**之前**（当前 gate@{gate} / flow@{flow}）"
+        );
+        // ④ 不许把闸门挪到审批落定后的执行步（那时审批已通过，半路 409 会卡住处置单）
+        let bridge = include_str!("asset_bridge.rs");
+        let execute = bridge
+            .find("async fn execute(instance_id: Uuid)")
+            .expect("asset_bridge.rs 必须有 execute");
+        let exec_body = &bridge[execute..];
+        assert!(
+            !exec_body.contains("disposal_dep_gate("),
+            "处置闸不许放在审批落定后的执行步：审批已通过时半路 409 只会把处置单卡在中间态"
+        );
+    }
 }
 
