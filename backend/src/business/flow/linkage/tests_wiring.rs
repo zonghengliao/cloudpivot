@@ -114,12 +114,19 @@ fn trigger_specs_cover_whitelist_in_order() {
     assert_eq!(entities.len(), 15, "当前白名单是 15 个触发点");
     assert_eq!(
         spec::wired_triggers(),
-        vec!["STOCK_IN", "STOCK_OUT", "STOCK_TRANSFER", "TASK"],
+        vec![
+            "STOCK_IN",
+            "STOCK_OUT",
+            "STOCK_TRANSFER",
+            "PURCHASE_ORDER",
+            "TASK"
+        ],
         "已接线的触发点：STOCK_IN（收货过账）、STOCK_OUT（出库过账，P1-FIX-5C 新接）、\
-         STOCK_TRANSFER（库存调拨状态变更，LNK-01 新接）、TASK（任务状态变更）；\
+         STOCK_TRANSFER（库存调拨状态变更，LNK-01 新接）、\
+         PURCHASE_ORDER（采购单状态变更 + 部分/全部收货，LNK-02 新接）、TASK（任务状态变更）；\
          接线状态变化时这份断言要跟着改，改之前先想清楚「真的有人调引擎了吗」"
     );
-    assert_eq!(spec::unwired_triggers().len(), 11, "其余 11 个仍未接线");
+    assert_eq!(spec::unwired_triggers().len(), 10, "其余 10 个仍未接线");
 }
 
 /// 每条声明都要自洽：已接线的必须有证据对，未接线的必须给出原因且不能有证据对。
@@ -193,9 +200,9 @@ fn wired_triggers_match_call_sites() {
     }
     assert_eq!(
         actual.len(),
-        5,
-        "当前真实调用点 5 个文件（收货过账 / 出库过账 handler + 出库联动 hook + 调拨联动 hook + \
-         任务状态通知）：{actual:?}"
+        6,
+        "当前真实调用点 6 个文件（收货过账 / 出库过账 handler + 出库联动 hook + 调拨联动 hook + \
+         采购联动 hook + 任务状态通知）：{actual:?}"
     );
 }
 
@@ -323,6 +330,89 @@ fn transfer_excluded_actions_are_routed_elsewhere() {
         assert!(
             !engine::is_routed_elsewhere(spec::TRANSFER_EXCLUDED_ACTIONS, code),
             "{code} 被误判成专用路由：调拨的通知 / 建任务会静默不执行"
+        );
+    }
+}
+
+/// 采购订单（`PURCHASE_ORDER`）的接线细节（LNK-02）：**两处状态变更路都要调引擎**，
+/// 且必须排除会与收货过账重复落账的动作。
+///
+/// 这条防的四种漂移：
+///
+/// 1. 只在 `spec.rs` 把 `wired` 改成 true、handler 里没调用（P1-FIX-5C 的原罪）；
+/// 2. 只接 `apply_status`、漏掉 `sync_purchase_status` → 「部分收货 → 全部收货」这条边
+///    由 `state_machine::transition_if_changed` 推进，**完全不经过 apply_status**，
+///    漏了这一处，`PURCHASE_ORDER/RECEIVED` 的规则永远不响；
+/// 3. 排除清单丢了 → 通用引擎在采购单状态变更时再写一次库存 / 流水 / 凭证
+///    （同一物料加两次库存、一张收货单两张进项凭证），或把派生口径的已收数量再推一次；
+/// 4. 排除清单把通知 / 建任务也排掉 → 联动配了等于没配（最坏的一种：不报错、不落账）。
+#[test]
+fn purchase_order_wires_generic_engine_and_excludes_stock_actions() {
+    let hook = include_str!("../../erp/purchase_linkage.rs");
+    assert!(
+        hook.contains("linkage::engine::run_excluding("),
+        "采购单状态变更必须调用通用引擎（run_excluding）：否则 PURCHASE_ORDER 的联动规则配了不触发"
+    );
+    assert!(
+        hook.contains("linkage::spec::PURCHASE_EXCLUDED_ACTIONS"),
+        "采购单调通用引擎时必须传 spec::PURCHASE_EXCLUDED_ACTIONS（不许改成写死的空清单）"
+    );
+    assert!(
+        hook.contains("linkage::engine::run_deferred"),
+        "采购单的提交后动作必须交给 run_deferred（commit 之后跑），否则通知 / 建任务永远不执行"
+    );
+    for code in [
+        "WRITE_INVENTORY",
+        "WRITE_INVENTORY_TXN",
+        spec::ACTION_GENERATE_VOUCHER,
+        spec::ACTION_UPDATE_RECEIVED_QTY,
+    ] {
+        assert!(
+            spec::PURCHASE_EXCLUDED_ACTIONS.contains(&code),
+            "采购单的排除清单漏了 {code}：它在收货过账里有专用落账（已收数量是派生值），\
+             通用引擎再跑一次就是重复落账"
+        );
+    }
+    for code in [spec::ACTION_SEND_NOTICE, spec::ACTION_CREATE_TASK] {
+        assert!(
+            !spec::PURCHASE_EXCLUDED_ACTIONS.contains(&code),
+            "{code} 不能被采购单排除：通知 / 建任务就靠通用引擎的 AfterCommit 动作"
+        );
+    }
+
+    // 两处状态写入点：① `apply_status`（提交 / 审批 / 关闭 / 作废）② 收货推进
+    let model = include_str!("../../erp/purchase_model.rs");
+    assert!(
+        model.contains("purchase_linkage::run_in_tx("),
+        "purchase_model::apply_status 必须真的调 purchase_linkage::run_in_tx\
+         （只改 spec.rs 的 wired 标记不算接线）"
+    );
+    let receipt = include_str!("../../erp/stockin_purchase.rs");
+    assert!(
+        receipt.contains("purchase_linkage::run_in_tx("),
+        "stockin_purchase::sync_purchase_status 也必须调 purchase_linkage::run_in_tx：\
+         「部分收货 → 全部收货」这条边由 transition_if_changed 推进、不经过 apply_status，\
+         不接这一处这条边永远走不到联动"
+    );
+}
+
+/// 采购单的排除清单在**语义上**真的会把那四类动作拦下来（不是只有字符串写对）。
+///
+/// `engine::is_routed_elsewhere` 是引擎判定「这条规则交给专用路径」的唯一判据：
+/// 命中的规则**不产生 `RuleRun`**（`run_excluding` 里 `continue`）。
+#[test]
+fn purchase_excluded_actions_are_routed_elsewhere() {
+    use crate::business::flow::linkage::engine;
+    for code in spec::PURCHASE_EXCLUDED_ACTIONS {
+        assert!(
+            engine::is_routed_elsewhere(spec::PURCHASE_EXCLUDED_ACTIONS, code),
+            "{code} 在排除清单里却没被判成「专用路由」：清单传下去也拦不住它"
+        );
+    }
+    for code in [spec::ACTION_SEND_NOTICE, spec::ACTION_CREATE_TASK] {
+        assert!(
+            !engine::is_routed_elsewhere(spec::PURCHASE_EXCLUDED_ACTIONS, code),
+            "{code} 被误判成专用路由：采购单的通知 / 建任务会静默不执行"
         );
     }
 }

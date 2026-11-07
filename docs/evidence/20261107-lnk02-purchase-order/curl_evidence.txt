@@ -1,0 +1,39 @@
+# 超管登录成功，token 长度 = 461
+# 取证账号 lnk02_buyer：code=30010 msg=用户名已存在
+# 采购员登录成功，token 长度 = 3668
+
+## ① PUT /api/business/flow/linkage —— PURCHASE_ORDER / PARTIAL_RECEIVED → SEND_NOTICE
+{"id": "01a1b445-aa6e-72d2-b9b1-5b60b302b211", "trigger": "PURCHASE_ORDER/PARTIAL_RECEIVED", "action": "SEND_NOTICE", "phase": "AFTER_COMMIT", "implemented": true, "problems": []}
+
+## ② GET /api/business/flow/linkage?trigger_entity=PURCHASE_ORDER —— 配置页显示 wired=true
+{
+ "entity": "PURCHASE_ORDER",
+ "wired": true,
+ "wiring": "已接线（LNK-02）：两处状态写入点共用 erp/purchase_linkage.rs 一份 hook —— ① purchase_model::apply_status[_with_instance]（提交 / 审批通过 / 驳回 /…"
+}
+
+## ③ POST /api/business/erp/purchase-order —— 建单（M-W1A-001 × 10，单价 2）
+{"id": "01a1b447-2e86-72ee-a9a4-7c8a89784dc3", "order_no": "PO-20261107-000005", "status": "DRAFT", "total_with_tax": "22.6000", "item_id": "01a1b447-2e87-75c3-a288-fcf5b09aa7e1"}
+
+## ④ PATCH /api/business/erp/purchase-order/{id}/status  {"status":"SUBMITTED"}
+{"code": 0, "status": "SUBMITTED"}
+
+## ⑤ POST /api/business/erp/stock-in —— 带来源采购单收货（4/10）
+{"id": "01a1b447-2eac-7785-846b-1bf8715d5958", "in_no": "IN-20261107-000218", "status": "DRAFT", "qty": 4}
+
+## ⑥ PATCH /api/business/erp/stock-in/{id}/status  {"status":"POSTED"}
+{"code": 0, "msg": "ok", "status": null}
+# 收货单当前状态 = POSTED
+
+## ⑦ GET /api/business/erp/purchase-order/{id} —— 状态应为 PARTIAL_RECEIVED
+{"order_no": "PO-20261107-000005", "status": "PARTIAL_RECEIVED", "total_with_tax": "22.6000"}
+
+## ⑧ 落库真值：sys_notice（幂等键 LNK:PURCHASE_ORDER:PARTIAL_RECEIVED:01a1b447-2e86-72ee-a9a4-7c8a89784dc3）
+NTW20261107043206cc86d2de | 采购订单部分收货 | USER | PURCHASE_ORDER | LNK:PURCHASE_ORDER:PARTIAL_RECEIVED:01a1b447-2e86-72ee-a9a4-7c8a89784dc3
+
+## ⑨ 落库真值：状态日志（状态机唯一入口，PURCHASE_ORDER）
+DRAFT→SUBMITTED | 提交审批
+SUBMITTED→PARTIAL_RECEIVED | 收货过账 IN-20261107-000218 自动推进
+
+## ⑩ 收尾：删掉取证规则（写入口 DELETE），单据留作取证（已收货单不可硬删）
+# 规则 01a1b445-aa6e-72d2-b9b1-5b60b302b211 已删除；采购单 PO-20261107-000005 / 收货单 01a1b447-2eac-7785-846b-1bf8715d5958 保留为取证物证

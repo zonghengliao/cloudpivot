@@ -295,7 +295,8 @@ pub struct TriggerSpec {
 
 /// 触发点接线表（顺序与 [`TRIGGERS`] 一致）。
 ///
-/// 当前 **4/15 已接线**（`STOCK_IN` · `STOCK_OUT` · `STOCK_TRANSFER` · `TASK`），11 个未接线；逐条原因见
+/// 当前 **5/15 已接线**（`STOCK_IN` · `STOCK_OUT` · `STOCK_TRANSFER` · `PURCHASE_ORDER` · `TASK`），
+/// 10 个未接线；逐条原因见
 /// `docs/architecture/P1-FIX-5C-联动触发点接线清单.md`。
 pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     TriggerSpec {
@@ -393,12 +394,26 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
             ("CLOSED", "已关闭"),
             ("CANCELLED", "已取消"),
         ],
-        wired: false,
-        wiring: "未接线：采购单状态在 purchase_model::apply_status（部分收货由 \
-                 erp/stockin_purchase.rs 用 transition_if_changed 推进），两处都没有联动调用点。\
-                 接线要动：两处都要接（否则「部分收货 → 全部收货」这条边走不到联动），且必须排除 \
-                 UPDATE_RECEIVED_QTY 之外的库存动作",
-        proofs: &[],
+        wired: true,
+        wiring: "已接线（LNK-02）：两处状态写入点共用 erp/purchase_linkage.rs 一份 hook —— \
+                 ① purchase_model::apply_status[_with_instance]（提交 / 审批通过 / 驳回 / 关闭 / \
+                 作废，CAS 成功 affected>0 才跑）调 purchase_linkage::run_in_tx → \
+                 linkage::engine::run_excluding(spec::PURCHASE_EXCLUDED_ACTIONS)；\
+                 ② erp/stockin_purchase.rs::sync_purchase_status（部分收货 / 全部收货 / \
+                 收货作废回退，走的是 transition_if_changed，**完全不经过 apply_status**）\
+                 在 CAS 成功后调同一个 run_in_tx。两处都必须接，否则「部分收货 → 全部收货」\
+                 这条边永远不触发。通知 / 建任务这类 AfterCommit 动作由调用方在 commit 之后 \
+                 调 LinkageOutbox::flush → linkage::engine::run_deferred",
+        proofs: &[
+            (
+                "src/business/erp/purchase_linkage.rs",
+                "linkage::engine::run_excluding",
+            ),
+            (
+                "src/business/erp/purchase_linkage.rs",
+                "linkage::engine::run_deferred",
+            ),
+        ],
     },
     TriggerSpec {
         entity: state_machine::ENTITY_PAYABLE,
@@ -707,6 +722,28 @@ pub const TRANSFER_EXCLUDED_ACTIONS: &[&str] = &[
     "WRITE_INVENTORY",
     "WRITE_INVENTORY_TXN",
     ACTION_GENERATE_VOUCHER,
+];
+
+/// **采购订单**的专用路由排除清单（LNK-02）。
+///
+/// 采购单的状态变更**不落任何账**：库存 / 库位账 / 流水 / 进项凭证 / 应付全部由
+/// **收货单过账**（`erp/stockin_handler_post.rs::post_in_tx`）在同一事务里写完，
+/// 采购单只是被 `sync_purchase_status` 被动推状态。所以通用引擎在这个触发点上
+/// 必须把这 4 类动作交给专用路径：
+///
+/// - `WRITE_INVENTORY` / `WRITE_INVENTORY_TXN` → 同一物料加两次库存、一张单两条流水；
+/// - `GENERATE_VOUCHER` → 一张收货单两张进项凭证；
+/// - `UPDATE_RECEIVED_QTY` → 已收数量是**派生值**（`purchase_model::POSTED_RECEIVED_SQL`，
+///   由已过账收货单现算），累计量动作再推一次就是「第二真相」，报表与过账闸立刻分叉。
+///
+/// 排除清单放在**调用方**（这里导出、`erp::purchase_linkage` 传入）而不是写死在引擎里：
+/// 换个触发点（如 `PAYABLE/SETTLED`）通用路线仍然要能跑这些动作。
+/// 漂移守卫：`tests_wiring::purchase_order_wires_generic_engine_and_excludes_stock_actions`。
+pub const PURCHASE_EXCLUDED_ACTIONS: &[&str] = &[
+    "WRITE_INVENTORY",
+    "WRITE_INVENTORY_TXN",
+    ACTION_GENERATE_VOUCHER,
+    ACTION_UPDATE_RECEIVED_QTY,
 ];
 
 // ==================== 禁用键（SQL 禁令） ====================

@@ -171,15 +171,28 @@ pub async fn change_stock_in_status_with(
     }
 
     let now = Utc::now();
+    // LNK-02：作废会重算采购单状态，那条边要触发联动（同 `cancel_in_tx` 的口径）
+    let mut linkage_outbox = crate::business::erp::purchase_model::LinkageOutbox::default();
     let tx = db()
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启状态流转事务"))?;
-    match cancel_in_tx(&tx, id, &row, reason.as_deref(), &op, now).await {
+    match cancel_in_tx(
+        &tx,
+        id,
+        &row,
+        reason.as_deref(),
+        &op,
+        now,
+        &mut linkage_outbox,
+    )
+    .await
+    {
         Ok(()) => {
             tx.commit()
                 .await
                 .map_err(|error| utils::db_error(error, "提交状态流转事务"))?;
+            linkage_outbox.flush().await;
             Ok(())
         }
         Err(error) => {

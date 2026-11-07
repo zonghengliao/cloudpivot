@@ -71,6 +71,7 @@ pub async fn sync_purchase_status(
     action: &str,
     operator: Option<Uuid>,
     now: DateTime<Utc>,
+    outbox: &mut crate::business::erp::purchase_model::LinkageOutbox,
 ) -> DbResult<u64> {
     // ① 锁单 + 读当前状态（`FOR UPDATE` 让并发两张收货单串行推进同一采购单）
     let header = ex
@@ -158,6 +159,19 @@ pub async fn sync_purchase_status(
              （期望 {current}），本次过账已整笔回滚，请刷新后重试"
         )));
     }
+    // ⑥ LNK-02：状态**真的**变了才跑联动（`PARTIAL_RECEIVED → PARTIAL_RECEIVED`
+    //    继续部分收货不会走到这里 —— 上面 `changed.is_none()` 已经返回）。
+    //
+    // 为什么「部分收货」和「全部收货」都必须接在这：这条边由本函数推进，
+    // 完全不经过 `purchase_model::apply_status`。少了这一处，
+    // 「部分收货 → 全部收货」在联动配置里就是一条永远不响的规则。
+    //
+    // 采购单自己不落账（库存 / 流水 / 凭证 / 已收数量都在收货过账的事务里写完了），
+    // 所以排除清单会把那 4 类动作交给专用路径（`spec::PURCHASE_EXCLUDED_ACTIONS`）。
+    crate::business::erp::purchase_model::purchase_linkage::run_in_tx(
+        ex, order_id, target, operator, outbox,
+    )
+    .await?;
     Ok(affected)
 }
 

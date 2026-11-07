@@ -83,6 +83,15 @@ pub use super::stockin_handler_write::*;
 #[path = "stockin_handler_tests_fixtures.rs"]
 mod stockin_handler_tests_fixtures;
 
+/// LNK-02：采购单（`PURCHASE_ORDER`）状态变更 / 部分·全部收货的跨单据联动（真库）。
+///
+/// 挂在这里（而不是 `purchase_handler`）是因为它要用收货夹具跑完整的
+/// 「建收货单 → 过账 → 推采购单状态」链路；采购单那边只有 pub 的
+/// `change_purchase_order_status` 就够（提交用例走它）。
+#[cfg(test)]
+#[path = "purchase_linkage_db_tests.rs"]
+mod purchase_linkage_db_tests;
+
 #[cfg(test)]
 #[path = "stockin_handler_tests_helpers.rs"]
 mod stockin_handler_tests_helpers;

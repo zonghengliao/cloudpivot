@@ -85,6 +85,16 @@ use crate::business::erp::model::{
 use crate::business::erp::serial_model::period_key_of;
 use crate::business::shared::state_machine;
 
+// LNK-02：采购单状态变更的跨单据联动接线（`purchase_linkage.rs`）。
+//
+// 用 `#[path]` 挂在这里而不是写进 `erp/mod.rs`：多 worker 并行时 `mod.rs` 是冲突热点，
+// 而联动 hook 只需要「状态写入点」自己能看见（`stockin_purchase.rs` 走
+// `purchase_model::LinkageOutbox` 这条重导出，不必知道模块长在哪）。
+#[path = "purchase_linkage.rs"]
+pub(crate) mod purchase_linkage;
+
+pub(crate) use self::purchase_linkage::LinkageOutbox;
+
 // ==================== 表名 / 常量 ====================
 
 /// 单据头表。
@@ -626,6 +636,13 @@ pub async fn update(
 /// 目标态接受 `SUBMITTED` / `APPROVED` / `DRAFT` / `CLOSED` / `CANCELLED`：
 /// 表里没有 `cancelled_at` / `cancel_reason` 列，作废落 `closed_at` / `closed_by`，
 /// 原因追加到 `remark`（`concat_ws(' | ', remark, '取消原因：xxx')`，不覆盖原备注）。
+///
+/// # LNK-02：状态真的变了就把待提交后的联动动作交给 `outbox`
+///
+/// `outbox` 由**调用方**在开事务之前建、`commit()` 之后 `flush()` —— 事务内的
+/// `Phase::InTx` 动作（写库存 / 凭证一类）在这里执行（失败整笔回滚），
+/// 通知 / 建任务这类 `Phase::AfterCommit` 动作只在提交之后跑（永不回滚业务）。
+#[allow(clippy::too_many_arguments)]
 pub async fn apply_status(
     ex: &impl SqlExecutor,
     id: Uuid,
@@ -634,8 +651,9 @@ pub async fn apply_status(
     reason: Option<&str>,
     operator: Option<Uuid>,
     now: DateTime<Utc>,
+    outbox: &mut LinkageOutbox,
 ) -> DbResult<u64> {
-    apply_status_with_instance(ex, id, from, to, reason, operator, None, now).await
+    apply_status_with_instance(ex, id, from, to, reason, operator, None, now, outbox).await
 }
 
 /// 同 [`apply_status`]，但能**同时**写 `approval_instance_id`（P-FLOW-3A 发起审批用）。
@@ -652,6 +670,7 @@ pub async fn apply_status_with_instance(
     operator: Option<Uuid>,
     approval_instance_id: Option<Uuid>,
     now: DateTime<Utc>,
+    outbox: &mut LinkageOutbox,
 ) -> DbResult<u64> {
     let operator_text = Value::Text(operator.map(|id| id.to_string()).unwrap_or_default());
     let reason_text = reason.unwrap_or_default().to_string();
@@ -760,7 +779,13 @@ pub async fn apply_status_with_instance(
             )));
         }
     };
-    ex.exec_sql(sql, params).await
+    let affected = ex.exec_sql(sql, params).await?;
+    // LNK-02：【CAS 成功才跑联动】状态没变（affected = 0）说明目标态 = 当前态，
+    // 或者单据被别人先推走了 —— 此时推一条「已变更为 X」的通知是假的。
+    if affected > 0 {
+        purchase_linkage::run_in_tx(ex, id, to, operator, outbox).await?;
+    }
+    Ok(affected)
 }
 
 /// 软删（**DRAFT / SUBMITTED 由调用方保证**），返回 `affected`。

@@ -213,6 +213,10 @@ async fn settle(instance_id: Uuid, verdict: PoVerdict) -> DbResult<Option<Uuid>>
         return Ok(None);
     }
     let now = Utc::now();
+    // LNK-02：审批结论回写（SUBMITTED → APPROVED / DRAFT）也要触发联动 ——
+    // 这条路过的是 `apply_status`，与人工流转共用同一个 hook，但 outbox 必须
+    // 在本函数自己 commit 之后 flush（事务内的动作已随 tx 落库/回滚）。
+    let mut linkage_outbox = purchase_model::LinkageOutbox::default();
     let tx = db().begin().await?;
     let outcome = async {
         crate::business::shared::state_machine::transition(
@@ -236,6 +240,7 @@ async fn settle(instance_id: Uuid, verdict: PoVerdict) -> DbResult<Option<Uuid>>
             Some(&reason),
             approver,
             now,
+            &mut linkage_outbox,
         )
         .await
         .map_err(|error| {
@@ -276,6 +281,8 @@ async fn settle(instance_id: Uuid, verdict: PoVerdict) -> DbResult<Option<Uuid>>
     match outcome {
         Ok(()) => {
             tx.commit().await?;
+            // LNK-02：提交之后才发通知（Phase::AfterCommit 动作）
+            linkage_outbox.flush().await;
             Ok(Some(order_id))
         }
         Err(error) => {

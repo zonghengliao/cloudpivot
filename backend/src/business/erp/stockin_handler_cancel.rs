@@ -338,15 +338,19 @@ pub async fn cancel_after_approval(
 ) -> std::result::Result<(), ApiError> {
     let op = state_machine::Operator::of(operator);
     let now = Utc::now();
+    // LNK-02：作废会把采购单状态重算（可能是 RECEIVED → PARTIAL_RECEIVED 的回退），
+    // 那条边同样要触发联动；事务内动作随 tx 回滚，通知在 commit 之后 flush。
+    let mut linkage_outbox = crate::business::erp::purchase_model::LinkageOutbox::default();
     let tx = db()
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启审批作废事务"))?;
-    match cancel_in_tx(&tx, id, row, Some(reason), &op, now).await {
+    match cancel_in_tx(&tx, id, row, Some(reason), &op, now, &mut linkage_outbox).await {
         Ok(()) => {
             tx.commit()
                 .await
                 .map_err(|error| utils::db_error(error, "提交审批作废事务"))?;
+            linkage_outbox.flush().await;
             Ok(())
         }
         Err(error) => {
@@ -443,6 +447,7 @@ pub(super) async fn cancel_in_tx(
     reason: Option<&str>,
     operator: &state_machine::Operator,
     now: DateTime<Utc>,
+    linkage_outbox: &mut crate::business::erp::purchase_model::LinkageOutbox,
 ) -> std::result::Result<(), ApiError> {
     // ⓪b P-FLOW-3A：过账审批中作废 → **先终止在跑的审批单**（同一事务）。
     //     不终止就是 P11 的老坑：单据作废了，审批中心还挂着一条待办，点进去 404；
@@ -590,6 +595,7 @@ pub(super) async fn cancel_in_tx(
                 "收货作废",
                 operator.id,
                 now,
+                linkage_outbox,
             )
             .await
             .map_err(|error| write_error(error, "作废：回退采购单状态"))?;

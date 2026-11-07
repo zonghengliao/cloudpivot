@@ -1047,6 +1047,9 @@ pub async fn change_purchase_order_status(
     }
 
     let now = Utc::now();
+    // LNK-02：联动 outbox 与事务同生共死 —— 事务内的动作随 `tx` 回滚，
+    // 通知这类「提交后动作」只在 `commit()` 成功之后 flush。
+    let mut linkage_outbox = purchase_model::LinkageOutbox::default();
     let tx = db()
         .begin()
         .await
@@ -1076,7 +1079,18 @@ pub async fn change_purchase_order_status(
         let _ = tx.rollback().await;
         return Err(error);
     }
-    match purchase_model::apply_status(&tx, id, &row.status, target, reason, op.id, now).await {
+    match purchase_model::apply_status(
+        &tx,
+        id,
+        &row.status,
+        target,
+        reason,
+        op.id,
+        now,
+        &mut linkage_outbox,
+    )
+    .await
+    {
         Ok(0) => {
             let _ = tx.rollback().await;
             Err(conflict(format!(
@@ -1110,6 +1124,8 @@ pub async fn change_purchase_order_status(
             tx.commit()
                 .await
                 .map_err(|error| utils::db_error(error, "提交状态流转事务"))?;
+            // LNK-02：提交之后才发通知 / 建任务（Phase::AfterCommit 动作）。
+            linkage_outbox.flush().await;
             Ok(())
         }
         Err(error) => {
@@ -1401,11 +1417,24 @@ async fn submit_po_approval(
     };
 
     let now = Utc::now();
+    // LNK-02：提交（DRAFT → SUBMITTED）也要触发联动 —— 事务内动作随 `tx` 回滚，
+    // 通知 / 建任务这类提交后动作在 commit 之后 flush。
+    let mut linkage_outbox = purchase_model::LinkageOutbox::default();
     let tx = db()
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启采购审批事务"))?;
-    let outcome = submit_po_tx(&tx, row, operator, &start, credit, budget, now).await;
+    let outcome = submit_po_tx(
+        &tx,
+        row,
+        operator,
+        &start,
+        credit,
+        budget,
+        now,
+        &mut linkage_outbox,
+    )
+    .await;
     let mut out = match outcome {
         Ok(out) => out,
         Err(error) => {
@@ -1418,6 +1447,8 @@ async fn submit_po_approval(
     tx.commit()
         .await
         .map_err(|error| utils::db_error(error, "提交采购审批事务"))?;
+    // LNK-02：提交之后才发采购单状态联动的通知（与下面审批引擎的锁外副作用同一口径）
+    linkage_outbox.flush().await;
     // 锁外副作用（审批通知 / 客户自配的通知节点）必须在提交之后发，失败只 WARN
     let effects = out.effects.take();
     if !effects.is_empty() {
@@ -1443,6 +1474,7 @@ async fn submit_po_approval(
 }
 
 /// [`submit_po_approval`] 的事务体：返回引擎动作结果（调用方提交后负责发锁外副作用）。
+#[allow(clippy::too_many_arguments)]
 async fn submit_po_tx(
     tx: &Transaction,
     row: &PurchaseOrderRow,
@@ -1451,6 +1483,7 @@ async fn submit_po_tx(
     credit: &purchase_credit::CreditVerdict,
     budget: &budget_guard::PurchaseBudget,
     now: DateTime<Utc>,
+    linkage_outbox: &mut purchase_model::LinkageOutbox,
 ) -> std::result::Result<engine::ActionOut, ApiError> {
     // ① 状态机唯一入口（边表 + 写 biz_status_log）
     state_machine::transition(
@@ -1498,6 +1531,7 @@ async fn submit_po_tx(
         operator.id,
         Some(instance_id),
         now,
+        linkage_outbox,
     )
     .await
     .map_err(|error| write_error(error, "采购单进入已提交"))?;

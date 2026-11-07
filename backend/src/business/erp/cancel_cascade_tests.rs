@@ -660,6 +660,8 @@ async fn p15_cascade_rolls_back_when_later_step_fails() {
     )
     .await
     .unwrap();
+    // LNK-02：联动作废要收联动 outbox（本用例走的是失败回滚分支，outbox 不会被 flush）
+    let mut linkage_outbox = purchase_model::LinkageOutbox::default();
     let outcome = cancel_cascade::cascade_purchase_order_tx(
         &tx,
         order_id,
@@ -667,6 +669,7 @@ async fn p15_cascade_rolls_back_when_later_step_fails() {
         "联动作废：回滚用例",
         &op,
         now,
+        &mut linkage_outbox,
     )
     .await;
     assert!(outcome.is_err(), "第二步必须失败");

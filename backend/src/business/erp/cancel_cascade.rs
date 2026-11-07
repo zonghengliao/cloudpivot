@@ -1063,15 +1063,21 @@ pub async fn cascade(
 
     let now = Utc::now();
     let op = state_machine::Operator::of(operator);
+    // LNK-02：联动作废会**推多次**采购单状态（逐张收货单作废都重算一次），
+    // 所以用一个 outbox 收集全部待提交后动作，提交后一次 flush。
+    let mut linkage_outbox = crate::business::erp::purchase_model::LinkageOutbox::default();
     let tx = db()
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启联动作废事务"))?;
     let outcome = match normalized {
         DOC_TYPE_PURCHASE_ORDER => {
-            cascade_purchase_order_tx(&tx, id, &impact, &log_reason, &op, now).await
+            cascade_purchase_order_tx(&tx, id, &impact, &log_reason, &op, now, &mut linkage_outbox)
+                .await
         }
-        DOC_TYPE_STOCK_IN => cascade_stock_in_tx(&tx, id, &log_reason, &op, now).await,
+        DOC_TYPE_STOCK_IN => {
+            cascade_stock_in_tx(&tx, id, &log_reason, &op, now, &mut linkage_outbox).await
+        }
         DOC_TYPE_PAYABLE => cascade_payable_tx(&tx, id, &log_reason, operator, now).await,
         other => Err(bad_request(format!("doc_type={other} 不支持联动作废"))),
     };
@@ -1081,6 +1087,8 @@ pub async fn cascade(
             tx.commit()
                 .await
                 .map_err(|error| utils::db_error(error, "提交联动作废事务"))?;
+            // LNK-02：提交之后才发采购单状态联动的通知
+            linkage_outbox.flush().await;
             let done = steps.iter().filter(|s| s.outcome == OUTCOME_DONE).count();
             tracing::info!(
                 doc_type = normalized,
@@ -1121,6 +1129,7 @@ fn step_failure(seq: u32, label: &str, error: ApiError) -> ApiError {
 }
 
 /// 采购单的联动作废（事务体）。
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn cascade_purchase_order_tx(
     tx: &Transaction,
     id: Uuid,
@@ -1128,6 +1137,7 @@ pub(crate) async fn cascade_purchase_order_tx(
     reason: &str,
     op: &state_machine::Operator,
     now: nik::prelude::chrono::DateTime<Utc>,
+    linkage_outbox: &mut crate::business::erp::purchase_model::LinkageOutbox,
 ) -> std::result::Result<Vec<CancelCascadeStep>, ApiError> {
     let mut steps: Vec<CancelCascadeStep> = Vec::new();
     // ① 先锁采购单头（与收货过账 / 作废同一加锁顺序：采购单头 → 库存行）
@@ -1159,9 +1169,17 @@ pub(crate) async fn cascade_purchase_order_tx(
             .await
             .map_err(|error| utils::db_error(error, "锁定收货入库单"))?
             .ok_or_else(|| not_found("收货入库单"))?;
-        stockin_handler_cancel::cancel_in_tx(tx, locked.id, &locked, Some(reason), op, now)
-            .await
-            .map_err(|error| step_failure(seq, &format!("作废收货单 {}", locked.in_no), error))?;
+        stockin_handler_cancel::cancel_in_tx(
+            tx,
+            locked.id,
+            &locked,
+            Some(reason),
+            op,
+            now,
+            linkage_outbox,
+        )
+        .await
+        .map_err(|error| step_failure(seq, &format!("作废收货单 {}", locked.in_no), error))?;
         steps.push(CancelCascadeStep {
             seq,
             doc_type: DOC_TYPE_STOCK_IN.to_string(),
@@ -1232,6 +1250,7 @@ pub(crate) async fn cascade_purchase_order_tx(
         Some(reason),
         op.id,
         now,
+        linkage_outbox,
     )
     .await
     .map_err(|error| step_failure(seq, "作废采购单", utils::db_error(error, "作废采购单")))?;
@@ -1258,6 +1277,7 @@ pub(crate) async fn cascade_stock_in_tx(
     reason: &str,
     op: &state_machine::Operator,
     now: nik::prelude::chrono::DateTime<Utc>,
+    linkage_outbox: &mut crate::business::erp::purchase_model::LinkageOutbox,
 ) -> std::result::Result<Vec<CancelCascadeStep>, ApiError> {
     let locked = stockin_query::lock_stock_in(tx, id)
         .await
@@ -1272,7 +1292,7 @@ pub(crate) async fn cascade_stock_in_tx(
             message: "已作废，跳过".to_string(),
         }]);
     }
-    stockin_handler_cancel::cancel_in_tx(tx, id, &locked, Some(reason), op, now)
+    stockin_handler_cancel::cancel_in_tx(tx, id, &locked, Some(reason), op, now, linkage_outbox)
         .await
         .map_err(|error| step_failure(1, &format!("作废收货单 {}", locked.in_no), error))?;
     Ok(vec![CancelCascadeStep {

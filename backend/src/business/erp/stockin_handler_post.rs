@@ -387,6 +387,8 @@ pub async fn post_after_approval(
         (a.material_id, a.location_id, a.line_no).cmp(&(b.material_id, b.location_id, b.line_no))
     });
     let now = Utc::now();
+    // LNK-02：采购单状态联动（PARTIAL_RECEIVED / RECEIVED）的 outbox
+    let mut linkage_outbox = crate::business::erp::purchase_model::LinkageOutbox::default();
     let tx = db()
         .begin()
         .await
@@ -402,6 +404,7 @@ pub async fn post_after_approval(
         STATUS_PENDING_POST,
         None,
         now,
+        &mut linkage_outbox,
     )
     .await;
     match outcome {
@@ -415,6 +418,7 @@ pub async fn post_after_approval(
                 "过账审批通过：库存/库位账/流水/序列号/凭证/应付已在一个事务里落库"
             );
             run_stockin_deferred_linkage(&row, &op, linkage).await;
+            linkage_outbox.flush().await;
             Ok(())
         }
         Err(error) => {
@@ -508,6 +512,9 @@ pub(super) async fn post_stock_in(
     });
 
     let now = Utc::now();
+    // LNK-02：采购单状态联动（PARTIAL_RECEIVED / RECEIVED）的 outbox ——
+    // 这条边由 `sync_purchase_status` 推进，不走 `purchase_model::apply_status`。
+    let mut linkage_outbox = crate::business::erp::purchase_model::LinkageOutbox::default();
     let tx = db()
         .begin()
         .await
@@ -523,6 +530,7 @@ pub(super) async fn post_stock_in(
         STATUS_DRAFT,
         reason,
         now,
+        &mut linkage_outbox,
     )
     .await;
     match outcome {
@@ -532,6 +540,7 @@ pub(super) async fn post_stock_in(
                 .await
                 .map_err(|error| utils::db_error(error, "提交过账事务"))?;
             run_stockin_deferred_linkage(header, operator, linkage).await;
+            linkage_outbox.flush().await;
             Ok(())
         }
         Err(error) => {
@@ -568,6 +577,7 @@ pub(super) async fn post_in_tx(
     from_status: &str,
     reason: Option<&str>,
     now: DateTime<Utc>,
+    linkage_outbox: &mut crate::business::erp::purchase_model::LinkageOutbox,
 ) -> std::result::Result<linkage::LinkageRun, ApiError> {
     // ① 锁单头（并发重复过账在这里串行化）
     let locked = stockin_model::lock_stock_in(ex, id)
@@ -753,6 +763,7 @@ pub(super) async fn post_in_tx(
             "收货过账",
             operator.id,
             now,
+            linkage_outbox,
         )
         .await
         .map_err(|error| write_error(error, "过账：推进采购单状态"))?;
