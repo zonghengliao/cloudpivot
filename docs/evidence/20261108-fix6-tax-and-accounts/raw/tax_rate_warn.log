@@ -1,0 +1,2 @@
+[2m2026-11-07T17:13:21.466313Z[0m [33m WARN[0m [2mcloudpivot::business::erp::tax_rate[0m[2m:[0m 税率按小数（0–1）传入，已自动 ×100 转成百分数：请前端改传百分数（13 = 13%），或显式传 tax_rate_mode [3mfield[0m[2m=[0m物料 tax_rate [3mraw[0m[2m=[0m0.13 [3mpercent[0m[2m=[0m13.00
+[2m2026-11-07T17:13:34.668051Z[0m [33m WARN[0m [2mcloudpivot::business::erp::tax_rate[0m[2m:[0m 税率按小数（0–1）传入，已自动 ×100 转成百分数：请前端改传百分数（13 = 13%），或显式传 tax_rate_mode [3mfield[0m[2m=[0m开票 tax_rate [3mraw[0m[2m=[0m0.13 [3mpercent[0m[2m=[0m13.00

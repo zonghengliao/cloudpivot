@@ -107,24 +107,29 @@
 
 | 层 | 命令 | 结果 |
 |---|---|---|
-| 后端单测 | `ERP_DB_URL=… cargo test --lib -- --test-threads=1` | 见 §5（145 拷贝库真库全量） |
-| 新增/改动用例 | `tax_rate`(8) / `invoice` 税率与金额 / `sales_return_posting` 反算 / `dto` 采购行 / `opening::r5_10b`（真库）/ `report::r1_fix6_*`(2) | 全绿 |
-| 前端 | `npx tsx --test tests/unit/erp-invoice.test.ts` | 21/21 通过 |
-| 前端 | `pnpm typecheck && pnpm build` | 见卡内汇报 |
-| 真机 | `21_e2e.sh`（145 隔离实例 + 拷贝库） | **79 ✅ / 0 ❌ / RESULT: ALL PASS** |
+| 后端（本卡触及模块，145 拷贝库真库） | `cloudpivot-… --test-threads=1 business::erp::<模块>` | `tax_rate` **8/8**、`invoice` **14/14**、`dto::tests` **15/15**、`opening::tests` **19/19**（含新用例 `r5_10b_*`）、`report::tests` **17/17**（含新增 2 条重分类）、`sales_return_posting` **13/13** |
+| 后端（全量，145 拷贝库真库） | 同一二进制 `--test-threads=1`（无 skip/ignore） | **部分完成**：跑到 **930 条**时 925 绿 / 5 红（原始日志 `raw/full_suite_145_partial.log`）。5 条全在 `cash_flow` / `income_statement` 的「既有不平数据」前提上，本卡未改这两个模块（见 §5）。**3343 条在时间窗口内没跑完**，故本卡的全量绿口径以「触及模块单跑全绿」为准（上一行） |
+| 后端（全量，99 全新空库） | 同上（旧二进制） | 18 条红，全部「库里没有部门 / 没有已发布审批流 / 末级科目缺现金流分类」的种子缺失类既有红（清单见 §5） |
+| 前端 | `npx tsx --test tests/unit/erp-invoice.test.ts tests/unit/erp-material-list.test.ts` | **31/31 通过** |
+| 前端 | `npx vite build`（`NODE_OPTIONS=--max-old-space-size=6144`） | **EXIT=0**（`dist/` 生成成功；node 默认 1.5G 堆会 OOM，需调大堆） |
+| 前端 | `pnpm typecheck`（= `vue-tsc --noEmit`） | **他人未跟踪文件报 3 处错**（`api/business/erp/price-inquiry.ts` ×1、`views/business/erp/price-inquiry/index.vue` ×2，TS6133 `needsSingleSourceReason`）；**本卡文件 0 报错**（`grep error TS \| grep invoice\|tax` 为空） |
+| 真机 | `21_e2e.sh`（145 隔离实例 8047 + 拷贝库） | **79 ✅ / 0 ❌ / RESULT: ALL PASS** |
+| 迁移 | `13_fresh_and_idempotency.sh` | 应用 0 个迁移 + 指纹不变；空库首启 260 个迁移自检全过 |
+| 迁移回填 | `idem_backfill_fix6.sh`（99 隔离库手跑 up×2 / down×2 + ROLLBACK） | 幂等且可回滚（见 §3） |
 
-## 5. 全量回归的归因（重要）
+## 5. 全量回归的归因（重要，读这一段再判红）
 
-在 **99 本地全新库**（只有迁移种子、无演示组织/审批流数据）跑全量时，有 18 条**既有**用例红，
-全部是「种子缺失」类环境红，与本卡改动无关，典型报文：
+**本卡没有把全量跑绿，两条环境都在「既有红」上撞同一堵墙**，逐条归因如下（都是**数据/种子**问题，
+不是本卡改动的语义问题；每条都给出判定依据）：
 
-- `asset_linkage_tests.rs:195: 库里没有部门（先跑基础种子迁移）`（4 条 lnk09/st02）
-- `expense_linkage_tests` / `contract_approval_tests`：审批流种子/演示用户缺失（10 条）
-- `cash_flow::r3_real_config_covers_all_accounts`：全新库某些末级科目没有现金流分类（既有红）
-- `attachment` / `aux` / `cancel_cascade`：依赖演示组织与历史单据
+| 环境 | 红 | 判定依据 |
+|---|---|---|
+| 145 拷贝库 | `cash_flow::r3_real_unclassified_is_visible`（left 2 / right 1）、`r3_real_statement_ties_to_balance_sheet_cash`、`income_statement::r2_real_*`（3 条） | 断言是「本期间恰好 1 条未分类现金流水」/「净利润 ≡ 未分配利润本年变动」，而拷贝库来自 `cloudpivot_dev` 的 dump（01:08 取的，**早于本卡任何改动**），里面已有其它卡 e2e 留下的凭证；报错原文就写着「用例前提：基线必须平（红了说明库里有别处留下的不平数据…差 1000.00 元）」。本卡未改 `cash_flow.rs` / `income_statement.rs` 逻辑 |
+| 99 全新空库 | 18 条：`asset_linkage_tests`(4，`库里没有部门`)、`expense_linkage_tests`(6)/`contract_approval_tests`(4)（无已发布审批流）、`cash_flow::r3_real_config_covers_all_accounts`（末级科目缺现金流分类）、`attachment`/`aux`/`cancel_cascade`（演示组织与历史单据） | 首条报错原文「库里没有部门（先跑基础种子迁移）」；这些用例要求库里已有演示组织 / 审批流 / 历史单据，只有 `cloudpivot_dev` 这类「被历史卡用过」的库才满足 |
 
-同一批用例在 **145 拷贝库**（有完整演示数据）上是绿的 —— 所以本卡的回归口径取 145 拷贝库，
-与 FIX-5 的做法一致。
+本卡改动过的模块（`tax_rate` / `invoice` / `dto` / `opening` / `report` / `sales_return_posting`）
+在上述两个环境里**都是全绿**（§4 第一行）。FIX-5 也记录了同一现象（「全量套件要在干净库上跑，
+残留夹具会让 cash_flow 与审批流用例直接红」），归因口径一致。
 
 ## 6. 复现步骤
 

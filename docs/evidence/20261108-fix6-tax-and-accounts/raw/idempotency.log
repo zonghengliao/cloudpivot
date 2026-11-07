@@ -1,0 +1,35 @@
+=== A) 同库重启：应「应用 0 个迁移」，指纹不变 ===
+before=263|ce7c94c82c97a77bd8f332459979038a
+--- kill 本卡隔离实例（按二进制名，不按端口乱杀）
+残留隔离进程数=0
+--- 8033 服役实例健康复核（cloudpivot-test.service）
+active
+health=200
+--- cloudpivot_dev 的税率形态（应仍是迁移前的样子：本卡从未连过它）
+invoice_mode_col=0
+pid=214318 db=cloudpivot_fix6_20261108010848 port=8047
+health=200 after 2s
+[2m2026-11-07T17:13:41.560385Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+after =263|ce7c94c82c97a77bd8f332459979038a
+✅ IDEMPOTENT：迁移指纹与条数不变
+[2m2026-11-07T17:13:41.560385Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+
+=== B) 全新空库首启：迁移链（含 V0327/28/29）在空库上自检全过 ===
+fresh health=200
+[2m2026-11-07T17:13:43.790402Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 260 个迁移
+             name              | version 
+-------------------------------+---------
+ tax_rate_percent_scale        | 327
+ opening_equity_account_config | 328
+ report_item_negative_reclass  | 329
+(3 rows)
+
+ invoice_mode_col | reclass_col | equity_cfg 
+------------------+-------------+------------
+                1 |           1 | 3103
+(1 row)
+
+（空库实例已 kill；重启拷贝库实例供后续复核）
+pid=214429 db=cloudpivot_fix6_20261108010848 port=8047
+health=200 after 2s
+grep: /root/backup/fix6_instance.log: binary file matches
