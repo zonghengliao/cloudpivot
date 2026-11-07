@@ -136,6 +136,8 @@ pub mod contract_handler;
 pub mod contract_model;
 pub mod credit;
 pub mod currency;
+pub mod currency_admin_handler;
+pub mod currency_admin_model;
 pub mod customer_handler;
 pub mod customer_model;
 pub mod depreciation_handler;

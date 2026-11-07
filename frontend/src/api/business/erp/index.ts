@@ -4503,6 +4503,20 @@ export interface SalesOrder {
   total_with_tax: number | string;
   /** 备注 */
   remark: string | null;
+  /** 币种（SO-40 / V0314；本位币单也带码，存量单回填成 `CNY`） */
+  currency_code: string;
+  /**
+   * **建单时锁定的**汇率（`1 原币 = exchange_rate 本位币`；本位币单恒 1）。
+   *
+   * 从单据行读，**不随汇率表变动回写** —— 展示它就是展示这张单的终身汇率。
+   */
+  exchange_rate: number | string;
+  /** 本位币不含税金额（原币 × 锁定汇率，尾差落含税列） */
+  base_total_amount: number | string;
+  /** 本位币税额 */
+  base_total_tax: number | string;
+  /** 本位币价税合计（= 上两项之和，精确恒等） */
+  base_total_with_tax: number | string;
   /** 创建时间（RFC3339） */
   created_at: string;
   /** 更新时间（RFC3339） */
@@ -4549,6 +4563,13 @@ export interface CreateSalesOrderReq {
   delivery_date?: string | null;
   /** 备注 */
   remark?: string | null;
+  /**
+   * 币种（SO-40 / V0314；不传 = 本位币）。
+   *
+   * 外币单建单时后端按 `order_date` 取最近一条 SPOT 汇率并**锁进单据行**
+   * （`exchange_rate` + 三项 `base_*`）；取不到汇率一律 400，**绝不默认 1**。
+   */
+  currency_code?: string | null;
   /** 明细（至少 1 行） */
   items: SalesOrderItemReq[];
 }
@@ -4575,6 +4596,13 @@ export interface UpdateSalesOrderReq {
   delivery_date?: string | null;
   /** 备注（传 `''` = 清空） */
   remark?: string | null;
+  /**
+   * 币种（SO-40；**不传 = 不改**，传了就按新的 `order_date` 重新锁定汇率）。
+   *
+   * 草稿阶段换币种是合法的（未过账、无凭证）；已锁定的 `exchange_rate` 不会被前端修改，
+   * 后端只认自己按单据日取到的那一条。
+   */
+  currency_code?: string | null;
   /** 明细（传了 = 整单替换） */
   items?: SalesOrderItemReq[];
 }

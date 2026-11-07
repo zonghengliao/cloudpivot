@@ -1,0 +1,413 @@
+==============================================================
+SO-42 币种 / 汇率维护接口证据  2026-11-07 08:43:20 CST
+库=cloudpivot_so42 端口=18098 二进制=/opt/cloudpivot/backend/target/debug/cloudpivot
+==============================================================
+== 第一次启动（跑迁移）pid=1807990 health=200
+== 清掉 must_change_password（影响行数见上）
+== 第二次启动 health=200
+== 迁移记账（末 4 条 versioned）:
+316|versioned|executed|currency_menu
+315|versioned|executed|sales_fx_revaluation
+314|versioned|executed|sales_dual_currency
+313|versioned|executed|customer_credit_used
+== V0316 记账行: 316|versioned|executed|success=true
+== 菜单：2 个页面节点 / 8 个按钮 / 10 个权限码承载 10 行
+== 授权（FINANCE_MANAGER / SALES_SUPERVISOR / SALES_CLERK 的菜单数）: FINANCE_MANAGER=10 SALES_CLERK=3 SALES_SUPERVISOR=10 
+== token 长度 461
+
+=== 1) GET /api/business/erp/currency/list（V0272 种子 + 本位币标记）
+---- currency/list 响应
+{
+    "code": 0,
+    "msg": "ok",
+    "data": [
+        {
+            "code": "CNY",
+            "name": "\u4eba\u6c11\u5e01",
+            "symbol": "\u00a5",
+            "decimal_places": 2,
+            "is_base": true,
+            "status": "ACTIVE",
+            "remark": "\u672c\u4f4d\u5e01\uff08ARCH-7 \u00a715.6.3 \u79cd\u5b50\uff09",
+            "rate_count": 0,
+            "created_at": "2026-11-07T00:43:22.409058+00:00",
+            "updated_at": "2026-11-07T00:43:22.409058+00:00"
+        },
+        {
+            "code": "EUR",
+            "name": "\u6b27\u5143",
+            "symbol": "\u20ac",
+            "decimal_places": 2,
+            "is_base": false,
+            "status": "ACTIVE",
+            "remark": "ARCH-7 \u00a715.6.3 \u79cd\u5b50",
+            "rate_count": 0,
+            "created_at": "2026-11-07T00:43:22.409058+00:00",
+            "updated_at": "2026-11-07T00:43:22.409058+00:00"
+        },
+        {
+            "code": "HKD",
+            "name": "\u6e2f\u5e01",
+            "symbol": "HK$",
+            "decimal_places": 2,
+            "is_base": false,
+            "status": "ACTIVE",
+            "remark": "ARCH-7 \u00a715.6.3 \u79cd\u5b50",
+            "rate_count": 0,
+            "created_at": "2026-11-07T00:43:22.409058+00:00",
+            "updated_at": "2026-11-07T00:43:22.409058+00:00"
+        },
+        {
+            "code": "USD",
+            "name": "\u7f8e\u5143",
+            "symbol": "$",
+            "decimal_places": 2,
+            "is_base": false,
+            "status": "ACTIVE",
+            "remark": "ARCH-7 \u00a715.6.3 \u79cd\u5b50",
+            "rate_count": 0,
+            "created_at": "2026-11-07T00:43:22.409058+00:00",
+            "updated_at": "2026-11-07T00:43:22.409058+00:00"
+        }
+    ]
+}
+== 断言：
+   PASS 种子 4 币种齐全；本位币唯一（CNY）
+
+=== 2) POST /api/business/erp/currency（新建 JPY，小写码自动转大写）
+---- 新建响应
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "code": "JPY",
+        "name": "\u65e5\u5143",
+        "symbol": "\u00a5",
+        "decimal_places": 0,
+        "is_base": false,
+        "status": "ACTIVE",
+        "remark": "SO-42 \u8bc1\u636e",
+        "rate_count": 0,
+        "created_at": "2026-11-07T00:43:31.026817+00:00",
+        "updated_at": "2026-11-07T00:43:31.026817+00:00"
+    }
+}
+== 重复码 HTTP=409（期望 409）
+== 非法码 HTTP=400（期望 400）
+
+=== 3) PUT /api/business/erp/currency/JPY（改名称 + 小数位）
+---- 编辑响应
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "code": "JPY",
+        "name": "\u65e5\u5143\uff08JP\uff09",
+        "symbol": "\u00a5",
+        "decimal_places": 0,
+        "is_base": false,
+        "status": "ACTIVE",
+        "remark": "SO-42 \u8bc1\u636e",
+        "rate_count": 0,
+        "created_at": "2026-11-07T00:43:31.026817+00:00",
+        "updated_at": "2026-11-07T00:43:31.092106+00:00"
+    }
+}
+
+=== 4) POST /api/business/erp/currency/USD/base（把 USD 立为本位币）
+---- 立本位币响应
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "code": "USD",
+        "name": "\u7f8e\u5143",
+        "symbol": "$",
+        "decimal_places": 2,
+        "is_base": true,
+        "status": "ACTIVE",
+        "remark": "ARCH-7 \u00a715.6.3 \u79cd\u5b50",
+        "rate_count": 0,
+        "created_at": "2026-11-07T00:43:22.409058+00:00",
+        "updated_at": "2026-11-07T00:43:31.138081+00:00"
+    }
+}
+== 库内本位币行数（期望 1，且为 USD）: USD
+== 本位币停用 HTTP=409（期望 409）
+== 把 CNY 立回来: CNY is_base= True
+
+=== 5) GET /api/business/erp/currency/options（只 ACTIVE）
+---- options 响应
+{
+    "code": 0,
+    "msg": "ok",
+    "data": [
+        {
+            "code": "CNY",
+            "label": "\u4eba\u6c11\u5e01\uff08CNY\uff09",
+            "symbol": "\u00a5",
+            "decimal_places": 2,
+            "is_base": true
+        },
+        {
+            "code": "EUR",
+            "label": "\u6b27\u5143\uff08EUR\uff09",
+            "symbol": "\u20ac",
+            "decimal_places": 2,
+            "is_base": false
+        },
+        {
+            "code": "HKD",
+            "label": "\u6e2f\u5e01\uff08HKD\uff09",
+            "symbol": "HK$",
+            "decimal_places": 2,
+            "is_base": false
+        },
+        {
+            "code": "JPY",
+            "label": "\u65e5\u5143\uff08JP\uff09\uff08JPY\uff09",
+            "symbol": "\u00a5",
+            "decimal_places": 0,
+            "is_base": false
+        },
+        {
+            "code": "USD",
+            "label": "\u7f8e\u5143\uff08USD\uff09",
+            "symbol": "$",
+            "decimal_places": 2,
+            "is_base": false
+        }
+    ]
+}
+
+=== 6) POST /api/business/erp/exchange-rate
+---- 新建 SPOT 响应
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "id": "f645cb2f-e5f1-4368-8ac7-eecabce8861d",
+        "from_currency": "USD",
+        "to_currency": "CNY",
+        "rate": "7.10000000",
+        "rate_type": "SPOT",
+        "effective_date": "2026-10-01",
+        "remark": "\u592e\u884c\u4e2d\u95f4\u4ef7",
+        "created_at": "2026-11-07T00:43:31.287424+00:00",
+        "updated_at": "2026-11-07T00:43:31.287424+00:00"
+    }
+}
+== 同键重复 HTTP=409（期望 409）
+== 汇率=0 HTTP=400（期望 400）
+== 自反汇率（CNY→CNY）HTTP=400（期望 400）
+== 不存在的币种 HTTP=400（期望 400）
+
+=== 7) POST /api/business/erp/exchange-rate/batch-month（2026-11 月末）
+---- 批量录入响应
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "month": "2026-11",
+        "effective_date": "2026-11-30",
+        "rate_type": "MONTH_END",
+        "to_currency": "CNY",
+        "created_count": 3,
+        "updated_count": 0,
+        "saved": [
+            {
+                "from_currency": "USD",
+                "rate": "7.15000000",
+                "created": true
+            },
+            {
+                "from_currency": "EUR",
+                "rate": "7.80000000",
+                "created": true
+            },
+            {
+                "from_currency": "JPY",
+                "rate": "0.04800000",
+                "created": true
+            }
+        ]
+    }
+}
+== 再跑一次（USD 改 7.2，EUR/JPY 同值）→ 期望 updated=3 / created=0
+---- 重复批量（upsert）响应
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "month": "2026-11",
+        "effective_date": "2026-11-30",
+        "rate_type": "MONTH_END",
+        "to_currency": "CNY",
+        "created_count": 0,
+        "updated_count": 3,
+        "saved": [
+            {
+                "from_currency": "USD",
+                "rate": "7.20000000",
+                "created": false
+            },
+            {
+                "from_currency": "EUR",
+                "rate": "7.80000000",
+                "created": false
+            },
+            {
+                "from_currency": "JPY",
+                "rate": "0.04800000",
+                "created": false
+            }
+        ]
+    }
+}
+== 库里 2026-11-30 的 MONTH_END 行:
+EUR 7.80000000 @2026-11-30 MONTH_END
+JPY 0.04800000 @2026-11-30 MONTH_END
+USD 7.20000000 @2026-11-30 MONTH_END
+== 非法月份 HTTP=400（期望 400）
+== 空批次 HTTP=400（期望 400）
+== 批内本位币 HTTP=400（期望 400）
+
+=== 8) GET /api/business/erp/exchange-rate/page?from_currency=USD
+---- 分页响应
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "list": [
+            {
+                "id": "30d665a9-17f1-4f9c-b112-3172a618b5d7",
+                "from_currency": "USD",
+                "to_currency": "CNY",
+                "rate": "7.20000000",
+                "rate_type": "MONTH_END",
+                "effective_date": "2026-11-30",
+                "remark": "\u6708\u672b\u4e2d\u95f4\u4ef7",
+                "created_at": "2026-11-07T00:43:31.390986+00:00",
+                "updated_at": "2026-11-07T00:43:31.436067+00:00"
+            },
+            {
+                "id": "f645cb2f-e5f1-4368-8ac7-eecabce8861d",
+                "from_currency": "USD",
+                "to_currency": "CNY",
+                "rate": "7.10000000",
+                "rate_type": "SPOT",
+                "effective_date": "2026-10-01",
+                "remark": "\u592e\u884c\u4e2d\u95f4\u4ef7",
+                "created_at": "2026-11-07T00:43:31.287424+00:00",
+                "updated_at": "2026-11-07T00:43:31.287424+00:00"
+            }
+        ],
+        "total": 2,
+        "page": 1,
+        "page_size": 20
+    }
+}
+=== 8b) PUT /api/business/erp/exchange-rate/{id}（把 SPOT 改成 7.05）
+---- 编辑响应
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "id": "f645cb2f-e5f1-4368-8ac7-eecabce8861d",
+        "from_currency": "USD",
+        "to_currency": "CNY",
+        "rate": "7.05000000",
+        "rate_type": "SPOT",
+        "effective_date": "2026-10-01",
+        "remark": "\u592e\u884c\u4e2d\u95f4\u4ef7",
+        "created_at": "2026-11-07T00:43:31.287424+00:00",
+        "updated_at": "2026-11-07T00:43:31.583808+00:00"
+    }
+}
+=== 8c) DELETE /api/business/erp/exchange-rate/{id}（物理删）
+== HTTP=200（期望 200）
+== 再删一次 HTTP=404（期望 404）
+
+=== 9) GET /api/business/erp/exchange-rate/quote（预览 = 建单锁定同一把尺）
+---- USD @2026-11-15（只剩 MONTH_END，SPOT 已删 → MISSING）
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "currency_code": "USD",
+        "base_currency": "CNY",
+        "exchange_rate": "0",
+        "on_date": "2026-11-15",
+        "source": "MISSING",
+        "effective_date": null
+    }
+}
+== 重新种一条 SPOT 2026-10-01 7.05 后再预览:
+---- USD @2026-11-15（SPOT 7.05）
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "currency_code": "USD",
+        "base_currency": "CNY",
+        "exchange_rate": "7.05000000",
+        "on_date": "2026-11-15",
+        "source": "SPOT",
+        "effective_date": "2026-10-01"
+    }
+}
+---- CNY @2026-11-15（本位币恒 1）
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "currency_code": "CNY",
+        "base_currency": "CNY",
+        "exchange_rate": "1",
+        "on_date": "2026-11-15",
+        "source": "BASE",
+        "effective_date": null
+    }
+}
+---- EUR @2026-11-15（只有 MONTH_END → MISSING）
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "currency_code": "EUR",
+        "base_currency": "CNY",
+        "exchange_rate": "0",
+        "on_date": "2026-11-15",
+        "source": "MISSING",
+        "effective_date": null
+    }
+}
+== 断言：
+   PASS USD→SPOT 7.05（牌价生效日 2026-10-01）；CNY→BASE 1；EUR→MISSING（不臆造汇率）
+
+=== 10) 单据侧：POST /api/business/erp/sales-order（currency_code=USD）
+== 夹具 客户=d0260000-0000-4000-8000-000000000001 物料=d1370003-0000-4000-8000-000000000001
+---- USD 建单响应（节选 currency_code / exchange_rate / base_*）
+{
+    "so_no": "SO-20261107-000001",
+    "currency_code": "USD",
+    "exchange_rate": "7.05000000",
+    "total_with_tax": "1130.0000",
+    "base_total_amount": "7050.0000",
+    "base_total_tax": "916.5000",
+    "base_total_with_tax": "7966.5000"
+}
+== 改汇率表（USD SPOT 2026-11-07 改成 9.99）后，老单详情:
+---- 老单详情（exchange_rate 应仍为 7.05）
+{
+    "so_no": "SO-20261107-000001",
+    "currency_code": "USD",
+    "exchange_rate": "7.05000000",
+    "base_total_with_tax": "7966.5000"
+}
+== 断言：
+   PASS 建单锁定 USD@7.05；汇率表改成 9.99 后老单仍 7.05（不回写）
+== 无汇率的 EUR 单（只有 MONTH_END，无 SPOT）HTTP=400（期望 400）
+
+== 关实例
+== done 2026-11-07 08:43:33

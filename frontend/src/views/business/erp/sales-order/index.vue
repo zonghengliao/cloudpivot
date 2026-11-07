@@ -249,7 +249,56 @@
                   format="YYYY-MM-DD"
                   :clearable="false"
                   data-testid="so-form-order-date"
+                  @change="handleOrderDateChange"
                 />
+              </t-form-item>
+            </t-col>
+            <t-col :span="6">
+              <t-form-item label="币种">
+                <!-- SO-42：只列 ACTIVE 币种；'' = 本位币（后端缺省取账套本位币，rate = 1）。
+                     建单后币种随汇率一起锁进单据行，非草稿单不可改（表单本身就不可编辑）。 -->
+                <t-select
+                  v-model="form.currency_code"
+                  :options="currencyOptions"
+                  filterable
+                  clearable
+                  placeholder="默认本位币"
+                  data-testid="so-form-currency"
+                  @change="refreshQuote"
+                />
+                <template #help>
+                  本位币（{{ baseCurrencyCode || 'CNY' }}）不需要汇率；外币按<b>订单日期</b>取最近一条即时汇率
+                </template>
+              </t-form-item>
+            </t-col>
+            <t-col :span="6">
+              <t-form-item label="汇率">
+                <!-- 只读：汇率由后端在保存那一刻锁定，前端不提供编辑入口（锁定后不可改） -->
+                <div class="rate-readonly" data-testid="so-form-rate">
+                  <template v-if="quoteLoading">
+                    <t-loading size="small" />
+                    <span class="rate-readonly__hint">查询汇率…</span>
+                  </template>
+                  <template v-else-if="quote && quote.source === 'MISSING'">
+                    <span class="rate-readonly__value rate-readonly__value--bad mono">未录汇率</span>
+                    <span class="rate-readonly__hint rate-readonly__hint--bad">
+                      {{ quote.currency_code }} 在 {{ form.order_date }}（含）前没有即时汇率，保存会被拒绝 ——
+                      请先到「汇率管理」补录
+                    </span>
+                  </template>
+                  <template v-else-if="quote">
+                    <span class="rate-readonly__value mono">{{ rateText(quote.exchange_rate) }}</span>
+                    <span class="rate-readonly__hint">
+                      {{
+                        quote.source === 'BASE'
+                          ? `本位币 ${quote.currency_code}，恒 1`
+                          : `1 ${quote.currency_code} = ${rateText(quote.exchange_rate)} ${quote.base_currency}` +
+                            (quote.effective_date ? `（牌价生效日 ${quote.effective_date}）` : '')
+                      }}
+                    </span>
+                  </template>
+                  <span v-else class="rate-readonly__hint">选定币种后自动带出</span>
+                </div>
               </t-form-item>
             </t-col>
             <t-col :span="6">
@@ -486,11 +535,27 @@
           <t-descriptions-item label="销售员">{{ detail.salesperson_name || '未指定（不产生佣金）' }}</t-descriptions-item>
           <t-descriptions-item label="订单日期">{{ detail.order_date }}</t-descriptions-item>
           <t-descriptions-item label="要求交期">{{ detail.delivery_date || '—' }}</t-descriptions-item>
+          <t-descriptions-item label="币种">
+            <span class="mono">{{ detail.currency_code || '—' }}</span>
+            <t-tag v-if="isBaseCurrency(detail.currency_code)" size="small" variant="light" theme="success" class="detail-tag">
+              本位币
+            </t-tag>
+          </t-descriptions-item>
+          <t-descriptions-item label="锁定汇率">
+            <!-- 只读：这是建单那一刻锁进单据行的汇率，之后汇率表怎么变都不回写 -->
+            <span class="mono" data-testid="so-detail-rate">{{ rateText(detail.exchange_rate) }}</span>
+            <span class="detail-hint">
+              （{{ isBaseCurrency(detail.currency_code) ? '本位币恒 1' : `1 ${detail.currency_code} = 上述本位币，建单时锁定，不可改` }}）
+            </span>
+          </t-descriptions-item>
           <t-descriptions-item label="价税合计">
             <b class="mono">{{ formatMoney(detail.total_with_tax) }}</b>
           </t-descriptions-item>
           <t-descriptions-item label="不含税合计">{{ formatMoney(detail.total_amount) }}</t-descriptions-item>
           <t-descriptions-item label="税额合计">{{ formatMoney(detail.total_tax) }}</t-descriptions-item>
+          <t-descriptions-item v-if="!isBaseCurrency(detail.currency_code)" label="本位币价税合计">
+            <b class="mono" data-testid="so-detail-base-total">{{ formatMoney(detail.base_total_with_tax) }}</b>
+          </t-descriptions-item>
           <t-descriptions-item label="备注" :span="2">{{ detail.remark || '—' }}</t-descriptions-item>
         </t-descriptions>
 
@@ -608,6 +673,7 @@ import {
   type SalesOrderStatus,
 } from '@/api/business/erp';
 import { getFlowInstance, withdrawFlowInstance } from '@/api/business/flow-api';
+import { quoteRate, fetchCurrencyOptions, type CurrencyOption, type RateQuote } from '@/api/business/erp/currency';
 import { pageUsers, type UserRes } from '@/api/system/user-api';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
 import {
@@ -911,6 +977,76 @@ function todayCst(): string {
   return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
+// ==================== 币种 + 汇率（SO-42 / ARCH-7 §15.6） ====================
+
+/**
+ * 币种下拉（只 `ACTIVE`，来自「币种管理」主数据）。
+ *
+ * 读不到就**留空**：`''` 表示本位币，后端缺省取账套本位币并锁 `rate = 1`，
+ * 所以下拉挂了也不影响开本位币单（只是不能开外币单）。
+ */
+const currencyOptions = ref<{ label: string; value: string }[]>([]);
+const baseCurrencyCode = ref('');
+
+async function loadCurrencies(): Promise<void> {
+  try {
+    const list: CurrencyOption[] = await fetchCurrencyOptions();
+    baseCurrencyCode.value = list.find((item) => item.is_base)?.code ?? '';
+    currencyOptions.value = list.map((item) => ({ label: item.label, value: item.code }));
+  } catch {
+    // 权限缺失 / 接口挂了：外币开不了，但本位币单照旧（不要在开单页弹红条吓人）
+    currencyOptions.value = [];
+  }
+}
+
+/** 汇率预览（`source = 'MISSING'` 是合法结果：外币没录汇率，保存会被后端拒绝） */
+const quote = ref<RateQuote | null>(null);
+const quoteLoading = ref(false);
+
+/** 汇率展示：8 位定标（`NUMERIC(18,8)`），与汇率管理页同一格式 */
+function rateText(raw: string | number | null | undefined): string {
+  if (raw === null || raw === undefined || raw === '') {
+    return '—';
+  }
+  const value = typeof raw === 'number' ? raw : Number(raw);
+  return Number.isFinite(value) ? value.toFixed(8) : String(raw);
+}
+
+/** 是否本位币单（空码 = V0314 之前的老单，按本位币处理） */
+function isBaseCurrency(code: string | null | undefined): boolean {
+  if (!code) {
+    return true;
+  }
+  // 币种主数据没读到时**不臆断**（不把外币单标成本位币）
+  return baseCurrencyCode.value ? code === baseCurrencyCode.value : false;
+}
+
+/**
+ * 拉一次汇率预览。
+ *
+ * 与建单锁定**同一把尺**（后端 `currency::lock`）：页面上看到的就是保存时落进
+ * `exchange_rate` 的值，不会「预览 7.1、落库 7.0」。
+ */
+async function refreshQuote(): Promise<void> {
+  if (!formVisible.value) {
+    return;
+  }
+  quoteLoading.value = true;
+  try {
+    quote.value = await quoteRate(form.currency_code || undefined, form.order_date || undefined);
+  } catch {
+    // 预览失败不挡提交（后端仍会自己锁一次并给出准确错误）
+    quote.value = null;
+  } finally {
+    quoteLoading.value = false;
+  }
+}
+
+/** 换订单日期：汇率按单据日取，日期一变就要重算预览 */
+function handleOrderDateChange(): void {
+  void refreshQuote();
+}
+
 /** 表单合计（预览；提交后以服务端 `total_*` 为准） */
 const formTotals = computed(() =>
   computeTotals(
@@ -922,7 +1058,10 @@ function openCreate(): void {
   editingId.value = null;
   formError.value = '';
   Object.assign(form, emptySalesOrderForm(todayCst()));
+  quote.value = null;
   formVisible.value = true;
+  // 默认本位币的汇率恒 1（后端缺省），打开弹窗就把预览拉出来，别让用户盯着空白
+  void refreshQuote();
 }
 
 /** 编辑：先拉详情（列表行没有明细），再用 `formFromDetail` 回填 */
@@ -932,7 +1071,11 @@ async function openEdit(row: SalesOrder): Promise<void> {
     editingId.value = detail.id;
     formError.value = '';
     Object.assign(form, formFromDetail(detail));
+    quote.value = null;
     formVisible.value = true;
+    // 编辑态预览的是「按当前币种 + 订单日期**现在**会锁到的汇率」；
+    // 单据行上已锁的 exchange_rate 以详情为准（详情页展示 `detail.exchange_rate`）
+    void refreshQuote();
   } catch (error) {
     MessagePlugin.error(`加载订单详情失败：${messageOf(error)}`);
   }
@@ -1220,7 +1363,8 @@ async function loadDetail(id: string): Promise<void> {
 }
 
 onMounted(async () => {
-  await Promise.all([loadOrders(1), loadOptions()]);
+  // 币种下拉与订单/主数据互不依赖：一起发，币种读不到也不挡开单项
+  await Promise.all([loadOrders(1), loadOptions(), loadCurrencies()]);
 });
 </script>
 
@@ -1362,6 +1506,44 @@ onMounted(async () => {
 
 .form-alert {
   margin-top: 4px;
+}
+
+// SO-42：币种汇率只读展示（汇率本身没有输入框 —— 锁定后不可改）
+.rate-readonly {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.5;
+
+  &__value {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--td-brand-color);
+
+    &--bad {
+      color: var(--td-error-color);
+    }
+  }
+
+  &__hint {
+    font-size: 12px;
+    color: var(--td-text-color-placeholder);
+    white-space: normal;
+
+    &--bad {
+      color: var(--td-error-color);
+    }
+  }
+}
+
+.detail-tag {
+  margin-left: 6px;
+}
+
+.detail-hint {
+  margin-left: 4px;
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
 }
 
 .detail-loading {

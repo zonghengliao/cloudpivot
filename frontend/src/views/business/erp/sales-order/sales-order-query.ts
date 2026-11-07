@@ -417,6 +417,13 @@ export interface SalesOrderFormDraft {
    * 填了后端会校验「存在 + 未软删 + 启用」，停用账号 400。
    */
   salesperson_id: string;
+  /**
+   * 币种（SO-40 / V0314；`''` = 本位币）。
+   *
+   * 只放 `ACTIVE` 的币种；外币单提交时后端按 `order_date` 取最近 SPOT 汇率并锁进单据行。
+   * **汇率永远只读**：`exchange_rate` 是建单那一刻锁定的，前端不给编辑入口。
+   */
+  currency_code: string;
   /** 下单日期（`yyyy-MM-dd`） */
   order_date: string;
   /** 要求交期（`''` = 未约定） */
@@ -529,6 +536,8 @@ export function emptySalesOrderForm(today: string): SalesOrderFormDraft {
     customer_id: '',
     contract_id: '',
     salesperson_id: '',
+    // '' = 本位币（后端缺省取账套本位币并锁 rate = 1）；下拉用 currency/options 填
+    currency_code: '',
     order_date: today,
     delivery_date: '',
     remark: '',
@@ -548,6 +557,8 @@ export function formFromDetail(order: SalesOrder): SalesOrderFormDraft {
     contract_id: order.contract_id ?? '',
     // 销售员可能为 null（SO-35 之前的老单 / 建单时没指定）→ 折成空串，输入框只认字符串
     salesperson_id: order.salesperson_id ?? '',
+    // SO-42：老单（V0314 之前）没有 currency_code → 折成空串 = 本位币，编辑时不换币种
+    currency_code: order.currency_code ?? '',
     order_date: order.order_date,
     delivery_date: order.delivery_date ?? '',
     remark: order.remark ?? '',
@@ -662,6 +673,8 @@ export function buildCreatePayload(form: SalesOrderFormDraft): CreateSalesOrderR
     contract_id: form.contract_id || null,
     // 空串 = 不指定销售员（后端不默认成建单人：佣金归属要人明确指定）
     salesperson_id: form.salesperson_id || null,
+    // 空串 = 本位币（后端缺省取账套本位币，rate = 1）；外币由后端按单据日锁定汇率
+    currency_code: form.currency_code || null,
     order_date: form.order_date,
     delivery_date: form.delivery_date || null,
     remark: form.remark.trim() || null,
@@ -682,6 +695,10 @@ export function buildUpdatePayload(form: SalesOrderFormDraft): UpdateSalesOrderR
     contract_id: form.contract_id,
     // 空串 = 解绑销售员（后端把 `Some("")` 折成 None）；不能省略，否则永远解不掉
     salesperson_id: form.salesperson_id,
+    // SO-42：不传 = 不改汇率；传了就按（可能改过的）order_date 重新锁定。
+    // 空串 = 回到本位币（后端把 Some("") 折成 None → 沿用/本位币），不能省略，
+    // 否则用户永远换不回本位币。
+    currency_code: form.currency_code,
     order_date: form.order_date,
     delivery_date: form.delivery_date || '',
     remark: form.remark.trim(),

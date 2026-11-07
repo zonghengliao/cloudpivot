@@ -489,6 +489,25 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '佣金结算', permission: 'business:erp:commission-settle:list' },
       },
       {
+        // ==================== ERP 币种管理（SO-42 · 销售链 §15.6.3） ====================
+        // `sys_menu`（V0316 种子 …3161）path = `/business/erp/currency`，
+        // component `business/erp/currency/index`。**路由手工注册**（没有 views 自动扫描），
+        // 漏了 = 点菜单进 404，`system::menu::tests::n08`（真库档）会当场红。
+        path: 'business/erp/currency',
+        name: 'BusinessErpCurrency',
+        component: () => import('@/views/business/erp/currency/index.vue'),
+        meta: { title: '币种管理', permission: 'business:erp:currency:list' },
+      },
+      {
+        // ==================== ERP 汇率管理（SO-42 · 销售链 §15.6.3） ====================
+        // `sys_menu`（V0316 种子 …3168）path = `/business/erp/exchange-rate`，
+        // component `business/erp/exchange-rate/index`。路由与菜单同一提交落地。
+        path: 'business/erp/exchange-rate',
+        name: 'BusinessErpExchangeRate',
+        component: () => import('@/views/business/erp/exchange-rate/index.vue'),
+        meta: { title: '汇率管理', permission: 'business:erp:fx-rate:list' },
+      },
+      {
         // ==================== ERP 序列号（W4b-2） ====================
         // `sys_menu`（V0142 种子 …0981）path = `/business/erp/serial`，component
         // `business/erp/serial/index`。**路由手工注册**，漏了 = 点菜单进 404。
