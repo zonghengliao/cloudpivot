@@ -1507,11 +1507,9 @@ async fn submit_for_approval_tx(
         } else {
             ""
         };
-        return Err(ApiError::new(
-            rejected.status,
-            rejected.code,
-            format!("{}{hint}", rejected.msg),
-        ));
+        // FIX-1：用 `appended` 而不是 `ApiError::new(..)` 重建 —— 后者会把 65018 的
+        // 结构化载荷（前端「指派审批人」引导框）连同 `internal_detail` 一起丢掉。
+        return Err(rejected.appended(hint));
     }
     if out.instance_id != Some(instance_id) {
         return Err(ApiError::new(
@@ -2263,13 +2261,10 @@ async fn submit_cancel_tx(
         .await
         .map_err(|error| submit_conflict(error, "发起应付作废审批单", "应付单", &row.payable_no))?;
     if let Some(rejected) = out.rejected.take() {
-        return Err(ApiError::new(
-            rejected.status,
-            rejected.code,
-            format!(
-                "{}（内控要求：作废复核人不能是发起人本人。请由他人提交，或让另一个账号具备复核权限后再审）",
-                rejected.msg
-            ),
+        // FIX-1：用 `appended` 而不是 `ApiError::new(..)` 重建 —— 后者会把 65018 的
+        // 结构化载荷（前端「指派审批人」引导框）连同 `internal_detail` 一起丢掉。
+        return Err(rejected.appended(
+            "（内控要求：作废复核人不能是发起人本人。请由他人提交，或让另一个账号具备复核权限后再审）",
         ));
     }
     let instance_id = out

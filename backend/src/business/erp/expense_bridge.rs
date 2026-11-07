@@ -634,7 +634,8 @@ pub async fn cancel_approval_of(
     .await
     .map_err(|error| internal(error, "终止报销审批实例"))?;
     if let Some(rejected) = out.rejected {
-        return Err(ApiError::new(rejected.status, rejected.code, rejected.msg));
+        // FIX-1：原样透传（不要用 `ApiError::new(..)` 重建，那会丢 65018 的结构化载荷）
+        return Err(rejected);
     }
     Ok(Some("CANCELLED".to_string()))
 }

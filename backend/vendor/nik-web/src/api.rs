@@ -402,6 +402,25 @@ impl ApiError {
         self
     }
 
+    /// 在消息末尾追加一句提示，**保留**业务码 / HTTP 状态 / 内部详情 / 结构化载荷。
+    ///
+    /// # 为什么需要（业务侧的既有写法会丢 data）
+    ///
+    /// 「流程引擎拒绝 → 业务侧补一句『怎么解决』再抛出」出现过 13 次，写法都是
+    /// `ApiError::new(rejected.status, rejected.code, format!("{}{hint}", rejected.msg))`
+    /// —— 这会把 `data`（以及 `internal_detail`）**丢掉**：`65018` 的结构化载荷
+    /// 在业务侧转手时消失，前端就只剩一句红字（FIX-1 现场实测踩到）。
+    ///
+    /// 改成本方法后调用点更短（`Err(rejected.appended(hint))`），且**结构上不可能再漏字段**
+    /// （新增字段只改这里，13 个调用点不用动）。
+    pub fn appended(mut self, hint: impl AsRef<str>) -> Self {
+        let hint = hint.as_ref();
+        if !hint.is_empty() {
+            self.msg.push_str(hint);
+        }
+        self
+    }
+
     /// 附加内部调试详情（仅写入日志，不暴露给前端）
     fn with_detail(mut self, detail: impl Into<String>) -> Self {
         self.internal_detail = Some(detail.into());
@@ -669,6 +688,26 @@ mod tests {
         assert_eq!(api.msg, "没有可用审批人");
         assert!(api.data.is_some());
         assert!(api.internal_detail.is_none());
+    }
+
+    /// `appended` 追加提示但**保留** `data` / `code` / `status`
+    /// （FIX-1：业务侧曾用 `ApiError::new(rejected.status, ..)` 重建，把 65018 的载荷丢了）。
+    #[test]
+    fn appended_keeps_payload_and_code() {
+        let api = ApiError::new(422, 65018, "没有可用审批人")
+            .with_data(serde_json::json!({ "node_key": "n_sales" }))
+            .appended("（请让另一个账号审批）");
+        assert_eq!(api.msg, "没有可用审批人（请让另一个账号审批）");
+        assert_eq!(api.code, 65018);
+        assert_eq!(api.status, 422);
+        assert_eq!(
+            api.data.as_ref().and_then(|value| value.get("node_key")),
+            Some(&serde_json::json!("n_sales")),
+            "追加提示不许丢结构化载荷"
+        );
+        // 空提示 = 原样返回（业务侧「无补充」分支用它，语义等价于不追加）
+        let same = ApiError::new(400, 1, "x").appended("");
+        assert_eq!(same.msg, "x");
     }
 }
 

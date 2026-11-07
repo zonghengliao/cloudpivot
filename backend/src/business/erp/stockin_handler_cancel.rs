@@ -172,11 +172,9 @@ pub(super) async fn submit_cancel_tx(
             }
             _ => "",
         };
-        return Err(ApiError::new(
-            rejected.status,
-            rejected.code,
-            format!("{}{hint}", rejected.msg),
-        ));
+        // FIX-1：用 `appended` 而不是 `ApiError::new(..)` 重建 —— 后者会把 65018 的
+        // 结构化载荷（前端「指派审批人」引导框）连同 `internal_detail` 一起丢掉。
+        return Err(rejected.appended(hint));
     }
     let instance_id = out
         .instance_id

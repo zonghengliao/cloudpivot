@@ -623,7 +623,8 @@ pub async fn submit_budget(id: Uuid, operator: Option<Uuid>) -> std::result::Res
             .await
             .map_err(|error| utils::db_error(error, "发起预算审批单"))?;
         if let Some(rejected) = out.rejected.take() {
-            return Err(ApiError::new(rejected.status, rejected.code, rejected.msg));
+            // FIX-1：原样透传（不要用 `ApiError::new(..)` 重建，那会丢 65018 的结构化载荷）
+            return Err(rejected);
         }
         let instance_id = out.instance_id.ok_or_else(|| {
             ApiError::new(500, error_code::INTERNAL_ERROR, "审批单发起后没有实例 id")

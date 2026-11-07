@@ -900,13 +900,9 @@ pub async fn start_change_approval(
     };
     if let Some(rejected) = out.rejected.take() {
         let _ = tx.rollback().await;
-        return Err(ApiError::new(
-            rejected.status,
-            rejected.code,
-            format!(
-                "{}（配置变更审批的复核人：请把 `FLOW_CONFIG_APPROVER` 角色绑一个不是发起人的账号）",
-                rejected.msg
-            ),
+        // FIX-1：用 `appended` 保留 65018 的结构化载荷（否则前端只剩一句红字）
+        return Err(rejected.appended(
+            "（配置变更审批的复核人：请把 `FLOW_CONFIG_APPROVER` 角色绑一个不是发起人的账号）",
         ));
     }
     let instance_id = out.instance_id.unwrap_or_default();

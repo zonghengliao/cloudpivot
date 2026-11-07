@@ -966,7 +966,8 @@ pub async fn asset_dispose(
         }
     };
     if let Some(rejected) = out.rejected.take() {
-        return Err(ApiError::new(rejected.status, rejected.code, rejected.msg));
+        // FIX-1：原样透传（不要用 `ApiError::new(..)` 重建，那会丢 65018 的结构化载荷）
+        return Err(rejected);
     }
     let effects = out.effects.take();
     if !effects.is_empty() {

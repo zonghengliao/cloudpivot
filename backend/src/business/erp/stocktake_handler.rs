@@ -501,7 +501,8 @@ async fn submit_for_approval(
                 conflict(format!("发起盘点审批单失败（{}）：{error}", header.take_no))
             })?;
             if let Some(rejected) = out.rejected.take() {
-                return Err(ApiError::new(rejected.status, rejected.code, rejected.msg));
+                // FIX-1：原样透传（不要用 `ApiError::new(..)` 重建，那会丢 65018 的结构化载荷）
+                return Err(rejected);
             }
             instance_id = Some(out.instance_id.unwrap_or(started));
             effects = out.effects.take();

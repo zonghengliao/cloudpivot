@@ -304,13 +304,10 @@ pub(super) async fn submit_post_tx(
         .await
         .map_err(|error| submit_conflict(error, "发起过账审批单", &row.in_no))?;
     if let Some(rejected) = out.rejected.take() {
-        return Err(ApiError::new(
-            rejected.status,
-            rejected.code,
-            format!(
-                "{}（内控要求：过账复核人不能是发起人本人。请由他人提交，或让另一个账号具备复核权限后再审）",
-                rejected.msg
-            ),
+        // FIX-1：用 `appended` 而不是 `ApiError::new(..)` 重建 —— 后者会把 65018 的
+        // 结构化载荷（前端「指派审批人」引导框）连同 `internal_detail` 一起丢掉。
+        return Err(rejected.appended(
+            "（内控要求：过账复核人不能是发起人本人。请由他人提交，或让另一个账号具备复核权限后再审）",
         ));
     }
     let instance_id = out

@@ -965,7 +965,8 @@ pub async fn report_submit(
     expense_linkage::run_deferred_after_commit(out.1).await;
     let mut out = out.0;
     if let Some(rejected) = out.rejected.take() {
-        return Err(ApiError::new(rejected.status, rejected.code, rejected.msg));
+        // FIX-1：原样透传（不要用 `ApiError::new(..)` 重建，那会丢 65018 的结构化载荷）
+        return Err(rejected);
     }
     let effects = out.effects.take();
     if !effects.is_empty() {
@@ -1112,7 +1113,8 @@ pub async fn report_withdraw(
             .await
             .map_err(|error| db_err(error, "撤回报销审批"))?;
         if let Some(rejected) = out.rejected {
-            return Err(ApiError::new(rejected.status, rejected.code, rejected.msg));
+            // FIX-1：原样透传（不要用 `ApiError::new(..)` 重建，那会丢 65018 的结构化载荷）
+            return Err(rejected);
         }
         Ok::<(), ApiError>(())
     }
