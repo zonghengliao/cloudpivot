@@ -1,0 +1,18 @@
+======== 超管探针（不裁剪才看得见两个部门的单）========
+ERROR:  aggregate functions are not allowed in GROUP BY
+LINE 1: select u.username || ' roles=' || string_agg(r.role_code, ',...
+                                          ^
+created: 
+无筛选                          http=200 total=13   rows=13  depts=演练费用部|演练预算部
+keyword=x                          http=200 total=13   rows=13  depts=演练费用部|演练预算部
+status=DRAFT                       http=200 total=2    rows=2   depts=演练费用部
+status=APPROVED                    http=200 total=6    rows=6   depts=演练费用部|演练预算部
+pay_status=UNPAID                  http=200 total=12   rows=12  depts=演练费用部|演练预算部
+pay_status=PAID                    http=200 total=1    rows=1   depts=演练费用部
+待付款 pay/page               http=200 total=6
+
+======== 预算分页（超管，同 URL 必须 200 且全量）========
+无筛选                http=200 total=5
+&fiscal_year=2026        http=200 total=5
+&status=ACTIVE           http=200 total=3
+&keyword=%E5%B7%AE%E6%97%85 http=200 total=3

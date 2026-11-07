@@ -1,0 +1,27 @@
+    Blocking waiting for file lock on artifact directory
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 43s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 2 tests
+test business::erp::expense_model::expense_model_tests::db::page_base_sql_has_exactly_one_filter_marker ... 
+thread 'business::erp::expense_model::expense_model_tests::db::page_base_sql_has_exactly_one_filter_marker' (3117111) panicked at src/business/erp/expense_model_tests.rs:950:9:
+assertion `left == right` failed: 报销分页的 base_sql 必须恰好一个 {FILTER}：SELECT e.id, e.report_no, e.reporter_id, e.reporter_name, e.dept_id, e.dept_name, e.title, e.expense_date, e.period_code, e.total_amount::text AS total_amount, e.total_tax::text AS total_tax, e.total_with_tax::text AS total_with_tax, e.item_count, e.over_budget, e.missing_budget, e.over_amount::text AS over_amount, e.budget_mode, e.status, e.approval_instance_id, e.voucher_id, e.paid_amount::text AS paid_amount, e.unpaid_amount::text AS unpaid_amount, e.pay_status, e.last_pay_date, e.submitted_at, e.submitted_by, e.approved_at, e.approved_by, e.cancel_reason, e.cancelled_at, e.cancelled_by, e.remark, e.created_at, e.create_by FROM biz_expense_report e WHERE e.deleted_at IS NULL
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+test business::erp::expense_model::expense_model_tests::db::page_with_filters_is_scoped_and_never_fails ... 
+thread 'business::erp::expense_model::expense_model_tests::db::page_with_filters_is_scoped_and_never_fails' (3117113) panicked at src/business/erp/expense_model_tests.rs:1176:21:
+【keyword】非超管带筛选的分页必须成功（旧代码 500）：invalid value: base_sql 带 4 个业务参数但没有 {FILTER} 标记：片段追加到末尾会让 `?` 顺序与参数顺序错位（架构 §2.6 参数顺序契约）
+FAILED
+
+failures:
+
+failures:
+    business::erp::expense_model::expense_model_tests::db::page_base_sql_has_exactly_one_filter_marker
+    business::erp::expense_model::expense_model_tests::db::page_with_filters_is_scoped_and_never_fails
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 3341 filtered out; finished in 0.44s
+
+error: test failed, to rerun pass `--lib`

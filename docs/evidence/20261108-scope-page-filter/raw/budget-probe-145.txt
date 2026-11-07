@@ -1,0 +1,15 @@
+======== 预算数据真值（全库 / 按部门）========
+all=5
+ERROR:  aggregate functions are not allowed in GROUP BY
+LINE 1: select dept_name || '=' || count(*) from biz_budget where de...
+                                   ^
+探针账号角色：DEPT_LEADER(scope=3)
+所在部门：演练费用部
+
+======== 预算分页 /business/erp/budget/page（带筛选，期望 200 且按部门收敛）========
+无筛选                      http=200 total=1    rows=1   depts=演练费用部
+fiscal_year=2026               http=200 total=1    rows=1   depts=演练费用部
+status=ACTIVE                  http=200 total=1    rows=1   depts=演练费用部
+keyword=差旅                 http=200 total=1    rows=1   depts=演练费用部
+fiscal_year+status             http=200 total=1    rows=1   depts=演练费用部
+清理后残留行数：0

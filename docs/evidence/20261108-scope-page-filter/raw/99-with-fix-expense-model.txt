@@ -1,0 +1,30 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 19s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 22 tests
+test business::erp::expense_model::expense_model_tests::db::apply_full_payment ... ok
+test business::erp::expense_model::expense_model_tests::db::apply_partial_payment ... ok
+test business::erp::expense_model::expense_model_tests::db::approval_voucher_is_balanced_with_tax_line ... ok
+test business::erp::expense_model::expense_model_tests::db::budget_check_and_occupy ... ok
+test business::erp::expense_model::expense_model_tests::db::business_params_always_follow_the_filter_marker ... ok
+test business::erp::expense_model::expense_model_tests::db::check_totals_detects_mismatch ... ok
+test business::erp::expense_model::expense_model_tests::db::header_and_items_are_consistent ... ok
+test business::erp::expense_model::expense_model_tests::db::header_tax_sum_constraint ... ok
+test business::erp::expense_model::expense_model_tests::db::item_positive_amount_constraint ... ok
+test business::erp::expense_model::expense_model_tests::db::item_tax_sum_constraint ... ok
+test business::erp::expense_model::expense_model_tests::db::old_shape_without_marker_is_rejected_by_guard ... ok
+test business::erp::expense_model::expense_model_tests::db::overpay_is_rejected_by_database ... ok
+test business::erp::expense_model::expense_model_tests::db::page_base_sql_has_exactly_one_filter_marker ... ok
+test business::erp::expense_model::expense_model_tests::db::page_with_filters_is_scoped_and_never_fails ... ok
+test business::erp::expense_model::expense_model_tests::db::pay_status_three_values_from_db ... ok
+test business::erp::expense_model::expense_model_tests::db::payment_voucher_two_lines ... ok
+test business::erp::expense_model::expense_model_tests::db::resubmit_after_release_reuses_same_usage_row ... ok
+test business::erp::expense_model::expense_model_tests::db::reverse_vouchers_after_cancel ... ok
+test business::erp::expense_model::expense_model_tests::db::type_usage_count ... ok
+test business::erp::expense_model::expense_model_tests::db::update_draft_only_from_draft ... ok
+test business::erp::expense_model::tests::scope_targets ... ok
+test business::erp::expense_model::tests::seq_specs_are_distinct ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 3321 filtered out; finished in 12.14s
+

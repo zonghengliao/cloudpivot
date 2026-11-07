@@ -87,7 +87,7 @@ T=$(curl -sS -X POST http://172.18.10.145/api/system/auth/login -H 'Content-Type
 | `expense_model_tests::page_with_filters_is_scoped_and_never_fails` | **真库**（`ERP_DB_URL`） | 造跨部门两张单：`Dept` 范围 principal 带 keyword / keyword+status / keyword+pay_status / 全开四种筛选 → 必须成功、`total == 1`、返回行全在本部门；同筛选**超管** `total == 2`（两张都看得见，超管路径没改坏）；无筛选也必须按范围裁剪 |
 | `budget_model_tests::budget_page_sql_keeps_filter_marker_first` | 纯 SQL | 7 种筛选组合的同一套位置/计数契约 |
 
-**反证已实跑**（`raw/99-prefix-revert-fails.log`）：把 `report_page_base_sql()` 里的
+**反证已实跑**（`raw/99-prefix-revert-fails.txt`）：把 `report_page_base_sql()` 里的
 `push_str(FILTER_MARKER)` 临时去掉（= 修复前的写法），两条用例立刻变红，报错文案与线上 500
 **逐字一致**：
 
@@ -103,7 +103,7 @@ test result: FAILED. 0 passed; 2 failed; ...
 
 `bash /root/test_deploy.sh`：`2c0000e1 → d94462e2`，编译通过 → 应用 3 条他人迁移
 （V0327/V0328/V0329，非本卡）→ 重启 `cloudpivot-test` → `health 200`，菜单结构不变量 5 项全绿
-（`raw/deploy145.log`）。日志行：`服务: active / PID 217325 / health 200`、`✓ 登录 OK /
+（`raw/deploy145.txt`）。日志行：`服务: active / PID 217325 / health 200`、`✓ 登录 OK /
 task 接口 200`、`菜单总数: 410 ✅`。
 
 ### 5.2 `emp_drill`（非超管，带裁剪）—— 卡面三条 URL 全 200
@@ -124,7 +124,7 @@ task 接口 200`、`菜单总数: 410 ✅`。
 
 **收敛证据**：全库 `biz_expense_report` 13 条（演练费用部 7 / 演练预算部 6），
 `emp_drill` 各筛选下 total ≤ 7、返回行 `dept_name` 只有「演练费用部」→ 是裁剪后的结果，不是全量。
-（`raw/probe-145.log`）
+（`raw/probe-145.txt`）
 
 ### 5.3 超管路径没被改坏
 
@@ -142,7 +142,7 @@ task 接口 200`、`菜单总数: 410 ✅`。
 | `expense/pay/page`（待付款） | 200 | 6 | — |
 
 即「超管同 URL = 全量且与真值逐条相等」，与修复前一致（超管片段本就零参数，占位符位置不影响结果集）。
-（`raw/super-probe-145.log`）
+（`raw/super-probe-145.txt`）
 
 ### 5.4 预算分页（同款隐患）
 
@@ -157,19 +157,19 @@ task 接口 200`、`菜单总数: 410 ✅`。
 | `fiscal_year+status` | 200 | 1 | — |
 
 修复前这 4 个带筛选的 URL 会因为片段带 1 个参数（`dept_id = ANY(?::uuid[])`）而 500；
-现在 200 且按部门收敛到 1 条。超管口径同表（`raw/budget-probe-145.log` 与
-`raw/super-probe-145.log` 的「预算分页」段：无筛选 5 / 2026 5 / ACTIVE 3 / 差旅 3）。
+现在 200 且按部门收敛到 1 条。超管口径同表（`raw/budget-probe-145.txt` 与
+`raw/super-probe-145.txt` 的「预算分页」段：无筛选 5 / 2026 5 / ACTIVE 3 / 差旅 3）。
 
 ## 6. `cargo test`
 
 | 范围 | 结果 | 证据 |
 |---|---|---|
-| 145（干净树 = `d94462e2`）`cargo test`（23 个目标，显式跳过他人卡在途的 5 条税率单测） | **3547 passed / 0 failed / 11 ignored / EXIT=0** | `raw/145-cargo-test-all-skip-sibling-red.log` |
-| 145（干净树）`cargo test --lib` 同上跳过 | 3318 passed / 0 failed / 5 filtered out | `raw/145-cargo-test-skip-sibling-red.log` |
-| 145 原样 `cargo test`（不跳过） | 3318 passed / **5 failed**，全部是 `t_728f716e`（FIX-6 税率标度）的用例：`dto.rs:3533`、`invoice.rs:2097`、`report.rs:2073/2148`、`tax_rate.rs` | `raw/145-cargo-test-full.log` |
-| 本机 99 · 真库（`ERP_DB_URL` = 145 `cloudpivot_dev` 的 pg_dump 副本 `cloudpivot_be428a39`） | `expense_model` **22/22**、`budget_model` **7/7**（含 5 条新用例，全部 ok，无 SKIP） | `raw/99-with-fix-expense-model.log`、`raw/99-with-fix-budget-model.log` |
-| 反证（去掉标记） | 2 failed，报错与线上 500 逐字一致 | `raw/99-prefix-revert-fails.log` |
-| `cargo clippy --lib --tests` | 本卡文件 0 告警；余下 5 条告警全在他人文件（`asset_linkage.rs:423`、`fx_revaluation.rs:788`、`opening.rs:2738`、`year_end_linkage_tests.rs:214`、`sales_order_model.rs:699` 的 8 参数函数） | `raw/clippy-99.log` |
+| 145（干净树 = `d94462e2`）`cargo test`（23 个目标，显式跳过他人卡在途的 5 条税率单测） | **3547 passed / 0 failed / 11 ignored / EXIT=0** | `raw/145-cargo-test-all-skip-sibling-red.txt` |
+| 145（干净树）`cargo test --lib` 同上跳过 | 3318 passed / 0 failed / 5 filtered out | `raw/145-cargo-test-skip-sibling-red.txt` |
+| 145 原样 `cargo test`（不跳过） | 3318 passed / **5 failed**，全部是 `t_728f716e`（FIX-6 税率标度）的用例：`dto.rs:3533`、`invoice.rs:2097`、`report.rs:2073/2148`、`tax_rate.rs` | `raw/145-cargo-test-full.txt` |
+| 本机 99 · 真库（`ERP_DB_URL` = 145 `cloudpivot_dev` 的 pg_dump 副本 `cloudpivot_be428a39`） | `expense_model` **22/22**、`budget_model` **7/7**（含 5 条新用例，全部 ok，无 SKIP） | `raw/99-with-fix-expense-model.txt`、`raw/99-with-fix-budget-model.txt` |
+| 反证（去掉标记） | 2 failed，报错与线上 500 逐字一致 | `raw/99-prefix-revert-fails.txt` |
+| `cargo clippy --lib --tests` | 本卡文件 0 告警；余下 5 条告警全在他人文件（`asset_linkage.rs:423`、`fx_revaluation.rs:788`、`opening.rs:2738`、`year_end_linkage_tests.rs:214`、`sales_order_model.rs:699` 的 8 参数函数） | `raw/clippy-99.txt` |
 | `cargo fmt -- --check` | 本卡 4 文件无 diff（仓库其它文件有既有 fmt 偏差，未动） | — |
 
 ## 7. 复现 / 自检脚本（本目录）

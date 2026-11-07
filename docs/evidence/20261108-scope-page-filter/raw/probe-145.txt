@@ -1,0 +1,52 @@
+======== 0) 环境 ========
+HEAD=d94462e2 service=active health=200
+cloudpivot_dev|13
+
+======== 1) emp_drill 的身份与数据范围 ========
+emp_drill|01a1b5f9-ec65-766c-9242-4c49c98e14b8|演练费用部
+-- 角色 / data_scope（1=ALL 2=DEPT 3=DEPT_AND_CHILD 4=SELF 5=CUSTOM）
+DRILL_CLERK|4
+
+======== 2) 数据真值（全库 vs emp_drill 可见部门集合）========
+reports_all|13
+dept_of_emp_drill|13
+per_dept|0
+-- 每部门单量（前 8）
+演练费用部|7
+演练预算部|6
+
+======== 3) 接口：emp_drill（非超管，带裁剪）========
+-- emp_drill（期望：全部 200，且 total 按范围收敛）
+无筛选                                      http=200 total=7    rows=7   depts=演练费用部
+keyword=x（命中所有 EXP 单号）         http=200 total=7    rows=7   depts=演练费用部
+status=DRAFT                                   http=200 total=2    rows=2   depts=演练费用部
+status=APPROVED                                http=200 total=3    rows=3   depts=演练费用部
+pay_status=UNPAID                              http=200 total=6    rows=6   depts=演练费用部
+pay_status=PAID                                http=200 total=1    rows=1   depts=演练费用部
+keyword+status+pay_status                      http=200 total=2    rows=2   depts=演练费用部
+
+======== 4) 接口：admin（超管，不做裁剪；必须仍是全量）========
+无筛选                                      http=401 total=ERR  rows=0   depts=
+keyword=x                                      http=401 total=ERR  rows=0   depts=
+status=DRAFT                                   http=401 total=ERR  rows=0   depts=
+status=APPROVED                                http=401 total=ERR  rows=0   depts=
+pay_status=UNPAID                              http=401 total=ERR  rows=0   depts=
+pay_status=PAID                                http=401 total=ERR  rows=0   depts=
+
+======== 5) 数据真值对照（同筛选、全库口径）========
+ALL|13
+DRAFT|2
+APPROVED|6
+UNPAID|12
+PAID|1
+
+======== 6) 同款隐患：预算分页（budget_page，非超管带筛选）========
+emp_drill 无筛选                      http=403 total=ERR
+emp_drill fiscal_year                    http=403 total=ERR
+emp_drill status=ACTIVE                  http=403 total=ERR
+emp_drill keyword                        http=403 total=ERR
+admin    fiscal_year                     http=401 total=ERR
+
+======== 7) 待付款列表（report_payable_page，同样走 scope::paginate）========
+EMP  http=400 total=ERR
+ADM  http=401 total=ERR

@@ -1,0 +1,14 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.22s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 7 tests
+test business::erp::budget_model::budget_model_tests::budget_no_format ... ok
+test business::erp::budget_model::budget_model_tests::db::budget_page_sql_keeps_filter_marker_first ... ok
+test business::erp::budget_model::budget_model_tests::db::material_type_mapping_roundtrip ... ok
+test business::erp::budget_model::budget_model_tests::db::version_chain_and_single_active ... ok
+test business::erp::budget_model::budget_model_tests::exec_ratio_guards_zero_limit ... ok
+test business::erp::budget_model::budget_model_tests::report_row_takes_occupied_plus_consumed ... ok
+test business::erp::budget_model::budget_model_tests::status_constants_match_state_machine ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 3336 filtered out; finished in 1.23s
+
