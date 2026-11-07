@@ -218,9 +218,9 @@ impl Reason {
             Reason::NodeNotConfigured => {
                 "请到「流程定义 → 本流程 → 该节点」把审批人设为具体角色或人员".to_string()
             }
-            Reason::RoleNotFound => format!(
-                "节点绑定的角色已不存在：请到「流程定义 → 本流程 → 该节点」重新选择审批角色"
-            ),
+            Reason::RoleNotFound => {
+                "节点绑定的角色已不存在：请到「流程定义 → 本流程 → 该节点」重新选择审批角色".to_string()
+            }
             Reason::RoleNoMember => format!(
                 "请为角色「{role_name}」指派至少一名在职成员（角色管理 → 成员），或为节点指定固定审批人；\
                  开发 / 测试环境也可一键创建演示账号"

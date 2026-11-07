@@ -156,9 +156,19 @@ system:setup:read
 system:setup:manage
 ```
 
-## ⑥ 未做到的一项（如实说明）
+## ⑥ 仓库闸门与未做到的一项（如实说明）
 
-`pnpm typecheck && pnpm build` 在本工作区**无法整体绿**：同一工作区里另一张卡
+| 闸 | 结果 |
+|----|------|
+| `cargo test --lib`（全量） | **3295 passed / 0 failed / 0 ignored** |
+| `cargo fmt -- --check`（全树） | 通过 |
+| `cargo clippy --all-targets -- -D warnings` | 本卡改动**零告警**；全树仍有 1 条**既有**错误 `src/business/erp/sales_order_model.rs:699 too_many_arguments`（SO-40 的 `update_order` 8 参数，HEAD 上就存在，不在本卡范围） |
+| `perm_menu_gate.py`（死权限码闸） | **PASS**（在已应用 V0322 的库上跑：`system:setup:read` / `system:setup:manage` 均有 `sys_menu` 承载行） |
+| 前端 `tsx --test tests/unit/flow-assignee-guard.test.ts` | **8/8 pass** |
+| 前端 `vite build` | **通过**（`EXIT=0`，新组件正常打包） |
+| 前端 `pnpm typecheck` | **本卡文件零错误**；整树被另一张卡的未提交代码挡红（见下） |
+
+`pnpm typecheck`（= `pnpm build` 的前半段）在本工作区**无法整体绿**：同一工作区里另一张卡
 （`V0321 price_inquiry`）的**未提交代码**有 3 个 TS 错误，与本次改动无关：
 
 ```
@@ -167,9 +177,15 @@ src/views/business/erp/price-inquiry/index.vue(159,23): error TS2551 ...
 src/views/business/erp/price-inquiry/index.vue(721,3): error TS6133 ...
 ```
 
-本次改动自身的验证：
-- `vue-tsc --noEmit` 的报错清单里**没有本卡任何文件**（`utils/flow-assignee-guard.ts`、
-  `components/FlowAssigneeDialog.vue`、`components/SetupWizardDialog.vue`、
-  `api/system/setup-api.ts`、`api/request.ts`、`layouts/BasicLayout.vue`）；
-- `vite build`（跳过 typecheck 的那一半）**成功**（`EXIT=0`），说明新组件能正常打包；
-- `tsx --test tests/unit/flow-assignee-guard.test.ts` → **8/8 pass**。
+本卡涉及的前端文件（`utils/flow-assignee-guard.ts`、`components/FlowAssigneeDialog.vue`、
+`components/SetupWizardDialog.vue`、`api/system/setup-api.ts`、`api/request.ts`、
+`layouts/BasicLayout.vue`、`types/components.d.ts`）在这份报错清单里**一个都没有**。
+
+## ⑦ 没有做到的验证（不隐瞒）
+
+**UI 交互没有在浏览器里点过**。本次验收是「真 token curl + DB 断言」：
+`65018 → 弹框 → 选人指派 → 自动重试` 这条链在**接口层**逐步验过（① 全流程），
+弹框自身的状态机（打开 → resolve → 拦截器重试 / 取消）由
+`tests/unit/flow-assignee-guard.test.ts` 8 条用例钉住；但没有起前端 dev server 在浏览器里
+实际点一遍。下次有人动这两个组件时，建议补一条 Playwright 用例。
+
