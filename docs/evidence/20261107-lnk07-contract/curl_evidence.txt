@@ -1,0 +1,48 @@
+## LNK-07 真机取证：合同（CONTRACT）状态变更 → 联动引擎 + 重复触发抑制
+
+# 超管 admin 登录成功，token 长度 = 461
+
+## ⓪ 夹具：PURCHASE_MANAGER 的成员临时借给 admin（结束原样挂回）
+# 摘掉的非 admin 成员 = 2 条；admin 原本在 PURCHASE_MANAGER = False
+# so44_sales_a 临时授 SUPER_ADMIN（取证完毕删除）
+# 制单人 so44_sales_a 登录成功，token 长度 = 471
+
+## ① GET /api/business/flow/linkage?trigger_entity=CONTRACT —— 配置页显示 wired=true
+{
+ "entity": "CONTRACT",
+ "wired": true,
+ "wiring": "已接线（LNK-07）：erp/contract_linkage.rs 是唯一 hook。三个状态推进点全部接引擎 —— ① 提交审批 contract_handler.rs::contract_change_status 目标态 PENDING_APPROVAL 分支（DRAFT → PENDING_APPROVAL，commit 前）；② 审批通过 / 驳回 contract_bridge.rs::settle（PENDING_AP…"
+}
+
+## ② PUT /api/business/flow/linkage —— CONTRACT/SIGNED 上配 GENERATE_VOUCHER（应 400）
+# HTTP 400 code=10001 msg=动作 GENERATE_VOUCHER 不能配置在触发点 CONTRACT 上：合同不产生任何凭证（合同号没有借贷科目口径，付款是采购单 / 应付单的事）：该动作在合同实体上永远只会被跳过，配了等于没配。运行时会排除、配置期直接拒绝；要生成凭证请到来源单据（收货 / 付款 / 报销 / 红冲）上配
+# 库里没有落这条规则（拒绝发生在写入之前）
+
+## ③ PUT /api/business/flow/linkage —— PENDING_APPROVAL / SIGNED / ACTIVE 各一条 SEND_NOTICE
+# PENDING_APPROVAL → SEND_NOTICE 已保存 id=01a1b51d-cb62-769e-94b6-ca96e3017fee（wired 已接线，无需 allow_unwired）
+# SIGNED → SEND_NOTICE 已保存 id=01a1b51d-cb6b-700f-86a1-c2978ab565eb（wired 已接线，无需 allow_unwired）
+# ACTIVE → SEND_NOTICE 已保存 id=01a1b51d-cb71-7786-b516-bdf416d1a34b（wired 已接线，无需 allow_unwired）
+
+## ④ POST /api/business/erp/contract —— 建一张草稿合同（三个日期齐全）
+# 合同已建：id=01a1b51d-cb78-76a2-8d2c-71dcf75e2b8e no=HT-20261107-000038 status=DRAFT
+
+## ⑤ PATCH /status {PENDING_APPROVAL} —— 提交审批（handler 联动调用点 ①）
+# status=PENDING_APPROVAL
+# sys_notice[LNK:CONTRACT:PENDING_APPROVAL:01a1b51d-cb78-76a2-8d2c-71dcf75e2b8e] = 1
+
+## ⑥ POST /api/business/flow/task/{id}/approve —— admin 审批通过（流程回调调用点 ②）
+# 审批结果：{"instance_id": "01a1b51d-cb84-700c-9b5b-63c2617d901a", "instance_status": "APPROVED", "node_status": "APPROVED", "done": true, "idempotent": false, "next_nodes": [], "auto_passed_nodes": 0, "approver_count": 1, "approved_count": 1, "rejected_count": 0}
+# 合同状态 = SIGNED；sys_notice[LNK:CONTRACT:SIGNED:01a1b51d-cb78-76a2-8d2c-71dcf75e2b8e] = 1；合同名下凭证 = 0
+
+## ⑦ 再次 POST 同一条待办 /approve —— 幂等重放（重复触发抑制）
+# HTTP 200 code=0 data={"instance_id": "01a1b51d-cb84-700c-9b5b-63c2617d901a", "instance_status": "APPROVED", "node_status": "APPROVED", "done": true, "idempotent": true, "next_nodes": [], "auto_passed_nodes": 0, "approver_count": 0, "approved_count": 0, "rejecte
+# 引擎按幂等重放处理（idempotent = true），不重复推进
+# 重复 approve 之后：合同状态 = SIGNED，sys_notice[SIGNED] = 1（必须仍是 1）
+
+## ⑧ PATCH /status {ACTIVE} —— 生效（handler 通用分支），再重复一次
+# status=ACTIVE
+# sys_notice[LNK:CONTRACT:ACTIVE:01a1b51d-cb78-76a2-8d2c-71dcf75e2b8e] = 1
+# 重复生效：HTTP 409 code=66015 msg=合同当前是「ACTIVE」，不能直接流转到「ACTIVE」：允许的去向是 「COMPLETED」 / 「TERMINATED」
+# 重复生效之后 sys_notice[ACTIVE] = 1（必须仍是 1）
+
+## ALL PASS

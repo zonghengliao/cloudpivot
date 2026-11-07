@@ -137,7 +137,7 @@ P1-FIX-5C 之前，配置页只把「动作」这一侧的占位项置灰了，�
 | 6 | `STOCK_TAKE` | ❌ | `erp/stocktake_handler.rs::post_tx`（盘盈盘亏落库存）/ `cancel_tx` / `submit_for_approval` / `withdraw` | 盘盈盘亏库存三写、成本、凭证（`stocktake_bridge`） | 高 | A |
 | 7 | `PURCHASE_ORDER` | ❌ | `erp/stockin_purchase.rs::sync_purchase_status`（`transition_if_changed`）+ `erp/purchase_model.rs::apply_status` | 累计收货量派生（只校验不落库） | 高 | A |
 | 8 | `STOCK_TRANSFER` | ❌ | `erp/transfer_handler_status.rs::apply_transition`（L≈55，`IN_TRANSIT→DONE` 同事务结算） | 库存双写（`transfer_model::settle_transfer`） | 中 | B |
-| 9 | `CONTRACT` | ❌ | `erp/contract_handler.rs::contract_change_status`（L≈786）/ `submit_approval_tx`（L≈1015） | 审批实例发起（`flow::engine::start`） | 高 | B |
+| 9 | `CONTRACT` | ✅ | `erp/contract_handler.rs::contract_change_status`（提交审批分支 + 通用分支）+ `erp/contract_bridge.rs::settle`（审批通过 / 驳回） | 审批实例发起 + 状态机（合同**不落账**） | 高 | 已接（LNK-07） |
 | 10 | `VOUCHER` | ✅ | `erp/voucher_write.rs::transition_voucher_in_tx`（L≈535，审核/记账/反记账共用）+ `manual_in_tx` / `reverse_in_tx` / `reverse_after_approval` | 分录行 + 记账戳 + 期间闸 | 中 | 已接（LNK-06） |
 | 11 | `DEPRECIATION` | ❌ | `erp/depreciation_model.rs::run_batch`（L≈323）/ `reverse_batch`（L≈639） | 折旧明细批量写 + 凭证 | 中 | B |
 | 12 | `ACCOUNTING_PERIOD` | ❌ | `erp/period.rs::open_period` / `close_period` / `reopen_period`（L≈783/1253/1343） | 期间状态 + 结账快照 | 中高 | C |
@@ -235,13 +235,22 @@ commit 之后
 - 风险：结算失败要整笔回滚（含刚写的 `DONE`），联动加在结算之后不改变这个语义，但在事务内跑
   关键动作会拉长事务——本触发点只建议先开 `SEND_NOTICE` / `CREATE_TASK`。
 
-**`CONTRACT`（合同 · 提交审批/审批通过/终止）**
+**`CONTRACT`（合同 · 提交审批/审批通过/驳回/生效/完成/终止）— LNK-07 已接**
 
-- 入口：`contract_handler.rs::submit_approval_tx`（L≈1015，先起审批实例再走状态机）、
-  `contract_change_status`（L≈786）。
-- ⚠ 顺序问题：审批通过时 **`FLOW_INSTANCE` 与 `CONTRACT` 两个触发点会相邻触发**，
-  必须先定「谁负责什么」（见 §3.3-D FLOW_INSTANCE），否则同一件事跑两遍通知。
-- 典型用法：合同生效 → 建履约计划任务 + 通知商务。
+- 入口：`contract_handler.rs::contract_change_status` 的提交审批分支（`DRAFT → PENDING_APPROVAL`）
+  + 通用分支（`SIGNED → ACTIVE` / `ACTIVE → COMPLETED` / `SIGNED|ACTIVE → TERMINATED` /
+  撤回 `PENDING_APPROVAL → DRAFT`），以及 `contract_bridge.rs::settle`（审批回调
+  `PENDING_APPROVAL → SIGNED|DRAFT`）。唯一 hook 是 `erp/contract_linkage.rs`
+  （`run_excluding(spec::CONTRACT_EXCLUDED_ACTIONS)` + commit 后 `run_deferred`）。
+- **重复触发**：审批通过有两条路（flow 回调 / `PATCH /status` 直改），两条都只写同一列
+  `biz_contract.status` 且带 CAS —— 后到的那条在 `settle_guard`（`AlreadySettled`）或
+  状态机边判定（409）处被挡掉，联动只跑一次；通知另有幂等键
+  `LNK:CONTRACT:<状态>:<合同 id>`。
+- **排除清单**：`GENERATE_VOUCHER`（合同不产生凭证；配置期另有
+  `spec::CONTRACT_FORBIDDEN_ACTIONS` 直接 400，避免「配了永远不执行」）。
+- 典型用法：合同生效 → 建履约计划任务 + 通知商务；终止 → 通知制单人。
+- 物证：`docs/evidence/20261107-lnk07-contract/`（真机 HTTP：提交/审批/生效各一条通知、
+  重复审批幂等且通知不增、配 GENERATE_VOUCHER 400、合同名下 0 张凭证）。
 
 **`VOUCHER`（凭证 · 落草稿/审核/反审核/记账/红冲）— LNK-06 已接**
 

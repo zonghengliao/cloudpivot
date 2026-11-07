@@ -295,9 +295,9 @@ pub struct TriggerSpec {
 
 /// 触发点接线表（顺序与 [`TRIGGERS`] 一致）。
 ///
-/// 当前 **9/15 已接线**（`STOCK_IN` · `STOCK_OUT` · `STOCK_TRANSFER` · `PURCHASE_ORDER` ·
-/// `PAYABLE` · `STOCK_TAKE` · `EXPENSE_REPORT` · `VOUCHER` · `TASK`），6 个未接线；逐条原因见
-/// `docs/architecture/P1-FIX-5C-联动触发点接线清单.md`。
+/// 当前 **10/15 已接线**（`STOCK_IN` · `STOCK_OUT` · `STOCK_TRANSFER` · `PURCHASE_ORDER` ·
+/// `PAYABLE` · `VOUCHER` · `CONTRACT` · `STOCK_TAKE` · `EXPENSE_REPORT` · `TASK`），5 个未接线；
+/// 逐条原因见 `docs/architecture/P1-FIX-5C-联动触发点接线清单.md`。
 pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     TriggerSpec {
         entity: state_machine::ENTITY_STOCK_IN,
@@ -506,10 +506,31 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
             ("COMPLETED", "已完成"),
             ("TERMINATED", "已终止"),
         ],
-        wired: false,
-        wiring: "未接线：合同状态在 erp/contract_handler.rs（构造 / 审批通过 / 终止），没有联动\
-                 调用点。接线要动：审批通过那一步（与 flow 审批回调相邻，注意别重复触发）",
-        proofs: &[],
+        wired: true,
+        wiring: "已接线（LNK-07）：erp/contract_linkage.rs 是唯一 hook。三个状态推进点全部接引擎 —— \
+                 ① 提交审批 contract_handler.rs::contract_change_status 目标态 PENDING_APPROVAL \
+                 分支（DRAFT → PENDING_APPROVAL，commit 前）；② 审批通过 / 驳回 \
+                 contract_bridge.rs::settle（PENDING_APPROVAL → SIGNED / → DRAFT，状态机过闸 + \
+                 CAS 成功之后）；③ 通用分支（SIGNED → ACTIVE / ACTIVE → COMPLETED / \
+                 SIGNED|ACTIVE → TERMINATED / 撤回 → DRAFT）。事务内 \
+                 run_excluding(spec::CONTRACT_EXCLUDED_ACTIONS)（合同不产生凭证，\
+                 GENERATE_VOUCHER 必须排除：合同号没有借贷科目口径，跑出来的凭证就是脏账；\
+                 配置期另有 spec::CONTRACT_FORBIDDEN_ACTIONS 让 upsert_rule 直接 400 —— \
+                 该动作在合同上永远只会被跳过，不许存档），\
+                 commit 后 run_deferred_after_commit → run_deferred。防重复触发：审批通过的两条路 \
+                 （flow 回调 / PATCH 直改）都只写同一列 status 且带 CAS，后到的那条在 \
+                 settle_guard（AlreadySettled）或边判定处就被挡掉，联动只跑一次；通知另有 \
+                 幂等键 LNK:CONTRACT:<状态>:<合同 id> 兜底。",
+        proofs: &[
+            (
+                "src/business/erp/contract_linkage.rs",
+                "linkage::engine::run_excluding",
+            ),
+            (
+                "src/business/erp/contract_linkage.rs",
+                "linkage::engine::run_deferred",
+            ),
+        ],
     },
     TriggerSpec {
         entity: state_machine::ENTITY_STOCK_TAKE,
@@ -848,6 +869,26 @@ pub const STOCKTAKE_EXCLUDED_ACTIONS: &[&str] = &[
     ACTION_GENERATE_VOUCHER,
 ];
 
+/// **合同**（`CONTRACT`）的专用路由排除清单（LNK-07）。
+///
+/// 合同**不产生任何账**：没有库存、没有余额、没有凭证（付款是采购单 / 应付单的事）。
+/// 所以在合同触发点上跑 `GENERATE_VOUCHER` 只有两种结局：
+///
+/// - 取数失败 → 一条 ERROR 日志 + 跳过：管理员配了一条「看起来生效」的规则，账上什么都没发生；
+/// - 或者按来源单据兜出一张「合同凭证」——合同号没有借贷科目口径，这种凭证进总账就是**脏账**
+///   （凭证明细对不上业务实质，巡检 L5 / L8 会红）。
+///
+/// 库存 / 余额类动作（`WRITE_INVENTORY` / `UPDATE_PAYABLE_BALANCE`）**不列**：合同上没有
+/// 这两类字段，它们在本触发点上没有可写的东西，列进来只是噪音。
+///
+/// `SEND_NOTICE` / `CREATE_TASK` **不能排除**：签订 / 生效 / 终止之后的「通知对方 / 建续签待办」
+/// 就靠通用引擎的 `Phase::AfterCommit` 动作，排掉等于接线了但永远不响。
+///
+/// 排除清单放在**调用方**（这里导出、`erp::contract_linkage` 传入）而不是写死在引擎里：
+/// 换个触发点（如 `PURCHASE_ORDER/APPROVED`）通用路线仍然要能跑凭证动作。
+/// 漂移守卫：`tests_wiring::contract_wires_generic_engine_and_excludes_voucher`。
+pub const CONTRACT_EXCLUDED_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER];
+
 /// **费用报销单**的专用路由排除清单（LNK-05）。
 ///
 /// 报销单的状态推进事务**自己写完了凭证**（`erp/expense_bridge.rs`）：
@@ -899,12 +940,24 @@ pub const VOUCHER_EXCLUDED_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER];
 /// 「配得上但永远不执行」是本仓最讨厌的一种「看起来配好了」。
 pub const VOUCHER_FORBIDDEN_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER];
 
+/// **合同**（`CONTRACT`）上**根本不允许保存**的动作（配置期 400）。
+///
+/// 与 [`VOUCHER_FORBIDDEN_ACTIONS`] 同一条理由但更轻一档：合同上跑 `GENERATE_VOUCHER`
+/// **不会死循环**，可是它**永远什么都不会做**（引擎的取数口径只接管收货入库，
+/// 其它实体一律 `Skipped`）。「配得上、看起来生效、账上一分没动」正是本仓最讨厌的
+/// 「看起来配好了」，所以保存时就拒：合同不产生凭证，要落账请去来源单据
+/// （收货 / 付款 / 报销 / 红冲各自的专用实现）上配。
+///
+/// 运行时另有一道 [`CONTRACT_EXCLUDED_ACTIONS`] 兜历史脏行 / 绕过 API 直接写库的行。
+pub const CONTRACT_FORBIDDEN_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER];
+
 /// 某个触发实体上被**结构性禁止**的动作码（配置期 400）。
 ///
 /// 返回空切片 = 该实体没有实体级禁令（只受通用白名单约束）。
 pub fn forbidden_actions(trigger_entity: &str) -> &'static [&'static str] {
     match trigger_entity.trim() {
         state_machine::ENTITY_VOUCHER => VOUCHER_FORBIDDEN_ACTIONS,
+        state_machine::ENTITY_CONTRACT => CONTRACT_FORBIDDEN_ACTIONS,
         _ => &[],
     }
 }
@@ -914,15 +967,24 @@ pub fn forbidden_actions(trigger_entity: &str) -> &'static [&'static str] {
 /// 文案只写一份：保存接口（`model::upsert_rule`）、配置页预览（`admin::check_draft`）、
 /// 规则体检（`admin::rule_problems`）与单测都读它，不各写一套。
 pub fn forbidden_action_reason(trigger_entity: &str, action_code: &str) -> Option<&'static str> {
+    let entity = trigger_entity.trim();
     let code = action_code.trim();
-    if !forbidden_actions(trigger_entity).contains(&code) {
+    if !forbidden_actions(entity).contains(&code) {
         return None;
     }
-    Some(
-        "在凭证状态上生成凭证是「凭证生凭证」的死循环（凭证过账 → 生成凭证 → 再过账 → …）：\
+    Some(match entity {
+        // 合同：不是死循环，是「永远什么都不会做」——合同没有借贷科目口径
+        state_machine::ENTITY_CONTRACT => {
+            "合同不产生任何凭证（合同号没有借贷科目口径，付款是采购单 / 应付单的事）：\
+             该动作在合同实体上永远只会被跳过，配了等于没配。运行时会排除、配置期直接拒绝；\
+             要生成凭证请到来源单据（收货 / 付款 / 报销 / 红冲）上配"
+        }
+        _ => {
+            "在凭证状态上生成凭证是「凭证生凭证」的死循环（凭证过账 → 生成凭证 → 再过账 → …）：\
          凭证只能由来源单据的记账路径生成（收货 / 付款 / 报销 / 红冲各自的专用实现）。\
-         该动作在凭证实体上被结构性禁止，运行时会排除、配置期直接拒绝",
-    )
+         该动作在凭证实体上被结构性禁止，运行时会排除、配置期直接拒绝"
+        }
+    })
 }
 
 // ==================== 禁用键（SQL 禁令） ====================

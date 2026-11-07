@@ -134,6 +134,8 @@ mod contract_approval_tests;
 pub mod contract_bridge;
 pub mod contract_dto;
 pub mod contract_handler;
+/// LNK-07 合同状态变更的联动 hook（唯一一份上下文 / 排除清单 / 幂等口径）。
+pub(crate) mod contract_linkage;
 pub mod contract_model;
 pub mod credit;
 pub mod currency;
@@ -316,6 +318,11 @@ mod expense_linkage_tests;
 /// 被 400 拒绝、绕过 API 写库的行运行时被排除，重复过账不重复触发）。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod voucher_linkage_tests;
+
+/// LNK-07 的真库单测（合同联动接线：审批通过触发一次、重复回调被抑制、
+/// 排除动作确实不跑、人工流转触发）。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod contract_linkage_tests;
 
 /// 凭证辅助核算（DC-11 · P2-1）：写入口径 + 辅助账查询。只在 `cargo test` 时编译。
 #[cfg(test)]

@@ -47,6 +47,7 @@
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::business::erp::contract_linkage;
 use crate::business::erp::contract_model::{
     self, STATUS_DRAFT, STATUS_PENDING_APPROVAL, STATUS_SIGNED,
 };
@@ -291,12 +292,25 @@ async fn settle(instance_id: Uuid, verdict: ContractVerdict) -> DbResult<Option<
                 "合同状态在审批回调期间已被改动，请刷新后重试",
             ));
         }
-        Ok::<(), ApiError>(())
+        // ⑥ 联动（LNK-07）：审批结论也是合同的**状态变更**（通过 → SIGNED，驳回 / 撤回 → DRAFT），
+        //    所以必须在这里接引擎 —— 不接这一条，配了已发布 `contract_approve` 流程的环境里
+        //    `CONTRACT/SIGNED` 上配的规则永远不触发。
+        //
+        //    防重复触发不靠旁路标记：重复回调 / 双击 approve 在 ⑤ 的 `settle_guard::gate`
+        //    就被判成 `AlreadySettled`（合同已是 SIGNED）→ `settle()` 直接 `Ok(None)` 返回，
+        //    根本走不到这一行；单据侧先推进（`PATCH /status` 直达 SIGNED）时，本回调同样
+        //    在 ⑤ 被挡。所以「状态列 CAS 成功」== 「联动恰好跑一次」。
+        let change =
+            contract_linkage::run_in_tx(&tx, contract_id, &row.contract_no, to_status, approver)
+                .await?;
+        Ok::<contract_linkage::ContractStatusChange, ApiError>(change)
     }
     .await;
     match outcome {
-        Ok(()) => {
+        Ok(change) => {
             tx.commit().await?;
+            // 通知 / 建任务这类 AfterCommit 动作在**提交之后**才跑（失败不回滚审批结论）
+            contract_linkage::run_deferred_after_commit(change).await;
             Ok(Some(contract_id))
         }
         Err(error) => {

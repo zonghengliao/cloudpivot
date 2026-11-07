@@ -67,6 +67,7 @@ use crate::business::erp::contract_dto::{
     ContractDetailRes, ContractFilter, ContractRes, ContractStatusReq, CreateContractReq,
     UpdateContractReq, normalize_page, parse_optional_uuid, parse_uuid_text,
 };
+use crate::business::erp::contract_linkage;
 use crate::business::erp::contract_model::{self, ContractMut, STATUS_DRAFT};
 use crate::business::flow::{engine, model as flow_model};
 use crate::business::shared::state_machine;
@@ -706,9 +707,30 @@ pub async fn contract_change_status(
         };
         let instance = out.instance_id.unwrap_or_default();
         let auto_finished = out.instance_status.eq_ignore_ascii_case("APPROVED");
+        // ⑥ 联动（LNK-07）：`DRAFT → PENDING_APPROVAL` 也是能走到的触发状态，
+        //    不接这一条，`CONTRACT/PENDING_APPROVAL` 上配的规则就会「能保存、能启用、
+        //    永远不触发」（P1-FIX-5C 原病）。事务内跑关键动作，通知类待 commit 后发。
+        let linkage_change = match contract_linkage::run_in_tx(
+            &tx,
+            id,
+            &row.contract_no,
+            contract_model::STATUS_PENDING_APPROVAL,
+            operator,
+        )
+        .await
+        {
+            Ok(change) => change,
+            Err(error) => {
+                let _ = tx.rollback().await;
+                return Err(error);
+            }
+        };
         if let Err(error) = tx.commit().await {
             return Err(utils::db_error(error, "提交合同审批事务"));
         }
+        // 通知 / 建任务这类 AfterCommit 动作：**提交之后**才跑，失败不回滚业务
+        // （状态 + 实例已经落库，一封站内信失败不该把审批撤回去）
+        contract_linkage::run_deferred_after_commit(linkage_change).await;
         // 锁外副作用（审批通知 / 客户自配的通知节点）必须在提交之后发，失败只 WARN
         let effects = out.effects.take();
         if !effects.is_empty() {
@@ -829,9 +851,22 @@ pub async fn contract_change_status(
             row.contract_no, row.status
         )));
     }
+    // ⑥ 联动（LNK-07）：生效 / 完成 / 终止 / 撤回（`PENDING_APPROVAL → DRAFT`）四条边
+    //    都在这里收口 —— 只有**状态机过闸 + CAS 写成功**之后才触发，重复点第二次时
+    //    上面的边判定已经把请求挡掉，联动不会跑第二遍。
+    let linkage_change =
+        match contract_linkage::run_in_tx(&tx, id, &row.contract_no, &target, operator).await {
+            Ok(change) => change,
+            Err(error) => {
+                let _ = tx.rollback().await;
+                return Err(error);
+            }
+        };
     tx.commit()
         .await
         .map_err(|error| utils::db_error(error, "提交合同状态流转事务"))?;
+    // 通知类动作在提交之后跑（失败不回滚状态变更）
+    contract_linkage::run_deferred_after_commit(linkage_change).await;
 
     detail_of(id).await
 }

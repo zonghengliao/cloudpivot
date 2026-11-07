@@ -121,6 +121,7 @@ fn trigger_specs_cover_whitelist_in_order() {
             "PURCHASE_ORDER",
             "PAYABLE",
             "VOUCHER",
+            "CONTRACT",
             "STOCK_TAKE",
             "EXPENSE_REPORT",
             "TASK"
@@ -130,12 +131,13 @@ fn trigger_specs_cover_whitelist_in_order() {
          PURCHASE_ORDER（采购单状态变更 + 部分/全部收货，LNK-02 新接）、\
          PAYABLE（应付单付款 / 部分付款 / 结清，LNK-03 新接）、\
          VOUCHER（凭证手工落草稿 / 审核 / 反审核 / 记账 / 红冲，LNK-06 新接）、\
+         CONTRACT（合同提交审批 / 审批通过 / 驳回 / 生效 / 完成 / 终止，LNK-07 新接）、\
          STOCK_TAKE（盘点单过账 / 作废，LNK-04 新接）、\
          EXPENSE_REPORT（报销单提交 / 通过 / 付清 / 作废 / 打回，LNK-05 新接）、\
          TASK（任务状态变更）；\
          接线状态变化时这份断言要跟着改，改之前先想清楚「真的有人调引擎了吗」"
     );
-    assert_eq!(spec::unwired_triggers().len(), 6, "其余 6 个仍未接线");
+    assert_eq!(spec::unwired_triggers().len(), 5, "其余 5 个仍未接线");
 }
 
 /// 每条声明都要自洽：已接线的必须有证据对，未接线的必须给出原因且不能有证据对。
@@ -209,9 +211,10 @@ fn wired_triggers_match_call_sites() {
     }
     assert_eq!(
         actual.len(),
-        10,
-        "当前真实调用点 10 个文件（收货过账 / 出库过账 handler + 出库联动 hook + 调拨联动 hook + \
-         采购联动 hook + 应付联动 hook + 盘点联动 hook + 报销联动 hook + 凭证联动 hook + 任务状态通知）：{actual:?}"
+        11,
+        "当前真实调用点 11 个文件（收货过账 / 出库过账 handler + 出库联动 hook + 调拨联动 hook + \
+         采购联动 hook + 应付联动 hook + 盘点联动 hook + 报销联动 hook + 凭证联动 hook + \
+         合同联动 hook + 任务状态通知）：{actual:?}"
     );
 }
 
@@ -766,6 +769,106 @@ fn voucher_wires_generic_engine_excludes_and_forbids_generate() {
         assert!(
             engine::is_routed_elsewhere(spec::VOUCHER_EXCLUDED_ACTIONS, code),
             "{code} 在凭证的排除清单里却没被判成「专用路由」：清单传下去也拦不住它"
+        );
+    }
+}
+
+/// 合同（`CONTRACT`）的接线细节（LNK-07）：**三个状态推进点都要调 hook**，且必须排除
+/// 合同上不可能成立的凭证动作。
+///
+/// 这条防的五种漂移：
+///
+/// 1. 只在 `spec.rs` 把 `wired` 改成 true、handler / bridge 里没调用（P1-FIX-5C 的原罪：
+///    规则能保存、能启用、永远不触发）；
+/// 2. 只接 handler 的「生效 / 完成 / 终止」，漏掉**审批通过**（`contract_bridge::settle`）→
+///    `CONTRACT/SIGNED` 这条最关键的规则永远不响（合同签了没人知道）；
+/// 3. 漏掉「提交审批」那一步 → `CONTRACT/PENDING_APPROVAL` 上配的规则能存能启用但不响；
+/// 4. 排除清单丢了 → 通用引擎在合同上跑 `GENERATE_VOUCHER`，按来源单据兜出一张没有
+///    借贷科目口径的「合同凭证」，进总账就是脏账；
+/// 5. 排除清单把通知 / 建任务也排掉 → 联动配了等于没配（不报错、不落账）。
+#[test]
+fn contract_wires_generic_engine_and_excludes_voucher() {
+    let hook = include_str!("../../erp/contract_linkage.rs");
+    assert!(
+        hook.contains("linkage::engine::run_excluding("),
+        "合同状态变更必须调用通用引擎（run_excluding）：否则 CONTRACT 的联动规则配了不触发"
+    );
+    assert!(
+        hook.contains("&ctx, linkage::spec::CONTRACT_EXCLUDED_ACTIONS"),
+        "合同调通用引擎时必须**真的把** spec::CONTRACT_EXCLUDED_ACTIONS 传下去（不许改成写死的 \
+         空清单）：只在文档里提这个名字救不了重复落账"
+    );
+    assert!(
+        hook.contains("linkage::engine::run_deferred"),
+        "合同的提交后动作必须交给 run_deferred（commit 之后跑），否则通知 / 建任务永远不执行"
+    );
+    assert!(
+        spec::CONTRACT_EXCLUDED_ACTIONS.contains(&spec::ACTION_GENERATE_VOUCHER),
+        "合同的排除清单漏了 GENERATE_VOUCHER：合同没有借贷科目口径，跑出来的凭证就是脏账"
+    );
+    // 第二道闸：配置期（保存接口 + 配置页预览）必须读实体级禁令 ——
+    // 合同上跑 GENERATE_VOUCHER 永远只会被 Skipped，不能让管理员配得上一份「看起来生效」的规则。
+    assert!(
+        spec::forbidden_actions(crate::business::shared::state_machine::ENTITY_CONTRACT)
+            .contains(&spec::ACTION_GENERATE_VOUCHER),
+        "合同实体没有声明 GENERATE_VOUCHER 禁令：保存时拦不住「配了永远不执行」的规则"
+    );
+    for code in [spec::ACTION_SEND_NOTICE, spec::ACTION_CREATE_TASK] {
+        assert!(
+            !spec::CONTRACT_EXCLUDED_ACTIONS.contains(&code),
+            "{code} 不能被合同排除：通知 / 建任务就靠通用引擎的 AfterCommit 动作"
+        );
+    }
+
+    // handler 两条路：提交审批（DRAFT → PENDING_APPROVAL）+ 通用分支（生效 / 完成 / 终止 / 撤回）
+    let handler = include_str!("../../erp/contract_handler.rs");
+    assert_eq!(
+        handler.matches("contract_linkage::run_in_tx(").count(),
+        2,
+        "合同提交审批与通用流转两条路都必须真的调 contract_linkage::run_in_tx\
+         （只改 spec.rs 的 wired 标记不算接线）"
+    );
+    assert_eq!(
+        handler
+            .matches("contract_linkage::run_deferred_after_commit(")
+            .count(),
+        2,
+        "提交审批 / 通用流转两个入口都要在 commit 之后 flush（少一处，那条路径的通知永远不发）"
+    );
+
+    // 审批回调（`contract_bridge::settle`）：审批通过 / 驳回都要接，且必须仍然先过 settle_guard
+    // ——「重复回调不重复触发」的前置闸就在这里，拆了它联动就会跑第二遍。
+    let bridge = include_str!("../../erp/contract_bridge.rs");
+    assert_eq!(
+        bridge.matches("contract_linkage::run_in_tx(").count(),
+        1,
+        "审批回调（contract_bridge::settle）必须调 contract_linkage::run_in_tx：\
+         否则配了已发布 contract_approve 流程的环境里 CONTRACT/SIGNED 的规则永远不触发"
+    );
+    assert_eq!(
+        bridge
+            .matches("contract_linkage::run_deferred_after_commit(")
+            .count(),
+        1,
+        "审批回调的提交后动作同样必须在 commit 之后跑（run_deferred_after_commit）"
+    );
+    assert!(
+        bridge.contains("settle_guard::gate("),
+        "审批回调必须先过 settle_guard（AlreadySettled 挡重复回调），否则联动会跑第二遍"
+    );
+
+    // 排除清单在语义上真的会拦（不是只有字符串写对）
+    use crate::business::flow::linkage::engine;
+    for code in spec::CONTRACT_EXCLUDED_ACTIONS {
+        assert!(
+            engine::is_routed_elsewhere(spec::CONTRACT_EXCLUDED_ACTIONS, code),
+            "{code} 在合同的排除清单里却没被判成「专用路由」：清单传下去也拦不住它"
+        );
+    }
+    for code in [spec::ACTION_SEND_NOTICE, spec::ACTION_CREATE_TASK] {
+        assert!(
+            !engine::is_routed_elsewhere(spec::CONTRACT_EXCLUDED_ACTIONS, code),
+            "{code} 被误判成专用路由：合同的通知 / 建任务会静默不执行"
         );
     }
 }
