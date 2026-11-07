@@ -842,3 +842,113 @@ async fn w3c_settle_amount_rounding_matches_txn() {
     );
     assert_eq!(refresh(id).await.total_amount, dec("10"));
 }
+
+// ---------- P0-03 回归：汇总桶 + 库位桶并存时，两本账必须扣同一个桶 ----------
+//
+// 145 真机演练（P0-03）复现的漂移：同仓同时有「整仓汇总桶（`location_id IS NULL`）」
+// 和「具体库位桶」时，明细带了 `from_location_id`，成本账按「汇总桶优先」扣汇总桶、
+// 库位账却按明细库位扣具体库位桶 —— 两本账**合计**仍相等（`assert_settle_invariants`
+// 的第 4 条看不出来），但分库位库存永久错位（实测调拨 40 件后库位桶 50 / 10、汇总桶 42 / 82）。
+//
+// 修复后的判据：库位账跟着成本账实际扣的那个桶走，逐桶相等。
+#[tokio::test]
+async fn p003_settle_deducts_the_same_bucket_in_both_books() {
+    let Some(_guard) = prepare().await else {
+        return;
+    };
+    // 种子库位字典（V0138）里的固定行：只当弱引用（`biz_inventory_location.location_id`
+    // 存的是库位字典 id，无外键），不新建也不改它。
+    const LOC_DICT: &str = "d1370002-0000-4000-8000-000000000001";
+
+    // ① 把 LOC_FROM 这条库位账行改成「具体库位桶」：库位字典 = LOC_DICT，数量 6
+    exec(
+        "UPDATE biz_inventory_location SET location_id = ?::uuid, qty = 6, updated_at = now() \
+          WHERE id = ?::uuid",
+        vec![Value::from(&uuid(LOC_DICT)), Value::from(&uuid(LOC_FROM))],
+        "库位账：具体库位桶 6",
+    )
+    .await;
+    // ② 汇总库位桶补一行 100（与 prepare 的整仓成本账 100 对齐）
+    exec(
+        "INSERT INTO biz_inventory_location \
+             (id, material_id, warehouse_id, location_id, qty, locked_qty) \
+         VALUES (gen_random_uuid(), ?::uuid, ?::uuid, NULL, 100, 0)",
+        vec![Value::from(&uuid(M_PLAIN)), Value::from(&uuid(WH_FROM))],
+        "库位账：汇总桶 100",
+    )
+    .await;
+    // ③ 具体库位桶的成本账行（qty 6 / 均价 4 / 金额 24）
+    exec(
+        "INSERT INTO biz_inventory (id, material_id, warehouse_id, location_id, qty, locked_qty, \
+                                    avg_cost, amount) \
+         VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid, 6, 0, 4, 24)",
+        vec![
+            Value::from(&uuid(M_PLAIN)),
+            Value::from(&uuid(WH_FROM)),
+            Value::from(&uuid(LOC_FROM)),
+        ],
+        "成本账：具体库位桶 6",
+    )
+    .await;
+    assert_two_books(M_PLAIN, "构造基线").await;
+
+    // ④ 调拨 3 件：明细指定「具体库位」，但该仓有整仓汇总桶
+    let mut line = item(M_PLAIN, "3");
+    line.from_location_id = Some(LOC_FROM.to_string());
+    let id = create_and_ship(vec![line]).await;
+    receive_ok(id).await;
+
+    // ⑤ 成本账：汇总桶 100 → 97（既有策略「有汇总桶就只动汇总桶」不变）
+    assert_eq!(
+        bucket_qty(M_PLAIN, WH_FROM).await,
+        Some(dec("97")),
+        "调出：汇总桶成本账必须扣 3"
+    );
+    // ⑥ 库位账必须扣**同一个桶**：汇总桶 100 → 97，具体库位桶仍是 6
+    let summary = query(
+        "SELECT COALESCE(SUM(qty), 0)::numeric(18,4) AS qty FROM biz_inventory_location \
+          WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL",
+        vec![Value::from(&uuid(M_PLAIN)), Value::from(&uuid(WH_FROM))],
+    )
+    .await;
+    assert_eq!(
+        summary[0].get_typed::<Decimal>("qty").expect("qty"),
+        dec("97"),
+        "调出：汇总桶库位账必须与成本账同桶（扣 3）"
+    );
+    assert_eq!(
+        location_row(LOC_FROM).await,
+        dec("6"),
+        "调出：明细指定的具体库位桶库位账不许被动（成本账没扣它）"
+    );
+    // ⑦ 逐桶对账：每个 (物料, 仓, 库位桶) 上成本账 == 库位账（0 行差异）
+    let broken = query(
+        "WITH c AS ( \
+             SELECT COALESCE(il.location_id::text, '-') AS loc, SUM(i.qty) AS qty \
+               FROM biz_inventory i \
+               LEFT JOIN biz_inventory_location il ON il.id = i.location_id \
+              WHERE i.material_id = ?::uuid AND i.warehouse_id = ?::uuid \
+              GROUP BY 1), \
+         l AS ( \
+             SELECT COALESCE(location_id::text, '-') AS loc, SUM(qty) AS qty \
+               FROM biz_inventory_location \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid \
+              GROUP BY 1) \
+         SELECT COALESCE(c.loc, l.loc) AS loc, \
+                COALESCE(c.qty, 0) - COALESCE(l.qty, 0) AS diff \
+           FROM c FULL JOIN l ON c.loc = l.loc \
+          WHERE COALESCE(c.qty, 0) <> COALESCE(l.qty, 0)",
+        vec![
+            Value::from(&uuid(M_PLAIN)),
+            Value::from(&uuid(WH_FROM)),
+            Value::from(&uuid(M_PLAIN)),
+            Value::from(&uuid(WH_FROM)),
+        ],
+    )
+    .await;
+    assert!(
+        broken.is_empty(),
+        "分库位两本账必须逐桶相等，实际有 {} 行差额",
+        broken.len()
+    );
+}

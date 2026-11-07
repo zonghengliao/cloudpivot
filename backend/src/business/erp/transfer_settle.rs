@@ -277,15 +277,18 @@ pub async fn settle_transfer(
             line.from_location_id,
         )
         .await?;
-        let Some(out_row) = out_row else {
+        let Some(out_bucket) = out_row else {
             return Err(SettleError::Insufficient {
                 material_code: line.material_code.clone(),
                 required: line.qty,
                 available: Decimal::ZERO,
             });
         };
-        let Some(out) = deduct_inventory_row(ex, out_row, line.qty, now).await? else {
-            let available = current_qty(ex, out_row).await?.unwrap_or(Decimal::ZERO);
+        let Some(out) = deduct_inventory_row(ex, out_bucket.inventory_id, line.qty, now).await?
+        else {
+            let available = current_qty(ex, out_bucket.inventory_id)
+                .await?
+                .unwrap_or(Decimal::ZERO);
             return Err(SettleError::Insufficient {
                 material_code: line.material_code.clone(),
                 required: line.qty,
@@ -306,11 +309,15 @@ pub async fn settle_transfer(
         //     与收货并发不会交叉等待）。
         //     传负数走 `apply_location_qty` 的加法原语：`Some(行 id)` 按主键 UPDATE，
         //     `None` 落「未分配库位桶」，与调入侧完全对称。
+        //     ⚠️ 库位桶**必须取成本账刚扣的那个桶**（`out_bucket.location_id`），
+        //     不能直接用明文的 `from_location_id`：成本账「有汇总桶就只动汇总桶」，
+        //     而明文库位可能指向另一个桶 —— 两本账各扣一个桶就是分库位永久漂移
+        //     （总量不变，汇总不变式看不出来；P0-03 演练实测 40 件漂移）。
         let out_location = stockin_model::apply_location_qty(
             ex,
             line.material_id,
             from_warehouse_id,
-            line.from_location_id,
+            out_bucket.location_id,
             -line.qty,
             now,
         )
@@ -347,6 +354,17 @@ pub async fn settle_transfer(
         )
         .await?;
 
+        // ④a 先定「调入侧要动的那个桶」：仓里有汇总桶 → 汇总桶（`None`）；没有 → 明细库位。
+        //     判据必须与成本账（`credit_inventory_row` → `lock_cost_bucket`，汇总桶优先）一致，
+        //     否则库位账加到明细库位桶、成本账加到汇总桶，分库位库存永久漂移（P0-03）。
+        let in_bucket_location =
+            match resolve_inventory_row(ex, line.material_id, to_warehouse_id, line.to_location_id)
+                .await?
+            {
+                Some(bucket) => bucket.location_id,
+                // 仓里还没有这个物料的库存行：credit 会按明细库位建档 → 两本账同一个桶
+                None => line.to_location_id,
+            };
         // ④ 调入仓：加库存（行不存在就建档）+ 移动加权重算 avg_cost
         let ins = credit_inventory_row(
             ex,
@@ -361,13 +379,12 @@ pub async fn settle_transfer(
             now,
         )
         .await?;
-        // ④b 调入仓**库位账**：+qty（明细指定了库位就加那一行，没有就落「未分配库位桶」）。
-        //     放在成本账之后，与收货过账的锁顺序一致（成本账 → 库位账）。
+        // ④b 调入仓**库位账**：+qty（与成本账同一个桶：汇总桶或明细库位桶）
         let in_location = stockin_model::apply_location_qty(
             ex,
             line.material_id,
             to_warehouse_id,
-            line.to_location_id,
+            in_bucket_location,
             line.qty,
             now,
         )
@@ -412,7 +429,8 @@ pub async fn settle_transfer(
                 &line.serial_ids,
                 from_warehouse_id,
                 to_warehouse_id,
-                line.to_location_id,
+                // 序列号的 `location_id` 也是库位库存行 id：跟两本账落同一个桶
+                in_bucket_location,
                 operator,
                 now,
             )
@@ -534,19 +552,45 @@ pub(super) async fn load_settle_lines(
     Ok(lines)
 }
 
+/// 一个库存桶（成本账行 + 它挂的库位桶）。
+///
+/// `location_id` 是**库位库存行 id**（`biz_inventory_location.id`，V0139 口径），
+/// `None` = 整仓汇总桶（未分配库位）。成本账与库位账必须按同一个桶成对增减。
+#[derive(Debug, Clone, Copy)]
+pub(super) struct InventoryBucket {
+    /// 成本账行 id（`biz_inventory.id`）。
+    pub inventory_id: Uuid,
+    /// 该行挂的库位桶 id（`biz_inventory.location_id`；`None` = 汇总桶）。
+    pub location_id: Option<Uuid>,
+}
+
 /// 选目标库存行：**有整仓汇总桶就只动汇总桶**，没有才按库位精确匹配。
 ///
 /// 返回 `None` = 该物料在这个仓还没有任何库存行（调入侧要建档；调出侧 = 库存 0）。
+///
+/// # 为什么要把 `location_id` 一起返回
+///
+/// 成本账（`biz_inventory`）是「桶」：`(material, warehouse, location_id)`。
+/// 本函数按「汇总桶优先」选出**要动哪一个桶**；调用方必须拿同一个桶去写库位账
+/// （`biz_inventory_location`），否则就会出现 P0-03 实测到的漂移：
+///
+/// - 成本账按本函数选桶 → 命中 `location_id IS NULL` 的汇总桶；
+/// - 库位账按明细的 `from_location_id` / `to_location_id` 走 → 命中具体库位桶。
+///
+/// 同仓同时存在「汇总桶 + 库位桶」时（期初落汇总桶、收货落库位桶就会这样），
+/// 两本账各自扣到不同的桶上：总量仍然相等（汇总不变式看不出来），但
+/// **分库位库存永久错位**（P0-03 演练：调拨 40 件后，库位桶成本账 50 / 库位账 10，
+/// 汇总桶成本账 42 / 库位账 82）。所以返回 `(inventory_id, location_id)` 成对使用。
 pub(super) async fn resolve_inventory_row(
     ex: &impl SqlExecutor,
     material_id: Uuid,
     warehouse_id: Uuid,
     location_id: Option<Uuid>,
-) -> DbResult<Option<Uuid>> {
+) -> DbResult<Option<InventoryBucket>> {
     // SCOPE-EXEMPT: 库存是仓储数据，无归属列（口径同 erp/model.rs）。
     let row = ex
         .query_first_sql(
-            "SELECT id FROM biz_inventory \
+            "SELECT id, location_id FROM biz_inventory \
               WHERE material_id = ?::uuid AND warehouse_id = ?::uuid \
                 AND (location_id IS NULL \
                      OR location_id IS NOT DISTINCT FROM NULLIF(?::text,'')::uuid) \
@@ -560,7 +604,13 @@ pub(super) async fn resolve_inventory_row(
             ],
         )
         .await?;
-    row.map(|row| row.get_typed::<Uuid>("id")).transpose()
+    match row {
+        None => Ok(None),
+        Some(row) => Ok(Some(InventoryBucket {
+            inventory_id: row.get_typed::<Uuid>("id")?,
+            location_id: row.get_typed::<Option<Uuid>>("location_id")?,
+        })),
+    }
 }
 
 /// 该库存行当前账面数量（`None` = 行已不存在）。
