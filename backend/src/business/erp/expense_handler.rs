@@ -991,9 +991,23 @@ pub async fn report_submit(
                 Some(operator),
             )
             .await?;
-            let out = engine::start(&tx, &start)
-                .await
-                .map_err(|error| db_err(error, "发起报销审批单"))?;
+            // ⑥-b 发起审批单。**引擎的业务拒绝（65018 没有可用审批人 / 65019 自审被禁）
+            //     必须留在事务里当硬错误**：`engine::start` 拒绝时已经写了 PENDING 实例
+            //     但一行待办都没有，先 commit 再判 `out.rejected` 会把单据置成 SUBMITTED
+            //     而永远批不动（卡 t_0127714a：demo_lead 提报 422/65018 后单据卡死）。
+            let out = match engine::start_in_tx(&tx, &start).await {
+                Ok(out) => out,
+                Err(engine::StartFailure::Rejected(rejected)) => {
+                    // FIX-1：原样透传（不要用 `ApiError::new(..)` 重建，那会丢 65018 的结构化载荷）
+                    return Err(rejected.appended(
+                        "（报销单保持草稿、没有生成审批单：请让能审批的人提交，\
+                         或把一位非制单人加入该节点的审批岗位后再提交）",
+                    ));
+                }
+                Err(engine::StartFailure::Db(error)) => {
+                    return Err(db_err(error, "发起报销审批单"));
+                }
+            };
             Ok::<(engine::ActionOut, expense_linkage::ExpenseStatusChange), ApiError>((out, change))
         }
         .await;
@@ -1011,13 +1025,9 @@ pub async fn report_submit(
         }
     };
     // 事务已提交 → 才跑 Phase::AfterCommit 的联动动作（发通知 / 建任务）。
-    // 放在 rejected 判断之前：单据状态已经落库了，通知不跟着库走就是「库里审批中、用户没收到信」。
+    // 走到这里 `rejected` 一定为空：业务拒绝已在事务内被 `start_in_tx` 翻成 `Err` 并回滚。
     expense_linkage::run_deferred_after_commit(out.1).await;
     let mut out = out.0;
-    if let Some(rejected) = out.rejected.take() {
-        // FIX-1：原样透传（不要用 `ApiError::new(..)` 重建，那会丢 65018 的结构化载荷）
-        return Err(rejected);
-    }
     let effects = out.effects.take();
     if !effects.is_empty() {
         engine::flush_effects(effects).await;

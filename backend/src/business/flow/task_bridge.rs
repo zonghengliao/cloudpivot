@@ -194,12 +194,36 @@ pub async fn prepare_accept(
 ///
 /// 与 `change_status` 的状态写入同一个事务：审批单建不出来 → 整笔回滚（任务回到 `DOING`）。
 ///
+/// # 业务拒绝必须回滚（卡 t_0127714a）
+///
+/// `engine::start` 把「派不出审批人（`65018`）/ 自审被禁（`65019`）」放进
+/// `ActionOut::rejected` 后**正常返回**，但那时已经写了一张 `PENDING` 实例却 0 行待办。
+/// 若这里不看 `rejected` 就往下走：任务落 `REVIEW` + `approval_instance_id` 指向一张
+/// 批不动的审批单 —— 既批不了（无待办）也不能再提交（门闸认为审批在跑）。
+///
+/// 所以拒绝一律当**硬错误**：原始 `ApiError` 挪进 `rejected` 槽位（`ApiError` 进不了
+/// [`DbError`]），抛 [`engine::start_rejected_sentinel`] 让事务回滚；调用方在事务外用
+/// [`engine::is_start_rejected`] 认出它，把业务码原样交回前端。
+///
 /// # 异常情况
 ///
 /// - 版本快照缺失 / 解析失败 → [`DbError::InvalidValue`]（整单回滚）；
-/// - 同一业务单据已有在跑实例（`uk_biz_flow_instance_biz_active`）→ [`DbError::UniqueViolation`]。
-pub async fn start_in_tx(tx: &Transaction, start: &AcceptStart, task_id: Uuid) -> DbResult<Uuid> {
-    let out = engine::start(tx, &start.req).await?;
+/// - 同一业务单据已有在跑实例（`uk_biz_flow_instance_biz_active`）→ [`DbError::UniqueViolation`]；
+/// - 引擎业务拒绝 → [`engine::start_rejected_sentinel`]（整单回滚，槽位里是原始 `ApiError`）。
+pub async fn start_in_tx(
+    tx: &Transaction,
+    start: &AcceptStart,
+    task_id: Uuid,
+    rejected: &std::sync::Mutex<Option<ApiError>>,
+) -> DbResult<Uuid> {
+    let mut out = engine::start(tx, &start.req).await?;
+    if let Some(error) = out.rejected.take() {
+        // 原始业务码（含 65018 的结构化载荷）经槽位带出事务，库里一行都不留。
+        if let Ok(mut slot) = rejected.lock() {
+            *slot = Some(error);
+        }
+        return Err(engine::start_rejected_sentinel());
+    }
     let instance_id = out.instance_id.unwrap_or(start.instance_id);
 
     // 回写任务行：门闸的开关就是这一列（D3a 的判据）

@@ -236,6 +236,12 @@ pub(super) fn settle_error(err: SettleError) -> ApiError {
         // LNK-01：联动引擎已经组好「哪条规则 / 哪个动作 / 为什么失败」，原样透出
         // （关键动作失败 ⇒ 调用方整笔回滚，不会留下「状态改了、联动没跑」的半条账）
         SettleError::Linkage(inner) => inner,
+        // 提交审批被引擎业务拒绝（65018 / 65019）：原始码 + 结构化载荷原样透出，
+        // 调拨单保持提交前状态（调用方整笔回滚，库里不留半截审批单）
+        SettleError::Approval(inner) => inner.appended(
+            "（调拨单保持提交前状态、没有生成审批单：请让能审批的人提交，\
+             或把一位非制单人加入该节点的审批岗位后再提交）",
+        ),
     }
 }
 

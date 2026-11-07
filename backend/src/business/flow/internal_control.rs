@@ -805,6 +805,32 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
             }
         }
 
+        /// 走**业务入口的新口径**（[`engine::start_in_tx`]，卡 t_0127714a）。
+        ///
+        /// 与 [`Self::try_start`] 的区别：这里不再「拿到 `out.rejected` 才自己回滚」，
+        /// 而是由引擎把业务拒绝直接翻成 `Err(StartFailure::Rejected)` —— 调用方拿到 `Err`
+        /// 就回滚，**没有任何一条代码路径能「先 commit 再判 rejected」**。
+        async fn try_start_in_tx(&self) -> Option<ApiError> {
+            let req = self.start_req();
+            let tx = db().begin().await.expect("开启事务");
+            match engine::start_in_tx(&tx, &req).await {
+                Ok(mut out) => {
+                    tx.commit().await.expect("提交事务");
+                    engine::flush_effects(out.effects.take()).await;
+                    engine::flush_drafts(out.effects.take_drafts()).await;
+                    None
+                }
+                Err(engine::StartFailure::Rejected(error)) => {
+                    tx.rollback().await.expect("回滚事务");
+                    Some(error)
+                }
+                Err(engine::StartFailure::Db(error)) => {
+                    let _ = tx.rollback().await;
+                    panic!("start_in_tx 不该报数据库错误：{error}");
+                }
+            }
+        }
+
         /// 实例状态（不存在 → `None`，用来证明「发起失败没留下半截审批单」）。
         async fn instance_status_opt(&self) -> Option<String> {
             let row = db()
@@ -1161,6 +1187,91 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
         assert!(
             sc.tasks().await.is_empty(),
             "发起失败后不许留下待办 / 留痕行"
+        );
+    }
+
+    /// ⑨ `engine::start_in_tx`（业务入口的新口径）：**业务拒绝 = 硬错误 + 整笔回滚**。
+    ///
+    /// # 这条用例钉的是什么（卡 t_0127714a）
+    ///
+    /// `engine::start` 把「派不出审批人（65018）/ 自审被禁（65019）」放进
+    /// `ActionOut::rejected` 之后**正常返回**，而此时它已经写了实例行。业务入口若
+    /// 「先 commit、再判 rejected」，库里就是「单据已置 SUBMITTED + 一张 PENDING 实例 +
+    /// 0 行待办」—— 单据永久卡死（批不了 / 付不了 / 重提不了）。实测就是报销人 = 部门负责人
+    /// 本人时提交报销单：`422 / 65018` 之后三张单全卡在 `SUBMITTED`。
+    ///
+    /// 新口径 `start_in_tx` 在**事务内**就把拒绝翻成 `Err(StartFailure::Rejected)`，
+    /// 调用方（报销 / 处置 / 调拨 / 验收即发起）拿到 `Err` 只能回滚。本用例断言三件事：
+    /// ① 拒绝码与结构化载荷原样保留（前端「指派审批人」引导框只认它）；
+    /// ② 回滚后实例 / 节点 / 待办**一行都不留**；
+    /// ③ 正常路径（有非制单人可签）照旧 `Ok` + 1 条 PENDING 待办（不能把好路径一起拦死）。
+    #[tokio::test]
+    async fn start_in_tx_turns_business_reject_into_rollback() {
+        let _guard = DB_LOCK.lock().await;
+        if !ensure_db().await {
+            return;
+        }
+        // ---------- ① 拒绝路径：会签 2 人全是当事人 → 内控全剔掉 → 65018 ----------
+        let seed = 8u128;
+        let creator = uid(seed * 100 + 5);
+        let initiator = uid(seed * 100 + 6);
+        let sc = Scenario::build(
+            "start_tx_reject",
+            seed,
+            &[(creator, "USER"), (initiator, "USER")],
+            &[],
+        )
+        .await;
+
+        let error = sc
+            .try_start_in_tx()
+            .await
+            .expect("全部被内控排除时 start_in_tx 必须返回 Err（不许正常返回）");
+        assert_eq!(error.status, 422, "发起应当 422：{}", error.msg);
+        assert_eq!(
+            error.code,
+            crate::shared::error_code::FLOW_NO_ASSIGNEE,
+            "码必须是 65018（没有可用审批人）：{}",
+            error.msg
+        );
+        assert!(
+            error.data.is_some(),
+            "65018 的结构化载荷（node_key / role_code / fix_hint）必须原样带出，\
+             否则前端「指派审批人」引导框只剩一句红字：{}",
+            error.msg
+        );
+        // 回滚后：实例 / 节点 / 待办全部为 0（这正是「单据卡死」的反面）
+        assert_eq!(
+            sc.instance_status_opt().await,
+            None,
+            "start_in_tx 拒绝后不许留下实例行（否则单据会被实例占住、批不动也重提不了）"
+        );
+        assert!(
+            sc.tasks().await.is_empty(),
+            "start_in_tx 拒绝后不许留下待办 / 留痕行"
+        );
+        let nodes: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_flow_instance_node WHERE instance_id = ?::uuid",
+                vec![Value::from(&sc.instance_id)],
+            )
+            .await
+            .expect("读实例节点");
+        assert_eq!(nodes, 0, "start_in_tx 拒绝后不许留下实例节点行");
+
+        // ---------- ② 正常路径：有非制单人可签 → Ok + 实例 PENDING + 1 条待办 ----------
+        let ok_seed = 9u128;
+        let approver = uid(ok_seed * 100 + 11);
+        let ok = Scenario::build("start_tx_ok", ok_seed, &[(approver, "USER")], &[]).await;
+        assert!(
+            ok.try_start_in_tx().await.is_none(),
+            "有非制单人可签时 start_in_tx 必须成功（不能把正常路径一起拦死）"
+        );
+        assert_eq!(ok.instance_status().await, "PENDING");
+        assert_eq!(
+            ok.tasks().await.len(),
+            1,
+            "成功路径必须留下 1 条待办（否则就是本卡要修的「实例在跑、0 待办」）"
         );
     }
 

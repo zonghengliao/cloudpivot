@@ -1009,23 +1009,31 @@ pub async fn asset_dispose(
             .begin()
             .await
             .map_err(|error| db_err(error, "开启处置审批事务"))?;
-        match engine::start(&tx, &start).await {
-            Ok(out) => {
-                tx.commit()
-                    .await
-                    .map_err(|error| db_err(error, "提交处置审批事务"))?;
-                out
+        // ⚠️ 引擎的业务拒绝（65018 没有可用审批人 / 65019 自审被禁）必须在**事务内**
+        //    当硬错误处理：`engine::start` 拒绝时已经写了一张 PENDING 实例却没有待办，
+        //    先 commit 再判 `out.rejected` 会留下「半截审批单」——该实例占着
+        //    `uk_biz_flow_instance_biz_active`，资产就永远卡在「已有在跑的处置审批」，
+        //    既提不了也撤不掉（与卡 t_0127714a 的报销单同一个根因）。
+        let out = match engine::start_in_tx(&tx, &start).await {
+            Ok(out) => out,
+            Err(engine::StartFailure::Rejected(rejected)) => {
+                let _ = tx.rollback().await;
+                // FIX-1：原样透传（不要用 `ApiError::new(..)` 重建，那会丢 65018 的结构化载荷）
+                return Err(rejected.appended(
+                    "（资产处置保持未提交、没有生成审批单：请让能审批的人提交，\
+                     或把一位非制单人加入该节点的审批岗位后再提交）",
+                ));
             }
-            Err(error) => {
+            Err(engine::StartFailure::Db(error)) => {
                 let _ = tx.rollback().await;
                 return Err(db_err(error, "发起处置审批单"));
             }
-        }
+        };
+        tx.commit()
+            .await
+            .map_err(|error| db_err(error, "提交处置审批事务"))?;
+        out
     };
-    if let Some(rejected) = out.rejected.take() {
-        // FIX-1：原样透传（不要用 `ApiError::new(..)` 重建，那会丢 65018 的结构化载荷）
-        return Err(rejected);
-    }
     let effects = out.effects.take();
     if !effects.is_empty() {
         engine::flush_effects(effects).await;

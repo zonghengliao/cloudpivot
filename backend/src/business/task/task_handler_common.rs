@@ -10,6 +10,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use super::task_handler_crud::*;
+use crate::business::flow::engine;
 use crate::business::shared::principal::{self, ScopedPrincipal};
 use crate::business::task::dto::{self, TaskCardRes, TaskSaveRes};
 use crate::business::task::model::{self, TaskCardRow, TaskDetailRow};
@@ -339,10 +340,11 @@ pub(super) const PARENT_CANCELLED_SENTINEL: &str = "TASK_PARENT_CANCELLED";
 pub(super) const FLOW_CONFLICT_SENTINEL: &str = "TASK_FLOW_CONFLICT";
 
 /// 事务错误 → HTTP 错误：T11 守卫的哨兵翻成 `409 + 63021`，流程冲突翻成原样的业务码，
-/// 其余一律 500。
+/// 发起审批被拒（[`engine::is_start_rejected`]）翻成槽位里的原始 `ApiError`，其余一律 500。
 pub(super) fn change_status_tx_error(
     error: DbError,
     flow_conflict: &std::sync::Mutex<Option<ApiError>>,
+    start_rejected: &std::sync::Mutex<Option<ApiError>>,
 ) -> ApiError {
     let blocked = matches!(&error, DbError::InvalidValue(msg) if msg == PARENT_CANCELLED_SENTINEL);
     if blocked {
@@ -352,6 +354,13 @@ pub(super) fn change_status_tx_error(
         matches!(&error, DbError::InvalidValue(msg) if msg == FLOW_CONFLICT_SENTINEL);
     if is_flow_conflict
         && let Some(error) = flow_conflict.lock().ok().and_then(|mut slot| slot.take())
+    {
+        return error;
+    }
+    // 「验收即发起审批」被引擎业务拒绝（65018 派不出人 / 65019 自审）：原始码与结构化载荷
+    // 只在槽位里（见 `task_bridge::start_in_tx`），事务已按哨兵整笔回滚，任务状态一行没动。
+    if engine::is_start_rejected(&error)
+        && let Some(error) = start_rejected.lock().ok().and_then(|mut slot| slot.take())
     {
         return error;
     }

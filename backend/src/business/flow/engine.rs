@@ -555,6 +555,93 @@ pub async fn start(ex: &Transaction, req: &StartReq) -> DbResult<ActionOut> {
     Ok(out)
 }
 
+// ==================== 发起（业务入口专用：业务拒绝 = 硬错误） ====================
+
+/// 「事务内发起」失败的两类原因。
+///
+/// # 为什么必须区分（卡 t_0127714a）
+///
+/// [`start`] 把引擎的**业务拒绝**（`422 + 65018` 没有可用审批人 / `65019` 自审被禁 /
+/// `65039` 标题超长 …）放进 [`ActionOut::rejected`] **正常返回**，此时它已经写了一张
+/// `biz_flow_instance`（`PENDING`）却**一行 `biz_flow_task` 都没有**。
+///
+/// 业务入口如果先 `commit()` 再检查 `out.rejected`，库里的结果就是
+/// 「单据已置 `SUBMITTED`、实例在跑、0 条待办」——单据永久卡死：
+/// 批不了（无待办）、付不了（`409 66041 当前是「审批中」`）、也重提不了（不是 DRAFT）。
+/// 实测：报销人 = 部门负责人本人时提交报销单，`422/65018` 之后三张单据全部卡在 `SUBMITTED`。
+///
+/// 所以业务入口一律用 [`start_in_tx`]：业务拒绝当**硬错误**，`Err` ⇒ 调用方回滚，
+/// 单据仍是 `DRAFT`、库里不残留实例与待办。
+#[derive(Debug)]
+pub enum StartFailure {
+    /// 数据库 / 引擎内部故障（[`start`] 原本就返回的 `Err(DbError)`）。
+    Db(DbError),
+    /// 引擎业务拒绝（节点没有可用审批人 / 自审被禁 / 标题超长 …）。
+    Rejected(ApiError),
+}
+
+/// **事务内**发起审批单，并把「业务拒绝」翻成 [`StartFailure::Rejected`]。
+///
+/// 调用方拿到 `Err` 必须**回滚事务**，再把 `ApiError` 交给前端；要补提示就用
+/// [`ApiError::appended`]，**不要**用 `ApiError::new` 重建 —— 那会丢掉 `65018` 的
+/// 结构化载荷（前端「指派审批人」引导框）与 `internal_detail`。
+///
+/// ```ignore
+/// let out = match engine::start_in_tx(&tx, &start).await {
+///     Ok(out) => out,
+///     Err(engine::StartFailure::Rejected(error)) => return Err(error), // ⇒ 整笔回滚
+///     Err(engine::StartFailure::Db(error)) => return Err(db_err(error, "发起审批单")),
+/// };
+/// ```
+///
+/// # 异常情况
+///
+/// 与 [`start`] 相同，只有「业务拒绝」被额外翻成 `Err`。
+pub async fn start_in_tx(
+    ex: &Transaction,
+    req: &StartReq,
+) -> std::result::Result<ActionOut, StartFailure> {
+    let mut out = start(ex, req).await.map_err(StartFailure::Db)?;
+    match out.rejected.take() {
+        Some(error) => Err(StartFailure::Rejected(error)),
+        None => Ok(out),
+    }
+}
+
+/// 「发起被引擎业务拒绝」的哨兵文案（`DbError::InvalidValue` 的载荷）。
+///
+/// # 为什么还需要哨兵（既然已有 [`start_in_tx`]）
+///
+/// [`start_in_tx`] 能把拒绝变成 `Err(ApiError)`，但它要求调用方**能返回 `ApiError`**。
+/// 有些业务入口跑在 `DbResult` 的事务闭包里（`db().transaction(|tx| …)`，闭包错误类型
+/// 只能是 [`DbError`]），`ApiError` 既不能 `Clone` 也不能塞进 `DbError`。
+/// 这类入口照旧会「先 commit、再判 `out.rejected`」——即卡 t_0127714a 的原始缺陷。
+///
+/// 标准做法是「哨兵 + 槽位」（本仓 `flow::handler` / `task::change_status` 早已在用）：
+/// 事务内把原始 [`ApiError`] 挪进 `Arc<Mutex<Option<ApiError>>>`，抛这个哨兵让事务回滚；
+/// 事务外按 [`is_start_rejected`] 认出这次失败，再把业务码原样交给前端。
+///
+/// **码值与文案一个字都不要改**：`65018` 的结构化载荷（前端「指派审批人」引导框）
+/// 只在原始 `ApiError` 里。
+pub const START_REJECTED_MARKER: &str = "P-FLOW:start-rejected";
+
+/// 造一个「发起被业务拒绝」的哨兵错误（配 [`START_REJECTED_MARKER`] 的槽位用）。
+///
+/// 调用方约定：先把 `ApiError` 放进槽位，再 `return Err(engine::start_rejected_sentinel())?`。
+pub fn start_rejected_sentinel() -> DbError {
+    DbError::InvalidValue(START_REJECTED_MARKER.to_string())
+}
+
+/// 判据：这个 [`DbError`] 是不是 [`start_rejected_sentinel`] 抛出来的。
+///
+/// 变体优先 + 文案兜底（有些底层把 `InvalidValue` 包了一层，`to_string()` 里仍带哨兵）。
+pub fn is_start_rejected(error: &DbError) -> bool {
+    match error {
+        DbError::InvalidValue(text) => text == START_REJECTED_MARKER,
+        other => other.to_string().contains(START_REJECTED_MARKER),
+    }
+}
+
 // ==================== 投票：同意 ====================
 
 /// 同意（**事务内**）。

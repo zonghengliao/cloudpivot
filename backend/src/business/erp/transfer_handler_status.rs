@@ -93,7 +93,18 @@ pub(super) async fn apply_transition(
     })?;
     let mut approval_instance_id = None;
     if let Some(start) = ctx.start.as_ref() {
-        let out = engine::start(tx, start).await?;
+        // ⚠️ 引擎的业务拒绝（65018 派不出审批人 / 65019 自审被禁）必须**当硬错误**：
+        //    `engine::start` 拒绝时已经写了一张 PENDING 实例却 0 行待办，正常返回后
+        //    本函数会把调拨单落 PENDING 并挂上这张批不动的实例 —— 批不了（无待办）、
+        //    重提不了（门闸认为审批在跑）、撤不干净（卡 t_0127714a 同根因）。
+        //    `start_in_tx` 把拒绝翻成 `SettleError::Approval`（带原始 ApiError + 65018
+        //    结构化载荷）⇒ 调用方整笔回滚，调拨单保持提交前状态。
+        let out = engine::start_in_tx(tx, start)
+            .await
+            .map_err(|failure| match failure {
+                engine::StartFailure::Rejected(error) => SettleError::Approval(error),
+                engine::StartFailure::Db(error) => SettleError::Db(error),
+            })?;
         approval_instance_id = Some(out.instance_id.unwrap_or(start.instance_id));
         tracing::info!(
             transfer_id = %ctx.id,

@@ -104,6 +104,16 @@ pub enum SettleError {
     /// 跨单据联动（LNK-01）的关键动作失败：引擎已经组好「哪个规则、哪个动作、为什么」的
     /// `ApiError`，handler 原样透出并整笔回滚（不允许「状态改了、联动没跑」的半条账）。
     Linkage(ApiError),
+    /// 提交审批时**引擎业务拒绝**（`422 + 65018` 派不出审批人 / `65019` 自审被禁 …）。
+    ///
+    /// # 为什么要单独一个变体（卡 t_0127714a）
+    ///
+    /// `engine::start` 把业务拒绝放进 `ActionOut::rejected` 后**正常返回**，此时它已经写了
+    /// 一张 `PENDING` 实例却 0 行待办。若调用方不看 `rejected` 就往下走，调拨单会落
+    /// `PENDING` + 挂上这张批不动的实例 —— 批不了（无待办）、重提不了（门闸认为审批在跑）、
+    /// 撤不干净。所以用 [`engine::start_in_tx`] 把拒绝翻成这个变体：整笔回滚，
+    /// 原始 `ApiError`（含 65018 结构化载荷）原样交给前端。
+    Approval(ApiError),
 }
 
 impl From<DbError> for SettleError {

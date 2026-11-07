@@ -1286,14 +1286,13 @@ async fn drain(out: &mut engine::ActionOut) -> Option<ApiError> {
 /// `ApiError` 既没有 `Clone` 也不能塞进 `DbError`，所以用「哨兵错误 + 槽位」把它带出事务：
 /// 事务内把原始 `ApiError` 挪进 `Arc<Mutex<Option<ApiError>>>`，再抛这个哨兵让事务回滚；
 /// 事务外按哨兵认出这次失败，取出原始业务码原样返回前端（**码值与文案不变**）。
-const START_REJECTED_MARKER: &str = "P-FLOW:start-rejected";
+/// 哨兵文案的唯一来源是 [`engine::START_REJECTED_MARKER`]（发起路径与业务入口共用一套判据，
+/// 免得两处字面量各自漂移）。见 [`engine::start_rejected_sentinel`]。
+const START_REJECTED_MARKER: &str = engine::START_REJECTED_MARKER;
 
 /// 是否「发起被引擎业务拒绝」的哨兵（见 [`START_REJECTED_MARKER`]）。
 fn is_start_rejected(error: &DbError) -> bool {
-    match error {
-        DbError::InvalidValue(text) => text == START_REJECTED_MARKER,
-        other => other.to_string().contains(START_REJECTED_MARKER),
-    }
+    engine::is_start_rejected(error)
 }
 
 // ==================== 12. 发起 ====================

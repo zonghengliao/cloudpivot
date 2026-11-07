@@ -277,6 +277,11 @@ pub async fn change_status(
     let flow_conflict: std::sync::Arc<std::sync::Mutex<Option<ApiError>>> =
         std::sync::Arc::new(std::sync::Mutex::new(None));
     let flow_conflict_tx = flow_conflict.clone();
+    // 验收即发起审批（D3b）同理：引擎业务拒绝（65018 派不出人 / 65019 自审）必须整笔回滚，
+    // 原始 `ApiError` 也带不出事务，同样走「哨兵 + 槽位」（见 `engine::START_REJECTED_MARKER`）。
+    let start_rejected: std::sync::Arc<std::sync::Mutex<Option<ApiError>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(None));
+    let start_rejected_tx = start_rejected.clone();
     let (comment_id, affected, recalcs, cascades, cancels, approvals, flow_outcome) = db()
         .transaction(|tx| async move {
             // T11 守卫（**事务内**再判一次）：③ 前那次读与这次写之间，父任务可能被
@@ -353,7 +358,7 @@ pub async fn change_status(
             }
             // D3b：提交验收即发起审批单（与状态写入同事务：建不出审批单 → 整笔回滚）
             if let Some(start) = accept.as_ref() {
-                task_bridge::start_in_tx(&tx, start, task_id).await?;
+                task_bridge::start_in_tx(&tx, start, task_id, &start_rejected_tx).await?;
             }
             let comment_id = model::insert_comment(
                 &tx,
@@ -458,7 +463,7 @@ pub async fn change_status(
             ))
         })
         .await
-        .map_err(|error| change_status_tx_error(error, &flow_conflict))?;
+        .map_err(|error| change_status_tx_error(error, &flow_conflict, &start_rejected))?;
     if affected == 0 {
         return Err(not_found());
     }
