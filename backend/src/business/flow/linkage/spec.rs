@@ -295,8 +295,8 @@ pub struct TriggerSpec {
 
 /// 触发点接线表（顺序与 [`TRIGGERS`] 一致）。
 ///
-/// 当前 **5/15 已接线**（`STOCK_IN` · `STOCK_OUT` · `STOCK_TRANSFER` · `PURCHASE_ORDER` · `TASK`），
-/// 10 个未接线；逐条原因见
+/// 当前 **6/15 已接线**（`STOCK_IN` · `STOCK_OUT` · `STOCK_TRANSFER` · `PURCHASE_ORDER` ·
+/// `PAYABLE` · `TASK`），9 个未接线；逐条原因见
 /// `docs/architecture/P1-FIX-5C-联动触发点接线清单.md`。
 pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     TriggerSpec {
@@ -424,11 +424,27 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
             ("PENDING_CANCEL", "作废审批中"),
             ("CANCELLED", "已作废"),
         ],
-        wired: false,
-        wiring: "未接线：应付单状态由 erp/payable_payment.rs 用 transition_if_changed 推进（付款、\
-                 部分付款、结清都在这个文件）。接线要动：付款事务内 run_excluding(&[\
-                 UPDATE_PAYABLE_BALANCE])（余额已由同事务维护）+ commit 后 run_deferred",
-        proofs: &[],
+        wired: true,
+        wiring: "已接线（LNK-03）：应付单的三个状态推进（付款 / 部分付款 / 结清）全部在 \
+                 erp/payable_payment.rs::settle_payment_in_tx 里用 transition_if_changed 推进，\
+                 该函数在第 ⑤ 步调 erp/payable_linkage.rs::run_in_tx → \
+                 linkage::engine::run_excluding(spec::PAYABLE_EXCLUDED_ACTIONS)，\
+                 排除 UPDATE_PAYABLE_BALANCE（第 ④ 步已回写 paid/unpaid/status）与 \
+                 GENERATE_VOUCHER（第 ② 步已生成付款凭证）。两条入口（直付 pay_in_tx / \
+                 审批通过 settle_approved_in_tx）共用这一处；通知 / 建任务由调用方在 \
+                 commit 之后调 payable_linkage::run_deferred_after_commit → \
+                 linkage::engine::run_deferred。状态没变（PARTIAL_PAID → PARTIAL_PAID）\
+                 不触发",
+        proofs: &[
+            (
+                "src/business/erp/payable_linkage.rs",
+                "linkage::engine::run_excluding",
+            ),
+            (
+                "src/business/erp/payable_linkage.rs",
+                "linkage::engine::run_deferred",
+            ),
+        ],
     },
     TriggerSpec {
         entity: state_machine::ENTITY_VOUCHER,
@@ -745,6 +761,22 @@ pub const PURCHASE_EXCLUDED_ACTIONS: &[&str] = &[
     ACTION_GENERATE_VOUCHER,
     ACTION_UPDATE_RECEIVED_QTY,
 ];
+
+/// **应付单**的专用路由排除清单（LNK-03）。
+///
+/// 付款事务（`erp/payable_payment.rs::settle_payment_in_tx`）自己已经写完了两类账，
+/// 通用引擎在这个触发点上必须把它们交给专用路径，否则就是**重复落账**：
+///
+/// - `UPDATE_PAYABLE_BALANCE` → 同一笔钱扣两次：`paid_amount` 翻倍、`unpaid_amount`
+///   变负数（库侧 CHECK 会直接把整笔付款炸成 500），状态也会原地跳；
+///   余额的**唯一**维护点是付款事务第 ④ 步的条件回写（CAS 在 `paid_amount` 上）。
+/// - `GENERATE_VOUCHER` → 一笔付款两张付款凭证（借 2202 / 贷 1002 各两条），
+///   总账 / 现金流量表按凭证汇总就翻倍；付款凭证的唯一生成点是付款事务第 ② 步。
+///
+/// 排除清单放在**调用方**（这里导出、`erp::payable_linkage` 传入）而不是写死在引擎里：
+/// 换个触发点（如 `PURCHASE_ORDER/SETTLED`）通用路线仍然要能跑这些动作。
+/// 漂移守卫：`tests_wiring::payable_status_wires_generic_engine_and_excludes_balance_and_voucher`。
+pub const PAYABLE_EXCLUDED_ACTIONS: &[&str] = &["UPDATE_PAYABLE_BALANCE", ACTION_GENERATE_VOUCHER];
 
 // ==================== 禁用键（SQL 禁令） ====================
 

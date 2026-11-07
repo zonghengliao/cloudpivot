@@ -106,6 +106,14 @@ use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;
 
+/// 应付单状态变更的跨单据联动 hook（LNK-03）。
+///
+/// 用 `#[path]` 挂在**本文件**而不是写进 `erp/mod.rs`：多 worker 并行时 `mod.rs` 是冲突热点
+/// （见 skill `cloudpivot-backend-workflow`）。子模块里的 `super` 是本模块，所以 hook 里的
+/// 兄弟模块一律走 `crate::business::erp::…` 全路径。
+#[path = "payable_linkage.rs"]
+mod payable_linkage;
+
 /// 付款记录表。
 pub const TABLE: &str = "biz_payment";
 
@@ -805,10 +813,14 @@ pub async fn pay_payable_with_reason(
     };
     let result = pay_in_tx(&tx, input).await;
     match result {
-        Ok(()) => {
+        Ok(linkage) => {
             tx.commit()
                 .await
                 .map_err(|error| utils::db_error(error, "提交付款事务"))?;
+            // commit 之后才跑通知 / 建任务这类 AfterCommit 动作（永不回滚业务）
+            if let Some(change) = linkage {
+                payable_linkage::run_deferred_after_commit(change).await;
+            }
             payable_query::payable_detail(id).await
         }
         Err(error) => {
@@ -845,7 +857,12 @@ struct PayInput<'a> {
 /// 与审批路径（[`settle_payment_in_tx`]）**共用同一段记账逻辑**：先落付款记录，再走
 /// 「凭证 → 回写 → 应付重算」。两条路径唯一的差别是付款记录落库时的 `approval_status`
 /// （直付 = `NONE`，审批通过 = 把已有的 `PENDING` 翻成 `APPROVED`）。
-async fn pay_in_tx(tx: &Transaction, input: PayInput<'_>) -> std::result::Result<(), ApiError> {
+///
+/// 返回值 = 这次付款是否推进了状态（`Some` → 调用方 commit 后跑 `AfterCommit` 联动动作）。
+async fn pay_in_tx(
+    tx: &Transaction,
+    input: PayInput<'_>,
+) -> std::result::Result<Option<payable_linkage::PayableStatusChange>, ApiError> {
     let PayInput {
         id,
         amount,
@@ -1025,10 +1042,18 @@ struct SettleInput<'a> {
 ///    （`transition_if_changed`：`PARTIAL_PAID → PARTIAL_PAID` 不写状态日志）。
 ///
 /// 调用前提：调用方已 `SELECT ... FOR UPDATE` 锁住应付单，且 `amount ≤ unpaid`。
+///
+/// # 返回值（LNK-03）
+///
+/// `Some(change)` = 这次付款**真的推进了状态**（`OPEN→PARTIAL_PAID` / `→SETTLED`），
+/// 调用方必须在 `commit()` **之后**把它交给
+/// [`payable_linkage::run_deferred_after_commit`]（发通知 / 建任务）。
+/// `None` = 原地流转（第二次部分付款 `PARTIAL_PAID→PARTIAL_PAID`）：业务照做，
+/// 但不是状态变更，**不许**触发联动（否则同一笔单子付几期就发几条通知）。
 async fn settle_payment_in_tx(
     tx: &Transaction,
     input: SettleInput<'_>,
-) -> std::result::Result<(), ApiError> {
+) -> std::result::Result<Option<payable_linkage::PayableStatusChange>, ApiError> {
     let SettleInput {
         payable: row,
         payment_id,
@@ -1152,7 +1177,7 @@ async fn settle_payment_in_tx(
         Some(extra) => format!("付款 {payment_no}｜{extra}"),
         None => format!("付款 {payment_no}"),
     };
-    let _status_log = state_machine::transition_if_changed(
+    let status_log = state_machine::transition_if_changed(
         tx,
         state_machine::ENTITY_PAYABLE,
         row.id,
@@ -1211,7 +1236,18 @@ async fn settle_payment_in_tx(
         )));
     }
 
-    Ok(())
+    // ⑤ 跨单据联动（LNK-03）：只在**状态真的变了**时跑（`status_log` 为 None = 原地流转）。
+    //    排除 `UPDATE_PAYABLE_BALANCE`（第 ④ 步已回写 paid/unpaid/status）与
+    //    `GENERATE_VOUCHER`（第 ② 步已生成付款凭证），否则同一笔钱扣两次 / 一张付款两张凭证。
+    //    关键动作失败 → `Err` → 调用方整笔回滚（不留半截账）。
+    //    `Phase::AfterCommit` 动作（通知 / 建任务）随返回值交给调用方，**commit 之后**跑。
+    match status_log {
+        Some(_) => {
+            let change = payable_linkage::run_in_tx(tx, row, status, operator).await?;
+            Ok(Some(change))
+        }
+        None => Ok(None),
+    }
 }
 
 // ==================== 写：提交付款（审批前置） ====================
@@ -1588,10 +1624,14 @@ pub async fn settle_approved_payment(
         .await
         .map_err(|error| utils::db_error(error, "开启付款执行事务"))?;
     match settle_approved_in_tx(&tx, payment_id, operator, now).await {
-        Ok(outcome) => {
+        Ok((outcome, linkage)) => {
             tx.commit()
                 .await
                 .map_err(|error| utils::db_error(error, "提交付款执行事务"))?;
+            // commit 之后才跑通知 / 建任务这类 AfterCommit 动作（永不回滚业务）
+            if let Some(change) = linkage {
+                payable_linkage::run_deferred_after_commit(change).await;
+            }
             if matches!(outcome, SettleOutcome::Paid) {
                 tracing::info!(%payment_id, "付款审批通过，付款已记账（应付回写 + 付款凭证）");
             }
@@ -1605,12 +1645,15 @@ pub async fn settle_approved_payment(
 }
 
 /// [`settle_approved_payment`] 的事务体。
+///
+/// 返回 `(结果, 联动上下文)`：只有 `SettleOutcome::Paid`（真的记了账、推进了应付状态）
+/// 才可能有 `Some`，其余分支账一分没动 → `None`（不许触发联动）。
 async fn settle_approved_in_tx(
     tx: &Transaction,
     payment_id: Uuid,
     operator: Option<Uuid>,
     now: DateTime<Utc>,
-) -> std::result::Result<SettleOutcome, ApiError> {
+) -> std::result::Result<(SettleOutcome, Option<payable_linkage::PayableStatusChange>), ApiError> {
     // ① 锁付款记录（锁序：付款记录 → 应付单，与发起路径一致）
     let Some(payment) = lock_payment(tx, payment_id).await? else {
         return Err(ApiError::new(
@@ -1625,7 +1668,7 @@ async fn settle_approved_in_tx(
             status = %payment.approval_status,
             "付款记录已是终态（重复回调 / 已被别处处理），跳过"
         );
-        return Ok(SettleOutcome::AlreadySettled);
+        return Ok((SettleOutcome::AlreadySettled, None));
     }
 
     // ② 锁应付单 + 复核「还能不能付款」
@@ -1638,9 +1681,12 @@ async fn settle_approved_in_tx(
     if row.status == payable::STATUS_CANCELLED {
         mark_payment_terminal(tx, payment_id, APPROVAL_CANCELLED, now).await?;
         clear_payable_approval_ref(tx, row.id, now).await?;
-        return Ok(SettleOutcome::Cancelled {
-            reason: format!("应付单 {} 已作废", row.payable_no),
-        });
+        return Ok((
+            SettleOutcome::Cancelled {
+                reason: format!("应付单 {} 已作废", row.payable_no),
+            },
+            None,
+        ));
     }
     if !matches!(
         row.status.as_str(),
@@ -1653,7 +1699,7 @@ async fn settle_approved_in_tx(
         );
         mark_payment_terminal(tx, payment_id, APPROVAL_REJECTED, now).await?;
         clear_payable_approval_ref(tx, row.id, now).await?;
-        return Ok(SettleOutcome::Rejected { reason });
+        return Ok((SettleOutcome::Rejected { reason }, None));
     }
     let amount = payment.amount.round_dp(4);
     if amount > row.unpaid_amount.round_dp(4) {
@@ -1663,11 +1709,11 @@ async fn settle_approved_in_tx(
         );
         mark_payment_terminal(tx, payment_id, APPROVAL_REJECTED, now).await?;
         clear_payable_approval_ref(tx, row.id, now).await?;
-        return Ok(SettleOutcome::Rejected { reason });
+        return Ok((SettleOutcome::Rejected { reason }, None));
     }
 
     // ③ 真记账（P7 的唯一实现）+ 付款记录翻 APPROVED + 清应付单引用
-    settle_payment_in_tx(
+    let linkage = settle_payment_in_tx(
         tx,
         SettleInput {
             payable: &row,
@@ -1685,7 +1731,7 @@ async fn settle_approved_in_tx(
     .await?;
     mark_payment_terminal(tx, payment_id, APPROVAL_APPROVED, now).await?;
     clear_payable_approval_ref(tx, row.id, now).await?;
-    Ok(SettleOutcome::Paid)
+    Ok((SettleOutcome::Paid, linkage))
 }
 
 /// 驳回 / 撤回：付款记录标 `REJECTED`，账一分不动，可重新提交。
@@ -2752,6 +2798,17 @@ mod tests {
     use crate::business::erp::voucher::{self, entries_of, find_voucher};
     use nik::prelude::chrono::Duration;
     use std::str::FromStr;
+
+    /// LNK-03 真库用例（应付单付款路径的跨单据联动）：挂在本模块下，直接复用 P7 夹具
+    /// （`setup` / `new_payable` / `row_of` / `pay_req`）。
+    ///
+    /// 文件位置：`erp/payable_payment/tests/payable_linkage_db_tests.rs`（Rust 对内联模块
+    /// `mod tests` 的子模块约定的目录 = `payable_payment/tests/`；`#[path]` 写 `..` 不行 ——
+    /// 中间目录不存在时内核直接 ENOENT）。
+    ///
+    /// 文件名必须 `*_tests.rs` 结尾：否则会被 `linkage::tests_wiring` 的反向扫描
+    /// 当成「多接了一个没登记的调用点」（它直接调 `engine::run_excluding` 做排除反证）。
+    mod payable_linkage_db_tests;
 
     /// ARCH-3 DC-01：系统路径的审批前置上下文（不请求跳过、无权限声明）。
     fn none_gate() -> approval_gate::ApprovalGate<'static> {

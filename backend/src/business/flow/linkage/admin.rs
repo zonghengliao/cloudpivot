@@ -1146,10 +1146,12 @@ mod tests {
                 "STOCK_OUT",
                 "STOCK_TRANSFER",
                 "PURCHASE_ORDER",
+                "PAYABLE",
                 "TASK"
             ],
             "已接线的触发点：STOCK_IN / STOCK_OUT（P1-FIX-5C 新接）/ \
-             STOCK_TRANSFER（LNK-01 新接）/ PURCHASE_ORDER（LNK-02 新接）/ TASK"
+             STOCK_TRANSFER（LNK-01 新接）/ PURCHASE_ORDER（LNK-02 新接）/ \
+             PAYABLE（LNK-03 新接）/ TASK"
         );
         for trigger in &triggers {
             assert!(

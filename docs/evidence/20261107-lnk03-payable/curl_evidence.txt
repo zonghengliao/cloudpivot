@@ -1,0 +1,93 @@
+# 超管登录成功，token 长度 = 461
+
+## ① GET /api/business/flow/linkage?trigger_entity=PAYABLE —— 配置页显示 wired=true
+{
+ "entity": "PAYABLE",
+ "wired": true,
+ "wiring": "已接线（LNK-03）：应付单的三个状态推进（付款 / 部分付款 / 结清）全部在 erp/payable_payment.rs::settle_payment_in_tx 里用 transition_if_changed 推进，该函数在第 ⑤ 步调 erp/payable_linkage.rs::run_in_tx …"
+}
+
+## ② PUT /api/business/flow/linkage —— PAYABLE/SETTLED + PAYABLE/PARTIAL_PAID → SEND_NOTICE
+{"id": "01a1b469-1244-7341-95b4-34eabe3d7edf", "trigger": "PAYABLE/SETTLED", "action": "SEND_NOTICE", "phase": "AFTER_COMMIT", "implemented": true, "problems": []}
+{"id": "01a1b469-124b-7050-a360-be2d69cd5bea", "trigger": "PAYABLE/PARTIAL_PAID", "action": "SEND_NOTICE", "phase": "AFTER_COMMIT", "implemented": true, "problems": []}
+
+# payable_pay 流程 PUBLISHED → DRAFT（取证完毕恢复）；直付 = pay_in_tx 路径
+
+## ④ POST /api/business/erp/payable/{id}/pay —— 全额付款 100/100（直付）
+# 夹具应付单 AP-LNK03-FULL-130906 id=9f08a91c-25c9-43bf-9a8b-ade1d4a3a19f amount=100 period=2026-01 create_by=01a1b3b9-fe6a-72ae-98e4-4894a4f42adb
+# HTTP 200
+{
+ "outcome": "PAID",
+ "message": "未配置付款审批流程，本次付款已按「显式跳过审批」直接生效",
+ "amount": "100",
+ "payment_id": "b41febe4-5d7b-4352-ab5c-9798f9fcf4d0",
+ "payment_no": "PM-20261107-000031",
+ "approval_instance_id": null,
+ "detail": {
+  "id": "9f08a91c-25c9-43bf-9a8b-ade1d4a3a19f",
+  "payable_no": "AP-LNK03-FULL-130906",
+  "supplier_id": "d1370005-0000-4000-8000-000000000001",
+  "supplier_name": "示例供应商（种子）",
+  "source_type": "STOCK_IN",
+  "source_id": "82037353-0353-41ab-bb27-b4161d85dd93",
+  "source_no": "LNK03-IN-FULL",
+  "invoice_no": null,
+  "invoice_date": null,
+  "currency_code": "CNY",
+  "amount": "100.0000",
+  "paid_amount": "100.0000",
+  "unpaid_amount": "0.0000",
+  "credit_days": 0,
+  "due_date": "2026-01-01",
+  "period_code": "2026-01",
+  "status": "SETTLED",
+  "status_label": "已结清",
+  "overdu
+
+## ⑤ POST /api/business/erp/payable/{id}/pay —— 部分付款 30/100（直付）
+# 夹具应付单 AP-LNK03-PART-130906 id=2d0544f5-e140-4fb6-a7a0-507c28188412 amount=100
+# HTTP 200
+{
+ "outcome": "PAID",
+ "message": "未配置付款审批流程，本次付款已按「显式跳过审批」直接生效",
+ "amount": "30",
+ "payment_id": "4c896480-ca51-454d-be1f-cfe071ff7eb3",
+ "payment_no": "PM-20261107-000032",
+ "approval_instance_id": null,
+ "detail": {
+  "id": "2d0544f5-e140-4fb6-a7a0-507c28188412",
+  "payable_no": "AP-LNK03-PART-130906",
+  "supplier_id": "d1370005-0000-4000-8000-000000000001",
+  "supplier_name": "示例供应商（种子）",
+  "source_type": "STOCK_IN",
+  "source_id": "f950bc13-7721-42be-9d6a-97f562aac644",
+  "source_no": "LNK03-IN-PART",
+  "invoice_no": null,
+  "invoice_date": null,
+  "currency_code": "CNY",
+  "amount": "100.0000",
+  "paid_amount": "30.0000",
+  "unpaid_amount": "70.0000",
+  "credit_days": 0,
+  "due_date": "2026-01-01",
+  "period_code": "2026-01",
+  "status": "PARTIAL_PAID",
+  "status_label": "部分已付",
+  "o
+
+## ⑥ 库内物证（余额 / 状态 / 凭证 / 通知 / 状态日志）
+- 全额 AP-LNK03-FULL-130906: status=SETTLED paid=100.00 unpaid=0.00（期望 SETTLED/100.00/0.00）
+  付款记录 1 条；付款凭证 1 张（期望 1 —— 排除 GENERATE_VOUCHER 生效）
+- 部分 AP-LNK03-PART-130906: status=PARTIAL_PAID paid=30.00 unpaid=70.00（期望 PARTIAL_PAID/30.00/70.00）
+  付款记录 1 条；付款凭证 1 张（期望 1 —— 排除 GENERATE_VOUCHER 生效）
+- 全额 通知 LNK:PAYABLE:SETTLED:9f08a91c-25c9-43bf-9a8b-ade1d4a3a19f → 应付单已结清 ⇢ USER ⇢ PAYABLE ⇢ /business/erp/payable?id=9f08a91c-25c9-43bf-9a8b-ade1d4a3a19f
+- 部分 通知 LNK:PAYABLE:PARTIAL_PAID:2d0544f5-e140-4fb6-a7a0-507c28188412 → 应付单部分已付 ⇢ USER ⇢ PAYABLE ⇢ /business/erp/payable?id=2d0544f5-e140-4fb6-a7a0-507c28188412
+- AP-LNK03-FULL-130906 状态日志：OPEN→SETTLED
+
+## ⑦ 收尾
+# payable_pay 流程恢复 PUBLISHED
+# 规则 01a1b469-1244-7341-95b4-34eabe3d7edf 已删除
+# 规则 01a1b469-124b-7050-a360-be2d69cd5bea 已删除
+# 取证单据保留：AP-LNK03-FULL-130906（SETTLED）/ AP-LNK03-PART-130906（PARTIAL_PAID）
+
+# 结论：PAYABLE 已接线 —— 全额付款 / 部分付款都真的触发联动（通知落 sys_notice），余额只扣一次（100→0 / 100→70），付款凭证每笔恰好 1 张（排除清单生效）
