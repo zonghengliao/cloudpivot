@@ -722,8 +722,14 @@ async fn material_inventory_accounts(
         .map(|line| Value::from(&line.material_id))
         .collect();
     let rows = ex.query_sql(sql, params).await?;
-    // 中间态：`material_id → (物料编码, 该物料自己的存货科目)`，后一步再套「规则 → 物料 → 1405」
-    let mut from_material: BTreeMap<Uuid, Option<(String, AccountRef)>> = BTreeMap::new();
+    // 中间态：`material_id → (物料编码, 该物料自己的存货科目)`，后一步再套「规则 → 物料 → 1405」。
+    //
+    // **物料编码与科目解耦**（FIX-9 ②）：以前这一层只在「物料配了启用的存货科目」时才把
+    // 编码一起存下来（`account.map(|a| (code, a))`），物料没配科目（`inventory_account_id`
+    // 为空，演示数据 `DEMO-P101/102` 就是）时编码被一起丢掉 → 分录摘要退化成
+    // 「存货 物料 01a1b5d2（第 1 行）」这种 UUID 前 8 位。摘要的可读性与科目解析结果无关，
+    // 所以编码**只要物料行在就一定留**，科目缺席只影响科目退化链。
+    let mut from_material: BTreeMap<Uuid, (String, Option<AccountRef>)> = BTreeMap::new();
     for row in &rows {
         let id: Uuid = row.get_typed("id")?;
         let code: String = row.get_typed("material_code")?;
@@ -736,14 +742,13 @@ async fn material_inventory_accounts(
             }),
             None => None,
         };
-        from_material.insert(id, account.map(|account| (code, account)));
+        from_material.insert(id, (code, account));
     }
     // 默认 1405 只在真的需要时取一次（多数单子走不到这一层）
     let mut default_account: Option<AccountRef> = None;
     for line in material_lines {
-        let found = from_material.get(&line.material_id).cloned().flatten();
-        let (label, material_account) = match found {
-            Some((code, account)) => (format!("物料 {code}"), Some(account)),
+        let (label, material_account) = match from_material.get(&line.material_id) {
+            Some((code, account)) => (format!("物料 {code}"), account.clone()),
             // 物料已软删 / 不存在：分录照样要出（金额在明细上），摘要退回 id 前 8 位
             None => (format!("物料 {}", short_id(line.material_id)), None),
         };
@@ -5210,5 +5215,90 @@ mod tests {
 
         drop_fix8_seq_rows().await;
         println!("[FIX-8 ②] 按单据类型独立递增：A=1..=6 / B=1..=4，其它 24 个号段不动 ✓");
+    }
+
+    /// FIX-9 ②：物料**没配存货科目**时，分录摘要也必须写物料编码，不许退化成 UUID 前 8 位。
+    ///
+    /// 回归目标：旧实现 `from_material.insert(id, account.map(|a| (code, a)))` 把「物料编码」
+    /// 和「该物料的存货科目」绑在一起 —— 物料 `inventory_account_id IS NULL` 时两者一起被丢，
+    /// 摘要于是写成「存货 物料 01a1b5d2（第 1 行）」（P0-02 演练 `PZ-20261107-000007` 实测）。
+    /// 演示数据 `DEMO-P101/P102` 正是没配科目的形状，所以这条不是假想。
+    #[tokio::test]
+    async fn fix9_voucher_summary_uses_material_code_without_inventory_account() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        // 先钉住前置条件：夹具物料确实没配存货科目（否则这条用例证明不了退化链）
+        let row = db()
+            .query_first_sql(
+                "SELECT inventory_account_id FROM biz_material WHERE id = ?::uuid".to_string(),
+                vec![Value::from(&uid(MATERIAL_A))],
+            )
+            .await
+            .expect("查物料")
+            .expect("夹具物料必须存在");
+        let configured: Option<Uuid> = row.get_typed("inventory_account_id").expect("读科目列");
+        assert!(
+            configured.is_none(),
+            "前置条件：MATERIAL_A 不该配存货科目（现在是 {configured:?}）"
+        );
+
+        let material_line = VoucherMaterialLine {
+            material_id: uid(MATERIAL_A),
+            qty: dec("2"),
+            amount: dec("20"),
+            line_from: 1,
+            line_to: 1,
+        };
+        let rule_account = AccountRef {
+            id: uid(TEST_ACCOUNT),
+            code: "P2C1.1405".to_string(),
+            name: "P2C1 测试存货科目".to_string(),
+        };
+        let map = material_inventory_accounts(db(), Some(&rule_account), &[material_line.clone()])
+            .await
+            .expect("逐物料科目解析");
+        let resolved = map
+            .get(&material_line.material_id)
+            .expect("物料必须解析出结果");
+        assert_eq!(
+            resolved.label, "物料 P2C1-M1",
+            "摘要标签必须是物料编码，不是 uuid 前 8 位"
+        );
+
+        // 真正的分录摘要文字（验收 ② 的字符串口径：`存货 物料 P2C1-M1（第 1 行）`）
+        let lines = purchase_in_lines(
+            &AccountSet {
+                inventory: rule_account.clone(),
+                payable: rule_account.clone(),
+                tax: None,
+            },
+            VoucherAmounts {
+                amount: dec("20"),
+                tax: Decimal::ZERO,
+                with_tax: dec("20"),
+            },
+            "采购入库 P2C1-IN-1 价税合计 20.0000",
+            LineContext {
+                warehouse_id: None,
+                material_id: None,
+                supplier_id: None,
+            },
+            &[material_line.clone()],
+            &map,
+            "P2C1-IN-1",
+        )
+        .expect("构造采购入库分录");
+        assert_eq!(lines.len(), 2, "零税单：借存货 1 行 + 贷应付 1 行");
+        assert!(
+            lines[0].summary.contains("存货 物料 P2C1-M1（第 1 行）"),
+            "存货行摘要实际：{}",
+            lines[0].summary
+        );
+        assert_eq!(
+            lines[0].aux_material_id,
+            Some(material_line.material_id),
+            "辅助核算的物料维度不受影响"
+        );
     }
 }

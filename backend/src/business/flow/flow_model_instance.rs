@@ -134,6 +134,43 @@ pub async fn bump_instance(
     .await
 }
 
+/// 实例上**最新一条非空审批意见**（只认真正投过票的待办：`APPROVED` / `REJECTED`）。
+///
+/// # 用在哪
+///
+/// 引擎从来只把意见写在待办行（`biz_flow_task.comment`），实例详情页读的却是
+/// `biz_flow_instance.result_comment` —— 于是「审批人写了意见」在实例上看不到
+/// （FIX-9 ①）。实例落终态时由 [`crate::business::flow::engine`] 调本函数取最后一票的
+/// 意见回写。
+///
+/// # 为什么不直接取「本次这一票的 comment」
+///
+/// 会签节点最后一票常常只点「同意」不写话，若严格取 `id = 当前待办`，实例的
+/// `result_comment` 就又空了；而「最后一条有内容的意见」正是用户在实例详情里想看的。
+///
+/// # 为什么排除 `CANCELLED`
+///
+/// 会签提前通过 / 驳回时，其余待办会被置 `CANCELLED` 并写上系统文案
+/// （「该节点已满足通过条件，无需再投」）。那不是审批意见，不能盖掉真正的人话。
+pub async fn latest_verdict_comment(
+    ex: &Transaction,
+    instance_id: Uuid,
+) -> DbResult<Option<String>> {
+    let rows = ex
+        .find_with_params(
+            "SELECT t.comment FROM biz_flow_task t \
+              WHERE t.instance_id = ?::uuid AND t.status IN ('APPROVED', 'REJECTED') \
+                AND t.comment IS NOT NULL AND btrim(t.comment) <> '' \
+              ORDER BY coalesce(t.completed_at, t.created_at) DESC, t.created_at DESC LIMIT 1",
+            vec![Value::from(&instance_id)],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok(None),
+        Some(row) => row.get_typed("comment"),
+    }
+}
+
 /// 用 `count(*)` 覆写 `auto_passed_nodes`（**派生值，不是 `+=`**）。
 ///
 /// # 异常情况

@@ -867,12 +867,24 @@ async fn vote(
     let round_total = model::max_round(ex, instance.id)
         .await?
         .max(instance.round_total);
+    // ⑦ 实例落终态时把「最后一条审批意见」回写 `result_comment`（FIX-9 ①）。
+    //
+    //    引擎向来只把意见写在待办行（`biz_flow_task.comment`），而实例详情页读的是
+    //    `biz_flow_instance.result_comment` —— 审批人写的话于是在实例上看不到。
+    //    口径：**只在落终态时写**（退回中间态 `PENDING` 一律不写，那是「还在走」而不是
+    //    「有个结论」）；内容取本轮为止最新一条非空的同意 / 驳回意见（会签末票不写话时
+    //    回退到前面投过的人，见 [`model::latest_verdict_comment`]）。
+    let settle_comment = if status_after == "PENDING" {
+        None
+    } else {
+        model::latest_verdict_comment(ex, instance.id).await?
+    };
     let mut updated = model::bump_instance(
         ex,
         instance.id,
         instance.revision,
         Some(&status_after),
-        None,
+        settle_comment.as_deref(),
         round_total,
     )
     .await?;
@@ -886,7 +898,7 @@ async fn vote(
                 instance.id,
                 instance.revision,
                 Some(&status_after),
-                None,
+                settle_comment.as_deref(),
                 round_total,
             )
             .await?;

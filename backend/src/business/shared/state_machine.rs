@@ -3098,6 +3098,42 @@ async fn insert_log(
         Some((kind, no)) => (kind.trim().to_string(), no.trim().to_string()),
         None => (String::new(), String::new()),
     };
+    // 操作人姓名快照（FIX-9 ③）：调用方手里常常只有一个 `Uuid`
+    // （`Operator::of(Some(id))` —— model / 事务体路径拿不到令牌），以前 `operator_name`
+    // 就这样一路写空，用户改名 / 销号之后审计只剩一串 uuid。
+    // 这里在**没有名字时**补一次主键查询：优先 `real_name`，没填就退回 `username`。
+    // 查不到（历史脏数据 / 号已硬删）→ 留空，**不阻断**状态变更（日志是旁路，不该把业务卡死）。
+    let operator_name = match operator.name.as_deref() {
+        Some(name) if !name.trim().is_empty() => name.trim().to_string(),
+        _ => match operator.id {
+            None => String::new(),
+            Some(user_id) => {
+                // SCOPE-EXEMPT: 按主键查单个用户的名字快照（登录主体已知），不产出用户可见行集。
+                let resolved = ex
+                    .query_first_sql(
+                        "SELECT COALESCE(NULLIF(btrim(real_name), ''), username) AS name \
+                           FROM sys_user WHERE id = ?::uuid"
+                            .to_string(),
+                        vec![Value::from(&user_id)],
+                    )
+                    .await
+                    .map_err(|error| {
+                        ApiError::new(
+                            500,
+                            error_code::INTERNAL_ERROR,
+                            format!("写状态变更日志失败（{entity_type} {entity_no}）：查操作人姓名 {error}"),
+                        )
+                    })?;
+                match resolved {
+                    Some(row) => row
+                        .get_typed::<Option<String>>("name")
+                        .unwrap_or_default()
+                        .unwrap_or_default(),
+                    None => String::new(),
+                }
+            }
+        },
+    };
     ex.exec_sql(
         "INSERT INTO biz_status_log \
             (id, entity_type, entity_id, entity_no, from_status, to_status, \
@@ -3119,7 +3155,7 @@ async fn insert_log(
                     .map(|value| value.to_string())
                     .unwrap_or_default(),
             ),
-            Value::Text(operator.name.clone().unwrap_or_default()),
+            Value::Text(operator_name),
             Value::Text(reason.unwrap_or_default().to_string()),
             Value::Text(ref_type),
             Value::Text(ref_no),
@@ -4417,6 +4453,59 @@ mod tests {
             .unwrap_err();
         assert_eq!(err.status, 400, "{}", err.msg);
         let _ = tx.rollback().await;
+    }
+
+    /// ⒅ 操作人只有 `id` 时，`operator_name` 必须按 `sys_user` 快照补齐（FIX-9 ③）。
+    ///
+    /// 生产上绝大多数状态变更走的是事务体 / model 路径，手上只有 `Uuid`
+    /// （`Operator::of(Some(id))`），以前这类日志的 `operator_name` 一律为空 ——
+    /// 用户改名 / 销号之后审计只剩一串 uuid。修法是在 `insert_log` 里补一次主键查询：
+    /// **优先 `real_name`，没填退回 `username`**。
+    #[tokio::test]
+    async fn operator_name_snapshot_filled_when_only_id_given() {
+        let Some((_guard, tx)) = d1_tx().await else {
+            return;
+        };
+        let Some(row) = tx
+            .query_first_sql(
+                "SELECT id, COALESCE(NULLIF(btrim(real_name), ''), username) AS name \
+                   FROM sys_user WHERE username = 'admin'"
+                    .to_string(),
+                vec![],
+            )
+            .await
+            .expect("查 admin")
+        else {
+            println!("SKIP: 库里没有 admin 用户");
+            return;
+        };
+        let user_id: Uuid = row.get_typed("id").expect("admin id");
+        let expected: String = row.get_typed("name").expect("admin 姓名快照");
+        let no = format!("{PREFIX}NAME");
+        transition(
+            &tx,
+            ENTITY_STOCK_IN,
+            Uuid::now_v7(),
+            &no,
+            &STOCK_IN_EDGES,
+            "DRAFT",
+            "POSTED",
+            Operator::of(Some(user_id)),
+            None,
+            None,
+        )
+        .await
+        .expect("流转应成功（姓名快照是旁路，不许阻断业务）");
+        let trail = trail_of_no(&tx, &no).await.expect("读状态日志");
+        let _ = tx.rollback().await;
+
+        assert_eq!(trail.len(), 1, "应写一行状态日志");
+        assert_eq!(trail[0].operator_id, Some(user_id), "operator_id 保持原值");
+        assert_eq!(
+            trail[0].operator_name.as_deref(),
+            Some(expected.as_str()),
+            "只有 id 的操作人也必须写出姓名快照（real_name 优先，退回 username）"
+        );
     }
 }
 

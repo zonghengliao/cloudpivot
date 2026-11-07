@@ -1124,6 +1124,59 @@ async fn offline_flow_falls_back_to_explicit_skip() {
     purge().await;
 }
 
+/// ⑭ FIX-9 ①：审批意见必须回写实例 `result_comment`（以前只落在待办行）。
+///
+/// 引擎把「同意 / 驳回」的意见写在 `biz_flow_task.comment`，实例行一直是空的 ——
+/// 用户在「审批中心 → 实例详情」看不到审批人说了什么（P0-02 演练里就是这么发现的）。
+/// 修法是实例落终态时取最后一票的**非空意见**回写（会签末票不写话时回退到前面投过的人）。
+#[tokio::test]
+async fn approval_comment_written_back_to_instance_result_comment() {
+    if !ensure_db().await {
+        return;
+    }
+    let _guard = DB_LOCK.lock().await;
+    prepare().await;
+
+    const COMMENT: &str = "FIX-9：这条边先禁用，月底盘库后再恢复";
+    let instance_id = submit_change("STOCK_OUT", "DRAFT", "POSTED").await;
+    let outs = crate::business::flow::test_support::approve_all_pending(instance_id, COMMENT).await;
+    assert!(!outs.is_empty(), "审批单必须有 PENDING 待办可批");
+    for out in outs {
+        // 与 `flow::handler::approve_task` 同序：事务已提交，再跑业务回调
+        edge_admin::on_settled(out.instance_id, &out.instance_status).await;
+    }
+    crate::business::flow::test_support::assert_instance_status(instance_id, "APPROVED").await;
+
+    let result_comment: Option<String> = db()
+        .scalar_with_params::<Option<String>>(
+            "SELECT result_comment FROM biz_flow_instance WHERE id = ?::uuid",
+            vec![Value::from(&instance_id)],
+        )
+        .await
+        .expect("读实例 result_comment");
+    let last_task_comment: Option<String> = db()
+        .scalar_with_params::<Option<String>>(
+            "SELECT comment FROM biz_flow_task \
+              WHERE instance_id = ?::uuid AND status = 'APPROVED' \
+              ORDER BY completed_at DESC LIMIT 1",
+            vec![Value::from(&instance_id)],
+        )
+        .await
+        .expect("读末票意见");
+    purge().await;
+
+    assert_eq!(
+        last_task_comment.as_deref(),
+        Some(COMMENT),
+        "前置：意见本来就写在待办行"
+    );
+    assert_eq!(
+        result_comment.as_deref(),
+        Some(COMMENT),
+        "审批完成后实例 result_comment 必须有最后一条意见（以前这里是 NULL）"
+    );
+}
+
 // ---------- 真库用例的小工具 ----------
 /// 实例上的待办 id（PENDING）。
 async fn pending_task_of(instance_id: Uuid) -> Uuid {
