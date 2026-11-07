@@ -1,0 +1,74 @@
+== changelog flow_p0fix flow erp RUNS=1 template=cloudpivot_libtest_template ==
+按模块分库跑 lib 真库用例  模块：changelog flow_p0fix flow erp  轮次：1
+工作树：/opt/cloudpivot
+库：cloudpivot@127.0.0.1:5432  模板：cloudpivot_libtest_template  前缀：cp_libtest
+提示：RUNS=1（只跑一遍）。幂等性守门要求 RUNS=2 —— 同一个库连跑两遍都必须 0 failed；
+      只跑一遍时，「上一轮残留把这一轮判死」这类问题看不出来。
+模板库：复用 cloudpivot_libtest_template
+模板库种子用户数：1（preflight 上限）
+
+─── 模块 changelog   filter='business::changelog' ───
+  新建：cp_libtest_changelog 与 cp_libtest_changelog_p0fix（模板 cloudpivot_libtest_template）
+  preflight[changelog] cp_libtest_changelog :: instances=0 tasks=0 po=0 p0fix_defs=0 users=1
+running 51 tests
+test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 3283 filtered out; finished in 0.01s
+  → test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 3283 filtered out; finished in 0.01s  (cargo rc=0)
+  ✔ changelog 全绿
+
+─── 模块 flow_p0fix   filter='business::flow::internal_control::db_tests' ───
+  新建：cp_libtest_flow_p0fix 与 cp_libtest_flow_p0fix_p0fix（模板 cloudpivot_libtest_template）
+  preflight[flow_p0fix] cp_libtest_flow_p0fix :: instances=0 tasks=0 po=0 p0fix_defs=0 users=1
+running 7 tests
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 3327 filtered out; finished in 7.07s
+  → test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 3327 filtered out; finished in 7.07s  (cargo rc=0)
+  泄漏校验：P0FIX 库 p0fix 夹具=7，模块库=0
+  ✔ flow_p0fix 全绿
+
+─── 模块 flow   filter='business::flow::' ───
+  新建：cp_libtest_flow 与 cp_libtest_flow_p0fix（模板 cloudpivot_libtest_template）
+  preflight[flow] cp_libtest_flow :: instances=0 tasks=0 po=0 p0fix_defs=0 users=1
+running 423 tests
+test result: ok. 423 passed; 0 failed; 0 ignored; 0 measured; 2911 filtered out; finished in 73.07s
+  → test result: ok. 423 passed; 0 failed; 0 ignored; 0 measured; 2911 filtered out; finished in 73.07s  (cargo rc=0)
+  ✔ flow 全绿
+
+─── 模块 erp   filter='business::erp::' ───
+  新建：cp_libtest_erp 与 cp_libtest_erp_p0fix（模板 cloudpivot_libtest_template）
+  preflight[erp] cp_libtest_erp :: instances=0 tasks=0 po=0 p0fix_defs=0 users=1
+running 1726 tests
+failures:
+failures:
+test result: FAILED. 1548 passed; 178 failed; 0 ignored; 0 measured; 1608 filtered out; finished in 807.13s
+error: test failed, to rerun pass `--lib`
+  → test result: FAILED. 1548 passed; 178 failed; 0 ignored; 0 measured; 1608 filtered out; finished in 807.13s  (cargo rc=0)
+[erp] 第 1 轮 FAILED：failed=178 rc=0 → 失败清单见 /root/reverify/libtest-logs/erp_run1.txt
+          business::erp::asset_linkage_tests::lnk09_cancel_disposal_triggers_restore_notice
+          business::erp::asset_linkage_tests::lnk09_disposal_triggers_disposed_notice
+          business::erp::asset_linkage_tests::lnk09_excluded_voucher_actions_never_run
+          business::erp::asset_linkage_tests::lnk09_repeat_disposal_does_not_trigger_twice
+          business::erp::asset_linkage_tests::lnk09_rolled_back_tx_never_sends_notice
+          business::erp::asset_linkage_tests::st02_dispose_restore_dispose_notifies_twice
+          business::erp::asset_linkage_tests::st02_enable_triggers_once
+          business::erp::asset_linkage_tests::st02_excluded_actions_not_run
+          business::erp::asset_linkage_tests::st02_idle_triggers_once
+          business::erp::asset_linkage_tests::st02_repeat_idle_conflicts
+          business::erp::asset_linkage_tests::st02_reversible_edges_notify_twice
+          business::erp::expense_linkage_tests::lnk05_approve_triggers_linkage_notice_and_single_voucher
+          business::erp::expense_linkage_tests::lnk05_cancel_triggers_linkage_notice
+          business::erp::expense_linkage_tests::lnk05_pay_triggers_only_on_full_payment
+          business::erp::expense_linkage_tests::lnk05_reject_reverts_to_draft_and_triggers
+          business::erp::expense_linkage_tests::lnk05_repeat_submit_and_pay_do_not_trigger_twice
+          business::erp::expense_linkage_tests::lnk05_submit_triggers_linkage_notice
+          business::erp::period::tests::p1_reopen_restores_posting
+          business::erp::period_items::tests::every_blocker_serializes_items_array
+          business::erp::period_items::tests::items_are_capped_at_fifty_with_message_note
+  ✘ erp 有失败
+
+================ 汇总 ================
+模块         轮  库                                  passed   failed  ignored 结果
+changelog      1    cp_libtest_changelog                     51        0        0 OK
+flow_p0fix     1    cp_libtest_flow_p0fix                     7        0        0 OK
+flow           1    cp_libtest_flow                         423        0        0 OK
+erp            1    cp_libtest_erp                         1548      178        0 FAIL
+日志目录：/root/reverify/libtest-logs
+FAILED 模块：erp

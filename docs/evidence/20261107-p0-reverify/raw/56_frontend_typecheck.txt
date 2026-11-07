@@ -1,0 +1,44 @@
+
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> vue-tsc --noEmit
+
+
+> @cloudpivot/web@0.1.0 build /opt/cloudpivot/frontend
+> vue-tsc --noEmit && vite build
+
+vite v6.3.7 building for production...
+transforming...
+✓ 5374 modules transformed.
+rendering chunks...
+
+<--- Last few GCs --->
+
+[387548:0x29ca0000]    56005 ms: Mark-Compact 2002.1 (2076.3) -> 2002.1 (2084.1) MB, pooled: 4 MB, 934.62 / 0.00 ms  (average mu = 0.426, current mu = 0.043) allocation failure; scavenge might not succeed
+[387548:0x29ca0000]    57354 ms: Mark-Compact 2010.8 (2092.3) -> 2010.8 (2108.3) MB, pooled: 0 MB, 1339.67 / 0.00 ms  (average mu = 0.237, current mu = 0.007) allocation failure; scavenge might not succeed
+
+
+<--- JS stacktrace --->
+
+FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory
+----- Native stack trace -----
+
+ 1: 0xe15218 node::OOMErrorHandler(char const*, v8::OOMDetails const&) [node]
+ 2: 0x11ab2cc v8::Utils::ReportOOMFailure(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [node]
+ 3: 0x11ab47c v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [node]
+ 4: 0x13cfe1c  [node]
+ 5: 0x13e7d90 v8::internal::Heap::CollectGarbage(v8::internal::AllocationSpace, v8::internal::GarbageCollectionReason, v8::GCCallbackFlags) [node]
+ 6: 0x13be6b8 v8::internal::HeapAllocator::AllocateRawWithLightRetrySlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [node]
+ 7: 0x13bf4f0 v8::internal::HeapAllocator::AllocateRawWithRetryOrFailSlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [node]
+ 8: 0x1399e10 v8::internal::Factory::AllocateRaw(int, v8::internal::AllocationType, v8::internal::AllocationAlignment) [node]
+ 9: 0x1387528 v8::internal::FactoryBase<v8::internal::Factory>::AllocateRawArray(int, v8::internal::AllocationType) [node]
+10: 0x1388118 v8::internal::FactoryBase<v8::internal::Factory>::NewFixedArray(int, v8::internal::AllocationType) [node]
+11: 0x13a73b8 v8::internal::Factory::NewJSArrayStorage(v8::internal::ElementsKind, int, v8::internal::ArrayStorageAllocationMode) [node]
+12: 0x13a7694 v8::internal::Factory::NewJSArray(v8::internal::ElementsKind, int, int, v8::internal::ArrayStorageAllocationMode, v8::internal::AllocationType) [node]
+13: 0x14e3b68 v8::internal::JsonParser<unsigned short>::BuildJsonArray(v8::internal::JsonParser<unsigned short>::JsonContinuation const&, v8::base::SmallVector<v8::internal::Handle<v8::internal::Object>, 16ul, std::allocator<v8::internal::Handle<v8::internal::Object> > > const&) [node]
+14: 0x14ee460  [node]
+15: 0x14eff50 v8::internal::JsonParser<unsigned short>::ParseJson(v8::internal::Handle<v8::internal::Object>) [node]
+16: 0x12253ec v8::internal::Builtin_JsonParse(int, unsigned long*, v8::internal::Isolate*) [node]
+17: 0x1cc48f4  [node]
+Aborted (core dumped)
+ ELIFECYCLE  Command failed with exit code 134.
+EXIT=134
