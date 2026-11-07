@@ -1,0 +1,24 @@
+== 空库已建：cloudpivot_so44_apply（owner=alun，无 schema_migrations）
+== 实例已起（18045），等迁移 + bootstrap
+== /health = 200
+== 迁移日志
+42190:-- 回滚：由 V0121 的 down 脚本统一清理（种子迁移没有独立 down）。
+42232:-- ---------- 3) 页面节点的可见性：保持迁移里登记的状态（隐藏），此处不动 ----------
+42299:[2m2026-11-07T03:38:01.382117Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 250 个迁移
+== V0318 记录
+318|sales_target_forecast|versioned|executed|t
+== 表结构
+target_cols=14 forecast_cols=14 checks=21 part_uk=4 seq=2 menus=11
+== 自检 NOTICE
+40377:    RAISE NOTICE 'SO-44: 销售目标 / 预测两表 + 8 个权限码 + 菜单 + 取号规则自检通过';
+40380:[2m2026-11-07T03:38:01.356395Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: SO-44: 销售目标 / 预测两表 + 8 个权限码 + 菜单 + 取号规则自检通过
+== 实例已停（pid=1970167）
+ck_biz_sf_amount
+ck_biz_sf_confidence
+ck_biz_sf_period
+ck_biz_sf_version
+ck_biz_st_target_amount
+ck_biz_st_target_period
+ck_biz_st_target_scope
+ck_biz_st_target_scope_id
+ck_biz_st_target_status

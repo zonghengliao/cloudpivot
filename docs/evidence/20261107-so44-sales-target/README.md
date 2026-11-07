@@ -6,14 +6,14 @@
 
 | 层 | 文件 | 说明 |
 |----|------|------|
-| 迁移 | `backend/migrations/business/V0318__sales_target_forecast.{up,down}.sql` | 建 `biz_sales_target`（14 列）/ `biz_sales_forecast`（14 列）+ 8 条 CHECK + 4 个部分唯一索引 + `biz_seq` 取号（STG/SFC）+ 页面与 8 个按钮菜单 + 4 角色授权矩阵 + **末尾 DO 块自检**（8 条行为探针必须被 CHECK 拒、正样本默认值、唯一索引、权限码承载、页面 path/component/父级） |
-| DTO | `backend/src/business/erp/sales_target_dto.rs` | 域值常量（与 CHECK 逐字一致）、`Period`（`yyyy-MM` / `yyyy-QN` ⇒ 左闭右开区间）、达成率 / 缺口 / 金额精度、归一化与校验；**23 条单测** |
+| 迁移 | `backend/migrations/business/V0318__sales_target_forecast.{up,down}.sql` | 建 `biz_sales_target`（14 列）/ `biz_sales_forecast`（14 列）+ **9 条 CHECK**（目标 5 + 预测 4）+ 4 个部分唯一索引 + `biz_seq` 取号（STG/SFC）+ 页面与 8 个按钮菜单 + 4 角色授权矩阵 + **末尾 DO 块自检**（8 条行为探针必须被 CHECK 拒、正样本默认值、唯一索引、权限码承载、页面 path/component/父级） |
+| DTO | `backend/src/business/erp/sales_target_dto.rs` | 域值常量（与 CHECK 逐字一致）、`Period`（`yyyy-MM` / `yyyy-QN` ⇒ 左闭右开区间）、达成率 / 缺口 / 金额精度、归一化与校验；**17 条单测** |
 | model | `backend/src/business/erp/sales_target_model.rs` | 两张表的读写、取号（`biz_seq` 按 CST 天滚动）、**达成率两个口径的取数 SQL**；**6 条单测**（含「uuid 参数必须带 `::uuid`」的绑定回归） |
 | handler | `backend/src/business/erp/sales_target_handler.rs` | 9 个接口（目标 4 + 看板 1 + 预测 4）、两个口径一次算全、业务逻辑为可测 `async fn`；**18 条单测** |
 | 前端 | `frontend/src/api/business/erp/sales-target.ts`、`frontend/src/views/business/erp/sales-target/index.vue` | 三页签：达成率看板（进度条 + 缺口 + 汇总卡）/ 目标维护 / 销售预测 |
 | 路由 | `frontend/src/router/index.ts` | `business/erp/sales-target` → `BusinessErpSalesTarget`，`meta.permission = business:erp:sales-target:list` |
 | 模块声明 | `backend/src/business/erp/mod.rs` | 三个模块 + 模块表文档行 |
-| 验收脚本 | `scripts/verify/so44_start.sh` / `so44_seed.sql` / `so44_sales_target_e2e.py` / `so44_curl_evidence.sh` | 隔离实例 + 夹具 + 77 项断言 + 原始 curl 取证 |
+| 验收脚本 | `scripts/verify/so44_start.sh` / `so44_seed.sql` / `so44_sales_target_e2e.py` / `so44_curl_evidence.sh` / `so44_apply_fresh.sh` | 隔离实例 + 夹具 + 77 项断言 + 原始 curl 取证 + 干净库 APPLY_OK 复证 |
 
 ## 2. 达成率口径（改之前先读）
 
@@ -42,6 +42,21 @@ versioned|sales_target_forecast|318|e2acdbb2bb0148fd2c814ee0acd3dda66dc3848a29e1
 
 - `kind = versioned`、`applied_via = executed`、`success = t`（自检 DO 块通过，NOTICE「SO-44: 销售目标 / 预测两表 + 8 个权限码 + 菜单 + 取号规则自检通过」）。
 - 一个隔离库上重启实例日志出现「应用 N 个迁移」后，再次启动为「应用 0 个迁移」（checksum 校验通过）。
+
+**干净库首启复证**（`scripts/verify/so44_apply_fresh.sh`，输出见 `apply_fresh.txt`）：
+
+```
+== 空库已建：cloudpivot_so44_apply（owner=alun，无 schema_migrations）
+2026-11-07T03:37:51 INFO nik_web::app: 数据库迁移完成: 应用 250 个迁移
+== V0318 记录
+318|sales_target_forecast|versioned|executed|t
+== 表结构
+target_cols=14 forecast_cols=14 part_uk=4 seq=2 menus=11
+NOTICE: SO-44: 销售目标 / 预测两表 + 8 个权限码 + 菜单 + 取号规则自检通过
+```
+
+CHECK 约束实测 9 条：`biz_sales_target` 5 条（scope / scope_id / period / amount / status）、
+`biz_sales_forecast` 4 条（period / amount / confidence / version）。
 
 ### 3.2 达成率计算正确（夹具 → 期望 → 实测）
 
