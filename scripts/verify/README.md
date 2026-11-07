@@ -372,7 +372,7 @@ echo $?     # 0=全绿 ｜ 1=有违规（明细已打印）｜ 2=连库/查询�
 | ② | /system/ 归属 | `path ~ '/system/%'` 的页面/按钮（menu_type 2/3）必须挂在 `system` 目录（`10000000-…-0001`）下 |
 | ③ | /business/ 归属 | `path ~ '/business/%'` 沿 parent 链上溯到的**根**必须落在 /business 命名空间（两个显式豁免见下） |
 | ④ | path 唯一性 | `menu_type=2` 且未软删的记录中同一 `path` 不得出现多次 |
-| ⑤ | 菜单总数 | 未软删总数 ∈ [400, 420]（`MENU_TOTAL_MIN`/`MENU_TOTAL_MAX` 可覆盖） |
+| ⑤ | 菜单总数 | 未软删总数 ∈ [400, 460]（`MENU_TOTAL_MIN`/`MENU_TOTAL_MAX` 可覆盖）。上限只在实测基数上留 ~8% 余量（420→460 于 2026-11-08，因 P2-01/02/03 三个采购闭环新增 13 条菜单，410→423）；它防的是批量误插/误删，不是功能增长闸门 |
 
 **③ 的口径与卡面字面写法不同，这是故意的**：本仓库 ERP 各模块目录（`/business/erp/{finance,sales,warehouse,purchase}-mgmt`、`master-data`、`contract`）本身就是一级根，`/business` 通用底座并没有把它们挂在下面——按「必须找到 `path='/business'` 的祖先」的字面口径，既有基线就有 63 条"违规"，脚本会永远红。所以 ③ 判的是**「/business 子树不能挂到非 /business 命名空间的根上」**（例如误挂到 `/system`、`/project` 下），这才是 MENU-01 那类错位的回归面。
 

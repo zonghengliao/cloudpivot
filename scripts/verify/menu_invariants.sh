@@ -24,7 +24,12 @@
 #                     只有这 4 条被豁免，新错位照样报红。例外行失配（被删/被改名/已合规）会打印
 #                     ⚠ 提示要求清理，但不改变退出码。
 #   ④ path 唯一性     menu_type=2 的未删记录中同一 path 不得出现多次
-#   ⑤ 菜单总数        未删记录总数必须落在 [MENU_TOTAL_MIN, MENU_TOTAL_MAX]（默认 400-420）
+#   ⑤ 菜单总数        未删记录总数必须落在 [MENU_TOTAL_MIN, MENU_TOTAL_MAX]（默认 400-460）
+#                     上限调整史：420 → 460（2026-11-08，卡 t_9d2f365c 部署同步时实测 423 报警）。
+#                     原因：P2-01 询比价 / P2-02 采购申请 / P2-03 采购退货三个闭环各带「1 个页面 +
+#                     3~4 个按钮」菜单，410 → 423（13 条全部 auth_code 唯一、parent 正确，②③④ 全绿）。
+#                     本断言只防「批量误插 / 大面积误删」这类事故，不是功能增长闸门，故每次只按实测
+#                     基数留 ~8% 余量；再破线时先确认是真实功能增长，再同步改这里和 scripts/verify/README.md。
 #
 # 为什么 ③ 不是「必须找到 path='/business' 的祖先」：本仓库 ERP 各模块目录
 # （/business/erp/{finance,sales,warehouse,purchase}-mgmt、master-data、contract）本身就是
@@ -50,7 +55,7 @@ export PGPASSWORD PGHOST PGPORT PGUSER
 
 SYSTEM_DIR_ID="${MENU_SYSTEM_DIR_ID:-10000000-0000-0000-0000-000000000001}"
 TOTAL_MIN="${MENU_TOTAL_MIN:-400}"
-TOTAL_MAX="${MENU_TOTAL_MAX:-420}"
+TOTAL_MAX="${MENU_TOTAL_MAX:-460}"
 # ③ 豁免：根级白名单（这些根允许承载 path ~ '/business/%' 的子节点，逗号分隔）。默认空：
 #   根级白名单一放就是「这个根下任何 /business/* 都放过」，会掩盖未来新错位，所以默认不启用；
 #   公告中心那 4 条走下面的行级 ID 例外，只豁免已知行，新错位照样报红。
