@@ -98,10 +98,25 @@ V0226（6602→5602）、V0229（6602→5602.01）、V0311（6601→5601）已�
 
 | 范围 | 结果 |
 |---|---|
-| `erp::fx_revaluation::tests`（6 纯逻辑 + 7 真库） | 13/13 |
+| `erp::fx_revaluation::tests`（6 纯逻辑 + 8 真库） | 14/14 |
 | `so41_*`（4 例：2 纯逻辑 + 2 真库） | 4/4 |
-| `erp::currency` / `erp::invoice` / `erp::period` / `erp::receipt` / `erp::receivable` / `erp::voucher::` | 129/129 |
+| `erp::currency` / `erp::invoice` / `erp::period` / `erp::receipt` / `erp::receivable` / `erp::voucher::` + 本卡两组 | **143/143**（干净库 `cloudpivot_so41_reg`，247 迁移） |
 | 全量 `cargo test --lib -j 1`（ERP_DB_URL 指向 cloudpivot_so41） | 见 §6 |
+
+真库用例清单（都在 `ERP_DB_URL` 下跑过，SKIP 不算绿）：
+
+| 用例 | 钉住的口径 |
+|---|---|
+| `revalue_period_posts_gain_and_loss_lines` | 汇率涨 ⇒ 借 1122 800 / 贷 5603 800 + 台账留痕 |
+| `revalue_period_posts_loss_when_rate_falls` | 汇率跌 ⇒ 借 5603 600 / 贷 1122 600 |
+| `revalue_period_ignores_base_currency_receivables` | 本位币应收：0 凭证 / 0 台账行 |
+| `revalue_period_is_idempotent` | 同期间重跑 `skipped=true`，凭证数恒 1 |
+| `revalue_period_refuses_missing_close_rate` | 缺期末汇率 ⇒ 拒绝并点名币种 + 取汇率日（绝不按 1 重估） |
+| `revalue_period_uses_unsettled_share` | 部分核销只重估未核销部分（比例法） |
+| `revalue_period_skips_voucher_when_net_is_zero` | 正负相抵 ⇒ 不出凭证（台账仍逐笔留痕，`voucher_id NULL`） |
+| `close_period_triggers_fx_revaluation` | **结账链路端到端**：close_period → FX 凭证 + 台账挂凭证 + 期间 CLOSED |
+| `so41_revenue_voucher_books_base_currency_amounts` | USD 发票 ⇒ 借 1122 8023 / 贷 5001 7100 / 贷 2221.02 923 |
+| `so41_stock_out_voucher_stays_in_base_currency` | 出库成本凭证 = 账上扣减额，不乘汇率 |
 
 真库用例的期次命名空间：**2050-xx 归本模块独占**（2031=period、2033=remind/stocktake、2034–2035=opening、
 2036–2038=year_end、2039=reminder、2040=period_items、2026=生产期间绝不碰），
@@ -109,4 +124,39 @@ V0226（6602→5602）、V0229（6602→5602.01）、V0311（6601→5601）已�
 
 ## 6. fmt / clippy / 全量测试
 
-（见卡内汇报与 `check.log`）
+```
+rustfmt +1.94.1 --edition 2024 --check（fx_revaluation / voucher / invoice / period / mod）→ 无 diff
+cargo clippy --lib → 本卡文件 0 警告
+  ⚠ 既有 1 条（非本卡）：sales_order_model::update_order too_many_arguments（SO-40 bfd275a 引入，
+    未在本卡修：不属于本卡范围，且 -D warnings 下会拦住整条检查链 ⇒ 已在卡内汇报，交下游）
+
+cargo test --lib -j 1（ERP_DB_URL=cloudpivot_so41，全量）
+→ 3067 passed / 6 failed / 1208.98s
+```
+
+**6 条失败逐条归因（都不是本卡代码，且都已在干净库上复跑为绿）**：
+
+| 用例 | 归因 | 复跑结果 |
+|---|---|---|
+| `receivable_aging::db_bucket_boundaries_and_backet_source_agree`<br>`receivable_aging::db_customer_pivot_and_summary_are_consistent`<br>`receivable_aging::db_period_cutoff_excludes_later_documents` | 该模块 `setup()` 里 `DELETE FROM biz_receivable`（全表），被**他人遗留夹具** `biz_receipt_refund_allocation`（RR-20261107-000004，07:58:48 由 receipt_refund 用例留下、未清场）的 FK `RESTRICT` 拦住 ⇒ `db error` | 干净库 `cloudpivot_so41_reg`（247 迁移）：9/9 绿 |
+| `ledger::p2d1_ledger_excludes_draft` | 断言「全库 DRAFT 凭证恰好 1 张」，并行线程下别人的 DRAFT 让它数成 2 | 单独跑 1/1 绿 |
+| `stocktake_tests::zz_teardown_purges_stocktake_fixtures` | 清场断言受并行模块中间态影响（该模块自带 `settle_orphans` 收敛窗口，5s 内未收敛） | 单独跑 1/1 绿 |
+| `sales_approval_bridge::db_tests::three_tiers_start_flow_and_approve_to_approved` | 审批链夹具与并行模块共库互扰 | 干净库 4/4 绿 |
+
+即：本卡改动的所有模块（`fx_revaluation` / `voucher` / `invoice` / `period`）在全量与定向运行下都绿；
+失败集中在**既有夹具隔离**问题（父卡 SO-40 也记过同类 2 条），本卡未增删这些模块的任何夹具。
+
+## 7. 残留项（明确不做，不是漏了）
+
+1. **核销时点的汇兑损益**：本卡只做「月末重估」。收款按原币核销、不记结算汇率，
+   所以「收到钱那一刻的汇率差」不会单独确认，而是并入下个月的月度重估差额
+   （账面人民币随未核销比例走）。逐笔配对法属另一张卡。
+2. **正负相抵（net = 0）时不出凭证**：单笔差额一正一负、合计为 0 时，1122 合计正确但单笔应收的
+   账面人民币仍偏差（凭证分录无应收辅助核算列，无法按笔记账）。台账已逐笔留痕（`voucher_id NULL`），
+   可人工按台账调账。
+3. **反结账不回滚重估**：`reopen_period` 不删重估凭证 / 台账（凭证是账务事实）。
+   反结账后再结账不会重复计提（diff 自然趋 0 + 幂等闸）；要重提必须走凭证红冲。
+4. **退货 `biz_sales_return` / 采购链外币**未纳入重估范围（卡面只点名应收侧）。
+5. **汇率维护 API / 前端页面**仍未做（SO-39 只给表；本卡证据用 SQL 种 SPOT）。
+6. `close_check`（结账预检）**不展示**待重估清单：重估在 `close_period` 内完成，
+   前端目前看不到「这次结账会提多少汇兑损益」。要预览需再加一个只读接口（本卡未做，单卡 ≤1.5h）。

@@ -420,12 +420,20 @@ pub async fn revalue_period(
         for line in &lines {
             upsert_line(ex, period_code, line, None, operator, now).await?;
         }
-        tracing::warn!(
-            period = period_code,
-            net = %net,
-            lines = lines.len(),
-            "期末汇兑重估：差额合计为 0（正负相抵），本期间不生成调整凭证"
-        );
+        if lines.is_empty() {
+            // 没有外币未核销应收：正常月份的常态，不刷 WARN
+            tracing::debug!(
+                period = period_code,
+                "期末汇兑重估：本期没有未核销的外币应收，无需调整"
+            );
+        } else {
+            tracing::warn!(
+                period = period_code,
+                net = %net,
+                lines = lines.len(),
+                "期末汇兑重估：差额合计为 0（正负相抵），本期间不生成调整凭证（台账已逐笔留痕）"
+            );
+        }
         return Ok(RevalOutcome {
             period_code: period_code.to_string(),
             close_date,
@@ -707,7 +715,13 @@ mod tests {
     }
 
     /// 造一条外币应收（未核销）+ 期末汇率 + 开放期间。
-    async fn fixtures(currency: &str, base_with_tax: &str, amount: &str, settled: &str) {
+    async fn fixtures_with(
+        currency: &str,
+        base_with_tax: &str,
+        amount: &str,
+        settled: &str,
+        tag: &str,
+    ) {
         db().exec_sql(
             format!(
                 "INSERT INTO biz_customer (id, code, name, status) \
@@ -731,7 +745,7 @@ mod tests {
                          ?::text::date, ?, ?, 7.1, ?::text::numeric, 0, ?::text::numeric)"
             ),
             vec![
-                Value::Text(format!("FXR-{currency}-0001")),
+                Value::Text(format!("FXR-{currency}-{tag}")),
                 Value::Text(currency.to_string()),
                 Value::Text(amount_dec.to_string()),
                 Value::Text(settled.to_string()),
@@ -754,12 +768,19 @@ mod tests {
             format!(
                 "INSERT INTO biz_accounting_period \
                     (id, period_year, period_month, period_code, start_date, end_date, status) \
-                 VALUES (gen_random_uuid(), 2050, 1, '{PERIOD}', '2050-01-01', '2050-01-31', 'OPEN')"
+                 VALUES (gen_random_uuid(), 2050, 1, '{PERIOD}', '2050-01-01', '2050-01-31', 'OPEN') \
+                 ON CONFLICT (period_code) DO UPDATE SET status = 'OPEN', \
+                     closed_at = NULL, closed_by = NULL"
             ),
             vec![],
         )
         .await
         .expect("种期间");
+    }
+
+    /// 单笔夹具的便捷包装（等价 `fixtures_with(.., "0001")`）。
+    async fn fixtures(currency: &str, base_with_tax: &str, amount: &str, settled: &str) {
+        fixtures_with(currency, base_with_tax, amount, settled, "0001").await;
     }
 
     async fn seed_rate(currency: &str, on_date: &str, rate: &str) {
@@ -1073,5 +1094,54 @@ mod tests {
 
         cleanup().await;
         println!("[SO41-⑦] 真库结账链路：close_period → FX 凭证 + 台账挂凭证 + 期间 CLOSED ✓");
+    }
+
+    /// 真库：两笔应收**差额正负相抵**（一笔 +800 / 一笔 −800）⇒ 合计为 0，
+    /// 本期间不生成凭证（借贷同额会互相抵消，凭证没有信息量），但台账逐笔留痕（voucher_id NULL）。
+    #[tokio::test]
+    async fn revalue_period_skips_voucher_when_net_is_zero() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        // ① 账面按 7.1 锁 → 期末 7.9 ⇒ +800
+        fixtures_with("USD", "7100", "1000", "0", "0001").await;
+        // ② 账面按 8.7 锁（库里 rate 8.7）→ 期末 7.9 ⇒ −800
+        fixtures_with("USD", "8700", "1000", "0", "0002").await;
+        seed_rate("USD", "2050-01-31", "7.9").await;
+
+        let outcome = revalue_period(db(), PERIOD, None, Utc::now())
+            .await
+            .expect("重估应成功");
+        assert_eq!(outcome.lines.len(), 2, "两笔应收都要算差额");
+        assert_eq!(outcome.net, Decimal::ZERO, "+800 与 −800 相抵");
+        assert!(
+            outcome.voucher_id.is_none(),
+            "合计为 0 ⇒ 不生成调整凭证（不能凭空造一张借贷同额的凭证）"
+        );
+
+        let rows = db()
+            .query_sql(
+                format!("SELECT ar_no, diff_base, voucher_id FROM {TABLE} WHERE period_code = ? ORDER BY ar_no"),
+                vec![Value::Text(PERIOD.to_string())],
+            )
+            .await
+            .expect("查台账");
+        assert_eq!(rows.len(), 2, "台账必须逐笔留痕：{rows:?}");
+        for row in &rows {
+            assert!(
+                row.get_typed::<Option<Uuid>>("voucher_id")
+                    .expect("凭证引用")
+                    .is_none(),
+                "没有凭证时台账的 voucher_id 必须为 NULL"
+            );
+        }
+        let diffs: Vec<Decimal> = rows
+            .iter()
+            .map(|row| row.get_typed::<Decimal>("diff_base").expect("差额"))
+            .collect();
+        assert_eq!(diffs, vec![dec("800"), dec("-800")], "逐笔差额符号相反");
+
+        cleanup().await;
+        println!("[SO41-⑧] 真库正负相抵：net=0 不生成凭证，台账 2 行留痕 ✓");
     }
 }
