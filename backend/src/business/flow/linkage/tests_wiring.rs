@@ -122,6 +122,7 @@ fn trigger_specs_cover_whitelist_in_order() {
             "PAYABLE",
             "VOUCHER",
             "ACCOUNTING_PERIOD",
+            "ACCOUNTING_YEAR",
             "CONTRACT",
             "STOCK_TAKE",
             "FIXED_ASSET",
@@ -135,6 +136,7 @@ fn trigger_specs_cover_whitelist_in_order() {
          PAYABLE（应付单付款 / 部分付款 / 结清，LNK-03 新接）、\
          VOUCHER（凭证手工落草稿 / 审核 / 反审核 / 记账 / 红冲，LNK-06 新接）、\
          ACCOUNTING_PERIOD（会计期间结账 / 反结账，LNK-08 新接）、\
+         ACCOUNTING_YEAR（年度结转 / 反年结，LNK-11 新接）、\
          CONTRACT（合同提交审批 / 审批通过 / 驳回 / 生效 / 完成 / 终止，LNK-07 新接）、\
          STOCK_TAKE（盘点单过账 / 作废，LNK-04 新接）、\
          FIXED_ASSET（资产处置 / 作废处置，LNK-09 新接）、\
@@ -145,8 +147,8 @@ fn trigger_specs_cover_whitelist_in_order() {
     );
     assert_eq!(
         spec::unwired_triggers().len(),
-        2,
-        "其余 2 个仍未接线（YEAR_END / FLOW_INSTANCE）"
+        1,
+        "其余 1 个仍未接线（FLOW_INSTANCE）"
     );
 }
 
@@ -221,11 +223,11 @@ fn wired_triggers_match_call_sites() {
     }
     assert_eq!(
         actual.len(),
-        14,
-        "当前真实调用点 14 个文件（收货过账 / 出库过账 handler + 出库联动 hook + 调拨联动 hook + \
+        15,
+        "当前真实调用点 15 个文件（收货过账 / 出库过账 handler + 出库联动 hook + 调拨联动 hook + \
          采购联动 hook + 应付联动 hook + 盘点联动 hook + 报销联动 hook + 凭证联动 hook + \
-         合同联动 hook + 会计期间联动 hook + 固定资产联动 hook + 折旧批次联动 hook + \
-         任务状态通知）：{actual:?}\n\
+         合同联动 hook + 会计期间联动 hook + 会计年度联动 hook + 固定资产联动 hook + \
+         折旧批次联动 hook + 任务状态通知）：{actual:?}\n\
          ⚠️ 本计数器是**文件级去重 + 只认 `linkage::engine::*` 直调**：\n\
          固定资产新增的「停用 / 启用」写在 `erp/asset_handler.rs` 里、只间接调\
          `asset_linkage::run_in_tx`（引擎在 hook 里被调），所以**不会**也不该让这个数字 +1；\n\
@@ -1278,6 +1280,127 @@ fn depreciation_wires_generic_engine_and_excludes_voucher() {
         assert!(
             !engine::is_routed_elsewhere(spec::DEPRECIATION_EXCLUDED_ACTIONS, code),
             "{code} 被误判成专用路由：折旧批次的通知 / 建任务会静默不执行"
+        );
+    }
+}
+
+/// 会计年度（`ACCOUNTING_YEAR`）的接线细节（LNK-11）：年结 / 反年结两处都调 hook，
+/// 且**通知必须排在 `tx.commit()` 之后**（年结是全仓最长的账务事务，事务内发通知一旦回滚
+/// 就是「财务收到年度已结转、实际还开着」——卡面点名的最高风险）。
+///
+/// 这条防的六种漂移：
+///
+/// 1. 只在 `spec.rs` 把 `wired` 改成 true、`year_end.rs` 里没调用（P1-FIX-5C 的原罪）；
+/// 2. 只接年结、漏掉反年结 → `ACCOUNTING_YEAR/NOT_CLOSED` 上配的「反年结要上报」永远不响；
+/// 3. 排除清单丢了或没传下去 → 通用引擎在年结事务里再跑 `GENERATE_VOUCHER`（年结第 ① 步
+///    已经出过唯一一张 `YEAR_END` 结转凭证，再出一次撞 `uk_biz_voucher_year_end_period`）
+///    或写库存 / 应付余额（年度根本没有这些明细列）；
+/// 4. 把 `run_deferred_after_commit` 挪进事务里（或在 `tx.commit()` 之前调）→
+///    通知先发、年结失败即幽灵通知；
+/// 5. 排除清单把通知 / 建任务也排掉 → 联动配了等于没配（不报错、不落账）；
+/// 6. 排除清单只排凭证、忘了库存 / 余额（卡面明确要求三类都排）。
+#[test]
+fn year_end_wires_generic_engine_and_excludes_ledger_actions() {
+    let hook = include_str!("../../erp/year_end_linkage.rs");
+    assert!(
+        hook.contains("linkage::engine::run_excluding("),
+        "年度结转必须调用通用引擎（run_excluding）：否则 ACCOUNTING_YEAR 的联动规则配了不触发"
+    );
+    assert!(
+        hook.contains("&ctx, linkage::spec::YEAR_END_EXCLUDED_ACTIONS"),
+        "年结调通用引擎时必须**真的把** spec::YEAR_END_EXCLUDED_ACTIONS 传下去（不许改成写死的 \
+         空清单）：只在文档里提这个名字救不了重复落账"
+    );
+    assert!(
+        hook.contains("linkage::engine::run_deferred"),
+        "年结的提交后动作必须交给 run_deferred（commit 之后跑），否则通知 / 建任务永远不执行"
+    );
+
+    // 卡面点名要排除的三类：库存 / 余额 / 凭证
+    for code in [
+        "WRITE_INVENTORY",
+        "WRITE_INVENTORY_TXN",
+        "UPDATE_COST",
+        "UPDATE_PAYABLE_BALANCE",
+        spec::ACTION_GENERATE_VOUCHER,
+        "REVERSE_VOUCHER",
+    ] {
+        assert!(
+            spec::YEAR_END_EXCLUDED_ACTIONS.contains(&code),
+            "年结的排除清单漏了 {code}：年结第 ① 步自己出结转凭证、第 ② 步写期初台账，\
+             年度又没有库存 / 应付明细列，通用引擎再跑一次就是重复落账或 ERROR 噪音"
+        );
+    }
+    for code in [spec::ACTION_SEND_NOTICE, spec::ACTION_CREATE_TASK] {
+        assert!(
+            !spec::YEAR_END_EXCLUDED_ACTIONS.contains(&code),
+            "{code} 不能被年结排除：通知 / 建任务就靠通用引擎的 AfterCommit 动作"
+        );
+    }
+
+    // 两个状态推进点：年结（NOT_CLOSED → CLOSED）与反年结（CLOSED → NOT_CLOSED）
+    let source = include_str!("../../erp/year_end.rs");
+    assert_eq!(
+        source.matches("year_end_linkage::run_in_tx(").count(),
+        2,
+        "年结 close_year 与反年结 reopen_year 都必须真的调 year_end_linkage::run_in_tx\
+         （只改 spec.rs 的 wired 标记不算接线）"
+    );
+    assert_eq!(
+        source
+            .matches("year_end_linkage::run_deferred_after_commit(")
+            .count(),
+        2,
+        "年结 / 反年结两个入口都要在 commit 之后 flush（少一处，那条路径的通知永远不发）"
+    );
+
+    // 铁律：flush 必须在 `tx.commit()` 之后；run_in_tx 必须在 commit 之前
+    let close_start = source
+        .find("pub async fn close_year(")
+        .expect("year_end.rs 必须有 close_year");
+    let reopen_start = source
+        .find("pub async fn reopen_year(")
+        .expect("year_end.rs 必须有 reopen_year");
+    assert!(
+        close_start < reopen_start,
+        "夹具：close_year 应在 reopen_year 之前"
+    );
+    for (name, body) in [
+        ("close_year", &source[close_start..reopen_start]),
+        ("reopen_year", &source[reopen_start..]),
+    ] {
+        let commit = body
+            .find("tx.commit()")
+            .unwrap_or_else(|| panic!("{name} 必须在事务里 commit"));
+        let flush = body
+            .find("year_end_linkage::run_deferred_after_commit(")
+            .unwrap_or_else(|| panic!("{name} 必须在 commit 之后调 run_deferred_after_commit"));
+        assert!(
+            commit < flush,
+            "{name}：run_deferred_after_commit 必须排在 tx.commit() **之后**（当前 commit@{commit} \
+             / flush@{flush}）—— 事务内发通知一旦回滚就是「通知已发、年结失败」"
+        );
+        let run_in_tx = body
+            .find("year_end_linkage::run_in_tx(")
+            .unwrap_or_else(|| panic!("{name} 必须在事务内调 run_in_tx"));
+        assert!(
+            run_in_tx < commit,
+            "{name}：run_in_tx 必须在 tx.commit() **之前**（事务内动作失败要整笔回滚）"
+        );
+    }
+
+    // 排除清单在语义上真的会拦（不是只有字符串写对）
+    use crate::business::flow::linkage::engine;
+    for code in spec::YEAR_END_EXCLUDED_ACTIONS {
+        assert!(
+            engine::is_routed_elsewhere(spec::YEAR_END_EXCLUDED_ACTIONS, code),
+            "{code} 在年结的排除清单里却没被判成「专用路由」：清单传下去也拦不住它"
+        );
+    }
+    for code in [spec::ACTION_SEND_NOTICE, spec::ACTION_CREATE_TASK] {
+        assert!(
+            !engine::is_routed_elsewhere(spec::YEAR_END_EXCLUDED_ACTIONS, code),
+            "{code} 被误判成专用路由：年结的通知 / 建任务会静默不执行"
         );
     }
 }

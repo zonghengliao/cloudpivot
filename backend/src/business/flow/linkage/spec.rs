@@ -512,10 +512,33 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     TriggerSpec {
         entity: state_machine::ENTITY_YEAR_END,
         status_labels: &[("NOT_CLOSED", "未结转"), ("CLOSED", "已结转")],
-        wired: false,
-        wiring: "未接线：年结批次在 erp/year_end.rs（大批量结转，事务很长）。接线要动：结转事务内\
-                 只放关键动作、通知一律 commit 后；年结的失败回滚代价最大，必须单开卡做真机验证",
-        proofs: &[],
+        wired: true,
+        wiring: "已接线（LNK-11）：erp/year_end_linkage.rs 是唯一 hook，接在两个真实状态推进上 —— \
+                 ① 年结 erp/year_end.rs::close_year 第 ④ 步（① 结转凭证 + ② 下年期初台账 + \
+                 ③ 状态留痕之后、commit 之前，NOT_CLOSED → CLOSED）；② 反年结 \
+                 erp/year_end.rs::reopen_year 第 ⑤ 步（① 删结转凭证 + ② 删下年期初 + \
+                 ③ 12 月解封 + ④ 留痕之后、commit 之前，CLOSED → NOT_CLOSED）。\
+                 事务内 run_excluding(spec::YEAR_END_EXCLUDED_ACTIONS)：GENERATE_VOUCHER / \
+                 REVERSE_VOUCHER 必须排除（年结自己用 voucher::post_voucher 出唯一一张 YEAR_END \
+                 结转凭证、反年结整张删掉它，再跑一次就是重复落账 + 撞 \
+                 uk_biz_voucher_year_end_period），库存 / 余额类动作也排除（年度没有明细行 / \
+                 余额列，年结不是业务单据）。两处都在各自事务 commit 之后调 \
+                 year_end_linkage::run_deferred_after_commit → linkage::engine::run_deferred：\
+                 年结是**全仓最长的账务事务**（全年凭证聚合 + 结转凭证 + 24 个期间 + 下年期初），\
+                 事务内发通知一旦回滚就是「财务收到年度已结转、实际还开着」。\
+                 防重复触发：重复年结被 ALREADY_CLOSED 409 挡住（根本到不了 hook），\
+                 通知另有幂等键 LNK:ACCOUNTING_YEAR:<状态>:<年度>:<本次事件凭证 id> —— \
+                 同一笔年结重放只发一条，反年结后重结（新凭证）会再发一条",
+        proofs: &[
+            (
+                "src/business/erp/year_end_linkage.rs",
+                "linkage::engine::run_excluding",
+            ),
+            (
+                "src/business/erp/year_end_linkage.rs",
+                "linkage::engine::run_deferred",
+            ),
+        ],
     },
     TriggerSpec {
         entity: state_machine::ENTITY_CONTRACT,
@@ -1055,6 +1078,41 @@ pub const FIXED_ASSET_EXCLUDED_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER, "RE
 /// 换个触发点（如 `PAYABLE/SETTLED`）通用路线仍然要能跑凭证动作。
 /// 漂移守卫：`tests_wiring::depreciation_wires_generic_engine_and_excludes_voucher`。
 pub const DEPRECIATION_EXCLUDED_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER, "REVERSE_VOUCHER"];
+
+/// **会计年度**（`ACCOUNTING_YEAR`，年结 / 反年结）的专用路由排除清单（LNK-11）。
+///
+/// 年结事务（`erp/year_end.rs::close_year`）自己就把一整年的账做完了：第 ① 步
+/// `voucher::post_voucher` 出一张 `YEAR_END` 结转凭证（借收入 / 贷费用 + 3103 → 3104，
+/// 库层有部分唯一索引 `uk_biz_voucher_year_end_period` 保证一年一张），第 ② 步
+/// `opening::write_year_end_opening_in` 写下一年度期初台账。反年结（`reopen_year`）
+/// 第 ① 步把这张凭证**整张删掉**（分录 CASCADE）。
+///
+/// 通用引擎在同一个触发点上再跑一遍就是**重复落账 / 口径打架**：
+///
+/// - `GENERATE_VOUCHER` → 同一 12 月第二张结转凭证：损益科目被结平两次、3103 / 3104 直接翻倍，
+///   并且当场撞 `uk_biz_voucher_year_end_period`（500）；该动作目前的取数口径只接管收货入库，
+///   挂在年度上必然是 `Skipped` —— 「配了看起来生效、账上一分没动」同样是本仓讨厌的样子；
+/// - `REVERSE_VOUCHER` → 结转凭证被红冲一次后反年结再整张删一次：红字流水成孤儿，
+///   12 月余额与「已结转」状态对不上；
+/// - `WRITE_INVENTORY` / `WRITE_INVENTORY_TXN` / `UPDATE_COST` / `UPDATE_PAYABLE_BALANCE` →
+///   年度**没有明细行、没有物料 / 余额列**：年结是会计年度的封口，不是业务单据，
+///   这些动作在年结事务里要么取数失败（ERROR 噪音），要么把库存 / 应付台账当成
+///   「年结的副作用」写一遍（卡面点名要排除的三类：库存 / 余额 / 凭证）。
+///
+/// `SEND_NOTICE` / `CREATE_TASK` **不能排除**：年结完成 / 反年结之后的「通知财务全组」与
+/// 「建次年审计待办」就靠通用引擎的 `Phase::AfterCommit` 动作，排掉等于接线了但永远不响。
+///
+/// 排除清单放在**调用方**（这里导出、`erp/year_end_linkage` 传入）而不是写死在引擎里：
+/// 换个触发点通用路线仍然要能跑这些动作。
+/// 漂移守卫：`tests_wiring::year_end_wires_generic_engine_and_excludes_ledger_actions`。
+pub const YEAR_END_EXCLUDED_ACTIONS: &[&str] = &[
+    "WRITE_INVENTORY",
+    "WRITE_INVENTORY_TXN",
+    "UPDATE_COST",
+    "UPDATE_PAYABLE_BALANCE",
+    ACTION_GENERATE_VOUCHER,
+    "REVERSE_VOUCHER",
+];
 
 /// 凭证（`VOUCHER`）状态变更时**必须交给专用路径、通用引擎不许碰**的动作（LNK-06）。
 ///

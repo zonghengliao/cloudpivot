@@ -1166,6 +1166,7 @@ mod tests {
                 "PAYABLE",
                 "VOUCHER",
                 "ACCOUNTING_PERIOD",
+                "ACCOUNTING_YEAR",
                 "CONTRACT",
                 "STOCK_TAKE",
                 "FIXED_ASSET",
@@ -1176,6 +1177,7 @@ mod tests {
             "已接线的触发点：STOCK_IN / STOCK_OUT（P1-FIX-5C 新接）/ \
              STOCK_TRANSFER（LNK-01 新接）/ PURCHASE_ORDER（LNK-02 新接）/ \
              PAYABLE（LNK-03 新接）/ VOUCHER（LNK-06 新接）/ ACCOUNTING_PERIOD（LNK-08 新接）/ \
+             ACCOUNTING_YEAR（LNK-11 新接）/ \
              CONTRACT（LNK-07 新接）/ \
              STOCK_TAKE（LNK-04 新接）/ FIXED_ASSET（LNK-09 新接）/ \
              DEPRECIATION（LNK-10 新接）/ \

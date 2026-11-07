@@ -142,7 +142,7 @@ P1-FIX-5C 之前，配置页只把「动作」这一侧的占位项置灰了，�
 | 11 | `DEPRECIATION` | ✅ | `erp/depreciation_model.rs::run_batch`（⑤ 步，`CALCULATED → POSTED`）/ `reverse_batch`（⑥ 步，`POSTED → REVERSED`）—— 手动计提与定时任务共用同一条 `run_batch` | 折旧明细批量写 + 多借方凭证 + 卡片回写（凭证专用路由，通用引擎排除） | 中 | 已接（LNK-10） |
 | 12 | `ACCOUNTING_PERIOD` | ✅ | `erp/period.rs::close_period`（L≈1311，结账）/ `reopen_period`（L≈1400，反结账）；开账 `open_period` / `batch_open` 是建行，**不接**（见 §3.2） | 期间状态 CAS + 期末汇兑重估凭证（结账第 ⑤ 步） | 中高 | 已接（LNK-08） |
 | 13 | `FIXED_ASSET` | ✅ | `erp/asset_bridge.rs::execute` 第 ⑤ 步（审批通过 → `DISPOSED`）/ `erp/asset_handler.rs::asset_dispose_cancel` 第 ⑤ 步（→ `IN_USE`）/ `erp/asset_handler.rs::asset_status_change` 第 ⑦ 步（停用 → `IDLE`、启用 → `IN_USE`，见 §3.2 与本设计文档 `FIN-ASSET-ST02-资产停用启用接口设计.md`）；建卡是建行不接 | 处置凭证（1~3 张）+ 红冲 + 处置痕迹 + 状态 | 中 | 已接（LNK-09 两处 + ST02 停用/启用） |
-| 14 | `ACCOUNTING_YEAR` | ❌ | `erp/year_end.rs::close_year`（L≈1382）/ `reopen_year`（L≈1520） | 年度结转凭证 + 下年期初台账（**长事务**） | 中 | D |
+| 14 | `ACCOUNTING_YEAR` | ✅ | `erp/year_end.rs::close_year` 第 ④ 步（`NOT_CLOSED → CLOSED`）/ `reopen_year` 第 ⑤ 步（`CLOSED → NOT_CLOSED`）—— 两处都在**所有账写完、commit 之前**调 `year_end_linkage::run_in_tx`，commit 之后 `run_deferred_after_commit` | 年度结转凭证（`YEAR_END`，一年唯一）+ 下年期初台账 + 状态留痕（**全仓最长的账务事务**） | 中高 | 已接（LNK-11） |
 | 15 | `FLOW_INSTANCE` | ❌ | `flow/engine.rs`（`model::bump_instance`，L≈882）← `handler::approve_task` / `reject_task` / `withdraw_instance` | 实例状态 + 流程任务级联取消 + **业务单据状态（bridge）** | 需先定序 | D |
 
 > 表中「L≈」是开工时实测行号，会随重构漂移——**判据只看 `spec.rs` 的 `wired` 与 `tests_wiring` 的双向扫描**，不要拿行号当契约。
@@ -356,11 +356,27 @@ commit 之后
 
 #### D. 必须单开设计卡（批次 D）
 
-**`ACCOUNTING_YEAR`（年结）**
+**`ACCOUNTING_YEAR`（年结）— LNK-11 已接**
 
-- 入口：`year_end.rs::close_year`（L≈1382）/ `reopen_year`（L≈1520）。
-- 事务非常长（年度结转凭证 + 下年期初台账 + 期间留痕）。年结失败的回滚代价最大，
-  必须**单独一张卡**做真机全量验证 + 大事务耗时基线；不允许和别的触发点混在一张卡里上。
+- 入口：`year_end.rs::close_year` 第 ④ 步（结转凭证 + 下年期初 + 状态留痕之后、`commit` 之前）/
+  `reopen_year` 第 ⑤ 步（删凭证 + 删期初 + 解封 12 月 + 留痕之后、`commit` 之前）。
+- 唯一 hook：`erp/year_end_linkage.rs`（`run_in_tx` → `engine::run_excluding(spec::YEAR_END_EXCLUDED_ACTIONS)`；
+  `run_deferred_after_commit` → `engine::run_deferred`）。
+- 排除清单：`GENERATE_VOUCHER` / `REVERSE_VOUCHER`（年结自己出唯一一张 `YEAR_END` 结转凭证、
+  反年结整张删掉它，再跑一次就是重复落账 + 撞 `uk_biz_voucher_year_end_period`）+
+  库存 / 余额四类（年度没有明细行 / 余额列，年结不是业务单据）。
+- 事务边界：**事务内只跑 Critical 动作**，通知 / 建任务一律 `commit` 之后发 —— 年结失败回滚代价最大
+  （全年凭证聚合 + 结转凭证 + 24 个期间 + 下年期初），事务内发通知一旦回滚就是
+  「财务收到年度已结转、实际还开着」。
+- 幂等：重复年结被 `ALREADY_CLOSED` 409 挡住（到不了 hook）；通知幂等键
+  `LNK:ACCOUNTING_YEAR:<状态>:<年度>:<本次事件凭证 id>`，同一笔年结重放只发一条，
+  反年结后重结（新凭证）会再发一条。
+- 真库用例：`erp/year_end_linkage_tests.rs` 6 条（多凭证年度年结触发 1 条 / 重复年结 409 不增 /
+  反年结触发 / 事务回滚不发通知（含 commit 后正向对照）/ 排除动作不跑 / **关键动作失败
+  整笔回滚且通知 0 条 + 撤规则后成功 1 条**）。
+- 物证：`docs/evidence/20261107-lnk11-year-end/`（真机 HTTP：2043 年度 3 张凭证 → 年结 1 张结转
+  凭证 + 通知 1 条；重复年结 409 不翻倍；反年结 → 通知 1 条；2045 年度关键动作超收 → 500
+  整笔回滚、通知 0 条；撤规则后成功 1 条）。
 
 **`FLOW_INSTANCE`（审批实例）**
 
@@ -436,7 +452,7 @@ commit 之后
 | A | `PAYABLE`、`EXPENSE_REPORT`、`STOCK_TAKE`、`PURCHASE_ORDER` | 直接关系钱与库存差异，业务最痛；排除清单清楚（付款余额 / 盘盈亏库存 / 采购累计量） | 一张卡一格，可并行 |
 | B | `STOCK_TRANSFER`、`CONTRACT`、`VOUCHER`、`DEPRECIATION` | 中等价值；`VOUCHER` 有环风险、`DEPRECIATION` 有批量扇出风险，各自要专门断言 | 一张卡两格起 |
 | C | `ACCOUNTING_PERIOD`、`FIXED_ASSET` | `ACCOUNTING_PERIOD` 影响全员只读；`FIXED_ASSET` 要先统一「停用启用算不算状态变更」的口径 | 先设计再实现 |
-| D | `ACCOUNTING_YEAR`、`FLOW_INSTANCE` | 长事务 / 触发点重叠，必须单开设计卡 | 设计卡 → 实现卡 |
+| D | `FLOW_INSTANCE` | 触发点重叠（审批通过会顺带改业务单据状态），必须单开设计卡 | 设计卡 → 实现卡 |
 
 **每批的前置**：上一批的端到端证据已归档到 `docs/evidence/`，且 `wired_triggers()` 与本表一致
 （`tests_wiring` 会强制）。

@@ -17,6 +17,8 @@
 //!      损益类：归零（不写行）
 //! ③ 12 月期间 → 保持 CLOSED（卡面 §一 ④；前置条件本来就是「12 个月全结账」）
 //! ④ 审计留痕 → biz_status_log（entity_type='ACCOUNTING_YEAR'，entity_no='2026'）
+//! ⑤ 跨单据联动 → 通用引擎的 `run_excluding`（事务内只跑关键动作）+ commit 后 `run_deferred`
+//!      （LNK-11；排除库存 / 余额 / 凭证三类动作，通知只在 commit 之后发，见 `year_end_linkage.rs`）
 //! ```
 //!
 //! # 三处设计决议（与卡面字面不同，理由都在这里）
@@ -132,6 +134,8 @@ use crate::business::erp::voucher::{self, AccountRef, EntryLine, PostVoucher};
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;
+
+use super::year_end_linkage;
 
 // ==================== 口径常量 ====================
 
@@ -1377,7 +1381,9 @@ pub async fn close_year(
         .await?;
 
     // ---------- ③ 留痕（本年 12 月保持 CLOSED，卡面 §一 ④）----------
+    // 联动的操作人在留痕**之前**抓下来：`transition` 会消费 `operator`。
     let carry = carry_forward_voucher(&tx, year).await?;
+    let linkage_operator = operator.id;
     let entity_id = voucher_id.unwrap_or_else(Uuid::now_v7);
     state_machine::transition(
         &tx,
@@ -1396,9 +1402,40 @@ pub async fn close_year(
     .await?;
 
     let state = load_state_in(&tx, year).await?;
+
+    // ---------- ④ 跨单据联动（LNK-11）：事务内只跑关键动作，通知一律 commit 后 ----------
+    //
+    // 放在**所有账都写完**（结转凭证 / 下年期初 / 状态留痕）之后、`commit()` 之前：
+    // * 事务内只执行 `Phase::InTx` 的关键动作，失败 → `Err` → 整笔年结回滚
+    //   （不会留下「年度已结转、联动没跑」的半截状态）；
+    // * 通知 / 建任务这类 `Phase::AfterCommit` 动作只进 `run.deferred`，commit 之后才发。
+    // 排除库存 / 余额 / 凭证三类动作：年结自己已经出了结转凭证、写了期初台账
+    // （见 `year_end_linkage.rs` 头注释）。
+    let linkage = year_end_linkage::run_in_tx(
+        &tx,
+        year_end_linkage::YearEndEvent {
+            year,
+            status: STATUS_CLOSED,
+            voucher_no: state.carry_forward_voucher_no.as_deref(),
+            entry_count: state.carry_forward_entries,
+            net_profit: state.net_profit,
+            reason: remark.as_deref(),
+            event_ref: state
+                .carry_forward_voucher_id
+                .as_deref()
+                .and_then(|raw| Uuid::parse_str(raw).ok())
+                .unwrap_or_else(|| year_end_linkage::year_doc_id(year)),
+            operator: linkage_operator,
+        },
+    )
+    .await?;
+
     tx.commit()
         .await
         .map_err(|error| db_error(error, "提交年结事务"))?;
+
+    // 年结已经在库里落定，通知在这里发（失败只记日志，绝不回滚年度）
+    year_end_linkage::run_deferred_after_commit(linkage).await;
 
     tracing::info!(
         year,
@@ -1549,6 +1586,14 @@ pub async fn reopen_year(
     }
 
     // ---------- ④ 留痕 ----------
+    // 联动要的「本次事件」标识与金额必须在留痕**之前**抓下来：留痕之后 `state` 会被
+    // 重新读一次（那时结转凭证已经删了，`carry_forward_voucher_id` 变成 None）。
+    let operator_id = operator.id;
+    let reopened_event = state
+        .carry_forward_voucher_id
+        .as_deref()
+        .and_then(|raw| Uuid::parse_str(raw).ok());
+    let net_profit_before = state.net_profit;
     state_machine::transition(
         &tx,
         state_machine::ENTITY_YEAR_END,
@@ -1570,9 +1615,32 @@ pub async fn reopen_year(
     .await?;
 
     let state = load_state_in(&tx, year).await?;
+
+    // ---------- ⑤ 跨单据联动（LNK-11）：事务内只跑关键动作，通知一律 commit 后 ----------
+    // 与年结同一套口径（见 `year_end_linkage.rs` 头注释）：反年结把结转凭证整张删掉了，
+    // 通用引擎再跑一次 `REVERSE_VOUCHER` / `GENERATE_VOUCHER` 只会造出红字孤儿；
+    // 通知走 `Phase::AfterCommit`，`commit()` 之后才发。
+    let linkage = year_end_linkage::run_in_tx(
+        &tx,
+        year_end_linkage::YearEndEvent {
+            year,
+            status: STATUS_NOT_CLOSED,
+            voucher_no: deleted_voucher_no.as_deref(),
+            entry_count: deleted_entries,
+            net_profit: net_profit_before,
+            reason: Some(&reason),
+            event_ref: reopened_event.unwrap_or_else(|| year_end_linkage::year_doc_id(year)),
+            operator: operator_id,
+        },
+    )
+    .await?;
+
     tx.commit()
         .await
         .map_err(|error| db_error(error, "提交反年结事务"))?;
+
+    // 反年结已经在库里落定，通知在这里发（失败只记日志，绝不回滚）
+    year_end_linkage::run_deferred_after_commit(linkage).await;
 
     tracing::warn!(
         year,

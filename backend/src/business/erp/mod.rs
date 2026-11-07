@@ -255,6 +255,12 @@ pub mod voucher_multi;
 pub mod voucher_query;
 pub mod voucher_write;
 pub mod year_end;
+/// LNK-11 的**唯一**联动接线（年结 `close_year` / 反年结 `reopen_year` 两条边共用
+/// `run_in_tx` / `run_deferred_after_commit`）。
+///
+/// `pub(crate)` 而不是私有：两个宿主函数都在 `year_end` 里，但真库用例
+/// （`year_end_linkage_tests`）也要够得着同一份上下文口径。
+pub(crate) mod year_end_linkage;
 pub mod year_end_remind;
 
 // ==================== TD-1 拆分出的部件（只经 facade 对外） ====================
@@ -348,6 +354,11 @@ mod asset_linkage_tests;
 /// 重复计提不重复触发、红冲触发、排除动作确实不跑）。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod depreciation_linkage_tests;
+
+/// LNK-11 的真库单测（年结联动接线：年结触发一次、多张凭证的年度只发一条、重复年结被 409
+/// 挡住不重复触发、反年结触发、事务回滚通知不发、排除动作确实不跑）。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod year_end_linkage_tests;
 
 /// 凭证辅助核算（DC-11 · P2-1）：写入口径 + 辅助账查询。只在 `cargo test` 时编译。
 #[cfg(test)]

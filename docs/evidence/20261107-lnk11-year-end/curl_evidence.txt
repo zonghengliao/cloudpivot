@@ -1,0 +1,66 @@
+## LNK-11 真机取证：年结（ACCOUNTING_YEAR）close / reopen → 联动引擎
+# 实例 http://127.0.0.1:18062 / 库 cloudpivot_lnk11 / 成功年度 2043（下年 2044）/ 失败年度 2045（下年 2046）
+
+# 超管 admin 登录成功，token 长度 = 461
+
+## ① GET /api/business/flow/linkage —— 配置页显示 ACCOUNTING_YEAR wired=true
+{
+ "entity": "ACCOUNTING_YEAR",
+ "wired": true,
+ "wiring": "已接线（LNK-11）：erp/year_end_linkage.rs 是唯一 hook，接在两个真实状态推进上 —— ① 年结 erp/year_end.rs::close_year 第 ④ 步（① 结转凭证 + ② 下年期初台账 + ③ 状态留痕之后、commit 之前，NOT_CLOSED → CLOSED）；② 反年结 erp/year_end.rs::reopen_year 第 ⑤ 步（① 删结转凭证 + ② 删下年期初 + ③ 12 月解封 + ④ 留痕之后、commit 之前，CLOSED → NOT_CLOSED）。事务内 run_excluding(spec::YEAR_END_EXCLUDED_ACTIONS)：GENERATE_VOUCHER / REVERSE_VOUCHER 必须排除（年结自己用 voucher::post_voucher 出唯一一张 YEAR_END 结转凭证、反年结整张删掉它，再跑一…"
+}
+
+## ② PUT /api/business/flow/linkage —— CLOSED / NOT_CLOSED 各配一条 SEND_NOTICE（TAKEOVER→CREATOR）
+{"rules": ["LNK11-年结完成 → 通知操作人", "LNK11-反年结 → 通知操作人"]}
+
+## POST /api/business/erp/period/batch-open —— 开账 2043-01 ~ 2044-12（24 期）
+# http=200 created=24 skipped=0
+
+## ④ POST /api/business/erp/voucher × 3 —— 造一个含多张凭证的 2043 年度
+# 夹具：erp.separation_of_duties.approve = false（单账号取证，关掉制单/审核分离）
+# 凭证 PZ-20261107-000073 http=200 status=POSTED
+# 凭证 PZ-20261107-000074 http=200 status=POSTED
+# 凭证 PZ-20261107-000075 http=200 status=POSTED
+# 2043 年度已过账凭证数 = 3
+
+## ⑤ psql —— 把 2043 的 12 个月置 CLOSED（年结前置；与测试夹具同口径）
+# 2043 已结账月份 = 12
+
+## ⑥ POST /api/business/erp/year-end/close —— 真年结 2043
+{"http": 200, "year": 2043, "voucher_no": "PZ-20261107-000076", "entry_count": 4, "net_profit": "4000.0000", "closed": true, "status": "CLOSED", "opening_rows": 2}
+# 结转凭证张数（YEAR_END / 2043-12）= 1（必须 1）
+# 年度状态日志 = CLOSED（必须 CLOSED）
+# 通知条数（LNK:ACCOUNTING_YEAR:CLOSED:2043:*）= 1（必须 1）
+# 通知正文 = 2043 年度已完成年结：结转凭证 PZ-20261107-000076，共 4 条分录，本年净利润 4000.00。下一年度期初已生成。
+
+当前状态：已结转
+
+## ⑦ 再次 close 2043 —— ALREADY_CLOSED（409），通知不增、凭证不增
+{"http": 409, "code": 10003, "msg": "2043 年度已经结转过了（2026-11-07 10:43:11），不能重复年结：如需重做请先反年结"}
+# 通知条数 = 1（必须仍是 1）
+# 结转凭证张数 = 1（必须仍是 1）
+
+## ⑧ POST /api/business/erp/year-end/reopen —— 反年结 2043
+{"http": 200, "reopened": true, "deleted_voucher_no": "PZ-20261107-000076", "december_reopened": true}
+# 结转凭证张数 = 0（必须 0：整张删掉）
+# 年度状态日志 = NOT_CLOSED（必须 NOT_CLOSED）
+# 通知条数（LNK:ACCOUNTING_YEAR:NOT_CLOSED:2043:*）= 1（必须 1）
+# 通知正文 = 2043 年度已反年结：结转凭证 PZ-20261107-000076（4 条分录）已删除，12 月期间已解封。原因：LNK-11 真机取证：反年结以重算结转基数
+
+当前状态：未结转
+
+## ⑨ 失败场景（2045）：给失败年度配一条关键动作 UPDATE_RECEIVED_QTY（超收）+ SEND_NOTICE
+## POST /api/business/erp/period/batch-open —— 开账 2045-01 ~ 2046-12（24 期）
+# http=200 created=24 skipped=0
+# 凭证 PZ-20261107-000077 http=200 status=POSTED
+{"http": 500, "code": 10004, "msg": "联动动作 UPDATE_RECEIVED_QTY（LNK11-失败场景：订购10/本次收50（超收））失败：UPDATE_RECEIVED_QTY：采购明细行 e0ccf965-a806-420d-b8ee-6b4d92fb3b82 其他单据已收 0 + 本次 50 超过订购量 10.0000（超收），关键动作失败 → 本次状态变更整笔回滚。这是关键动作，本次状态变更已整笔回滚（不会留下半条账）"}
+# 年度状态日志 = (无状态日志)（必须是「(无状态日志)」）
+# 结转凭证张数 = 0（必须 0）
+# 通知条数（LNK:ACCOUNTING_YEAR:CLOSED:2045:*）= 0（**必须 0**：通知排在 commit 之后，回滚就发不出去）
+
+## ⑩ 撤掉失败规则，再次 close 2045 —— 必须成功 + 通知 1 条（对照）
+{"http": 200, "voucher_no": "PZ-20261107-000078", "entry_count": 4, "closed": true}
+# 结转凭证张数 = 1（必须 1）
+# 通知条数 = 1（必须 1）
+
+## ALL PASS：年结 1 条通知 / 重复年结被挡不翻倍 / 反年结 1 条 / 关键动作失败整笔回滚且通知 0 条 / 撤掉规则后成功 1 条
