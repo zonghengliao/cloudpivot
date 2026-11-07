@@ -508,6 +508,16 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '汇率管理', permission: 'business:erp:fx-rate:list' },
       },
       {
+        // ==================== ERP 销售目标与预测（SO-44 · 销售链 §15.8） ====================
+        // `sys_menu`（V0318 种子 …3181）path = `/business/erp/sales-target`，
+        // component `business/erp/sales-target/index`。**路由手工注册**（没有 views 自动扫描），
+        // 漏了 = 点菜单进 404，`system::menu::tests::n08`（真库档）会当场红。
+        path: 'business/erp/sales-target',
+        name: 'BusinessErpSalesTarget',
+        component: () => import('@/views/business/erp/sales-target/index.vue'),
+        meta: { title: '销售目标与预测', permission: 'business:erp:sales-target:list' },
+      },
+      {
         // ==================== ERP 序列号（W4b-2） ====================
         // `sys_menu`（V0142 种子 …0981）path = `/business/erp/serial`，component
         // `business/erp/serial/index`。**路由手工注册**，漏了 = 点菜单进 404。

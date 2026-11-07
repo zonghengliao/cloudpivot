@@ -1,0 +1,81 @@
+token 已获取（长度 461）
+[PASS] POST 目标 salesperson 200 | status=200 body={'code': 0, 'msg': 'ok', 'data': {'id': '01a1b413-ce1c-7160-8d27-870dfca3f0ec', 'target_no': 'STG-20261107-000031', 'scope_type': 'SALESPERSON', 'scope_id': 'aa440000-0000-4000-8000-000000000002', 'scope_name': '销售员甲', 'period_code': '2026-
+[PASS] 目标编号 STG- 前缀 + 日期流水格式 | target_no=STG-20261107-000031
+[PASS] 目标回读 scope_name = 销售员甲 | scope_name=销售员甲
+[PASS] 目标回读金额 10000.00 | amount=10000.00
+[PASS] 目标回读状态 ACTIVE | status=ACTIVE
+[PASS] POST 目标 dept 200 | status=200 body={'code': 0, 'msg': 'ok', 'data': {'id': '01a1b413-ce29-74f3-a7ea-9bece0d85789', 'target_no': 'STG-20261107-000032', 'scope_type': 'DEPT', 'scope_id': 'aa440000-0000-4000-8000-000000000001', 'scope_name': '销售一部', 'period_code': '2026-11', 't
+[PASS] 部门目标 scope_name = 销售一部 | scope_name=销售一部
+[PASS] POST 目标 material_a 200 | status=200 body={'code': 0, 'msg': 'ok', 'data': {'id': '01a1b413-ce2d-7453-be97-c23fe155dfae', 'target_no': 'STG-20261107-000033', 'scope_type': 'MATERIAL_CATEGORY', 'scope_id': 'd1370003-0000-4000-8000-000000000001', 'scope_name': '原料A（种子）', 'period_code
+[PASS] 物料目标 scope_name = 原料A（种子） | scope_name=原料A（种子）
+[PASS] POST 目标 all 200 | status=200 body={'code': 0, 'msg': 'ok', 'data': {'id': '01a1b413-ce31-7373-a40e-1e176d04a5a4', 'target_no': 'STG-20261107-000034', 'scope_type': 'ALL', 'scope_id': None, 'scope_name': None, 'period_code': '2026-11', 'target_amount': '11300.00', 'target_qt
+[PASS] POST 目标 q4 200 | status=200 body={'code': 0, 'msg': 'ok', 'data': {'id': '01a1b413-ce35-713e-8edd-ac116e3791c2', 'target_no': 'STG-20261107-000035', 'scope_type': 'ALL', 'scope_id': None, 'scope_name': None, 'period_code': '2026-Q4', 'target_amount': '50000.00', 'target_qt
+[PASS] 同范围同期间重复建目标 → 409 | status=409 body={'code': 10003, 'msg': '新建销售目标失败：同一范围 / 维度在同期已有一条（目标按「范围 + 期间」唯一，预测按「客户 + 物料 + 期间 + 版本」唯一）。改那一条，或者换个期间 / 版本号'}
+[PASS] 409 报文点明唯一口径 | msg=新建销售目标失败：同一范围 / 维度在同期已有一条（目标按「范围 + 期间」唯一，预测按「客户 + 物料 + 期间 + 版本」唯一）。改那一条，或者换个期间 / 版本号
+[PASS] ALL 带 scope_id → 400 | status=400
+[PASS] 非法期间 2026-13 → 400 | status=400
+[PASS] 负目标 → 400 | status=400
+[PASS] 3 位小数金额 → 400 | status=400
+[PASS] 非法 scope_type → 400 | status=400
+[PASS] 范围对象不存在 → 400 | status=400
+[PASS] 目标分页 200 | status=200
+[PASS] 2026-11 目标 4 条 | total=4 list=4
+[PASS] 关键字（范围名）能命中 | total=1
+[PASS] 看板 SALESPERSON/ORDER 200 | status=200 body={'code': 0, 'msg': 'ok', 'data': [{'scope': '销售员甲', 'scope_type': 'SALESPERSON', 'scope_id': 'aa440000-0000-4000-8000-000000000002', 'target_no': 'STG-20261107-000031', 'period_code': '2026-11', 'targ
+[PASS] 看板行存在（销售员甲） | rows=['销售员甲']
+[PASS] 订单口径实际 = 11300.00 | actual=11300.00
+[PASS] 达成率 = 113.00 | rate=113.00
+[PASS] 缺口 = -1300.00（超额） | gap=-1300.00
+[PASS] 同一条行里也带收款口径 = 4000.00 | by_receipt={'actual_amount': '4000.00', 'achievement_rate': '40.00', 'gap': '6000.00'}
+[PASS] 收款口径达成率 = 40.00 | rate=40.00
+[PASS] 目标金额回显 10000.00 | target=10000.00
+[PASS] 看板行带 target_no | target_no=STG-20261107-000031
+[PASS] basis=RECEIPT 时 actual = 4000.00 | actual=4000.00
+[PASS] basis=RECEIPT 时 gap = 6000.00 | gap=6000.00
+[PASS] basis=RECEIPT 时 by_order 仍是 11300.00 | by_order={'actual_amount': '11300.00', 'achievement_rate': '113.00', 'gap': '-1300.00'}
+[PASS] DEPT 订单口径 = 11300.00 | actual=11300.00
+[PASS] DEPT 达成率 = 56.50（目标 20000） | rate=56.50
+[PASS] DEPT 缺口 = 8700.00 | gap=8700.00
+[PASS] MATERIAL 订单口径 = 6780.00（6000+780） | actual=6780.00
+[PASS] MATERIAL 达成率 = 135.60（目标 5000） | rate=135.60
+[PASS] MATERIAL 缺口 = -1780.00 | gap=-1780.00
+[PASS] MATERIAL 收款口径分摊 = 2400.00 | by_receipt={'actual_amount': '2400.00', 'achievement_rate': '48.00', 'gap': '2600.00'}
+[PASS] ALL 订单口径 = 11300.00 | actual=11300.00
+[PASS] ALL 达成率 = 100.00（目标 11300） | rate=100
+[PASS] ALL 缺口 = 0.00 | gap=0.00
+[PASS] ALL 收款口径 = 4000.00 | by_receipt={'actual_amount': '4000.00', 'achievement_rate': '35.40', 'gap': '7300.00'}
+[PASS] 2026-Q4 订单口径 = 20188.00（11 月 11300 + 10 月 8888） | actual=20188.00
+[PASS] 2026-Q4 达成率 = 40.38（目标 50000） | rate=40.38
+[PASS] 2026-10 期间无目标 → 空列表（不报错） | status=200 data=[]
+[PASS] 非法 basis → 400 | status=400
+[PASS] 缺 period_code → 400 | status=400
+[PASS] 非法季度 → 400 | status=400
+[PASS] 非法 scope_type → 400 | status=400
+[PASS] 无 token → 401 | status=401
+[PASS] 编辑目标金额 200 | status=200 body={'code': 0, 'msg': 'ok', 'data': {'id': '01a1b413-ce1c-7160-8d27-870dfca3f0ec', 'target_no': 'STG-20261107-000031', 'scope_type': 'SALESPERSON', 'scope_id': 'aa440000-0000-4000-8000-000000000002', 'sc
+[PASS] 编辑后金额 = 12500.50 | amount=12500.50
+[PASS] 改目标后达成率重算 = 90.40 | rate=90.40
+[PASS] 停用目标 200 | status=200
+[PASS] 停用后看板不再出现该目标 | data=[]
+[PASS] 删除部门目标 200 | status=200 body={'code': 0, 'msg': 'ok', 'data': None}
+[PASS] 重复删除 → 404 | status=404
+[PASS] 删除后分页 0 条 | total=0
+[PASS] 非法 UUID → 400 | status=400
+[PASS] POST 预测 200 | status=200 body={'code': 0, 'msg': 'ok', 'data': {'id': '01a1b413-cea0-758f-a47c-97edfad59440', 'forecast_no': 'SFC-20261107-000008', 'customer_id': 'd0260000-0000-4000-8000-000000000001', 'customer_name': '北京云枢科技有限公司', 'material_id': 'd1370003-0000-4000-8
+[PASS] 预测编号 SFC- 前缀 + 19 位 | no=SFC-20261107-000008
+[PASS] 预测回读客户名 | customer_name=北京云枢科技有限公司
+[PASS] 预测回读信心度 HIGH | confidence=HIGH
+[PASS] 预测回读版本 1 | version=1
+[PASS] 同维度同期间同版本 → 409 | status=409
+[PASS] 全局预测（客户与物料都空）200 | status=200 body={'code': 0, 'msg': 'ok', 'data': {'id': '01a1b413-cea9-743d-9763-3e8d3466939c', 'forecast_no': 'SFC-20261107-000010', 'customer_id': None, 'customer_name': None, 'material_id': None, 'material_name': 
+[PASS] 全局预测回读客户为空 | customer_id=None
+[PASS] 非法信心度 → 400 | status=400
+[PASS] 版本号 0 → 400 | status=400
+[PASS] 预测分页 200 且 2 条 | status=200 total=2
+[PASS] 编辑预测 200 | status=200 body={'code': 0, 'msg': 'ok', 'data': {'id': '01a1b413-cea0-758f-a47c-97edfad59440', 'forecast_no': 'SFC-20261107-000008', 'customer_id': 'd0260000-0000-4000-8000-000000000001', 'customer_name': '北京云枢科技有限公
+[PASS] 编辑后金额 = 99999.00 | amount=99999.00
+[PASS] 删除预测 200 | status=200
+[PASS] 删除后预测 1 条 | total=1
+
+========================================================================
+PASS = 77 / FAIL = 0

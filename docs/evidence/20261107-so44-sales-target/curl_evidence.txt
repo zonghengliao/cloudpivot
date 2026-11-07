@@ -1,0 +1,239 @@
+
+$ TOKEN=$(curl -sS -X POST $BASE/api/system/auth/login -d '{"username":"admin",...}')   # 长度 461
+
+$ curl -sS "$BASE/api/business/erp/sales-target/achievement?period_code=2026-11&scope_type=SALESPERSON&basis=ORDER" -H "Authorization: Bearer ***"
+{
+    "code": 0,
+    "msg": "ok",
+    "data": [
+        {
+            "scope": "\u9500\u552e\u5458\u7532",
+            "scope_type": "SALESPERSON",
+            "scope_id": "aa440000-0000-4000-8000-000000000002",
+            "target_no": "STG-20261107-000031",
+            "period_code": "2026-11",
+            "target_amount": "12500.50",
+            "target_qty": "100.0000",
+            "actual_amount": "11300.00",
+            "achievement_rate": "90.40",
+            "gap": "1200.50",
+            "by_order": {
+                "actual_amount": "11300.00",
+                "achievement_rate": "90.40",
+                "gap": "1200.50"
+            },
+            "by_receipt": {
+                "actual_amount": "4000.00",
+                "achievement_rate": "32.00",
+                "gap": "8500.50"
+            }
+        }
+    ]
+}
+
+$ curl -sS ".../achievement?period_code=2026-11&scope_type=SALESPERSON&basis=RECEIPT" -H "Authorization: Bearer ***"
+{
+    "code": 0,
+    "msg": "ok",
+    "data": [
+        {
+            "scope": "\u9500\u552e\u5458\u7532",
+            "scope_type": "SALESPERSON",
+            "scope_id": "aa440000-0000-4000-8000-000000000002",
+            "target_no": "STG-20261107-000031",
+            "period_code": "2026-11",
+            "target_amount": "12500.50",
+            "target_qty": "100.0000",
+            "actual_amount": "4000.00",
+            "achievement_rate": "32.00",
+            "gap": "8500.50",
+            "by_order": {
+                "actual_amount": "11300.00",
+                "achievement_rate": "90.40",
+                "gap": "1200.50"
+            },
+            "by_receipt": {
+                "actual_amount": "4000.00",
+                "achievement_rate": "32.00",
+                "gap": "8500.50"
+            }
+        }
+    ]
+}
+
+$ curl -sS ".../achievement?period_code=2026-11&scope_type=ALL&basis=ORDER" -H "Authorization: Bearer ***"
+{
+    "code": 0,
+    "msg": "ok",
+    "data": [
+        {
+            "scope": "\u5168\u516c\u53f8",
+            "scope_type": "ALL",
+            "scope_id": null,
+            "target_no": "STG-20261107-000034",
+            "period_code": "2026-11",
+            "target_amount": "11300.00",
+            "target_qty": "0.0000",
+            "actual_amount": "11300.00",
+            "achievement_rate": "100",
+            "gap": "0.00",
+            "by_order": {
+                "actual_amount": "11300.00",
+                "achievement_rate": "100",
+                "gap": "0.00"
+            },
+            "by_receipt": {
+                "actual_amount": "4000.00",
+                "achievement_rate": "35.40",
+                "gap": "7300.00"
+            }
+        }
+    ]
+}
+
+$ curl -sS ".../achievement?period_code=2026-Q4&scope_type=ALL&basis=ORDER" -H "Authorization: Bearer ***"
+{
+    "code": 0,
+    "msg": "ok",
+    "data": [
+        {
+            "scope": "\u5168\u516c\u53f8",
+            "scope_type": "ALL",
+            "scope_id": null,
+            "target_no": "STG-20261107-000035",
+            "period_code": "2026-Q4",
+            "target_amount": "50000.00",
+            "target_qty": "0.0000",
+            "actual_amount": "20188.00",
+            "achievement_rate": "40.38",
+            "gap": "29812.00",
+            "by_order": {
+                "actual_amount": "20188.00",
+                "achievement_rate": "40.38",
+                "gap": "29812.00"
+            },
+            "by_receipt": {
+                "actual_amount": "4000.00",
+                "achievement_rate": "8.00",
+                "gap": "46000.00"
+            }
+        }
+    ]
+}
+
+$ curl -sS -X POST "$BASE/api/business/erp/sales-target" -d {"scope_type":"SALESPERSON","scope_id":...,"period_code":"2026-12","target_amount":"30000.00"} -H "Authorization: Bearer ***"
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "id": "01a1b413-d6c3-724d-8091-d657b5261b39",
+        "target_no": "STG-20261107-000037",
+        "scope_type": "SALESPERSON",
+        "scope_id": "aa440000-0000-4000-8000-000000000002",
+        "scope_name": "\u9500\u552e\u5458\u7532",
+        "period_code": "2026-12",
+        "target_amount": "30000.00",
+        "target_qty": "50.0000",
+        "status": "ACTIVE",
+        "remark": "curl \u53d6\u8bc1",
+        "created_at": "2026-11-07T03:36:01.476326Z",
+        "updated_at": "2026-11-07T03:36:01.476326Z"
+    }
+}
+
+$ curl -sS "$BASE/api/business/erp/sales-target/page?period_code=2026-12" -H "Authorization: Bearer ***"
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "list": [
+            {
+                "id": "01a1b413-d6c3-724d-8091-d657b5261b39",
+                "target_no": "STG-20261107-000037",
+                "scope_type": "SALESPERSON",
+                "scope_id": "aa440000-0000-4000-8000-000000000002",
+                "scope_name": "\u9500\u552e\u5458\u7532",
+                "period_code": "2026-12",
+                "target_amount": "30000.00",
+                "target_qty": "50.0000",
+                "status": "ACTIVE",
+                "remark": "curl \u53d6\u8bc1",
+                "created_at": "2026-11-07T03:36:01.476326Z",
+                "updated_at": "2026-11-07T03:36:01.476326Z"
+            }
+        ],
+        "total": 1,
+        "page": 1,
+        "page_size": 20
+    }
+}
+
+$ curl -sS -X POST "$BASE/api/business/erp/sales-forecast" -d {"period_code":"2026-12","forecast_amount":"18800.00","confidence":"HIGH","version_no":2} -H "Authorization: Bearer ***"
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "id": "01a1b413-d712-7707-8fb3-b3845b83faed",
+        "forecast_no": "SFC-20261107-000011",
+        "customer_id": null,
+        "customer_name": null,
+        "material_id": null,
+        "material_name": null,
+        "period_code": "2026-12",
+        "forecast_amount": "18800.00",
+        "confidence": "HIGH",
+        "version_no": 2,
+        "remark": "curl \u53d6\u8bc1 \u5168\u5c40\u9884\u6d4b",
+        "created_at": "2026-11-07T03:36:01.555605Z",
+        "updated_at": "2026-11-07T03:36:01.555605Z"
+    }
+}
+
+$ curl -sS "$BASE/api/business/erp/sales-forecast/page?period_code=2026-12" -H "Authorization: Bearer ***"
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "list": [
+            {
+                "id": "01a1b413-d712-7707-8fb3-b3845b83faed",
+                "forecast_no": "SFC-20261107-000011",
+                "customer_id": null,
+                "customer_name": null,
+                "material_id": null,
+                "material_name": null,
+                "period_code": "2026-12",
+                "forecast_amount": "18800.00",
+                "confidence": "HIGH",
+                "version_no": 2,
+                "remark": "curl \u53d6\u8bc1 \u5168\u5c40\u9884\u6d4b",
+                "created_at": "2026-11-07T03:36:01.555605Z",
+                "updated_at": "2026-11-07T03:36:01.555605Z"
+            }
+        ],
+        "total": 1,
+        "page": 1,
+        "page_size": 20
+    }
+}
+
+# 非法 basis（只认 ORDER / RECEIPT）
+HTTP 400
+
+# 非法期间 2026-13
+HTTP 400
+
+# ALL 带 scope_id（400）
+HTTP 400
+
+# 版本号 0（400，不能靠库侧 CHECK 变成 500）
+HTTP 400
+
+# 无 token（401）
+HTTP 401
+
+# 清理：DELETE /sales-target/01a1b413-d6c3-724d-8091-d657b5261b39
+HTTP 200
+
+# 清理：DELETE /sales-forecast/01a1b413-d712-7707-8fb3-b3845b83faed
+HTTP 200
