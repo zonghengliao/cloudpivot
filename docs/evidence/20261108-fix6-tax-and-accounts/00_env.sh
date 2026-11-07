@@ -47,7 +47,8 @@ login() { # $1=username $2=password → stdout token
 HDR=$(mktemp)
 set_token() { printf 'Authorization: %s %s\n' "Bea""rer" "$1" > "$HDR"; }
 
-# api METHOD PATH TOKEN [BODY] → stdout=响应体，$HTTP=状态码
+# api METHOD PATH TOKEN [BODY] → stdout=响应体，状态码落 /tmp/_fix6_http
+# （函数在 $(...) 子 shell 里跑，变量回传不出去，所以状态码必须落文件）
 api() {
   local method="$1" path="$2" tok="$3" body="${4:-}" code
   set_token "$tok"
@@ -57,7 +58,7 @@ api() {
   else
     code=$(curl -sS -o /tmp/_fix6_body.json -w '%{http_code}' -X "$method" "$API$path" -H @"$HDR")
   fi
-  HTTP="$code"
+  printf '%s' "$code" > /tmp/_fix6_http
   cat /tmp/_fix6_body.json
 }
 
@@ -67,10 +68,14 @@ fail() { echo "  ❌ $*"; FAILS=$((FAILS + 1)); }
 check_eq() { # $1=期望 $2=实际 $3=说明
   if [ "$1" = "$2" ]; then pass "$3（$2）"; else fail "$3：期望「$1」实际「$2」"; fi
 }
-check_num() { # $1=期望(数值) $2=实际 $3=说明 —— 按 Decimal 比较（去掉尾零）
+check_num() { # $1=期望(数值) $2=实际 $3=说明 —— 按数值比较（"400" 与 "400.0000" 视为相等）
   local want actual
-  want=$(printf '%s' "$1" | sed 's/0*$//;s/\.$//')
-  actual=$(printf '%s' "$2" | sed 's/0*$//;s/\.$//')
+  want=$(printf '%s' "$1" | awk '{ if ($0 ~ /^-?[0-9]+(\.[0-9]+)?$/) printf "%.4f", $0; else printf "%s", $0 }')
+  actual=$(printf '%s' "$2" | awk '{ if ($0 ~ /^-?[0-9]+(\.[0-9]+)?$/) printf "%.4f", $0; else printf "%s", $0 }')
   if [ "$want" = "$actual" ]; then pass "$3（$2）"; else fail "$3：期望 $1 实际 $2"; fi
 }
-check_http() { if [ "$HTTP" = "$1" ]; then pass "$2（HTTP $HTTP）"; else fail "$2：期望 HTTP $1 实际 $HTTP（$(cat /tmp/_fix6_body.json)）"; fi; }
+check_http() {
+  local c
+  c=$(cat /tmp/_fix6_http 2>/dev/null || echo "none")
+  if [ "$c" = "$1" ]; then pass "$2（HTTP $c）"; else fail "$2：期望 HTTP $1 实际 $c（$(cat /tmp/_fix6_body.json 2>/dev/null | head -c 300)）"; fi
+}

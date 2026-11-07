@@ -3682,7 +3682,8 @@ mod tests {
             unit_id: Uuid::now_v7().to_string(),
             qty: dec("5"),
             price: dec("20"),
-            tax_rate: Some(dec("0.13")),
+            // FIX-6：税率是**百分数**（13 = 13%），与 `biz_purchase_order_item` 同口径
+            tax_rate: Some(dec("13")),
             remark: None,
         }
     }

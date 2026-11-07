@@ -42,12 +42,13 @@ check_eq "0" "$(sq "select count(*) from biz_invoice where tax_rate_mode is null
 echo "--- 0b) 存量单据金额一个字没动（与迁移前 dump 对比）"
 PRE="$EV/raw/pre_migration_amounts.txt"
 if [ -f "$PRE" ]; then
-  CUR_INV=$(sq "select count(*)||'|'||coalesce(sum(amount),0)||'|'||coalesce(sum(tax_amount),0)||'|'||coalesce(sum(total_with_tax),0) from biz_invoice")
-  CUR_MAT=$(sq "select count(*)||'|'||coalesce(sum(tax_rate),0) from biz_material")
+  # 只比**迁移前就存在**的行（本卡夹具的 remark/material_code 都带 FIX6 前缀，E2E 可重复跑）
+  CUR_INV=$(sq "select count(*)||'|'||coalesce(sum(amount),0)||'|'||coalesce(sum(tax_amount),0)||'|'||coalesce(sum(total_with_tax),0) from biz_invoice where invoice_date < current_date")
   PRE_INV=$(sed -n 's/^invoice|//p' "$PRE")
+  check_eq "$PRE_INV" "$CUR_INV" "存量发票（invoice_date < 今天）行数+三个金额合计与迁移前一致"
   PRE_MAT_ROWS=$(sed -n 's/^material_rows|//p' "$PRE")
-  check_eq "$PRE_INV" "$CUR_INV" "发票行数+三个金额合计与迁移前一致"
-  check_eq "$PRE_MAT_ROWS" "$(echo "$CUR_MAT" | cut -d'|' -f1)" "物料行数与迁移前一致"
+  CUR_MAT_ROWS=$(sq "select count(*) from biz_material where material_code not like 'FIX6-M-%'")
+  check_eq "$PRE_MAT_ROWS" "$CUR_MAT_ROWS" "物料行数与迁移前一致（不含本卡夹具）"
 else
   fail "缺少迁移前快照 $PRE（10_prepare_145.sh 没记录？）"
 fi
@@ -62,7 +63,7 @@ if [ -z "$CUST" ]; then
   RES=$(api POST /business/erp/customer "$ADMIN" '{"customer_code":"FIX6-C-001","customer_name":"FIX6 演练客户","customer_type":"ENTERPRISE","status":1}')
   CUST=$(echo "$RES" | jq -r '.data.id // empty')
 fi
-check_eq "1" "$(echo -n "${CUST:0:8}" | wc -c | tr -d ' ')" "夹具客户就绪（${CUST:0:8}…）"
+if [ -n "$CUST" ]; then pass "夹具客户就绪（${CUST:0:8}…）"; else fail "没有可用客户（先建一个）"; fi
 
 # ============================================================================
 echo "--- ① 发票 tax_rate = 13（百分数）→ 200，税额 = 金额 × 13%"
@@ -101,11 +102,11 @@ RES=$(api POST /business/erp/invoice "$ADMIN" "$BODY"); check_http 400 "tax_rate
 echo "$RES" > "$EV/raw/inv_tax_rate_too_high.json"
 BODY=$(jq -nc --arg c "$CUST" --arg d "$(date +%F)" '{customer_id:$c, invoice_date:$d, amount:400, tax_rate:-1}')
 RES=$(api POST /business/erp/invoice "$ADMIN" "$BODY"); check_http 400 "tax_rate=-1 → 400"
-BODY=$(jq -nc --arg c "$CUST" --arg d "$(date +%F)" '{customer_id:$c, invoice_date:$d, amount:400, tax_rate:1, tax_rate_mode:"PERCENT"}')
+BODY=$(jq -nc --arg c "$CUST" --arg d "$(date +%F)" '{customer_id:$c, invoice_date:$d, amount:400, tax_rate:1, tax_rate_mode:"PERCENT", remark:"FIX6 边界 1% "}')
 RES=$(api POST /business/erp/invoice "$ADMIN" "$BODY"); check_http 200 "tax_rate=1 + mode=PERCENT → 200"
 check_num "4" "$(echo "$RES" | jq -r '.data.tax_amount')" "1 就是 1%（400 → 4），不是 100%"
 echo "$RES" > "$EV/raw/inv_one_percent.json"
-BODY=$(jq -nc --arg c "$CUST" --arg d "$(date +%F)" '{customer_id:$c, invoice_date:$d, amount:400, tax_rate:0.5, tax_rate_mode:"DECIMAL"}')
+BODY=$(jq -nc --arg c "$CUST" --arg d "$(date +%F)" '{customer_id:$c, invoice_date:$d, amount:400, tax_rate:0.5, tax_rate_mode:"DECIMAL", remark:"FIX6 边界 50%"}')
 RES=$(api POST /business/erp/invoice "$ADMIN" "$BODY"); check_http 200 "0.5 + mode=DECIMAL → 200"
 check_num "50" "$(echo "$RES" | jq -r '.data.tax_rate')" "DECIMAL 模式下 0.5 = 50%"
 echo "$RES" > "$EV/raw/inv_decimal_mode.json"
@@ -140,29 +141,46 @@ check_num "52" "$(sq "select coalesce(sum(e.credit_amount),0) from biz_voucher_e
 check_eq "1" "$(sq "select count(*) from biz_voucher v join biz_invoice i on i.voucher_id=v.id where i.id='$INV_PCT' and v.total_debit = v.total_credit")" "该凭证借贷相等"
 
 echo "--- ⑤b P0-02 金额勾稽：采购单金额三列恒等（total_with_tax = amount + tax）"
-if [ -n "$MAT_B" ]; then
+SUP=$(sq "select id from biz_supplier where deleted_at is null limit 1")
+WH2=$(sq "select id from biz_warehouse where deleted_at is null limit 1")
+if [ -n "$MAT_B" ] && [ -n "$SUP" ] && [ -n "$WH2" ]; then
   RES=$(api POST /business/erp/purchase-order "$ADMIN" \
-    "$(jq -nc --arg m "$MAT_B" --arg u "$UNIT" '{supplier_id:null, order_date:"'"$(date +%F)"'", price_mode:"EXCL", items:[{material_id:$m, unit_id:$u, qty:2, price:100, tax_rate:13}]}' )")
+    "$(jq -nc --arg m "$MAT_B" --arg s "$SUP" --arg w "$WH2" --arg d "$(date +%F)" \
+      '{supplier_id:$s, warehouse_id:$w, purchase_type:"SPOT", order_date:$d, price_mode:"EXCL",
+        items:[{material_id:$m, qty:2, price_excl:100, tax_rate:13}]}')")
   echo "$RES" > "$EV/raw/purchase_order_13.json"
-  HTTP_PO=$HTTP
+  HTTP_PO=$(cat /tmp/_fix6_http 2>/dev/null || echo none)
   if [ "$HTTP_PO" = "200" ] || [ "$HTTP_PO" = "201" ]; then
-    PO_ID=$(echo "$RES" | jq -r '.data.id // empty')
+    PO_ID=$(echo "$RES" | jq -r '.data.order.id // .data.id // empty')
     check_num "200" "$(sq "select total_amount from biz_purchase_order where id='$PO_ID'")" "采购单不含税 200"
     check_num "26"  "$(sq "select total_tax from biz_purchase_order where id='$PO_ID'")" "采购单税额 = 200 × 13% = 26"
     check_num "226" "$(sq "select total_with_tax from biz_purchase_order where id='$PO_ID'")" "采购单价税合计 226（= 应付金额）"
     check_num "226" "$(sq "select with_tax_amount from biz_purchase_order_item where order_id='$PO_ID' limit 1")" "采购行 含税金额 226"
   else
-    echo "  （采购单建单返回 HTTP $HTTP_PO，跳过 P0-02 单头断言：$(echo "$RES" | jq -c '{code,msg}' 2>/dev/null)）"
+    fail "采购单建单：HTTP $HTTP_PO（$(echo "$RES" | jq -c '{code,msg}' 2>/dev/null)）"
   fi
+else
+  fail "缺夹具（物料/供应商/仓库）：MAT_B=$MAT_B SUP=$SUP WH=$WH2"
 fi
 
 # ============================================================================
-echo "--- ⑥ 科目期初：借 2221.01 260（进项） / 贷 1002 260 → 形成留抵 208"
+echo "--- ⑥ 科目期初：把 2221 净额调成「借 208」（留抵），验证报表重分类"
+# 拷贝库里有历史业务数据（2221 期末是贷方 应交税费 x 元），所以要人工把净额调到借方 208：
+#   D = 208 − X，X = 本期「非期初凭证」里 2221* 的 (借−贷) 合计（负数 = 贷方余额）
+X=$(sq "select coalesce(sum(e.debit_amount - e.credit_amount),0) from biz_voucher_entry e \
+        join biz_voucher v on v.id = e.voucher_id \
+       where v.status='POSTED' and v.deleted_at is null and e.account_code like '2221%' \
+         and v.voucher_type <> 'OPENING'")
+D=$(awk -v x="$X" 'BEGIN{ printf "%.4f", 208 - x }')
+echo "  历史 2221 净额 X=$X ⇒ 期初凭证需要 借 2221.01 $D（对方 贷 1002 同额）"
 RES=$(api POST /business/erp/opening-balance "$ADMIN" \
-  "$(jq -nc --arg p "$PERIOD" '{period:$p, entries:[{account_code:"2221.01", debit:260, credit:0, remark:"FIX6 留抵演练（进项）"},{account_code:"1002", debit:0, credit:260, remark:"FIX6 留抵演练（对方）"}]}')")
-check_http 200 "保存科目期初（借 2221.01 / 贷 1002）"
+  "$(jq -nc --arg p "$PERIOD" --arg d "$D" '{period:$p, entries:[{account_code:"2221.01", debit:($d|tonumber), credit:0, remark:"FIX6 留抵演练（进项）"},{account_code:"1002", debit:0, credit:($d|tonumber), remark:"FIX6 留抵演练（对方）"}]}')")
+check_http 200 "保存科目期初（借 2221.01 / 贷 1002 同额）"
 echo "$RES" > "$EV/raw/opening_balance.json"
-check_num "260" "$(sq "select coalesce(sum(e.debit_amount),0) from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id where v.period='$PERIOD' and v.voucher_type='OPENING' and e.account_code='2221.01'")" "期初凭证 借 2221.01 进项税 260"
+check_num "$D" "$(sq "select coalesce(sum(e.debit_amount),0) from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id where v.period='$PERIOD' and v.voucher_type='OPENING' and e.account_code='2221.01'")" "期初凭证 借 2221.01 进项税 = $D"
+check_num "208" "$(sq "select coalesce(sum(e.debit_amount - e.credit_amount),0) from biz_voucher_entry e \
+                         join biz_voucher v on v.id=e.voucher_id \
+                        where v.status='POSTED' and v.deleted_at is null and e.account_code like '2221%'")" "2221 净额 = 借 208（留抵税额）"
 
 # ============================================================================
 echo "--- ⑦ 资产负债表：应交税费不再显示 -208，重分类到「其他流动资产」+ 附注"

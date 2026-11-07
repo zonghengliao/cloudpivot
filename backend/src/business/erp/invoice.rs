@@ -2093,8 +2093,8 @@ mod tests {
         let (amount, tax) = split_tax(dec(500.0), Decimal::ZERO);
         assert_eq!(amount, dec(500.0));
         assert_eq!(tax, Decimal::ZERO);
-        // FIX-6 回归：百分数口径下 0.13 是「0.13%」，与 13（13%）差 100 倍 —— 这正是统一标度要防的错
-        assert_eq!(tax_of(dec(1000.0), Decimal::new(13, 2)), dec(0.13));
+        // FIX-6 回归：百分数口径下 0.13 是「0.13%」（1000 × 0.13% = 1.30），与 13（1000 × 13% = 130）差 100 倍
+        assert_eq!(tax_of(dec(1000.0), Decimal::new(13, 2)), dec(1.3));
     }
 
     #[test]
