@@ -52,7 +52,33 @@ ssh root@172.18.10.145 'cd /opt/cloudpivot && \
 # 轮询 tail -5 /root/backup/fix9_all.log
 ```
 
-## 五、保留物与清理
+## 五、自动化用例
+
+| 用例 | 145 拷贝库（`raw/db_tests.log`） | 99 本机（同一拷贝库系列） |
+|---|---|---|
+| `erp::voucher::tests::fix9_voucher_summary_uses_material_code_without_inventory_account` | ok | ok |
+| `shared::state_machine::tests::operator_name_snapshot_filled_when_only_id_given` | ok | ok |
+| `flow::edge_admin_tests::approval_comment_written_back_to_instance_result_comment` | ok | ok |
+| 模块回归：`business::flow` | — | **430 passed / 0 failed / 0 ignored**，SKIP 0 条（`ERP_DB_URL`/`TASK_DB_URL`/`P0FIX_DB_URL` 三把开关都指向真库） |
+| 模块回归：`business::shared::state_machine` | — | **40 passed / 0 failed**，SKIP 0 |
+| 模块回归：`business::erp::voucher` | — | **78 passed / 0 failed**，SKIP 0 |
+| 模块回归：`business::erp`（全模块） | — | **1695 passed / 51 failed** —— 51 条**全部是共享测试库的既有脏数据**，与 FIX-9 零关联，见下 |
+
+**51 条红的归因（证据可复现，全部与本次改动无关）**：
+
+1. **`stockin_handler` 清理失败**：`foreign key violated (biz_material_serial_location_id_fkey)` ——
+   `cloudpivot_test_head` 里残留 12 行 `biz_material_serial`（早前卡片的夹具），删 `biz_inventory_location` 被外键挡住。
+   **单独跑该模块 11/11 全绿**（`stockin_handler_tests_posting`、`pflow3a` 9/9）。
+2. **`p16_graph_snapshot_selfcheck_is_clean`**：库里有 7 条 P0-FIX 卡留下的 `p0fix_*` 流程版本 `stored_hash=000…0`（从未回填），
+   自检报 7 条 `RowsEdited` 漂移 —— 本卡没碰 `flow/graph.rs` / hash 相关代码。
+3. **`purchase_handler::tests` 4 条**：库里有 **7 条遗留的 `p0fix_*` 流程** `biz_type='PO_APPROVE'` 且 PUBLISHED，
+   `published_po_flow()` 于是仍能选中一条 ⇒ 用例「把 `po_approve` 下线以模拟未配置」失效。把它们 `DISABLE` 后
+   该模块从 4 红降到 **2 红（63 passed）**，剩下 2 条是残留 `PENDING` 审批实例的收尾断言（其中 `p1fix_po_form_data_*` 单独跑是绿的）。
+
+> 结论：FIX-9 触及的三个模块（flow / state_machine / voucher）在真库上全绿；erp 全模块的 51 红是
+> 「共享测试库历史脏数据 / 夹具互相清场」，与 FIX-7/8 记录的两类既有红同源（FIX-6 已有独立卡 t_13ddcb84）。
+
+## 六、保留物与清理
 
 - 拷贝库 `cloudpivot_fix9_20261108030024` 保留待复核，确认后人工 drop：
   `dropdb -h 127.0.0.1 -U cloudpivot cloudpivot_fix9_20261108030024`
