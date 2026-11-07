@@ -1,0 +1,4 @@
+src/api/business/erp/price-inquiry.ts(363,80): error TS2345: Argument of type 'PriceInquiryFilter' is not assignable to parameter of type 'Record<string, unknown>'.
+  Index signature for type 'string' is missing in type 'PriceInquiryFilter'.
+src/views/business/erp/price-inquiry/index.vue(159,23): error TS2551: Property 'openToPoFor' does not exist on type 'CreateComponentPublicInstanceWithMixins<ToResolvedProps<{}, {}>, { statusLabel: (status: string) => string; statusTheme: (status: string) => "default" | "success" | "warning" | "primary"; MAX_REMARK: 500; ... 66 more ...; onQuoteSupplierChange: (value: unknown) => void; }, ... 23 more ..., {}>'. Did you mean 'openToPo'?
+src/views/business/erp/price-inquiry/index.vue(721,3): error TS6133: 'needsSingleSourceReason' is declared but its value is never read.

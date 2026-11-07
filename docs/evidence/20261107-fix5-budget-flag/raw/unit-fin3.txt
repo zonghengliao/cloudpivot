@@ -1,0 +1,220 @@
+TAP version 13
+# Subtest: splitPreview：6600 含税 / 6% → 不含税 6,226.42 + 税额 373.58（差额法，只舍入一次）
+ok 1 - splitPreview：6600 含税 / 6% → 不含税 6,226.42 + 税额 373.58（差额法，只舍入一次）
+  ---
+  duration_ms: 0.890905
+  type: 'test'
+  ...
+# Subtest: splitPreview：不可抵扣（招待费）→ 税额恒 0、不含税 = 含税
+ok 2 - splitPreview：不可抵扣（招待费）→ 税额恒 0、不含税 = 含税
+  ---
+  duration_ms: 0.081044
+  type: 'test'
+  ...
+# Subtest: splitPreview：税率 0 / 空值 / 非法值 → 税额 0（不抛异常）
+ok 3 - splitPreview：税率 0 / 空值 / 非法值 → 税额 0（不抛异常）
+  ---
+  duration_ms: 0.094545
+  type: 'test'
+  ...
+# Subtest: splitPreview：税额取差额而不是 round(含税×税率)，避免多出一分
+ok 4 - splitPreview：税额取差额而不是 round(含税×税率)，避免多出一分
+  ---
+  duration_ms: 0.072377
+  type: 'test'
+  ...
+# Subtest: sumSplits：逐行先拆再累加（不是先累加再拆）
+ok 5 - sumSplits：逐行先拆再累加（不是先累加再拆）
+  ---
+  duration_ms: 0.09867
+  type: 'test'
+  ...
+# Subtest: typeDeductible：找不到类型时按可抵扣处理（最终以后端裁决为准）
+ok 6 - typeDeductible：找不到类型时按可抵扣处理（最终以后端裁决为准）
+  ---
+  duration_ms: 0.089336
+  type: 'test'
+  ...
+# Subtest: previewItem：选业务招待费 → 行税额 0，且提示文案是 §4.10 原文
+ok 7 - previewItem：选业务招待费 → 行税额 0，且提示文案是 §4.10 原文
+  ---
+  duration_ms: 0.115088
+  type: 'test'
+  ...
+# Subtest: previewTotals：两种类型混排仍按各自可抵扣性拆
+ok 8 - previewTotals：两种类型混排仍按各自可抵扣性拆
+  ---
+  duration_ms: 0.145047
+  type: 'test'
+  ...
+# Subtest: rateText：0.0600 → 6%，0.13 → 13%，脏值原样返回
+ok 9 - rateText：0.0600 → 6%，0.13 → 13%，脏值原样返回
+  ---
+  duration_ms: 0.310344
+  type: 'test'
+  ...
+# Subtest: 状态配色：DRAFT 默认 / SUBMITTED 警告 / APPROVED 主色 / PAID 成功 / CANCELLED 危险
+ok 10 - 状态配色：DRAFT 默认 / SUBMITTED 警告 / APPROVED 主色 / PAID 成功 / CANCELLED 危险
+  ---
+  duration_ms: 0.32997
+  type: 'test'
+  ...
+# Subtest: statusText / payStatusText：优先后端下发的 label（前端不维护第二份译名）
+ok 11 - statusText / payStatusText：优先后端下发的 label（前端不维护第二份译名）
+  ---
+  duration_ms: 0.142963
+  type: 'test'
+  ...
+# Subtest: 动作可用性：只有草稿能改 / 删 / 提交，只有审批中能撤回
+ok 12 - 动作可用性：只有草稿能改 / 删 / 提交，只有审批中能撤回
+  ---
+  duration_ms: 0.093087
+  type: 'test'
+  ...
+# Subtest: 作废可用性：PAID / 已作废不许作废；已付过一分钱也不许（要先红冲付款）
+ok 13 - 作废可用性：PAID / 已作废不许作废；已付过一分钱也不许（要先红冲付款）
+  ---
+  duration_ms: 0.075794
+  type: 'test'
+  ...
+# Subtest: 付款可用性：只有 APPROVED 且还有未付余额可付（部分付款后仍可付）
+ok 14 - 付款可用性：只有 APPROVED 且还有未付余额可付（部分付款后仍可付）
+  ---
+  duration_ms: 0.067877
+  type: 'test'
+  ...
+# Subtest: cancelReasonError：空 / 少于 10 字报错，10 字通过
+ok 15 - cancelReasonError：空 / 少于 10 字报错，10 字通过
+  ---
+  duration_ms: 0.133963
+  type: 'test'
+  ...
+# Subtest: validateExpenseForm：事由必填、明细至少一行
+ok 16 - validateExpenseForm：事由必填、明细至少一行
+  ---
+  duration_ms: 0.330552
+  type: 'test'
+  ...
+# Subtest: validateExpenseForm：行级错误定位到 items.<index>.<field>
+ok 17 - validateExpenseForm：行级错误定位到 items.<index>.<field>
+  ---
+  duration_ms: 0.142047
+  type: 'test'
+  ...
+# Subtest: validateExpenseForm：need_invoice_no 与 amount_limit 是行级业务校验
+ok 18 - validateExpenseForm：need_invoice_no 与 amount_limit 是行级业务校验
+  ---
+  duration_ms: 0.726941
+  type: 'test'
+  ...
+# Subtest: validateExpenseForm：税率超出 0~1 报错（6% 要填 0.06 不是 6）
+ok 19 - validateExpenseForm：税率超出 0~1 报错（6% 要填 0.06 不是 6）
+  ---
+  duration_ms: 0.085711
+  type: 'test'
+  ...
+# Subtest: toReportPayload：只提交含税，空串字段不发（空 reporter_id 会被后端当 UUID 解析 400）
+ok 20 - toReportPayload：只提交含税，空串字段不发（空 reporter_id 会被后端当 UUID 解析 400）
+  ---
+  duration_ms: 0.117879
+  type: 'test'
+  ...
+# Subtest: formFromDetail：编辑草稿时把后端拆好的含税金额填回去
+ok 21 - formFromDetail：编辑草稿时把后端拆好的含税金额填回去
+  ---
+  duration_ms: 0.137505
+  type: 'test'
+  ...
+# Subtest: emptyPayForm：金额预填**未付余额**（不是报销总额）
+ok 22 - emptyPayForm：金额预填**未付余额**（不是报销总额）
+  ---
+  duration_ms: 0.090545
+  type: 'test'
+  ...
+# Subtest: validatePayForm：金额 > 0 且 ≤ 未付，付款日期必填
+ok 23 - validatePayForm：金额 > 0 且 ≤ 未付，付款日期必填
+  ---
+  duration_ms: 0.121504
+  type: 'test'
+  ...
+# Subtest: toPayPayload：空账户 / 空备注不发
+ok 24 - toPayPayload：空账户 / 空备注不发
+  ---
+  duration_ms: 0.070253
+  type: 'test'
+  ...
+# Subtest: validateTypeForm：编码大写字母开头、科目必填、上限非负
+ok 25 - validateTypeForm：编码大写字母开头、科目必填、上限非负
+  ---
+  duration_ms: 0.128921
+  type: 'test'
+  ...
+# Subtest: toTypePayload：编码大写化、0 上限原样提交、备注空串不发
+ok 26 - toTypePayload：编码大写化、0 上限原样提交、备注空串不发
+  ---
+  duration_ms: 0.076253
+  type: 'test'
+  ...
+# Subtest: budgetUsageRows：四要素齐全（部门 / 科目 / 占多少 / 占哪个月）
+ok 27 - budgetUsageRows：四要素齐全（部门 / 科目 / 占多少 / 占哪个月）
+  ---
+  duration_ms: 0.114462
+  type: 'test'
+  ...
+# Subtest: budgetFlag：真超支标红、未编预算标黄、正常为空（FIX-5 列表页区分）
+ok 28 - budgetFlag：真超支标红、未编预算标黄、正常为空（FIX-5 列表页区分）
+  ---
+  duration_ms: 0.113879
+  type: 'test'
+  ...
+# Subtest: 预算占用 / 付款 / 发票 / 方式的中文映射（未知值原样暴露脏数据）
+ok 29 - 预算占用 / 付款 / 发票 / 方式的中文映射（未知值原样暴露脏数据）
+  ---
+  duration_ms: 0.076794
+  type: 'test'
+  ...
+# Subtest: 三页菜单 path / component 与迁移 V0242 逐字一致
+ok 30 - 三页菜单 path / component 与迁移 V0242 逐字一致
+  ---
+  duration_ms: 0.84332
+  type: 'test'
+  ...
+# Subtest: router 手工注册了三条路由（漏一条 = 菜单可见但点进去 404）
+ok 31 - router 手工注册了三条路由（漏一条 = 菜单可见但点进去 404）
+  ---
+  duration_ms: 0.319636
+  type: 'test'
+  ...
+# Subtest: API 层路径全部写全 /api（漏了会命中 SPA fallback 返回 HTML）
+ok 32 - API 层路径全部写全 /api（漏了会命中 SPA fallback 返回 HTML）
+  ---
+  duration_ms: 0.179256
+  type: 'test'
+  ...
+# Subtest: 权限码只取 V0242 种的 12 个（白名单外一个都不加）
+ok 33 - 权限码只取 V0242 种的 12 个（白名单外一个都不加）
+  ---
+  duration_ms: 1.242374
+  type: 'test'
+  ...
+# Subtest: 「我的报销」默认只查自己 + 招待费税额置灰（源码契约）
+ok 34 - 「我的报销」默认只查自己 + 招待费税额置灰（源码契约）
+  ---
+  duration_ms: 0.17038
+  type: 'test'
+  ...
+# Subtest: 详情抽屉四块必备信息都在（审批轨迹 / 凭证号 / 付款记录 / 预算占用）
+ok 35 - 详情抽屉四块必备信息都在（审批轨迹 / 凭证号 / 付款记录 / 预算占用）
+  ---
+  duration_ms: 0.240758
+  type: 'test'
+  ...
+1..35
+# tests 35
+# suites 0
+# pass 35
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 138.184865

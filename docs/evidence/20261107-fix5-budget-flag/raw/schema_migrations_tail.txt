@@ -1,0 +1,8 @@
+   kind    |             name              | version |                             checksum                             | applied_via | applied_at | applied_seq | execution_ms | success |                             source                              
+-----------+-------------------------------+---------+------------------------------------------------------------------+-------------+------------+-------------+--------------+---------+-----------------------------------------------------------------
+ versioned | budget_over_amount_no_default | 326     | e65d0104e39908443746b73cc1f5e6e4675b53d5836062fa08870d9af453afdb | executed    | 1794069007 |         266 |            5 | t       | migrations/business/V0326__budget_over_amount_no_default.up.sql
+ versioned | budget_missing_flag           | 325     | 88120f56ab62f7307acae36d56c34142abadbda4bb96b3206a5a889d19d5cae3 | executed    | 1794068287 |         265 |            9 | t       | migrations/business/V0325__budget_missing_flag.up.sql
+ versioned | inventory_default_bucket      | 324     | a4c9a0a1d4fad0a74ed2f32686ac4026d2af0a547690104c5fd1383edc8fd962 | executed    | 1794067667 |         264 |            0 | t       | 
+ versioned | asset_linkage_rules           | 323     | 4e3cb109842fa31fe1882c6761dc1b0cb443e568e95e6efe0b2fc88ab24fe427 | executed    | 1794063626 |         263 |            0 | t       | 
+(4 rows)
+
