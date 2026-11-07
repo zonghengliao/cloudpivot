@@ -103,6 +103,7 @@ fork 之后对框架**语义**的每一次改动都记在这里（与 §4 的「
 | 日期 | 文件 | 改动 | 为什么 / 证据 |
 |---|---|---|---|
 | 2026-11-04 | `nik-cache/src/lib.rs` · `LocalCache::incr` | 自增前先判 `expires_at`：**过期条目按不存在处理**（先删再从 0 加），并对齐 Redis `INCR` 语义 | 旧实现只做加法、不看 TTL，`TTL 已到但尚未被清理`的计数键会继续累加，而 `expires_at` 早在过去 ⇒ 计数永久停在阈值之上。登录限流因此在无 Redis（进程内缓存）下 10 次登录后永久 429，只能重启进程（卡 `t_91a8d427`，已在 18150 实例实机复现并修复后复测）。单测：`test_incr_after_expiry_restarts_from_zero` / `test_incr_keeps_window_ttl` |
+| 2026-11-07 | `nik-web/src/api.rs` · `ApiError` | 新增**可选**字段 `data: Option<serde_json::Value>` + `ApiError::with_data()`；`IntoResponse` 用内部 `ErrorBody` 序列化，`data = None` 时与旧的 `Res::<()>::fail` **逐字节一致** | 错误体此前只有 `code` / `msg`，前端只能`正则解析中文`做引导。审批流 `65018`（无可用审批人）要弹「给哪个角色指派审批人」的框，需要节点 / 角色 / 成员数这类结构化字段（卡 `t_2756e93c` · FIX-1）。**纯增量**：不挂 `data` 的错误对外契约零变化；单测 `error_body_without_data_keeps_old_shape`（逐字节）/ `error_body_with_data_serializes_payload` / `with_data_is_additive` |
 
 约定：改完 vendor 行为必须同时补 crate 内单测（`cargo test -p nik-cache`），
 并在业务侧留一条能复现原故障的回归用例——否则下次 vendor 同步会悄悄退回旧语义。

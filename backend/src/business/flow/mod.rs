@@ -76,6 +76,9 @@ pub mod linkage;
 pub mod maintain;
 pub mod model;
 
+// ---- FIX-1：`65018` 的结构化诊断（新环境开箱即用 · 所有审批流共用）----
+pub mod no_assignee;
+
 // ---- model.rs 的拆分部件（P2-1B：纯搬迁，只由 model.rs 的 facade 重导出，对外不可见）----
 // 声明顺序 = facade 的 `pub use` 顺序：底座 → 定义 → 图/快照 → 校验 → 运行期 →
 // 节点 → 终止 → 进度/参与人 → 三身份列表 → 统计。测试部件按 `#[path]` 挂在 facade 下。

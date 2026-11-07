@@ -362,6 +362,18 @@ pub struct ApiError {
     pub status: u16,
     /// 内部调试信息（仅日志记录，不返回前端）
     pub internal_detail: Option<String>,
+    /// 对外**结构化**补充信息（`data` 字段，可选）
+    ///
+    /// # 为什么错误体也要能带 data（vendor 补丁，2026-11-07 · FIX-1）
+    ///
+    /// 「失败原因」有时不是一句话能说完的：审批流 `65018`（无可用审批人）要让前端
+    /// 弹出「给哪个角色指派审批人」的引导框，前端必须拿到节点 / 角色编码 / 当前成员数
+    /// 这类结构化字段，靠解析中文 `msg` 是脆的（改一个字前端就崩）。
+    ///
+    /// 因此给错误体开一个**可选** `data`：`None`（默认）时序列化后与旧报文**逐字节一致**
+    /// （`skip_serializing_if`），所有既有错误码的对外契约零变化；只有显式
+    /// [`ApiError::with_data`] 的错误才会多一个 `data` 对象。
+    pub data: Option<serde_json::Value>,
 }
 
 impl ApiError {
@@ -376,7 +388,18 @@ impl ApiError {
             code,
             msg: msg.into(),
             internal_detail: None,
+            data: None,
         }
+    }
+
+    /// 附加**对外**结构化补充信息（序列化到错误体的 `data` 字段）
+    ///
+    /// 与 [`ApiError::with_detail`] 的区别：`with_detail` 只进日志、不返回前端；
+    /// 本方法的内容**会**出现在响应体里，所以只放「前端需要据此做引导」的字段
+    /// （不得放内部路径 / SQL / 堆栈）。
+    pub fn with_data(mut self, data: serde_json::Value) -> Self {
+        self.data = Some(data);
+        self
     }
 
     /// 附加内部调试详情（仅写入日志，不暴露给前端）
@@ -531,6 +554,19 @@ impl<T: Serialize> IntoResponse for Res<T> {
     }
 }
 
+/// 错误响应体（与 [`Res`] 同形，仅 `data` 可选）
+///
+/// 为什么不复用 `Res<()>`：`Res::<()>::fail` 的 `data: None` 是类型层面的 `()`，
+/// 装不下结构化载荷；这里用一个只在 `IntoResponse` 内部出现的借出型结构序列化，
+/// 既能带 `data`，又不改变公开 API。
+#[derive(Serialize)]
+struct ErrorBody<'a> {
+    code: i32,
+    msg: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    data: Option<&'a serde_json::Value>,
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         if let Some(ref detail) = self.internal_detail {
@@ -539,7 +575,13 @@ impl IntoResponse for ApiError {
             tracing::error!(status = status.as_u16(), code = self.code, detail = %detail,
                 "请求处理异常");
         }
-        let body = Res::<()>::fail(self.code, self.msg);
+        // `data = None` 时这段序列化与旧的 `Res::<()>::fail(...)` **逐字节一致**
+        // （字段顺序 code → msg，无 data 键），既有前端契约零变化。
+        let body = ErrorBody {
+            code: self.code,
+            msg: &self.msg,
+            data: self.data.as_ref(),
+        };
         let status = StatusCode::from_u16(self.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
         let mut resp = (status, Json(body)).into_response();
         resp.headers_mut().insert(
@@ -590,6 +632,43 @@ mod tests {
     fn api_error_roundtrips_to_framework_error() {
         let core: CoreError = ApiError::not_found("用户不存在").into();
         assert_eq!(core.to_string(), "用户不存在");
+    }
+
+    /// 不挂 `data` 时，错误体序列化结果与旧契约**逐字节一致**（只有 code / msg）。
+    #[test]
+    fn error_body_without_data_keeps_old_shape() {
+        let body = ErrorBody {
+            code: 65018,
+            msg: "没有可用审批人",
+            data: None,
+        };
+        let json = serde_json::to_string(&body).expect("序列化");
+        assert_eq!(json, r#"{"code":65018,"msg":"没有可用审批人"}"#);
+    }
+
+    /// 挂 `data` 时多出一个对象键，前端据此做引导（FIX-1 · 65018）。
+    #[test]
+    fn error_body_with_data_serializes_payload() {
+        let payload = serde_json::json!({ "node_key": "n_sales", "role_code": "SALES_SUPERVISOR" });
+        let body = ErrorBody {
+            code: 65018,
+            msg: "没有可用审批人",
+            data: Some(&payload),
+        };
+        let json = serde_json::to_string(&body).expect("序列化");
+        assert!(json.contains(r#""data":{"node_key":"n_sales""#), "{json}");
+    }
+
+    /// `with_data` 只影响 `data`，不改业务码 / 消息 / HTTP 状态。
+    #[test]
+    fn with_data_is_additive() {
+        let api = ApiError::new(422, 65018, "没有可用审批人")
+            .with_data(serde_json::json!({ "role_code": "SALES_SUPERVISOR" }));
+        assert_eq!(api.status, 422);
+        assert_eq!(api.code, 65018);
+        assert_eq!(api.msg, "没有可用审批人");
+        assert!(api.data.is_some());
+        assert!(api.internal_detail.is_none());
     }
 }
 

@@ -64,6 +64,7 @@ use nik::uuid::Uuid;
 
 use crate::business::flow::assignee::{self, Resolution};
 use crate::business::flow::internal_control;
+use crate::business::flow::no_assignee;
 use crate::business::flow::node_config;
 use crate::business::flow::notify_node;
 use crate::business::flow::task_node::{self, SpawnOutcome};
@@ -2609,7 +2610,19 @@ impl<'a> Run<'a> {
                         .map(|(candidate, reason)| format!("{}（{reason}）", candidate.name))
                         .collect::<Vec<_>>()
                         .join("；");
-                    return Ok(Step::Fail(ApiError::new(
+                    // FIX-1：422 也要带**结构化诊断**，前端才能弹「指派审批人」引导框
+                    // （新库最常见的就是这一条：兜底超管 = 制单人本人 → 被内控剔光）。
+                    // `signal` 用 `all_excluded`：进来的人都是已过 `finalize` 的可用候选，
+                    // 只是全都不是「非本人」，所以 `non_self = 0` ⇒ 分类落到 `SELF_ONLY`。
+                    let signal = no_assignee::Signal::all_excluded(control_excluded.len());
+                    let excluded = control_excluded
+                        .iter()
+                        .map(|(candidate, reason)| format!("{}：{reason}", candidate.name))
+                        .collect::<Vec<_>>();
+                    let payload =
+                        no_assignee::payload(self.ex, self.instance.id, &spec, signal, excluded)
+                            .await;
+                    let mut error = ApiError::new(
                         422,
                         error_code::FLOW_NO_ASSIGNEE,
                         format!(
@@ -2619,7 +2632,11 @@ impl<'a> Run<'a> {
                              或改由他人提交本单。",
                             spec.name
                         ),
-                    )));
+                    );
+                    no_assignee::attach(&mut error, payload);
+                    // 引擎比 `assignee::resolve` 多知道一件事：这是**哪一个实例节点行**
+                    no_assignee::set_node_id(&mut error, row.id);
+                    return Ok(Step::Fail(error));
                 }
 
                 // 内控排除的 SKIPPED 留痕行（**不删人、不静默丢弃**：审计要能回答「谁没批、为什么」）

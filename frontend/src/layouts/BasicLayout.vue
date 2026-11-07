@@ -88,6 +88,12 @@
 
     <!-- 登录后「你有 N 条待处理」汇总弹窗：由下方 onMounted 触发，同一次登录只弹一次 -->
     <login-unread-dialog ref="loginUnreadRef" />
+
+    <!-- FIX-1：`65018` 的「指派审批人」引导框（全站只挂一次，由 axios 拦截器唤起） -->
+    <flow-assignee-dialog />
+
+    <!-- FIX-1：首次启动向导（关键角色 0 人时登录弹一次，可跳过） -->
+    <setup-wizard-dialog ref="setupWizardRef" />
   </t-layout>
 </template>
 
@@ -100,6 +106,9 @@ import PaletteSwitch from '@/layouts/components/PaletteSwitch.vue';
 import NoticeBell from '@/layouts/components/NoticeBell.vue';
 import NoticeToast from '@/layouts/components/NoticeToast.vue';
 import LoginUnreadDialog from '@/layouts/components/LoginUnreadDialog.vue';
+import FlowAssigneeDialog from '@/components/FlowAssigneeDialog.vue';
+import SetupWizardDialog from '@/components/SetupWizardDialog.vue';
+import { registerPermissionResolver } from '@/utils/flow-assignee-guard';
 import OnboardingHint from '@/components/OnboardingHint.vue';
 import { useUserStore } from '@/stores/user';
 import { useSettingStore } from '@/stores/setting';
@@ -242,11 +251,21 @@ const badgeStore = useBadgeStore();
 /** 登录未读汇总弹窗：挂载后检查一次（「同一次登录只弹一次」由组件内部的 sessionStorage 标记保证） */
 const loginUnreadRef = ref<InstanceType<typeof LoginUnreadDialog> | null>(null);
 
+/** FIX-1：首次启动向导（关键角色 0 人时提示，可跳过） */
+const setupWizardRef = ref<InstanceType<typeof SetupWizardDialog> | null>(null);
+
+// FIX-1：把「当前登录人有哪些权限」注册给 axios 拦截器（`65018` 引导框据此决定
+// 「让你自己指派」还是「请联系管理员」）。注册制避免 `api/request` ↔ `stores/user` 的循环依赖。
+registerPermissionResolver((code: string) => userStore.hasPermission(code));
+
 onMounted(() => {
   noticeStore.connect();
   badgeStore.startPolling();
   // 登录后必然经过这里：有未读才弹，全空不弹，弹过不再弹
   void loginUnreadRef.value?.open();
+  // FIX-1：有 `system:setup:read` 才查（普通用户请求会 403，向导不打扰他们）；
+  // 关键角色都有人时组件自己什么都不做。
+  void setupWizardRef.value?.openIfNeeded(userStore.userInfo?.username ?? '');
 });
 
 onBeforeUnmount(() => {

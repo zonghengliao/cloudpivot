@@ -301,6 +301,7 @@ pub fn db_error(e: DbError, ctx: &str) -> ApiError {
         code: crate::shared::error_code::INTERNAL_ERROR,
         msg: "服务器内部错误".to_string(),
         internal_detail: Some(format!("{ctx}: {e}")),
+        data: None,
     }
 }
 

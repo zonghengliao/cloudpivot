@@ -53,6 +53,7 @@ pub async fn bootstrap() {
     // 因此把「部署即失败」的校验放在这里（与 `seed_super_admin` 的 prod `exit(1)` 先例一致）。
     tokio::join!(
         seed_super_admin(),
+        seed_demo_users(),
         load_scheduled_jobs(),
         crate::support::dict::model::warm_dict_cache(),
         load_runtime_config(),
@@ -63,6 +64,59 @@ pub async fn bootstrap() {
         ensure_accounting_periods(),
         sse_query_token_guard(),
     );
+}
+
+/// 演示账号种子（FIX-1 · 新环境开箱即用）。
+///
+/// # 触发条件
+///
+/// **只有**环境变量 `NIK_SEED_DEMO_USERS=true|1|yes|on` 才建账号；
+/// 缺省 / `false` / 写错一律不建（生产默认安全）。
+///
+/// # 为什么放在启动链里（而不是只在接口里）
+///
+/// 「新环境开箱即用」的定义是**启动完就能跑链路**，不是「先调一个接口」：
+/// 开发 / 测试机一条 `NIK_SEED_DEMO_USERS=true cargo run` 就该拿到演示账号
+/// 与 6 个关键角色的成员，六条链立刻能点。接口版（`POST /system/setup/demo-users`）
+/// 是给「忘了设环境变量」的运维补救，两者走**同一个**模型函数，口径不会分叉。
+///
+/// # 幂等
+///
+/// 已存在的账号整条跳过（见 [`crate::system::setup::model::seed_demo_users`]）。
+/// 145 测试环境早就手工建过 `demo_lead`，本步只把它记进「跳过」列表，
+/// 不重复建、不改它的口令与部门。
+///
+/// # 失败处理
+///
+/// 种子失败**不阻断启动**（钩子没有错误通道）：只记 error 日志，服务照常起来
+/// —— 起不来的服务连「去向导页手工配」的机会都没有。
+async fn seed_demo_users() {
+    use crate::system::setup::model as setup;
+
+    if !setup::demo_users_enabled() {
+        tracing::info!(
+            env = setup::ENV_SEED_DEMO_USERS,
+            "演示账号种子未开启（生产默认），跳过"
+        );
+        return;
+    }
+    if try_db().is_none() {
+        tracing::error!("数据库未初始化，跳过演示账号种子");
+        return;
+    }
+
+    match setup::seed_demo_users(&setup::demo_password()).await {
+        Ok(outcome) => tracing::info!(
+            created = outcome.created.len(),
+            existed = outcome.existed.len(),
+            bindings_added = outcome.bindings_added,
+            dept_created = outcome.dept_created,
+            created_users = ?outcome.created,
+            existed_users = ?outcome.existed,
+            "演示账号种子完成（幂等：已有账号不重复建）"
+        ),
+        Err(error) => tracing::error!(error = %error, "演示账号种子失败（不阻断启动）"),
+    }
 }
 
 /// SSE 实时推送的鉴权自检（P1-FIX-6）。

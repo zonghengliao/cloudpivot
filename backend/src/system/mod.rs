@@ -28,6 +28,7 @@ pub mod dept;
 pub mod menu;
 pub mod preference;
 pub mod role;
+pub mod setup;
 pub mod user;
 
 /// 测试C 共用夹具（**仅测试编译**，不产生任何生产符号）。

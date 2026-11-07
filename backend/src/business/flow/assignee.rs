@@ -63,6 +63,7 @@ use serde_json::Value as Json;
 
 use crate::business::flow::expression::{self, ResolveContext, ResolvedTarget};
 use crate::business::flow::graph::{self, AssigneeKind, EvalContext, SnapshotNode};
+use crate::business::flow::no_assignee;
 use crate::shared::error_code;
 
 // ==================== 策略枚举 ====================
@@ -287,6 +288,24 @@ fn ids_of(node: &SnapshotNode, kind: AssigneeKind) -> Vec<Uuid> {
     out.sort();
     out.dedup();
     out
+}
+
+/// 节点配置里的角色 id（诊断载荷用：`no_assignee` 要报「哪个角色没人」）。
+///
+/// 与 [`plan_of`] 走**同一个** [`ids_of`]，不另写一份解析：
+/// 「预演算 3 个角色、真跑算 2 个」这种漂移只会在两份实现之间存在。
+pub(crate) fn role_ids_of(node: &SnapshotNode) -> Vec<Uuid> {
+    ids_of(node, AssigneeKind::Role)
+}
+
+/// 节点配置里的部门 id（`DEPT_LEADER` 来源）。
+pub(crate) fn dept_ids_of(node: &SnapshotNode) -> Vec<Uuid> {
+    ids_of(node, AssigneeKind::DeptLeader)
+}
+
+/// 节点配置里的用户 id（`USER` 来源）。
+pub(crate) fn user_ids_of(node: &SnapshotNode) -> Vec<Uuid> {
+    ids_of(node, AssigneeKind::User)
 }
 
 // ==================== 最终裁决（纯逻辑，可单测） ====================
@@ -695,6 +714,22 @@ pub async fn resolve(
             finalized.fallback_admin = false;
             finalized.auto_pass = false;
         }
+    }
+
+    // ★ FIX-1（新环境开箱即用）：`65018` 带上**结构化诊断**
+    //
+    // 老报文只有一句话，前端没法做引导（新库「只有 admin 一个账号」时尤甚：
+    // 用户只知道「没有审批人」，不知道缺哪个角色、那个角色几个人、下一步点哪里）。
+    // 这里统一挂一份载荷 —— 覆盖 `empty_assignee=ERROR` 与「连超管都没有」两条路径；
+    // 引擎还会在报错前用 `no_assignee::set_node_id` 补上实例节点行 id。
+    //
+    // 载荷组装失败**不影响**错误本身（`payload()` 内部查库失败会退化成不带角色字段的载荷）。
+    if let Some(error) = finalized.error.as_mut()
+        && error.code == error_code::FLOW_NO_ASSIGNEE
+    {
+        let signal = no_assignee::Signal::of(node, &candidates, ctx.initiator_id);
+        let payload = no_assignee::payload(ex, ctx.instance_id, node, signal, Vec::new()).await;
+        no_assignee::attach(error, payload);
     }
 
     Ok(Resolution { finalized, trace })

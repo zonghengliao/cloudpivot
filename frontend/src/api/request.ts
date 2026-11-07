@@ -1,4 +1,5 @@
 import axios, { AxiosError, type AxiosInstance, type AxiosRequestConfig } from 'axios';
+import { offerAssigneeFix } from '@/utils/flow-assignee-guard';
 
 /** 后端统一响应体（对应 Rust 侧 `Res<T>`） */
 export interface ApiResult<T = unknown> {
@@ -64,12 +65,21 @@ export class ApiError extends Error {
    * 可选字段：老调用方一个都不用改。
    */
   readonly status?: number;
+  /**
+   * 错误体里可选的结构化载荷（后端 `ApiError::with_data` 写的那份 JSON）。
+   *
+   * 为什么错误也要带 data：`65018`（无可用审批人）要让前端弹「给哪个角色指派审批人」
+   * 的引导框，需要节点 / 角色 / 成员数这类字段；解析中文 `msg` 是脆的（后端改一个字
+   * 前端就崩）。没有载荷的错误码（绝大多数）此字段为 `undefined`。
+   */
+  readonly data?: unknown;
 
-  constructor(code: number, message: string, status?: number) {
+  constructor(code: number, message: string, status?: number, data?: unknown) {
     super(message);
     this.name = 'ApiError';
     this.code = code;
     this.status = status;
+    this.data = data;
   }
 }
 
@@ -104,7 +114,14 @@ service.interceptors.response.use(
       }
       redirectToLogin();
     }
-    return Promise.reject(toApiError(error));
+    const apiError = toApiError(error);
+    // FIX-1：`65018`（无可用审批人）→ 弹「指派审批人」引导框；指派成功后**自动重试原请求**。
+    // 放在拦截器里（而不是每个提交按钮各接一遍）是因为「提交审批」的入口散布在
+    // 销售单 / 采购单 / 报销 / 预算 / 盘点 / 处置… 十几个页面，逐个接必然漏。
+    if (await offerAssigneeFix(apiError, config?.url)) {
+      return service.request(config as AxiosRequestConfig);
+    }
+    return Promise.reject(apiError);
   },
 );
 
@@ -177,7 +194,13 @@ function toApiError(error: AxiosError<ApiResult>): ApiError {
     if (status === 401) {
       clearTokens();
     }
-    return new ApiError(typeof body.code === 'number' ? body.code : -1, body.msg, status);
+    return new ApiError(
+      typeof body.code === 'number' ? body.code : -1,
+      body.msg,
+      status,
+      // 65018 这类错误带结构化载荷（见 ApiError.data 的注释）；其它错误为 undefined
+      (body as { data?: unknown }).data,
+    );
   }
   if (status === 401) {
     clearTokens();
@@ -220,7 +243,7 @@ async function request<T>(config: AxiosRequestConfig): Promise<T> {
     throw new ApiError(-1, '响应体格式不符合统一响应规范');
   }
   if (body.code !== 0) {
-    throw new ApiError(body.code, body.msg);
+    throw new ApiError(body.code, body.msg, response.status, (body as { data?: unknown }).data);
   }
   return body.data;
 }
