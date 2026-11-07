@@ -181,6 +181,20 @@ erp_invariants --group 报销 : 结果 9/9 通过  🚨 BLOCKER 0  ⚠️ WARN 0
 > 结论：本卡改的是「种子 / 权限数据」，**0 处流程定义、0 处联动登记、0 处 DocKind 枚举**，
 > 4 条失败无一触及本卡改动面。补齐这 4 条要等采购退货那张卡自己的 WIP 收口
 > （它在共享工作区里还没提交，我无法也不应替它改）。
+> 📌 收尾复核：我跑套件时它在工作区是**未跟踪文件**；跑完后其负责人把它提交成了
+> `9cf6cc1 feat(erp): 采购退货闭环 P2-03 (t_f5470033)`，之后它是否已对齐 hash / 登记 / 枚举
+> 归那张卡自己验证，**与本卡无关**。
+
+### 与本卡改动面最相关的 85 条（在干净树上复跑）：85 passed / 0 failed
+
+```bash
+./target/debug/deps/cloudpivot-12f8f1e6c8ad4f29 --test-threads=1 \
+    system::setup expense principal flow::maintain
+# test result: ok. 85 passed; 0 failed; 0 ignored; 0 measured; 3307 filtered out; finished in 30.56s
+```
+
+（`system::setup` = 本卡 8 条单测；`expense` = 报销全模块；`principal` = 数据范围解析；
+`flow::maintain` = 审批图自检本身 —— 上一轮红的那条就在这里面，干净库上全绿。）
 
 - 99 全新库冒烟（`cloudpivot_seedemp_0621`）：链路断言 39/39；同库二次启动
   `created=0 existed=9 dept_backfilled=0`；把 3 个账号部门抹成 NULL 后第三次启动
