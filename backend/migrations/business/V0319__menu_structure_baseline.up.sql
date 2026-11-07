@@ -11,6 +11,8 @@
 --   · /system/change-log  parent = 20000000-…790（/content 目录）→ 挂在「内容」下
 -- 任何新机器跑完全部迁移后拿到的都是这个坏结构，所以必须把「生产库里那套正确
 -- 结构」写成迁移。本迁移的语义就是：**把 dev/新库对齐到 prod 基线**。
+-- 唯一例外是 ⑥ 的 is_visible：卡面 16:50 修正明确这 4 条是**漏掉的**，
+-- 正确值是 true，生产库同样要改（见下）。
 --
 -- ## 数据来源（2026-11-07 实测，不是推测）
 --
@@ -34,10 +36,15 @@
 --      否则侧栏仍显示旧名 —— MenuRes::from 直接取 m.title，没有 name 兜底）：
 --        /business/erp/payable  name/title 应付单   → 应付账款
 --        /business/erp/voucher  name/title 凭证查询 → 记账凭证
---   ⑥ is_visible → false（这 4 个是二级明细页，prod 已从侧栏收起，靠上级页面
---      里的按钮进入；dev 还露在菜单里）：
---        /business/erp/inventory-location / inventory-txn /
---        purchase-order-item / seq
+--   ⑥ is_visible → **true**（卡面「重要修正 2026-11-07 16:50」：这 4 个是二级明细页，
+--      用户明确确认**是漏掉的、不是故意隐藏**，前端页面与路由早已全部实现，
+--      只是菜单没打开。生产库当前也是 false，同样是漏掉的 ⇒ 生产也要改）：
+--        /business/erp/inventory-location  router/index.ts:852  → inventory/index.vue(tab=location)
+--        /business/erp/inventory-txn       router/index.ts:858  → inventory/index.vue(tab=txn)
+--        /business/erp/purchase-order-item router/index.ts:868  → purchase-order-item/index.vue
+--        /business/erp/seq                 router/index.ts:877  → seq/index.vue
+--      ⚠ 这是本迁移**唯一会真正改动生产库**的部分（4 行），其余 6 条 UPDATE 在生产上
+--      都是 0 行。卡面上半段表格里「同步为 false（以生产为准）」那一行已被修正作废。
 --
 -- ## 卡面提的「prod 有、dev 缺的 3 条」——实测结论：一条都不需要 INSERT
 --
@@ -127,14 +134,16 @@ UPDATE sys_menu
    AND path = '/business/erp/voucher'
    AND (name IS DISTINCT FROM '记账凭证' OR title IS DISTINCT FROM '记账凭证');
 
--- ---------- ⑥ 4 个二级明细页从侧栏收起 ----------
+-- ---------- ⑥ 4 个明细页打开显示（用户确认是漏掉的，不是故意隐藏） ----------
+-- 生产库当前是 false、dev 也是 false（dev 被上一个版本的迁移误设为 false 过），
+-- 一律打开；这不是「以生产为准」的字段，是按用户确认的正确值来。
 UPDATE sys_menu
-   SET is_visible = false,
+   SET is_visible = true,
        updated_at = now()
  WHERE deleted_at IS NULL
    AND path IN ('/business/erp/inventory-location', '/business/erp/inventory-txn',
                 '/business/erp/purchase-order-item', '/business/erp/seq')
-   AND is_visible IS DISTINCT FROM false;
+   AND is_visible IS DISTINCT FROM true;
 
 -- ---------- ⑦ 自检：结构不符就让迁移失败 ----------
 -- 口径：对「库里存在的行」断言其值正确（不要求行必须存在）——
@@ -186,17 +195,17 @@ BEGIN
         RAISE EXCEPTION 'V0319 自检失败：% 条菜单名称与基线不符', bad;
     END IF;
 
-    -- ⑤ 可见性基线
+    -- ⑤ 可见性基线：4 个明细页必须打开（用户确认它们是漏掉的，不是故意隐藏）
     SELECT count(*) INTO bad
       FROM sys_menu
      WHERE deleted_at IS NULL
        AND path IN ('/business/erp/inventory-location', '/business/erp/inventory-txn',
                     '/business/erp/purchase-order-item', '/business/erp/seq')
-       AND is_visible;
+       AND is_visible IS DISTINCT FROM true;
     IF bad > 0 THEN
-        RAISE EXCEPTION 'V0319 自检失败：% 条明细页仍可见', bad;
+        RAISE EXCEPTION 'V0319 自检失败：% 条明细页仍不可见', bad;
     END IF;
 
-    RAISE NOTICE 'V0319 自检通过：菜单结构已对齐 prod 基线';
+    RAISE NOTICE 'V0319 自检通过：菜单结构已对齐基线（parent / 名称 / 可见性 / 排序）';
 END
 $$;

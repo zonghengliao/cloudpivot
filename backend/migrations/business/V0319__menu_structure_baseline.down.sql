@@ -68,11 +68,16 @@ UPDATE sys_menu
    AND name = '记账凭证'
    AND title = '记账凭证';
 
--- ---------- ⑥ 4 个明细页重新可见 ----------
+-- ---------- ⑥ 4 个明细页退回「隐藏」 ----------
+-- up 的净效果是 visible false→true（生产真实变更 4 行；145 dev 迁移前是 true，
+-- 被上一版迁移误设为 false 后由本 up 重新打开）。down 反向设回 false：
+--   · 在生产：完全复原（回到迁移前的 false）；
+--   · 在 dev：down 会把这 4 个隐藏，重跑 up 即再次打开 ⇒ down→up 往返后结果一致
+--     （已实测往返，见卡内汇报）。
 UPDATE sys_menu
-   SET is_visible = true,
+   SET is_visible = false,
        updated_at = now()
  WHERE deleted_at IS NULL
    AND path IN ('/business/erp/inventory-location', '/business/erp/inventory-txn',
                 '/business/erp/purchase-order-item', '/business/erp/seq')
-   AND is_visible = false;
+   AND is_visible IS DISTINCT FROM false;

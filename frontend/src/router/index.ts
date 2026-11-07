@@ -833,8 +833,9 @@ const routes: RouteRecordRaw[] = [
         // ==================== ERP 即时库存 / 库位库存 / 库存流水（P4-D） ====================
         // `sys_menu`（V0141 种子 …0946 / …0947 / …0948）是**三条**菜单：
         // `/business/erp/inventory`、`/business/erp/inventory-location`、`/business/erp/inventory-txn`，
-        // 但前端只交**一个**页面（三个 Tab 同页），且路由是**手工注册**的 —— 三条都没注册，
-        // 点哪个菜单都 404（P4-D 要修的就是这个）。
+        // 但前端只交**一个**页面（三个 Tab 同页）。三条路由都在下面**手工注册**齐了
+        // —— 不注册就点菜单 404（n08 用例钉住这条不变量：`menu_type=2` 的 path 必须能解析）。
+        // 这三条菜单的 `is_visible` 由迁移 V0319 统一打开（此前被误设为 false，用户确认是漏掉的）。
         //
         // 三条各注册一条 route（**不用 alias**）：alias 在 vue-router 4 里与本体共用同一条
         // matched record，从 `/inventory` 点菜单去 `/inventory-location` 会被判定为「同一路由」
@@ -862,8 +863,9 @@ const routes: RouteRecordRaw[] = [
       },
       {
         // ==================== ERP 采购明细（卡 t_6f023cee / BUG-SYS-01） ====================
-        // `sys_menu` 的 path `/business/erp/purchase-order-item`（menu_type=2、is_visible=true）
-        // 一直可见，但路由与组件都缺 → 点侧栏 404（测试C 的 n08 用例钉住了这条不变量）。
+        // `sys_menu` 的 path `/business/erp/purchase-order-item`（menu_type=2）。路由与组件
+        // 自 t_6f023cee 起就已注册（本 record 就是），缺的只是菜单可见性 —— 该行曾被设为
+        // `is_visible=false`，由迁移 V0319 打开（用户确认是漏掉的，不是故意隐藏）。
         // 后端 `GET /business/erp/purchase-order-item/page` + `/{id}` 自 V0141 起就齐全。
         path: 'business/erp/purchase-order-item',
         name: 'BusinessErpPurchaseOrderItem',
@@ -872,8 +874,9 @@ const routes: RouteRecordRaw[] = [
       },
       {
         // ==================== ERP 单号序列（卡 t_6f023cee / BUG-SYS-01） ====================
-        // 同上：`/business/erp/seq` 的菜单可见但没注册路由；后端只有只读的
-        // `/seq/page` 与 `/seq/{id}`（没有写接口），页面因此做成只读台账。
+        // `/business/erp/seq` 的路由与组件自 t_6f023cee 起就已注册（本 record 就是）；
+        // 菜单可见性曾为 false，由迁移 V0319 打开（用户确认是漏掉的）。
+        // 后端只有只读的 `/seq/page` 与 `/seq/{id}`（没有写接口），页面因此做成只读台账。
         path: 'business/erp/seq',
         name: 'BusinessErpSeq',
         component: () => import('@/views/business/erp/seq/index.vue'),
