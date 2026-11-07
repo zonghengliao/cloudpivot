@@ -222,6 +222,9 @@ pub const TRIGGERS: &[&str] = &[
     // ARCH-6 第四章：报销单的提交 / 通过 / 付清 / 作废都要能挂联动
     // （典型用法：「报销通过后给财务发待付款提醒」「作废后通知报销人」）
     state_machine::ENTITY_EXPENSE,
+    // P2-03 采购链：退货确认（出库回冲 + 应付红字 + 凭证）也是合法触发点，
+    // 典型用法：「退货确认后通知供应商对接人」「大额退货抄送财务经理」
+    state_machine::ENTITY_PURCHASE_RETURN,
     TRIGGER_TASK,
     TRIGGER_FLOW_INSTANCE,
 ];
@@ -697,6 +700,35 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
         ],
     },
     TriggerSpec {
+        entity: state_machine::ENTITY_PURCHASE_RETURN,
+        status_labels: &[
+            ("DRAFT", "草稿"),
+            ("SUBMITTED", "审批中"),
+            ("APPROVED", "已批准"),
+            ("CONFIRMED", "已确认"),
+            ("CANCELLED", "已作废"),
+        ],
+        wired: true,
+        wiring: "已接线（唯一动账点）：erp/purchase_return_handler.rs::confirm_return 在\
+                 **确认事务内**调 linkage::engine::run_excluding(\
+                 spec::PURCHASE_RETURN_EXCLUDED_ACTIONS)（库存 / 库位账 / 流水 / 应付余额 /\
+                 凭证全部由 purchase_return_posting::confirm_tx 的专用路径落账，\
+                 GENERATE_VOUCHER 必须排除以免『凭证生凭证』），事务 commit 之后调\
+                 linkage::engine::run_deferred（通知 / 建任务这类 AfterCommit 动作）。\
+                 提交 / 批准 / 作废三条边**不接**：它们不动账（只是状态与审批），\
+                 需要通知就在审批流自己的节点上配，不要在这条触发点上重复发",
+        proofs: &[
+            (
+                "src/business/erp/purchase_return_handler.rs",
+                "linkage::engine::run_excluding",
+            ),
+            (
+                "src/business/erp/purchase_return_handler.rs",
+                "linkage::engine::run_deferred",
+            ),
+        ],
+    },
+    TriggerSpec {
         entity: TRIGGER_TASK,
         status_labels: &[
             ("TODO", "待开始"),
@@ -956,6 +988,29 @@ pub const PURCHASE_EXCLUDED_ACTIONS: &[&str] = &[
 /// 换个触发点（如 `PURCHASE_ORDER/SETTLED`）通用路线仍然要能跑这些动作。
 /// 漂移守卫：`tests_wiring::payable_status_wires_generic_engine_and_excludes_balance_and_voucher`。
 pub const PAYABLE_EXCLUDED_ACTIONS: &[&str] = &["UPDATE_PAYABLE_BALANCE", ACTION_GENERATE_VOUCHER];
+
+/// **采购退货单**的专用路由排除清单（P2-03）。
+///
+/// 退货确认事务（`erp/purchase_return_handler.rs::confirm_return` → \
+/// `purchase_return_posting::confirm_tx`）自己已经写完了五本账，通用引擎在这个触发点上
+/// 必须把它们交给专用路径，否则就是**重复落账**：
+///
+/// - `WRITE_INVENTORY` / `WRITE_INVENTORY_TXN` → 同一行明细扣两次库存、一张退货单两条流水；
+/// - `UPDATE_COST` → 出库成本快照被二次覆盖（凭证金额与明细对不上）；
+/// - `UPDATE_PAYABLE_BALANCE` → 应付被减两次（`unpaid_amount` 直接负数，库层 CHECK 会把整单炸成 500）；
+/// - `GENERATE_VOUCHER` → **一张退货单两张冲销凭证**（卡面 §⑤ 明确要求排除：
+///   「防凭证生凭证」）。
+///
+/// 排除清单放在**调用方**（这里导出、handler 传入）而不是写死在引擎里：
+/// 换个触发点（如 `PURCHASE_RETURN/APPROVED`）通用路线仍然要能跑这些动作。
+/// 漂移守卫：`tests_wiring::purchase_return_wires_generic_engine_and_excludes_accounting`。
+pub const PURCHASE_RETURN_EXCLUDED_ACTIONS: &[&str] = &[
+    "WRITE_INVENTORY",
+    "WRITE_INVENTORY_TXN",
+    "UPDATE_COST",
+    "UPDATE_PAYABLE_BALANCE",
+    ACTION_GENERATE_VOUCHER,
+];
 
 /// **盘点单**的专用路由排除清单（LNK-04）。
 ///
@@ -1970,6 +2025,9 @@ mod tests {
                 e if e == state_machine::ENTITY_EXPENSE => {
                     expense_dto::status_label(status).to_string()
                 }
+                e if e == state_machine::ENTITY_PURCHASE_RETURN => {
+                    crate::business::erp::purchase_return_dto::status_label(status).to_string()
+                }
                 TRIGGER_TASK => TaskStatus::parse(status)?.label().to_string(),
                 _ => return None,
             };
@@ -1990,9 +2048,9 @@ mod tests {
                 checked += 1;
             }
         }
-        // 7 个可调用模块 + 任务枚举覆盖的状态总数（采购 7 + 应付 5 + 凭证 3 + 合同 6 +
-        // 盘点 4 + 资产 3 + 报销 5 + 任务 5）。少一条就说明上面的映射断了。
-        assert_eq!(checked, 38, "对拍状态数不符：映射表被改坏或实体名写错");
+        // 8 个可调用模块 + 任务枚举覆盖的状态总数（采购 7 + 应付 5 + 凭证 3 + 合同 6 +
+        // 盘点 4 + 资产 3 + 报销 5 + 采购退货 5 + 任务 5）。少一条就说明上面的映射断了。
+        assert_eq!(checked, 43, "对拍状态数不符：映射表被改坏或实体名写错");
     }
 
     /// ④ 查表函数的边界：未知实体 / 未知状态一律 `None`（fail-closed，不回显编码当中文）。

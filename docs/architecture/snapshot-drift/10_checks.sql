@@ -512,6 +512,8 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('STATUS_ENTITY', 'INVOICE',           'biz_invoice',           'deleted_at', '销售发票（销售链 SO-20）'),
     -- 销售链 SO-29：退货单进状态日志（`sales_return_handler` 的建单 / 流转都写 entity_type=SALES_RETURN）
     ('STATUS_ENTITY', 'SALES_RETURN',      'biz_sales_return',      'deleted_at', '销售退货单（销售链 SO-29）'),
+    -- 采购链 P2-03：采购退货单进状态日志（`purchase_return_handler` 的建单 / 提交 / 确认 / 作废都写 entity_type=PURCHASE_RETURN）
+    ('STATUS_ENTITY', 'PURCHASE_RETURN',   'biz_purchase_return',   'deleted_at', '采购退货单（采购链 P2-03）'),
     -- ⑤ 序列号来源：biz_material_serial.source_type + source_id（P2-6b 补全映射）
     ('SERIAL_SOURCE', 'PURCHASE', 'biz_stock_in',       'deleted_at', '收货过账生成（in_type=PURCHASE），source_id = 收货单 id'),
     ('SERIAL_SOURCE', 'RETURN',   'biz_stock_in',       'deleted_at', '退货入库生成（in_type=RETURN，同一张收货单表），source_id = 收货单 id'),

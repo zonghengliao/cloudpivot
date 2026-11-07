@@ -131,6 +131,13 @@ pub async fn of(instance: &flow_model::InstanceRow) -> DbResult<Control> {
                 .await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
+    } else if biz_type == crate::business::erp::purchase_return_bridge::BIZ_TYPE {
+        // P2-03：采购退货的 `biz_id` 是**退货单 id**（制单人不能批自己的退货）
+        let creator =
+            crate::business::erp::purchase_return_bridge::internal_control_creator(instance.biz_id)
+                .await?;
+        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
+        true
     } else if biz_type == stockin_bridge::POST_BIZ_TYPE || biz_type == stockin_bridge::BIZ_TYPE {
         let creator = stockin_bridge::internal_control_creator(instance.biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);

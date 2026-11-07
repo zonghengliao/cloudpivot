@@ -166,6 +166,13 @@ pub const ENTITY_INVOICE: &str = DocKind::Invoice.as_str();
 /// 本实体只管状态与 `biz_status_log` 轨迹。
 pub const ENTITY_SALES_RETURN: &str = DocKind::SalesReturn.as_str();
 
+/// 实体类型：采购退货单（`biz_purchase_return`，采购链 · P2-03）。
+///
+/// 落库值 `PURCHASE_RETURN`（`DocKind::PurchaseReturn`）。状态只在**单据头**上流转
+/// （明细 `biz_purchase_return_item` 没有状态列）；出库回冲 / 应付红字 / 供应商应退款 /
+/// 冲销凭证由确认卡在同一事务里完成（`APPROVED → CONFIRMED`），本实体只管状态与轨迹。
+pub const ENTITY_PURCHASE_RETURN: &str = DocKind::PurchaseReturn.as_str();
+
 /// 出库单合法边（与 `stockout_base::LEGAL_EDGES` 同源）。
 ///
 /// ```text
@@ -633,6 +640,33 @@ pub const SALES_RETURN_EDGES: [(&str, &str); 7] = [
     ("APPROVED", "CANCELLED"),
 ];
 
+/// 采购退货单合法边（P2-03，6 条，唯一真相）。
+///
+/// ```text
+/// DRAFT      → SUBMITTED    提交审批（只改状态，账上一分没动）
+/// SUBMITTED  → APPROVED     审批通过（prt_approve 两级；此后才能确认退货）
+/// APPROVED   → CONFIRMED    确认退货（出库回冲 + 应付红字 + 凭证，同一事务）
+/// DRAFT      → CANCELLED    草稿作废（从未占过可退量，不要原因）
+/// SUBMITTED  → CANCELLED    审批中作废（**要原因**）
+/// APPROVED   → CANCELLED    已批准作废（**要原因**：财务已按它准备冲账）
+/// ```
+///
+/// **故意没有的边**（每条都是一个真问题）：
+/// - `SUBMITTED → DRAFT`：没有「打回草稿」的边 —— 驳回就是回草稿，但那走的是
+///   审批回调（`mark_back_to_draft`），不是用户点出来的状态机边；把它登记成边会让
+///   用户可以在审批中自己把单据抽回草稿（审批对象与执行对象不一致）；
+/// - `CONFIRMED → *`：确认即已出库 / 已冲应付 / 已记账，撤销必须走红冲链，
+///   不是一条状态边；
+/// - `APPROVED → SUBMITTED`：批准之后只能往前（确认或作废）。
+pub const PURCHASE_RETURN_EDGES: [(&str, &str); 6] = [
+    ("DRAFT", "SUBMITTED"),
+    ("SUBMITTED", "APPROVED"),
+    ("APPROVED", "CONFIRMED"),
+    ("DRAFT", "CANCELLED"),
+    ("SUBMITTED", "CANCELLED"),
+    ("APPROVED", "CANCELLED"),
+];
+
 /// 应收单合法边（ARCH-7 §4.3 + SO-14 遗留卡，6 条，唯一真相）。
 ///
 /// ```text
@@ -874,6 +908,12 @@ pub const INVOICE_REASON_EDGES: [(&str, &str); 2] = [("DRAFT", "VOID"), ("ISSUED
 /// 「这单本来要退的货不退了」—— 审计要能回答为什么，所以强制原因。
 pub const SALES_RETURN_REASON_EDGES: [(&str, &str); 2] =
     [("SUBMITTED", "CANCELLED"), ("APPROVED", "CANCELLED")];
+/// 需要 reason 的采购退货单边：提交后 / 批准后作废。
+///
+/// 与销售退货同口径：草稿作废不要原因（从未提交、没占任何账务）；
+/// 提交之后作废意味着「这单本来要退的货不退了」，审计要能回答为什么。
+pub const PURCHASE_RETURN_REASON_EDGES: [(&str, &str); 2] =
+    [("SUBMITTED", "CANCELLED"), ("APPROVED", "CANCELLED")];
 
 /// 需要 reason 的边：调拨单取消。
 pub const TRANSFER_REASON_EDGES: [(&str, &str); 2] =
@@ -944,6 +984,8 @@ pub const INVOICE_LOCKED: [&str; 3] = ["ISSUED", "POSTED", "VOID"];
 /// `PENDING_POST` **不在**入账态：待过账还能被 SO-30 的过账事务读取处理，
 /// 锁死会让过账前的一切准备都落空（与发货单的 `PENDING_POST` 同口径）。
 pub const SALES_RETURN_LOCKED: [&str; 2] = ["POSTED", "CANCELLED"];
+/// 采购退货单入账态：已确认（账已按它动过，明细不许再改）与已作废。
+pub const PURCHASE_RETURN_LOCKED: [&str; 2] = ["CONFIRMED", "CANCELLED"];
 /// 调拨单入账态：审批通过即锁定（在途 / 完成都不可改）。
 pub const TRANSFER_LOCKED: [&str; 3] = ["APPROVED", "IN_TRANSIT", "DONE"];
 /// 应付入账态：已结清 / 已作废都锁定（作废的单子当然不能再改）。
@@ -1274,6 +1316,24 @@ pub const SALES_RETURN_BASE: [BaseEdge; 7] = [
     BaseEdge::mandatory("APPROVED", "CANCELLED", "批准后作废", true),
 ];
 
+/// 采购退货单的 BASE_EDGES（与 [`PURCHASE_RETURN_EDGES`] 逐条对应，顺序一致）。
+///
+/// 六条全 `mandatory = true`：主链（提交 → 批准 → 确认）与三个作废口，
+/// **没有可选边可关**（关掉「确认」等于让退货单永远停在已批准）。
+pub const PURCHASE_RETURN_BASE: [BaseEdge; 6] = [
+    BaseEdge::mandatory("DRAFT", "SUBMITTED", "提交审批", false),
+    BaseEdge::mandatory("SUBMITTED", "APPROVED", "审批通过", false),
+    BaseEdge::mandatory(
+        "APPROVED",
+        "CONFIRMED",
+        "确认退货（出库 + 冲应付 + 凭证）",
+        false,
+    ),
+    BaseEdge::mandatory("DRAFT", "CANCELLED", "草稿作废", false),
+    BaseEdge::mandatory("SUBMITTED", "CANCELLED", "审批中作废", true),
+    BaseEdge::mandatory("APPROVED", "CANCELLED", "批准后作废", true),
+];
+
 /// 库存调拨单的 BASE_EDGES（与 [`TRANSFER_EDGES`] 逐条对应，顺序一致）。
 ///
 /// 调拨六条边全是主链 / 撤销，**没有可选边**（没有捷径可关）。
@@ -1463,11 +1523,17 @@ pub enum Entity {
     /// `DRAFT / SUBMITTED / APPROVED → CANCELLED`。过账（回库 + 冲应收 + 红字凭证）
     /// 由 SO-30 在 `PENDING_POST → POSTED` 的同一事务里完成。
     SalesReturn,
+    /// 采购退货单 `biz_purchase_return`（采购链 · P2-03）。
+    ///
+    /// 状态域：`DRAFT → SUBMITTED → APPROVED → CONFIRMED`，
+    /// `DRAFT / SUBMITTED / APPROVED → CANCELLED`。确认（出库回冲 + 应付红字 +
+    /// 供应商应退款 + 冲销凭证）在 `APPROVED → CONFIRMED` 的同一事务里完成。
+    PurchaseReturn,
 }
 
 impl Entity {
     /// 全部实体（注册表全量，未知类型就是对表外的字符串）。
-    pub const ALL: [Entity; 21] = [
+    pub const ALL: [Entity; 22] = [
         Entity::StockIn,
         Entity::PurchaseOrder,
         Entity::Transfer,
@@ -1489,6 +1555,7 @@ impl Entity {
         Entity::ReceiptRefund,
         Entity::Invoice,
         Entity::SalesReturn,
+        Entity::PurchaseReturn,
     ];
 
     /// 落库的 `entity_type`。
@@ -1515,6 +1582,7 @@ impl Entity {
             Entity::ReceiptRefund => ENTITY_RECEIPT_REFUND,
             Entity::Invoice => ENTITY_INVOICE,
             Entity::SalesReturn => ENTITY_SALES_RETURN,
+            Entity::PurchaseReturn => ENTITY_PURCHASE_RETURN,
         }
     }
 
@@ -1547,6 +1615,7 @@ impl Entity {
             Entity::ReceiptRefund => "收款退款单",
             Entity::Invoice => "销售发票",
             Entity::SalesReturn => "销售退货单",
+            Entity::PurchaseReturn => "采购退货单",
         }
     }
 
@@ -1574,6 +1643,7 @@ impl Entity {
             Entity::ReceiptRefund => &RECEIPT_REFUND_EDGES,
             Entity::Invoice => &INVOICE_EDGES,
             Entity::SalesReturn => &SALES_RETURN_EDGES,
+            Entity::PurchaseReturn => &PURCHASE_RETURN_EDGES,
         }
     }
 
@@ -1604,6 +1674,7 @@ impl Entity {
             Entity::ReceiptRefund => &RECEIPT_REFUND_BASE,
             Entity::Invoice => &INVOICE_BASE,
             Entity::SalesReturn => &SALES_RETURN_BASE,
+            Entity::PurchaseReturn => &PURCHASE_RETURN_BASE,
         }
     }
 
@@ -1638,6 +1709,7 @@ impl Entity {
             Entity::ReceiptRefund => &RECEIPT_REFUND_REASON_EDGES,
             Entity::Invoice => &INVOICE_REASON_EDGES,
             Entity::SalesReturn => &SALES_RETURN_REASON_EDGES,
+            Entity::PurchaseReturn => &PURCHASE_RETURN_REASON_EDGES,
         }
     }
 
@@ -1665,6 +1737,7 @@ impl Entity {
             Entity::ReceiptRefund => &RECEIPT_REFUND_LOCKED,
             Entity::Invoice => &INVOICE_LOCKED,
             Entity::SalesReturn => &SALES_RETURN_LOCKED,
+            Entity::PurchaseReturn => &PURCHASE_RETURN_LOCKED,
         }
     }
 
@@ -4577,13 +4650,13 @@ mod contract_tests {
         );
         assert_eq!(
             Entity::ALL.len(),
-            21,
+            22,
             "注册表从 7 → 8（CONTRACT）→ 9（STOCK_OUT）→ 10（STOCK_TAKE）→ 11（BUDGET，FIN-1）\
              → 12（FIXED_ASSET，FIN-2）→ 13（DEPRECIATION，FIN-2）→ 14（EXPENSE_REPORT，FIN-3）\
              → 15（SALE_ORDER，销售链 SO-05）→ 16（SHIPMENT，销售链 SO-09）\
              → 17（RECEIVABLE，销售链 SO-13）→ 18（RECEIPT，销售链 SO-17）\
              → 19（RECEIPT_REFUND，销售链 SO-14 遗留 D10）→ 20（INVOICE，销售链 SO-20）\
-             → 21（SALES_RETURN，销售链 SO-29）"
+             → 21（SALES_RETURN，销售链 SO-29）→ 22（PURCHASE_RETURN，采购链 P2-03）"
         );
 
         // ③ as_str

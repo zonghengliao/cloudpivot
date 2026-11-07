@@ -1455,6 +1455,26 @@ pub const ERP_REQUISITION_STATUS_GUARD: i32 = 66049;
 /// 用户要做的动作是「回申请单改税率 / 补供应商 / 指定仓库」，与状态问题完全不同。
 pub const ERP_REQUISITION_MERGE_MISMATCH: i32 = 66050;
 
+/// 采购退货：可退数量不足（P2-03，`66051`）。
+///
+/// 语义 = 「本次退货数量 > 原入库数量 − 已退数量」（含已提交但尚未确认的占用）。
+/// 与 [`ERP_SI_OVER_RECEIVE`]（超收）方向相反、单据不同，**不复用**：
+/// 前端给的处置动作不同（改数量 / 换入库单），报文里要指出可退多少。
+pub const ERP_PURCHASE_RETURN_OVER_RETURN: i32 = 66051;
+
+/// 采购退货：状态闸（P2-03，`66052`）。
+///
+/// 只有 `DRAFT` 能提交、只有 `APPROVED` 能确认；重复提交 / 越级确认 / 已确认再确认
+/// 都走这个码（报文里带当前状态与允许的动作）。
+pub const ERP_PURCHASE_RETURN_STATUS_GUARD: i32 = 66052;
+
+/// 采购退货：退货单价与来源入库单价不一致（P2-03，`66053`）。
+///
+/// 卡面 §④ b「退货单价 = 原入库单价（不许改）」的执行出口：前端传了 `unit_price`
+/// 且与入库明细快照不相等时拒收（防价格操纵）。服务端本来就不吃这个值，
+/// 这个码是给「以为能改价」的调用方一个明确的 400，而不是静默忽略。
+pub const ERP_PURCHASE_RETURN_PRICE_LOCKED: i32 = 66053;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1532,6 +1552,10 @@ mod tests {
             // P2-02 采购申请（66049–66050；状态闸与合并口径分离，前端文案不同）
             (ERP_REQUISITION_STATUS_GUARD, 66049),
             (ERP_REQUISITION_MERGE_MISMATCH, 66050),
+            // P2-03 采购退货（66051–66053；防超退 / 状态闸 / 单价锁死各自独立）
+            (ERP_PURCHASE_RETURN_OVER_RETURN, 66051),
+            (ERP_PURCHASE_RETURN_STATUS_GUARD, 66052),
+            (ERP_PURCHASE_RETURN_PRICE_LOCKED, 66053),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");

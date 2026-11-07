@@ -1067,7 +1067,12 @@ pub const POSTED_RECEIVED_SQL: &str = "COALESCE((\
      WHERE s.source_order_id = i.order_id \
        AND si.source_item_id = i.id \
        AND s.status = 'POSTED' \
-       AND s.deleted_at IS NULL), 0)";
+       AND s.deleted_at IS NULL), 0) - COALESCE((\
+     SELECT SUM(pri.qty) FROM biz_purchase_return_item pri \
+     JOIN biz_purchase_return pr ON pr.id = pri.return_id \
+     WHERE pri.purchase_order_item_id = i.id \
+       AND pr.status = 'CONFIRMED' \
+       AND pr.deleted_at IS NULL), 0)";
 
 /// 采购单的一条「待收明细」（收货页带出用）。
 #[derive(Debug, Clone)]

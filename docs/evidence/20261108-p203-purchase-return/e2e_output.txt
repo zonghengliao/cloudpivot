@@ -1,0 +1,50 @@
+== 0. 夹具：采购入库 100 个 @10 含税 13%（PO + POSTED 入库单 + 应付 + 库存三本账） ==
+DO
+approvers: 2
+== 1. 登录 ==
+[PASS] admin 登录
+[PASS] 采购经理登录
+[PASS] 财务经理登录
+== 2. 可退明细：入库 100 / 可退 100 ==
+[PASS] 可退明细返回 1 行
+[PASS] 原入库 100
+[PASS] 可退 100
+[PASS] 单价取入库快照
+== 3. 验收②：退 30 个 → 库存 -30 / 应付 -339 / 凭证平衡 ==
+[PASS] 建退货单 30 个
+[PASS] 价税合计 339
+[PASS] 初始 DRAFT
+[PASS] 改价被拦（66053）
+[PASS] 提交审批 → SUBMITTED
+[PASS] 采购经理审批通过
+[PASS] 财务经理审批通过
+[PASS] 两级审批后 APPROVED
+[PASS] 确认退货 → CONFIRMED
+  confirmed: {'stock_out_no': 'OUT-20261108-000004', 'payable_no': 'AP-PRT-0001', 'voucher_no': 'PZ-20261108-000004', 'supplier_receivable_no': None}
+[PASS] 库存 -30（70 / 700）
+[PASS] 应付 -339（791 / OPEN）
+[PASS] 流水 1 条 OUT 30 / 成本 300
+[PASS] 出库单 POSTED/OTHER/PURCHASE_RETURN/30
+[PASS] 凭证借贷平衡且借方 339
+[PASS] 未付款场景不生成供应商应退款
+[PASS] 采购订单已收数量派生为 70
+== 4. 验收③：再退 80 个 → 必须被拦截（可退只剩 70） ==
+[PASS] 超退被拦（66051 可退只剩 70）
+[PASS] 报文点明可退 70
+== 5. 验收④：退满剩余 70 → 应付归零 ==
+[PASS] 建第二张退货单 70
+[PASS] 第二张确认
+[PASS] 全额退货后应付归零 / SETTLED
+[PASS] 库存归零
+== 6. 验收⑤：已付款场景 → 生成供应商应退款 ==
+[PASS] 建已付款场景退货单 3 个
+[PASS] 确认后生成供应商应退款
+[PASS] 已付款应付不被减到 paid 以下
+[PASS] 供应商应退款 339
+[PASS] 已付款场景凭证同样平衡（339）
+== 7. 状态闸：重复确认必须被拦 ==
+[PASS] 重复确认 409/66052
+
+==> 汇总：PASS=35 FAIL=0
+ROWS: 3 returns, 3 stock_outs
+E2E_EXIT=0

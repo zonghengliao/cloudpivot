@@ -156,11 +156,19 @@ pub enum DocKind {
     /// `POSTED`/`CANCELLED`，边表在 `state_machine::SALES_RETURN_EDGES`。
     /// 明细 `biz_sales_return_item` 没有状态、也不单独记 `doc_type`（属单头）。
     SalesReturn,
+    /// 采购退货单 `biz_purchase_return`（采购链 · P2-03）。
+    ///
+    /// 状态机 5 值：`DRAFT`/`SUBMITTED`/`APPROVED`/`CONFIRMED`/`CANCELLED`，
+    /// 边表在 `state_machine::PURCHASE_RETURN_EDGES`。确认退货
+    /// （`APPROVED → CONFIRMED`）在**同一个事务**里做出库单 + 三本账回冲 +
+    /// 冲减应付（已付款部分转 `biz_supplier_receivable`）+ 冲销凭证。
+    /// 明细 `biz_purchase_return_item` 没有状态、也不单独记 `doc_type`（属单头）。
+    PurchaseReturn,
 }
 
 impl DocKind {
     /// 全部业务对象（顺序 = 声明顺序；前端 TS 常量表与巡检按此顺序逐字比对）。
-    pub const ALL: [DocKind; 25] = [
+    pub const ALL: [DocKind; 26] = [
         DocKind::PurchaseOrder,
         DocKind::StockIn,
         DocKind::StockOut,
@@ -186,6 +194,7 @@ impl DocKind {
         DocKind::ReceiptRefund,
         DocKind::Invoice,
         DocKind::SalesReturn,
+        DocKind::PurchaseReturn,
     ];
 
     /// 落库值（大写下划线）。**唯一拼写**。
@@ -216,6 +225,7 @@ impl DocKind {
             DocKind::ReceiptRefund => "RECEIPT_REFUND",
             DocKind::Invoice => "INVOICE",
             DocKind::SalesReturn => "SALES_RETURN",
+            DocKind::PurchaseReturn => "PURCHASE_RETURN",
         }
     }
 
@@ -247,6 +257,7 @@ impl DocKind {
             DocKind::ReceiptRefund => "收款退款单",
             DocKind::Invoice => "销售发票",
             DocKind::SalesReturn => "销售退货单",
+            DocKind::PurchaseReturn => "采购退货单",
         }
     }
 
@@ -277,6 +288,7 @@ impl DocKind {
             DocKind::ReceiptRefund => "biz_receipt_refund",
             DocKind::Invoice => "biz_invoice",
             DocKind::SalesReturn => "biz_sales_return",
+            DocKind::PurchaseReturn => "biz_purchase_return",
             // 年结没有实体表：状态记在 `biz_status_log`，`entity_id` 存结转凭证 id
             DocKind::AccountingYear => return None,
         })
@@ -306,6 +318,7 @@ impl DocKind {
                 | DocKind::ReceiptRefund
                 | DocKind::Invoice
                 | DocKind::SalesReturn
+                | DocKind::PurchaseReturn
         )
     }
 
@@ -330,6 +343,7 @@ impl DocKind {
             DocKind::Receipt => "receipt",
             DocKind::Invoice => "invoice",
             DocKind::SalesReturn => "sales-return",
+            DocKind::PurchaseReturn => "purchase-return",
             _ => return None,
         })
     }
@@ -1245,7 +1259,7 @@ pub struct ColumnDomain {
     pub axis: &'static str,
 }
 
-const DOC_KIND_VALUES: [&str; 25] = [
+const DOC_KIND_VALUES: [&str; 26] = [
     "PURCHASE_ORDER",
     "STOCK_IN",
     "STOCK_OUT",
@@ -1271,6 +1285,7 @@ const DOC_KIND_VALUES: [&str; 25] = [
     "RECEIPT_REFUND",
     "INVOICE",
     "SALES_RETURN",
+    "PURCHASE_RETURN",
 ];
 
 const FLOW_BIZ_TYPE_VALUES: [&str; 16] = [

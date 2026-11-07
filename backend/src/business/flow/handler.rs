@@ -1704,6 +1704,8 @@ pub async fn withdraw_instance(
     crate::business::erp::purchase_bridge::on_po_settled(Some(instance_id), "WITHDRAWN").await;
     // P2-02：也可能是「采购申请审批」单 → 打回草稿（可以改完重提）
     crate::business::erp::requisition_bridge::on_pr_settled(Some(instance_id), "WITHDRAWN").await;
+    // P2-03：也可能是「采购退货审批」单 → 打回草稿（账一分没动，可以改完重提）
+    crate::business::erp::purchase_return_bridge::on_settled(Some(instance_id), "WITHDRAWN").await;
     // SO-06：也可能是「销售订单审批」单 → 打回草稿（清实例，改完可重新提交）
     crate::business::erp::sales_approval_bridge::on_so_settled(Some(instance_id), "WITHDRAWN")
         .await;
@@ -1784,6 +1786,8 @@ pub async fn approve_task(
     crate::business::erp::receipt_refund_bridge::guard_self_approval(task_id, operator).await?;
     // P2-02：采购申请 —— 制单人 / 发起人不能批自己的申请（403 + 65019）
     crate::business::erp::requisition_bridge::guard_self_approval(task_id, operator).await?;
+    // P2-03：采购退货 —— 制单人 / 发起人不能批自己的退货（403 + 65019）
+    crate::business::erp::purchase_return_bridge::guard_self_approval(task_id, operator).await?;
     let mut out = db()
         .transaction(|tx| async move {
             engine::approve(&tx, task_id, operator, comment.as_deref()).await
@@ -1814,6 +1818,9 @@ pub async fn approve_task(
         .await;
     // P2-02：也可能是「采购申请审批」发起的 —— 通过则 APPROVED（可转采购订单），驳回则打回草稿
     crate::business::erp::requisition_bridge::on_pr_settled(out.instance_id, &out.instance_status)
+        .await;
+    // P2-03：也可能是「采购退货审批」发起的 —— 通过则 APPROVED（可确认退货），驳回则打回草稿
+    crate::business::erp::purchase_return_bridge::on_settled(out.instance_id, &out.instance_status)
         .await;
     // SO-06：也可能是「销售订单审批」发起的 —— 通过则 APPROVED（可出库），驳回则打回草稿
     crate::business::erp::sales_approval_bridge::on_so_settled(
@@ -1928,6 +1935,9 @@ pub async fn reject_task(
         .await;
     // P2-02：采购申请审批被驳回 → 打回草稿 + 审批意见写 remark
     crate::business::erp::requisition_bridge::on_pr_settled(out.instance_id, &out.instance_status)
+        .await;
+    // P2-03：采购退货审批被驳回 → 打回草稿 + 审批意见写 remark
+    crate::business::erp::purchase_return_bridge::on_settled(out.instance_id, &out.instance_status)
         .await;
     // SO-06：销售订单审批被驳回 → 打回草稿 + 审批意见写 remark
     crate::business::erp::sales_approval_bridge::on_so_settled(

@@ -569,6 +569,16 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '采购申请', permission: 'business:erp:purchase-requisition:list' },
       },
       {
+        // ==================== ERP 采购退货（P2-03 · 退货 → 审批 → 红字应付 → 库存回冲 → 凭证） ====================
+        // `sys_menu`（V0332 种子 …3341）path = `/business/erp/purchase-return`，
+        // component `business/erp/purchase-return/index`。**路由手工注册**（没有 views 自动扫描），
+        // 漏了 = 点菜单进 404。
+        path: 'business/erp/purchase-return',
+        name: 'BusinessErpPurchaseReturn',
+        component: () => import('@/views/business/erp/purchase-return/index.vue'),
+        meta: { title: '采购退货', permission: 'business:erp:purchase-return:list' },
+      },
+      {
         // ==================== ERP 合同管理（A5） ====================
         // `sys_menu`（V0197 …1100，V0241 改名前缀）path = `/business/erp/contract`、component
         // `business/erp/contract/index`，**根级页面**（与「采购管理」「基础数据」同级，

@@ -63,6 +63,7 @@ export const DOC_KINDS = [
   'RECEIPT_REFUND',
   'INVOICE',
   'SALES_RETURN',
+  'PURCHASE_RETURN',
 ] as const;
 
 /** 业务对象类型（联合类型 —— 写错编译期就报错）。 */
@@ -95,6 +96,7 @@ export const DOC_KIND_LABELS: Readonly<Record<DocKind, string>> = {
   RECEIPT_REFUND: '收款退款单',
   INVOICE: '销售发票',
   SALES_RETURN: '销售退货单',
+  PURCHASE_RETURN: '采购退货单',
 };
 
 /**
@@ -134,6 +136,7 @@ export const DOC_KIND_TABLES: Readonly<Partial<Record<DocKind, string>>> = {
   RECEIPT_REFUND: 'biz_receipt_refund',
   INVOICE: 'biz_invoice',
   SALES_RETURN: 'biz_sales_return',
+  PURCHASE_RETURN: 'biz_purchase_return',
 };
 
 /**
