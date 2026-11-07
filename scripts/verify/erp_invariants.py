@@ -1385,20 +1385,98 @@ def group_k():
     check("K4 批次合计 = Σ明细 且 台数 = 明细行数", "固资", "BLOCKER", not bad4,
           f"{len(bad4)} 个批次的合计/台数与明细不符" if bad4 else "全部相符")
 
-    # K5 1602 贷方余额 = Σ 卡片累计折旧（容差 0.0001）
+    # ── K5 1602 贷方余额 = Σ 在役卡片累计折旧（容差 0.0001）───────────────
+    #
+    # 口径（这一行漏过 `status <> 'DISPOSED'`，t_c3c2793a）：处置审批通过时
+    # `asset_bridge::post_disposal_vouchers` 生成 1~3 张
+    # `source_type='FIXED_ASSET_DISPOSAL'` 的凭证，第一张固定
+    # 「借 1602（= 卡片累计折旧）+ 借 1606/1901（净值）/ 贷 1601（原值）」
+    #   ⇒ **处置凭证已经把 1602 借平**（三种处置 SALE/SCRAP/LOSS 同形状，
+    #     见 `asset_compute::disposal_vouchers`）；
+    # 同时卡片置 `DISPOSED`，`accumulated_depreciation` **保留历史值** ——
+    # 卡片不过账删除，而且 K2 要求它 = Σ明细(POSTED)，清零反而会让 K2 变红。
+    # 所以科目侧 1602 只反映「在役资产的累计折旧」，卡片侧必须同口径排除 DISPOSED
+    # （与 K6 对 1601 的写法一字不差）。
+    # 漏这句的效果：任何一次处置后 K5 必报 BLOCKER（145 / cloudpivot_rev_demo 实测
+    # 1602=0 / 卡片=3166.6667），假红直接挡住 scripts/check.sh 的发版闸③。
+    #
+    # 四条互相印证（同一次处置，各处都必须对上；口径说明见
+    # `scripts/verify/references/erp-k5-disposed.md`）：
+    #   ① K5  1602 余额（贷）            = Σ 在役卡累计折旧          ← 总量口径
+    #   ② K5b 每张 DISPOSED 卡的累计折旧  = 它（未红冲）处置凭证的 1602 借方  ← 逐卡口径
+    #   ③ K6  1601 余额（借）            = Σ 未处置卡原值（处置凭证贷 1601 冲掉）
+    #   ④ K7  1606 清理                  = 0（收款 + 结转把清理科目结平）
+    # 排除 DISPOSED **不等于放水**：处置没记账 ⇒ 1602 仍挂余额、卡片侧被排除 ⇒ ① 红；
+    # 处置记错金额（多张卡互相抵消看不出来）⇒ ② 逐卡红，兜底。
     get_1602 = one("""
         select coalesce(sum(e.credit_amount - e.debit_amount), 0)::text
           from biz_voucher_entry e
           join biz_voucher v on v.id = e.voucher_id and v.deleted_at is null
          where e.account_code = '1602'
     """)
+    n_live = one("""select count(*) from biz_fixed_asset
+                     where deleted_at is null and status <> 'DISPOSED'""")
     cards_accum = one("""
         select coalesce(sum(accumulated_depreciation), 0)::text
-          from biz_fixed_asset where deleted_at is null
+          from biz_fixed_asset where deleted_at is null and status <> 'DISPOSED'
     """)
+    n_disposed = one("""select count(*) from biz_fixed_asset
+                         where deleted_at is null and status = 'DISPOSED'""")
+    disposed_accum = one("""
+        select coalesce(sum(accumulated_depreciation), 0)::text
+          from biz_fixed_asset where deleted_at is null and status = 'DISPOSED'
+    """)
+    print(f"  · 覆盖：在役卡片 {n_live} 张 Σ累计折旧 = {cards_accum}"
+          f" / 已排除已处置卡片 {n_disposed} 张 Σ累计折旧 = {disposed_accum}"
+          "（处置凭证已把它们的 1602 借平；逐卡对账见 K5b）")
     ok5 = abs(dec(get_1602) - dec(cards_accum)) <= TOL
-    check("K5 1602 贷方余额 = Σ卡片累计折旧", "固资", "BLOCKER", ok5,
-          f"1602 = {get_1602} / 卡片 = {cards_accum}" if not ok5 else f"1602 = {get_1602}")
+    check("K5 1602 贷方余额 = Σ在役卡片累计折旧", "固资", "BLOCKER", ok5,
+          f"1602 余额 = {get_1602} / 在役卡片 Σ累计折旧 = {cards_accum}"
+          f"（已处置 {n_disposed} 张 Σ={disposed_accum} 按口径排除："
+          f"处置凭证已把它们从 1602 借平，逐卡对账见 K5b）"
+          if not ok5 else f"1602 = {get_1602}")
+
+    # ── K5b 逐卡口径：已处置卡的累计折旧必须被「它自己的」处置凭证借平 ───────
+    # K5 排除 DISPOSED 后只剩总量口径，多张卡「一多一少」会互相抵消；
+    # 这里逐卡对账，把口径收紧回来（判据来自代码契约，不靠摘要文本匹配）：
+    #   · 处置凭证来源链是确定的：`biz_voucher.source_type='FIXED_ASSET_DISPOSAL'`
+    #     + `source_id = biz_fixed_asset.id`（asset_bridge::post_disposal_vouchers）；
+    #   · 三种处置的凭证 1 都写「借 1602 = amounts.accumulated」；
+    #   · 作废处置（asset_dispose_cancel）会给每张蓝字生成红字并把原蓝字置
+    #     `reversed_by`，卡片也回 IN_USE ⇒ 只认 `is_red = 0 and reversed_by is null`
+    #     的蓝字，重处置过的卡不会把两次处置的借方重复累加。
+    bad5b = q("""
+        select a.asset_no,
+               a.accumulated_depreciation::text,
+               coalesce(d.net, 0)::text,
+               case when a.disposal_voucher_id is null then '无 disposal_voucher_id'
+                    else a.disposal_voucher_id::text end
+          from biz_fixed_asset a
+          left join (
+                select v.source_id as asset_id,
+                       sum(e.debit_amount - e.credit_amount) as net
+                  from biz_voucher v
+                  join biz_voucher_entry e on e.voucher_id = v.id
+                 where v.deleted_at is null
+                   and v.source_type = 'FIXED_ASSET_DISPOSAL'
+                   and v.is_red = 0 and v.reversed_by is null
+                   and e.account_code = '1602'
+                 group by 1
+               ) d on d.asset_id = a.id
+         where a.deleted_at is null and a.status = 'DISPOSED'
+           and abs(a.accumulated_depreciation - coalesce(d.net, 0)) > 0.0001
+         order by a.asset_no
+    """)
+    check("K5b 已处置卡的累计折旧 = 其处置凭证借 1602 的金额（逐卡）", "固资", "BLOCKER", not bad5b,
+          ("\n".join(
+              f"  · {r[0]} | 卡片累计 {r[1]} | 处置凭证借 1602 {r[2]} | {r[3]}"
+              for r in bad5b[:8])
+           + (f"\n  ... 还有 {len(bad5b) - 8} 张" if len(bad5b) > 8 else ""))
+          if bad5b else f"已处置卡片 {n_disposed} 张逐卡对账相符",
+          """select a.asset_no, a.accumulated_depreciation::text, a.status
+               from biz_fixed_asset a
+              where a.deleted_at is null and a.status = 'DISPOSED'
+              order by a.asset_no""")
 
     # K6 1601 借方余额 = Σ 未处置卡片原值
     get_1601 = one("""
