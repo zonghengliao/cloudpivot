@@ -209,7 +209,7 @@ pub async fn write_export_log(entry: &ExportLog<'_>) -> DbResult<()> {
         "INSERT INTO operation_logs \
              (id, request_id, user_id, username, operation, target_type, target_id, detail, \
               ip, user_agent, duration_ms, request_path, request_method, status_code, created_at) \
-         VALUES (?::uuid, ?, ?::uuid, ?, ?, ?, ?, ?::jsonb, ?::inet, ?, ?, ?, 'GET', 200, now())",
+         VALUES (?::uuid, ?, ?::uuid, ?, ?, ?, ?, ?::jsonb, ?::text::inet, ?, ?::text::int4, ?, 'GET', 200, now())",
         vec![
             Value::from(&Uuid::now_v7()),
             Value::Text(entry.request_id.to_string()),

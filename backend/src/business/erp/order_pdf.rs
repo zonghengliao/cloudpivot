@@ -912,13 +912,9 @@ mod db_tests {
     use nik::prelude::rust_decimal::Decimal;
 
     // ---------- 夹具 id（本卡独占命名空间 0f0200xx） ----------
-    const UNIT: Uuid = Uuid::from_u128(0x0f02_0000_0000_4000_8000_0000_0000_0001);
     const MATERIAL_A: Uuid = Uuid::from_u128(0x0f02_0000_0000_4000_8000_0000_0000_0002);
-    const MATERIAL_B: Uuid = Uuid::from_u128(0x0f02_0000_0000_4000_8000_0000_0003);
-    const SUPPLIER: Uuid = Uuid::from_u128(0x0f02_0000_0000_4000_8000_0000_0000_0004);
-    const WAREHOUSE: Uuid = Uuid::from_u128(0x0f02_0000_0000_4000_8000_0000_0005);
-    const CUSTOMER: Uuid = Uuid::from_u128(0x0f02_0000_0000_4000_8000_0000_0006);
-    const OPERATOR: Uuid = Uuid::from_u128(0x0f02_0000_0000_4000_8000_0000_0007);
+    const MATERIAL_B: Uuid = Uuid::from_u128(0x0f02_0000_0000_4000_8000_0000_0000_0003);
+    const OPERATOR: Uuid = Uuid::from_u128(0x0f02_0000_0000_4000_8000_0000_0000_0007);
     const PO: Uuid = Uuid::from_u128(0x0f02_0000_0000_4000_8000_0000_0000_0010);
     const SO: Uuid = Uuid::from_u128(0x0f02_0000_0000_4000_8000_0000_0000_0020);
 
@@ -1073,8 +1069,8 @@ mod db_tests {
                      tax_rate, amount, tax_amount, with_tax_amount, remark)
                  VALUES (gen_random_uuid(), '0f020000-0000-4000-8000-000000000010', ?,
                          ?::uuid, '0f020000-0000-4000-8000-000000000001',
-                         ?::numeric, ?::numeric, ?::numeric, 13,
-                         ?::numeric, ?::numeric, ?::numeric, ?)",
+                         ?::text::numeric, ?::text::numeric, ?::text::numeric, 13,
+                         ?::text::numeric, ?::text::numeric, ?::text::numeric, ?)",
                 vec![
                     Value::from(line_no),
                     Value::from(&material),
@@ -1277,7 +1273,7 @@ mod db_tests {
         let rows = db()
             .find_with_params(
                 "SELECT request_id, user_id, username, operation, target_type, target_id,
-                        detail, ip, request_method, status_code, duration_ms
+                        detail, ip::text AS ip, request_method, status_code, duration_ms
                    FROM operation_logs WHERE target_id = ? AND request_id = ?",
                 vec![
                     Value::Text(PO.to_string()),
@@ -1315,7 +1311,7 @@ mod db_tests {
         assert_eq!(detail["doc_no"], PO_NO);
         assert_eq!(detail["doc_type"], "PURCHASE_ORDER");
         assert_eq!(detail["row_count"], 3);
-        assert_eq!(detail["total_with_tax"], "421.9985");
+        assert_eq!(detail["total_with_tax"], "422.00", "审计里存两位小数的金额");
         assert_eq!(detail["source"], "PDF-02");
         purge().await;
     }
