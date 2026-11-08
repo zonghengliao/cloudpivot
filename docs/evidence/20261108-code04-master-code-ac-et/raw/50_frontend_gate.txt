@@ -1,0 +1,30 @@
+CODE-04 前端门禁（本卡**未改前端**，按团队口径仍跑一遍确保没被后端改动带崩）
+
+命令与结果（在 99 的 /opt/cloudpivot/frontend，node v22.23.4 / pnpm 10.5.0）：
+
+  $ NODE_OPTIONS=--max-old-space-size=6144 pnpm typecheck
+  > @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+  > vue-tsc --noEmit
+  （无输出 = 无类型错误，exit 0）
+
+  $ NODE_OPTIONS=--max-old-space-size=6144 pnpm build
+  > @cloudpivot/web@0.1.0 build
+  > vue-tsc --noEmit && vite build
+  ...（vite 产物清单，节选）...
+  dist//opt/cloudpivot/frontend/assets/echarts-CuV_skF0.js.gz      1002.89kb / gzip: 331.52kb
+  dist//opt/cloudpivot/frontend/assets/tdesign-wMKzekwa.js.gz      7995.70kb / gzip: 772.69kb
+  （exit 0）
+
+说明：CODE-07（前端「生成编码」按钮）是本卡的子卡，届时才会改 frontend/；
+本卡只提供它要调的后端预览接口（响应体按实测原样抄在下面，见 raw/01_ac_next_code1.json）：
+
+  GET /api/business/erp/asset-category/next-code
+    → {"code":0,"msg":"ok","data":{"code":"AC-01"}}
+  GET /api/business/erp/expense-type/next-code
+    → {"code":0,"msg":"ok","data":{"code":"ET-01"}}
+
+前端用法（交互方式 B）：
+  1) 点「生成编码」→ GET 上面两个接口 → 把 data.code 填进编码栏（只是预览，不占号）；
+  2) 保存时把编码栏的值当普通入参提交（它有值 ⇒ 后端按手工编码原样保留）；
+  3) 若保存报 409/66001（号被并发抢走）→ 再点一次按钮拿新号即可。
+  4) 用户不点按钮、编码栏留空 ⇒ 保存时后端自动取号（本卡已实现）。

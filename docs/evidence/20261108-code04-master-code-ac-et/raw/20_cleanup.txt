@@ -1,0 +1,14 @@
+=== 删除本次夹具（按 id，业务接口才是软删） ===
+  deleted 分类 01a1b964-7535-7143-bd48-f60d02e17fed
+  deleted 分类 01a1b964-754a-7600-97bc-0ffc4c00c512
+  deleted 分类 01a1b964-755e-74db-9aa9-64d09ab8ab2a
+  deleted 分类 01a1b964-7572-7349-bf95-6781bfb75495
+  deleted 类型 01a1b964-75c4-72cb-b91a-86b96686dacf
+  deleted 类型 01a1b964-75d8-7167-88c4-0dbcb2e5d3e3
+  deleted 类型 01a1b964-75e8-77da-9416-10118a8e09ce
+  deleted 类型 01a1b964-75fd-7446-b4b1-36f3e2938cb1
+
+=== 复核：夹具已清、存量未动、号段不回退 ===
+  残留 分类=0 类型=0
+  清理后：分类 5 条、类型 8 条；AC 号段=3、ET 号段=3（不回退）
+RESULT: 夹具已清

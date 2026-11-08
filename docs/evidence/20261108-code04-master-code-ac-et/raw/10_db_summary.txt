@@ -1,0 +1,24 @@
+=== ① 建出来的行真落库（按 id 查，不看返回值） ===
+  分类：AC-01 / AC-02 / AC-03 / CAT-BUILDING-C04122210
+  PASS  AC1 自动号形态
+  PASS  AC2 自动号形态
+  PASS  AC3 自动号形态
+  PASS  ④ 手工编码原样落库 = CAT-BUILDING-C04122210
+  类型：ET-01 / ET-02 / ET-03 / ADMIN-FEE-C04122210
+  PASS  ET1 自动号形态
+  PASS  ET2 自动号形态
+  PASS  ET3 自动号形态
+  PASS  ④ 手工编码原样落库 = ADMIN-FEE-C04122210
+
+=== ② 存量数据没被改（卡面硬要求） ===
+  PASS  存量 5 条标准分类仍在 = 5
+  PASS  存量 8 条标准费用类型仍在 = 8
+
+=== ③ 号段推进（本次消耗 3 个 AC + 3 个 ET） ===
+  biz_seq：AC.current_no=3  ET.current_no=3
+  PASS  AC 号段推进 = 3（三次留空取号） = 3
+  PASS  ET 号段推进 = 3（三次留空取号） = 3
+  PASS  AC pad_width = 2（AC-01 形态） = 2
+  PASS  ET pad_width = 2（ET-01 形态） = 2
+
+RESULT: ALL PASS

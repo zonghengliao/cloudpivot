@@ -1,0 +1,60 @@
+首登改密（初始口令 → 新口令）→ HTTP 200
+login ok, access_token 长度 = 461
+
+=== 预览接口：GET /api/business/erp/{asset-category,expense-type}/next-code ===
+④ 资产分类预览 #1 → HTTP 200, code=AC-01
+  PASS  ④ 预览 HTTP = 200 = 200
+  PASS  ④ 预览形态 = AC-NN = AC-01
+④ 资产分类预览 #2 → HTTP 200, code=AC-01
+  PASS  ④ 预览不消耗号：两次结果相同 = AC-01
+④ 费用类型预览 #1 → HTTP 200, code=ET-01
+  PASS  ④ 预览 HTTP = 200 = 200
+  PASS  ④ 预览形态 = ET-NN = ET-01
+
+=== 资产分类 biz_asset_category（AC / 2 位） ===
+① 不传 category_code       → HTTP 200, code=AC-01, id=01a1b964-7535-7143-bd48-f60d02e17fed
+  PASS  ① 字段缺席自动取号（2 位） = AC-01
+  PASS  ① HTTP = 200 = 200
+② 传 category_code=""     → HTTP 200, code=AC-02
+  PASS  ② 空串自动取号且连续 +1 = AC-02
+③ 传 category_code=null    → HTTP 200, code=AC-03
+  PASS  ③ null 自动取号且连续 +1 = AC-03
+  PASS  ③ 三个自动号两两不同（首尾）（AC-01 ≠ AC-03）
+⑤ 传 category_code="CAT-BUILDING-C04122210" → HTTP 200, code=CAT-BUILDING-C04122210
+  PASS  ⑤ 手工编码原样保留（不强制 AC-NN 形态） = CAT-BUILDING-C04122210
+⑥ 重复 category_code       → HTTP 409, code=66001, msg=分类编码 `CAT-BUILDING-C04122210` 已存在（已软删的编码可以复用）
+  PASS  ⑥ 重复编码 HTTP = 409 = 409
+  PASS  ⑥ 重复编码业务码 = 66001 = 66001
+  PASS  ⑥ 文案点名具体编码
+⑦ 非法 category_code      → HTTP 400, code=10001, msg=分类编码不合法：编码里不能出现 ` `：只允许字母、数字与 `-` `_` `.`（企业自有编码可直接沿用）
+  PASS  ⑦ 非法字符 HTTP = 400 = 400
+  PASS  ⑦ 非法字符业务码 = 10001 = 10001
+⑧ 编辑时 category_code="" → HTTP 200, code=AC-01
+  PASS  ⑧ 编辑留空不改编码 = AC-01
+  PASS  ⑧ 编辑 HTTP = 200 = 200
+
+=== 费用类型 biz_expense_type（ET / 2 位） ===
+借方科目 5602.02 id = 96ef6295-3bd5-4314-a445-63010fefcdad
+① 不传 type_code          → HTTP 200, code=ET-01, id=01a1b964-75c4-72cb-b91a-86b96686dacf
+  PASS  ① 字段缺席自动取号（2 位） = ET-01
+  PASS  ① HTTP = 200 = 200
+② 传 type_code=""        → HTTP 200, code=ET-02
+  PASS  ② 空串自动取号且连续 +1 = ET-02
+③ 传 type_code=null       → HTTP 200, code=ET-03
+  PASS  ③ null 自动取号且连续 +1 = ET-03
+  PASS  ③ 三个自动号两两不同（首尾）（ET-01 ≠ ET-03）
+⑤ 传 type_code="ADMIN-FEE-C04122210" → HTTP 200, code=ADMIN-FEE-C04122210
+  PASS  ⑤ 手工编码原样保留（不强制 ET-NN 形态） = ADMIN-FEE-C04122210
+⑥ 重复 type_code          → HTTP 409, code=66001, msg=费用类型编码 `ADMIN-FEE-C04122210` 已存在（已软删的编码可以复用）
+  PASS  ⑥ 重复编码 HTTP = 409 = 409
+  PASS  ⑥ 重复编码业务码 = 66001 = 66001
+  PASS  ⑥ 文案点名具体编码
+⑦ 非法 type_code          → HTTP 400, code=10001, msg=费用类型编码不合法：编码里不能出现 `差`：只允许字母、数字与 `-` `_` `.`（企业自有编码可直接沿用）
+  PASS  ⑦ 非法字符 HTTP = 400 = 400
+  PASS  ⑦ 非法字符业务码 = 10001 = 10001
+
+创建的夹具（清理脚本用）：
+  AC: 01a1b964-7535-7143-bd48-f60d02e17fed 01a1b964-754a-7600-97bc-0ffc4c00c512 01a1b964-755e-74db-9aa9-64d09ab8ab2a 01a1b964-7572-7349-bf95-6781bfb75495
+  ET: 01a1b964-75c4-72cb-b91a-86b96686dacf 01a1b964-75d8-7167-88c4-0dbcb2e5d3e3 01a1b964-75e8-77da-9416-10118a8e09ce 01a1b964-75fd-7446-b4b1-36f3e2938cb1
+
+RESULT: ALL PASS

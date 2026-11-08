@@ -1,0 +1,50 @@
+########## cargo test --lib business::erp::asset_handler::tests
+test business::erp::asset_handler::tests::category_auto_code_generated_when_blank ... ok
+test business::erp::asset_handler::tests::category_auto_code_increments ... ok
+test business::erp::asset_handler::tests::category_duplicate_code_conflicts ... ok
+test business::erp::asset_handler::tests::category_manual_code_is_kept ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 3494 filtered out; finished in 5.04s
+########## cargo test --lib business::erp::expense_handler::tests
+test business::erp::expense_handler::tests::type_auto_code_generated_when_blank ... ok
+test business::erp::expense_handler::tests::type_auto_code_increments ... ok
+test business::erp::expense_handler::tests::type_duplicate_code_conflicts ... ok
+test business::erp::expense_handler::tests::type_manual_code_is_kept ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 3494 filtered out; finished in 3.84s
+########## cargo test --lib business::erp::seq::tests
+test business::erp::seq::tests::t01_format_master_code_pads_by_width ... ok
+test business::erp::seq::tests::t02_exists_sql_covers_exactly_six_types ... ok
+test business::erp::seq::tests::t02b_manual_code_resolution ... ok
+test business::erp::seq::tests::t02c_manual_code_validation_rejects_unusable_input ... ok
+test business::erp::seq::tests::t03_seeded_rules_match_spec ... ok
+test business::erp::seq::tests::t04_consecutive_takes_increment ... ok
+test business::erp::seq::tests::t05_two_digit_pad_and_overflow ... ok
+test business::erp::seq::tests::t06_concurrent_ten_takes_never_duplicate ... ok
+test business::erp::seq::tests::t07_free_code_skips_taken_codes ... ok
+test business::erp::seq::tests::t08_unknown_and_missing_rule_errors ... ok
+test business::erp::seq::tests::t09_peek_never_consumes ... ok
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 3487 filtered out; finished in 2.92s
+########## cargo test --lib business::erp::asset_dto::tests
+test business::erp::asset_dto::tests::category_validation ... ok
+test business::erp::asset_dto::tests::create_ok_defaults ... ok
+test business::erp::asset_dto::tests::create_rejects_non_positive_amount ... ok
+test business::erp::asset_dto::tests::create_rejects_tax_not_less_than_original ... ok
+test business::erp::asset_dto::tests::create_requires_mandatory_fields ... ok
+test business::erp::asset_dto::tests::derive_amounts_matches_design ... ok
+test business::erp::asset_dto::tests::dispose_validation ... ok
+test business::erp::asset_dto::tests::from_stock_is_forced_by_source ... ok
+test business::erp::asset_dto::tests::page_normalization ... ok
+test business::erp::asset_dto::tests::source_reference_consistency ... ok
+test business::erp::asset_dto::tests::status_change_validation ... ok
+test business::erp::asset_dto::tests::transfer_and_custodian_validation ... ok
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 3486 filtered out; finished in 0.00s
+########## cargo test --lib business::erp::expense_dto::tests
+test business::erp::expense_dto::tests::cancel_reason_needs_ten_chars ... ok
+test business::erp::expense_dto::tests::empty_items_rejected ... ok
+test business::erp::expense_dto::tests::invoice_type_domain_enforced ... ok
+test business::erp::expense_dto::tests::negative_amount_rejected ... ok
+test business::erp::expense_dto::tests::pay_amount_and_method_validated ... ok
+test business::erp::expense_dto::tests::tax_rate_out_of_range_rejected ... ok
+test business::erp::expense_dto::tests::type_amount_limit_non_negative ... ok
+test business::erp::expense_dto::tests::type_code_blank_means_auto_and_manual_is_kept ... ok
+test business::erp::expense_dto::tests::valid_report_passes ... ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 3489 filtered out; finished in 0.00s

@@ -1,0 +1,13 @@
+=== clippy（-D warnings -A clippy::too_many_arguments）错误归属统计 ===
+      2     --> src/business/erp/voucher.rs
+      1    --> src/business/flow/edge_admin_tests.rs
+      1    --> src/business/erp/year_end_linkage_tests.rs
+      1    --> src/business/erp/purchase_requisition_dto.rs
+      1    --> src/business/erp/fx_revaluation.rs
+      1    --> src/business/erp/asset_linkage.rs
+      1     --> src/business/flow/self_approval.rs
+      1     --> src/business/flow/assignee.rs
+      1     --> src/business/erp/opening.rs
+
+=== 本卡 5 个文件命中数 ===
+0
