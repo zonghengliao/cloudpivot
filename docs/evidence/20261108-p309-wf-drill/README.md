@@ -3,6 +3,7 @@
 - 卡：`t_91bba6c3`（前置 P3-02~P3-08 全部 done）
 - 日期：2026-11-08
 - 结论：**16 个场景 / 228 条断言全部 PASS，FAIL=0**；另复现出 1 个真实缺陷（B2b），已建修复卡 `t_886189f8`（`assignee=backend-developer`，`parents=[t_91bba6c3]`）。
+- **修复后复核（`t_886189f8` 交付）**：B2b 改写成「必须 APPROVED」的回归 + 新增 B2c（并行两支汇到同一个 END 必须等齐），全量复跑 **17 个场景 / PASS=243 / FAIL=0**，见 `raw/00_run_fix.txt` 与本文第 12 节。
 - 本卡**不改业务代码**：只造夹具（全部走真 HTTP API）、写演练脚本、写证据。
 
 ---
@@ -25,6 +26,8 @@ BASE=http://127.0.0.1:18091 DB=cloudpivot_p309_drill python3 docs/evidence/20261
 
 幂等性实测：**连跑三次**（`raw/00_run_2nd.txt`、`raw/00_run.txt` 为第 2、3 次）均为 `PASS=228 FAIL=0`，端口复核均为 `18091 监听行数=0 health=000`。
 
+修复后（`t_886189f8`）再跑一次全量：**`PASS=243 FAIL=0`**（`raw/00_run_fix.txt`），B2b 与新增的 B2c 全绿。
+
 ---
 
 ## 2. 环境口径（与卡面一致）
@@ -35,6 +38,7 @@ BASE=http://127.0.0.1:18091 DB=cloudpivot_p309_drill python3 docs/evidence/20261
 | 迁移 | 首启 `应用 274 个迁移`；`schema_migrations` 中 `kind='versioned'` = 263 条 |
 | 实例 | 隔离端口 `18091`，工作目录 `/opt/cloudpivot/backend`，`setsid` 后台启动 |
 | 二进制 | `/root/p308/bin/cloudpivot`，md5 `e1c33cd1fbfc565cf8fdfd6837ac993e` = **HEAD `506fa34`（P3-08 交付树）的 debug 构建产物**；`git status backend/src/business/flow/` 干净 |
+| 二进制（修复后复核） | `/root/p309/bin/cloudpivot`，md5 `7df255ef3b8f3dacbd5c207b569e9000` = **`38b813c` + `t_886189f8`（END 汇聚口径）的 debug 构建产物**；`lib.sh` 默认 `BIN` 已指向它 |
 | 三把密钥 | `NIK_MIDDLEWARE_AUTH_JWT_SECRET`(64) / `CLOUDPIVOT_STORAGE_MASTER_KEY`(64) / `X_CONFIG_SECRET_KEY`(32)，只在 `600` 权限的 `/root/p309/instance.env` 里，**仓库零密钥** |
 | 144 生产库 | **零读写**（脚本只连 127.0.0.1 本机测试库） |
 | 跑完状态 | 实例已停、库保留待复核：`18091 监听行数=0 / health=000`（见 `raw/00_run.txt` 末段、`raw/30_db_snapshot.txt` 第 7 节） |
@@ -51,8 +55,10 @@ BASE=http://127.0.0.1:18091 DB=cloudpivot_p309_drill python3 docs/evidence/20261
 | `scripts/30_snapshot.sh` | 关键 DB 行快照（实例/待办留痕/审计/round/并行汇聚/条件边/版本对照/种子 END join_mode） |
 | `raw/00_run.txt` | 第 3 次（最终）完整输出：`PASS=228 FAIL=0` |
 | `raw/00_run_2nd.txt` | 第 2 次完整输出（幂等证明，同样 `PASS=228 FAIL=0`） |
-| `raw/21_sql_assertions.txt` | 每条 SQL 断言 + 实际值 + 期望值；含各场景关键行快照 |
-| `raw/30_db_snapshot.txt` | 关库后的 7 组关键 DB 行快照 |
+| `raw/21_sql_assertions.txt` | 每条 SQL 断言 + 实际值 + 期望值；含各场景关键行快照（**内容为修复后那一次**；修复前版本见 git 历史） |
+| `raw/30_db_snapshot.txt` | 关库后的 7 组关键 DB 行快照（**修复前**那次，含 B2b 卡单行） |
+| `raw/00_run_fix.txt` | 修复后（`t_886189f8`）全量输出：`PASS=243 FAIL=0`（17 个场景） |
+| `raw/30_db_snapshot_fix.txt` | 修复后的 DB 行快照（B2b/B2c 两个 END 都是 `APPROVED`） |
 
 ---
 
@@ -268,4 +274,28 @@ pr_approve | END join_mode=OR
 - 二进制用的是 HEAD `506fa34` 的构建产物（`md5 e1c33cd1…`），与本卡证据同源；若复核时 `backend/src/business/flow/` 已有人改动，请重新构建后再跑。
 - 演练只覆盖**流程引擎侧**（定义/发布/运行/待办/委托/统计）；ERP 单据业务回调（采购/收货/应付 bridge）不在本卡范围（P3-08 的 S8 已覆盖回归面）。
 - `e2e.py` 可对同一个库重复跑（`mk_def` 会另存新草稿、用户角色会同步成计划口径），但**正式复跑请用 `00_run.sh` 换新库**，避免历史实例干扰计数型断言。
-- B2b 的 3 条「【缺陷】」断言目前断言的是**当前缺陷行为**（实例 PENDING）。修复卡落地后，这三条需按新口径改写（见修复卡验收项）。
+- B2b 的 3 条「【缺陷】」断言在 `t_886189f8` 已按新口径改写为「必须 APPROVED」，并新增 B2c 钉住「并行两支汇到同一个 END 仍要等齐」——见第 12 节。
+
+---
+
+## 12. 修复后复核（`t_886189f8` · END 汇聚口径）
+
+| 项 | 值 |
+|---|---|
+| 改动 | `backend/src/business/flow/engine.rs`（END 汇聚判据）、`flow_model_node.rs`（`inflight_node_keys`）、`graph.rs`（仅 R8 文档口径，**零快照/哈希改动**） |
+| 设计说明 | [`docs/工作流END汇聚语义修复.md`](../../工作流END汇聚语义修复.md) |
+| 二进制 | `/root/p309/bin/cloudpivot`，md5 `7df255ef3b8f3dacbd5c207b569e9000` |
+| 命令 | `bash docs/evidence/20261108-p309-wf-drill/scripts/00_run.sh`（`OUT_NAME=00_run_fix.txt`） |
+| 结果 | **17 个场景 / PASS=243 / FAIL=0**（原 228 + B2b 由 7→10 条 + 新增 B2c 12 条 + 场景自适应） |
+| DB 快照 | `raw/30_db_snapshot_fix.txt`：`B2b FLW-…9B77CEB7 | inst=APPROVED | END=APPROVED`、`B2c FLW-…E833D26F | inst=APPROVED | END=APPROVED | 两臂已签=2/2` |
+| 端口复核 | `18091 监听行数=0 / health=000` |
+
+场景口径变化：
+
+| 场景 | 修复前 | 修复后 |
+|---|---|---|
+| B2b（条件三档 → 同一个 END，END 未配 join_mode） | 7 条断言，其中 3 条断言「实例 PENDING / END PENDING」= **缺陷成立** | 10 条断言全部要求 **实例 APPROVED / END APPROVED / 无残留 ACTIVE-PENDING 行** |
+| B2c（**新增**：并行两臂 → 同一个 END，END 未配 join_mode） | — | 12 条断言：只签一臂时 END 仍 `PENDING`、实例仍 `PENDING`、另一臂待办不孤儿；两臂签完才 `APPROVED` |
+
+存量图哈希基线：修复前后各取一次 `biz_flow_def_version` 的 `(flow_code, version_no, graph_hash)`，**18 条非演练（种子 / 存量）流程逐行一致**；`p309_*` 是演练自建流程，快照里嵌当次随机的角色/用户 UUID，本来每次跑都不同（与本次改动无关）。
+

@@ -4,7 +4,9 @@
 #
 # 口径与 P3-02~P3-08 的证据脚本一致：
 #   · 隔离实例：**全新空库**（每次 drop/create）+ 独立端口 18091 + 二进制快照
-#     `/root/p308/bin/cloudpivot`（md5 e1c33cd1fbfc565cf8fdfd6837ac993e = HEAD 506fa34 的构建产物）；
+#     `/root/p309/bin/cloudpivot`（md5 7df255ef3b8f3dacbd5c207b569e9000 =
+#     38b813c + t_886189f8「END 汇聚口径」改动 的 debug 构建产物；
+#     原 P3-09 演练用的 /root/p308/bin/cloudpivot 是 506fa34 的产物，已不含本卡修复）；
 #   · 三把密钥与 admin 口令只在 600 权限的环境文件里（仓库不落任何口令/密钥）；
 #   · 144 生产库零读写（只连 127.0.0.1 本机测试库）。
 #
@@ -20,7 +22,7 @@ mkdir -p "$RAW"
 PORT=${PORT:-18091}
 DB=${DB:-cloudpivot_p309_drill}
 ENVF=${ENVF:-/root/p309/instance.env}
-BIN=${BIN:-/root/p308/bin/cloudpivot}
+BIN=${BIN:-/root/p309/bin/cloudpivot}
 RUN_DIR=${RUN_DIR:-/opt/cloudpivot/backend}
 ILOG=${ILOG:-/root/p309/instance.log}
 IPID=${IPID:-/root/p309/instance.pid}

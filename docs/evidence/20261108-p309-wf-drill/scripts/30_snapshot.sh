@@ -9,7 +9,7 @@
 set -uo pipefail
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 
-OUT="$RAW/30_db_snapshot.txt"
+OUT="${OUT_FILE:-$RAW/30_db_snapshot.txt}"
 : >"$OUT"
 exec > >(tee -a "$OUT") 2>&1
 export PGPASSWORD=alun
@@ -68,10 +68,16 @@ say "  [B2 条件] 每个实例走过的边："
 q "select i.title || ' | ' || n.node_key || ' -> ' || coalesce(n.taken_edge_key,'-')
      from biz_flow_instance i join biz_flow_instance_node n on n.instance_id=i.id
     where i.flow_code='p309_b2' and n.taken_edge_key is not null order by i.started_at desc, n.node_key limit 12"
-say "  [B2b 缺陷] END 默认 AND 的实例（应 APPROVED，实际 PENDING）："
+say "  [B2b 回归] 条件多分支汇到同一个 END（END 未配 join_mode）→ 必须 inst=APPROVED / END=APPROVED："
 q "select i.instance_no || ' | inst=' || i.status || ' | END=' ||
           coalesce((select status from biz_flow_instance_node n where n.instance_id=i.id and n.node_key='e'),'-')
      from biz_flow_instance i where i.flow_code='p309_b2_end_and' order by i.started_at desc limit 3"
+say "  [B2c 回归] 并行两臂汇到同一个 END（END 未配 join_mode）→ 必须 inst=APPROVED / END=APPROVED："
+q "select i.instance_no || ' | inst=' || i.status || ' | END=' ||
+          coalesce((select status from biz_flow_instance_node n where n.instance_id=i.id and n.node_key='e'),'-') ||
+          ' | 两臂已签=' || (select count(*) from biz_flow_instance_node n2 where n2.instance_id=i.id
+            and n2.node_key in ('n_a','n_b') and n2.status in ('APPROVED','SKIPPED')) || '/2'
+     from biz_flow_instance i where i.flow_code='p309_b2c_par_end' order by i.started_at desc limit 3"
 say "  [B3 版本冻结] 新旧实例绑的版本与节点名："
 q "select i.instance_no || ' | v' || i.version_no || ' | ' || i.title || ' | node=' ||
           (select node_name from biz_flow_instance_node n where n.instance_id=i.id and n.node_key='n_a')

@@ -9,6 +9,8 @@ urllib 封装（无第三方依赖），每条断言打印 [PASS]/[FAIL] 并计�
 覆盖：
   A. ARCH-8 §7.3 八条 ①-⑧（自审 SKIP/升级/兜底/ALLOW 审计/委托/FORBID/默认或签/留痕）
   B. ARCH-5 三项「已交付但零生产用例」：并行网关（AND 汇聚 / OR 汇聚）/ 条件动态路由 / 版本冻结
+     + 回归：B2b（条件多分支汇到同一个 END，END 未配 join_mode → 必须 APPROVED）
+             B2c（并行两支汇到同一个 END，END 未配 join_mode → 必须等两臂都签完）
   C. 驳回四目标：PREV / INITIATOR / NONE(FINAL) / 指定 node_key（+ 非 admin 传 node_key → 403）
 
 环境：隔离实例由 scripts/00_run.sh 用**全新空库**起在 $BASE；本脚本只消费它。
@@ -959,10 +961,12 @@ def s_b2():
 
 
 def s_b2b():
-    """缺陷复现（B2 的对照）：条件三档汇到同一个 END，END 未显式 join_mode → 默认 AND →
-    实例永久 PENDING。发布期不报（R8 的文档口径是「END 不参与汇聚门控」），运行期却门控。
-    与「条件动态路由」这一常见建模直接冲突：只要用户没在 END 上手动选 OR 就会卡单。"""
-    with scenario("B2b", "缺陷复现：多条入边的 END 默认 join=AND → 条件分支汇入后实例永久 PENDING"):
+    """回归（原缺陷 P3-09 B2b）：条件三档汇到同一个 END，END 未显式 join_mode →
+    修复后实例 APPROVED（END 不再按「入边都到达」门控，改判「本轮上游还有没有在跑的节点」）。
+
+    修复前的红：END 落 PENDING、实例永久 PENDING 且无任何报错（静默卡单）。
+    修复口径见 `docs/工作流END汇聚语义修复.md`：END 的 join_mode 在运行期不参与判定。"""
+    with scenario("B2b", "回归：条件多分支汇到同一个 END（END 未配 join_mode）→ 实例必须 APPROVED"):
         nodes = [
             node("s", "开始", "START", sort_order=1),
             node("c1", "金额分级①（< 1 万）", "CONDITION", x=160, sort_order=2,
@@ -972,7 +976,7 @@ def s_b2b():
                  fork_mode="AND", join_mode="OR"),
             appr("n_mid", "中额审批", "P309_PB", x=520, sort_order=5),
             appr("n_high", "大额审批", "P309_PC", x=520, y=160, sort_order=6),
-            # ★ 故意不写 join_mode（= NULL → 引擎 unwrap_or(AND)）
+            # ★ 故意不写 join_mode（快照里为 NULL / 'AND'）——作者不需要知道要选 OR
             node("e", "结束（未配 join_mode）", "END", x=720, sort_order=7),
         ]
         edges = [
@@ -987,28 +991,81 @@ def s_b2b():
             edge("e_high_end", "n_high", "e"),
         ]
         did = build_flow("p309_b2_end_and", "P309_B2_END_AND", nodes, edges,
-                         "P3-09 B2b 缺陷复现：END 未配 join_mode（默认 AND）")
+                         "P3-09 B2b 回归：END 未配 join_mode（默认 AND）也必须能正常结束")
         if not did:
             return
         st, body, iid = start("p309_b2_end_and", "u_init", "P3-09 B2b END 默认 AND", {"amount": 5000})
         eq("B2b 发起 → 200", st, 200)
         if not iid:
             return
+        eq("B2b 命中小额分支 n_low（ACTIVE）", node_status(iid, "n_low"), "ACTIVE")
+        sql_eq("B2b 未命中的两支没有节点行（条件路由只走一支）",
+               f"select count(*) from biz_flow_instance_node where instance_id='{iid}'::uuid "
+               "and node_key in ('n_mid','n_high')", 0)
         task = pending_task(iid, "u_pa", "n_low")
         st, _ = approve(task["id"], "u_pa", "B2b 唯一分支签完")
         eq("B2b 唯一分支审批 → 200", st, 200)
         eq("B2b 审批节点 n_low 已 APPROVED", node_status(iid, "n_low"), "APPROVED")
-        eq("B2b 【缺陷】实例仍是 PENDING（应为 APPROVED）", inst_status(iid), "PENDING")
-        eq("B2b 【缺陷】END 节点停在 PENDING（等人齐，但另两支永远不来）",
-           node_status(iid, "e"), "PENDING")
-        sql_eq("B2b END 入度 = 3、本轮只有 1 支到达",
+        eq("B2b END 节点 APPROVED（修复前停在 PENDING）", node_status(iid, "e"), "APPROVED")
+        eq("B2b 实例 APPROVED（修复前永久 PENDING）", inst_status(iid), "APPROVED")
+        sql_eq("B2b END 入度 3、本轮实际到达 1 支（另一支永不来的前提仍在）",
                f"select count(*) from biz_flow_instance_node where instance_id='{iid}'::uuid "
                "and status in ('APPROVED','SKIPPED') and node_key in ('n_low','n_mid','n_high')", 1)
-        sql_log("B2b 卡死事实",
+        sql_eq("B2b 实例里没有任何残留在跑的节点（ACTIVE/PENDING = 0）",
+               f"select count(*) from biz_flow_instance_node where instance_id='{iid}'::uuid "
+               "and status in ('ACTIVE','PENDING')", 0)
+        sql_log("B2b 时间线（修复后）",
+                f"select node_key||' | '||status||' | edge='||coalesce(taken_edge_key,'-')"
+                f" from biz_flow_instance_node where instance_id='{iid}'::uuid order by node_key")
+
+
+def s_b2c():
+    """回归（B2b 的对照组）：**并行**两支汇到同一个 END，END 未配 join_mode →
+    必须等两臂都签完才结束（第一臂签完时 END 仍 PENDING、实例仍 PENDING）。
+
+    这条断言钉住「修复没有被做成『END 到达即结束』」：那样会让另一臂的待办变成孤儿
+    （实例 PENDING、END 已 APPROVED，`maybe_finish` 再也调不到）。"""
+    with scenario("B2c", "并行两支汇到同一个 END（未配 join_mode）→ 等两臂都签完才 APPROVED"):
+        nodes = [
+            node("s", "开始", "START", sort_order=1),
+            node("f", "并行分叉", "PARALLEL", x=160, sort_order=2, fork_mode="AND", join_mode="AND"),
+            appr("n_a", "并行臂甲", "P309_PA", x=340, sort_order=3),
+            appr("n_b", "并行臂乙", "P309_PB", x=340, y=140, sort_order=4),
+            node("e", "结束（未配 join_mode）", "END", x=720, sort_order=5),
+        ]
+        edges = [
+            edge("e_s", "s", "f"), edge("e_fa", "f", "n_a"), edge("e_fb", "f", "n_b"),
+            edge("e_ae", "n_a", "e"), edge("e_be", "n_b", "e"),
+        ]
+        did = build_flow("p309_b2c_par_end", "P309_B2C_PAR_END", nodes, edges,
+                         "P3-09 B2c：并行两支汇到同一个 END，END 未配 join_mode")
+        if not did:
+            return
+        st, body, iid = start("p309_b2c_par_end", "u_init", "P3-09 B2c 并行汇同一个 END")
+        eq("B2c 发起 → 200", st, 200)
+        if not iid:
+            return
+        eq("B2c 臂甲 ACTIVE", node_status(iid, "n_a"), "ACTIVE")
+        eq("B2c 臂乙 ACTIVE", node_status(iid, "n_b"), "ACTIVE")
+        task_a = pending_task(iid, "u_pa", "n_a")
+        st, _ = approve(task_a["id"], "u_pa", "B2c 臂甲签完")
+        eq("B2c 只签一臂 → 200", st, 200)
+        eq("B2c 只签一臂：END 仍未结束（PENDING）", node_status(iid, "e"), "PENDING")
+        eq("B2c 只签一臂：实例仍 PENDING（另一臂待办不算孤儿）", inst_status(iid), "PENDING")
+        sql_eq("B2c 只签一臂：臂乙待办仍 PENDING",
+               f"select count(*) from biz_flow_task where instance_id='{iid}'::uuid "
+               "and node_key='n_b' and status='PENDING'", 1)
+        task_b = pending_task(iid, "u_pb", "n_b")
+        st, _ = approve(task_b["id"], "u_pb", "B2c 臂乙签完")
+        eq("B2c 两臂都签完（臂乙）→ 200", st, 200)
+        eq("B2c END APPROVED", node_status(iid, "e"), "APPROVED")
+        eq("B2c 实例 APPROVED", inst_status(iid), "APPROVED")
+        sql_eq("B2c 实例里没有残留在跑的节点",
+               f"select count(*) from biz_flow_instance_node where instance_id='{iid}'::uuid "
+               "and status in ('ACTIVE','PENDING')", 0)
+        sql_log("B2c 时间线",
                 f"select node_key||' | '||status from biz_flow_instance_node "
                 f"where instance_id='{iid}'::uuid order by node_key")
-        print("  ⚠ 已知缺陷：发布校验 check_join_mode 明确跳过 END（注释写「END 不做汇聚门控」），"
-              "但引擎 step() 对入度 ≥2 的节点一律走汇聚闸 → 两边口径矛盾。见修复卡。")
 
 
 def s_b3():
@@ -1247,7 +1304,7 @@ def main():
     all_scenarios = [
         ("A1", s_a1), ("A2", s_a2), ("A3", s_a3), ("A4", s_a4),
         ("A5", s_a5), ("A6", s_a6), ("A7", s_a7), ("A8", s_a8),
-        ("B1", s_b1), ("B2", s_b2), ("B2b", s_b2b), ("B3", s_b3),
+        ("B1", s_b1), ("B2", s_b2), ("B2b", s_b2b), ("B2c", s_b2c), ("B3", s_b3),
         ("C1", s_c1), ("C2", s_c2), ("C3", s_c3), ("C4", s_c4),
     ]
     if STAGE:
