@@ -3373,8 +3373,8 @@ mod tests {
         for head in ["数量", "单价", "金额", "税率(%)", "税额", "库位"] {
             assert!(html.contains(head), "明细表缺列：{head}");
         }
-        // 合计四要素 + 大写
-        for label in ["数量合计", "金额合计", "税额", "价税合计（大写）"] {
+        // 合计四要素 + 大写（大写标签写「价税合计大写」：加括号会在窄格子里折行）
+        for label in ["数量合计", "金额合计", "税额", "价税合计大写"] {
             assert!(html.contains(label), "合计行缺：{label}");
         }
         assert!(html.contains("人民币"));

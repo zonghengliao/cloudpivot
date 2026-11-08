@@ -153,10 +153,11 @@ table.detail td.c-spec { overflow-wrap: anywhere; }
   padding: 3pt 5pt;
 }
 .summary .label {
-  width: 80pt;
+  width: 92pt;
   text-align: center;
   background: #f2f3f5;
   font-weight: 700;
+  white-space: nowrap;
 }
 .summary .value-cn { font-weight: 700; letter-spacing: 0.3pt; }
 
@@ -257,7 +258,7 @@ table.detail td.c-spec { overflow-wrap: anywhere; }
       <td class="num" style="width:56pt">{{ row_count }}</td>
       <td class="label">数量合计</td>
       <td class="num" style="width:80pt">{{ total_qty }}</td>
-      <td class="label">成本金额合计（{{ currency }}）</td>
+      <td class="label">成本金额合计</td>
       <td class="num" style="width:96pt">{{ total_amount }}</td>
     </tr>
     <tr>
