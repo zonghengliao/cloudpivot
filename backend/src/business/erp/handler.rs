@@ -447,10 +447,10 @@ pub async fn warehouse_detail(Path(id): Path<String>) -> ResResult<WarehouseRes>
 ///
 /// # 异常情况
 ///
-/// - 400 + `10001`：`level` 与上级层级不一致 / 字段不合规；
+/// - 400 + `10001`：`level` 与上级层级不一致 / 字段不合规 / `warehouse_code` 格式不合法；
 /// - 400 + `66002`：上级仓库不存在；
 /// - 400 + `66004`：超过 3 层；
-/// - 409 + `66001`：`warehouse_code` 重复。
+/// - 409 + `66001`：`warehouse_code` 重复（文案点名具体编码）。
 #[nik::permission(
     path = "/business/erp/warehouse",
     method = "POST",
@@ -461,7 +461,45 @@ pub async fn warehouse_create(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Json(req): Json<CreateWarehouseReq>,
 ) -> ResResult<WarehouseRes> {
+    let res = create_warehouse(utils::current_user_uuid(&claims), req).await?;
+    Ok(Res::ok(res))
+}
+
+/// 新建仓库的**业务主体**（CODE-03：编码留空则由后端取号 `WH-01` 形态）。
+///
+/// axum handler [`warehouse_create`] 只做参数解包，单测直接调本函数
+/// （同一条代码路径，只跳过认证）。
+///
+/// # 编码口径（用户已拍板，不许改）
+///
+/// | 入参 `warehouse_code` | 行为 |
+/// |---|---|
+/// | `null` / `""` / 纯空白 | 自动取号：`WH-01` 形态（`biz_seq` 的 WH 号段，**纯流水 2 位**、不计日期、永不重置）；撞号自动顺延 |
+/// | 有值 | **原样保留**（企业自有编码体系要能对接，`CK-01` 也行），只校验长度 ≤ 40 + 字符集 |
+///
+/// 位数由 `biz_seq.pad_width` 决定（WH = 2）：`WH-01` … `WH-99`，第 100 个起自然变成
+/// `WH-100`（[`seq::format_master_code`] 只补零不截断，避免 2 位号段被腰斩成重号）。
+///
+/// # 取号与落库同一事务
+///
+/// 取号是 `UPDATE biz_seq … RETURNING`（行锁），插入失败则整体回滚、号一起退回，
+/// 不留空号；并发建两个仓库也不会拿到同一个号。
+pub async fn create_warehouse(
+    operator: Option<Uuid>,
+    req: CreateWarehouseReq,
+) -> std::result::Result<WarehouseRes, ApiError> {
     req.validate()?;
+    // ① 手工编码：有值就保留（先去重，给出「编码 XXX 已存在」的人话错误）
+    let manual = seq::resolve_manual_code(req.warehouse_code.as_deref(), seq::MAX_MANUAL_CODE_LEN)
+        .map_err(|reason| param_invalid(format!("warehouse_code 不合法：{reason}")))?;
+    if let Some(code) = manual.as_deref() {
+        let taken = seq::master_code_taken(db(), "WH", code)
+            .await
+            .map_err(|error| utils::db_error(error, "校验仓库编码唯一性"))?;
+        if taken {
+            return Err(warehouse_code_conflict(code));
+        }
+    }
     let id = Uuid::now_v7();
     let parent = match req
         .parent_id
@@ -499,6 +537,13 @@ pub async fn warehouse_create(
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启新建仓库事务"))?;
+    // ② 编码 + INSERT 同一事务：没填就取号，插入失败则号一起回滚
+    let warehouse_code = match manual {
+        Some(code) => code,
+        None => seq::next_master_code_free(&tx, "WH")
+            .await
+            .map_err(|error| seq_error(error, "新建仓库"))?,
+    };
     tx.execute_with_params(
         "INSERT INTO biz_warehouse \
          (id, warehouse_code, warehouse_name, warehouse_type, manager, allow_negative, address, \
@@ -509,7 +554,7 @@ pub async fn warehouse_create(
                  NULLIF(?::text,'')::uuid, ?, ?, 1)",
         vec![
             Value::from(&id),
-            Value::from(req.warehouse_code.trim().to_string()),
+            Value::from(warehouse_code.clone()),
             Value::from(req.warehouse_name.trim().to_string()),
             Value::from(req.warehouse_type.clone()),
             Value::from(req.manager.clone().map(|text| text.trim().to_string())),
@@ -518,15 +563,15 @@ pub async fn warehouse_create(
             Value::I16(req.status),
             Value::I32(req.sort_order),
             Value::from(req.remark.clone()),
-            operator_of(&claims),
-            operator_of(&claims),
+            uuid_text(operator),
+            uuid_text(operator),
             uuid_text(parent.as_ref().map(|row| row.id)),
             Value::I16(level),
             Value::from(path),
         ],
     )
     .await
-    .map_err(|error| write_error(error, "新建仓库"))?;
+    .map_err(|error| warehouse_write_error(error, &warehouse_code))?;
     if let Some(row) = parent.as_ref() {
         tx.execute_with_params(
             "UPDATE biz_warehouse SET is_leaf = 0, updated_at = now() WHERE id = ?::uuid",
@@ -542,7 +587,24 @@ pub async fn warehouse_create(
         .await
         .map_err(|error| utils::db_error(error, "回读新建仓库"))?
         .ok_or_else(|| not_found("仓库"))?;
-    Ok(Res::ok(WarehouseRes::from(&row)))
+    Ok(WarehouseRes::from(&row))
+}
+
+/// 仓库编码重复（409 + `66001`）：文案与供应商 / 客户 / 物料同一套口径（已软删的编码可复用）。
+fn warehouse_code_conflict(code: &str) -> ApiError {
+    ApiError::new(
+        409,
+        error_code::ERP_CODE_CONFLICT,
+        format!("仓库编码 `{code}` 已存在（已软删的编码可以复用）"),
+    )
+}
+
+/// 仓库写路径的 DB 错误收口：唯一索引冲突翻成**带编码**的 409，其余走 [`write_error`]。
+fn warehouse_write_error(err: DbError, code: &str) -> ApiError {
+    match &err {
+        DbError::UniqueViolation { .. } => warehouse_code_conflict(code),
+        _ => write_error(err, "新建仓库"),
+    }
 }
 
 /// 编辑仓库（**不允许换上级**：换上级等于整棵子树重写路径，应由专门的移动接口做）。
@@ -987,6 +1049,11 @@ pub async fn material_detail(Path(id): Path<String>) -> ResResult<MaterialRes> {
 }
 
 /// 新建物料（计量单位必须存在；默认仓库 / 存货科目存在性同样校验）。
+///
+/// # 编码（CODE-03）
+///
+/// `material_code` 留空（`null` / `""` / 纯空白）⇒ 自动取号 `MAT-0001` 形态；
+/// 有值 ⇒ 原样保留。口径详见 [`create_material`]。
 #[nik::permission(
     path = "/business/erp/material",
     method = "POST",
@@ -997,7 +1064,48 @@ pub async fn material_create(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Json(req): Json<CreateMaterialReq>,
 ) -> ResResult<MaterialRes> {
+    let res = create_material(utils::current_user_uuid(&claims), req).await?;
+    Ok(Res::ok(res))
+}
+
+/// 新建物料的**业务主体**（CODE-03：编码留空则由后端取号 `MAT-0001` 形态）。
+///
+/// axum handler [`material_create`] 只做参数解包，单测直接调本函数
+/// （同一条代码路径，只跳过认证）。
+///
+/// # 编码口径（用户已拍板，不许改）
+///
+/// | 入参 `material_code` | 行为 |
+/// |---|---|
+/// | `null` / `""` / 纯空白 | 自动取号：`MAT-0001` 形态（`biz_seq` 的 MAT 号段，纯流水 4 位、不计日期、永不重置）；撞号自动顺延 |
+/// | 有值 | **原样保留**（物料常按分类自编号，`YB-001-02` 也必须能用），只校验长度 ≤ 40 + 字符集 |
+///
+/// # 取号与落库同一事务
+///
+/// 取号是 `UPDATE biz_seq … RETURNING`（行锁），插入失败则整体回滚、号一起退回，
+/// 不留空号；并发建两个物料也不会拿到同一个号。
+///
+/// # 错误口径
+///
+/// - 手工编码已存在（预检命中 / 并发撞唯一索引）→ `409 + 66001`「物料编码 `XXX` 已存在」；
+/// - 编码格式不合法 → `400 + 10001`；
+/// - 取号规则缺失 / 连号全被占 → `500 + 10004`。
+pub async fn create_material(
+    operator: Option<Uuid>,
+    req: CreateMaterialReq,
+) -> std::result::Result<MaterialRes, ApiError> {
     req.validate()?;
+    // ① 手工编码：有值就保留（先去重，给出「编码 XXX 已存在」的人话错误）
+    let manual = seq::resolve_manual_code(req.material_code.as_deref(), seq::MAX_MANUAL_CODE_LEN)
+        .map_err(|reason| param_invalid(format!("material_code 不合法：{reason}")))?;
+    if let Some(code) = manual.as_deref() {
+        let taken = seq::master_code_taken(db(), "MAT", code)
+            .await
+            .map_err(|error| utils::db_error(error, "校验物料编码唯一性"))?;
+        if taken {
+            return Err(material_code_conflict(code));
+        }
+    }
     let unit_id = parse_uuid(&req.unit_id, "unit_id")?;
     let unit = model::unit_find_by_id(unit_id)
         .await
@@ -1050,7 +1158,18 @@ pub async fn material_create(
         None => None,
     };
     let id = Uuid::now_v7();
-    db().execute_with_params(
+    // ② 编码 + INSERT 同一事务：没填就取号，插入失败则号一起回滚
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启新建物料事务"))?;
+    let material_code = match manual {
+        Some(code) => code,
+        None => seq::next_master_code_free(&tx, "MAT")
+            .await
+            .map_err(|error| seq_error(error, "新建物料"))?,
+    };
+    tx.execute_with_params(
         "INSERT INTO biz_material \
              (id, material_code, material_name, spec, unit_id, material_type, \
               default_warehouse_id, safety_stock, costing_method, inventory_account_id, tax_rate, \
@@ -1061,7 +1180,7 @@ pub async fn material_create(
                      NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)",
         vec![
             Value::from(&id),
-            Value::from(req.material_code.trim().to_string()),
+            Value::from(material_code.clone()),
             Value::from(req.material_name.trim().to_string()),
             Value::from(req.spec.clone()),
             Value::from(&unit_id),
@@ -1083,17 +1202,37 @@ pub async fn material_create(
             Value::I16(req.status),
             Value::from(req.serial_required.unwrap_or(false)),
             Value::from(req.remark.clone()),
-            operator_of(&claims),
-            operator_of(&claims),
+            uuid_text(operator),
+            uuid_text(operator),
         ],
     )
     .await
-    .map_err(|error| write_error(error, "新建物料"))?;
+    .map_err(|error| material_write_error(error, &material_code))?;
+    tx.commit()
+        .await
+        .map_err(|error| utils::db_error(error, "提交新建物料事务"))?;
     let row = model::material_find_by_id(id)
         .await
         .map_err(|error| utils::db_error(error, "回读新建物料"))?
         .ok_or_else(|| not_found("物料"))?;
-    Ok(Res::ok(MaterialRes::from(&row)))
+    Ok(MaterialRes::from(&row))
+}
+
+/// 物料编码重复（409 + `66001`）：文案与供应商 / 客户 / 仓库同一套口径（已软删的编码可复用）。
+fn material_code_conflict(code: &str) -> ApiError {
+    ApiError::new(
+        409,
+        error_code::ERP_CODE_CONFLICT,
+        format!("物料编码 `{code}` 已存在（已软删的编码可以复用）"),
+    )
+}
+
+/// 物料写路径的 DB 错误收口：唯一索引冲突翻成**带编码**的 409，其余走 [`write_error`]。
+fn material_write_error(err: DbError, code: &str) -> ApiError {
+    match &err {
+        DbError::UniqueViolation { .. } => material_code_conflict(code),
+        _ => write_error(err, "新建物料"),
+    }
 }
 
 /// 编辑物料。
@@ -2541,7 +2680,7 @@ mod tests {
     /// 造一个可挂库位的叶子仓库。
     async fn make_leaf_warehouse(tag: &str) -> Uuid {
         let req = CreateWarehouseReq {
-            warehouse_code: code(tag),
+            warehouse_code: Some(code(tag)),
             warehouse_name: format!("W1C 测试仓 {tag}"),
             warehouse_type: "NORMAL".to_string(),
             manager: None,
@@ -2911,7 +3050,7 @@ mod tests {
         let Some(_guard) = setup().await else { return };
         let root = make_leaf_warehouse("W3L1").await;
         let sub_req = CreateWarehouseReq {
-            warehouse_code: code("W3L2"),
+            warehouse_code: Some(code("W3L2")),
             warehouse_name: "W1C 分仓".to_string(),
             warehouse_type: "RAW".to_string(),
             manager: None,
@@ -2935,7 +3074,7 @@ mod tests {
         assert_eq!(root_row.is_leaf, 0, "有了下级就不再是叶子");
 
         let leaf_req = CreateWarehouseReq {
-            warehouse_code: code("W3L3"),
+            warehouse_code: Some(code("W3L3")),
             warehouse_name: "W1C 库房".to_string(),
             warehouse_type: "FINISHED".to_string(),
             manager: None,
@@ -2957,7 +3096,7 @@ mod tests {
 
         // 第 4 层：level 给 3（dto 只允许 1..=3 的关系），层级守卫先拦
         let too_deep = CreateWarehouseReq {
-            warehouse_code: code("W3L4"),
+            warehouse_code: Some(code("W3L4")),
             warehouse_name: "W1C 第4层".to_string(),
             warehouse_type: "NORMAL".to_string(),
             manager: None,
@@ -2977,7 +3116,7 @@ mod tests {
 
         // level 与上级不一致 → 400 + 10001（上级是第 2 层 ⇒ 推导应为 3，这里故意填 2）
         let wrong_level = CreateWarehouseReq {
-            warehouse_code: code("W3LX"),
+            warehouse_code: Some(code("W3LX")),
             warehouse_name: "W1C 层级不符".to_string(),
             warehouse_type: "NORMAL".to_string(),
             manager: None,
@@ -3006,7 +3145,7 @@ mod tests {
         let Some(_guard) = setup().await else { return };
         let root = make_leaf_warehouse("WT1").await;
         let sub_req = CreateWarehouseReq {
-            warehouse_code: code("WT2"),
+            warehouse_code: Some(code("WT2")),
             warehouse_name: "W1C 树分仓".to_string(),
             warehouse_type: "NORMAL".to_string(),
             manager: None,
@@ -3025,7 +3164,7 @@ mod tests {
         );
         let sub_id = Uuid::parse_str(&sub.id).unwrap();
         let leaf_req = CreateWarehouseReq {
-            warehouse_code: code("WT3"),
+            warehouse_code: Some(code("WT3")),
             warehouse_name: "W1C 树库房".to_string(),
             warehouse_type: "NORMAL".to_string(),
             manager: None,
@@ -3083,7 +3222,7 @@ mod tests {
         let Some(_guard) = setup().await else { return };
         let root = make_leaf_warehouse("WDEL").await;
         let sub_req = CreateWarehouseReq {
-            warehouse_code: code("WDEL2"),
+            warehouse_code: Some(code("WDEL2")),
             warehouse_name: "W1C 待删子仓".to_string(),
             warehouse_type: "NORMAL".to_string(),
             manager: None,
@@ -3160,7 +3299,7 @@ mod tests {
             warehouse_create(
                 Extension(AuthClaims(claims())),
                 Json(CreateWarehouseReq {
-                    warehouse_code: code("WPARENT2"),
+                    warehouse_code: Some(code("WPARENT2")),
                     warehouse_name: "W1C 非叶子".to_string(),
                     warehouse_type: "NORMAL".to_string(),
                     manager: None,
@@ -3286,7 +3425,7 @@ mod tests {
         let error = material_create(
             Extension(AuthClaims(claims())),
             Json(CreateMaterialReq {
-                material_code: code("MBAD"),
+                material_code: Some(code("MBAD")),
                 material_name: "W1C 坏物料".to_string(),
                 spec: None,
                 unit_id: Uuid::now_v7().to_string(),
@@ -3311,7 +3450,7 @@ mod tests {
             material_create(
                 Extension(AuthClaims(claims())),
                 Json(CreateMaterialReq {
-                    material_code: material_code.clone(),
+                    material_code: Some(material_code.clone()),
                     material_name: "W1C 六角螺栓".to_string(),
                     spec: Some("M8x20".to_string()),
                     unit_id: unit_id.to_string(),
@@ -3443,7 +3582,7 @@ mod tests {
         let error = material_create(
             Extension(AuthClaims(claims())),
             Json(CreateMaterialReq {
-                material_code: rejected_code.clone(),
+                material_code: Some(rejected_code.clone()),
                 material_name: "W1C 箱装物料".to_string(),
                 spec: None,
                 unit_id: box_id.to_string(),
@@ -3484,7 +3623,7 @@ mod tests {
             material_create(
                 Extension(AuthClaims(claims())),
                 Json(CreateMaterialReq {
-                    material_code: code("MOK"),
+                    material_code: Some(code("MOK")),
                     material_name: "W1C 六角螺栓".to_string(),
                     spec: Some("M8x20".to_string()),
                     unit_id: base_id.to_string(),
@@ -3841,7 +3980,7 @@ mod tests {
                 warehouse_create(
                     Extension(AuthClaims(claims())),
                     Json(CreateWarehouseReq {
-                        warehouse_code: format!("{marker}-{index}"),
+                        warehouse_code: Some(format!("{marker}-{index}")),
                         warehouse_name: format!("W1C 分页仓 {index}"),
                         warehouse_type: "NORMAL".to_string(),
                         manager: None,
@@ -3961,5 +4100,335 @@ mod tests {
             warehouse_path: path.to_string(),
             is_leaf: 1,
         }
+    }
+
+    // ==================== CODE-03：物料 / 仓库编码自动取号 ====================
+    //
+    // 同 CODE-02：这几条用例会真的**消耗 MAT / WH 号段**（自动取号就是被验证的行为本身），
+    // 只按 id 物理删掉自己建的行，不回退 `biz_seq.current_no`：主数据是档案，建成功就该永久占号。
+
+    /// 仓库编码形态：`WH-` + ≥2 位纯流水（WH 的 `biz_seq.pad_width = 2`，`WH-01`）。
+    ///
+    /// 与物料的 4 位形态分开写：位数是**每类主数据自己的规则**，混用会掩盖取号规则的漂移。
+    fn is_auto_wh_code(code: &str) -> bool {
+        let Some(digits) = code.strip_prefix("WH-") else {
+            return false;
+        };
+        digits.len() >= 2 && digits.chars().all(|ch| ch.is_ascii_digit())
+    }
+
+    /// 造一个基本计量单位（物料必须挂基本单位），返回 id。
+    async fn base_unit(tag: &str) -> Uuid {
+        let unit = data(
+            unit_create(
+                Extension(AuthClaims(claims())),
+                Json(CreateUnitReq {
+                    unit_code: code(&format!("U{tag}")),
+                    unit_name: format!("W1C 单位 {tag}"),
+                    is_base: true,
+                    base_unit_id: None,
+                    rate: None,
+                    status: 1,
+                    sort_order: 0,
+                    remark: None,
+                    precision: None,
+                }),
+            )
+            .await
+            .expect("建基本单位"),
+        );
+        Uuid::parse_str(&unit.id).expect("单位 id")
+    }
+
+    /// 造一个物料请求：`material_code` 传 `None` = 留空自动取号。
+    fn material_req(material_code: Option<&str>, unit_id: &Uuid, name: &str) -> CreateMaterialReq {
+        CreateMaterialReq {
+            material_code: material_code.map(str::to_string),
+            material_name: name.to_string(),
+            spec: None,
+            unit_id: unit_id.to_string(),
+            material_type: "RAW".to_string(),
+            default_warehouse_id: None,
+            safety_stock: None,
+            costing_method: "MOVING_AVG".to_string(),
+            inventory_account_id: None,
+            tax_rate: None,
+            status: 1,
+            serial_required: None,
+            remark: None,
+        }
+    }
+
+    /// 造一个仓库请求：`warehouse_code` 传 `None` = 留空自动取号。
+    fn warehouse_req(warehouse_code: Option<&str>, name: &str) -> CreateWarehouseReq {
+        CreateWarehouseReq {
+            warehouse_code: warehouse_code.map(str::to_string),
+            warehouse_name: name.to_string(),
+            warehouse_type: "NORMAL".to_string(),
+            manager: None,
+            allow_negative: false,
+            address: None,
+            status: 1,
+            sort_order: 0,
+            remark: None,
+            parent_id: None,
+            level: 1,
+        }
+    }
+
+    /// ㉙ CODE-03 ①：物料 `null` / `""` / 纯空白三种「没填」都自动取号，且真落库。
+    #[tokio::test]
+    async fn material_auto_code_generated_when_blank() {
+        let Some(_guard) = setup().await else { return };
+        let unit_id = base_unit("MAT").await;
+
+        let by_none = create_material(None, material_req(None, &unit_id, "自动编码物料（未传）"))
+            .await
+            .expect("material_code 缺席应自动取号");
+        assert!(
+            is_auto_code(&by_none.material_code, "MAT"),
+            "自动编码必须是 MAT-0001 形态，实际 {}",
+            by_none.material_code
+        );
+        let id = Uuid::parse_str(&by_none.id).expect("id");
+        let row = model::material_find_by_id(id)
+            .await
+            .expect("回读")
+            .expect("行存在");
+        assert_eq!(
+            row.material_code, by_none.material_code,
+            "自动编码必须真落库"
+        );
+
+        let by_empty = create_material(
+            None,
+            material_req(Some(""), &unit_id, "自动编码物料（空串）"),
+        )
+        .await
+        .expect("空串应自动取号");
+        assert!(
+            is_auto_code(&by_empty.material_code, "MAT"),
+            "{}",
+            by_empty.material_code
+        );
+        assert_ne!(
+            by_empty.material_code, by_none.material_code,
+            "两次自动取号不得同号"
+        );
+
+        let by_blank = create_material(
+            None,
+            material_req(Some("   "), &unit_id, "自动编码物料（空白）"),
+        )
+        .await
+        .expect("纯空白应自动取号");
+        assert!(
+            is_auto_code(&by_blank.material_code, "MAT"),
+            "{}",
+            by_blank.material_code
+        );
+        assert_ne!(
+            by_blank.material_code, by_empty.material_code,
+            "三次自动取号两两不同"
+        );
+
+        for created in [by_none, by_empty, by_blank] {
+            hard_delete("biz_material", Uuid::parse_str(&created.id).expect("id")).await;
+        }
+        hard_delete("biz_unit", unit_id).await;
+    }
+
+    /// ㉚ CODE-03 ②：物料手工编码原样保留（按分类自编号 `YB-001-02` 也要能用），只 trim。
+    #[tokio::test]
+    async fn material_manual_code_is_preserved() {
+        let Some(_guard) = setup().await else { return };
+        let unit_id = base_unit("MATM").await;
+        let manual = "W1C-YB-001-02";
+        let created = create_material(
+            None,
+            material_req(Some(&format!("  {manual}  ")), &unit_id, "手工编码物料"),
+        )
+        .await
+        .expect("手工编码应保留");
+        assert_eq!(
+            created.material_code, manual,
+            "手工编码只 trim，不改成 MAT-xxx"
+        );
+
+        hard_delete("biz_material", Uuid::parse_str(&created.id).expect("id")).await;
+        hard_delete("biz_unit", unit_id).await;
+    }
+
+    /// ㉛ CODE-03 ③：物料连续两次自动取号 → 流水 +1。
+    #[tokio::test]
+    async fn material_auto_code_increments_consecutively() {
+        let Some(_guard) = setup().await else { return };
+        let unit_id = base_unit("MATC").await;
+        let first = create_material(None, material_req(None, &unit_id, "连续取号物料甲"))
+            .await
+            .expect("建甲");
+        let second = create_material(None, material_req(None, &unit_id, "连续取号物料乙"))
+            .await
+            .expect("建乙");
+        assert_eq!(
+            seq_no(&second.material_code),
+            seq_no(&first.material_code) + 1,
+            "连续自动取号必须 +1（{} → {}）",
+            first.material_code,
+            second.material_code
+        );
+
+        hard_delete("biz_material", Uuid::parse_str(&first.id).expect("id")).await;
+        hard_delete("biz_material", Uuid::parse_str(&second.id).expect("id")).await;
+        hard_delete("biz_unit", unit_id).await;
+    }
+
+    /// ㉜ CODE-03 ④：物料手工编码重复 → `409 + 66001`，文案点名具体编码（不靠唯一索引兜底）。
+    #[tokio::test]
+    async fn material_duplicate_code_rejected_with_message() {
+        let Some(_guard) = setup().await else { return };
+        let unit_id = base_unit("MATD").await;
+        let manual = code("MATDUP");
+        let created = create_material(
+            None,
+            material_req(Some(&manual), &unit_id, "重复编码物料一号"),
+        )
+        .await
+        .expect("首次创建应成功");
+        let error = create_material(
+            None,
+            material_req(Some(&manual), &unit_id, "重复编码物料二号"),
+        )
+        .await
+        .expect_err("重复手工编码必须被拒");
+        assert_eq!(error.status, 409);
+        assert_eq!(error.code, error_code::ERP_CODE_CONFLICT, "66001");
+        assert!(
+            error.msg.contains(&manual),
+            "错误文案要点名具体编码：{}",
+            error.msg
+        );
+
+        hard_delete("biz_material", Uuid::parse_str(&created.id).expect("id")).await;
+        hard_delete("biz_unit", unit_id).await;
+    }
+
+    /// ㉝ CODE-03 ⑤：仓库 `null` / `""` / 纯空白三种「没填」都自动取号（**2 位** `WH-01`），且真落库。
+    #[tokio::test]
+    async fn warehouse_auto_code_generated_when_blank() {
+        let Some(_guard) = setup().await else { return };
+
+        let by_none = create_warehouse(None, warehouse_req(None, "自动编码仓库（未传）"))
+            .await
+            .expect("warehouse_code 缺席应自动取号");
+        assert!(
+            is_auto_wh_code(&by_none.warehouse_code),
+            "自动编码必须是 WH-01 形态（2 位流水），实际 {}",
+            by_none.warehouse_code
+        );
+        let id = Uuid::parse_str(&by_none.id).expect("id");
+        let row = model::warehouse_find_by_id(id)
+            .await
+            .expect("回读")
+            .expect("行存在");
+        assert_eq!(
+            row.warehouse_code, by_none.warehouse_code,
+            "自动编码必须真落库"
+        );
+        assert_eq!(row.level, 1, "自动编码不影响层级推导");
+        assert_eq!(row.warehouse_path, format!("/{id}/"));
+
+        let by_empty = create_warehouse(None, warehouse_req(Some(""), "自动编码仓库（空串）"))
+            .await
+            .expect("空串应自动取号");
+        assert!(
+            is_auto_wh_code(&by_empty.warehouse_code),
+            "{}",
+            by_empty.warehouse_code
+        );
+        assert_ne!(
+            by_empty.warehouse_code, by_none.warehouse_code,
+            "两次自动取号不得同号"
+        );
+
+        let by_blank = create_warehouse(None, warehouse_req(Some("   "), "自动编码仓库（空白）"))
+            .await
+            .expect("纯空白应自动取号");
+        assert!(
+            is_auto_wh_code(&by_blank.warehouse_code),
+            "{}",
+            by_blank.warehouse_code
+        );
+        assert_ne!(
+            by_blank.warehouse_code, by_empty.warehouse_code,
+            "三次自动取号两两不同"
+        );
+
+        for created in [by_none, by_empty, by_blank] {
+            hard_delete("biz_warehouse", Uuid::parse_str(&created.id).expect("id")).await;
+        }
+    }
+
+    /// ㉞ CODE-03 ⑥：仓库手工编码原样保留（`CK-01` 这类企业自有编码），只 trim。
+    #[tokio::test]
+    async fn warehouse_manual_code_is_preserved() {
+        let Some(_guard) = setup().await else { return };
+        let manual = "W1C-CK-01";
+        let created = create_warehouse(
+            None,
+            warehouse_req(Some(&format!("  {manual}  ")), "手工编码仓库"),
+        )
+        .await
+        .expect("手工编码应保留");
+        assert_eq!(
+            created.warehouse_code, manual,
+            "手工编码只 trim，不改成 WH-xx"
+        );
+
+        hard_delete("biz_warehouse", Uuid::parse_str(&created.id).expect("id")).await;
+    }
+
+    /// ㉟ CODE-03 ⑦：仓库连续两次自动取号 → 流水 +1（2 位号段同口径）。
+    #[tokio::test]
+    async fn warehouse_auto_code_increments_consecutively() {
+        let Some(_guard) = setup().await else { return };
+        let first = create_warehouse(None, warehouse_req(None, "连续取号仓库甲"))
+            .await
+            .expect("建甲");
+        let second = create_warehouse(None, warehouse_req(None, "连续取号仓库乙"))
+            .await
+            .expect("建乙");
+        assert_eq!(
+            seq_no(&second.warehouse_code),
+            seq_no(&first.warehouse_code) + 1,
+            "连续自动取号必须 +1（{} → {}）",
+            first.warehouse_code,
+            second.warehouse_code
+        );
+
+        hard_delete("biz_warehouse", Uuid::parse_str(&first.id).expect("id")).await;
+        hard_delete("biz_warehouse", Uuid::parse_str(&second.id).expect("id")).await;
+    }
+
+    /// ㊱ CODE-03 ⑧：仓库手工编码重复 → `409 + 66001`，文案点名具体编码。
+    #[tokio::test]
+    async fn warehouse_duplicate_code_rejected_with_message() {
+        let Some(_guard) = setup().await else { return };
+        let manual = code("WHDUP");
+        let created = create_warehouse(None, warehouse_req(Some(&manual), "重复编码仓库一号"))
+            .await
+            .expect("首次创建应成功");
+        let error = create_warehouse(None, warehouse_req(Some(&manual), "重复编码仓库二号"))
+            .await
+            .expect_err("重复手工编码必须被拒");
+        assert_eq!(error.status, 409);
+        assert_eq!(error.code, error_code::ERP_CODE_CONFLICT, "66001");
+        assert!(
+            error.msg.contains(&manual),
+            "错误文案要点名具体编码：{}",
+            error.msg
+        );
+
+        hard_delete("biz_warehouse", Uuid::parse_str(&created.id).expect("id")).await;
     }
 }

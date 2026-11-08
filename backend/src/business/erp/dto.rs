@@ -474,7 +474,14 @@ impl From<&UnitRow> for UnitRes {
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateWarehouseReq {
     /// 编码（`VARCHAR(40)`，未删除内唯一）。
-    pub warehouse_code: String,
+    ///
+    /// **CODE-03**：留空（`null` / `""` / 纯空白）⇒ 后端自动取号 **`WH-01` 形态**
+    /// （`biz_seq` 的 WH 号段：**纯流水 2 位**、不计日期、永不重置；撞号自动顺延，
+    /// 超过 2 位按实际位数输出，例如 `WH-100`）；
+    /// 有值 ⇒ 原样保留（企业自有编码体系要能对接），只校验长度 ≤ 40 + 字符集，
+    /// 解析口径见 `erp::seq::resolve_manual_code`。
+    #[serde(default)]
+    pub warehouse_code: Option<String>,
     /// 名称（`VARCHAR(120)`）。
     pub warehouse_name: String,
     /// 类型（缺省 `NORMAL`）。
@@ -509,7 +516,12 @@ pub struct CreateWarehouseReq {
 impl CreateWarehouseReq {
     /// 校验（`400 + 10001`）。
     pub fn validate(&self) -> std::result::Result<(), ApiError> {
-        require_text(&self.warehouse_code, "warehouse_code", 40)?;
+        // 编码可留空（CODE-03：留空则由后端取号）；填了才校验「可用性」。
+        crate::business::erp::seq::resolve_manual_code(
+            self.warehouse_code.as_deref(),
+            crate::business::erp::seq::MAX_MANUAL_CODE_LEN,
+        )
+        .map_err(|reason| bad_request(format!("warehouse_code 不合法：{reason}")))?;
         require_text(&self.warehouse_name, "warehouse_name", 120)?;
         require_one_of(&self.warehouse_type, &WAREHOUSE_TYPES, "warehouse_type")?;
         require_flag(self.status, "status")?;
@@ -971,7 +983,13 @@ fn default_costing_method() -> String {
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateMaterialReq {
     /// 物料编码（`VARCHAR(40)`，未删除内唯一）。
-    pub material_code: String,
+    ///
+    /// **CODE-03**：留空（`null` / `""` / 纯空白）⇒ 后端自动取号 `MAT-0001` 形态
+    /// （`biz_seq` 的 MAT 号段：纯流水 4 位、不计日期、永不重置；撞号自动顺延）；
+    /// 有值 ⇒ **原样保留**（企业自有编码体系 / 按分类编号要能对接），
+    /// 只校验长度 ≤ 40 + 字符集，解析口径见 `erp::seq::resolve_manual_code`。
+    #[serde(default)]
+    pub material_code: Option<String>,
     /// 物料名称（`VARCHAR(120)`）。
     pub material_name: String,
     /// 规格型号。
@@ -1014,7 +1032,14 @@ pub struct CreateMaterialReq {
 impl CreateMaterialReq {
     /// 校验（`400 + 10001`）。
     pub fn validate(&self) -> std::result::Result<(), ApiError> {
-        require_text(&self.material_code, "material_code", 40)?;
+        // 编码可留空（CODE-03：留空则由后端取号）；填了才校验「可用性」——
+        // 长度 ≤ 40（VARCHAR(40)）+ 字符集，**不要求 MAT-xxx 形态**
+        // （物料可能按分类自编号，例如 `YB-001-02`，必须能对接）。
+        crate::business::erp::seq::resolve_manual_code(
+            self.material_code.as_deref(),
+            crate::business::erp::seq::MAX_MANUAL_CODE_LEN,
+        )
+        .map_err(|reason| bad_request(format!("material_code 不合法：{reason}")))?;
         require_text(&self.material_name, "material_name", 120)?;
         require_text(&self.unit_id, "unit_id", 36)?;
         require_one_of(&self.material_type, &MATERIAL_TYPES, "material_type")?;
@@ -3357,9 +3382,22 @@ mod tests {
         assert_eq!(err.code, error_code::PARAM_INVALID);
         assert!(err.msg.contains("unit_code"), "文案要点名字段：{}", err.msg);
 
+        // CODE-03：物料编码**留空不再拒绝**（留空 = 后端自动取号 `MAT-0001` 形态）；
+        // 只有格式不合法的才拒（含空格/中文标点等字符集外的输入）。
         let mut material = material_req();
-        material.material_code = String::new();
-        assert!(material.validate().is_err(), "物料空编码同样被拒");
+        material.material_code = Some(String::new());
+        assert!(
+            material.validate().is_ok(),
+            "物料编码留空 = 自动取号，不能拒"
+        );
+        material.material_code = Some("M 001".to_string());
+        let err = material.validate().expect_err("字符集外的编码必须被拒");
+        assert_eq!(err.code, error_code::PARAM_INVALID);
+        assert!(
+            err.msg.contains("material_code"),
+            "文案要点名字段：{}",
+            err.msg
+        );
     }
 
     /// Acceptance ⑤-2：超长名称被拒（与 `VARCHAR(50)` 同口径）。
@@ -3469,7 +3507,10 @@ mod tests {
         material.tax_rate = Some(dec("13"));
         assert!(material.validate().is_ok(), "13 = 13%（百分数）");
         material.tax_rate = Some(dec("0.13"));
-        assert!(material.validate().is_ok(), "0.13 在 0–100 内（0.13%，归一在 handler）");
+        assert!(
+            material.validate().is_ok(),
+            "0.13 在 0–100 内（0.13%，归一在 handler）"
+        );
     }
 
     /// 成本法收敛（V0201 / ARCH-3 DC-10）：只有移动加权可选。
@@ -3653,7 +3694,7 @@ mod tests {
 
     fn material_req() -> CreateMaterialReq {
         CreateMaterialReq {
-            material_code: "M-001".to_string(),
+            material_code: Some("M-001".to_string()),
             material_name: "螺栓".to_string(),
             spec: Some("M8x20".to_string()),
             unit_id: Uuid::now_v7().to_string(),
@@ -3671,7 +3712,7 @@ mod tests {
 
     fn warehouse_req() -> CreateWarehouseReq {
         CreateWarehouseReq {
-            warehouse_code: "WH-01".to_string(),
+            warehouse_code: Some("WH-01".to_string()),
             warehouse_name: "总仓".to_string(),
             warehouse_type: "NORMAL".to_string(),
             manager: None,
