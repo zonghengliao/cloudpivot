@@ -1,0 +1,76 @@
+### 200 正常导出
+$ curl /api/business/task/01a1bbf6-dd5c-7256-97dd-b016bb5dcc82/pdf
+HTTP/1.1 200 OK
+content-type: application/pdf
+content-length: 65365
+content-disposition: attachment; filename="___-TSK-202611-000032.pdf"; filename*=UTF-8''%E6%B4%BE%E5%B7%A5%E5%8D%95-TSK-202611-000032.pdf
+cache-control: no-store
+x-content-type-options: nosniff
+vary: accept-encoding
+vary: origin
+x-request-id: df8ba116063f4ff2
+access-control-allow-credentials: true
+x-frame-options: DENY
+strict-transport-security: max-age=31536000; includeSubDomains
+content-security-policy: default-src 'self'
+referrer-policy: strict-origin-when-cross-origin
+date: Sun, 08 Nov 2026 16:21:24 GMT
+
+
+[body bytes = 65365]
+
+### 401 未登录
+$ curl /api/business/task/01a1bbf6-dd5c-7256-97dd-b016bb5dcc82/pdf
+HTTP/1.1 401 Unauthorized
+content-type: application/json; charset=utf-8
+x-request-id: 63fa7e87959b4052
+vary: origin
+access-control-allow-credentials: true
+x-content-type-options: nosniff
+x-frame-options: DENY
+strict-transport-security: max-age=31536000; includeSubDomains
+content-security-policy: default-src 'self'
+referrer-policy: strict-origin-when-cross-origin
+content-length: 51
+date: Sun, 08 Nov 2026 16:21:24 GMT
+
+
+[body bytes = 51]
+
+### 400 非法 id
+$ curl /api/business/task/abc/pdf
+HTTP/1.1 400 Bad Request
+content-type: application/json; charset=utf-8
+vary: accept-encoding
+vary: origin
+x-request-id: 061fb77d765d4ef2
+access-control-allow-credentials: true
+x-content-type-options: nosniff
+x-frame-options: DENY
+strict-transport-security: max-age=31536000; includeSubDomains
+content-security-policy: default-src 'self'
+referrer-policy: strict-origin-when-cross-origin
+content-length: 56
+date: Sun, 08 Nov 2026 16:21:24 GMT
+
+
+[body bytes = 56]
+
+### 404 不存在
+$ curl /api/business/task/0f620000-0000-4000-8000-0000000009ff/pdf
+HTTP/1.1 404 Not Found
+content-type: application/json; charset=utf-8
+vary: accept-encoding
+vary: origin
+x-request-id: 0b2dd2ac559d41fb
+access-control-allow-credentials: true
+x-content-type-options: nosniff
+x-frame-options: DENY
+strict-transport-security: max-age=31536000; includeSubDomains
+content-security-policy: default-src 'self'
+referrer-policy: strict-origin-when-cross-origin
+content-length: 50
+date: Sun, 08 Nov 2026 16:21:24 GMT
+
+
+[body bytes = 50]
