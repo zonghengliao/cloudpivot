@@ -1,0 +1,31 @@
+==== 2026-11-08T09:37:03+08:00 CODE-01 deploy start
+-- 当前 HEAD: 4b9a722f
+From /opt/git/cloudpivot
+ * branch              main       -> FETCH_HEAD
+   4b9a722f..555337ef  main       -> origin/main
+Updating 4b9a722f..555337ef
+Fast-forward
+ .../business/V0337__master_data_seq.down.sql       |  16 +
+ .../business/V0337__master_data_seq.up.sql         | 114 ++++
+ backend/src/business/erp/mod.rs                    |   2 +
+ backend/src/business/erp/seq.rs                    | 609 +++++++++++++++++++++
+ 4 files changed, 741 insertions(+)
+ create mode 100644 backend/migrations/business/V0337__master_data_seq.down.sql
+ create mode 100644 backend/migrations/business/V0337__master_data_seq.up.sql
+ create mode 100644 backend/src/business/erp/seq.rs
+-- pull 后 HEAD: 555337ef
+555337ef feat(erp-code): CODE-01 主数据编码地基 — V0337 六条纯流水序列 + erp::seq 通用取号器
+-- 确认 V0337 文件在盘上
+-rw-r--r-- 1 root root 6827 Nov  8 09:37 backend/migrations/business/V0337__master_data_seq.up.sql
+-- cargo build（debug，增量）
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 31s
+-- 二进制: Nov 8 09:38 606677512
+-- 二进制里是否含 seq 模块符号（新代码真的进去了）
+OK: 二进制含 master_data_seq 文案
+-- systemctl restart cloudpivot-test
+-- systemd 状态: active
+-- 迁移日志
+Nov 08 09:38:35 ubuntu-svr cloudpivot-test[515107]: 2026-11-08T01:38:35.378007Z  INFO tokio_postgres::connection: NOTICE: V0337 自检通过：6 条主数据取号规则就位（date_pattern=none / period_key=GLOBAL / pad_width 4:4:4:2:2:2）
+Nov 08 09:38:35 ubuntu-svr cloudpivot-test[515107]: 2026-11-08T01:38:35.380974Z  INFO nik_web::app: 数据库迁移完成: 应用 1 个迁移
+==== 2026-11-08T09:40:35+08:00 CODE-01 deploy done

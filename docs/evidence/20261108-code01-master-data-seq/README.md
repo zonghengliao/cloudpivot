@@ -69,7 +69,7 @@ assert_eq!(seq::format_master_code("WH",  "-", 2, 100), "WH-100"); // 超位数�
 |---|---|
 | `raw/01_migration_syntax_and_idempotency.txt` | 只有 `biz_seq` 的临时库上：up → 6 行；**第二遍 up = 0 行、无报错**；down → 只剩单据号段、`pad_width` 列消失；再 up 可重放 |
 | `raw/02_unit_tests.txt` | `cargo test --lib seq::tests` → **8 passed / 0 failed**（真库 `ERP_DB_URL`） |
-| `raw/03_145_deploy.log` | 145：`git pull` → `555337ef` → `cargo build` → 二进制含新代码 → 重启；启动日志「`V0337 自检通过：6 条主数据取号规则就位`」+「`数据库迁移完成: 应用 1 个迁移`」 |
+| `raw/03_145_deploy_log.txt` | 145：`git pull` → `555337ef` → `cargo build` → 二进制含新代码 → 重启；启动日志「`V0337 自检通过：6 条主数据取号规则就位`」+「`数据库迁移完成: 应用 1 个迁移`」（原文件名 `.log` 被仓库 .gitignore 挡掉，改 `.txt` 入库） |
 | `raw/04_145_biz_seq.txt` | 145 实测：`schema_migrations` max=337、`master_data_seq / version=337`；六条规则 `date_pattern=none / period_key=GLOBAL / pad_width 4,4,4,2,2,2`；`/health` 200 |
 | `raw/05_145_idempotent_restart.txt` | 145 再重启一次：`应用 0 个迁移`、六类行数仍 6、`version=337` 记录仍 1 条（**幂等**） |
 | `raw/06_145_token_curl.txt` | 真实 token：`POST /api/system/auth/login` 200（access_token 487 字符）→ `GET /api/business/erp/supplier/page` 200（真实数据）→ `GET /api/system/auth/me` 200（`SUPER_ADMIN` / `*:*:*`）；另含「六类编码已占用现状」与「进程 exe md5 == 磁盘二进制 md5」 |
