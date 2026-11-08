@@ -326,6 +326,120 @@ pub async fn guard(
     check(duty, switch_on, creator, operator, subject)
 }
 
+// ==================== 自审金额上限（P3-05） ====================
+
+/// 自审金额上限的配置键（P3-05）。
+///
+/// 语义：节点 `self_approval=ALLOW` 时，**单据金额超过该值就不许自审**
+/// （降级为 SKIP 走升级链 / 兜底人；仍无人可用则 422 + `65044`）。
+/// `0` / 参数缺失 = **不限额**（默认口径，ALLOW 本身已经是显式配置）。
+pub const SELF_APPROVAL_MAX_AMOUNT_KEY: &str = "erp.separation_of_duties.self_approval_max_amount";
+
+/// 自审金额上限的**代码默认值**：`0.0` = 不限额。
+///
+/// 为什么默认 0 而不是 1 万：ARCH-8 §8 待确认问题 2 的两条建议里选了「不限额」——
+/// 阈值属于「客户自己的内控松紧」，代码替客户拍一个数字会在升级后**静默改变**
+/// 已有 ALLOW 节点的行为；默认 0 时本卡的能力是纯增量（不配就与改动前逐字一致）。
+pub const SELF_APPROVAL_MAX_AMOUNT_DEFAULT: f64 = 0.0;
+
+/// 十进制字面量判定（**配置值 / 表单金额共用的唯一口径**）。
+///
+/// 只认 `-?digits(.digits)?`：整数或小数，前后空白去掉后判。
+/// **不接受** `1e6`（科学计数法）/ `+1` / `.5` / `1.` / `10,000` / `¥100` ——
+/// 这些写法要么是配置错误、要么是业务侧的显示格式，猜一个数比报错更危险。
+///
+/// # 参数
+///
+/// - `text`：已 trim 的原始文本。
+///
+/// # 返回值
+///
+/// 形如十进制字面量 → `true`。
+pub fn is_decimal_literal(text: &str) -> bool {
+    let body = text.strip_prefix('-').unwrap_or(text);
+    if body.is_empty() {
+        return false;
+    }
+    let mut parts = body.split('.');
+    let Some(int_part) = parts.next() else {
+        return false;
+    };
+    let frac_part = parts.next();
+    if parts.next().is_some() {
+        return false; // 多个小数点
+    }
+    if int_part.is_empty() || !int_part.bytes().all(|byte| byte.is_ascii_digit()) {
+        return false;
+    }
+    match frac_part {
+        Some(frac) => !frac.is_empty() && frac.bytes().all(|byte| byte.is_ascii_digit()),
+        None => true,
+    }
+}
+
+/// 纯函数：解析金额上限的原始文本。
+///
+/// 只认十进制数字（允许前后空白、允许负号），**不认千分位逗号 / 货币符号 / 科学计数法**
+/// —— 参数里写成 `10,000` 或 `¥1万` 是配置错误，应当 `warn` 后回退默认值，
+/// 而不是猜一个数（猜错的后果是「大额单据被放行自审」）。
+///
+/// # 参数
+///
+/// - `raw`：`sys_config.config_value` 原文。
+///
+/// # 返回值
+///
+/// 可解析且有限、非负时返回 `Some(数值)`；空串 / 非法 / 负数 → `None`。
+pub fn parse_amount(raw: &str) -> Option<f64> {
+    let text = raw.trim();
+    if !is_decimal_literal(text) {
+        return None;
+    }
+    // 负上限没有意义（等于全拦），按非法处理，由调用方回退默认值并告警
+    let value: f64 = text.parse().ok()?;
+    if !value.is_finite() || value < 0.0 {
+        return None;
+    }
+    Some(value)
+}
+
+/// 读取自审金额上限的**生效值**（走运行时快照，60 秒 TTL + 写操作后广播）。
+///
+/// # 返回值
+///
+/// `0.0` = 不限额（参数缺失 / 停用 / 非法都落到这里）；否则为上限金额。
+///
+/// # 异常情况
+///
+/// 参数值非法（非数字 / 负数）时打 `warn` 并回退 [`SELF_APPROVAL_MAX_AMOUNT_DEFAULT`]
+/// —— **回退到 0（不限额）不是放宽内控**：ALLOW 节点本身就是显式配置过的例外，
+/// 与布尔开关「解析失败当 false = 关掉内控」的方向相反，这里回退到默认值不会
+/// 让任何本来被拦的动作变成放行（阈值只在 ALLOW 上起作用）。
+pub async fn self_approval_max_amount() -> f64 {
+    let Some(raw) = SysConfigModel::read_text(SELF_APPROVAL_MAX_AMOUNT_KEY).await else {
+        return SELF_APPROVAL_MAX_AMOUNT_DEFAULT;
+    };
+    match parse_amount(&raw) {
+        Some(value) => {
+            tracing::debug!(
+                config_key = SELF_APPROVAL_MAX_AMOUNT_KEY,
+                max_amount = value,
+                "ERP 自审金额上限解析"
+            );
+            value
+        }
+        None => {
+            tracing::warn!(
+                config_key = SELF_APPROVAL_MAX_AMOUNT_KEY,
+                value = raw,
+                fallback = SELF_APPROVAL_MAX_AMOUNT_DEFAULT,
+                "ERP 自审金额上限取值非法（只认非负十进制数字），已回退默认值（0 = 不限额）"
+            );
+            SELF_APPROVAL_MAX_AMOUNT_DEFAULT
+        }
+    }
+}
+
 // ==================== 单测：纯逻辑（不连库） ====================
 
 #[cfg(test)]
@@ -523,5 +637,26 @@ mod tests {
             assert!(text.contains(duty.key()), "{}", text);
             assert!(!text.contains(" 这次"), "空白单据描述不该留空档：{text}");
         }
+    }
+
+    /// P3-05：自审金额上限的文本解析口径（纯逻辑，**不碰库**）。
+    ///
+    /// 关键三条：`0` 是合法值（= 不限额）、非法文本一律 `None`（调用方回退默认值）、
+    /// 负数不吃（负上限等于全拦，属于配置错误）。
+    #[test]
+    fn parse_amount_only_accepts_non_negative_decimal() {
+        assert_eq!(parse_amount("0"), Some(0.0));
+        assert_eq!(parse_amount(" 1000 "), Some(1000.0));
+        assert_eq!(parse_amount("1000.50"), Some(1000.5));
+        assert_eq!(parse_amount("0.01"), Some(0.01));
+
+        // 非法：空 / 千分位 / 货币符号 / 汉字单位 / 科学计数法 / 负数
+        for bad in ["", "   ", "10,000", "¥1000", "1万", "1e6", "-1", "abc"] {
+            assert_eq!(parse_amount(bad), None, "不该把 {bad:?} 当成金额");
+        }
+
+        // 「不限额」的唯一合法表示是 0 / 参数缺失；负零按 0 处理
+        assert_eq!(parse_amount("-0"), Some(0.0));
+        assert_eq!(SELF_APPROVAL_MAX_AMOUNT_DEFAULT, 0.0);
     }
 }

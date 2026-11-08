@@ -47,7 +47,7 @@ use crate::business::flow::graph::{
 };
 use crate::business::flow::task_bridge;
 use crate::business::flow::{
-    assignee, dto, instance_linkage, model, node_config, task_node, template_vars,
+    assignee, dto, instance_linkage, model, node_config, self_approval, task_node, template_vars,
 };
 use crate::business::notice::dto::ContentFormat;
 use crate::business::notice::render;
@@ -2666,6 +2666,219 @@ pub async fn stats_node_bottleneck(
         slowest_node_name: slowest.map(|row| row.node_name.clone()).unwrap_or_default(),
         slowest_avg_dwell_seconds: slowest.map(|row| row.avg_dwell_seconds).unwrap_or(0),
         list,
+    }))
+}
+
+// ==================== 25b. 自审监控（P3-05） ====================
+
+/// 自审监控查询参数。
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct SelfApprovalQuery {
+    /// 月份（`YYYY-MM`；缺省 / 空串 = 当月，**按北京时间自然月**切分）。
+    #[serde(default)]
+    pub month: Option<String>,
+    /// 业务类型过滤（缺省 = 全部业务）。
+    #[serde(default)]
+    pub biz_type: Option<String>,
+}
+
+/// 按节点聚合（自审监控）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SelfApprovalNodeRes {
+    /// 节点 key。
+    pub node_key: String,
+    /// 节点名。
+    pub node_name: String,
+    /// 自审票数。
+    pub tickets: i64,
+    /// 涉及审批单数。
+    pub instances: i64,
+    /// 涉及金额合计（**字符串**：金额一律 `::text`，别用浮点加减）。
+    pub amount: String,
+}
+
+/// 按人聚合（自审监控）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SelfApprovalPersonRes {
+    /// 审批人 id（字符串：`Uuid` 不实现 `Serialize`，DTO 一律转 string）。
+    pub user_id: String,
+    /// 审批人姓名。
+    pub assignee_name: String,
+    /// 自审票数。
+    pub tickets: i64,
+    /// 涉及审批单数。
+    pub instances: i64,
+    /// 涉及金额合计（字符串）。
+    pub amount: String,
+}
+
+/// 明细（自审监控）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SelfApprovalTicketRes {
+    /// 待办 id（字符串）。
+    pub task_id: String,
+    /// 审批单 id（字符串）。
+    pub instance_id: String,
+    /// 单据号。
+    pub instance_no: String,
+    /// 标题。
+    pub title: String,
+    /// 节点 key。
+    pub node_key: String,
+    /// 节点名。
+    pub node_name: String,
+    /// 审批人 id（字符串）。
+    pub user_id: String,
+    /// 审批人姓名。
+    pub assignee_name: String,
+    /// 投票时刻。
+    pub voted_at: chrono::DateTime<chrono::Utc>,
+    /// 金额（字符串）。
+    pub amount: String,
+}
+
+/// 自审监控响应。
+///
+/// **口径全部写在这里**（分子 / 分母 / 金额单位），前端不再自己解释：
+///
+/// - `self_approval_instances`（分子）= 本窗内有**自审票被通过**的审批单数（去重）；
+/// - `settled_instances`（分母）= 同窗**已结算**（`status=APPROVED` 且 `ended_at` 落在本窗）的审批单数；
+/// - `ratio` = 分子 / 分母（0–1，保留 4 位；分母 0 → 0.0，绝不下发 NaN）；
+/// - `self_approval_amount` = 分子的那些单据的 `form_data` 金额合计（字符串，避免浮点误差）；
+/// - `blocked_count` = 本窗**已生效**的「超自审金额上限被降级」次数（数 `operation_logs`，
+///   被 65044 整单拒绝的那次因事务回滚不在此列，见 `blocked_note`）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SelfApprovalRes {
+    /// 月份（`YYYY-MM`）。
+    pub month: String,
+    /// 时间窗起点（含，UTC）。
+    pub start: chrono::DateTime<chrono::Utc>,
+    /// 时间窗终点（不含，UTC）。
+    pub end: chrono::DateTime<chrono::Utc>,
+    /// 当前生效的自审金额上限（0 = 不限额）。
+    pub threshold: f64,
+    /// 分母：同期已结算审批单数。
+    pub settled_instances: i64,
+    /// 分子：自审单数。
+    pub self_approval_instances: i64,
+    /// 自审票数。
+    pub self_approval_tickets: i64,
+    /// 自审金额合计（字符串）。
+    pub self_approval_amount: String,
+    /// 占比（分子 / 分母，0–1）。
+    pub ratio: f64,
+    /// 占比口径说明（人话，直接展示）。
+    pub ratio_note: String,
+    /// 超阈值被降级次数。
+    pub blocked_count: i64,
+    /// 拦截计数口径说明。
+    pub blocked_note: String,
+    /// 按节点 top N。
+    pub by_node: Vec<SelfApprovalNodeRes>,
+    /// 按人 top N。
+    pub by_person: Vec<SelfApprovalPersonRes>,
+    /// 明细（最近 50 条）。
+    pub list: Vec<SelfApprovalTicketRes>,
+}
+
+/// 月度自审监控（`GET /business/flow/stats/self-approval`，P3-05）。
+///
+/// # 权限码
+///
+/// 复用 `business:flow:instance:read` —— 与另外三个统计接口（overview / efficiency /
+/// node-bottleneck）**同一口径**，也是审批实例列表的读权限。刻意**不新造**
+/// `business:flow:stats:read`：架构 §10.2 规划过这个码但从未落库，「新增一个只给这一个
+/// 接口用的码」会让权限页多出一行管理员不敢勾的死码（N14/N18 门禁同源问题）。
+///
+/// # 可见性
+///
+/// 与实例列表 / 其余统计接口**同一份** `instance_visibility()`（数据范围 ∪ 我发起的 ∪
+/// 我待办/已办）。非超管看不到别的部门的自审数据。
+///
+/// # 异常情况
+///
+/// - `400 + 65005`：`month` 不是 `YYYY-MM`；
+/// - 500：数据库异常。
+#[nik::permission(
+    path = "/business/flow/stats/self-approval",
+    method = "GET",
+    permission = "business:flow:instance:read"
+)]
+#[nik::get("/business/flow/stats/self-approval")]
+pub async fn stats_self_approval(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Query(query): Query<SelfApprovalQuery>,
+) -> ResResult<SelfApprovalRes> {
+    me_of(&claims)?;
+    let window = self_approval::Window::parse(query.month.as_deref(), chrono::Utc::now())
+        .map_err(field_invalid)?;
+    let principal = crate::business::shared::principal::resolve_for_claims(&claims).await?;
+    let threshold = crate::business::erp::separation::self_approval_max_amount().await;
+    let biz_type = query
+        .biz_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let report = self_approval::monthly_report(&principal, &window, biz_type, threshold)
+        .await
+        .map_err(|error| utils::db_error(error, "统计自审监控"))?;
+    // 先算占比（`ratio()` 借用 report，部分字段 move 之后就不能再借了）
+    let ratio = report.ratio();
+
+    Ok(Res::ok(SelfApprovalRes {
+        month: report.month,
+        start: report.start,
+        end: report.end,
+        threshold: report.threshold,
+        settled_instances: report.settled_instances,
+        self_approval_instances: report.self_approval_instances,
+        self_approval_tickets: report.self_approval_tickets,
+        self_approval_amount: report.self_approval_amount,
+        ratio,
+        ratio_note: self_approval::RATIO_NOTE.to_string(),
+        blocked_count: report.blocked_count,
+        blocked_note: "只统计**已生效**的降级（实例仍在，按可见性归属）；\
+                       被 65044 整单拒绝的提交因事务回滚不在计数内，\
+                       会在报错报文与服务端 WARN 日志留痕。"
+            .to_string(),
+        by_node: report
+            .by_node
+            .iter()
+            .map(|row| SelfApprovalNodeRes {
+                node_key: row.node_key.clone(),
+                node_name: row.node_name.clone(),
+                tickets: row.tickets,
+                instances: row.instances,
+                amount: row.amount.clone(),
+            })
+            .collect(),
+        by_person: report
+            .by_person
+            .iter()
+            .map(|row| SelfApprovalPersonRes {
+                user_id: row.user_id.to_string(),
+                assignee_name: row.assignee_name.clone(),
+                tickets: row.tickets,
+                instances: row.instances,
+                amount: row.amount.clone(),
+            })
+            .collect(),
+        list: report
+            .list
+            .iter()
+            .map(|row| SelfApprovalTicketRes {
+                task_id: row.task_id.to_string(),
+                instance_id: row.instance_id.to_string(),
+                instance_no: row.instance_no.clone(),
+                title: row.title.clone(),
+                node_key: row.node_key.clone(),
+                node_name: row.node_name.clone(),
+                user_id: row.user_id.to_string(),
+                assignee_name: row.assignee_name.clone(),
+                voted_at: row.voted_at,
+                amount: row.amount.clone(),
+            })
+            .collect(),
     }))
 }
 

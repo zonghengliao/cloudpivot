@@ -1373,3 +1373,200 @@ export function updateFlowDelegate(
 export function deleteFlowDelegate(id: string): Promise<FlowDelegate> {
   return del<FlowDelegate>(`/api/business/flow/delegate/${id}`);
 }
+
+// ==================== 统计（P3-05 起前端接通） ====================
+//
+// 后端三个统计接口（`overview` / `efficiency` / `node-bottleneck`）早在 D2 就交付了，
+// 但前端一直没有页面（零调用方）。P3-05 建「流程统计」页时顺手把它们接上，
+// 与新增的「自审监控」并列成两个 Tab。
+
+/** 统计时间窗（`YYYY-MM-DD` 或 RFC3339；缺省 = 近 30 天，跨度上限 366 天） */
+export interface FlowStatsQuery {
+  /** 起始时间（含） */
+  start?: string;
+  /** 结束时间（不含） */
+  end?: string;
+}
+
+/** 总览（`GET /business/flow/stats/overview`） */
+export interface FlowStatsOverview {
+  /** 时间窗起点（RFC3339） */
+  start: string;
+  /** 时间窗终点（RFC3339） */
+  end: string;
+  /** 实例总数 */
+  total: number;
+  /** 通过数 */
+  approved: number;
+  /** 驳回数 */
+  rejected: number;
+  /** 在跑数 */
+  pending: number;
+  /** 撤回数 */
+  cancelled: number;
+  /** 发起人撤回数 */
+  withdrawn: number;
+  /** 已结束数 */
+  finished: number;
+  /** 通过率（0–1） */
+  approved_rate: number;
+  /** 平均审批时长（秒） */
+  avg_duration_seconds: number;
+}
+
+/** 单流程效率行 */
+export interface FlowStatsEfficiencyRow {
+  /** 流程编码 */
+  flow_code: string;
+  /** 流程名 */
+  flow_name: string;
+  /** 实例数 */
+  total: number;
+  /** 通过数 */
+  approved: number;
+  /** 驳回数 */
+  rejected: number;
+  /** 在跑数 */
+  running: number;
+  /** 已结束数 */
+  finished: number;
+  /** 平均时长（秒） */
+  avg_duration_seconds: number;
+  /** 最长时长（秒） */
+  max_duration_seconds: number;
+}
+
+/** 效率（`GET /business/flow/stats/efficiency`） */
+export interface FlowStatsEfficiency {
+  /** 时间窗起点 */
+  start: string;
+  /** 时间窗终点 */
+  end: string;
+  /** 各流程 */
+  list: FlowStatsEfficiencyRow[];
+}
+
+/**
+ * 自审监控查询（`GET /business/flow/stats/self-approval`）。
+ *
+ * `month` 缺省 = 当月（**按北京时间自然月**切分，左闭右开）。
+ */
+export interface FlowSelfApprovalQuery {
+  /** 月份 `YYYY-MM` */
+  month?: string;
+  /** 业务类型过滤（缺省 = 全部） */
+  biz_type?: string;
+}
+
+/** 自审监控 · 按节点 */
+export interface FlowSelfApprovalNode {
+  /** 节点 key */
+  node_key: string;
+  /** 节点名 */
+  node_name: string;
+  /** 自审票数 */
+  tickets: number;
+  /** 涉及审批单数 */
+  instances: number;
+  /** 涉及金额合计（**字符串**，后端 numeric 一律 `::text`） */
+  amount: string;
+}
+
+/** 自审监控 · 按人 */
+export interface FlowSelfApprovalPerson {
+  /** 审批人 id */
+  user_id: string;
+  /** 审批人姓名 */
+  assignee_name: string;
+  /** 自审票数 */
+  tickets: number;
+  /** 涉及审批单数 */
+  instances: number;
+  /** 涉及金额合计（字符串） */
+  amount: string;
+}
+
+/** 自审监控 · 明细行 */
+export interface FlowSelfApprovalTicket {
+  /** 待办 id */
+  task_id: string;
+  /** 审批单 id */
+  instance_id: string;
+  /** 单据号 */
+  instance_no: string;
+  /** 标题 */
+  title: string;
+  /** 节点 key */
+  node_key: string;
+  /** 节点名 */
+  node_name: string;
+  /** 审批人 id */
+  user_id: string;
+  /** 审批人姓名 */
+  assignee_name: string;
+  /** 投票时刻（RFC3339） */
+  voted_at: string;
+  /** 金额（字符串） */
+  amount: string;
+}
+
+/**
+ * 自审监控响应。
+ *
+ * **口径由后端下发**（`ratio_note` / `blocked_note`），页面只做展示，不自己算占比。
+ */
+export interface FlowSelfApprovalReport {
+  /** 月份 `YYYY-MM` */
+  month: string;
+  /** 时间窗起点（RFC3339） */
+  start: string;
+  /** 时间窗终点（RFC3339） */
+  end: string;
+  /** 当前生效的自审金额上限（0 = 不限额） */
+  threshold: number;
+  /** 分母：同期已结算（通过）审批单数 */
+  settled_instances: number;
+  /** 分子：自审单数 */
+  self_approval_instances: number;
+  /** 自审票数 */
+  self_approval_tickets: number;
+  /** 自审金额合计（字符串） */
+  self_approval_amount: string;
+  /** 占比（0–1） */
+  ratio: number;
+  /** 占比口径说明 */
+  ratio_note: string;
+  /** 超阈值被降级次数 */
+  blocked_count: number;
+  /** 拦截计数口径说明 */
+  blocked_note: string;
+  /** 按节点 top N */
+  by_node: FlowSelfApprovalNode[];
+  /** 按人 top N */
+  by_person: FlowSelfApprovalPerson[];
+  /** 明细（最近 50 条） */
+  list: FlowSelfApprovalTicket[];
+}
+
+/** 审批总览（`GET /business/flow/stats/overview`，权限 `business:flow:instance:read`）。 */
+export function getFlowStatsOverview(query: FlowStatsQuery = {}): Promise<FlowStatsOverview> {
+  return get<FlowStatsOverview>('/api/business/flow/stats/overview', asParams(query));
+}
+
+/** 流程效率（`GET /business/flow/stats/efficiency`，权限 `business:flow:instance:read`）。 */
+export function getFlowStatsEfficiency(query: FlowStatsQuery = {}): Promise<FlowStatsEfficiency> {
+  return get<FlowStatsEfficiency>('/api/business/flow/stats/efficiency', asParams(query));
+}
+
+/**
+ * 月度自审监控（`GET /business/flow/stats/self-approval`，P3-05）。
+ *
+ * # 异常情况
+ * - `400 + 65005`：`month` 不是 `YYYY-MM`
+ * - 403：没有 `business:flow:instance:read`
+ */
+export function getFlowSelfApprovalStats(
+  query: FlowSelfApprovalQuery = {},
+): Promise<FlowSelfApprovalReport> {
+  return get<FlowSelfApprovalReport>('/api/business/flow/stats/self-approval', asParams(query));
+}

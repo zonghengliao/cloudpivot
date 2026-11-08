@@ -67,6 +67,7 @@ use crate::business::flow::internal_control;
 use crate::business::flow::no_assignee;
 use crate::business::flow::node_config;
 use crate::business::flow::notify_node;
+use crate::business::flow::self_approval;
 use crate::business::flow::task_node::{self, SpawnOutcome};
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
 use crate::business::notice::{self, NoticeDraft, NoticeTarget};
@@ -843,6 +844,43 @@ async fn vote(
         "REJECTED"
     };
     model::finish_task(ex, task.id, status, comment, is_auto).await?;
+
+    // ★ P3-05 审计（第二次留痕）：「他真的自审了」。
+    //
+    //   只有 `is_self_approval = true` 的票会走到这里（ALLOW 节点派给发起人本人的那一票）。
+    //   与引擎落 PENDING 时那次成对：允许了没批是风险敞口，批了才是既成事实。
+    //   拒绝也要记（`vote=REJECTED`）—— 「自己驳回自己」同样说明自审通道被用上了。
+    if task.is_self_approval {
+        let amount = self_approval::amount_of(&instance.form_data);
+        let threshold = crate::business::erp::separation::self_approval_max_amount().await;
+        self_approval::record(
+            ex,
+            &self_approval::AuditEntry {
+                operation: self_approval::OP_VOTED,
+                user_id: operator,
+                username: None,
+                display_name: task.assignee_name.as_deref(),
+                instance_id: instance.id,
+                instance_no: &instance.instance_no,
+                biz_type: &instance.biz_type,
+                biz_no: instance.biz_no.as_deref(),
+                node_key: &task.node_key,
+                node_name: &node.node_name,
+                amount,
+                threshold,
+                reason: if is_auto {
+                    "系统代点的自审票（超时 / 自动通过）"
+                } else if status == "APPROVED" {
+                    "发起人以自审身份同意了自己的单据（self_approval=ALLOW）"
+                } else {
+                    "发起人以自审身份驳回了自己的单据（self_approval=ALLOW）"
+                },
+                task_id: Some(task.id),
+                vote: Some(status),
+            },
+        )
+        .await?;
+    }
 
     // ⑤ COUNT(*) 现算（**不信任任何累加器**，D15 第 3 层）
     let tally = model::tally_of_node(ex, node.id, node.round).await?;
@@ -2897,6 +2935,72 @@ impl<'a> Run<'a> {
                         }
                         Err(error) => return Err(error),
                     }
+                }
+
+                // ★ P3-05 审计（第一次留痕）：「他被允许自审」——落 PENDING 且 `is_self_approval` 时。
+                //
+                //   与 `vote()` 里那次成对：允许了但一直没批 = 风险敞口，批了 = 既成事实，
+                //   两张问题不一样，都要能回答「谁 / 何时 / 哪张单 / 哪个节点 / 多少钱 / 为什么」。
+                //   写在引擎事务内（不是日志总线）：合规留痕必须与这一票同真同假。
+                for candidate in &approvers {
+                    if candidate.user_id != self.instance.initiator_id {
+                        continue;
+                    }
+                    // 只记**真的落了待办**的人（23505 幂等命中说明之前已经记过一次）
+                    if !created.contains(&candidate.user_id) {
+                        continue;
+                    }
+                    let amount = self_approval::amount_of(&self.instance.form_data);
+                    let threshold =
+                        crate::business::erp::separation::self_approval_max_amount().await;
+                    self_approval::record(
+                        self.ex,
+                        &self_approval::AuditEntry {
+                            operation: self_approval::OP_ALLOWED,
+                            user_id: candidate.user_id,
+                            username: None,
+                            display_name: Some(candidate.name.as_str()),
+                            instance_id: self.instance.id,
+                            instance_no: &self.instance.instance_no,
+                            biz_type: &self.instance.biz_type,
+                            biz_no: self.instance.biz_no.as_deref(),
+                            node_key: &spec.key,
+                            node_name: &spec.name,
+                            amount,
+                            threshold,
+                            reason: "节点配置 self_approval=ALLOW，发起人本人被派为审批人（待办带自审标）",
+                            task_id: None,
+                            vote: None,
+                        },
+                    )
+                    .await?;
+                }
+
+                // ★ P3-05 审计（拦截留痕）：超出自审金额上限 → 发起人被降级为 SKIP。
+                //   月度报表的「超阈值被拦下次数」直接数这个操作码（不建计数表）。
+                for block in &finalized.self_limit_blocks {
+                    let amount = Some(block.amount);
+                    self_approval::record(
+                        self.ex,
+                        &self_approval::AuditEntry {
+                            operation: self_approval::OP_BLOCKED,
+                            user_id: block.user_id,
+                            username: None,
+                            display_name: Some(block.name.as_str()),
+                            instance_id: self.instance.id,
+                            instance_no: &self.instance.instance_no,
+                            biz_type: &self.instance.biz_type,
+                            biz_no: self.instance.biz_no.as_deref(),
+                            node_key: &spec.key,
+                            node_name: &spec.name,
+                            amount,
+                            threshold: block.threshold,
+                            reason: &block.comment(),
+                            task_id: None,
+                            vote: None,
+                        },
+                    )
+                    .await?;
                 }
 
                 let tally = model::tally_of_node(self.ex, row.id, round).await?;

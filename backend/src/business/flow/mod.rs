@@ -98,6 +98,8 @@ mod flow_model_stats;
 pub mod node_config;
 pub mod notify;
 pub mod notify_node;
+/// 自审（ALLOW）配套：金额上限 / 审计留痕 / 月度报表（P3-05）
+pub mod self_approval;
 pub mod settle_guard;
 pub mod task_bridge;
 pub mod task_node;

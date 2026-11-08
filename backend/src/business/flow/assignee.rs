@@ -77,6 +77,7 @@ use crate::business::flow::expression::{self, ResolveContext, ResolvedTarget};
 use crate::business::flow::graph::{self, AssigneeKind, EvalContext, SnapshotNode};
 use crate::business::flow::internal_control;
 use crate::business::flow::no_assignee;
+use crate::business::flow::self_approval;
 use crate::shared::error_code;
 
 // ==================== 策略枚举 ====================
@@ -213,6 +214,13 @@ pub struct Finalized {
     pub row_meta: std::collections::BTreeMap<Uuid, RowMeta>,
     /// 委托处置痕迹（P3-04）；空 = 本节点没有任何生效中的委托。
     pub delegations: Vec<Delegation>,
+    /// 自审金额超限被降级的痕迹（P3-05）；空 = 没触发金额上限。
+    ///
+    /// 非空说明：节点 `self_approval=ALLOW`、单据金额 > 系统参数
+    /// `erp.separation_of_duties.self_approval_max_amount`，发起人本人已被从
+    /// 「能签的人」挪到 `skipped`（留痕 + 审计）。引擎据此写 `FLOW_SELF_APPROVAL_BLOCKED`
+    /// 审计行；若降级链走完仍无人可签，引擎按 `65044` fail-closed。
+    pub self_limit_blocks: Vec<crate::business::flow::self_approval::Block>,
     /// 解析痕迹（写日志 + 详情页提示）。
     pub notes: Vec<String>,
 }
@@ -492,6 +500,126 @@ fn apply_empty_policy(finalized: &mut Finalized, empty_policy: EmptyPolicy) {
     }
 }
 
+/// 把「单据金额超出自审上限」的发起人从**能签的人**降级成 `SKIPPED` 留痕（P3-05）。
+///
+/// # 语义（卡面 D3 / 阈值默认 0 = 不限额）
+///
+/// | 条件 | 行为 |
+/// |------|------|
+/// | 阈值 ≤ 0（不限额）/ 金额取不到 / 金额 ≤ 阈值 / 名单里没有发起人 | **不动**（返回 0） |
+/// | 名单里有发起人且金额 > 阈值 | 从 `approvers` 挪到 `skipped`，写 [`self_approval::Block`] + 逐行 comment |
+///
+/// # 为什么降级而不是直接 422
+///
+/// 一人公司里发起人往往就是唯一审批人：一超限就 422 等于把单子彻底堵死。
+/// 降级之后**升级链（P3-02）/ 兜底人（P3-03）照常跑**，真没人时由
+/// [`fail_closed_on_amount_limit`] 收成 422 + `65044` —— 既不静默放行，
+/// 也不在「本来有人能签」的场景里白堵。
+///
+/// # 幂等
+///
+/// 同一个人只降级一次（`self_limit_blocks` 去重）：本函数在 `resolve()` 里会被调两遍
+/// —— 升级链之前一次、「FALLBACK_ADMIN 回退超管」之后一次（**超管兜底**可能又把发起人
+/// 自己兜回来，那一票同样不许签）。
+fn demote_over_limit(
+    finalized: &mut Finalized,
+    initiator: Uuid,
+    amount: Option<f64>,
+    threshold: f64,
+) -> usize {
+    let Some(amount) = amount else {
+        return 0;
+    };
+    if !self_approval::over_limit(amount, threshold) {
+        return 0;
+    }
+    if !finalized.approvers.iter().any(|c| c.user_id == initiator) {
+        return 0;
+    }
+
+    let mut kept: Vec<Candidate> = Vec::with_capacity(finalized.approvers.len());
+    let mut demoted: Vec<Candidate> = Vec::new();
+    for candidate in std::mem::take(&mut finalized.approvers) {
+        if candidate.user_id == initiator {
+            demoted.push(candidate);
+        } else {
+            kept.push(candidate);
+        }
+    }
+    finalized.approvers = kept;
+
+    let mut count = 0;
+    for candidate in demoted {
+        if finalized
+            .self_limit_blocks
+            .iter()
+            .any(|block| block.user_id == candidate.user_id)
+        {
+            // 已经降级过一次：第二遍只负责「把人从名单里拿掉」，不再重复留痕
+            continue;
+        }
+        let block = self_approval::Block {
+            user_id: candidate.user_id,
+            name: candidate.name.clone(),
+            amount,
+            threshold,
+        };
+        finalized
+            .notes
+            .push(format!("{} {}", candidate.name, block.comment()));
+        tracing::info!(
+            user_id = %candidate.user_id,
+            amount,
+            threshold,
+            "自审金额超限：发起人从可签名单降级为 SKIP"
+        );
+        // SKIPPED 行的 comment 由引擎从 `row_meta` 取（P3-04 机制），这里写「为什么」
+        finalized.row_meta.insert(
+            candidate.user_id,
+            RowMeta {
+                assigned_by_rule: None,
+                comment: Some(block.comment()),
+            },
+        );
+        finalized.self_limit_blocks.push(block);
+        finalized.skipped.push(candidate);
+        count += 1;
+    }
+    count
+}
+
+/// 自审金额超限且降级链走完仍无人可签 → **fail-closed**（422 + `65044`）。
+///
+/// # 为什么必须覆盖 `empty_assignee=SKIP` 的自动通过
+///
+/// `apply_empty_policy` 在「没有有效审批人」时按 `empty_assignee` 处置，
+/// `SKIP` 会让节点**自动通过**。对自审金额超限来说这是最坏的结果：
+/// 大额单据**没人签就生效**，比自审更坏（自审至少留了痕）。因此这里把
+/// `auto_pass` 一并清掉再报错。
+///
+/// # 返回
+///
+/// 真的设了 65044 → `true`（调用方据此决定是否继续走后面的 65018 报文修饰）。
+fn fail_closed_on_amount_limit(finalized: &mut Finalized, node_name: &str) -> bool {
+    if finalized.self_limit_blocks.is_empty() || !finalized.approvers.is_empty() {
+        return false;
+    }
+    let Some(block) = finalized.self_limit_blocks.first() else {
+        return false;
+    };
+    let dispatch = dispatch_hint(finalized.escalation.as_ref(), finalized.fallback.as_ref());
+    let message =
+        self_approval::over_limit_message(node_name, block.amount, block.threshold, &dispatch);
+    finalized.notes.push(
+        "自审金额超限且升级链 / 兜底人都没找到其他审批人 → 422 + 65044（绝不允许自动通过）"
+            .to_string(),
+    );
+    finalized.auto_pass = false;
+    finalized.fallback_admin = false;
+    finalized.error = Some(self_approval::over_limit_error(message));
+    true
+}
+
 /// 把候选人合并、去重、过策略，得到「该落哪些待办」
 /// （三层去重的**第 1 层**，架构 D14）。
 ///
@@ -760,6 +888,44 @@ pub async fn resolve(
     //   升级链之前 = 委托把名单清空时（受托人是发起人/制单人）后面照常走降级链。
     apply_delegation(ex, node, ctx, &mut finalized, &mut trace).await?;
 
+    // ③.6 自审金额上限（P3-05 / ARCH-8 §8 问题 2）—— **只对 `self_approval=ALLOW` 生效**。
+    //
+    //   位置在委托（③.5）之后、升级链（④）之前，与 P3-04 的两条理由同源：
+    //   · 只在「最终名单」上判定（委托换过人的名单才是真要签的名单）；
+    //   · 降级把名单清空时，后面照常走升级链 / 兜底人 —— 卡面要的就是这个顺序。
+    //
+    //   阈值 = 系统参数 `erp.separation_of_duties.self_approval_max_amount`，
+    //   0 / 缺失 = 不限额（默认口径 ⇒ 本步骤对存量环境是**纯增量**、零行为变化）。
+    let (self_limit_amount, self_max_amount) = if self_policy == SelfPolicy::Allow {
+        let amount = self_approval::amount_of(&ctx.form_data);
+        if amount.is_none() {
+            // 卡面：取不到金额 → 视为 0（不拦），但必须留痕可查（debug 级别）
+            tracing::debug!(
+                instance_id = %ctx.instance_id,
+                node_key = %node.key,
+                "自审金额上限：实例表单既没有 amount 也没有 total_amount，按 0 处理（不拦）"
+            );
+        }
+        let max_amount = crate::business::erp::separation::self_approval_max_amount().await;
+        (amount, max_amount)
+    } else {
+        (None, 0.0)
+    };
+    if let Some(amount) = self_limit_amount
+        && self_max_amount > 0.0
+    {
+        trace.push(format!(
+            "自审金额上限检查：单据金额 {:.2} / 上限 {:.2}",
+            amount, self_max_amount
+        ));
+    }
+    demote_over_limit(
+        &mut finalized,
+        ctx.initiator_id,
+        self_limit_amount,
+        self_max_amount,
+    );
+
     // ④ 升级链（P3-02）：**只在「有角色来源且被剔光」时才走**
     //
     //   · `SKIP_SELF_APPROVAL`：自审策略把审批人全剔了（`skipped` 非空）——
@@ -933,6 +1099,23 @@ pub async fn resolve(
             finalized.auto_pass = false;
         }
     }
+
+    // ★ P3-05 收尾复检 + fail-closed（自审金额上限）
+    //
+    //   `FALLBACK_ADMIN` 可能又把发起人本人兜回来（单超管库里兜底出来的正是他），
+    //   那一票同样不许签 → 这里再判一次（`demote_over_limit` 幂等，不会重复留痕）。
+    //   复检后仍**一个能签的人都没有** ⇒ 422 + 65044，并清掉 `auto_pass`
+    //   （`empty_assignee=SKIP` 的自动通过在这里必须被打断：大额单据没人签就生效，
+    //    比自审更坏）。
+    if self_max_amount > 0.0 {
+        demote_over_limit(
+            &mut finalized,
+            ctx.initiator_id,
+            self_limit_amount,
+            self_max_amount,
+        );
+    }
+    fail_closed_on_amount_limit(&mut finalized, &node.name);
 
     // ★ FIX-1（新环境开箱即用）：`65018` 带上**结构化诊断**
     //
@@ -2937,6 +3120,160 @@ mod tests {
             Value::Text(text) => assert!(text.starts_with('{') && text.contains(',')),
             other => panic!("必须是文本字面量，实际 {other:?}"),
         }
+    }
+
+    // ==================== 自审金额上限（P3-05）· 纯逻辑 ====================
+
+    /// 造一个「只有发起人本人能签」的 Finalized（ALLOW 节点过滤后的形态）。
+    fn allow_only_initiator(initiator: Uuid) -> Finalized {
+        Finalized {
+            approvers: vec![Candidate::new(initiator, "发起人甲", AssigneeKind::User)],
+            ..Finalized::default()
+        }
+    }
+
+    /// ① 阈值 1000 / 单据 5000 / ALLOW 节点 → 发起人被降级为 SKIP 留痕，且**不许再留在可签名单**。
+    #[test]
+    fn over_limit_demotes_initiator_to_skipped() {
+        let me = uid(101);
+        let mut finalized = allow_only_initiator(me);
+        let demoted = demote_over_limit(&mut finalized, me, Some(5_000.0), 1_000.0);
+
+        assert_eq!(demoted, 1, "必须降级 1 人");
+        assert!(finalized.approvers.is_empty(), "降级后名单必须为空");
+        assert_eq!(finalized.skipped.len(), 1, "必须落 SKIPPED 留痕");
+        assert_eq!(finalized.skipped[0].user_id, me);
+        assert_eq!(finalized.self_limit_blocks.len(), 1);
+        let block = &finalized.self_limit_blocks[0];
+        assert_eq!(block.amount, 5_000.0);
+        assert_eq!(block.threshold, 1_000.0);
+        let comment = finalized
+            .row_meta
+            .get(&me)
+            .and_then(|meta| meta.comment.clone())
+            .expect("SKIPPED 行的 comment 必须说明原因");
+        assert!(comment.contains("5000.00"), "{comment}");
+        assert!(comment.contains("1000.00"), "{comment}");
+        assert!(comment.contains("超出自审金额上限"), "{comment}");
+        // 留痕里能看出「这是降级，不是普通 SKIP」
+        assert!(
+            finalized
+                .notes
+                .iter()
+                .any(|note| note.contains("超出自审金额上限")),
+            "notes: {:?}",
+            finalized.notes
+        );
+        // 没有 error：降级不是报错，后面还有升级链 / 兜底人可走
+        assert!(finalized.error.is_none(), "降级本身不该直接报错");
+    }
+
+    /// ② 阈值 0 = 不限额 → 一点都不动（默认口径，存量行为零变化）。
+    #[test]
+    fn zero_threshold_never_demotes() {
+        let me = uid(102);
+        let mut finalized = allow_only_initiator(me);
+        assert_eq!(demote_over_limit(&mut finalized, me, Some(5_000.0), 0.0), 0);
+        assert_eq!(finalized.approvers.len(), 1);
+        assert!(finalized.skipped.is_empty());
+        assert!(finalized.self_limit_blocks.is_empty());
+        assert!(finalized.row_meta.is_empty(), "没降级就不许写逐行留痕");
+    }
+
+    /// ③ 表单里没有金额（None）→ 视为 0，不拦。
+    #[test]
+    fn missing_amount_never_demotes() {
+        let me = uid(103);
+        let mut finalized = allow_only_initiator(me);
+        assert_eq!(demote_over_limit(&mut finalized, me, None, 1_000.0), 0);
+        assert_eq!(finalized.approvers.len(), 1);
+    }
+
+    /// ④ 等于上限不拦（「不超过 X 可以自审」），且名单里没有发起人时也不动。
+    #[test]
+    fn boundary_and_non_initiator_are_untouched() {
+        let me = uid(104);
+        let other = uid(105);
+        let mut finalized = allow_only_initiator(me);
+        assert_eq!(
+            demote_over_limit(&mut finalized, me, Some(1_000.0), 1_000.0),
+            0,
+            "等于上限不拦"
+        );
+        assert_eq!(finalized.approvers.len(), 1);
+
+        // 名单里只有别人：再高的金额也不该动（不是自审）
+        let mut others = Finalized {
+            approvers: vec![Candidate::new(other, "别人", AssigneeKind::Role)],
+            ..Finalized::default()
+        };
+        assert_eq!(
+            demote_over_limit(&mut others, me, Some(9_999.0), 1_000.0),
+            0
+        );
+        assert_eq!(others.approvers.len(), 1);
+        assert!(others.skipped.is_empty());
+    }
+
+    /// ⑤ 幂等：升链 / 超管兜底之后复检再跑一遍，不会重复留痕、但会把兜回来的人拿掉。
+    #[test]
+    fn demotion_is_idempotent_across_recheck() {
+        let me = uid(106);
+        let mut finalized = allow_only_initiator(me);
+        assert_eq!(
+            demote_over_limit(&mut finalized, me, Some(5_000.0), 1_000.0),
+            1
+        );
+        // 模拟 FALLBACK_ADMIN 又把发起人兜回来
+        finalized.approvers = vec![Candidate::new(me, "发起人甲", AssigneeKind::Role)];
+        assert_eq!(
+            demote_over_limit(&mut finalized, me, Some(5_000.0), 1_000.0),
+            0
+        );
+        assert!(finalized.approvers.is_empty(), "兜回来的那一票同样不许签");
+        assert_eq!(finalized.skipped.len(), 1, "留痕只许一条");
+        assert_eq!(finalized.self_limit_blocks.len(), 1);
+    }
+
+    /// ⑥ 降级后仍无人可签 → 422 + 65044，且**清掉 auto_pass**（不许静默自动通过）。
+    #[test]
+    fn empty_after_demotion_fails_closed_with_65044() {
+        let me = uid(107);
+        let mut finalized = allow_only_initiator(me);
+        demote_over_limit(&mut finalized, me, Some(5_000.0), 1_000.0);
+        // empty_assignee=SKIP 会把它标成自动通过 —— 必须先走这一步再判定
+        finalized.auto_pass = true;
+
+        assert!(fail_closed_on_amount_limit(&mut finalized, "部门经理审批"));
+        assert!(!finalized.auto_pass, "大额自审被拦时绝不允许自动通过");
+        let error = finalized.error.expect("必须报 65044");
+        assert_eq!(error.code, error_code::FLOW_SELF_APPROVAL_AMOUNT_LIMIT);
+        assert!(error.msg.contains("5000.00"), "{}", error.msg);
+        assert!(error.msg.contains("1000.00"), "{}", error.msg);
+        assert!(error.msg.contains("超出自审金额上限"), "{}", error.msg);
+        assert!(error.msg.contains("部门经理审批"), "{}", error.msg);
+    }
+
+    /// ⑦ 降级链找到了别人 → 不报错（只在真没人时才 fail-closed）。
+    #[test]
+    fn demotion_with_survivors_does_not_fail() {
+        let me = uid(108);
+        let other = uid(109);
+        let mut finalized = Finalized {
+            approvers: vec![
+                Candidate::new(me, "发起人甲", AssigneeKind::Role),
+                Candidate::new(other, "同事乙", AssigneeKind::Role),
+            ],
+            ..Finalized::default()
+        };
+        assert_eq!(
+            demote_over_limit(&mut finalized, me, Some(5_000.0), 1_000.0),
+            1
+        );
+        assert!(!fail_closed_on_amount_limit(&mut finalized, "部门经理审批"));
+        assert!(finalized.error.is_none());
+        assert_eq!(finalized.approvers.len(), 1);
+        assert_eq!(finalized.approvers[0].user_id, other);
     }
 }
 

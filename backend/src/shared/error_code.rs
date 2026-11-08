@@ -1032,6 +1032,17 @@ pub const FLOW_FALLBACK_INVALID: i32 = 65042;
 /// 引擎只能随机挑一档，两个人互相等对方的待办 ⇒ 单据堵到两个人都回来。
 pub const FLOW_DELEGATE_INVALID: i32 = 65043;
 
+/// 自审金额超限（HTTP 422，P3-05 / ARCH-8 §8 待确认问题 2）。
+///
+/// 节点 `self_approval=ALLOW` 时发起人本人可以被派到待办（受控例外），但
+/// **金额超过系统参数 `erp.separation_of_duties.self_approval_max_amount`
+/// 的自审上限时不许自审**：引擎把他从「能签的人」降级成 `SKIPPED` 留痕，
+/// 先走 P3-02 升级链 / P3-03 兜底人找人；仍找不到人时整单按本码 **422**
+/// 失败（**绝不静默自动通过** —— 那等于「大额单据没人签就生效」）。
+///
+/// 参数缺失 / 值为 0 = 不限额（默认口径），此时本码不会出现。
+pub const FLOW_SELF_APPROVAL_AMOUNT_LIMIT: i32 = 65044;
+
 // ==================== 66xxx：ERP 主数据 / 仓储（批次 D · W1c） ====================
 //
 // 码段说明：64xxx 是云枢 × Hermes，65xxx 是审批流；ERP 接口层（W1c）新开 66xxx，
@@ -1903,6 +1914,7 @@ mod tests {
             (FLOW_ESCALATION_TOO_DEEP, 65041),
             (FLOW_FALLBACK_INVALID, 65042),
             (FLOW_DELEGATE_INVALID, 65043),
+            (FLOW_SELF_APPROVAL_AMOUNT_LIMIT, 65044),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "65xxx 段码值不得改动");
@@ -1917,16 +1929,17 @@ mod tests {
         assert_eq!(unique.len(), codes.len(), "65xxx 段不得有重复码值");
         assert_eq!(
             unique.len(),
-            38,
-            "65xxx 段必须是 38 个码（架构 §10.3 的 22 个 + D2 追加的 5 个运行侧细分码 + P1-A2 的 65033 \
-             + P-FLOW-1A 的 65034–65039 + P3-02 的 65040–65041 + P3-03 的 65042 + P3-04 的 65043）"
+            39,
+            "65xxx 段必须是 39 个码（架构 §10.3 的 22 个 + D2 追加的 5 个运行侧细分码 + P1-A2 的 65033 \
+             + P-FLOW-1A 的 65034–65039 + P3-02 的 65040–65041 + P3-03 的 65042 + P3-04 的 65043 \
+             + P3-05 的 65044）"
         );
         assert!(
             codes.iter().all(|(code, _)| *code > 64014 && *code < 66000),
             "65xxx 段必须落在 64014 与 66000 之间（不侵占 AI 用户段）"
         );
         println!(
-            "[码表] 65xxx 段 {} 个码齐全且不重复（65001–65005 / 65010–65028 / 65030–65043）✓",
+            "[码表] 65xxx 段 {} 个码齐全且不重复（65001–65005 / 65010–65028 / 65030–65044）✓",
             codes.len()
         );
     }

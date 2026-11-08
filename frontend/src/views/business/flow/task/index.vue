@@ -80,6 +80,17 @@
               <NewDot v-if="card.isNew" variant="badge" title="24 小时内到达的新待办" />
               <span v-if="card.flowName" class="task-card__flow">{{ card.flowName }}</span>
               <t-tag v-if="card.tag" size="small" variant="light" :theme="card.tagTheme">{{ card.tag }}</t-tag>
+              <!-- P3-05：自审标（一致性缺口补丁）—— 进度图 / 详情时间线早就有「自审」，
+                   只有待办列表没有。自审 = 你在批自己发起的单（节点 ALLOW），必须一眼看见。 -->
+              <t-tag
+                v-if="card.isSelfApproval"
+                size="small"
+                variant="light"
+                theme="danger"
+                title="这是你自己发起的单据：该节点配置了允许自审（self_approval=ALLOW）"
+              >
+                自审
+              </t-tag>
             </div>
             <div class="task-card__meta">
               <span class="task-card__no">{{ card.instanceNo || '—' }}</span>
@@ -269,6 +280,8 @@ interface CardItem {
   isNew?: boolean;
   /** 所属审批实例的状态（P11 防御用；后端老版本可能缺这个字段） */
   instanceStatus?: string;
+  /** 是否「自审」票（P3-05：节点 `self_approval=ALLOW` 派给发起人本人） */
+  isSelfApproval?: boolean;
   /**
    * 实例的表单快照（`form_data`）。
    *
@@ -493,6 +506,8 @@ function taskToCard(task: FlowTaskItem): CardItem {
     formData: task.form_data,
     tag: tags[0],
     tagTheme,
+    // P3-05：待办卡片的「自审」标（后端 `TaskRes.is_self_approval`，与进度图同源）
+    isSelfApproval: task.is_self_approval === true,
   };
 }
 

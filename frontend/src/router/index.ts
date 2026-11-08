@@ -369,6 +369,16 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '审批委托', permission: 'business:flow:delegate:list' },
       },
       {
+        // 流程统计（P3-05）：自审监控（月度 + 明细）+ 审批总览。
+        // `sys_menu.path`（V0338 种 …1243）是 `/flow/stats`，component
+        // `business/flow/stats/index` —— 两处逐字一致（`system::menu::tests::n08`）。
+        // 权限复用 `business:flow:instance:read`（与统计三接口同口径，不新造码）。
+        path: 'flow/stats',
+        name: 'BusinessFlowStats',
+        component: () => import('@/views/business/flow/stats/index.vue'),
+        meta: { title: '自审监控', permission: 'business:flow:instance:read' },
+      },
+      {
         // ==================== ERP 主数据（W4a · 仓库 / 库位） ====================
         // `sys_menu.path`（V0141 种子 …0941）是 `/business/erp/warehouse`，component
         // `business/erp/warehouse/index`。路由是**手工注册**的（没有 views 自动扫描），
