@@ -5,14 +5,15 @@
 
 | 项 | 值 |
 |---|---|
-| 功能提交 | 见卡内汇报（`feat(erp): CODE-05 …`） |
+| 功能提交 | **`bcf4a77`** `feat(erp): CODE-05 供应商/客户「生成编码」按钮 + next-code 预览接口（交互方式 B）`（rebase 到 `2b816b3` 之上，已 push origin/main） |
 | 迁移 | **本卡没有迁移**（号段由 CODE-01 的 `V0337` 提供；预览复用 `seq::peek_master_code`） |
 | 后端新增接口 | `GET /api/business/erp/supplier/next-code`、`GET /api/business/erp/customer/next-code` |
 | 后端用例 | 新增 4 条真库用例全绿（`preview_*` 2 + `*_previewed_code_*` 2）；相关 4 组套件 23 + 13 + 11 + 7 全绿 |
 | 真实 token curl | **30 条断言全 PASS**（隔离实例 99 本机 :8045，全新库 `cloudpivot_code05a`） |
 | 库侧断言 | **11 条全 PASS**（落库明细 / 形态正则 / 存活无重复 / 号段推进） |
-| 前端门禁 | `pnpm typecheck` exit 0；`pnpm build` exit 0；新增 7 条前端单测全绿 |
+| 前端门禁 | `pnpm typecheck` exit 0（`raw/05_frontend_typecheck.log`）；`pnpm build` exit 0（`raw/06_frontend_build.log`）；新增 7 条前端单测全绿 |
 | 前端 UI 实测 | 浏览器真实点击「生成编码」+ 保存 + 编辑态禁用，**两页全部通过**（见 §6） |
+| 145 测试环境 | `git pull` 到 `bcf4a77` + `cargo build` 0 错 + `systemctl restart cloudpivot-test`（health 200）；真 token 抽查两个 next-code 接口均 `200`（`SUP-0004` / `CUS-0006`） |
 
 ---
 
