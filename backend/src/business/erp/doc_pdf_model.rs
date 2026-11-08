@@ -369,7 +369,12 @@ pub async fn write_export_log(entry: &ExportLog<'_>) -> DbResult<()> {
         "duration_ms".to_string(),
         serde_json::json!(entry.duration_ms),
     );
-    detail.insert("source".to_string(), serde_json::json!("PDF-03"));
+    // `source` 默认写 PDF-03（`write_export_log` 是 PDF-03 起的公共件），
+    // 但**调用方传了就以调用方为准** —— 否则 PDF-05 的审批单导出会挂上
+    // 「来源 PDF-03」的假标签，审计按来源统计时把单据族串在一起。
+    if !detail.contains_key("source") {
+        detail.insert("source".to_string(), serde_json::json!("PDF-03"));
+    }
     db().execute_with_params(
         "INSERT INTO operation_logs \
              (id, request_id, user_id, username, operation, target_type, target_id, detail, \

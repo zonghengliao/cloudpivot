@@ -617,6 +617,7 @@ fn audit(
         doc_no: rendered.doc_no.clone(),
         detail: serde_json::json!({
             "doc_type": "FLOW_INSTANCE",
+            "source": "PDF-05",
             "trace_count": rendered.row_count,
             "amount": rendered.total_amount.round_dp(2).to_string(),
             "render_ms": rendered.duration_ms,
@@ -1386,7 +1387,8 @@ mod db_tests {
         assert_eq!(error.code, error_code::ERP_FILTER_INVALID);
     }
 
-    /// 导出审计行：与 handler 同一条写入路径，字段口径一致（trace_count 而非 row_count）。
+    /// 导出审计行：与 handler 同一条写入路径，字段口径一致（trace_count 而非 row_count）；
+    /// 同时钉住 `write_export_log` 的 `source` 语义（调用方给了就不覆盖成默认的 PDF-03）。
     #[tokio::test]
     async fn export_writes_operation_log_row() {
         let Some(_guard) = setup().await else {
@@ -1403,6 +1405,7 @@ mod db_tests {
             doc_no: INSTANCE_NO,
             detail: serde_json::json!({
                 "doc_type": "FLOW_INSTANCE",
+                "source": "PDF-05",
                 "trace_count": ctx.traces.len(),
                 "amount": form_amount(&serde_json::json!({"amount": 12345.67})).to_string(),
             }),
@@ -1441,5 +1444,10 @@ mod db_tests {
         assert_eq!(detail["doc_type"], "FLOW_INSTANCE");
         assert_eq!(detail["trace_count"], 3);
         assert_eq!(detail["amount"], "12345.67");
+        assert_eq!(
+            detail["source"], "PDF-05",
+            "调用方给了 source 就不许被默认值 PDF-03 覆盖"
+        );
+        assert_eq!(detail["doc_no"], INSTANCE_NO, "单号必须落进 detail");
     }
 }
