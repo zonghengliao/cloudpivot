@@ -1,0 +1,45 @@
+# 99 全新库 cloudpivot_menufix（纯迁移链）— 2026-11-08 08:47:10 CST
+
+## schema_migrations
+ versioned | seed | failed | maxver 
+-----------+------+--------+--------
+       257 |   11 |      0 |    335
+(1 row)
+
+   kind    |            name             | version | success | applied_via 
+-----------+-----------------------------+---------+---------+-------------
+ versioned | menu_title_shorten_and_sort | 335     | t       | executed
+(1 row)
+
+ long_titles 
+-------------
+           0
+(1 row)
+
+ dup_groups 
+------------
+          0
+(1 row)
+
+ menus 
+-------
+   423
+(1 row)
+
+## menu_invariants
+═══ 菜单结构不变量 ═══
+库: cloudpivot_menufix
+① 孤儿 parent:           0  ✅
+② /system/ 归属:         0  ✅
+③ /business/ 归属:       0  ✅
+    ↳ 例外表：4 条 path 豁免（/notice-center 根），失配 0（缺失/已合规）
+④ path 唯一性:           0  ✅
+⑤ 菜单总数:            423  ✅ (400-460)
+结果: 全绿 ✅
+rc=0
+
+## 幂等：二次执行 up.sql 的 UPDATE 行数统计
+      1 BEGIN
+      3 DO
+      1 ROLLBACK
+     31 UPDATE 0

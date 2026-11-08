@@ -1,0 +1,107 @@
+# 145 (cloudpivot_dev) 迁移后菜单实测 — 2026-11-08 08:47:05 CST
+
+Pager usage is off.
+
+=== ① 145 POST：全库 menu_type IN (1,2) title 长度 > 12 的条数（期望 0）===
+ long_titles 
+-------------
+           0
+(1 row)
+
+
+=== ② 145 POST：同父节点下 menu_type=2 的 sort_order 重复组（期望 0 行）===
+ parent_id | parent_path | sort_order | count 
+-----------+-------------+------------+-------
+(0 rows)
+
+
+=== ②b 145 POST：含 menu_type=1 目录行的同类重复（信息项）===
+ parent_path | sort_order | count |      string_agg      
+-------------+------------+-------+----------------------
+             |         75 |     2 | 合同管理 ;; 通用底座
+(1 row)
+
+
+=== ③ 145 POST：22 条 + 3 条附带 改前/改后对照 ===
+ 原字数 |               原_title_前24字               | 新字数 |   新_title   | mt |                path                
+--------+---------------------------------------------+--------+--------------+----+------------------------------------
+     84 | 收款退款单：RR-yyyyMMdd-000001              |      5 | 收款退款单   |  2 | (空)
+     79 | 取价解析（5 级确定性取价：客户协议价 → 客户 |      4 | 价格查询     |  2 | (空)
+     47 | 销售目标维护 + 达成率看板（按订单金额 / 按  |      4 | 销售目标     |  2 | /business/erp/sales-target
+     38 | 即时 / 月末汇率维护 + 按月批量录入（ARC     |      4 | 汇率管理     |  2 | /business/erp/exchange-rate
+     37 | 客户协议价 + 阶梯/促销价维护（取价链见 AR   |      4 | 客户价格     |  2 | /business/erp/customer-price
+     36 | 采购退货：选入库单带明细 → 审批 → 库存回冲  |      4 | 采购退货     |  2 | /business/erp/purchase-return
+     34 | 询价 → 多家报价 → 比价 → 定标 → 转采        |      3 | 询比价       |  2 | /business/erp/price-inquiry
+     34 | 币种主数据 + 本位币标记（唯一；ARCH-7       |      4 | 币种管理     |  2 | /business/erp/currency
+     29 | 报表项维护（报表项 ↔ 科目映射 / 取数公式    |      5 | 报表项维护   |  2 | /business/erp/report/report-item
+     28 | 部门提需求 → 审批 → 转采购订单（支持多单合  |      4 | 采购申请     |  2 | /business/erp/purchase-requisition
+     27 | 跨单据联动规则（源单据 + 触发状态 → 白名单  |      4 | 联动规则     |  2 | /flow/linkage
+     25 | 费用类型（科目 / 可抵扣 / 受预算 / 上限     |      4 | 费用类型     |  2 | /business/erp/expense-type
+     23 | 我的报销（新建 / 提交 / 撤回 / 作废）       |      4 | 我的报销     |  2 | /business/erp/expense
+     22 | 费用报销（报销单 / 待付款 / 费用类型）      |      4 | 费用报销     |  1 | /business/erp/expense
+     20 | 预算管理（编制 / 执行 / 科目映射）          |      4 | 预算管理     |  1 | /business/erp/budget
+     20 | 折旧计提（月度批次 / 凭证 / 红冲）          |      4 | 折旧计提     |  2 | /business/erp/depreciation
+     20 | 审批流程定义（编排 / 发布 / 版本）          |      6 | 审批流程定义 |  2 | /flow/def
+     19 | 预算执行（已用 / 可用 / 执行率）            |      4 | 预算执行     |  2 | /business/erp/budget/report
+     19 | 资产分类（年限 / 残值率 / 科目）            |      4 | 资产分类     |  2 | /business/erp/asset-category
+     18 | 预算编制（部门 × 科目 × 期间）              |      4 | 预算编制     |  2 | /business/erp/budget
+     18 | 资产卡片（建卡 / 转移 / 处置）              |      4 | 资产卡片     |  2 | /business/erp/asset
+     18 | 固定资产（卡片 / 分类 / 折旧）              |      4 | 固定资产     |  1 | /business/erp/asset
+     17 | 合同管理（采购/销售/服务/租赁）             |      4 | 合同管理     |  2 | /business/erp/contract
+     17 | 预算科目映射（采购 → 预算科目）             |      6 | 预算科目映射 |  2 | /business/erp/budget/mapping
+     15 | 待付款（已审批未付清的报销单）              |      3 | 待付款       |  2 | /business/erp/expense/pay
+(25 rows)
+
+
+=== ④ 145 POST：sort_order 改动 6 行 ===
+         parent_path         | sort_order |               name                
+-----------------------------+------------+-----------------------------------
+ /business/erp/finance-mgmt  |         48 | business:erp:report:payable-aging
+ /business/erp/finance-mgmt  |         49 | 报表项维护
+ /business/erp/purchase-mgmt |         10 | 采购订单
+ /business/erp/sales-mgmt    |         72 | 销售退货单
+ /business/erp/sales-mgmt    |         82 | 币种管理
+ /business/erp/sales-mgmt    |         92 | 汇率管理
+(6 rows)
+
+
+=== ⑤ 145 POST：采购/销售/财务三个目录下的菜单顺序（前端实际渲染顺序）===
+            模块             | 序 | 类型 |      菜单名       
+-----------------------------+----+------+-------------------
+ /business/erp/finance-mgmt  | 10 |    2 | 会计科目
+ /business/erp/finance-mgmt  | 20 |    2 | 会计期间
+ /business/erp/finance-mgmt  | 21 |    2 | 期初余额
+ /business/erp/finance-mgmt  | 22 |    2 | 年度结转
+ /business/erp/finance-mgmt  | 25 |    1 | 预算管理
+ /business/erp/finance-mgmt  | 27 |    1 | 费用报销
+ /business/erp/finance-mgmt  | 29 |    1 | 固定资产
+ /business/erp/finance-mgmt  | 30 |    2 | 记账凭证
+ /business/erp/finance-mgmt  | 40 |    2 | 总账 / 科目余额表
+ /business/erp/finance-mgmt  | 45 |    2 | 资产负债表
+ /business/erp/finance-mgmt  | 46 |    2 | 利润表
+ /business/erp/finance-mgmt  | 47 |    2 | 现金流量表
+ /business/erp/finance-mgmt  | 48 |    2 | 应付账龄分析
+ /business/erp/finance-mgmt  | 49 |    2 | 报表项维护
+ /business/erp/purchase-mgmt | 10 |    2 | 采购订单
+ /business/erp/purchase-mgmt | 20 |    2 | 收货入库
+ /business/erp/purchase-mgmt | 30 |    2 | 应付账款
+ /business/erp/purchase-mgmt | 35 |    2 | 询比价
+ /business/erp/purchase-mgmt | 36 |    2 | 采购申请
+ /business/erp/purchase-mgmt | 37 |    2 | 采购退货
+ /business/erp/purchase-mgmt | 40 |    2 | 供应商
+ /business/erp/purchase-mgmt | 50 |    2 | 采购明细
+ /business/erp/sales-mgmt    | 10 |    2 | 客户档案
+ /business/erp/sales-mgmt    | 20 |    2 | 销售订单
+ /business/erp/sales-mgmt    | 30 |    2 | 发货单
+ /business/erp/sales-mgmt    | 40 |    2 | 应收台账
+ /business/erp/sales-mgmt    | 50 |    2 | 收款单
+ /business/erp/sales-mgmt    | 60 |    2 | 销售发票
+ /business/erp/sales-mgmt    | 70 |    2 | 客户价格
+ /business/erp/sales-mgmt    | 72 |    2 | 销售退货单
+ /business/erp/sales-mgmt    | 78 |    2 | 销售目标
+ /business/erp/sales-mgmt    | 80 |    2 | 佣金规则
+ /business/erp/sales-mgmt    | 82 |    2 | 币种管理
+ /business/erp/sales-mgmt    | 90 |    2 | 佣金结算
+ /business/erp/sales-mgmt    | 92 |    2 | 汇率管理
+(35 rows)
+
