@@ -26,11 +26,12 @@ const MM_PER_INCH: f64 = 25.4;
 /// 纸张尺寸。
 ///
 /// `Custom` 用毫米表示，便于业务侧直接写「210×297」。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum PageSize {
     /// A3（297×420mm）
     A3,
     /// A4（210×297mm）—— 默认值，与国内单据/发票的通用规格一致。
+    #[default]
     A4,
     /// A5（148×210mm）
     A5,
@@ -38,12 +39,6 @@ pub enum PageSize {
     Letter,
     /// 自定义（毫米，纵向尺寸；`landscape` 时由调用方交换宽高语义，见 [`PdfOpts::paper_inches`]）。
     Custom { width_mm: f64, height_mm: f64 },
-}
-
-impl Default for PageSize {
-    fn default() -> Self {
-        Self::A4
-    }
 }
 
 impl PageSize {

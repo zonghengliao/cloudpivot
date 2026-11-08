@@ -9,8 +9,15 @@
 -- 权限码：business:pdf:render:export
 -- 授权范围：仅 SUPER_ADMIN。
 --   超管鉴权本身由 role_code 短路（src/system/auth/model.rs::is_super_admin，
---   权限列表下发 *:*:*），此处写入 sys_role_menu 是为了让「角色授权」页的
---   权限树能完整展示本权限点，并非鉴权所必需。
+--   权限列表下发 *:*:*），**不依赖下面这张授权表**；写 sys_role_menu 只是为了让
+--   「角色授权」页的权限树能完整展示本权限点。
+--
+-- ⚠️ 空库首启时下面的 INSERT 实际插入 0 行（不是写错，与 V0020 同口径）：
+--   `sys_role` 的 SUPER_ADMIN 是 **seed 迁移**（`migrations/seed/S__*.sql`）种的，
+--   而 seed 在全部 V* 之后才跑（V0342 的注释里也记过这件事）。所以：
+--     · 全新库：V0343 先跑 → 找不到 SUPER_ADMIN → 0 行（无害，鉴权短路不受影响）；
+--     · 已有数据的库升级：SUPER_ADMIN 已在 → 正常插 1 行，权限树可见。
+--   已核对：V0020 的 business:monitor:server-status 在空库首启后同样是 0 行。
 --
 -- 为什么只给超管：
 --   · /business/pdf/render 接受任意 HTML（等于一个「让服务器渲染任意页面」的口子）；

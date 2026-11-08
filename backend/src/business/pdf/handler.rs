@@ -155,7 +155,7 @@ async fn sample_pdf(req: PdfSampleReq) -> std::result::Result<Response, ApiError
         .await
         .map_err(|error| error.into_api())?;
     let filename = format!("对账单-{rows}行.pdf");
-    Ok(pdf_response(&pdf, Some(&filename))?)
+    pdf_response(&pdf, Some(&filename))
 }
 
 /// `render` 的实现。
@@ -194,7 +194,7 @@ async fn render_html(req: PdfRenderReq) -> std::result::Result<Response, ApiErro
         .filename
         .clone()
         .unwrap_or_else(|| "document.pdf".to_string());
-    Ok(pdf_response(&pdf, Some(&filename))?)
+    pdf_response(&pdf, Some(&filename))
 }
 
 /// 组装 PDF 响应（二进制 + 下载头）。
