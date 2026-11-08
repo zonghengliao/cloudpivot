@@ -1,0 +1,65 @@
+================ P3-09 关键 DB 行快照（cloudpivot_p309_drill）================
+
+--- 0) 迁移与夹具规模 ---
+schema_migrations versioned=263 max_version=91
+夹具角色 P309_* = 14
+夹具用户 = 19
+
+--- 1) 演练产生的实例（按流程分组）---
+p309_a1 | 实例数=1 | 状态=APPROVED | 版本号=1
+p309_a2 | 实例数=1 | 状态=APPROVED | 版本号=1
+p309_a3 | 实例数=1 | 状态=APPROVED | 版本号=1
+p309_a4 | 实例数=1 | 状态=APPROVED | 版本号=1
+p309_a5 | 实例数=2 | 状态=APPROVED,PENDING | 版本号=1
+p309_a7 | 实例数=1 | 状态=APPROVED | 版本号=1
+p309_b1_or_cond | 实例数=1 | 状态=APPROVED | 版本号=1
+p309_b1_par | 实例数=1 | 状态=APPROVED | 版本号=1
+p309_b2 | 实例数=3 | 状态=APPROVED | 版本号=1
+p309_b2_end_and | 实例数=1 | 状态=PENDING | 版本号=1
+p309_b3 | 实例数=2 | 状态=APPROVED | 版本号=1,2
+p309_c | 实例数=5 | 状态=PENDING,REJECTED | 版本号=1
+
+--- 2) 待办留痕：四类降级/自审各一行样例 ---
+升级 | P309_BOSS u_b1 | APPROVED | rule=ESCALATED | from_role=P309_MAKER | reason=SKIP_SELF_APPROVAL
+升级 | P309_BOSS u_b2 | CANCELLED | rule=ESCALATED | from_role=P309_MAKER | reason=SKIP_SELF_APPROVAL
+兜底 | P309_FB u_fb | APPROVED | rule=FALLBACK
+委托 | P309_PA u_pa | APPROVED | rule=DELEGATED | P3-09 受托人代 A 审批通过
+自审SKIP | P309_LONE u_l1 | SKIPPED | 审批人是发起人本人（self_approval=SKIP），已跳过并留痕
+自审SKIP | P309_MAKER u_m1 | SKIPPED | 审批人是发起人本人（self_approval=SKIP），已跳过并留痕
+自审SKIP | P309_THREE u_t1 | SKIPPED | 审批人是发起人本人（self_approval=SKIP），已跳过并留痕
+
+--- 3) 自审 ALLOW 审计（operation_logs）---
+FLOW_SELF_APPROVAL_ALLOWED | u_solo | node=一人公司审批 | amount=8888.0 | vote=
+FLOW_SELF_APPROVAL_VOTED | u_solo | node=一人公司审批 | amount=8888.0 | vote=APPROVED
+
+--- 4) 驳回四目标：round 与 RESUBMIT ---
+RESUBMIT 待办数=1
+round>1 的实例节点行数=3
+FLW-20261108-FB53E74E | max_round=2 | round_total=2
+FLW-20261108-77F2570F | max_round=1 | round_total=1
+FLW-20261108-51FF31A0 | max_round=2 | round_total=2
+FLW-20261108-4CCEDD7A | max_round=1 | round_total=1
+FLW-20261108-4619C990 | max_round=2 | round_total=2
+
+--- 5) 并行网关 / 条件路由 / 版本冻结 关键行 ---
+  [B1 并行] 汇聚节点 j 的到达与放行：
+FLW-20261108-13AFBCA2 | j=APPROVED | arrived_branches=2/2
+  [B2 条件] 每个实例走过的边：
+P3-09 B2 金额 500000 | c1 -> e_c2
+P3-09 B2 金额 500000 | c2 -> e_high
+P3-09 B2 金额 50000 | c1 -> e_c2
+P3-09 B2 金额 50000 | c2 -> e_mid
+P3-09 B2 金额 5000 | c1 -> e_low
+  [B2b 缺陷] END 默认 AND 的实例（应 APPROVED，实际 PENDING）：
+FLW-20261108-B04C3FEA | inst=PENDING | END=PENDING
+  [B3 版本冻结] 新旧实例绑的版本与节点名：
+FLW-20261108-5D5116A4 | v1 | P3-09 B3 旧版实例 | node=审批人甲（旧版）
+FLW-20261108-0164FC01 | v2 | P3-09 B3 新版实例 | node=审批人乙（新版）
+
+--- 6) 种子流程（回归面）现状：END 的 join_mode 口径 ---
+po_approve | END join_mode=OR
+pr_approve | END join_mode=OR
+
+--- 7) 端口复核 ---
+18091 监听行数=0
+health=000

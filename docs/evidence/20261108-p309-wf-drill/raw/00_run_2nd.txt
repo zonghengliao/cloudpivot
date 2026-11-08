@@ -1,0 +1,398 @@
+================ P3-09 工作流全链路回归演练（cloudpivot_p309_drill / :18091）================
+二进制：/root/p308/bin/cloudpivot（e1c33cd1fbfc565cf8fdfd6837ac993e）
+环境文件：/root/p309/instance.env（600）
+--- 0) 全新空库（不复用任何人的证据库）
+createdb cloudpivot_p309_drill → OK
+--- 1) 起隔离实例（跑全量迁移）
+health → 200（pid 380085）
+迁移日志：应用 274 个迁移
+--- 2) 跑演练脚本
+P3-09 工作流全链路回归演练 · BASE=http://127.0.0.1:18091 DB=cloudpivot_p309_drill
+SQL 断言明细 → /opt/cloudpivot/docs/evidence/20261108-p309-wf-drill/raw/21_sql_assertions.txt
+
+### 0) 夹具：管理员登录 → 角色 → 用户 → 权限 → 流程定义
+  [PASS] admin 令牌就绪（含首登强制改密）
+  [PASS] 14 个角色就绪
+  [PASS] 角色② 设置上级角色（P309_MAKER → P309_BOSS）→ 200
+  [PASS] 上级角色回读
+  [PASS] 19 个用户就绪
+  [PASS] P309_THREE 授 3 个权限码（实际 3）
+  [PASS] P309_ANY3 授 2 个权限码（实际 2）
+  [PASS] P309_MAKER 授 3 个权限码（实际 3）
+  [PASS] P309_BOSS 授 2 个权限码（实际 2）
+  [PASS] P309_LONE 授 3 个权限码（实际 3）
+  [PASS] P309_FB 授 2 个权限码（实际 2）
+  [PASS] P309_SOLO 授 3 个权限码（实际 3）
+  [PASS] P309_DEL 授 6 个权限码（实际 6）
+  [PASS] P309_FIN 授 3 个权限码（实际 3）
+  [PASS] P309_SUB 授 3 个权限码（实际 3）
+  [PASS] P309_PA 授 2 个权限码（实际 2）
+  [PASS] P309_PB 授 3 个权限码（实际 3）
+  [PASS] P309_PBN 授 2 个权限码（实际 2）
+  [PASS] P309_PC 授 2 个权限码（实际 2）
+  [PASS] P309_THREE 在册成员数 = 3
+  [PASS] P309_MAKER 在册成员数 = 1（= 制单人）
+  [PASS] P309_BOSS 在册成员数 = 2
+  [PASS] 用户 u_t1 令牌就绪
+  [PASS] 用户 u_t2 令牌就绪
+  [PASS] 用户 u_t3 令牌就绪
+  [PASS] 用户 u_a1 令牌就绪
+  [PASS] 用户 u_a2 令牌就绪
+  [PASS] 用户 u_a3 令牌就绪
+  [PASS] 用户 u_m1 令牌就绪
+  [PASS] 用户 u_b1 令牌就绪
+  [PASS] 用户 u_b2 令牌就绪
+  [PASS] 用户 u_l1 令牌就绪
+  [PASS] 用户 u_fb 令牌就绪
+  [PASS] 用户 u_solo 令牌就绪
+  [PASS] 用户 u_del 令牌就绪
+  [PASS] 用户 u_fin 令牌就绪
+  [PASS] 用户 u_init 令牌就绪
+  [PASS] 用户 u_pa 令牌就绪
+  [PASS] 用户 u_pb 令牌就绪
+  [PASS] 用户 u_pbn 令牌就绪
+  [PASS] 用户 u_pc 令牌就绪
+  [PASS] 流程 p309_c 建定义 → 存图 → 发布（def=01a1b9a9-b970-77b7-97a9-f31bf0e4a9bf version=01a1b9a9-b971-723f-a5da-9d310dc6b960）
+
+==============================================================================
+=== A1 ARCH-8 ①：角色 3 人、制单人 1 人 → 剩余 2 人收到待办，按该节点 approval_mode 签
+==============================================================================
+  [PASS] 流程 p309_a1 建定义 → 存图 → 发布（def=01a1b9a9-b989-7641-817e-23c1997017b6 version=01a1b9a9-b98a-71cd-9655-b74af397673f）
+  [PASS] A1 发起（制单人 u_t1 在角色内）→ 200
+  [PASS] A1 实例节点 approval_mode 有确定值（签法口径）
+  · 本节点签法 = ALL（ALL → 剩余 2 人都要签；ANY → 1 人即过）
+  [PASS] A1 PENDING 待办 2 行（剩余 2 人）
+  [PASS] A1 待办的两个人 = u_t2 / u_t3
+  [PASS] A1 制单人 u_t1 落 SKIPPED 留痕
+  [PASS] A1 SKIPPED 行写明 self_approval=SKIP
+  [PASS] A1 没有走升级链（escalated_from_role 全空）
+  [PASS] A1 assigned_by_rule 全是 ROLE（普通角色展开）
+  [PASS] A1 u_t2 审批 → 200
+  [PASS] A1 ALL：1 人签完实例仍 PENDING
+  [PASS] A1 ALL：节点仍 ACTIVE
+  [PASS] A1 u_t3 补签 → 200
+  [PASS] A1 实例 APPROVED
+  [PASS] A1 节点 approved_count = 2
+
+==============================================================================
+=== A2 ARCH-8 ②：角色 1 人（=制单人）→ 自动升级上级角色 → 上级成员审批成功
+==============================================================================
+  [PASS] 流程 p309_a2 建定义 → 存图 → 发布（def=01a1b9a9-bb3f-7276-8165-5846c6ee67ff version=01a1b9a9-bb40-70be-9e0d-4f4931a38208）
+  [PASS] A2 发起 → 200
+  [PASS] A2 PENDING 待办 2 行（上级角色 2 人）
+  [PASS] A2 escalated_from_role = P309_MAKER
+  [PASS] A2 escalate_reason = SKIP_SELF_APPROVAL
+  [PASS] A2 assigned_by_rule = ESCALATED
+  [PASS] A2 2 行待办都派给 P309_BOSS 的成员
+  [PASS] A2 上级成员 u_b1 收到待办
+  [PASS] A2 上级角色成员审批 → 200
+  [PASS] A2 实例 APPROVED
+  [PASS] A2 升级留痕行仍在（2 行带 escalated_from_role）
+  · A2 待办留痕:
+      P309_BOSS u_b1 | APPROVED | rule=ESCALATED | from_role=P309_MAKER | reason=SKIP_SELF_APPROVAL
+      P309_BOSS u_b2 | CANCELLED | rule=ESCALATED | from_role=P309_MAKER | reason=SKIP_SELF_APPROVAL
+      P309_MAKER u_m1 | SKIPPED | rule=- | from_role=- | reason=-
+
+==============================================================================
+=== A3 ARCH-8 ③：角色 1 人 + 无上级 → 节点兜底人接管（assigned_by_rule=FALLBACK）
+==============================================================================
+  [PASS] 流程 p309_a3 建定义 → 存图 → 发布（def=01a1b9a9-bc90-754f-9205-f64602912027 version=01a1b9a9-bc91-76b9-8a8d-0880fa855cf2）
+  [PASS] A3 发起 → 200
+  [PASS] A3 待办审批人 = 兜底人 u_fb
+  [PASS] A3 assigned_by_rule = FALLBACK
+  [PASS] A3 兜底人收到待办
+  [PASS] A3 兜底人审批 → 200
+  [PASS] A3 实例 APPROVED
+  · A3 兜底留痕:
+      P309_FB u_fb | APPROVED | rule=FALLBACK
+      P309_LONE u_l1 | SKIPPED | rule=-
+
+==============================================================================
+=== A4 ARCH-8 ④：一人公司 + ALLOW → 自审成功 + operation_logs + /stats/self-approval
+==============================================================================
+  [PASS] 流程 p309_a4 建定义 → 存图 → 发布（def=01a1b9a9-bd5e-70d5-b55a-02e591d6819f version=01a1b9a9-bd5f-708e-8faa-a44f44f6e0cc）
+  [PASS] A4 发起（唯一审批人 = 发起人）→ 200
+  [PASS] A4 待办派给发起人本人（is_self_approval=t）
+  [PASS] A4 自审 → 200
+  [PASS] A4 实例 APPROVED（自审成功）
+  [PASS] A4 operation_logs 有 FW_SELF_APPROVAL_ALLOWED 1 行
+  [PASS] A4 operation_logs 有 FLOW_SELF_APPROVAL_VOTED 1 行
+  · A4 自审审计原文:
+      FLOW_SELF_APPROVAL_ALLOWED | u_solo | node=一人公司审批 | amount=8888.0 | vote= | reason=节点配置 self_approval=ALLOW，发起人本人被派为审批人（待办带自审标）
+      FLOW_SELF_APPROVAL_VOTED | u_solo | node=一人公司审批 | amount=8888.0 | vote=APPROVED | reason=发起人以自审身份同意了自己的单据（self_approval=ALLOW）
+  [PASS] A4 GET /stats/self-approval → 200
+  [PASS] A4 月度自审报表里有该单
+  [PASS] A4 报表 self_approval_instances ≥ 1
+  [PASS] A4 报表金额 ≥ 8888
+
+==============================================================================
+=== A5 ARCH-8 ⑤：审批人设委托 → 受托人收到待办（代 X 审批）→ 委托期外回到本人
+==============================================================================
+  [PASS] 流程 p309_a5 建定义 → 存图 → 发布（def=01a1b9a9-be4f-7638-9116-15ac82962cc5 version=01a1b9a9-be50-7501-b6bf-f317e1e3b178）
+  [PASS] A5 建委托（u_del → u_pa，今天起 3 天）→ 200
+  [PASS] A5 委托 id 就绪
+  [PASS] A5 委托期内发起 → 200
+  [PASS] A5 委托期内：待办派给受托人 u_pa
+  [PASS] A5 委托期内：assigned_by_rule = DELEGATED
+  [PASS] A5 待办显示「代 X 审批」
+  · A5 委托期内的待办行:
+      P309_PA u_pa | PENDING | rule=DELEGATED | 代 P309_DEL u_del 审批（委托至 2026-11-11）
+  [PASS] A5 受托人审批 → 200
+  [PASS] A5 实例 APPROVED
+  [PASS] A5 审批留痕记在受托人名下 + DELEGATED
+  [PASS] A5 把委托改到已过期 → 200
+  [PASS] A5 委托期外发起 → 200
+  [PASS] A5 委托期外：待办回到本人 u_del
+  [PASS] A5 委托期外：不带「代 … 审批」comment
+
+==============================================================================
+=== A6 ARCH-8 ⑥：财务节点 FORBID → 自审被拒 422 / 65019（回归不变）
+==============================================================================
+  [PASS] 流程 p309_a6 建定义 → 存图 → 发布（def=01a1b9a9-bfb6-72a6-9c4f-4b2dcc92797a version=01a1b9a9-bfb6-72a6-9c4f-4b2e5a901cf8）
+  [PASS] A6 自审发起 → 422
+  [PASS] A6 错误码 65019
+  [PASS] A6 报文点名 self_approval=FORBID
+  [PASS] A6 没留下半截实例
+
+==============================================================================
+=== A7 ARCH-8 ⑦：角色节点默认或签 → 3 人任 1 人审批即通过，另 2 条 CANCELLED
+==============================================================================
+  [PASS] 流程 p309_a7 建定义 → 存图 → 发布（def=01a1b9a9-bfea-72a5-bab0-0443d6c4a459 version=01a1b9a9-bfea-72a5-bab0-044477ffd01a）
+  [PASS] A7 发起（发起人不在角色内）→ 200
+  [PASS] A7 3 条 PENDING 待办（角色 3 人）
+  [PASS] A7 节点 approval_mode 落库为 NULL（不填就不编值）
+  [PASS] A7 u_a1 审批 → 200
+  [PASS] A7 实例 APPROVED（任 1 人即过）
+  [PASS] A7 另 2 条待办 CANCELLED
+  · A7 三人角色待办终态:
+      P309_ANY3 u_a1 | APPROVED
+      P309_ANY3 u_a2 | CANCELLED
+      P309_ANY3 u_a3 | CANCELLED
+
+==============================================================================
+=== A8 ARCH-8 ⑧：留痕完整（升级 / 兜底 / 委托 / 自审 SKIP 都能查到原因）
+==============================================================================
+  · 四类留痕汇总：
+      升级 P309_MAKER / SKIP_SELF_APPROVAL / ESCALATED
+      升级 P309_MAKER / SKIP_SELF_APPROVAL / ESCALATED
+      兜底 FALLBACK
+      委托 DELEGATED / P3-09 受托人代 A 审批通过
+      自审SKIP 审批人是发起人本人（self_approval=SKIP），已跳过并留痕
+      自审SKIP 审批人是发起人本人（self_approval=SKIP），已跳过并留痕
+      自审SKIP 审批人是发起人本人（self_approval=SKIP），已跳过并留痕
+      自审ALLOW FLOW_SELF_APPROVAL_ALLOWED / 节点配置 self_approval=ALLOW，发起人本人被派为审批人（待办带自审标）
+      自审ALLOW FLOW_SELF_APPROVAL_VOTED / 发起人以自审身份同意了自己的单据（self_approval=ALLOW）
+  [PASS] A8 升级留痕可查（biz_flow_task.escalated_from_role / escalate_reason）
+  [PASS] A8 兜底留痕可查（assigned_by_rule=FALLBACK）
+  [PASS] A8 委托留痕可查（assigned_by_rule=DELEGATED + 代 X 审批）
+  [PASS] A8 自审 SKIP 留痕可查（SKIPPED + self_approval=SKIP）
+  [PASS] A8 自审 ALLOW 留痕可查（operation_logs）
+  [PASS] A8 委托待办 comment 写明「代 X 审批（委托至 …）」
+
+==============================================================================
+=== B1 ARCH-5：并行网关（AND 汇聚等齐 / 只签一臂不汇聚 / OR 汇聚先到先走）
+==============================================================================
+  [PASS] 流程 p309_b1_par 建定义 → 存图 → 发布（def=01a1b9a9-c0e7-7442-9888-1c3123c0213b version=01a1b9a9-c0e8-72f0-b01e-9ed377cbda5d）
+  [PASS] B1 发起（两臂同时激活）→ 200
+  [PASS] B1 两臂待办 2 条（臂甲 1 人 + 臂乙 1 人）
+  [PASS] B1 臂甲节点 ACTIVE
+  [PASS] B1 臂乙节点 ACTIVE
+  [PASS] B1 汇聚节点尚未建行（只到达 0 臂）
+  [PASS] B1 只签一臂（臂甲）→ 200
+  [PASS] B1 只签一臂：实例仍 PENDING
+  [PASS] B1 只签一臂：汇聚节点登记到达但保持 PENDING（不建待办）
+  [PASS] B1 只签一臂：臂乙待办仍 PENDING
+  [PASS] B1 两臂都签完（臂乙）→ 200
+  [PASS] B1 实例 APPROVED（AND 汇聚放行）
+  [PASS] B1 汇聚节点 APPROVED
+  [PASS] B1 两个 END 都走到
+  · B1 AND 汇聚时间线:
+      e1 | END | APPROVED | arrived=13:37:52
+      e2 | END | APPROVED | arrived=13:37:52
+      f | PARALLEL | APPROVED | arrived=13:37:52
+      j | PARALLEL | APPROVED | arrived=13:37:52
+      n_a | APPROVAL | APPROVED | arrived=13:37:52
+      n_b | APPROVAL | APPROVED | arrived=13:37:52
+      s | START | APPROVED | arrived=13:37:52
+  [PASS] B1 OR 汇聚图存草稿 → 200（保存期不拦）
+  [PASS] B1 OR 汇聚发布被拒 → 400
+  [PASS] B1 OR 汇聚错误码 = 65014（R8 禁止并行 OR 汇聚）
+  [PASS] B1 报文写明「必须用 AND 汇聚」
+  [PASS] 流程 p309_b1_or_cond 建定义 → 存图 → 发布（def=01a1b9a9-c2c0-733b-a33f-7b56cf2144ff version=01a1b9a9-c2c0-733b-a33f-7b57a1da4ee4）
+  [PASS] B1 OR 汇聚场景发起 → 200
+  [PASS] B1 OR 汇聚：只激活命中的一支（臂甲）
+  [PASS] B1 OR 汇聚：未命中的另一支没有节点行
+  [PASS] B1 OR 汇聚：未命中分支没有待办
+  [PASS] B1 OR 汇聚：一支签完 → 200
+  [PASS] B1 OR 汇聚：只 1 支到达即放行（实例 APPROVED）
+  [PASS] B1 OR 汇聚节点 APPROVED
+
+==============================================================================
+=== B2 ARCH-5：条件动态路由（form.amount 三档 → 三条边 / 三个节点）
+==============================================================================
+  [PASS] 流程 p309_b2 建定义 → 存图 → 发布（def=01a1b9a9-c3af-73a0-812a-1476cd06571c version=01a1b9a9-c3b0-77e7-9059-13f3525f4ddf）
+  [PASS] B2 amount=5000 发起 → 200
+  [PASS] B2 amount=5000：c1 走的边 = e_low
+  [PASS] B2 amount=5000：命中的审批节点 = n_low（ACTIVE）
+  [PASS] B2 amount=5000：其它两个审批节点都没被激活
+  [PASS] B2 amount=5000：命中节点审批 → 200
+  [PASS] B2 amount=5000：实例 APPROVED
+  · B2 amount=5000 时间线:
+      c1 | APPROVED | edge=e_low
+      e | APPROVED | edge=-
+      n_low | APPROVED | edge=-
+      s | APPROVED | edge=-
+  [PASS] B2 amount=50000 发起 → 200
+  [PASS] B2 amount=50000：c1 走的边 = e_c2
+  [PASS] B2 amount=50000：命中的审批节点 = n_mid（ACTIVE）
+  [PASS] B2 amount=50000：c2 走的边 = e_mid
+  [PASS] B2 amount=50000：其它两个审批节点都没被激活
+  [PASS] B2 amount=50000：命中节点审批 → 200
+  [PASS] B2 amount=50000：实例 APPROVED
+  · B2 amount=50000 时间线:
+      c1 | APPROVED | edge=e_c2
+      c2 | APPROVED | edge=e_mid
+      e | APPROVED | edge=-
+      n_mid | APPROVED | edge=-
+      s | APPROVED | edge=-
+  [PASS] B2 amount=500000 发起 → 200
+  [PASS] B2 amount=500000：c1 走的边 = e_c2
+  [PASS] B2 amount=500000：命中的审批节点 = n_high（ACTIVE）
+  [PASS] B2 amount=500000：c2 走的边 = e_high
+  [PASS] B2 amount=500000：其它两个审批节点都没被激活
+  [PASS] B2 amount=500000：命中节点审批 → 200
+  [PASS] B2 amount=500000：实例 APPROVED
+  · B2 amount=500000 时间线:
+      c1 | APPROVED | edge=e_c2
+      c2 | APPROVED | edge=e_high
+      e | APPROVED | edge=-
+      n_high | APPROVED | edge=-
+      s | APPROVED | edge=-
+
+==============================================================================
+=== B2b 缺陷复现：多条入边的 END 默认 join=AND → 条件分支汇入后实例永久 PENDING
+==============================================================================
+  [PASS] 流程 p309_b2_end_and 建定义 → 存图 → 发布（def=01a1b9a9-c66e-77bb-93fa-54b1d9fbc9cd version=01a1b9a9-c66e-77bb-93fa-54b28b87527d）
+  [PASS] B2b 发起 → 200
+  [PASS] B2b 唯一分支审批 → 200
+  [PASS] B2b 审批节点 n_low 已 APPROVED
+  [PASS] B2b 【缺陷】实例仍是 PENDING（应为 APPROVED）
+  [PASS] B2b 【缺陷】END 节点停在 PENDING（等人齐，但另两支永远不来）
+  [PASS] B2b END 入度 = 3、本轮只有 1 支到达
+  · B2b 卡死事实:
+      c1 | APPROVED
+      e | PENDING
+      n_low | APPROVED
+      s | APPROVED
+  ⚠ 已知缺陷：发布校验 check_join_mode 明确跳过 END（注释写「END 不做汇聚门控」），但引擎 step() 对入度 ≥2 的节点一律走汇聚闸 → 两边口径矛盾。见修复卡。
+
+==============================================================================
+=== B3 ARCH-5：流程版本冻结（老实例走旧图 / 新单走新图）
+==============================================================================
+  [PASS] 流程 p309_b3 建定义 → 存图 → 发布（def=01a1b9a9-c75c-74b2-b5be-e4e2877df9b6 version=01a1b9a9-c75d-7437-aaef-8dc944ad660d）
+  [PASS] B3 发起旧版实例 → 200
+  [PASS] B3 老实例 node_name 来自旧快照
+  [PASS] B3 老实例待办派给旧版审批人（u_pa）
+  [PASS] B3 另存新草稿 → 200
+  [PASS] B3 新草稿 version_id 就绪
+  [PASS] B3 v2 存图 → 200
+  [PASS] B3 v2 发布 → 200
+  [PASS] B3 def.current_version_id 已指向 v2
+  [PASS] B3 老实例仍绑发布时的 v1（版本不漂移）
+  [PASS] B3 新版本号 = 旧版本号 + 1
+  [PASS] B3 老实例按旧图签完 → 200
+  [PASS] B3 老实例 APPROVED（旧图直接到 END）
+  [PASS] B3 老实例没有新版才有的节点行
+  [PASS] B3 老实例节点名仍是旧快照
+  [PASS] B3 新发起实例 → 200
+  [PASS] B3 新实例绑 v2
+  [PASS] B3 新实例节点名 = 新版快照
+  [PASS] B3 新实例待办派给新版审批人（u_pb）
+  [PASS] B3 新实例第一节点签完 → 200
+  [PASS] B3 新实例走到新增节点（ACTIVE）
+  [PASS] B3 新实例新增节点签完 → 200
+  [PASS] B3 新实例 APPROVED
+  · B3 新旧实例对照:
+      FLW-20261108-2EE1EB16 | v1 | APPROVED | P3-09 B3 旧版实例
+      FLW-20261108-04377BAF | v2 | APPROVED | P3-09 B3 新版实例
+
+==============================================================================
+=== C1 驳回目标 PREV：退上一节点 → round 递增 + 上一节点重新派待办
+==============================================================================
+  [PASS] C1 停在第二节点（ACTIVE）
+  [PASS] C1 第二节点待办就绪（u_pb）
+  [PASS] C1 驳回（return_to=PREV）→ 200
+  [PASS] C1 实例仍 PENDING
+  [PASS] C1 第二节点本轮 REJECTED
+  [PASS] C1 第一节点 round 递增到 2
+  [PASS] C1 第一节点第 2 轮 ACTIVE
+  [PASS] C1 第一节点第 2 轮重新派待办给 u_pa
+  [PASS] C1 instance.round_total = 2
+  · C1 节点轮次:
+      n1 | round=1 | APPROVED
+      n1 | round=2 | ACTIVE
+      n2 | round=1 | REJECTED
+      s | round=1 | APPROVED
+
+==============================================================================
+=== C2 驳回目标 INITIATOR：退发起人 → RESUBMIT 待办生成
+==============================================================================
+  [PASS] C2 驳回（return_to=INITIATOR）→ 200
+  [PASS] C2 实例仍 PENDING（等重新提交）
+  [PASS] C2 START 节点 round 递增到 2
+  [PASS] C2 生成 RESUBMIT 待办（发起人）
+  [PASS] C2 RESUBMIT 待办 comment 写明退回原因
+  [PASS] C2 发起人 GET /task/todo → 200
+  [PASS] C2 发起人待办列表里能看到这条 RESUBMIT
+
+==============================================================================
+=== C3 驳回目标 NONE(FINAL)：驳回并终止 → 实例 REJECTED
+==============================================================================
+  [PASS] C3 驳回（return_to=NONE，管理员）→ 200
+  [PASS] C3 实例 REJECTED（终止）
+  [PASS] C3 第二节点 REJECTED
+  [PASS] C3 没有开新轮次（round 仍只有 1）
+  [PASS] C3 第三节点没被激活
+
+==============================================================================
+=== C4 驳回目标 <node_key>：非 admin 403 / admin 退回指定节点
+==============================================================================
+  [PASS] C4 非管理员 u_pbn 拿到第二节点待办
+  [PASS] C4 非 admin 传 node_key → 403
+  [PASS] C4 非 admin 错误码 65004
+  [PASS] C4 403 之后没开新轮次（无副作用）
+  [PASS] C4 403 之后第一节点仍是第 1 轮 APPROVED
+  [PASS] C4 admin 传 node_key=n1 → 200
+  [PASS] C4 实例仍 PENDING
+  [PASS] C4 第一节点 round 递增到 2
+  [PASS] C4 第一节点第 2 轮重新派待办
+  [PASS] C4 退回不存在节点 → 400
+  [PASS] C4 错误码 65025
+  [PASS] C4 非法目标不改状态（实例仍 PENDING、无新轮次）
+
+==============================================================================
+=== 汇总（每个场景的 PASS/FAIL）
+==============================================================================
+场景      PASS  FAIL  说明
+A1        15     0  ARCH-8 ①：角色 3 人、制单人 1 人 → 剩余 2 人收到待办，按该节点 approval_mode 签
+A2        11     0  ARCH-8 ②：角色 1 人（=制单人）→ 自动升级上级角色 → 上级成员审批成功
+A3         7     0  ARCH-8 ③：角色 1 人 + 无上级 → 节点兜底人接管（assigned_by_rule=FALLBACK）
+A4        11     0  ARCH-8 ④：一人公司 + ALLOW → 自审成功 + operation_logs + /stats/self-approval
+A5        14     0  ARCH-8 ⑤：审批人设委托 → 受托人收到待办（代 X 审批）→ 委托期外回到本人
+A6         5     0  ARCH-8 ⑥：财务节点 FORBID → 自审被拒 422 / 65019（回归不变）
+A7         7     0  ARCH-8 ⑦：角色节点默认或签 → 3 人任 1 人审批即通过，另 2 条 CANCELLED
+A8         6     0  ARCH-8 ⑧：留痕完整（升级 / 兜底 / 委托 / 自审 SKIP 都能查到原因）
+B1        26     0  ARCH-5：并行网关（AND 汇聚等齐 / 只签一臂不汇聚 / OR 汇聚先到先走）
+B2        21     0  ARCH-5：条件动态路由（form.amount 三档 → 三条边 / 三个节点）
+B2b        7     0  缺陷复现：多条入边的 END 默认 join=AND → 条件分支汇入后实例永久 PENDING
+B3        23     0  ARCH-5：流程版本冻结（老实例走旧图 / 新单走新图）
+C1         9     0  驳回目标 PREV：退上一节点 → round 递增 + 上一节点重新派待办
+C2         7     0  驳回目标 INITIATOR：退发起人 → RESUBMIT 待办生成
+C3         5     0  驳回目标 NONE(FINAL)：驳回并终止 → 实例 REJECTED
+C4        12     0  驳回目标 <node_key>：非 admin 403 / admin 退回指定节点
+
+总计：PASS=228 FAIL=0
+e2e.py exit=0
+--- 3) 停实例 + 端口复核
+18091 监听行数=0  health=000（期望 0 / 000）
+库 cloudpivot_p309_drill 保留待复核（本卡口径：跑完停实例、留库）

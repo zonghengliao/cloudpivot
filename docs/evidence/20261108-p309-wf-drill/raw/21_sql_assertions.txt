@@ -1,0 +1,347 @@
+[P309_THREE 在册成员数 = 3]
+  SQL: select count(*) from sys_user_role ur join sys_user u on u.id=ur.user_id where ur.role_id='01a1b9ab-26b4-7720-8bfe-2ee02be8f652'::uuid and u.deleted_at is null
+  实际: 3
+ 期望: 3
+[P309_MAKER 在册成员数 = 1（= 制单人）]
+  SQL: select count(*) from sys_user_role ur join sys_user u on u.id=ur.user_id where ur.role_id='01a1b9ab-26c2-72d4-9177-fc324dd40963'::uuid and u.deleted_at is null
+  实际: 1
+ 期望: 1
+[P309_BOSS 在册成员数 = 2]
+  SQL: select count(*) from sys_user_role ur join sys_user u on u.id=ur.user_id where ur.role_id='01a1b9ab-26c9-7621-adc7-8e69a51ec688'::uuid and u.deleted_at is null
+  实际: 2
+ 期望: 2
+
+===== A1 ARCH-8 ①：角色 3 人、制单人 1 人 → 剩余 2 人收到待办，按该节点 approval_mode 签 =====
+[A1 PENDING 待办 2 行（剩余 2 人）]
+  SQL: select count(*) from biz_flow_task where instance_id='01a1b9ab-736a-75a6-a401-6c2361342b97'::uuid and status='PENDING'
+  实际: 2
+ 期望: 2
+[A1 制单人 u_t1 落 SKIPPED 留痕]
+  SQL: select count(*) from biz_flow_task where instance_id='01a1b9ab-736a-75a6-a401-6c2361342b97'::uuid and status='SKIPPED' and assignee_id='01a1b9ab-273f-7151-a780-92e9b47ff7ec'::uuid
+  实际: 1
+ 期望: 1
+[A1 没有走升级链（escalated_from_role 全空）]
+  SQL: select count(*) from biz_flow_task where instance_id='01a1b9ab-736a-75a6-a401-6c2361342b97'::uuid and escalated_from_role is not null
+  实际: 0
+ 期望: 0
+[A1 assigned_by_rule 全是 ROLE（普通角色展开）]
+  SQL: select count(*) from biz_flow_task where instance_id='01a1b9ab-736a-75a6-a401-6c2361342b97'::uuid and status='PENDING' and assigned_by_rule='ROLE'
+  实际: 2
+ 期望: 2
+
+===== A2 ARCH-8 ②：角色 1 人（=制单人）→ 自动升级上级角色 → 上级成员审批成功 =====
+[A2 PENDING 待办 2 行（上级角色 2 人）]
+  SQL: select count(*) from biz_flow_task where instance_id='01a1b9ab-74f6-72df-afe9-a17cca62b271'::uuid and status='PENDING'
+  实际: 2
+ 期望: 2
+[A2 escalated_from_role = P309_MAKER]
+  SQL: select distinct escalated_from_role from biz_flow_task where instance_id='01a1b9ab-74f6-72df-afe9-a17cca62b271'::uuid and status='PENDING'
+  实际: P309_MAKER
+ 期望: P309_MAKER
+[A2 escalate_reason = SKIP_SELF_APPROVAL]
+  SQL: select distinct escalate_reason from biz_flow_task where instance_id='01a1b9ab-74f6-72df-afe9-a17cca62b271'::uuid and status='PENDING'
+  实际: SKIP_SELF_APPROVAL
+ 期望: SKIP_SELF_APPROVAL
+[A2 assigned_by_rule = ESCALATED]
+  SQL: select distinct assigned_by_rule from biz_flow_task where instance_id='01a1b9ab-74f6-72df-afe9-a17cca62b271'::uuid and status='PENDING'
+  实际: ESCALATED
+ 期望: ESCALATED
+[A2 2 行待办都派给 P309_BOSS 的成员]
+  SQL: select count(*) from biz_flow_task t join sys_user_role ur on ur.user_id=t.assignee_id where t.instance_id='01a1b9ab-74f6-72df-afe9-a17cca62b271'::uuid and t.status='PENDING' and ur.role_id='01a1b9ab-26c9-7621-adc7-8e69a51ec688'::uuid
+  实际: 2
+ 期望: 2
+[A2 升级留痕行仍在（2 行带 escalated_from_role）]
+  SQL: select count(*) from biz_flow_task where instance_id='01a1b9ab-74f6-72df-afe9-a17cca62b271'::uuid and escalated_from_role='P309_MAKER'
+  实际: 2
+ 期望: 2
+[快照 A2 待办留痕]
+  SQL: select assignee_name||' | '||status||' | rule='||coalesce(assigned_by_rule,'-')||' | from_role='||coalesce(escalated_from_role,'-')||' | reason='||coalesce(escalate_reason,'-') from biz_flow_task where instance_id='01a1b9ab-74f6-72df-afe9-a17cca62b271'::uuid order by status
+  结果:
+P309_BOSS u_b1 | APPROVED | rule=ESCALATED | from_role=P309_MAKER | reason=SKIP_SELF_APPROVAL
+P309_BOSS u_b2 | CANCELLED | rule=ESCALATED | from_role=P309_MAKER | reason=SKIP_SELF_APPROVAL
+P309_MAKER u_m1 | SKIPPED | rule=- | from_role=- | reason=-
+
+===== A3 ARCH-8 ③：角色 1 人 + 无上级 → 节点兜底人接管（assigned_by_rule=FALLBACK） =====
+[A3 待办审批人 = 兜底人 u_fb]
+  SQL: select count(*) from biz_flow_task where instance_id='01a1b9ab-7610-7156-b9c3-901a75cf732e'::uuid and status='PENDING' and assignee_id='01a1b9ab-3577-7662-8c71-08a70688f435'::uuid
+  实际: 1
+ 期望: 1
+[A3 assigned_by_rule = FALLBACK]
+  SQL: select distinct assigned_by_rule from biz_flow_task where instance_id='01a1b9ab-7610-7156-b9c3-901a75cf732e'::uuid and status='PENDING'
+  实际: FALLBACK
+ 期望: FALLBACK
+[快照 A3 兜底留痕]
+  SQL: select assignee_name||' | '||status||' | rule='||coalesce(assigned_by_rule,'-') from biz_flow_task where instance_id='01a1b9ab-7610-7156-b9c3-901a75cf732e'::uuid order by status
+  结果:
+P309_FB u_fb | APPROVED | rule=FALLBACK
+P309_LONE u_l1 | SKIPPED | rule=-
+
+===== A4 ARCH-8 ④：一人公司 + ALLOW → 自审成功 + operation_logs + /stats/self-approval =====
+[A4 待办派给发起人本人（is_self_approval=t）]
+  SQL: select count(*) from biz_flow_task where instance_id='01a1b9ab-76c7-72ff-b035-a02a0fba322f'::uuid and status='PENDING' and assignee_id='01a1b9ab-36e3-77ae-ba78-ed8785017a1c'::uuid and is_self_approval
+  实际: 1
+ 期望: 1
+[A4 operation_logs 有 FW_SELF_APPROVAL_ALLOWED 1 行]
+  SQL: select count(*) from operation_logs where operation='FLOW_SELF_APPROVAL_ALLOWED' and target_id='01a1b9ab-76c7-72ff-b035-a02a0fba322f'
+  实际: 1
+ 期望: 1
+[A4 operation_logs 有 FLOW_SELF_APPROVAL_VOTED 1 行]
+  SQL: select count(*) from operation_logs where operation='FLOW_SELF_APPROVAL_VOTED' and target_id='01a1b9ab-76c7-72ff-b035-a02a0fba322f'
+  实际: 1
+ 期望: 1
+[快照 A4 自审审计原文]
+  SQL: select operation||' | '||coalesce(username,'')||' | node='||coalesce(detail->>'node_name','')||' | amount='||coalesce(detail->>'amount','')||' | vote='||coalesce(detail->>'vote','')||' | reason='||coalesce(detail->>'reason','') from operation_logs where target_id='01a1b9ab-76c7-72ff-b035-a02a0fba322f' order by created_at
+  结果:
+FLOW_SELF_APPROVAL_ALLOWED | u_solo | node=一人公司审批 | amount=8888.0 | vote= | reason=节点配置 self_approval=ALLOW，发起人本人被派为审批人（待办带自审标）
+FLOW_SELF_APPROVAL_VOTED | u_solo | node=一人公司审批 | amount=8888.0 | vote=APPROVED | reason=发起人以自审身份同意了自己的单据（self_approval=ALLOW）
+
+===== A5 ARCH-8 ⑤：审批人设委托 → 受托人收到待办（代 X 审批）→ 委托期外回到本人 =====
+[A5 委托期内：待办派给受托人 u_pa]
+  SQL: select count(*) from biz_flow_task where instance_id='01a1b9ab-77ac-75f2-b431-90ae5338dd39'::uuid and status='PENDING' and assignee_id='01a1b9ab-3c8a-73a4-9505-a82578442325'::uuid
+  实际: 1
+ 期望: 1
+[A5 委托期内：assigned_by_rule = DELEGATED]
+  SQL: select distinct assigned_by_rule from biz_flow_task where instance_id='01a1b9ab-77ac-75f2-b431-90ae5338dd39'::uuid and status='PENDING'
+  实际: DELEGATED
+ 期望: DELEGATED
+[快照 A5 委托期内的待办行]
+  SQL: select assignee_name||' | '||status||' | rule='||coalesce(assigned_by_rule,'-')||' | '||coalesce(comment,'-') from biz_flow_task where instance_id='01a1b9ab-77ac-75f2-b431-90ae5338dd39'::uuid
+  结果:
+P309_PA u_pa | PENDING | rule=DELEGATED | 代 P309_DEL u_del 审批（委托至 2026-11-11）
+[A5 审批留痕记在受托人名下 + DELEGATED]
+  SQL: select assignee_name||'|'||status||'|'||coalesce(assigned_by_rule,'-') from biz_flow_task where instance_id='01a1b9ab-77ac-75f2-b431-90ae5338dd39'::uuid and status='APPROVED'
+  实际: P309_PA u_pa|APPROVED|DELEGATED
+ 期望: P309_PA u_pa|APPROVED|DELEGATED
+[A5 委托期外：待办回到本人 u_del]
+  SQL: select count(*) from biz_flow_task where instance_id='01a1b9ab-7884-7441-b74d-b8fc3db92984'::uuid and status='PENDING' and assignee_id='01a1b9ab-3851-72d8-ad3e-7d904c6b1eb7'::uuid
+  实际: 1
+ 期望: 1
+[A5 委托期外：不带「代 … 审批」comment]
+  SQL: select count(*) from biz_flow_task where instance_id='01a1b9ab-7884-7441-b74d-b8fc3db92984'::uuid and status='PENDING' and comment like '代 %审批%'
+  实际: 0
+ 期望: 0
+
+===== A6 ARCH-8 ⑥：财务节点 FORBID → 自审被拒 422 / 65019（回归不变） =====
+[A6 没留下半截实例]
+  SQL: select count(*) from biz_flow_instance where title='P3-09 A6 财务节点自审'
+  实际: 0
+ 期望: 0
+
+===== A7 ARCH-8 ⑦：角色节点默认或签 → 3 人任 1 人审批即通过，另 2 条 CANCELLED =====
+[A7 3 条 PENDING 待办（角色 3 人）]
+  SQL: select count(*) from biz_flow_task where instance_id='01a1b9ab-7913-763b-8975-a09d6dc7295c'::uuid and status='PENDING'
+  实际: 3
+ 期望: 3
+[A7 节点 approval_mode 落库为 NULL（不填就不编值）]
+  SQL: select coalesce(approval_mode,'<NULL>') from biz_flow_instance_node where instance_id='01a1b9ab-7913-763b-8975-a09d6dc7295c'::uuid and node_key='n_app'
+  实际: <NULL>
+ 期望: <NULL>
+[A7 另 2 条待办 CANCELLED]
+  SQL: select count(*) from biz_flow_task where instance_id='01a1b9ab-7913-763b-8975-a09d6dc7295c'::uuid and status='CANCELLED'
+  实际: 2
+ 期望: 2
+[快照 A7 三人角色待办终态]
+  SQL: select assignee_name||' | '||status from biz_flow_task where instance_id='01a1b9ab-7913-763b-8975-a09d6dc7295c'::uuid order by assignee_name
+  结果:
+P309_ANY3 u_a1 | APPROVED
+P309_ANY3 u_a2 | CANCELLED
+P309_ANY3 u_a3 | CANCELLED
+
+===== A8 ARCH-8 ⑧：留痕完整（升级 / 兜底 / 委托 / 自审 SKIP 都能查到原因） =====
+
+[A8 四类留痕汇总]
+升级 P309_MAKER / SKIP_SELF_APPROVAL / ESCALATED
+升级 P309_MAKER / SKIP_SELF_APPROVAL / ESCALATED
+兜底 FALLBACK
+委托 DELEGATED / P3-09 受托人代 A 审批通过
+自审SKIP 审批人是发起人本人（self_approval=SKIP），已跳过并留痕
+自审SKIP 审批人是发起人本人（self_approval=SKIP），已跳过并留痕
+自审SKIP 审批人是发起人本人（self_approval=SKIP），已跳过并留痕
+自审ALLOW FLOW_SELF_APPROVAL_ALLOWED / 节点配置 self_approval=ALLOW，发起人本人被派为审批人（待办带自审标）
+自审ALLOW FLOW_SELF_APPROVAL_VOTED / 发起人以自审身份同意了自己的单据（self_approval=ALLOW）
+
+===== B1 ARCH-5：并行网关（AND 汇聚等齐 / 只签一臂不汇聚 / OR 汇聚先到先走） =====
+[B1 两臂待办 2 条（臂甲 1 人 + 臂乙 1 人）]
+  SQL: select count(*) from biz_flow_task where instance_id='01a1b9ab-79ff-7367-9626-acd0ff438f8a'::uuid and status='PENDING'
+  实际: 2
+ 期望: 2
+[B1 只签一臂：汇聚节点登记到达但保持 PENDING（不建待办）]
+  SQL: select coalesce(max(status),'<无行>') from biz_flow_instance_node where instance_id='01a1b9ab-79ff-7367-9626-acd0ff438f8a'::uuid and node_key='j'
+  实际: PENDING
+ 期望: PENDING
+[B1 只签一臂：臂乙待办仍 PENDING]
+  SQL: select count(*) from biz_flow_task where instance_id='01a1b9ab-79ff-7367-9626-acd0ff438f8a'::uuid and node_key='n_b' and status='PENDING'
+  实际: 1
+ 期望: 1
+[B1 两个 END 都走到]
+  SQL: select count(*) from biz_flow_instance_node where instance_id='01a1b9ab-79ff-7367-9626-acd0ff438f8a'::uuid and node_key in ('e1','e2') and status='APPROVED'
+  实际: 2
+ 期望: 2
+[快照 B1 AND 汇聚时间线]
+  SQL: select node_key||' | '||node_type||' | '||status||' | arrived='||to_char(activated_at,'HH24:MI:SS') from biz_flow_instance_node where instance_id='01a1b9ab-79ff-7367-9626-acd0ff438f8a'::uuid order by node_key
+  结果:
+e1 | END | APPROVED | arrived=13:39:45
+e2 | END | APPROVED | arrived=13:39:45
+f | PARALLEL | APPROVED | arrived=13:39:45
+j | PARALLEL | APPROVED | arrived=13:39:45
+n_a | APPROVAL | APPROVED | arrived=13:39:45
+n_b | APPROVAL | APPROVED | arrived=13:39:45
+s | START | APPROVED | arrived=13:39:45
+[B1 OR 汇聚：未命中分支没有待办]
+  SQL: select count(*) from biz_flow_task where instance_id='01a1b9ab-7ba7-7596-9422-68278d9f5b52'::uuid and node_key='n_b'
+  实际: 0
+ 期望: 0
+
+===== B2 ARCH-5：条件动态路由（form.amount 三档 → 三条边 / 三个节点） =====
+[B2 amount=5000：c1 走的边 = e_low]
+  SQL: select taken_edge_key from biz_flow_instance_node where instance_id='01a1b9ab-7c88-76e3-83b5-52e075631756'::uuid and node_key='c1'
+  实际: e_low
+ 期望: e_low
+[B2 amount=5000：其它两个审批节点都没被激活]
+  SQL: select count(*) from biz_flow_instance_node where instance_id='01a1b9ab-7c88-76e3-83b5-52e075631756'::uuid and node_key in ('n_high','n_mid')
+  实际: 0
+ 期望: 0
+[快照 B2 amount=5000 时间线]
+  SQL: select node_key||' | '||status||' | edge='||coalesce(taken_edge_key,'-') from biz_flow_instance_node where instance_id='01a1b9ab-7c88-76e3-83b5-52e075631756'::uuid order by node_key
+  结果:
+c1 | APPROVED | edge=e_low
+e | APPROVED | edge=-
+n_low | APPROVED | edge=-
+s | APPROVED | edge=-
+[B2 amount=50000：c1 走的边 = e_c2]
+  SQL: select taken_edge_key from biz_flow_instance_node where instance_id='01a1b9ab-7d45-7232-bf99-e6ef8423e9d6'::uuid and node_key='c1'
+  实际: e_c2
+ 期望: e_c2
+[B2 amount=50000：c2 走的边 = e_mid]
+  SQL: select taken_edge_key from biz_flow_instance_node where instance_id='01a1b9ab-7d45-7232-bf99-e6ef8423e9d6'::uuid and node_key='c2'
+  实际: e_mid
+ 期望: e_mid
+[B2 amount=50000：其它两个审批节点都没被激活]
+  SQL: select count(*) from biz_flow_instance_node where instance_id='01a1b9ab-7d45-7232-bf99-e6ef8423e9d6'::uuid and node_key in ('n_high','n_low')
+  实际: 0
+ 期望: 0
+[快照 B2 amount=50000 时间线]
+  SQL: select node_key||' | '||status||' | edge='||coalesce(taken_edge_key,'-') from biz_flow_instance_node where instance_id='01a1b9ab-7d45-7232-bf99-e6ef8423e9d6'::uuid order by node_key
+  结果:
+c1 | APPROVED | edge=e_c2
+c2 | APPROVED | edge=e_mid
+e | APPROVED | edge=-
+n_mid | APPROVED | edge=-
+s | APPROVED | edge=-
+[B2 amount=500000：c1 走的边 = e_c2]
+  SQL: select taken_edge_key from biz_flow_instance_node where instance_id='01a1b9ab-7e17-729b-9bbe-37cbd6c38e1d'::uuid and node_key='c1'
+  实际: e_c2
+ 期望: e_c2
+[B2 amount=500000：c2 走的边 = e_high]
+  SQL: select taken_edge_key from biz_flow_instance_node where instance_id='01a1b9ab-7e17-729b-9bbe-37cbd6c38e1d'::uuid and node_key='c2'
+  实际: e_high
+ 期望: e_high
+[B2 amount=500000：其它两个审批节点都没被激活]
+  SQL: select count(*) from biz_flow_instance_node where instance_id='01a1b9ab-7e17-729b-9bbe-37cbd6c38e1d'::uuid and node_key in ('n_mid','n_low')
+  实际: 0
+ 期望: 0
+[快照 B2 amount=500000 时间线]
+  SQL: select node_key||' | '||status||' | edge='||coalesce(taken_edge_key,'-') from biz_flow_instance_node where instance_id='01a1b9ab-7e17-729b-9bbe-37cbd6c38e1d'::uuid order by node_key
+  结果:
+c1 | APPROVED | edge=e_c2
+c2 | APPROVED | edge=e_high
+e | APPROVED | edge=-
+n_high | APPROVED | edge=-
+s | APPROVED | edge=-
+
+===== B2b 缺陷复现：多条入边的 END 默认 join=AND → 条件分支汇入后实例永久 PENDING =====
+[B2b END 入度 = 3、本轮只有 1 支到达]
+  SQL: select count(*) from biz_flow_instance_node where instance_id='01a1b9ab-7f02-705f-b874-24067e88ebcc'::uuid and status in ('APPROVED','SKIPPED') and node_key in ('n_low','n_mid','n_high')
+  实际: 1
+ 期望: 1
+[快照 B2b 卡死事实]
+  SQL: select node_key||' | '||status from biz_flow_instance_node where instance_id='01a1b9ab-7f02-705f-b874-24067e88ebcc'::uuid order by node_key
+  结果:
+c1 | APPROVED
+e | PENDING
+n_low | APPROVED
+s | APPROVED
+
+===== B3 ARCH-5：流程版本冻结（老实例走旧图 / 新单走新图） =====
+[B3 老实例 node_name 来自旧快照]
+  SQL: select node_name from biz_flow_instance_node where instance_id='01a1b9ab-7fcd-7223-ae89-68e745cfc477'::uuid and node_key='n_a'
+  实际: 审批人甲（旧版）
+ 期望: 审批人甲（旧版）
+[B3 老实例待办派给旧版审批人（u_pa）]
+  SQL: select count(*) from biz_flow_task where instance_id='01a1b9ab-7fcd-7223-ae89-68e745cfc477'::uuid and status='PENDING' and assignee_id='01a1b9ab-3c8a-73a4-9505-a82578442325'::uuid
+  实际: 1
+ 期望: 1
+[B3 def.current_version_id 已指向 v2]
+  SQL: select current_version_id from biz_flow_def where id='01a1b9ab-7fb6-77f4-9c3e-e518bb68af26'::uuid
+  实际: 01a1b9ab-800d-7421-b1f9-dd3b262628a2
+ 期望: 01a1b9ab-800d-7421-b1f9-dd3b262628a2
+[B3 新版本号 = 旧版本号 + 1]
+  SQL: select v2.version_no - v1.version_no from biz_flow_def_version v1, biz_flow_def_version v2 where v1.id='01a1b9ab-7fb7-7357-93fa-84b632b32afa'::uuid and v2.id='01a1b9ab-800d-7421-b1f9-dd3b262628a2'::uuid
+  实际: 1
+ 期望: 1
+[B3 老实例节点名仍是旧快照]
+  SQL: select node_name from biz_flow_instance_node where instance_id='01a1b9ab-7fcd-7223-ae89-68e745cfc477'::uuid and node_key='n_a'
+  实际: 审批人甲（旧版）
+ 期望: 审批人甲（旧版）
+[B3 新实例节点名 = 新版快照]
+  SQL: select node_name from biz_flow_instance_node where instance_id='01a1b9ab-80e5-7177-b2ab-ebdde53312d9'::uuid and node_key='n_a'
+  实际: 审批人乙（新版）
+ 期望: 审批人乙（新版）
+[B3 新实例待办派给新版审批人（u_pb）]
+  SQL: select count(*) from biz_flow_task where instance_id='01a1b9ab-80e5-7177-b2ab-ebdde53312d9'::uuid and status='PENDING' and assignee_id='01a1b9ab-3df9-730b-a6de-d06a6d020576'::uuid
+  实际: 1
+ 期望: 1
+[快照 B3 新旧实例对照]
+  SQL: select instance_no||' | v'||version_no||' | '||status||' | '||title from biz_flow_instance where def_id='01a1b9ab-7fb6-77f4-9c3e-e518bb68af26'::uuid order by started_at
+  结果:
+FLW-20261108-5D5116A4 | v1 | APPROVED | P3-09 B3 旧版实例
+FLW-20261108-0164FC01 | v2 | APPROVED | P3-09 B3 新版实例
+
+===== C1 驳回目标 PREV：退上一节点 → round 递增 + 上一节点重新派待办 =====
+[C1 第一节点 round 递增到 2]
+  SQL: select max(round) from biz_flow_instance_node where instance_id='01a1b9ab-81e5-71ab-94ed-5cbba63a75f0'::uuid and node_key='n1'
+  实际: 2
+ 期望: 2
+[C1 第一节点第 2 轮重新派待办给 u_pa]
+  SQL: select count(*) from biz_flow_task where instance_id='01a1b9ab-81e5-71ab-94ed-5cbba63a75f0'::uuid and node_key='n1' and round=2 and status='PENDING' and assignee_id='01a1b9ab-3c8a-73a4-9505-a82578442325'::uuid
+  实际: 1
+ 期望: 1
+[C1 instance.round_total = 2]
+  SQL: select round_total from biz_flow_instance where id='01a1b9ab-81e5-71ab-94ed-5cbba63a75f0'::uuid
+  实际: 2
+ 期望: 2
+[快照 C1 节点轮次]
+  SQL: select node_key||' | round='||round||' | '||status from biz_flow_instance_node where instance_id='01a1b9ab-81e5-71ab-94ed-5cbba63a75f0'::uuid order by node_key, round
+  结果:
+n1 | round=1 | APPROVED
+n1 | round=2 | ACTIVE
+n2 | round=1 | REJECTED
+s | round=1 | APPROVED
+
+===== C2 驳回目标 INITIATOR：退发起人 → RESUBMIT 待办生成 =====
+[C2 START 节点 round 递增到 2]
+  SQL: select max(round) from biz_flow_instance_node where instance_id='01a1b9ab-8316-75d4-b7f8-255e755610e9'::uuid and node_key='s'
+  实际: 2
+ 期望: 2
+[C2 生成 RESUBMIT 待办（发起人）]
+  SQL: select count(*) from biz_flow_task where instance_id='01a1b9ab-8316-75d4-b7f8-255e755610e9'::uuid and task_kind='RESUBMIT' and status='PENDING' and assignee_id='01a1b9ab-3b22-77d3-8435-c0b203b83d1b'::uuid
+  实际: 1
+ 期望: 1
+
+===== C3 驳回目标 NONE(FINAL)：驳回并终止 → 实例 REJECTED =====
+[C3 没有开新轮次（round 仍只有 1）]
+  SQL: select max(round) from biz_flow_instance_node where instance_id='01a1b9ab-83e2-764e-a947-97710463f3c3'::uuid
+  实际: 1
+ 期望: 1
+
+===== C4 驳回目标 <node_key>：非 admin 403 / admin 退回指定节点 =====
+[C4 403 之后没开新轮次（无副作用）]
+  SQL: select max(round) from biz_flow_instance_node where instance_id='01a1b9ab-84ac-73db-8681-89a76f60a79e'::uuid
+  实际: 1
+ 期望: 1
+[C4 第一节点第 2 轮重新派待办]
+  SQL: select count(*) from biz_flow_task where instance_id='01a1b9ab-84ac-73db-8681-89a76f60a79e'::uuid and node_key='n1' and round=2 and status='PENDING'
+  实际: 1
+ 期望: 1
+
+===== 总计 PASS=228 FAIL=0 =====
