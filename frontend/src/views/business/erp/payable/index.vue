@@ -565,7 +565,7 @@
             <DocAttachmentPanel
               :doc-type="DOC_KIND.PAYMENT"
               :doc-id="payAttachDocId"
-              :default-role="DEFAULT_ROLE_BY_DOC.PAYMENT"
+              default-role="BANK_RECEIPT"
               testid-prefix="payment-attach"
               @changed="refreshPaymentGates()"
             />
@@ -727,7 +727,7 @@ import {
   pendingGate,
   type AttachmentGate,
 } from '@/views/business/erp/shared/attachment-gate-pure';
-import { checkDocAttachments, DEFAULT_ROLE_BY_DOC } from '@/api/business/erp/attachment';
+import { checkDocAttachments } from '@/api/business/erp/attachment';
 import { getFlowInstance } from '@/api/business/flow-api';
 import {
   EMPTY_APPROVAL_PROGRESS,
