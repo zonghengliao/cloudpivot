@@ -62,9 +62,17 @@ python3 scripts/verify/aud02_person_name_inventory.py --check
 另外两处「看似漏点、实际已安全」的，写进证据以免下次再被当 bug 改：
 
 - `views/system/dept/index.vue:60`：`{{ row.leader_name || row.leader_id || '-' }}` —— 列表树
-  `DeptRes.leader_name` 由 `dept/handler.rs` 批量填充（早已有）；**本次把详情 `DeptDetailRes.leader_name` 也补齐了**，
-  这条 fallback 现在两条路都拿得到姓名。
+  `DeptRes.leader_name` 由 `dept/handler.rs` 批量填充（早已有）；本条仍会在「负责人账号被删」时
+  回退渲染 UUID，**本次改掉**：`{{ row.leader_name || (row.leader_id ? '（账号已删除）' : '-') }}`，
+  并纳入门禁 ②。
 - `views/support/file/index.vue`：ATT-03 已改成 `uploaderLabel(row)`（后端 `uploader_name` 优先）。
+
+### 3.1 扫到但**刻意保留**的「主数据已删除」兜底（6 处，非人员字段）
+
+`（客户已删除 ${shortId(customer_id)}）` —— 应收 / 收款 / 发票列表与详情共 6 处
+（`receivable/index.vue:119,419`、`receipt/index.vue:145,386`、`invoice/index.vue`、
+`sales-order`/`shipment` 的标签兜底）。这是**主数据**兜底，且带明确的「已删除」文案，
+财务靠这个截断 id 还能找回单据；要不要彻底去掉属产品口径，本卡不动（已记入 §7）。
 
 ---
 
@@ -124,7 +132,7 @@ ERP 的 `CONTRACT_JOIN` 被 6 处复用（列表 count、状态机锁读、A4 �
 
 - `docs/evidence/20261109-aud02-uuid-audit/inventory.md`（脚本生成，247 行，覆盖 backend 245 + frontend 66 个结构体）。
 - 复核命令：`python3 scripts/verify/aud02_person_name_inventory.py --check` →
-  `全过：13 条 DTO 约束 + 3 条界面约束`。
+  `全过：13 条 DTO 约束 + 4 条界面约束`。
 
 ### ② 所有人员字段显示姓名（HTTP 真机，隔离实例）
 
@@ -209,7 +217,7 @@ assert_eq!(stats::count(), 1, "一次详情只允许 1 条取名字 SQL");
 | `cargo test --lib stocktake` | 27 passed / 0 failed |
 | `pnpm typecheck` | 通过 |
 | `pnpm test:unit`（全量 1239） | 1237 passed / 2 failed（**均与本卡无关**，见 §9） |
-| `python3 scripts/verify/aud02_person_name_inventory.py --check` | 13 + 3 条约束全过 |
+| `python3 scripts/verify/aud02_person_name_inventory.py --check` | 13 + 4 条约束全过 |
 | `aud02_person_name_e2e.py`（HTTP 真机） | 全部断言 PASS（本机 25 项，见上） |
 
 > 真库用例需要 `ERP_DB_URL`（未设置时静默 SKIP —— 别被「绿」骗了，看耗时与 `--nocapture` 输出）。
@@ -248,6 +256,8 @@ assert_eq!(stats::count(), 1, "一次详情只允许 1 条取名字 SQL");
    没有回填姓名（导出里若要显示制单人姓名，需在导出 handler 里补一次 `fill_person_names`）。
 4. **前端 `storage/file` 的 `uploader-names.ts` 保留**：老后端 / 无权限时仍要用它兜底，
    但兜底终点从「UUID」改成了「—」（`uploaderLabelOf`）。
+5. **主数据已删除的 `shortId` 兜底（6 处）保留**：「（客户已删除 01a19012-7573）」。它不是人员字段，
+   去掉会让人工追账少一个抓手；要改需产品确认文案口径。
 
 ---
 

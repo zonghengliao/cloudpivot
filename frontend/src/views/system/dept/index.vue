@@ -57,7 +57,8 @@
           <span>{{ row.dept_name }}</span>
         </template>
         <template #leader="{ row }">
-          <span>{{ row.leader_name || row.leader_id || '-' }}</span>
+          <!-- AUD-02：绝不再回退渲染 leader_id（UUID）；姓名取不到说明账号已删 -->
+          <span>{{ row.leader_name || (row.leader_id ? '（账号已删除）' : '-') }}</span>
         </template>
         <template #status="{ row }">
           <t-tag :theme="statusTheme(row.status)" variant="light">{{ statusLabel(row.status) }}</t-tag>

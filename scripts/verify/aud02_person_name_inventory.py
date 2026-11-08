@@ -85,6 +85,11 @@ BAD_PATTERNS = [
         r"uploaderDisplayName\(row\.uploaded_by",
         "文件列表曾回退渲染上传人 UUID（现在走 uploaderLabelOf）",
     ),
+    (
+        "views/system/dept/index.vue",
+        r"row\.leader_name \|\| row\.leader_id",
+        "部门列表「负责人」曾回退渲染 leader_id（UUID）",
+    ),
 ]
 
 STRUCT_RE = re.compile(r"pub struct (\w+)\s*\{")
