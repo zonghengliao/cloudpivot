@@ -385,6 +385,39 @@ pub async fn list_children(
     rows.iter().map(TaskCardRow::from_row).collect()
 }
 
+/// 任务 PDF（派工单，PDF-06）专用：取某任务的**全部直接子任务**，**不做数据范围过滤**。
+///
+/// # 为什么这里破例不加 `VISIBLE_OR_TAIL`
+///
+/// 派工单是把**一张任务**派到现场用的纸质单据，子任务就是这张单上的「检查项」——
+/// 它是这张单的内容，不是另一个可浏览的任务列表。若按「本用户可见的子任务」过滤：
+///
+/// - 子任务负责人是别人、又不在我的数据范围里时，它不会印在纸上 →
+///   接收人照着残缺的清单干活，漏项**没有任何提示**；
+/// - 而这张单本身**已经**过了可见性校验（[`find_detail`]），看得到父任务的人
+///   本来就能在详情页看到它的子任务结构（详情页的子任务是按可见性过滤的，
+///   但那是「浏览任务列表」的语义，不是「打印这张单」的语义）。
+///
+/// 因此本函数只给导出链路用，且**调用方必须先校验父任务可见**
+/// （`task_pdf::load_context` 里 `find_detail` 就在它前面）。
+/// 其它任何「列出任务」的路径仍必须走 [`list_children`] / [`page_visible`]。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn list_children_for_document(parent_id: Uuid) -> DbResult<Vec<TaskCardRow>> {
+    let mut sql = String::with_capacity(768);
+    sql.push_str("SELECT ");
+    sql.push_str(CARD_COLUMNS);
+    sql.push_str(CARD_FROM);
+    sql.push_str(" WHERE t.deleted_at IS NULL AND t.parent_id = ?::uuid");
+    sql.push_str(" ORDER BY t.created_at ASC, t.id ASC");
+    let rows = db()
+        .find_with_params(&sql, vec![Value::from(&parent_id)])
+        .await?;
+    rows.iter().map(TaskCardRow::from_row).collect()
+}
+
 /// 协作人 / 关注者列表（详情页右栏）。
 ///
 /// # 异常情况

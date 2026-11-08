@@ -30,7 +30,8 @@
 //! 「拆解出来的检查项」就是子任务（任务模板的 `subtasks` jsonb 一键建任务时
 //! 也是落成子任务，见 `business/task/template.rs`）。所以：
 //!
-//! - 取 `model::list_children`（**同一套可见性谓词**，看不见的子任务不印）；
+//! - 取 `model::list_children_for_document`（**这张单的全部直接子任务**，不做数据范围
+//!   过滤 —— 子任务是本单的内容，按可见性过滤会让派工单静默漏项，见该函数文档）；
 //! - 每条印「序号 / 标题 / 负责人 / 截止日」+ 一个**空白**方框；
 //! - **跳过 `CANCELLED`**：已取消的子任务不再是接收人要做的活，印上去只会让人
 //!   勾一个不存在的事项；
@@ -329,8 +330,10 @@ pub async fn load_context(
     let members = model::list_members(id)
         .await
         .map_err(|error| utils::db_error(error, "查询任务协作人"))?;
-    // 子任务走同一套可见性谓词（看不见的子任务不该印在纸上）
-    let children = model::list_children(principal, id)
+    // 子任务 = 这张单上的「检查项」：**不加数据范围过滤**（父任务可见性已在上面校验过）。
+    // 理由见 `model::list_children_for_document` 的文档：按可见性过滤会让派工单
+    // 静默漏掉别人负责的检查项，接收人照残单干活。
+    let children = model::list_children_for_document(id)
         .await
         .map_err(|error| utils::db_error(error, "查询子任务"))?;
     Ok(build_context(
@@ -893,10 +896,23 @@ mod db_tests {
         )
         .await;
 
-        // 子任务 A（正常）+ 子任务 B（已取消 → 不该进检查项）
-        for (id, no, parent_title, status) in [
-            (CHILD_A, "PDF06-TSK-000101", "核对到货数量", "TODO"),
-            (CHILD_B, "PDF06-TSK-000102", "已取消的事项", "CANCELLED"),
+        // 子任务 A（正常，**负责人是 STRANGER** —— 用来证明「检查项不按数据范围过滤」）
+        // + 子任务 B（已取消 → 不该进检查项）
+        for (id, no, parent_title, status, owner) in [
+            (
+                CHILD_A,
+                "PDF06-TSK-000101",
+                "核对到货数量",
+                "TODO",
+                STRANGER,
+            ),
+            (
+                CHILD_B,
+                "PDF06-TSK-000102",
+                "已取消的事项",
+                "CANCELLED",
+                OWNER,
+            ),
         ] {
             exec(
                 "INSERT INTO biz_task (id, task_no, title, status, priority, progress, \
@@ -907,7 +923,7 @@ mod db_tests {
                     Value::Text(no.to_string()),
                     Value::Text(parent_title.to_string()),
                     Value::Text(status.to_string()),
-                    Value::from(&OWNER),
+                    Value::from(&owner),
                     Value::from(&CREATOR),
                     Value::from(&TASK),
                 ],
@@ -958,6 +974,11 @@ mod db_tests {
         assert_eq!(ctx.checklist_count, "1", "已取消的子任务不进检查项");
         assert_eq!(ctx.checklist[0].title, "核对到货数量");
         assert_eq!(ctx.checklist[0].due, "2026-11-12");
+        // 检查项**不按数据范围过滤**：子任务负责人不在我的范围里也必须印出来
+        assert_eq!(
+            ctx.checklist[0].owner, "PDF06 stranger",
+            "别人的检查项必须印在这张单上（否则接收人照残单干活）"
+        );
 
         let flat: Vec<(String, String)> = ctx
             .meta_rows
