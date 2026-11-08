@@ -1,0 +1,42 @@
+首登改密（Admin@123456 → Admin@123456x）→ HTTP 200
+login ok, access_token 长度 = 461（首登改密 = 1）
+
+=== 前置：基本计量单位 biz_unit ===
+建单位 → HTTP 200, id=01a1b92d-1aa0-7300-8ee7-ca518f59eb34
+
+=== 物料 biz_material（MAT / 4 位） ===
+① 不传 material_code        → HTTP 200, material_code=MAT-0001
+  PASS  ① 字段缺席自动取号（4 位） = MAT-0001
+② 传 material_code=""      → HTTP 200, material_code=MAT-0002
+  PASS  ② 空串自动取号且连续 +1 = MAT-0002
+③ 传 material_code=null     → HTTP 200, material_code=MAT-0003
+  PASS  ③ null 自动取号且连续 +1 = MAT-0003
+  PASS  ③ 三个自动号两两不同（首尾）（MAT-0001 ≠ MAT-0003）
+④ 传 material_code="YB-001-02" → HTTP 200, material_code=YB-001-02
+  PASS  ④ 手工编码原样保留（不强制 MAT-xxx） = YB-001-02
+⑤ 重复 material_code        → HTTP 409, code=66001, msg=物料编码 `YB-001-02` 已存在（已软删的编码可以复用）
+  PASS  ⑤ 重复编码 HTTP = 409 = 409
+  PASS  ⑤ 重复编码业务码 = 66001 = 66001
+  PASS  ⑤ 文案点名具体编码
+
+=== 仓库 biz_warehouse（WH / 2 位） ===
+① 不传 warehouse_code       → HTTP 200, warehouse_code=WH-01
+  PASS  ① 字段缺席自动取号（2 位） = WH-01
+② 传 warehouse_code=""     → HTTP 200, warehouse_code=WH-02
+  PASS  ② 空串自动取号且连续 +1 = WH-02
+③ 传 warehouse_code=null    → HTTP 200, warehouse_code=WH-03
+  PASS  ③ null 自动取号且连续 +1 = WH-03
+  PASS  ③ 三个自动号两两不同（首尾）（WH-01 ≠ WH-03）
+④ 传 warehouse_code="CK-001" → HTTP 200, warehouse_code=CK-001
+  PASS  ④ 手工编码原样保留 = CK-001
+⑤ 重复 warehouse_code       → HTTP 409, code=66001, msg=仓库编码 `CK-001` 已存在（已软删的编码可以复用）
+  PASS  ⑤ 重复编码 HTTP = 409 = 409
+  PASS  ⑤ 重复编码业务码 = 66001 = 66001
+  PASS  ⑤ 文案点名具体编码
+
+=== 格式校验：手工编码含空格 ===
+传 material_code="BAD 001" → HTTP 400, code=10001, msg=material_code 不合法：编码里不能出现 ` `：只允许字母、数字与 `-` `_` `.`（企业自有编码可直接沿用）
+  PASS  ⑥ 非法字符 HTTP = 400 = 400
+  PASS  ⑥ 非法字符业务码 = 10001 = 10001
+
+RESULT: ALL PASS

@@ -1,0 +1,7 @@
+重启后 login ok（新 JWT 密钥，旧 token 已失效 → 这正是重启的旁证）
+重启后自动取号物料 → material_code=MAT-0004
+  PASS  重启不重置号段（MAT 续到 4） = MAT-0004
+重启后自动取号仓库 → warehouse_code=WH-04
+  PASS  重启不重置号段（WH 续到 4） = WH-04
+
+RESULT: ALL PASS

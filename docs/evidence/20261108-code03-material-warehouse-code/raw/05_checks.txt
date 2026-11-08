@@ -1,0 +1,52 @@
+CODE-03 检查链记录（99 本机，2026-11-08）
+
+== 1. rustfmt ==
+$ cd backend && rustfmt --edition 2024 --check src/business/erp/handler.rs src/business/erp/dto.rs
+（无输出 = clean；两个文件已 rustfmt 落盘后复查通过）
+工具链：rustfmt 1.8.0-stable (e408947bfd 2026-03-25)，toolchain 1.94.1-aarch64-unknown-linux-gnu
+
+== 2. clippy ==
+$ cargo clippy --lib --tests
+warning 命中文件：asset_linkage.rs / fx_revaluation.rs / opening.rs / purchase_requisition_dto.rs /
+                  voucher.rs / year_end_linkage_tests.rs / sales_order_model.rs /
+                  flow::assignee / flow::self_approval
+erp/handler.rs 与 erp/dto.rs 命中 0 条（本卡改动零告警；其余为其它卡既有 lint）
+
+== 3. 本卡模块单测（真库 ERP_DB_URL）==
+$ ERP_DB_URL=postgres://alun:***@127.0.0.1:5432/cloudpivot_code03run \
+    cargo test --lib -- business::erp::handler::tests business::erp::dto::tests --test-threads=1
+test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 3424 filtered out; finished in 13.95s
+
+其中本卡新增 8 条：
+  material_auto_code_generated_when_blank ........ ok
+  material_auto_code_increments_consecutively .... ok
+  material_duplicate_code_rejected_with_message .. ok
+  material_manual_code_is_preserved .............. ok
+  warehouse_auto_code_generated_when_blank ....... ok
+  warehouse_auto_code_increments_consecutively ... ok
+  warehouse_duplicate_code_rejected_with_message . ok
+  warehouse_manual_code_is_preserved ............. ok
+（另 dto::tests::validate_rejects_blank_code 因口径变更一并修好，同批通过）
+
+== 4. 全量 --lib ==
+（见本文件末尾追加）
+
+== 4. 全量 --lib（真库 cloudpivot_code03run，--test-threads=1）==
+$ ERP_DB_URL=postgres://alun:***@127.0.0.1:5432/cloudpivot_code03run cargo test --lib -- --test-threads=1
+test result: FAILED. 3461 passed; 20 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1546.72s
+
+20 条红的全部归属（逐条列出，均为**他卡既有红**）：
+  11 条 business::erp::asset_linkage_tests::lnk09_* / st02_*
+   6 条 business::erp::expense_linkage_tests::lnk05_*
+   3 条 business::flow::linkage::{admin::tests::catalog_triggers_carry_wired_flag,
+                                  tests_wiring::trigger_specs_cover_whitelist_in_order,
+                                  tests_wiring::wired_triggers_match_call_sites}
+
+归因依据：
+  1) 本卡只改 backend/src/business/erp/{dto.rs,handler.rs}；
+     `grep -ln 'create_material|create_warehouse' 上面三个失败文件` = 0 处
+     —— 这些用例根本不走本卡改的建单路径。
+  2) 与 CODE-01 记录的全量基线同族（当时 21 条：asset_linkage / expense_linkage / flow::linkage / p16），
+     数量 21→20 的差异来自他在途改动，不是本卡引入。
+  3) 本卡相关模块：metadata 里 3461 passed 中包含 handler::tests 57 条与 dto::tests 全绿。
+无 ignore/skip（0 ignored）；失败是真实红，不做 ignore 掩盖。

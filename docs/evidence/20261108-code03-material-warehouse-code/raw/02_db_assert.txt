@@ -1,0 +1,31 @@
+=== ① 取号规则（V0337 种入的六条主数据号段，MAT 4 位 / WH 2 位）===
+ seq_type | prefix | separator | pad_width | step | date_pattern | period_key | current_no | status 
+----------+--------+-----------+-----------+------+--------------+------------+------------+--------
+ MAT      | MAT    | -         |         4 |    1 | none         | GLOBAL     |          3 |      1
+ WH       | WH     | -         |         2 |    1 | none         | GLOBAL     |          3 |      1
+(2 rows)
+
+=== ② 本次 curl 落库的物料（MAT-0001..0003 自动 + YB-001-02 手工）===
+ material_code |        material_name        |          created_at           
+---------------+-----------------------------+-------------------------------
+ MAT-0001      | CODE03 物料（字段缺席）     | 2026-11-08 11:21:43.345964+08
+ MAT-0002      | CODE03 物料（空串）         | 2026-11-08 11:21:43.36333+08
+ MAT-0003      | CODE03 物料（null）         | 2026-11-08 11:21:43.378229+08
+ YB-001-02     | CODE03 物料（按分类自编号） | 2026-11-08 11:21:43.395896+08
+(4 rows)
+
+=== ③ 本次 curl 落库的仓库（WH-01..03 自动 + CK-001 手工）===
+ warehouse_code |       warehouse_name        | level |             warehouse_path             
+----------------+-----------------------------+-------+----------------------------------------
+ CK-001         | CODE03 仓库（企业自有编码） |     1 | /01a1b92d-1b34-76d1-9bc9-2d6f41f2aa94/
+ WH-01          | CODE03 仓库（字段缺席）     |     1 | /01a1b92d-1b05-7125-965c-9627095edd52/
+ WH-02          | CODE03 仓库（空串）         |     1 | /01a1b92d-1b15-701e-9f20-c04d7fc098f7/
+ WH-03          | CODE03 仓库（null）         |     1 | /01a1b92d-1b24-7494-989b-aded5a34252e/
+(4 rows)
+
+=== ④ 号段与落库一致：MAT current_no = 3 / WH current_no = 3（3 次自动取号）===
+MAT current_no=3
+WH  current_no=3
+=== ⑤ 无重复编码（部分唯一索引 uk_biz_*_code 未触发冲突残留）===
+material dup groups=0
+warehouse dup groups=0

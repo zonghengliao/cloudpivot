@@ -1,0 +1,16 @@
+{
+  "code": 0,
+  "msg": "ok",
+  "data": {
+    "access_token": "<redacted:实例已停，密钥随之作废>",
+    "refresh_token": "<redacted>",
+    "token_type": "Bearer",
+    "expires_in": 900,
+    "user": {
+      "id": "01a1b92b-19b3-7565-9c49-c47a56547971",
+      "username": "admin",
+      "real_name": "超级管理员"
+    },
+    "must_change_password": false
+  }
+}
