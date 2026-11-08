@@ -98,6 +98,9 @@ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8023/api/business/pdf
 | 67005 | 413 | 请求体过大 | HTML 超 4MiB |
 
 前端取 PDF 必须 `responseType: 'blob'`，失败分支按 `content-type` 判断是 JSON 错误体。
+实际页面上**只有一个实现**：`DocPdfButton`（`fetch` + `Authorization: Bearer` → blob →
+`Content-Disposition` 的中文名），为什么不用 `window.open`、13 个入口的路径与权限码见
+[PDF下载按钮接入.md](./PDF下载按钮接入.md)。
 
 ## 5. 14 项技术验证（实测结论，2026-11-08 · 145 测试机）
 

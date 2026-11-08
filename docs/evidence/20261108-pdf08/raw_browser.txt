@@ -1,0 +1,74 @@
+  [PASS] cloudpivot_pdf03：管理员登录（http://127.0.0.1:5191）
+  [PASS] 采购订单：详情页有「下载 PDF」按钮
+  [PASS] 采购订单：按钮文案
+  [PASS] 采购订单：下载中按钮进入 loading
+  [PASS] 采购订单：下载文件名 采购订单-P1FIX-PO-2.pdf
+  [PASS] 采购订单：文件体积 46194B > 20KB
+  [PASS] 采购订单：发出的是 PDF 接口请求
+  [PASS] 采购订单：请求带 Bearer token
+  [PASS] 采购订单：页面无 JS 报错
+  [PASS] 销售订单：详情页有「下载 PDF」按钮
+  [PASS] 销售订单：按钮文案
+  [PASS] 销售订单：下载文件名 销售订单-PDF03-SO-000001.pdf
+  [PASS] 销售订单：文件体积 47579B > 20KB
+  [PASS] 销售订单：发出的是 PDF 接口请求
+  [PASS] 销售订单：请求带 Bearer token
+  [PASS] 销售订单：页面无 JS 报错
+  [PASS] 合同：详情页有「下载 PDF」按钮
+  [PASS] 合同：按钮文案
+  [PASS] 合同：下载文件名 合同-HT-20261108-000020.pdf
+  [PASS] 合同：文件体积 64681B > 20KB
+  [PASS] 合同：发出的是 PDF 接口请求
+  [PASS] 合同：请求带 Bearer token
+  [PASS] 合同：页面无 JS 报错
+  [PASS] 收货入库：详情页有「下载 PDF」按钮
+  [PASS] 收货入库：按钮文案
+  [PASS] 收货入库：下载文件名 收货入库单-PDF03-IN-000001.pdf
+  [PASS] 收货入库：文件体积 66303B > 20KB
+  [PASS] 收货入库：发出的是 PDF 接口请求
+  [PASS] 收货入库：请求带 Bearer token
+  [PASS] 收货入库：页面无 JS 报错
+  [PASS] 出库单：详情页有「下载 PDF」按钮
+  [PASS] 出库单：按钮文案
+  [PASS] 出库单：下载文件名 出库单-PDF03-OUT-000001.pdf
+  [PASS] 出库单：文件体积 215430B > 20KB
+  [PASS] 出库单：发出的是 PDF 接口请求
+  [PASS] 出库单：请求带 Bearer token
+  [PASS] 出库单：页面无 JS 报错
+  [PASS] 调拨单：详情页有「下载 PDF」按钮
+  [PASS] 调拨单：按钮文案
+  [PASS] 调拨单：下载文件名 调拨单-P1FIX-TR-1.pdf
+  [PASS] 调拨单：文件体积 59608B > 20KB
+  [PASS] 调拨单：发出的是 PDF 接口请求
+  [PASS] 调拨单：请求带 Bearer token
+  [PASS] 调拨单：页面无 JS 报错
+  [PASS] 盘点单：详情页有「下载 PDF」按钮
+  [PASS] 盘点单：按钮文案
+  [PASS] 盘点单：下载文件名 盘点单-PDF04-ST-000001.pdf
+  [PASS] 盘点单：文件体积 67236B > 20KB
+  [PASS] 盘点单：发出的是 PDF 接口请求
+  [PASS] 盘点单：请求带 Bearer token
+  [PASS] 盘点单：页面无 JS 报错
+  [PASS] cloudpivot_pdf06：管理员登录（http://127.0.0.1:5194）
+  [PASS] 任务：详情页有「下载 PDF」按钮
+  [PASS] 任务：按钮文案
+  [PASS] 任务：下载文件名 派工单-TSK-202611-000032.pdf
+  [PASS] 任务：文件体积 65364B > 20KB
+  [PASS] 任务：发出的是 PDF 接口请求
+  [PASS] 任务：请求带 Bearer token
+  [PASS] 任务：页面无 JS 报错
+  [PASS] cloudpivot_pdf07：管理员登录（http://127.0.0.1:5195）
+  [PASS] 资产负债表：详情页有「下载 PDF」按钮
+  [PASS] 资产负债表：按钮文案
+  [PASS] 资产负债表：下载文件名 资产负债表-BALANCE_SHEET-2026-12.pdf
+  [PASS] 资产负债表：文件体积 91707B > 20KB
+  [PASS] 资产负债表：发出的是 PDF 接口请求
+  [PASS] 资产负债表：请求带 Bearer token
+  [PASS] 资产负债表：页面无 JS 报错
+  [PASS] 低权限账号登录（报表可看 / 导出未授权）
+  [PASS] 无权限用户：报表页按钮可见（没被藏起来）
+  [PASS] 无权限：提示含「权限」（没有导出该单据 PDF 的权限：无权限访问，需要权限: business:erp:report:export（可重试））
+  [PASS] 无权限：没有触发下载
+
+真实浏览器断言 71 项：PASS=71 FAIL=0
+
