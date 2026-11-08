@@ -426,6 +426,18 @@ async fn submit_for_approval(
                 header.take_no
             )));
         }
+        // ① 制单 ≠ 盘点确认（P3-07，可配开关，默认关闭）
+        //
+        // 「确认」= 把草稿盘点单确认为「待过账」的这一步：实盘数与差异就此定稿，
+        // 后面只剩审批与记账。制单人自己确认 = 既报数又核准数量，审计上不可追责。
+        // 开关关闭时与改动前逐字一致（制单人可自行确认）。
+        separation::guard(
+            separation::Duty::Stocktake,
+            header.create_by,
+            operator.id,
+            &format!("盘点单 {}", header.take_no),
+        )
+        .await?;
         // 幂等：同一单已有在跑的审批 → 409
         if flow_model::biz_instance_running(bridge::BIZ_TYPE, id)
             .await
@@ -798,6 +810,22 @@ async fn post_tx(
     separation::guard(
         separation::Duty::Post,
         header.create_by,
+        operator.id,
+        &format!("盘点单 {}", header.take_no),
+    )
+    .await?;
+    // ①e 审批 ≠ 执行（P3-07，可配开关，默认关闭）
+    //
+    // 「执行」= 真的把盘盈盘亏记进三本账的这一步。审批人自己点过账 = 自己批、自己改账。
+    // 审批人取的是这张盘点单审批实例里**所有投过同意票的人**（多级审批时只比最后一人
+    // 会给「A 批、B 批、A 执行」留后门）。
+    //
+    // 没走审批（`approval_instance_id` 为空 = 提交时走的是「未配流程 + 显式跳过」）时
+    // 没有对端可比 → 放行（跳过审批本身已经是一条带理由的审计留痕）。
+    let approvers = separation::approvers_of(header.approval_instance_id).await;
+    separation::guard_among(
+        separation::Duty::ApproveExecute,
+        &approvers,
         operator.id,
         &format!("盘点单 {}", header.take_no),
     )

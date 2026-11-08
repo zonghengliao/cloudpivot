@@ -384,6 +384,27 @@ async fn settle(instance_id: Uuid, verdict: Verdict) -> DbResult<Option<Uuid>> {
                     tracing::info!(%payment_id, "付款记录已是终态（重复回调），跳过");
                     Ok(None)
                 }
+                Ok(SettleOutcome::AwaitingExecutor { reason }) => {
+                    // P3-07 `approve_execute`：审批人不能自己执行付款。
+                    // 审批单已落 APPROVED，付款记录仍是「审批中」，等另一位有
+                    // business:erp:payable:pay 的人调 POST /business/erp/payable/payment/{id}/execute。
+                    // 这里**不报错**：审批本身是成功的，账只是还没动。
+                    tracing::warn!(
+                        %payment_id,
+                        %instance_id,
+                        reason = %reason,
+                        payment_execute_endpoint = "/business/erp/payable/payment/{id}/execute",
+                        "付款审批已通过，但审批人不能自己执行 → 账未动，等待他人执行"
+                    );
+                    notify_awaiting_executor(
+                        instance.initiator_id,
+                        instance_id,
+                        instance.instance_no.as_str(),
+                        &format!("付款 {} {reason}", instance.title),
+                    )
+                    .await;
+                    Ok(Some(payment_id))
+                }
                 Err(error) => {
                     tracing::warn!(
                         %payment_id,
@@ -424,6 +445,30 @@ async fn notify_stakeholders(initiator: Uuid, instance_id: Uuid, instance_no: &s
         recipients: vec![initiator],
         title: "付款未执行（应付单已作废）".to_string(),
         content: format!("审批单 {instance_no}：{content}"),
+        link_url: "/business/erp/payable".to_string(),
+        instance_id,
+        force: true,
+    };
+    engine::flush_effects(vec![notice]).await;
+}
+
+/// P3-07 `approve_execute`：审批通过但**审批人不能自己执行** → 通知发起人「这笔钱还没付，
+/// 需要另一位有付款权限的人去执行」。
+///
+/// 与 [`notify_stakeholders`] 分开写而不是加一个 `title` 参数：那条通知的语义是
+/// 「付款作废了，别等了」，这条是「付得了，但要换个人点」，混用一个标题会让收件人误判。
+async fn notify_awaiting_executor(
+    initiator: Uuid,
+    instance_id: Uuid,
+    instance_no: &str,
+    content: &str,
+) {
+    let notice = engine::Notice {
+        recipients: vec![initiator],
+        title: "付款待他人执行（审批与执行分离）".to_string(),
+        content: format!(
+            "审批单 {instance_no}：{content}。请让另一位有付款权限的账号在应付单里执行这笔付款"
+        ),
         link_url: "/business/erp/payable".to_string(),
         instance_id,
         force: true,

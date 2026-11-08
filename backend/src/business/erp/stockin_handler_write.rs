@@ -14,6 +14,7 @@ use nik::uuid::Uuid;
 use super::stockin_handler_common::*;
 use super::stockin_handler_purchase::*;
 use crate::business::erp::model;
+use crate::business::erp::separation;
 use crate::business::erp::stockin_bridge;
 use crate::business::erp::stockin_dto::{CreateStockInReq, StockInDetailRes};
 use crate::business::erp::stockin_model::{
@@ -22,6 +23,35 @@ use crate::business::erp::stockin_model::{
 };
 use crate::business::shared::state_machine;
 use crate::utils;
+
+/// ★ P3-07 采购 ≠ 验收：把采购单挂到收货单上（建单 / 改单）时，操作人不能是该采购单的**采购员**。
+///
+/// # 口径（已核对 DDL，不猜）
+///
+/// 「采购员」= `biz_purchase_order.create_by`。`biz_purchase_order` **没有 `buyer_id` 列**
+/// （全库只有比价单 `biz_price_inquiry` 有），下单人就是制单人；`submitted_by` 是提交人、
+/// `approved_by` 是审批人，都不是采购员。
+///
+/// 「验收人」= 建 / 改这张收货单的人：确认到的是哪些料、收多少，那一步就是验收。
+/// 过账（真正入库）由 `Duty::Post` 管「制单 ≠ 过账」，两者不重复。
+///
+/// 没有来源采购单（零星收货）→ 没有对端可比 → 放行。开关关闭（默认）→ 逐字保留改动前行为。
+async fn guard_purchase_accept(
+    source_order_id: Option<Uuid>,
+    operator: Option<Uuid>,
+) -> std::result::Result<(), ApiError> {
+    let Some(order_id) = source_order_id else {
+        return Ok(());
+    };
+    let order = fetch_purchase_order(order_id).await?;
+    separation::guard(
+        separation::Duty::PurchaseAccept,
+        order.create_by,
+        operator,
+        &format!("采购订单 {}", order.order_no),
+    )
+    .await
+}
 
 /// 建单核心逻辑（handler 与单测共用）。
 ///
@@ -36,6 +66,8 @@ pub async fn create_stock_in(
     resolve_purchase_order(&mut request)?;
     let source_order_id =
         parse_optional_uuid(request.source_order_id.as_ref(), "purchase_order_id")?;
+    // ★ P3-07 采购 ≠ 验收（可配开关，默认关闭）：采购员不能验收自己采的货。
+    guard_purchase_accept(source_order_id, op.id).await?;
     if request.items.is_empty() {
         let Some(order_id) = source_order_id else {
             return Err(bad_request(
@@ -326,6 +358,8 @@ pub async fn update_stock_in(
     resolve_purchase_order(&mut request)?;
     let source_order_id =
         parse_optional_uuid(request.source_order_id.as_ref(), "purchase_order_id")?;
+    // ★ P3-07：改单同样算「验收」（改数量 / 换来源单都会改变收到什么）。
+    guard_purchase_accept(source_order_id, operator).await?;
     if request.items.is_empty() {
         let Some(order_id) = source_order_id else {
             return Err(bad_request(

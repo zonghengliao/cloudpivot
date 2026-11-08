@@ -13,11 +13,18 @@
 //! | `erp.separation_of_duties.post` | `false` | 制单人不能**过账**（收货入库单直接过账 / 调拨发货收货） | 与改动前一致：允许同人过账 |
 //! | `erp.separation_of_duties.approve` | `true` | 制单人 / 发起人不能**审批**（采购 / 收货过账 / 作废 / 凭证红冲 / 应付付款与作废） | 与改动前一致：内控闸照旧拦 |
 //! | `erp.separation_of_duties.pay` | `true` | 制单人不能**审批自己提交的付款**（P17 闸） | 与改动前一致：P17 闸照旧拦 |
+//! | `erp.separation_of_duties.approve_execute` | `false` | **审批人**不能自己**执行**（付款执行 / 盘点过账） | 与改动前一致：审批通过后由本人（或系统）执行 |
+//! | `erp.separation_of_duties.stocktake` | `false` | **制单人**不能**确认自己建的盘点单**（DRAFT → 待过账的提交确认） | 与改动前一致：制单人可自行确认提交 |
+//! | `erp.separation_of_duties.purchase_accept` | `false` | **采购员**（采购单 `create_by`）不能**验收**自己采的货（建收货单确认收货） | 与改动前一致：采购员可自己收货 |
+//!
+//! 前四项是 P1/ERP-B2 就有的老开关（默认值 = 改动前的真实行为）；
+//! 后三项是 P3-07 新增的 SoD 扩展，**默认全部 `false`**（纯增量、升级零行为变化）。
 //!
 //! # 取值优先级（参数配置 > 代码默认）
 //!
 //! ```text
-//! ① 本项自己的键（post / approve / pay）存在且能解析成 bool  → 用它
+//! ① 本项自己的键（post / approve / pay / approve_execute / stocktake / purchase_accept）
+//!    存在且能解析成 bool                                     → 用它
 //! ② 总闸 enabled 存在且为 true                              → true（一键开启，只升不降）
 //! ③ 否则                                                     → 代码默认（见上表）
 //! ```
@@ -41,6 +48,11 @@
 //!   已由调用方（过账 / 付款）的内控闸覆盖。
 //! - **审批流里生成待办时的排除**（SKIPPED 留痕）读的是 `approve` 这一项，
 //!   关掉之后制单人能重新看到自己的待办并批得动 —— 与「403 闸关闭」是同一件事的两面。
+//! - **`approve_execute` 只管「人工执行」点**（盘点过账、付款执行）。审批通过后由引擎
+//!   **自动**动账的动作（收货入库单过账、应付付款回调）不算「执行人」—— 那是系统替已批准的
+//!   决定记账，没有第二个人的自由裁量可分离；在这些路径上本项**不拦**，只留 `info` 日志。
+//!   付款路径的「人工执行」入口是 `POST /business/erp/payable/payment/{id}/execute`
+//!   （审批通过后由**另一个人**执行才能记账）。
 
 use nik::prelude::*;
 use nik::uuid::Uuid;
@@ -56,8 +68,14 @@ pub const POST_KEY: &str = "erp.separation_of_duties.post";
 pub const APPROVE_KEY: &str = "erp.separation_of_duties.approve";
 /// 制单 ↔ 付款分离。
 pub const PAY_KEY: &str = "erp.separation_of_duties.pay";
+/// 审批 ↔ 执行分离（P3-07）：审批人不能自己执行（付款执行 / 盘点过账）。
+pub const APPROVE_EXECUTE_KEY: &str = "erp.separation_of_duties.approve_execute";
+/// 制单 ↔ 盘点确认分离（P3-07）：制单人不能确认自己建的盘点单。
+pub const STOCKTAKE_KEY: &str = "erp.separation_of_duties.stocktake";
+/// 采购 ↔ 验收分离（P3-07）：采购员不能验收自己采的货。
+pub const PURCHASE_ACCEPT_KEY: &str = "erp.separation_of_duties.purchase_accept";
 
-/// 受管的三项职责（每一项对应一个开关 + 一段拦截文案）。
+/// 受管的职责（每一项对应一个开关 + 一段拦截文案）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Duty {
     /// 过账（收货入库单过账 / 调拨发货收货）。
@@ -66,11 +84,24 @@ pub enum Duty {
     Approve,
     /// 付款（应付付款审批）。
     Pay,
+    /// 执行（审批通过之后真正动账的那一步：付款执行 / 盘点过账）。
+    ApproveExecute,
+    /// 盘点确认（草稿盘点单 → 待过账的提交确认）。
+    Stocktake,
+    /// 验收入库（把采购订单的货建成收货单）。
+    PurchaseAccept,
 }
 
 impl Duty {
     /// 全部职责（枚举 / 诊断用）。
-    pub const ALL: [Duty; 3] = [Duty::Post, Duty::Approve, Duty::Pay];
+    pub const ALL: [Duty; 6] = [
+        Duty::Post,
+        Duty::Approve,
+        Duty::Pay,
+        Duty::ApproveExecute,
+        Duty::Stocktake,
+        Duty::PurchaseAccept,
+    ];
 
     /// 本项的开关键（`sys_config.config_key`）。
     pub const fn key(self) -> &'static str {
@@ -78,6 +109,9 @@ impl Duty {
             Duty::Post => POST_KEY,
             Duty::Approve => APPROVE_KEY,
             Duty::Pay => PAY_KEY,
+            Duty::ApproveExecute => APPROVE_EXECUTE_KEY,
+            Duty::Stocktake => STOCKTAKE_KEY,
+            Duty::PurchaseAccept => PURCHASE_ACCEPT_KEY,
         }
     }
 
@@ -85,19 +119,27 @@ impl Duty {
     ///
     /// 三项默认值 = 改动前的真实行为：过账本来不拦、审批与付款本来就有内控闸。
     /// 改这三个值等于静默改内控强度，**必须配迁移与说明**，不许随手改。
+    ///
+    /// P3-07 的三个新项一律 `false`：它们是**新能力**，任何一项默认 `true` 都会让
+    /// 升级后的存量环境凭空多出拦截，那是升级事故而不是内控加固。
     pub const fn default_enabled(self) -> bool {
         match self {
-            Duty::Post => false,
+            Duty::Post | Duty::ApproveExecute | Duty::Stocktake | Duty::PurchaseAccept => false,
             Duty::Approve | Duty::Pay => true,
         }
     }
 
     /// 开关的中文名（写进拦截文案与参数说明）。
+    ///
+    /// **名字里必须写清这一对职责**：前端直接展示这句话，管理员才知道自己开的是什么。
     pub const fn label(self) -> &'static str {
         match self {
             Duty::Post => "制单与过账分离",
             Duty::Approve => "制单与审批分离",
             Duty::Pay => "制单与付款分离",
+            Duty::ApproveExecute => "审批与执行分离",
+            Duty::Stocktake => "制单与盘点确认分离",
+            Duty::PurchaseAccept => "采购与验收分离",
         }
     }
 
@@ -107,6 +149,22 @@ impl Duty {
             Duty::Post => "过账",
             Duty::Approve => "审批",
             Duty::Pay => "付款审批",
+            Duty::ApproveExecute => "执行",
+            Duty::Stocktake => "确认",
+            Duty::PurchaseAccept => "验收",
+        }
+    }
+
+    /// 拦截文案里「对方是谁」的定语（`{单据}{定语}`）。
+    ///
+    /// 老三项是「制单人」口径 → `由你本人制作`（**逐字保留**，十余条用例与前端文案引用它）；
+    /// 新三项的职责对不同，定语必须跟着变，否则文案会说出事实错误的话
+    /// （「付款单 PM-1 由你本人制作，不能自己执行」——其实是「由你本人审批」）。
+    pub const fn counterpart_clause(self) -> &'static str {
+        match self {
+            Duty::Post | Duty::Approve | Duty::Pay | Duty::Stocktake => "由你本人制作",
+            Duty::ApproveExecute => "由你本人审批",
+            Duty::PurchaseAccept => "由你本人采购",
         }
     }
 }
@@ -213,11 +271,11 @@ pub async fn enabled(duty: Duty) -> bool {
     resolution.enabled
 }
 
-/// 拦截文案（**唯一出口**）：说明「哪个开关开着」「哪张单」「为什么不行」「怎么放行」。
+/// 拦截文案（**唯一出口**）：说明「哪个开关开着」「哪张单」「哪一对职责冲突」「为什么不行」「怎么放行」。
 ///
 /// # 参数
 ///
-/// - `duty`：哪一项职责。
+/// - `duty`：哪一项职责（决定开关名、职责对、动作词）。
 /// - `subject`：单据描述（如「收货入库单 IN-20261102-000001」，为空时退化为「这张单」）。
 ///
 /// # 返回值
@@ -231,9 +289,10 @@ pub fn rejection_text(duty: Duty, subject: &str) -> String {
         subject
     };
     format!(
-        "系统已开启「{}」，{subject} 由你本人制作，不能自己{}。\
+        "系统已开启「{}」，{subject} {}，不能自己{}。\
          请交给其他有权限的账号处理，或在系统参数中关闭该开关（{}）。",
         duty.label(),
+        duty.counterpart_clause(),
         duty.action(),
         duty.key()
     )
@@ -280,6 +339,36 @@ pub fn check(
     operator: Option<Uuid>,
     subject: &str,
 ) -> std::result::Result<(), ApiError> {
+    let principals: &[Uuid] = creator.as_slice();
+    check_among(duty, switch_on, principals, operator, subject)
+}
+
+/// 多主体版网关（P3-07）：一个人对多个「职责对端」的场景（审批人可能不止一个）。
+///
+/// 判据与 [`check`] 完全相同，只是把「制单人」换成一**组**人：操作人 **命中其中任何一个**
+/// 就拦。`approve_execute` 要把「这张单所有投过同意票的人」都当作对端 —— 只比最后一个
+/// 审批人会给多级审批留后门（A 批、B 批、A 执行 → 只比 B 就漏了 A）。
+///
+/// 空集合 = 没有对端可比（没走审批 / 历史数据）→ 放行。
+///
+/// # 参数
+///
+/// - `duty`：哪一项职责。
+/// - `switch_on`：开关的生效值（调用方已解析好）。
+/// - `principals`：与操作人互斥的那些人（制单人 / 审批人 / 采购员）。
+/// - `operator`：本次操作人。
+/// - `subject`：单据描述（拼进文案）。
+///
+/// # 返回值
+///
+/// 放行 `Ok(())`；命中内控 `Err(409 + 66013)`。
+pub fn check_among(
+    duty: Duty,
+    switch_on: bool,
+    principals: &[Uuid],
+    operator: Option<Uuid>,
+    subject: &str,
+) -> std::result::Result<(), ApiError> {
     if !switch_on {
         return Ok(());
     }
@@ -287,14 +376,16 @@ pub fn check(
     let Some(operator) = operator else {
         return Ok(());
     };
-    if creator != Some(operator) {
+    if !principals.contains(&operator) {
         return Ok(());
     }
     tracing::info!(
         switch = duty.key(),
         %operator,
         subject = subject,
-        "ERP 内控拦截：制单人不能自己{}",
+        principals = principals.len(),
+        "ERP 内控拦截：{}（不能自己{}）",
+        duty.label(),
         duty.action()
     );
     Err(ApiError::new(
@@ -324,6 +415,82 @@ pub async fn guard(
 ) -> std::result::Result<(), ApiError> {
     let switch_on = enabled(duty).await;
     check(duty, switch_on, creator, operator, subject)
+}
+
+/// 多主体版闸门（P3-07）：读开关 + 与一组对端比对。
+///
+/// # 参数
+///
+/// - `duty`：哪一项职责。
+/// - `principals`：与操作人互斥的那些人（见 [`check_among`]）。
+/// - `operator`：本次操作人。
+/// - `subject`：单据描述（拼进文案）。
+///
+/// # 返回值
+///
+/// 放行 `Ok(())`；命中内控 `Err(409 + 66013)`。
+pub async fn guard_among(
+    duty: Duty,
+    principals: &[Uuid],
+    operator: Option<Uuid>,
+    subject: &str,
+) -> std::result::Result<(), ApiError> {
+    let switch_on = enabled(duty).await;
+    check_among(duty, switch_on, principals, operator, subject)
+}
+
+/// 取某个审批实例里**投过同意票的人**（`biz_flow_task.status = 'APPROVED'` 的 `assignee_id`）。
+///
+/// `approve_execute` 用它拿「审批人」这一端的 id。只认 `APPROVED`（驳回 / 转办 / 跳过的人
+/// 没批过这张单，不该被当成审批人）。
+///
+/// # 参数
+///
+/// - `instance_id`：审批实例（`None` = 这张单没走审批流程）。
+///
+/// # 返回值
+///
+/// 审批人 id 列表（去重、按完成时间升序）；`None` 或查库失败 → 空列表。
+///
+/// # 为什么查库失败是「放行」而不是「拦下」
+///
+/// 这是内控**附加**闸门，不是记账主流程：一次瞬时 DB 抖动就把付款 / 过账全卡死，
+/// 比漏拦一次更糟（且失败会 `warn` 出声，不是静默）。真正的钱账安全由各自的
+/// 状态机 + 唯一记账实现保证。
+pub async fn approvers_of(instance_id: Option<Uuid>) -> Vec<Uuid> {
+    let Some(instance_id) = instance_id else {
+        return Vec::new();
+    };
+    // SCOPE-EXEMPT: 审批待办是流程运行时表，按实例 id 精确取，行数 = 该实例的投票人数。
+    let rows = match db()
+        .find_with_params(
+            "SELECT assignee_id FROM biz_flow_task \
+              WHERE instance_id = ?::uuid AND status = 'APPROVED' \
+              ORDER BY COALESCE(completed_at, created_at) ASC, created_at ASC",
+            vec![Value::from(&instance_id)],
+        )
+        .await
+    {
+        Ok(rows) => rows,
+        Err(error) => {
+            tracing::warn!(
+                %instance_id,
+                %error,
+                "查询审批人失败：本次「审批 ≠ 执行」闸放行（不因查库抖动卡住记账）"
+            );
+            return Vec::new();
+        }
+    };
+    let mut approvers: Vec<Uuid> = Vec::with_capacity(rows.len());
+    for row in &rows {
+        // `assignee_id` 是 `NOT NULL` 列 → 这里拿到的是 `Result<Uuid, DbError>`（非 Option）
+        if let Ok(id) = row.get_typed::<Uuid>("assignee_id")
+            && !approvers.contains(&id)
+        {
+            approvers.push(id);
+        }
+    }
+    approvers
 }
 
 // ==================== 自审金额上限（P3-05） ====================
@@ -658,5 +825,304 @@ mod tests {
         // 「不限额」的唯一合法表示是 0 / 参数缺失；负零按 0 处理
         assert_eq!(parse_amount("-0"), Some(0.0));
         assert_eq!(SELF_APPROVAL_MAX_AMOUNT_DEFAULT, 0.0);
+    }
+
+    // ==================== P3-07：三个新开关 ====================
+
+    /// ①a 审批 ↔ 执行：关闭（默认）→ 审批人自己执行也放行；打开 → 409。
+    #[test]
+    fn approve_execute_switch_blocks_approver_when_on() {
+        // 默认关闭（参数不存在 = 代码默认 false）
+        let off = resolve(Duty::ApproveExecute, None, None);
+        assert!(!off.enabled, "approve_execute 默认必须关闭（不改存量行为）");
+        assert_eq!(off.source, Source::Default);
+        assert!(
+            check(
+                Duty::ApproveExecute,
+                off.enabled,
+                Some(ME),
+                Some(ME),
+                "付款单 PM-T"
+            )
+            .is_ok(),
+            "开关关闭时审批人必须能自己执行"
+        );
+
+        // 打开 → 拦
+        let on = resolve(Duty::ApproveExecute, Some("true"), None);
+        assert!(on.enabled);
+        assert_eq!(on.source, Source::Own);
+        let error = check(
+            Duty::ApproveExecute,
+            on.enabled,
+            Some(ME),
+            Some(ME),
+            "付款单 PM-T",
+        )
+        .expect_err("审批人自己执行必须被拦");
+        assert_eq!(error.status, 409);
+        assert_eq!(error.code, error_code::ERP_SEPARATION_OF_DUTIES);
+        // 换人放行
+        assert!(
+            check(
+                Duty::ApproveExecute,
+                on.enabled,
+                Some(ME),
+                Some(OTHER),
+                "付款单 PM-T"
+            )
+            .is_ok(),
+            "换一个执行人必须放行"
+        );
+    }
+
+    /// ①b 制单 ↔ 盘点确认：关闭 → 制单人可自己确认；打开 → 409；换人放行。
+    #[test]
+    fn stocktake_switch_blocks_creator_when_on() {
+        let off = resolve(Duty::Stocktake, None, None);
+        assert!(!off.enabled, "stocktake 默认必须关闭");
+        assert!(
+            check(
+                Duty::Stocktake,
+                off.enabled,
+                Some(ME),
+                Some(ME),
+                "盘点单 PD-T"
+            )
+            .is_ok(),
+            "开关关闭时制单人必须能确认自己的盘点单"
+        );
+
+        let on = resolve(Duty::Stocktake, Some("1"), None);
+        assert!(on.enabled);
+        let error = check(
+            Duty::Stocktake,
+            on.enabled,
+            Some(ME),
+            Some(ME),
+            "盘点单 PD-T",
+        )
+        .expect_err("制单人确认自己的盘点单必须被拦");
+        assert_eq!(error.status, 409);
+        assert_eq!(error.code, error_code::ERP_SEPARATION_OF_DUTIES);
+        assert!(
+            check(
+                Duty::Stocktake,
+                on.enabled,
+                Some(ME),
+                Some(OTHER),
+                "盘点单 PD-T"
+            )
+            .is_ok(),
+            "换一个确认人必须放行"
+        );
+    }
+
+    /// ①c 采购 ↔ 验收：关闭 → 采购员可自己验收；打开 → 409；换人放行。
+    #[test]
+    fn purchase_accept_switch_blocks_buyer_when_on() {
+        let off = resolve(Duty::PurchaseAccept, None, None);
+        assert!(!off.enabled, "purchase_accept 默认必须关闭");
+        assert!(
+            check(
+                Duty::PurchaseAccept,
+                off.enabled,
+                Some(ME),
+                Some(ME),
+                "采购订单 PO-T"
+            )
+            .is_ok(),
+            "开关关闭时采购员必须能自己收货"
+        );
+
+        let on = resolve(Duty::PurchaseAccept, Some("true"), None);
+        assert!(on.enabled);
+        let error = check(
+            Duty::PurchaseAccept,
+            on.enabled,
+            Some(ME),
+            Some(ME),
+            "采购订单 PO-T",
+        )
+        .expect_err("采购员验收自己采的货必须被拦");
+        assert_eq!(error.status, 409);
+        assert_eq!(error.code, error_code::ERP_SEPARATION_OF_DUTIES);
+        assert!(
+            check(
+                Duty::PurchaseAccept,
+                on.enabled,
+                Some(ME),
+                Some(OTHER),
+                "采购订单 PO-T"
+            )
+            .is_ok(),
+            "换一个验收人必须放行"
+        );
+    }
+
+    /// ② 总闸 `enabled = true` 且三个子键都没配 → 三项默认变成「拦」。
+    ///
+    /// 这是「一键开启」的全部意义：管理员只打开总闸，新扩展的三对职责立刻生效，
+    /// 不必逐个去配（也避免「以为开了其实没开」）。
+    #[test]
+    fn master_switch_turns_on_new_duties_by_default() {
+        for duty in [Duty::ApproveExecute, Duty::Stocktake, Duty::PurchaseAccept] {
+            let resolution = resolve(duty, None, Some("true"));
+            assert!(resolution.enabled, "总闸打开时 {} 必须默认开", duty.key());
+            assert_eq!(resolution.source, Source::Master, "{}", duty.key());
+            let error = check(duty, resolution.enabled, Some(ME), Some(ME), "单据 T")
+                .expect_err("总闸打开后必须默认拦");
+            assert_eq!(error.status, 409);
+            assert_eq!(error.code, error_code::ERP_SEPARATION_OF_DUTIES);
+            // 显式关掉某一项仍然优先于总闸（小团队只放宽这一项）
+            let explicit_off = resolve(duty, Some("false"), Some("true"));
+            assert!(!explicit_off.enabled, "{} 显式关闭要压过总闸", duty.key());
+            assert_eq!(explicit_off.source, Source::Own);
+        }
+    }
+
+    /// ③ 报错文案必须点名「哪一对职责」——前端原样展示这句话，管理员据此知道怎么放行。
+    #[test]
+    fn new_duties_error_text_names_the_duty_pair() {
+        let cases = [
+            (
+                Duty::ApproveExecute,
+                "审批与执行分离",
+                "由你本人审批",
+                "不能自己执行",
+            ),
+            (
+                Duty::Stocktake,
+                "制单与盘点确认分离",
+                "由你本人制作",
+                "不能自己确认",
+            ),
+            (
+                Duty::PurchaseAccept,
+                "采购与验收分离",
+                "由你本人采购",
+                "不能自己验收",
+            ),
+        ];
+        for (duty, pair, clause, action) in cases {
+            let error =
+                check(duty, true, Some(ME), Some(ME), "单据 X-1").expect_err("打开后必须拦");
+            assert!(
+                error.msg.contains(pair),
+                "文案要点名职责对「{pair}」：{}",
+                error.msg
+            );
+            assert!(
+                error.msg.contains(clause),
+                "文案要说清对端角色：{}",
+                error.msg
+            );
+            assert!(error.msg.contains(action), "文案要说清动作：{}", error.msg);
+            assert!(
+                error.msg.contains(duty.key()),
+                "文案要带开关键名，管理员才知道去哪改：{}",
+                error.msg
+            );
+            assert!(error.msg.contains("关闭该开关"), "{}", error.msg);
+            assert!(error.msg.contains("X-1"), "{}", error.msg);
+        }
+    }
+
+    /// ④ 多审批人：命中**任意一个**审批人就拦（只比最后一个是漏洞）。
+    #[test]
+    fn approver_list_is_checked_as_a_whole() {
+        let approvers = [ME, OTHER];
+        // 第一个审批人（历史上投过票）去执行 → 拦
+        assert!(
+            check_among(
+                Duty::ApproveExecute,
+                true,
+                &approvers,
+                Some(ME),
+                "盘点单 PD-T"
+            )
+            .is_err(),
+            "早期审批人执行也要拦"
+        );
+        assert!(
+            check_among(
+                Duty::ApproveExecute,
+                true,
+                &approvers,
+                Some(OTHER),
+                "盘点单 PD-T"
+            )
+            .is_err(),
+            "最后一个审批人执行也要拦"
+        );
+        // 第三个人执行 → 放行
+        let third = Uuid::from_u128(0x5e9a_0000_0000_0000_0000_0000_0000_0003);
+        assert!(
+            check_among(
+                Duty::ApproveExecute,
+                true,
+                &approvers,
+                Some(third),
+                "盘点单 PD-T"
+            )
+            .is_ok(),
+            "没批过这张单的人执行必须放行"
+        );
+        // 空审批人列表（没走审批）→ 放行
+        assert!(
+            check_among(Duty::ApproveExecute, true, &[], Some(ME), "盘点单 PD-T").is_ok(),
+            "没走审批的单据不许被这个闸拦"
+        );
+        // 开关关闭 → 一律放行
+        assert!(
+            check_among(
+                Duty::ApproveExecute,
+                false,
+                &approvers,
+                Some(ME),
+                "盘点单 PD-T"
+            )
+            .is_ok()
+        );
+        // 单主体版与多主体版判据一致（check 是 check_among 的特例）
+        assert_eq!(
+            check(Duty::ApproveExecute, true, Some(ME), Some(ME), "s").is_err(),
+            check_among(Duty::ApproveExecute, true, &[ME], Some(ME), "s").is_err()
+        );
+    }
+
+    /// ⑤ 六个职责的开关矩阵完整性：键唯一、默认值口径正确、中文名互不相同。
+    #[test]
+    fn duty_matrix_is_coherent() {
+        let mut keys: Vec<&str> = Duty::ALL.iter().map(|duty| duty.key()).collect();
+        keys.sort_unstable();
+        keys.dedup();
+        assert_eq!(keys.len(), Duty::ALL.len(), "每个职责必须有独立开关键");
+
+        let mut labels: Vec<&str> = Duty::ALL.iter().map(|duty| duty.label()).collect();
+        labels.sort_unstable();
+        labels.dedup();
+        assert_eq!(
+            labels.len(),
+            Duty::ALL.len(),
+            "中文名不能重复（前端分组展示）"
+        );
+
+        for duty in Duty::ALL {
+            assert!(
+                duty.key().starts_with("erp.separation_of_duties."),
+                "{} 必须落在同一个参数命名空间",
+                duty.key()
+            );
+            assert_eq!(
+                duty.default_enabled(),
+                matches!(duty, Duty::Approve | Duty::Pay),
+                "只有 approve / pay 默认开（= 改动前的内控闸）"
+            );
+        }
+        // 三个新扩展项默认全关 —— 升级零行为变化
+        for duty in [Duty::ApproveExecute, Duty::Stocktake, Duty::PurchaseAccept] {
+            assert!(!duty.default_enabled(), "{} 默认必须 false", duty.key());
+        }
     }
 }

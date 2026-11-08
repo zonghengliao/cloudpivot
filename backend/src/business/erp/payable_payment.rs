@@ -100,6 +100,7 @@ use crate::business::erp::form_snapshot;
 use crate::business::erp::payable::{self, PayableRow};
 use crate::business::erp::payable_bridge;
 use crate::business::erp::payable_query::{self, PayableDetailRes};
+use crate::business::erp::separation;
 use crate::business::erp::voucher::{self, EntryLine, ReversalInput, SeqSpec};
 use crate::business::flow::{engine, model as flow_model};
 use crate::business::shared::state_machine;
@@ -1606,6 +1607,13 @@ pub enum SettleOutcome {
         /// 拒绝原因。
         reason: String,
     },
+    /// **审批人不能自己执行**（P3-07 `approve_execute` 开着）→ 账一分没动，
+    /// 付款记录仍是「审批中」，等另一位有付款权限的人走
+    /// `POST /business/erp/payable/payment/{id}/execute` 执行。
+    AwaitingExecutor {
+        /// 给操作人 / 日志看的原因（含开关键名）。
+        reason: String,
+    },
 }
 
 /// 执行一笔**已审批通过**的付款（卡面 ⑩⑪⑫⑬⑯）。
@@ -1642,6 +1650,128 @@ pub async fn settle_approved_payment(
     }
 }
 
+// ==================== 写：付款执行（P3-07 审批 ≠ 执行）====================
+
+/// `POST /business/erp/payable/payment/{id}/execute` 的响应体。
+#[derive(Debug, Clone, Serialize)]
+pub struct PaymentExecuteRes {
+    /// 付款记录 id。
+    pub payment_id: String,
+    /// 结果（目前只有 `PAID`）。
+    pub outcome: String,
+    /// 面向业务人员的一句话。
+    pub message: String,
+}
+
+/// 按主键读付款记录（只读，不加锁）—— 执行入口的前置校验用。
+async fn find_payment(payment_id: Uuid) -> std::result::Result<Option<PaymentRow>, ApiError> {
+    // SCOPE-EXEMPT: 付款台账无归属列（见模块文档）。
+    let row = db()
+        .query_first_sql(
+            format!("SELECT {COLUMNS} FROM {TABLE} WHERE id = ?::uuid AND deleted_at IS NULL"),
+            vec![Value::from(&payment_id)],
+        )
+        .await
+        .map_err(|error| utils::db_error(error, "查询付款记录"))?;
+    row.as_ref()
+        .map(PaymentRow::from_row)
+        .transpose()
+        .map_err(|error| utils::db_error(error, "读取付款记录"))
+}
+
+/// **执行一笔「审批已通过」的付款**（P3-07 `approve_execute` 的人工执行入口）。
+///
+/// # 为什么需要这个入口
+///
+/// 本系统的付款默认是「审批通过即自动记账」，执行人就是审批人。`approve_execute`
+/// 打开后那条自动路径会把付款留在「审批中」（[`SettleOutcome::AwaitingExecutor`]，账一分没动）——
+/// 必须有人**再点一次**才能真正付出去，这个函数就是那一下。
+///
+/// # 判据（任一不满足 → 409 / 404）
+///
+/// 1. 付款记录存在（`404`）；
+/// 2. 付款记录仍是 `PENDING`（已生效 / 已终止 → 409，文案说明无需再执行）；
+/// 3. 它挂了审批实例，且**实例状态是 `APPROVED`**（没批过不许执行）；
+/// 4. **操作人不是这张单的审批人**（`approve_execute` 开着时；多级审批比全部审批人）。
+///
+/// 权限码复用 `business:erp:payable:pay`：能发起付款的人就应该能执行付款，不新造死码。
+pub async fn execute_approved_payment(
+    payment_id: Uuid,
+    operator: Uuid,
+) -> std::result::Result<PaymentExecuteRes, ApiError> {
+    let Some(payment) = find_payment(payment_id).await? else {
+        return Err(ApiError::new(
+            404,
+            error_code::RESOURCE_NOT_FOUND,
+            "付款记录不存在或已删除".to_string(),
+        ));
+    };
+    if payment.approval_status != APPROVAL_PENDING {
+        return Err(conflict(format!(
+            "付款 {} 当前是「{}」，不是「审批中」：已经执行过 / 已被终止，无需再执行",
+            payment.payment_no,
+            approval_status_label(&payment.approval_status)
+        )));
+    }
+    let Some(instance_id) = payment.approval_instance_id else {
+        return Err(conflict(format!(
+            "付款 {} 没有审批实例（提交时未配流程 / 显式跳过）：直付路径当场生效，\
+             不存在「审批通过后再执行」这一步",
+            payment.payment_no
+        )));
+    };
+    let Some(instance) = flow_model::find_instance(instance_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询付款审批实例"))?
+    else {
+        return Err(conflict(format!(
+            "付款 {} 挂的审批实例 {instance_id} 已不存在：无法确认是否批过，拒绝执行。\
+             请作废这笔付款后重新发起",
+            payment.payment_no
+        )));
+    };
+    if !instance.status.eq_ignore_ascii_case("APPROVED") {
+        return Err(conflict(format!(
+            "付款 {} 的审批尚未通过（当前 {}）：批过才能执行付款",
+            payment.payment_no, instance.status
+        )));
+    }
+
+    // ★ 内控：审批 ≠ 执行（`approve_execute` 开着才拦；关闭时与改动前一致放行）
+    let approvers = separation::approvers_of(Some(instance_id)).await;
+    separation::guard_among(
+        separation::Duty::ApproveExecute,
+        &approvers,
+        Some(operator),
+        &format!("付款 {}", payment.payment_no),
+    )
+    .await?;
+
+    match settle_approved_payment(payment_id, Some(operator)).await? {
+        SettleOutcome::Paid => Ok(PaymentExecuteRes {
+            payment_id: payment_id.to_string(),
+            outcome: "PAID".to_string(),
+            message: format!(
+                "付款 {} 已执行：应付回写 + 付款凭证已生成",
+                payment.payment_no
+            ),
+        }),
+        // 并发下被别人先执行了（前置校验与记账之间）：幂等语义如实说出，不重复记账
+        SettleOutcome::AlreadySettled => Err(conflict(format!(
+            "付款 {} 已被执行（重复提交 / 并发执行）：账只动一次，本次未重复记账",
+            payment.payment_no
+        ))),
+        SettleOutcome::AwaitingExecutor { reason } => Err(ApiError::new(
+            409,
+            error_code::ERP_SEPARATION_OF_DUTIES,
+            reason,
+        )),
+        SettleOutcome::Cancelled { reason } | SettleOutcome::Rejected { reason } => {
+            Err(conflict(reason))
+        }
+    }
+}
+
 /// [`settle_approved_payment`] 的事务体。
 ///
 /// 返回 `(结果, 联动上下文)`：只有 `SettleOutcome::Paid`（真的记了账、推进了应付状态）
@@ -1667,6 +1797,39 @@ async fn settle_approved_in_tx(
             "付款记录已是终态（重复回调 / 已被别处处理），跳过"
         );
         return Ok((SettleOutcome::AlreadySettled, None));
+    }
+
+    // ★ P3-07 审批 ≠ 执行（`erp.separation_of_duties.approve_execute`，默认关闭）
+    //
+    // 审批通过的回调（`payable_bridge::settle`）把「最后一个投票人」当执行人传进来，
+    // 所以默认口径下**审批人就是执行人**。开关打开时不许这样记账：
+    // 账一分不动，付款记录留在「审批中」，等另一位有 `business:erp:payable:pay` 的人走
+    // [`execute_approved_payment`]（`POST …/payment/{id}/execute`）执行 —— 那里会再比一次，
+    // 同一个人 → 409。
+    //
+    // 为什么是「留待他人执行」而不是「直接 409 打回」：审批单已经落了 APPROVED 终态，
+    // 付款单必须保留「等执行」的形态，否则这笔钱既没记也没人知道要再点一次。
+    if separation::enabled(separation::Duty::ApproveExecute).await {
+        let approvers = separation::approvers_of(payment.approval_instance_id).await;
+        if let Some(operator) = operator
+            && approvers.contains(&operator)
+        {
+            let reason = format!(
+                "付款 {} 的审批由你本人完成：按「审批与执行分离」（{}）需要另一位有付款权限的人\
+                 执行这笔付款（账一分未动，付款记录仍是审批中）",
+                payment.payment_no,
+                separation::Duty::ApproveExecute.key()
+            );
+            tracing::warn!(
+                %payment_id,
+                payment_no = %payment.payment_no,
+                %operator,
+                approvers = approvers.len(),
+                %reason,
+                "ERP 内控拦截：审批人不能自己执行付款 → 等待他人执行"
+            );
+            return Ok((SettleOutcome::AwaitingExecutor { reason }, None));
+        }
     }
 
     // ② 锁应付单 + 复核「还能不能付款」
@@ -2585,6 +2748,44 @@ pub async fn payable_pay_handler(
         }
         Err(error) => error.into_response(),
     }
+}
+
+/// **执行一笔审批已通过的付款**（P3-07 `approve_execute` 的人工执行入口）。
+///
+/// 只有在「审批与执行分离」（`erp.separation_of_duties.approve_execute`）打开时才用得上：
+/// 那条开关会让审批通过后的自动记账改成「留待他人执行」，由另一个人调用本接口把钱付出去。
+/// 开关关闭时（默认），付款审批通过即自动记账，本接口只会回 **409**「已经执行过」。
+///
+/// # 权限
+///
+/// 复用 `business:erp:payable:pay`（能发起付款的人就能执行付款，不新造权限码）。
+///
+/// # 异常情况
+///
+/// * 400 + `66006`：路径 id 不是合法 UUID；
+/// * 401 + `10001`：令牌里没有用户 id（执行必须有明确的自然人，不能是系统身份）；
+/// * 404 + `10002`：付款记录不存在 / 已删除；
+/// * 409 + `66013`：**操作人就是这张付款的审批人**（内控：审批 ≠ 执行）；
+/// * 409 + `10003`：付款已执行 / 已终止 / 审批还没通过 / 没有审批实例。
+#[nik::permission(
+    path = "/business/erp/payable/payment/{id}/execute",
+    method = "POST",
+    permission = "business:erp:payable:pay"
+)]
+#[nik::post("/business/erp/payable/payment/{id}/execute")]
+pub async fn payable_payment_execute_handler(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<PaymentExecuteRes> {
+    let id = parse_uuid(&id, "id")?;
+    let Some(operator) = operator_of(&claims) else {
+        return Err(ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_MISSING,
+            "执行付款需要登录用户（令牌里没有用户 id）".to_string(),
+        ));
+    };
+    Ok(Res::ok(execute_approved_payment(id, operator).await?))
 }
 
 /// 应付单可付信息（D5：详情抽屉「发起付款」前的唯一读数）。
