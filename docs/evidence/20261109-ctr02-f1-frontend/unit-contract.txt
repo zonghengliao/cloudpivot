@@ -1,0 +1,94 @@
+TAP version 13
+# Subtest: ④ 列表渲染：有数据时行数与总数正确，空数据时判为空表
+ok 1 - ④ 列表渲染：有数据时行数与总数正确，空数据时判为空表
+  ---
+  duration_ms: 1.254164
+  type: 'test'
+  ...
+# Subtest: ⑤ 列表空态：无数据给友好提示，且区分「筛不到」与「一条都没有」
+ok 2 - ⑤ 列表空态：无数据给友好提示，且区分「筛不到」与「一条都没有」
+  ---
+  duration_ms: 0.177458
+  type: 'test'
+  ...
+# Subtest: ⑥ 状态徽标：6 个状态的文案与配色（照后端口径 status_label）
+ok 3 - ⑥ 状态徽标：6 个状态的文案与配色（照后端口径 status_label）
+  ---
+  duration_ms: 1.824621
+  type: 'test'
+  ...
+# Subtest: ⑦ 状态按钮：只显示当前状态能走的合法边，且与前端的边表 = 后端状态机
+ok 4 - ⑦ 状态按钮：只显示当前状态能走的合法边，且与前端的边表 = 后端状态机
+  ---
+  duration_ms: 2.326412
+  type: 'test'
+  ...
+# Subtest: ⑧ 表单校验：名称为空 → 提交被拦（且不再报其它无关错误）
+ok 5 - ⑧ 表单校验：名称为空 → 提交被拦（且不再报其它无关错误）
+  ---
+  duration_ms: 0.388916
+  type: 'test'
+  ...
+# Subtest: ⑨ 表单校验：乙方未选 → 提交被拦
+ok 6 - ⑨ 表单校验：乙方未选 → 提交被拦
+  ---
+  duration_ms: 0.108209
+  type: 'test'
+  ...
+# Subtest: ⑩ 表单校验：有效期止早于起 → 提交被拦；签订晚于生效 → 也拦
+ok 7 - ⑩ 表单校验：有效期止早于起 → 提交被拦；签订晚于生效 → 也拦
+  ---
+  duration_ms: 0.109499
+  type: 'test'
+  ...
+# Subtest: ⑪ 编辑按钮：非 DRAFT 单不出现编辑入口（删除同理）
+ok 8 - ⑪ 编辑按钮：非 DRAFT 单不出现编辑入口（删除同理）
+  ---
+  duration_ms: 0.225208
+  type: 'test'
+  ...
+# Subtest: ⑫ 金额显示：千分位 + ¥ 前缀
+ok 9 - ⑫ 金额显示：千分位 + ¥ 前缀
+  ---
+  duration_ms: 0.537708
+  type: 'test'
+  ...
+# Subtest: ⑬ 请求体：空筛选不发、区间映射正确；建单/改单不带单号与状态
+ok 10 - ⑬ 请求体：空筛选不发、区间映射正确；建单/改单不带单号与状态
+  ---
+  duration_ms: 0.511624
+  type: 'test'
+  ...
+# Subtest: ⑭ 编辑回填与类型下拉：详情 → 表单字段齐全，类型放开「采购 / 销售合同」
+ok 11 - ⑭ 编辑回填与类型下拉：详情 → 表单字段齐全，类型放开「采购 / 销售合同」
+  ---
+  duration_ms: 0.233458
+  type: 'test'
+  ...
+# Subtest: ⑮ 乙方主档：SALES → 客户，其余 → 供应商；称谓分四档（Service→服务商 / Lease→出租方）
+ok 12 - ⑮ 乙方主档：SALES → 客户，其余 → 供应商；称谓分四档（Service→服务商 / Lease→出租方）
+  ---
+  duration_ms: 1.310706
+  type: 'test'
+  ...
+# Subtest: ⑯ 履约口径：ORDER_LINKED 显示真值、NOT_APPLICABLE 只说「不适用」、缺字段降级不渲染
+ok 13 - ⑯ 履约口径：ORDER_LINKED 显示真值、NOT_APPLICABLE 只说「不适用」、缺字段降级不渲染
+  ---
+  duration_ms: 0.350999
+  type: 'test'
+  ...
+# Subtest: ⑰ 类型选择引导：四行判定表与后端放行清单一致，服务 / 租赁的流转文案不提采购单
+ok 14 - ⑰ 类型选择引导：四行判定表与后端放行清单一致，服务 / 租赁的流转文案不提采购单
+  ---
+  duration_ms: 0.142917
+  type: 'test'
+  ...
+1..14
+# tests 14
+# suites 0
+# pass 14
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 124.798753

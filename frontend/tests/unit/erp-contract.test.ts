@@ -23,22 +23,26 @@ import { readFileSync } from 'node:fs';
 
 import { statusMeta } from '@/constants/status-map';
 import {
+  COMMITMENT_NOT_APPLICABLE_TEXT,
   CONTRACT_EDGES,
   CONTRACT_PAGE_SIZE,
   CONTRACT_REASON_EDGES,
   CONTRACT_STATUSES,
+  CONTRACT_TYPE_GUIDE,
   buildContractQuery,
   buildCreatePayload,
   buildStatusPayload,
   buildUpdatePayload,
   canDeleteContract,
   canEditContract,
+  commitmentViewOf,
   contractAmountText,
   contractEmptyState,
   contractFormFromDetail,
   contractListState,
   contractPartyBKind,
   contractPartyBLabel,
+  contractPartyBTip,
   contractPeriodText,
   contractStatusLabel,
   contractStatusTheme,
@@ -49,7 +53,9 @@ import {
   emptyContractForm,
   isContractFiltered,
   isContractTerminal,
+  isNoOrderContractType,
   needsReason,
+  transitionConfirmText,
   validateContractForm,
   type ContractFormState,
 } from '@/views/business/erp/contract/contract-logic';
@@ -479,36 +485,52 @@ test('⑭ 编辑回填与类型下拉：详情 → 表单字段齐全，类型�
   assert.equal(form.start_date, '2026-03-01');
   assert.equal(form.remark, '月结 30 天');
 
-  // 类型下拉：PURCHASE / SALES 可选，其余置灰并标注未开放
+  // 类型下拉：四类全可选（CTR-02-F1 开放 SERVICE / LEASE，不再置灰）
   const options = contractTypeOptions();
-  assert.equal(options.length, 4, '后端白名单 4 个值都列出来（置灰而不是消失）');
+  assert.equal(options.length, 4, '后端白名单 4 个值都列出来');
   assert.deepEqual(
-    options.filter((item) => !item.disabled).map((item) => item.value),
-    ['PURCHASE', 'SALES'],
-    'SO-26 起销售合同也放行',
+    options.map((item) => item.value),
+    ['PURCHASE', 'SALES', 'SERVICE', 'LEASE'],
+    '四类全开（顺序与 CONTRACT_TYPE_LABELS 一致）',
   );
-  assert.ok(options.filter((item) => item.disabled).every((item) => item.label.includes('未开放')));
   assert.deepEqual(
     options.filter((item) => item.disabled).map((item) => item.value),
-    ['SERVICE', 'LEASE'],
-    '服务 / 租赁仍未开放',
+    [],
+    'CTR-02-F1 之后没有任何类型被置灰',
   );
+  assert.ok(options.every((item) => !item.label.includes('未开放')), '文案里不再出现「未开放」');
   assert.equal(contractTypeLabel('PURCHASE'), '采购合同');
   assert.equal(contractTypeLabel('SALES'), '销售合同');
+  assert.equal(contractTypeLabel('SERVICE'), '服务合同');
+  assert.equal(contractTypeLabel('LEASE'), '租赁合同');
   assert.equal(contractTypeLabel(null), '—');
+  assert.equal(contractTypeLabel('NOPE'), 'NOPE', '未知类型原样显示，不抛错');
 });
 
-// ---------------------------------------------------------------- ⑮ 乙方主档随类型切换（SO-27）
+// ---------------------------------------------------------------- ⑮ 乙方主档随类型切换（SO-27 / CTR-02-F1）
 
-test('⑮ 乙方主档：SALES → 客户，其余 → 供应商（与后端推导逐字一致）', () => {
+test('⑮ 乙方主档：SALES → 客户，其余 → 供应商；称谓分四档（Service→服务商 / Lease→出租方）', () => {
   assert.equal(contractPartyBKind('SALES'), 'CUSTOMER');
   assert.equal(contractPartyBKind('sales'), 'CUSTOMER', '大小写不敏感（后端按 to_uppercase 比）');
   assert.equal(contractPartyBKind(' PURCHASE '), 'SUPPLIER');
+  assert.equal(contractPartyBKind('SERVICE'), 'SUPPLIER', '服务商在系统里是供应商主档');
+  assert.equal(contractPartyBKind('LEASE'), 'SUPPLIER', '出租方在系统里是供应商主档');
   assert.equal(contractPartyBKind(''), 'SUPPLIER');
   assert.equal(contractPartyBKind(undefined), 'SUPPLIER');
 
-  assert.equal(contractPartyBLabel('SALES'), '乙方客户');
+  // 称谓四档（label / placeholder / 校验文案同源）
   assert.equal(contractPartyBLabel('PURCHASE'), '乙方供应商');
+  assert.equal(contractPartyBLabel('SALES'), '乙方客户');
+  assert.equal(contractPartyBLabel('SERVICE'), '乙方服务商');
+  assert.equal(contractPartyBLabel('LEASE'), '乙方出租方');
+  assert.equal(contractPartyBLabel('lease'), '乙方出租方', '大小写不敏感');
+  assert.equal(contractPartyBLabel('NOPE'), '乙方供应商', '未知类型按供应商兜底，不抛错');
+
+  // 来源说明只在服务 / 租赁出现（其余主档一眼就对，不需要解释）
+  assert.equal(contractPartyBTip('SERVICE'), '服务商 / 出租方在系统中登记为供应商');
+  assert.equal(contractPartyBTip('LEASE'), '服务商 / 出租方在系统中登记为供应商');
+  assert.equal(contractPartyBTip('PURCHASE'), '');
+  assert.equal(contractPartyBTip('SALES'), '');
 
   // 后端推导必须同源：`contract_dto.rs` 里 SALES ↔ CUSTOMER 的配对是唯一真相
   const dto = backendSource('erp/contract_dto.rs');
@@ -516,10 +538,133 @@ test('⑮ 乙方主档：SALES → 客户，其余 → 供应商（与后端推�
     /party_b_type.*CUSTOMER|CUSTOMER.*party_b_type/s.test(dto),
     '后端 contract_dto.rs 里应有 SALES → CUSTOMER 的推导',
   );
+  assert.ok(dto.includes('SUPPORTED_TYPES'), '后端 SUPPORTED_TYPES 仍是放行清单的唯一真相');
 
   // 校验文案随类型分叉（供应商时不再说「请选择乙方客户」）
   const salesErrors = validateContractForm({ ...legalForm(), contract_type: 'SALES', party_b_id: '' });
   assert.equal(salesErrors.party_b_id, '请选择乙方客户');
   const purchaseErrors = validateContractForm({ ...legalForm(), party_b_id: '' });
   assert.equal(purchaseErrors.party_b_id, '请选择乙方供应商');
+  const serviceErrors = validateContractForm({ ...legalForm(), contract_type: 'SERVICE', party_b_id: '' });
+  assert.equal(serviceErrors.party_b_id, '请选择乙方服务商');
+  const leaseErrors = validateContractForm({ ...legalForm(), contract_type: 'LEASE', party_b_id: '' });
+  assert.equal(leaseErrors.party_b_id, '请选择乙方出租方');
+  // 四类都是合法类型：不该再报「类型无效」
+  for (const type of ['PURCHASE', 'SALES', 'SERVICE', 'LEASE']) {
+    assert.equal(
+      validateContractForm({ ...legalForm(), contract_type: type }).contract_type,
+      undefined,
+      `${type} 必须能通过提交前校验`,
+    );
+  }
+  // 脏值仍要拦，文案中性（不出现「本批次」）
+  const dirty = validateContractForm({ ...legalForm(), contract_type: 'NOPE' });
+  assert.ok(dirty.contract_type?.includes('合同类型无效'), `脏值要点名类型无效：${dirty.contract_type}`);
+  assert.ok(!dirty.contract_type?.includes('批次'), '文案里不能再出现「批次」');
 });
+
+// ---------------------------------------------------------------- ⑯ 履约口径（CTR-02-F1）
+
+test('⑯ 履约口径：ORDER_LINKED 显示真值、NOT_APPLICABLE 只说「不适用」、缺字段降级不渲染', () => {
+  // 挂订单的两类：四个字段都是后端真值，前端只搬运不计算
+  const linked = commitmentViewOf({
+    commitment_scope: 'ORDER_LINKED',
+    committed_amount: '226.0000',
+    remaining_amount: '9774.0000',
+    open_order_count: 2,
+    open_order_nos: ['PO-20261109-000001', 'PO-20261109-000002'],
+  });
+  assert.equal(linked.kind, 'ORDER_LINKED');
+  assert.deepEqual(linked, {
+    kind: 'ORDER_LINKED',
+    committedText: '¥226.00',
+    remainingText: '¥9,774.00',
+    remainingNegative: false,
+    openOrderCount: 2,
+    openOrderNos: ['PO-20261109-000001', 'PO-20261109-000002'],
+  });
+
+  // 剩余额度允许为负（超签不夹到 0）
+  const over = commitmentViewOf({
+    commitment_scope: 'order_linked',
+    committed_amount: 1200,
+    remaining_amount: '-200.00',
+    open_order_count: 0,
+    open_order_nos: [],
+  });
+  assert.equal(over.kind, 'ORDER_LINKED');
+  assert.equal(over.kind === 'ORDER_LINKED' && over.remainingNegative, true);
+  assert.equal(over.kind === 'ORDER_LINKED' && over.remainingText, '¥-200.00');
+
+  // 服务 / 租赁：后端照常下发 committed_amount=0，但口径是不适用 —— 不能当「已执行 0.00」显示
+  const notApplicable = commitmentViewOf({
+    commitment_scope: 'NOT_APPLICABLE',
+    committed_amount: '0.0000',
+    remaining_amount: '120000.0000',
+    open_order_count: 0,
+    open_order_nos: [],
+  });
+  assert.deepEqual(notApplicable, { kind: 'NOT_APPLICABLE' }, '不带任何金额（模板只渲染灰字）');
+  assert.ok(COMMITMENT_NOT_APPLICABLE_TEXT.includes('履约进度不适用'));
+  assert.ok(COMMITMENT_NOT_APPLICABLE_TEXT.includes('不走订单勾稽'));
+
+  // 字段缺失 / 未知取值 → 降级为不渲染（不抛错）
+  assert.equal(commitmentViewOf(null).kind, 'HIDDEN');
+  assert.equal(commitmentViewOf(undefined).kind, 'HIDDEN');
+  assert.equal(commitmentViewOf({}).kind, 'HIDDEN');
+  assert.equal(
+    commitmentViewOf({ commitment_scope: 'PAYMENT_PLAN', committed_amount: '1' }).kind,
+    'HIDDEN',
+    '预留口径还没做渲染分支 → 先不渲染，而不是显示一个会被误读的 0.00',
+  );
+
+  // 类型判定：「不挂订单」只有服务 / 租赁
+  assert.equal(isNoOrderContractType('SERVICE'), true);
+  assert.equal(isNoOrderContractType('lease'), true);
+  assert.equal(isNoOrderContractType('PURCHASE'), false);
+  assert.equal(isNoOrderContractType('SALES'), false);
+  assert.equal(isNoOrderContractType(null), false);
+
+  // 模板接线：履约区必须走口径分支，且灰字文案来自常量
+  const vue = frontendSource('views/business/erp/contract/index.vue');
+  assert.ok(vue.includes('data-testid="contract-detail-commitment"'), 'ORDER_LINKED 的履约区');
+  assert.ok(vue.includes('data-testid="contract-detail-commitment-na"'), 'NOT_APPLICABLE 的灰字行');
+  assert.ok(vue.includes('COMMITMENT_NOT_APPLICABLE_TEXT'), '灰字文案走常量，别在模板里另写一份');
+  assert.ok(
+    vue.includes('{{ committedText }}') && vue.includes('{{ remainingText }}'),
+    '已执行 / 剩余额度只能来自后端字段（模板不自己算、不写死）',
+  );
+  assert.ok(
+    !vue.includes('0.00'),
+    '模板里不许出现 0.00 这类硬编码金额（服务 / 租赁不得渲染成「已执行 0」）',
+  );
+});
+
+// ---------------------------------------------------------------- ⑰ 类型选择引导
+
+test('⑰ 类型选择引导：四行判定表与后端放行清单一致，服务 / 租赁的流转文案不提采购单', () => {
+  assert.equal(CONTRACT_TYPE_GUIDE.length, 4, '四行判定表');
+  assert.deepEqual(
+    CONTRACT_TYPE_GUIDE.map((row) => row.type),
+    ['PURCHASE', 'SALES', 'SERVICE', 'LEASE'],
+  );
+  for (const row of CONTRACT_TYPE_GUIDE) {
+    assert.equal(row.label, contractTypeLabel(row.type), `${row.type} 的中文名要与类型映射同源`);
+    assert.ok(row.when.trim().length > 0, `${row.type} 的判定说明不能为空`);
+  }
+  // 判定表的关键口径（与 docs/对客验收手册.md §6 同口径）
+  const guideText = CONTRACT_TYPE_GUIDE.map((row) => row.when).join(' / ');
+  assert.ok(guideText.includes('下采购单'), '采购合同要点明「会下采购单」');
+  assert.ok(guideText.includes('开销售单'), '销售合同要点明「会开销售单」');
+  assert.ok(guideText.includes('一个订单都不下'), '服务 / 租赁的判据是「一个订单都不下」');
+
+  // 流转确认文案：服务 / 租赁不能说「可被采购单引用」
+  const active = contractTransitions('SIGNED')[0];
+  assert.ok(active, 'SIGNED 有一条出边');
+  const purchaseText = transitionConfirmText('HT-1', 'SIGNED', active, 'PURCHASE');
+  assert.ok(purchaseText.includes('采购单'), `采购合同应说明可被采购单引用：${purchaseText}`);
+  const leaseText = transitionConfirmText('HT-1', 'SIGNED', active, 'LEASE');
+  assert.ok(!leaseText.includes('可被新建采购单引用'), `租赁不能提「可被采购单引用」：${leaseText}`);
+  assert.ok(leaseText.includes('服务期 / 租期'), `租赁应说明生效后算租期：${leaseText}`);
+});
+

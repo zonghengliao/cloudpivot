@@ -4162,6 +4162,26 @@ export interface ContractDetail extends ContractRow {
   usable_for_order: boolean;
   /** 当前状态的合法去向（**状态机给的**，前端别硬编码边） */
   next_statuses: string[];
+  /**
+   * **履约口径**（CTR-02-F1，`contract_dto::ContractDetailRes::commitment_scope`）。
+   *
+   * - `ORDER_LINKED` —— `PURCHASE` / `SALES`：下面四个履约字段是**真值**；
+   * - `NOT_APPLICABLE` —— `SERVICE` / `LEASE`：按口径不挂采购单 / 销售单，
+   *   `committed_amount = 0` 是**正确值**，前端**不得**显示 `0.00` / 0%；
+   * - 预留 `PAYMENT_PLAN`（需求池 RP-2026-005）。
+   *
+   * 声明成可选是为了「字段缺失 / 老后端 / 未知取值」时**降级为不渲染履约区**，
+   * 判断统一走 `contract-logic.ts::commitmentViewOf`（别在模板里散写字符串比较）。
+   */
+  commitment_scope?: string | null;
+  /** 已执行金额（关联采购单 + 销售单价税合计，后端现算） */
+  committed_amount?: number | string | null;
+  /** 剩余额度 = `amount - committed_amount`（**允许为负** = 超签，不夹到 0） */
+  remaining_amount?: number | string | null;
+  /** 未关闭下游单据数（`COMMITTED` 不等于履约完成，只用于归档前提示） */
+  open_order_count?: number | null;
+  /** 未关闭下游单据单号（后端限量、按单号升序） */
+  open_order_nos?: string[] | null;
 }
 
 /** 分页筛选（`contract_dto::ContractFilter`，空值一律不发）。 */

@@ -238,12 +238,19 @@
           </t-form-item>
 
           <t-form-item
-            label="合同类型"
             name="contract_type"
             :status="formErrors.contract_type ? 'error' : undefined"
             :tips="formErrors.contract_type"
           >
-            <!-- 放行 PURCHASE / SALES（SO-26），其余置灰（后端 10001） -->
+            <template #label>
+              <span class="label-with-tip">
+                合同类型
+                <t-tooltip :content="TYPE_GUIDE_TIP" placement="top-right">
+                  <t-icon name="help-circle" class="label-with-tip__icon" data-testid="contract-form-type-tip" />
+                </t-tooltip>
+              </span>
+            </template>
+            <!-- 四类全开（CTR-02-F1）：选「服务 / 租赁」不挂订单，下方引导行讲清判定口径 -->
             <t-select
               v-model="form.contract_type"
               :options="formTypeOptions"
@@ -259,16 +266,43 @@
             :status="formErrors.party_b_id ? 'error' : undefined"
             :tips="formErrors.party_b_id"
           >
-            <!-- 乙方随类型切换数据源：PURCHASE → 供应商；SALES → 客户（SO-27） -->
-            <t-select
-              v-model="form.party_b_id"
-              :options="partyBOptions"
-              :placeholder="`选择${partyBLabel}`"
-              filterable
-              clearable
-              data-testid="contract-form-party-b"
-            />
+            <!-- 乙方随类型切换数据源：SALES → 客户；PURCHASE / SERVICE / LEASE → 供应商 -->
+            <div class="party-b-field">
+              <t-select
+                v-model="form.party_b_id"
+                class="party-b-field__select"
+                :options="partyBOptions"
+                :placeholder="`选择${partyBLabel}`"
+                filterable
+                clearable
+                data-testid="contract-form-party-b"
+              />
+              <span
+                v-if="partyBTip"
+                class="form-hint"
+                data-testid="contract-form-party-b-tip"
+              >{{ partyBTip }}</span>
+            </div>
           </t-form-item>
+
+          <!-- 类型选择引导（四行判定表）：类型已签冻结，选错只能终止重签 -->
+          <div class="type-guide form-grid__wide" data-testid="contract-type-guide">
+            <div class="type-guide__head">
+              合同类型怎么选
+              <span class="type-guide__warn">签订后类型冻结，选错只能终止重签</span>
+            </div>
+            <ul class="type-guide__list">
+              <li
+                v-for="guide in TYPE_GUIDE"
+                :key="guide.type"
+                class="type-guide__row"
+                :data-testid="`contract-type-guide-${guide.type}`"
+              >
+                <b class="type-guide__type">{{ guide.label }}</b>
+                <span class="type-guide__when">{{ guide.when }}</span>
+              </li>
+            </ul>
+          </div>
 
           <t-form-item
             label="合同金额"
@@ -375,8 +409,12 @@
         <div class="detail__head">
           <span class="detail__no mono" data-testid="contract-detail-no">{{ detail.contract_no }}</span>
           <StatusBadge domain="erp-contract" :status="detail.status" data-testid="contract-detail-status" />
-          <t-tag v-if="detail.usable_for_order" size="small" variant="outline" theme="success">可被采购单引用</t-tag>
-          <t-tag v-else size="small" variant="outline">不可被采购单引用</t-tag>
+          <!-- 「可被采购单引用」只对挂订单的两类有意义：服务 / 租赁按口径不挂订单，
+               这里不能挂一个「可被采购单引用」的绿标（会误导） -->
+          <template v-if="!isNoOrderContract">
+            <t-tag v-if="detail.usable_for_order" size="small" variant="outline" theme="success">可被采购单引用</t-tag>
+            <t-tag v-else size="small" variant="outline">不可被采购单引用</t-tag>
+          </template>
           <span class="detail__spacer" />
           <t-button
             v-if="canEditContract(detail)"
@@ -477,26 +515,73 @@
           当前状态是「{{ contractStatusLabel(detail.status) }}」，状态机没有它可走的边（终态）。
         </p>
 
-        <!-- 关联采购单：反查 `GET /erp/purchase-order/page?contract_id=` -->
-        <div class="section-title">
-          关联采购单<span v-if="linkedOrders.length > 0">（{{ linkedOrders.length }} 张）</span>
-        </div>
-        <div v-if="linkedLoading" class="muted">加载中…</div>
-        <t-table
-          v-else-if="linkedOrders.length > 0"
-          row-key="id"
-          size="small"
-          :data="linkedOrders"
-          :columns="linkedColumns"
-          data-testid="contract-detail-linked"
-        >
-          <template #order_no="{ row }">{{ row.order_no }}</template>
-          <template #status="{ row }">{{ row.status }}</template>
-          <template #total_with_tax="{ row }">{{ contractAmountText(row.total_with_tax) }}</template>
-        </t-table>
-        <p v-else class="muted" data-testid="contract-detail-linked-empty">
-          暂无采购单引用这张合同（合同需先走完审批、变成「已签订 / 已生效」才能被采购单引用）。
-        </p>
+        <!-- 履约情况（CTR-02-F1）：口径由后端 `commitment_scope` 决定，前端不自己算 -->
+        <template v-if="commitmentVisible">
+          <div class="section-title">履约情况</div>
+          <!-- 挂订单的两类：已执行 / 剩余 / 未关闭单据都是后端真值 -->
+          <div
+            v-if="!commitmentNotApplicable"
+            class="commit"
+            data-testid="contract-detail-commitment"
+          >
+            <div class="commit__item">
+              <span class="commit__label">已执行金额</span>
+              <span class="commit__value money" data-testid="contract-commitment-committed">{{ committedText }}</span>
+            </div>
+            <div class="commit__item">
+              <span class="commit__label">剩余额度</span>
+              <span
+                class="commit__value money"
+                :class="{ 'commit__value--neg': remainingNegative }"
+                data-testid="contract-commitment-remaining"
+              >{{ remainingText }}</span>
+            </div>
+            <div class="commit__item">
+              <span class="commit__label">未关闭单据</span>
+              <span class="commit__value" data-testid="contract-commitment-open-count">{{ openOrderCount }} 张</span>
+            </div>
+            <p
+              v-if="openOrderNosText"
+              class="commit__nos"
+              data-testid="contract-commitment-open-nos"
+            >
+              单号：{{ openOrderNosText }}
+            </p>
+            <p class="commit__note muted">
+              已执行金额 = 这张合同关联的采购单 / 销售单价税合计（后端现算），与「能不能再下单」的额度守卫同一口径。
+            </p>
+          </div>
+          <!-- 服务 / 租赁：不显示零值金额（会被误读成「一分没执行」） -->
+          <p
+            v-else
+            class="muted commit-na"
+            data-testid="contract-detail-commitment-na"
+          >{{ COMMITMENT_NOT_APPLICABLE_TEXT }}</p>
+        </template>
+
+        <!-- 关联采购单：反查 `GET /erp/purchase-order/page?contract_id=`。
+             服务 / 租赁不挂任何订单，这块整块不渲染（否则「暂无采购单引用」会被读成「还没下单」） -->
+        <template v-if="!isNoOrderContract">
+          <div class="section-title">
+            关联采购单<span v-if="linkedOrders.length > 0">（{{ linkedOrders.length }} 张）</span>
+          </div>
+          <div v-if="linkedLoading" class="muted">加载中…</div>
+          <t-table
+            v-else-if="linkedOrders.length > 0"
+            row-key="id"
+            size="small"
+            :data="linkedOrders"
+            :columns="linkedColumns"
+            data-testid="contract-detail-linked"
+          >
+            <template #order_no="{ row }">{{ row.order_no }}</template>
+            <template #status="{ row }">{{ row.status }}</template>
+            <template #total_with_tax="{ row }">{{ contractAmountText(row.total_with_tax) }}</template>
+          </t-table>
+          <p v-else class="muted" data-testid="contract-detail-linked-empty">
+            暂无采购单引用这张合同（合同需先走完审批、变成「已签订 / 已生效」才能被采购单引用）。
+          </p>
+        </template>
 
         <!-- 附件：合同扫描件 / 补充协议（ARCH-3 DC-17）—— 组件与另外三个单据详情页共用 -->
         <div class="section-title">附件</div>
@@ -589,8 +674,11 @@ import DocPdfButton from '@/components/DocPdfButton.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
 import { todayString } from '@/views/business/erp/shared/money';
 import {
+  COMMITMENT_NOT_APPLICABLE_TEXT,
   CONTRACT_PAGE_SIZE,
   CONTRACT_STATUS_FILTER_OPTIONS,
+  CONTRACT_TYPE_GUIDE as TYPE_GUIDE,
+  CONTRACT_TYPE_GUIDE_TIP as TYPE_GUIDE_TIP,
   MAX_CONTRACT_NAME,
   MAX_CONTRACT_REMARK,
   buildContractQuery,
@@ -599,6 +687,7 @@ import {
   buildUpdatePayload,
   canDeleteContract,
   canEditContract,
+  commitmentViewOf,
   contractAmountText,
   contractEmptyState,
   contractFormFromDetail,
@@ -606,6 +695,7 @@ import {
   contractPartyBKind,
   contractPartyBLabel,
   contractPartyBName,
+  contractPartyBTip,
   contractPeriodText,
   contractStatusLabel,
   contractTransitions,
@@ -615,6 +705,7 @@ import {
   emptyContractForm,
   formErrorMessage,
   isContractFiltered,
+  isNoOrderContractType,
   transitionConfirmText,
   validateContractForm,
   type ContractFilterState,
@@ -658,13 +749,13 @@ const linkedColumns: PrimaryTableCol[] = [
 /** 状态下拉（`''` = 全部） */
 const statusFilterOptions = CONTRACT_STATUS_FILTER_OPTIONS.map((item) => ({ ...item }));
 
-/** 类型下拉（筛选区给全部 4 类，后端认；表单只放开 PURCHASE） */
+/** 类型下拉（筛选区给全部 4 类，后端 `CONTRACT_TYPES` 过滤本来就支持四类） */
 const typeFilterOptions = contractTypeOptions().map((item) => ({
   label: item.label,
   value: item.value,
 }));
 
-/** 表单里的类型下拉（其余置灰） */
+/** 表单里的类型下拉（四类全可选，CTR-02-F1） */
 const formTypeOptions = contractTypeOptions();
 
 // ==================== 列表 ====================
@@ -709,12 +800,14 @@ const supplierOptions = computed(() =>
 const customerOptions = computed(() =>
   customers.value.map((item) => ({ label: `${item.code} ${item.name}`, value: item.id })),
 );
-/** 当前表单类型对应的乙方候选（SALES → 客户；其余 → 供应商） */
+/** 当前表单类型对应的乙方候选（SALES → 客户；PURCHASE / SERVICE / LEASE → 供应商） */
 const partyBOptions = computed(() =>
   contractPartyBKind(form.contract_type) === 'CUSTOMER' ? customerOptions.value : supplierOptions.value,
 );
-/** 乙方称谓（「乙方供应商」/「乙方客户」）—— label / placeholder / 校验文案同源 */
+/** 乙方称谓（「乙方供应商 / 乙方客户 / 乙方服务商 / 乙方出租方」）—— label / placeholder / 校验文案同源 */
 const partyBLabel = computed(() => contractPartyBLabel(form.contract_type));
+/** 服务 / 租赁才显示「服务商 / 出租方在系统中登记为供应商」这行说明 */
+const partyBTip = computed(() => contractPartyBTip(form.contract_type));
 
 /**
  * 切换合同类型时清空乙方：供应商 id 与客户 id 是两个 id 空间，
@@ -884,6 +977,35 @@ const detailTransitions = computed<ContractTransition[]>(() =>
   detail.value ? contractTransitions(detail.value.status, detail.value.next_statuses) : [],
 );
 
+/**
+ * 履约区（CTR-02-F1）：
+ * - `commitmentVisible=false` → 字段缺失 / 未知口径，整块不渲染（降级，不抛错）；
+ * - `commitmentNotApplicable=true` → 服务 / 租赁，只渲染一行灰字，**不显示零值金额**。
+ *
+ * 取值全部经 `commitmentViewOf` 收口（单测覆盖），模板里不写字符串比较。
+ */
+const commitmentView = computed(() => commitmentViewOf(detail.value));
+const commitmentVisible = computed(() => commitmentView.value.kind !== 'HIDDEN');
+const commitmentNotApplicable = computed(() => commitmentView.value.kind === 'NOT_APPLICABLE');
+const committedText = computed(() =>
+  commitmentView.value.kind === 'ORDER_LINKED' ? commitmentView.value.committedText : '',
+);
+const remainingText = computed(() =>
+  commitmentView.value.kind === 'ORDER_LINKED' ? commitmentView.value.remainingText : '',
+);
+const remainingNegative = computed(() =>
+  commitmentView.value.kind === 'ORDER_LINKED' ? commitmentView.value.remainingNegative : false,
+);
+const openOrderCount = computed(() =>
+  commitmentView.value.kind === 'ORDER_LINKED' ? commitmentView.value.openOrderCount : 0,
+);
+const openOrderNosText = computed(() =>
+  commitmentView.value.kind === 'ORDER_LINKED' ? commitmentView.value.openOrderNos.join('、') : '',
+);
+
+/** 服务 / 租赁：不挂订单（「关联采购单」区块与「可被采购单引用」标记都不该出现） */
+const isNoOrderContract = computed(() => isNoOrderContractType(detail.value?.contract_type));
+
 /** 反查引用了这张合同的采购单（A3 给采购单加了 `contract_id` 筛选） */
 async function loadLinkedOrders(contractId: string): Promise<void> {
   linkedLoading.value = true;
@@ -906,8 +1028,12 @@ async function openDetail(row: { id: string }): Promise<void> {
   detail.value = null;
   linkedOrders.value = [];
   try {
-    detail.value = await fetchContractDetail(row.id);
-    void loadLinkedOrders(row.id);
+    const loaded = await fetchContractDetail(row.id);
+    detail.value = loaded;
+    // 服务 / 租赁不挂采购单：不发这条反查（块本身也不渲染）
+    if (!isNoOrderContractType(loaded.contract_type)) {
+      void loadLinkedOrders(row.id);
+    }
   } catch (error) {
     detailError.value = messageOf(error);
   } finally {
@@ -943,8 +1069,8 @@ function confirmRemove(row: ContractRow): void {
 
 /** 流转弹窗可见 */
 const statusVisible = ref(false);
-/** 流转中的合同 */
-const statusRow = ref<{ id: string; contract_no: string; status: string } | null>(null);
+/** 流转中的合同（带 `contract_type`：确认文案要按「挂不挂订单」换一套说法） */
+const statusRow = ref<{ id: string; contract_no: string; status: string; contract_type?: string } | null>(null);
 /** 本次动作 */
 const statusAction = ref<ContractTransition | null>(null);
 /** 终止原因 */
@@ -956,16 +1082,21 @@ const statusSaving = ref(false);
 /** 后端错误 */
 const statusError = ref('');
 
-/** 确认文案 */
+/** 确认文案（服务 / 租赁换一套不挂订单的说法） */
 const statusConfirmText = computed(() =>
   statusRow.value && statusAction.value
-    ? transitionConfirmText(statusRow.value.contract_no, statusRow.value.status, statusAction.value)
+    ? transitionConfirmText(
+        statusRow.value.contract_no,
+        statusRow.value.status,
+        statusAction.value,
+        statusRow.value.contract_type,
+      )
     : '',
 );
 
 /** 打开流转弹窗 */
 function openStatusDialog(
-  row: { id: string; contract_no: string; status: string },
+  row: { id: string; contract_no: string; status: string; contract_type?: string },
   action: ContractTransition,
 ): void {
   statusRow.value = row;
@@ -1213,6 +1344,130 @@ async function applyRouteQuery(): Promise<void> {
 .form-suffix {
   margin-left: 8px;
   color: var(--td-text-color-secondary);
+  font-size: 13px;
+}
+
+.label-with-tip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+
+  &__icon {
+    color: var(--td-text-color-placeholder);
+    font-size: 14px;
+    cursor: help;
+  }
+}
+
+/* 乙方选择器 + 服务/租赁的来源说明（说明放在控件下方，不跟控件挤一行） */
+.party-b-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+
+  &__select {
+    width: 100%;
+  }
+}
+
+.form-hint {
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* 类型选择引导（四行判定表） */
+.type-guide {
+  padding: 10px 12px;
+  margin: 2px 0 6px;
+  background: var(--td-bg-color-container-hover);
+  border-radius: 6px;
+
+  &__head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 6px;
+    color: var(--td-text-color-primary);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  &__warn {
+    color: var(--td-warning-color);
+    font-size: 12px;
+    font-weight: 400;
+  }
+
+  &__list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  &__row {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    line-height: 1.7;
+    font-size: 12px;
+  }
+
+  &__type {
+    flex: 0 0 auto;
+    color: var(--td-text-color-primary);
+    font-weight: 600;
+  }
+
+  &__when {
+    color: var(--td-text-color-secondary);
+  }
+}
+
+/* 详情：履约情况 */
+.commit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 32px;
+
+  &__item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  &__label {
+    color: var(--td-text-color-secondary);
+    font-size: 12px;
+  }
+
+  &__value {
+    font-size: 15px;
+    font-weight: 600;
+
+    &--neg {
+      color: var(--td-error-color);
+    }
+  }
+
+  &__nos {
+    flex: 0 0 100%;
+    margin: 0;
+    color: var(--td-text-color-secondary);
+    font-size: 12px;
+    word-break: break-all;
+  }
+
+  &__note {
+    flex: 0 0 100%;
+    margin: 0;
+    font-size: 12px;
+  }
+}
+
+.commit-na {
+  margin: 0;
   font-size: 13px;
 }
 

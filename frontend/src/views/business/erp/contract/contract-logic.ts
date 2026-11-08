@@ -122,28 +122,99 @@ export const CONTRACT_REASON_EDGES: ReadonlyArray<readonly [ContractStatus, Cont
 ] as const;
 
 /**
- * 放行的合同类型（`contract_dto::SUPPORTED_TYPES` = `PURCHASE` / `SALES`）。
+ * 放行的合同类型（**与 `contract_dto::SUPPORTED_TYPES` 逐字一致 = 四类全开**）。
  *
- * SO-26 起销售合同可用（乙方 → `biz_customer`）；`SERVICE` / `LEASE` 仍未开放，
- * 表单里置灰并标注「本期未开放」。
+ * CTR-02-F1（2026-11-09）起 `SERVICE` / `LEASE` 也放行：口径见
+ * `docs/合同类型开放口径-决策.md`（服务 / 租赁乙方固定走 `biz_supplier`，不挂订单）。
+ * 表单**不再置灰任何类型** —— 四类都是可选的正规选择，类型本身在签订后冻结。
  */
-export const SUPPORTED_CONTRACT_TYPES: readonly ContractType[] = ['PURCHASE', 'SALES'] as const;
+export const SUPPORTED_CONTRACT_TYPES: readonly ContractType[] = [
+  'PURCHASE',
+  'SALES',
+  'SERVICE',
+  'LEASE',
+] as const;
 
 /**
- * 合同类型 → 乙方主档（**与后端 `contract_dto` 的推导逐字一致**）。
+ * 合同类型 → 乙方主档（**与后端 `contract_model::required_party_b_type` 逐字一致**）。
  *
- * `PURCHASE` 的乙方是供应商，`SALES` 的乙方是客户；表单的乙方选择器按它切换数据源，
- * 校验文案也按它分叉（「请选择乙方供应商」/「请选择乙方客户」）。
- * 未放行的类型（`SERVICE` / `LEASE`）按采购口径兜底 —— 它们本来就提交不上去。
+ * `SALES` 的乙方是客户（`biz_customer`）；`PURCHASE` / `SERVICE` / `LEASE` 的乙方都是
+ * 供应商（`biz_supplier`，服务商 / 出租方在系统里就按供应商登记）。
+ * 表单的乙方选择器按它切换数据源，校验文案也按它分叉。
+ *
+ * ⚠️ 返回值域**只有两值**（后端 `party_b_type` 只有 `SUPPLIER` / `CUSTOMER`）：
+ * 「服务商 / 出租方」是**称谓**（见 {@link contractPartyBLabel}），不是第三种主档。
  */
 export function contractPartyBKind(type: string | null | undefined): 'SUPPLIER' | 'CUSTOMER' {
   return (type ?? '').trim().toUpperCase() === 'SALES' ? 'CUSTOMER' : 'SUPPLIER';
 }
 
-/** 乙方称谓：`乙方供应商` / `乙方客户`（表单 label、placeholder、校验文案统一用它） */
+/** 乙方称谓（表单 label、placeholder、校验文案统一用它）—— 四档 */
+const PARTY_B_LABELS: Record<ContractType, string> = {
+  PURCHASE: '乙方供应商',
+  SALES: '乙方客户',
+  SERVICE: '乙方服务商',
+  LEASE: '乙方出租方',
+};
+
+/**
+ * 乙方称谓：`乙方供应商` / `乙方客户` / `乙方服务商` / `乙方出租方`。
+ *
+ * 未知类型（脏数据 / 后端将来加类型）按 {@link contractPartyBKind} 的兜底口径给
+ * `乙方供应商` / `乙方客户`，不抛错。
+ */
 export function contractPartyBLabel(type: string | null | undefined): string {
-  return contractPartyBKind(type) === 'CUSTOMER' ? '乙方客户' : '乙方供应商';
+  const key = (type ?? '').trim().toUpperCase() as ContractType;
+  return PARTY_B_LABELS[key] ?? (contractPartyBKind(type) === 'CUSTOMER' ? '乙方客户' : '乙方供应商');
 }
+
+/**
+ * 乙方选择器下方的来源说明（只有服务 / 租赁需要解释「为什么下拉里是供应商」）。
+ *
+ * `PURCHASE` / `SALES` 各自的主档一眼就对，不需要解释 → 返回空串（页面不渲染这一行）。
+ */
+export function contractPartyBTip(type: string | null | undefined): string {
+  const key = (type ?? '').trim().toUpperCase();
+  return key === 'SERVICE' || key === 'LEASE' ? '服务商 / 出租方在系统中登记为供应商' : '';
+}
+
+/** 类型下拉旁的一句话提醒（类型是已签冻结字段，选错只能终止重签） */
+export const CONTRACT_TYPE_GUIDE_TIP =
+  '合同类型在签订后冻结，选错只能终止重签 —— 按「这笔业务会不会下订单」来选。';
+
+/**
+ * 类型选择引导（四行判定表）。文案与 `docs/对客验收手册.md` §6 的表格同口径，
+ * 也与后端 `docs/合同类型开放口径-决策.md` 一致。
+ *
+ * | 会不会下订单 | 选哪类 |
+ * |---|---|
+ * | 下采购单（收货 / 入库 / 应付），货物或服务都算 | 采购合同 |
+ * | 开销售单 | 销售合同 |
+ * | 一个订单都不下，长期服务（物业 / 维保 / 外包年框 / 订阅） | 服务合同 |
+ * | 一个订单都不下，租赁（房租 / 设备租用） | 租赁合同 |
+ */
+export const CONTRACT_TYPE_GUIDE: ReadonlyArray<{ type: ContractType; label: string; when: string }> = [
+  {
+    type: 'PURCHASE',
+    label: '采购合同',
+    when: '会下采购单（收货 / 入库 / 应付）的采购行为，货物或服务都算',
+  },
+  {
+    type: 'SALES',
+    label: '销售合同',
+    when: '会开销售单的销售行为',
+  },
+  {
+    type: 'SERVICE',
+    label: '服务合同',
+    when: '一个订单都不下的长期服务（物业、维保、外包年框、订阅）',
+  },
+  {
+    type: 'LEASE',
+    label: '租赁合同',
+    when: '一个订单都不下的租赁（房租、设备租用）',
+  },
+] as const;
 
 /** 合同类型中文名（`ck_biz_contract_type` 的 4 个值） */
 const CONTRACT_TYPE_LABELS: Record<ContractType, string> = {
@@ -218,17 +289,76 @@ export function contractTypeLabel(type: string | null | undefined): string {
 }
 
 /**
- * 合同类型下拉：`PURCHASE` / `SALES` 可选，其余**置灰**（不是隐藏 —— 置灰能让用户
- * 知道系统里有服务/租赁合同，只是还没开，比凭空少几个选项更容易解释）。
+ * 合同类型下拉：四类**全可选**（CTR-02-F1）。
+ *
+ * 保留 `disabled` 字段（恒 `false`）是为了让调用方（筛选区 / 表单）的接线不用改；
+ * 选项**不隐藏也不置灰** —— 服务 / 租赁是正规选择，只是选之前要看引导行。
  */
 export function contractTypeOptions(): Array<{ label: string; value: ContractType; disabled: boolean }> {
   return (Object.keys(CONTRACT_TYPE_LABELS) as ContractType[]).map((value) => ({
-    label: SUPPORTED_CONTRACT_TYPES.includes(value)
-      ? CONTRACT_TYPE_LABELS[value]
-      : `${CONTRACT_TYPE_LABELS[value]}（本期未开放）`,
+    label: CONTRACT_TYPE_LABELS[value],
     value,
     disabled: !SUPPORTED_CONTRACT_TYPES.includes(value),
   }));
+}
+
+/** 履约口径（`contract_dto::ContractDetailRes::commitment_scope`） */
+export type CommitmentScope = 'ORDER_LINKED' | 'NOT_APPLICABLE';
+
+/** 服务 / 租赁的履约区灰字（详情页原样显示这一行，**不显示 0.00**） */
+export const COMMITMENT_NOT_APPLICABLE_TEXT = '履约进度不适用（服务 / 租赁合同不走订单勾稽）';
+
+/**
+ * 详情里的履约区该长什么样（把「口径 → 渲染形态」收成纯函数，模板只铺）。
+ *
+ * - `ORDER_LINKED`：`PURCHASE` / `SALES`，四个履约字段是真值 → 渲染金额与未关闭单据；
+ * - `NOT_APPLICABLE`：`SERVICE` / `LEASE`，按口径不挂订单 → 只渲染一行灰字；
+ * - `HIDDEN`：字段缺失 / 未知取值（老后端、脏数据）→ **整块不渲染**，不抛错白屏。
+ */
+export type CommitmentView =
+  | {
+      kind: 'ORDER_LINKED';
+      committedText: string;
+      remainingText: string;
+      /** 剩余额度为负 = 合同额被改小到低于已下单额（「超签」，不夹到 0） */
+      remainingNegative: boolean;
+      openOrderCount: number;
+      openOrderNos: string[];
+    }
+  | { kind: 'NOT_APPLICABLE' }
+  | { kind: 'HIDDEN' };
+
+/** 履约区的四种取值 → 渲染形态（见 {@link CommitmentView}） */
+export function commitmentViewOf(
+  detail:
+    | {
+        commitment_scope?: string | null;
+        committed_amount?: number | string | null;
+        remaining_amount?: number | string | null;
+        open_order_count?: number | null;
+        open_order_nos?: string[] | null;
+      }
+    | null
+    | undefined,
+): CommitmentView {
+  const scope = (detail?.commitment_scope ?? '').trim().toUpperCase();
+  if (scope === 'NOT_APPLICABLE') {
+    return { kind: 'NOT_APPLICABLE' };
+  }
+  if (scope !== 'ORDER_LINKED') {
+    // 字段缺失 / 未知取值：降级为不渲染（后端将来加 `PAYMENT_PLAN` 时也走这里，
+    // 直到前端按新的履约单据类型补渲染分支，而不是先显示一个会被误读的 0.00）
+    return { kind: 'HIDDEN' };
+  }
+  const remaining = toNumber(detail?.remaining_amount);
+  return {
+    kind: 'ORDER_LINKED',
+    committedText: contractAmountText(detail?.committed_amount),
+    remainingText: contractAmountText(detail?.remaining_amount),
+    remainingNegative: remaining < 0,
+    openOrderCount: Number(detail?.open_order_count ?? 0) || 0,
+    openOrderNos: (detail?.open_order_nos ?? []).filter((no): no is string => Boolean(no)),
+  };
 }
 
 /**
@@ -345,16 +475,43 @@ const EDGE_CONFIRM_TAILS: Record<string, string> = {
     '终止是不可逆的终态：终止后这张合同不能再被新采购单引用，原因会写进状态日志与备注。',
 };
 
+/**
+ * 服务 / 租赁（`commitment_scope = NOT_APPLICABLE`）的边说明。
+ *
+ * 上面那份通用文案里写了「可被采购单引用」，对不挂订单的两类**是错的**
+ * （订单侧类型闸只收 `PURCHASE` / `SALES`）—— 所以这两类单独一套，只讲审批与冻结。
+ */
+const NO_ORDER_EDGE_TAILS: Record<string, string> = {
+  'DRAFT→PENDING_APPROVAL':
+    '提交后合同进入「审批中」：业务字段冻结，要等审批人通过才会变成「已签订」。',
+  'PENDING_APPROVAL→SIGNED':
+    '审批通过后合同变为「已签订」（服务 / 租赁合同不挂采购单、销售单，履约在付款侧跟踪）；此后关键字段（乙方 / 金额 / 日期）冻结，只能作废重签。',
+  'PENDING_APPROVAL→DRAFT':
+    '驳回 / 撤回会把在跑的审批实例终止、合同退回草稿（可以再改再提交）；审批驳回的意见在流程待办里填。',
+  'SIGNED→ACTIVE': '生效后合同开始计算服务期 / 租期（不挂订单）。',
+  'SIGNED→TERMINATED': '终止是不可逆的终态：原因会写进状态日志与备注。',
+  'ACTIVE→COMPLETED': '履约完成后合同归档（不再接新单；本类合同本来就不挂订单）。',
+  'ACTIVE→TERMINATED': '终止是不可逆的终态：原因会写进状态日志与备注。',
+};
+
+/** 该合同类型是否「不挂订单」（只有 `SERVICE` / `LEASE`） */
+export function isNoOrderContractType(type: string | null | undefined): boolean {
+  const key = (type ?? '').trim().toUpperCase();
+  return key === 'SERVICE' || key === 'LEASE';
+}
+
 /** 流转确认文案（说明「从哪个状态到哪个状态」+ 副作用） */
 export function transitionConfirmText(
   contractNo: string,
   status: string,
   action: ContractTransition,
+  contractType?: string | null,
 ): string {
   const fromKey = (status ?? '').trim().toUpperCase();
   const from = contractStatusLabel(fromKey);
   const to = contractStatusLabel(action.target);
-  const tail = EDGE_CONFIRM_TAILS[`${fromKey}→${action.target}`] ?? '';
+  const tails = isNoOrderContractType(contractType) ? NO_ORDER_EDGE_TAILS : EDGE_CONFIRM_TAILS;
+  const tail = tails[`${fromKey}→${action.target}`] ?? '';
   return `确定把 ${contractNo} 从「${from}」流转到「${to}」吗？${tail}`;
 }
 
@@ -550,7 +707,12 @@ export interface ContractFormState {
 /** 表单错误（键与字段同名；明细行不涉及） */
 export type ContractFormErrors = Partial<Record<keyof ContractFormState, string>>;
 
-/** 空表单（默认 `PURCHASE`：本期唯一可用类型，不让用户多点一次） */
+/**
+ * 空表单。
+ *
+ * 默认 `PURCHASE`：仓内合同以采购为主（历史 2253 行合同里 `PURCHASE`/`SALES` 占全部），
+ * 默认值只是省一次点击，四类都能单选切换。
+ */
 export function emptyContractForm(): ContractFormState {
   return {
     id: '',
@@ -597,7 +759,7 @@ function dateValue(text: string): string {
  *
  * 逐条对应：
  * 1. 名称非空 + ≤ 200 字；
- * 2. 合同类型必须是放行的 `PURCHASE` / `SALES`（`SERVICE` / `LEASE` → 后端 400）；
+ * 2. 合同类型必须是四类之一（`PURCHASE` / `SALES` / `SERVICE` / `LEASE`，`contract_dto::SUPPORTED_TYPES`）；
  * 3. 乙方必选；
  * 4. 金额必填且 **> 0**（DDL 是 `amount > 0`，卡面写的 `≥ 0` 与 DDL 不符）+ ≤ 4 位小数；
  * 5. 签订日期必填（卡面要求；后端「流转到 SIGNED 前必须三件套齐全」）；
@@ -617,7 +779,8 @@ export function validateContractForm(form: ContractFormState): ContractFormError
   if (!form.contract_type) {
     errors.contract_type = '请选择合同类型';
   } else if (!SUPPORTED_CONTRACT_TYPES.includes(form.contract_type as ContractType)) {
-    errors.contract_type = `本批次只支持 ${SUPPORTED_CONTRACT_TYPES.map(contractTypeLabel).join(' / ')}`;
+    // 四类全开后这里只剩「脏值」一条路：文案中性点名可选值，不再说「本批次」
+    errors.contract_type = `合同类型无效：只能是 ${SUPPORTED_CONTRACT_TYPES.map(contractTypeLabel).join(' / ')}`;
   }
 
   if (!form.party_b_id) {

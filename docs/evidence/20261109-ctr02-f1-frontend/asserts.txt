@@ -1,0 +1,24 @@
+PASS SERVICE 详情打开 (HT-20261109-000002)
+PASS SERVICE 履约灰字 '履约进度不适用（服务 / 租赁合同不走订单勾稽）'
+PASS SERVICE 不渲染履约金额块 commit_block=''
+PASS SERVICE 页面无 ¥0.00 
+PASS SERVICE 页面无「已执行」 
+PASS SERVICE 无关联采购单区块 
+PASS SERVICE 无可被采购单引用标记 
+PASS LEASE 详情打开 (HT-20261109-000003)
+PASS LEASE 履约灰字 '履约进度不适用（服务 / 租赁合同不走订单勾稽）'
+PASS LEASE 不渲染履约金额块 commit_block=''
+PASS LEASE 页面无 ¥0.00 
+PASS LEASE 页面无「已执行」 
+PASS LEASE 无关联采购单区块 
+PASS LEASE 无可被采购单引用标记 
+PASS PURCHASE 详情打开 (HT-20261109-000001)
+PASS PURCHASE 履约块存在 '已执行金额'
+PASS PURCHASE 已执行金额 '¥1,130.00'
+PASS PURCHASE 剩余额度 '¥8,870.00'
+PASS PURCHASE 未关闭单据 '1 张'
+PASS PURCHASE 未关闭单号 '单号：PO-20261109-000001'
+PASS PURCHASE 关联采购单区块 
+PASS PURCHASE 不出现「不适用」 
+
+== PASS=22 FAIL=0 ==
