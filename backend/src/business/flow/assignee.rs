@@ -49,6 +49,18 @@
 //! - `allow_robot`（D18）：**隐式**来源（ROLE / 主管 / 负责人 / 管理员）默认过滤 ROBOT；
 //!   **显式 `USER`** 指定不受限（「人明确选了这个机器人」是授予行为）。
 //!
+//! # 降级链（P3-02 / ARCH-8 第 ② 层）
+//!
+//! 自审 SKIP 在「角色里只有制单人一个人」的小公司里必然把审批人剔光 —— 这不该等于
+//! 「这张单发不出去」。所以 `SKIP` 之后还多一步（[`escalate`]）：
+//! 沿 `sys_role.escalation_role_id` **逐级上溯**，每级重跑停用 / ROBOT / 自审过滤，
+//! 找到第一个有可用成员的角色就把待办派给他们，并留痕 `escalated_from_role` +
+//! `escalate_reason`（待办行上）。到顶仍无人时才回到 `empty_assignee` 策略
+//! （本卡不兜底，第 ③ 层兜底人是 P3-03）。
+//!
+//! **链条是可配置数据，不是代码**：本文件只认 `escalation_role_id` 这个指针，
+//! 不认识任何具体角色编码（决策 D5）。
+//!
 //! # 冻结（D13）
 //!
 //! 本文件的输出（[`Finalized`]）由 `engine.rs` 立刻写成 `biz_flow_task` 行
@@ -174,6 +186,17 @@ pub struct Finalized {
     /// 静态来源、以及「命中规则但表达式没配 id」之外的一切情形都是 `None`。
     /// `otherwise` 命中时写 [`expression::OTHERWISE_RULE_ID`]。
     pub rule_id: Option<String>,
+    /// 升级留痕：**原本该审**的角色编码（P3-02）。非空 = 这批判待办是沿升级链派下来的。
+    ///
+    /// 写 `biz_flow_task.escalated_from_role`（varchar(40)）—— 多个起始角色时用 `,` 连接。
+    pub escalated_from_role: Option<String>,
+    /// 升级原因：`SKIP_SELF_APPROVAL`（自审策略剔光）/ `NO_MEMBER`（角色 0 成员）。
+    pub escalate_reason: Option<String>,
+    /// 升级链走过的**全部上级角色**（含已找到人的那一级）；`None` = 没走升级链。
+    ///
+    /// 引擎用它组装「升级链已走完」的 422 报文与结构化诊断（P3-02）；
+    /// 走通时它只是排障痕迹，不进业务表（业务表只留 [`Self::escalated_from_role`]）。
+    pub escalation: Option<Escalation>,
     /// 解析痕迹（写日志 + 详情页提示）。
     pub notes: Vec<String>,
 }
@@ -310,7 +333,19 @@ pub(crate) fn user_ids_of(node: &SnapshotNode) -> Vec<Uuid> {
 
 // ==================== 最终裁决（纯逻辑，可单测） ====================
 
-/// 把候选人合并、去重、过策略，得到「该落哪些待办」
+/// 过滤结果（①–④ 之后、空审批人策略之前）。
+///
+/// P3-02 把「过滤」与「空审批人策略」拆开：升级链必须在**两步之间**插入
+/// （「剔光 → 先找上级 → 上级也没有才按 empty_assignee 处置」）。
+#[derive(Debug, Default)]
+pub(crate) struct Approvable {
+    /// 可以落 `PENDING` 的人。
+    pub approvers: Vec<Candidate>,
+    /// 自审 SKIP 被剔出去的人（落 `SKIPPED` 留痕）。
+    pub skipped: Vec<Candidate>,
+}
+
+/// 把候选人合并、去重、过策略，得到「能签的人 / 被自审剔掉的人」
 /// （三层去重的**第 1 层**，架构 D14）。
 ///
 /// # 规则（顺序不可换）
@@ -319,17 +354,16 @@ pub(crate) fn user_ids_of(node: &SnapshotNode) -> Vec<Uuid> {
 /// 2. **ROBOT 过滤**（D18）：`allow_robot = false` 时只保留**显式 `USER`** 来源的机器人；
 /// 3. **按 `user_id` 去重**：优先级「显式 USER > 其它来源」，其余保持首次出现顺序
 ///    （一个人同时是「角色成员 + 发起人主管」→ 只生成 1 行待办）；
-/// 4. **自审策略**：命中发起人时按 `ALLOW` / `SKIP`（落 SKIPPED 留痕）/ `FORBID`（`65019`）；
-/// 5. **空审批人策略**：`SKIP`（自动通过）/ `ERROR`（`65018`）/ `FALLBACK_ADMIN`（回退给超管）。
-pub fn finalize(
+/// 4. **自审策略**：命中发起人时按 `ALLOW` / `SKIP`（落 SKIPPED 留痕）/ `FORBID`（`65019`）。
+///
+/// 第 ⑤ 步（空审批人策略）不在这里：见 [`finalize`] 与 [`apply_empty_policy`]。
+pub(crate) fn filter_candidates(
     candidates: Vec<Candidate>,
     self_policy: SelfPolicy,
-    empty_policy: EmptyPolicy,
     allow_robot: bool,
     initiator: Uuid,
-) -> Finalized {
-    let mut notes: Vec<String> = Vec::new();
-
+    notes: &mut Vec<String>,
+) -> std::result::Result<Approvable, ApiError> {
     // ① 停用用户
     let mut alive: Vec<Candidate> = Vec::with_capacity(candidates.len());
     for candidate in candidates {
@@ -394,73 +428,83 @@ pub fn finalize(
                 skipped.push(candidate);
             }
             SelfPolicy::Forbid => {
-                return Finalized::failed(
-                    ApiError::new(
-                        422,
-                        error_code::FLOW_SELF_APPROVAL_FORBIDDEN,
-                        format!(
-                            "审批人 {} 是发起人本人，本节点不允许自审（self_approval=FORBID）",
-                            candidate.name
-                        ),
+                return Err(ApiError::new(
+                    422,
+                    error_code::FLOW_SELF_APPROVAL_FORBIDDEN,
+                    format!(
+                        "审批人 {} 是发起人本人，本节点不允许自审（self_approval=FORBID）",
+                        candidate.name
                     ),
-                    notes,
-                );
+                ));
             }
         }
     }
 
-    // ⑤ 空审批人策略
-    if approvers.is_empty() {
-        return match empty_policy {
-            EmptyPolicy::Skip => {
-                notes.push(
-                    "本节点没有有效审批人，empty_assignee=SKIP → 节点自动跳过并计数".to_string(),
-                );
-                Finalized {
-                    approvers,
-                    skipped,
-                    auto_pass: true,
-                    fallback_admin: false,
-                    error: None,
-                    rule_id: None,
-                    notes,
-                }
-            }
-            EmptyPolicy::Error => Finalized::failed(
-                ApiError::new(
-                    422,
-                    error_code::FLOW_NO_ASSIGNEE,
-                    "本节点没有一个可用审批人（empty_assignee=ERROR）",
-                ),
-                notes,
-            ),
-            EmptyPolicy::FallbackAdmin => {
-                notes.push(
-                    "本节点没有有效审批人，empty_assignee=FALLBACK_ADMIN → 回退给平台管理员"
-                        .to_string(),
-                );
-                Finalized {
-                    approvers,
-                    skipped,
-                    auto_pass: false,
-                    fallback_admin: true,
-                    error: None,
-                    rule_id: None,
-                    notes,
-                }
-            }
-        };
-    }
+    Ok(Approvable { approvers, skipped })
+}
 
-    Finalized {
-        approvers,
-        skipped,
-        auto_pass: false,
-        fallback_admin: false,
-        error: None,
-        rule_id: None,
-        notes,
+/// 空审批人策略（`finalize` 的第 ⑤ 步）。
+///
+/// P3-02 之后它的调用点从 `finalize` 内部挪到「升级链之后」：先按配置找上级角色，
+/// 找到人就不必走这里；到顶仍无人时才按 `empty_assignee` 处置（SKIP 自动通过 /
+/// ERROR 报 `65018` / FALLBACK_ADMIN 回退超管）。
+fn apply_empty_policy(finalized: &mut Finalized, empty_policy: EmptyPolicy) {
+    if !finalized.approvers.is_empty() {
+        return;
     }
+    match empty_policy {
+        EmptyPolicy::Skip => {
+            finalized
+                .notes
+                .push("本节点没有有效审批人，empty_assignee=SKIP → 节点自动跳过并计数".to_string());
+            finalized.auto_pass = true;
+        }
+        EmptyPolicy::Error => {
+            finalized.error = Some(ApiError::new(
+                422,
+                error_code::FLOW_NO_ASSIGNEE,
+                "本节点没有一个可用审批人（empty_assignee=ERROR）",
+            ));
+        }
+        EmptyPolicy::FallbackAdmin => {
+            finalized.notes.push(
+                "本节点没有有效审批人，empty_assignee=FALLBACK_ADMIN → 回退给平台管理员"
+                    .to_string(),
+            );
+            finalized.fallback_admin = true;
+        }
+    }
+}
+
+/// 把候选人合并、去重、过策略，得到「该落哪些待办」
+/// （三层去重的**第 1 层**，架构 D14）。
+///
+/// 四个过滤步骤见 [`filter_candidates`]，第 ⑤ 步见 [`apply_empty_policy`]。
+///
+/// **P3-02 注**：生产路径（[`resolve`]）不再直接调本函数，而是分三步
+/// 「过滤 → 升级链 → 空审批人策略」；本函数保留为「不做升级链」的组合入口
+/// （单测与历史调用方），语义与 P3-02 之前逐字一致。
+pub fn finalize(
+    candidates: Vec<Candidate>,
+    self_policy: SelfPolicy,
+    empty_policy: EmptyPolicy,
+    allow_robot: bool,
+    initiator: Uuid,
+) -> Finalized {
+    let mut notes: Vec<String> = Vec::new();
+    let filtered =
+        match filter_candidates(candidates, self_policy, allow_robot, initiator, &mut notes) {
+            Ok(filtered) => filtered,
+            Err(error) => return Finalized::failed(error, notes),
+        };
+    let mut finalized = Finalized {
+        approvers: filtered.approvers,
+        skipped: filtered.skipped,
+        notes,
+        ..Finalized::default()
+    };
+    apply_empty_policy(&mut finalized, empty_policy);
+    finalized
 }
 
 // ==================== 实例上下文 ====================
@@ -667,14 +711,108 @@ pub async fn resolve(
 
     // ③ 名字快照：没查到用户（软删）的人不会出现在候选里，这里只对「查到了」的补 trace
     trace.push(format!("候选 {} 人（去重前）", candidates.len()));
-    let mut finalized = finalize(
+    let self_policy = SelfPolicy::parse(&node.self_approval);
+    let empty_policy = EmptyPolicy::parse(&node.empty_assignee);
+    let mut notes: Vec<String> = Vec::new();
+    let mut finalized = match filter_candidates(
         candidates.clone(),
-        SelfPolicy::parse(&node.self_approval),
-        EmptyPolicy::parse(&node.empty_assignee),
+        self_policy,
         node.allow_robot,
         ctx.initiator_id,
-    );
+        &mut notes,
+    ) {
+        Ok(filtered) => Finalized {
+            approvers: filtered.approvers,
+            skipped: filtered.skipped,
+            notes,
+            ..Finalized::default()
+        },
+        // 65019（FORBID 命中发起人）：整单失败，不再升级 —— 财务 / 法务节点的语义就是
+        // 「宁可卡住也不能换个人稀里糊涂签掉」。
+        Err(error) => {
+            return Ok(Resolution {
+                finalized: Finalized::failed(error, notes),
+                trace,
+            });
+        }
+    };
     finalized.rule_id = rule_id;
+
+    // ④ 升级链（P3-02）：**只在「有角色来源且被剔光」时才走**
+    //
+    //   · `SKIP_SELF_APPROVAL`：自审策略把审批人全剔了（`skipped` 非空）——
+    //     ARCH-8 场景 B「角色只有制单人一人」；
+    //   · `NO_MEMBER`：角色一个成员都没有 —— 同场景的另一形态。
+    //
+    // 其它来源（USER / 部门负责人 / 发起人主管 / 表单变量）解析出 0 人不是「升级链」
+    // 能解决的问题（链是角色→角色），照旧走 `empty_assignee`。
+    if finalized.approvers.is_empty() {
+        let start_roles = escalation_start_roles(&plans);
+        let reason = if !finalized.skipped.is_empty() {
+            Some(ESCALATE_REASON_SKIP)
+        } else if candidates.is_empty() && !start_roles.is_empty() {
+            Some(ESCALATE_REASON_NO_MEMBER)
+        } else {
+            None
+        };
+        if let (Some(reason), false) = (reason, start_roles.is_empty()) {
+            match escalate(
+                ex,
+                &start_roles,
+                reason,
+                node.allow_robot,
+                ctx.initiator_id,
+                &mut trace,
+            )
+            .await?
+            {
+                EscalationOutcome::Applied(escalation, approvers) => {
+                    trace.push(format!(
+                        "升级链接管：原角色 {}（{}）→ 上级「{}」{} 人",
+                        escalation.from_role_code,
+                        escalation.reason_label(),
+                        escalation
+                            .levels
+                            .last()
+                            .map(|level| level.role_name.clone())
+                            .unwrap_or_default(),
+                        approvers.len()
+                    ));
+                    finalized.notes.push(format!(
+                        "本节点审批人被自审策略剔光，已沿升级链改派：{}",
+                        escalation.chain_text()
+                    ));
+                    finalized.escalated_from_role = Some(escalation.from_role_code.clone());
+                    finalized.escalate_reason = Some(escalation.reason.clone());
+                    finalized.approvers = approvers;
+                    finalized.auto_pass = false;
+                    finalized.fallback_admin = false;
+                    finalized.error = None;
+                    finalized.escalation = Some(escalation);
+                }
+                EscalationOutcome::Exhausted(escalation) => {
+                    // 到顶仍无人：**不在这里报 422**（交给 empty_assignee / 引擎统一处置），
+                    // 但把链路带出去 —— 报文与结构化诊断都要能回答「找过谁、各有几个人」。
+                    finalized.notes.push(format!(
+                        "升级链已走完，仍无可用审批人：{}",
+                        escalation.chain_text()
+                    ));
+                    finalized.escalation = Some(escalation);
+                }
+                EscalationOutcome::Invalid(error) => {
+                    // 65040 / 65041：配置非法，整单失败（静默跳过会把配错变成事故）
+                    return Ok(Resolution {
+                        finalized: Finalized::failed(error, finalized.notes),
+                        trace,
+                    });
+                }
+            }
+        }
+    }
+
+    // ⑤ 空审批人策略（升级链没找到人 / 根本不适用时才走这里）
+    apply_empty_policy(&mut finalized, empty_policy);
+
     // `empty_assignee=ERROR`：把「本节点没有一个可用审批人」补成**可执行**的配置指引。
     // 只改这一种策略的报文（SKIP / FALLBACK_ADMIN 各有自己的语义，一字不动）——
     // 报文里出现节点名与「去哪儿配」，发起人才知道下一步做什么
@@ -683,20 +821,33 @@ pub async fn resolve(
         && error.code == error_code::FLOW_NO_ASSIGNEE
         && error.msg.contains("empty_assignee=ERROR")
     {
-        error.msg = format!(
-            "节点「{}」没有任何可用审批人（来源 {} 解析出 0 人；该节点配置了 empty_assignee=ERROR，\
-             不会兜底给管理员）。请到「流程定义 → 本流程 → 节点「{}」」把审批人设为具体角色或人员，\
-             并确认该角色下有在职成员（角色管理 → 成员）；若该岗位确实无人，可改由有审批权的人提交本单。",
-            node.name,
-            node.assignee_type.as_deref().unwrap_or("未配置"),
-            node.name
-        );
+        error.msg = match finalized.escalation.as_ref().filter(|esc| !esc.applied) {
+            Some(escalation) => format!(
+                "节点「{}」没有任何可用审批人（来源 {} 解析出 0 人；**升级链已走完**：{}）。\
+                 该节点配置了 empty_assignee=ERROR，不会兜底给管理员。请到\
+                 「系统管理 → 角色管理 → 上级角色」把该链路上每一级都指派在职成员，\
+                 或到「流程定义 → 本流程 → 节点「{}」」把审批人设为具体角色或人员。",
+                node.name,
+                node.assignee_type.as_deref().unwrap_or("未配置"),
+                escalation.chain_text(),
+                node.name
+            ),
+            None => format!(
+                "节点「{}」没有任何可用审批人（来源 {} 解析出 0 人；该节点配置了 empty_assignee=ERROR，\
+                 不会兜底给管理员）。请到「流程定义 → 本流程 → 节点「{}」」把审批人设为具体角色或人员，\
+                 并确认该角色下有在职成员（角色管理 → 成员）；若该岗位确实无人，可改由有审批权的人提交本单。",
+                node.name,
+                node.assignee_type.as_deref().unwrap_or("未配置"),
+                node.name
+            ),
+        };
     }
     trace.push(format!(
-        "去重 + 策略后：待办 {} 行 / SKIPPED 留痕 {} 行 / 自动通过={}",
+        "去重 + 策略后：待办 {} 行 / SKIPPED 留痕 {} 行 / 自动通过={} / 升级={}",
         finalized.approvers.len(),
         finalized.skipped.len(),
-        finalized.auto_pass
+        finalized.auto_pass,
+        finalized.escalation.is_some()
     ));
 
     // FALLBACK_ADMIN：回退给平台超管（这里只查一次，不再走策略 —— 超管兜底不该再被过滤）
@@ -728,7 +879,15 @@ pub async fn resolve(
         && error.code == error_code::FLOW_NO_ASSIGNEE
     {
         let signal = no_assignee::Signal::of(node, &candidates, ctx.initiator_id);
-        let payload = no_assignee::payload(ex, ctx.instance_id, node, signal, Vec::new()).await;
+        let payload = no_assignee::payload(
+            ex,
+            ctx.instance_id,
+            node,
+            signal,
+            Vec::new(),
+            finalized.escalation.as_ref(),
+        )
+        .await;
         no_assignee::attach(error, payload);
     }
 
@@ -961,6 +1120,435 @@ async fn load_role_members(ex: &impl SqlExecutor, role_ids: &[Uuid]) -> DbResult
     }
     out.sort_by_key(|candidate| (candidate.user_id, candidate.source_ref));
     Ok(out)
+}
+
+// ==================== 升级链（P3-02 · ARCH-8 第 ② 层） ====================
+//
+// 场景：`self_approval=SKIP` 把发起人本人剔光（或角色本来就 0 成员）⇒ 节点 0 人。
+// P3-02 之前这里直接 422 / `65018`（「角色里只有制单人」的小公司永远发不出单）。
+// 现在沿 `sys_role.escalation_role_id` **逐级上溯**，找到第一个有可用成员的角色。
+//
+// 三条纪律（决策 D5 / 卡面 §2）：
+//
+// 1. **链条来自库，不来自代码**：本文件只认 `escalation_role_id` 这个指针，
+//    不认识任何具体角色编码（`SALES_CLERK → SALES_SUPERVISOR` 只出现在迁移与管理员界面）；
+// 2. **每一级都重跑过滤**：停用 / ROBOT / 自审（`filter_candidates`），
+//    「上一级的成员恰好也是发起人」不会被塞回待办 —— 否则只是把自审挪了个位置；
+// 3. **配错要吵**：自引用 / 成环 / 指向已删角色 → `65040`；超过 8 级 → `65041`。
+//    静默跳过会让「以为有上级兜底」变成事故。
+
+/// 升级链最多上溯几级；再深就是配置错误（`65041`）。
+pub const ESCALATION_MAX_LEVELS: usize = 8;
+
+/// 升级原因（写 `biz_flow_task.escalate_reason`）：自审策略把审批人剔光。
+pub const ESCALATE_REASON_SKIP: &str = "SKIP_SELF_APPROVAL";
+
+/// 升级原因：角色里一个成员都没有。
+pub const ESCALATE_REASON_NO_MEMBER: &str = "NO_MEMBER";
+
+/// `biz_flow_task.escalated_from_role` 的列宽（`varchar(40)`）。
+const ESCALATED_FROM_ROLE_LIMIT: usize = 40;
+
+/// 升级链上的一个角色（`sys_role` 的标识列 + 上级指针）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoleChainNode {
+    /// 角色 id。
+    pub id: Uuid,
+    /// 角色编码（写 `escalated_from_role` / 报文）。
+    pub role_code: String,
+    /// 角色名称（报文 / 前端提示）。
+    pub role_name: String,
+    /// 上级角色（`sys_role.escalation_role_id`；`None` = 链到此为止）。
+    pub parent: Option<Uuid>,
+}
+
+/// 升级链走过的一级（诊断载荷 + 日志）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EscalationLevel {
+    /// 角色 id。
+    pub role_id: Uuid,
+    /// 角色编码。
+    pub role_code: String,
+    /// 角色名称。
+    pub role_name: String,
+    /// 该角色下的**在位成员行数**（过滤前）。
+    pub member_rows: usize,
+    /// 过滤（停用 / ROBOT / 自审）之后还能签的人数。
+    pub usable: usize,
+}
+
+/// 一次升级尝试的完整痕迹。
+#[derive(Debug, Clone, Default)]
+pub struct Escalation {
+    /// 升级原因（[`ESCALATE_REASON_SKIP`] / [`ESCALATE_REASON_NO_MEMBER`]）。
+    pub reason: String,
+    /// **原本该审**的角色编码（多个起始角色用 `,` 连接，已按列宽截断）。
+    pub from_role_code: String,
+    /// 原本该审的角色名（报文用）。
+    pub from_role_name: String,
+    /// 走过的每一级（含最终命中的那一级）。
+    pub levels: Vec<EscalationLevel>,
+    /// 是否在某一级找到了可用审批人。
+    pub applied: bool,
+}
+
+impl Escalation {
+    /// 链路的人读形式：`销售员(0/1) → 销售主管(0/0) → 销售总监(2/2)`。
+    ///
+    /// 括号里是 `可用/成员`：**成员 0 行**与「有成员但全被过滤」是两种不同的处置
+    /// （前者去加人，后者先查人是不是停用了）。
+    pub fn chain_text(&self) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        if !self.from_role_code.is_empty() {
+            parts.push(format!(
+                "{}（原角色，{}）",
+                if self.from_role_name.is_empty() {
+                    self.from_role_code.clone()
+                } else {
+                    self.from_role_name.clone()
+                },
+                self.reason_label()
+            ));
+        }
+        for level in &self.levels {
+            parts.push(format!(
+                "{}（{}/{} 人）",
+                level.role_name, level.usable, level.member_rows
+            ));
+        }
+        parts.join(" → ")
+    }
+
+    /// 原因的人读标签（报文里用）。
+    pub fn reason_label(&self) -> &'static str {
+        match self.reason.as_str() {
+            ESCALATE_REASON_SKIP => "自审跳过",
+            ESCALATE_REASON_NO_MEMBER => "角色无成员",
+            _ => "无可用审批人",
+        }
+    }
+
+    /// 结构化诊断里的链路（`no_assignee` 载荷用）。
+    pub fn to_payload_chain(&self) -> Vec<Json> {
+        self.levels
+            .iter()
+            .map(|level| {
+                serde_json::json!({
+                    "role_id": level.role_id.to_string(),
+                    "role_code": level.role_code,
+                    "role_name": level.role_name,
+                    "member_count": level.member_rows,
+                    "usable_count": level.usable,
+                })
+            })
+            .collect()
+    }
+}
+
+/// 升级尝试的三种结局。
+#[derive(Debug)]
+pub enum EscalationOutcome {
+    /// 在某一级找到了可用成员（附「他们是谁」）。
+    Applied(Escalation, Vec<Candidate>),
+    /// 走到顶也没有人（交给兜底人 P3-03 / `empty_assignee`）。
+    Exhausted(Escalation),
+    /// 升级链配置非法（`65040` 自引用 / 环 / 角色不存在，`65041` 超过 8 级）。
+    Invalid(ApiError),
+}
+
+/// 查一个角色（未软删）的 id / code / name / 上级；查不到返回 `None`。
+async fn load_role_chain_node(
+    ex: &impl SqlExecutor,
+    role_id: Uuid,
+) -> DbResult<Option<RoleChainNode>> {
+    let rows = ex
+        .query_sql(
+            "SELECT id, role_code, role_name, escalation_role_id \
+               FROM sys_role WHERE id = ?::uuid AND deleted_at IS NULL"
+                .to_string(),
+            vec![Value::from(&role_id)],
+        )
+        .await?;
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+    Ok(Some(RoleChainNode {
+        id: row.get_typed("id")?,
+        role_code: row.get_typed("role_code")?,
+        role_name: row.get_typed("role_name")?,
+        parent: row.get_typed("escalation_role_id")?,
+    }))
+}
+
+/// 把起始角色编码拼成 `escalated_from_role` 列值（`varchar(40)`，超出按字符截断）。
+fn join_role_codes(nodes: &[RoleChainNode]) -> String {
+    let joined = nodes
+        .iter()
+        .map(|node| node.role_code.as_str())
+        .collect::<Vec<_>>()
+        .join(",");
+    if joined.chars().count() <= ESCALATED_FROM_ROLE_LIMIT {
+        joined
+    } else {
+        joined.chars().take(ESCALATED_FROM_ROLE_LIMIT).collect()
+    }
+}
+
+/// 沿 `sys_role.escalation_role_id` 逐级上溯找可用审批人（P3-02 / ARCH-8 场景 B）。
+///
+/// # 参数
+///
+/// - `start_role_ids`：节点配置的（或被 EXPRESSION 解析出的）角色 id —— 升级链的**起点**；
+/// - `reason`：为什么走到这一步（[`ESCALATE_REASON_SKIP`] / [`ESCALATE_REASON_NO_MEMBER`]），
+///   原样写进待办留痕；
+/// - `allow_robot`：节点的 ROBOT 开关（每一级都按同一口径过滤）；
+/// - `initiator`：发起人 —— 每一级都要再跑一次自审过滤（**不许把发起人从上一级塞回来**）；
+/// - `trace`：解析痕迹（`Resolution.trace` / 日志）。
+///
+/// # 规则
+///
+/// - 起点角色**已删**：跳过（那是 `ROLE_NOT_FOUND`，不是链配错）；
+/// - 链上某级角色**已删 / 不存在**：`65040`（`escalation_role_id` 指向了不存在的角色）；
+/// - **成环**（`visited` 命中）：`65040`；
+/// - **超过 [`ESCALATION_MAX_LEVELS`] 级**：`65041`；
+/// - 每一级取「该角色在位成员」→ 过 `filter_candidates`（停用 / ROBOT / 自审）→ 有人即命中；
+/// - 到顶仍无人：`Exhausted`（**不在本卡兜底**，交 P3-03；报文由引擎带上链路）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]；配置非法 → [`EscalationOutcome::Invalid`]（不是 `DbError`：
+/// 那是**用户配置**问题，要回给前端，不能记成 500）。
+pub async fn escalate(
+    ex: &impl SqlExecutor,
+    start_role_ids: &[Uuid],
+    reason: &str,
+    allow_robot: bool,
+    initiator: Uuid,
+    trace: &mut Vec<String>,
+) -> DbResult<EscalationOutcome> {
+    let mut from_nodes: Vec<RoleChainNode> = Vec::new();
+    for role_id in start_role_ids {
+        match load_role_chain_node(ex, *role_id).await? {
+            Some(node) => from_nodes.push(node),
+            None => trace.push(format!("升级链起点角色 {role_id} 已删除，跳过")),
+        }
+    }
+    let from_role_code = join_role_codes(&from_nodes);
+    let from_role_name = from_nodes
+        .iter()
+        .map(|node| node.role_name.as_str())
+        .collect::<Vec<_>>()
+        .join("、");
+    let mut escalation = Escalation {
+        reason: reason.to_string(),
+        from_role_code,
+        from_role_name,
+        levels: Vec::new(),
+        applied: false,
+    };
+    trace.push(format!(
+        "升级链启动（{}）：起点 {} 个角色 {}",
+        escalation.reason_label(),
+        from_nodes.len(),
+        if escalation.from_role_code.is_empty() {
+            "（无）".to_string()
+        } else {
+            escalation.from_role_code.clone()
+        }
+    ));
+
+    let mut visited: BTreeSet<Uuid> = from_nodes.iter().map(|node| node.id).collect();
+    let mut frontier: Vec<Uuid> = Vec::new();
+    for node in &from_nodes {
+        if let Some(parent) = node.parent
+            && !frontier.contains(&parent)
+        {
+            frontier.push(parent);
+        }
+    }
+
+    for depth in 0..ESCALATION_MAX_LEVELS {
+        if frontier.is_empty() {
+            break;
+        }
+        // 本级：先查环（visited），再把 frontier 里的角色读出来（缺失 → 65040）
+        if let Some(repeated) = register_frontier(&frontier, &mut visited) {
+            return Ok(EscalationOutcome::Invalid(ApiError::new(
+                422,
+                error_code::FLOW_ESCALATION_INVALID,
+                format!(
+                    "角色升级链成环：角色 {repeated} 在同一链条上出现了两次\
+                     （请到「系统管理 → 角色管理 → 上级角色」断开环）"
+                ),
+            )));
+        }
+        let mut nodes: Vec<RoleChainNode> = Vec::with_capacity(frontier.len());
+        for role_id in &frontier {
+            match load_role_chain_node(ex, *role_id).await? {
+                Some(node) => nodes.push(node),
+                None => {
+                    return Ok(EscalationOutcome::Invalid(ApiError::new(
+                        422,
+                        error_code::FLOW_ESCALATION_INVALID,
+                        format!(
+                            "角色升级链配置非法：escalation_role_id 指向的角色 {role_id} 不存在\
+                             （已被删除），请到「系统管理 → 角色管理 → 上级角色」重新选择"
+                        ),
+                    )));
+                }
+            }
+        }
+        nodes.sort_by(|left, right| left.role_code.cmp(&right.role_code));
+
+        let mut level_members: Vec<(Uuid, Vec<Candidate>)> = Vec::with_capacity(nodes.len());
+        for node in &nodes {
+            level_members.push((node.id, load_role_members(ex, &[node.id]).await?));
+        }
+        let (level_rows, hit) =
+            decide_level(&nodes, &level_members, allow_robot, initiator, depth, trace);
+        escalation.levels.extend(level_rows);
+        if let Some(approvers) = hit {
+            escalation.applied = true;
+            trace.push(format!(
+                "升级链命中：{}（共 {} 人）",
+                escalation.chain_text(),
+                approvers.len()
+            ));
+            return Ok(EscalationOutcome::Applied(escalation, approvers));
+        }
+        // 下一级 = 本级所有角色的上级（去重，保持顺序）
+        frontier = next_frontier(&nodes);
+    }
+
+    if !frontier.is_empty() {
+        return Ok(EscalationOutcome::Invalid(ApiError::new(
+            422,
+            error_code::FLOW_ESCALATION_TOO_DEEP,
+            format!(
+                "角色升级链超过 {ESCALATION_MAX_LEVELS} 级仍未找到上级审批人\
+                 （已走过：{}）。请到「系统管理 → 角色管理 → 上级角色」检查链条是否配反了",
+                escalation.chain_text()
+            ),
+        )));
+    }
+    trace.push(format!(
+        "升级链已走完，仍无可用审批人：{}",
+        escalation.chain_text()
+    ));
+    Ok(EscalationOutcome::Exhausted(escalation))
+}
+
+/// 处理升级链的**一级**（纯函数，可单测）。
+///
+/// 每一级都要重跑 `filter_candidates`（停用 / ROBOT / 自审）：升级链不是「换个角色就完事」，
+/// 上级角色里也可能只有发起人一个人（很多小公司总经理就是老板本人）。
+///
+/// # 参数
+///
+/// - `nodes`：本级角色（调用方已按 `role_code` 排序，保证结果稳定）；
+/// - `members`：与 `nodes` 一一对应的成员表（`(role_id, 候选)`）；
+/// - `depth`：层级序号（0 起，只用于留痕文案）。
+///
+/// # 返回值
+///
+/// `(本级留痕, 命中的可用成员)`；`None` = 本级一个能签的人都没有（继续上溯）。
+fn decide_level(
+    nodes: &[RoleChainNode],
+    members: &[(Uuid, Vec<Candidate>)],
+    allow_robot: bool,
+    initiator: Uuid,
+    depth: usize,
+    trace: &mut Vec<String>,
+) -> (Vec<EscalationLevel>, Option<Vec<Candidate>>) {
+    let mut rows: Vec<EscalationLevel> = Vec::with_capacity(nodes.len());
+    let mut hit: Option<Vec<Candidate>> = None;
+    for node in nodes {
+        let candidates = members
+            .iter()
+            .find(|(role_id, _)| *role_id == node.id)
+            .map(|(_, candidates)| candidates.clone())
+            .unwrap_or_default();
+        let member_rows = candidates.len();
+        let mut notes: Vec<String> = Vec::new();
+        // 升级后的每一级一律按 SKIP 处理自审：发起人就是不能自己审，与节点上的
+        // `self_approval` 无关（FORBID 在 filter 阶段就已经整单失败了，走不到这里）。
+        let usable = match filter_candidates(
+            candidates,
+            SelfPolicy::Skip,
+            allow_robot,
+            initiator,
+            &mut notes,
+        ) {
+            Ok(filtered) => filtered.approvers,
+            // Skip 策略不会产生 65019；真出现了说明策略被改坏了，按 0 人处理并留痕
+            Err(_) => Vec::new(),
+        };
+        trace.push(format!(
+            "升级链第 {} 级：{}（{}）成员 {} 人 / 过滤后可用 {} 人{}",
+            depth + 1,
+            node.role_name,
+            node.role_code,
+            member_rows,
+            usable.len(),
+            if notes.is_empty() {
+                String::new()
+            } else {
+                format!("（{}）", notes.join("；"))
+            }
+        ));
+        rows.push(EscalationLevel {
+            role_id: node.id,
+            role_code: node.role_code.clone(),
+            role_name: node.role_name.clone(),
+            member_rows,
+            usable: usable.len(),
+        });
+        if hit.is_none() && !usable.is_empty() {
+            hit = Some(usable);
+        }
+    }
+    (rows, hit)
+}
+
+/// 把本级 frontier 登记进 `visited`；返回**第一个重复出现**的角色 id（= 成环）。
+///
+/// 纯函数：单测直接构造 frontier 序列就能钉住 `65040` 的判据，
+/// 不必为了「造一个环」去改库。
+fn register_frontier(frontier: &[Uuid], visited: &mut BTreeSet<Uuid>) -> Option<Uuid> {
+    for role_id in frontier {
+        if !visited.insert(*role_id) {
+            return Some(*role_id);
+        }
+    }
+    None
+}
+
+/// 下一级要查的角色 id：本级所有角色的上级（去重、保持顺序，纯函数）。
+fn next_frontier(nodes: &[RoleChainNode]) -> Vec<Uuid> {
+    let mut out: Vec<Uuid> = Vec::new();
+    for node in nodes {
+        if let Some(parent) = node.parent
+            && !out.contains(&parent)
+        {
+            out.push(parent);
+        }
+    }
+    out
+}
+
+/// 解析计划里的角色 id（升级链的起点；`EXPRESSION` 展开后的 ROLE 目标也算）。
+fn escalation_start_roles(plans: &[SourcePlan]) -> Vec<Uuid> {
+    let mut out: Vec<Uuid> = Vec::new();
+    for plan in plans {
+        if let SourcePlan::Roles(role_ids) = plan {
+            for id in role_ids {
+                if !out.contains(id) {
+                    out.push(*id);
+                }
+            }
+        }
+    }
+    out
 }
 
 /// `DEPT_LEADER`：指定部门的负责人。
@@ -1953,5 +2541,451 @@ mod expression_tests {
         assert!(!is_expression(&spec));
         spec.assignee_type = None;
         assert!(!is_expression(&spec), "没配来源不是表达式");
+    }
+}
+
+// ==================== 升级链单测（P3-02 · ARCH-8 场景 B） ====================
+
+/// 升级链的纯逻辑用例（`decide_level` / `next_frontier` / `register_frontier`）。
+///
+/// 为什么这些不写成「跑一遍引擎」的集成用例：升级链的判定完全是**内存里的三段纯函数**
+/// （每级过滤 / 下一级指针 / 成环检测），把它们单独钉住后，引擎侧只需要验证「接线对不对」，
+/// 而接线由真 HTTP 证据（`docs/evidence/*-p302-escalation`）覆盖。
+#[cfg(test)]
+mod escalation_tests {
+    use super::*;
+
+    fn uid(n: u128) -> Uuid {
+        Uuid::from_u128(n)
+    }
+
+    fn role(id: Uuid, code: &str, name: &str, parent: Option<Uuid>) -> RoleChainNode {
+        RoleChainNode {
+            id,
+            role_code: code.to_string(),
+            role_name: name.to_string(),
+            parent,
+        }
+    }
+
+    fn member(id: Uuid, name: &str, initiator: Uuid) -> Candidate {
+        let mut candidate = Candidate::new(id, name, AssigneeKind::Role);
+        candidate.source_ref = Some(uid(900));
+        // 默认都是「不是发起人」的可用成员；自审场景由调用方把 id 设成 initiator
+        let _ = initiator;
+        candidate
+    }
+
+    /// ① 角色只有发起人 → SKIP → 升级到上级角色（2 人）：本级取到 2 个可用审批人，
+    /// 且发起人即使也在上级角色里也不会被塞回待办。
+    #[test]
+    fn escalation_hits_upper_role_with_two_members() {
+        let initiator = uid(1);
+        let boss = role(uid(20), "SALES_DIRECTOR", "销售总监", None);
+        let members = vec![(
+            boss.id,
+            vec![
+                member(uid(2), "张三", initiator),
+                member(uid(3), "李四", initiator),
+                // 上级角色里也有发起人本人 → 必须被自审过滤掉，不能回到待办
+                member(initiator, "发起人", initiator),
+            ],
+        )];
+        let mut trace = Vec::new();
+        let (rows, hit) = decide_level(
+            std::slice::from_ref(&boss),
+            &members,
+            false,
+            initiator,
+            0,
+            &mut trace,
+        );
+        let approvers = hit.expect("上级角色有 2 个可用成员，必须命中");
+        assert_eq!(approvers.len(), 2, "待办 2 行（发起人被剔掉）");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].member_rows, 3, "成员行数（过滤前）");
+        assert_eq!(rows[0].usable, 2, "过滤后可用 2 人");
+        assert!(trace.iter().any(|line| line.contains("销售总监")));
+    }
+
+    /// ② 上级角色也是空 → 本级不命中（继续再上一级）。
+    #[test]
+    fn escalation_level_without_member_keeps_walking() {
+        let initiator = uid(1);
+        let empty = role(uid(20), "SALES_SUPERVISOR", "销售主管", Some(uid(30)));
+        let mut trace = Vec::new();
+        let (rows, hit) = decide_level(
+            std::slice::from_ref(&empty),
+            &[(empty.id, Vec::new())],
+            false,
+            initiator,
+            0,
+            &mut trace,
+        );
+        assert!(hit.is_none(), "本级 0 人 → 必须继续上溯");
+        assert_eq!(rows[0].member_rows, 0);
+        assert_eq!(rows[0].usable, 0);
+        // 下一级指针来自 `escalation_role_id`
+        assert_eq!(next_frontier(std::slice::from_ref(&empty)), vec![uid(30)]);
+    }
+
+    /// ③ 升级链成环 → `register_frontier` 认出重复节点（运行时据此报 65040）。
+    #[test]
+    fn escalation_cycle_is_detected() {
+        let mut visited = BTreeSet::new();
+        // 起点角色先进 visited
+        assert_eq!(register_frontier(&[uid(10)], &mut visited), None);
+        // 一级：销售主管
+        assert_eq!(register_frontier(&[uid(20)], &mut visited), None);
+        // 二级：又回到起点 → 环
+        assert_eq!(
+            register_frontier(&[uid(10)], &mut visited),
+            Some(uid(10)),
+            "回到走过的角色必须被判成环（65040）"
+        );
+    }
+
+    /// ③b 自引用（A→A）同样被判成环。
+    #[test]
+    fn escalation_self_reference_is_a_cycle() {
+        let mut visited = BTreeSet::new();
+        assert_eq!(register_frontier(&[uid(10)], &mut visited), None);
+        assert_eq!(register_frontier(&[uid(10)], &mut visited), Some(uid(10)));
+    }
+
+    /// ④ 走到顶仍 0 人：链路文案里必须能看到每一级的角色名与人数（报文契约）。
+    #[test]
+    fn escalation_exhausted_chain_text_lists_every_level() {
+        let escalation = Escalation {
+            reason: ESCALATE_REASON_SKIP.to_string(),
+            from_role_code: "SALES_CLERK".to_string(),
+            from_role_name: "销售员".to_string(),
+            levels: vec![
+                EscalationLevel {
+                    role_id: uid(20),
+                    role_code: "SALES_SUPERVISOR".to_string(),
+                    role_name: "销售主管".to_string(),
+                    member_rows: 0,
+                    usable: 0,
+                },
+                EscalationLevel {
+                    role_id: uid(30),
+                    role_code: "GENERAL_MANAGER".to_string(),
+                    role_name: "总经理".to_string(),
+                    member_rows: 1,
+                    usable: 0,
+                },
+            ],
+            applied: false,
+        };
+        let text = escalation.chain_text();
+        assert!(text.contains("销售员"), "{text}");
+        assert!(text.contains("销售主管"), "{text}");
+        assert!(text.contains("0/0 人"), "成员 0 行要能看出来：{text}");
+        assert!(
+            text.contains("0/1 人"),
+            "有成员但全被过滤也要能看出来：{text}"
+        );
+        assert_eq!(escalation.reason_label(), "自审跳过");
+        assert!(!escalation.applied);
+    }
+
+    /// `escalated_from_role` 是 `varchar(40)`：多个起始角色拼接必须按字符截断（不能按字节）。
+    #[test]
+    fn escalated_from_role_is_truncated_to_column_width() {
+        let codes = [
+            "SALES_CLERK",
+            "PURCHASE_SUPERVISOR",
+            "WAREHOUSE_MANAGER",
+            "FINANCE_DIRECTOR",
+        ];
+        let nodes: Vec<RoleChainNode> = codes
+            .iter()
+            .enumerate()
+            .map(|(index, code)| role(uid(index as u128 + 1), code, code, None))
+            .collect();
+        let joined = join_role_codes(&nodes);
+        assert!(
+            joined.chars().count() <= ESCALATED_FROM_ROLE_LIMIT,
+            "必须 ≤ {ESCALATED_FROM_ROLE_LIMIT} 个字符：{joined}"
+        );
+        assert!(joined.starts_with("SALES_CLERK"), "截断只发生在尾部");
+        assert_eq!(ESCALATED_FROM_ROLE_LIMIT, 40, "与迁移里的列宽一致");
+    }
+
+    /// 下一级指针去重 + 保持顺序（一个角色可以被两个下级共同指向上级）。
+    #[test]
+    fn next_frontier_dedups_and_keeps_order() {
+        let parent = uid(99);
+        let nodes = vec![
+            role(uid(10), "A", "A", Some(parent)),
+            role(uid(11), "B", "B", Some(parent)),
+            role(uid(12), "C", "C", Some(uid(50))),
+            role(uid(13), "D", "D", None),
+        ];
+        assert_eq!(next_frontier(&nodes), vec![parent, uid(50)]);
+    }
+}
+
+/// 升级链的**真库**用例（`ERP_DB_URL` 开关，与 `flow::edge_admin_tests` 同口径）。
+///
+/// 卡面单测 ①–④ 里，只有「沿 `sys_role.escalation_role_id` 真的查到人」这一步需要数据库；
+/// 纯判定部分在 [`escalation_tests`] 里已经钉住。这里补的是「SQL 口径与判定接得上」：
+/// 角色成员查询（未过期 / 未软删）、`escalation_role_id` 指针、成环与到顶的结局。
+///
+/// ```bash
+/// cd backend && ERP_DB_URL='postgres://alun:***@127.0.0.1:5432/cloudpivot_p302_e2e' \
+///   cargo test --lib business::flow::assignee::escalation_db_tests -- --nocapture
+/// ```
+#[cfg(test)]
+mod escalation_db_tests {
+    use super::*;
+
+    async fn ensure_db() -> bool {
+        use tokio::sync::OnceCell;
+        static READY: OnceCell<bool> = OnceCell::const_new();
+        *READY
+            .get_or_init(|| async {
+                let Ok(url) = std::env::var("ERP_DB_URL") else {
+                    println!("SKIP: 未设置 ERP_DB_URL（不连真实数据库）");
+                    return false;
+                };
+                if try_db().is_some() {
+                    return true;
+                }
+                let mut config = DatabaseConfig::from_url(&url);
+                config.pool.max_lifetime = Some(std::time::Duration::ZERO);
+                config.pool.idle_timeout = Some(std::time::Duration::ZERO);
+                match Db::connect_with(&url, config).await {
+                    Ok(connection) => set_db(connection).is_ok(),
+                    Err(err) => {
+                        println!("SKIP: ERP_DB_URL 连接失败（{err}）");
+                        false
+                    }
+                }
+            })
+            .await
+    }
+
+    async fn exec(sql: &str) {
+        if let Err(err) = db().execute_with_params(sql, vec![]).await {
+            panic!("SQL 失败：{err}\nSQL: {sql}");
+        }
+    }
+
+    /// 一轮夹具：4 个角色 + 4 个用户（P302UT_* 前缀，结束即清理）。
+    struct Fixture {
+        maker_role: Uuid,
+        mid_role: Uuid,
+        boss_role: Uuid,
+        dead_role: Uuid,
+        initiator: Uuid,
+        boss1: Uuid,
+        boss2: Uuid,
+    }
+
+    async fn setup(tag: &str) -> Fixture {
+        // 上一轮跑挂在中间时留下的同名行先清掉（用例必须可重复执行）
+        for sql in [
+            format!(
+                "DELETE FROM sys_user_role WHERE role_id IN (SELECT id FROM sys_role WHERE role_code LIKE 'P302UT\\_%\\_{tag}')"
+            ),
+            format!("DELETE FROM sys_user WHERE username LIKE 'p302ut\\_%\\_{tag}'"),
+            format!("DELETE FROM sys_role WHERE role_code LIKE 'P302UT\\_%\\_{tag}'"),
+        ] {
+            exec(&sql).await;
+        }
+        let maker_role = Uuid::now_v7();
+        let mid_role = Uuid::now_v7();
+        let boss_role = Uuid::now_v7();
+        let dead_role = Uuid::now_v7();
+        let initiator = Uuid::now_v7();
+        let boss1 = Uuid::now_v7();
+        let boss2 = Uuid::now_v7();
+        exec(&format!(
+            "INSERT INTO sys_role (id, role_code, role_name, status, sort_order) VALUES \
+             ('{maker_role}'::uuid, 'P302UT_MAKER_{tag}', 'P3-02 夹具-发起人角色', 1, 900), \
+             ('{mid_role}'::uuid, 'P302UT_MID_{tag}', 'P3-02 夹具-中间空角色', 1, 901), \
+             ('{boss_role}'::uuid, 'P302UT_BOSS_{tag}', 'P3-02 夹具-上级角色', 1, 902), \
+             ('{dead_role}'::uuid, 'P302UT_DEAD_{tag}', 'P3-02 夹具-链尾', 1, 903)"
+        ))
+        .await;
+        // 链条：发起人角色 →（空）→ 上级角色（两条 UPDATE 分开执行：驱动不接受多语句）
+        exec(&format!(
+            "UPDATE sys_role SET escalation_role_id = '{mid_role}'::uuid WHERE id = '{maker_role}'::uuid"
+        ))
+        .await;
+        exec(&format!(
+            "UPDATE sys_role SET escalation_role_id = '{boss_role}'::uuid WHERE id = '{mid_role}'::uuid"
+        ))
+        .await;
+        exec(&format!(
+            "INSERT INTO sys_user (id, username, password, real_name, status) VALUES \
+             ('{initiator}'::uuid, 'p302ut_init_{tag}', 'x', 'P3-02 发起人', 1), \
+             ('{boss1}'::uuid, 'p302ut_boss1_{tag}', 'x', 'P3-02 上级甲', 1), \
+             ('{boss2}'::uuid, 'p302ut_boss2_{tag}', 'x', 'P3-02 上级乙', 1)"
+        ))
+        .await;
+        // 发起人是「发起人角色」的唯一成员；上级角色两人（其中一个**也是发起人**，必须被过滤掉）
+        exec(&format!(
+            "INSERT INTO sys_user_role (user_id, role_id) VALUES \
+             ('{initiator}'::uuid, '{maker_role}'::uuid), \
+             ('{boss1}'::uuid, '{boss_role}'::uuid), \
+             ('{boss2}'::uuid, '{boss_role}'::uuid), \
+             ('{initiator}'::uuid, '{boss_role}'::uuid)"
+        ))
+        .await;
+        Fixture {
+            maker_role,
+            mid_role,
+            boss_role,
+            dead_role,
+            initiator,
+            boss1,
+            boss2,
+        }
+    }
+
+    async fn teardown(fx: &Fixture) {
+        // 清理（每条语句单独执行：驱动不接受多语句 prepared）
+        for sql in [
+            format!(
+                "DELETE FROM sys_user_role WHERE user_id IN ('{0}'::uuid,'{1}'::uuid,'{2}'::uuid)",
+                fx.initiator, fx.boss1, fx.boss2
+            ),
+            format!(
+                "DELETE FROM sys_user WHERE id IN ('{0}'::uuid,'{1}'::uuid,'{2}'::uuid)",
+                fx.initiator, fx.boss1, fx.boss2
+            ),
+            format!(
+                "UPDATE sys_role SET escalation_role_id = NULL WHERE id IN ('{0}'::uuid,'{1}'::uuid,'{2}'::uuid,'{3}'::uuid)",
+                fx.maker_role, fx.mid_role, fx.boss_role, fx.dead_role
+            ),
+            format!(
+                "DELETE FROM sys_role WHERE id IN ('{0}'::uuid,'{1}'::uuid,'{2}'::uuid,'{3}'::uuid)",
+                fx.maker_role, fx.mid_role, fx.boss_role, fx.dead_role
+            ),
+        ] {
+            exec(&sql).await;
+        }
+    }
+
+    /// ① 角色只有发起人 → 升级到上一级（跳过 0 人的中间级）→ 2 个可用审批人；
+    ///    上级角色里的发起人本人被剔掉，`escalated_from_role` 是**起始**角色的编码。
+    #[tokio::test]
+    async fn escalate_skips_empty_level_and_filters_initiator() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = setup("a").await;
+        let mut trace = Vec::new();
+        let outcome = escalate(
+            db(),
+            &[fx.maker_role],
+            ESCALATE_REASON_SKIP,
+            false,
+            fx.initiator,
+            &mut trace,
+        )
+        .await
+        .expect("escalate 不该出 DbError");
+        match outcome {
+            EscalationOutcome::Applied(escalation, approvers) => {
+                assert_eq!(approvers.len(), 2, "上级角色 3 人 − 发起人 1 人 = 2");
+                assert!(
+                    !approvers.iter().any(|c| c.user_id == fx.initiator),
+                    "发起人不能被塞回来"
+                );
+                assert_eq!(escalation.from_role_code, format!("P302UT_MAKER_a"));
+                assert_eq!(escalation.reason, ESCALATE_REASON_SKIP);
+                assert_eq!(escalation.levels.len(), 2, "中间空角色 1 级 + 命中 1 级");
+                assert_eq!(escalation.levels[0].role_id, fx.mid_role);
+                assert_eq!(escalation.levels[0].usable, 0, "中间级 0 人");
+                assert_eq!(escalation.levels[1].usable, 2);
+                assert!(escalation.applied);
+            }
+            other => panic!("期望 Applied，实际 {other:?}"),
+        }
+        teardown(&fx).await;
+    }
+
+    /// ② 链尾没有人 → `Exhausted`（引擎据此 422 并把链路带进报文）；
+    ///    同时验证 `NO_MEMBER` 原因原样留在痕迹里。
+    #[tokio::test]
+    async fn escalate_reports_exhausted_with_chain() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = setup("b").await;
+        // 只有链尾角色（0 成员、无上级）
+        exec(&format!(
+            "UPDATE sys_role SET escalation_role_id = NULL WHERE id = '{0}'::uuid",
+            fx.dead_role
+        ))
+        .await;
+        let mut trace = Vec::new();
+        let outcome = escalate(
+            db(),
+            &[fx.dead_role],
+            ESCALATE_REASON_NO_MEMBER,
+            false,
+            fx.initiator,
+            &mut trace,
+        )
+        .await
+        .expect("escalate 不该出 DbError");
+        match outcome {
+            EscalationOutcome::Exhausted(escalation) => {
+                assert!(!escalation.applied);
+                assert!(escalation.levels.is_empty(), "没有上级角色，一级都没走");
+                assert_eq!(escalation.reason, ESCALATE_REASON_NO_MEMBER);
+                // 链路文案里至少有原角色名（报文/载荷都读它）
+                let text = escalation.chain_text();
+                assert!(text.contains("夹具-链尾"), "链路文案：{text}");
+                assert_eq!(escalation.reason_label(), "角色无成员");
+            }
+            other => panic!("期望 Exhausted，实际 {other:?}"),
+        }
+        teardown(&fx).await;
+    }
+
+    /// ③ 成环 → `65040`（两级都 0 人，第 3 跳回到走过的角色）。
+    #[tokio::test]
+    async fn escalate_detects_cycle_with_65040() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = setup("c").await;
+        // 造环：dead → mid → dead（都是 0 人，保证走到环检测那一跳）
+        exec(&format!(
+            "UPDATE sys_role SET escalation_role_id = '{1}'::uuid WHERE id = '{0}'::uuid",
+            fx.dead_role, fx.mid_role
+        ))
+        .await;
+        exec(&format!(
+            "UPDATE sys_role SET escalation_role_id = '{0}'::uuid WHERE id = '{1}'::uuid",
+            fx.dead_role, fx.mid_role
+        ))
+        .await;
+        let mut trace = Vec::new();
+        let outcome = escalate(
+            db(),
+            &[fx.dead_role],
+            ESCALATE_REASON_NO_MEMBER,
+            false,
+            fx.initiator,
+            &mut trace,
+        )
+        .await
+        .expect("escalate 不该出 DbError");
+        match outcome {
+            EscalationOutcome::Invalid(error) => {
+                assert_eq!(error.code, error_code::FLOW_ESCALATION_INVALID);
+                assert_eq!(error.code, 65040);
+                assert!(error.msg.contains("成环"), "报文：{}", error.msg);
+            }
+            other => panic!("期望 Invalid(65040)，实际 {other:?}"),
+        }
+        teardown(&fx).await;
     }
 }

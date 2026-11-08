@@ -1,0 +1,48 @@
+================ P3-02 ① 迁移升级（cloudpivot_p302_upgrade ← template cloudpivot_prt03 / :18202）================
+--- 0) 前提：模板库确实停在 V0332
+template=cloudpivot_prt03 已应用的最大版本 = V332
+  ✅ 模板库最大版本 = 332
+template 上已有 V0333 痕迹（应为 0）：0
+template 上 sys_role.escalation_role_id（应为 0）：0
+
+--- 1) 克隆出升级库（CREATE DATABASE … TEMPLATE）
+  ✅ 克隆后最大版本 = 332
+  ✅ 克隆后仍无列 = 0
+env 键数 = 13（含 JWT / 主密钥 / admin 口令，仅从既有实例的 /proc 抄）
+
+--- 2) 首次启动（应只应用 V0333）
+[2m2026-11-07T23:28:57.852682Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: relation "schema_migrations" already exists, skipping
+[2m2026-11-07T23:28:57.852867Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s4: SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() AND tablename = 'schema_migrations' AND indexname = 'idx_schema_migrations_version'
+[2m2026-11-07T23:28:57.854608Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s5: SELECT kind, name, version, checksum, applied_via, applied_seq, success FROM schema_migrations
+--   本迁移只做**第 ② 层**：给角色配一条「上级角色」，SKIP 剔光后沿链上溯找
+--   本迁移只写**初始数据**（管理员随后可改），运行时只读不猜。
+--   迁移只跑一次。预置链的 UPDATE 只在「源角色存在 + 目标角色存在」时命中，
+[2m2026-11-07T23:28:58.001085Z[0m [34mDEBUG[0m [2mtokio_postgres::simple_query[0m[2m:[0m executing statement batch: INSERT INTO schema_migrations (kind, name, version, checksum, applied_via, applied_at, applied_seq, execution_ms, success, source) VALUES ('versioned', 'role_escalation_chain', '333', '2043bf77af474b3952ec074cf49ede561cfec12a677d7979ac192f906d3671cb', 'executed', 1794094138, 266, 8, TRUE, 'migrations/business/V0333__role_escalation_chain.up.sql') ON CONFLICT (kind, name) DO UPDATE SET version = excluded.version, checksum = excluded.checksum, applied_via = excluded.applied_via, applied_at = excluded.applied_at, applied_seq = excluded.applied_seq, execution_ms = excluded.execution_ms, success = excluded.success, source = excluded.source;
+[2m2026-11-07T23:28:58.003737Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 1 个迁移
+首次启动 → 应用 1 个迁移
+  ✅ 首次启动应用的迁移数 = 1 个迁移
+  ✅ 升级库最大版本 = 333
+  ✅ sys_role.escalation_role_id 已建 = 1
+  ✅ biz_flow_task 两列已建 = 2
+  ✅ 自引用 CHECK 已建 = 1
+  ✅ 上级角色索引已建 = 1
+预置升级链覆盖角色数 = 7（模板库里存在的角色才有；找不到的按设计跳过）
+  ✅ 预置链非空（≥1）
+样例：DEPT_LEADER → GENERAL_MANAGER FINANCE_DIRECTOR → GENERAL_MANAGER FINANCE_MANAGER → FINANCE_DIRECTOR PURCHASE_MANAGER → GENERAL_MANAGER SALES_CLERK → SALES_SUPERVISOR SALES_SUPERVISOR → GENERAL_MANAGER 
+
+--- 3) 重启：指纹校验通过，应用 0 个迁移
+重启 → 应用 0 个迁移
+  ✅ 重启应用的迁移数 = 0 个迁移
+
+--- 4) down.sql 可回滚
+  ✅ down 后 escalation_role_id 消失 = 0
+  ✅ down 后 biz_flow_task 两列消失 = 0
+  ✅ down 后 CHECK 消失 = 0
+  ✅ down 后索引消失 = 0
+
+--- 5) up.sql 再放回去（回滚可逆）
+psql:/opt/cloudpivot/backend/migrations/business/V0333__role_escalation_chain.up.sql:125: NOTICE:  V0333：升级链预置完成（7 个角色已配上级角色）
+  ✅ 回滚后重新 up：列都在 = 1
+  ✅ 回滚后重新 up：预置链条数一致 = 7
+
+===== 结果：PASS=17 FAIL=0 =====

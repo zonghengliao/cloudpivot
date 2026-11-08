@@ -63,6 +63,7 @@ fn role_req(code: &str, name: &str) -> RoleSaveReq {
         status: Some(1),
         data_scope: Some(2),
         sort_order: Some(0),
+        escalation_role_id: None,
         remark: None,
     }
 }

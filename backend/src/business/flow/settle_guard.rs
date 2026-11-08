@@ -401,6 +401,8 @@ async fn record_trace(instance: &InstanceRow, note: &SkipNote<'_>) -> DbResult<b
         due_at: None,
         transferred_from: None,
         assignee_rule_id: None,
+        escalated_from_role: None,
+        escalate_reason: None,
     };
     db().transaction(move |tx| async move { flow_model::insert_task(&tx, &new).await })
         .await?;

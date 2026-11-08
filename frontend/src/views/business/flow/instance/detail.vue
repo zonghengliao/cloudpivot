@@ -166,6 +166,7 @@
                     <t-tag v-if="item.isSelf" size="small" variant="outline" theme="warning">自审</t-tag>
                   </div>
                   <div class="timeline__time">{{ formatTime(item.at) }}</div>
+                  <div v-if="item.escalation" class="timeline__escalation">{{ item.escalation }}</div>
                   <div v-if="item.comment" class="timeline__comment">{{ item.comment }}</div>
                 </div>
               </li>
@@ -357,6 +358,7 @@ import type { FlowProgressNode } from '@/views/business/flow/components/FlowProg
 import StatusBadge from '@/views/business/task/components/StatusBadge.vue';
 import UserSelect from '@/views/business/task/components/UserSelect.vue';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
+import { escalationHint } from '@/views/business/flow/components/flow-progress-tasks';
 import { useBadgeStore } from '@/stores/badge';
 
 const route = useRoute();
@@ -579,6 +581,8 @@ interface TimelineItem {
   isAuto: boolean;
   /** 是否自审 */
   isSelf: boolean;
+  /** 升级留痕提示（P3-02；空 = 未升级） */
+  escalation?: string;
   /** 圆点样式 */
   cls: string;
 }
@@ -592,6 +596,16 @@ const timelineItems = computed<TimelineItem[]>(() =>
     comment: task.comment || undefined,
     isAuto: task.is_auto,
     isSelf: task.is_self_approval,
+    // P3-02：升级留痕（自审剔光 / 角色 0 人 → 沿升级链改派上级角色）
+    escalation: escalationHint({
+      node_key: task.node_key,
+      round: task.round,
+      assignee_name: task.assignee_name,
+      status: task.status,
+      escalate_reason: task.escalate_reason,
+      escalated_from_role: task.escalated_from_role,
+      escalated_to_role: task.escalated_to_role,
+    }),
     cls: task.status === 'APPROVED' ? 'is-done' : task.status === 'REJECTED' ? 'is-rejected' : 'is-pending',
   })),
 );
@@ -1252,6 +1266,16 @@ onBeforeUnmount(() => {
     font-size: 13px;
     color: var(--td-text-color-primary);
     background: var(--td-bg-color-secondarycontainer);
+    border-radius: 4px;
+  }
+
+  // P3-02：升级留痕（自审跳过 / 角色无成员 → 沿升级链改派上级角色）
+  &__escalation {
+    padding: 4px 8px;
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--td-warning-color);
+    background: var(--td-warning-color-1);
     border-radius: 4px;
   }
 

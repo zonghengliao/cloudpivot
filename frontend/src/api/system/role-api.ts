@@ -15,6 +15,8 @@ export interface RoleRes {
   status: StatusValue;
   /** 排序值 */
   sort_order: number;
+  /** 上级角色 id（审批降级链，P3-02；空串 = 无上级） */
+  escalation_role_id: string;
   /** 备注 */
   remark: string;
   /** 创建时间 */
@@ -47,6 +49,8 @@ export type RoleSaveParams = {
   status?: StatusValue;
   /** 排序值 */
   sort_order?: number;
+  /** 上级角色 id（审批降级链，P3-02）。缺省 = 保留现值；空串 = 清除 */
+  escalation_role_id?: string;
   /** 备注 */
   remark?: string;
 };

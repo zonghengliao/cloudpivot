@@ -57,6 +57,12 @@ export interface FlowProgressTask {
   is_auto?: boolean;
   /** 自审 */
   is_self_approval?: boolean;
+  /** 升级留痕：原本该审的角色编码（P3-02；非空 = 这条待办是升级派下来的） */
+  escalated_from_role?: string;
+  /** 升级原因 `SKIP_SELF_APPROVAL` / `NO_MEMBER`（P3-02） */
+  escalate_reason?: string;
+  /** 升级目标角色名（P3-02，展示用） */
+  escalated_to_role?: string;
 }
 
 /** 一组「节点 → 该节点下的审批人」 */
@@ -200,4 +206,37 @@ export function progressNodeClass(status: string): Record<string, boolean> {
 /** 节点状态文案（`APPROVED` → 已通过、`ACTIVE` → 处理中；未知状态原样显示） */
 export function progressNodeLabel(status: string): string {
   return statusMeta('flow-node', status).label;
+}
+
+/**
+ * 升级原因 → 人读标签（P3-02）。
+ *
+ * 码值由后端 `biz_flow_task.escalate_reason` 给出，**改码即破坏契约**：
+ * `SKIP_SELF_APPROVAL` = 自审策略把审批人全剔了；`NO_MEMBER` = 角色本来就没人。
+ */
+export function escalateReasonLabel(reason?: string): string {
+  switch (reason) {
+    case 'SKIP_SELF_APPROVAL':
+      return '因自审跳过';
+    case 'NO_MEMBER':
+      return '因角色无成员';
+    default:
+      return '因无可用审批人';
+  }
+}
+
+/**
+ * 待办行上的升级提示（空串 = 这条待办不是升级派下来的）。
+ *
+ * 形如 `⚠ 因自审跳过，已升级至「销售总监」审批（原角色 SALES_CLERK）`：
+ * - 目标角色名来自后端 `escalated_to_role`（即 `assignee_source_ref` 指向的角色）；
+ * - 原角色编码来自 `escalated_from_role`，方便管理员一眼看出「该给谁加人」。
+ */
+export function escalationHint(task: FlowProgressTask): string {
+  if (!task.escalate_reason) {
+    return '';
+  }
+  const target = task.escalated_to_role ? `「${task.escalated_to_role}」` : '上级角色';
+  const origin = task.escalated_from_role ? `（原角色 ${task.escalated_from_role}）` : '';
+  return `⚠ ${escalateReasonLabel(task.escalate_reason)}，已升级至${target}审批${origin}`;
 }

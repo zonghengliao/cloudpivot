@@ -1004,6 +1004,16 @@ pub const FLOW_TASK_STATE_CONFLICT: i32 = 65038;
 /// 预演（preview）参数非法（HTTP 400）：变量缺失（`strict=true`）/ 渲染结果超长 / 模板语法错。
 pub const FLOW_PREVIEW_INVALID: i32 = 65039;
 
+/// 角色升级链配置非法（HTTP 422）：`escalation_role_id` 自引用 / 成环 / 指向不存在（已软删）的角色。
+///
+/// P3-02（ARCH-8 场景 B）：升级链是**组织配置**，配错时必须显式失败而不是静默跳过 ——
+/// 静默跳过的后果是「以为有上级兜底，实际没有」，比直接报错更难排。
+pub const FLOW_ESCALATION_INVALID: i32 = 65040;
+
+/// 角色升级链超过 8 级（HTTP 422，P3-02）：正常组织不会这么深，超过即视为配置错误
+/// （多半是环没被 visited 集合捕获前就已经很长，或误把整张组织表串成了链）。
+pub const FLOW_ESCALATION_TOO_DEEP: i32 = 65041;
+
 // ==================== 66xxx：ERP 主数据 / 仓储（批次 D · W1c） ====================
 //
 // 码段说明：64xxx 是云枢 × Hermes，65xxx 是审批流；ERP 接口层（W1c）新开 66xxx，
@@ -1871,6 +1881,8 @@ mod tests {
             (FLOW_TEMPLATE_VAR_INVALID, 65037),
             (FLOW_TASK_STATE_CONFLICT, 65038),
             (FLOW_PREVIEW_INVALID, 65039),
+            (FLOW_ESCALATION_INVALID, 65040),
+            (FLOW_ESCALATION_TOO_DEEP, 65041),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "65xxx 段码值不得改动");
@@ -1885,16 +1897,16 @@ mod tests {
         assert_eq!(unique.len(), codes.len(), "65xxx 段不得有重复码值");
         assert_eq!(
             unique.len(),
-            34,
-            "65xxx 段必须是 34 个码（架构 §10.3 的 22 个 + D2 追加的 5 个运行侧细分码 + P1-A2 的 65033 \
-             + P-FLOW-1A 的 65034–65039）"
+            36,
+            "65xxx 段必须是 36 个码（架构 §10.3 的 22 个 + D2 追加的 5 个运行侧细分码 + P1-A2 的 65033 \
+             + P-FLOW-1A 的 65034–65039 + P3-02 的 65040–65041）"
         );
         assert!(
             codes.iter().all(|(code, _)| *code > 64014 && *code < 66000),
             "65xxx 段必须落在 64014 与 66000 之间（不侵占 AI 用户段）"
         );
         println!(
-            "[码表] 65xxx 段 {} 个码齐全且不重复（65001–65005 / 65010–65028 / 65030–65039）✓",
+            "[码表] 65xxx 段 {} 个码齐全且不重复（65001–65005 / 65010–65028 / 65030–65041）✓",
             codes.len()
         );
     }

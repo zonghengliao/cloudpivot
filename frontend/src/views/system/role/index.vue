@@ -217,6 +217,19 @@
         <t-form-item label="排序" name="sort_order">
           <t-input-number v-model="formData.sort_order" :min="0" />
         </t-form-item>
+        <!-- P3-02：审批降级链。角色没人可审时沿这条链找上级角色，配错（指向自己/成环）会被后端 400 拦下 -->
+        <t-form-item label="上级角色" name="escalation_role_id">
+          <t-select
+            v-model="formData.escalation_role_id"
+            :options="escalationOptions"
+            placeholder="无上级（不升级）"
+            clearable
+            filterable
+          />
+          <div class="form-hint">
+            本角色没有可用审批人时，沿「上级角色」逐级上溯找审批人（最多 8 级，不能指向自己）
+          </div>
+        </t-form-item>
         <t-form-item label="状态" name="status">
           <t-radio-group v-model="formData.status">
             <t-radio :value="1">正常</t-radio>
@@ -244,6 +257,7 @@ import {
   getRole,
   getRoleMenus,
   getRoleUsers,
+  listRoles,
   pageRoles,
   updateRole,
   updateRoleMenus,
@@ -293,6 +307,8 @@ interface RoleForm {
   description: string;
   /** 排序值 */
   sort_order: number;
+  /** 上级角色 id（P3-02 审批降级链；空串 = 无上级） */
+  escalation_role_id: string;
   /** 状态：1=正常 0=禁用 */
   status: StatusValue;
 }
@@ -365,8 +381,21 @@ const formData = reactive<RoleForm>({
   role_name: '',
   description: '',
   sort_order: 0,
+  escalation_role_id: '',
   status: 1,
 });
+/** 上级角色下拉（P3-02）：全部启用角色，**排除自己**（后端还会再拦成环/自引用） */
+const escalationOptions = ref<{ label: string; value: string }[]>([]);
+async function loadEscalationOptions(selfId: string): Promise<void> {
+  try {
+    const roles = await listRoles();
+    escalationOptions.value = roles
+      .filter((role) => role.id !== selfId)
+      .map((role) => ({ label: `${role.role_name}（${role.role_code}）`, value: role.id }));
+  } catch {
+    escalationOptions.value = [];
+  }
+}
 const formRules: FormRules<RoleForm> = {
   role_code: [{ required: true, message: '请输入角色编码', type: 'error' }],
   role_name: [{ required: true, message: '请输入角色名', type: 'error' }],
@@ -756,8 +785,10 @@ function openCreate(): void {
     role_name: '',
     description: '',
     sort_order: 0,
+    escalation_role_id: '',
     status: 1,
   });
+  void loadEscalationOptions('');
   formVisible.value = true;
 }
 
@@ -765,6 +796,7 @@ function openCreate(): void {
 async function openEdit(row: RoleRes): Promise<void> {
   formMode.value = 'edit';
   editingId.value = row.id;
+  void loadEscalationOptions(row.id);
   try {
     const detail = await getRole(row.id);
     Object.assign(formData, {
@@ -772,6 +804,7 @@ async function openEdit(row: RoleRes): Promise<void> {
       role_name: detail.role_name,
       description: detail.description,
       sort_order: detail.sort_order,
+      escalation_role_id: detail.escalation_role_id ?? '',
       status: detail.status,
     });
   } catch (error) {
@@ -782,6 +815,7 @@ async function openEdit(row: RoleRes): Promise<void> {
       role_name: row.role_name,
       description: row.description,
       sort_order: row.sort_order,
+      escalation_role_id: row.escalation_role_id ?? '',
       status: row.status,
     });
   }
@@ -792,6 +826,11 @@ async function openEdit(row: RoleRes): Promise<void> {
 async function handleFormSubmit(): Promise<void> {
   const valid = await formRef.value?.validate();
   if (valid !== true) return;
+  // P3-02：上级角色不能是自己（下拉已排除自己，这里再兜一层，避免手工改值 / 回填脏数据）
+  if (formData.escalation_role_id && formData.escalation_role_id === editingId.value) {
+    showError('上级角色不能是本角色自己');
+    return;
+  }
 
   submitting.value = true;
   const payload: RoleSaveParams = {
@@ -799,6 +838,8 @@ async function handleFormSubmit(): Promise<void> {
     role_name: formData.role_name,
     description: formData.description || undefined,
     sort_order: formData.sort_order,
+    // 空串 = 清除（后端按三态解析：缺省保留 / 空串清除 / uuid 设置）
+    escalation_role_id: formData.escalation_role_id,
     status: formData.status,
   };
   try {
@@ -845,6 +886,14 @@ onMounted(() => {
 
 <style lang="less" scoped>
 .role-page {
+  // P3-02：上级角色下拉下面的说明文字
+  .form-hint {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--td-text-color-placeholder);
+  }
+
   .role-layout {
     display: flex;
     gap: 16px;

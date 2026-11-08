@@ -833,6 +833,17 @@ export interface FlowTaskItem {
   comment: string;
   /** 转办来源行 */
   transferred_from: string;
+  /**
+   * 升级留痕：**原本该审**的角色编码（P3-02）。
+   *
+   * 非空 = 这条待办是沿「角色升级链」派下来的（自审剔光 / 角色 0 人时自动改派给上级角色）。
+   * 老后端没有这个字段 → 运行时可能是 `undefined`，调用方按可选处理。
+   */
+  escalated_from_role?: string;
+  /** 升级原因 `SKIP_SELF_APPROVAL`（自审跳过）/ `NO_MEMBER`（角色无成员）；空 = 未升级 */
+  escalate_reason?: string;
+  /** 升级**目标角色**名（P3-02；空 = 未升级 / 角色已删） */
+  escalated_to_role?: string;
   /** 创建时间 */
   created_at: string;
   /** 完成时间 */

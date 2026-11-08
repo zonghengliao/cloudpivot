@@ -1,0 +1,2 @@
+[2m2026-11-07T23:28:59.113690Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+[2m2026-11-07T23:28:59.452455Z[0m [33m WARN[0m [2mnik_web::app[0m[2m:[0m 检测到 607 条 #[permission] 规则，但 [middleware.permission] enabled = false；已按安全默认挂载权限校验层（如需豁免请移除对应的宏注解）

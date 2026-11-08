@@ -1221,6 +1221,9 @@ fn task_res(row: &model::TaskRow, ctx: &TaskCtx<'_>) -> dto::TaskRes {
             .transferred_from
             .map(|id| id.to_string())
             .unwrap_or_default(),
+        escalated_from_role: row.escalated_from_role.clone().unwrap_or_default(),
+        escalate_reason: row.escalate_reason.clone().unwrap_or_default(),
+        escalated_to_role: row.escalated_to_role.clone().unwrap_or_default(),
         created_at: row.created_at,
         completed_at: row.completed_at,
     }
@@ -3351,6 +3354,9 @@ mod tests {
             remind_count: 0,
             created_at: now,
             completed_at: if status == "PENDING" { None } else { Some(now) },
+            escalated_from_role: None,
+            escalate_reason: None,
+            escalated_to_role: None,
         }
     }
 

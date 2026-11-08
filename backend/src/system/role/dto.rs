@@ -30,6 +30,8 @@ pub struct RoleRes {
     pub data_scope: i16,
     /// 排序值
     pub sort_order: i32,
+    /// 上级角色 id（审批降级链，P3-02；空串 = 无上级）
+    pub escalation_role_id: String,
     /// 备注
     pub remark: String,
     /// 创建时间
@@ -55,6 +57,10 @@ impl From<&SysRoleModel> for RoleRes {
             status: m.status.as_i16(),
             data_scope: m.data_scope,
             sort_order: m.sort_order,
+            escalation_role_id: m
+                .escalation_role_id
+                .map(|id| id.to_string())
+                .unwrap_or_default(),
             remark: m.remark.clone().unwrap_or_default(),
             created_at: m.created_at,
         }
@@ -104,6 +110,13 @@ pub struct RoleSaveReq {
     pub data_scope: Option<i16>,
     /// 排序值
     pub sort_order: Option<i32>,
+    /// 上级角色 id（审批降级链，P3-02）。
+    ///
+    /// - 字段缺失（`None`）= **保留库里现值**（PUT 全量更新的老前端不会带这个字段）；
+    /// - 空串 / `null` = 清除（无上级）；
+    /// - uuid = 设为该角色（自引用 / 成环 / 角色不存在 → `400 + ROLE_INVALID`）。
+    #[validate(length(max = 36, message = "上级角色 id 非法"))]
+    pub escalation_role_id: Option<String>,
     /// 备注
     #[validate(length(max = 255, message = "备注长度不能超过 255 个字符"))]
     pub remark: Option<String>,

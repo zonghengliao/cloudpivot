@@ -1,0 +1,80 @@
+-- 调整预算 = 改自己部门的额度。内控要求「不能自己改自己的预算」——
+-- ── 审批人与内控 ─────────────────────────────────────────
+-- * `biz_budget` 没有「制单人不能批自己」之外的内控要求，与 po_approve 同款。
+-- ── 审批人与内控 ─────────────────────────────────────────
+    status VARCHAR(16) NOT NULL, -- 运行结论：OK（全过）/ FAIL（有失败项）/ ERROR（脚本没跑成，非账务结论）
+    failed INT NOT NULL DEFAULT 0, -- 失败数（BLOCKER + WARN + INFO 中 ok=false 的合计）
+    warns INT NOT NULL DEFAULT 0, -- 失败项里 WARN 级别数
+    error TEXT, -- status = ERROR 时的原因（脚本缺失 / 超时 / 输出解析失败 / psql 连不上）
+COMMENT ON COLUMN sys_invariant_result.status IS '运行结论：OK / FAIL / ERROR（ERROR 表示脚本没跑成，不是账务结论）';
+COMMENT ON COLUMN sys_invariant_result.warns IS '失败项里 WARN 级别数';
+COMMENT ON COLUMN sys_invariant_result.error IS 'status=ERROR 时的原因（脚本缺失 / 超时 / 解析失败 / 连不上库）';
+    ADD CONSTRAINT ck_invariant_status CHECK (status IN ('OK', 'FAIL', 'ERROR')),
+        RAISE WARNING
+-- ── 审批人与内控 ─────────────────────────────────────────
+--     （巡检 N1 会 WARN 提醒）。
+--             （self_approval=FORBID）（内控要求：作废复核人不能是发起人本人。请由他人发起…）)
+-- # 二、根因：审批人**来源**配错了，不是内控太严
+--   恰好也在候选里 ⇒ FORBID 立刻命中。这跟内控想拦的东西（本人签自己的字）无关：
+--   ② `empty_assignee`：FALLBACK_ADMIN → **ERROR**。
+--      塞给超管（那正是缺陷本身）。ERROR 的报文已由本卡补成可执行指引（见 §五），
+--      「自审仍被拒」是内控底线，本卡一个字没放宽（验收 ③ 用真机打回：发起人=复核人 → 422）。
+--   · `flow/assignee.rs`：`empty_assignee=ERROR` 的报文补「节点名 + 配置指引」；
+        RAISE WARNING 'V0248：WAREHOUSE_MANAGER 角色不存在，跳过（作废复核仍是 ADMIN 口径，请人工配审批岗位）';
+    -- ⑤ 节点：审批人来源 → ROLE；空审批人 → ERROR（不再兜底超管）
+           empty_assignee = 'ERROR'
+       SET graph_snapshot = '{"edges":[{"condition":null,"from":"n_review","is_default":false,"key":"e2","label":null,"priority":0,"to":"e"},{"condition":null,"from":"s","is_default":false,"key":"e1","label":null,"priority":0,"to":"n_review"}],"nodes":[{"allow_robot":false,"approval_mode":null,"approve_ratio":null,"assignee_type":null,"assignees":[],"cc_on_approved":false,"config":{},"empty_assignee":"SKIP","fork_mode":"AND","form_var_key":null,"join_mode":"AND","key":"e","max_remind_times":3,"name":"结束","node_type":"END","reject_veto":true,"remind_before_hours":null,"self_approval":"SKIP","sort_order":3,"superior_levels":1,"timeout_action":"REMIND","timeout_hours":null,"x":480,"y":0},{"allow_robot":false,"approval_mode":null,"approve_ratio":null,"assignee_type":"ROLE","assignees":[{"assignee_type":"ROLE","ref_id":"20000000-0000-4000-8000-0000000f0004","sort_order":0}],"cc_on_approved":false,"config":{},"empty_assignee":"ERROR","fork_mode":"AND","form_var_key":null,"join_mode":"AND","key":"n_review","max_remind_times":2,"name":"作废复核","node_type":"APPROVAL","reject_veto":true,"remind_before_hours":null,"self_approval":"FORBID","sort_order":2,"superior_levels":1,"timeout_action":"REMIND","timeout_hours":24,"x":240,"y":0},{"allow_robot":false,"approval_mode":null,"approve_ratio":null,"assignee_type":null,"assignees":[],"cc_on_approved":false,"config":{},"empty_assignee":"SKIP","fork_mode":"AND","form_var_key":null,"join_mode":"AND","key":"s","max_remind_times":3,"name":"开始","node_type":"START","reject_veto":true,"remind_before_hours":null,"self_approval":"SKIP","sort_order":1,"superior_levels":1,"timeout_action":"REMIND","timeout_hours":null,"x":0,"y":0}],"schema_version":1}'::jsonb,
+    RAISE NOTICE 'V0248：stock_in_cancel 作废复核已改为 WAREHOUSE_MANAGER（empty_assignee=ERROR），hash 78d34c… → 026766…';
+    -- ① 节点行：ROLE + ERROR + FORBID 三件套
+       AND empty_assignee = 'ERROR' AND self_approval = 'FORBID';
+        RAISE EXCEPTION 'V0248 自检失败：作废复核节点不是 ROLE + ERROR + FORBID（实际 % 行）', n;
+       AND node ->> 'empty_assignee' = 'ERROR'
+    RAISE NOTICE 'V0248 自检通过：作废复核 = WAREHOUSE_MANAGER 角色 + ERROR 兜底 + 禁止自审，快照与 hash 自洽';
+        RAISE WARNING 'V0249 提示：本库存在已软删的 QA 夹具角色行（不是本迁移造成的，本迁移不恢复也不删除它们）';
+--    这不是「放宽内控」：内控拦的是「同一个人审自己那张」（`check_self_audit` → 403 + 65019），
+--   stock_in_cancel.n_review→ ROLE[WAREHOUSE_MANAGER]                   empty=ERROR（沿用 V0248）
+-- 2. **stock_in_cancel 的 empty_assignee 保持 ERROR**（与 V0248 / P1-FIX-1 一致），
+    c_snapshot  CONSTANT text := $snap${"edges": [{"to": "e", "key": "e2", "from": "n_review", "label": null, "priority": 0, "condition": null, "is_default": false}, {"to": "n_review", "key": "e1", "from": "s", "label": null, "priority": 0, "condition": null, "is_default": false}], "nodes": [{"x": 480, "y": 0, "key": "e", "name": "结束", "config": {}, "assignees": [], "fork_mode": "AND", "join_mode": "AND", "node_type": "END", "sort_order": 3, "allow_robot": false, "reject_veto": true, "form_var_key": null, "approval_mode": null, "approve_ratio": null, "assignee_type": null, "self_approval": "SKIP", "timeout_hours": null, "cc_on_approved": false, "empty_assignee": "SKIP", "timeout_action": "REMIND", "superior_levels": 1, "max_remind_times": 3, "remind_before_hours": null}, {"x": 240, "y": 0, "key": "n_review", "name": "作废复核", "config": {}, "assignees": [{"ref_id": "20000000-0000-4000-8000-0000000f0004", "sort_order": 1, "assignee_type": "ROLE"}], "fork_mode": "AND", "join_mode": "AND", "node_type": "APPROVAL", "sort_order": 2, "allow_robot": false, "reject_veto": true, "form_var_key": null, "approval_mode": null, "approve_ratio": null, "assignee_type": "ROLE", "self_approval": "FORBID", "timeout_hours": 24, "cc_on_approved": false, "empty_assignee": "ERROR", "timeout_action": "REMIND", "superior_levels": 1, "max_remind_times": 2, "remind_before_hours": null}, {"x": 0, "y": 0, "key": "s", "name": "开始", "config": {}, "assignees": [], "fork_mode": "AND", "join_mode": "AND", "node_type": "START", "sort_order": 1, "allow_robot": false, "reject_veto": true, "form_var_key": null, "approval_mode": null, "approve_ratio": null, "assignee_type": null, "self_approval": "SKIP", "timeout_hours": null, "cc_on_approved": false, "empty_assignee": "SKIP", "timeout_action": "REMIND", "superior_levels": 1, "max_remind_times": 3, "remind_before_hours": null}], "schema_version": 1}$snap$;
+    UPDATE biz_flow_node SET assignee_type = 'ROLE', empty_assignee = 'ERROR' WHERE version_id = c_v2 AND node_key = 'n_review';
+--      软断言 C：全库孤儿 (角色,码) 对数 —— >0 只 RAISE WARNING 点名，**不拦升级**。
+        RAISE WARNING 'V0259：本库还有 % 对孤儿按钮（与本迁移无关，需人工或数据修复）—— %', n_bad, v_txt;
+--       ERROR: V0267 自检 6.1 失败：以下销售权限码在 sys_menu 里没有承载 → business:erp:shipment:list …
+--   只打 WARN 不拒绝）。
+-- 最大值」的 versioned 迁移只打一条 `WARN …（乱序补迁）`，不拒绝、不阻断（与 sqlx 同行为，
+--      运行时展开角色成员；角色没人 / 被内控排除干净 → `empty_assignee = 'FALLBACK_ADMIN'`
+-- # 缺陷 A：V0281 的种子漏写 `is_system`（erp_invariants H6 BLOCKER / H5 WARN）
+-- V0333：审批降级 ② —— 角色升级链（P3-02 / ARCH-8 §1、§7.3 场景 B）
+--   这类字符串。升级链是**组织配置**，随公司结构变化；写死在代码里的后果是
+--   「换个客户就要发版」。所以链条存在 `sys_role.escalation_role_id`，
+--   检测（`assignee::escalate`，错误码 65040）。不加外键：角色是软删表，
+--   `escalation_role_id` 指向已软删角色时应用层报 65040（配置非法），
+ALTER TABLE sys_role ADD COLUMN escalation_role_id UUID;
+COMMENT ON COLUMN sys_role.escalation_role_id IS
+    ADD CONSTRAINT ck_sys_role_escalation_self
+    CHECK (escalation_role_id IS NULL OR escalation_role_id <> id);
+CREATE INDEX idx_sys_role_escalation ON sys_role (escalation_role_id)
+    WHERE escalation_role_id IS NOT NULL;
+ALTER TABLE biz_flow_task ADD COLUMN escalated_from_role VARCHAR(40);
+ALTER TABLE biz_flow_task ADD COLUMN escalate_reason VARCHAR(100);
+COMMENT ON COLUMN biz_flow_task.escalated_from_role IS
+    '升级留痕：原本该审的角色编码（如 SALES_CLERK）；非空 = 这条待办是沿升级链派下来的';
+COMMENT ON COLUMN biz_flow_task.escalate_reason IS
+-- ---------- 3) 预置升级链（**只是初始数据，管理员可改**） ----------
+-- 总经理（否则升级链形同虚设 —— 而 P3-02 的价值就在于「上溯总能找到人」）。
+   SET escalation_role_id = tgt.id,
+     WHERE table_name = 'sys_role' AND column_name = 'escalation_role_id';
+        RAISE EXCEPTION 'V0333：sys_role.escalation_role_id 未建成（v_cols=%）', v_cols;
+       AND column_name IN ('escalated_from_role', 'escalate_reason');
+    SELECT count(*) INTO v_bad FROM sys_role WHERE escalation_role_id = id;
+    SELECT count(*) INTO v_chains FROM sys_role WHERE escalation_role_id IS NOT NULL;
+    RAISE NOTICE 'V0333：升级链预置完成（% 个角色已配上级角色）', v_chains;
+-- 依据：kanban 卡 t_92234f6b「演示种子缺口：5 个账号无部门（N2 WARN）+ 普通员工无
+-- 这不是放宽内控：内控拦的是「同一个人审自己那张」（后端 `check_self_audit`
+[2m2026-11-07T23:44:47.677651Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 266 个迁移
+[2m2026-11-07T23:44:48.149906Z[0m [33m WARN[0m [2mnik_web::app[0m[2m:[0m 检测到 607 条 #[permission] 规则，但 [middleware.permission] enabled = false；已按安全默认挂载权限校验层（如需豁免请移除对应的宏注解）
+[2m2026-11-07T23:44:54.854869Z[0m [32m INFO[0m [2mcloudpivot::business::flow::engine[0m[2m:[0m 审批人解析完成（冻结成行） [3minstance_id[0m[2m=[0m01a1b866-9c3f-77e2-b923-1c1d1088c2d6 [3mnode_key[0m[2m=[0mn_approve [3mround[0m[2m=[0m1 [3mapprovers[0m[2m=[0m2 [3mskipped[0m[2m=[0m1 [3mauto_pass[0m[2m=[0mfalse [3mtrace[0m[2m=[0m["ROLE 展开 1 行（角色 1 个）", "候选 1 人（去重前）", "升级链启动（自审跳过）：起点 1 个角色 P302_MAKER", "升级链第 1 级：P3-02 销售主管（P302_BOSS）成员 2 人 / 过滤后可用 2 人", "升级链命中：P3-02 销售员（原角色，自审跳过） → P3-02 销售主管（2/2 人）（共 2 人）", "升级链接管：原角色 P302_MAKER（自审跳过）→ 上级「P3-02 销售主管」2 人", "去重 + 策略后：待办 2 行 / SKIPPED 留痕 1 行 / 自动通过=false / 升级=true"]
+[2m2026-11-07T23:44:54.854936Z[0m [34mDEBUG[0m [2mcloudpivot::business::erp::separation[0m[2m:[0m ERP 内控开关解析 [3mswitch[0m[2m=[0m"erp.separation_of_duties.approve" [3menabled[0m[2m=[0mtrue [3msource[0m[2m=[0mOwn
+[2m2026-11-07T23:44:55.191028Z[0m [32m INFO[0m [2mcloudpivot::business::flow::engine[0m[2m:[0m 审批人解析完成（冻结成行） [3minstance_id[0m[2m=[0m01a1b866-9d91-775b-a57b-c943f595b83f [3mnode_key[0m[2m=[0mn_approve [3mround[0m[2m=[0m1 [3mapprovers[0m[2m=[0m2 [3mskipped[0m[2m=[0m0 [3mauto_pass[0m[2m=[0mfalse [3mtrace[0m[2m=[0m["ROLE 展开 0 行（角色 1 个）", "候选 0 人（去重前）", "升级链启动（角色无成员）：起点 1 个角色 P302_DEAD", "升级链第 1 级：P3-02 空角色（链末）（P302_EMPTY）成员 0 人 / 过滤后可用 0 人", "升级链第 2 级：P3-02 销售主管（P302_BOSS）成员 2 人 / 过滤后可用 2 人", "升级链命中：P3-02 空角色（链中继）（原角色，角色无成员） → P3-02 空角色（链末）（0/0 人） → P3-02 销售主管（2/2 人）（共 2 人）", "升级链接管：原角色 P302_DEAD（角色无成员）→ 上级「P3-02 销售主管」2 人", "去重 + 策略后：待办 2 行 / SKIPPED 留痕 0 行 / 自动通过=false / 升级=true"]
+[2m2026-11-07T23:44:55.191093Z[0m [34mDEBUG[0m [2mcloudpivot::business::erp::separation[0m[2m:[0m ERP 内控开关解析 [3mswitch[0m[2m=[0m"erp.separation_of_duties.approve" [3menabled[0m[2m=[0mtrue [3msource[0m[2m=[0mOwn
+[2m2026-11-07T23:44:55.403158Z[0m [32m INFO[0m [2mcloudpivot::business::flow::engine[0m[2m:[0m 审批人解析完成（冻结成行） [3minstance_id[0m[2m=[0m01a1b866-9e66-73d1-abcd-82e74cae39eb [3mnode_key[0m[2m=[0mn_approve [3mround[0m[2m=[0m1 [3mapprovers[0m[2m=[0m2 [3mskipped[0m[2m=[0m1 [3mauto_pass[0m[2m=[0mfalse [3mtrace[0m[2m=[0m["ROLE 展开 3 行（角色 1 个）", "候选 3 人（去重前）", "去重 + 策略后：待办 2 行 / SKIPPED 留痕 1 行 / 自动通过=false / 升级=false"]
+[2m2026-11-07T23:44:55.403214Z[0m [34mDEBUG[0m [2mcloudpivot::business::erp::separation[0m[2m:[0m ERP 内控开关解析 [3mswitch[0m[2m=[0m"erp.separation_of_duties.approve" [3menabled[0m[2m=[0mtrue [3msource[0m[2m=[0mOwn

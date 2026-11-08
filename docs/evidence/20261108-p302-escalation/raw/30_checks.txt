@@ -1,0 +1,66 @@
+================ P3-02 检查链 ================
+host=ubuntu-svr rustc=rustc 1.94.1 (e408947bf 2026-03-25) node=v22.23.4
+
+--- ① cargo fmt -p cloudpivot -- --check
+  ✅ fmt 干净
+
+--- ② cargo clippy -- -D warnings -A clippy::too_many_arguments（本卡基线口径）
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 23.71s
+  ✅ clippy 零告警（除基线 too_many_arguments）
+  基线说明：0 = 0 处改动（该文件未被本卡触碰，too_many_arguments 是既有基线）
+
+--- ③ 本卡新增单测
+test business::flow::assignee::tests::self_approval_skip_keeps_a_skipped_row_and_counts ... ok
+test business::flow::assignee::tests::self_approval_skip_with_other_approvers_keeps_node_active ... ok
+test business::flow::assignee::tests::three_layer_dedupe_collapses_same_user ... ok
+
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 3365 filtered out; finished in 0.01s
+
+  真库用例（ERP_DB_URL 指向 20_e2e_scenarios.sh 建的 cloudpivot_p302_e2e；不设则静默 SKIP = 假绿）：
+
+running 3 tests
+test business::flow::assignee::escalation_db_tests::escalate_reports_exhausted_with_chain ... ok
+test business::flow::assignee::escalation_db_tests::escalate_skips_empty_level_and_filters_initiator ... ok
+test business::flow::assignee::escalation_db_tests::escalate_detects_cycle_with_65040 ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 3399 filtered out; finished in 0.82s
+
+test shared::error_code::tests::task_error_codes_are_stable ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 3394 filtered out; finished in 0.00s
+
+test system::role::tests::r08_assign_menus_succeeds_without_cache ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 3389 filtered out; finished in 0.00s
+
+test business::flow::no_assignee::tests::signal_counts_layers ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 3389 filtered out; finished in 0.00s
+
+
+--- ③b 全量 lib 套件的既有红（HEAD 上就是红，与本卡零交集）
+
+thread 'business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag' (4051104) panicked at src/business/flow/linkage/admin.rs:1159:9:
+assertion `left == right` failed: 已接线的触发点：STOCK_IN / STOCK_OUT（P1-FIX-5C 新接）/ STOCK_TRANSFER（LNK-01 新接）/ PURCHASE_ORDER（LNK-02 新接）/ PAYABLE（LNK-03 新接）/ VOUCHER（LNK-06 新接）/ ACCOUNTING_PERIOD（LNK-08 新接）/ ACCOUNTING_YEAR（LNK-11 新接）/ CONTRACT（LNK-07 新接）/ STOCK_TAKE（LNK-04 新接）/ FIXED_ASSET（LNK-09 新接）/ DEPRECIATION（LNK-10 新接）/ EXPENSE_REPORT（LNK-05 新接）/ TASK / FLOW_INSTANCE（LNK-12 新接）
+--
+failures:
+    business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag
+    business::flow::linkage::tests_wiring::trigger_specs_cover_whitelist_in_order
+    business::flow::linkage::tests_wiring::wired_triggers_match_call_sites
+
+test result: FAILED. 3399 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+
+error: test failed, to rerun pass `--lib`
+  证据：这些用例点名的文件未被本卡改动：
+  （空 = 无改动；purchase_return_handler.rs 由 P2-03 提交 9cf6cc1 引入的新调用点）
+
+--- ④ 前端
+  ✅ pnpm typecheck exit 0
+  pnpm test:unit → # tests 1045 # pass 1043 # fail 2 
+  2150:not ok 358 - create payload keeps dates and folds empty remark to null
+  3637:not ok 597 - 后端 FlowBizType 的落库字面量 = 前端 FLOW_BIZ_TYPES（逐字、同序，15 个）
+  说明：上面两条 not ok 是既有红（sales-order 的 currency_code / FlowBizType 15→16，
+        都是 P2-02/P2-03 的改动没同步断言），本卡新增的 3 条升级留痕用例全绿。
+
+===== 结果：PASS=3 FAIL=0 =====

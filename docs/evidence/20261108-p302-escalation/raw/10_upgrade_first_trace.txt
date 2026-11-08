@@ -1,0 +1,10 @@
+[2m2026-11-07T23:28:57.852682Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: relation "schema_migrations" already exists, skipping
+-- V0333：审批降级 ② —— 角色升级链（P3-02 / ARCH-8 §1、§7.3 场景 B）
+        RAISE EXCEPTION 'V0333：sys_role.escalation_role_id 未建成（v_cols=%）', v_cols;
+        RAISE EXCEPTION 'V0333：biz_flow_task 升级留痕列未建成（v_cols=%）', v_cols;
+        RAISE EXCEPTION 'V0333：预置链出现自引用（% 行）', v_bad;
+    RAISE NOTICE 'V0333：升级链预置完成（% 个角色已配上级角色）', v_chains;
+[2m2026-11-07T23:28:58.001001Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0333：升级链预置完成（7 个角色已配上级角色）
+[2m2026-11-07T23:28:58.001085Z[0m [34mDEBUG[0m [2mtokio_postgres::simple_query[0m[2m:[0m executing statement batch: INSERT INTO schema_migrations (kind, name, version, checksum, applied_via, applied_at, applied_seq, execution_ms, success, source) VALUES ('versioned', 'role_escalation_chain', '333', '2043bf77af474b3952ec074cf49ede561cfec12a677d7979ac192f906d3671cb', 'executed', 1794094138, 266, 8, TRUE, 'migrations/business/V0333__role_escalation_chain.up.sql') ON CONFLICT (kind, name) DO UPDATE SET version = excluded.version, checksum = excluded.checksum, applied_via = excluded.applied_via, applied_at = excluded.applied_at, applied_seq = excluded.applied_seq, execution_ms = excluded.execution_ms, success = excluded.success, source = excluded.source;
+[2m2026-11-07T23:28:58.003737Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 1 个迁移
+[2m2026-11-07T23:28:58.351869Z[0m [33m WARN[0m [2mnik_web::app[0m[2m:[0m 检测到 607 条 #[permission] 规则，但 [middleware.permission] enabled = false；已按安全默认挂载权限校验层（如需豁免请移除对应的宏注解）

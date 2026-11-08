@@ -219,7 +219,8 @@ impl Reason {
                 "请到「流程定义 → 本流程 → 该节点」把审批人设为具体角色或人员".to_string()
             }
             Reason::RoleNotFound => {
-                "节点绑定的角色已不存在：请到「流程定义 → 本流程 → 该节点」重新选择审批角色".to_string()
+                "节点绑定的角色已不存在：请到「流程定义 → 本流程 → 该节点」重新选择审批角色"
+                    .to_string()
             }
             Reason::RoleNoMember => format!(
                 "请为角色「{role_name}」指派至少一名在职成员（角色管理 → 成员），或为节点指定固定审批人；\
@@ -404,6 +405,18 @@ pub struct NoAssigneePayload {
     /// 被排除的人（「张三：发起人本人」），便于用户知道「明明有人为什么不行」。
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub excluded: Vec<String>,
+    /// 升级链走过的每一级（P3-02）：`role_code` / `role_name` / `member_count` / `usable_count`。
+    ///
+    /// 空 = 没走升级链（不是角色来源、或第一级就找到人了）。非空 = 「升级链已走完仍无人」，
+    /// 前端据此把每一级的角色名与人数直接摊开，而不是让用户自己猜缺谁。
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub escalation_chain: Vec<Json>,
+    /// 升级原因（`SKIP_SELF_APPROVAL` / `NO_MEMBER`；没走升级链则缺省）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub escalation_reason: Option<String>,
+    /// 原本该审的角色编码（升级链被触发时的起点）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub escalated_from_role: Option<String>,
     /// 下一步怎么办（带具体去处）。
     pub fix_hint: String,
 }
@@ -422,7 +435,9 @@ impl NoAssigneePayload {
 /// - `instance_id`：流程实例 id（`InstanceCtx::instance_id`）；
 /// - `spec`：快照节点（拿节点 key / 名称 / 来源 / 角色 id）；
 /// - `signal`：解析期计数（见 [`Signal`]）；
-/// - `excluded`：被剔除的人与原因（内控 / 自审），前端展示「为什么有人也不行」。
+/// - `excluded`：被剔除的人与原因（内控 / 自审），前端展示「为什么有人也不行」；
+/// - `escalation`：升级链走过的每一级（P3-02；`None` = 没走链）。到顶仍无人时它会被展开成
+///   `escalation_chain[]`，前端就能直接回答「系统已经替你想过哪几级上级角色、各有几个人」。
 ///
 /// 「当前登录人能不能指派」**不**放在载荷里：那是权限判断（`system:setup:manage`），
 /// 权限在令牌里、不在库里——前端直接 `hasPermission('system:setup:manage')` 判断，
@@ -438,6 +453,7 @@ pub async fn payload(
     spec: &SnapshotNode,
     signal: Signal,
     excluded: Vec<String>,
+    escalation: Option<&assignee::Escalation>,
 ) -> Json {
     let kind = spec
         .assignee_type
@@ -476,6 +492,15 @@ pub async fn payload(
         reason: reason.code().to_string(),
         reason_text: reason.text().to_string(),
         excluded,
+        escalation_chain: escalation
+            .map(|escalation| escalation.to_payload_chain())
+            .unwrap_or_default(),
+        escalation_reason: escalation
+            .filter(|escalation| !escalation.reason.is_empty())
+            .map(|escalation| escalation.reason.clone()),
+        escalated_from_role: escalation
+            .map(|escalation| escalation.from_role_code.clone())
+            .filter(|code| !code.is_empty()),
         fix_hint: reason.hint(&role_name),
     };
     // 「角色有成员行但一个都用不上」时，把「停用 / 删除」说清楚（前端据此提示「先看成员状态」）
@@ -715,6 +740,9 @@ mod tests {
             reason: "ROLE_NO_MEMBER".into(),
             reason_text: "该角色下没有任何在职成员".into(),
             excluded: Vec::new(),
+            escalation_chain: Vec::new(),
+            escalation_reason: None,
+            escalated_from_role: None,
             fix_hint: "去加人".into(),
         };
         let json = payload.to_json();

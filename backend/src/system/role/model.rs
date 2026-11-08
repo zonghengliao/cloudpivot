@@ -57,6 +57,11 @@ pub struct SysRoleModel {
     pub data_scope: i16,
     /// 排序号，升序展示。
     pub sort_order: i32,
+    /// 上级角色（审批降级链，P3-02）：本角色没有可用审批人时沿这个指针上溯。
+    ///
+    /// `None` = 链到此为止。自引用被库里的 `ck_sys_role_escalation_self` 挡住，
+    /// **成环**由应用层校验（`handler::resolve_escalation_input`，走下去能回到自己即拒绝）。
+    pub escalation_role_id: Option<uuid::Uuid>,
     /// 备注。
     pub remark: Option<String>,
     /// 创建时间，由 `TimestampHook` 维护。
@@ -248,6 +253,38 @@ pub(crate) async fn page_role_users(
         size,
         pages,
     })
+}
+
+/// 读一个角色的上级角色指针（P3-02 升级链）。
+///
+/// # 参数
+///
+/// - `role_id`：角色 id。
+///
+/// # 返回值
+///
+/// - `Ok(None)`：角色不存在 / 已软删；
+/// - `Ok(Some(None))`：角色存在，但**没有上级**（链到此为止）；
+/// - `Ok(Some(Some(parent)))`：上级角色 id。
+///
+/// # 异常情况
+///
+/// 数据库异常或行映射失败返回 [`DbError`]。
+pub(crate) async fn escalation_parent_of(
+    role_id: uuid::Uuid,
+) -> std::result::Result<Option<Option<uuid::Uuid>>, DbError> {
+    let rows = db()
+        .find_with_params(
+            "SELECT escalation_role_id FROM sys_role WHERE id = ? AND deleted_at IS NULL",
+            vec![Value::from(&role_id)],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok(None),
+        Some(row) => Ok(Some(
+            row.get_typed::<Option<uuid::Uuid>>("escalation_role_id")?,
+        )),
+    }
 }
 
 /// 统计占用指定角色编码的未删除角色数。

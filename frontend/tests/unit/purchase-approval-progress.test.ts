@@ -35,6 +35,8 @@ import {
   mapApprovalTasks,
 } from '@/views/business/erp/shared/approval-progress';
 import {
+  escalateReasonLabel,
+  escalationHint,
   groupProgressTasks,
   orderProgressNodes,
   progressNodeClass,
@@ -427,4 +429,85 @@ test('⑦ 后端节点按 node_key 排出来的「开始」在最后 → 进度�
 
   // 不改入参（props 是只读的，排序不能原地改）
   assert.deepEqual(raw.map((node) => node.node_key), ['c_low', 'n_dept', 's', 'e']);
+});
+
+// ==================== P3-02：升级留痕（escalate_reason / escalated_to_role） ====================
+
+test('⑯ 升级派下来的待办带「已升级至上级角色」提示（自审跳过）', () => {
+  const [task] = mapApprovalTasks([
+    {
+      node_key: 'n_sales',
+      round: 1,
+      current_node_name: '销售主管审批',
+      assignee_id: 'u-2',
+      assignee_name: '李四',
+      status: 'PENDING',
+      comment: '',
+      is_auto: false,
+      is_self_approval: false,
+      escalated_from_role: 'SALES_CLERK',
+      escalate_reason: 'SKIP_SELF_APPROVAL',
+      escalated_to_role: '销售主管',
+      created_at: '2026-11-08T10:00:00Z',
+      completed_at: null,
+    } as FlowTaskItem,
+  ]);
+  assert.equal(task.escalate_reason, 'SKIP_SELF_APPROVAL');
+  assert.equal(task.escalated_to_role, '销售主管');
+  assert.equal(
+    escalationHint(task),
+    '⚠ 因自审跳过，已升级至「销售主管」审批（原角色 SALES_CLERK）',
+  );
+});
+
+test('⑰ 角色 0 人升级：文案区分「角色无成员」；未升级的行没有提示', () => {
+  const tasks = mapApprovalTasks([
+    {
+      node_key: 'n_sales',
+      round: 1,
+      current_node_name: '销售主管审批',
+      assignee_id: 'u-3',
+      assignee_name: '王五',
+      status: 'PENDING',
+      comment: '',
+      escalate_reason: 'NO_MEMBER',
+      escalated_from_role: 'SALES_CLERK',
+      escalated_to_role: '销售总监',
+      created_at: '2026-11-08T10:00:00Z',
+      completed_at: null,
+    } as FlowTaskItem,
+    {
+      node_key: 'n_sales',
+      round: 1,
+      current_node_name: '销售主管审批',
+      assignee_id: 'u-4',
+      assignee_name: '赵六',
+      status: 'APPROVED',
+      comment: '',
+      created_at: '2026-11-08T10:00:00Z',
+      completed_at: '2026-11-08T11:00:00Z',
+    } as FlowTaskItem,
+  ]);
+  assert.equal(escalationHint(tasks[0]), '⚠ 因角色无成员，已升级至「销售总监」审批（原角色 SALES_CLERK）');
+  assert.equal(escalationHint(tasks[1]), '', '普通待办不显示升级提示');
+});
+
+test('⑱ 老后端没有升级字段 / 目标角色已删：不崩、给出兜底文案', () => {
+  const [task] = mapApprovalTasks([
+    {
+      node_key: 'n_sales',
+      round: 1,
+      current_node_name: '销售主管审批',
+      assignee_id: 'u-2',
+      assignee_name: '李四',
+      status: 'PENDING',
+      comment: '',
+      escalate_reason: 'SKIP_SELF_APPROVAL',
+      created_at: '2026-11-08T10:00:00Z',
+      completed_at: null,
+    } as FlowTaskItem,
+  ]);
+  assert.equal(task.escalated_to_role, '');
+  assert.equal(escalationHint(task), '⚠ 因自审跳过，已升级至上级角色审批');
+  assert.equal(escalateReasonLabel(undefined), '因无可用审批人');
 });

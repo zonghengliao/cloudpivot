@@ -1633,6 +1633,12 @@ pub struct TaskRes {
     pub comment: String,
     /// 转办来源行。
     pub transferred_from: String,
+    /// 升级留痕：原本该审的角色编码（P3-02；空串 = 这条待办不是升级派下来的）。
+    pub escalated_from_role: String,
+    /// 升级原因 `SKIP_SELF_APPROVAL` / `NO_MEMBER`（空串 = 未升级）。
+    pub escalate_reason: String,
+    /// 升级**目标角色**名（P3-02；空串 = 未升级 / 角色已删）。
+    pub escalated_to_role: String,
     /// 创建时间。
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// 完成时间。

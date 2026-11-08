@@ -295,7 +295,10 @@ pub(super) const TASK_COLUMNS: &str = "\
      t.id, t.instance_id, t.instance_node_id, t.node_key, t.round, t.task_kind, t.assignee_id, \
      t.assignee_name, t.assignee_source, t.assignee_source_ref, t.status, t.is_added_sign, \
      t.is_self_approval, t.is_auto, t.comment, t.attachments::text AS attachments_text, \
-     t.transferred_from, t.transferred_to, t.due_at, t.remind_count, t.created_at, t.completed_at";
+     t.transferred_from, t.transferred_to, t.due_at, t.remind_count, t.created_at, t.completed_at, \
+     t.escalated_from_role, t.escalate_reason, \
+     (SELECT r.role_name FROM sys_role r \
+       WHERE r.id = t.assignee_source_ref AND t.escalate_reason IS NOT NULL) AS escalated_to_role";
 
 pub(super) const CC_COLUMNS: &str = "\
      c.id, c.instance_id, c.node_key, c.round, c.receiver_id, c.receiver_name, c.source_type, \
@@ -552,6 +555,15 @@ pub struct TaskRow {
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// 完成时间。
     pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 升级留痕：原本该审的角色编码（P3-02；非空 = 这条待办是沿升级链派下来的）。
+    pub escalated_from_role: Option<String>,
+    /// 升级原因：`SKIP_SELF_APPROVAL`（自审剔光）/ `NO_MEMBER`（角色 0 成员）。
+    pub escalate_reason: Option<String>,
+    /// 升级**目标角色**的名字（P3-02 展示用：`assignee_source_ref` 指向的那个角色）。
+    ///
+    /// 由 `TASK_COLUMNS` 里的相关子查询算出（只有升级行才有值）；
+    /// 不落业务表 —— 角色改名后时间线应该跟着变，留痕要的是「派给了谁」而不是「当时那个角色叫什么」。
+    pub escalated_to_role: Option<String>,
 }
 
 impl TaskRow {
@@ -586,6 +598,9 @@ impl TaskRow {
             remind_count: row.get_typed("remind_count")?,
             created_at: row.get_typed("created_at")?,
             completed_at: row.get_typed("completed_at")?,
+            escalated_from_role: row.get_typed("escalated_from_role")?,
+            escalate_reason: row.get_typed("escalate_reason")?,
+            escalated_to_role: row.get_typed("escalated_to_role")?,
         })
     }
 
@@ -764,6 +779,10 @@ pub struct NewTask {
     /// 不写这一列 = 用户/审计只能看到「他是 ROLE 财务总监」，看不到「为什么命中财务总监」。
     /// `assignee_source` 仍然写**底层来源**（`ROLE`/`USER`/…），两者是互补而不是替代。
     pub assignee_rule_id: Option<String>,
+    /// 升级留痕：原本该审的角色编码（P3-02；`SKIPPED` 留痕行恒为 `None`）。
+    pub escalated_from_role: Option<String>,
+    /// 升级原因：`SKIP_SELF_APPROVAL` / `NO_MEMBER`（P3-02；`SKIPPED` 留痕行恒为 `None`）。
+    pub escalate_reason: Option<String>,
 }
 
 /// 一次「按业务单据批量终止在跑审批单」的结果（T12）。

@@ -1943,6 +1943,8 @@ pub async fn transfer(
             due_at: task.due_at,
             transferred_from: Some(task.id),
             assignee_rule_id: None,
+            escalated_from_role: None,
+            escalate_reason: None,
         },
     )
     .await;
@@ -2101,6 +2103,8 @@ pub async fn add_sign(
                 due_at: task.due_at,
                 transferred_from: None,
                 assignee_rule_id: None,
+                escalated_from_role: None,
+                escalate_reason: None,
             },
         )
         .await;
@@ -2619,6 +2623,11 @@ impl<'a> Run<'a> {
                 if let Some(error) = finalized.error {
                     return Ok(Step::Fail(error));
                 }
+                // P3-02：升级留痕列（写 PENDING 待办）+ 诊断链路（422 报文 / 载荷用）。
+                // `finalized.approvers` 下面会被 `std::mem::take`，所以这几项先取出来。
+                let escalated_from_role = finalized.escalated_from_role.clone();
+                let escalate_reason = finalized.escalate_reason.clone();
+                let escalation = finalized.escalation.clone();
                 tracing::info!(
                     instance_id = %self.instance.id,
                     node_key = %spec.key,
@@ -2678,6 +2687,8 @@ impl<'a> Run<'a> {
                             due_at: None,
                             transferred_from: None,
                             assignee_rule_id: finalized.rule_id.clone(),
+                            escalated_from_role: None,
+                            escalate_reason: None,
                         },
                     )
                     .await;
@@ -2718,20 +2729,42 @@ impl<'a> Run<'a> {
                         .iter()
                         .map(|(candidate, reason)| format!("{}：{reason}", candidate.name))
                         .collect::<Vec<_>>();
-                    let payload =
-                        no_assignee::payload(self.ex, self.instance.id, &spec, signal, excluded)
-                            .await;
-                    let mut error = ApiError::new(
-                        422,
-                        error_code::FLOW_NO_ASSIGNEE,
-                        format!(
-                            "节点「{}」的审批人全部是制单人 / 发起人本人，内控（职责分离）不允许他们审批自己的单据，\
-                             本节点没有一个可用审批人：{who}。\
-                             请先把该节点的审批岗位（角色成员 / 指定审批人）指派给非制单人、非发起人；\
-                             或改由他人提交本单。",
-                            spec.name
+                    let payload = no_assignee::payload(
+                        self.ex,
+                        self.instance.id,
+                        &spec,
+                        signal,
+                        excluded,
+                        escalation.as_ref(),
+                    )
+                    .await;
+                    // P3-02：升级链走过但到顶仍无人 → 报文里必须写「升级链已走完 + 每一级几个人」，
+                    // 否则用户只会看到「内控剔光」而不知道系统已经替他想过上级角色了。
+                    let mut error = match escalation.as_ref().filter(|esc| !esc.applied) {
+                        Some(escalation) => ApiError::new(
+                            422,
+                            error_code::FLOW_NO_ASSIGNEE,
+                            format!(
+                                "节点「{}」的审批人全部是制单人 / 发起人本人，内控（职责分离）不允许他们审批自己的单据，\
+                                 本节点没有一个可用审批人：{who}。升级链已走完：{}（括号内为「可用/成员」人数）。\
+                                 请先把该节点的审批岗位（角色成员 / 指定审批人）或升级链上每一级的角色\
+                                 指派给非制单人、非发起人；或改由他人提交本单。",
+                                spec.name,
+                                escalation.chain_text()
+                            ),
                         ),
-                    );
+                        None => ApiError::new(
+                            422,
+                            error_code::FLOW_NO_ASSIGNEE,
+                            format!(
+                                "节点「{}」的审批人全部是制单人 / 发起人本人，内控（职责分离）不允许他们审批自己的单据，\
+                                 本节点没有一个可用审批人：{who}。\
+                                 请先把该节点的审批岗位（角色成员 / 指定审批人）指派给非制单人、非发起人；\
+                                 或改由他人提交本单。",
+                                spec.name
+                            ),
+                        ),
+                    };
                     no_assignee::attach(&mut error, payload);
                     // 引擎比 `assignee::resolve` 多知道一件事：这是**哪一个实例节点行**
                     no_assignee::set_node_id(&mut error, row.id);
@@ -2762,6 +2795,8 @@ impl<'a> Run<'a> {
                             due_at: None,
                             transferred_from: None,
                             assignee_rule_id: finalized.rule_id.clone(),
+                            escalated_from_role: None,
+                            escalate_reason: None,
                         },
                     )
                     .await;
@@ -2772,32 +2807,18 @@ impl<'a> Run<'a> {
                     }
                 }
 
-                if approvers.is_empty() {
-                    // 只有「真的没有候选」才会走到这里：角色内 0 人且 `empty_assignee=SKIP`
-                    // （自己跳过的人不算候选，见 assignee::finalize 的 ⑤）。
-                    // 「内控排除到 0 人」在上面的 fail-closed 检查里已经 422，不会到这里。
-                    debug_assert!(
-                        control_excluded.is_empty(),
-                        "内控排除到 0 人必须走 fail-closed（422），不该落到自动通过"
-                    );
-                    // 空审批人 SKIP：节点跳过 + `auto_passed_nodes + 1`（派生值，见 sync_auto_passed）
-                    model::end_node_row(self.ex, row.id, "SKIPPED", Tally::default(), None, true)
-                        .await?;
-                    model::sync_auto_passed(self.ex, self.instance.id).await?;
-                    self.effects.notice(
-                        vec![self.instance.initiator_id],
-                        format!("节点自动跳过：{}", spec.name),
-                        format!(
-                            "审批单 {} 的节点「{}」没有有效审批人（自审跳过 / 角色内 0 人），\
-                             已自动跳过 —— 请检查审批人配置。",
-                            self.instance.instance_no, spec.name
-                        ),
-                        format!("/flow/instance/{}", self.instance.id),
-                        self.instance.id,
-                        true,
-                    );
-                    return Ok(Step::Next(self.out_targets(&spec.key, None, false)));
-                }
+                // ★ P3-02 / D6：这里原本还有一段 `if approvers.is_empty() { … empty_assignee=SKIP
+                //   自动通过 … }`，**永远是死代码** —— 上面 `if approvers.is_empty()` 已经无条件
+                //   422/65018 返回了。留着最坏：后来人会以为「没有审批人也能自动通过」，
+                //   从而按错误的语义去调节点配置。故删除，只留这条不变式自检。
+                //
+                //   历史备注（t_72e95761）：内控排除到 0 人曾是「配了流程也无人复核就生效」的根因，
+                //   所以那条路径必须 fail-closed。真正「没有候选」的节点在 P3-02 之后先走升级链，
+                //   升级链也没人时同样 422（报文带链路）—— 自动通过的语义已按卡面取消。
+                debug_assert!(
+                    !approvers.is_empty(),
+                    "审批人为空必须在上面 fail-closed（422），不该走到落待办的代码"
+                );
 
                 // 落 PENDING 待办（三层去重第 2 层：23505 当幂等成功，不 500）
                 let mut created: Vec<Uuid> = Vec::new();
@@ -2823,6 +2844,10 @@ impl<'a> Run<'a> {
                             due_at: None,
                             transferred_from: None,
                             assignee_rule_id: finalized.rule_id.clone(),
+                            // P3-02 升级留痕：谁该审、为什么改派（SKIPPED 留痕行上**不写**，
+                            // 那些人是「被剔掉的」，不是「升级派来的」）
+                            escalated_from_role: escalated_from_role.clone(),
+                            escalate_reason: escalate_reason.clone(),
                         },
                     )
                     .await;
@@ -3195,6 +3220,8 @@ impl<'a> Run<'a> {
                     due_at: None,
                     transferred_from: None,
                     assignee_rule_id: None,
+                    escalated_from_role: None,
+                    escalate_reason: None,
                 },
             )
             .await;

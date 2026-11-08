@@ -170,14 +170,18 @@ pub async fn create(
 
     let now = chrono::Utc::now();
     let operator = utils::current_user_uuid(&claims);
+    let role_id = uuid::Uuid::now_v7();
+    let escalation_role_id =
+        resolve_escalation_role(req.escalation_role_id.as_deref(), role_id, None).await?;
     let role = SysRoleModel {
-        id: uuid::Uuid::now_v7(),
+        id: role_id,
         role_code,
         role_name: req.role_name.trim().to_string(),
         description: req.description.map(|v| v.trim().to_string()),
         status: EnableStatus::from_optional_i16(req.status)?,
         data_scope,
         sort_order: req.sort_order.unwrap_or(0),
+        escalation_role_id,
         remark: req.remark.map(|v| v.trim().to_string()),
         created_at: now,
         updated_at: now,
@@ -308,6 +312,12 @@ pub async fn update(
         status,
         data_scope,
         sort_order: req.sort_order.unwrap_or(existing.sort_order),
+        escalation_role_id: resolve_escalation_role(
+            req.escalation_role_id.as_deref(),
+            id,
+            existing.escalation_role_id,
+        )
+        .await?,
         remark: req.remark.map(|v| v.trim().to_string()),
         // 保留创建审计字段，仅更新业务字段
         created_at: existing.created_at,
@@ -796,6 +806,124 @@ async fn ensure_role_code_unique(
     utils::ensure_unique(count, error_code::ROLE_CODE_EXISTS, "角色编码已存在")
 }
 
+// ==================== 上级角色（审批降级链，P3-02） ====================
+
+/// 请求里的 `escalation_role_id` 三态（P3-02）。
+///
+/// `RoleSaveReq` 是 **PUT 全量更新**，`Option<String>` 无法同时表达「没带这个字段」与
+/// 「明确清空」—— 所以这里显式分三态：
+///
+/// - [`EscalationInput::Keep`]：字段缺失 ⇒ 保留库里现值（老前端不带该字段时不会误清）；
+/// - [`EscalationInput::Clear`]：空串 / `"null"` ⇒ 清空；
+/// - [`EscalationInput::Set`]：uuid ⇒ 设为该角色（要过自引用 / 存在性 / 成环三道校验）。
+enum EscalationInput {
+    /// 保留现值。
+    Keep,
+    /// 清空（无上级）。
+    Clear,
+    /// 指向某个角色。
+    Set(uuid::Uuid),
+}
+
+fn parse_escalation_input(raw: Option<&str>) -> std::result::Result<EscalationInput, ApiError> {
+    match raw {
+        None => Ok(EscalationInput::Keep),
+        Some(text) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("null") {
+                return Ok(EscalationInput::Clear);
+            }
+            let id = uuid::Uuid::parse_str(trimmed).map_err(|_| {
+                ApiError::new(
+                    400,
+                    error_code::ROLE_INVALID,
+                    format!("上级角色 id 非法：{trimmed}"),
+                )
+            })?;
+            Ok(EscalationInput::Set(id))
+        }
+    }
+}
+
+/// 校验上级角色：不能是自己、必须存在、**不能成环**。
+///
+/// # 为什么成环要在应用层拦（库里只挡得住自引用）
+///
+/// `A→B→A` 在 DB 层是两个合法外键。只靠运行时检测的后果是：配错那一刻没人管，
+/// 直到某张单提交时才发现 65040 —— 而那时流程已经卡住了。所以写入口就沿链走一遍
+/// （最多 32 跳），能回到自己就拒绝。
+///
+/// 历史脏数据里的环（比如直接改库造出来的）走到重复节点即停：那是运行时要报 65040 的事，
+/// 不应该让「改个角色名」也失败。
+async fn ensure_escalation_valid(
+    target: uuid::Uuid,
+    self_id: uuid::Uuid,
+) -> std::result::Result<(), ApiError> {
+    if target == self_id {
+        return Err(ApiError::new(
+            400,
+            error_code::ROLE_INVALID,
+            "上级角色不能是本角色自己",
+        ));
+    }
+    if model::escalation_parent_of(target)
+        .await
+        .map_err(|e| utils::db_error(e, "校验上级角色"))?
+        .is_none()
+    {
+        return Err(ApiError::new(
+            400,
+            error_code::ROLE_INVALID,
+            "上级角色不存在（可能已被删除）",
+        ));
+    }
+    let mut current = target;
+    let mut visited: std::collections::BTreeSet<uuid::Uuid> = std::collections::BTreeSet::new();
+    for _ in 0..32 {
+        if current == self_id {
+            return Err(ApiError::new(
+                400,
+                error_code::ROLE_INVALID,
+                "上级角色会形成环（沿该角色的升级链会绕回本角色）",
+            ));
+        }
+        if !visited.insert(current) {
+            // 已有环（历史脏数据）：不在这里判死，交运行时 65040
+            break;
+        }
+        match model::escalation_parent_of(current)
+            .await
+            .map_err(|e| utils::db_error(e, "校验上级角色"))?
+        {
+            Some(Some(parent)) => current = parent,
+            _ => break,
+        }
+    }
+    Ok(())
+}
+
+/// 解析并校验请求里的上级角色，得到**要写库的值**。
+///
+/// # 参数
+///
+/// - `raw`：请求体里的 `escalation_role_id`；
+/// - `self_id`：本角色 id（新建时是刚生成的新 id）；
+/// - `existing`：库里现值（更新时；新建传 `None`）。
+async fn resolve_escalation_role(
+    raw: Option<&str>,
+    self_id: uuid::Uuid,
+    existing: Option<uuid::Uuid>,
+) -> std::result::Result<Option<uuid::Uuid>, ApiError> {
+    match parse_escalation_input(raw)? {
+        EscalationInput::Keep => Ok(existing),
+        EscalationInput::Clear => Ok(None),
+        EscalationInput::Set(target) => {
+            ensure_escalation_valid(target, self_id).await?;
+            Ok(Some(target))
+        }
+    }
+}
+
 // ==================== 数据范围（批次 B · B3，报批 §5.3-#5） ====================
 
 /// 解析并校验请求里的 `data_scope`。
@@ -1017,6 +1145,7 @@ fn role_snapshot(role: &SysRoleModel) -> serde_json::Value {
         "status": role.status.as_i16(),
         "data_scope": role.data_scope,
         "sort_order": role.sort_order,
+        "escalation_role_id": role.escalation_role_id.map(|id| id.to_string()),
         "remark": role.remark,
     })
 }

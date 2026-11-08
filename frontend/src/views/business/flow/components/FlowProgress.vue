@@ -53,6 +53,10 @@
             <span v-if="formatTime(task.at)" class="flow-progress__task-time">{{ formatTime(task.at) }}</span>
             <t-tag v-if="task.is_auto" size="small" variant="outline">系统代点</t-tag>
             <t-tag v-if="task.is_self_approval" size="small" variant="outline" theme="warning">自审</t-tag>
+            <!-- P3-02：升级留痕（自审剔光 / 角色 0 人 → 沿升级链改派给上级角色） -->
+            <span v-if="escalationText(task)" class="flow-progress__task-escalated">
+              {{ escalationText(task) }}
+            </span>
             <span v-if="task.comment" class="flow-progress__task-comment">{{ task.comment }}</span>
           </li>
         </ul>
@@ -89,6 +93,7 @@ import { computed } from 'vue';
 import { formatDateTime } from '@/utils/format';
 
 import {
+  escalationHint,
   groupProgressTasks,
   orderProgressNodes,
   progressNodeClass,
@@ -123,6 +128,8 @@ const statusLabel = progressNodeLabel;
 const taskLabel = progressTaskLabel;
 const stepClass = progressNodeClass;
 const taskClass = progressTaskClass;
+/** P3-02：升级留痕提示（模板里用 `escalationText(task)`） */
+const escalationText = escalationHint;
 
 /** 时间：`YYYY-MM-DD HH:mm:ss`（空 → 空串，整段就不渲染） */
 function formatTime(value: string | null | undefined): string {
@@ -342,6 +349,15 @@ function formatTime(value: string | null | undefined): string {
     &::after {
       content: '」';
     }
+  }
+
+  // P3-02：升级留痕（自审跳过 / 角色无成员 → 改派上级角色）
+  &__task-escalated {
+    padding: 0 4px;
+    font-size: 12px;
+    color: var(--td-warning-color);
+    background: var(--td-warning-color-1);
+    border-radius: 2px;
   }
 }
 

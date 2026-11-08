@@ -77,6 +77,9 @@ export function mapApprovalTasks(
     comment: task.comment || '',
     is_auto: task.is_auto,
     is_self_approval: task.is_self_approval,
+    escalated_from_role: task.escalated_from_role || '',
+    escalate_reason: task.escalate_reason || '',
+    escalated_to_role: task.escalated_to_role || '',
   }));
 }
 
