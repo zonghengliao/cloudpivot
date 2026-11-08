@@ -1022,6 +1022,16 @@ pub const FLOW_ESCALATION_TOO_DEEP: i32 = 65041;
 /// 运维以为已经兜住了，实际单据照样发不出去。
 pub const FLOW_FALLBACK_INVALID: i32 = 65042;
 
+/// 审批委托配置非法（HTTP 422，P3-04 / ARCH-8 场景 E）。
+///
+/// 三种情形共用一码（都是「这条委托录错了」，前端提示与修法完全一致）：
+/// `end_at <= start_at`（区间非法）/ 受托人 = 委托人（自委托）/ 与本人已存在的
+/// 委托区间重叠（无论那条是否停用 —— 重新启用就会撞）。
+///
+/// 为什么重叠必须显式失败：同一委托人同时委托给两个人时，「谁代谁」不确定，
+/// 引擎只能随机挑一档，两个人互相等对方的待办 ⇒ 单据堵到两个人都回来。
+pub const FLOW_DELEGATE_INVALID: i32 = 65043;
+
 // ==================== 66xxx：ERP 主数据 / 仓储（批次 D · W1c） ====================
 //
 // 码段说明：64xxx 是云枢 × Hermes，65xxx 是审批流；ERP 接口层（W1c）新开 66xxx，
@@ -1892,6 +1902,7 @@ mod tests {
             (FLOW_ESCALATION_INVALID, 65040),
             (FLOW_ESCALATION_TOO_DEEP, 65041),
             (FLOW_FALLBACK_INVALID, 65042),
+            (FLOW_DELEGATE_INVALID, 65043),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "65xxx 段码值不得改动");
@@ -1906,16 +1917,16 @@ mod tests {
         assert_eq!(unique.len(), codes.len(), "65xxx 段不得有重复码值");
         assert_eq!(
             unique.len(),
-            37,
-            "65xxx 段必须是 37 个码（架构 §10.3 的 22 个 + D2 追加的 5 个运行侧细分码 + P1-A2 的 65033 \
-             + P-FLOW-1A 的 65034–65039 + P3-02 的 65040–65041 + P3-03 的 65042）"
+            38,
+            "65xxx 段必须是 38 个码（架构 §10.3 的 22 个 + D2 追加的 5 个运行侧细分码 + P1-A2 的 65033 \
+             + P-FLOW-1A 的 65034–65039 + P3-02 的 65040–65041 + P3-03 的 65042 + P3-04 的 65043）"
         );
         assert!(
             codes.iter().all(|(code, _)| *code > 64014 && *code < 66000),
             "65xxx 段必须落在 64014 与 66000 之间（不侵占 AI 用户段）"
         );
         println!(
-            "[码表] 65xxx 段 {} 个码齐全且不重复（65001–65005 / 65010–65028 / 65030–65042）✓",
+            "[码表] 65xxx 段 {} 个码齐全且不重复（65001–65005 / 65010–65028 / 65030–65043）✓",
             codes.len()
         );
     }

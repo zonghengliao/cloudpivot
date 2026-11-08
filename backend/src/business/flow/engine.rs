@@ -2633,6 +2633,19 @@ impl<'a> Run<'a> {
                 // P3-03：兜底留痕 + 派单规则（升级链 / 兜底人只在这两条降级路径上定值）
                 let fallback = finalized.fallback.clone();
                 let assigned_by_rule = finalized.assigned_by_rule.clone();
+                // P3-04：逐行改写（委托）—— 键是落库后的 assignee_id，`approvers` 下面会被 take
+                let row_meta = finalized.row_meta.clone();
+                let delegations = finalized.delegations.clone();
+                if !delegations.is_empty() {
+                    tracing::info!(
+                        instance_id = %self.instance.id,
+                        node_key = %spec.key,
+                        round,
+                        hit = delegations.len(),
+                        applied = delegations.iter().filter(|item| item.applied).count(),
+                        "审批委托：命中的委托档数 / 实际换人数"
+                    );
+                }
                 tracing::info!(
                     instance_id = %self.instance.id,
                     node_key = %spec.key,
@@ -2685,9 +2698,15 @@ impl<'a> Run<'a> {
                             is_self_approval: true,
                             is_auto: false,
                             status: "SKIPPED".to_string(),
+                            // P3-04：委托被内控剔除的受托人在这里留痕（comment 说明「本应代谁签」）
                             comment: Some(
-                                "审批人是发起人本人（self_approval=SKIP），已跳过并留痕"
-                                    .to_string(),
+                                row_meta
+                                    .get(&candidate.user_id)
+                                    .and_then(|meta| meta.comment.clone())
+                                    .unwrap_or_else(|| {
+                                        "审批人是发起人本人（self_approval=SKIP），已跳过并留痕"
+                                            .to_string()
+                                    }),
                             ),
                             due_at: None,
                             transferred_from: None,
@@ -2786,7 +2805,12 @@ impl<'a> Run<'a> {
                             is_self_approval: candidate.user_id == self.instance.initiator_id,
                             is_auto: false,
                             status: "SKIPPED".to_string(),
-                            comment: Some(reason.clone()),
+                            comment: Some(
+                                row_meta
+                                    .get(&candidate.user_id)
+                                    .and_then(|meta| meta.comment.clone())
+                                    .unwrap_or_else(|| reason.clone()),
+                            ),
                             due_at: None,
                             transferred_from: None,
                             assignee_rule_id: finalized.rule_id.clone(),
@@ -2837,7 +2861,10 @@ impl<'a> Run<'a> {
                             is_self_approval: candidate.user_id == self.instance.initiator_id,
                             is_auto: false,
                             status: "PENDING".to_string(),
-                            comment: None,
+                            // P3-04：委托派下来的行写「代 A 审批（委托至 YYYY-MM-DD）」
+                            comment: row_meta
+                                .get(&candidate.user_id)
+                                .and_then(|meta| meta.comment.clone()),
                             due_at: None,
                             transferred_from: None,
                             assignee_rule_id: finalized.rule_id.clone(),
@@ -2846,10 +2873,15 @@ impl<'a> Run<'a> {
                             escalated_from_role: escalated_from_role.clone(),
                             escalate_reason: escalate_reason.clone(),
                             // P3-03：升级 → ESCALATED / 兜底 → FALLBACK / 其余按候选来源补 ROLE
-                            assigned_by_rule: assigned_by_rule.clone().or_else(|| {
-                                (candidate.source.as_str() == assignee::ASSIGNED_BY_ROLE)
-                                    .then(|| assignee::ASSIGNED_BY_ROLE.to_string())
-                            }),
+                            // P3-04：委托 → DELEGATED（逐行，优先于节点级单值）
+                            assigned_by_rule: row_meta
+                                .get(&candidate.user_id)
+                                .and_then(|meta| meta.assigned_by_rule.clone())
+                                .or_else(|| assigned_by_rule.clone())
+                                .or_else(|| {
+                                    (candidate.source.as_str() == assignee::ASSIGNED_BY_ROLE)
+                                        .then(|| assignee::ASSIGNED_BY_ROLE.to_string())
+                                }),
                         },
                     )
                     .await;

@@ -300,6 +300,21 @@ export const FLOW_PERMISSIONS = {
   flowLinkageManage: 'business:flow:linkage:manage',
 } as const;
 
+/**
+ * 审批委托权限码（P3-04 · 迁移 V0336 种码）。
+ *
+ * `:save` / `:delete` 另有**行级**约束：只能是本人的委托，除非持有 `business:flow:admin`
+ * （后端 `delegate_handler` 判，前端只是把按钮摆出来，不能靠按钮隐身当权限）。
+ */
+export const FLOW_DELEGATE_PERMISSIONS = {
+  /** 委托列表（同时是「审批委托」菜单的入口码） */
+  flowDelegateList: 'business:flow:delegate:list',
+  /** 新建 / 修改 / 停用委托 */
+  flowDelegateSave: 'business:flow:delegate:save',
+  /** 删除（软删）委托 */
+  flowDelegateDelete: 'business:flow:delegate:delete',
+} as const;
+
 /** 实例侧权限码（D2 · V0124 已种，父节点 = D1 的流程定义页面） */
 export const FLOW_INSTANCE_PERMISSIONS = {
   /** 发起审批 */
@@ -327,6 +342,7 @@ export const PERM = {
   ...PROJECT_PERMISSIONS,
   ...FLOW_PERMISSIONS,
   ...FLOW_INSTANCE_PERMISSIONS,
+  ...FLOW_DELEGATE_PERMISSIONS,
 } as const;
 
 /** 批次 A 权限码总数自检值（34 —— V0052 补种 `business:impexp:export:retry`） */

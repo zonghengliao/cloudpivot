@@ -1,0 +1,34 @@
+# P3-04 全量 flow 单测回归（cargo test --lib business::flow:: -- --test-threads=1，真库 ERP_DB_URL=cloudpivot_p304_e2e）
+# 采集时间：2026-11-08T01:42:18Z
+
+test business::flow::assignee::delegation_db_tests::delegate_equal_to_initiator_falls_through_to_fallback ... ok
+test business::flow::assignee::delegation_db_tests::delegation_chain_stops_after_one_hop ... ok
+test business::flow::assignee::delegation_db_tests::delegation_in_window_hands_task_to_delegate ... ok
+test business::flow::assignee::delegation_db_tests::delegation_out_of_window_keeps_delegator ... ok
+test business::flow::assignee::delegation_db_tests::delegation_scope_limits_biz_type ... ok
+test business::flow::assignee::delegation_db_tests::delegation_scope_matches_case_insensitively ... ok
+test business::flow::assignee::delegation_db_tests::stopped_delegate_keeps_delegator ... ok
+test business::flow::delegate::db_tests::crud_roundtrip ... ok
+test business::flow::delegate::db_tests::gist_exclusion_constraint_exists ... ok
+test business::flow::delegate::db_tests::overlap_is_rejected_with_65043 ... ok
+test business::flow::delegate::db_tests::unusable_delegate_reasons ... ok
+test business::flow::delegate::lock_tests::advisory_lock_is_readable_by_driver ... ok
+test business::flow::delegate::tests::check_overlap_names_conflict_window ... ok
+test business::flow::delegate::tests::is_active_now_covers_three_states ... ok
+test business::flow::delegate::tests::normalize_reason_rules ... ok
+test business::flow::delegate::tests::normalize_scope_rules ... ok
+test business::flow::delegate::tests::parse_time_accepts_three_shapes ... ok
+test business::flow::delegate::tests::validate_window_caps_span ... ok
+test business::flow::delegate::tests::validate_window_rejects_self_and_bad_period ... ok
+
+== 失败清单（3 条均为 P2-03 起的既有基线）==
+test business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag ... FAILED
+test business::flow::linkage::tests_wiring::trigger_specs_cover_whitelist_in_order ... FAILED
+test business::flow::linkage::tests_wiring::wired_triggers_match_call_sites ... FAILED
+test result: FAILED. 471 passed; 3 failed; 0 ignored; 0 measured; 2968 filtered out; finished in 66.48s
+
+== 汇总 ==
+test result: FAILED. 471 passed; 3 failed; 0 ignored; 0 measured; 2968 filtered out; finished in 66.48s
+
+== 基线归因证据（本卡未改 linkage/ 和相关业务文件）==
+  （以上为空 = 未改动）

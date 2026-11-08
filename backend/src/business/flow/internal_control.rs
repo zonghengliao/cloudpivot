@@ -110,6 +110,16 @@ fn push_exclusion(exclusions: &mut Vec<Exclusion>, user_id: Option<Uuid>, reason
 /// 「制单人」由业务桥查（各单据的 `create_by`），「发起人」直接取实例字段。
 /// 与本业务无关的 `biz_type` → `governed=false`（零影响）。
 pub async fn of(instance: &flow_model::InstanceRow) -> DbResult<Control> {
+    of_biz(&instance.biz_type, instance.biz_id, instance.initiator_id).await
+}
+
+/// 同上，但入参是**裸字段**（P3-04）。
+///
+/// `assignee.rs` 的委托替换只拿得到 [`crate::business::flow::assignee::InstanceCtx`]
+/// （`biz_type` / `biz_id` / 发起人），手里没有实例行；而委托后的「受托人会不会撞内控」
+/// 必须与引擎落待办前的那次判定**逐字同源** —— 否则会出现「解析期说没撞、落库前被剔光」
+/// 或反过来的分裂口径。所以判据收敛到本函数，两条调用路径共用。
+pub async fn of_biz(biz_type: &str, biz_id: Option<Uuid>, initiator_id: Uuid) -> DbResult<Control> {
     // ERP-B2：审批侧的排除同样受「制单与审批分离」开关管辖（默认开 = 改动前行为）。
     // 关掉它 = 小团队允许本人自审：既不排除（不落 SKIPPED），403 闸也同时放行 ——
     // 两处读同一个开关，不存在「待办被 SKIP 了但闸说可以批」的自相矛盾状态。
@@ -119,99 +129,87 @@ pub async fn of(instance: &flow_model::InstanceRow) -> DbResult<Control> {
         return Ok(Control::default());
     }
     let mut exclusions: Vec<Exclusion> = Vec::new();
-    let biz_type = instance.biz_type.trim().to_ascii_uppercase();
+    let biz_type = biz_type.trim().to_ascii_uppercase();
     let governed = if biz_type == purchase_bridge::BIZ_TYPE {
-        let creator = purchase_bridge::internal_control_creator(instance.biz_id).await?;
+        let creator = purchase_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else if biz_type == crate::business::erp::requisition_bridge::BIZ_TYPE {
         // P2-02：采购申请的 `biz_id` 是**申请单 id**（提单人不能批自己提的需求）
         let creator =
-            crate::business::erp::requisition_bridge::internal_control_creator(instance.biz_id)
-                .await?;
+            crate::business::erp::requisition_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else if biz_type == crate::business::erp::purchase_return_bridge::BIZ_TYPE {
         // P2-03：采购退货的 `biz_id` 是**退货单 id**（制单人不能批自己的退货）
         let creator =
-            crate::business::erp::purchase_return_bridge::internal_control_creator(instance.biz_id)
-                .await?;
+            crate::business::erp::purchase_return_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else if biz_type == stockin_bridge::POST_BIZ_TYPE || biz_type == stockin_bridge::BIZ_TYPE {
-        let creator = stockin_bridge::internal_control_creator(instance.biz_id).await?;
+        let creator = stockin_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else if biz_type == payable_bridge::BIZ_TYPE {
-        let creator = payable_bridge::internal_control_creator(instance.biz_id).await?;
+        let creator = payable_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else if biz_type == payable_bridge::CANCEL_BIZ_TYPE {
         // P-FLOW-3B：应付作废审批的 `biz_id` 是**应付单 id**（不是付款记录 id）
-        let creator = payable_bridge::internal_control_creator_of_payable(instance.biz_id).await?;
+        let creator = payable_bridge::internal_control_creator_of_payable(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else if biz_type == crate::business::erp::receipt_refund_bridge::BIZ_TYPE {
         // SO-14 遗留 D10：收款退款审批的 `biz_id` 是**退款单 id**（制单人不能批自己的退款）
         let creator =
-            crate::business::erp::receipt_refund_bridge::internal_control_creator(instance.biz_id)
-                .await?;
+            crate::business::erp::receipt_refund_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else if biz_type == crate::business::erp::voucher_bridge::BIZ_TYPE {
         // P-FLOW-3B：凭证红冲审批的 `biz_id` 是**凭证 id**
         let creator =
-            crate::business::erp::voucher_bridge::internal_control_creator(instance.biz_id).await?;
+            crate::business::erp::voucher_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else if biz_type == crate::business::erp::contract_bridge::BIZ_TYPE {
         // ARCH-3 R-P1-1：合同审批的 `biz_id` 是**合同 id**（制单人不能批自己拟的合同）
         let creator =
-            crate::business::erp::contract_bridge::internal_control_creator(instance.biz_id)
-                .await?;
+            crate::business::erp::contract_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else if biz_type == crate::business::erp::stocktake_bridge::BIZ_TYPE {
         // ARCH-3 DC-14：盘点过账审批的 `biz_id` 是**盘点单 id**（盘的人不能批自己盘的账）
         let creator =
-            crate::business::erp::stocktake_bridge::internal_control_creator(instance.biz_id)
-                .await?;
+            crate::business::erp::stocktake_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else if biz_type == crate::business::erp::budget_bridge::BIZ_TYPE {
         // FIN-1：预算审批的 `biz_id` 是**预算版本 id**（编预算的人不能批自己编的预算）
-        let creator =
-            crate::business::erp::budget_bridge::internal_control_creator(instance.biz_id).await?;
+        let creator = crate::business::erp::budget_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else if biz_type == crate::business::erp::expense_bridge::BIZ_TYPE {
         // FIN-3：费用报销的 `biz_id` 是**报销单 id**（报销人不能批自己的单）
         let creator =
-            crate::business::erp::expense_bridge::internal_control_creator(instance.biz_id).await?;
+            crate::business::erp::expense_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else if biz_type == crate::business::erp::asset_bridge::BIZ_TYPE {
         // FIN-2：资产处置审批的 `biz_id` 是**资产卡片 id**（建卡的人不能批自己这张卡的处置）
-        let creator =
-            crate::business::erp::asset_bridge::internal_control_creator(instance.biz_id).await?;
+        let creator = crate::business::erp::asset_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else if biz_type == crate::business::erp::sales_approval_bridge::BIZ_TYPE {
         // SO-06：销售订单审批的 `biz_id` 是**销售订单 id**（制单人不能批自己提交的单）
         let creator =
-            crate::business::erp::sales_approval_bridge::internal_control_creator(instance.biz_id)
-                .await?;
+            crate::business::erp::sales_approval_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else {
         false
     };
     if governed {
-        push_exclusion(
-            &mut exclusions,
-            Some(instance.initiator_id),
-            INITIATOR_REASON,
-        );
+        push_exclusion(&mut exclusions, Some(initiator_id), INITIATOR_REASON);
     }
     Ok(Control {
         governed,

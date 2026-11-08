@@ -75,6 +75,7 @@ use serde_json::Value as Json;
 
 use crate::business::flow::expression::{self, ResolveContext, ResolvedTarget};
 use crate::business::flow::graph::{self, AssigneeKind, EvalContext, SnapshotNode};
+use crate::business::flow::internal_control;
 use crate::business::flow::no_assignee;
 use crate::shared::error_code;
 
@@ -205,6 +206,13 @@ pub struct Finalized {
     /// 普通路径由引擎按候选来源补 `ROLE`（一个节点可能混着 ROLE + USER 来源，
     /// 只有引擎逐行看得到候选）。`None` = 由引擎决定。
     pub assigned_by_rule: Option<String>,
+    /// 逐行改写（P3-04 委托）：键 = **落库后的** `assignee_id`。
+    ///
+    /// 一个会签节点可能只有部分人委托，节点级的那两个单值字段表达不了
+    /// 「这一行按 DELEGATED、那一行按 ROLE」——委托的留痕走这里，逐行。
+    pub row_meta: std::collections::BTreeMap<Uuid, RowMeta>,
+    /// 委托处置痕迹（P3-04）；空 = 本节点没有任何生效中的委托。
+    pub delegations: Vec<Delegation>,
     /// 解析痕迹（写日志 + 详情页提示）。
     pub notes: Vec<String>,
 }
@@ -745,6 +753,12 @@ pub async fn resolve(
         }
     };
     finalized.rule_id = rule_id;
+
+    // ③.5 审批委托（P3-04 / ARCH-8 第 ⑤ 层）：把「派给委托人」的票换成「派给受托人」。
+    //
+    //   位置的两条理由（写在 `apply_delegation` 的文档里）：filter 之后 = 只作用于最终名单；
+    //   升级链之前 = 委托把名单清空时（受托人是发起人/制单人）后面照常走降级链。
+    apply_delegation(ex, node, ctx, &mut finalized, &mut trace).await?;
 
     // ④ 升级链（P3-02）：**只在「有角色来源且被剔光」时才走**
     //
@@ -2157,6 +2171,400 @@ pub fn source_label(source: AssigneeKind) -> &'static str {
 /// 便于日志拼接的 `Option<Uuid>` 文本。
 pub fn opt_uuid_text(id: Option<Uuid>) -> Value {
     opt_text(id.map(|value| value.to_string()).as_deref())
+}
+
+// ==================== 审批委托（P3-04 · ARCH-8 第 ⑤ 层） ====================
+//
+// # 一句话
+//
+// **把「该派给 A 的待办」在解析期换成「派给 B」，并在行上留下「代 A 审批」。**
+//
+// # 为什么在解析期做（而不是审批时动态判）
+//
+// 待办行是**冻结**的（D13）：解析出谁就落谁的行。委托如果放到审批时再判，
+// 「A 出差期间 B 批了」与「A 回来后自己批了」会落在两条不同的授权路径上，
+// 而审计只能看到 `assignee_id`。冻结在解析期后：
+//
+// | 列 | 写什么 | 回答什么问题 |
+// |----|--------|--------------|
+// | `assignee_id` | 受托人 B | 这一票谁点的 |
+// | `assignee_source` | **原来源**（`ROLE` / `DEPT_LEADER` / …） | 这一票本来是按什么规则派给 A 的 |
+// | `assigned_by_rule` | `DELEGATED` | 这一票是不是委托派下来的 |
+// | `comment` | `代 A 审批（委托至 2026-11-11）` | 代谁、代到哪天 |
+//
+// # 三条硬约束（卡面「最容易被漏的一条」在第 ② 条）
+//
+// 1. **只走 1 跳**：A 委托 B、B 又委托 C 时，落到 B 就停（不递归，否则 A→B→A 这种环
+//    会让解析器打转）。命中第二跳时记 WARN + note，排障能看出来。
+// 2. **委托后仍要过内控与自审**：受托人 = 发起人 / 制单人 → **不许派**，
+//    原审批人也不再接（A 在休假，把单子塞回去等于没委托），交 P3-02 升级链 / P3-03 兜底人。
+//    内控判据与引擎落待办前那次**同源**（[`internal_control::of_biz`]），不另写一份。
+// 3. **受托人不可用（已删除 / 已停用 / 机器人未开 allow_robot）→ 委托整体不生效，
+//    仍派给委托人**：这是「配置坏了」，不是「审批权没人接」。与 P3-03 兜底人配错就 422 不同 ——
+//    委托是**旁路优化**，坏掉时退回原行为（A 回来自己批）比让整张单发不出去伤害更小。
+
+/// 一条**此刻生效**的委托（`biz_flow_delegate` 的一行，已过 enabled / 时间窗 / scope 过滤）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActiveDelegation {
+    /// 委托人（审批权让出方）。
+    pub delegator_id: Uuid,
+    /// 委托人姓名快照（写 comment 用）。
+    pub delegator_name: String,
+    /// 受托人（代签的人）。
+    pub delegate_id: Uuid,
+    /// 委托截止时刻（写进 comment 的「委托至 YYYY-MM-DD」）。
+    pub end_at: nik::prelude::chrono::DateTime<nik::prelude::chrono::Utc>,
+    /// 生效业务范围（`None` = 全部业务）。
+    pub scope: Option<String>,
+}
+
+/// 一次委托处置的痕迹（`applied=false` 时 `reason` 说明为什么没生效）。
+///
+/// 只进日志 / `Finalized::notes` / trace，**不落业务表** —— 业务表上的留痕是
+/// `biz_flow_task.assigned_by_rule` + `comment`（卡面决策：不加第二套「代办」概念）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Delegation {
+    /// 委托人。
+    pub delegator_id: Uuid,
+    /// 委托人姓名。
+    pub delegator_name: String,
+    /// 受托人。
+    pub delegate_id: Uuid,
+    /// 受托人姓名（查不到人时为空串）。
+    pub delegate_name: String,
+    /// 委托截止时刻。
+    pub end_at: nik::prelude::chrono::DateTime<nik::prelude::chrono::Utc>,
+    /// 是否真的换人了。
+    pub applied: bool,
+    /// 未生效原因（`applied=true` 时为空串）。
+    pub reason: String,
+}
+
+impl Delegation {
+    /// 待办行 `comment`：「代 张三 审批（委托至 2026-11-11）」。
+    ///
+    /// 日期按 **Asia/Shanghai** 折算（业务日口径与 `erp::reminder` 一致）：
+    /// 委托截止 11-11 23:00 UTC 写成 11-12 会让「代到哪天」错一天。
+    pub fn comment(&self) -> String {
+        format!(
+            "代 {} 审批（委托至 {}）",
+            self.delegator_name,
+            format_biz_date(self.end_at)
+        )
+    }
+}
+
+/// UTC 时刻 → 业务日字符串（`YYYY-MM-DD`，Asia/Shanghai）。
+fn format_biz_date(at: nik::prelude::chrono::DateTime<nik::prelude::chrono::Utc>) -> String {
+    use nik::prelude::chrono::FixedOffset;
+    let offset = FixedOffset::east_opt(8 * 3600).expect("+08:00 一定是合法偏移");
+    at.with_timezone(&offset).format("%Y-%m-%d").to_string()
+}
+
+/// 逐行改写（键 = **落库后的** `assignee_id`）。
+///
+/// 为什么不是 `Finalized.assigned_by_rule` 单值：一个会签节点可能「A 的票被委托、
+/// C 的票没被委托」，单值只能给整节点一个规则 —— 那是错的留痕。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RowMeta {
+    /// 这一行的派单规则（`DELEGATED`）；`None` = 走节点级规则。
+    pub assigned_by_rule: Option<String>,
+    /// 这一行的 `comment`；`None` = 沿用默认（PENDING 空 / SKIPPED 的默认文案）。
+    pub comment: Option<String>,
+}
+
+/// 查「这些委托人此刻生效的委托」（1 人最多 1 档）。
+///
+/// # 判据（与卡面逐字一致）
+///
+/// `enabled AND deleted_at IS NULL AND now() BETWEEN start_at AND end_at
+///  AND (scope IS NULL OR scope = 实例 biz_type)`；`scope` 大小写不敏感
+/// （`biz_type` 在各业务桥里是大写常量，人是手输的，不该因为大小写失效）。
+///
+/// 同一委托人理论上只有 1 档（迁移 V0336 的 `EXCLUDE` 排除约束）；
+/// 这里仍 `DISTINCT ON (delegator_id)` 取**最后一档**，是为了兼容「btree_gist 不可用时
+/// 只靠应用层校验」的库 —— 那时并发窗口可能落下两行，取最后一档至少是确定的、不会来回跳。
+pub async fn load_active_delegations(
+    ex: &impl SqlExecutor,
+    delegator_ids: &[Uuid],
+    biz_type: &str,
+) -> DbResult<Vec<ActiveDelegation>> {
+    if delegator_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows = ex
+        .query_sql(
+            "SELECT DISTINCT ON (d.delegator_id) \
+                    d.delegator_id AS delegator_id, \
+                    d.delegate_id  AS delegate_id, \
+                    d.end_at       AS end_at, \
+                    d.scope        AS scope, \
+                    COALESCE(NULLIF(u.real_name, ''), u.username, '') AS delegator_name \
+               FROM biz_flow_delegate d \
+               LEFT JOIN sys_user u ON u.id = d.delegator_id AND u.deleted_at IS NULL \
+              WHERE d.deleted_at IS NULL AND d.enabled \
+                AND d.delegator_id = ANY(?::text::uuid[]) \
+                AND now() BETWEEN d.start_at AND d.end_at \
+                AND (d.scope IS NULL OR upper(d.scope) = upper(?::text)) \
+              ORDER BY d.delegator_id, d.start_at DESC, d.created_at DESC"
+                .to_string(),
+            vec![
+                array_param(delegator_ids),
+                Value::Text(biz_type.to_string()),
+            ],
+        )
+        .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let scope: Option<String> = row.get_typed("scope")?;
+        out.push(ActiveDelegation {
+            delegator_id: row.get_typed("delegator_id")?,
+            delegator_name: row.get_typed("delegator_name")?,
+            delegate_id: row.get_typed("delegate_id")?,
+            end_at: row.get_typed("end_at")?,
+            scope,
+        });
+    }
+    out.sort_by_key(|item| item.delegator_id);
+    Ok(out)
+}
+
+/// 第 ③.5 步（P3-04）：把「派给委托人」的待办换成「派给受托人」。
+///
+/// # 位置（不可挪）
+///
+/// `resolve()` 里 **filter_candidates 之后、升级链之前**：
+///
+/// - 放在 filter **之后**：委托只作用于「已经过停用 / ROBOT / 自审 / 去重」的最终名单，
+///   不会把被剔掉的人再拉回来；
+/// - 放在升级链**之前**：委托把名单清空时（受托人是发起人/制单人），
+///   紧接着的第 ④/⑤ 步照常走升级链与兜底人 —— 这正是卡面要的「继续走 P3-02/03 降级链」。
+///
+/// 升级链 / 兜底人派下来的人**不再二次委托**：那已经是降级结果，
+/// 再套一层会让「最终派给谁」取决于链的深度，排障不可复现（1 跳原则的延伸）。
+///
+/// # 副作用
+///
+/// 改 `finalized.approvers` / `finalized.skipped` / `finalized.row_meta` /
+/// `finalized.delegations` / `finalized.notes`，并往 `trace` 里写排障行。
+pub async fn apply_delegation(
+    ex: &impl SqlExecutor,
+    node: &SnapshotNode,
+    ctx: &InstanceCtx,
+    finalized: &mut Finalized,
+    trace: &mut Vec<String>,
+) -> DbResult<()> {
+    // 只有审批类节点才有「审批权」可委托：抄送收件人（NOTIFY）/ 任务负责人（TASK_NODE）
+    // 换人会改变「谁该干活」，语义不同，一律不动。
+    if !matches!(node.node_type.as_str(), "APPROVAL" | "COUNTERSIGN") {
+        return Ok(());
+    }
+    if finalized.approvers.is_empty() {
+        return Ok(());
+    }
+
+    let mut delegators: Vec<Uuid> = finalized.approvers.iter().map(|c| c.user_id).collect();
+    delegators.sort();
+    delegators.dedup();
+    let hits = load_active_delegations(ex, &delegators, &ctx.biz_type).await?;
+    if hits.is_empty() {
+        return Ok(());
+    }
+    trace.push(format!(
+        "委托命中 {} 档（业务 {}）",
+        hits.len(),
+        ctx.biz_type
+    ));
+
+    // 受托人信息一次批量取（软删用户不会返回，所以「查不到」= 已删除 / id 写坏）
+    let delegate_ids: Vec<Uuid> = hits.iter().map(|hit| hit.delegate_id).collect();
+    let delegate_rows = load_users(ex, &delegate_ids, AssigneeKind::User).await?;
+
+    // 只有真命中才查内控（没有委托的环境不多付这次查询）
+    let control = internal_control::of_biz(&ctx.biz_type, ctx.biz_id, ctx.initiator_id).await?;
+
+    let mut out: Vec<Candidate> = Vec::with_capacity(finalized.approvers.len());
+    let mut seen: BTreeSet<Uuid> = BTreeSet::new();
+    let mut notes: Vec<String> = Vec::new();
+    let mut delegations: Vec<Delegation> = Vec::new();
+    // 本轮真正换上去的人：循环结束后判「他们自己是不是也设了委托」（1 跳 WARN）
+    let mut applied_delegate_ids: Vec<Uuid> = Vec::new();
+
+    for candidate in std::mem::take(&mut finalized.approvers) {
+        let Some(hit) = hits
+            .iter()
+            .find(|hit| hit.delegator_id == candidate.user_id)
+            .cloned()
+        else {
+            // 没被委托的人原样保留（顺带做一次跨来源去重：委托可能把两条并成一条）
+            if seen.insert(candidate.user_id) {
+                out.push(candidate);
+            } else {
+                notes.push(format!(
+                    "{} 与委托后的受托人重复，已去重（三层去重第 1 层，委托场景）",
+                    candidate.name
+                ));
+            }
+            continue;
+        };
+        let delegate_name = delegate_rows
+            .iter()
+            .find(|row| row.user_id == hit.delegate_id)
+            .map(|row| row.name.clone())
+            .unwrap_or_default();
+        let mut record = Delegation {
+            delegator_id: hit.delegator_id,
+            delegator_name: hit.delegator_name.clone(),
+            delegate_id: hit.delegate_id,
+            delegate_name: delegate_name.clone(),
+            end_at: hit.end_at,
+            applied: false,
+            reason: String::new(),
+        };
+
+        // ① 受托人不可用（已删除 / 已停用 / ROBOT 未开 allow_robot）→ 委托整体不生效，仍派给委托人
+        let Some(delegate) = delegate_rows
+            .iter()
+            .find(|row| row.user_id == hit.delegate_id)
+        else {
+            record.reason = "受托人不存在（已删除或 id 非法）".to_string();
+            notes.push(format!(
+                "委托「{} → {}」不生效：{}；本次仍派给 {}",
+                hit.delegator_name, hit.delegate_id, record.reason, hit.delegator_name
+            ));
+            delegations.push(record);
+            if seen.insert(candidate.user_id) {
+                out.push(candidate);
+            }
+            continue;
+        };
+        if !delegate.active {
+            record.reason = "受托人已停用".to_string();
+            notes.push(format!(
+                "委托「{} → {}」不生效：受托人已停用；本次仍派给 {}",
+                hit.delegator_name, delegate.name, hit.delegator_name
+            ));
+            delegations.push(record);
+            if seen.insert(candidate.user_id) {
+                out.push(candidate);
+            }
+            continue;
+        }
+        if delegate.is_robot && !node.allow_robot {
+            record.reason = "受托人是机器人且本节点未开「允许机器人」".to_string();
+            notes.push(format!(
+                "委托「{} → {}」不生效：受托人是机器人而本节点未开 allow_robot；本次仍派给 {}",
+                hit.delegator_name, delegate.name, hit.delegator_name
+            ));
+            delegations.push(record);
+            if seen.insert(candidate.user_id) {
+                out.push(candidate);
+            }
+            continue;
+        }
+
+        // ② 内控 / 自审：受托人 = 发起人或制单人 → 不许代签。
+        //
+        //    这里**不**看节点的 `self_approval`：委托只能是「把自己的票交给别人」，
+        //    不能变成「绕过自审」的通道（ALLOW 也不放行 —— 否则 A 出差前把票委托给
+        //    发起人本人，等于给自己开了自审后门）。
+        let blocked = if delegate.user_id == ctx.initiator_id {
+            Some("受托人即发起人，内控不允许自审".to_string())
+        } else {
+            control
+                .excluded_reason(delegate.user_id)
+                .map(|reason| format!("受托人受内控约束（{reason}）"))
+        };
+        if let Some(reason) = blocked {
+            record.reason = reason.clone();
+            notes.push(format!(
+                "委托「{} → {}」不生效：{reason}；原审批人不再接（本人在休假），交升级链 / 兜底人",
+                hit.delegator_name, delegate.name
+            ));
+            delegations.push(record);
+            // 受托人落 SKIPPED 留痕（不是静默丢弃）：`comment` 说明「本来是他代签，被内控剔掉」
+            if seen.insert(delegate.user_id) {
+                finalized.skipped.push(Candidate {
+                    user_id: delegate.user_id,
+                    name: delegate.name.clone(),
+                    source: candidate.source,
+                    source_ref: candidate.source_ref,
+                    is_robot: delegate.is_robot,
+                    active: true,
+                });
+            }
+            finalized.row_meta.insert(
+                delegate.user_id,
+                RowMeta {
+                    assigned_by_rule: None,
+                    comment: Some(format!(
+                        "代 {} 审批被内控剔除：{reason}",
+                        hit.delegator_name
+                    )),
+                },
+            );
+            continue;
+        }
+
+        // ③ 正常替换：原来源保留，只换人 + 留痕
+        record.applied = true;
+        applied_delegate_ids.push(delegate.user_id);
+        notes.push(format!(
+            "委托生效：{} 的票改派给 {}（委托至 {}）",
+            hit.delegator_name,
+            delegate.name,
+            format_biz_date(hit.end_at)
+        ));
+        delegations.push(record.clone());
+        if seen.insert(delegate.user_id) {
+            out.push(Candidate {
+                user_id: delegate.user_id,
+                name: delegate.name.clone(),
+                // 「这一票本来是按什么规则派给 A 的」必须保留（审计口径）
+                source: candidate.source,
+                source_ref: candidate.source_ref,
+                is_robot: delegate.is_robot,
+                active: true,
+            });
+            finalized.row_meta.insert(
+                delegate.user_id,
+                RowMeta {
+                    assigned_by_rule: Some(ASSIGNED_BY_DELEGATION.to_string()),
+                    comment: Some(record.comment()),
+                },
+            );
+        } else {
+            notes.push(format!(
+                "{} 同时是多个委托人的受托人，已去重（一行待办，一票）",
+                delegate.name
+            ));
+        }
+    }
+
+    // 1 跳原则：受托人自己也设有此刻生效的委托 → 只走 1 跳，不再递归（记 WARN + note）
+    if !applied_delegate_ids.is_empty() {
+        applied_delegate_ids.sort();
+        applied_delegate_ids.dedup();
+        let chained = load_active_delegations(ex, &applied_delegate_ids, &ctx.biz_type).await?;
+        for next in chained {
+            tracing::warn!(
+                instance_id = %ctx.instance_id,
+                node_key = %node.key,
+                delegate = %next.delegator_id,
+                next_delegate = %next.delegate_id,
+                "委托链只走 1 跳：受托人自身也设有委托，本次不再递归"
+            );
+            notes.push(format!(
+                "{} 自身也有生效中的委托（→ {}），按 1 跳原则不再递归（避免 A→B→A 环）",
+                next.delegator_name, next.delegate_id
+            ));
+        }
+    }
+
+    finalized.approvers = out;
+    finalized.delegations = delegations;
+    finalized.notes.extend(notes);
+    Ok(())
 }
 
 // ==================== 单元测试 ====================
@@ -3847,6 +4255,512 @@ mod fallback_db_tests {
         let error = resolution.finalized.error.expect("兜底人停用必须报错");
         assert_eq!(error.code, 65042);
         assert!(error.msg.contains("已停用"), "报文：{}", error.msg);
+        teardown(&fx).await;
+    }
+}
+
+// ==================== 委托：真库单测（P3-04 · ARCH-8 场景 E） ====================
+//
+// 覆盖卡面验收 ①②③⑤ 的**运行期**语义（走真 `resolve()`，不起 HTTP）：
+//   ① 委托期内 → 待办给受托人 B，`assigned_by_rule=DELEGATED` + 「代 A 审批」comment
+//   ② 委托期外 → 仍给委托人 A（一行 row_meta 都没有）
+//   ③ 受托人 = 发起人 → 被内控剔除（落 SKIPPED 留痕），落到兜底/升级链
+//   ⑤ scope 限定 biz_type → 别的业务类型上不生效
+//
+// 与 `fallback_db_tests` 一样靠 `ERP_DB_URL` 开关：不设就打印 SKIP 并返回
+// （CI 无库时不假绿 —— 但也**不会**真跑；交付前必须带 ERP_DB_URL 跑一遍）。
+#[cfg(test)]
+mod delegation_db_tests {
+    use super::*;
+    use crate::business::flow::graph::SnapshotAssignee;
+
+    async fn ensure_db() -> bool {
+        use tokio::sync::OnceCell;
+        static READY: OnceCell<bool> = OnceCell::const_new();
+        *READY
+            .get_or_init(|| async {
+                let Ok(url) = std::env::var("ERP_DB_URL") else {
+                    println!("SKIP: 未设置 ERP_DB_URL（不连真实数据库）");
+                    return false;
+                };
+                if try_db().is_some() {
+                    return true;
+                }
+                let mut config = DatabaseConfig::from_url(&url);
+                config.pool.max_lifetime = Some(std::time::Duration::ZERO);
+                config.pool.idle_timeout = Some(std::time::Duration::ZERO);
+                match Db::connect_with(&url, config).await {
+                    Ok(connection) => set_db(connection).is_ok(),
+                    Err(err) => {
+                        println!("SKIP: ERP_DB_URL 连接失败（{err}）");
+                        false
+                    }
+                }
+            })
+            .await
+    }
+
+    async fn exec(sql: &str) {
+        if let Err(err) = db().execute_with_params(sql, vec![]).await {
+            panic!("SQL 失败：{err}\nSQL: {sql}");
+        }
+    }
+
+    /// 一轮夹具（`P304D_*` 前缀，结束即清理）：
+    /// - `approver_role`：**只有 A**（委托的让出方）；
+    /// - `fallback`：兜底人 C（场景 ③ 里接管）；
+    /// - `initiator`：发起人 P（场景 ③ 里当受托人）。
+    struct Fixture {
+        approver_role: Uuid,
+        initiator: Uuid,
+        approver: Uuid,
+        delegate: Uuid,
+        fallback: Uuid,
+    }
+
+    async fn setup(tag: &str) -> Fixture {
+        for sql in [
+            format!(
+                "DELETE FROM biz_flow_delegate WHERE delegator_id IN \
+                 (SELECT id FROM sys_user WHERE username LIKE 'p304d\\_%\\_{tag}')"
+            ),
+            format!(
+                "DELETE FROM sys_user_role WHERE role_id IN \
+                 (SELECT id FROM sys_role WHERE role_code LIKE 'P304D\\_%\\_{tag}')"
+            ),
+            format!("DELETE FROM sys_user WHERE username LIKE 'p304d\\_%\\_{tag}'"),
+            format!("DELETE FROM sys_role WHERE role_code LIKE 'P304D\\_%\\_{tag}'"),
+        ] {
+            exec(&sql).await;
+        }
+        let approver_role = Uuid::now_v7();
+        let initiator = Uuid::now_v7();
+        let approver = Uuid::now_v7();
+        let delegate = Uuid::now_v7();
+        let fallback = Uuid::now_v7();
+        exec(&format!(
+            "INSERT INTO sys_role (id, role_code, role_name, status, sort_order) VALUES \
+             ('{approver_role}'::uuid, 'P304D_APPR_{tag}', 'P3-04 夹具-审批人角色', 1, 940)"
+        ))
+        .await;
+        exec(&format!(
+            "INSERT INTO sys_user (id, username, password, real_name, status) VALUES \
+             ('{initiator}'::uuid, 'p304d_init_{tag}', 'x', 'P3-04 发起人', 1), \
+             ('{approver}'::uuid, 'p304d_appr_{tag}', 'x', 'P3-04 审批人甲', 1), \
+             ('{delegate}'::uuid, 'p304d_del_{tag}', 'x', 'P3-04 受托人乙', 1), \
+             ('{fallback}'::uuid, 'p304d_fb_{tag}', 'x', 'P3-04 兜底人丙', 1)"
+        ))
+        .await;
+        exec(&format!(
+            "INSERT INTO sys_user_role (user_id, role_id) VALUES \
+             ('{approver}'::uuid, '{approver_role}'::uuid)"
+        ))
+        .await;
+        Fixture {
+            approver_role,
+            initiator,
+            approver,
+            delegate,
+            fallback,
+        }
+    }
+
+    async fn teardown(fx: &Fixture) {
+        for sql in [
+            format!(
+                "DELETE FROM biz_flow_delegate WHERE delegator_id IN \
+                 ('{0}'::uuid,'{1}'::uuid,'{2}'::uuid)",
+                fx.initiator, fx.approver, fx.fallback
+            ),
+            format!(
+                "DELETE FROM sys_user_role WHERE user_id = '{0}'::uuid",
+                fx.approver
+            ),
+            format!(
+                "DELETE FROM sys_user WHERE id IN ('{0}'::uuid,'{1}'::uuid,'{2}'::uuid,'{3}'::uuid)",
+                fx.initiator, fx.approver, fx.delegate, fx.fallback
+            ),
+            format!(
+                "UPDATE sys_role SET escalation_role_id = NULL WHERE id = '{0}'::uuid",
+                fx.approver_role
+            ),
+            format!(
+                "DELETE FROM sys_role WHERE id = '{0}'::uuid",
+                fx.approver_role
+            ),
+        ] {
+            exec(&sql).await;
+        }
+    }
+
+    /// 造一条委托（`start_at` / `end_at` 相对现在，便于控制「生效中 / 过期」）。
+    async fn add_delegate(
+        delegator: Uuid,
+        delegate: Uuid,
+        from_hours: i64,
+        to_hours: i64,
+        scope: Option<&str>,
+    ) -> Uuid {
+        let id = Uuid::now_v7();
+        let scope_sql = match scope {
+            Some(value) => format!("'{value}'"),
+            None => "NULL".to_string(),
+        };
+        exec(&format!(
+            "INSERT INTO biz_flow_delegate \
+                 (id, delegator_id, delegate_id, start_at, end_at, scope, reason, enabled) \
+             VALUES ('{id}'::uuid, '{delegator}'::uuid, '{delegate}'::uuid, \
+                     now() + interval '{from_hours} hours', now() + interval '{to_hours} hours', \
+                     {scope_sql}, 'P3-04 夹具', TRUE)"
+        ))
+        .await;
+        id
+    }
+
+    /// 节点：ROLE 来源 + 指定角色；可选兜底人（场景 ③ 用）。
+    fn node_of(role: Uuid, fallback: Option<Uuid>) -> SnapshotNode {
+        SnapshotNode {
+            key: "n_delegate".to_string(),
+            name: "部门经理审批".to_string(),
+            node_type: "APPROVAL".to_string(),
+            assignee_type: Some("ROLE".to_string()),
+            approval_mode: None,
+            approve_ratio: None,
+            reject_veto: false,
+            join_mode: "AND".to_string(),
+            fork_mode: "AND".to_string(),
+            form_var_key: None,
+            superior_levels: 1,
+            empty_assignee: "ERROR".to_string(),
+            self_approval: "SKIP".to_string(),
+            allow_robot: false,
+            fallback_user_id: fallback.map(|id| id.to_string()),
+            fallback_role_id: None,
+            timeout_hours: None,
+            timeout_action: "REMIND".to_string(),
+            remind_before_hours: None,
+            max_remind_times: 3,
+            cc_on_approved: false,
+            x: 0,
+            y: 0,
+            sort_order: 0,
+            config: Json::Object(Default::default()),
+            assignees: vec![SnapshotAssignee {
+                assignee_type: "ROLE".to_string(),
+                ref_id: role.to_string(),
+                sort_order: 0,
+            }],
+        }
+    }
+
+    fn ctx_of(initiator: Uuid, biz_type: &str) -> InstanceCtx {
+        InstanceCtx {
+            instance_id: Uuid::now_v7(),
+            initiator_id: initiator,
+            initiator_dept_id: None,
+            biz_type: biz_type.to_string(),
+            biz_id: None,
+            form_data: serde_json::json!({}),
+        }
+    }
+
+    /// ① 委托期内 → 待办给受托人，`assigned_by_rule='DELEGATED'` + 「代 A 审批（委托至 …）」。
+    ///    `assignee_source` 必须保留**原来源**（ROLE），审计要能回答「本来按什么派给 A」。
+    #[tokio::test]
+    async fn delegation_in_window_hands_task_to_delegate() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = setup("a").await;
+        add_delegate(fx.approver, fx.delegate, -2, 72, None).await;
+        let node = node_of(fx.approver_role, None);
+        let resolution = resolve(
+            db(),
+            &node,
+            &ctx_of(fx.initiator, "P304UT"),
+            &EvalContext::default(),
+        )
+        .await
+        .expect("resolve 不该出 DbError");
+        let finalized = resolution.finalized;
+        assert!(
+            finalized.error.is_none(),
+            "委托生效后不该有错误：{:?}",
+            finalized.error.as_ref().map(|e| (&e.code, &e.msg))
+        );
+        assert_eq!(finalized.approvers.len(), 1, "只该有受托人 1 行待办");
+        let approver = &finalized.approvers[0];
+        assert_eq!(approver.user_id, fx.delegate, "待办必须派给受托人");
+        assert_eq!(
+            approver.source.as_str(),
+            "ROLE",
+            "assignee_source 必须保留原来源（这一票本来是按 ROLE 派给 A 的）"
+        );
+        let meta = finalized
+            .row_meta
+            .get(&fx.delegate)
+            .expect("委托行必须带逐行留痕");
+        assert_eq!(
+            meta.assigned_by_rule.as_deref(),
+            Some(ASSIGNED_BY_DELEGATION),
+            "派单规则必须是 DELEGATED"
+        );
+        let comment = meta.comment.as_deref().unwrap_or_default();
+        assert!(
+            comment.starts_with("代 P3-04 审批人甲 审批"),
+            "comment：{comment}"
+        );
+        assert!(comment.contains("委托至"), "comment：{comment}");
+        assert!(
+            finalized.row_meta.get(&fx.approver).is_none(),
+            "委托人自己不该再有待办（待办只有一行：受托人的）"
+        );
+        let delegation = finalized
+            .delegations
+            .iter()
+            .find(|item| item.delegator_id == fx.approver)
+            .expect("委托痕迹");
+        assert!(delegation.applied);
+        teardown(&fx).await;
+    }
+
+    /// ② 委托期外（还没开始 / 已经结束）→ 仍派给委托人 A，且没有任何 row_meta。
+    #[tokio::test]
+    async fn delegation_out_of_window_keeps_delegator() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = setup("b").await;
+        // 已过期
+        add_delegate(fx.approver, fx.delegate, -72, -2, None).await;
+        // 还没开始
+        let future = Uuid::now_v7();
+        exec(&format!(
+            "INSERT INTO biz_flow_delegate \
+                 (id, delegator_id, delegate_id, start_at, end_at, reason, enabled) \
+             VALUES ('{future}'::uuid, '{0}'::uuid, '{1}'::uuid, \
+                     now() + interval '2 hours', now() + interval '72 hours', 'P3-04 夹具', TRUE)",
+            fx.approver, fx.delegate
+        ))
+        .await;
+
+        let node = node_of(fx.approver_role, None);
+        let resolution = resolve(
+            db(),
+            &node,
+            &ctx_of(fx.initiator, "P304UT"),
+            &EvalContext::default(),
+        )
+        .await
+        .expect("resolve 不该出 DbError");
+        let finalized = resolution.finalized;
+        assert!(finalized.error.is_none(), "{:?}", finalized.error);
+        assert_eq!(finalized.approvers.len(), 1);
+        assert_eq!(
+            finalized.approvers[0].user_id, fx.approver,
+            "委托期外必须仍派给委托人"
+        );
+        assert!(
+            finalized.row_meta.is_empty(),
+            "没有委托生效就不该有任何逐行改写"
+        );
+        assert!(finalized.delegations.is_empty(), "期外的委托不该被查出来");
+        teardown(&fx).await;
+    }
+
+    /// ③ 「最容易被漏的一条」：受托人 = 发起人 → 不许代签，
+    ///    委托人自己也不再接（在休假）→ 交 P3-03 兜底人接管；受托人落 SKIPPED 留痕。
+    #[tokio::test]
+    async fn delegate_equal_to_initiator_falls_through_to_fallback() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = setup("c").await;
+        add_delegate(fx.approver, fx.initiator, -2, 72, None).await;
+        let node = node_of(fx.approver_role, Some(fx.fallback));
+        let resolution = resolve(
+            db(),
+            &node,
+            &ctx_of(fx.initiator, "P304UT"),
+            &EvalContext::default(),
+        )
+        .await
+        .expect("resolve 不该出 DbError");
+        let finalized = resolution.finalized;
+        assert!(
+            finalized.error.is_none(),
+            "兜底人应接管而不是报错：{:?}",
+            finalized.error.as_ref().map(|e| (&e.code, &e.msg))
+        );
+        assert_eq!(finalized.approvers.len(), 1);
+        assert_eq!(
+            finalized.approvers[0].user_id, fx.fallback,
+            "受托人被内控剔掉后，必须落到兜底链（不是把单子塞回休假的委托人）"
+        );
+        assert_eq!(
+            finalized.assigned_by_rule.as_deref(),
+            Some(ASSIGNED_BY_FALLBACK),
+            "节点级规则是兜底（FALLBACK），委托那一档没生效"
+        );
+        assert!(
+            !finalized
+                .row_meta
+                .values()
+                .any(|meta| meta.assigned_by_rule.as_deref() == Some(ASSIGNED_BY_DELEGATION)),
+            "受托人被剔掉时不许写 DELEGATED"
+        );
+        // 受托人（发起人）落 SKIPPED 留痕，且 comment 说明是「代 A 审批被内控剔除」
+        let skipped = finalized
+            .skipped
+            .iter()
+            .find(|candidate| candidate.user_id == fx.initiator)
+            .expect("被内控剔掉的受托人必须有 SKIPPED 留痕");
+        assert_eq!(skipped.name, "P3-04 发起人");
+        let comment = finalized
+            .row_meta
+            .get(&fx.initiator)
+            .and_then(|meta| meta.comment.clone())
+            .unwrap_or_default();
+        assert!(
+            comment.contains("代 P3-04 审批人甲 审批被内控剔除"),
+            "SKIPPED 行的 comment 要说清「本应代谁签」：{comment}"
+        );
+        let delegation = finalized
+            .delegations
+            .iter()
+            .find(|item| item.delegator_id == fx.approver)
+            .expect("委托痕迹");
+        assert!(!delegation.applied, "内控冲突时委托不算生效");
+        assert!(
+            delegation.reason.contains("内控不允许自审"),
+            "痕迹要写清原因：{}",
+            delegation.reason
+        );
+        teardown(&fx).await;
+    }
+
+    /// ⑤ `scope` 限定 biz_type：别的业务类型上不生效（仍派给委托人）。
+    #[tokio::test]
+    async fn delegation_scope_limits_biz_type() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = setup("e").await;
+        add_delegate(fx.approver, fx.delegate, -2, 72, Some("PURCHASE_ORDER")).await;
+        let node = node_of(fx.approver_role, None);
+        let resolution = resolve(
+            db(),
+            &node,
+            &ctx_of(fx.initiator, "P304UT"),
+            &EvalContext::default(),
+        )
+        .await
+        .expect("resolve 不该出 DbError");
+        let finalized = resolution.finalized;
+        assert!(finalized.error.is_none(), "{:?}", finalized.error);
+        assert_eq!(
+            finalized.approvers[0].user_id, fx.approver,
+            "scope 不含本业务类型 → 委托不生效"
+        );
+        assert!(finalized.row_meta.is_empty());
+        teardown(&fx).await;
+    }
+
+    /// ⑤b scope 命中本业务类型（大小写不敏感）→ 生效。
+    #[tokio::test]
+    async fn delegation_scope_matches_case_insensitively() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = setup("f").await;
+        add_delegate(fx.approver, fx.delegate, -2, 72, Some("p304ut")).await;
+        let node = node_of(fx.approver_role, None);
+        let resolution = resolve(
+            db(),
+            &node,
+            &ctx_of(fx.initiator, "P304UT"),
+            &EvalContext::default(),
+        )
+        .await
+        .expect("resolve 不该出 DbError");
+        let finalized = resolution.finalized;
+        assert_eq!(
+            finalized.approvers[0].user_id, fx.delegate,
+            "scope 大小写不该影响生效（人是手输的）"
+        );
+        teardown(&fx).await;
+    }
+
+    /// 只走 1 跳：A→B、B→C 同时生效时，落到 B 就停（不递归），并留 warning 痕迹。
+    #[tokio::test]
+    async fn delegation_chain_stops_after_one_hop() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = setup("g").await;
+        add_delegate(fx.approver, fx.delegate, -2, 72, None).await;
+        // B 自己也把票委托给 C（C 就用兜底人那个账号，避免再造一套夹具）
+        add_delegate(fx.delegate, fx.fallback, -2, 72, None).await;
+        let node = node_of(fx.approver_role, None);
+        let resolution = resolve(
+            db(),
+            &node,
+            &ctx_of(fx.initiator, "P304UT"),
+            &EvalContext::default(),
+        )
+        .await
+        .expect("resolve 不该出 DbError");
+        let finalized = resolution.finalized;
+        assert_eq!(
+            finalized.approvers[0].user_id, fx.delegate,
+            "只走 1 跳：停在 B，不许递归到 C"
+        );
+        assert!(
+            finalized.notes.iter().any(|note| note.contains("1 跳原则")),
+            "必须留下「没递归」的痕迹：{:?}",
+            finalized.notes
+        );
+        teardown(&fx).await;
+    }
+
+    /// 受托人已停用 → 委托不生效，仍派给委托人（旁路优化坏掉时退回原行为）。
+    #[tokio::test]
+    async fn stopped_delegate_keeps_delegator() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = setup("h").await;
+        add_delegate(fx.approver, fx.delegate, -2, 72, None).await;
+        exec(&format!(
+            "UPDATE sys_user SET status = 0 WHERE id = '{0}'::uuid",
+            fx.delegate
+        ))
+        .await;
+        let node = node_of(fx.approver_role, None);
+        let resolution = resolve(
+            db(),
+            &node,
+            &ctx_of(fx.initiator, "P304UT"),
+            &EvalContext::default(),
+        )
+        .await
+        .expect("resolve 不该出 DbError");
+        let finalized = resolution.finalized;
+        assert_eq!(
+            finalized.approvers[0].user_id, fx.approver,
+            "受托人停用 → 回落到委托人"
+        );
+        let delegation = finalized
+            .delegations
+            .iter()
+            .find(|item| item.delegator_id == fx.approver)
+            .expect("痕迹");
+        assert!(!delegation.applied);
+        assert!(
+            delegation.reason.contains("已停用"),
+            "{}",
+            delegation.reason
+        );
         teardown(&fx).await;
     }
 }

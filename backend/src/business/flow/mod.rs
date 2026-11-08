@@ -60,6 +60,8 @@
 
 pub mod assignee;
 pub mod batch;
+pub mod delegate;
+pub mod delegate_handler;
 pub mod dto;
 pub mod edge_admin;
 #[cfg(test)]

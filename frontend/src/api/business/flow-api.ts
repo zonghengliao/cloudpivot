@@ -1260,3 +1260,116 @@ export interface TaskPreviewRes {
 export function previewTaskNode(body: TaskPreviewReq): Promise<TaskPreviewRes> {
   return post<TaskPreviewRes>('/api/business/flow/node/task/preview', body);
 }
+
+// ==================== 审批委托（P3-04 · ARCH-8 场景 E） ====================
+//
+// 出差 / 休假时把自己的审批权临时让给同事。**不加第二套「代办」概念**：
+// 生效后待办仍是 `biz_flow_task` 的一行，只是 `assigned_by_rule='DELEGATED'`
+// 且 `comment='代 A 审批（委托至 YYYY-MM-DD）'`（待办列表 / 时间线直接可读）。
+
+/** 一行委托（后端 `dto::DelegateRes`） */
+export interface FlowDelegate {
+  /** 主键 */
+  id: string;
+  /** 委托人 id */
+  delegator_id: string;
+  /** 委托人姓名（已删 → 空串） */
+  delegator_name: string;
+  /** 受托人 id */
+  delegate_id: string;
+  /** 受托人姓名（已删 → 空串） */
+  delegate_name: string;
+  /** 生效起点（RFC3339） */
+  start_at: string;
+  /** 生效终点 */
+  end_at: string;
+  /** 生效范围：空串 = 全部业务，否则是 `biz_type` */
+  scope: string;
+  /** 事由 */
+  reason: string;
+  /** 启用开关 */
+  enabled: boolean;
+  /** 此刻是否真的在生效（`enabled && start <= now <= end`） */
+  is_active_now: boolean;
+  /** 创建时间 */
+  created_at: string;
+  /** 更新时间 */
+  updated_at: string;
+}
+
+/** 委托分页查询参数 */
+export interface FlowDelegatePageQuery {
+  /** 委托人 id；`all` = 全部（需 `business:flow:admin`）；缺省 = 自己 */
+  delegator_id?: string;
+  /** 视角：`mine`（默认）/ `all` */
+  view?: 'mine' | 'all';
+  /** 只看此刻生效的 */
+  only_active?: boolean;
+  /** 只看启用中的（默认含已停用，方便重新启用） */
+  only_enabled?: boolean;
+  /** 页码 */
+  page?: number;
+  /** 页大小 */
+  page_size?: number;
+}
+
+/** 新建 / 修改委托的请求体（时间三种形态都吃：RFC3339 / `YYYY-MM-DD HH:mm` / `YYYY-MM-DD`） */
+export interface FlowDelegateSaveReq {
+  /** 委托人：缺省 = 当前登录人；替他人配置需 `business:flow:admin` */
+  delegator_id?: string;
+  /** 受托人（必填，`PUT` 时也是必填 —— 全量覆盖） */
+  delegate_id: string;
+  /** 生效起点 */
+  start_at: string;
+  /** 生效终点 */
+  end_at: string;
+  /** 生效范围：留空 = 全部业务 */
+  scope?: string;
+  /** 事由 */
+  reason?: string;
+  /** 启用 / 停用（新建缺省 true；修改不传 = 保持原值） */
+  enabled?: boolean;
+}
+
+/**
+ * 委托分页（`GET /business/flow/delegate/page`，权限 `business:flow:delegate:list`）。
+ *
+ * # 异常情况
+ * - `403 + 65004`：看别人的委托但没有 `business:flow:admin`
+ * - `400 + 65005`：`delegator_id` 既不是 UUID 也不是 `all`
+ */
+export function pageFlowDelegates(
+  query: FlowDelegatePageQuery = {},
+): Promise<PageData<FlowDelegate>> {
+  return get<PageData<FlowDelegate>>('/api/business/flow/delegate/page', asParams(query));
+}
+
+/**
+ * 新建委托（`POST /business/flow/delegate`，权限 `business:flow:delegate:save`）。
+ *
+ * # 异常情况
+ * - `422 + 65043`：自委托 / 区间非法 / 与本人已有委托区间重叠
+ * - `400 + 65005`：字段非法 / 受托人不存在、已停用或机器人
+ * - `403 + 65004`：替他人配置但没有 `business:flow:admin`
+ */
+export function createFlowDelegate(body: FlowDelegateSaveReq): Promise<FlowDelegate> {
+  return post<FlowDelegate>('/api/business/flow/delegate', body);
+}
+
+/**
+ * 修改 / 停用委托（`PUT /business/flow/delegate/{id}`，权限 `business:flow:delegate:save`）。
+ *
+ * **全量覆盖**：`delegate_id` / `start_at` / `end_at` 每次都必传；
+ * 停用就是 `enabled: false`（保留配置与历史，随时可再启用）。
+ */
+export function updateFlowDelegate(
+  id: string,
+  body: FlowDelegateSaveReq,
+): Promise<FlowDelegate> {
+  return put<FlowDelegate>(`/api/business/flow/delegate/${id}`, body);
+}
+
+/** 软删委托（`DELETE /business/flow/delegate/{id}`，权限 `business:flow:delegate:delete`）。 */
+export function deleteFlowDelegate(id: string): Promise<FlowDelegate> {
+  return del<FlowDelegate>(`/api/business/flow/delegate/${id}`);
+}

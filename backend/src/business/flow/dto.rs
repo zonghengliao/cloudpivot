@@ -1979,6 +1979,130 @@ pub struct BatchRes {
     pub items: Vec<BatchItemRes>,
 }
 
+// ==================== 审批委托（P3-04 / ARCH-8 场景 E） ====================
+
+/// 委托分页查询（`GET /business/flow/delegate/page`）。
+///
+/// # 视角
+///
+/// - `delegator_id` 缺省 = **只看自己**（「我的委托」页的默认语义）；
+/// - `delegator_id = all` / `view=all` = 看全部（需要 `business:flow:admin`，
+///   否则 403 —— 「谁把票委托给了谁」是组织级信息，不是人人可见）。
+#[derive(Debug, Clone, Deserialize)]
+pub struct DelegatePageQuery {
+    /// 委托人 id；`all` = 全部（管理员）。
+    pub delegator_id: Option<String>,
+    /// 视角：`mine`（默认）/ `all`（等价于 `delegator_id=all`）。
+    pub view: Option<String>,
+    /// 只看**此刻生效**的（默认 `false` = 含未开始 / 已过期，方便查历史）。
+    pub only_active: Option<bool>,
+    /// 只看启用中的（默认 `false` = 含已停用，前端要能重新启用）。
+    pub only_enabled: Option<bool>,
+    /// 页码（框架 `normalize_page` 归一化）。
+    pub page: Option<u64>,
+    /// 页大小。
+    pub page_size: Option<u64>,
+}
+
+impl DelegatePageQuery {
+    /// 是否请求「全部人」视角。
+    pub fn wants_all(&self) -> bool {
+        if let Some(view) = self.view.as_deref()
+            && view.trim().eq_ignore_ascii_case("all")
+        {
+            return true;
+        }
+        self.delegator_id
+            .as_deref()
+            .map(|raw| raw.trim().eq_ignore_ascii_case("all"))
+            .unwrap_or(false)
+    }
+}
+
+/// 一行委托（列表 / 详情共用）。
+#[derive(Debug, Clone, Serialize)]
+pub struct DelegateRes {
+    /// 主键。
+    pub id: String,
+    /// 委托人 id。
+    pub delegator_id: String,
+    /// 委托人姓名（已删 → 空串）。
+    pub delegator_name: String,
+    /// 受托人 id。
+    pub delegate_id: String,
+    /// 受托人姓名（已删 → 空串）。
+    pub delegate_name: String,
+    /// 生效起点（RFC3339）。
+    pub start_at: chrono::DateTime<chrono::Utc>,
+    /// 生效终点。
+    pub end_at: chrono::DateTime<chrono::Utc>,
+    /// 生效范围（空串 = 全部业务；否则是 `biz_type`）。
+    pub scope: String,
+    /// 事由。
+    pub reason: String,
+    /// 启用开关。
+    pub enabled: bool,
+    /// 此刻是否真的在生效（`enabled && start_at <= now <= end_at`）——前端标「生效中」。
+    pub is_active_now: bool,
+    /// 创建时间。
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    /// 更新时间。
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// 委托分页回执。
+#[derive(Debug, Clone, Serialize)]
+pub struct DelegatePageRes {
+    /// 当前页。
+    pub list: Vec<DelegateRes>,
+    /// 总数。
+    pub total: i64,
+    /// 页码。
+    pub page: i64,
+    /// 页大小。
+    pub page_size: i64,
+}
+
+/// 新建委托（`POST /business/flow/delegate`）。
+///
+/// 时间三种形态都吃（见 `delegate::parse_time`）：RFC3339 / `YYYY-MM-DD HH:MM[:SS]` / `YYYY-MM-DD`。
+#[derive(Debug, Clone, Deserialize)]
+pub struct DelegateCreateReq {
+    /// 委托人：缺省 = 当前登录人；指定他人需要 `business:flow:admin`。
+    pub delegator_id: Option<String>,
+    /// 受托人（必填）。
+    pub delegate_id: String,
+    /// 生效起点。
+    pub start_at: String,
+    /// 生效终点。
+    pub end_at: String,
+    /// 生效范围：空 / 缺省 = 全部业务；否则业务类型编码（如 `PURCHASE_ORDER`）。
+    pub scope: Option<String>,
+    /// 事由（出差 / 休假 …）。
+    pub reason: Option<String>,
+    /// 是否启用（缺省 `true`）。
+    pub enabled: Option<bool>,
+}
+
+/// 修改 / 停用委托（`PUT /business/flow/delegate/{id}`）。
+///
+/// 全量覆盖式（前端表单总是提交整份）；`delegator_id` 不可改 —— 委托人是这行的归属。
+#[derive(Debug, Clone, Deserialize)]
+pub struct DelegateUpdateReq {
+    /// 受托人（必填）。
+    pub delegate_id: String,
+    /// 生效起点。
+    pub start_at: String,
+    /// 生效终点。
+    pub end_at: String,
+    /// 生效范围。
+    pub scope: Option<String>,
+    /// 事由。
+    pub reason: Option<String>,
+    /// 启用 / 停用（不传 = 保持原值）。
+    pub enabled: Option<bool>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -359,6 +359,16 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '审批详情', permission: 'business:flow:instance:read' },
       },
       {
+        // 审批委托（P3-04 / ARCH-8 场景 E）：出差 / 休假时把审批权临时让给同事。
+        // `sys_menu.path`（V0336 种 …1240）是 `/flow/delegate`，component
+        // `business/flow/delegate/index` —— 两处逐字一致（`system::menu::tests::n08`
+        // 会拿 menu_type=2 的 path 来前端路由里解析，写歪直接红）。
+        path: 'flow/delegate',
+        name: 'BusinessFlowDelegate',
+        component: () => import('@/views/business/flow/delegate/index.vue'),
+        meta: { title: '审批委托', permission: 'business:flow:delegate:list' },
+      },
+      {
         // ==================== ERP 主数据（W4a · 仓库 / 库位） ====================
         // `sys_menu.path`（V0141 种子 …0941）是 `/business/erp/warehouse`，component
         // `business/erp/warehouse/index`。路由是**手工注册**的（没有 views 自动扫描），

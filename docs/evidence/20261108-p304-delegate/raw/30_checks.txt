@@ -1,0 +1,81 @@
+================ P3-04 交付门禁 ================
+
+--- ① cargo fmt（-p cloudpivot，含 --check）
+  ✅ cargo fmt 干净（无待格式化文件）
+
+--- ② cargo clippy --lib -D warnings
+  clippy 原文（末 20 行）：
+        Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    error: this function has too many arguments (8/7)
+       --> src/business/erp/sales_order_model.rs:699:1
+        |
+    699 | / pub async fn update_order(
+    700 | |     ex: &impl SqlExecutor,
+    701 | |     id: Uuid,
+    702 | |     new: &NewSalesOrder<'_>,
+    ...   |
+    707 | |     now: DateTime<Utc>,
+    708 | | ) -> DbResult<u64> {
+        | |__________________^
+        |
+        = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#too_many_arguments
+        = note: `-D clippy::too-many-arguments` implied by `-D warnings`
+        = help: to override `-D warnings` add `#[allow(clippy::too_many_arguments)]`
+    
+    error: could not compile `cloudpivot` (lib) due to 1 previous error
+  error 条数=1，其中提到 erp/sales_order_model.rs 的行数=1
+  ✅ 仅有既有基线 error（erp/sales_order_model too_many_arguments，本卡未动该文件）
+
+--- ③ 本卡单测（真库）
+  test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 3435 filtered out; finished in 5.31s
+  ✅ delegate:: 用例全绿 = 0
+  ✅ assignee::delegation_db_tests 全绿 = 0
+  ✅ 本卡单测通过数 = 19
+  ✅ 没有 SKIP 的假绿 = 0
+
+--- ④ pnpm typecheck
+  ✅ vue-tsc --noEmit exit = 0
+
+--- ⑤ 闸⑥ 死权限码（perm_menu_gate.py）
+  ✅ perm_menu_gate exit = 0
+  missing_in_menu = 0
+  ✅ 委托码 business:flow:delegate:list 不在 missing / unused 任一档（有注解 + 有菜单承载）
+  ✅ 委托码 business:flow:delegate:save 不在 missing / unused 任一档（有注解 + 有菜单承载）
+  ✅ 委托码 business:flow:delegate:delete 不在 missing / unused 任一档（有注解 + 有菜单承载）
+  ✅ 三个委托码在库里都有承载菜单（真库复核） = 3
+
+--- ⑥ 越界检查：system/ 与 support/ 未动；本卡在 business/ 下只碰 flow/
+  ✅ system/ + support/ 改动文件数 = 0
+  本卡 business+shared 改动文件数 = 8（全部应在 flow/ 或 error_code.rs）
+  （提示）工作区里其它模块的未提交改动 = 11 个 —— 属于并行卡片，本卡不提交
+
+--- 本卡改动清单（git status --porcelain）
+   M backend/src/business/erp/asset_compute.rs
+   M backend/src/business/erp/asset_handler.rs
+   M backend/src/business/erp/asset_linkage.rs
+   M backend/src/business/erp/asset_model.rs
+   M backend/src/business/erp/currency_admin_model.rs
+   M backend/src/business/erp/dto.rs
+   M backend/src/business/erp/invoice.rs
+   M backend/src/business/erp/opening.rs
+   M backend/src/business/erp/report.rs
+   M backend/src/business/erp/transfer_handler_common.rs
+   M backend/src/business/erp/transfer_handler_db_tests_settle.rs
+   M backend/src/business/flow/assignee.rs
+   M backend/src/business/flow/dto.rs
+   M backend/src/business/flow/engine.rs
+   M backend/src/business/flow/internal_control.rs
+   M backend/src/business/flow/mod.rs
+   M backend/src/shared/error_code.rs
+   M frontend/src/api/business/flow-api.ts
+   M frontend/src/constants/permissions.ts
+   M frontend/src/router/index.ts
+   M frontend/src/views/business/flow/task/index.vue
+  ?? backend/migrations/business/V0336__flow_delegate.down.sql
+  ?? backend/migrations/business/V0336__flow_delegate.up.sql
+  ?? backend/src/business/flow/delegate.rs
+  ?? backend/src/business/flow/delegate_handler.rs
+  ?? docs/evidence/20261108-p304-delegate/
+  ?? frontend/src/views/business/flow/delegate/
+
+===== 结果：PASS=13 FAIL=0 =====

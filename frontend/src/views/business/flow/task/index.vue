@@ -456,12 +456,23 @@ function waitedText(ms: number): string {
 /** 待办 / 已办卡片（`TaskRes` → 卡片；字段全部来自后端，不做前端补全） */
 function taskToCard(task: FlowTaskItem): CardItem {
   const tags: string[] = [];
+  // P3-04：委托派下来的票排在最前 —— 「我在替谁审批」必须一眼看见
+  // （后端在 `biz_flow_task.comment` 写的就是「代 张三 审批（委托至 2026-11-11）」）
+  if (task.assigned_by_rule === 'DELEGATED') {
+    tags.push(task.comment || '代他人审批');
+  }
   if (task.is_added_sign) {
     tags.push('加签');
   }
   if (task.task_kind === 'RESUBMIT') {
     tags.push('重新提交');
   }
+  const tagTheme: CardItem['tagTheme'] =
+    task.assigned_by_rule === 'DELEGATED'
+      ? 'primary'
+      : task.task_kind === 'RESUBMIT'
+        ? 'warning'
+        : 'default';
   return {
     id: task.id,
     instanceId: task.instance_id,
@@ -481,7 +492,7 @@ function taskToCard(task: FlowTaskItem): CardItem {
     // 摘要数据随列表一起下发（`TaskRes.form_data`，`{}` = 无表单）；不再逐单查详情
     formData: task.form_data,
     tag: tags[0],
-    tagTheme: task.task_kind === 'RESUBMIT' ? 'warning' : 'default',
+    tagTheme,
   };
 }
 
