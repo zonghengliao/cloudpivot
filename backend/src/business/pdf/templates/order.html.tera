@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>{{ doc_kind_label }} {{ doc_no }}</title>
+<style>
+/* ===========================================================================
+   云枢 ERP 单据模板：采购订单 / 销售订单（PDF-02）
+   ---------------------------------------------------------------------------
+   本文件由 PDF-01 的对账单模板（statement.html.tera）派生：**只改 .sheet 内部
+   结构**，下面四条打印约束一个字都没动（缺一条就会踩坑）：
+
+     ① @page 定死纸张与外边距 —— 不写会按 Chromium 默认 Letter 出纸；
+     ② thead { display: table-header-group } —— 跨页时表头自动重复（验收②）；
+     ③ tr / .no-break { break-inside: avoid } —— 单行 / 合计行 / 签字栏不被腰斩；
+     ④ .num { font-variant-numeric: tabular-nums } —— 金额数字等宽 + 右对齐，
+        小数点逐位对齐。
+
+   页码（「第 X 页 / 共 Y 页」）**不在本文件里**：`@page` 计数器在 Chromium 下
+   不生效，HTML 里也拿不到总页数。页码由调用方通过 CDP 的 footerTemplate 输出
+   （`pdf::template::order_footer`，用到 `.pageNumber` / `.totalPages` 两个
+   Chromium 内建类），这样每一页都会印、且总页数是真实页数。
+
+   字体族：必须首选 glyf(TrueType) 的静态 Noto Sans SC（见 PDF-01 证据：
+   用 NotoSansCJK-*.ttc 时 Chromium 会退化成 Type3 字体，体积大 24 倍）。
+   =========================================================================== */
+@page {
+  size: A4 portrait;
+  margin: 12mm 10mm 16mm 10mm;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Noto Sans SC", "Noto Sans CJK SC", sans-serif;
+  font-size: 10pt;
+  line-height: 1.4;
+  color: #1f2329;
+  word-break: break-word;
+}
+
+/* ---------- 页眉（第 1 页顶部：公司名 + 单据标题） ---------- */
+.sheet-header {
+  border-bottom: 1.5pt solid #1f2329;
+  padding-bottom: 4pt;
+  margin-bottom: 8pt;
+}
+.sheet-header .company {
+  font-size: 12.5pt;
+  font-weight: 700;
+  letter-spacing: 1pt;
+}
+.sheet-header .doc-title {
+  font-size: 17pt;
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: 8pt;
+  margin: 4pt 0 6pt;
+}
+
+/* ---------- 单据头（单号 / 日期 / 状态 / 供应商(客户) / 仓库 / 经办人） ---------- */
+table.head-fields {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9.5pt;
+  margin-bottom: 8pt;
+}
+table.head-fields td {
+  border: 0.5pt solid #c9cdd4;
+  padding: 3pt 5pt;
+  vertical-align: middle;
+}
+table.head-fields td.label {
+  width: 62pt;
+  background: #f2f3f5;
+  color: #4e5969;
+  text-align: center;
+  white-space: nowrap;
+}
+table.head-fields td.value { width: auto; }
+
+/* ---------- 明细表 ---------- */
+table.detail {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9pt;
+}
+table.detail thead {
+  /* ② 跨页重复表头 */
+  display: table-header-group;
+}
+table.detail th,
+table.detail td {
+  border: 0.5pt solid #86909c;
+  padding: 2.4pt 3.5pt;
+  vertical-align: middle;
+}
+table.detail th {
+  background: #f2f3f5;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+}
+table.detail tr {
+  /* ③ 单行不跨页断裂 */
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+table.detail td.c-seq { text-align: center; width: 26pt; }
+table.detail td.c-code { width: 62pt; }
+table.detail td.c-name { width: auto; }
+table.detail td.c-spec { width: 62pt; }
+table.detail td.c-unit { text-align: center; width: 30pt; }
+table.detail td.c-qty { width: 44pt; }
+table.detail td.c-price { width: 58pt; }
+table.detail td.c-amount { width: 70pt; }
+table.detail td.c-remark { width: 56pt; color: #4e5969; }
+table.detail td.c-code,
+table.detail td.c-name,
+table.detail td.c-spec,
+table.detail td.c-remark {
+  overflow-wrap: anywhere;
+}
+
+/* 金额 / 数量：等宽数字 + 右对齐（等宽必须配右对齐，否则末位不齐） */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ---------- 合计区（整块不跨页） ---------- */
+.summary {
+  break-inside: avoid;
+  page-break-inside: avoid;
+  margin-top: 8pt;
+}
+.summary table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9.5pt;
+}
+.summary table td {
+  border: 0.5pt solid #86909c;
+  padding: 3pt 5pt;
+}
+.summary .label {
+  width: 72pt;
+  text-align: center;
+  background: #f2f3f5;
+  font-weight: 700;
+}
+.summary .value-cn { font-weight: 700; letter-spacing: 0.3pt; }
+
+/* ---------- 签字栏（5 个空白手签位，整块不跨页） ---------- */
+.sign {
+  break-inside: avoid;
+  page-break-inside: avoid;
+  margin-top: 12pt;
+  display: flex;
+  justify-content: space-between;
+  gap: 8pt;
+  font-size: 9pt;
+}
+.sign .box { flex: 1 1 0; }
+.sign .cap { color: #4e5969; white-space: nowrap; }
+.sign .line { margin-top: 16pt; border-bottom: 0.5pt solid #4e5969; height: 1pt; }
+.sign .date { margin-top: 3pt; color: #86909c; font-size: 8.5pt; }
+
+.remark {
+  margin-top: 9pt;
+  font-size: 8.8pt;
+  color: #4e5969;
+  line-height: 1.6;
+}
+.remark .tag { font-weight: 700; color: #1f2329; }
+
+.footnote {
+  margin-top: 5pt;
+  font-size: 7.5pt;
+  color: #86909c;
+  text-align: right;
+}
+</style>
+</head>
+<body>
+<div class="sheet-header">
+  <div class="company">{{ company }}</div>
+  <div class="doc-title">{{ doc_title }}</div>
+</div>
+
+<table class="head-fields">
+{% for row in meta_rows %}
+  <tr>
+{% for field in row %}
+    <td class="label">{{ field.label }}</td>
+    <td class="value">{{ field.value }}</td>
+{% endfor %}
+  </tr>
+{% endfor %}
+</table>
+
+<table class="detail">
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>物料编码</th>
+      <th>物料名称</th>
+      <th>规格</th>
+      <th>单位</th>
+      <th>数量</th>
+      <th>单价</th>
+      <th>金额</th>
+      <th>备注</th>
+    </tr>
+  </thead>
+  <tbody>
+{% for item in items %}
+    <tr>
+      <td class="c-seq">{{ item.seq }}</td>
+      <td class="c-code">{{ item.material_code }}</td>
+      <td class="c-name">{{ item.material_name }}</td>
+      <td class="c-spec">{{ item.spec }}</td>
+      <td class="c-unit">{{ item.unit }}</td>
+      <td class="c-qty num">{{ item.qty }}</td>
+      <td class="c-price num">{{ item.price }}</td>
+      <td class="c-amount num">{{ item.amount }}</td>
+      <td class="c-remark">{{ item.remark }}</td>
+    </tr>
+{% endfor %}
+  </tbody>
+</table>
+
+<div class="summary">
+  <table>
+    <tr>
+      <td class="label">行数合计</td>
+      <td class="num" style="width:56pt">{{ row_count }}</td>
+      <td class="label">数量合计</td>
+      <td class="num" style="width:78pt">{{ total_qty }}</td>
+      <td class="label">金额合计（{{ currency }}）</td>
+      <td class="num" style="width:96pt">{{ total_amount }}</td>
+    </tr>
+    <tr>
+      <td class="label">税额</td>
+      <td class="num">{{ total_tax }}</td>
+      <td class="label">价税合计</td>
+      <td class="num value-cn">{{ total_with_tax }}</td>
+      <td class="label">币种</td>
+      <td class="num">{{ currency }}</td>
+    </tr>
+    <tr>
+      <td class="label">价税合计（大写）</td>
+      <td colspan="5" class="value-cn">{{ currency_cn }}{{ total_with_tax_cn }}（{{ currency_symbol }}{{ total_with_tax }}）</td>
+    </tr>
+  </table>
+</div>
+
+<div class="sign">
+  <div class="box">
+    <div class="cap">制单：</div>
+    <div class="line"></div>
+    <div class="date">日期：__________</div>
+  </div>
+  <div class="box">
+    <div class="cap">审核：</div>
+    <div class="line"></div>
+    <div class="date">日期：__________</div>
+  </div>
+  <div class="box">
+    <div class="cap">批准：</div>
+    <div class="line"></div>
+    <div class="date">日期：__________</div>
+  </div>
+  <div class="box">
+    <div class="cap">仓管：</div>
+    <div class="line"></div>
+    <div class="date">日期：__________</div>
+  </div>
+  <div class="box">
+    <div class="cap">客户签收：</div>
+    <div class="line"></div>
+    <div class="date">日期：__________</div>
+  </div>
+</div>
+
+{% if remark %}
+<div class="remark"><span class="tag">备注：</span>{{ remark }}</div>
+{% endif %}
+
+<div class="footnote">打印时间：{{ printed_at }}　本单据由云枢系统生成（{{ engine }}）</div>
+</body>
+</html>

@@ -208,7 +208,15 @@ async fn render_html(req: PdfRenderReq) -> std::result::Result<Response, ApiErro
 ///
 /// - 500 [`error_code::INTERNAL_ERROR`]：字节不是 PDF（说明渲染链路出了问题，
 ///   宁可报错也不要给前端一个打不开的文件）。
-fn pdf_response(bytes: &[u8], filename: Option<&str>) -> std::result::Result<Response, ApiError> {
+///
+/// # 为什么是 `pub`
+///
+/// PDF-02 起的单据导出（`erp::order_pdf`）复用这一份响应组装：四个头
+/// （type / length / disposition / no-store）与 `%PDF-` 校验只写一遍。
+pub fn pdf_response(
+    bytes: &[u8],
+    filename: Option<&str>,
+) -> std::result::Result<Response, ApiError> {
     if !is_pdf(bytes) {
         return Err(ApiError::new(
             500,

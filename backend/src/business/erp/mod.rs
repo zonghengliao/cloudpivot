@@ -183,6 +183,10 @@ pub mod invoice;
 pub mod ledger;
 pub mod model;
 pub mod opening;
+/// 采购订单 / 销售订单 PDF 导出（PDF-02）：两个 GET 接口 + 模板上下文组装。
+pub mod order_pdf;
+/// PDF 导出的数据访问层（PDF-02）：物料 / 单位 / 用户批量补名 + 导出审计。
+pub mod order_pdf_model;
 pub mod payable;
 pub mod payable_aging;
 pub mod payable_bridge;
