@@ -18,10 +18,13 @@
           <template #icon><t-icon name="download" /></template>
           导出 Excel
         </t-button>
-        <t-button variant="outline" :disabled="!sheet" data-testid="cf-export-pdf" @click="handleExportPdf">
-          <template #icon><t-icon name="download" /></template>
-          导出 PDF
-        </t-button>
+        <DocPdfButton
+          size="medium"
+          :disabled="!sheet"
+          :path="`/api/business/erp/report/cash-flow/pdf?period=${encodeURIComponent(sheet?.period ?? '')}`"
+          :filename="`现金流量表_${sheet?.period ?? ''}.pdf`"
+          testid="cf-export-pdf"
+        />
         <span v-if="periodHint" class="tool-row__hint" data-testid="cf-period-hint">{{ periodHint }}</span>
       </div>
 
@@ -201,7 +204,6 @@ import { MessagePlugin } from 'tdesign-vue-next';
 
 import {
   exportCashFlow,
-  exportReportPdf,
   fetchCashFlow,
   fetchPeriodPage,
   type AccountPeriodRow,
@@ -209,6 +211,7 @@ import {
   type CashFlowSection,
 } from '@/api/business/erp';
 import { saveBlob } from '@/utils/download';
+import DocPdfButton from '@/components/DocPdfButton.vue';
 
 const period = ref('');
 const periodOptions = ref<{ label: string; value: string }[]>([]);
@@ -363,17 +366,7 @@ async function handleExport() {
   }
 }
 
-/** 导出 PDF（PDF-07：三大活动分节 + 本期/本年累计 + 勾稽货币资金） */
-async function handleExportPdf() {
-  if (!sheet.value) return;
-  try {
-    const blob = await exportReportPdf('cash-flow', sheet.value.period);
-    saveBlob(blob, `现金流量表_${sheet.value.period}.pdf`);
-    MessagePlugin.success('已导出 PDF');
-  } catch (err) {
-    MessagePlugin.error(`导出 PDF 失败：${(err as Error).message ?? err}`);
-  }
-}
+/** 导出 PDF（PDF-07 后端版式；PDF-08 起统一走 DocPdfButton：loading + 403 提示 + 后端中文名） */
 
 onMounted(async () => {
   await loadPeriods();

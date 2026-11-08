@@ -386,6 +386,13 @@
           <t-tag size="small" variant="outline" :theme="typeTheme(detail.out_type)" data-testid="stockout-detail-type">
             {{ detail.out_type_label || outTypeLabel(detail.out_type) }}
           </t-tag>
+          <span class="detail__spacer" />
+          <!-- PDF-08：下载 PDF（出库单） -->
+          <DocPdfButton
+            :path="`/api/business/erp/stock-out/${detail.id}/pdf`"
+            :filename="`出库单-${detail.out_no}.pdf`"
+            testid="stockout-detail-pdf"
+          />
         </div>
 
         <!-- 动作失败（尤其是 409 负库存）：报文原样展示，包含「可用量」 -->
@@ -541,6 +548,7 @@ import {
   type MaterialRow,
   type Warehouse,
 } from '@/api/business/erp';
+import DocPdfButton from '@/components/DocPdfButton.vue';
 import {
   createStockOut,
   deleteStockOut,
@@ -1408,6 +1416,11 @@ onMounted(() => {
   align-items: center;
   gap: 10px;
   margin-bottom: 12px;
+}
+
+/* PDF-08：把「下载 PDF」推到右上角（左侧标签保持左对齐） */
+.detail__spacer {
+  margin-left: auto;
 }
 
 .detail__no {

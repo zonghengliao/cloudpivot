@@ -638,6 +638,12 @@
             <template #icon><t-icon name="delete" /></template>
             作废
           </t-button>
+          <!-- PDF-08：下载 PDF（带 token 取 blob，文件名用后端 Content-Disposition 的中文名） -->
+          <DocPdfButton
+            :path="`/api/business/erp/purchase-order/${detail.id}/pdf`"
+            :filename="`采购订单-${detail.order_no}.pdf`"
+            testid="purchase-detail-pdf"
+          />
         </DocActionBar>
         <div class="detail__head">
           <span class="detail__no mono">{{ detail.order_no }}</span>
@@ -926,6 +932,7 @@ import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
 import DocTaskPanel from '@/views/business/task/components/DocTaskPanel.vue';
 import DocActionBar from '@/views/business/erp/shared/DocActionBar.vue';
+import DocPdfButton from '@/components/DocPdfButton.vue';
 import CancelImpactDialog from '@/views/business/erp/shared/CancelImpactDialog.vue';
 import {
   APPROVAL_PROGRESS_TITLE,

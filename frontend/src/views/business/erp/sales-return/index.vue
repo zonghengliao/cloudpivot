@@ -446,6 +446,12 @@
           <t-button variant="outline" size="small" data-testid="btn-return-drawer-close" @click="detailVisible = false">
             关闭
           </t-button>
+          <!-- PDF-08：下载 PDF（销售退货单） -->
+          <DocPdfButton
+            :path="`/api/business/erp/sales-return/${detail.id}/pdf`"
+            :filename="`销售退货单-${detail.return_no}.pdf`"
+            testid="return-detail-pdf"
+          />
         </div>
 
         <t-alert
@@ -696,6 +702,7 @@ import {
 } from '@/api/business/erp/sales-return';
 import { getFlowInstance } from '@/api/business/flow-api';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
+import DocPdfButton from '@/components/DocPdfButton.vue';
 import {
   EMPTY_APPROVAL_PROGRESS,
   loadApprovalProgress,

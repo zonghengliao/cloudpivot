@@ -3576,23 +3576,12 @@ export async function exportIncomeStatement(period: string): Promise<Blob> {
   return response.data;
 }
 
-/**
- * 导出利润表 PDF（`GET /erp/report/{type}/pdf`，PDF-07）。
- *
- * 与 xlsx 导出**同一个权限码**（`business:erp:report:export`）、同一份数据，
- * 只是纸面不同：项目 / 本期金额 / 本年累计三列 + 勾稽校验 + 表尾签字。
- * 返回文件字节流，同样必须 `responseType: 'blob'`。
+/*
+ * 报表 PDF 的路径不在这里单独封一个 axios 函数（PDF-08）：三张报表页统一用
+ * `DocPdfButton`（`@/components/DocPdfButton.vue`）直接 fetch 带 token 取 blob ——
+ * 这样 loading / 403 提示 / `Content-Disposition` 中文名 / `revokeObjectURL` 只有一份实现。
+ * 路径口径：`GET /api/business/erp/report/{type}/pdf?period=yyyy-MM`。
  */
-export async function exportReportPdf(
-  type: 'balance-sheet' | 'income-statement' | 'cash-flow',
-  period: string,
-): Promise<Blob> {
-  const response = await service.get<Blob>(`${BASE}/report/${type}/pdf`, {
-    params: asParams({ period }),
-    responseType: 'blob',
-  });
-  return response.data;
-}
 
 // ==================== 现金流量表（ERP-R3，简化版） ====================
 

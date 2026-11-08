@@ -48,6 +48,12 @@
             </div>
           </div>
           <div class="head__actions">
+            <!-- PDF-08：导出审批单 PDF（带 token 取 blob，后端写 operation_logs） -->
+            <DocPdfButton
+              :path="`/api/business/flow/instance/${detail.instance.id}/pdf`"
+              :filename="`审批单-${detail.instance.instance_no}.pdf`"
+              testid="flow-instance-pdf"
+            />
             <t-button variant="outline" size="small" :loading="loading" @click="loadDetail()">刷新</t-button>
             <!--
               关联业务（卡 t_3e59cb01）：按 biz_type 跳到**对应业务详情**，不再一律跳任务列表。
@@ -358,6 +364,7 @@ import type { FlowProgressNode } from '@/views/business/flow/components/FlowProg
 import StatusBadge from '@/views/business/task/components/StatusBadge.vue';
 import UserSelect from '@/views/business/task/components/UserSelect.vue';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
+import DocPdfButton from '@/components/DocPdfButton.vue';
 import { escalationHint } from '@/views/business/flow/components/flow-progress-tasks';
 import { useBadgeStore } from '@/stores/badge';
 

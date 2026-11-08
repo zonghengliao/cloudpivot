@@ -18,10 +18,13 @@
           <template #icon><t-icon name="download" /></template>
           导出 Excel
         </t-button>
-        <t-button variant="outline" :disabled="!sheet" data-testid="is-export-pdf" @click="handleExportPdf">
-          <template #icon><t-icon name="download" /></template>
-          导出 PDF
-        </t-button>
+        <DocPdfButton
+          size="medium"
+          :disabled="!sheet"
+          :path="`/api/business/erp/report/income-statement/pdf?period=${encodeURIComponent(sheet?.period ?? '')}`"
+          :filename="`利润表_${sheet?.period ?? ''}.pdf`"
+          testid="is-export-pdf"
+        />
         <span v-if="periodHint" class="tool-row__hint" data-testid="is-period-hint">{{ periodHint }}</span>
       </div>
 
@@ -161,13 +164,13 @@ import { MessagePlugin } from 'tdesign-vue-next';
 
 import {
   exportIncomeStatement,
-  exportReportPdf,
   fetchIncomeStatement,
   fetchPeriodPage,
   type AccountPeriodRow,
   type IncomeStatement as IncomeStatementData,
 } from '@/api/business/erp';
 import { saveBlob } from '@/utils/download';
+import DocPdfButton from '@/components/DocPdfButton.vue';
 
 /** 运行时补出来的「未归类损益」行编码（不落库，后端拼出来的） */
 const UNMAPPED_CODE = 'UNMAPPED_PROFIT_LOSS';
@@ -310,17 +313,7 @@ async function handleExport() {
   }
 }
 
-/** 导出 PDF（PDF-07：项目 / 本期金额 / 本年累计 + 勾稽校验 + 表尾签字） */
-async function handleExportPdf() {
-  if (!sheet.value) return;
-  try {
-    const blob = await exportReportPdf('income-statement', sheet.value.period);
-    saveBlob(blob, `利润表_${sheet.value.period}.pdf`);
-    MessagePlugin.success('已导出 PDF');
-  } catch (err) {
-    MessagePlugin.error(`导出 PDF 失败：${(err as Error).message ?? err}`);
-  }
-}
+/** 导出 PDF（PDF-07 后端版式；PDF-08 起统一走 DocPdfButton：loading + 403 提示 + 后端中文名） */
 
 onMounted(async () => {
   await loadPeriods();

@@ -333,6 +333,12 @@
             <template #icon><t-icon name="delete" /></template>
             作废
           </t-button>
+          <!-- PDF-08：下载 PDF（调拨单） -->
+          <DocPdfButton
+            :path="`/api/business/erp/stock-transfer/${detail.id}/pdf`"
+            :filename="`调拨单-${detail.transfer_no}.pdf`"
+            testid="transfer-detail-pdf"
+          />
         </DocActionBar>
         <div class="detail__head">
           <span class="detail__no mono">{{ detail.transfer_no }}</span>
@@ -794,6 +800,7 @@ import {
   type ApprovalProgress,
 } from '@/views/business/erp/shared/approval-progress';
 import DocActionBar from '@/views/business/erp/shared/DocActionBar.vue';
+import DocPdfButton from '@/components/DocPdfButton.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
 import { DOC_KIND } from '@/api/business/erp/doc-kinds';
 import { DEFAULT_ROLE_BY_DOC } from '@/api/business/erp/attachment';

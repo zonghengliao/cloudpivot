@@ -370,6 +370,13 @@
           <span v-if="detail.status === 'DRAFT'" class="detail__hint" data-testid="stocktake-detail-edit-hint">
             草稿：可直接改「实盘数」，改完点右侧「保存实盘数」
           </span>
+          <span class="detail__spacer" />
+          <!-- PDF-08：下载 PDF（盘点单） -->
+          <DocPdfButton
+            :path="`/api/business/erp/stock-take/${detail.id}/pdf`"
+            :filename="`盘点单-${detail.take_no}.pdf`"
+            testid="stocktake-detail-pdf"
+          />
         </div>
 
         <!-- 动作失败：报文原样展示（409 没配流程 / 边不合法都靠它） -->
@@ -697,6 +704,7 @@ import { DOC_KIND } from '@/api/business/erp/doc-kinds';
 import { useUserStore } from '@/stores/user';
 import AttachmentGateHint from '@/views/business/erp/shared/AttachmentGateHint.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
+import DocPdfButton from '@/components/DocPdfButton.vue';
 import { gateButtonTip } from '@/views/business/erp/shared/attachment-gate-pure';
 import { useAttachmentGate } from '@/views/business/erp/shared/use-attachment-gate';
 import {
@@ -1672,6 +1680,11 @@ onMounted(() => {
 .detail__hint {
   font-size: 12px;
   color: var(--td-text-color-placeholder);
+}
+
+/* PDF-08：把「下载 PDF」推到右上角 */
+.detail__spacer {
+  margin-left: auto;
 }
 
 .detail__alert {

@@ -18,10 +18,13 @@
           <template #icon><t-icon name="download" /></template>
           导出 Excel
         </t-button>
-        <t-button variant="outline" :disabled="!sheet" data-testid="bs-export-pdf" @click="handleExportPdf">
-          <template #icon><t-icon name="download" /></template>
-          导出 PDF
-        </t-button>
+        <DocPdfButton
+          size="medium"
+          :disabled="!sheet"
+          :path="`/api/business/erp/report/balance-sheet/pdf?period=${encodeURIComponent(sheet?.period ?? '')}`"
+          :filename="`资产负债表_${sheet?.period ?? ''}.pdf`"
+          testid="bs-export-pdf"
+        />
         <span v-if="periodHint" class="tool-row__hint" data-testid="bs-period-hint">{{ periodHint }}</span>
       </div>
 
@@ -153,7 +156,6 @@ import { MessagePlugin } from 'tdesign-vue-next';
 
 import {
   exportBalanceSheet,
-  exportReportPdf,
   fetchBalanceSheet,
   fetchPeriodPage,
   type AccountPeriodRow,
@@ -161,6 +163,7 @@ import {
   type ReportLine,
 } from '@/api/business/erp';
 import { saveBlob } from '@/utils/download';
+import DocPdfButton from '@/components/DocPdfButton.vue';
 
 /** 区间行：左边资产、右边负债和权益（两端行数不同，短的补空） */
 interface SheetRow {
@@ -348,17 +351,7 @@ async function handleExport() {
   }
 }
 
-/** 导出 PDF（PDF-07：左右两栏 + 期末/期初两列 + 勾稽校验 + 表尾签字） */
-async function handleExportPdf() {
-  if (!sheet.value) return;
-  try {
-    const blob = await exportReportPdf('balance-sheet', sheet.value.period);
-    saveBlob(blob, `资产负债表_${sheet.value.period}.pdf`);
-    MessagePlugin.success('已导出 PDF');
-  } catch (err) {
-    MessagePlugin.error(`导出 PDF 失败：${(err as Error).message ?? err}`);
-  }
-}
+/** 导出 PDF（PDF-07 后端版式；PDF-08 起统一走 DocPdfButton：loading + 403 提示 + 后端中文名） */
 
 onMounted(async () => {
   await loadPeriods();

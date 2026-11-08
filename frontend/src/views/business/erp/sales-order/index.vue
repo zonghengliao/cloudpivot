@@ -527,6 +527,12 @@
           >
             编辑
           </t-button>
+          <!-- PDF-08：下载 PDF -->
+          <DocPdfButton
+            :path="`/api/business/erp/sales-order/${detail.id}/pdf`"
+            :filename="`销售订单-${detail.so_no}.pdf`"
+            testid="so-detail-pdf"
+          />
         </div>
 
         <t-descriptions :column="2" size="small" class="detail-desc" data-testid="so-detail-desc">
@@ -676,6 +682,7 @@ import { getFlowInstance, withdrawFlowInstance } from '@/api/business/flow-api';
 import { quoteRate, fetchCurrencyOptions, type CurrencyOption, type RateQuote } from '@/api/business/erp/currency';
 import { pageUsers, type UserRes } from '@/api/system/user-api';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
+import DocPdfButton from '@/components/DocPdfButton.vue';
 import {
   EMPTY_APPROVAL_PROGRESS,
   approvalFallbackOf,

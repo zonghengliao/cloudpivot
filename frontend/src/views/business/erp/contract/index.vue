@@ -391,6 +391,12 @@
           <t-button size="small" variant="outline" data-testid="btn-contract-detail-close" @click="detailVisible = false">
             关闭
           </t-button>
+          <!-- PDF-08：下载 PDF（合同条款 + 签章位 + 附件清单） -->
+          <DocPdfButton
+            :path="`/api/business/erp/contract/${detail.id}/pdf`"
+            :filename="`合同-${detail.contract_no}.pdf`"
+            testid="contract-detail-pdf"
+          />
         </div>
 
         <div class="detail__grid">
@@ -576,6 +582,7 @@ import { ApiError } from '@/api/request';
 import { DOC_KIND } from '@/api/business/erp/doc-kinds';
 import { DEFAULT_ROLE_BY_DOC } from '@/api/business/erp/attachment';
 import StatusBadge from '@/views/business/task/components/StatusBadge.vue';
+import DocPdfButton from '@/components/DocPdfButton.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
 import { shortId, todayString } from '@/views/business/erp/shared/money';
 import {

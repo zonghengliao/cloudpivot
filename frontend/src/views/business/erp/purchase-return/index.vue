@@ -70,6 +70,14 @@
     <!-- 详情 -->
     <t-drawer v-model:visible="detailVisible" header="采购退货详情" size="900px" :footer="false">
       <template v-if="detail">
+        <!-- PDF-08：下载 PDF（右上角） -->
+        <div class="prt-detail-toolbar">
+          <DocPdfButton
+            :path="`/api/business/erp/purchase-return/${detail.purchase_return.id}/pdf`"
+            :filename="`采购退货单-${detail.purchase_return.return_no}.pdf`"
+            testid="prt-detail-pdf"
+          />
+        </div>
         <t-descriptions :column="3" bordered size="small">
           <t-descriptions-item label="退货单号">{{ detail.purchase_return.return_no }}</t-descriptions-item>
           <t-descriptions-item label="状态">
@@ -242,6 +250,7 @@ import { DOC_KIND } from '@/api/business/erp/doc-kinds';
 import { useUserStore } from '@/stores/user';
 import AttachmentGateHint from '@/views/business/erp/shared/AttachmentGateHint.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
+import DocPdfButton from '@/components/DocPdfButton.vue';
 import { gateButtonTip } from '@/views/business/erp/shared/attachment-gate-pure';
 import { useAttachmentGate } from '@/views/business/erp/shared/use-attachment-gate';
 import {
@@ -638,6 +647,12 @@ onMounted(() => load(1));
 <style scoped>
 .prt-page {
   padding: 16px;
+}
+/* PDF-08：详情抽屉顶部的工具行（下载 PDF 靠右） */
+.prt-detail-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
 }
 .prt-filter {
   margin-bottom: 12px;

@@ -722,6 +722,12 @@
           >
             撤回作废申请
           </t-button>
+          <!-- PDF-08：下载 PDF（收货入库单） -->
+          <DocPdfButton
+            :path="`/api/business/erp/stock-in/${detail.header.id}/pdf`"
+            :filename="`收货入库单-${detail.header.in_no}.pdf`"
+            testid="stockin-detail-pdf"
+          />
         </DocActionBar>
         <div class="detail__head">
           <span class="detail__no mono">{{ detail.header.in_no }}</span>
@@ -912,6 +918,7 @@ import { getFlowInstance } from '@/api/business/flow-api';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
 import DocActionBar from '@/views/business/erp/shared/DocActionBar.vue';
+import DocPdfButton from '@/components/DocPdfButton.vue';
 import {
   EMPTY_APPROVAL_PROGRESS,
   hasApprovalProgress,

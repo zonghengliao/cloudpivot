@@ -58,6 +58,12 @@
                  没有可做的流转 → 整块不出现（不再是「画出来置灰」） -->
             <StatusActions :task="detail" :flow="flowCompletion" @changed="handleStatusChanged" />
             <t-space size="small" class="head__ops">
+              <!-- PDF-08：下载派工单 PDF（带 token 取 blob，后端写 operation_logs） -->
+              <DocPdfButton
+                :path="`/api/business/task/${detail.id}/pdf`"
+                :filename="`派工单-${detail.task_no}.pdf`"
+                testid="task-detail-pdf"
+              />
               <t-button
                 v-privilege="[PERM.taskUpdate]"
                 size="small"
@@ -546,6 +552,7 @@ import MentionSelect from './components/MentionSelect.vue';
 import StatusActions from './components/StatusActions.vue';
 import UserSelect from './components/UserSelect.vue';
 import MarkdownViewer from '@/components/MarkdownViewer.vue';
+import DocPdfButton from '@/components/DocPdfButton.vue';
 import AiWorkspaceFiles from '@/views/business/task/components/AiWorkspaceFiles.vue';
 import { priorityOptions } from '@/constants/status-map';
 import { ApiError } from '@/api/request';
