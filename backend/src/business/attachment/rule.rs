@@ -213,6 +213,101 @@ impl RuleViolation {
         (self.min_count - self.matched).max(0)
     }
 
+    /// **前端按钮旁的一行红字**（ATT-08）：`hint` 与 400 报文同源，只换个说法。
+    ///
+    /// # 为什么由后端拼（而不是前端自己写「缺少 X」）
+    ///
+    /// 三条线必须说同一件事：① 按钮旁红字；② 点 disabled 按钮的 tooltip；
+    /// ③ 绕过前端直接提交时后端返回的 400 报文。前两处在前端画，第三处在后端拦 ——
+    /// 一旦各自拼文案，用户会看到「缺少发票影像」和「发票必须上传发票影像（pdf/ofd/xml）」
+    /// 两种说法，还以为缺的是两样东西。这里统一出短句，前端原样显示。
+    ///
+    /// # 四种形状
+    ///
+    /// - 一个附件都没有：`缺少发票影像（需 pdf/ofd/xml 格式）`（卡面验收①的文案）；
+    /// - 有附件但**格式全不对**：`发票影像格式不符，需要 pdf/ofd/xml（当前 jpg）`（验收③）；
+    /// - 格式对但**数量不够**：`发票影像还差 1 个（需 pdf/ofd/xml 格式，已有 1/2）`；
+    /// - 超过上限：`发票影像最多 2 个（当前 3 个，请先删掉多余的）`。
+    ///
+    /// 不限格式（`allow_exts` 为空）时不写「需 xx 格式」，避免出现「需  格式」这种空括号。
+    pub fn hint(&self) -> String {
+        if let Some(max) = self.max_count
+            && self.total > max
+        {
+            return format!(
+                "{}最多 {max} 个（当前 {} 个，请先删掉多余的）",
+                self.requirement_name(),
+                self.total
+            );
+        }
+        let need_text = match self.allowed_exts.is_empty() {
+            true => String::new(),
+            false => format!("需 {} 格式", self.allowed_exts.join("/")),
+        };
+        // ① 一个都没有（`total` 是规则范围内的附件总数，不含别的角色的）
+        if self.total == 0 {
+            return if need_text.is_empty() {
+                format!(
+                    "缺少{}（至少 {} 个）",
+                    self.requirement_name(),
+                    self.min_count
+                )
+            } else {
+                format!("缺少{}（{need_text}）", self.requirement_name())
+            };
+        }
+        // ② 有附件但格式全不符（`matched == 0`）：把「当前是什么」也说出来
+        if self.matched == 0 && !self.allowed_exts.is_empty() {
+            let actual = if self.actual_exts.is_empty() {
+                "无扩展名".to_string()
+            } else {
+                self.actual_exts.join("/")
+            };
+            return format!(
+                "{}格式不符，需要 {}（当前 {actual}）",
+                self.requirement_name(),
+                self.allowed_exts.join("/")
+            );
+        }
+        // ③ 格式对但数量不够
+        if self.allowed_exts.is_empty() {
+            format!(
+                "{}还差 {} 个（至少 {} 个，当前 {} 个）",
+                self.requirement_name(),
+                self.shortfall(),
+                self.min_count,
+                self.matched
+            )
+        } else {
+            format!(
+                "{}还差 {} 个（需 {} 格式，已有 {}/{}）",
+                self.requirement_name(),
+                self.shortfall(),
+                self.allowed_exts.join("/"),
+                self.matched,
+                self.min_count
+            )
+        }
+    }
+
+    /// 需求名（人话名），从 `requirement`（`{单据}必须上传{人话名}（{格式}）`）里剥出来。
+    ///
+    /// 不复用 `AttachmentRule::requirement_name()` 是因为 [`RuleViolation`] 是「已判定」
+    /// 的结果，不该再回头依赖规则对象 —— 但它必须与 `requirement` 的第一段同源，
+    /// 所以这里**从 `requirement` 反解**（剥掉 `{单据}必须上传` 前缀与格式括号）。
+    /// 单测 `hint_uses_same_name_as_requirement` 钉住两者不会漂。
+    pub fn requirement_name(&self) -> String {
+        let text = self
+            .requirement
+            .split_once("必须上传")
+            .map(|(_, rest)| rest)
+            .unwrap_or(self.requirement.as_str());
+        match text.split_once('（') {
+            Some((name, _)) => name.to_string(),
+            None => text.to_string(),
+        }
+    }
+
     /// 单条违例的人话（多段用中文分号连接）。
     pub fn message(&self) -> String {
         // ① 超上限：多出来的先删（比「缺」更容易让用户自己修好）
@@ -581,9 +676,42 @@ pub async fn assert_attachments(
     doc_id: Uuid,
     at: RequiredAt,
 ) -> std::result::Result<(), AttachRuleError> {
+    let violations = check_attachments(doc_type, doc_id, at).await?;
+    if violations.is_empty() {
+        Ok(())
+    } else {
+        Err(AttachRuleError::Violation(violations))
+    }
+}
+
+/// **查缺口**（ATT-08）：与 [`assert_attachments`] 同一条判定链，但**不报错**，
+/// 把违例原样返回给调用方（前端「按钮旁红字 / tooltip」需要结构化数据）。
+///
+/// # 为什么与闸门共用一条链
+///
+/// 前端提前拦与后端最终拦必须是**同一个判据**：一旦各写一份，就会出现
+/// 「按钮亮了但提交 400」或「按钮灰着但其实能提交」——两种都会被当成 bug 报上来。
+/// 所以 `assert_attachments` 就是本函数的薄包装（`Ok(()) / Err(Violation)`），
+/// 不存在第二条 SQL 路径。
+///
+/// # 返回值
+///
+/// - `Ok(vec![])`：没有启用中的规则，或全部满足（前端据此亮按钮）；
+/// - `Ok(violations)`：有缺口（前端据此禁用按钮 + 红字）；
+/// - `Err(AttachRuleError::Db(..))`：读库 / 求值失败 —— 调用方**不应**把它当成
+///   「可以提交」，但也**不要**因此禁用按钮（见 handler 的降级口径）。
+///
+/// # 异常情况
+///
+/// 数据库异常 / 规则表里出现词表外的值时返回 [`AttachRuleError::Db`]。
+pub async fn check_attachments(
+    doc_type: DocKind,
+    doc_id: Uuid,
+    at: RequiredAt,
+) -> std::result::Result<Vec<RuleViolation>, AttachRuleError> {
     let rules = load_rules(doc_type, at).await?;
     if rules.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
     let facts = attachments_of(doc_type, &doc_id).await?;
     let mut violations = Vec::new();
@@ -596,11 +724,7 @@ pub async fn assert_attachments(
             violations.push(violation);
         }
     }
-    if violations.is_empty() {
-        Ok(())
-    } else {
-        Err(AttachRuleError::Violation(violations))
-    }
+    Ok(violations)
 }
 
 /// handler 用的一行封装：`assert_attachments(..).await` + 转 `ApiError`。
@@ -856,5 +980,87 @@ mod tests {
         let api = AttachRuleError::Db("boom".to_string()).into_api_error();
         assert_eq!(api.status, 500);
         assert!(api.msg.contains("附件必传规则校验失败"));
+    }
+
+    /// ATT-08 卡面验收①：一个附件都没有 → 按钮旁红字逐字文案。
+    #[test]
+    fn hint_without_attachments_is_verbatim() {
+        let violation = evaluate(&rule(Some("pdf,ofd,xml"), 1, None), &[]).expect("必须违例");
+        assert_eq!(violation.hint(), "缺少发票影像（需 pdf/ofd/xml 格式）");
+    }
+
+    /// ATT-08 卡面验收③：传了 jpg → 红字必须说「格式不符，需要 pdf/ofd/xml」。
+    #[test]
+    fn hint_reports_wrong_format() {
+        let facts = [fact("DEFAULT", "jpg")];
+        let violation = evaluate(&rule(Some("pdf,ofd,xml"), 1, None), &facts).expect("必须违例");
+        let hint = violation.hint();
+        assert!(
+            hint.contains("格式不符，需要 pdf/ofd/xml"),
+            "红字必须点名格式不符：{hint}"
+        );
+        assert!(hint.contains("当前 jpg"), "还要说出现有格式：{hint}");
+        assert!(hint.starts_with("发票影像"), "{hint}");
+    }
+
+    /// 格式对但数量不够 / 超上限：两个分支都要有专属说法（不能都退化成「缺少」）。
+    #[test]
+    fn hint_covers_count_bounds() {
+        let facts = [fact("DEFAULT", "pdf")];
+        let violation = evaluate(&rule(Some("pdf"), 2, None), &facts).expect("必须违例");
+        assert_eq!(
+            violation.hint(),
+            "发票影像还差 1 个（需 pdf 格式，已有 1/2）"
+        );
+
+        let facts = [
+            fact("DEFAULT", "pdf"),
+            fact("DEFAULT", "pdf"),
+            fact("DEFAULT", "pdf"),
+        ];
+        let violation = evaluate(&rule(Some("pdf"), 1, Some(2)), &facts).expect("必须违例");
+        assert_eq!(
+            violation.hint(),
+            "发票影像最多 2 个（当前 3 个，请先删掉多余的）"
+        );
+    }
+
+    /// 不限格式时不出现「需  格式」的空括号。
+    #[test]
+    fn hint_without_whitelist_has_no_dangling_parens() {
+        let violation = evaluate(&rule(None, 1, None), &[]).expect("必须违例");
+        assert_eq!(violation.hint(), "缺少发票影像（至少 1 个）");
+        let facts = [fact("DEFAULT", "zip")];
+        let violation = evaluate(&rule(None, 2, None), &facts).expect("必须违例");
+        assert_eq!(
+            violation.hint(),
+            "发票影像还差 1 个（至少 2 个，当前 1 个）"
+        );
+        for hint in [violation.hint()] {
+            assert!(!hint.contains("  "), "不该出现双空格：{hint}");
+        }
+    }
+
+    /// `hint` 里的需求名必须与 `requirement` 第一段同源（剥前缀剥括号不能剥错）。
+    #[test]
+    fn hint_uses_same_name_as_requirement() {
+        let mut bank = rule(Some("pdf,jpg,png"), 1, None);
+        bank.doc_type = DocKind::Payment;
+        bank.required_at = RequiredAt::Activate;
+        bank.remark = Some("银行回单".to_string());
+        let violation = evaluate(&bank, &[]).expect("必须违例");
+        assert_eq!(
+            violation.requirement,
+            "付款单必须上传银行回单（pdf/jpg/png）"
+        );
+        assert_eq!(violation.hint(), "缺少银行回单（需 pdf/jpg/png 格式）");
+
+        // 没有 remark、靠角色中文名时同理
+        let mut role = rule(Some("pdf"), 1, None);
+        role.file_role = Some("BANK_RECEIPT".to_string());
+        role.remark = None;
+        let facts = [fact("DEFAULT", "pdf")];
+        let violation = evaluate(&role, &facts).expect("必须违例（角色不符）");
+        assert_eq!(violation.hint(), "缺少银行回单（需 pdf 格式）");
     }
 }

@@ -9,6 +9,7 @@
 //! | PUT | `/attachment/sort` | `business:attachment:upload` + 单据读码 | 手动排序（ATT-03：提交完整 id 顺序，回读 `manual` 列表） |
 //! | DELETE | `/attachment/{id}` | `business:attachment:list` + 行级 | 软删绑定（上传人 ∪ `business:attachment:delete`） |
 //! | GET | `/attachment/download/{id}` | `business:attachment:list` + 单据读码 | 下载（复用 storage 出流 + 写 `operation_logs`） |
+//! | GET | `/attachment/check` | `business:attachment:list` + 单据读码 | **ATT-08**：本单据在本动作下缺什么附件（`can_proceed` / `missing[].hint`） |
 //!
 //! 「单据读码」= 该类单据所在模块的读权限码（[`model::DocKind::view_permissions`]），
 //! 由 **ATT-02** 补上：附件可见性 = 单据可见性，见 [`dto::can_view_doc`]。
@@ -303,6 +304,78 @@ async fn list_of(
         sort: order.as_str().to_string(),
         roles,
     }))
+}
+
+/// 查「本单据在本动作下缺什么附件」（`GET /business/attachment/check`，**ATT-08**）。
+///
+/// # 用途
+///
+/// 前端在单据详情页加载 / 每次上传或删除附件后调用它，把结果直接映射成三个 UI 事实：
+///
+/// - `can_proceed = false` → 「提交 / 开票 / 确认」按钮 **disabled**；
+/// - `missing[].hint` → 按钮旁**红字**（`缺少发票影像（需 pdf/ofd/xml 格式）`）；
+/// - `missing[].message` → 点 disabled 按钮的 **tooltip**（完整人话，与后端 400 同源）。
+///
+/// 闸门本身仍在各单据的 submit / confirm / activate 分支里
+/// （[`super::rule::ensure_attachments`]）—— 本接口是**提前告知**，不是替代：
+/// 绕过前端直接 curl，后端照样 400（卡面验收④的双保险）。
+///
+/// # 与 `list` 完全同一条准入链
+///
+/// 1. `doc_type` / `doc_id` / `at` 合法性（400）；
+/// 2. **单据读码**（403）—— 能看这张单才谈得上它缺什么附件；
+/// 3. 单据存在性（404）；
+/// 4. 规则表 + 附件事实（`rule::check_attachments`，与闸门同一函数）。
+///
+/// # 读库失败的口径
+///
+/// 规则表读不出来 → **500**（`附件必传规则校验失败：…`）。刻意不返回
+/// `can_proceed = true`：那等于把「不知道」说成「可以通过」。前端对 500 的处置是
+/// **不禁用按钮、也不画红字**（见 `use-attachment-gate.ts`）—— 用户点了之后
+/// 仍会被后端 400 拦住，比「因为一次数据库抖动就把所有人锁死」好。
+///
+/// # 异常情况
+///
+/// - 400：`doc_type` 不在白名单 / `doc_id` 不是 UUID / `at` 不在
+///   `SUBMIT` / `CONFIRM` / `ACTIVATE`；
+/// - 403：缺该单据模块的读码（[`dto::doc_forbidden`]）；
+/// - 404：单据不存在或已删除；
+/// - 500：规则表 / 附件表读不出来，或规则里出现词表外的值。
+#[nik::permission(
+    path = "/business/attachment/check",
+    method = "GET",
+    permission = "business:attachment:list"
+)]
+#[nik::get("/business/attachment/check")]
+pub async fn check(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Query(query): Query<dto::AttachmentCheckQuery>,
+) -> ResResult<dto::AttachmentCheckRes> {
+    let kind = dto::parse_doc_type(&query.doc_type)?;
+    let doc_id = utils::require_uuid(&query.doc_id, "doc_id")?;
+    let at = dto::parse_required_at(query.at.as_deref())?;
+
+    if !dto::can_view_doc(&claims, kind) {
+        tracing::warn!(
+            doc_type = kind.as_str(),
+            %doc_id,
+            user = ?utils::current_user_uuid(&claims),
+            "越权查询单据附件必传状态被拒（缺模块读码）"
+        );
+        return Err(dto::doc_forbidden(kind));
+    }
+
+    if !model::doc_exists(kind, &doc_id)
+        .await
+        .map_err(|error| utils::db_error(error, "校验单据存在性"))?
+    {
+        return Err(dto::doc_not_found(kind));
+    }
+
+    let violations = super::rule::check_attachments(kind, doc_id, at)
+        .await
+        .map_err(super::rule::AttachRuleError::into_api_error)?;
+    Ok(Res::ok(dto::to_check_res(kind, doc_id, at, &violations)))
 }
 
 /// 手动排序（`PUT /business/attachment/sort`，ATT-03）。

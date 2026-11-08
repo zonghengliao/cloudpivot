@@ -75,6 +75,11 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
   PAYMENT: DOC_KIND_LABELS.PAYMENT,
   FIXED_ASSET: DOC_KIND_LABELS.FIXED_ASSET,
   EXPENSE_REPORT: DOC_KIND_LABELS.EXPENSE_REPORT,
+  INVOICE: DOC_KIND_LABELS.INVOICE,
+  RECEIPT: DOC_KIND_LABELS.RECEIPT,
+  STOCK_TAKE: DOC_KIND_LABELS.STOCK_TAKE,
+  PURCHASE_RETURN: DOC_KIND_LABELS.PURCHASE_RETURN,
+  SALES_RETURN: DOC_KIND_LABELS.SALES_RETURN,
 };
 
 /**
@@ -293,6 +298,81 @@ export function saveBlob(blob: Blob, fileName: string): void {
 }
 
 /**
+ * 附件必传校验的触发动作（对应后端 `attachment::rule::RequiredAt`）。
+ *
+ * 与 `biz_attachment_rule.required_at` 的 CHECK 逐字一致（`SUBMIT` / `CONFIRM` / `ACTIVATE`）。
+ */
+export type AttachmentRequiredAt = 'SUBMIT' | 'CONFIRM' | 'ACTIVATE';
+
+/** 一条缺口（对应后端 `AttachmentCheckMissingRes`，ATT-08）。 */
+export interface AttachmentCheckMissing {
+  /** 规则主键（运维按它改 `biz_attachment_rule`） */
+  rule_id: string;
+  /** 规则指定的文件角色（`null` = 任意角色都算） */
+  role: string | null;
+  /** 需求的人话名（`发票影像` / `银行回单` …），红字直接用 */
+  role_label: string;
+  /** 要求的扩展名（`pdf/ofd/xml`）；`null` = 不限格式 */
+  need: string | null;
+  /** 命中白名单的附件数 */
+  have: number;
+  /** 至少要几个 */
+  min: number;
+  /** 该规则范围内的附件总数（不分格式） */
+  total: number;
+  /** 还差几个 */
+  shortfall: number;
+  /** 现有附件的扩展名（都是白名单外的） */
+  actual_exts: string[];
+  /** **按钮旁的一行红字**（后端拼，前端原样显示） */
+  hint: string;
+  /** 完整人话（与后端 400 报文逐字一致，tooltip 用） */
+  message: string;
+}
+
+/** 附件必传校验结果（对应后端 `AttachmentCheckRes`，ATT-08）。 */
+export interface AttachmentCheckResult {
+  doc_type: string;
+  doc_id: string;
+  at: AttachmentRequiredAt;
+  /** 动作中文（`提交` / `确认` / `生效`） */
+  at_label: string;
+  /** 能不能放行：`false` → 按钮 disabled + 红字 */
+  can_proceed: boolean;
+  missing: AttachmentCheckMissing[];
+  /** 合并后的红字（多条用「；」连接） */
+  hint: string | null;
+  /** 合并后的完整报文（多条用换行；tooltip 用） */
+  message: string | null;
+}
+
+/**
+ * 查「本单据在本动作下缺什么附件」（`GET /api/business/attachment/check`，ATT-08）。
+ *
+ * 前端用它把按钮状态交给后端一条判据决定（见 `views/business/erp/shared/attachment-gate-pure.ts`），
+ * 不再自己算扩展名 / 数量 —— 算一遍就有第二套判据，两处必然漂。
+ *
+ * # 异常情况（调用方必须区分）
+ *
+ * - 403 / 404 / 400：**单据不存在 / 无权看 / 参数非法** —— 调用方别拿它当依据，
+ *   也不要禁用按钮（后端真正拦）；
+ * - 500：规则表读不出来 —— 同样**不禁用按钮**（一次数据库抖动不该锁死所有人）。
+ *
+ * 所以本函数**不吞异常**：抛出去，让 `useAttachmentGate` 走「降级放行」分支。
+ */
+export function checkDocAttachments(
+  docType: DocType,
+  docId: string,
+  at: AttachmentRequiredAt = 'SUBMIT',
+): Promise<AttachmentCheckResult> {
+  return get<AttachmentCheckResult>('/api/business/attachment/check', {
+    doc_type: docType,
+    doc_id: docId,
+    at,
+  });
+}
+
+/**
  * 各单据的默认上传角色（ATT-04 词表）。
  *
  * 合同 → 合同扫描件；收货 → 验收单；应付 / 付款 / 报销 → 发票影像；采购 → 其他附件。
@@ -309,4 +389,14 @@ export const DEFAULT_ROLE_BY_DOC: Record<DocType, FileRole> = {
   FIXED_ASSET: 'DEFAULT',
   /** 报销单附件就是发票影像（ARCH-6 §4.7.1）。 */
   EXPENSE_REPORT: 'INVOICE_SCAN',
+  /** 发票影像（ATT-06 必传规则：电子票 pdf/ofd/xml、纸质票 jpg/png/pdf）。 */
+  INVOICE: 'INVOICE_SCAN',
+  /** 收款单必传银行回单（ATT-06）。 */
+  RECEIPT: 'BANK_RECEIPT',
+  /** 盘点表 / 盈亏说明：归「其他附件」（分栏词表里没有盘点专用角色）。 */
+  STOCK_TAKE: 'DEFAULT',
+  /** 采购退货：退货单 / 签收凭证 → 其他附件。 */
+  PURCHASE_RETURN: 'DEFAULT',
+  /** 销售退货：退货单 / 物流凭证 → 其他附件。 */
+  SALES_RETURN: 'DEFAULT',
 };

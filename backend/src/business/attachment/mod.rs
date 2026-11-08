@@ -13,7 +13,7 @@
 //! |------|------|
 //! | [`model`] | 行结构、单据类型 → 表名映射 / 存在性校验、文件角色词表（[`model::FileRole`]）、绑定 / 列表（两种排序口径）/ 软删 / 重排 / 引用计数 |
 //! | [`dto`] | 入参出参契约（上传 / 列表 / 重排 / 删除 / 下载）+ 纯逻辑校验（类型 / 角色 / 排序口径 / id 列表 / 行级删除判据）+ **角色分组**（[`dto::role_catalog`]，ATT-04） |
-//! | [`handler`] | 5 个接口：`upload` / `list` / `sort` / `delete` / `download` |
+//! | [`handler`] | 6 个接口：`upload` / `list` / `sort` / `delete` / `download` / `check`（ATT-08） |
 //! | [`rule`] | 附件必传规则（**ATT-06**）：`biz_attachment_rule` 读侧 + 闸门 [`rule::assert_attachments`]（单据 submit / confirm / activate 前调用） |
 //!
 //! # 文件角色分栏（ATT-04）
@@ -31,6 +31,7 @@
 //! | PUT | `/attachment/sort` | `business:attachment:upload` + 单据读码 | 手动排序（ATT-03：提交该单据附件的完整 id 顺序） |
 //! | DELETE | `/attachment/{id}` | `business:attachment:upload` + 行级 `:delete` | 软删绑定（上传人本人 ∪ `business:attachment:delete`；写接口不能挂读码，见 `authz_tests::o13`） |
 //! | GET | `/attachment/download/{id}` | `business:attachment:list` + 单据读码 | 下载（复用 storage 出流 + 落 `operation_logs`） |
+//! | GET | `/attachment/check` | `business:attachment:list` + 单据读码 | **ATT-08**：本单据在本动作下缺什么附件（前端禁用按钮 / 红字 / tooltip 的数据源） |
 //!
 //! 「单据读码」是 ATT-02 补的行级判据（[`model::DocKind::view_permissions`]）：
 //! 路由码只回答「能不能用附件功能」，不回答「能不能看这张单」。

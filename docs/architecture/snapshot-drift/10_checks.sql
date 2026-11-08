@@ -527,6 +527,12 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('ATTACHMENT_DOC', 'PAYMENT',        'biz_payment',        'deleted_at', '付款单附件'),
     ('ATTACHMENT_DOC', 'FIXED_ASSET',    'biz_fixed_asset',    'deleted_at', '固定资产卡片附件（FIN-2：处置凭证 / 验收单）'),
     ('ATTACHMENT_DOC', 'EXPENSE_REPORT', 'biz_expense_report', 'deleted_at', '报销单附件（FIN-3：发票影像）'),
+    -- ATT-06 / ATT-08：必传规则覆盖的另外 5 类单据（V0347 放宽 CHECK 到 12 值）
+    ('ATTACHMENT_DOC', 'INVOICE',         'biz_invoice',        'deleted_at', '发票影像（ATT-06：电子票 pdf/ofd/xml、纸质票 jpg/png/pdf）'),
+    ('ATTACHMENT_DOC', 'RECEIPT',         'biz_receipt',        'deleted_at', '收款单银行回单（ATT-06）'),
+    ('ATTACHMENT_DOC', 'STOCK_TAKE',      'biz_stock_take',     'deleted_at', '盘点表 / 盈亏说明（ATT-06）'),
+    ('ATTACHMENT_DOC', 'PURCHASE_RETURN', 'biz_purchase_return', 'deleted_at', '采购退货单 / 签收凭证（ATT-06）'),
+    ('ATTACHMENT_DOC', 'SALES_RETURN',    'biz_sales_return',   'deleted_at', '销售退货单 / 物流凭证（ATT-06）'),
     -- ⑦ 业务提醒台账：biz_reminder_log.doc_type + doc_id（P2-6b，取值域 = REMINDER_DOC_KINDS）
     ('REMINDER_DOC', 'PAYABLE',        'biz_payable',        'deleted_at', '应付到期提醒'),
     ('REMINDER_DOC', 'PURCHASE_ORDER', 'biz_purchase_order', 'deleted_at', '采购超期提醒'),
@@ -1082,6 +1088,53 @@ SELECT m.ref_domain, 'biz_doc_attachment', a.id, a.id::text, 'doc_id', m.ref_typ
   JOIN di.v_poly_ref_map m ON m.ref_domain = 'ATTACHMENT_DOC' AND m.ref_type = a.doc_type
   LEFT JOIN biz_fixed_asset t ON t.id = a.doc_id
  WHERE a.deleted_at IS NULL AND a.doc_type = 'FIXED_ASSET' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+-- ATT-06 / ATT-08：必传规则覆盖的 5 类单据也要有悬空分支。
+-- 登记了却不查 = DI-22 报「已覆盖」而 DI-23 漏报，比不登记更糟（FIN-2 同款坑）。
+UNION ALL
+SELECT m.ref_domain, 'biz_doc_attachment', a.id, a.id::text, 'doc_id', m.ref_type, a.doc_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_doc_attachment a
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'ATTACHMENT_DOC' AND m.ref_type = a.doc_type
+  LEFT JOIN biz_invoice t ON t.id = a.doc_id
+ WHERE a.deleted_at IS NULL AND a.doc_type = 'INVOICE' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+UNION ALL
+SELECT m.ref_domain, 'biz_doc_attachment', a.id, a.id::text, 'doc_id', m.ref_type, a.doc_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_doc_attachment a
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'ATTACHMENT_DOC' AND m.ref_type = a.doc_type
+  LEFT JOIN biz_receipt t ON t.id = a.doc_id
+ WHERE a.deleted_at IS NULL AND a.doc_type = 'RECEIPT' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+UNION ALL
+SELECT m.ref_domain, 'biz_doc_attachment', a.id, a.id::text, 'doc_id', m.ref_type, a.doc_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_doc_attachment a
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'ATTACHMENT_DOC' AND m.ref_type = a.doc_type
+  LEFT JOIN biz_stock_take t ON t.id = a.doc_id
+ WHERE a.deleted_at IS NULL AND a.doc_type = 'STOCK_TAKE' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+UNION ALL
+SELECT m.ref_domain, 'biz_doc_attachment', a.id, a.id::text, 'doc_id', m.ref_type, a.doc_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_doc_attachment a
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'ATTACHMENT_DOC' AND m.ref_type = a.doc_type
+  LEFT JOIN biz_purchase_return t ON t.id = a.doc_id
+ WHERE a.deleted_at IS NULL AND a.doc_type = 'PURCHASE_RETURN' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+UNION ALL
+SELECT m.ref_domain, 'biz_doc_attachment', a.id, a.id::text, 'doc_id', m.ref_type, a.doc_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_doc_attachment a
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'ATTACHMENT_DOC' AND m.ref_type = a.doc_type
+  LEFT JOIN biz_sales_return t ON t.id = a.doc_id
+ WHERE a.deleted_at IS NULL AND a.doc_type = 'SALES_RETURN' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
 -- ========== ⑦ 业务提醒台账（P2-6b） ==========
 --   `biz_reminder_log` 是幂等台账（只增不改）：单据被删是正常生命周期，
 --   所以这里只报 DANGLING，不加 MISSING_ID（`doc_id` 列 NOT NULL，缺 id 写不进来）。

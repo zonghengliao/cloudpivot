@@ -353,6 +353,16 @@
           >
             创建后立即开票（生成收入凭证并回写应收发票号，跳过草稿）
           </t-checkbox>
+          <!-- ATT-08：新建单还没有附件，而「开票」要求发票影像必传（后端 400）→
+               勾了这条路必然失败。默认不勾（先建草稿、传影像、再开票），勾了就明确告诉他后果。 -->
+          <p
+            v-if="createForm.issueNow"
+            class="form-tip form-tip--error"
+            data-testid="inv-create-issue-now-hint"
+          >
+            开票前必须有发票影像（新建单还没有附件）：勾选后开票会被后端拦下、单据退回草稿。
+            建议先建草稿 → 在详情里上传影像 → 再点「开票」。
+          </p>
 
           <div class="form-grid">
             <t-form-item label="开票日期">
@@ -628,16 +638,38 @@
           </div>
         </div>
 
+        <div class="detail-section" data-testid="inv-detail-attachment">
+          <div class="detail-section__title">发票影像</div>
+          <!-- ATT-08：必传闸门要求「开票前有发票影像」，所以详情页必须能传（此前只有 5 个单据页挂了面板） -->
+          <p class="form-tip" data-testid="inv-detail-attach-rule">
+            {{ invoiceAttachmentHint(detail.is_electronic) }}
+          </p>
+          <DocAttachmentPanel
+            doc-type="INVOICE"
+            :doc-id="detail.id"
+            default-role="INVOICE_SCAN"
+            testid-prefix="inv-attach"
+            @changed="refreshAttachGate()"
+          />
+        </div>
+
         <div class="detail-actions" data-testid="inv-detail-actions">
-          <t-button
-            v-if="detail.status === 'DRAFT'"
-            theme="primary"
-            :disabled="!hasStatusPermission"
-            data-testid="inv-detail-issue"
-            @click="issueInvoice(detail)"
-          >
-            开票（生成收入凭证）
-          </t-button>
+          <template v-if="detail.status === 'DRAFT'">
+            <!-- 缺附件时按钮 disabled，外面套 tooltip 说明原因（disabled 的 t-button 收不到 hover，必须包一层） -->
+            <t-tooltip :content="issueGateTip" :disabled="!issueGateTip" placement="top-left">
+              <span class="op-wrap">
+                <t-button
+                  theme="primary"
+                  :disabled="!hasStatusPermission || !attachGate.canProceed"
+                  data-testid="inv-detail-issue"
+                  @click="issueInvoice(detail)"
+                >
+                  开票（生成收入凭证）
+                </t-button>
+              </span>
+            </t-tooltip>
+            <AttachmentGateHint :hint="attachGate.hint" testid="inv-detail-gate-hint" />
+          </template>
           <t-button
             v-if="detail.status === 'ISSUED'"
             :disabled="!hasStatusPermission"
@@ -710,6 +742,14 @@ import {
 } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
 import { useUserStore } from '@/stores/user';
+import {
+  checkDocAttachments,
+  type DocType,
+} from '@/api/business/erp/attachment';
+import AttachmentGateHint from '@/views/business/erp/shared/AttachmentGateHint.vue';
+import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
+import { gateButtonTip } from '@/views/business/erp/shared/attachment-gate-pure';
+import { useAttachmentGate } from '@/views/business/erp/shared/use-attachment-gate';
 
 import { dash, formatCents, formatMoney, shortId, toCents, todayString } from '../shared/money';
 import {
@@ -897,7 +937,9 @@ const createForm = reactive<InvoiceFormState & { issueNow: boolean }>({
   invoiceCode: '',
   isElectronic: true,
   remark: '',
-  issueNow: true,
+  // ATT-08：默认**不**立即开票 —— 开票要求发票影像必传，而新建单还没有附件可传。
+  // 先建草稿 → 详情里上传 → 再点「开票」是唯一能走通的顺序（勾上会 400 并退回草稿）。
+  issueNow: false,
 });
 
 /** 当前选中应收的已开票价税合计（整数分；选完应收后由 `GET /invoice/page?receivable_id=` 算出） */
@@ -987,7 +1029,8 @@ function openCreate(): void {
     invoiceCode: '',
     isElectronic: true,
     remark: '',
-    issueNow: true,
+    // ATT-08：与初始值同口径（默认建草稿，传完影像再开票）
+    issueNow: false,
   });
   invoicedCents.value = 0;
   createError.value = '';
@@ -1082,6 +1125,35 @@ async function openDetail(row: Pick<Invoice, 'id'>): Promise<void> {
   }
 }
 
+// ==================== 附件必传闸门（ATT-08） ====================
+
+/**
+ * 发票页固定挂 `INVOICE` 类型的附件。
+ *
+ * ATT-08 把前端词表从 7 类补到 12 类（后端 V0347 早就放宽到 12 值）——
+ * 在此之前界面上根本传不了发票影像，「开票必须有发票影像」这条规则无法满足。
+ */
+const attachDocType = ref<DocType>('INVOICE');
+
+/**
+ * 只有**草稿**发票才需要开票闸门。
+ *
+ * 已开票 / 已归档 / 已作废的单子不会再走 `→ ISSUED`，传 `null` 让组合式函数
+ * 回到初始态：不发请求、不禁用按钮、不画红字。
+ */
+const attachDocId = computed(() =>
+  detail.value && detail.value.status === 'DRAFT' ? detail.value.id : null,
+);
+
+const { gate: attachGate, refresh: refreshAttachGate } = useAttachmentGate({
+  docType: attachDocType,
+  docId: attachDocId,
+  at: 'SUBMIT',
+});
+
+/** 详情页「开票」按钮的 tooltip：权限优先，其次附件缺口（定序在 `gateButtonTip` 里） */
+const issueGateTip = computed(() => gateButtonTip(attachGate.value, statusTip.value));
+
 // ==================== 状态动作（开票 / 归档） ====================
 
 const statusBusy = ref('');
@@ -1114,12 +1186,36 @@ async function runStatus(row: Pick<Invoice, 'id'>, target: 'ISSUED' | 'POSTED'):
   }
 }
 
-function issueInvoice(row: Pick<Invoice, 'id' | 'invoice_no'>): void {
+/**
+ * 开票（`DRAFT → ISSUED`）。
+ *
+ * # 为什么先查一次附件闸门（ATT-08）
+ *
+ * 列表行没有「按钮旁红字」的地方，但让用户点一下只拿到 400 也是他最烦的体验。
+ * 所以这里先 `GET /attachment/check`：
+ *
+ * - 缺什么 → 直接说缺什么，并**打开详情**（详情里有上传面板 + 那个按钮的红字）；
+ * - 查询失败 → **不阻断**：降级为直接提交，由后端给权威结论（后端拦得住）。
+ */
+async function issueInvoice(row: Pick<Invoice, 'id' | 'invoice_no'>): Promise<void> {
   if (!hasStatusPermission.value) {
     MessagePlugin.warning(statusTip.value);
     return;
   }
-  void runStatus(row, 'ISSUED');
+  if (statusBusy.value) return;
+  try {
+    const check = await checkDocAttachments('INVOICE', row.id, 'SUBMIT');
+    if (!check.can_proceed) {
+      MessagePlugin.warning(
+        `${check.at_label || '提交'}前需要补齐：${check.hint ?? '缺少必传附件（发票影像）'}`,
+      );
+      await openDetail(row);
+      return;
+    }
+  } catch (error) {
+    console.warn('[invoice] 开票前必传校验查询失败，降级为直接提交（后端仍会拦）', error);
+  }
+  await runStatus(row, 'ISSUED');
 }
 
 function archiveInvoice(row: Pick<Invoice, 'id' | 'invoice_no'>): void {

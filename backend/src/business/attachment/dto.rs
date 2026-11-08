@@ -206,6 +206,168 @@ pub struct DocAttachmentListRes {
     pub roles: Vec<DocAttachmentRoleRes>,
 }
 
+/// 附件必传校验查询（`GET /business/attachment/check`，**ATT-08**）。
+///
+/// # 为什么是 GET 而不是 POST
+///
+/// 它只回答「现在这张单在本动作下能不能过闸」，不写任何东西：详情页每次打开、
+/// 每次上传 / 删除附件后都要重算一次，用 GET 才能被浏览器 / 调试工具按缓存语义对待。
+#[derive(Debug, Clone, Deserialize)]
+pub struct AttachmentCheckQuery {
+    /// 单据类型（`CONTRACT` / `INVOICE` / … 共 12 类）。
+    pub doc_type: String,
+    /// 单据主键。
+    pub doc_id: String,
+    /// 触发动作：`SUBMIT`（缺省）/ `CONFIRM` / `ACTIVATE`。
+    #[serde(default)]
+    pub at: Option<String>,
+}
+
+/// 一条缺口（对应前端「按钮旁红字」要画的一行）。
+///
+/// 卡面契约只要求 `role / need / have / min` 四个字段，这里**补齐**了判断所需的
+/// 其余事实：`total`（该规则范围内有多少附件）、`actual_exts`（现有格式是什么）、
+/// `shortfall`（还差几个）。前端因此不需要自己再算一遍 —— 算一遍就有第二套判据。
+#[derive(Debug, Clone, Serialize)]
+pub struct AttachmentCheckMissingRes {
+    /// 规则主键（运维按它去 `biz_attachment_rule` 改配置）。
+    pub rule_id: String,
+    /// 规则指定的文件角色（`None` = 任意角色都算）。
+    pub role: Option<String>,
+    /// 需求的人话名（`remark` → 角色中文名 → 「附件」）。
+    pub role_label: String,
+    /// 要求的扩展名（`pdf/ofd/xml`）；`None` = 不限格式。
+    pub need: Option<String>,
+    /// 命中白名单的附件数。
+    pub have: i32,
+    /// 至少要几个。
+    pub min: i32,
+    /// 该规则范围内的附件总数（不分格式）。
+    pub total: i32,
+    /// 还差几个。
+    pub shortfall: i32,
+    /// 现有附件的扩展名（去重升序；都是白名单外的）。
+    pub actual_exts: Vec<String>,
+    /// **按钮旁的一行红字**（后端拼，前端原样显示）。
+    pub hint: String,
+    /// 完整人话（与绕过前端提交时 400 报文逐字一致）。
+    pub message: String,
+}
+
+/// 附件必传校验结果（`GET /business/attachment/check`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct AttachmentCheckRes {
+    /// 单据类型（回显）。
+    pub doc_type: String,
+    /// 单据主键（回显）。
+    pub doc_id: String,
+    /// 触发动作字面值。
+    pub at: String,
+    /// 触发动作中文（`提交` / `确认` / `生效`）。
+    pub at_label: String,
+    /// **能不能放行**：`true` = 亮按钮；`false` = 禁用按钮 + 红字。
+    pub can_proceed: bool,
+    /// 缺口清单（`can_proceed = true` 时为空）。
+    pub missing: Vec<AttachmentCheckMissingRes>,
+    /// 合并后的红字（多条缺口用「；」连接，前端一行显示不完就折行）。
+    pub hint: Option<String>,
+    /// 合并后的完整报文（多条用换行，与后端 400 的 `msg` 逐字一致；tooltip 用）。
+    pub message: Option<String>,
+}
+
+/// 解析触发动作（缺省 / 空串 → `SUBMIT`）。
+///
+/// # 为什么默认 `SUBMIT`
+///
+/// 卡面的接口示例就是 `at=SUBMIT`，而且「提交」是绝大多数单据的闸口；
+/// 让前端每次都显式传，是更好的实践（前端确实每次都传），缺省值只是为了
+/// 调试时 `curl` 少一个参数也能用 —— 它**不会**让错误动作静默通过：
+/// 未知值（如 `CONFIRMED`）仍返回 400。
+///
+/// # 异常情况
+///
+/// 400 + `PARAM_INVALID`（消息列出三个可选值）。
+pub fn parse_required_at(
+    raw: Option<&str>,
+) -> std::result::Result<super::rule::RequiredAt, ApiError> {
+    let text = raw
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .unwrap_or("SUBMIT");
+    super::rule::RequiredAt::parse(text).ok_or_else(|| {
+        ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!("触发动作 at 非法：{text}（可选 SUBMIT / CONFIRM / ACTIVATE）"),
+        )
+    })
+}
+
+/// 违例 → 一条缺口出参（**纯函数**，不连库）。
+pub fn to_check_missing(violation: &super::rule::RuleViolation) -> AttachmentCheckMissingRes {
+    AttachmentCheckMissingRes {
+        rule_id: violation.rule_id.to_string(),
+        role: violation.file_role.clone(),
+        role_label: violation.requirement_name(),
+        need: match violation.allowed_exts.is_empty() {
+            true => None,
+            false => Some(violation.allowed_exts.join("/")),
+        },
+        have: violation.matched,
+        min: violation.min_count,
+        total: violation.total,
+        shortfall: violation.shortfall(),
+        actual_exts: violation.actual_exts.clone(),
+        hint: violation.hint(),
+        message: violation.message(),
+    }
+}
+
+/// 违例清单 → 校验结果（**纯函数**；handler 只补单据类型 / 主键 / 动作）。
+///
+/// `can_proceed` 与 `missing` 是同一条判据的两个投影（`can_proceed == missing.is_empty()`），
+/// 单测 `can_proceed_iff_no_missing` 钉住这一点：前端如果只读一个字段也不会判错。
+pub fn to_check_res(
+    kind: DocKind,
+    doc_id: Uuid,
+    at: super::rule::RequiredAt,
+    violations: &[super::rule::RuleViolation],
+) -> AttachmentCheckRes {
+    let missing: Vec<AttachmentCheckMissingRes> = violations.iter().map(to_check_missing).collect();
+    let hint = if missing.is_empty() {
+        None
+    } else {
+        Some(
+            missing
+                .iter()
+                .map(|item| item.hint.clone())
+                .collect::<Vec<_>>()
+                .join("；"),
+        )
+    };
+    let message = if missing.is_empty() {
+        None
+    } else {
+        Some(
+            missing
+                .iter()
+                .map(|item| item.message.clone())
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+    };
+    AttachmentCheckRes {
+        doc_type: kind.as_str().to_string(),
+        doc_id: doc_id.to_string(),
+        at: at.as_str().to_string(),
+        at_label: at.label().to_string(),
+        can_proceed: missing.is_empty(),
+        missing,
+        hint,
+        message,
+    }
+}
+
 /// 上传结果。
 #[derive(Debug, Clone, Serialize)]
 pub struct DocAttachmentUploadRes {

@@ -373,8 +373,17 @@ impl DocKind {
 
 /// 能挂附件的对象（与 `ck_biz_doc_attachment_type` 逐字一致）。
 ///
-/// 加成员必须同时改 V0212 的 CHECK，否则写库直接 `check constraint violated`。
-pub const ATTACHMENT_DOC_KINDS: [DocKind; 7] = [
+/// 加成员必须同时改放宽后的 CHECK（`V0347` 已到 12 值）与
+/// `docs/architecture/snapshot-drift/10_checks.sql` 的 `ATTACHMENT_DOC` 登记行
+/// + 悬空检查分支，否则写库撞 `check constraint violated`、或附件悬空查不出来。
+///
+/// # 为什么 ATT-08 才补齐到 12
+///
+/// ATT-06 把 DDL 的 CHECK 放宽到 12 值（发票 / 收款 / 盘点 / 采购退货 / 销售退货
+/// 也能挂附件），但本常量与前端 `ATTACHMENT_DOC_TYPES` 当时仍是 7 值 —— 于是
+/// 「发票必须传发票影像」这条规则在界面上**无法被满足**（前端下拉里根本没有 INVOICE）。
+/// ATT-08 做前端必传校验时补齐：界面上能挂，才谈得上提前告诉用户缺什么。
+pub const ATTACHMENT_DOC_KINDS: [DocKind; 12] = [
     DocKind::Contract,
     DocKind::PurchaseOrder,
     DocKind::StockIn,
@@ -384,6 +393,12 @@ pub const ATTACHMENT_DOC_KINDS: [DocKind; 7] = [
     DocKind::FixedAsset,
     // FIN-3：报销单的发票影像（V0244 把 CHECK 放宽到 7 值）。
     DocKind::ExpenseReport,
+    // ATT-06 / V0347：必传规则覆盖的另外 5 类单据（ATT-08 补齐前端词表）。
+    DocKind::Invoice,
+    DocKind::Receipt,
+    DocKind::StockTake,
+    DocKind::PurchaseReturn,
+    DocKind::SalesReturn,
 ];
 
 /// 能记业务提醒的对象（与 `ck_biz_reminder_log_doc_type` 逐字一致）。

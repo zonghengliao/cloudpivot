@@ -158,10 +158,15 @@ export const DOC_KIND_ROUTES = {
 export type CancelDocType = keyof typeof DOC_KIND_ROUTES;
 
 /**
- * 能挂业务附件的业务对象（`biz_doc_attachment.doc_type` 的 5 类）。
+ * 能挂业务附件的业务对象（`biz_doc_attachment.doc_type` 的 12 类）。
  *
  * 与后端 `doc_kind::ATTACHMENT_DOC_KINDS` + DDL 的 `ck_biz_doc_attachment_type`
  * 逐字一致（后端单测 `attachment_doc_types_match_rust` 会比对顺序与取值）。
+ *
+ * ATT-08 从 7 类补到 12 类：ATT-06 把 DDL 放宽到 12 值（发票 / 收款 / 盘点 /
+ * 采购退货 / 销售退货 也能挂附件），但前端词表当时没跟上 —— 结果是「发票必须传
+ * 发票影像」这条规则在界面上无法满足（上传下拉里没有发票）。补齐之后
+ * 单据详情页才能真的传上那份影像，闸门才有意义。
  */
 export const ATTACHMENT_DOC_TYPES = [
   'CONTRACT',
@@ -171,6 +176,11 @@ export const ATTACHMENT_DOC_TYPES = [
   'PAYMENT',
   'FIXED_ASSET',
   'EXPENSE_REPORT',
+  'INVOICE',
+  'RECEIPT',
+  'STOCK_TAKE',
+  'PURCHASE_RETURN',
+  'SALES_RETURN',
 ] as const;
 
 /** 能挂业务附件的业务对象（联合类型）。 */

@@ -657,6 +657,153 @@ fn fixture_row() -> model::DocAttachmentRow {
     }
 }
 
+// ---------- ATT-08：校验接口（`GET /attachment/check`）的纯逻辑 ----------
+
+/// `at` 解析：缺省 / 空串 → `SUBMIT`，大小写不敏感，未知值 400（不静默回落）。
+#[test]
+fn check_parse_required_at() {
+    assert_eq!(
+        dto::parse_required_at(None).expect("缺省"),
+        RequiredAt::Submit
+    );
+    assert_eq!(
+        dto::parse_required_at(Some("  ")).expect("空串"),
+        RequiredAt::Submit
+    );
+    assert_eq!(
+        dto::parse_required_at(Some("confirm")).expect("小写"),
+        RequiredAt::Confirm
+    );
+    assert_eq!(
+        dto::parse_required_at(Some("Activate")).expect("混合大小写"),
+        RequiredAt::Activate
+    );
+    for bad in ["CONFIRMED", "SUBMITTED", "1", "提交"] {
+        let error = dto::parse_required_at(Some(bad)).expect_err("未知动作必须 400");
+        assert_eq!(error.status, 400, "{bad}");
+        assert_eq!(error.code, error_code::PARAM_INVALID, "{bad}");
+        assert!(
+            error.msg.contains("SUBMIT / CONFIRM / ACTIVATE"),
+            "文案要列出可选值：{}",
+            error.msg
+        );
+    }
+}
+
+/// 卡面契约形状：`{ can_proceed, missing: [{ role, need, have, min, ... }] }`。
+#[test]
+fn check_res_shape_matches_card_contract() {
+    let rule = att_rule::AttachmentRule {
+        id: uid("d3470001-0000-4000-8000-000000000001"),
+        doc_type: DocKind::Invoice,
+        file_role: None,
+        required_at: RequiredAt::Submit,
+        min_count: 1,
+        max_count: None,
+        allow_exts: att_rule::parse_exts(Some("pdf,ofd,xml")),
+        condition_sql: None,
+        remark: Some("发票影像".to_string()),
+    };
+    let violation = att_rule::evaluate(&rule, &[]).expect("没有附件必须违例");
+    let res = dto::to_check_res(
+        DocKind::Invoice,
+        uid(DOC_INVOICE),
+        RequiredAt::Submit,
+        &[violation],
+    );
+    assert!(!res.can_proceed);
+    assert_eq!(res.doc_type, "INVOICE");
+    assert_eq!(res.doc_id, DOC_INVOICE);
+    assert_eq!(res.at, "SUBMIT");
+    assert_eq!(res.at_label, "提交");
+    assert_eq!(res.missing.len(), 1);
+    let missing = &res.missing[0];
+    // 卡面点名的四个字段
+    assert_eq!(missing.role, None, "种子规则 file_role 为 NULL = 任意角色");
+    assert_eq!(missing.need.as_deref(), Some("pdf/ofd/xml"));
+    assert_eq!(missing.have, 0);
+    assert_eq!(missing.min, 1);
+    // 补齐的事实字段（前端不自己再算）
+    assert_eq!(missing.total, 0);
+    assert_eq!(missing.shortfall, 1);
+    assert!(missing.actual_exts.is_empty());
+    assert_eq!(missing.role_label, "发票影像");
+    // 红字与 400 报文（同源）
+    assert_eq!(missing.hint, "缺少发票影像（需 pdf/ofd/xml 格式）");
+    assert_eq!(
+        res.hint.as_deref(),
+        Some("缺少发票影像（需 pdf/ofd/xml 格式）")
+    );
+    assert!(
+        res.message
+            .as_deref()
+            .is_some_and(|text| text.contains("发票必须上传发票影像（pdf/ofd/xml）")),
+        "tooltip 必须与后端 400 同源"
+    );
+
+    // 无缺口：can_proceed = true，hint / message 都是 None（前端据此不画红字）
+    let ok = dto::to_check_res(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit, &[]);
+    assert!(ok.can_proceed);
+    assert!(ok.missing.is_empty());
+    assert!(ok.hint.is_none());
+    assert!(ok.message.is_none());
+}
+
+/// `can_proceed` 与 `missing.is_empty()` 是同一条判据（前端只读一个字段也不会判错）。
+#[test]
+fn check_can_proceed_iff_no_missing() {
+    let mut rule = att_rule::AttachmentRule {
+        id: uid("d3470001-0000-4000-8000-000000000001"),
+        doc_type: DocKind::Invoice,
+        file_role: None,
+        required_at: RequiredAt::Submit,
+        min_count: 2,
+        max_count: None,
+        allow_exts: att_rule::parse_exts(Some("pdf")),
+        condition_sql: None,
+        remark: Some("发票影像".to_string()),
+    };
+    let facts = [att_rule::AttachmentFact {
+        file_role: "DEFAULT".to_string(),
+        ext: "pdf".to_string(),
+    }];
+    let violation = att_rule::evaluate(&rule, &facts).expect("只传 1 个、要 2 个 → 违例");
+    let res = dto::to_check_res(
+        DocKind::Invoice,
+        uid(DOC_INVOICE),
+        RequiredAt::Submit,
+        &[violation],
+    );
+    assert_eq!(res.can_proceed, res.missing.is_empty());
+    assert!(!res.can_proceed);
+
+    // 多条缺口 → 红字用「；」串、报文用换行串
+    rule.min_count = 1;
+    rule.remark = Some("发票影像".to_string());
+    let mut second = rule.clone();
+    second.id = uid("d3470001-0000-4000-8000-000000000003");
+    second.remark = Some("银行回单".to_string());
+    let first = att_rule::evaluate(&rule, &[]).expect("缺一");
+    let second = att_rule::evaluate(&second, &[]).expect("缺二");
+    let res = dto::to_check_res(
+        DocKind::Invoice,
+        uid(DOC_INVOICE),
+        RequiredAt::Submit,
+        &[first, second],
+    );
+    let hint = res.hint.expect("有缺口就有红字");
+    assert!(hint.contains('；'), "多条红字用中文分号连接：{hint}");
+    assert!(
+        hint.contains("发票影像") && hint.contains("银行回单"),
+        "{hint}"
+    );
+    let message = res.message.expect("有缺口就有报文");
+    assert!(
+        message.contains('\n'),
+        "报文逐行（与 400 msg 一致）：{message}"
+    );
+}
+
 // ---------- 真库 ----------
 
 /// 真库用例必须串行（共用全局 `db()` 与同一批夹具）。
@@ -2496,6 +2643,169 @@ async fn db_rule_scope_is_doc_type_and_action() {
     att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Activate)
         .await
         .expect("动作不匹配必须放行");
+}
+
+/// 卡面 ATT-08 验收①：发票没附件 → `check` 返回 `can_proceed = false` + 结构化缺口；
+/// 绑上 pdf 后同一个调用立刻变成 `can_proceed = true`（验收②的接口侧）。
+///
+/// 关键断言是「check 与闸门同一条判据」：两次对比 `assert_attachments` 的结论，
+/// 任一时刻两者必须一致，否则前端会亮着按钮让用户撞 400。
+#[tokio::test]
+async fn db_check_reports_invoice_gap_then_clears_it() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    clear_doc_attachments(DocKind::Invoice, DOC_INVOICE).await;
+
+    // ① 没附件：缺口一条，字段与红字都符合卡面契约
+    let violations =
+        att_rule::check_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+            .await
+            .expect("查缺口");
+    let res = dto::to_check_res(
+        DocKind::Invoice,
+        uid(DOC_INVOICE),
+        RequiredAt::Submit,
+        &violations,
+    );
+    assert!(!res.can_proceed, "没有发票影像时按钮必须禁用");
+    assert_eq!(res.missing.len(), 1, "数电票只命中电子票一条规则");
+    let missing = &res.missing[0];
+    assert_eq!(missing.need.as_deref(), Some("pdf/ofd/xml"));
+    assert_eq!((missing.have, missing.min), (0, 1));
+    assert_eq!(missing.hint, "缺少发票影像（需 pdf/ofd/xml 格式）");
+    assert_eq!(
+        res.hint.as_deref(),
+        Some("缺少发票影像（需 pdf/ofd/xml 格式）")
+    );
+    assert!(
+        missing.message.contains("还差 1 个"),
+        "tooltip 必须说清还差几个：{}",
+        missing.message
+    );
+    // 同一时刻闸门也拦 → 前端提前告知与后端最终拦完全一致
+    let gate =
+        att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit).await;
+    assert!(gate.is_err(), "check 说不通过时闸门必须也拦");
+
+    // ② 传一份 pdf：can_proceed 立刻为 true、红字消失、闸门放行
+    bind_file(DocKind::Invoice, DOC_INVOICE, FILE_B).await;
+    let violations =
+        att_rule::check_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+            .await
+            .expect("查缺口");
+    let res = dto::to_check_res(
+        DocKind::Invoice,
+        uid(DOC_INVOICE),
+        RequiredAt::Submit,
+        &violations,
+    );
+    assert!(res.can_proceed, "有 pdf 后按钮必须恢复");
+    assert!(res.missing.is_empty());
+    assert!(res.hint.is_none());
+    att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+        .await
+        .expect("有 pdf 后闸门必须放行");
+}
+
+/// 卡面 ATT-08 验收③：上传错误格式（jpg）→ 红字必须说「格式不符，需要 pdf/ofd/xml」。
+#[tokio::test]
+async fn db_check_reports_wrong_format_hint() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    clear_doc_attachments(DocKind::Invoice, DOC_INVOICE).await;
+    bind_file(DocKind::Invoice, DOC_INVOICE, FILE_D).await; // FILE_D = 发票影像.jpg
+
+    let violations =
+        att_rule::check_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+            .await
+            .expect("查缺口");
+    let res = dto::to_check_res(
+        DocKind::Invoice,
+        uid(DOC_INVOICE),
+        RequiredAt::Submit,
+        &violations,
+    );
+    assert!(!res.can_proceed, "jpg 不算数，按钮仍要禁用");
+    let missing = &res.missing[0];
+    assert_eq!(
+        (missing.have, missing.total),
+        (0, 1),
+        "有 1 个附件但 0 个命中白名单"
+    );
+    assert_eq!(missing.actual_exts, vec!["jpg".to_string()]);
+    assert!(
+        missing.hint.contains("格式不符，需要 pdf/ofd/xml"),
+        "红字必须点名格式：{}",
+        missing.hint
+    );
+    assert!(
+        missing.hint.contains("当前 jpg"),
+        "红字要说出当前格式：{}",
+        missing.hint
+    );
+}
+
+/// 纸质票分支：同一个 `check` 接口按 `is_electronic` 给出**不同**的格式要求。
+#[tokio::test]
+async fn db_check_follows_electronic_branch() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    clear_doc_attachments(DocKind::Invoice, DOC_INVOICE_PAPER).await;
+    let violations =
+        att_rule::check_attachments(DocKind::Invoice, uid(DOC_INVOICE_PAPER), RequiredAt::Submit)
+            .await
+            .expect("查缺口");
+    let res = dto::to_check_res(
+        DocKind::Invoice,
+        uid(DOC_INVOICE_PAPER),
+        RequiredAt::Submit,
+        &violations,
+    );
+    assert!(!res.can_proceed);
+    let missing = &res.missing[0];
+    assert_eq!(missing.need.as_deref(), Some("pdf/jpg/png"));
+    assert_eq!(missing.role_label, "纸质发票扫描件");
+    assert_eq!(missing.hint, "缺少纸质发票扫描件（需 pdf/jpg/png 格式）");
+
+    // 纸质票传 jpg → 放行（电子票那条规则对它「不适用」，不是「格式错」）
+    bind_file(DocKind::Invoice, DOC_INVOICE_PAPER, FILE_D).await;
+    let violations =
+        att_rule::check_attachments(DocKind::Invoice, uid(DOC_INVOICE_PAPER), RequiredAt::Submit)
+            .await
+            .expect("查缺口");
+    assert!(violations.is_empty(), "纸质票 jpg 扫描件必须放行");
+}
+
+/// 没配规则的组合（合同）→ `check` 直接通过（不制造假缺口）。
+#[tokio::test]
+async fn db_check_passes_when_no_rule() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    let violations =
+        att_rule::check_attachments(DocKind::Contract, uid(DOC_CONTRACT), RequiredAt::Submit)
+            .await
+            .expect("查缺口");
+    assert!(violations.is_empty(), "合同没有必传规则，不该报缺");
+    let res = dto::to_check_res(
+        DocKind::Contract,
+        uid(DOC_CONTRACT),
+        RequiredAt::Submit,
+        &violations,
+    );
+    assert!(res.can_proceed);
+}
+
+/// 清掉某张单据的全部附件绑定（真库用例串行共用夹具，前置状态必须自己收敛）。
+async fn clear_doc_attachments(doc_type: DocKind, doc: &str) {
+    exec(&format!(
+        "DELETE FROM biz_doc_attachment WHERE doc_type = '{}' AND doc_id = '{doc}'::uuid",
+        doc_type.as_str()
+    ))
+    .await;
 }
 
 /// 收尾：清夹具（必须最后跑，`zz_` 前缀保证顺序）。
