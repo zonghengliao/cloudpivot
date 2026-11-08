@@ -15,6 +15,7 @@
 //! | [`dto`] | 入参出参契约（上传 / 列表 / 重排 / 删除 / 下载）+ 纯逻辑校验（类型 / 角色 / 排序口径 / id 列表 / 行级删除判据）+ **角色分组**（[`dto::role_catalog`]，ATT-04） |
 //! | [`handler`] | 6 个接口：`upload` / `list` / `sort` / `delete` / `download` / `check`（ATT-08） |
 //! | [`rule`] | 附件必传规则（**ATT-06**）：`biz_attachment_rule` 读侧 + 闸门 [`rule::assert_attachments`]（单据 submit / confirm / activate 前调用） |
+//! | [`rule_admin`] | 附件规则**管理面**（**ATT-09**）：列表 / 下拉 / 新建 / 编辑 / 启停 / 软删，6 个接口，仅超管 |
 //!
 //! # 文件角色分栏（ATT-04）
 //!
@@ -56,6 +57,7 @@ pub mod dto;
 pub mod handler;
 pub mod model;
 pub mod rule;
+pub mod rule_admin;
 
 #[cfg(test)]
 mod tests;

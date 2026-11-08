@@ -109,6 +109,13 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '账务巡检', permission: 'support:invariant:list' },
       },
       {
+        // ATT-09：附件必传规则管理（只有超管能开；后端还有第二层 ensure_super_admin）
+        path: 'support/attachment-rule',
+        name: 'SupportAttachmentRule',
+        component: () => import('@/views/support/attachment-rule/index.vue'),
+        meta: { title: '附件规则', permission: 'support:attachment-rule:list' },
+      },
+      {
         path: 'user/profile',
         name: 'UserProfile',
         component: () => import('@/views/user/profile.vue'),
