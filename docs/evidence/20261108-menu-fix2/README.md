@@ -1,6 +1,7 @@
 # MENU-FIX-2：菜单迁移规范进规则 + 不变量脚本加 ⑥⑦ 断言
 
 - 卡：`t_93e9e2f0` ｜ 分支 main ｜ 上游：MENU-FIX-1（`t_95bc00b0`，V0335 修数据）
+- commit：`3707061`（主体，12 文件 +308 −4）+ `7dd7436`（脚本头部补 ⑥⑦ 自证命令，+11），均已 push `origin/main`
 - 改动文件：`docs/编码规范.md`、`docs/README.md`、`docs/AI二开指引.md`、
   `docs/新机器部署-纯迁移重建.md`、`scripts/verify/menu_invariants.sh`、`scripts/verify/README.md`
 - 实测环境：145 测试（`cloudpivot_dev`，423 条菜单）｜ 144 生产（`cloudpivot`，423 条）｜
