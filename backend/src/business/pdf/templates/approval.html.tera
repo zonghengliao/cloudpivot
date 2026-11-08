@@ -128,13 +128,14 @@ table.trace th {
   white-space: nowrap;
 }
 table.trace tr { break-inside: avoid; page-break-inside: avoid; }
-/* 列宽：级次 40pt / 节点 74pt / 审批人 80pt / 结果 40pt / 时间 70pt / 意见 auto
-   （审批人 80pt：姓名 + 「部门经理」这类长名在 62pt 会折成 4 行，视觉上比节点名还高） */
+/* 列宽：级次 40pt / 节点 74pt / 审批人 76pt / 结果 40pt / 时间 76pt / 意见 auto
+   （审批人 80pt：姓名 + 「部门经理」这类长名在 62pt 会折成 4 行，视觉上比节点名还高；
+     时间 76pt：`2026-11-08 22:26` 在 70pt 会顶到列边框上） */
 .c-level { width: 40pt; text-align: center; }
 .c-node  { width: 74pt; }
-.c-who   { width: 80pt; }
+.c-who   { width: 76pt; }
 .c-result{ width: 40pt; text-align: center; }
-.c-at    { width: 70pt; }
+.c-at    { width: 76pt; }
 .c-opinion{ width: auto; }
 
 .c-level .level { font-weight: 700; white-space: nowrap; }
