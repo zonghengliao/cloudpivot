@@ -114,23 +114,23 @@ table.detail th {
   white-space: nowrap;
 }
 table.detail tr { break-inside: avoid; page-break-inside: avoid; }
-table.detail td.c-seq { text-align: center; width: 22pt; }
-table.detail td.c-code { width: 76pt; white-space: nowrap; }
-table.detail td.c-name { width: auto; }
+table.detail .c-seq { text-align: center; width: 22pt; }
+table.detail .c-code { width: 76pt; white-space: nowrap; }
+table.detail .c-name { width: auto; }
 /* 规格 66pt（横版空间充裕）：56pt 会把 DN100/PN16 折行 */
-table.detail td.c-spec { width: 66pt; }
-table.detail td.c-unit { text-align: center; width: 26pt; }
-table.detail td.c-qty { width: 46pt; }
-table.detail td.c-price { width: 58pt; }
-table.detail td.c-amount { width: 62pt; }
-table.detail td.c-rate { width: 34pt; }
-table.detail td.c-tax { width: 56pt; }
-table.detail td.c-with-tax { width: 66pt; }
-table.detail td.c-loc { width: 52pt; overflow-wrap: anywhere; }
-table.detail td.c-sn { width: 170pt; overflow-wrap: anywhere; }
-table.detail td.c-code,
-table.detail td.c-name,
-table.detail td.c-spec { overflow-wrap: anywhere; }
+table.detail .c-spec { width: 66pt; }
+table.detail .c-unit { text-align: center; width: 26pt; }
+table.detail .c-qty { width: 46pt; }
+table.detail .c-price { width: 58pt; }
+table.detail .c-amount { width: 62pt; }
+table.detail .c-rate { width: 34pt; }
+table.detail .c-tax { width: 56pt; }
+table.detail .c-with-tax { width: 66pt; }
+table.detail .c-loc { width: 52pt; overflow-wrap: anywhere; }
+table.detail .c-sn { width: 170pt; overflow-wrap: anywhere; }
+table.detail .c-code,
+table.detail .c-name,
+table.detail .c-spec { overflow-wrap: anywhere; }
 
 .num {
   font-variant-numeric: tabular-nums;
@@ -216,22 +216,22 @@ table.detail td.c-spec { overflow-wrap: anywhere; }
 <table class="detail">
   <thead>
     <tr>
-      <th>#</th>
-      <th>物料编码</th>
-      <th>物料名称</th>
-      <th>规格</th>
-      <th>单位</th>
-      <th>数量</th>
-      <th>单价</th>
-      <th>金额</th>
-      <th>税率(%)</th>
-      <th>税额</th>
+      <th class="c-seq">#</th>
+      <th class="c-code">物料编码</th>
+      <th class="c-name">物料名称</th>
+      <th class="c-spec">规格</th>
+      <th class="c-unit">单位</th>
+      <th class="c-qty">数量</th>
+      <th class="c-price">单价</th>
+      <th class="c-amount">金额</th>
+      <th class="c-rate">税率(%)</th>
+      <th class="c-tax">税额</th>
 {% if show_with_tax %}
-      <th>价税合计</th>
+      <th class="c-with-tax">价税合计</th>
 {% endif %}
-      <th>库位</th>
+      <th class="c-loc">库位</th>
 {% if show_serials %}
-      <th>序列号</th>
+      <th class="c-sn">序列号</th>
 {% endif %}
     </tr>
   </thead>

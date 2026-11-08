@@ -3362,9 +3362,9 @@ mod tests {
         assert!(html.contains("供应商"));
         assert!(html.contains("北京某某机电设备有限公司"));
         assert!(html.contains("退货仓库"));
-        // 明细：采购退货逐行有价税合计，没有序列号列
-        assert!(html.contains("<th>价税合计</th>"));
-        assert!(!html.contains("<th>序列号</th>"));
+        // 明细：采购退货逐行有价税合计，没有序列号列（th 带列宽 class，table-layout: fixed 需要）
+        assert!(html.contains("<th class=\"c-with-tax\">价税合计</th>"));
+        assert!(!html.contains("class=\"c-sn\">序列号"));
         assert_eq!(
             html.matches("<td class=\"c-seq\">").count(),
             2,
@@ -3401,8 +3401,8 @@ mod tests {
         assert!(html.contains("客户"));
         assert!(html.contains("上海某某贸易有限公司"));
         // 销售退货没有行级价税合计，但有序列号
-        assert!(!html.contains("<th>价税合计</th>"));
-        assert!(html.contains("<th>序列号</th>"));
+        assert!(!html.contains("class=\"c-with-tax\">价税合计"));
+        assert!(html.contains("<th class=\"c-sn\">序列号</th>"));
         assert!(html.contains("SN-20261108-000001"));
         assert_eq!(html.matches("<td class=\"c-seq\">").count(), 3);
         for cap in ["退货经办：", "仓管：", "质检：", "客户签收：", "制单："] {
