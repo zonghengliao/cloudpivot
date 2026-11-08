@@ -98,6 +98,10 @@ down.sql：只清草稿（本次 0 个），已发布档保持冻结；再重放
 > 「无法判定=0」是这份真实数据的结论（该库的审批人来源只有 `ROLE`/`ADMIN`/`TASK_CREATOR`/
 > `INITIATOR_SUPERIOR`，都能算出人数）。`FORM_VAR` 这类算不出来的节点由 e2e 的 E4 造出来验证过
 > （→ `ANY`）。
+>
+> **空库首启也走同一条路**：e2e 的独立空库（`cloudpivot_p306_ut`）首次启动时，种子迁移建出来的
+> 已发布流程同样被冻结器扫到 —— 日志 `versions=21 nodes=38 all=0 any=38`（种子审批人多数是
+> 1 人角色，`ALL`/`ANY` 判定等价，故全落 `ANY`）。
 
 ### 3.2 真 HTTP 四场景（隔离实例 `:18307` / 空库 `cloudpivot_p306_ut`，PASS=59 FAIL=0）
 

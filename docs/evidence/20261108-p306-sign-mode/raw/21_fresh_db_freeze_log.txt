@@ -1,0 +1,481 @@
+[2m2026-11-08T03:08:43.114221Z[0m [32m INFO[0m [2mnik_web::metrics::prometheus[0m[2m:[0m metrics 初始化分解（毫秒） [3mbuilder_ms[0m[2m=[0m0 [3minstall_ms[0m[2m=[0m0 [3mdescribe_ms[0m[2m=[0m0
+[2m2026-11-08T03:08:43.217065Z[0m [32m INFO[0m [2mnik_db::factory[0m[2m:[0m database connection established [3mdb_type[0m[2m=[0mpostgres [3murl[0m[2m=[0mpostgres://alun:***@127.0.0.1:5432/cloudpivot_p306_ut?sslmode=prefer
+[2m2026-11-08T03:08:43.217940Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库连接成功
+[2m2026-11-08T03:08:43.472236Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: relation "idx_sys_export_task_expire" already exists, skipping
+[2m2026-11-08T03:08:43.482758Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: relation "idx_sys_role_mutex_b" already exists, skipping
+[2m2026-11-08T03:08:43.537377Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0107 自检通过：task/task_ai 就位，策略总数 8 条
+[2m2026-11-08T03:08:43.546173Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: constraint "ck_biz_task_dependency_lag" of relation "biz_task_dependency" does not exist, skipping
+[2m2026-11-08T03:08:43.552625Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0111 自检通过：operator_type varchar(16) NOT NULL DEFAULT HUMAN + CHECK + 部分索引
+[2m2026-11-08T03:08:43.564422Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0112 自检通过：biz_task 7 列 + 2 条 CHECK / 附件 2 列 / 令牌表 + 唯一索引 / 评论 6 种类型
+[2m2026-11-08T03:08:43.568667Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0113 自检通过：附件软删列 + 2 条索引 + 工时区间约束 + 3 个权限节点
+[2m2026-11-08T03:08:43.570056Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0114 自检通过：comment_type 7 种类型（新增 SCHEDULE）
+[2m2026-11-08T03:08:43.573823Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0115 自检通过：成员表 + 唯一索引 + 3 条索引 + 5 个权限节点
+[2m2026-11-08T03:08:43.583904Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0120 自检通过：5 张表 + 4 条关键索引 + node 约束 + 4 条外键
+[2m2026-11-08T03:08:43.585603Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0121 自检通过：1 个页面节点 + 5 个权限按钮（business:flow:read/create/update/delete/publish）
+[2m2026-11-08T03:08:43.596605Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0124 自检通过：5 个实例侧权限节点（instance:create/read/withdraw + approve + admin）
+[2m2026-11-08T03:08:43.609056Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0131 自检通过：2 个分类 + 5 篇已发布文档 + 5 条版本快照
+[2m2026-11-08T03:08:43.611284Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0132：当前库没有任何用户（空库首启），已跳过任务种子；项目已建但暂挂 0 条任务（应用启动并建出 admin 后重跑本迁移即可）
+[2m2026-11-08T03:08:43.615899Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0134 自检通过：模板表 + 菜单已就位
+[2m2026-11-08T03:08:43.619111Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0135 自检通过：周期列 4 个 + source 值域含 RECURRING
+[2m2026-11-08T03:08:43.620364Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: constraint "ck_biz_flow_node_expression" of relation "biz_flow_node" does not exist, skipping
+[2m2026-11-08T03:08:43.623431Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0136 自检通过：枚举放开 + 存在性/上限兜底 + assignee_rule_id + 3 条反例被拦 + 1 条正例可入库
+[2m2026-11-08T03:08:43.639258Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: constraint "ck_biz_warehouse_level" of relation "biz_warehouse" does not exist, skipping
+[2m2026-11-08T03:08:43.639300Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: constraint "ck_biz_warehouse_no_self" of relation "biz_warehouse" does not exist, skipping
+[2m2026-11-08T03:08:43.639352Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: constraint "ck_biz_warehouse_root" of relation "biz_warehouse" does not exist, skipping
+[2m2026-11-08T03:08:43.639367Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: constraint "ck_biz_warehouse_leaf" of relation "biz_warehouse" does not exist, skipping
+[2m2026-11-08T03:08:43.645094Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0137 种子：serial_required 列尚未创建（属 V0138），跳过一物一码标记
+[2m2026-11-08T03:08:43.648284Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0137 种子核对：计量单位 3 / 3
+[2m2026-11-08T03:08:43.648310Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0137 种子核对：仓库 2 / 2（WH01 总仓 → WH02 分仓）
+[2m2026-11-08T03:08:43.648338Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0137 种子核对：库位 4 / 4
+[2m2026-11-08T03:08:43.648456Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0137 种子核对：物料 5 / 5
+[2m2026-11-08T03:08:43.648475Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0137 自检通过：13 表 / 树形 4 列 / 7 个关键索引（含 text_pattern_ops）/ 5 条反例拦截 / 2 条正例入库 / 自检数据已清场
+[2m2026-11-08T03:08:43.657495Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0138 自检通过：表/16 列/4 索引/状态 CHECK/SN 取号规则齐备；非法 status 被拦、重复号被拦、软删后同号可重用
+[2m2026-11-08T03:08:43.659599Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0139 §1.2：已建外键 fk_biz_inv_location_id → biz_inventory_location(id)
+[2m2026-11-08T03:08:43.663505Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0139 自检通过：location_id + FK / 三列唯一索引（含 NULL 折叠与不同库位共存）/ 在途仓种子 1 行 / 3 条反例拦截 / 自检数据已清场
+[2m2026-11-08T03:08:43.672612Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0140 自检：正例 DRAFT 单 / 明细 / 序列号子表写入成功
+[2m2026-11-08T03:08:43.673500Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0140 自检通过：3 表 / 6 CHECK / 5 索引（单号部分唯一）/ 6 条反例拦截 / 1 组正例写入 / 自检数据已清场
+[2m2026-11-08T03:08:43.676645Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0141：空库首启（尚无 SUPER_ADMIN 角色），跳过授权核对；建出角色后重跑本迁移即可补齐
+[2m2026-11-08T03:08:43.676670Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0141 完成：32 个 ERP 权限码、2 目录 / 5 主数据菜单 / 8 台账菜单 / 19 按钮，超管已全量授权
+[2m2026-11-08T03:08:43.678442Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0142：库里还没有任何角色（迁移先于 bootstrap），跳过授权核对；bootstrap 之后重放本迁移即可补齐
+[2m2026-11-08T03:08:43.678578Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0142 自检通过：5 个权限码 / 1 菜单 + 4 按钮 / 菜单挂在 0940 下
+[2m2026-11-08T03:08:43.680452Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0143：库里还没有任何角色（迁移先于 bootstrap），跳过授权核对；bootstrap 之后重放本迁移即可补齐
+[2m2026-11-08T03:08:43.680473Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0143 自检通过：1 个权限码（business:erp:inventory:audit）挂在 0955 下
+[2m2026-11-08T03:08:43.682596Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0144：库里还没有任何角色（迁移先于 bootstrap），跳过授权核对；bootstrap 之后重放本迁移即可补齐
+[2m2026-11-08T03:08:43.682626Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0144 自检通过：1 个菜单（0987）+ 5 个按钮 + 6 个权限码挂在 0946 下
+[2m2026-11-08T03:08:43.710995Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0145 就绪：采购订单补 price_mode / 明细补 price_incl + 税率区间，收货两表 2 张 / 10 索引 / 11 约束
+[2m2026-11-08T03:08:43.712981Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0146：sys_role 为空（空库首启，迁移先于 bootstrap），跳过授权；bootstrap 后重放本迁移即可补齐
+[2m2026-11-08T03:08:43.714247Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0147：sys_role 为空（空库首启，迁移先于 bootstrap），跳过授权；bootstrap 后重放本迁移即可补齐
+[2m2026-11-08T03:08:43.718131Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0148 自检通过：biz_payable（6 条约束 / 7 个索引）
+[2m2026-11-08T03:08:43.724331Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0149 自检通过：ck_biz_voucher_balance 拦住了不平的凭证
+[2m2026-11-08T03:08:43.724379Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0149 自检通过：ck_biz_voucher_entry_side 拦住了双边分录
+[2m2026-11-08T03:08:43.724393Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0149 自检通过：凭证/分录/规则三表 + 科目种子 + 映射规则
+[2m2026-11-08T03:08:43.725786Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0150：sys_role 为空（空库首启，迁移先于 bootstrap），跳过授权；bootstrap 后重放本迁移即可补齐
+[2m2026-11-08T03:08:43.726754Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0151：sys_role 为空（空库首启，迁移先于 bootstrap），跳过授权；bootstrap 后重放本迁移即可补齐
+[2m2026-11-08T03:08:43.727411Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m WARNING: there is already a transaction in progress
+[2m2026-11-08T03:08:43.728762Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m WARNING: there is no transaction in progress
+[2m2026-11-08T03:08:43.729004Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m WARNING: there is already a transaction in progress
+[2m2026-11-08T03:08:43.729837Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m WARNING: there is no transaction in progress
+[2m2026-11-08T03:08:43.730099Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m WARNING: there is already a transaction in progress
+[2m2026-11-08T03:08:43.731167Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m WARNING: there is no transaction in progress
+[2m2026-11-08T03:08:43.736063Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0158：sys_role 为空（空库首启，迁移先于 bootstrap），跳过授权；bootstrap 后重放本迁移即可补齐
+[2m2026-11-08T03:08:43.742526Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m WARNING: there is already a transaction in progress
+[2m2026-11-08T03:08:43.744293Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m WARNING: there is no transaction in progress
+[2m2026-11-08T03:08:43.746687Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0171 完成：告警台账 2 列 + 部分索引 1 个 + 系统参数 2 条
+[2m2026-11-08T03:08:43.749704Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0172 完成：sys_file.is_shared 就绪，avatar/template 已共享 0 行
+[2m2026-11-08T03:08:43.750998Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m WARNING: there is already a transaction in progress
+[2m2026-11-08T03:08:43.752512Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m WARNING: there is no transaction in progress
+[2m2026-11-08T03:08:43.753564Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: constraint "ck_biz_si_pending_cancel" of relation "biz_stock_in" does not exist, skipping
+[2m2026-11-08T03:08:43.756510Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: constraint "ck_biz_payment_approval_status" of relation "biz_payment" does not exist, skipping
+[2m2026-11-08T03:08:43.756561Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: constraint "ck_biz_payment_pending_instance" of relation "biz_payment" does not exist, skipping
+[2m2026-11-08T03:08:43.768575Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0177 自检通过：3 列 + source 扩 FLOW + 幂等索引 + 2 条 CHECK
+[2m2026-11-08T03:08:43.770740Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0178 自检通过：node_type 扩到 9 值 + 3 条 config 分区 CHECK
+[2m2026-11-08T03:08:43.771889Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0181 自检通过：1 个按钮权限点（business:flow:tasknode:read）
+[2m2026-11-08T03:08:43.778641Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0182 自检通过：采购审批 + 收货过账审批两个标准流程已就绪
+[2m2026-11-08T03:08:43.783761Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0183：资产负债表 2 个权限码已种，授权新增 0 行（角色数 4）
+[2m2026-11-08T03:08:43.783791Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0183 自检通过：科目 56 个、报表项 41 个、权限节点 2 个
+[2m2026-11-08T03:08:43.786825Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0184：利润表权限码已种，授权新增 0 行（角色数 4）
+[2m2026-11-08T03:08:43.786867Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0184 自检通过：利润表报表项 12 个（其中科目取数 9 个）、权限节点 1 个
+[2m2026-11-08T03:08:43.791380Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0185：现金流量表权限码已种，授权新增 0 行（角色数 4）
+[2m2026-11-08T03:08:43.791410Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0185 自检通过：现金流量表分类行 12 个、权限节点 1 个
+[2m2026-11-08T03:08:43.795531Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0186 自检通过：新增外键索引 12 个，剩余无索引外键 0 个
+[2m2026-11-08T03:08:43.799346Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0187 自检通过：单位 28 个（其中标准 28 个、系统预置 28 个）、物料分类 7 值、结算方式 7 项
+[2m2026-11-08T03:08:43.800951Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0188：期间三码已种，授权新增 0 行
+[2m2026-11-08T03:08:43.800979Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0188 自检通过：开账/结账/反结账 3 个权限节点
+[2m2026-11-08T03:08:43.805560Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0189 自检通过：ck_biz_voucher_type 拦住了白名单外的类型
+[2m2026-11-08T03:08:43.805913Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0189：期初三码已种，授权新增 0 行
+[2m2026-11-08T03:08:43.805931Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0189 自检通过：期初两表 + 期初凭证唯一索引 + 三个权限节点
+[2m2026-11-08T03:08:43.807394Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: constraint "ck_biz_opening_source" of relation "biz_opening_balance" does not exist, skipping
+[2m2026-11-08T03:08:43.809337Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0190 自检通过：ck_biz_voucher_type 拦住了白名单外的类型
+[2m2026-11-08T03:08:43.809765Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0190：年结三码已种，授权新增 0 行
+[2m2026-11-08T03:08:43.809780Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0190 自检通过：期初来源列 + YEAR_END 白名单 + 结转凭证唯一索引 + 三个权限节点
+[2m2026-11-08T03:08:43.811611Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: constraint "ck_biz_payable_pending_cancel" of relation "biz_payable" does not exist, skipping
+[2m2026-11-08T03:08:43.811973Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: constraint "ck_biz_voucher_pending_reverse" of relation "biz_voucher" does not exist, skipping
+[2m2026-11-08T03:08:43.819494Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0191 自检通过：应付作废 + 凭证红冲两条标准流程已就绪
+[2m2026-11-08T03:08:43.821985Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0192 自检通过：4 个新权限码 × 0 个老码角色 = 0 行（已按老码矩阵补齐 应付作废/凭证红冲 的撤回能力）
+[2m2026-11-08T03:08:43.824532Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0193 自检通过：is_system 列 + 预置流程分类归一
+[2m2026-11-08T03:08:43.825551Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0194 自检通过：流程模板库菜单节点（/flow/templates）
+[2m2026-11-08T03:08:43.829920Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0195 自检通过：cols=23 / checks=9 / indexes=5 / CT 取号=1
+[2m2026-11-08T03:08:43.833720Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0197 自检通过：5 个 erp:contract:* 权限码 + 合同菜单节点
+[2m2026-11-08T03:08:43.835517Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: S2 存量体检：①非采购入库带供应商=0 行；②采购入库无供应商=0 行；③入库单与采购单供应商不一致=0 行（③只报告不修改）
+[2m2026-11-08T03:08:43.838276Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: S6 自检通过：4 列 / 3 约束 / 1 部分索引；双向钉死违反=0；存量采购单 0 张（CONTRACT=0 / 其余 SPOT）
+[2m2026-11-08T03:08:43.839893Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: S2 存量体检：无源入库单=0 张（其中无备注=0 张，只报告）；采购入库缺供应商=0 张；入库单与采购单供应商不一致=0 张（只报告不修改）
+[2m2026-11-08T03:08:43.842176Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: S6 自检通过：1 列 / 2 约束 / 1 部分索引；钉死违反=0；存量入库单 0 张（有源=0 / 无源标记=0）
+[2m2026-11-08T03:08:43.843216Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0200 自检通过：合同管理菜单已上侧边栏（根级，sort 75）
+[2m2026-11-08T03:08:43.844183Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: S1 存量体检：costing_method <> MOVING_AVG 的物料 0 行（其中有效 0 行）；明细：（无）
+[2m2026-11-08T03:08:43.844694Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: S5 自检通过：ck_biz_material_costing = 单值 MOVING_AVG；违反=0；同表其余 3 条 CHECK 完好；有效物料 5 行全部为移动加权
+[2m2026-11-08T03:08:43.846275Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0202 自检通过：2 个权限码已登记，8 个审批流程全部 PUBLISHED
+[2m2026-11-08T03:08:43.850987Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0203：出库单 6 个权限码已种，授权新增 0 行（角色数 6）
+[2m2026-11-08T03:08:43.863392Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0203 就绪：出库两表 2 张 / 11 索引 / 7 约束 / 6 权限码 / 1 取号规则
+[2m2026-11-08T03:08:43.867521Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0204 完成：biz_flow_state_edge 建表 + 唯一约束 + 存活行索引，初始 0 行（全部使用 BASE_EDGES）
+[2m2026-11-08T03:08:43.872253Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0205 完成：biz_flow_linkage_rule 建表 + 白名单 CHECK + 禁 SQL 键 CHECK + 触发点索引，初始 0 行（引擎不接管任何联动）
+[2m2026-11-08T03:08:43.875432Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0206 完成：2 个权限码 + flow_edge_config 种子流程（s → n_cfg → e，hash c0ad61937b73）
+[2m2026-11-08T03:08:43.876651Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0207：催办权限已种，授权新增 0 行
+[2m2026-11-08T03:08:43.876673Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0207 自检通过：结账催办 1 个权限节点
+[2m2026-11-08T03:08:43.877680Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0208：年结催办权限已种，授权新增 0 行
+[2m2026-11-08T03:08:43.877698Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0208 自检通过：年结催办 1 个权限节点
+[2m2026-11-08T03:08:43.879155Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: constraint "ck_biz_contract_approval" of relation "biz_contract" does not exist, skipping
+[2m2026-11-08T03:08:43.882550Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0209 自检通过：合同审批流（金额两档分级）已就绪；状态白名单已扩到 6 值
+[2m2026-11-08T03:08:43.888001Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0210：手动触发提醒权限已种，授权新增 5 行
+[2m2026-11-08T03:08:43.888028Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0210 自检通过：台账 9 列 + 幂等唯一索引 + 4 模板 + 4 任务 + 2 参数 + 1 权限节点
+[2m2026-11-08T03:08:43.893881Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0211：盘点单 6 个权限码已种，授权新增 12 行（角色数 7）
+[2m2026-11-08T03:08:43.908837Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0211 就绪：盘点两表 / 8 索引 / 7 约束 / 6 权限码 / 1 取号规则 / 1 审批流程（差异金额分档）
+[2m2026-11-08T03:08:43.912530Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0212：单据附件 3 个权限码已种，授权新增 15 行（角色数 7）
+[2m2026-11-08T03:08:43.913284Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0212 完成：biz_doc_attachment 1 表 / 3 索引 / 2 约束 / 3 权限节点就绪
+[2m2026-11-08T03:08:43.915154Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0213：联动作废 2 个权限码已种（6 个按钮），授权新增 0 行
+[2m2026-11-08T03:08:43.916992Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0214：辅助账权限码已种，授权新增 0 行（角色数 7）
+[2m2026-11-08T03:08:43.920497Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0215：摆设字段处置已落地（采购单 3 列 + 4 条列注释）
+[2m2026-11-08T03:08:43.923564Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0216：po_approve 已发布 v2（超信用额度 → 财务复核 → 原金额三档）
+[2m2026-11-08T03:08:43.924332Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0216 自检通过：v2 9 节点 / 11 边 / 5 审批人，hash=4db3fe5731dc8efc7844d6a51a326df20638d8b1eabd4a553444ead503554b7d，v1 原样归档
+[2m2026-11-08T03:08:43.928479Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0219：调拨状态日志已统一为 STOCK_TRANSFER（当前 0 行，旧别名 0 行）
+[2m2026-11-08T03:08:43.928529Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0219：已发布预置审批流 11 条（biz_type 全部在 FlowBizType 域内，见 doc_kind.rs）
+[2m2026-11-08T03:08:43.929811Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0220：is_system 打标 2 行（contract_approve / stock_take_post），残留错标 0 行（应为 0）
+[2m2026-11-08T03:08:43.931734Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0221：当年 2026 年会计期间 —— 新建 11 期，已存在 1 期（共 12 期）
+[2m2026-11-08T03:08:43.931768Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0221：按 CURRENT_DATE = 2026-11-08 判定，当月 = 11
+[2m2026-11-08T03:08:43.932113Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0221 自检通过：当年 2026 的 12 期齐备
+[2m2026-11-08T03:08:43.947975Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0228 OK：budget_approve 已发布（11 节点 / 13 边 / hash 19b84d031306）
+[2m2026-11-08T03:08:43.965722Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0231 OK：asset_disposal 已发布（3 节点 / 2 边 / hash b4bef2fc227d）
+[2m2026-11-08T03:08:43.969112Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0233：is_system 打标 2 行（budget_approve / asset_disposal），预置白名单 13 个编码全部为系统流程
+[2m2026-11-08T03:08:43.979110Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0237：采购单已挂项目（project_id 可空 + idx_biz_po_project 部分索引）
+[2m2026-11-08T03:08:43.980431Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: constraint "ck_biz_task_doc_pair" of relation "biz_task" does not exist, skipping
+[2m2026-11-08T03:08:43.984277Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0238：任务可挂单据（doc_type/doc_id + ck + 部分索引）+ 采购单仓库名快照已就位
+[2m2026-11-08T03:08:43.988281Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0239 自检通过：审批角色 approve 授权 7 行；8 个实例侧节点合计授权 49 行
+[2m2026-11-08T03:08:43.991017Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0240 ✓ MATERIAL_TYPE 可落库：ck_biz_bsm_ref 三档 + uk_biz_bsm_target 目标键 = coalesce(ref_id, upper(btrim(ref_code)))
+[2m2026-11-08T03:08:43.993560Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0241 自检通过：5 个 business:erp:contract:* 就位，旧码 0 残留，授权行 0 → 0（零丢失），在途令牌升级 0 人
+[2m2026-11-08T03:08:44.014465Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0246：stock_take_post 快照已按 canonical 顺序重排（cfc6101455d799fb4377353ad57c85dfae8f30956a94ae642c88e1644a6bfb4a → 331f253a63ed68bb88fbcc7d4cc1d9273f3a49efde9d8d76955d71d36ac95ae8）
+[2m2026-11-08T03:08:44.014597Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0246 自检通过：快照顺序 + hash 均为 canonical 口径
+[2m2026-11-08T03:08:44.016039Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0247 ① 部门类角色（DEPT_LEADER / PURCHASE_MANAGER / WAREHOUSE_MANAGER）→ data_scope=3：3 行
+[2m2026-11-08T03:08:44.016404Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0247 ②a FINANCE_MANAGER → sys_role_dept(财务部 FIN)：新增 0 行
+[2m2026-11-08T03:08:44.016434Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0247 ②b FINANCE_DIRECTOR → sys_role_dept(财务部 FIN + 总部 HQ)：新增 0 行
+[2m2026-11-08T03:08:44.016652Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0247 ②c 财务角色 → data_scope=5：0 行
+[2m2026-11-08T03:08:44.016680Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0247 ②d 本库缺少 dept_code FIN/HQ（基础版空库），2 个财务角色保持 data_scope=1；组织树建好后用 API 补配
+[2m2026-11-08T03:08:44.016922Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0247 自检通过：SUPER_ADMIN=1 / 5 必有集合 / 有组织树即有部门级授权
+[2m2026-11-08T03:08:44.018960Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0248：stock_in_cancel 作废复核已改为 WAREHOUSE_MANAGER（empty_assignee=ERROR），hash 78d34c… → 026766…
+[2m2026-11-08T03:08:44.019435Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0248 自检通过：作废复核 = WAREHOUSE_MANAGER 角色 + ERROR 兜底 + 禁止自审，快照与 hash 自洽
+[2m2026-11-08T03:08:44.020754Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0249 本库没有 QA 夹具角色（QA_LIMITED / QA_VIEWER / MUTEX_A / MUTEX_B），空操作
+[2m2026-11-08T03:08:44.023298Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0250 ①：ck_biz_voucher_status 已允许 DRAFT/AUDITED/POSTED，posted_at 已放开 NOT NULL
+[2m2026-11-08T03:08:44.023639Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0250 ③：没有任何角色持有 voucher:create（空库首启 / 种子未跑），跳过授权
+[2m2026-11-08T03:08:44.023983Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0250 ④：存量凭证 POSTED 0 张 / 非 POSTED 0 张（本迁移不改任何凭证行）
+[2m2026-11-08T03:08:44.024002Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0250 完成：凭证三态审核链的权限码就绪（DRAFT → AUDITED → POSTED）
+[2m2026-11-08T03:08:44.027896Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0251 payable_pay：v2 已发布（hash=5059115327e291c6e1861fa434f7e74d8ccc50e133e79b802cde6f074e2c65d3）
+[2m2026-11-08T03:08:44.029540Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0251 stock_in_cancel：v2 已发布（hash=80cd6c9c76c165a7b75e0be29f163482825dc31eef1f195e0602cd98d3ca4cb1）
+[2m2026-11-08T03:08:44.031058Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0251 stock_transfer：v2 已发布（hash=7211229eeec38dca63ee28cd0fceb5a13b11ab5e12c94adb87465ad178901ef6）
+[2m2026-11-08T03:08:44.032700Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0252：「我的报销」图标 invoice → bill 已修（1 行）
+[2m2026-11-08T03:08:44.034435Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0253 完成：联动规则配置页 + 2 个权限码（仅授 SUPER_ADMIN）
+[2m2026-11-08T03:08:44.036287Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0254 完成：跨单据联动预置 3 条规则（收货过账→生成凭证 / 收货过账→通知制单人 / 任务开工(TODO→DOING)→通知负责人与创建人），全部 enabled + TAKEOVER
+[2m2026-11-08T03:08:44.037740Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0255：应付账龄分析 1 个权限码已种，授权新增 3 行（角色数 7）
+[2m2026-11-08T03:08:44.037762Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0255 自检通过：应付账龄分析菜单 1 个
+[2m2026-11-08T03:08:44.039700Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0256 完成：报表项维护页 + 2 个权限码（读：财务/总经理；写：超管/财务主管）
+[2m2026-11-08T03:08:44.041817Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0257 自检通过：doc_type 8 值 / remind_kind 6 值
+[2m2026-11-08T03:08:44.043087Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: table "_brm_matrix" does not exist, skipping
+[2m2026-11-08T03:08:44.046483Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: table "_brm_todo" does not exist, skipping
+[2m2026-11-08T03:08:44.047396Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: table "_brm_sel" does not exist, skipping
+[2m2026-11-08T03:08:44.061318Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0258 完成：矩阵 450 对 / 本次新增授权 367 行 / 推进 token_version 0 个账号
+[2m2026-11-08T03:08:44.063343Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: table "_v0259_fix" does not exist, skipping
+[2m2026-11-08T03:08:44.064640Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: table "_v0259_sel" does not exist, skipping
+[2m2026-11-08T03:08:44.066788Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: table "_v0259_orphan" does not exist, skipping
+[2m2026-11-08T03:08:44.078899Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0259 完成：5 个实例侧按钮已归位（本次改父页 5 行）/ 兜底补授 0 行 / 推进 token_version 0 个账号
+[2m2026-11-08T03:08:44.089477Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0261：客户档案 4 个权限码已种（页面节点隐藏且 path 待 SO-03 补），3 个按钮挂在页面下
+[2m2026-11-08T03:08:44.090911Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0262 完成：客户档案页已开（path=/business/erp/customer component=business/erp/customer/index），本次改 path 1 行；3 个按钮父级完好
+[2m2026-11-08T03:08:44.092087Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0263 完成：客户档案菜单显示名「客户档案（销售链交易对手主档：编码 / 名称 / 联系人 / 信用额度 / 状态；冻结只影响开新单）」→「客户档案」（改 1 行）
+[2m2026-11-08T03:08:44.105370Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0265：销售订单 4 个权限码已种（页面节点隐藏且 path 待前端卡补），3 个按钮挂在页面下
+[2m2026-11-08T03:08:44.107270Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0266 完成：4 个销售页面 + 13 个按钮的前置承载已就位（存量库为 0 行插入）
+[2m2026-11-08T03:08:44.109001Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: table "_sm_matrix" does not exist, skipping
+[2m2026-11-08T03:08:44.117290Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: table "_sm_sel" does not exist, skipping
+[2m2026-11-08T03:08:44.121490Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0267 完成：销售管理目录 + 6 页面归位；矩阵 47 对，本次新增授权 52 行，推进 token_version 0 人
+[2m2026-11-08T03:08:44.141047Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0270 自检通过：biz_customer_price(14 列) / biz_price_tier(16 列) / biz_material.standard_price 就位，唯一索引与 RESTRICT 外键行为已验证
+[2m2026-11-08T03:08:44.152295Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: SO-39 自检通过：2 表 + 4 币种种子 + 本位币唯一 + rate>0 + 唯一索引 + 取汇率语义
+[2m2026-11-08T03:08:44.159226Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0281 自检通过：销售订单审批（三档金额分流）标准流程已就绪
+[2m2026-11-08T03:08:44.160854Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0282 完成：销售订单页已开（path=/business/erp/sales-order component=business/erp/sales-order/index），本次改 path 1 行；3 个按钮父级完好
+[2m2026-11-08T03:08:44.175769Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0284：发货单 3 个权限码已种（页面节点隐藏且 path 待前端卡补），2 个按钮挂在页面下
+[2m2026-11-08T03:08:44.181900Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0286 完成：发货单页已开（path=/business/erp/shipment component=business/erp/shipment/index），本次改 path 1 行；2 个按钮父级完好
+[2m2026-11-08T03:08:44.205884Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0287 自检通过：biz_receivable 24 列（与 biz_payable 逐列同型）/ 5 约束 / 8 索引 / AR 取号=AR-20261106-000001
+[2m2026-11-08T03:08:44.207765Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0288：应收 5 个权限码已种（页面节点隐藏且 path 待前端卡补），4 个按钮挂在页面下
+[2m2026-11-08T03:08:44.211414Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0289：biz_customer.credit_days（账期天数，0=现结）已就位，坏数据被 CHECK 拒绝
+[2m2026-11-08T03:08:44.214153Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0290 自检通过：ck_biz_ar_status 5 值（含 CANCELLED）/ ck_biz_ar_cancelled 拦住已收款作废 / 原有 4 值不受影响
+[2m2026-11-08T03:08:44.215668Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0291 完成：应收台账页已开（path=/business/erp/receivable component=business/erp/receivable/index），本次改 path 1 行；4 个按钮父级完好
+[2m2026-11-08T03:08:44.233067Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0292 自检通过：biz_receipt 16 列 / biz_receipt_allocation 7 列 / 5 约束 / 9 索引 / 外键(CASCADE+RESTRICT) / RC 取号=RC-20261106-000001
+[2m2026-11-08T03:08:44.235264Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0293：收款单 5 个权限码已种（页面节点隐藏且 path 待前端卡补），4 个按钮挂在页面下
+[2m2026-11-08T03:08:44.254403Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0294 自检通过：biz_receipt_refund 18 列 / biz_receipt_refund_allocation 7 列 / 6 约束 / 10 索引 / 外键(CASCADE+RESTRICT) / RR 取号=RR-20261106-000001
+[2m2026-11-08T03:08:44.256455Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0295 自检通过：收款退款单 5 个权限码（1 页面 + 4 按钮）已登记
+[2m2026-11-08T03:08:44.257817Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0296 完成：收款单页已开（path=/business/erp/receipt component=business/erp/receipt/index），本次改 path 1 行；4 个按钮父级完好
+[2m2026-11-08T03:08:44.260672Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0297 自检通过：收款退款审批（财务经理复核 · 过账前置）标准流程已就绪
+[2m2026-11-08T03:08:44.277666Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0298 自检通过：biz_invoice 21 列 / 6 约束 / 7 索引 / 外键 RESTRICT / IV 取号=IV-20261106-000001
+[2m2026-11-08T03:08:44.279695Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0299：销售发票 4 个权限码已种（页面节点隐藏且 path 待前端卡补），3 个按钮挂在页面下
+[2m2026-11-08T03:08:44.281304Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0300 完成：销售发票页已开（path=/business/erp/invoice component=business/erp/invoice/index），本次改 path 1 行；3 个按钮父级完好
+[2m2026-11-08T03:08:44.283478Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0301：so_approve 打标 1 行，快照 canonical 重排 1 行（da3c2eed → 97fe9377）
+[2m2026-11-08T03:08:44.287299Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: ④ 自检通过：1 列 / 1 外键（ON DELETE SET NULL）/ 1 部分索引；存量订单 0 张，其中已挂合同 0 张（不回填，历史单一律 NULL）
+[2m2026-11-08T03:08:44.305703Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0304 完成：sales-return 3 个权限码已种入 sys_menu（1 页面 + 2 按钮，均隐藏）
+[2m2026-11-08T03:08:44.310887Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0305 OK：biz_stock_in 来源两列 + 部分唯一索引 + 发票来源白名单 SALES_RETURN
+[2m2026-11-08T03:08:44.312634Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0306 完成：销售退货单页已开（path=/business/erp/sales-return component=business/erp/sales-return/index parent=销售管理 sort=70），本次改 path 1 行；2 个按钮父级完好
+[2m2026-11-08T03:08:44.337392Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0309 自检：库里没有任何 sys_user 行，跳过「真实销售员」探针
+[2m2026-11-08T03:08:44.337598Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0309 完成：salesperson_id + 佣金三表就位；存量订单 0 张（已关联销售员 0 张，不回填）
+[2m2026-11-08T03:08:44.339468Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: table "_cm_matrix" does not exist, skipping
+[2m2026-11-08T03:08:44.341575Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: table "_cm_sel" does not exist, skipping
+[2m2026-11-08T03:08:44.344298Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0310 完成：佣金 7 码 / 2 页 / 5 按钮；授权新增 15 行，推进 token_version 的账号 0 个；卡面 SALES_MANAGER = 本仓 SALES_SUPERVISOR（V0267 决策，未新建同义角色）
+[2m2026-11-08T03:08:44.347004Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0311 自检：库里没有 sys_user 行，跳过负基数探针
+[2m2026-11-08T03:08:44.347288Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0311 完成：2241.02 + biz_seq(CM) + 有符号基数列就位
+[2m2026-11-08T03:08:44.349022Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0312 ① 规则页 path 更新 1 行
+[2m2026-11-08T03:08:44.349094Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0312 ② 规则页 component 更新 1 行
+[2m2026-11-08T03:08:44.349108Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0312 ③ 规则页 title/parent/sort/visible 更新 1 行
+[2m2026-11-08T03:08:44.349132Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0312 ④ 结算页 path 更新 1 行
+[2m2026-11-08T03:08:44.349236Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0312 ⑤ 结算页 component 更新 1 行
+[2m2026-11-08T03:08:44.349264Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0312 ⑥ 结算页 title/parent/sort/visible 更新 1 行
+[2m2026-11-08T03:08:44.349615Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0312 完成：佣金规则 /business/erp/commission-rule（sort 80）、佣金结算 /business/erp/commission（sort 90）已挂到「销售管理」目录
+[2m2026-11-08T03:08:44.355236Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: column "currency_code" of relation "biz_receivable" already exists, skipping
+[2m2026-11-08T03:08:44.359758Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: SO-40: biz_receivable.currency_code 已从 CHAR(3) 放宽为 varchar(8)
+[2m2026-11-08T03:08:44.361256Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: SO-40: biz_sales_order 回填 0 行（base_* = 原币）
+[2m2026-11-08T03:08:44.361377Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: SO-40: biz_receivable 回填 0 行（base_* = 原币）
+[2m2026-11-08T03:08:44.361506Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: SO-40: biz_receipt 回填 0 行（base_* = 原币）
+[2m2026-11-08T03:08:44.361647Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: SO-40: biz_invoice 回填 0 行（base_* = 原币）
+[2m2026-11-08T03:08:44.380251Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: SO-40 自检通过：4 表 × 5 列（varchar(8) / 18,8 / 18,4×3）、12 条 CHECK 在位、存量回填一致
+[2m2026-11-08T03:08:44.387874Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0315 自检通过：14 列 / 4 CHECK / 3 索引 / 5 组行为探针
+[2m2026-11-08T03:08:44.391794Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: SO-42: 币种 / 汇率菜单与 10 个权限码自检通过
+[2m2026-11-08T03:08:44.395046Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: table "_stmt_matrix" does not exist, skipping
+[2m2026-11-08T03:08:44.398960Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: SO-43: 对账确认台账 + 5 个权限码 + 应收台账按钮 + 授权自检通过
+[2m2026-11-08T03:08:44.408585Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: SO-44: 销售目标 / 预测两表 + 8 个权限码 + 菜单 + 取号规则自检通过
+[2m2026-11-08T03:08:44.411084Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0319 自检通过：菜单结构已对齐基线（parent / 名称 / 可见性 / 排序）
+[2m2026-11-08T03:08:44.412264Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0320 前置通过：父级 = 基础数据（/business/erp/master-data）
+[2m2026-11-08T03:08:44.412688Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0320 自检通过：单号序列 已归位到「基础数据」sort=30
+[2m2026-11-08T03:08:44.419390Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: P2-01: 询比价三表 + 取号 + 5 个权限码 + 菜单自检通过
+[2m2026-11-08T03:08:44.422289Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0323 完成：FIXED_ASSET 预置 3 条 SEND_NOTICE 联动规则（停用 IDLE / 启用·作废处置 IN_USE / 处置 DISPOSED）；当前存活 3 条、其中 enabled+TAKEOVER 3 条（已有手工配置时按运维的来，不覆盖）
+[2m2026-11-08T03:08:44.423875Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: table "_v0324_before" does not exist, skipping
+[2m2026-11-08T03:08:44.424505Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: table "_v0324_cand" does not exist, skipping
+[2m2026-11-08T03:08:44.426573Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0324：并入 0 个「未分配桶」到默认库位桶（原未分配桶 0 条），回填期初桶 0 行；总数量 0 / 总金额 0 / 库位账合计 0 与迁移前一致，两本账 0 差异
+[2m2026-11-08T03:08:44.437735Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: constraint "ck_biz_invoice_tax_rate_mode" of relation "biz_invoice" does not exist, skipping
+[2m2026-11-08T03:08:44.438079Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: constraint "ck_biz_material_tax_mode" of relation "biz_material" does not exist, skipping
+[2m2026-11-08T03:08:44.454720Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: P2-02: 采购申请两表 + 取号 + 4 个权限码 + 菜单 + pr_approve 流程自检通过
+[2m2026-11-08T03:08:44.464107Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: P2-03 自检通过：采购退货三表 + 取号 + 权限码 + 菜单 + prt_approve 流程
+[2m2026-11-08T03:08:44.468853Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0333：升级链预置完成（7 个角色已配上级角色）
+[2m2026-11-08T03:08:44.473100Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0334：节点兜底人（fallback_user_id / fallback_role_id）+ 派单规则列（assigned_by_rule）已就绪
+[2m2026-11-08T03:08:44.494481Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0336: 已建 ex_biz_flow_delegate_no_overlap（同一委托人的启用区间不许重叠）
+[2m2026-11-08T03:08:44.497085Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0336 自检通过：11 列 / 2 局部索引 / 3 个权限码 / 页面挂载正确
+[2m2026-11-08T03:08:44.500169Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0337 自检通过：6 条主数据取号规则就位（date_pattern=none / period_key=GLOBAL / pad_width 4:4:4:2:2:2）
+[2m2026-11-08T03:08:44.505534Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0339 草稿冻结：ALL=0 / ANY=0
+[2m2026-11-08T03:08:44.505568Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0339 已发布/归档待启动期冻结器处理：38 个 APPROVAL 节点（flow::sign_freeze）
+[2m2026-11-08T03:08:44.514857Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: S__employee_self_service_permissions 自检通过：EMPLOYEE 持有 11 行菜单 / 8 个权限码（含 expense:submit），data_scope=4
+[2m2026-11-08T03:08:44.522031Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: S__task_dependency_permissions 提示：1 行依赖管理授权给了非超管角色（管理员显式勾选，属预期）
+[2m2026-11-08T03:08:44.524935Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: S__task_permissions 提示：2 行分派 / 协作人授权给了非超管角色（管理员显式勾选的，属预期）
+[2m2026-11-08T03:08:44.525331Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: S__task_permissions 提示：3 行 T6b 权限授权给了非超管角色（管理员显式勾选的，属预期）
+[2m2026-11-08T03:08:44.528888Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: S__voucher_three_state_permissions：SUPER_ADMIN 已持有 audit / un-audit / post 三码
+[2m2026-11-08T03:08:44.532746Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 272 个迁移
+[2m2026-11-08T03:08:44.532792Z[0m [32m INFO[0m [2mnik_cache[0m[2m:[0m 使用 Redis 缓存 url=redis://127.0.0.1:6379 app=cloudpivot
+[2m2026-11-08T03:08:53.996546Z[0m [33m WARN[0m [2mnik_web::app[0m[2m:[0m 缓存初始化失败: 配置错误: Redis 连接失败: Connection refused (os error 111)，将不使用缓存
+[2m2026-11-08T03:08:53.996616Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 上传目录就绪 path=uploads max_size_mb=128
+[2m2026-11-08T03:08:53.996629Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 下载目录就绪 path=downloads
+[2m2026-11-08T03:08:53.996642Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 执行 1 个自定义启动钩子（按注册顺序）
+[2m2026-11-08T03:08:53.996657Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 启动引导完成 [3mapp[0m[2m=[0mcloudpivot [3mprofile[0m[2m=[0mdev [3mdb_driver[0m[2m=[0mpostgres
+[2m2026-11-08T03:08:53.996925Z[0m [32m INFO[0m [2mcloudpivot::business::impexp::worker[0m[2m:[0m 已注册内置定时任务（导入导出 worker） [3mtask[0m[2m=[0m"impexp_export_worker" [3mcron[0m[2m=[0m"*/5 * * * * *"
+[2m2026-11-08T03:08:53.996942Z[0m [32m INFO[0m [2mcloudpivot::business::impexp::cleanup[0m[2m:[0m 已注册内置定时任务（导入导出清理） [3mtask[0m[2m=[0m"impexp_task_cleanup" [3mcron[0m[2m=[0m"0 40 4 * * *"
+[2m2026-11-08T03:08:53.996968Z[0m [32m INFO[0m [2mcloudpivot::task[0m[2m:[0m 变更日志分区运维任务已注册（C6 真实现） [3minvoke_target[0m[2m=[0m"changelog_partition_maintain" [3mcron[0m[2m=[0m"0 20 1 1 * *"
+[2m2026-11-08T03:08:53.996983Z[0m [32m INFO[0m [2mcloudpivot::business::task::hermes_sync[0m[2m:[0m AI 任务状态同步任务已注册（T5b） [3mtask[0m[2m=[0m"task_hermes_sync" [3mcron[0m[2m=[0m"*/30 * * * * *"
+[2m2026-11-08T03:08:53.996995Z[0m [32m INFO[0m [2mcloudpivot::business::erp::transfer_overdue[0m[2m:[0m 在途调拨超期扫描任务已注册 [3minvoke_target[0m[2m=[0m"transfer_overdue_scan" [3mcron[0m[2m=[0m"0 5 * * * *"
+[2m2026-11-08T03:08:53.997009Z[0m [32m INFO[0m [2mcloudpivot::business::erp::reminder[0m[2m:[0m 业务提醒任务已注册 [3minvoke_target[0m[2m=[0m"erp_payable_due_scan" [3mcron[0m[2m=[0m"0 10 7 * * *"
+[2m2026-11-08T03:08:53.997017Z[0m [32m INFO[0m [2mcloudpivot::business::erp::reminder[0m[2m:[0m 业务提醒任务已注册 [3minvoke_target[0m[2m=[0m"erp_po_overdue_scan" [3mcron[0m[2m=[0m"0 20 7 * * *"
+[2m2026-11-08T03:08:53.997032Z[0m [32m INFO[0m [2mcloudpivot::business::erp::reminder[0m[2m:[0m 业务提醒任务已注册 [3minvoke_target[0m[2m=[0m"erp_contract_expire_scan" [3mcron[0m[2m=[0m"0 30 7 * * *"
+[2m2026-11-08T03:08:53.997057Z[0m [32m INFO[0m [2mcloudpivot::business::erp::reminder[0m[2m:[0m 业务提醒任务已注册 [3minvoke_target[0m[2m=[0m"erp_low_stock_scan" [3mcron[0m[2m=[0m"0 40 7 * * *"
+[2m2026-11-08T03:08:53.997076Z[0m [32m INFO[0m [2mcloudpivot::business::erp::depreciation_model[0m[2m:[0m 折旧计提任务已注册 [3minvoke_target[0m[2m=[0m"erp_depreciation_run" [3mcron[0m[2m=[0m"0 30 1 1 * *"
+[2m2026-11-08T03:08:53.997105Z[0m [32m INFO[0m [2mcloudpivot::business::erp::credit[0m[2m:[0m 客户信用额度兜底重算任务已注册 [3minvoke_target[0m[2m=[0m"erp_credit_recompute" [3mcron[0m[2m=[0m"0 10 2 * * *"
+[2m2026-11-08T03:08:53.997117Z[0m [32m INFO[0m [2mcloudpivot::business::task::recurring[0m[2m:[0m 周期任务生成任务已注册（E11） [3minvoke_target[0m[2m=[0m"business_task_recurring" [3mcron[0m[2m=[0m"0 */5 * * * *"
+[2m2026-11-08T03:08:53.997131Z[0m [32m INFO[0m [2mcloudpivot::task[0m[2m:[0m 账务不变量巡检任务已注册（P2-7） [3minvoke_target[0m[2m=[0m"invariant_audit" [3mcron[0m[2m=[0m"0 20 2 * * *"
+[2m2026-11-08T03:08:53.997665Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m SSE 鉴权自检通过：EventSource 可用 ?token= 订阅实时通知 [3mendpoint[0m[2m=[0m/api/business/notice/stream [3mwhitelist[0m[2m=[0m["/api/business/notice/stream"]
+[2m2026-11-08T03:08:54.039326Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 transfer_overdue_scan [0 5 * * * *] 已排程
+[2m2026-11-08T03:08:54.039395Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 payable_payment_reconcile [7-59/10 * * * *] 已排程
+[2m2026-11-08T03:08:54.039422Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 changelog_partition_maintain [0 20 1 1 * *] 已排程
+[2m2026-11-08T03:08:54.039434Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 notice_scheduled_dispatch [*/30 * * * * *] 已排程
+[2m2026-11-08T03:08:54.039452Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 clean_auth_log [20 3 * * *] 已排程
+[2m2026-11-08T03:08:54.039464Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 task_hermes_sync [*/30 * * * * *] 已排程
+[2m2026-11-08T03:08:54.039488Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 flow_graph_selfcheck [0 30 3 * * *] 已排程
+[2m2026-11-08T03:08:54.039531Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 notice_expire_cleanup [0 50 4 * * *] 已排程
+[2m2026-11-08T03:08:54.039568Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 token_blacklist_cleanup [0 50 3 * * *] 已排程
+[2m2026-11-08T03:08:54.039594Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_depreciation_run [0 30 1 1 * *] 已排程
+[2m2026-11-08T03:08:54.039632Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 invariant_audit [0 20 2 * * *] 已排程
+[2m2026-11-08T03:08:54.039657Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_po_overdue_scan [0 20 7 * * *] 已排程
+[2m2026-11-08T03:08:54.039693Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_contract_expire_scan [0 30 7 * * *] 已排程
+[2m2026-11-08T03:08:54.039731Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_low_stock_scan [0 40 7 * * *] 已排程
+[2m2026-11-08T03:08:54.039760Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 storage_object_cleanup [0 30 4 * * *] 已排程
+[2m2026-11-08T03:08:54.039769Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 impexp_export_worker [*/5 * * * * *] 已排程
+[2m2026-11-08T03:08:54.039785Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 business_task_recurring [0 */5 * * * *] 已排程
+[2m2026-11-08T03:08:54.039795Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 announcement_dispatch_retry [0 */10 * * * *] 已排程
+[2m2026-11-08T03:08:54.039825Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_credit_recompute [0 10 2 * * *] 已排程
+[2m2026-11-08T03:08:54.039874Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 help_version_cleanup [0 40 2 * * *] 已排程
+[2m2026-11-08T03:08:54.039891Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_payable_due_scan [0 10 7 * * *] 已排程
+[2m2026-11-08T03:08:54.039901Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 clean_audit_log [10 3 * * *] 已排程
+[2m2026-11-08T03:08:54.039910Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 payable_cancel_reconcile [9-59/10 * * * *] 已排程
+[2m2026-11-08T03:08:54.039945Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 impexp_task_cleanup [0 40 4 * * *] 已排程
+[2m2026-11-08T03:08:54.039974Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 clean_password_log [40 3 * * *] 已排程
+[2m2026-11-08T03:08:54.040000Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 announcement_auto_expire [0 5 0 * * *] 已排程
+[2m2026-11-08T03:08:54.040029Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 announcement_top_expire [0 10 0 * * *] 已排程
+[2m2026-11-08T03:08:54.040086Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 clean_operation_log [0 3 * * *] 已排程
+[2m2026-11-08T03:08:54.040095Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 flow_timeout_scan [0 */10 * * * *] 已排程
+[2m2026-11-08T03:08:54.040107Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 stockin_cancel_reconcile [3-59/10 * * * *] 已排程
+[2m2026-11-08T03:08:54.040129Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 clean_security_log [30 3 * * *] 已排程
+[2m2026-11-08T03:08:54.040139Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 notice_sse_channel_sweep [0 */5 * * * *] 已排程
+[2m2026-11-08T03:08:54.040151Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 voucher_reverse_reconcile [5-59/10 * * * *] 已排程
+[2m2026-11-08T03:08:54.040161Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务插件: 33 个任务已启动
+[2m2026-11-08T03:08:54.159563Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 运行时参数快照已装载 [3mparams[0m[2m=[0m21
+[2m2026-11-08T03:08:54.159598Z[0m [32m INFO[0m [2mcloudpivot::support::config::model[0m[2m:[0m 缓存未启用，跳过参数版本监听（跨实例同步退化为快照 TTL）
+[2m2026-11-08T03:08:54.159624Z[0m [32m INFO[0m [2mcloudpivot::business::shared::guard[0m[2m:[0m 数据权限自检通过：12 张登记表的部门列/归属列均存在，SUPER_ADMIN 角色存在
+[2m2026-11-08T03:08:54.160284Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 孤儿任务依赖自检通过：0 条
+[2m2026-11-08T03:08:54.160699Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 会计期间保底：当年 12 期已齐，无需补建
+[2m2026-11-08T03:08:54.160779Z[0m [33m WARN[0m [2mcloudpivot::support::dict::model[0m[2m:[0m 字典缓存写入失败，跳过 [3mdict_code[0m[2m=[0m"user_status" [3merror[0m[2m=[0m缓存未初始化，无法写入字典缓存
+[2m2026-11-08T03:08:54.160841Z[0m [33m WARN[0m [2mcloudpivot::support::dict::model[0m[2m:[0m 字典缓存写入失败，跳过 [3mdict_code[0m[2m=[0m"menu_type" [3merror[0m[2m=[0m缓存未初始化，无法写入字典缓存
+[2m2026-11-08T03:08:54.162109Z[0m [33m WARN[0m [2mcloudpivot::support::dict::model[0m[2m:[0m 字典缓存写入失败，跳过 [3mdict_code[0m[2m=[0m"job_status" [3merror[0m[2m=[0m缓存未初始化，无法写入字典缓存
+[2m2026-11-08T03:08:54.162514Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 测试残留自检通过：biz_flow_def / biz_flow_instance 均 0 行 E2E_*, D2_SMOKE
+[2m2026-11-08T03:08:54.162663Z[0m [33m WARN[0m [2mcloudpivot::support::dict::model[0m[2m:[0m 字典缓存写入失败，跳过 [3mdict_code[0m[2m=[0m"config_type" [3merror[0m[2m=[0m缓存未初始化，无法写入字典缓存
+[2m2026-11-08T03:08:54.162962Z[0m [32m INFO[0m [2mcloudpivot::shared::startup_guard[0m[2m:[0m AI 员工安全红线巡检：当前没有 ROBOT profile，跳过
+[2m2026-11-08T03:08:54.162971Z[0m [32m INFO[0m [2mcloudpivot::shared::startup_guard[0m[2m:[0m AI 用户不变式自检通过：ROBOT 账号与 sys_ai_agent 一一对应
+[2m2026-11-08T03:08:54.165154Z[0m [33m WARN[0m [2mcloudpivot::support::dict::model[0m[2m:[0m 字典缓存写入失败，跳过 [3mdict_code[0m[2m=[0m"config_category" [3merror[0m[2m=[0m缓存未初始化，无法写入字典缓存
+[2m2026-11-08T03:08:54.165528Z[0m [33m WARN[0m [2mcloudpivot::support::dict::model[0m[2m:[0m 字典缓存写入失败，跳过 [3mdict_code[0m[2m=[0m"log_auth_type" [3merror[0m[2m=[0m缓存未初始化，无法写入字典缓存
+[2m2026-11-08T03:08:54.166322Z[0m [33m WARN[0m [2mcloudpivot::support::dict::model[0m[2m:[0m 字典缓存写入失败，跳过 [3mdict_code[0m[2m=[0m"log_target_type" [3merror[0m[2m=[0m缓存未初始化，无法写入字典缓存
+[2m2026-11-08T03:08:54.167080Z[0m [33m WARN[0m [2mcloudpivot::support::dict::model[0m[2m:[0m 字典缓存写入失败，跳过 [3mdict_code[0m[2m=[0m"log_operation" [3merror[0m[2m=[0m缓存未初始化，无法写入字典缓存
+[2m2026-11-08T03:08:54.168166Z[0m [33m WARN[0m [2mcloudpivot::support::dict::model[0m[2m:[0m 字典缓存写入失败，跳过 [3mdict_code[0m[2m=[0m"log_security_event" [3merror[0m[2m=[0m缓存未初始化，无法写入字典缓存
+[2m2026-11-08T03:08:54.168383Z[0m [33m WARN[0m [2mcloudpivot::support::dict::model[0m[2m:[0m 字典缓存写入失败，跳过 [3mdict_code[0m[2m=[0m"log_password_change_type" [3merror[0m[2m=[0m缓存未初始化，无法写入字典缓存
+[2m2026-11-08T03:08:54.266908Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m P3-06 签名模式冻结完成（已发布版本：快照 + hash + 行 + 实例节点 同改） [3mversions[0m[2m=[0m21 [3mnodes[0m[2m=[0m38 [3mall[0m[2m=[0m0 [3many[0m[2m=[0m38
+[2m2026-11-08T03:08:54.345371Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 已写入管理员账号种子数据 [3musername[0m[2m=[0m"admin"
+[2m2026-11-08T03:08:54.346799Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 已写入管理员角色绑定种子数据 [3musername[0m[2m=[0m"admin" [3mrole_code[0m[2m=[0m"SUPER_ADMIN"
+[2m2026-11-08T03:08:54.346845Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 演示账号种子未开启（生产默认），跳过 [3menv[0m[2m=[0m"NIK_SEED_DEMO_USERS"
+[2m2026-11-08T03:08:54.346893Z[0m [32m INFO[0m [2mnik_core::plugin[0m[2m:[0m 启动插件: startup-auth-secret-guard
+[2m2026-11-08T03:08:54.346908Z[0m [32m INFO[0m [2mcloudpivot::shared::startup_guard[0m[2m:[0m 启动守卫通过：认证密钥长度满足下限 [3mprofile[0m[2m=[0mdev [3mjwt_secret_len[0m[2m=[0m64
+[2m2026-11-08T03:08:54.346919Z[0m [32m INFO[0m [2mcloudpivot::shared::startup_guard[0m[2m:[0m 启动守卫通过：缓存后端满足吊销耐久性要求 [3mprofile[0m[2m=[0mdev [3mcache_type[0m[2m=[0mredis
+[2m2026-11-08T03:08:54.346934Z[0m [32m INFO[0m [2mcloudpivot::shared::startup_guard[0m[2m:[0m 启动守卫通过：存储主密钥长度满足要求 [3mprofile[0m[2m=[0mdev [3mstorage_master_key_len[0m[2m=[0m64
+[2m2026-11-08T03:08:54.346942Z[0m [32m INFO[0m [2mnik_core::plugin[0m[2m:[0m 启动插件: x-log-bus
+[2m2026-11-08T03:08:54.347051Z[0m [32m INFO[0m [2mnik_core::plugin[0m[2m:[0m 启动插件: x-scheduler
+[2m2026-11-08T03:08:54.347063Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 插件启动完成 [3melapsed_ms[0m[2m=[0m0
+[2m2026-11-08T03:08:54.347080Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 指标端点已启用 path=/metrics 访问范围：仅本机回环（[metrics].allow_ips 为空）（等待就绪 0ms，初始化与资源装配并行）
+[2m2026-11-08T03:08:54.357678Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 应用链内层 3 个（仅匹配路由，位于内置链之内，可读身份）
+[2m2026-11-08T03:08:54.359155Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 请求体上限就绪 max_request_bytes=167772160（由 [upload].max_size_mb=128 + multipart 余量推导）
+[2m2026-11-08T03:08:54.521348Z[0m [33m WARN[0m [2mnik_web::app[0m[2m:[0m 检测到 612 条 #[permission] 规则，但 [middleware.permission] enabled = false；已按安全默认挂载权限校验层（如需豁免请移除对应的宏注解）
+[2m2026-11-08T03:08:54.521391Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 检测到 612 条 #[permission] 规则 + 0 条配置规则 → 已启用权限校验层
+[2m2026-11-08T03:08:54.521899Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 查询参数令牌白名单 endpoints=["/api/business/notice/stream"]（仅 EventSource 类端点；令牌不落日志）
+[2m2026-11-08T03:08:54.533558Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 应用 Router 扩展 2 个（均位于内置链之外，内部按注册顺序，先注册者更靠内层）
+[2m2026-11-08T03:08:54.534238Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m Router 构建分段耗时（累计毫秒） [3minto_axum_ms[0m[2m=[0m10 [3mroute_layers_ms[0m[2m=[0m11 [3mmiddleware_chain_ms[0m[2m=[0m186 [3mmetrics_endpoint_ms[0m[2m=[0m186 [3mstatic_files_ms[0m[2m=[0m186 [3mrouter_extensions_ms[0m[2m=[0m187
+[2m2026-11-08T03:08:54.534262Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m cloudpivot 启动 -> http://127.0.0.1:18307
+[2m2026-11-08T03:08:54.534268Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m   profile=dev, request_id=true log=true cors=true compression=true rate_limit=false jwt_auth=true idempotency=false nonce=false static_files=false not_found=true
+[2m2026-11-08T03:08:54.534276Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m cloudpivot 启动完成, 耗时 11420ms
+[2m2026-11-08T03:08:55.671126Z[0m [33m WARN[0m [2mcloudpivot::system::auth::handler[0m[2m:[0m 登记在线会话失败（不影响登录结果） [3merror[0m[2m=[0m缓存未初始化，无法登记在线会话
+[2m2026-11-08T03:08:55.671174Z[0m [31mERROR[0m [2mcloudpivot::system::auth::handler[0m[2m:[0m 登记 refresh 令牌失败（吊销将退回依赖令牌版本号与黑名单） [3muser_id[0m[2m=[0m01a1b921-5ec8-72cc-afbe-c2010a9fe8a9 [3merror[0m[2m=[0m缓存未初始化，无法登记 refresh 令牌
+[2m2026-11-08T03:08:55.671226Z[0m [32m INFO[0m [2mcloudpivot::system::auth::handler[0m[2m:[0m 登录耗时分解 [3mtotal[0m[2m=[0m302 [3msteps[0m[2m=[0m["rate_limit=0ms", "security_policy=0ms", "verify_password=299ms", "reset_status=0ms", "reset_status_done=1ms", "load_roles=0ms", "load_permissions=0ms", "issue_jwt=0ms", "readback_claims=0ms", "online_session=0ms"]
+[2m2026-11-08T03:08:55.671369Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/system/auth/login [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m302ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:08:56.322205Z[0m [31mERROR[0m [2mcloudpivot::system::auth::handler[0m[2m:[0m 改密后清理在线会话失败（令牌版本号已自增，库侧吊销仍生效） [3muser_id[0m[2m=[0m01a1b921-5ec8-72cc-afbe-c2010a9fe8a9 [3merror[0m[2m=[0m缓存未初始化，无法枚举在线会话
+[2m2026-11-08T03:08:56.322418Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPUT [3mpath[0m[2m=[0m/api/system/auth/password [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m607ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:08:56.630299Z[0m [33m WARN[0m [2mcloudpivot::system::auth::handler[0m[2m:[0m 登记在线会话失败（不影响登录结果） [3merror[0m[2m=[0m缓存未初始化，无法登记在线会话
+[2m2026-11-08T03:08:56.630338Z[0m [31mERROR[0m [2mcloudpivot::system::auth::handler[0m[2m:[0m 登记 refresh 令牌失败（吊销将退回依赖令牌版本号与黑名单） [3muser_id[0m[2m=[0m01a1b921-5ec8-72cc-afbe-c2010a9fe8a9 [3merror[0m[2m=[0m缓存未初始化，无法登记 refresh 令牌
+[2m2026-11-08T03:08:56.630375Z[0m [32m INFO[0m [2mcloudpivot::system::auth::handler[0m[2m:[0m 登录耗时分解 [3mtotal[0m[2m=[0m302 [3msteps[0m[2m=[0m["rate_limit=0ms", "security_policy=0ms", "verify_password=299ms", "reset_status=0ms", "reset_status_done=1ms", "load_roles=1ms", "load_permissions=0ms", "issue_jwt=0ms", "readback_claims=0ms", "online_session=0ms"]
+[2m2026-11-08T03:08:56.630509Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/system/auth/login [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m302ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:08:56.931357Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/system/role [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m8ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:08:56.962262Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/system/role [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m6ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:08:56.993028Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/system/role [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m5ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:08:57.329393Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/system/user [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m306ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:08:57.665278Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/system/user [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m310ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:08:57.994966Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/system/user [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m305ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:08:58.329107Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/system/user [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m307ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:08:58.638736Z[0m [32m INFO[0m [2mcloudpivot::business::flow::handler[0m[2m:[0m 流程定义已创建 [3mdef_id[0m[2m=[0m01a1b921-6f89-7285-878f-71028a40f549 [3mversion_id[0m[2m=[0m01a1b921-6f8a-721d-8385-187031e1c6a1 [3mflow_code[0m[2m=[0mp306_null [3moperator[0m[2m=[0m01a1b921-5ec8-72cc-afbe-c2010a9fe8a9
+[2m2026-11-08T03:08:58.638900Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/business/flow/def [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m9ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:08:58.692791Z[0m [32m INFO[0m [2mcloudpivot::business::flow::handler[0m[2m:[0m 流程整图已保存 [3mversion_id[0m[2m=[0m01a1b921-6f8a-721d-8385-187031e1c6a1 [3mversion_no[0m[2m=[0m1 [3mnode_count[0m[2m=[0m3 [3medge_count[0m[2m=[0m2 [3mwarnings[0m[2m=[0m0 [3moperator[0m[2m=[0m01a1b921-5ec8-72cc-afbe-c2010a9fe8a9
+[2m2026-11-08T03:08:58.692927Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPUT [3mpath[0m[2m=[0m/api/business/flow/version/01a1b921-6f8a-721d-8385-187031e1c6a1/graph [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m8ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:08:58.705718Z[0m [32m INFO[0m [2mcloudpivot::business::flow::handler[0m[2m:[0m 流程定义已发布 [3mdef_id[0m[2m=[0m01a1b921-6f89-7285-878f-71028a40f549 [3mversion_id[0m[2m=[0m01a1b921-6f8a-721d-8385-187031e1c6a1 [3mversion_no[0m[2m=[0m1 [3mgraph_hash[0m[2m=[0m4448392dc34c0fdcd55a09f3212f8540b030e3cced0abe7dce433f5f086b4869 [3mnode_count[0m[2m=[0m3 [3medge_count[0m[2m=[0m2 [3moperator[0m[2m=[0m01a1b921-5ec8-72cc-afbe-c2010a9fe8a9
+[2m2026-11-08T03:08:58.705879Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/business/flow/def/01a1b921-6f89-7285-878f-71028a40f549/publish [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m7ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:08:58.720176Z[0m [32m INFO[0m [2mcloudpivot::business::flow::handler[0m[2m:[0m 流程定义已创建 [3mdef_id[0m[2m=[0m01a1b921-6fdb-7203-9d77-539d88c77f18 [3mversion_id[0m[2m=[0m01a1b921-6fdc-74af-a3f0-d376a5587c8c [3mflow_code[0m[2m=[0mp306_all [3moperator[0m[2m=[0m01a1b921-5ec8-72cc-afbe-c2010a9fe8a9
+[2m2026-11-08T03:08:58.720324Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/business/flow/def [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m7ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:08:58.774906Z[0m [32m INFO[0m [2mcloudpivot::business::flow::handler[0m[2m:[0m 流程整图已保存 [3mversion_id[0m[2m=[0m01a1b921-6fdc-74af-a3f0-d376a5587c8c [3mversion_no[0m[2m=[0m1 [3mnode_count[0m[2m=[0m3 [3medge_count[0m[2m=[0m2 [3mwarnings[0m[2m=[0m0 [3moperator[0m[2m=[0m01a1b921-5ec8-72cc-afbe-c2010a9fe8a9
+[2m2026-11-08T03:08:58.775033Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPUT [3mpath[0m[2m=[0m/api/business/flow/version/01a1b921-6fdc-74af-a3f0-d376a5587c8c/graph [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m7ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:08:58.787964Z[0m [32m INFO[0m [2mcloudpivot::business::flow::handler[0m[2m:[0m 流程定义已发布 [3mdef_id[0m[2m=[0m01a1b921-6fdb-7203-9d77-539d88c77f18 [3mversion_id[0m[2m=[0m01a1b921-6fdc-74af-a3f0-d376a5587c8c [3mversion_no[0m[2m=[0m1 [3mgraph_hash[0m[2m=[0m09a9c2c1d04d3bf72c67ce0a42d4c954aa6d30adecca4bffb830897e6b65631e [3mnode_count[0m[2m=[0m3 [3medge_count[0m[2m=[0m2 [3moperator[0m[2m=[0m01a1b921-5ec8-72cc-afbe-c2010a9fe8a9
+[2m2026-11-08T03:08:58.788128Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/business/flow/def/01a1b921-6fdb-7203-9d77-539d88c77f18/publish [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m8ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:08:58.805450Z[0m [32m INFO[0m [2mcloudpivot::business::flow::handler[0m[2m:[0m 流程定义已创建 [3mdef_id[0m[2m=[0m01a1b921-7031-715b-98d1-ef201fec6ce7 [3mversion_id[0m[2m=[0m01a1b921-7032-74f1-bac0-cbd85583f137 [3mflow_code[0m[2m=[0mp306_mix [3moperator[0m[2m=[0m01a1b921-5ec8-72cc-afbe-c2010a9fe8a9
+[2m2026-11-08T03:08:58.805588Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/business/flow/def [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m7ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:08:58.858831Z[0m [32m INFO[0m [2mcloudpivot::business::flow::handler[0m[2m:[0m 流程整图已保存 [3mversion_id[0m[2m=[0m01a1b921-7032-74f1-bac0-cbd85583f137 [3mversion_no[0m[2m=[0m1 [3mnode_count[0m[2m=[0m3 [3medge_count[0m[2m=[0m2 [3mwarnings[0m[2m=[0m0 [3moperator[0m[2m=[0m01a1b921-5ec8-72cc-afbe-c2010a9fe8a9
+[2m2026-11-08T03:08:58.858988Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPUT [3mpath[0m[2m=[0m/api/business/flow/version/01a1b921-7032-74f1-bac0-cbd85583f137/graph [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m7ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:08:58.872068Z[0m [32m INFO[0m [2mcloudpivot::business::flow::handler[0m[2m:[0m 流程定义已发布 [3mdef_id[0m[2m=[0m01a1b921-7031-715b-98d1-ef201fec6ce7 [3mversion_id[0m[2m=[0m01a1b921-7032-74f1-bac0-cbd85583f137 [3mversion_no[0m[2m=[0m1 [3mgraph_hash[0m[2m=[0m0fefc617cdfc755c7082fb5f06c802ad12c31dab77bc558dc75a13b973d7b95b [3mnode_count[0m[2m=[0m3 [3medge_count[0m[2m=[0m2 [3moperator[0m[2m=[0m01a1b921-5ec8-72cc-afbe-c2010a9fe8a9
+[2m2026-11-08T03:08:58.872229Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/business/flow/def/01a1b921-7031-715b-98d1-ef201fec6ce7/publish [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m7ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:08:59.181010Z[0m [33m WARN[0m [2mcloudpivot::system::auth::handler[0m[2m:[0m 登记在线会话失败（不影响登录结果） [3merror[0m[2m=[0m缓存未初始化，无法登记在线会话
+[2m2026-11-08T03:08:59.181053Z[0m [31mERROR[0m [2mcloudpivot::system::auth::handler[0m[2m:[0m 登记 refresh 令牌失败（吊销将退回依赖令牌版本号与黑名单） [3muser_id[0m[2m=[0m01a1b921-6942-760d-973a-50522a7953df [3merror[0m[2m=[0m缓存未初始化，无法登记 refresh 令牌
+[2m2026-11-08T03:08:59.181097Z[0m [32m INFO[0m [2mcloudpivot::system::auth::handler[0m[2m:[0m 登录耗时分解 [3mtotal[0m[2m=[0m301 [3msteps[0m[2m=[0m["rate_limit=0ms", "security_policy=0ms", "verify_password=297ms", "reset_status=0ms", "reset_status_done=1ms", "load_roles=2ms", "load_permissions=0ms", "issue_jwt=0ms", "readback_claims=0ms", "online_session=0ms"]
+[2m2026-11-08T03:08:59.181275Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/system/auth/login [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m302ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:08:59.524331Z[0m [33m WARN[0m [2mcloudpivot::system::auth::handler[0m[2m:[0m 登记在线会话失败（不影响登录结果） [3merror[0m[2m=[0m缓存未初始化，无法登记在线会话
+[2m2026-11-08T03:08:59.524375Z[0m [31mERROR[0m [2mcloudpivot::system::auth::handler[0m[2m:[0m 登记 refresh 令牌失败（吊销将退回依赖令牌版本号与黑名单） [3muser_id[0m[2m=[0m01a1b921-6a8e-779d-af3c-46b8bc073156 [3merror[0m[2m=[0m缓存未初始化，无法登记 refresh 令牌
+[2m2026-11-08T03:08:59.524450Z[0m [32m INFO[0m [2mcloudpivot::system::auth::handler[0m[2m:[0m 登录耗时分解 [3mtotal[0m[2m=[0m299 [3msteps[0m[2m=[0m["rate_limit=0ms", "security_policy=0ms", "verify_password=296ms", "reset_status=0ms", "reset_status_done=1ms", "load_roles=2ms", "load_permissions=0ms", "issue_jwt=0ms", "readback_claims=0ms", "online_session=0ms"]
+[2m2026-11-08T03:08:59.524612Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/system/auth/login [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m300ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:08:59.878219Z[0m [33m WARN[0m [2mcloudpivot::system::auth::handler[0m[2m:[0m 登记在线会话失败（不影响登录结果） [3merror[0m[2m=[0m缓存未初始化，无法登记在线会话
+[2m2026-11-08T03:08:59.878256Z[0m [31mERROR[0m [2mcloudpivot::system::auth::handler[0m[2m:[0m 登记 refresh 令牌失败（吊销将退回依赖令牌版本号与黑名单） [3muser_id[0m[2m=[0m01a1b921-6bdd-703f-85ce-d4c047f09236 [3merror[0m[2m=[0m缓存未初始化，无法登记 refresh 令牌
+[2m2026-11-08T03:08:59.878290Z[0m [32m INFO[0m [2mcloudpivot::system::auth::handler[0m[2m:[0m 登录耗时分解 [3mtotal[0m[2m=[0m304 [3msteps[0m[2m=[0m["rate_limit=0ms", "security_policy=0ms", "verify_password=300ms", "reset_status=0ms", "reset_status_done=1ms", "load_roles=1ms", "load_permissions=0ms", "issue_jwt=0ms", "readback_claims=0ms", "online_session=0ms"]
+[2m2026-11-08T03:08:59.878420Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/system/auth/login [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m304ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:09:00.227875Z[0m [32m INFO[0m [2mcloudpivot::business::notice::scheduled[0m[2m:[0m 定时通知投递完成 [3msummary[0m[2m=[0mnotice_scheduled_dispatch: scanned=0 dispatched=0 skipped=0 failed=0 canceled=0
+[2m2026-11-08T03:09:00.228343Z[0m [32m INFO[0m [2mcloudpivot::business::task::hermes_sync[0m[2m:[0m AI 任务轮询完成 [3mreport[0m[2m=[0m扫描 0 个 AI 任务；状态更新 0；完成回传 0；任务丢失 0；CLI 失败 0（状态未改）
+[2m2026-11-08T03:09:00.229130Z[0m [33m WARN[0m [2mcloudpivot::system::auth::handler[0m[2m:[0m 登记在线会话失败（不影响登录结果） [3merror[0m[2m=[0m缓存未初始化，无法登记在线会话
+[2m2026-11-08T03:09:00.229162Z[0m [31mERROR[0m [2mcloudpivot::system::auth::handler[0m[2m:[0m 登记 refresh 令牌失败（吊销将退回依赖令牌版本号与黑名单） [3muser_id[0m[2m=[0m01a1b921-6d29-77fc-b847-411e96814841 [3merror[0m[2m=[0m缓存未初始化，无法登记 refresh 令牌
+[2m2026-11-08T03:09:00.229206Z[0m [32m INFO[0m [2mcloudpivot::system::auth::handler[0m[2m:[0m 登录耗时分解 [3mtotal[0m[2m=[0m305 [3msteps[0m[2m=[0m["rate_limit=0ms", "security_policy=0ms", "verify_password=301ms", "reset_status=0ms", "reset_status_done=1ms", "load_roles=1ms", "load_permissions=0ms", "issue_jwt=0ms", "readback_claims=0ms", "online_session=0ms"]
+[2m2026-11-08T03:09:00.229341Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/system/auth/login [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m305ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:09:00.285914Z[0m [32m INFO[0m [2mcloudpivot::business::flow::engine[0m[2m:[0m 审批人解析完成（冻结成行） [3minstance_id[0m[2m=[0m01a1b921-75f7-76c2-ab5c-367c142a4449 [3mnode_key[0m[2m=[0mn_approve [3mround[0m[2m=[0m1 [3mapprovers[0m[2m=[0m3 [3mskipped[0m[2m=[0m0 [3mauto_pass[0m[2m=[0mfalse [3mtrace[0m[2m=[0m["ROLE 展开 3 行（角色 1 个）", "候选 3 人（去重前）", "去重 + 策略后：待办 3 行 / SKIPPED 留痕 0 行 / 自动通过=false / 升级=false"]
+[2m2026-11-08T03:09:00.294876Z[0m [32m INFO[0m [2mcloudpivot::business::flow::engine[0m[2m:[0m 审批流通知已发送 [3mnotice_id[0m[2m=[0m01a1b921-7603-7088-99d3-1253b978919b [3mreceivers[0m[2m=[0m3
+[2m2026-11-08T03:09:00.294929Z[0m [32m INFO[0m [2mcloudpivot::business::flow::handler[0m[2m:[0m 审批单已发起 [3minstance_id[0m[2m=[0m01a1b921-75f7-76c2-ab5c-367c142a4449 [3mflow_code[0m[2m=[0mp306_null [3moperator[0m[2m=[0m01a1b921-6942-760d-973a-50522a7953df [3mstatus[0m[2m=[0mPENDING [3mauto_passed[0m[2m=[0m0
+[2m2026-11-08T03:09:00.295063Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/business/flow/instance [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m19ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:09:00.466468Z[0m [32m INFO[0m [2mcloudpivot::business::flow::engine[0m[2m:[0m 审批流通知已发送 [3mnotice_id[0m[2m=[0m01a1b921-76af-7727-b4ba-b442193033d7 [3mreceivers[0m[2m=[0m1
+[2m2026-11-08T03:09:00.470234Z[0m [32m INFO[0m [2mcloudpivot::business::erp::stocktake_bridge[0m[2m:[0m 盘点审批通过：单据保持「待过账」，等待持过账权限的人过账 [3minstance_id[0m[2m=[0m01a1b921-75f7-76c2-ab5c-367c142a4449
+[2m2026-11-08T03:09:00.471282Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/business/flow/task/01a1b921-75fe-76e7-8e87-6353d01b7376/approve [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m26ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:09:00.654772Z[0m [32m INFO[0m [2mcloudpivot::business::flow::engine[0m[2m:[0m 审批人解析完成（冻结成行） [3minstance_id[0m[2m=[0m01a1b921-776a-759c-8288-729da285cb65 [3mnode_key[0m[2m=[0mn_approve [3mround[0m[2m=[0m1 [3mapprovers[0m[2m=[0m3 [3mskipped[0m[2m=[0m0 [3mauto_pass[0m[2m=[0mfalse [3mtrace[0m[2m=[0m["ROLE 展开 3 行（角色 1 个）", "候选 3 人（去重前）", "去重 + 策略后：待办 3 行 / SKIPPED 留痕 0 行 / 自动通过=false / 升级=false"]
+[2m2026-11-08T03:09:00.661002Z[0m [32m INFO[0m [2mcloudpivot::business::flow::engine[0m[2m:[0m 审批流通知已发送 [3mnotice_id[0m[2m=[0m01a1b921-7772-73b4-9ab4-07cb56c673d6 [3mreceivers[0m[2m=[0m3
+[2m2026-11-08T03:09:00.661037Z[0m [32m INFO[0m [2mcloudpivot::business::flow::handler[0m[2m:[0m 审批单已发起 [3minstance_id[0m[2m=[0m01a1b921-776a-759c-8288-729da285cb65 [3mflow_code[0m[2m=[0mp306_all [3moperator[0m[2m=[0m01a1b921-6942-760d-973a-50522a7953df [3mstatus[0m[2m=[0mPENDING [3mauto_passed[0m[2m=[0m0
+[2m2026-11-08T03:09:00.661159Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/business/flow/instance [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m13ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:09:00.832052Z[0m [32m INFO[0m [2mcloudpivot::business::erp::asset_bridge[0m[2m:[0m 资产处置审批未通过：资产保持原状态，未生成任何凭证 [3minstance_id[0m[2m=[0m01a1b921-776a-759c-8288-729da285cb65 [3minstance_status[0m[2m=[0m"PENDING"
+[2m2026-11-08T03:09:00.832220Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/business/flow/task/01a1b921-776e-72a9-8ae2-4d9f1b8814ad/approve [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m14ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:09:00.951943Z[0m [32m INFO[0m [2mcloudpivot::business::erp::asset_bridge[0m[2m:[0m 资产处置审批未通过：资产保持原状态，未生成任何凭证 [3minstance_id[0m[2m=[0m01a1b921-776a-759c-8288-729da285cb65 [3minstance_status[0m[2m=[0m"PENDING"
+[2m2026-11-08T03:09:00.952150Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/business/flow/task/01a1b921-776f-764c-b015-579271312e57/approve [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m13ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:09:01.030130Z[0m [32m INFO[0m [2mcloudpivot::business::flow::engine[0m[2m:[0m 审批流通知已发送 [3mnotice_id[0m[2m=[0m01a1b921-78e3-7419-a9bd-201e3e3365e5 [3mreceivers[0m[2m=[0m1
+[2m2026-11-08T03:09:01.034077Z[0m [32m INFO[0m [2mcloudpivot::business::erp::stocktake_bridge[0m[2m:[0m 盘点审批通过：单据保持「待过账」，等待持过账权限的人过账 [3minstance_id[0m[2m=[0m01a1b921-776a-759c-8288-729da285cb65
+[2m2026-11-08T03:09:01.035210Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/business/flow/task/01a1b921-776f-764c-b015-5793da458c65/approve [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m25ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:09:01.074649Z[0m [32m INFO[0m [2mcloudpivot::business::flow::engine[0m[2m:[0m 审批人解析完成（冻结成行） [3minstance_id[0m[2m=[0m01a1b921-790d-7032-b899-5dee2fc6e9a6 [3mnode_key[0m[2m=[0mn_approve [3mround[0m[2m=[0m1 [3mapprovers[0m[2m=[0m2 [3mskipped[0m[2m=[0m1 [3mauto_pass[0m[2m=[0mfalse [3mtrace[0m[2m=[0m["ROLE 展开 3 行（角色 1 个）", "候选 3 人（去重前）", "去重 + 策略后：待办 2 行 / SKIPPED 留痕 1 行 / 自动通过=false / 升级=false"]
+[2m2026-11-08T03:09:01.081463Z[0m [32m INFO[0m [2mcloudpivot::business::flow::engine[0m[2m:[0m 审批流通知已发送 [3mnotice_id[0m[2m=[0m01a1b921-7916-729a-8b22-3a509f6c183c [3mreceivers[0m[2m=[0m2
+[2m2026-11-08T03:09:01.081510Z[0m [32m INFO[0m [2mcloudpivot::business::flow::handler[0m[2m:[0m 审批单已发起 [3minstance_id[0m[2m=[0m01a1b921-790d-7032-b899-5dee2fc6e9a6 [3mflow_code[0m[2m=[0mp306_mix [3moperator[0m[2m=[0m01a1b921-6942-760d-973a-50522a7953df [3mstatus[0m[2m=[0mPENDING [3mauto_passed[0m[2m=[0m0
+[2m2026-11-08T03:09:01.081638Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/business/flow/instance [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m15ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:09:01.243389Z[0m [32m INFO[0m [2mcloudpivot::business::erp::asset_bridge[0m[2m:[0m 资产处置审批未通过：资产保持原状态，未生成任何凭证 [3minstance_id[0m[2m=[0m01a1b921-790d-7032-b899-5dee2fc6e9a6 [3minstance_status[0m[2m=[0m"PENDING"
+[2m2026-11-08T03:09:01.243561Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/business/flow/task/01a1b921-7913-71bb-971b-1d0f4ba4c21c/approve [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m11ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:09:01.326177Z[0m [32m INFO[0m [2mcloudpivot::business::flow::engine[0m[2m:[0m 审批流通知已发送 [3mnotice_id[0m[2m=[0m01a1b921-7a0b-7587-9c14-bff43cc8b636 [3mreceivers[0m[2m=[0m1
+[2m2026-11-08T03:09:01.329624Z[0m [32m INFO[0m [2mcloudpivot::business::erp::stocktake_bridge[0m[2m:[0m 盘点审批通过：单据保持「待过账」，等待持过账权限的人过账 [3minstance_id[0m[2m=[0m01a1b921-790d-7032-b899-5dee2fc6e9a6
+[2m2026-11-08T03:09:01.330720Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/business/flow/task/01a1b921-7913-71bb-971b-1d109427f721/approve [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m30ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:09:01.372803Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/system/role [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m6ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:09:01.422885Z[0m [32m INFO[0m [2mcloudpivot::business::flow::handler[0m[2m:[0m 流程定义已创建 [3mdef_id[0m[2m=[0m01a1b921-7a6b-7490-8f1f-51950720f42a [3mversion_id[0m[2m=[0m01a1b921-7a6c-7703-bda4-99f1c6034558 [3mflow_code[0m[2m=[0mp306_frz [3moperator[0m[2m=[0m01a1b921-5ec8-72cc-afbe-c2010a9fe8a9
+[2m2026-11-08T03:09:01.423023Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPOST [3mpath[0m[2m=[0m/api/business/flow/def [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m11ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:09:01.490037Z[0m [32m INFO[0m [2mcloudpivot::business::flow::handler[0m[2m:[0m 流程整图已保存 [3mversion_id[0m[2m=[0m01a1b921-7a6c-7703-bda4-99f1c6034558 [3mversion_no[0m[2m=[0m1 [3mnode_count[0m[2m=[0m5 [3medge_count[0m[2m=[0m4 [3mwarnings[0m[2m=[0m0 [3moperator[0m[2m=[0m01a1b921-5ec8-72cc-afbe-c2010a9fe8a9
+[2m2026-11-08T03:09:01.490207Z[0m [32m INFO[0m [2mnik_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mPUT [3mpath[0m[2m=[0m/api/business/flow/version/01a1b921-7a6c-7703-bda4-99f1c6034558/graph [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m11ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-11-08T03:09:01.892751Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 收到 SIGTERM 信号，优雅退出中...
+[2m2026-11-08T03:09:01.892809Z[0m [32m INFO[0m [2mcloudpivot::business::notice::sse_hub[0m[2m:[0m SSE 频道关停：已通知所有订阅端结束流（浏览器会自动重连到新进程） [3mreceivers[0m[2m=[0m0
+[2m2026-11-08T03:09:01.892821Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 关停钩子执行完成 [3mhook_index[0m[2m=[0m0 [3melapsed_ms[0m[2m=[0m0
+[2m2026-11-08T03:09:01.896945Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 连接排空完成 [3melapsed_ms[0m[2m=[0m4
+[2m2026-11-08T03:09:01.896986Z[0m [32m INFO[0m [2mnik_core::plugin[0m[2m:[0m 停止插件: x-scheduler
+[2m2026-11-08T03:09:01.897117Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_credit_recompute 调度循环已停止
+[2m2026-11-08T03:09:01.897137Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 flow_timeout_scan 调度循环已停止
+[2m2026-11-08T03:09:01.897155Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 transfer_overdue_scan 调度循环已停止
+[2m2026-11-08T03:09:01.897155Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 changelog_partition_maintain 调度循环已停止
+[2m2026-11-08T03:09:01.897167Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 notice_scheduled_dispatch 调度循环已停止
+[2m2026-11-08T03:09:01.897169Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 notice_expire_cleanup 调度循环已停止
+[2m2026-11-08T03:09:01.897177Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 token_blacklist_cleanup 调度循环已停止
+[2m2026-11-08T03:09:01.897180Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 clean_password_log 调度循环已停止
+[2m2026-11-08T03:09:01.897186Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 impexp_task_cleanup 调度循环已停止
+[2m2026-11-08T03:09:01.897188Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 announcement_top_expire 调度循环已停止
+[2m2026-11-08T03:09:01.897217Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 payable_payment_reconcile 调度循环已停止
+[2m2026-11-08T03:09:01.897226Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 payable_cancel_reconcile 调度循环已停止
+[2m2026-11-08T03:09:01.897239Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 clean_auth_log 调度循环已停止
+[2m2026-11-08T03:09:01.897247Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_po_overdue_scan 调度循环已停止
+[2m2026-11-08T03:09:01.897255Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 announcement_dispatch_retry 调度循环已停止
+[2m2026-11-08T03:09:01.897263Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_depreciation_run 调度循环已停止
+[2m2026-11-08T03:09:01.897271Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 stockin_cancel_reconcile 调度循环已停止
+[2m2026-11-08T03:09:01.897280Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 clean_operation_log 调度循环已停止
+[2m2026-11-08T03:09:01.897288Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 flow_graph_selfcheck 调度循环已停止
+[2m2026-11-08T03:09:01.897307Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_low_stock_scan 调度循环已停止
+[2m2026-11-08T03:09:01.897316Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 invariant_audit 调度循环已停止
+[2m2026-11-08T03:09:01.897324Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_contract_expire_scan 调度循环已停止
+[2m2026-11-08T03:09:01.897332Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 business_task_recurring 调度循环已停止
+[2m2026-11-08T03:09:01.897340Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 clean_audit_log 调度循环已停止
+[2m2026-11-08T03:09:01.897348Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 help_version_cleanup 调度循环已停止
+[2m2026-11-08T03:09:01.897357Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 impexp_export_worker 调度循环已停止
+[2m2026-11-08T03:09:01.897364Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 storage_object_cleanup 调度循环已停止
+[2m2026-11-08T03:09:01.897371Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 notice_sse_channel_sweep 调度循环已停止
+[2m2026-11-08T03:09:01.897379Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 voucher_reverse_reconcile 调度循环已停止
+[2m2026-11-08T03:09:01.897389Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 clean_security_log 调度循环已停止
+[2m2026-11-08T03:09:01.897396Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 announcement_auto_expire 调度循环已停止
+[2m2026-11-08T03:09:01.897405Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 task_hermes_sync 调度循环已停止
+[2m2026-11-08T03:09:01.897200Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_payable_due_scan 调度循环已停止
+[2m2026-11-08T03:09:01.897512Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务插件: 已停止
+[2m2026-11-08T03:09:01.897524Z[0m [32m INFO[0m [2mnik_core::plugin[0m[2m:[0m 停止插件: x-log-bus
+[2m2026-11-08T03:09:01.897650Z[0m [32m INFO[0m [2mnik_core::plugin[0m[2m:[0m 停止插件: startup-auth-secret-guard
+[2m2026-11-08T03:09:01.897673Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 插件已全部停止，关停完成 [3melapsed_ms[0m[2m=[0m4
