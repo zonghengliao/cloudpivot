@@ -271,10 +271,11 @@ test('⑩ 库位请求体：新建带 warehouse_id，编辑不带（后端不许
 
 // ==================== ④ 表单校验 / 枚举 / 分页 ====================
 
-test('⑪ 仓库表单校验：编码 / 名称必填、长度上限照后端', () => {
+test('⑪ 仓库表单校验：名称必填、编码可留空（自动取号）、长度上限照后端', () => {
   const form = emptyWarehouseForm();
   const errors = validateWarehouseForm(form, null);
-  assert.equal(errors.warehouse_code, '请填仓库编码');
+  // CODE-06：编码留空不再拦（后端自动取号 WH-01 形态），名称仍必填
+  assert.equal(errors.warehouse_code, undefined, 'CODE-06：留空不该报「请填仓库编码」');
   assert.equal(errors.warehouse_name, '请填仓库名称');
 
   form.warehouse_code = 'X'.repeat(41);

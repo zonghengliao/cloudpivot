@@ -16,7 +16,7 @@
 //! | 计量单位 | `/business/erp/unit/...` | `business:erp:unit:{list,create,update}` |
 //! | 供应商 | `/business/erp/supplier/...` | `business:erp:supplier:{list,create,update}` |
 //!
-//! ## ② 特殊查询（4 条）
+//! ## ② 特殊查询（6 条）
 //!
 //! | 方法 | 路径 | 说明 |
 //! |------|------|------|
@@ -24,6 +24,8 @@
 //! | GET | `/business/erp/location/list?warehouse_id=` | 库位下拉（按仓库，可选含停用） |
 //! | GET | `/business/erp/material/list?keyword=` | 物料搜索（编码 / 名称模糊，最多 100 条） |
 //! | GET | `/business/erp/supplier/next-code` | 供应商编码预览（**只读不占号**，CODE-05「生成编码」按钮用） |
+//! | GET | `/business/erp/material/next-code` | 物料编码预览（**只读不占号**，CODE-06「生成编码」按钮用，`MAT-0001`） |
+//! | GET | `/business/erp/warehouse/next-code` | 仓库编码预览（**只读不占号**，CODE-06「生成编码」按钮用，`WH-01`） |
 //!
 //! ## ③ 只读台账（8 张，列表 + 详情）
 //!
@@ -465,6 +467,41 @@ pub async fn warehouse_create(
 ) -> ResResult<WarehouseRes> {
     let res = create_warehouse(utils::current_user_uuid(&claims), req).await?;
     Ok(Res::ok(res))
+}
+
+/// 仓库编码预览（卡 CODE-06 · 交互方式 B：前端「生成编码」按钮先看号，
+/// 保存时把这个号当**手工编码**提交）。
+///
+/// 与供应商 / 客户（CODE-05）同一口径：`seq::peek_master_code` 只 `SELECT biz_seq`，
+/// **不推进 `current_no`** —— 点了按钮又取消不浪费号；并发下两人看到同一个号时，
+/// 先保存的人赢，后保存的走手工编码撞唯一索引的老路（`409 + 66001`，文案点名编码）。
+///
+/// 注意：保存时**不要**再调 `next_master_code*`（那会真占号）；不填编码直接保存时由
+/// [`create_warehouse`] 自己取号。
+#[nik::permission(
+    path = "/business/erp/warehouse/next-code",
+    method = "GET",
+    permission = "business:erp:warehouse:create"
+)]
+#[nik::get("/business/erp/warehouse/next-code")]
+pub async fn warehouse_next_code(
+    Extension(AuthClaims(_claims)): Extension<AuthClaims>,
+) -> ResResult<serde_json::Value> {
+    let code = preview_warehouse_code().await?;
+    Ok(Res::ok(json!({ "code": code })))
+}
+
+/// 仓库编码预览的**业务主体**（单测直接调本函数，不走认证）。
+///
+/// 号段口径：`biz_seq` 的 WH 规则 —— 前缀 `WH`、分隔符 `-`、**纯流水 2 位**
+/// （`WH-01`，由 `pad_width = 2` 决定）、不计日期、永不重置；连号被占则顺延到下一个空号。
+/// 第 100 个起只补零不截断（`WH-100`），见 [`seq::format_master_code`]。
+///
+/// 错误口径与真实取号一致：规则缺失 / 连号全被占 ⇒ `500 + 10004`，细节只进日志。
+pub async fn preview_warehouse_code() -> std::result::Result<String, ApiError> {
+    seq::peek_master_code(db(), "WH")
+        .await
+        .map_err(|error| seq_error(error, "预览仓库编码"))
 }
 
 /// 新建仓库的**业务主体**（CODE-03：编码留空则由后端取号 `WH-01` 形态）。
@@ -1068,6 +1105,37 @@ pub async fn material_create(
 ) -> ResResult<MaterialRes> {
     let res = create_material(utils::current_user_uuid(&claims), req).await?;
     Ok(Res::ok(res))
+}
+
+/// 物料编码预览（卡 CODE-06 · 交互方式 B：前端「生成编码」按钮先看号，
+/// 保存时把这个号当**手工编码**提交）。
+///
+/// 与供应商 / 客户（CODE-05）、仓库同卡同一口径：**只读、不占号**
+/// （`seq::peek_master_code` 不动 `biz_seq.current_no`）；并发撞号由保存时的
+/// `409 + 66001` 兜底，前端提示重新生成即可。
+#[nik::permission(
+    path = "/business/erp/material/next-code",
+    method = "GET",
+    permission = "business:erp:material:create"
+)]
+#[nik::get("/business/erp/material/next-code")]
+pub async fn material_next_code(
+    Extension(AuthClaims(_claims)): Extension<AuthClaims>,
+) -> ResResult<serde_json::Value> {
+    let code = preview_material_code().await?;
+    Ok(Res::ok(json!({ "code": code })))
+}
+
+/// 物料编码预览的**业务主体**（单测直接调本函数，不走认证）。
+///
+/// 号段口径：`biz_seq` 的 MAT 规则 —— 前缀 `MAT`、分隔符 `-`、**纯流水 4 位**
+/// （`MAT-0001`）、不计日期、永不重置；连号被占（如历史遗留 `MAT-0001..0003`）则顺延到下一个空号。
+///
+/// 错误口径与真实取号一致：规则缺失 / 连号全被占 ⇒ `500 + 10004`，细节只进日志。
+pub async fn preview_material_code() -> std::result::Result<String, ApiError> {
+    seq::peek_master_code(db(), "MAT")
+        .await
+        .map_err(|error| seq_error(error, "预览物料编码"))
 }
 
 /// 新建物料的**业务主体**（CODE-03：编码留空则由后端取号 `MAT-0001` 形态）。
@@ -4526,6 +4594,155 @@ mod tests {
             error.msg.contains(&manual),
             "错误文案要点名具体编码：{}",
             error.msg
+        );
+
+        hard_delete("biz_warehouse", Uuid::parse_str(&created.id).expect("id")).await;
+    }
+
+    // ==================== CODE-06：物料 / 仓库编码预览（交互方式 B） ====================
+    //
+    // 前端「生成编码」按钮 → `GET /business/erp/{material,warehouse}/next-code`。
+    // 这几条钉死两件事：**预览不占号**（方案 B）、**预览号当手工编码提交时原样保留**。
+    // 号段仍会因保存而推进（自动取号本来就是被验证的行为），故只按 id 物理删行。
+
+    /// CODE-06 ①：物料预览**只读不占号** —— 连点两次拿到同一个号；真正取号发生在保存时。
+    #[tokio::test]
+    async fn material_preview_code_does_not_consume_sequence() {
+        let Some(_guard) = setup().await else { return };
+        let unit_id = base_unit("MPV").await;
+
+        let first = preview_material_code().await.expect("物料编码预览应成功");
+        assert!(
+            is_auto_code(&first, "MAT"),
+            "预览必须是纯流水 4 位的 MAT-0001 形态，实际 {first}"
+        );
+        let second = preview_material_code().await.expect("再预览应成功");
+        assert_eq!(
+            first, second,
+            "预览不得推进 biz_seq（点了「生成编码」又取消不能浪费号）"
+        );
+
+        // 保存时才真取号：留空编码建单拿到的正是刚才预览的号
+        let created = create_material(None, material_req(None, &unit_id, "预览后建单物料"))
+            .await
+            .expect("留空编码应自动取号");
+        assert_eq!(
+            created.material_code, first,
+            "自动取号必须用掉预览的那个号（说明预览没占号、取号在保存时）"
+        );
+
+        let third = preview_material_code().await.expect("预览应成功");
+        assert_ne!(
+            third, first,
+            "号已被保存用掉，再预览必须给出新的号（{first} → {third}）"
+        );
+
+        hard_delete("biz_material", Uuid::parse_str(&created.id).expect("id")).await;
+        hard_delete("biz_unit", unit_id).await;
+    }
+
+    /// CODE-06 ②：物料预览号当**手工编码**提交 ⇒ 原样保留；撞号按 `409 + 66001` 兜。
+    ///
+    /// 钉住「点生成 → 填入编码框 → 保存」时后端不能偷偷把它当自动号再取一次。
+    #[tokio::test]
+    async fn material_previewed_code_is_used_verbatim_on_create() {
+        let Some(_guard) = setup().await else { return };
+        let unit_id = base_unit("MPV2").await;
+
+        let previewed = preview_material_code().await.expect("物料编码预览应成功");
+        let created = create_material(
+            None,
+            material_req(Some(&previewed), &unit_id, "用预览号建单物料"),
+        )
+        .await
+        .expect("预览号当手工编码应创建成功");
+        assert_eq!(
+            created.material_code, previewed,
+            "手工提交的编码必须原样保留（不能被再取号覆盖）"
+        );
+
+        // 该号已被占用 ⇒ 下一个预览必须跳过它
+        let after = preview_material_code().await.expect("预览应成功");
+        assert_ne!(after, previewed, "预览必须跳过已占用的号");
+
+        // 同一号再建一次 ⇒ 409 + 66001（并发抢号的兜底口径）
+        let conflict = create_material(
+            None,
+            material_req(Some(&previewed), &unit_id, "预览号重复物料"),
+        )
+        .await
+        .expect_err("已占用的编码必须被拒");
+        assert_eq!(conflict.status, 409);
+        assert_eq!(conflict.code, error_code::ERP_CODE_CONFLICT, "66001");
+        assert!(
+            conflict.msg.contains(&previewed),
+            "文案要点名编码：{}",
+            conflict.msg
+        );
+
+        hard_delete("biz_material", Uuid::parse_str(&created.id).expect("id")).await;
+        hard_delete("biz_unit", unit_id).await;
+    }
+
+    /// CODE-06 ③：仓库预览**只读不占号** —— 连点两次同一个号，**2 位**流水形态（`WH-01`）。
+    #[tokio::test]
+    async fn warehouse_preview_code_does_not_consume_sequence() {
+        let Some(_guard) = setup().await else { return };
+
+        let first = preview_warehouse_code().await.expect("仓库编码预览应成功");
+        assert!(
+            is_auto_wh_code(&first),
+            "预览必须是 WH-01 形态（2 位流水），实际 {first}"
+        );
+        let second = preview_warehouse_code().await.expect("再预览应成功");
+        assert_eq!(
+            first, second,
+            "预览不得推进 biz_seq（点了「生成编码」又取消不能浪费号）"
+        );
+
+        let created = create_warehouse(None, warehouse_req(None, "预览后建单仓库"))
+            .await
+            .expect("留空编码应自动取号");
+        assert_eq!(
+            created.warehouse_code, first,
+            "自动取号必须用掉预览的那个号（预览不占号，取号在保存时）"
+        );
+
+        let third = preview_warehouse_code().await.expect("预览应成功");
+        assert_ne!(
+            third, first,
+            "号已被保存用掉，再预览必须给出新的号（{first} → {third}）"
+        );
+
+        hard_delete("biz_warehouse", Uuid::parse_str(&created.id).expect("id")).await;
+    }
+
+    /// CODE-06 ④：仓库预览号当**手工编码**提交 ⇒ 原样保留；撞号按 `409 + 66001` 兜。
+    #[tokio::test]
+    async fn warehouse_previewed_code_is_used_verbatim_on_create() {
+        let Some(_guard) = setup().await else { return };
+
+        let previewed = preview_warehouse_code().await.expect("仓库编码预览应成功");
+        let created = create_warehouse(None, warehouse_req(Some(&previewed), "用预览号建单仓库"))
+            .await
+            .expect("预览号当手工编码应创建成功");
+        assert_eq!(
+            created.warehouse_code, previewed,
+            "手工提交的编码必须原样保留（不能被再取号覆盖）"
+        );
+
+        let after = preview_warehouse_code().await.expect("预览应成功");
+        assert_ne!(after, previewed, "预览必须跳过已占用的号");
+
+        let conflict = create_warehouse(None, warehouse_req(Some(&previewed), "预览号重复仓库"))
+            .await
+            .expect_err("已占用的编码必须被拒");
+        assert_eq!(conflict.status, 409);
+        assert_eq!(conflict.code, error_code::ERP_CODE_CONFLICT, "66001");
+        assert!(
+            conflict.msg.contains(&previewed),
+            "文案要点名编码：{}",
+            conflict.msg
         );
 
         hard_delete("biz_warehouse", Uuid::parse_str(&created.id).expect("id")).await;

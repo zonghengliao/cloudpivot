@@ -237,10 +237,12 @@ test('成本法：下拉只有 MOVING_AVG；历史值作为禁用项兜底；编
 });
 
 // ⑤ 附：校验（编码 ≤40 / 名称 ≤120 / 单位必填；编辑不校验编码）
-test('表单校验：编码 / 名称 / 单位，编辑态不校验编码', () => {
+//    CODE-06：新建时编码**可留空**（留空由后端自动取号 MAT-0001），故不再报「必填」；
+//    长度上限照旧拦。
+test('表单校验：名称 / 单位必填，编码可留空但超长仍拦，编辑态不校验编码', () => {
   const empty = validateMaterialForm(emptyMaterialForm(), false);
   assert.equal(hasFieldError(empty), true);
-  assert.ok(empty.material_code);
+  assert.equal(empty.material_code, undefined, 'CODE-06：留空不该报「物料编码必填」（后端自动取号）');
   assert.ok(empty.material_name);
   assert.ok(empty.unit_id);
 

@@ -458,9 +458,9 @@ export function validateWarehouseForm(form: WarehouseFormState, parent: Warehous
   const errors: FieldErrors = {};
   const code = form.warehouse_code.trim();
   const name = form.warehouse_name.trim();
-  if (!code) {
-    errors.warehouse_code = '请填仓库编码';
-  } else if (code.length > 40) {
+  // CODE-06：编码**可以留空** —— 留空由后端自动取号（WH-01 形态，2 位纯流水），
+  // 「生成编码」按钮只是提前看号。这里只校验长度，不再拦「必填」。
+  if (code.length > 40) {
     errors.warehouse_code = '编码最多 40 个字符';
   }
   if (!name) {
@@ -493,7 +493,8 @@ export function buildWarehouseCreatePayload(
   parent: Warehouse | null,
 ): CreateWarehouseReq {
   return {
-    warehouse_code: form.warehouse_code.trim(),
+    // CODE-06：留空发 `null`（不是 `''`）—— 后端两种都当「没填」并自动取号
+    warehouse_code: form.warehouse_code.trim() || null,
     warehouse_name: form.warehouse_name.trim(),
     warehouse_type: form.warehouse_type,
     parent_id: parent?.id ?? null,

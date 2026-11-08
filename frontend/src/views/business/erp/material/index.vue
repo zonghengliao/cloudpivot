@@ -136,15 +136,35 @@
 
       <t-form :data="form" label-width="110px">
         <t-form-item label="物料编码" name="material_code" :status="formErrors.material_code ? 'error' : undefined" :tips="formErrors.material_code">
-          <t-input
-            v-model="form.material_code"
-            :disabled="isEdit"
-            :maxlength="40"
-            placeholder="如 M-W1A-006 / 未删除内唯一"
-            data-testid="mat-code"
-          />
-          <template v-if="isEdit" #help>
-            <span class="dlg-help">编码是物料身份，不支持修改</span>
+          <!-- CODE-06 交互方式 B：编码框 + 「生成编码」按钮（编辑态都禁用） -->
+          <div class="dlg-inline dlg-inline--grow">
+            <t-input
+              v-model="form.material_code"
+              :disabled="isEdit"
+              :maxlength="40"
+              placeholder="留空自动生成，如 MAT-0001"
+              class="dlg-inline__grow"
+              data-testid="mat-code"
+            />
+            <t-button
+              variant="outline"
+              theme="primary"
+              :disabled="isEdit"
+              :loading="genCodeLoading"
+              data-testid="mat-gen-code"
+              @click="handleGenCode"
+            >
+              生成编码
+            </t-button>
+          </div>
+          <template #help>
+            <span class="dlg-help">
+              {{
+                isEdit
+                  ? '编码是物料身份，不支持修改'
+                  : '不点「生成编码」则保存时自动生成；生成后仍可手改（已有编码体系可直接填）'
+              }}
+            </span>
           </template>
         </t-form-item>
 
@@ -238,6 +258,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import {
   createMaterial,
+  fetchMaterialNextCode,
   fetchMaterialPage,
   fetchUnitOptions,
   updateMaterial,
@@ -454,6 +475,36 @@ function openEdit(row: MaterialRow): void {
   dialogVisible.value = true;
 }
 
+// ==================== 生成编码（CODE-06 交互方式 B） ====================
+
+/** 「生成编码」按钮加载中 */
+const genCodeLoading = ref(false);
+
+/**
+ * 取下一个可用编码填入编码框（**不占号**，可手改）。
+ *
+ * 后端 `GET /business/erp/material/next-code` 只读 `biz_seq`（方案 B）：
+ * - 点了又取消不会浪费流水；
+ * - 并发下两人可能看到同一个号 ⇒ 保存时被抢走的人是 `409 + 66001`，
+ *   错误面板会把后端原文（点名编码）弹出来，点一次「生成编码」换个号即可。
+ */
+async function handleGenCode(): Promise<void> {
+  if (isEdit.value) {
+    return;
+  }
+  genCodeLoading.value = true;
+  try {
+    const preview = await fetchMaterialNextCode();
+    form.material_code = preview.code;
+    // 之前「超长」之类的提示已不成立，清掉免得红框跟着新号走
+    delete formErrors.value.material_code;
+  } catch (error) {
+    MessagePlugin.error(`生成编码失败：${messageOf(error)}`);
+  } finally {
+    genCodeLoading.value = false;
+  }
+}
+
 /** 提交（新建 / 编辑） */
 async function handleConfirm(): Promise<void> {
   const errors = validateMaterialForm(form, isEdit.value);
@@ -468,8 +519,11 @@ async function handleConfirm(): Promise<void> {
       await updateMaterial(editing.value.id, buildMaterialUpdatePayload(form, editing.value));
       MessagePlugin.success('物料已保存');
     } else {
-      await createMaterial(buildMaterialCreatePayload(form));
-      MessagePlugin.success('物料已创建');
+      const created = await createMaterial(buildMaterialCreatePayload(form));
+      // 没点「生成编码」直接保存时编码是后端取的号 —— 回填到表单并在提示里报出来，
+      // 用户当场就能看到自己这条到底叫 MAT-000几。
+      form.material_code = created.material_code;
+      MessagePlugin.success(`物料已创建 · 编码 ${created.material_code}`);
     }
     dialogVisible.value = false;
     await loadMaterials(editing.value ? current.value : 1);
@@ -591,6 +645,17 @@ onMounted(async () => {
 .costing-select :deep(.t-is-disabled),
 .costing-select.t-is-disabled {
   color: var(--td-text-color-secondary);
+}
+
+/* CODE-06：「编码框 + 生成编码」一行铺满（输入框吃掉剩余宽度，按钮不缩） */
+.dlg-inline--grow {
+  width: 100%;
+  flex-wrap: nowrap;
+}
+
+.dlg-inline__grow {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .dlg-help {

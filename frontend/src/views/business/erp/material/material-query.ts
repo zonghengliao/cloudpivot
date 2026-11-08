@@ -354,10 +354,10 @@ export function materialFormFromRow(row: MaterialRow): MaterialFormState {
 export function validateMaterialForm(form: MaterialFormState, isEdit: boolean): MaterialFieldErrors {
   const errors: MaterialFieldErrors = {};
   if (!isEdit) {
+    // CODE-06：编码**可以留空** —— 留空由后端自动取号（MAT-0001 形态），
+    // 「生成编码」按钮只是提前看号。所以这里只校验长度，不再拦「必填」。
     const code = form.material_code.trim();
-    if (!code) {
-      errors.material_code = '物料编码必填';
-    } else if (code.length > 40) {
+    if (code.length > 40) {
       errors.material_code = '物料编码最多 40 个字符';
     }
   }
@@ -402,7 +402,9 @@ function nullableText(value: string): string | null {
  */
 export function buildMaterialCreatePayload(form: MaterialFormState): CreateMaterialReq {
   return {
-    material_code: form.material_code.trim(),
+    // CODE-06：留空发 `null`（不是 `''`）—— 后端 `resolve_manual_code` 两种都收，
+    // 但 `null` 一眼能看出「没填」而不是「填了个空串」。
+    material_code: nullableText(form.material_code),
     material_name: form.material_name.trim(),
     material_type: form.material_type,
     unit_id: form.unit_id,

@@ -100,7 +100,14 @@ export type WarehouseNode = WarehouseTreeNode;
 
 /** 新建仓库请求体（对应后端 `CreateWarehouseReq`） */
 export interface CreateWarehouseReq {
-  warehouse_code: string;
+  /**
+   * 仓库编码（≤40，业务上唯一）。
+   *
+   * **留空（`null` / `''` / 纯空白）⇒ 后端自动取号 `WH-01` 形态**（CODE-03：
+   * `biz_seq` 的 WH 号段，`pad_width = 2` 纯流水、不计日期、永不重置，第 100 个起 `WH-100`）；
+   * 有值则原样保留（企业自有编码体系如 `CK-001` 要能对接）。
+   */
+  warehouse_code: string | null;
   warehouse_name: string;
   warehouse_type: WarehouseType;
   manager?: string | null;
@@ -225,6 +232,18 @@ export function fetchWarehousePage(query: {
 /** 仓库详情 */
 export function fetchWarehouseDetail(id: string): Promise<Warehouse> {
   return get<Warehouse>(`${BASE}/warehouse/${id}`);
+}
+
+/**
+ * 仓库编码预览（`GET /business/erp/warehouse/next-code`，权限 `business:erp:warehouse:create`）。
+ *
+ * **只读、不占号**（交互方式 B 的方案 B）：连点两次拿到同一个号，点了又取消不会浪费流水；
+ * 并发下两个人可能看到同一个号 —— 保存时被抢走后端回 `409 + 66001`，提示重新生成即可。
+ *
+ * 号段：`WH-01` 形态（2 位纯流水，`biz_seq.pad_width = 2`），不计日期、永不重置。
+ */
+export function fetchWarehouseNextCode(): Promise<NextCodePreview> {
+  return get<NextCodePreview>(`${BASE}/warehouse/next-code`);
 }
 
 /** 新建仓库（`level` 必须与上级层级自洽，见模块头注释） */
@@ -376,8 +395,14 @@ export interface MaterialRow {
 
 /** 新建物料请求体（对应后端 `CreateMaterialReq`） */
 export interface CreateMaterialReq {
-  /** 编码（未删除内唯一） */
-  material_code: string;
+  /**
+   * 物料编码（未删除内唯一）。
+   *
+   * **留空（`null` / `''` / 纯空白）⇒ 后端自动取号 `MAT-0001` 形态**（CODE-03：
+   * `biz_seq` 的 MAT 号段，纯流水 4 位、不计日期、永不重置）；
+   * 有值则原样保留（物料常按分类自编号，`YB-001-02` 也要能用）。
+   */
+  material_code: string | null;
   /** 名称 */
   material_name: string;
   /** 基础单位（必填 UUID） */
@@ -474,6 +499,16 @@ export function fetchMaterialPage(query: {
 /** 物料详情 */
 export function fetchMaterialDetail(id: string): Promise<MaterialRow> {
   return get<MaterialRow>(`${BASE}/material/${id}`);
+}
+
+/**
+ * 物料编码预览（`GET /business/erp/material/next-code`，权限 `business:erp:material:create`）。
+ *
+ * **只读、不占号**（交互方式 B 的方案 B）：连点两次拿到同一个号；并发撞号由保存时的
+ * `409 + 66001` 兜底。号段：`MAT-0001` 形态（4 位纯流水），不计日期、永不重置。
+ */
+export function fetchMaterialNextCode(): Promise<NextCodePreview> {
+  return get<NextCodePreview>(`${BASE}/material/next-code`);
 }
 
 /**

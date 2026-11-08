@@ -29,15 +29,35 @@
 
     <t-form :data="form" label-width="96px" class="warehouse-form">
       <t-form-item label="仓库编码" name="warehouse_code" :status="statusOf('warehouse_code')" :tips="formErrors.warehouse_code">
-        <t-input
-          v-model="form.warehouse_code"
-          :disabled="isEdit"
-          :maxlength="40"
-          placeholder="如 WH01 / 业务上唯一"
-          data-testid="wh-code"
-        />
-        <template v-if="isEdit" #help>
-          <span class="dlg-help">编码是仓库身份，不支持修改</span>
+        <!-- CODE-06 交互方式 B：编码框 + 「生成编码」按钮（编辑态都禁用） -->
+        <div class="dlg-inline dlg-inline--grow">
+          <t-input
+            v-model="form.warehouse_code"
+            :disabled="isEdit"
+            :maxlength="40"
+            placeholder="留空自动生成，如 WH-01"
+            class="dlg-inline__grow"
+            data-testid="wh-code"
+          />
+          <t-button
+            variant="outline"
+            theme="primary"
+            :disabled="isEdit"
+            :loading="genCodeLoading"
+            data-testid="wh-gen-code"
+            @click="handleGenCode"
+          >
+            生成编码
+          </t-button>
+        </div>
+        <template #help>
+          <span class="dlg-help">
+            {{
+              isEdit
+                ? '编码是仓库身份，不支持修改'
+                : '不点「生成编码」则保存时自动生成；生成后仍可手改（已有编码体系可直接填）'
+            }}
+          </span>
         </template>
       </t-form-item>
 
@@ -106,6 +126,7 @@ import { MessagePlugin } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
 import {
   createWarehouse,
+  fetchWarehouseNextCode,
   updateWarehouse,
   type Warehouse,
   type WarehouseTreeNode,
@@ -225,6 +246,39 @@ watch(
   { immediate: true },
 );
 
+// ==================== 生成编码（CODE-06 交互方式 B） ====================
+
+/** 「生成编码」按钮加载中 */
+const genCodeLoading = ref(false);
+
+/**
+ * 取下一个可用编码填入编码框（**不占号**，可手改）。
+ *
+ * 后端 `GET /business/erp/warehouse/next-code` 只读 `biz_seq`（方案 B）：
+ * - 点了又取消不会浪费流水；
+ * - 并发下两人可能看到同一个号 ⇒ 保存时被抢走的人是 `409 + 66001`，
+ *   错误面板会把后端原文（点名编码）弹出来，点一次「生成编码」换个号即可。
+ * - 号段是 **2 位**纯流水（`WH-01`），第 100 个起自然变成 `WH-100`。
+ */
+async function handleGenCode(): Promise<void> {
+  if (isEdit.value) {
+    return;
+  }
+  genCodeLoading.value = true;
+  try {
+    const preview = await fetchWarehouseNextCode();
+    form.warehouse_code = preview.code;
+    // 之前「超长」之类的提示已不成立，清掉免得红框跟着新号走
+    delete formErrors.value.warehouse_code;
+  } catch (error) {
+    MessagePlugin.error(
+      `生成编码失败：${error instanceof ApiError ? error.message : '请稍后重试'}`,
+    );
+  } finally {
+    genCodeLoading.value = false;
+  }
+}
+
 /** 提交 */
 async function handleConfirm(): Promise<void> {
   submitError.value = '';
@@ -248,7 +302,9 @@ async function handleConfirm(): Promise<void> {
       emit('saved', { id: saved.id, isEdit: true, name: saved.warehouse_name });
     } else {
       const saved = await createWarehouse(buildWarehouseCreatePayload(form, parentNode.value));
-      MessagePlugin.success(`仓库「${saved.warehouse_name}」已创建`);
+      // 没点「生成编码」直接保存时编码是后端取的号 —— 回填到表单并在提示里报出来
+      form.warehouse_code = saved.warehouse_code;
+      MessagePlugin.success(`仓库「${saved.warehouse_name}」已创建 · 编码 ${saved.warehouse_code}`);
       emit('saved', { id: saved.id, isEdit: false, name: saved.warehouse_name });
     }
     emit('update:visible', false);
@@ -269,6 +325,17 @@ async function handleConfirm(): Promise<void> {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* CODE-06：「编码框 + 生成编码」一行铺满（输入框吃掉剩余宽度，按钮不缩） */
+.dlg-inline--grow {
+  width: 100%;
+  flex-wrap: nowrap;
+}
+
+.dlg-inline__grow {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .dlg-readonly {
