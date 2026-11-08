@@ -1,0 +1,208 @@
+TAP version 13
+# Subtest: 物料·①validateMaterialForm：编码留空不拦（后端自动取号 MAT-0001），超长仍拦
+ok 1 - 物料·①validateMaterialForm：编码留空不拦（后端自动取号 MAT-0001），超长仍拦
+  ---
+  duration_ms: 3.721461
+  type: 'test'
+  ...
+# Subtest: 物料·②新建请求体：编码留空发 null（交给后端取号），填了只 trim
+ok 2 - 物料·②新建请求体：编码留空发 null（交给后端取号），填了只 trim
+  ---
+  duration_ms: 0.13296
+  type: 'test'
+  ...
+# Subtest: 物料·③API：fetchMaterialNextCode 存在且路径写全 /api
+ok 3 - 物料·③API：fetchMaterialNextCode 存在且路径写全 /api
+  ---
+  duration_ms: 0.852635
+  type: 'test'
+  ...
+# Subtest: 物料·④页面：编码栏旁有「生成编码」按钮，编辑态禁用，保存后回填编码
+ok 4 - 物料·④页面：编码栏旁有「生成编码」按钮，编辑态禁用，保存后回填编码
+  ---
+  duration_ms: 0.241128
+  type: 'test'
+  ...
+# Subtest: 仓库·①validateWarehouseForm：编码留空不拦（后端自动取号 WH-01，2 位），超长仍拦
+ok 5 - 仓库·①validateWarehouseForm：编码留空不拦（后端自动取号 WH-01，2 位），超长仍拦
+  ---
+  duration_ms: 0.199294
+  type: 'test'
+  ...
+# Subtest: 仓库·②新建请求体：编码留空发 null（交给后端取号），填了只 trim
+ok 6 - 仓库·②新建请求体：编码留空发 null（交给后端取号），填了只 trim
+  ---
+  duration_ms: 0.110876
+  type: 'test'
+  ...
+# Subtest: 仓库·③API：fetchWarehouseNextCode 存在且路径写全 /api
+ok 7 - 仓库·③API：fetchWarehouseNextCode 存在且路径写全 /api
+  ---
+  duration_ms: 4.051132
+  type: 'test'
+  ...
+# Subtest: 仓库·④弹窗：编码栏旁有「生成编码」按钮，编辑态禁用，保存后回填编码
+ok 8 - 仓库·④弹窗：编码栏旁有「生成编码」按钮，编辑态禁用，保存后回填编码
+  ---
+  duration_ms: 0.414422
+  type: 'test'
+  ...
+# Subtest: serial_required 显示：true → 「★是」，false → 「否」
+ok 9 - serial_required 显示：true → 「★是」，false → 「否」
+  ---
+  duration_ms: 0.627174
+  type: 'test'
+  ...
+# Subtest: 筛选参数：serial_required=true 带 true；all 时整键缺席（不是带 undefined / 空串）
+ok 10 - 筛选参数：serial_required=true 带 true；all 时整键缺席（不是带 undefined / 空串）
+  ---
+  duration_ms: 0.410505
+  type: 'test'
+  ...
+# Subtest: 筛选参数：keyword 先 trim，空串 / 全空格不发；分类空串不发
+ok 11 - 筛选参数：keyword 先 trim，空串 / 全空格不发；分类空串不发
+  ---
+  duration_ms: 0.882219
+  type: 'test'
+  ...
+# Subtest: 分页参数：page / page_size 正确（默认 1 / 10，非法值夹回合法值）
+ok 12 - 分页参数：page / page_size 正确（默认 1 / 10，非法值夹回合法值）
+  ---
+  duration_ms: 0.11646
+  type: 'test'
+  ...
+# Subtest: 页码夹紧：total=5 / size=10 时第 3 页回到第 1 页
+ok 13 - 页码夹紧：total=5 / size=10 时第 3 页回到第 1 页
+  ---
+  duration_ms: 0.214503
+  type: 'test'
+  ...
+# Subtest: 编辑请求体：无 material_code；serial_required 未改则缺席
+ok 14 - 编辑请求体：无 material_code；serial_required 未改则缺席
+  ---
+  duration_ms: 0.195835
+  type: 'test'
+  ...
+# Subtest: 新建请求体：serial_required / costing_method 显式带上（不靠后端缺省）+ 空规格为 null
+ok 15 - 新建请求体：serial_required / costing_method 显式带上（不靠后端缺省）+ 空规格为 null
+  ---
+  duration_ms: 0.198502
+  type: 'test'
+  ...
+# Subtest: 成本法：下拉只有 MOVING_AVG；历史值作为禁用项兜底；编辑请求体不带 costing_method
+ok 16 - 成本法：下拉只有 MOVING_AVG；历史值作为禁用项兜底；编辑请求体不带 costing_method
+  ---
+  duration_ms: 0.282961
+  type: 'test'
+  ...
+# Subtest: 表单校验：名称 / 单位必填，编码可留空但超长仍拦，编辑态不校验编码
+ok 17 - 表单校验：名称 / 单位必填，编码可留空但超长仍拦，编辑态不校验编码
+  ---
+  duration_ms: 0.461131
+  type: 'test'
+  ...
+# Subtest: 列表文案：单位译名、分类中文、状态
+ok 18 - 列表文案：单位译名、分类中文、状态
+  ---
+  duration_ms: 0.53734
+  type: 'test'
+  ...
+# Subtest: ① 展平与层数：顶层只挂 parent 为空的仓库，深度算得出 3 层
+ok 19 - ① 展平与层数：顶层只挂 parent 为空的仓库，深度算得出 3 层
+  ---
+  duration_ms: 1.368058
+  type: 'test'
+  ...
+# Subtest: ② 首屏默认展开 = 第 1 层里有孩子的节点（不 expandAll）
+ok 20 - ② 首屏默认展开 = 第 1 层里有孩子的节点（不 expandAll）
+  ---
+  duration_ms: 0.15121
+  type: 'test'
+  ...
+# Subtest: ③ 逐节点独立折叠：只动自己，不联级
+ok 21 - ③ 逐节点独立折叠：只动自己，不联级
+  ---
+  duration_ms: 0.167377
+  type: 'test'
+  ...
+# Subtest: ④ 搜索：命中第 3 层时保留祖先并给出要展开的 id（否则子树静默消失）
+ok 22 - ④ 搜索：命中第 3 层时保留祖先并给出要展开的 id（否则子树静默消失）
+  ---
+  duration_ms: 0.275212
+  type: 'test'
+  ...
+# Subtest: ⑤ 按 id 找节点 + 路径文字（右面板「当前选中」副标题）
+ok 23 - ⑤ 按 id 找节点 + 路径文字（右面板「当前选中」副标题）
+  ---
+  duration_ms: 0.199961
+  type: 'test'
+  ...
+# Subtest: ⑥ 层级推导：顶级 = 1，第 3 层仓库不能再有下级（66004）
+ok 24 - ⑥ 层级推导：顶级 = 1，第 3 层仓库不能再有下级（66004）
+  ---
+  duration_ms: 0.17846
+  type: 'test'
+  ...
+# Subtest: ⑦ 叶子约束：非叶子仓库的「新建库位」必须禁用，且原因说清「不能设成叶子」
+ok 25 - ⑦ 叶子约束：非叶子仓库的「新建库位」必须禁用，且原因说清「不能设成叶子」
+  ---
+  duration_ms: 0.217003
+  type: 'test'
+  ...
+# Subtest: ⑧ 新建仓库请求体：level 跟着父推导，**不带 is_leaf**，空串转 null
+ok 26 - ⑧ 新建仓库请求体：level 跟着父推导，**不带 is_leaf**，空串转 null
+  ---
+  duration_ms: 0.114293
+  type: 'test'
+  ...
+# Subtest: ⑨ 编辑仓库请求体：只带真改过的字段，清空的可空字段显式传 null
+ok 27 - ⑨ 编辑仓库请求体：只带真改过的字段，清空的可空字段显式传 null
+  ---
+  duration_ms: 0.329962
+  type: 'test'
+  ...
+# Subtest: ⑩ 库位请求体：新建带 warehouse_id，编辑不带（后端不许换仓库）
+ok 28 - ⑩ 库位请求体：新建带 warehouse_id，编辑不带（后端不许换仓库）
+  ---
+  duration_ms: 0.398088
+  type: 'test'
+  ...
+# Subtest: ⑪ 仓库表单校验：名称必填、编码可留空（自动取号）、长度上限照后端
+ok 29 - ⑪ 仓库表单校验：名称必填、编码可留空（自动取号）、长度上限照后端
+  ---
+  duration_ms: 0.15621
+  type: 'test'
+  ...
+# Subtest: ⑫ 枚举文案与选项：仓库 5 类 / 库位 6 类，与后端常量逐字对齐
+ok 30 - ⑫ 枚举文案与选项：仓库 5 类 / 库位 6 类，与后端常量逐字对齐
+  ---
+  duration_ms: 0.109376
+  type: 'test'
+  ...
+# Subtest: ⑬ 前端分页：切片 / 夹紧越界页码（第 3 页删光后不空白）
+ok 31 - ⑬ 前端分页：切片 / 夹紧越界页码（第 3 页删光后不空白）
+  ---
+  duration_ms: 0.328337
+  type: 'test'
+  ...
+# Subtest: ⑭ 父仓库选择器：剪掉第 3 层（不能再往下建），父节点不因剪枝丢失
+ok 32 - ⑭ 父仓库选择器：剪掉第 3 层（不能再往下建），父节点不因剪枝丢失
+  ---
+  duration_ms: 0.167252
+  type: 'test'
+  ...
+# Subtest: ⑮ 所属仓库下拉：只给叶子仓库，文案带完整路径 + 编码（平铺也分得清）
+ok 33 - ⑮ 所属仓库下拉：只给叶子仓库，文案带完整路径 + 编码（平铺也分得清）
+  ---
+  duration_ms: 0.165502
+  type: 'test'
+  ...
+1..33
+# tests 33
+# suites 0
+# pass 33
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 191.368325

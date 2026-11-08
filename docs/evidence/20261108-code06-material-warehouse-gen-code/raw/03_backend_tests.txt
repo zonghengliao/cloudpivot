@@ -1,0 +1,55 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 48 tests
+test business::erp::handler::tests::deletes_are_soft ... ok
+test business::erp::handler::tests::duplicate_key_maps_to_conflict_code ... ok
+test business::erp::handler::tests::flags_map_to_smallint ... ok
+test business::erp::handler::tests::invalid_uuid_is_rejected ... ok
+test business::erp::handler::tests::location_create_and_list_by_warehouse ... ok
+test business::erp::handler::tests::location_default_is_exclusive ... ok
+test business::erp::handler::tests::material_auto_code_generated_when_blank ... ok
+test business::erp::handler::tests::material_auto_code_increments_consecutively ... ok
+test business::erp::handler::tests::material_duplicate_code_rejected_with_message ... ok
+test business::erp::handler::tests::material_manual_code_is_preserved ... ok
+test business::erp::handler::tests::material_preview_code_does_not_consume_sequence ... ok
+test business::erp::handler::tests::material_previewed_code_is_used_verbatim_on_create ... ok
+test business::erp::handler::tests::material_reference_search_and_soft_delete ... ok
+test business::erp::handler::tests::material_unit_must_be_base ... ok
+test business::erp::handler::tests::nullable_params_use_text_literal ... ok
+test business::erp::handler::tests::page_args_are_normalized ... ok
+test business::erp::handler::tests::permissions_are_complete_and_unique ... ok
+test business::erp::handler::tests::readonly_detail_returns_404 ... ok
+test business::erp::handler::tests::readonly_ledgers_are_pageable ... ok
+test business::erp::handler::tests::special_routes_are_distinct ... ok
+test business::erp::handler::tests::subtree_root_with_invisible_parent_is_promoted ... ok
+test business::erp::handler::tests::supplier_auto_code_generated_when_blank ... ok
+test business::erp::handler::tests::supplier_auto_code_increments_consecutively ... ok
+test business::erp::handler::tests::supplier_crud_cycle ... ok
+test business::erp::handler::tests::supplier_duplicate_code_rejected_with_message ... ok
+test business::erp::handler::tests::supplier_manual_code_is_preserved ... ok
+test business::erp::handler::tests::supplier_preview_code_does_not_consume_sequence ... ok
+test business::erp::handler::tests::supplier_previewed_code_is_used_verbatim_on_create ... ok
+test business::erp::handler::tests::system_unit_cannot_be_deleted_but_can_be_disabled ... ok
+test business::erp::handler::tests::unit_create_then_detail_and_page ... ok
+test business::erp::handler::tests::unit_duplicate_code_conflicts ... ok
+test business::erp::handler::tests::unit_precision_round_trip_and_rejects_overflow ... ok
+test business::erp::handler::tests::unit_soft_delete_hides_row ... ok
+test business::erp::handler::tests::unit_update_applies_patch_semantics ... ok
+test business::erp::handler::tests::warehouse_auto_code_generated_when_blank ... ok
+test business::erp::handler::tests::warehouse_auto_code_increments_consecutively ... ok
+test business::erp::handler::tests::warehouse_create_root_builds_path ... ok
+test business::erp::handler::tests::warehouse_delete_guards_children ... ok
+test business::erp::handler::tests::warehouse_duplicate_code_rejected_with_message ... ok
+test business::erp::handler::tests::warehouse_level_is_derived_from_parent ... ok
+test business::erp::handler::tests::warehouse_manual_code_is_preserved ... ok
+test business::erp::handler::tests::warehouse_page_combines_keyword_and_page_size ... ok
+test business::erp::handler::tests::warehouse_path_is_materialized ... ok
+test business::erp::handler::tests::warehouse_preview_code_does_not_consume_sequence ... ok
+test business::erp::handler::tests::warehouse_previewed_code_is_used_verbatim_on_create ... ok
+test business::erp::handler::tests::warehouse_three_levels_and_limit ... ok
+test business::erp::handler::tests::warehouse_tree_assembles_three_levels ... ok
+test business::erp::handler::tests::warehouse_tree_returns_all_levels ... ok
+
+test result: ok. 48 passed; 0 failed; 0 ignored; 0 measured; 3468 filtered out; finished in 17.41s
+

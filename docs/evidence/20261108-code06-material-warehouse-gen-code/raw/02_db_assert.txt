@@ -1,0 +1,35 @@
+=== ① 号段规则（CODE-01 V0337 提供；本卡只读不改） ===
+  biz_seq MAT/WH：MAT prefix=MAT sep=- pad=4 current=2 WH prefix=WH sep=- pad=2 current=2 
+
+=== ② 落库明细：本卡建的三类物料 / 三类仓库 ===
+  MAT-0001 | CODE06 物料（字段缺席） | RAW
+  MAT-0002 | CODE06 物料（null） | RAW
+  YB-001-02 | CODE06 物料（手工码） | RAW
+  MAT-0003 | CODE06 物料（用预览号） | RAW
+  WH-01 | CODE06 仓库（字段缺席）
+  WH-02 | CODE06 仓库（空串）
+  CK-001 | CODE06 仓库（手工码）
+  WH-03 | CODE06 仓库（用预览号）
+
+=== ③ 自动取号形态（4 位 MAT / 2 位 WH） ===
+  PASS  物料自动号（字段缺席） = MAT-0001
+  PASS  物料自动号（null） = MAT-0002
+  PASS  仓库自动号（字段缺席） = WH-01
+  PASS  仓库自动号（空串） = WH-02
+
+=== ④ 手工编码原样落库（不转成 MAT-/WH-） ===
+  PASS  物料手工码 = YB-001-02
+  PASS  仓库手工码 = CK-001
+
+=== ⑤ 未删行内编码无重复（唯一性兜底生效） ===
+  PASS  物料 MAT- 前缀无重复 = 0
+  PASS  仓库 WH- 前缀无重复 = 0
+
+=== ⑥ 预览不占号：号段 current_no 只被「自动取号」推进 ===
+  本轮 MAT：自动取号 2 次（MAT-0001 / MAT-0002）+ 手工提交预览号 MAT-0003 ⇒ current_no 应为 2
+  本轮 WH ：自动取号 2 次（WH-01 / WH-02）    + 手工提交预览号 WH-03    ⇒ current_no 应为 2
+  说明：手工提交（含把预览号填进编码框）走的是「手工编码」分支，不推进号段 —— 这正是「预览不占号」的直接证据。
+  PASS  MAT current_no = 2 = 2
+  PASS  WH current_no = 2 = 2
+
+RESULT: ALL PASS

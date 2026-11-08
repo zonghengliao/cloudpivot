@@ -1,0 +1,31 @@
+=== CODE-06 前端全量单测的 3 条红：逐条归因（与本卡无关） ===
+时间: 2026-11-08T13:21:48+08:00
+
+-- 1) 三条失败各自来源文件是否被人改过（空 = 与 HEAD 完全一致）--
+git diff --stat HEAD -- frontend/src/views/business/erp/sales-order => []
+git diff --stat HEAD -- frontend/tests/unit/erp-sales-order.test.ts => []
+git diff --stat HEAD -- frontend/src/business => []
+git diff --stat HEAD -- frontend/src/views/business/flow => [ .../views/business/flow/components/NodeProps.vue   | 11 +++++++++++  .../business/flow/components/flow-node-caps.ts     | 23 +++++++++++++++++++---  .../business/flow/components/flow-node-view.ts     |  6 ++++++  frontend/src/views/business/flow/def/edit.vue      |  2 ++  frontend/src/views/business/flow/graph.ts          | 10 +++++++++-  5 files changed, 48 insertions(+), 4 deletions(-) ]
+git diff --stat HEAD -- frontend/tests/unit/p307-awaiting-executor.test.ts => []
+git diff --stat HEAD -- frontend/src/business/flow => []
+
+-- 2) 本卡改动的文件清单（不含上述任何一条）--
+ backend/src/business/erp/handler.rs                | 219 ++++++++++++++++++++-
+ frontend/src/api/business/erp/index.ts             |  41 +++-
+ frontend/src/views/business/erp/material/index.vue |  87 ++++++--
+ .../views/business/erp/material/material-query.ts  |  10 +-
+ .../warehouse/components/WarehouseFormDialog.vue   |  87 +++++++-
+ .../views/business/erp/warehouse/warehouse-tree.ts |   9 +-
+ frontend/tests/unit/code06-gen-code-button.test.ts | 192 ++++++++++++++++++
+ frontend/tests/unit/erp-material-list.test.ts      |   6 +-
+ frontend/tests/unit/warehouse-tree.test.ts         |   5 +-
+ 9 files changed, 619 insertions(+), 37 deletions(-)
+
+-- 3) 失败断言原文 --
+test('create payload keeps dates and folds empty remark to null', () => {
+  const form = emptySalesOrderForm('2026-11-06');
+  form.customer_id = 'c1';
+  form.delivery_date = '';
+  form.remark = '   ';
+  form.items = [newSalesOrderLine({ material_id: 'm1', qty: '2', price: '100', tax_rate: '13' })];
+
