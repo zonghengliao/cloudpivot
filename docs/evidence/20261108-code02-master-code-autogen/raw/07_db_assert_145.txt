@@ -1,0 +1,45 @@
+--- ① 本轮创建的供应商（应按编码排序，contains CODE02）
+ supplier_code |   supplier_name    | has_operator 
+---------------+--------------------+--------------
+ GYS-001       | CODE02 测试供应商C | t
+ SUP-0002      | CODE02 测试供应商A | t
+ SUP-0003      | CODE02 测试供应商B | t
+
+--- ② 本轮创建的客户
+   code   |       name       | status | has_operator 
+----------+------------------+--------+--------------
+ CUS-0004 | CODE02 测试客户A | ACTIVE | t
+ CUS-0005 | CODE02 测试客户B | ACTIVE | t
+ KH-001   | CODE02 测试客户C | ACTIVE | t
+
+--- ③ 自动编码形态（SUP-####/CUS-#### 正则必须命中；手工编码 GYS-001/KH-001 不命中）
+ supplier_code | is_auto_form 
+---------------+--------------
+ GYS-001       | f
+ SUP-0002      | t
+ SUP-0003      | t
+
+   code   | is_auto_form 
+----------+--------------
+ CUS-0004 | t
+ CUS-0005 | t
+ KH-001   | f
+
+--- ④ biz_seq 推进（SUP/CUS 的 current_no 必须 > 0，pad_width 4、不按期间重置）
+ seq_type | prefix | separator | pad_width | current_no | date_pattern | period_key 
+----------+--------+-----------+-----------+------------+--------------+------------
+ CUS      | CUS    | -         |         4 |          5 | none         | GLOBAL
+ SUP      | SUP    | -         |         4 |          3 | none         | GLOBAL
+
+--- ⑤ 存活行编码无重复（部分唯一索引 uk_biz_supplier_code / uk_biz_customer_code 的显式复核）
+ tbl | code | n 
+-----+------+---
+
+--- ⑥ 清场：删掉本轮 CODE02 测试行
+DELETE 3
+DELETE 3
+--- ⑦ 清场后复核（两条 DELETE 的影响行数见上；下面必须都是 0）
+ sup_left | cus_left 
+----------+----------
+        0 |        0
+

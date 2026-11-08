@@ -1,0 +1,37 @@
+test result: FAILED. 3260 passed; 208 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1149.43s
+--- 失败用例按模块聚合（全量并行默认线程数，2026-11-08 10:32-10:52 跑在我的提交上）
+     26 business::erp::transfer_handler::db_settle
+     15 business::erp::pflow3b_tests
+     14 business::erp::transfer_handler::db_status
+     14 business::erp::stocktake_tests
+     14 business::erp::stockin_handler::stockin_handler_tests_p16
+     14 business::erp::purchase_handler::tests
+     14 business::erp::payable_bridge::tests
+     11 business::erp::stockin_handler::stockin_handler_tests_cancel
+     10 business::erp::asset_linkage_tests
+      9 business::flow::edge_admin_tests
+      7 business::flow::assignee::delegation_db_tests
+      7 business::erp::stockin_handler::stockin_handler_tests_pflow3a
+      6 business::erp::expense_linkage_tests
+      6 business::erp::contract_approval_tests
+      5 business::erp::contract_linkage_tests
+      4 business::erp::transfer_handler::db_linkage
+      4 business::erp::transfer_handler::db_books
+      4 business::erp::payable_payment::tests
+      3 business::flow::delegate::db_tests
+      3 business::erp::voucher_linkage_tests
+      3 business::erp::voucher::tests
+      2 business::flow::linkage::tests_wiring
+      2 business::erp::transfer_handler::db_create
+      2 business::erp::stockin_handler::stockin_handler_tests_d4_purchase
+      1 business::flow::linkage::admin::tests
+      1 business::erp::transfer_handler::db_query
+      1 business::erp::stockin_handler::stockin_handler_tests_update
+      1 business::erp::stockin_handler::stockin_handler_tests_fixtures
+      1 business::erp::stockin_handler::stockin_handler_tests_dc03
+      1 business::erp::stockin_handler::stockin_handler_tests_a4
+      1 business::erp::sales_approval_bridge::db_tests
+      1 business::erp::receivable_aging::tests
+      1 business::erp::cash_flow::tests
+--- 本卡相关模块的失败数（必须为 0）
+0

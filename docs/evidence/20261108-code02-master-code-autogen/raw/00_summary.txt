@@ -1,0 +1,30 @@
+login ok, access_token 长度 = 487
+
+=== 供应商 biz_supplier ===
+① 传 supplier_code=""  → HTTP 200, supplier_code=SUP-0002
+  PASS  ① 空串自动取号 = SUP-0002
+② 传 supplier_code=null → HTTP 200, supplier_code=SUP-0003
+  PASS  ② null 自动取号且连续 = SUP-0003
+③ 传 supplier_code="GYS-001" → HTTP 200, supplier_code=GYS-001
+  PASS  ③ 手工编码保留（非 SUP-xxx 也允许） = GYS-001
+④ 传重复 supplier_code="SUP-0002" → HTTP 409, code=66001, msg=供应商编码 `SUP-0002` 已存在（已软删的编码可以复用）
+  PASS  ④ 重复编码 HTTP 409 = 409
+  PASS  ④ 重复编码业务码 66001 = 66001
+  PASS  ④ 文案点名具体编码
+⑤ 传非法字符 supplier_code="GYS 001" → HTTP 400, code=10001, msg=supplier_code 不合法：编码里不能出现 ` `：只允许字母、数字与 `-` `_` `.`（企业自有编码可直接沿用）
+  PASS  ⑤ 非法字符 HTTP 400 = 400
+  PASS  ⑤ 非法字符业务码 10001 = 10001
+
+=== 客户 biz_customer ===
+① 传 code="" → HTTP 200, code=CUS-0004
+  PASS  ① 空串自动取号 = CUS-0004
+② 字段缺席（= null）→ HTTP 200, code=CUS-0005
+  PASS  ② null 自动取号且连续 = CUS-0005
+③ 传 code="KH-001" → HTTP 200, code=KH-001
+  PASS  ③ 手工编码保留 = KH-001
+④ 传重复 code="CUS-0004" → HTTP 409, code=66001, msg=客户编码 `CUS-0004` 已存在（已软删的编码可以复用）
+  PASS  ④ 重复编码 HTTP 409 = 409
+  PASS  ④ 重复编码业务码 66001 = 66001
+  PASS  ④ 文案点名具体编码
+
+RESULT: ALL PASS

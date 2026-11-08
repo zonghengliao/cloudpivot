@@ -1,0 +1,19 @@
+=== ① 部署版本（HEAD 必须是我的 CODE-02 提交，或其下游包含它的提交）
+246f68f3 feat(erp): CODE-02 供应商/客户创建时自动取号（留空取号，手工编码保留）
+f9e372d1 docs(evidence): CODE-01 补 145 部署日志（.log 被 gitignore 挡掉，改 .txt）+ README 指针
+410200ce docs(evidence): CODE-01 证据 — V0337 幂等四段回放 + 8 条取号单测 + 145 上线/重启幂等/真实 token curl + 全量回归归因
+=== ② 我的提交是否在 HEAD 的祖先里（含本卡 5 个文件）
+246f68f3 feat(erp): CODE-02 供应商/客户创建时自动取号（留空取号，手工编码保留）
+=== ③ systemd 单元
+active
+=== ④ 后端监听与健康
+LISTEN 0      128        127.0.0.1:8033      0.0.0.0:*    users:(("cloudpivot",pid=523909,fd=20))                                                                                             
+backend /health = 200
+nginx  /health = 200
+=== ⑤ 二进制时间戳（应晚于 10:29 的一次 build）
+-rwxr-xr-x 2 root root 609533696 Nov  8 10:29 backend/target/debug/cloudpivot
+=== ⑥ 最近一次启动日志：迁移条数 / 监听地址
+Nov 08 09:41:22 ubuntu-svr cloudpivot-test[516799]: 2026-11-08T01:41:22.062806Z  INFO nik_web::app: 数据库迁移完成: 应用 0 个迁移
+Nov 08 10:02:50 ubuntu-svr cloudpivot-test[519175]: 2026-11-08T02:02:50.836386Z  INFO nik_web::app: 数据库迁移完成: 应用 0 个迁移
+Nov 08 10:30:04 ubuntu-svr cloudpivot-test[523576]: 2026-11-08T02:30:04.600399Z  INFO nik_web::app: 数据库迁移完成: 应用 0 个迁移
+Nov 08 10:31:17 ubuntu-svr cloudpivot-test[523909]: 2026-11-08T02:31:17.044105Z  INFO nik_web::app: 数据库迁移完成: 应用 0 个迁移
