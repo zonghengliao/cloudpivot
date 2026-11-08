@@ -221,7 +221,7 @@ table.detail td.c-spec {
     </tr>
     <tr>
       <td class="label">金额大写</td>
-      <td colspan="5" class="value-cn">人民币{{ total_amount_cn }}（{{ total_amount_variant }}）</td>
+      <td colspan="5" class="value-cn">人民币{{ total_amount_cn }}（￥{{ total_amount }}）</td>
     </tr>
   </table>
 </div>

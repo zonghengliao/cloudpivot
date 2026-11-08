@@ -92,8 +92,6 @@ pub struct StatementContext {
     pub total_amount: String,
     /// 金额大写
     pub total_amount_cn: String,
-    /// 大写口径备注（模板里显示成括号内容，如「小写」占位说明）
-    pub total_amount_variant: String,
     /// 制单人
     pub sign_maker: String,
     /// 审核人
@@ -125,7 +123,6 @@ impl StatementContext {
             total_qty: format_int(total_qty),
             total_amount: format_money(total_amount_fen),
             total_amount_cn: amount_upper(total_amount_fen),
-            total_amount_variant: "小写".to_string(),
             sign_maker: "李四".to_string(),
             sign_checker: "王五".to_string(),
             remark: "对账无误请于 7 个工作日内盖章回传；逾期视为确认。《合同》第 12 条、附件二……"
@@ -428,6 +425,10 @@ mod tests {
         );
         assert!(html.contains("金额大写"));
         assert!(html.contains("人民币"), "大写金额必须带人民币前缀");
+        assert!(
+            html.contains("（￥"),
+            "大写金额后面必须附小写数字（￥…），否则对账时无法逐位核对"
+        );
         assert!(html.contains("客户确认（盖章）"), "签字栏必须在");
     }
 
