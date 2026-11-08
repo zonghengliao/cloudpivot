@@ -284,7 +284,9 @@ export function makeNode(type: FlowNodeType, at: Point, used: Iterable<string>, 
     assignee_type: needsAssignee(type) ? 'INITIATOR_SUPERIOR' : null,
     superior_levels: 1,
     form_var_key: null,
-    approval_mode: type === 'COUNTERSIGN' ? 'ALL' : null,
+    // 签名模式（P3-06）：会签默认全员签；审批节点默认**或签**（不填 = 或签的新语义，
+    // 但这里显式写入，别让库里留 NULL 让人猜）
+    approval_mode: type === 'COUNTERSIGN' ? 'ALL' : type === 'APPROVAL' ? 'ANY' : null,
     approve_ratio: null,
     reject_veto: true,
     // 任务节点默认「解析不出负责人就报错」（SKIP 等于这一步的活静默没人做，设计 §2.4）

@@ -134,7 +134,7 @@ export interface FlowNode {
   superior_levels: number;
   /** `FORM_VAR` 变量名 */
   form_var_key: string | null;
-  /** 会签模式 */
+  /** 签名模式（`ALL` 全员签 / `RATIO` 按比例 / `ANY` 或签）；审批节点可空，**空 = 或签**（P3-06） */
   approval_mode: string | null;
   /** 会签阈值 (0,1] */
   approve_ratio: number | null;
@@ -477,7 +477,7 @@ export interface FlowNodeReq {
   superior_levels?: number;
   /** FORM_VAR 变量名 */
   form_var_key?: string | null;
-  /** 会签模式 */
+  /** 签名模式（`ALL` / `RATIO` / `ANY`；`APPROVAL` 与 `COUNTERSIGN` 都可带，P3-06） */
   approval_mode?: string | null;
   /** 会签阈值 */
   approve_ratio?: number | null;

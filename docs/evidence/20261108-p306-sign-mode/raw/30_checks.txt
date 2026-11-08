@@ -1,0 +1,40 @@
+== cargo fmt --check（本卡 7 个 Rust 文件）
+fmt: clean (exit 0)
+
+== cargo clippy --lib -- -D warnings
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+src/business/erp/sales_order_model.rs:699:1: error: this function has too many arguments (8/7)
+error: could not compile `cloudpivot` (lib) due to 1 previous error
+
+== 单测（本卡相关的三段）
+
+test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 3442 filtered out; finished in 0.01s
+
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 3466 filtered out; finished in 0.00s
+
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3480 filtered out; finished in 0.00s
+
+
+== pnpm typecheck（vue-tsc --noEmit，NODE_OPTIONS=--max-old-space-size=6144）
+exit=0（无诊断输出）
+
+== pnpm test:unit（全量前端单测）
+# tests 1051
+# pass 1049
+# fail 2
+-- 两条失败（他人改动面，非本卡文件）：
+not ok 358 - create payload keeps dates and folds empty remark to null
+not ok 597 - 后端 FlowBizType 的落库字面量 = 前端 FLOW_BIZ_TYPES（逐字、同序，15 个）
+
+== 本卡新增前端单测（tests/unit/flow-sign-mode.test.ts）
+ok 1 - 新建审批节点默认写 ANY（不填=或签，但要显式落库）
+ok 2 - 新建会签节点仍是 ALL（历史默认不变）
+ok 3 - 非审批类节点不带签名模式
+ok 4 - 副标题：APPROVAL 也显示签名模式（或签 / 全员签 / 按比例）
+ok 5 - 副标题：会签节点文案不变（回归）
+ok 6 - 副标题：没配审批人优先于模式（缺人更该被看见）
+# tests 6
+# pass 6
+# fail 0

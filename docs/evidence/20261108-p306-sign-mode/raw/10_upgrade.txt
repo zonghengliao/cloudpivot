@@ -1,0 +1,97 @@
+================ P3-06 ① 迁移 V0339 + 启动期冻结（cloudpivot_prt03 → cloudpivot_p306_mig / :18306）================
+
+--- 0) 从 cloudpivot_prt03 克隆一份（含真实 PUBLISHED/ARCHIVED 审批节点）---
+  ✅ 克隆库 APPROVAL 节点总数与源库一致 = 39
+
+--- 1) 迁移前 approval_mode 分布（APPROVAL 节点，按版本状态分开）---
+ARCHIVED|<NULL>|6
+PUBLISHED|ANY|1
+PUBLISHED|<NULL>|32
+迁移前 NULL：PUBLISHED=32 / ARCHIVED=6 / DRAFT=0
+
+--- 2) 按 D2 口径预测冻结结果（候选人数 ≥2 → ALL，其余 → ANY）---
+预测（全部待冻结节点）：pred_all|pred_any|pred_unknown = 4|34|0
+  ✅ 预测三项之和 = 全部 NULL 节点数（一个不漏） = 38
+
+--- 3) 首启：迁移器按升级路径应用（V0332 → V0339）+ 启动期冻结器 ---
+首启迁移日志：应用 7 个迁移
+  ✅ 首启确实跑了迁移（应用 7 个迁移）
+  ✅ V0339 已登记 = 1
+  ✅ 迁移最大号 = 339 = 339
+
+  --- 3.1) 冻结器日志（启动期，RUST_LOG=info）---
+[2m2026-11-08T03:07:29.688748Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m P3-06 签名模式冻结完成（已发布版本：快照 + hash + 行 + 实例节点 同改） [3mversions[0m[2m=[0m21 [3mnodes[0m[2m=[0m38 [3mall[0m[2m=[0m4 [3many[0m[2m=[0m34
+  ✅ 冻结器报告处理了已发布版本 含「1」
+
+  --- 3.2) 冻结后 approval_mode 分布 ---
+ARCHIVED|ALL|1
+ARCHIVED|ANY|5
+PUBLISHED|ALL|3
+PUBLISHED|ANY|30
+  ✅ 冻结后 APPROVAL 的 NULL = 0（隐式语义全部显式化） = 0
+  ✅ 本次新冻结成 ALL 的节点数 = 预测 pred_all = 4
+  ✅ 本次新冻结成 ANY 的节点数 = 预测 pred_any + pred_unknown = 34
+迁移 + 启动冻结统计：ALL=4 / ANY=35 / 算不出（按 ANY 落库）=0
+
+  --- 3.3) 行 vs 快照逐节点对账（已发布/归档版本）---
+ERROR:  aggregate functions are not allowed in GROUP BY
+LINE 1: SELECT v.version_status || ' | ' || count(*) || ' 个节点 | a...
+                                            ^
+  ✅ 已发布版本：行与快照的 approval_mode 逐节点一致（hash 自检不会报『行被改』） = 0
+
+  --- 3.4) 抽样（前 8 个被冻结的审批节点）---
+ARCHIVED | n_approve | ADMIN | mode=ANY
+ARCHIVED | n_dept | ROLE | mode=ALL
+ARCHIVED | n_dept | ADMIN | mode=ANY
+ARCHIVED | n_fin | ADMIN | mode=ANY
+ARCHIVED | n_pm | ROLE | mode=ANY
+ARCHIVED | n_review | ROLE | mode=ANY
+PUBLISHED | n_approve | ROLE | mode=ANY
+PUBLISHED | n_cfg | ROLE | mode=ANY
+  ✅ RATIO 节点缺 approve_ratio = 0 个（ck_biz_flow_node_ratio 仍成立） = 0
+
+--- 4) 重启：应用 0 个迁移 + 冻结器无需处理（幂等）---
+重启迁移日志：应用 0 个迁移
+  ✅ 重启应用 0 个迁移 = 应用 0 个迁移
+  ✅ 重启后分布不变 = ARCHIVED|ALL|1
+ARCHIVED|ANY|5
+PUBLISHED|ALL|3
+PUBLISHED|ANY|30
+  ✅ 重启时冻结器没有活干（没有第二行『冻结完成』） = 0
+
+--- 5) 重放 up.sql：UPDATE 0（可复跑）---
+UPDATE 0
+psql:/opt/cloudpivot/backend/migrations/business/V0339__approval_sign_mode_freeze.up.sql:131: NOTICE:  V0339 草稿冻结：ALL=0 / ANY=0
+psql:/opt/cloudpivot/backend/migrations/business/V0339__approval_sign_mode_freeze.up.sql:131: NOTICE:  V0339 已发布/归档待启动期冻结器处理：0 个 APPROVAL 节点（flow::sign_freeze）
+DO
+  ✅ 重放时 UPDATE 改 0 行 = 1
+  ✅ 重放后分布不变 = ARCHIVED|ALL|1
+ARCHIVED|ANY|5
+PUBLISHED|ALL|3
+PUBLISHED|ANY|30
+  ✅ 重放打印了统计 NOTICE 含「V0339 草稿冻结」
+  ✅ NOTICE 点名已发布档交给启动期冻结器 含「flow::sign_freeze」
+
+--- 6) down.sql：只清草稿档（已发布档不可一键反向，见 down 文件头）---
+psql:/opt/cloudpivot/backend/migrations/business/V0339__approval_sign_mode_freeze.down.sql:33: NOTICE:  V0339 down：已把 0 个草稿 APPROVAL 节点的 approval_mode 清回 NULL
+DO
+  ✅ down 后草稿 APPROVAL 的 NULL 数 = 草稿节点总数 = 0
+  ✅ down 不动已发布档（冻结结果保持） = 0
+  ✅ down 打印了被清行数 含「V0339 down：已把」
+
+  --- 6.1) 再重放 up.sql：草稿档复原 ---
+  ✅ up 重放成功
+  ✅ up 重放后的分布 = 首启后的分布 = ARCHIVED|ALL|1
+ARCHIVED|ANY|5
+PUBLISHED|ALL|3
+PUBLISHED|ANY|30
+
+--- 7) 收尾：停实例（库与日志留档备查）---
+  ✅ 实例已停
+
+迁移前后对比：
+  迁移前：ARCHIVED|<NULL>|6 PUBLISHED|ANY|1 PUBLISHED|<NULL>|32
+  迁移后：ARCHIVED|ALL|1 ARCHIVED|ANY|5 PUBLISHED|ALL|3 PUBLISHED|ANY|30
+  预测：ALL=4 / ANY=34 / 算不出=0
+
+===== 结果：PASS=24 FAIL=0 =====

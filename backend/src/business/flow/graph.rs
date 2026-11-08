@@ -184,10 +184,18 @@ impl NodeType {
     }
 }
 
-/// 会签模式（架构 D3）。`approval_mode` 只对 `COUNTERSIGN` 生效。
+/// 签名模式（架构 D3）。`approval_mode` 对 `APPROVAL` 与 `COUNTERSIGN` 都生效（P3-06）。
+///
+/// # 两代语义（P3-06 之后）
+///
+/// - `COUNTERSIGN`：**必须显式**给值（R9 拦），三种模式都允许；
+/// - `APPROVAL`：**可以不给**（`NULL` 等价 `Any` = 或签）。要全员签必须显式写 `ALL`。
+///
+/// 引擎侧的唯一入口是 [`ApprovalMode::effective`]：`NULL` / 空串 / 非法值一律落到 `Any`。
+/// 存量节点由 `V0339` 按「解析出的候选人数」冻结（≥2 写 `ALL` 保持原行为，<2 写 `ANY`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ApprovalMode {
-    /// 全员同意。
+    /// 全员同意（会签）。
     All,
     /// 按比例（阈值见 `approve_ratio`）。
     Ratio,
@@ -196,6 +204,21 @@ pub enum ApprovalMode {
 }
 
 impl ApprovalMode {
+    /// 库里的 `approval_mode` 文本 → 生效模式（**引擎唯一兜底口径**，P3-06）。
+    ///
+    /// # 为什么兜底是 `Any` 而不是 `All`
+    ///
+    /// `NULL` 的语义是「没特别说明」，默认不该比用户写明的要求更严：
+    /// 一个 `APPROVAL` 节点派给 3 个人时，写「或签」= 任意一人处理即可（审批要的是
+    /// 「有人负责」，不是「所有人都必须点一遍」）；要全员签请显式选 `ALL`。
+    ///
+    /// 非法值（理论不可能 —— 库里有 `CHECK (approval_mode IN ('ALL','RATIO','ANY'))`）
+    /// 也落 `Any`：宁可放宽也不要让一个错字把流程卡死在「等全员」上。
+    pub fn effective(raw: Option<&str>) -> Self {
+        raw.and_then(ApprovalMode::parse)
+            .unwrap_or(ApprovalMode::Any)
+    }
+
     /// 入库字符串。
     pub fn as_str(self) -> &'static str {
         match self {
@@ -213,6 +236,25 @@ impl ApprovalMode {
             "ANY" => Some(ApprovalMode::Any),
             _ => None,
         }
+    }
+}
+
+/// 存量冻结口径（P3-06 D2）：给定「节点解析出的候选人数」→ 该写什么 `approval_mode`。
+///
+/// # 规则（与 `V0339` 的 SQL 逐字同义）
+///
+/// - `Some(n)` 且 `n >= 2` → [`ApprovalMode::All`]：**保持当前行为**（历史语义是
+///   「`NULL` 按全员签跑」），不动在跑流程的签法；
+/// - `Some(0)` / `Some(1)` → [`ApprovalMode::Any`]：`ALL` 与 `ANY` 在 0/1 人时**判定等价**
+///   （0 人自动通过、1 人签完即通过），写 `ANY` 只是把隐式语义显式化；
+/// - `None`（算不出来：`FORM_VAR`/`EXPRESSION`/没配来源等）→ [`ApprovalMode::Any`]：
+///   同样走「不填=或签」的新语义，不猜一个更严的值。
+///
+/// 纯函数，不碰库；SQL 侧的同一份口径见 `V0339__approval_sign_mode_freeze.up.sql`。
+pub fn freeze_sign_mode(candidates: Option<usize>) -> ApprovalMode {
+    match candidates {
+        Some(n) if n >= 2 => ApprovalMode::All,
+        _ => ApprovalMode::Any,
     }
 }
 
@@ -344,7 +386,7 @@ pub struct NodeSpec {
     pub node_type: NodeType,
     /// 审批人来源。
     pub assignee_type: Option<AssigneeKind>,
-    /// 会签模式（仅 COUNTERSIGN）。
+    /// 签名模式（`APPROVAL` + `COUNTERSIGN`；`APPROVAL` 允许 `None` = 或签，P3-06）。
     pub approval_mode: Option<ApprovalMode>,
     /// 会签阈值（仅 RATIO）。
     pub approve_ratio: Option<f64>,
@@ -1038,33 +1080,53 @@ impl FlowGraph {
         // ---------- R8：禁止混流汇聚（架构 V8 / D6） ----------
         issues.extend(self.check_join_mode(&in_degree));
 
-        // ---------- R9：approve_ratio ∈ (0,1] + 会签模式必填（架构 V10 / D3） ----------
+        // ---------- R9：approve_ratio ∈ (0,1] + 签名模式必填（架构 V10 / D3 + P3-06） ----------
+        //
+        // P3-06 口径（决策 D1/D2）：
+        // - `COUNTERSIGN`：必须显式选模式（历史规则不动）；
+        // - `APPROVAL`：**允许不选**（`NULL` 等价「或签」），但一旦选了 `RATIO` 就必须带
+        //   (0,1] 的比例 —— 只给会签判比例会漏掉「审批节点选按比例但没填阈值」这一档，
+        //   那类图发出去以后 `judge` 会拿 `ratio.unwrap_or(1.0)` 当全员签用，用户看到的是
+        //   「按比例」却不按比例，属于静默错配。
         for node in &self.nodes {
-            if node.node_type != NodeType::Countersign {
-                continue;
-            }
-            let Some(mode) = node.approval_mode else {
-                issues.push(
-                    Issue::new(
-                        "R9",
-                        error_code::FLOW_NODE_ASSIGNEE_MISSING,
-                        format!(
-                            "会签节点 {}（{}）未设置会签方式（全员同意 / 按比例 / 或签，必须选一个）",
-                            node.key, node.name
-                        ),
-                    )
-                    .with_nodes(vec![node.key.clone()]),
-                );
-                continue;
+            let mode = match node.node_type {
+                NodeType::Countersign => match node.approval_mode {
+                    Some(mode) => mode,
+                    None => {
+                        issues.push(
+                            Issue::new(
+                                "R9",
+                                error_code::FLOW_NODE_ASSIGNEE_MISSING,
+                                format!(
+                                    "会签节点 {}（{}）未设置签名方式（或签 / 全员签 / 按比例，必须选一个）",
+                                    node.key, node.name
+                                ),
+                            )
+                            .with_nodes(vec![node.key.clone()]),
+                        );
+                        continue;
+                    }
+                },
+                NodeType::Approval => match node.approval_mode {
+                    Some(mode) => mode,
+                    // 不选 = 或签（`ApprovalMode::effective`），发布期不报错
+                    None => continue,
+                },
+                _ => continue,
             };
             if mode == ApprovalMode::Ratio {
+                let kind = if node.node_type == NodeType::Countersign {
+                    "会签节点"
+                } else {
+                    "审批节点"
+                };
                 match node.approve_ratio {
                     None => issues.push(
                         Issue::new(
                             "R9",
                             error_code::FLOW_NODE_ASSIGNEE_MISSING,
                             format!(
-                                "会签节点 {}（{}）选择了「按比例」但没有填通过比例",
+                                "{kind} {}（{}）选择了「按比例」但没有填通过比例",
                                 node.key, node.name
                             ),
                         )
@@ -1075,7 +1137,7 @@ impl FlowGraph {
                             "R9",
                             error_code::FLOW_NODE_ASSIGNEE_MISSING,
                             format!(
-                                "会签节点 {} 的通过比例必须在 (0,1] 之间（当前 {ratio}）",
+                                "{kind} {} 的通过比例必须在 (0,1] 之间（当前 {ratio}）",
                                 node.key
                             ),
                         )
@@ -3260,6 +3322,75 @@ mod tests {
                 .unwrap()
                 .message
         );
+    }
+
+    /// P3-06 ①：`APPROVAL` 不填模式 = 合法（等价或签），选了 RATIO 就必须带 (0,1] 阈值。
+    #[test]
+    fn r9_approval_allows_null_mode_but_ratio_needs_threshold() {
+        // ① 不填模式 → 不报 R9（历史规则只对 COUNTERSIGN 强制）
+        let mut graph = minimal();
+        assert_eq!(graph.nodes[1].node_type, NodeType::Approval);
+        graph.nodes[1].approval_mode = None;
+        let issues = graph.validate();
+        assert!(
+            !rules(&issues).contains(&"R9"),
+            "APPROVAL 不填模式必须放行（NULL = 或签）：{issues:#?}"
+        );
+
+        // ② 显式 RATIO 但没填比例 → 必须报 R9（以前只有会签判，审批节点会漏）
+        graph.nodes[1].approval_mode = Some(ApprovalMode::Ratio);
+        graph.nodes[1].approve_ratio = None;
+        let issues = graph.validate();
+        let issue = issues
+            .iter()
+            .find(|issue| issue.rule == "R9")
+            .expect("审批节点选按比例但没填阈值必须报 R9");
+        assert!(
+            issue.message.contains("审批节点") && issue.message.contains("按比例"),
+            "文案要说明是审批节点的按比例：{}",
+            issue.message
+        );
+        println!("[R9·审批节点按比例无阈值] {}", issue.message);
+
+        // ③ 比例越界 → R9；补齐合法比例 → 通过
+        graph.nodes[1].approve_ratio = Some(1.5);
+        assert!(rules(&graph.validate()).contains(&"R9"));
+        graph.nodes[1].approve_ratio = Some(0.6);
+        assert!(
+            !rules(&graph.validate()).contains(&"R9"),
+            "补齐 (0,1] 的比例后不该再报 R9"
+        );
+
+        // ④ 会签节点不填模式 → 仍必须报 R9（历史规则不放松）
+        let mut graph = minimal();
+        graph.nodes[1].node_type = NodeType::Countersign;
+        graph.nodes[1].approval_mode = None;
+        assert!(rules(&graph.validate()).contains(&"R9"));
+    }
+
+    /// P3-06 ②：引擎兜底口径 —— `NULL` / 空串 / 非法值一律 = 或签。
+    #[test]
+    fn approval_mode_effective_defaults_to_any() {
+        assert_eq!(ApprovalMode::effective(None), ApprovalMode::Any);
+        assert_eq!(ApprovalMode::effective(Some("")), ApprovalMode::Any);
+        assert_eq!(ApprovalMode::effective(Some("   ")), ApprovalMode::Any);
+        assert_eq!(ApprovalMode::effective(Some("any")), ApprovalMode::Any);
+        assert_eq!(ApprovalMode::effective(Some("ALL")), ApprovalMode::All);
+        assert_eq!(ApprovalMode::effective(Some("ratio")), ApprovalMode::Ratio);
+        // 库里 CHECK 保证不会出现非法值；真出现了也放宽到或签，不要卡死流程
+        assert_eq!(ApprovalMode::effective(Some("MAJORITY")), ApprovalMode::Any);
+    }
+
+    /// P3-06 ③：迁移口径纯函数 —— 候选人数 ≥2 冻结 ALL，其余 ANY。
+    #[test]
+    fn freeze_sign_mode_follows_candidate_count() {
+        assert_eq!(freeze_sign_mode(Some(3)), ApprovalMode::All);
+        assert_eq!(freeze_sign_mode(Some(2)), ApprovalMode::All);
+        // 0 / 1 人时 ALL 与 ANY 判定等价（0 人自动通过、1 人签完即通过）
+        assert_eq!(freeze_sign_mode(Some(1)), ApprovalMode::Any);
+        assert_eq!(freeze_sign_mode(Some(0)), ApprovalMode::Any);
+        // 算不出来（FORM_VAR / EXPRESSION / 没配来源）不猜更严的值
+        assert_eq!(freeze_sign_mode(None), ApprovalMode::Any);
     }
 
     #[test]

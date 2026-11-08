@@ -69,8 +69,45 @@ pub async fn bootstrap() {
         orphan_dependency_guard(),
         test_residue_guard(),
         ensure_accounting_periods(),
+        freeze_published_sign_modes(),
         sse_query_token_guard(),
     );
+}
+
+/// P3-06：存量 `APPROVAL` 节点的签名模式冻结（**已发布 / 归档版本**这一半）。
+///
+/// # 为什么在启动期而不是纯 SQL 迁移
+///
+/// 草稿版本的行由 `V0339` 的 SQL 冻结（草稿没人读）。已发布版本不行：
+/// 实例真正读的是 `biz_flow_def_version.graph_snapshot`，而 `graph_hash` 是
+/// 「从行重建的 canonical JSON」的 sha256 —— 只改行会让快照与 hash 双双对不上，
+/// `flow::maintain` 的快照自检（每天 03:30）会把这些版本逐条报成「行被直接修改」。
+/// 详见 [`crate::business::flow::sign_freeze`] 的模块注释。
+///
+/// # 幂等与失败处理
+///
+/// 只处理 `approval_mode IS NULL` 的行，跑完就再也找不到目标（每次启动一条索引扫描）。
+/// 失败**不阻断启动**（钩子没有错误通道）：记 error，下次启动重试。
+async fn freeze_published_sign_modes() {
+    if try_db().is_none() {
+        tracing::error!("数据库未初始化，跳过 P3-06 签名模式冻结");
+        return;
+    }
+    match crate::business::flow::sign_freeze::freeze_published_versions().await {
+        Ok(report) if report.is_empty() => {
+            tracing::debug!("P3-06 签名模式冻结：无需处理（已发布版本里没有空模式的审批节点）")
+        }
+        Ok(report) => tracing::info!(
+            versions = report.versions,
+            nodes = report.nodes,
+            all = report.all,
+            any = report.any,
+            "P3-06 签名模式冻结完成（已发布版本：快照 + hash + 行 + 实例节点 同改）"
+        ),
+        Err(error) => {
+            tracing::error!(error = %error, "P3-06 签名模式冻结失败（不阻断启动，下次启动重试）")
+        }
+    }
 }
 
 /// 演示账号种子（FIX-1 · 新环境开箱即用）。

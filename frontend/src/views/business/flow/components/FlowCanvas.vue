@@ -536,18 +536,20 @@ const nodeViews = computed<NodeView[]>(() =>
     const offset = dragKey.value === node.key ? dragOffset.value : { x: 0, y: 0 };
     const status = props.nodeStatus?.[node.key];
     const isCountersign = node.type === 'COUNTERSIGN';
+    // 签名模式对会签与审批节点都成立（P3-06）
+    const showsMode = (isCountersign || node.type === 'APPROVAL') && Boolean(node.approval_mode);
     const missingAssignee = needsAssigneeOf(node.type) && !node.assignee_type;
-    // 副标题：业务信息优先（会签模式 / 缺审批人 / 网关类型），其次运行状态
+    // 副标题：缺审批人优先（更该被看见），其次签名模式 / 网关类型，最后运行状态
     let subLabel = '';
-    if (isCountersign && node.approval_mode) {
+    if (missingAssignee) {
+      subLabel = node.type === 'TASK_NODE' ? '未配置负责人' : '未配置审批人';
+    } else if (showsMode) {
       subLabel =
         node.approval_mode === 'RATIO'
           ? `按比例 ${Math.round((node.approve_ratio ?? 0) * 100)}%`
           : node.approval_mode === 'ANY'
             ? '或签'
             : '全部同意';
-    } else if (missingAssignee) {
-      subLabel = node.type === 'TASK_NODE' ? '未配置负责人' : '未配置审批人';
     } else if (node.type === 'TASK_NODE') {
       // 任务节点：把「完成后怎么走」直接画在卡片上（与属性面板同一份文案）
       subLabel = ON_COMPLETE_LABELS[(node.config as { task?: { on_complete?: string } })?.task?.on_complete as OnComplete] ?? '生成任务';

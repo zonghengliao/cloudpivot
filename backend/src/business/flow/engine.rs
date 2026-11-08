@@ -114,7 +114,9 @@ pub enum Verdict {
 ///
 /// # 参数
 ///
-/// - `mode`：`ALL` / `RATIO` / `ANY`（单签节点按 `ALL` 处理，`n = 1` 时等价于或签）；
+/// - `mode`：`ALL` / `RATIO` / `ANY`（单签节点按 `ALL` 处理，`n = 1` 时等价于或签）。
+///   **`approval_mode` 为空时调用方要用 [`ApprovalMode::effective`] 归一成 `Any`**
+///   （P3-06：不填 = 或签；要全员签必须显式 `ALL`）；
 /// - `ratio`：只有 `RATIO` 用，`None` 视为 `1.0`；
 /// - `veto`：`true` 时任一反对立即驳回；
 /// - `tally`：`COUNT(*)` 现算出来的票数（`total` 不含 `SKIPPED` / `TRANSFERRED` / `CANCELLED`）。
@@ -915,9 +917,10 @@ async fn vote(
             let verdict = if is_resubmit {
                 Verdict::Pass
             } else {
+                // P3-06：`approval_mode` 不填 = **或签**（`ApprovalMode::effective` 兜底 `Any`）。
+                // 新语义：要全员签必须在节点上显式写 `ALL`（存量节点已由 V0339 按候选人数据冻结）。
                 judge(
-                    ApprovalMode::parse(node.approval_mode.as_deref().unwrap_or("ALL"))
-                        .unwrap_or(ApprovalMode::All),
+                    ApprovalMode::effective(node.approval_mode.as_deref()),
                     node.approve_ratio,
                     node.reject_veto.unwrap_or(true),
                     tally,
@@ -3681,6 +3684,43 @@ mod tests {
         assert_eq!(
             judge(ApprovalMode::Any, None, false, tally(0, 3, 0)),
             Verdict::Reject
+        );
+    }
+
+    /// P3-06 ①：`APPROVAL` + `approval_mode = NULL` → 或签语义（任一人同意即通过）。
+    ///
+    /// 引擎侧的唯一入口是 [`ApprovalMode::effective`]：这里钉住「NULL 归一成 Any 之后
+    /// `judge` 怎么判」，真库上的「其余待办 CANCELLED」由 e2e 脚本断言。
+    #[test]
+    fn approval_null_mode_behaves_as_any() {
+        // 3 人节点：1 人同意即通过（另外 2 条待办由调用方 cancel_pending_of_node 作废）
+        assert_eq!(
+            judge(ApprovalMode::effective(None), None, true, tally(1, 0, 2)),
+            Verdict::Pass
+        );
+        // 还没人投 → 等待
+        assert_eq!(
+            judge(ApprovalMode::effective(None), None, true, tally(0, 0, 3)),
+            Verdict::Wait
+        );
+        // 显式 ALL 仍然是全员签（回归：不能被新默认带跑）
+        assert_eq!(
+            judge(
+                ApprovalMode::effective(Some("ALL")),
+                None,
+                true,
+                tally(1, 0, 2)
+            ),
+            Verdict::Wait
+        );
+        assert_eq!(
+            judge(
+                ApprovalMode::effective(Some("ALL")),
+                None,
+                true,
+                tally(3, 0, 0)
+            ),
+            Verdict::Pass
         );
     }
 

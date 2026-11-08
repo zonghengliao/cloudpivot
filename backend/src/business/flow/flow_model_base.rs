@@ -440,7 +440,7 @@ pub struct NodeRow {
     pub round: i32,
     /// 状态。
     pub status: String,
-    /// 会签模式。
+    /// 签名模式（`APPROVAL` 与 `COUNTERSIGN` 都可带；`APPROVAL` 留空 = 或签）。
     pub approval_mode: Option<String>,
     /// 会签阈值。
     pub approve_ratio: Option<f64>,
@@ -733,7 +733,7 @@ pub struct NewNode {
     pub node_type: String,
     /// 轮次。
     pub round: i32,
-    /// 会签模式。
+    /// 签名模式（`APPROVAL` 与 `COUNTERSIGN` 都可带；`APPROVAL` 留空 = 或签）。
     pub approval_mode: Option<String>,
     /// 会签阈值。
     pub approve_ratio: Option<f64>,

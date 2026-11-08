@@ -1,0 +1,13 @@
+== 只读探针（cloudpivot_prt03，迁移前）：逐来源 候选人数 → 冻结结论
+       source       | frozen | nodes | multi 
+--------------------+--------+-------+-------
+ ADMIN              | ANY    |     3 |     0
+ INITIATOR_SUPERIOR | ANY    |     1 |     0
+ ROLE               | ALL    |     4 |     4
+ ROLE               | ANY    |    29 |     0
+ TASK_CREATOR       | ANY    |     1 |     0
+(5 rows)
+
+
+== 预测（D2 口径）：pred_all|pred_any|pred_unknown
+4|34|0

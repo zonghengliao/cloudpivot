@@ -116,18 +116,22 @@ export const STATUS_MARK: Record<string, string> = {
  * - `status`：该节点的运行状态（可空）
  */
 export function nodeSubLabel(node: FlowNode, status?: string): string {
-  const isCountersign = node.type === 'COUNTERSIGN';
+  // 签名模式对会签与审批节点都成立（P3-06：APPROVAL 也能选 或签 / 全员签 / 按比例）
+  const showsMode =
+    (node.type === 'COUNTERSIGN' || node.type === 'APPROVAL') && Boolean(node.approval_mode);
   const missingAssignee = needsAssigneeOf(node.type) && !node.assignee_type;
   let subLabel = '';
-  if (isCountersign && node.approval_mode) {
+  // 「未配置审批人」优先于模式：缺人这一档更该被看见（否则新拖出来的审批节点
+  // 因为默认带 ANY 会把「没配审批人」盖成「或签」）
+  if (missingAssignee) {
+    subLabel = node.type === 'TASK_NODE' ? '未配置负责人' : '未配置审批人';
+  } else if (showsMode) {
     subLabel =
       node.approval_mode === 'RATIO'
         ? `按比例 ${Math.round((node.approve_ratio ?? 0) * 100)}%`
         : node.approval_mode === 'ANY'
           ? '或签'
           : '全部同意';
-  } else if (missingAssignee) {
-    subLabel = node.type === 'TASK_NODE' ? '未配置负责人' : '未配置审批人';
   } else if (node.type === 'TASK_NODE') {
     // 任务节点：把「完成后怎么走」直接画在卡片上（与属性面板同一份文案）
     subLabel = ON_COMPLETE_LABELS[(node.config as { task?: { on_complete?: string } })?.task?.on_complete as OnComplete] ?? '生成任务';

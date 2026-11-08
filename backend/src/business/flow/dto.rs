@@ -288,7 +288,7 @@ pub struct GraphNodeReq {
     /// `FORM_VAR` 变量名。
     #[serde(default)]
     pub form_var_key: Option<String>,
-    /// 会签模式。
+    /// 签名模式（`APPROVAL` 与 `COUNTERSIGN` 都可带；`APPROVAL` 留空 = 或签）。
     #[serde(default)]
     pub approval_mode: Option<String>,
     /// 会签阈值。
@@ -497,7 +497,7 @@ impl GraphSaveReq {
                 None => None,
                 Some(text) if text.trim().is_empty() => None,
                 Some(text) => Some(ApprovalMode::parse(text).ok_or_else(|| {
-                    format!("节点 {key} 的会签方式 {text} 非法（只允许 ALL/RATIO/ANY）")
+                    format!("节点 {key} 的签名方式 {text} 非法（只允许 ALL/RATIO/ANY）")
                 })?),
             };
             let join_mode = parse_gateway(raw.join_mode.as_deref(), "汇聚方式", &key)?;
@@ -1071,7 +1071,7 @@ pub struct GraphNodeRes {
     pub superior_levels: i16,
     /// `FORM_VAR` 变量名。
     pub form_var_key: Option<String>,
-    /// 会签模式。
+    /// 签名模式（`APPROVAL` 与 `COUNTERSIGN` 都可带；`APPROVAL` 留空 = 或签）。
     pub approval_mode: Option<String>,
     /// 会签阈值。
     pub approve_ratio: Option<f64>,
@@ -1613,7 +1613,7 @@ pub struct NodeProgressRes {
     pub round: i32,
     /// 状态。
     pub status: String,
-    /// 会签模式。
+    /// 签名模式（`APPROVAL` 与 `COUNTERSIGN` 都可带；`APPROVAL` 留空 = 或签）。
     pub approval_mode: String,
     /// 会签阈值（0 = 非 RATIO）。
     pub approve_ratio: f64,

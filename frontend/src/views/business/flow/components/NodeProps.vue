@@ -169,14 +169,18 @@
           </t-form-item>
         </template>
 
-        <!-- 会签 / 或签 -->
+        <!-- 签名模式（APPROVAL / COUNTERSIGN，P3-06） -->
         <template v-if="supportsCountersign">
-          <t-form-item label="审批模式">
+          <t-form-item label="签名模式">
             <t-select
-              :value="node.approval_mode ?? 'ALL'"
+              :value="node.approval_mode ?? 'ANY'"
               :options="approvalModeOptions"
               @change="onApprovalModeChange"
             />
+            <p class="node-props__tip">
+              或签 = 任一人通过即过（其余待办自动作废）；全员签 = 每个人都要点同意；
+              按比例 = 达到设定比例即过。
+            </p>
           </t-form-item>
           <t-form-item v-if="node.approval_mode === 'RATIO'" label="通过比例">
             <t-input-number
@@ -424,11 +428,11 @@ const selfApprovalOptions = [
   { label: '禁止（报错）', value: 'FORBID' },
 ];
 
-/** 审批模式 */
+/** 签名模式（P3-06：审批节点默认或签，会签节点默认全员签） */
 const approvalModeOptions = [
-  { label: '全部同意（会签）', value: 'ALL' },
+  { label: '或签（任一人通过）', value: 'ANY' },
+  { label: '全员签（全部同意）', value: 'ALL' },
   { label: '按比例通过', value: 'RATIO' },
-  { label: '任一人同意（或签）', value: 'ANY' },
 ];
 
 /**
@@ -459,7 +463,7 @@ const gatewayOptions = [
 /** 是否审批类节点（需要审批人）—— 全部来自能力表，不再逐个 `type === … || …` */
 const needsAssignee = computed(() => caps.value.canHaveAssignee);
 
-/** 是否支持会签配置 */
+/** 是否支持签名模式配置（APPROVAL 与 COUNTERSIGN，P3-06 起审批节点也能选） */
 const supportsCountersign = computed(() => props.node?.type === 'APPROVAL' || props.node?.type === 'COUNTERSIGN');
 
 /** 是否支持网关配置 */
@@ -571,9 +575,10 @@ function onAssigneeTypeChange(value: unknown): void {
   emitPatch(patch);
 }
 
-/** 切换审批模式：切到 RATIO 时补一个默认比例（后端保存期会拦「按比例但没有比例」） */
+/** 切换签名模式：切到 RATIO 时补一个默认比例（后端保存期会拦「按比例但没有比例」） */
 function onApprovalModeChange(value: unknown): void {
-  const mode = String(value ?? 'ALL');
+  // 兜底 ANY：与前端默认选中值、引擎 NULL 兜底口径三者一致（P3-06）
+  const mode = String(value ?? 'ANY');
   const patch: Partial<FlowNode> = { approval_mode: mode };
   if (mode === 'RATIO' && !props.node?.approve_ratio) {
     patch.approve_ratio = 0.6;
