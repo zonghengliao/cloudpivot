@@ -58,7 +58,9 @@
         @page-change="handlePageChange"
       >
         <template #category="{ row }">{{ categoryLabel(row.category) }}</template>
-        <template #uploader_name="{ row }">{{ uploaderLabel(row) }}</template>
+        <template #uploader_name="{ row }">
+          <span data-testid="file-uploader-name">{{ uploaderLabel(row) }}</span>
+        </template>
         <template #file_size="{ row }">{{ formatFileSize(row.file_size) }}</template>
         <template #created_at="{ row }">{{ formatDateTime(row.created_at) }}</template>
         <template #op="{ row }">
@@ -101,6 +103,7 @@ import {
 } from '@/api/support/file-api';
 import { ApiError } from '@/api/request';
 import { formatDateTime, formatFileSize } from '@/utils/format';
+import { uploaderLabel } from './uploader-label';
 
 /** 表格分页事件载荷 */
 interface TablePageInfo {
@@ -149,21 +152,6 @@ const previewItems = computed<PreviewItem[]>(() =>
     uploadedAt: row.created_at,
   })),
 );
-
-/**
- * 上传人显示名（ATT-03）：后端已下发 `uploader_name` 时以它为准。
- *
- * - 有名字 → 显示名字；
- * - 空串 → 上传人已被删除 / `uploaded_by` 是历史脏数据（指向不存在用户），显示 `-`，
- *   绝不把 UUID 甩给用户；
- * - 字段缺失（老后端）→ 才回退 `uploaded_by`，再空显示 `-`。
- */
-function uploaderLabel(row: FileRes): string {
-  if (row.uploader_name !== undefined) {
-    return row.uploader_name.trim() || '-';
-  }
-  return row.uploaded_by || '-';
-}
 
 /** 打开预览（越界/找不到时退化成第 0 个，不让组件收到 -1） */
 function openPreview(row: FileRes): void {

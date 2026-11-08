@@ -101,17 +101,22 @@ ORDER_OK=$(api GET "/support/file/page?page=1&page_size=5" |
   jq -r '[.data.list[].created_at] | (. == (. | sort | reverse))')
 check_eq "true" "$ORDER_OK" "排序仍是 created_at DESC（join 未打乱）"
 
-# ---------- 5. real_name 为空的用户 → 回落 username ----------
-USER2=$(sq "select id from sys_user where deleted_at is null and coalesce(real_name,'')='' and username<>'admin' limit 1")
-if [ -n "$USER2" ]; then
-  USER2_NAME=$(sq "select coalesce(nullif(real_name,''), username, '') from sys_user where id='$USER2'")
-  sq "update sys_file set uploaded_by='$USER2' where id='$FILE_ID'" > /dev/null
-  DET2=$(api GET "/support/file/$FILE_ID")
-  check_eq "$USER2_NAME" "$(echo "$DET2" | jq -r '.data.uploader_name')" "real_name 为空时回落 username（[$USER2_NAME]）"
-  sq "update sys_file set uploaded_by='$ADMIN_ID' where id='$FILE_ID'" > /dev/null
+# ---------- 5. real_name 为空 → 回落 username ----------
+# 用 admin 自己造这一支（拷贝库里不一定有别的用户）：临时把 real_name 清空，
+# 期望 uploader_name 从「真名」变成 username，改回来后必须复原。
+ORIG_REAL=$(sq "select coalesce(real_name,'') from sys_user where id='$ADMIN_ID'")
+ADMIN_USERNAME=$(sq "select username from sys_user where id='$ADMIN_ID'")
+sq "update sys_user set real_name='' where id='$ADMIN_ID'" > /dev/null
+DET2=$(api GET "/support/file/$FILE_ID")
+check_eq "$ADMIN_USERNAME" "$(echo "$DET2" | jq -r '.data.uploader_name')" \
+  "real_name 为空时回落 username（[$ADMIN_USERNAME]）"
+if [ -n "$ORIG_REAL" ]; then
+  sq "update sys_user set real_name='$ORIG_REAL' where id='$ADMIN_ID'" > /dev/null
 else
-  echo "[SKIP] 库里没有 real_name 为空的用户，username 回落分支由单测/其它库覆盖"
+  sq "update sys_user set real_name=null where id='$ADMIN_ID'" > /dev/null
 fi
+check_eq "$EXPECT" "$(api GET "/support/file/$FILE_ID" | jq -r '.data.uploader_name')" \
+  "real_name 复原后 uploader_name 回到真名"
 
 # ---------- 6. 脏数据①：uploaded_by 指向不存在的用户 → 200 + 空串 ----------
 GHOST=00000000-0000-0000-0000-00000a1103ff

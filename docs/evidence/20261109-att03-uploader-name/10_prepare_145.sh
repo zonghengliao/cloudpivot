@@ -8,6 +8,14 @@
 #   · 8033（cloudpivot-test，服役实例）与 /etc 里的 cloudpivot-dev.env 一律不改；
 #   · 本卡用 18229 + cloudpivot_dev 的**拷贝库** cloudpivot_att03（上传 / 改脏数据都落在拷贝库）；
 #   · 令牌落 /root/att03/tokens，不进仓库。
+#
+# 拷贝库的两个坑（本卡实际踩到）：
+#   1. `pg_dump cloudpivot_dev` 会整库失败（`permission denied for table
+#      schema_migrations_att05_bak`）—— 并行卡在 dev 库里留了 postgres 属主的备份表，应用账号
+#      连 LOCK 都不行。所以**显式 `-T schema_migrations_att05_bak` 跳过它**；
+#   2. 失败必须**当场判死**：第一版把 pg_dump 的错误吞进 /dev/null + 不 `set -o pipefail`，
+#      结果「拷贝库」其实是空库（靠首启 283 个迁移补齐），抽样打印为空却继续往下跑。
+#      现在用 `set -o pipefail` + 失败即 exit，并在**实例起完之后**再打行数。
 # ============================================================================
 set -uo pipefail
 export PATH=/root/.cargo/bin:$PATH
@@ -29,7 +37,7 @@ cd /opt/cloudpivot/backend || exit 1
 cargo build 2>&1 | tail -5
 BIN=/opt/cloudpivot/backend/target/debug/cloudpivot
 [ -x "$BIN" ] || { echo "FATAL: 二进制不存在"; exit 1; }
-grep -ac "uploader_name" "$BIN" | sed 's/^/二进制含 uploader_name 字面量次数: /'
+echo "二进制含 uploader_name 字面量次数: $(grep -ac uploader_name "$BIN")"
 
 # ---------- 3. 拷贝库 ----------
 set -a
@@ -38,29 +46,34 @@ set -a
 set +a
 export PGPASSWORD="$NIK_DATABASE_PASSWORD"
 DB=cloudpivot_att03
+PSQL="psql -h 127.0.0.1 -U $NIK_DATABASE_USER -X -q"
+
 # 停旧实例（按 pid 文件，别 pkill）
 if [ -f "$ROOT/instance.pid" ]; then
   kill "$(cat "$ROOT/instance.pid")" 2>/dev/null && sleep 2
   rm -f "$ROOT/instance.pid"
 fi
-psql -h 127.0.0.1 -U "$NIK_DATABASE_USER" -d postgres -X -q -c "drop database if exists $DB" 2>/dev/null ||
-  su - postgres -c "psql -X -q -c \"drop database if exists $DB\"" 2>/dev/null
-if ! psql -h 127.0.0.1 -U "$NIK_DATABASE_USER" -d postgres -X -q -c "create database $DB" 2>/dev/null; then
+
+$PSQL -d postgres -c "drop database if exists $DB" 2>/dev/null ||
+  su - postgres -c "psql -X -q -c \"drop database if exists $DB\"" || { echo "FATAL: 删库失败"; exit 1; }
+$PSQL -d postgres -c "create database $DB" 2>/dev/null ||
   su - postgres -c "psql -X -q -c \"create database $DB owner $NIK_DATABASE_USER\"" || { echo "FATAL: 建库失败"; exit 1; }
-fi
-# 结构 + 数据都拷（沿用既有卡的拷贝库打法）
-pg_dump -h 127.0.0.1 -U "$NIK_DATABASE_USER" -d cloudpivot_dev --no-owner --no-acl |
-  psql -h 127.0.0.1 -U "$NIK_DATABASE_USER" -d "$DB" -X -q > /dev/null
-echo "拷贝库 $DB 行数抽样: sys_file=$(psql -h 127.0.0.1 -U "$NIK_DATABASE_USER" -d "$DB" -tAc 'select count(*) from sys_file')"
+
+set -o pipefail
+pg_dump -h 127.0.0.1 -U "$NIK_DATABASE_USER" -d cloudpivot_dev --no-owner --no-acl \
+  -T schema_migrations_att05_bak |
+  $PSQL -d "$DB" > /dev/null || { echo "FATAL: 拷贝库失败（见上）"; exit 1; }
+set +o pipefail
+echo "拷贝完成：$(psql -h 127.0.0.1 -U "$NIK_DATABASE_USER" -d "$DB" -tAc 'select count(*) from sys_file') 条 sys_file / $(psql -h 127.0.0.1 -U "$NIK_DATABASE_USER" -d "$DB" -tAc 'select count(*) from sys_user') 个用户"
 
 # ---------- 4. 起隔离实例（18229） ----------
-mkdir -p "$ROOT/upload"
 export NIK_DATABASE_NAME="$DB"
 export NIK_SERVER_LISTEN=127.0.0.1:18229
 export NIK_REDIS_URL=redis://127.0.0.1:6379/9
 cd /opt/cloudpivot/backend || exit 1
 setsid nohup ./target/debug/cloudpivot > "$ROOT/server.log" 2>&1 < /dev/null &
 echo $! > "$ROOT/instance.pid"
+code=""
 for i in $(seq 1 60); do
   code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18229/health || true)
   [ "$code" = "200" ] && { echo "health 200 after ${i}s (pid $(cat "$ROOT/instance.pid"))"; break; }
