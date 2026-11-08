@@ -465,13 +465,17 @@ test('toPayPayload：空账户 / 空备注不发', () => {
 
 // ==================== 费用类型 ====================
 
-test('validateTypeForm：编码大写字母开头、科目必填、上限非负', () => {
-  assert.match(validateTypeForm(emptyTypeForm()) ?? '', /编码必填/);
+test('validateTypeForm：编码可留空（后端取号 ET-01）、科目必填、上限非负', () => {
+  // CODE-07：编码留空交给后端取号，前端第一个错应是名称
+  assert.match(validateTypeForm(emptyTypeForm()) ?? '', /费用类型名称必填/);
+  // 字符集 = MASTER_CODE_PATTERN（字母 / 数字 / - _ .，≤ 40，调用方先转大写）
   assert.equal(TYPE_CODE_PATTERN.test('TRAVEL'), true);
   assert.equal(TYPE_CODE_PATTERN.test('TRAVEL_2026'), true);
-  assert.equal(TYPE_CODE_PATTERN.test('travel'), false);
-  assert.equal(TYPE_CODE_PATTERN.test('1TRAVEL'), false);
-  assert.equal(TYPE_CODE_PATTERN.test('TRA-VEL'), false);
+  assert.equal(TYPE_CODE_PATTERN.test('ET-01'), true, '取号器产物带连字符，必须放行');
+  assert.equal(TYPE_CODE_PATTERN.test('ADMIN-FEE'), true, '企业自有编码可对接');
+  assert.equal(TYPE_CODE_PATTERN.test('1TRAVEL'), true, '不再要求字母开头（后端也不要求）');
+  assert.equal(TYPE_CODE_PATTERN.test('travel'), false, 'pattern 本身只管大写形态，转大写由调用方做');
+  assert.equal(TYPE_CODE_PATTERN.test('TRA VEL'), false, '空格不在字符集里');
 
   const base = { ...emptyTypeForm(), type_code: 'travel', type_name: '差旅费', account_id: 'acc-1' };
   // 小写会被大写化后再校验（后端同样先 upper）

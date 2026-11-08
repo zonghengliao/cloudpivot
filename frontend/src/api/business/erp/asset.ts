@@ -42,6 +42,9 @@
 
 import { del, get, post, put, type PageData } from '@/api/request';
 import type { DepDetail } from '@/api/business/erp/depreciation';
+// 编码预览响应体只有 `{ code }`，契约在 `index.ts` 里统一定义（类型导入，运行时被擦除，
+// 不会把 index.ts 的 axios 依赖带进来，也就没有循环依赖问题）。
+import type { NextCodePreview } from './index';
 import type {
   AssetSourceType,
   AssetStatus,
@@ -137,8 +140,16 @@ export interface AssetCategoryQuery {
 
 /** 新建 / 修改分类的入参（后端 DTO 全是 `Option`，缺什么由后端指名回 400）。 */
 export interface AssetCategoryPayload {
-  /** 编码 */
-  category_code?: string;
+  /**
+   * 编码。
+   *
+   * **留空（`null` / `''` / 纯空白）⇒ 后端自动取号 `AC-01` 形态**（CODE-04：`biz_seq` 的
+   * AC 号段，纯流水 2 位、不计日期、永不重置，第 100 个起 `AC-100`）；
+   * 有值则原样保留（转大写，`CAT-BUILDING` 这类企业自有码也能对接）。
+   *
+   * 修改（PUT）时留空 = **不改编码**（编码是历史资产卡片的快照口径）。
+   */
+  category_code?: string | null;
   /** 名称 */
   category_name?: string;
   /** 使用月数 */
@@ -167,6 +178,20 @@ export function fetchAssetCategoryList(): Promise<AssetCategory[]> {
 /** 分类分页（`GET /asset-category/page`） */
 export function fetchAssetCategoryPage(query: AssetCategoryQuery): Promise<PageData<AssetCategory>> {
   return get<PageData<AssetCategory>>(`${BASE}/asset-category/page`, asParams(query));
+}
+
+/**
+ * 资产分类编码预览（`GET /business/erp/asset-category/next-code`，
+ * 权限 `business:erp:asset-category:create`）。
+ *
+ * **只读、不占号**（交互方式 B 的方案 B）：连点两次拿到同一个号，点了「生成编码」
+ * 又取消不会浪费流水；并发下两个人可能看到同一个号 —— 保存时被抢走后端回
+ * `409 + 66001`（文案点名编码），提示重新生成即可。
+ *
+ * 号段：`AC-01` 形态（2 位纯流水，`biz_seq.pad_width = 2`），**不计日期、永不重置**。
+ */
+export function fetchAssetCategoryNextCode(): Promise<NextCodePreview> {
+  return get<NextCodePreview>(`${BASE}/asset-category/next-code`);
 }
 
 /** 新建分类（`POST /asset-category`，回整条记录） */

@@ -34,6 +34,7 @@
 
 import dayjs from 'dayjs';
 
+import { masterCodeError } from '../shared/master-code';
 import type {
   AssetChange,
   AssetDetail,
@@ -972,11 +973,13 @@ export function validateCategoryForm(
   form: CategoryFormState,
 ): Partial<Record<keyof CategoryFormState, string>> {
   const errors: Partial<Record<keyof CategoryFormState, string>> = {};
-  const code = form.category_code.trim();
-  if (!code) {
-    errors.category_code = '分类编码必填';
-  } else if (!/^[A-Z0-9_]{1,40}$/.test(code)) {
-    errors.category_code = '编码只能用大写字母 / 数字 / 下划线（≤ 40）';
+  // CODE-07：分类编码**可以留空** —— 留空由后端自动取号（`AC-01` 形态：
+  // `biz_seq` 的 AC 号段，纯流水 2 位、不计日期、永不重置），「生成编码」按钮只是提前看号。
+  // 填了则镜像后端字符集（字母 / 数字 / `-` `_` `.`，≤ 40，统一大写后校验）——
+  // 别再用 `^[A-Z0-9_]+$`：那会把取号器自己产出的 `AC-01` 拦在门外。
+  const codeError = masterCodeError(form.category_code);
+  if (codeError) {
+    errors.category_code = codeError;
   }
   if (!form.category_name.trim()) {
     errors.category_name = '分类名称必填';

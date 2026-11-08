@@ -39,6 +39,11 @@ import type {
   ExpenseTypePayload,
 } from '@/api/business/erp/expense';
 import { formatCents, todayString, toCents } from '@/views/business/erp/shared/money';
+import {
+  MASTER_CODE_PATTERN,
+  masterCodeError,
+  toMasterCodeInput,
+} from '@/views/business/erp/shared/master-code';
 
 // ==================== 常量 ====================
 
@@ -541,8 +546,14 @@ export interface ExpenseTypeForm {
   remark: string;
 }
 
-/** 费用类型编码规则（后端 `validate_type`：大写字母开头，只含大写字母 / 数字 / 下划线）。 */
-export const TYPE_CODE_PATTERN = /^[A-Z][A-Z0-9_]*$/;
+/**
+ * 费用类型编码字符集（镜像后端 `seq::validate_manual_code`：字母 / 数字 / `-` `_` `.`，≤ 40）。
+ *
+ * CODE-07 修正：旧值是 `^[A-Z][A-Z0-9_]*$` —— **不接受连字符**，而取号器产出的
+ * `ET-01` 正带连字符，用户点完「生成编码」会被前端自己的校验拦住。现在统一指向
+ * [`MASTER_CODE_PATTERN`]，与六个主数据表单同一口径。
+ */
+export const TYPE_CODE_PATTERN = MASTER_CODE_PATTERN;
 
 /** 空费用类型表单。 */
 export function emptyTypeForm(): ExpenseTypeForm {
@@ -578,12 +589,12 @@ export function typeFormFromRow(row: ExpenseType): ExpenseTypeForm {
 
 /** 校验费用类型（镜像后端 `validate_type`）。返回 `null` = 通过。 */
 export function validateTypeForm(form: ExpenseTypeForm): string | null {
-  const code = (form.type_code ?? '').trim().toUpperCase();
-  if (!code) {
-    return '费用类型编码必填';
-  }
-  if (!TYPE_CODE_PATTERN.test(code)) {
-    return `编码「${code}」不合法：必须大写字母开头，只含大写字母 / 数字 / 下划线（如 TRAVEL）`;
+  // CODE-07：编码**可以留空** —— 留空由后端自动取号（`ET-01` 形态，2 位纯流水、
+  // 不计日期、永不重置），「生成编码」按钮只是提前看号。
+  // 填了则按后端字符集校验（字母 / 数字 / `-` `_` `.`，≤ 40；不要求字母开头）。
+  const codeError = masterCodeError(form.type_code);
+  if (codeError) {
+    return codeError;
   }
   if (!(form.type_name ?? '').trim()) {
     return '费用类型名称必填';
@@ -600,7 +611,9 @@ export function validateTypeForm(form: ExpenseTypeForm): string | null {
 /** 费用类型表单 → payload。 */
 export function toTypePayload(form: ExpenseTypeForm): ExpenseTypePayload {
   return {
-    type_code: form.type_code.trim().toUpperCase(),
+    // CODE-07：留空发 `null`（不是 `''`）—— 后端 `resolve_manual_code` 两种都当没填，
+    // 但 `null` 一眼能看出「没填」而不是「填了个空串」。
+    type_code: toMasterCodeInput(form.type_code),
     type_name: form.type_name.trim(),
     account_id: form.account_id,
     tax_deductible: form.tax_deductible,

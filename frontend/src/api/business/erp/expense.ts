@@ -38,6 +38,8 @@
  */
 
 import { del, get, post, put, type PageData } from '@/api/request';
+// 编码预览响应体 `{ code }` 的契约在 `index.ts` 统一定义（类型导入，运行时被擦除）。
+import type { NextCodePreview } from './index';
 
 /** 接口前缀（后端注解不含 `/api`） */
 const BASE = '/api/business/erp';
@@ -70,7 +72,7 @@ import type { ExpensePayStatus, ExpenseStatus } from './expense-kinds';
 export interface ExpenseType {
   /** 主键 */
   id: string;
-  /** 编码（大写字母开头，如 `TRAVEL`） */
+  /** 编码（自动取号为 `ET-01` 形态；企业自有码如 `TRAVEL` / `ADMIN-FEE` 同样落库） */
   type_code: string;
   /** 名称 */
   type_name: string;
@@ -110,8 +112,16 @@ export interface ExpenseTypeQuery {
 
 /** 新建 / 编辑费用类型入参（`TypeReq`，字段全 `Option`）。 */
 export interface ExpenseTypePayload {
-  /** 编码 */
-  type_code: string;
+  /**
+   * 编码。
+   *
+   * **留空（`null` / `''` / 纯空白）⇒ 后端自动取号 `ET-01` 形态**（CODE-04：`biz_seq` 的
+   * ET 号段，纯流水 2 位、不计日期、永不重置，第 100 个起 `ET-100`）；
+   * 有值则原样保留（转大写，`TRAVEL` / `ADMIN-FEE` 这类编码都能对接）。
+   *
+   * 修改（PUT）时后端不动编码列（编码是历史报销单的科目快照口径），传 `null` 无害。
+   */
+  type_code: string | null;
   /** 名称 */
   type_name: string;
   /** 借方科目 id */
@@ -482,6 +492,19 @@ export function fetchExpenseTypePage(
 /** 启用中的费用类型全量（「新建报销单」下拉用，`GET .../expense-type/list`）。 */
 export function fetchExpenseTypeList(): Promise<ExpenseType[]> {
   return get<ExpenseType[]>(`${BASE}/expense-type/list`);
+}
+
+/**
+ * 费用类型编码预览（`GET /business/erp/expense-type/next-code`，
+ * 权限 `business:erp:expense-type:create`）。
+ *
+ * **只读、不占号**（交互方式 B 的方案 B）：连点两次拿到同一个号，点了「生成编码」
+ * 又取消不会浪费流水；并发撞号由保存时的 `409 + 66001` 兜底（文案点名编码）。
+ *
+ * 号段：`ET-01` 形态（2 位纯流水，`biz_seq.pad_width = 2`），**不计日期、永不重置**。
+ */
+export function fetchExpenseTypeNextCode(): Promise<NextCodePreview> {
+  return get<NextCodePreview>(`${BASE}/expense-type/next-code`);
 }
 
 /** 新建费用类型。 */

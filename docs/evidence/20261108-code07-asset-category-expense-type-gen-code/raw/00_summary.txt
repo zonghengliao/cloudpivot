@@ -1,0 +1,87 @@
+login ok, access_token 长度 = 461
+首登改密（初始口令 → 新口令）→ HTTP 200
+
+=== 资产分类：① 预览接口 GET /api/business/erp/asset-category/next-code（只读不占号） ===
+  预览 #1 → HTTP 200, code=AC-01
+  PASS  ① 预览 HTTP = 200 = 200
+  PASS  ① 预览形态 = AC-NN（2 位纯流水、无日期） = AC-01
+  预览 #2 → HTTP 200, code=AC-01
+  PASS  ① 连点两次同号（点了又取消不浪费号） = AC-01
+
+=== 资产分类：② 不点「生成编码」直接保存（编码字段缺席 / null）⇒ 自动取号 = 预览号 ===
+  POST 不带 category_code → HTTP 200, code=AC-01, id=01a1b9b9-e169-77f5-9914-6d6a74a778e3
+  PASS  ② HTTP = 200 = 200
+  PASS  ② 自动号 == 刚才预览的号 = AC-01
+  POST category_code=null（前端 toMasterCodeInput('') 的产物）→ HTTP 200, code=AC-02
+  PASS  ② null 也自动取号，且连续 +1 = AC-02
+  PASS  ② 号仍是 2 位纯流水 = AC-02
+
+=== 资产分类：③ 手工编码原样保留（企业已有编码体系对接） ===
+  POST category_code=CAT-BUILDING-135529（小写提交）→ HTTP 200, code=CAT-BUILDING-135529
+  PASS  ③ 手工编码原样保留（只转大写，不掰成 AC-NN） = CAT-BUILDING-135529
+
+=== 资产分类：④ 预览号当手工码提交（原样落库）+ 撞号 409+66001 + 号被用掉后预览往后走 ===
+  预览 #3 → HTTP 200, code=AC-03（应为 AC-02 的下一个）
+  PASS  ④ 预览跟上已用掉的号 = AC-03
+  POST category_code=AC-03 → HTTP 200, code=AC-03
+  PASS  ④ 预览号建单 HTTP = 200 = 200
+  PASS  ④ 预览号原样保留 = AC-03
+  再提交同一个号 → HTTP 409, code=66001, msg=分类编码 `AC-03` 已存在（已软删的编码可以复用）
+  PASS  ④ 撞号 HTTP = 409 = 409
+  PASS  ④ 撞号业务码 = 66001 = 66001
+  PASS  ④ 撞号文案点名编码 AC-03
+  预览 #4 → code=AC-04
+  PASS  ④ 号被用掉后预览继续往后走 = AC-04
+
+=== 资产分类：⑤ 无 token 访问预览接口 ⇒ 401 ===
+  无 token → HTTP 401
+  PASS  ⑤ 无 token = 401 = 401
+
+=== 资产分类：⑥ 编辑（PUT）编码留空 = 不改编码（编辑态编码栏只读的提交形态） ===
+  PUT category_code="" → HTTP 200, code=AC-01
+  PASS  ⑥ 编辑 HTTP = 200 = 200
+  PASS  ⑥ 编辑留空不改编码 = AC-01
+
+=== 费用类型：① 预览接口 GET /api/business/erp/expense-type/next-code（只读不占号） ===
+  预览 #1 → HTTP 200, code=ET-01
+  PASS  ① 预览 HTTP = 200 = 200
+  PASS  ① 预览形态 = ET-NN（2 位纯流水、无日期） = ET-01
+  预览 #2 → HTTP 200, code=ET-01
+  PASS  ① 连点两次同号（点了又取消不浪费号） = ET-01
+  借方科目 5602.02 id = 48f4be7e-6a57-46fc-9567-53cd0be6cd9e
+
+=== 费用类型：② 不点「生成编码」直接保存（字段缺席 / null）⇒ 自动取号 = 预览号 ===
+  POST 不带 type_code → HTTP 200, code=ET-01, id=01a1b9b9-e238-76ad-a08f-a328fcff51e8
+  PASS  ② HTTP = 200 = 200
+  PASS  ② 自动号 == 刚才预览的号 = ET-01
+  POST type_code=null → HTTP 200, code=ET-02
+  PASS  ② null 也自动取号，且连续 +1 = ET-02
+  PASS  ② 号仍是 2 位纯流水 = ET-02
+
+=== 费用类型：③ 手工编码原样保留（企业已有编码体系对接） ===
+  POST type_code=ADMIN-FEE-135529（小写提交）→ HTTP 200, code=ADMIN-FEE-135529
+  PASS  ③ 手工编码原样保留（只转大写，不掰成 ET-NN） = ADMIN-FEE-135529
+
+=== 费用类型：④ 预览号当手工码提交 + 撞号 409+66001 + 号被用掉后预览往后走 ===
+  预览 #3 → HTTP 200, code=ET-03
+  PASS  ④ 预览跟上已用掉的号 = ET-03
+  POST type_code=ET-03 → HTTP 200, code=ET-03
+  PASS  ④ 预览号建单 HTTP = 200 = 200
+  PASS  ④ 预览号原样保留 = ET-03
+  再提交同一个号 → HTTP 409, code=66001, msg=费用类型编码 `ET-03` 已存在（已软删的编码可以复用）
+  PASS  ④ 撞号 HTTP = 409 = 409
+  PASS  ④ 撞号业务码 = 66001 = 66001
+  PASS  ④ 撞号文案点名编码 ET-03
+  预览 #4 → code=ET-04
+  PASS  ④ 号被用掉后预览继续往后走 = ET-04
+
+=== 费用类型：⑤ 无 token 访问预览接口 ⇒ 401 ===
+  无 token → HTTP 401
+  PASS  ⑤ 无 token = 401 = 401
+
+=== 费用类型：⑥ 编辑（PUT）编码留空 = 不改编码 ===
+  PUT type_code="" → HTTP 200, code=ET-01
+  PASS  ⑥ 编辑 HTTP = 200 = 200
+  PASS  ⑥ 编辑留空不改编码 = ET-01
+
+RESULT: ALL PASS

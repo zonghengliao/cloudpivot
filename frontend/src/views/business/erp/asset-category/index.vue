@@ -113,13 +113,38 @@
       <t-form :data="form" label-width="110px">
         <t-row :gutter="[16, 0]">
           <t-col :span="12">
-            <t-form-item label="分类编码" :help="errors.category_code" :status="statusOf('category_code')">
-              <t-input
-                v-model="form.category_code"
-                placeholder="大写字母 / 数字 / 下划线，如 ELEC"
-                :disabled="!!editingId"
-                data-testid="category-form-code"
-              />
+            <t-form-item label="分类编码" :status="statusOf('category_code')">
+              <!-- CODE-07 交互方式 B：编码框 + 「生成编码」按钮（编辑态都禁用） -->
+              <div class="dlg-inline dlg-inline--grow">
+                <t-input
+                  v-model="form.category_code"
+                  :maxlength="40"
+                  placeholder="留空自动生成，如 AC-01"
+                  :disabled="!!editingId"
+                  class="dlg-inline__grow"
+                  data-testid="category-form-code"
+                />
+                <t-button
+                  variant="outline"
+                  theme="primary"
+                  :disabled="!!editingId"
+                  :loading="genCodeLoading"
+                  data-testid="category-gen-code"
+                  @click="handleGenCode"
+                >
+                  生成编码
+                </t-button>
+              </div>
+              <template #help>
+                <span class="dlg-help">
+                  {{
+                    errors.category_code ||
+                    (editingId
+                      ? '编码是分类身份，不支持修改'
+                      : '不点「生成编码」则保存时自动生成；生成后仍可手改（企业自有编码如 CAT-BUILDING 也可直接填）')
+                  }}
+                </span>
+              </template>
             </t-form-item>
           </t-col>
           <t-col :span="12">
@@ -213,6 +238,7 @@ import { fetchAccountOptions, type AccountRow } from '@/api/business/erp';
 import {
   createAssetCategory,
   deleteAssetCategory,
+  fetchAssetCategoryNextCode,
   fetchAssetCategoryPage,
   updateAssetCategory,
   type AssetCategory,
@@ -228,6 +254,7 @@ import {
   categoryToForm,
   methodLabel,
 } from './category-logic';
+import { toMasterCodeInput } from '../shared/master-code';
 import {
   emptyCategoryForm,
   errorText,
@@ -350,7 +377,8 @@ function openEdit(row: AssetCategory): void {
 
 function toPayload(): AssetCategoryPayload {
   return {
-    category_code: form.category_code.trim(),
+    // 留空发 null：后端据此自动取号（AC-01 形态）；填了原样保留（转大写）。
+    category_code: toMasterCodeInput(form.category_code),
     category_name: form.category_name.trim(),
     useful_life_months: Number(form.useful_life_months ?? 0),
     salvage_rate: form.salvage_rate.trim() || '0',
@@ -361,6 +389,36 @@ function toPayload(): AssetCategoryPayload {
     sort_order: Number(form.sort_order ?? 0),
     remark: form.remark,
   };
+}
+
+// ==================== 生成编码（CODE-07 交互方式 B） ====================
+
+/** 「生成编码」按钮加载中 */
+const genCodeLoading = ref(false);
+
+/**
+ * 取下一个可用编码填入编码框（**不占号**，可手改）。
+ *
+ * 后端 `GET /business/erp/asset-category/next-code` 只读 `biz_seq`（方案 B）：
+ * - 点了又取消不会浪费流水；
+ * - 并发下两人可能看到同一个号 ⇒ 保存时被抢走的人是 `409 + 66001`，
+ *   错误面板会把后端原文（点名编码）弹出来，点一次「生成编码」换个号即可。
+ */
+async function handleGenCode(): Promise<void> {
+  if (editingId.value) {
+    return;
+  }
+  genCodeLoading.value = true;
+  try {
+    const preview = await fetchAssetCategoryNextCode();
+    form.category_code = preview.code;
+    // 之前「格式不合法」之类的提示已不成立，清掉免得红框跟着新号走
+    delete errors.value.category_code;
+  } catch (error) {
+    MessagePlugin.error(`生成编码失败：${errorText(error)}`);
+  } finally {
+    genCodeLoading.value = false;
+  }
 }
 
 async function submitForm(): Promise<void> {
@@ -376,8 +434,11 @@ async function submitForm(): Promise<void> {
       await updateAssetCategory(editingId.value, toPayload());
       MessagePlugin.success('分类已保存（已建卡的参数不受影响）');
     } else {
-      await createAssetCategory(toPayload());
-      MessagePlugin.success('分类已创建');
+      const created = await createAssetCategory(toPayload());
+      // 没点「生成编码」直接保存时编码是后端取的号 —— 回填到表单并在提示里报出来，
+      // 用户当场就能看到自己这条分类到底叫 AC-0 几。
+      form.category_code = created.category_code;
+      MessagePlugin.success(`分类已创建 · 编码 ${created.category_code}`);
     }
     formVisible.value = false;
     await loadRows();
@@ -493,6 +554,28 @@ onMounted(async () => {
 .op-cell {
   display: flex;
   gap: 10px;
+}
+
+/* CODE-07：「编码框 + 生成编码」一行铺满（输入框吃掉剩余宽度，按钮不缩） */
+.dlg-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dlg-inline--grow {
+  width: 100%;
+  flex-wrap: nowrap;
+}
+
+.dlg-inline__grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.dlg-help {
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
 }
 
 .dialog-tip {

@@ -63,7 +63,7 @@
           <span class="panel-head__meta" data-testid="expense-type-meta">共 {{ total }} 条</span>
         </div>
         <span class="panel-head__tip">
-          编码大写字母开头（如 TRAVEL）；「不可抵扣」的类型在报销单里税额恒为 0
+          编码留空保存时自动生成（ET-01 形态）；「不可抵扣」的类型在报销单里税额恒为 0
         </span>
       </div>
 
@@ -170,13 +170,39 @@
       <t-form label-width="112px" :data="form" class="form">
         <t-row :gutter="[16, 8]">
           <t-col :span="12">
-            <t-form-item label="编码" :status="codeError ? 'error' : undefined" :help="codeError || '大写字母开头，如 TRAVEL / MEAL'">
-              <t-input
-                v-model="form.type_code"
-                placeholder="如 TRAVEL / MEAL（大写）"
-                :disabled="!!editingId"
-                data-testid="expense-type-form-code"
-              />
+            <t-form-item label="编码" :status="codeError ? 'error' : undefined">
+              <!-- CODE-07 交互方式 B：编码框 + 「生成编码」按钮（编辑态都禁用） -->
+              <div class="dlg-inline">
+                <div class="dlg-inline__input">
+                  <t-input
+                    v-model="form.type_code"
+                    :maxlength="40"
+                    placeholder="留空自动生成，如 ET-01"
+                    :disabled="!!editingId"
+                    data-testid="expense-type-form-code"
+                  />
+                </div>
+                <t-button
+                  variant="outline"
+                  theme="primary"
+                  :disabled="!!editingId"
+                  :loading="genCodeLoading"
+                  data-testid="expense-type-gen-code"
+                  @click="handleGenCode"
+                >
+                  生成编码
+                </t-button>
+              </div>
+              <template #help>
+                <span class="dlg-help">
+                  {{
+                    codeError ||
+                    (editingId
+                      ? '编码是历史报销单的科目快照口径，不支持修改'
+                      : '不点「生成编码」则保存时自动生成；生成后仍可手改（企业自有编码如 ADMIN-FEE 也可直接填）')
+                  }}
+                </span>
+              </template>
             </t-form-item>
           </t-col>
           <t-col :span="12">
@@ -268,6 +294,7 @@ import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-n
 import {
   createExpenseType,
   deleteExpenseType,
+  fetchExpenseTypeNextCode,
   fetchExpenseTypePage,
   updateExpenseType,
   type ExpenseType,
@@ -275,6 +302,7 @@ import {
 import { fetchBudgetAccountOptions, type BudgetAccountOption } from '@/api/business/erp/budget';
 import { ApiError } from '@/api/request';
 import { formatMoney } from '@/views/business/erp/shared/money';
+import { masterCodeError } from '@/views/business/erp/shared/master-code';
 import {
   emptyTypeForm,
   typeFormFromRow,
@@ -401,11 +429,8 @@ const accountOptions = computed(() =>
 const attempted = ref(false);
 
 function codeProblem(): string {
-  const code = form.type_code.trim().toUpperCase();
-  if (!code) {
-    return '编码必填';
-  }
-  return /^[A-Z][A-Z0-9_]*$/.test(code) ? '' : '必须大写字母开头，只含大写字母 / 数字 / 下划线';
+  // CODE-07：编码可留空（后端自动取号 ET-01），只校验「填了的话」的字符集。
+  return masterCodeError(form.type_code) ?? '';
 }
 
 const codeError = computed(() => (attempted.value ? codeProblem() : ''));
@@ -431,6 +456,36 @@ function openEdit(row: ExpenseType): void {
   dialogVisible.value = true;
 }
 
+// ==================== 生成编码（CODE-07 交互方式 B） ====================
+
+/** 「生成编码」按钮加载中 */
+const genCodeLoading = ref(false);
+
+/**
+ * 取下一个可用编码填入编码框（**不占号**，可手改）。
+ *
+ * 后端 `GET /business/erp/expense-type/next-code` 只读 `biz_seq`（方案 B）：
+ * - 点了又取消不会浪费流水；
+ * - 并发下两人可能看到同一个号 ⇒ 保存时被抢走的人是 `409 + 66001`，
+ *   错误面板会把后端原文（点名编码）弹出来，点一次「生成编码」换个号即可。
+ */
+async function handleGenCode(): Promise<void> {
+  if (editingId.value) {
+    return;
+  }
+  genCodeLoading.value = true;
+  try {
+    const preview = await fetchExpenseTypeNextCode();
+    form.type_code = preview.code;
+    // 之前「格式不合法」的红字已不成立，清掉免得跟着新号走
+    attempted.value = false;
+  } catch (error) {
+    MessagePlugin.error(`生成编码失败：${errorText(error)}`);
+  } finally {
+    genCodeLoading.value = false;
+  }
+}
+
 async function handleSave(): Promise<void> {
   attempted.value = true;
   const error = validateTypeForm(form);
@@ -445,8 +500,11 @@ async function handleSave(): Promise<void> {
       await updateExpenseType(editingId.value, payload);
       MessagePlugin.success('已保存');
     } else {
-      await createExpenseType(payload);
-      MessagePlugin.success('已新建费用类型');
+      const created = await createExpenseType(payload);
+      // 没点「生成编码」直接保存时编码是后端取的号 —— 回填到表单并在提示里报出来，
+      // 用户当场就能看到这条类型到底叫 ET-0 几。
+      form.type_code = created.type_code;
+      MessagePlugin.success(`已新建费用类型 · 编码 ${created.type_code}`);
     }
     dialogVisible.value = false;
     await loadRows();
@@ -617,6 +675,25 @@ onMounted(async () => {
 .switch-cell__tip {
   color: var(--td-text-color-secondary);
   font-size: 12px;
+}
+
+/* CODE-07：「编码框 + 生成编码」一行铺满（输入框吃掉剩余宽度，按钮不缩） */
+.dlg-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  flex-wrap: nowrap;
+}
+
+.dlg-inline__input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.dlg-help {
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
 }
 
 .form {

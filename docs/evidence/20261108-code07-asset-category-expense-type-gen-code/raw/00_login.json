@@ -1,0 +1,1 @@
+{"code":0,"msg":"ok","data":{"access_token":"<redacted-jwt-in-evidence>","refresh_token":"<redacted-jwt-in-evidence>","token_type":"Bearer","expires_in":900,"user":{"id":"01a1b9b3-813d-7056-ba8c-3da2b1f3784f","username":"admin","real_name":"超级管理员"},"must_change_password":false}}

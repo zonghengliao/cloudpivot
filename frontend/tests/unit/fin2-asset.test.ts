@@ -655,9 +655,10 @@ test('原因校验：普通原因非空，红冲原因 ≥ 2 字', () => {
 
 // ==================== ⑦ 分类 ====================
 
-test('validateCategoryForm：编码 / 月数 / 残值率 / 科目必填', () => {
+test('validateCategoryForm：编码可留空 / 月数 / 残值率 / 科目必填', () => {
   const empty = validateCategoryForm(emptyCategoryForm());
-  assert.ok(empty.category_code);
+  // CODE-07：编码**留空交给后端取号**（AC-01 形态），前端不再拦「分类编码必填」
+  assert.equal(empty.category_code, undefined);
   assert.ok(empty.category_name);
   assert.ok(empty.useful_life_months);
   assert.ok(empty.asset_account_id);
@@ -675,7 +676,16 @@ test('validateCategoryForm：编码 / 月数 / 残值率 / 科目必填', () => 
     expense_account_id: 'c',
   };
   assert.deepEqual(validateCategoryForm(filled), {});
-  assert.ok(validateCategoryForm({ ...filled, category_code: 'elec' }).category_code);
+  // CODE-07：字符集改为「字母 / 数字 / - _ .」，统一大写后校验（后端 seq::validate_manual_code 同口径）：
+  // 小写直接放行（落库前转大写），取号器自己的 `AC-01` 与企业自有码 `CAT-BUILDING` 都要能过。
+  assert.equal(validateCategoryForm({ ...filled, category_code: 'elec' }).category_code, undefined);
+  assert.equal(validateCategoryForm({ ...filled, category_code: 'AC-01' }).category_code, undefined);
+  assert.equal(
+    validateCategoryForm({ ...filled, category_code: 'CAT-BUILDING' }).category_code,
+    undefined,
+  );
+  // 真不合法的仍拦：空格不在字符集里
+  assert.ok(validateCategoryForm({ ...filled, category_code: 'CAT BUILDING' }).category_code);
   assert.ok(validateCategoryForm({ ...filled, useful_life_months: 601 }).useful_life_months);
   assert.ok(validateCategoryForm({ ...filled, salvage_rate: '1' }).salvage_rate);
 });
