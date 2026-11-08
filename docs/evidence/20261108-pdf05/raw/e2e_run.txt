@@ -1,0 +1,173 @@
+PDF-05 E2E · BASE=http://127.0.0.1:8079 DB=cloudpivot_pdf05
+
+### 0) 夹具：admin 登录 → 角色 → 用户 → 权限
+  [PASS] admin 令牌就绪（含首登强制改密）
+  [PASS] 10 个角色就绪
+  [PASS] 空角色 PDF05_EMPTY 设上级角色 → 200
+  [PASS] 上级角色回读
+  [PASS] 8 个用户就绪
+  [PASS] PDF05_INIT 授 3 个权限码
+  [PASS] PDF05_L1 授 3 个权限码
+  [PASS] PDF05_TEAM 授 3 个权限码
+  [PASS] PDF05_L2 授 3 个权限码
+  [PASS] PDF05_BOSS 授 2 个权限码
+  [PASS] PDF05_EMPTY 授 2 个权限码
+  [PASS] PDF05_VOID 授 2 个权限码
+  [PASS] PDF05_FB 授 2 个权限码
+  [PASS] PDF05_RO 授 1 个权限码
+  [PASS] PDF05_NONE 不授任何权限码
+  [PASS] PDF05_EMPTY 在册成员 = 0（升级原角色无人）
+  [PASS] 用户 u_init 令牌就绪
+  [PASS] 用户 u_l1a 令牌就绪
+  [PASS] 用户 u_l1b 令牌就绪
+  [PASS] 用户 u_gm 令牌就绪
+  [PASS] 用户 u_boss 令牌就绪
+  [PASS] 用户 u_fb 令牌就绪
+  [PASS] 用户 u_reader 令牌就绪
+  [PASS] 用户 u_nobody 令牌就绪
+
+==============================================================================
+=== S1 验收①：普通 2 级审批 → PDF 两行轨迹 + 两级意见
+==============================================================================
+  [PASS] 流程 pdf05_s1 建定义 → 存图 → 发布（def=01a1bb81-7f54-71a8-88fc-54cf5ddf3c34）
+  [PASS] S1 发起 → 200
+  [PASS] S1 部门经理收到待办
+  [PASS] S1 部门经理审批 → 200
+  [PASS] S1 总经理收到待办
+  [PASS] S1 总经理审批 → 200
+  [PASS] S1 实例 APPROVED
+  [PASS] S1 GET pdf → 200
+  [PASS] S1 Content-Type = application/pdf
+  [PASS] S1 Content-Disposition 是附件下载
+  [PASS] S1 Cache-Control = no-store
+  [PASS] S1 PDF 有实质内容（68143 字节）
+  [PASS] S1 单号
+  [PASS] S1 金额 12,345.67
+  [PASS] S1 申请人
+  [PASS] S1 单据类型
+  [PASS] S1 申请时间（北京时间，非 UTC）
+  [PASS] S1 第 1 级
+  [PASS] S1 第 2 级
+  [PASS] S1 节点名（部门经理审批）
+  [PASS] S1 节点名（总经理审批）
+  [PASS] S1 一级审批人
+  [PASS] S1 二级审批人
+  [PASS] S1 一级意见
+  [PASS] S1 二级意见
+  [PASS] S1 结论=已通过
+  [PASS] S1 签字区标题
+  [PASS] S1 签字栏说明
+  [PASS] S1 无降级标记行
+  [PASS] S1 PDF 单页（轨迹 2 行）
+  [PASS] S1 A4 纵向
+  [PASS] S1 字体已内嵌（emb=yes）
+  [PASS] S1 pdftotext 抽得出文字（非图片 PDF）
+  · 单号 FLW-20261108-B546B9C9 / 68143 字节 / /root/pdf05-evidence/sample/approval-2levels.pdf
+
+==============================================================================
+=== S2 验收②：自审跳过 → PDF 有「已跳过（自审）」
+==============================================================================
+  [PASS] 流程 pdf05_s2 建定义 → 存图 → 发布（def=01a1bb81-83a0-73af-bb10-032f5633eb6f）
+  [PASS] S2 发起 → 200
+  [PASS] S2 制单人落 SKIPPED 留痕
+  [PASS] S2 SKIPPED 的是发起人本人
+  [PASS] S2 留痕 reason
+  [PASS] S2 另一名经理收到待办
+  [PASS] S2 另一名经理审批 → 200
+  [PASS] S2 实例 APPROVED
+  [PASS] S2 GET pdf（发起人自己导出）→ 200
+  [PASS] S2 PDF 有「已跳过（自审）」
+  [PASS] S2 结果列写「跳过」
+  [PASS] S2 自审留痕原因
+  [PASS] S2 同级另一人的意见
+  [PASS] S2 签字位含真正的审批人 u_l1a
+  [PASS] S2 签字位不含被自审跳过的 u_l1b
+  · 67264 字节 / /root/pdf05-evidence/sample/approval-self-skip.pdf
+
+==============================================================================
+=== S3 验收③：升级（原角色无人）→ PDF 有「已升级至 XX（原角色无人…）」
+==============================================================================
+  [PASS] 流程 pdf05_s3 建定义 → 存图 → 发布（def=01a1bb81-84b3-7029-9576-556b372dfa76）
+  [PASS] S3 发起 → 200
+  [PASS] S3 待办带升级留痕
+  [PASS] S3 escalate_reason = NO_MEMBER
+  [PASS] S3 escalated_from_role = PDF05_EMPTY
+  [PASS] S3 assigned_by_rule = ESCALATED
+  [PASS] S3 待办派给上级角色成员 u_boss
+  [PASS] S3 上级总监收到待办
+  [PASS] S3 上级总监审批 → 200
+  [PASS] S3 实例 APPROVED
+  [PASS] S3 GET pdf → 200
+  [PASS] S3 PDF 有「已升级至」
+  [PASS] S3 升级目标角色名
+  [PASS] S3 升级原因=原角色无人
+  [PASS] S3 原角色编码
+  [PASS] S3 升级后的审批人
+  [PASS] S3 升级后审批意见
+  [PASS] S3 标记行格式 = 已升级至 XX（原角色无人：原角色码）
+  · 65113 字节 / /root/pdf05-evidence/sample/approval-escalation.pdf
+
+==============================================================================
+=== S4 验收④：驳回 → PDF 显示驳回意见
+==============================================================================
+  [PASS] 流程 pdf05_s4 建定义 → 存图 → 发布（def=01a1bb81-85cb-7578-8e90-14e3a891f9b5）
+  [PASS] S4 发起 → 200
+  [PASS] S4 部门经理收到待办
+  [PASS] S4 部门经理审批 → 200
+  [PASS] S4 总经理收到待办
+  [PASS] S4 总经理驳回并终止 → 200
+  [PASS] S4 实例 REJECTED
+  [PASS] S4 GET pdf → 200
+  [PASS] S4 结论=已驳回
+  [PASS] S4 结果列=驳回
+  [PASS] S4 驳回意见原文
+  [PASS] S4 一级的通过意见也在
+  [PASS] S4 PDF 可解析
+  · 70508 字节 / /root/pdf05-evidence/sample/approval-rejected.pdf
+
+==============================================================================
+=== S5 特别要求：兜底审批人 → PDF 有「兜底审批人」
+==============================================================================
+  [PASS] 流程 pdf05_s5 建定义 → 存图 → 发布（def=01a1bb81-86ec-7320-bdf1-cc57c4bc7d6d）
+  [PASS] S5 发起 → 200
+  [PASS] S5 assigned_by_rule = FALLBACK
+  [PASS] S5 兜底人收到待办
+  [PASS] S5 兜底人待办可查
+  [PASS] S5 兜底人审批 → 200
+  [PASS] S5 实例 APPROVED
+  [PASS] S5 GET pdf → 200
+  [PASS] S5 PDF 有「兜底审批人」
+  [PASS] S5 兜底人的意见
+  · 63543 字节 / /root/pdf05-evidence/sample/approval-fallback.pdf
+
+==============================================================================
+=== S6 负面：无权限 403 / 无关 403 / 非法 id 400 / 不存在 404 / 未登录 401
+==============================================================================
+  [PASS] S6 未登录 → 401
+  [PASS] S6 无权限账号 → 403
+  [PASS] S6 403 点名权限码
+  [PASS] S6 有读权限但与本单无关 → 403
+  [PASS] S6 403 说明「无关」
+  [PASS] S6 非法 id → 400
+  [PASS] S6 不存在的 id → 404
+  [PASS] S6 404 点名审批单
+  [PASS] S6 导出不产生审批行
+
+==============================================================================
+=== S7 审计：每次成功导出 operation_logs 一行 EXPORT_FLOW_INSTANCE_PDF
+==============================================================================
+  · 审计行：
+      EXPORT_FLOW_INSTANCE_PDF|biz_flow_instance|FLW-20261108-B546B9C9|2|12345.67|PDF-05
+      EXPORT_FLOW_INSTANCE_PDF|biz_flow_instance|FLW-20261108-A2481EB7|2|8800.0|PDF-05
+      EXPORT_FLOW_INSTANCE_PDF|biz_flow_instance|FLW-20261108-97F46B67|1|66000.0|PDF-05
+      EXPORT_FLOW_INSTANCE_PDF|biz_flow_instance|FLW-20261108-073A744A|2|999999.0|PDF-05
+      EXPORT_FLOW_INSTANCE_PDF|biz_flow_instance|FLW-20261108-AD5A4448|1|4321.0|PDF-05
+  [PASS] S7 至少 5 条导出审计（实际 5）
+  [PASS] S7 target_type = biz_flow_instance
+  [PASS] S7 operation 码正确
+  [PASS] S7 detail.source = PDF-05（不被公共件默认的 PDF-03 覆盖）
+  [PASS] S7 每行都带单号（detail.doc_no）
+
+==============================================================================
+==== 汇总：127 项，失败 0 项（10s）
+==============================================================================

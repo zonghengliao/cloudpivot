@@ -1,0 +1,12 @@
+# cargo test --lib（不设 ERP_DB_URL，commit 07c39d4，2026-11-08 23:0x CST）
+# 期望：仅 3 条既有 LNK-12 白名单红（PURCHASE_RETURN 接线来自 PDF-04，清单未更新）
+--
+failures:
+    business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag
+    business::flow::linkage::tests_wiring::trigger_specs_cover_whitelist_in_order
+    business::flow::linkage::tests_wiring::wired_triggers_match_call_sites
+
+test result: FAILED. 3779 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.67s
+
+test result: FAILED. 3779 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.67s
+本卡模块用例数= 24
