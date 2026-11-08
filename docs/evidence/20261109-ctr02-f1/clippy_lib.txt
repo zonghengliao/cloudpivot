@@ -1,0 +1,55 @@
+    Checking cloudpivot v0.1.0 (/root/ctr02f1-wt/backend)
+error: the following explicit lifetimes could be elided: 'a
+    --> src/business/erp/invoice.rs:1967:26
+     |
+1967 | pub fn surviving_pointer<'a>(
+     |                          ^^
+1968 |     candidates: &'a [PointerCandidate],
+     |                  ^^
+1969 |     exclude: Uuid,
+1970 | ) -> Option<&'a PointerCandidate> {
+     |              ^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#needless_lifetimes
+     = note: `-D clippy::needless-lifetimes` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::needless_lifetimes)]`
+help: elide the lifetimes
+     |
+1967 ~ pub fn surviving_pointer(
+1968 ~     candidates: &[PointerCandidate],
+1969 |     exclude: Uuid,
+1970 ~ ) -> Option<&PointerCandidate> {
+     |
+
+error: doc list item without indentation
+   --> src/business/erp/receivable.rs:800:5
+    |
+800 | /// 这里只把应收台账推到 `CANCELLED`，不再碰总账。
+    |     ^
+    |
+    = help: if this is supposed to be its own paragraph, add a blank line
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#doc_lazy_continuation
+    = note: `-D clippy::doc-lazy-continuation` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::doc_lazy_continuation)]`
+help: indent this line
+    |
+800 | ///   这里只把应收台账推到 `CANCELLED`，不再碰总账。
+    |     ++
+
+error: this function has too many arguments (8/7)
+   --> src/business/erp/sales_order_model.rs:699:1
+    |
+699 | / pub async fn update_order(
+700 | |     ex: &impl SqlExecutor,
+701 | |     id: Uuid,
+702 | |     new: &NewSalesOrder<'_>,
+...   |
+707 | |     now: DateTime<Utc>,
+708 | | ) -> DbResult<u64> {
+    | |__________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#too_many_arguments
+    = note: `-D clippy::too-many-arguments` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::too_many_arguments)]`
+
+error: could not compile `cloudpivot` (lib) due to 3 previous errors

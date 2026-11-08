@@ -1,0 +1,12 @@
+--- select 'contract='||contract_no||'|type='||contract_type||'|status='||status||'|amount='||amount||'|inst='||coalesce(approval_instance_id::text,'-') from biz_contract where id in ('01a1bd23-e142-7600-9b9b-c55bbd152139','01a1bd23-e15c-7582-8681-4e151ac88852') order by contract_no
+contract=HT-20261109-000002|type=SERVICE|status=SIGNED|amount=50000.0000|inst=01a1bd23-e277-76a8-9cd3-2ee0743a7b85
+contract=HT-20261109-000003|type=LEASE|status=SIGNED|amount=120000.0000|inst=01a1bd23-e3b1-760b-9909-428fe5fe3959
+--- select 'task='||node_key||'|'||status||'|'||coalesce(assignee_name,'-')||'|'||coalesce(comment,'-') from biz_flow_task where instance_id in ('01a1bd23-e277-76a8-9cd3-2ee0743a7b85','01a1bd23-e3b1-760b-9909-428fe5fe3959') order by created_at
+task=n_pm|APPROVED|CTR02F1 审批人|CTR-02-F1 服务合同审批同意
+task=n_pm_hi|APPROVED|CTR02F1 审批人|CTR-02-F1 租赁合同审批同意
+task=n_gm|APPROVED|CTR02F1 审批人|CTR-02-F1 租赁合同审批同意
+--- select 'log='||from_status||'->'||to_status||'|'||coalesce(reason,'-') from biz_status_log where entity_type='CONTRACT' and entity_id in ('01a1bd23-e142-7600-9b9b-c55bbd152139','01a1bd23-e15c-7582-8681-4e151ac88852') order by created_at
+log=DRAFT->PENDING_APPROVAL|提交审批
+log=PENDING_APPROVAL->SIGNED|合同审批通过（已签订）
+log=DRAFT->PENDING_APPROVAL|提交审批
+log=PENDING_APPROVAL->SIGNED|合同审批通过（已签订）

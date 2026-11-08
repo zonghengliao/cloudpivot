@@ -1,0 +1,2 @@
+    Checking cloudpivot v0.1.0 (/root/ctr02f1-wt/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 59.38s

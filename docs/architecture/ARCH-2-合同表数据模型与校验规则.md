@@ -393,6 +393,15 @@ DB CHECK      → 单行内、与外部无关的事实（枚举、区间、精�
 > 因此本节的「批次 2 替换点」R1–R4 已完成，**新增替换点仅 R4′：`SERVICE`/`LEASE` 放开**；
 > `party_b_type` 枚举与 `ck_biz_contract_type_party_pair` 的 ELSE 分支**保持宽容（两值都允许）**，
 > 收窄交由应用层做 —— 不收 DDL，避免为一件没有收益的事付迁移风险。
+>
+> **实现落点（CTR-02-F1 落地时回写，便于从文档直接找到代码；零迁移）**
+>
+> | 口径 | 代码位置 |
+> |---|---|
+> | 四类放行 | `contract_dto::SUPPORTED_TYPES`（= `CONTRACT_TYPES`，4 值）；`ensure_supported_type` 保留，文案改指 `ck_biz_contract_type` 白名单 |
+> | 乙方单向强制 | `contract_model::required_party_b_type` + `contract_dto::ensure_party_b_type`；POST（`resolve_party_b_type`）与 PUT（`contract_update` 用库里的 `contract_type` 判定）都过这一条，错误 `400/10001` |
+> | 履约口径 | `contract_model::commitment_scope_of`（纯函数）+ `ContractDetailRes::commitment_scope`；`NOT_APPLICABLE` 时四个金额/单据字段照常返回（机器可读），前端按口径渲染 |
+> | 订单侧闸（**未改**） | `purchase_handler.rs` 只收 `PURCHASE`、`sales_order_handler.rs` 只收 `SALES` —— 这是「服务/租赁不挂订单」的执行位置 |
 
 **批次 2 替换点（客户表落地后，改 4 处，表结构 0 改动）**
 

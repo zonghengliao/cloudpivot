@@ -50,6 +50,26 @@ pub const PARTY_B_SUPPLIER: &str = "SUPPLIER";
 /// 乙方类型：客户（`party_b_id → biz_customer.id`；SO-26 起 SALES 合同放行）。
 pub const PARTY_B_CUSTOMER: &str = "CUSTOMER";
 
+/// 合同类型要求的乙方主档类型（**单向强制**，纯函数；单测与 handler 共用同一出口）。
+///
+/// | 合同类型 | 乙方主档 | 理由 |
+/// |---|---|---|
+/// | `PURCHASE` | `SUPPLIER` | DDL 配对 CHECK 硬性要求（ARCH-2 V-11） |
+/// | `SALES` | `CUSTOMER` | DDL 配对 CHECK 硬性要求（SO-26） |
+/// | `SERVICE` / `LEASE` | `SUPPLIER` | 服务商 / 出租方在系统中登记为供应商；DDL 的
+///   `ck_biz_contract_type_party_pair` ELSE 分支仍允许两值，**收窄在应用层做**
+///   （`docs/合同类型开放口径-决策.md` §二 D1：不新建主档、不动 DDL） |
+///
+/// 未知类型按 `SUPPLIER` 兜底 —— 类型本身另有 `ck_biz_contract_type` 白名单闸，
+/// 这里不做第二套枚举校验。
+pub fn required_party_b_type(contract_type: &str) -> &'static str {
+    if contract_type == "SALES" {
+        PARTY_B_CUSTOMER
+    } else {
+        PARTY_B_SUPPLIER
+    }
+}
+
 /// 合同的 6 个状态（与 DDL 的 `ck_biz_contract_status` 白名单逐字一致）。
 ///
 /// R-P1-1 之前是 5 个（`DRAFT/SIGNED/ACTIVE/COMPLETED/TERMINATED`），
@@ -1060,6 +1080,33 @@ pub fn legal_edges_match_registry() -> bool {
 
 // ==================== 履约口径（CTR-02 F6 / F3）====================
 
+/// 履约口径取值：合同会挂采购单 / 销售单（`PURCHASE` / `SALES`），
+/// [`ContractCommitment`] 的金额与单据数是**真值**。
+pub const COMMITMENT_SCOPE_ORDER_LINKED: &str = "ORDER_LINKED";
+
+/// 履约口径取值：合同按口径**不挂**任何订单（`SERVICE` / `LEASE`），
+/// 因此 `committed_amount = 0` / `open_order_count = 0` 是**正确值，不是「尚未执行」**。
+/// 前端必须按口径渲染（不得显示 `0.00` / 0%），报表算履约率前先过滤掉这一类。
+pub const COMMITMENT_SCOPE_NOT_APPLICABLE: &str = "NOT_APPLICABLE";
+
+/// 合同类型 → 履约口径（纯函数；详情 DTO 与单测共用同一出口，别把字面量散在 handler 里）。
+///
+/// * `PURCHASE` / `SALES` → [`COMMITMENT_SCOPE_ORDER_LINKED`]
+/// * `SERVICE` / `LEASE` → [`COMMITMENT_SCOPE_NOT_APPLICABLE`]
+///   （订单侧类型闸只收 `PURCHASE` / `SALES`，见 `purchase_handler.rs` /
+///   `sales_order_handler.rs`，那是本口径的**执行位置**，本卡不改）
+///
+/// **预留**取值 `PAYMENT_PLAN`：合同付款计划成为真正的履约单据后启用
+/// （见 `docs/合同类型开放口径-决策.md` §四 D3 与需求池 RP-2026-005）。
+/// 未登记的类型一律返回 `NOT_APPLICABLE` —— 让「新类型默认不参与履约率」比让它
+/// 悄悄按 0 参与更安全（报表侧因此只会低估覆盖，不会伪造履约进度）。
+pub fn commitment_scope_of(contract_type: &str) -> &'static str {
+    match contract_type {
+        "PURCHASE" | "SALES" => COMMITMENT_SCOPE_ORDER_LINKED,
+        _ => COMMITMENT_SCOPE_NOT_APPLICABLE,
+    }
+}
+
 /// `open_order_nos` 最多返回多少个单号（完整清单走订单页按合同筛）。
 ///
 /// 定 20 不是随手取的：合同详情是**人读**的页面，弹「还有 137 张未关闭订单」时
@@ -1486,6 +1533,35 @@ mod tests {
             once,
             "reason trim 后判同，避免同一原因因空格叠成两行"
         );
+    }
+
+    /// ⑦ CTR-02-F1：履约口径按合同类型分叉 + 乙方主档类型单向强制（纯逻辑，不连库）。
+    #[test]
+    fn commitment_scope_and_party_type_follow_contract_type() {
+        for contract_type in ["PURCHASE", "SALES"] {
+            assert_eq!(
+                commitment_scope_of(contract_type),
+                COMMITMENT_SCOPE_ORDER_LINKED,
+                "{contract_type} 会挂订单，履约字段是真值"
+            );
+        }
+        for contract_type in ["SERVICE", "LEASE"] {
+            assert_eq!(
+                commitment_scope_of(contract_type),
+                COMMITMENT_SCOPE_NOT_APPLICABLE,
+                "{contract_type} 不挂订单（committed_amount=0 是正确值，不是未执行）"
+            );
+        }
+        // 未登记的类型默认不参与履约率（宁可低估覆盖，也不伪造进度）
+        assert_eq!(
+            commitment_scope_of("FRAMEWORK"),
+            COMMITMENT_SCOPE_NOT_APPLICABLE
+        );
+
+        assert_eq!(required_party_b_type("PURCHASE"), PARTY_B_SUPPLIER);
+        assert_eq!(required_party_b_type("SALES"), PARTY_B_CUSTOMER);
+        assert_eq!(required_party_b_type("SERVICE"), PARTY_B_SUPPLIER);
+        assert_eq!(required_party_b_type("LEASE"), PARTY_B_SUPPLIER);
     }
 }
 

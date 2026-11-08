@@ -1,0 +1,210 @@
+Diff in /root/ctr02f1-wt/backend/src/business/erp/asset_compute.rs:183:
+     /// 人读原因（日志 / 报文）。
+     pub const fn label(self) -> &'static str {
+         match self {
+-            DepGateMiss::NoDetail => "处置当月没有该资产的折旧明细（批次未计提，或批次已过账但不含本资产）",
++            DepGateMiss::NoDetail => {
++                "处置当月没有该资产的折旧明细（批次未计提，或批次已过账但不含本资产）"
++            }
+             DepGateMiss::Reversed => "处置当月的折旧明细已被红冲（批次红冲后没有重新计提）",
+         }
+     }
+Diff in /root/ctr02f1-wt/backend/src/business/erp/asset_compute.rs:293:
+     }
+ }
+ 
+-
+ // ==================== 处置分录（ARCH-6 §5.6.4） ====================
+ 
+ /// 处置方式（与 `ck_biz_fa_disposal` 逐字一致）。
+Diff in /root/ctr02f1-wt/backend/src/business/erp/asset_compute.rs:948:
+         assert!(!gate.is_blocked());
+ 
+         // 高一分也算提足（脏数据 / 尾差）；低一分则必须已计提，不许蒙混
+-        let over = disposal_dep_gate("2026-06", start_of("2020-01-10"), dec!(114000), dec!(114000.0001), None);
++        let over = disposal_dep_gate(
++            "2026-06",
++            start_of("2020-01-10"),
++            dec!(114000),
++            dec!(114000.0001),
++            None,
++        );
+         assert!(!over.is_blocked(), "累计超过可折旧总额同样是提足");
+-        let under = disposal_dep_gate("2026-06", start_of("2020-01-10"), dec!(114000), dec!(113999.9999), None);
++        let under = disposal_dep_gate(
++            "2026-06",
++            start_of("2020-01-10"),
++            dec!(114000),
++            dec!(113999.9999),
++            None,
++        );
+         assert!(under.is_blocked(), "差一分也还没提足，当月折旧必须先计提");
+     }
+ }
+Diff in /root/ctr02f1-wt/backend/src/business/erp/asset_compute.rs:957:
+-
+ 
+Diff in /root/ctr02f1-wt/backend/src/business/erp/asset_linkage.rs:373:
+     /// 3 条预置规则（规则名 + 触发状态；触发状态 = 变更**之后**的目标态）。
+     const PRESETS: &[(&str, &str)] = &[
+         ("资产停用 → 通知制单人", asset_dto::STATUS_IDLE),
+-        (
+-            "资产启用 / 作废处置 → 通知制单人",
+-            asset_dto::STATUS_IN_USE,
+-        ),
++        ("资产启用 / 作废处置 → 通知制单人", asset_dto::STATUS_IN_USE),
+         ("资产处置 → 通知制单人", asset_dto::STATUS_DISPOSED),
+     ];
+ 
+Diff in /root/ctr02f1-wt/backend/src/business/erp/asset_linkage.rs:410:
+     #[test]
+     fn migration_seeds_every_preset_row() {
+         for (name, status) in PRESETS {
++            assert!(PRESET_UP.contains(name), "迁移里找不到规则名「{name}」");
+             assert!(
+-                PRESET_UP.contains(name),
+-                "迁移里找不到规则名「{name}」"
+-            );
+-            assert!(
+                 PRESET_UP.contains(&format!("'FIXED_ASSET', '{status}', 'SEND_NOTICE'")),
+                 "迁移里找不到触发键 ('FIXED_ASSET', '{status}', 'SEND_NOTICE')"
+             );
+Diff in /root/ctr02f1-wt/backend/src/business/erp/asset_linkage.rs:421:
+         }
+         assert!(
+-            PRESET_UP.contains(&format!(
+-                "trigger_entity = 'FIXED_ASSET'"
+-            )),
++            PRESET_UP.contains(&format!("trigger_entity = 'FIXED_ASSET'")),
+             "迁移的自检块必须按 FIXED_ASSET 过滤"
+         );
+     }
+Diff in /root/ctr02f1-wt/backend/src/business/erp/asset_linkage.rs:558:
+         );
+     }
+ }
+-
+ 
+Diff in /root/ctr02f1-wt/backend/src/business/erp/asset_model.rs:1528:
+     // SCOPE-EXEMPT: 按 (资产, 期间) 唯一键取 1 行状态，与「谁能看到这张卡」无关。
+     let rows = db()
+         .find_with_params(
+-            &format!(
+-                "SELECT status FROM {DEP_TABLE} WHERE asset_id = ?::uuid AND period_code = ?"
+-            ),
+-            vec![
+-                Value::from(&asset_id),
+-                Value::Text(period_code.to_string()),
+-            ],
++            &format!("SELECT status FROM {DEP_TABLE} WHERE asset_id = ?::uuid AND period_code = ?"),
++            vec![Value::from(&asset_id), Value::Text(period_code.to_string())],
+         )
+         .await?;
+     match rows.first() {
+Diff in /root/ctr02f1-wt/backend/src/business/erp/currency_admin_model.rs:736:
+         // 不足 8 位**不补零**（Decimal 保持原 scale，PG 的 numeric(18,8) 自己补）
+         assert_eq!(scale_rate(dec("7.123456789")), dec("7.12345679"));
+         assert_eq!(scale_rate(dec("7.1")), dec("7.1"));
+-        assert!(!scale_rate(dec("7.123456789")).to_string().contains("7.123456789"));
++        assert!(
++            !scale_rate(dec("7.123456789"))
++                .to_string()
++                .contains("7.123456789")
++        );
+     }
+ 
+     #[test]
+Diff in /root/ctr02f1-wt/backend/src/business/erp/opening.rs:1639:
+             (*old_amount / *old_qty).round_dp(6)
+         };
+         // 退回**同一只桶**（与写入时同一个判据：已记录优先，否则按当前默认库位解析）
+-        let location_row = match old_buckets.get(&(*material_id, *warehouse_id)).copied().flatten() {
++        let location_row = match old_buckets
++            .get(&(*material_id, *warehouse_id))
++            .copied()
++            .flatten()
++        {
+             Some(row_id) => Some(row_id),
+             None => opening_location_row(tx, *material_id, *warehouse_id, now).await?,
+         };
+Diff in /root/ctr02f1-wt/backend/src/business/erp/report.rs:2047:
+                 false,
+                 30,
+             ),
+-            item("TOTAL_ASSETS", "ASSET", 1, None, Some("ASSETS_SUB"), false, 40),
++            item(
++                "TOTAL_ASSETS",
++                "ASSET",
++                1,
++                None,
++                Some("ASSETS_SUB"),
++                false,
++                40,
++            ),
+             item("TAX", "LIABILITY", 2, Some("2221"), None, false, 50),
+             item("LIAB_SUB", "LIABILITY", 2, None, Some("TAX"), false, 60),
+             item("EQUITY", "EQUITY", 2, Some("3001"), None, false, 65),
+Diff in /root/ctr02f1-wt/backend/src/business/erp/report.rs:2124:
+         // 取数说明点明「负数是留抵」，别让人以为这一行取数失败
+         let source = line(&sheet.liabilities, "TAX");
+         let detail = source.detail.clone().unwrap_or_default();
+-        assert!(
+-            detail.contains("留抵税额"),
+-            "取数说明要点明留抵：{detail}"
+-        );
++        assert!(detail.contains("留抵税额"), "取数说明要点明留抵：{detail}");
+         println!("[R1-⑤b] 留抵税额重分类 = 208 ✓");
+     }
+ 
+Diff in /root/ctr02f1-wt/backend/src/business/erp/report.rs:2165:
+         ];
+         let sheet = compute(&items, &accounts).expect("配置正确");
+ 
+-        assert!(
+-            sheet.reclass.is_empty(),
+-            "贷方余额（应交 520）不触发重分类"
+-        );
++        assert!(sheet.reclass.is_empty(), "贷方余额（应交 520）不触发重分类");
+         assert_eq!(sheet.amounts.get("TAX").copied(), Some(Decimal::from(520)));
+         assert_eq!(
+             sheet.amounts.get("OTHER_CURRENT").copied(),
+Diff in /root/ctr02f1-wt/backend/src/business/erp/transfer_handler_common.rs:177:
+                  {required}，该库位可用 0）{}：调拨不会改扣整仓汇总桶。请把这一行的库位改成有货的库位、\
+                  先把货收进该库位，或去掉库位按整仓汇总桶记账",
+                 match summary_available {
+-                    Some(available) =>
+-                        format!("；整仓汇总桶上该物料还有 {available}"),
++                    Some(available) => format!("；整仓汇总桶上该物料还有 {available}"),
+                     None => String::new(),
+                 }
+             ),
+Diff in /root/ctr02f1-wt/backend/src/business/erp/transfer_handler_db_tests_settle.rs:1028:
+ }
+ 
+ /// 某库存桶的成本账 `(qty, amount)`：`None` = 整仓汇总桶。
+-async fn cost_bucket_of(material: &str, warehouse: &str, row: Option<&str>) -> Option<(Decimal, Decimal)> {
++async fn cost_bucket_of(
++    material: &str,
++    warehouse: &str,
++    row: Option<&str>,
++) -> Option<(Decimal, Decimal)> {
+     let rows = query(
+         "SELECT qty::numeric(18,4) AS qty, amount::numeric(18,4) AS amount FROM biz_inventory \
+           WHERE material_id = ?::uuid AND warehouse_id = ?::uuid \
+Diff in /root/ctr02f1-wt/backend/src/business/erp/transfer_handler_db_tests_settle.rs:1120:
+     let mut line = item(M_PLAIN, "10"); // 该库位只有 6 → 不够（汇总桶有 100 也不许改扣）
+     line.from_location_id = Some(LOC_FROM.to_string());
+     let id = create_and_ship(vec![line]).await;
+-    let error = receive(id).await.expect_err("指定库位不够必须报错，不许静默改扣汇总桶");
++    let error = receive(id)
++        .await
++        .expect_err("指定库位不够必须报错，不许静默改扣汇总桶");
+     assert_eq!(error.status, 409, "{}", error.msg);
+     assert_eq!(error.code, error_code::ERP_CODE_CONFLICT, "{}", error.msg);
+     assert!(
+Diff in /root/ctr02f1-wt/backend/src/business/erp/transfer_handler_db_tests_settle.rs:1293:
+     assert_eq!(refresh(id).await.status, STATUS_IN_TRANSIT);
+     assert!(txns_of(id).await.is_empty(), "被拒的结算不许写流水");
+ }
+-
+ 

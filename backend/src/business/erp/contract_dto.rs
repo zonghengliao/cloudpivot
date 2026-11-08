@@ -64,12 +64,20 @@ pub const MAX_REASON_LEN: usize = 500;
 /// 合同类型白名单（与 `ck_biz_contract_type` 逐字一致）。
 ///
 /// `PURCHASE` 的乙方是供应商，`SALES` 的乙方是客户（客户主数据 `biz_customer`
-/// 已随销售链 SO-02 上线，SO-26 起真正放行）；`SERVICE` / `LEASE` 的乙方两种都可能是
-/// （`ck_biz_contract_type_party_pair` 放行），业务未开 → 仍拒。
+/// 已随销售链 SO-02 上线，SO-26 起真正放行）；`SERVICE` / `LEASE` 的乙方**固定供应商**
+/// （服务商 / 出租方在系统中登记为 `biz_supplier`，单向强制，应用层校验在
+/// [`contract_model::required_party_b_type`]，理由见 `docs/合同类型开放口径-决策.md` §二）。
+/// 这两类**不挂**采购单 / 销售单，详情用 `commitment_scope = NOT_APPLICABLE`
+/// 与「真没下单」区分（同文档 §四）。DDL 的 `ck_biz_contract_type_party_pair` ELSE 分支
+/// 仍允许两值 —— DB 宽容、应用层收窄，本卡零迁移。
 pub const CONTRACT_TYPES: [&str; 4] = ["PURCHASE", "SALES", "SERVICE", "LEASE"];
 
-/// 本期真正放行的合同类型（SO-26：放开 `SALES`；`SERVICE` / `LEASE` 仍关）。
-pub const SUPPORTED_TYPES: [&str; 2] = ["PURCHASE", "SALES"];
+/// 本批次真正放行的合同类型（CTR-02-F1：`SERVICE` / `LEASE` 开放，四类全开）。
+///
+/// 取值与 [`CONTRACT_TYPES`] 一致，但**保留独立常量与 [`ensure_supported_type`]**：
+/// 将来新增枚举（如 `FRAMEWORK`）要先落 `ck_biz_contract_type` 白名单，再在这里放开；
+/// 「DDL 有白名单」不等于「业务已开」。
+pub const SUPPORTED_TYPES: [&str; 4] = CONTRACT_TYPES;
 
 /// 默认币种（与 DDL 的 `DEFAULT 'CNY'` 一致）。
 pub const DEFAULT_CURRENCY: &str = "CNY";
@@ -128,21 +136,64 @@ fn check_optional_text(
 
 /// 类型闸：`contract_type` 是否在本期放行集里（纯函数，handler 与单测共用同一出口）。
 ///
-/// 与 [`require_one_of`] 的区别：那条判「是不是合法枚举值」（4 个），本函数判
-/// 「业务开没开」（[`SUPPORTED_TYPES`] 2 个）。两条闸都要过：
-/// `SERVICE` / `LEASE` 是合法枚举但未开 → 400 且文案点名当前只支持哪些。
+/// 与 [`require_one_of`] 的关系：那条判「是不是合法枚举值」（[`CONTRACT_TYPES`]，
+/// 与 `ck_biz_contract_type` 逐字一致），本函数判「业务开没开」。CTR-02-F1 起两者取值
+/// 一致（四类全开），但闸仍保留：未来新枚举必须两处一起放开 —— 「DDL 允许」不等于
+/// 「业务已开」。
 ///
 /// # 异常情况
 ///
-/// * 400 + `10001`：不在 [`SUPPORTED_TYPES`] 里（`SERVICE` / `LEASE` / 未来新枚举）。
+/// * 400 + `10001`：不在 [`SUPPORTED_TYPES`] 里（未来新枚举尚未开放）。
 pub fn ensure_supported_type(contract_type: &str) -> std::result::Result<(), ApiError> {
     if SUPPORTED_TYPES.contains(&contract_type) {
         return Ok(());
     }
     Err(bad_request(format!(
-        "contract_type `{contract_type}` 本批次未开放：只支持 {}",
+        "contract_type `{contract_type}` 不在 ck_biz_contract_type 白名单内（当前白名单与放行集一致：{}）",
         SUPPORTED_TYPES.join(" / ")
     )))
+}
+
+/// 乙方类型与合同类型的配对校验（**单向强制**，POST 与 PUT 共用同一出口）。
+///
+/// 规则（`docs/合同类型开放口径-决策.md` §二 D1）：
+/// `PURCHASE` / `SERVICE` / `LEASE` → `SUPPLIER`；`SALES` → `CUSTOMER`。
+/// 服务商 / 出租方在系统中登记为**供应商**，不新建主档；DDL 的
+/// `ck_biz_contract_type_party_pair` ELSE 分支仍允许两值（DB 宽容、应用层收窄）。
+///
+/// # 异常情况
+///
+/// * 400 + `10001`：值与合同类型要求的类型冲突（含 `SERVICE` / `LEASE` 传 `CUSTOMER`）；
+/// * 400 + `10001`：不是 `SUPPLIER` / `CUSTOMER` 的第三个值。
+pub fn ensure_party_b_type(
+    contract_type: &str,
+    party_b_type: &str,
+) -> std::result::Result<&'static str, ApiError> {
+    let required = contract_model::required_party_b_type(contract_type);
+    if party_b_type == required {
+        return Ok(required);
+    }
+    if party_b_type == contract_model::PARTY_B_SUPPLIER
+        || party_b_type == contract_model::PARTY_B_CUSTOMER
+    {
+        return Err(party_type_conflict(contract_type, required, party_b_type));
+    }
+    Err(bad_request(format!(
+        "party_b_type 只能是 SUPPLIER / CUSTOMER（当前 `{party_b_type}`）"
+    )))
+}
+
+/// 乙方类型冲突的提示文案（按合同类型说清「为什么必须是它」，别让服务合同的报错说「客户」）。
+fn party_type_conflict(contract_type: &str, required: &str, actual: &str) -> ApiError {
+    let (label, reason) = match contract_type {
+        "SALES" => ("销售（SALES）合同", "乙方是客户（biz_customer）"),
+        "SERVICE" => ("服务（SERVICE）合同", "服务商在系统中登记为供应商"),
+        "LEASE" => ("租赁（LEASE）合同", "出租方在系统中登记为供应商"),
+        _ => ("采购（PURCHASE）合同", "乙方是供应商（biz_supplier）"),
+    };
+    bad_request(format!(
+        "{label}的乙方类型必须是 {required}（{reason}），与 party_b_type=`{actual}` 冲突"
+    ))
 }
 
 /// 枚举白名单。
@@ -422,15 +473,17 @@ pub struct CreateContractReq {
     pub name: Option<String>,
     /// 合同名称（DDL 列名）。
     pub contract_name: Option<String>,
-    /// 合同类型（`PURCHASE` …，必填）。
+    /// 合同类型（`PURCHASE` / `SALES` / `SERVICE` / `LEASE`，必填）。
     pub contract_type: Option<String>,
     /// 甲方 id（缺省 = 本组织）。
     pub party_a_id: Option<String>,
     /// 甲方名称快照。
     pub party_a_name: Option<String>,
-    /// 乙方 id（必填；本期必须指向启用中的供应商）。
+    /// 乙方 id（必填；新建时必须指向启用中的主档：
+    /// `party_b_type=SUPPLIER` → `biz_supplier`、`CUSTOMER` → `biz_customer`）。
     pub party_b_id: Option<String>,
-    /// 乙方类型（缺省按合同类型推导：`PURCHASE` → `SUPPLIER`）。
+    /// 乙方类型（缺省按合同类型推导：`SALES` → `CUSTOMER`，其余 → `SUPPLIER`）。
+    /// 服务 / 租赁**只能**是 `SUPPLIER`（服务商 / 出租方登记为供应商）。
     pub party_b_type: Option<String>,
     /// 合同金额（必填，> 0）。
     pub amount: Option<Decimal>,
@@ -460,13 +513,14 @@ impl CreateContractReq {
     ///
     /// # 异常情况
     ///
-    /// * 400 + `10001`：缺必填 / 超长 / 枚举非法 / 类型未开放（`SERVICE` / `LEASE`）/
+    /// * 400 + `10001`：缺必填 / 超长 / 枚举非法 / 类型不在放行集（见
+    ///   [`ensure_supported_type`]，当前四类全放行）/
     ///   金额 ≤ 0 / 日期区间反了 / 签订晚于生效 / 币种非法。
     pub fn validate(&self) -> std::result::Result<(), ApiError> {
         require_text(self.display_name(), "name", MAX_NAME_LEN)?;
         let contract_type = require_text(self.contract_type.as_deref(), "contract_type", 16)?;
         require_one_of(&contract_type, &CONTRACT_TYPES, "contract_type")?;
-        // 类型闸（业务开没开）：SO-26 起 PURCHASE / SALES 放行，SERVICE / LEASE 仍拒
+        // 类型闸（业务开没开）：CTR-02-F1 起四类全放行，但闸保留给未来新枚举
         ensure_supported_type(&contract_type)?;
         if self
             .party_b_id
@@ -501,35 +555,21 @@ impl CreateContractReq {
 
     /// 乙方类型：客户端显式给了就校验，没给按合同类型推导。
     ///
-    /// * `SALES` → `CUSTOMER`（`party_b_id` 指向 `biz_customer.id`，SO-26 起放行）
-    /// * 其余 → `SUPPLIER`（`SERVICE` / `LEASE` 理论可两选，本期只接供应商且未开放）
+    /// * `SALES` → `CUSTOMER`（`party_b_id` 指向 `biz_customer.id`）
+    /// * 其余（`PURCHASE` / `SERVICE` / `LEASE`）→ `SUPPLIER`
+    ///   （服务商 / 出租方在系统中登记为供应商，**单向强制**，见
+    ///   `docs/合同类型开放口径-决策.md` §二 D1；DDL 的 ELSE 分支仍宽容两值）
     ///
     /// # 异常情况
     ///
-    /// * 400 + `10001`：传了非 `SUPPLIER` / `CUSTOMER` 的第三个值；或 `SALES` 显式传
-    ///   `SUPPLIER`（与推导冲突）。
+    /// * 400 + `10001`：传了非 `SUPPLIER` / `CUSTOMER` 的第三个值；
+    ///   或显式值与本类型要求的乙方主档类型冲突（`SALES` 传 `SUPPLIER`、
+    ///   `SERVICE` / `LEASE` 传 `CUSTOMER`）。
     pub fn resolve_party_b_type(&self) -> std::result::Result<&'static str, ApiError> {
-        let derived = if self.contract_type_value() == "SALES" {
-            contract_model::PARTY_B_CUSTOMER
-        } else {
-            contract_model::PARTY_B_SUPPLIER
-        };
+        let derived = contract_model::required_party_b_type(self.contract_type_value());
         match self.party_b_type.as_deref().map(str::trim) {
             None | Some("") => Ok(derived),
-            Some(text) if text == contract_model::PARTY_B_SUPPLIER => {
-                if derived == contract_model::PARTY_B_CUSTOMER {
-                    return Err(bad_request(
-                        "SALES（销售）合同的乙方类型必须是 CUSTOMER，与 party_b_type 冲突",
-                    ));
-                }
-                Ok(contract_model::PARTY_B_SUPPLIER)
-            }
-            Some(text) if text == contract_model::PARTY_B_CUSTOMER => {
-                Ok(contract_model::PARTY_B_CUSTOMER)
-            }
-            Some(text) => Err(bad_request(format!(
-                "party_b_type 只能是 SUPPLIER / CUSTOMER（当前 `{text}`）"
-            ))),
+            Some(text) => ensure_party_b_type(self.contract_type_value(), text),
         }
     }
 
@@ -591,7 +631,9 @@ pub struct UpdateContractReq {
     pub contract_name: Option<String>,
     /// 乙方 id。
     pub party_b_id: Option<String>,
-    /// 乙方类型（校验用，且必须与合同类型配对）。
+    /// 乙方类型（校验用，且必须与合同类型配对。
+    /// `contract_type` 在草稿阶段也不可改，所以这里只做**一致性校验**：
+    /// `SERVICE` / `LEASE` 传 `CUSTOMER` → 400）。
     pub party_b_type: Option<String>,
     /// 合同金额（> 0）。
     pub amount: Option<Decimal>,
@@ -813,12 +855,30 @@ pub struct ContractDetailRes {
     pub usable_for_order: bool,
     /// 当前状态的合法去向（**由状态机给**，前端别硬编码边）。
     pub next_statuses: Vec<String>,
+    /// **履约口径**（CTR-02-F1）：告诉前端「下面四个履约字段该怎么读」。
+    ///
+    /// * `ORDER_LINKED` —— `PURCHASE` / `SALES`：合同会挂采购单 / 销售单，
+    ///   `committed_amount` 等是**真值**；
+    /// * `NOT_APPLICABLE` —— `SERVICE` / `LEASE`：按口径**不挂**订单（订单侧类型闸只收
+    ///   `PURCHASE` / `SALES`），因此 `committed_amount=0` / `remaining_amount=amount` /
+    ///   `open_order_count=0` / `open_order_nos=[]` 是**正确值，不是「还没执行」**。
+    ///   前端必须按本字段渲染（不得显示 `0.00` / 0% 履约率），报表按
+    ///   `committed_amount` 算履约率前必须先过滤 `ORDER_LINKED`。
+    ///
+    /// 预留取值 `PAYMENT_PLAN`：合同付款计划成为履约单据后启用，见
+    /// 《合同类型开放口径-决策.md》§四 D3 与需求池 RP-2026-005。
+    ///
+    /// 取值由 `contract_model::commitment_scope_of` 单点决定（纯函数，别在 handler 里散字面量）。
+    pub commitment_scope: String,
     /// **已执行金额**（CTR-02 F6）：关联采购单 + 销售单的 `SUM(total_with_tax)`，现算。
     ///
     /// 与下单额度守卫（`purchase_model::committed_amount` /
     /// `sales_order_model::committed_amount`）**同一个口径**，所以「详情页的履约进度」
     /// 与「能不能再下单」永远对得上，前端别自己再 SUM 一遍。
     /// 口径细节（含作废 / 软删如何排除）见 `contract_model::ContractCommitment`。
+    ///
+    /// ⚠️ `commitment_scope = NOT_APPLICABLE`（服务 / 租赁）时**恒为 0**，这是正确值
+    /// （不挂订单），不是「尚未执行」；机器可读值照常返回，显示由前端按口径决定。
     pub committed_amount: Decimal,
     /// **剩余额度** = `amount - committed_amount`，现算。
     ///
@@ -881,6 +941,9 @@ impl From<&ContractRow> for ContractDetailRes {
             // CTR-02 F6 / F3：履约口径必须现算 SUM（本函数是纯函数、不查库），
             // 这里只给「一张单都没挂」的自洽默认值（已执行 0、剩余 = 合同额），
             // 真值由 `contract_handler::detail_of` 调 [`ContractDetailRes::apply_commitment`] 灌入。
+            // CTR-02-F1：口径本身是纯函数（按下单能力分叉），这里就能定，
+            // 服务 / 租赁 → NOT_APPLICABLE（`committed_amount=0` 是正确值，不是未执行）。
+            commitment_scope: contract_model::commitment_scope_of(&row.contract_type).to_string(),
             committed_amount: Decimal::ZERO,
             remaining_amount: row.amount,
             open_order_count: 0,
@@ -1057,55 +1120,60 @@ mod tests {
         );
     }
 
-    /// ⑧-1 SO-26：`SALES` 放开（校验通过），`SERVICE` / `LEASE` 仍被类型闸拒。
+    /// ⑧-1 CTR-02-F1：四类合同**全部放行**（`SERVICE` / `LEASE` 由类型闸放开），
+    /// 乙方类型各自推导正确（服务 / 租赁固定供应商）。
     #[test]
-    fn sales_is_supported_but_service_and_lease_are_not() {
-        assert_eq!(SUPPORTED_TYPES, ["PURCHASE", "SALES"], "放行集");
-
-        let sales = CreateContractReq {
-            contract_type: Some("SALES".to_string()),
-            ..base_req()
-        };
-        sales.validate().expect("SALES 必须放行（SO-26）");
+    fn all_four_types_are_supported() {
         assert_eq!(
-            sales.resolve_party_b_type().expect("推导"),
-            contract_model::PARTY_B_CUSTOMER
+            SUPPORTED_TYPES,
+            ["PURCHASE", "SALES", "SERVICE", "LEASE"],
+            "放行集与 CONTRACT_TYPES / ck_biz_contract_type 一致"
         );
+        assert_eq!(SUPPORTED_TYPES, CONTRACT_TYPES, "放行集与枚举白名单同值");
 
-        for unsupported in ["SERVICE", "LEASE"] {
-            assert!(
-                CONTRACT_TYPES.contains(&unsupported),
-                "{unsupported} 仍是合法枚举值"
-            );
+        for (contract_type, party_b_type) in [
+            ("PURCHASE", contract_model::PARTY_B_SUPPLIER),
+            ("SALES", contract_model::PARTY_B_CUSTOMER),
+            ("SERVICE", contract_model::PARTY_B_SUPPLIER),
+            ("LEASE", contract_model::PARTY_B_SUPPLIER),
+        ] {
             let req = CreateContractReq {
-                contract_type: Some(unsupported.to_string()),
+                contract_type: Some(contract_type.to_string()),
                 ..base_req()
             };
-            let err = req
-                .validate()
-                .expect_err("未开放的类型必须拒（合法枚举 ≠ 业务已开）");
-            assert_eq!(err.status, 400, "{unsupported}");
-            assert_eq!(err.code, error_code::PARAM_INVALID, "{unsupported}");
-            assert!(
-                err.msg.contains("PURCHASE") && err.msg.contains("SALES"),
-                "文案要点名放行集：{}",
-                err.msg
-            );
-            assert!(
-                err.msg.contains(unsupported),
-                "文案要点名被拒的类型：{}",
-                err.msg
-            );
+            req.validate()
+                .unwrap_or_else(|error| panic!("{contract_type} 必须放行：{}", error.msg));
             assert_eq!(
-                ensure_supported_type(unsupported)
-                    .expect_err("类型闸")
-                    .status,
-                400,
-                "纯函数同样拒"
+                req.resolve_party_b_type().expect("推导"),
+                party_b_type,
+                "{contract_type} 的乙方主档类型"
+            );
+            assert!(
+                ensure_supported_type(contract_type).is_ok(),
+                "{contract_type} 在放行集里"
             );
         }
-        assert!(ensure_supported_type("PURCHASE").is_ok());
-        assert!(ensure_supported_type("SALES").is_ok());
+    }
+
+    /// ⑧-1b 类型闸保留：未来新枚举（不在 `ck_biz_contract_type` 白名单）仍被拒，
+    /// 文案指向白名单而不是「本批次未开放」。
+    #[test]
+    fn unknown_future_type_still_rejected_by_type_gate() {
+        let err = ensure_supported_type("FRAMEWORK").expect_err("未来新枚举仍要拦");
+        assert_eq!(err.status, 400);
+        assert_eq!(err.code, error_code::PARAM_INVALID);
+        assert!(
+            err.msg.contains("ck_biz_contract_type"),
+            "文案要点明白名单：{}",
+            err.msg
+        );
+
+        let req = CreateContractReq {
+            contract_type: Some("FRAMEWORK".to_string()),
+            ..base_req()
+        };
+        let err = req.validate().expect_err("枚举闸先拦");
+        assert!(err.msg.contains("contract_type"), "{}", err.msg);
     }
 
     /// ⑧-2 `SALES` 显式传 `SUPPLIER` 乙方类型 → 400（推导与显式必须一致）。
@@ -1119,6 +1187,49 @@ mod tests {
         let err = req.resolve_party_b_type().expect_err("冲突必须拒");
         assert_eq!(err.status, 400);
         assert!(err.msg.contains("CUSTOMER"), "{}", err.msg);
+    }
+
+    /// ⑧-3 CTR-02-F1：`SERVICE` / `LEASE` 传 `CUSTOMER` → 400（单向强制走供应商主档）。
+    /// 文案按类型说清「服务商 / 出租方登记为供应商」，且不出现 SQLSTATE。
+    #[test]
+    fn service_and_lease_reject_customer_party_type() {
+        for (contract_type, label) in [("SERVICE", "服务"), ("LEASE", "租赁")] {
+            let req = CreateContractReq {
+                contract_type: Some(contract_type.to_string()),
+                party_b_type: Some(contract_model::PARTY_B_CUSTOMER.to_string()),
+                ..base_req()
+            };
+            let err = req
+                .resolve_party_b_type()
+                .expect_err("服务/租赁的乙方固定供应商");
+            assert_eq!(err.status, 400, "{contract_type}");
+            assert_eq!(err.code, error_code::PARAM_INVALID, "{contract_type}");
+            assert!(
+                err.msg.contains("SUPPLIER") && err.msg.contains(label),
+                "文案要说清为什么必须是 SUPPLIER：{}",
+                err.msg
+            );
+            assert!(
+                !err.msg.contains("SQLSTATE") && !err.msg.contains("23514"),
+                "不许把 DDL 错误透给前端：{}",
+                err.msg
+            );
+
+            // 纯函数出口同样拒（PUT 走的就是它）
+            let pure = ensure_party_b_type(contract_type, contract_model::PARTY_B_CUSTOMER)
+                .expect_err("纯函数同样拒");
+            assert_eq!(pure.status, 400);
+            assert_eq!(
+                ensure_party_b_type(contract_type, contract_model::PARTY_B_SUPPLIER)
+                    .expect("供应商放行"),
+                contract_model::PARTY_B_SUPPLIER
+            );
+            // 第三个值也不许过
+            assert!(ensure_party_b_type(contract_type, "VENDOR").is_err());
+        }
+        // 销售侧反向：CUSTOMER 才是对的
+        assert!(ensure_party_b_type("SALES", contract_model::PARTY_B_CUSTOMER).is_ok());
+        assert!(ensure_party_b_type("SALES", contract_model::PARTY_B_SUPPLIER).is_err());
     }
 
     /// ⑨ 分页口径：默认 1/20，上限 100。
@@ -1183,17 +1294,16 @@ mod tests {
         assert_eq!(missing.target().expect_err("缺目标态").status, 400);
     }
 
-    /// ⑫ 列表行两个名称字段恒等（防「只改一边」的漂移）。
-    #[test]
-    fn list_row_exposes_both_name_spellings() {
-        let row = ContractRow {
+    /// 造一行 `ContractRow`（纯结构，不连库）：`contract_type` 可变，其余固定。
+    fn contract_row_with_type(contract_type: &str) -> ContractRow {
+        ContractRow {
             id: Uuid::now_v7(),
             contract_no: "HT-20261102-000001".to_string(),
             contract_name: "A2 双写合同".to_string(),
-            contract_type: "PURCHASE".to_string(),
+            contract_type: contract_type.to_string(),
             party_a_id: None,
             party_a_name: None,
-            party_b_type: contract_model::PARTY_B_SUPPLIER.to_string(),
+            party_b_type: contract_model::required_party_b_type(contract_type).to_string(),
             party_b_id: Uuid::now_v7(),
             party_b_name: "乙方快照".to_string(),
             party_b_current_name: Some("乙方现值".to_string()),
@@ -1212,7 +1322,13 @@ mod tests {
             update_by: None,
             deleted_at: None,
             approval_instance_id: None,
-        };
+        }
+    }
+
+    /// ⑫ 列表行两个名称字段恒等（防「只改一边」的漂移）。
+    #[test]
+    fn list_row_exposes_both_name_spellings() {
+        let row = contract_row_with_type("PURCHASE");
         let res = ContractRes::from(&row);
         assert_eq!(
             res.name, res.contract_name,
@@ -1234,5 +1350,39 @@ mod tests {
             vec!["PENDING_APPROVAL".to_string()],
             "去向由状态机给（R-P1-1：草稿只能提交审批）"
         );
+        assert_eq!(
+            detail.commitment_scope,
+            contract_model::COMMITMENT_SCOPE_ORDER_LINKED,
+            "采购合同挂采购单 → 履约字段是真值"
+        );
+    }
+
+    /// ⑫-1 CTR-02-F1：详情按合同类型给 `commitment_scope`；服务 / 租赁的 0 是**正确值**，
+    /// 前端靠这个字段决定「不渲染 0.00」（不是靠 `committed_amount == 0` 猜）。
+    #[test]
+    fn detail_commitment_scope_is_not_applicable_for_service_and_lease() {
+        for contract_type in ["SERVICE", "LEASE"] {
+            let detail = ContractDetailRes::from(&contract_row_with_type(contract_type));
+            assert_eq!(
+                detail.commitment_scope,
+                contract_model::COMMITMENT_SCOPE_NOT_APPLICABLE,
+                "{contract_type} 不挂订单 → 口径不适用"
+            );
+            assert_eq!(
+                detail.committed_amount,
+                Decimal::ZERO,
+                "不适用时 0 是正确值"
+            );
+            assert_eq!(detail.remaining_amount, detail.base.amount, "剩余 = 合同额");
+            assert_eq!(detail.open_order_count, 0);
+            assert!(detail.open_order_nos.is_empty());
+        }
+        for contract_type in ["PURCHASE", "SALES"] {
+            assert_eq!(
+                ContractDetailRes::from(&contract_row_with_type(contract_type)).commitment_scope,
+                contract_model::COMMITMENT_SCOPE_ORDER_LINKED,
+                "{contract_type} 挂订单 → 履约字段是真值"
+            );
+        }
     }
 }

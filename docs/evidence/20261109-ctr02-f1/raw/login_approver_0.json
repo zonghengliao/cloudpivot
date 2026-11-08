@@ -1,0 +1,16 @@
+{
+  "code": 0,
+  "msg": "ok",
+  "data": {
+    "access_token": "<redacted>",
+    "refresh_token": "<redacted>",
+    "token_type": "Bearer",
+    "expires_in": 900,
+    "user": {
+      "id": "01a1bd23-de6e-746b-957a-b29c2e8995cf",
+      "username": "ctr02f1_approver",
+      "real_name": "CTR02F1 审批人"
+    },
+    "must_change_password": false
+  }
+}

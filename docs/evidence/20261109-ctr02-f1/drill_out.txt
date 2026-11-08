@@ -1,0 +1,97 @@
+== 环境：http://127.0.0.1:18228/api 库=cloudpivot_ctr02 业务日=2026-11-09 到期档=2026-11-16
+   bin_sha256=0891c381e06e1281e77fb4f70aa7bf8ad006629bce61a266e3c7bee2c026dffa
+
+S0 认证与审批人（制单人 admin ≠ 审批人 ctr02f1_approver）
+  ✅ 种子 admin 登录 HTTP=200
+  ✅ admin 首登改密 = 0
+  ✅ admin token 已取得
+  ✅ 审批人账号创建 = 0
+  ✅ 审批人 token 已取得 id=01a1bd23-de6e-746b-957a-b29c2e8995cf
+
+S1 主数据：启用供应商 + 随后停用的供应商
+  ✅ 供应商 SUP-0002 id=01a1bd23-e0ed-75f4-93d5-cad114cd93d3
+  ✅ 停用负例供应商 id=01a1bd23-e0fe-777a-922b-635671ed0b37
+  ✅ 停用供应商（status=0） = 0
+  ✅ 库里 status 已置 0 = 0
+
+S2 建合同：PURCHASE 对照 / SERVICE / LEASE；负例：CUSTOMER 乙方、停用供应商
+  ✅ PURCHASE 对照合同 HT-20261109-000001 id=01a1bd23-e12d-7645-b159-6a9083743c7c
+  ✅ SERVICE 合同建档 HT-20261109-000002 id=01a1bd23-e142-7600-9b9b-c55bbd152139
+  ✅ SERVICE 乙方类型 = SUPPLIER
+  ✅ SERVICE 初始状态 = DRAFT
+  ✅ SERVICE 合同号格式 HT-20261109-000002
+  ✅ LEASE 合同建档 HT-20261109-000003 id=01a1bd23-e15c-7582-8681-4e151ac88852 到期=2026-11-16
+  ✅ LEASE 乙方类型 = SUPPLIER
+  ✅ LEASE 合同号格式 HT-20261109-000003
+  -- 负例①：SERVICE 传 party_b_type=CUSTOMER
+  ✅ SERVICE + CUSTOMER HTTP=400
+  ✅ SERVICE + CUSTOMER 错误码 code=10001
+     文案：服务（SERVICE）合同的乙方类型必须是 SUPPLIER（服务商在系统中登记为供应商），与 party_b_type=`CUSTOMER` 冲突
+  ✅ 文案说清「必须是 SUPPLIER / 服务商登记为供应商」
+  ✅ 文案不含 SQLSTATE / CHECK 违例
+  ✅ 负例未落库 = 0
+  -- 负例②：LEASE 传 party_b_type=CUSTOMER
+  ✅ LEASE + CUSTOMER HTTP=400
+  ✅ LEASE + CUSTOMER 错误码 code=10001
+  -- 负例③：SERVICE 乙方供应商已停用
+  ✅ SERVICE + 停用供应商 HTTP=400
+  ✅ SERVICE + 停用供应商 错误码 code=66021
+     文案：乙方供应商 01a1bd23-e0fe-777a-922b-635671ed0b37 不存在、已删除或已停用（V-11：停用供应商不得新签合同）
+  ✅ 文案点名「已停用」（party_b_ref_for_new 口径不回退）
+
+S3 草稿改单（PUT）：乙方类型与（冻结的）合同类型不符 → 400；相符 → 200
+  ✅ PUT SERVICE + CUSTOMER HTTP=400
+  ✅ PUT SERVICE + CUSTOMER 错误码 code=10001
+     文案：服务（SERVICE）合同的乙方类型必须是 SUPPLIER（服务商在系统中登记为供应商），与 party_b_type=`CUSTOMER` 冲突
+  ✅ 被拒后合同仍 DRAFT = DRAFT
+  ✅ 被拒后备注未被改 = CTR-02-F1 服务合同（<10 万，单级审批）
+  ✅ PUT SERVICE + SUPPLIER HTTP=200
+  ✅ 改后备注 = CTR-02-F1 服务合同（草稿改备注，乙方类型显式 SUPPLIER）
+
+S4 详情履约口径：PURCHASE=ORDER_LINKED；SERVICE/LEASE=NOT_APPLICABLE 且 committed_amount=0
+  ✅ PURCHASE commitment_scope = ORDER_LINKED
+  ✅ SERVICE commitment_scope = NOT_APPLICABLE
+  ✅ SERVICE committed_amount = 0
+  ✅ SERVICE remaining_amount=合同额 = 50000.0000
+  ✅ SERVICE open_order_count = 0
+  ✅ SERVICE open_order_nos 为空数组 = 0
+  ✅ LEASE commitment_scope = NOT_APPLICABLE
+  ✅ LEASE committed_amount = 0
+  ✅ 列表接口可用（3 行） = 3
+  ✅ 列表行未带履约金额（口径只在详情） = false
+
+S5 提交审批：contract_approve 阈值 10 万不变、不按类型分流
+  ✅ SERVICE 提交后状态 = PENDING_APPROVAL
+  ✅ SERVICE 审批实例状态 = PENDING
+  ✅ SERVICE 首节点 = n_pm（单级） = n_pm
+  ✅ SERVICE 只有 1 个待办（单级） = 1
+  ✅ 负例：制单人自批 HTTP=403
+  ✅ SERVICE 审批通过 task=01a1bd23-e280-75e9-8785-8d49458bc962（第 1 轮）
+  ✅ SERVICE 审批轮次（<10 万单级） = 1
+  ✅ SERVICE 实例 APPROVED = APPROVED
+  ✅ SERVICE 合同 SIGNED = SIGNED
+  ✅ LEASE 提交后状态 = PENDING_APPROVAL
+  ✅ LEASE 首节点 = n_pm_hi（≥10 万第一级） = n_pm_hi
+  ✅ LEASE 审批通过 task=01a1bd23-e3bd-76d7-b534-ed2f9ddbb703（第 1 轮）
+  ✅ LEASE 审批通过 task=01a1bd23-e446-774e-a8d6-ffed464df5bd（第 2 轮）
+  ✅ LEASE 审批轮次（≥10 万两级） = 2
+  ✅ LEASE 审批节点顺序 = n_pm_hi,n_gm,
+  ✅ LEASE 实例 APPROVED = APPROVED
+  ✅ LEASE 合同 SIGNED = SIGNED
+
+S6 到期提醒：LEASE 合同 end_date=2026-11-16 应被 erp_contract_expire_scan 命中（D-7 档）
+  ✅ 提醒扫描 HTTP=200
+  ✅ 扫描调用成功 = 0
+     扫描结果：{"kind":"contract_expire","task":"erp_contract_expire_scan","scanned":1,"sent":1,"skipped_reminded":0,"skipped_recent":0,"skipped_no_recipient":0,"failed":0,"summary":"erp_contract_expire_scan: scanned=1 sent=1 skipped_reminded=0 skipped_recent=0 skipped_no_recipient=0 failed=0"}
+  ✅ 扫描命中 ≥1 张合同
+  ✅ LEASE 提醒台账新增 1 行（0 → 1） = 1
+  ✅ 台账档位 = D-7 = D-7
+  ✅ 台账 kind = CONTRACT_EXPIRE = CONTRACT_EXPIRE
+  ✅ 二次扫描 sent=0（台账幂等） = 0
+  ✅ 二次扫描后台账仍 1 行 = 1
+
+S7 收口：合同表快照 + 合同链不记账
+
+================ 断言汇总 ================
+PASS=68 FAIL=0
+全绿 ✅   （证据：/opt/cloudpivot/docs/evidence/20261109-ctr02-f1/raw/ 与 assert.txt）

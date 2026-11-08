@@ -1,0 +1,6 @@
+--- select contract_no||'|'||contract_type||'|'||party_b_type||'|'||status||'|'||amount||'|'||coalesce(end_date::text,'-') from biz_contract order by contract_no
+HT-20261109-000001|PURCHASE|SUPPLIER|DRAFT|50000.0000|2027-11-09
+HT-20261109-000002|SERVICE|SUPPLIER|DRAFT|50000.0000|2027-11-09
+HT-20261109-000003|LEASE|SUPPLIER|DRAFT|120000.0000|2026-11-16
+--- select 'count='||count(*) from biz_contract
+count=3

@@ -1,0 +1,1 @@
+{"code":10001,"msg":"租赁（LEASE）合同的乙方类型必须是 SUPPLIER（出租方在系统中登记为供应商），与 party_b_type=`CUSTOMER` 冲突"}

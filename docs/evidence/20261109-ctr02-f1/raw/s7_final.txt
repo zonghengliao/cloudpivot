@@ -1,0 +1,10 @@
+--- select contract_no||'|'||contract_type||'|'||party_b_type||'|'||party_b_name||'|'||status||'|'||amount from biz_contract order by contract_no
+HT-20261109-000001|PURCHASE|SUPPLIER|CTR02F1 演练服务商（供应商）|DRAFT|50000.0000
+HT-20261109-000002|SERVICE|SUPPLIER|CTR02F1 演练服务商（供应商）|SIGNED|50000.0000
+HT-20261109-000003|LEASE|SUPPLIER|CTR02F1 演练服务商（供应商）|SIGNED|120000.0000
+--- select 'voucher='||count(*) from biz_voucher
+voucher=0
+--- select 'inv_txn='||count(*) from biz_inventory_txn
+inv_txn=0
+--- select 'reminder_log='||count(*) from biz_reminder_log where doc_type='CONTRACT'
+reminder_log=1

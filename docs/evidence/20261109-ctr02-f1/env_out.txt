@@ -1,0 +1,9 @@
+✅ 实例健康 health=200 port=18228 pid=1893619 log=/tmp/ctr02f1_app.log
+--- 环境指纹
+bin_sha256=0891c381e06e1281e77fb4f70aa7bf8ad006629bce61a266e3c7bee2c026dffa
+git_head=356c57db5c588f68562983a70146c6c785ca7472
+worktree_dirty= M backend/src/business/erp/contract_dto.rs; M backend/src/business/erp/contract_handler.rs; M backend/src/business/erp/contract_model.rs;
+migrations=285
+max_migration=91
+seed=users=1 sup=1 cust=3 contract=0 job=7
+health_body={"code":0,"msg":"ok","data":{"status":"ok","app":"cloudpivot","profile":"test","time":"2026-11-08T21:48:21.271000885+00:00"}}

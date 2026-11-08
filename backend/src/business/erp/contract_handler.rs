@@ -67,7 +67,7 @@ use crate::business::erp::approval_gate;
 use crate::business::erp::contract_bridge;
 use crate::business::erp::contract_dto::{
     ContractDetailRes, ContractFilter, ContractRes, ContractStatusReq, CreateContractReq,
-    UpdateContractReq, normalize_page, parse_optional_uuid, parse_uuid_text,
+    UpdateContractReq, ensure_party_b_type, normalize_page, parse_optional_uuid, parse_uuid_text,
 };
 use crate::business::erp::contract_linkage;
 use crate::business::erp::contract_model::{self, ContractMut, STATUS_DRAFT};
@@ -384,9 +384,11 @@ pub async fn contract_detail(Path(id): Path<String>) -> ResResult<ContractDetail
 ///
 /// # 处理链
 ///
-/// 1. 纯入参校验（必填 / 长度 / 枚举 / **类型闸**（`PURCHASE`/`SALES`，`SERVICE`/`LEASE` 拒）
-///    / 金额 > 0 / 日期顺序 / 签订 ≤ 生效）；
-/// 2. 乙方类型：`SALES` 推导为 `CUSTOMER`（`party_b_id → biz_customer.id`），其余 `SUPPLIER`；
+/// 1. 纯入参校验（必填 / 长度 / 枚举 / **类型闸**（`PURCHASE`/`SALES`/`SERVICE`/`LEASE`
+///    四类全开，见 `contract_dto::SUPPORTED_TYPES`）/ 金额 > 0 / 日期顺序 / 签订 ≤ 生效）；
+/// 2. 乙方类型：`SALES` 推导为 `CUSTOMER`（`party_b_id → biz_customer.id`），其余
+///    （含 `SERVICE` / `LEASE`）为 `SUPPLIER`；显式值与推导冲突 → 400
+///    （`contract_dto::ensure_party_b_type`）；
 /// 3. 乙方解析：`party_b_ref_for_new`（供应商 `status = 1`、客户 `status = 'ACTIVE'`）
 ///    → 无 → `66021`；
 /// 4. 同一事务里取号 + 插入（取号与插入必须同事务，否则回滚会吃掉一个号，
@@ -394,7 +396,8 @@ pub async fn contract_detail(Path(id): Path<String>) -> ResResult<ContractDetail
 ///
 /// # 异常情况
 ///
-/// - 400 + `10001`：入参不合法 / 类型未开放；400 + `66021`：乙方不存在 / 已删 / 停用或冻结；
+/// - 400 + `10001`：入参不合法 / 类型不在放行集 / 乙方类型与合同类型冲突；
+///   400 + `66021`：乙方不存在 / 已删 / 停用或冻结；
 /// - 409 + `66017`：合同号重复（唯一索引兜底）；
 /// - 500：数据库异常。
 #[nik::permission(
@@ -407,7 +410,7 @@ pub async fn contract_create(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Json(req): Json<CreateContractReq>,
 ) -> ResResult<ContractDetailRes> {
-    // 含类型闸：`SERVICE` / `LEASE` 是合法枚举但未开放 → 400 点名放行集（SO-26）
+    // 含类型闸：四类全开（CTR-02-F1），闸保留给未来新枚举
     req.validate()?;
 
     let party_b_type = req.resolve_party_b_type()?;
@@ -513,6 +516,20 @@ pub async fn contract_update(
         let label = contract_model::status_label(&current.status);
         let _ = tx.rollback().await;
         return Err(field_locked(&current.status, label));
+    }
+
+    // CTR-02-F1：乙方类型必须与（已签冻结的）合同类型配对 —— 服务 / 租赁固定供应商。
+    // 改单不解冻 `contract_type`（V-19），所以用**库里的** `contract_type` 判定；
+    // 客户端显式传了 `party_b_type` 但值不对 → 400（不静默忽略）。
+    if let Some(raw) = req
+        .party_b_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        && let Err(error) = ensure_party_b_type(&current.contract_type, raw)
+    {
+        let _ = tx.rollback().await;
+        return Err(error);
     }
 
     // ---- 合并成「最终值」再校验：只改 end_date 也可能把区间改反 ----

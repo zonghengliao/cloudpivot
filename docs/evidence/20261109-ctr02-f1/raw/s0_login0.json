@@ -1,0 +1,16 @@
+{
+  "code": 0,
+  "msg": "ok",
+  "data": {
+    "access_token": "<redacted>",
+    "refresh_token": "<redacted>",
+    "token_type": "Bearer",
+    "expires_in": 900,
+    "user": {
+      "id": "01a1bd21-ed24-7783-af6b-e6a18a4c5973",
+      "username": "admin",
+      "real_name": "超级管理员"
+    },
+    "must_change_password": true
+  }
+}
