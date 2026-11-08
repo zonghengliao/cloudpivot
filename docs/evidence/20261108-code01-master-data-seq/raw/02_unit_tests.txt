@@ -1,0 +1,15 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.29s
+     Running unittests src/lib.rs (/root/code01-target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 8 tests
+test business::erp::seq::tests::t01_format_master_code_pads_by_width ... ok
+test business::erp::seq::tests::t02_exists_sql_covers_exactly_six_types ... ok
+test business::erp::seq::tests::t03_seeded_rules_match_spec ... ok
+test business::erp::seq::tests::t04_consecutive_takes_increment ... ok
+test business::erp::seq::tests::t05_two_digit_pad_and_overflow ... ok
+test business::erp::seq::tests::t06_concurrent_ten_takes_never_duplicate ... ok
+test business::erp::seq::tests::t07_free_code_skips_taken_codes ... ok
+test business::erp::seq::tests::t08_unknown_and_missing_rule_errors ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 3415 filtered out; finished in 2.21s
+

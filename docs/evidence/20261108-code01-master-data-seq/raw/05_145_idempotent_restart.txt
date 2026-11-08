@@ -1,0 +1,7 @@
+== 重启后 health=200
+Nov 08 09:40:47 ubuntu-svr cloudpivot-test[516297]: 2026-11-08T01:40:47.981591Z  INFO nik_web::app: 数据库迁移完成: 应用 0 个迁移
+Nov 08 09:41:22 ubuntu-svr cloudpivot-test[516799]: 2026-11-08T01:41:22.062806Z  INFO nik_web::app: 数据库迁移完成: 应用 0 个迁移
+== 第二次启动后六类行数（应仍为 6）
+6
+== schema_migrations 里 version=337 的记录数（应仍为 1）
+1

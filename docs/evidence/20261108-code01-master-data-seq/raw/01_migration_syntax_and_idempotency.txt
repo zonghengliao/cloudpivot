@@ -1,0 +1,25 @@
+──── 第一遍 up ────
+psql:/root/code01-src2/backend/migrations/business/V0337__master_data_seq.up.sql:114: NOTICE:  V0337 自检通过：6 条主数据取号规则就位（date_pattern=none / period_key=GLOBAL / pad_width 4:4:4:2:2:2）
+行数（六类）= 6
+──── 第二遍 up（幂等） ────
+psql:/root/code01-src2/backend/migrations/business/V0337__master_data_seq.up.sql:43: NOTICE:  column "pad_width" of relation "biz_seq" already exists, skipping
+psql:/root/code01-src2/backend/migrations/business/V0337__master_data_seq.up.sql:114: NOTICE:  V0337 自检通过：6 条主数据取号规则就位（date_pattern=none / period_key=GLOBAL / pad_width 4:4:4:2:2:2）
+行数（六类，应仍为 6）= 6
+──── 明细 ────
+ seq_type | prefix | date_pattern | period_key | current_no | step | separator | status | pad_width 
+----------+--------+--------------+------------+------------+------+-----------+--------+-----------
+ AC       | AC     | none         | GLOBAL     |          0 |    1 | -         |      1 |         2
+ CUS      | CUS    | none         | GLOBAL     |          0 |    1 | -         |      1 |         4
+ ET       | ET     | none         | GLOBAL     |          0 |    1 | -         |      1 |         2
+ MAT      | MAT    | none         | GLOBAL     |          0 |    1 | -         |      1 |         4
+ PO       | PO     | yyyyMMdd     |            |          0 |    1 | -         |      1 |         4
+ SUP      | SUP    | none         | GLOBAL     |          0 |    1 | -         |      1 |         4
+ WH       | WH     | none         | GLOBAL     |          0 |    1 | -         |      1 |         2
+(7 rows)
+
+──── down ────
+行数（down 后，应剩 PO 一条）= 1
+pad_width 列（down 后应为 0）= 0
+──── 再 up（down 后可重放） ────
+psql:/root/code01-src2/backend/migrations/business/V0337__master_data_seq.up.sql:114: NOTICE:  V0337 自检通过：6 条主数据取号规则就位（date_pattern=none / period_key=GLOBAL / pad_width 4:4:4:2:2:2）
+行数（再 up 后，应为 7 = 6 主数据 + PO）= 7

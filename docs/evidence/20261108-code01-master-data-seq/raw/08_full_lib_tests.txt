@@ -1,0 +1,66 @@
+### 全量 lib 回归（ERP_DB_URL 指向本机新建空库 cloudpivot_code01，已跑完 V0001–V0337 全部迁移）
+
+test result: FAILED. 3402 passed; 21 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1571.07s
+
+### 21 条失败（全部与 biz_seq/seq.rs 无关：空库缺 demo 用户 + 既有联动白名单漂移）
+---- business::erp::asset_linkage_tests::lnk09_cancel_disposal_triggers_restore_notice stdout ----
+thread 'business::erp::asset_linkage_tests::lnk09_cancel_disposal_triggers_restore_notice' (4160862) panicked at src/business/erp/asset_linkage_tests.rs:195:28:
+---- business::erp::asset_linkage_tests::lnk09_disposal_triggers_disposed_notice stdout ----
+thread 'business::erp::asset_linkage_tests::lnk09_disposal_triggers_disposed_notice' (4160888) panicked at src/business/erp/asset_linkage_tests.rs:195:28:
+---- business::erp::asset_linkage_tests::lnk09_excluded_voucher_actions_never_run stdout ----
+thread 'business::erp::asset_linkage_tests::lnk09_excluded_voucher_actions_never_run' (4160912) panicked at src/business/erp/asset_linkage_tests.rs:195:28:
+---- business::erp::asset_linkage_tests::lnk09_repeat_disposal_does_not_trigger_twice stdout ----
+thread 'business::erp::asset_linkage_tests::lnk09_repeat_disposal_does_not_trigger_twice' (4160937) panicked at src/business/erp/asset_linkage_tests.rs:195:28:
+---- business::erp::asset_linkage_tests::lnk09_rolled_back_tx_never_sends_notice stdout ----
+thread 'business::erp::asset_linkage_tests::lnk09_rolled_back_tx_never_sends_notice' (4160962) panicked at src/business/erp/asset_linkage_tests.rs:195:28:
+---- business::erp::asset_linkage_tests::st02_dispose_restore_dispose_notifies_twice stdout ----
+thread 'business::erp::asset_linkage_tests::st02_dispose_restore_dispose_notifies_twice' (4160989) panicked at src/business/erp/asset_linkage_tests.rs:195:28:
+---- business::erp::asset_linkage_tests::st02_enable_triggers_once stdout ----
+thread 'business::erp::asset_linkage_tests::st02_enable_triggers_once' (4161046) panicked at src/business/erp/asset_linkage_tests.rs:195:28:
+---- business::erp::asset_linkage_tests::st02_excluded_actions_not_run stdout ----
+thread 'business::erp::asset_linkage_tests::st02_excluded_actions_not_run' (4161072) panicked at src/business/erp/asset_linkage_tests.rs:195:28:
+---- business::erp::asset_linkage_tests::st02_idle_triggers_once stdout ----
+thread 'business::erp::asset_linkage_tests::st02_idle_triggers_once' (4161096) panicked at src/business/erp/asset_linkage_tests.rs:195:28:
+---- business::erp::asset_linkage_tests::st02_repeat_idle_conflicts stdout ----
+thread 'business::erp::asset_linkage_tests::st02_repeat_idle_conflicts' (4161121) panicked at src/business/erp/asset_linkage_tests.rs:195:28:
+---- business::erp::asset_linkage_tests::st02_reversible_edges_notify_twice stdout ----
+thread 'business::erp::asset_linkage_tests::st02_reversible_edges_notify_twice' (4161147) panicked at src/business/erp/asset_linkage_tests.rs:195:28:
+---- business::erp::expense_linkage_tests::lnk05_approve_triggers_linkage_notice_and_single_voucher stdout ----
+thread 'business::erp::expense_linkage_tests::lnk05_approve_triggers_linkage_notice_and_single_voucher' (4166051) panicked at src/business/erp/expense_linkage_tests.rs:155:47:
+---- business::erp::expense_linkage_tests::lnk05_cancel_triggers_linkage_notice stdout ----
+thread 'business::erp::expense_linkage_tests::lnk05_cancel_triggers_linkage_notice' (4166060) panicked at src/business/erp/expense_linkage_tests.rs:155:47:
+---- business::erp::expense_linkage_tests::lnk05_pay_triggers_only_on_full_payment stdout ----
+thread 'business::erp::expense_linkage_tests::lnk05_pay_triggers_only_on_full_payment' (4166069) panicked at src/business/erp/expense_linkage_tests.rs:155:47:
+---- business::erp::expense_linkage_tests::lnk05_reject_reverts_to_draft_and_triggers stdout ----
+thread 'business::erp::expense_linkage_tests::lnk05_reject_reverts_to_draft_and_triggers' (4166077) panicked at src/business/erp/expense_linkage_tests.rs:155:47:
+---- business::erp::expense_linkage_tests::lnk05_repeat_submit_and_pay_do_not_trigger_twice stdout ----
+thread 'business::erp::expense_linkage_tests::lnk05_repeat_submit_and_pay_do_not_trigger_twice' (4166085) panicked at src/business/erp/expense_linkage_tests.rs:155:47:
+---- business::erp::expense_linkage_tests::lnk05_submit_triggers_linkage_notice stdout ----
+thread 'business::erp::expense_linkage_tests::lnk05_submit_triggers_linkage_notice' (4166094) panicked at src/business/erp/expense_linkage_tests.rs:155:47:
+---- business::erp::stockin_handler::stockin_handler_tests_p16::p16_graph_snapshot_selfcheck_is_clean stdout ----
+thread 'business::erp::stockin_handler::stockin_handler_tests_p16::p16_graph_snapshot_selfcheck_is_clean' (7773) panicked at src/business/erp/stockin_handler_tests_p16.rs:784:5:
+---- business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag stdout ----
+thread 'business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag' (28912) panicked at src/business/flow/linkage/admin.rs:1159:9:
+---- business::flow::linkage::tests_wiring::trigger_specs_cover_whitelist_in_order stdout ----
+thread 'business::flow::linkage::tests_wiring::trigger_specs_cover_whitelist_in_order' (29448) panicked at src/business/flow/linkage/tests_wiring.rs:114:5:
+---- business::flow::linkage::tests_wiring::wired_triggers_match_call_sites stdout ----
+thread 'business::flow::linkage::tests_wiring::wired_triggers_match_call_sites' (29451) panicked at src/business/flow/linkage/tests_wiring.rs:227:5:
+
+### 失败原因原文（代表 3 条）
+---- business::erp::asset_linkage_tests::lnk09_disposal_triggers_disposed_notice stdout ----
+
+thread 'business::erp::asset_linkage_tests::lnk09_disposal_triggers_disposed_notice' (4160888) panicked at src/business/erp/asset_linkage_tests.rs:195:28:
+库里没有部门（先跑基础种子迁移）
+
+---- business::erp::asset_linkage_tests::lnk09_excluded_voucher_actions_never_run stdout ----
+---- business::erp::expense_linkage_tests::lnk05_submit_triggers_linkage_notice stdout ----
+
+thread 'business::erp::expense_linkage_tests::lnk05_submit_triggers_linkage_notice' (4166094) panicked at src/business/erp/expense_linkage_tests.rs:155:47:
+库里必须有一名带部门的用户
+
+---- business::erp::stockin_handler::stockin_handler_tests_p16::p16_graph_snapshot_selfcheck_is_clean stdout ----
+---- business::erp::stockin_handler::stockin_handler_tests_p16::p16_graph_snapshot_selfcheck_is_clean stdout ----
+
+thread 'business::erp::stockin_handler::stockin_handler_tests_p16::p16_graph_snapshot_selfcheck_is_clean' (7773) panicked at src/business/erp/stockin_handler_tests_p16.rs:784:5:
+审批图自检必须 0 漂移（行 / 快照 / graph_hash 三方对账）：flow_graph_selfcheck: batches=1 versions=22 drifted=1 missing_hash=0 failed=0 audit_failed=0 | [Drift { version_id: 20000000-0000-4000-8000-0000000e0332, def_id: 20000000-0000-4000-8000-0000000e0331, flow_code: "prt_approve", version_no: 1, kind: RowsEdited, stored_hash: "9debbf67fd8f3404a828bd626c614753b308b70e8b7de49c212b86869842507c", recomputed_hash: "7cd8074808f0be0289f777d74a8d272f6b17525a84ee5718ef32b44146f3fd1e", snapshot_hash: Some("9debbf67fd8f3404a828bd626c614753b308b70e8b7de49c212b86869842507c") }]
+

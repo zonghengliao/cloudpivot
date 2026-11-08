@@ -1,0 +1,27 @@
+### 一、门禁口径 cargo clippy --lib --tests -- -D warnings （2026-11-08，HEAD 555337e 的 clone）
+
+$ cargo clippy --lib --tests -- -D warnings
+error: this function has too many arguments (8/7)
+   --> src/business/erp/sales_order_model.rs:699:1
+    |
+--
+error: could not compile `cloudpivot` (lib) due to 1 previous error
+
+>>> 结论：唯一 1 条 error 在 src/business/erp/sales_order_model.rs:699（too_many_arguments，bfd275a 起就在 HEAD 上，本卡未改该文件）
+
+### 二、把「既有」告警放行后，本卡改动零告警
+
+$ cargo clippy --lib --tests -- -D warnings -A clippy::too_many_arguments -A clippy::useless_format -A clippy::partialeq_to_none -A clippy::cloned_ref_to_slice_refs -A clippy::format_in_format_args
+    Checking cloudpivot v0.1.0 (/root/code01-src2/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 09s
+
+>>> exit=0；日志里 seq.rs 命中 0 次
+
+### 三、HEAD 上既有的 7 条 test-target 告警（全都不在本卡文件里）
+   --> src/business/erp/asset_linkage.rs:423:33
+   --> src/business/erp/fx_revaluation.rs:788:13
+    --> src/business/erp/opening.rs:2738:43
+   --> src/business/erp/purchase_requisition_dto.rs:864:36
+    --> src/business/erp/voucher.rs:5258:74
+    --> src/business/erp/voucher.rs:5287:13
+   --> src/business/erp/year_end_linkage_tests.rs:214:17

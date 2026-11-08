@@ -1,0 +1,20 @@
+== profile/db: profile=dev db=cloudpivot_dev user=cloudpivot listen=127.0.0.1:8033
+== 迁移水位
+337
+== V0337 是否已应用（schema_migrations）
+master_data_seq / version=337 / seq=278
+== 六类主数据规则
+ seq_type | prefix | date_pattern | period_key | current_no | step | separator | status | pad_width 
+----------+--------+--------------+------------+------------+------+-----------+--------+-----------
+ AC       | AC     | none         | GLOBAL     |          0 |    1 | -         |      1 |         2
+ CUS      | CUS    | none         | GLOBAL     |          0 |    1 | -         |      1 |         4
+ ET       | ET     | none         | GLOBAL     |          0 |    1 | -         |      1 |         2
+ MAT      | MAT    | none         | GLOBAL     |          0 |    1 | -         |      1 |         4
+ SUP      | SUP    | none         | GLOBAL     |          0 |    1 | -         |      1 |         4
+ WH       | WH     | none         | GLOBAL     |          0 |    1 | -         |      1 |         2
+(6 rows)
+
+== 汇总断言（应 6 行 / date_pattern 全 none / period_key 全 GLOBAL）
+6 行, 位数=AC:2,CUS:4,ET:2,MAT:4,SUP:4,WH:2
+== health
+HTTP 200
