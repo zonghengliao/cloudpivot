@@ -141,10 +141,11 @@ table.detail td.c-spec { overflow-wrap: anywhere; }
   padding: 3pt 5pt;
 }
 .summary .label {
-  width: 84pt;
+  width: 92pt;
   text-align: center;
   background: #f2f3f5;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 /* ---------- 填表说明 ---------- */
@@ -257,8 +258,8 @@ table.detail td.c-spec { overflow-wrap: anywhere; }
       <td class="num">{{ total_gain_qty }}</td>
       <td class="label">盘亏数量合计</td>
       <td class="num">{{ total_loss_qty }}</td>
-      <td class="label">差异金额合计（{{ currency }}）</td>
-      <td class="num">{{ total_diff_amount }}</td>
+      <td class="label">差异金额合计</td>
+      <td class="num">{{ total_diff_amount }} {{ currency }}</td>
     </tr>
 {% endif %}
   </table>
