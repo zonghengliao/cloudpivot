@@ -1,0 +1,69 @@
+[PASS] 实例健康（GET /health）  ok
+[PASS] admin 登录拿到 access_token  len=461
+[PASS] 合同导出 200  200
+[PASS] 合同 Content-Type = application/pdf  application/pdf
+[PASS] 合同文件名（中文走 RFC 5987）  attachment; filename="__-PDF03-HT-000001.pdf"; filename*=UTF-8''%E5%90%88%E5%90%8C-PDF03-HT-000001.pdf
+[PASS] 合同 PDF 文件头 %PDF-  b'%PDF-'
+[PASS] 合同多页（60 条条款 → 跨页）  pages=3
+[PASS] 合同含「甲方（盖章）」
+[PASS] 合同含「乙方（盖章）」
+[PASS] 合同含两个签署日期位  2
+[PASS] 合同含骑缝章提示
+[PASS] 合同含附件清单标题  附件清单（共2份）#附件名称类型大小上传人上传时间1PDF0
+[PASS] 附件清单列出第 1 个文件名
+[PASS] 附件清单列出第 2 个文件名
+[PASS] 附件角色标签（合同扫描件 / 补充协议）
+[PASS] 条款正文首条在（第1条）
+[PASS] 条款正文末条在（第60条）
+[PASS] 付款方式从正文识别
+[PASS] 合同金额小写
+[PASS] 合同金额大写
+[PASS] 合同期限
+[PASS] 合同每页页脚页码正确（第 X 页 / 共 Y 页）  [('1', '3'), ('2', '3'), ('3', '3')]
+[PASS] 入库单导出 200  200
+[PASS] 入库单 Content-Type = application/pdf  application/pdf
+[PASS] 入库单 PDF 文件头 %PDF-  b'%PDF-'
+[PASS] 入库单标题「收货入库单」
+[PASS] 入库单含供应商
+[PASS] 入库单含仓库
+[PASS] 入库单含来源单据号（采购单号）
+[PASS] 入库单含经办人
+[PASS] 入库单含批次号列
+[PASS] 入库单第一批次号 LOT-20261108-A
+[PASS] 入库单第二批次号 LOT-20261108-B
+[PASS] 入库单含库位 A-01-03
+[PASS] 入库单含序列号清单段
+[PASS] 入库单序列号 3 个全在
+[PASS] 入库单收货签字栏（收货人/质检/仓管/供应商送货人/制单）
+[PASS] 入库单合计价税合计 422.00
+[PASS] 入库单大写金额
+[PASS] 入库单页脚页码
+[PASS] 出库单导出 200  200
+[PASS] 出库单 Content-Type = application/pdf  application/pdf
+[PASS] 出库单跨页（50 行 > 1 页）  pages=2
+[PASS] 出库单标题「出库单」
+[PASS] 出库单含来源单据号（发货单号）
+[PASS] 出库单含客户
+[PASS] 出库单含出库事由
+[PASS] 出库单成本结转口径（无税额行）
+[PASS] 出库单发货签字栏（发货人/领用人/审核/制单）
+[PASS] 出库单每页都重复表头（物料编码/批次号）  [True, True]
+[PASS] 出库单序号 1..50 连续  unique=50
+[PASS] 出库单 50 行明细都在（MAT 出现 50 次）  50
+[PASS] 出库单页脚页码（含总页数）
+[PASS] 合同 PDF 字体全部嵌入（emb=yes）  AAAAAA+NotoSansSC-Bold               CID TrueType      Identity-H       yes yes yes      4  0
+[PASS] 合同 中文可无损抽取
+[PASS] 入库单 PDF 字体全部嵌入（emb=yes）  AAAAAA+NotoSansSC-Bold               CID TrueType      Identity-H       yes yes yes      4  0
+[PASS] 入库单 中文可无损抽取
+[PASS] 出库单 PDF 字体全部嵌入（emb=yes）  AAAAAA+NotoSansSC-Bold               CID TrueType      Identity-H       yes yes yes      4  0
+[PASS] 出库单 中文可无损抽取
+[PASS] 无权限角色就绪（PDF03_NO_PERM）  01a1bb02-4df0-7281-929e-c41dac3ad463
+[PASS] 无权限账号已存在（幂等跳过创建）  用户名已存在
+[PASS] 无权限账号可登录（证明不是 401 混成 403）  200
+[PASS] 无权导出 contract → 403 且点名权限码  403 无权限访问，需要权限: business:erp:contract:list
+[PASS] 无权导出 stock-in → 403 且点名权限码  403 无权限访问，需要权限: business:erp:stock-in:list
+[PASS] 无权导出 stock-out → 403 且点名权限码  403 无权限访问，需要权限: business:erp:stock-out:list
+[PASS] 不存在的合同 → 404  404
+[PASS] 非法 id → 400  400
+
+==== 汇总：67 项，失败 0 项 ====

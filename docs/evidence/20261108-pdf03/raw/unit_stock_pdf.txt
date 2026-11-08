@@ -1,0 +1,20 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 13 tests
+test business::erp::stock_pdf::db_tests::export_rejects_bad_uuid_before_query ... ok
+test business::erp::stock_pdf::db_tests::export_writes_operation_log_row ... ok
+test business::erp::stock_pdf::db_tests::manual_stock_out_has_no_source ... ok
+test business::erp::stock_pdf::db_tests::soft_deleted_stock_in_is_not_found ... ok
+test business::erp::stock_pdf::db_tests::stock_in_context_has_lot_and_serials ... ok
+test business::erp::stock_pdf::db_tests::stock_out_context_has_source_doc_no ... ok
+test business::erp::stock_pdf::tests::context_total_round_trips ... ok
+test business::erp::stock_pdf::tests::items_keep_seq_and_lot_and_location ... ok
+test business::erp::stock_pdf::tests::location_summary_buckets ... ok
+test business::erp::stock_pdf::tests::missing_master_data_degrades_gracefully ... ok
+test business::erp::stock_pdf::tests::operation_and_permission_codes ... ok
+test business::erp::stock_pdf::tests::serial_groups_follow_item_order ... ok
+test business::erp::stock_pdf::tests::type_labels_match_domains ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 3648 filtered out; finished in 10.93s
+

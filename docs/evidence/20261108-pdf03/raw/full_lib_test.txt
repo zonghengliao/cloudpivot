@@ -1,0 +1,15 @@
+failures:
+
+---- business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag stdout ----
+
+thread 'business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag' (897610) panicked at src/business/flow/linkage/admin.rs:1159:9:
+assertion `left == right` failed: 已接线的触发点：STOCK_IN / STOCK_OUT（P1-FIX-5C 新接）/ STOCK_TRANSFER（LNK-01 新接）/ PURCHASE_ORDER（LNK-02 新接）/ PAYABLE（LNK-03 新接）/ VOUCHER（LNK-06 新接）/ ACCOUNTING_PERIOD（LNK-08 新接）/ ACCOUNTING_YEAR（LNK-11 新接）/ CONTRACT（LNK-07 新接）/ STOCK_TAKE（LNK-04 新接）/ FIXED_ASSET（LNK-09 新接）/ DEPRECIATION（LNK-10 新接）/ EXPENSE_REPORT（LNK-05 新接）/ TASK / FLOW_INSTANCE（LNK-12 新接）
+--
+failures:
+    business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag
+    business::flow::linkage::tests_wiring::trigger_specs_cover_whitelist_in_order
+    business::flow::linkage::tests_wiring::wired_triggers_match_call_sites
+
+test result: FAILED. 3658 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.79s
+
+error: test failed, to rerun pass `--lib`

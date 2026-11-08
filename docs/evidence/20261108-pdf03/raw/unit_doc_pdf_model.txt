@@ -1,0 +1,13 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 6 tests
+test business::erp::doc_pdf_model::tests::export_log_source_tag ... ok
+test business::erp::doc_pdf_model::tests::parse_doc_id_rejects_garbage ... ok
+test business::erp::doc_pdf_model::tests::printed_at_is_beijing_time ... ok
+test business::erp::doc_pdf_model::tests::empty_ids_short_circuit ... ok
+test business::erp::doc_pdf_model::tests::sanitize_filename_strips_path_chars ... ok
+test business::erp::doc_pdf_model::tests::uuid_array_literal_shape ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 3655 filtered out; finished in 0.00s
+

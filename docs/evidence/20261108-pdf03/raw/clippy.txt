@@ -1,0 +1,269 @@
+    Checking nik-db v0.4.2 (/opt/cloudpivot/backend/vendor/nik-db)
+    Checking nik-web v0.4.2 (/opt/cloudpivot/backend/vendor/nik-web)
+    Checking nik v0.4.2 (/opt/cloudpivot/backend/vendor/nik)
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+warning: this function has too many arguments (8/7)
+   --> src/business/erp/sales_order_model.rs:699:1
+    |
+699 | / pub async fn update_order(
+700 | |     ex: &impl SqlExecutor,
+701 | |     id: Uuid,
+702 | |     new: &NewSalesOrder<'_>,
+...   |
+707 | |     now: DateTime<Utc>,
+708 | | ) -> DbResult<u64> {
+    | |__________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#too_many_arguments
+    = note: `#[warn(clippy::too_many_arguments)]` on by default
+
+warning: `cloudpivot` (lib) generated 1 warning
+warning: empty line after doc comment
+   --> src/business/flow/edge_admin_tests.rs:356:1
+    |
+356 | / /// 历史值（V0206 原始 hash，冻结前）留档备查：`c0ad61937b734114f6865f9347b57ab9824f560605e522a204d22650baa30e08`。
+357 | |
+    | |_^
+358 |   /// 复核岗角色码（V0206 种子角色；`n_cfg` 的审批人来源）。
+359 |   const APPROVER_ROLE_CODE: &str = "FLOW_CONFIG_APPROVER";
+    |   ------------------------ the comment documents this constant item
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#empty_line_after_doc_comments
+    = note: `#[warn(clippy::empty_line_after_doc_comments)]` on by default
+    = help: if the empty line is unintentional, remove it
+help: if the documentation should include the empty line include it in the comment
+    |
+357 | ///
+    |
+
+warning: useless use of `format!`
+   --> src/business/erp/asset_linkage.rs:417:33
+    |
+417 |             PRESET_UP.contains(&format!("trigger_entity = 'FIXED_ASSET'")),
+    |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using `.to_string()`: `"trigger_entity = 'FIXED_ASSET'".to_string()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#useless_format
+    = note: `#[warn(clippy::useless_format)]` on by default
+
+warning: useless use of `format!`
+   --> src/business/erp/fx_revaluation.rs:788:13
+    |
+788 | /             format!(
+789 | |                 "INSERT INTO biz_exchange_rate \
+790 | |                     (from_currency, to_currency, rate_type, effective_date, rate) \
+791 | |                  VALUES (?, 'CNY', 'SPOT', ?::text::date, ?::text::numeric) \
+792 | |                  ON CONFLICT (from_currency, to_currency, rate_type, effective_date) \
+793 | |                  DO UPDATE SET rate = EXCLUDED.rate"
+794 | |             ),
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#useless_format
+help: consider using `.to_string()`
+    |
+788 ~             "INSERT INTO biz_exchange_rate \
+789 +                     (from_currency, to_currency, rate_type, effective_date, rate) \
+790 +                  VALUES (?, 'CNY', 'SPOT', ?::text::date, ?::text::numeric) \
+791 +                  ON CONFLICT (from_currency, to_currency, rate_type, effective_date) \
+792 ~                  DO UPDATE SET rate = EXCLUDED.rate".to_string(),
+    |
+
+warning: binary comparison to literal `Option::None`
+    --> src/business/erp/opening.rs:2742:43
+     |
+2742 |             buckets.iter().all(|(loc, _)| *loc != None),
+     |                                           ^^^^^^^^^^^^ help: use `Option::is_some()` instead: `loc.is_some()`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#partialeq_to_none
+     = note: `#[warn(clippy::partialeq_to_none)]` on by default
+
+warning: this call to `clone` can be replaced with `std::slice::from_ref`
+   --> src/business/erp/purchase_requisition_dto.rs:864:36
+    |
+864 |             resolve_merge_supplier(&[plain.clone()], None),
+    |                                    ^^^^^^^^^^^^^^^^ help: try: `std::slice::from_ref(&plain)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#cloned_ref_to_slice_refs
+    = note: `#[warn(clippy::cloned_ref_to_slice_refs)]` on by default
+
+warning: this call to `clone` can be replaced with `std::slice::from_ref`
+    --> src/business/erp/voucher.rs:5258:74
+     |
+5258 |         let map = material_inventory_accounts(db(), Some(&rule_account), &[material_line.clone()])
+     |                                                                          ^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `std::slice::from_ref(&material_line)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#cloned_ref_to_slice_refs
+
+warning: this call to `clone` can be replaced with `std::slice::from_ref`
+    --> src/business/erp/voucher.rs:5287:13
+     |
+5287 |             &[material_line.clone()],
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `std::slice::from_ref(&material_line)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#cloned_ref_to_slice_refs
+
+warning: `format!` in `format!` args
+   --> src/business/erp/year_end_linkage_tests.rs:214:17
+    |
+214 |       scalar_i64(&format!(
+    |  _________________^
+215 | |         "SELECT count(*) FROM biz_voucher \
+216 | |           WHERE voucher_type = 'YEAR_END' AND period = '{}' AND deleted_at IS NULL",
+217 | |         format!("{}-12", support::YEAR)
+218 | |     ))
+    | |_____^
+    |
+    = help: combine the `format!(..)` arguments with the outer `format!(..)` call
+    = help: or consider changing `format!` to `format_args!`
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#format_in_format_args
+    = note: `#[warn(clippy::format_in_format_args)]` on by default
+
+warning: unnecessary use of `get(&fx.approver).is_none()`
+    --> src/business/flow/assignee.rs:4852:32
+     |
+4852 |             finalized.row_meta.get(&fx.approver).is_none(),
+     |             -------------------^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |             |
+     |             help: replace it with: `!finalized.row_meta.contains_key(&fx.approver)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#unnecessary_get_then_check
+     = note: `#[warn(clippy::unnecessary_get_then_check)]` on by default
+
+warning: this function has too many arguments (8/7)
+    --> src/business/flow/self_approval.rs:1103:5
+     |
+1103 | /     async fn add_task(
+1104 | |         instance_id: Uuid,
+1105 | |         node_id: Uuid,
+1106 | |         node_key: &str,
+...    |
+1111 | |         completed: &str,
+1112 | |     ) -> Uuid {
+     | |_____________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#too_many_arguments
+
+warning: useless use of `format!`
+    --> src/business/flow/self_approval.rs:1229:18
+     |
+1229 |             Some(format!("p305_log_init")),
+     |                  ^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using `.to_string()`: `"p305_log_init".to_string()`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#useless_format
+
+warning: field assignment outside of initializer for an instance created with Default::default()
+   --> src/business/pdf/dto.rs:553:9
+    |
+553 |         opts.scale = 0.05;
+    |         ^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `business::pdf::dto::PdfOpts { scale: 0.05, ..Default::default() }` and removing relevant reassignments
+   --> src/business/pdf/dto.rs:552:9
+    |
+552 |         let mut opts = PdfOpts::default();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#field_reassign_with_default
+    = note: `#[warn(clippy::field_reassign_with_default)]` on by default
+
+warning: field assignment outside of initializer for an instance created with Default::default()
+   --> src/business/pdf/dto.rs:560:9
+    |
+560 |         opts.scale = 2.5;
+    |         ^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `business::pdf::dto::PdfOpts { scale: 2.5, ..Default::default() }` and removing relevant reassignments
+   --> src/business/pdf/dto.rs:559:9
+    |
+559 |         let mut opts = PdfOpts::default();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#field_reassign_with_default
+
+warning: field assignment outside of initializer for an instance created with Default::default()
+   --> src/business/pdf/dto.rs:564:9
+    |
+564 |         opts.margins = PdfMargins::all(120.0);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `business::pdf::dto::PdfOpts { margins: PdfMargins::all(120.0), ..Default::default() }` and removing relevant reassignments
+   --> src/business/pdf/dto.rs:563:9
+    |
+563 |         let mut opts = PdfOpts::default();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#field_reassign_with_default
+
+warning: field assignment outside of initializer for an instance created with Default::default()
+   --> src/business/pdf/dto.rs:568:9
+    |
+568 | /         opts.page = PageSize::Custom {
+569 | |             width_mm: 10.0,
+570 | |             height_mm: 297.0,
+571 | |         };
+    | |__________^
+    |
+note: consider initializing the variable with `business::pdf::dto::PdfOpts { page: PageSize::Custom {
+                  width_mm: 10.0,
+                  height_mm: 297.0,
+              }, ..Default::default() }` and removing relevant reassignments
+   --> src/business/pdf/dto.rs:567:9
+    |
+567 |         let mut opts = PdfOpts::default();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#field_reassign_with_default
+
+warning: field assignment outside of initializer for an instance created with Default::default()
+   --> src/business/pdf/dto.rs:575:9
+    |
+575 | /         opts.page = PageSize::Custom {
+576 | |             width_mm: f64::NAN,
+577 | |             height_mm: 297.0,
+578 | |         };
+    | |__________^
+    |
+note: consider initializing the variable with `business::pdf::dto::PdfOpts { page: PageSize::Custom {
+                  width_mm: f64::NAN,
+                  height_mm: 297.0,
+              }, ..Default::default() }` and removing relevant reassignments
+   --> src/business/pdf/dto.rs:574:9
+    |
+574 |         let mut opts = PdfOpts::default();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#field_reassign_with_default
+
+warning: field assignment outside of initializer for an instance created with Default::default()
+   --> src/business/pdf/dto.rs:586:9
+    |
+586 | /         opts.page = PageSize::Custom {
+587 | |             width_mm: 100.0,
+588 | |             height_mm: 100.0,
+589 | |         };
+    | |__________^
+    |
+note: consider initializing the variable with `business::pdf::dto::PdfOpts { page: PageSize::Custom {
+                  width_mm: 100.0,
+                  height_mm: 100.0,
+              }, margins: PdfMargins {
+                  top_mm: 10.0,
+                  right_mm: 60.0,
+                  bottom_mm: 10.0,
+                  left_mm: 60.0,
+              }, ..Default::default() }` and removing relevant reassignments
+   --> src/business/pdf/dto.rs:585:9
+    |
+585 |         let mut opts = PdfOpts::default();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#field_reassign_with_default
+
+warning: field assignment outside of initializer for an instance created with Default::default()
+   --> src/business/pdf/dto.rs:603:9
+    |
+603 |         opts.display_header_footer = true;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `business::pdf::dto::PdfOpts { display_header_footer: true, ..Default::default() }` and removing relevant reassignments
+   --> src/business/pdf/dto.rs:602:9
+    |
+602 |         let mut opts = PdfOpts::default();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#field_reassign_with_default
+
+warning: `cloudpivot` (lib test) generated 19 warnings (1 duplicate) (run `cargo clippy --fix --lib -p cloudpivot --tests` to apply 4 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 20s
