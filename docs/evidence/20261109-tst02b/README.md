@@ -101,3 +101,22 @@ cargo clippy --lib --tests                                # 本卡 8 个文件 0
 
 `~/.hermes/profiles/backend-developer/cache/scratch/tst02b/run_a_suites.sh`（两轮 + SKIP 计数），
 日志在 `.../scratch/tst02b/{fresh-empty,seed}/`。
+
+## 8. 种子库全量 lib 回归（附加验证，非本卡判据）
+
+同一份代码在 `cloudpivot_test_tst02b_seed` 上跑**全量** `cargo test --lib`：
+
+```text
+test result: FAILED. 3848 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1946.55s
+```
+
+4 条 red **全部不在本卡覆盖的 7 个套件里**，且都是**既有问题**（本卡提交前就存在）：
+
+| 用例 | 真因 | 归属 |
+|---|---|---|
+| `report_pdf::tests::pdf07_real_three_reports_agree_on_shape` | 依赖「库里没有 2026-10 凭证」；全量串行跑到它时库里已有别的套件留下的 2026-03/08/09/10 凭证（期初列不是 `-`）；一次性空库/单跑是绿的 | 整库口径残留（`baseline-red-triage.md` 第 2 类），非本卡 |
+| `return_pdf::db_tests::purchase_return_context_has_source_numbers_and_reason` | 断言 `<th>价税合计</th>`，模板实际输出 `<th class="c-with-tax">价税合计</th>`（`pdf/templates/return_doc.html.tera:230`）；断言与模板漂移，与数据/库无关，任何库单跑都红 | 既有：`return_pdf.rs` 与模板都不在本卡 diff 内 |
+| `return_pdf::db_tests::sales_return_context_has_source_numbers_and_reason` | 同上（`<th>序列号</th>` vs 带 class 的表头） | 同上 |
+| `system::menu::permission_audit_tests::n16_every_route_has_permission_gate_or_documented_exception` | `GET /business/erp/master-data/code-policy` 没有 `#[permission]` 也不在白名单（CODE-08 路由） | 既有：`code_policy.rs` 不在本卡 diff 内 |
+
+（`return_pdf` 两条与 `n16` 在空库单跑同样红，`pdf07` 在空库单跑绿 —— 佐证它们与 A 方案夹具无关。）
