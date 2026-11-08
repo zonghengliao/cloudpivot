@@ -200,6 +200,9 @@ test('词表一致：规则表种子的 8 类单据在页面上都有接线', ()
     ['STOCK_TAKE', 'CONFIRM'],
     ['FIXED_ASSET', 'ACTIVATE'],
     ['PAYMENT', 'ACTIVATE'],
+    // ATT-10 补的两条：发票（ATT-07 起就在页面上）与收款单（本卡接线）
+    ['INVOICE', 'SUBMIT'],
+    ['RECEIPT', 'SUBMIT'],
   ];
   for (const [docType, at] of wired) {
     assert.ok(
@@ -212,4 +215,62 @@ test('词表一致：规则表种子的 8 类单据在页面上都有接线', ()
     !/\(\s*'[0-9a-f-]+'::uuid,\s*'STOCK_IN'/.test(rules),
     'STOCK_IN 不该有必传规则（收货页据此不加闸门）',
   );
+});
+
+// ==================== ⑨ 收款单（RECEIPT / SUBMIT，ATT-10） ====================
+
+test('收款单：确认收款（DRAFT→CONFIRMED）受「权限 ∪ 银行回单闸门」约束', () => {
+  const page = readSource('views/business/erp/receipt/index.vue');
+  assert.ok(page.includes("ref<DocType>('RECEIPT')"), 'doc_type 必须是 RECEIPT');
+  assert.ok(page.includes("at: 'SUBMIT'"), '动作必须是 SUBMIT（收款单的提交边 = 确认收款）');
+  assert.ok(
+    page.includes(':disabled="!hasStatusPermission || !attachGate.canProceed"'),
+    '确认按钮必须同时受权限与闸门约束',
+  );
+  assert.ok(page.includes('<AttachmentGateHint :hint="attachGate.hint"'), '按钮旁必须有红字组件');
+  assert.ok(page.includes('testid="rc-detail-gate-hint"'), '红字必须有稳定的 testid');
+  assert.ok(page.includes(':content="detailConfirmTip"'), 'disabled 按钮必须包 tooltip');
+  assert.ok(page.includes('@changed="refreshAttachGate()"'), '上传后必须重查（验收②）');
+  assert.ok(page.includes(':doc-type="DOC_KIND.RECEIPT"'), '必须能上传银行回单');
+  assert.ok(page.includes('default-role="BANK_RECEIPT"'), '收款单的必传件是银行回单，不是发票影像');
+  // 闸门只对草稿生效（确认收款是唯一受约束的边；已确认/已过账不再查）
+  const docId = bodyOf(page, 'const attachDocId');
+  assert.ok(docId.includes("detail.value.status === 'DRAFT'"), docId);
+  // 列表行「确认」先查闸门，缺回单把人送到详情
+  const gate = bodyOf(page, 'async function passAttachmentGate');
+  assert.ok(gate.includes("checkDocAttachments('RECEIPT'"), gate);
+  assert.ok(gate.includes("'SUBMIT'"), gate);
+  assert.ok(gate.includes('openDetail(row)'), '缺回单要把人送到详情（那里有上传面板）');
+  const confirm = bodyOf(page, 'async function confirmReceipt');
+  assert.ok(confirm.includes('passAttachmentGate(row.id)'), '确认（列表行 / 详情共用）必须先过闸门');
+});
+
+// ==================== ⑩ 8 个页面都有附件区，且都只挂在「已保存的单据」上 ====================
+
+test('8 个单据页都有附件区（含已有的报销），且新建态不显示（doc-id 只来自已加载的单据）', () => {
+  /** 页面 → [testid 前缀, doc-id 绑定的来源] */
+  const panels: Array<[string, string, RegExp]> = [
+    ['invoice/index.vue', 'inv-attach', /:doc-id="detail\.id"/],
+    ['receipt/index.vue', 'rc-attach', /:doc-id="detail\.id"/],
+    ['payable/index.vue', 'payable-attach', /:doc-id="detail\.id"/],
+    ['expense/ExpenseDetailDrawer.vue', 'expense-attach', /:doc-id="report\.id"/],
+    ['asset/index.vue', 'asset-attach', /:doc-id="detail\.asset\.id"/],
+    ['stock-take/index.vue', 'stocktake-attach', /:doc-id="detail\.id"/],
+    ['purchase-return/index.vue', 'prt-attach', /:doc-id="detail\.purchase_return\.id"/],
+    ['sales-return/index.vue', 'return-attach', /:doc-id="detail\.id"/],
+  ];
+  for (const [page, prefix, docIdPattern] of panels) {
+    const source = readSource(`views/business/erp/${page}`);
+    assert.ok(source.includes(`testid-prefix="${prefix}"`), `${page} 必须有附件面板（验收①）`);
+    assert.ok(
+      docIdPattern.test(source),
+      `${page} 的附件面板必须绑已加载的单据 id（新建态没有 id → 不出现附件区，验收④）`,
+    );
+    // 新建入口是独立弹窗：附件面板不能出现在里面（新建不强传）。
+    // 只找模板标签 `<DocAttachmentPanel`，别命中脚本里的 import。
+    assert.ok(
+      !/v-model:visible="createVisible"[\s\S]{0,4000}?<DocAttachmentPanel/.test(source),
+      `${page} 的新建弹窗里不许出现附件面板（新建不强传）`,
+    );
+  }
 });

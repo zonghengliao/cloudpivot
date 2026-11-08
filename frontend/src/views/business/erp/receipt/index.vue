@@ -464,6 +464,24 @@
             </p>
           </div>
 
+          <!--
+            ATT-10：附件区（银行回单）。规则 `RECEIPT` + `SUBMIT` —— 收款单没有独立
+            「提交」态，`DRAFT→CONFIRMED`（确认收款）就是提交动作，后端
+            `receipt.rs::change_status` 在 CONFIRMED 这条边上查闸门。
+            新建（收款登记）是独立弹窗、没有单据 id，所以这里只会在「已保存的单据」上出现。
+          -->
+          <div class="section-title section-title--attach">附件（银行回单）</div>
+          <p class="section-tip" data-testid="rc-detail-attach-rule">
+            确认收款前必须上传银行回单（pdf / jpg / png）；登记（草稿）阶段不强制。
+          </p>
+          <DocAttachmentPanel
+            :doc-type="DOC_KIND.RECEIPT"
+            :doc-id="detail.id"
+            default-role="BANK_RECEIPT"
+            testid-prefix="rc-attach"
+            @changed="refreshAttachGate()"
+          />
+
           <div class="detail-actions">
             <t-button
               v-if="isAllocatable(detail.status)"
@@ -475,15 +493,21 @@
             >
               核销
             </t-button>
-            <t-button
-              v-if="detail.status === 'DRAFT'"
-              variant="outline"
-              :disabled="!hasStatusPermission"
-              data-testid="rc-detail-confirm"
-              @click="confirmReceipt(detail)"
-            >
-              确认
-            </t-button>
+            <!-- 缺回单时按钮 disabled，外面套 tooltip 说明原因（disabled 的 t-button 收不到 hover） -->
+            <t-tooltip :content="detailConfirmTip" :disabled="!detailConfirmTip" placement="top-left">
+              <span class="op-wrap">
+                <t-button
+                  v-if="detail.status === 'DRAFT'"
+                  variant="outline"
+                  :disabled="!hasStatusPermission || !attachGate.canProceed"
+                  data-testid="rc-detail-confirm"
+                  @click="confirmReceipt(detail)"
+                >
+                  确认
+                </t-button>
+              </span>
+            </t-tooltip>
+            <AttachmentGateHint :hint="attachGate.hint" testid="rc-detail-gate-hint" />
             <t-button
               v-if="detail.status === 'CONFIRMED'"
               theme="primary"
@@ -770,7 +794,14 @@ import {
   type ReceiptMethod,
 } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
+import { checkDocAttachments, type DocType } from '@/api/business/erp/attachment';
+import { DOC_KIND } from '@/api/business/erp/doc-kinds';
 import { useUserStore } from '@/stores/user';
+
+import AttachmentGateHint from '@/views/business/erp/shared/AttachmentGateHint.vue';
+import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
+import { gateButtonTip } from '@/views/business/erp/shared/attachment-gate-pure';
+import { useAttachmentGate } from '@/views/business/erp/shared/use-attachment-gate';
 
 import { dash, formatCents, formatMoney, shortId, toCents, todayString } from '../shared/money';
 import {
@@ -997,6 +1028,59 @@ const detailError = ref('');
 const detail = ref<ReceiptDetail | null>(null);
 const detailId = ref('');
 
+// ==================== 附件必传闸门（ATT-10：收款单 = RECEIPT / SUBMIT） ====================
+//
+// 收款单没有「提交」态：`DRAFT→CONFIRMED`（确认收款）就是提交动作，后端
+// `receipt.rs::change_status` 在 CONFIRMED 这条边上查 `RECEIPT` + `SUBMIT` 的必传规则
+// （银行回单）。所以前端只在这条边上禁用按钮：已确认 / 已过账 / 已作废的收款不再查
+// （传 `null` → 组合式函数回到初始态：不发请求、不禁用、不画红字）。
+
+/** 只在「草稿」上查闸门（确认收款是唯一受约束的边） */
+const attachDocId = computed(() =>
+  detail.value && detail.value.status === 'DRAFT' ? detail.value.id : null,
+);
+
+const { gate: attachGate, refresh: refreshAttachGate } = useAttachmentGate({
+  docType: ref<DocType>('RECEIPT'),
+  docId: attachDocId,
+  at: 'SUBMIT',
+});
+
+/** 详情「确认」按钮的 tooltip：权限 / 状态优先，其次附件缺口（定序在 `gateButtonTip`） */
+const detailConfirmTip = computed(() =>
+  gateButtonTip(attachGate.value, detail.value ? confirmTip(detail.value) : null),
+);
+
+/**
+ * 列表行「确认」前的附件预检。
+ *
+ * 列表行拿不到闸门状态（每行查一次 = N 个请求），所以点的时候查一次：
+ * 缺附件 → 点名 + 把用户送到详情（那里有上传面板与红字），并且**不打后端确认接口**
+ * （打了也是 400，而 400 只会显示一句 user 看不懂的报文，还会让人以为按钮坏了）。
+ * 查询失败降级为直接提交：真正的闸门在后端，不能因为一次抖动把所有人的确认按钮锁死。
+ */
+async function passAttachmentGate(docId: string): Promise<boolean> {
+  try {
+    const check = await checkDocAttachments('RECEIPT', docId, 'SUBMIT');
+    if (check.can_proceed) {
+      return true;
+    }
+    MessagePlugin.warning(
+      `${check.at_label || '确认'}前需要补齐：${check.hint ?? '缺少必传附件（银行回单）'}`,
+    );
+    if (!(detailVisible.value && detailId.value === docId)) {
+      const row = rows.value.find((item) => item.id === docId);
+      if (row) {
+        await openDetail(row);
+      }
+    }
+    return false;
+  } catch (error) {
+    console.warn('[receipt] 确认前必传校验查询失败，降级为直接确认（后端仍会拦）', error);
+    return true;
+  }
+}
+
 async function openDetail(row: Receipt): Promise<void> {
   detailId.value = row.id;
   detail.value = null;
@@ -1060,6 +1144,10 @@ async function confirmReceipt(row: Pick<Receipt, 'id' | 'receipt_no' | 'status'>
   }
   if (!canConfirm(row)) {
     MessagePlugin.warning(`当前状态 ${row.status} 不能确认`);
+    return;
+  }
+  // 附件必传（RECEIPT / SUBMIT）：缺银行回单不许确认（列表行也走这条，ATT-10）
+  if (!(await passAttachmentGate(row.id))) {
     return;
   }
   await runStatus(row, 'CONFIRMED');
@@ -1517,9 +1605,34 @@ onMounted(() => {
   font-variant-numeric: tabular-nums;
 }
 
+/* ==================== 附件区（ATT-10） ==================== */
+
+.section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 16px 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+}
+
+.section-title--attach {
+  padding-top: 12px;
+  border-top: 1px solid var(--td-component-border);
+}
+
+.section-tip {
+  margin: 0 0 8px;
+  color: var(--td-text-color-placeholder);
+  font-size: 12px;
+  line-height: 20px;
+}
+
 .detail-actions {
   display: flex;
   gap: 8px;
+  align-items: center;
   justify-content: flex-end;
   padding-top: 12px;
   border-top: 1px solid var(--td-component-border);
