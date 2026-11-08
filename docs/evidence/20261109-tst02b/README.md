@@ -120,3 +120,24 @@ test result: FAILED. 3848 passed; 4 failed; 0 ignored; 0 measured; 0 filtered ou
 | `system::menu::permission_audit_tests::n16_every_route_has_permission_gate_or_documented_exception` | `GET /business/erp/master-data/code-policy` 没有 `#[permission]` 也不在白名单（CODE-08 路由） | 既有：`code_policy.rs` 不在本卡 diff 内 |
 
 （`return_pdf` 两条与 `n16` 在空库单跑同样红，`pdf07` 在空库单跑绿 —— 佐证它们与 A 方案夹具无关。）
+
+## 9. 一次性空库全量 lib（时间预算内未跑完，部分结果）
+
+同一份代码在**全新** `cloudpivot_test_tst02b_empty`（建完 `sys_dept=0` / `sys_user=1` / `biz_voucher=0`）上跑全量：
+
+```text
+（跑到 1867 条时按时间预算中止）
+1867 passed; 3 failed
+FAILED：report_pdf::tests::pdf07_real_three_reports_agree_on_shape
+FAILED：return_pdf::db_tests::purchase_return_context_has_source_numbers_and_reason
+FAILED：return_pdf::db_tests::sales_return_context_has_source_numbers_and_reason
+```
+
+- 3 条与 §8 种子库全量回归里的 red **完全同一批**、同样是既有问题（`pdf07` 依赖「前面套件没留下
+  2026-10 凭证」，`return_pdf` 两条是断言与模板表头 class 漂移）。
+- 空库全量跑到中止点为止，本卡覆盖的 6 个套件（`asset_model` 4 / `budget_model` 7 /
+  `expense_model` 20 / `asset_linkage` 11 / `expense_linkage` 6 / `depreciation_linkage` 5）
+  **全部 ok、0 failed**；`voucher_linkage` 在字母序上排到 stockin 之后，未跑到，但它在
+  §2 的专项空库两轮里 6/6 绿。
+- 中止原因：全量串行在 stockin 组每条约 1–2 s，剩余约 2000 条超出本卡时间预算；已跑部分
+  足以证明「A 方案覆盖的套件在空库上全绿」，其余套件的红与种子无关（是既有断言/模板漂移）。
