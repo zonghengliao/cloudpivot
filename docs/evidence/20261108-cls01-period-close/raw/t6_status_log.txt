@@ -1,0 +1,26 @@
+--- select entity_type||' | '||entity_no||' | '||coalesce(from_status,'NULL')||'->'||to_status||' | '||coalesce(operator_name,'-')||' | '||coalesce(reason,'-') from biz_status_log where entity_type in ('ACCOUNTING_PERIOD','ACCOUNTING_YEAR') order by created_at
+ACCOUNTING_PERIOD | 2027-01 | NULL->OPEN | admin | CLS-01 演练：年结前置，提前开好 2027 全年
+ACCOUNTING_PERIOD | 2027-02 | NULL->OPEN | admin | CLS-01 演练：年结前置，提前开好 2027 全年
+ACCOUNTING_PERIOD | 2027-03 | NULL->OPEN | admin | CLS-01 演练：年结前置，提前开好 2027 全年
+ACCOUNTING_PERIOD | 2027-04 | NULL->OPEN | admin | CLS-01 演练：年结前置，提前开好 2027 全年
+ACCOUNTING_PERIOD | 2027-05 | NULL->OPEN | admin | CLS-01 演练：年结前置，提前开好 2027 全年
+ACCOUNTING_PERIOD | 2027-06 | NULL->OPEN | admin | CLS-01 演练：年结前置，提前开好 2027 全年
+ACCOUNTING_PERIOD | 2027-07 | NULL->OPEN | admin | CLS-01 演练：年结前置，提前开好 2027 全年
+ACCOUNTING_PERIOD | 2027-08 | NULL->OPEN | admin | CLS-01 演练：年结前置，提前开好 2027 全年
+ACCOUNTING_PERIOD | 2027-09 | NULL->OPEN | admin | CLS-01 演练：年结前置，提前开好 2027 全年
+ACCOUNTING_PERIOD | 2027-10 | NULL->OPEN | admin | CLS-01 演练：年结前置，提前开好 2027 全年
+ACCOUNTING_PERIOD | 2027-11 | NULL->OPEN | admin | CLS-01 演练：年结前置，提前开好 2027 全年
+ACCOUNTING_PERIOD | 2027-12 | NULL->OPEN | admin | CLS-01 演练：年结前置，提前开好 2027 全年
+ACCOUNTING_PERIOD | 2026-01 | OPEN->CLOSED | admin | CLS-01 01 月结账（演练）
+ACCOUNTING_PERIOD | 2026-02 | OPEN->CLOSED | admin | CLS-01 02 月结账（演练）
+ACCOUNTING_PERIOD | 2026-03 | OPEN->CLOSED | admin | CLS-01 03 月结账（演练）
+ACCOUNTING_PERIOD | 2026-04 | OPEN->CLOSED | admin | CLS-01 04 月结账（演练）
+ACCOUNTING_PERIOD | 2026-05 | OPEN->CLOSED | admin | CLS-01 05 月结账（演练）
+ACCOUNTING_PERIOD | 2026-06 | OPEN->CLOSED | admin | CLS-01 06 月结账（演练）
+ACCOUNTING_PERIOD | 2026-07 | OPEN->CLOSED | admin | CLS-01 07 月结账（演练）
+ACCOUNTING_PERIOD | 2026-08 | OPEN->CLOSED | admin | CLS-01 08 月结账（演练）
+ACCOUNTING_PERIOD | 2026-09 | OPEN->CLOSED | admin | CLS-01 09 月结账（演练）
+ACCOUNTING_PERIOD | 2026-10 | OPEN->CLOSED | admin | CLS-01 10 月结账（演练）
+ACCOUNTING_PERIOD | 2026-11 | OPEN->CLOSED | admin | CLS-01 11 月结账（演练）
+ACCOUNTING_PERIOD | 2026-11 | CLOSED->OPEN | admin | CLS-01 演练：反结账验证改账路径
+ACCOUNTING_PERIOD | 2026-11 | OPEN->CLOSED | admin | CLS-01 演练：补记完成重新结账

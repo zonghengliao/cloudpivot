@@ -1,0 +1,10 @@
+✅ 空库 cloudpivot_cls01 已创建（owner cloudpivot），迁移由后端首启自跑
+✅ 实例健康 health=200 port=18228 pid=905343 log=/tmp/cls01_server.log
+--- 环境指纹
+git_head=ff7c1acdb985aaf320a084b4ee8192691be1ae94
+binary_sha256=742468d03ba1ef8446e4a25c5d3c46b7b8d65091a4babd9a2045f1dbfa998ff3
+binary_mtime=2026-11-09 01:00:43
+migrations=283
+health_body={"code":0,"msg":"ok","data":{"status":"ok","app":"cloudpivot","profile":"dev","time":"2026-11-08T17:04:33.431856158+00:00"}}
+seed=users=1 sup=1 cust=3 mat=5 wh=3 unit=28 role=11 acct=66 period=12 expense_type=8 asset_cat=5 dept=0
+periods=12 open / 12

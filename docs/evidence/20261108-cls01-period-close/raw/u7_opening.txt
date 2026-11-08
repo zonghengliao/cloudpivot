@@ -1,0 +1,11 @@
+--- select account_code||' | 借='||debit_opening||' 贷='||credit_opening||' | '||source from biz_opening_balance where period_code='2027-01' order by account_code
+1002 | 借=200.0000 贷=0.0000 | YEAR_END
+1122 | 借=33700.0000 贷=0.0000 | YEAR_END
+1405 | 借=17000.0000 贷=0.0000 | YEAR_END
+1601 | 借=48000.0000 贷=0.0000 | YEAR_END
+1602 | 借=0.0000 贷=7600.0000 | YEAR_END
+2202 | 借=0.0000 贷=72860.0000 | YEAR_END
+2221.01 | 借=3171.3000 贷=0.0000 | YEAR_END
+2221.02 | 借=0.0000 贷=3900.0000 | YEAR_END
+2241.01 | 借=0.0000 贷=5500.0000 | YEAR_END
+3104 | 借=0.0000 贷=12211.3000 | YEAR_END

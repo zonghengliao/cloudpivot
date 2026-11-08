@@ -1,0 +1,4 @@
+--- select account_code||' | '||account_category||' | 余额(借正贷负)='||coalesce(sum(debit_amount-credit_amount),0) from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id join biz_account a on a.account_code=e.account_code where v.status='POSTED' and v.voucher_date<='2026-12-31' group by account_code, account_category having coalesce(sum(debit_amount-credit_amount),0)<>0 order by account_code
+ERROR:  column reference "account_code" is ambiguous
+LINE 1: select account_code||' | '||account_category||' | 余额(借正...
+               ^

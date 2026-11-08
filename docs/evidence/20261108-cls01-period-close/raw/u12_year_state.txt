@@ -1,0 +1,4 @@
+--- select entity_type||' | '||entity_no||' | '||coalesce(from_status,'NULL')||'->'||to_status||' | '||coalesce(reason,'-') from biz_status_log where entity_type='ACCOUNTING_YEAR' order by created_at
+ACCOUNTING_YEAR | 2026 | NOT_CLOSED->CLOSED | CLS-01 演练：2026 年度结转
+ACCOUNTING_YEAR | 2026 | CLOSED->NOT_CLOSED | CLS-01 演练：反年结验证回滚链路
+ACCOUNTING_YEAR | 2026 | NOT_CLOSED->CLOSED | CLS-01 演练：回滚后重新年结

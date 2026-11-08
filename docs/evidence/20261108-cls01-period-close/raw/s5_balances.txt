@@ -1,0 +1,13 @@
+--- select account_code||' 借='||coalesce(sum(debit_amount),0)||' 贷='||coalesce(sum(credit_amount),0) from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id where v.status='POSTED' group by account_code order by account_code
+1122 借=33900.0000 贷=0.0000
+1405 借=22000.0000 贷=5000.0000
+1601 借=48000.0000 贷=0.0000
+1602 借=0.0000 贷=7600.0000
+2202 借=0.0000 贷=72860.0000
+2221.01 借=3171.3000 贷=0.0000
+2221.02 借=0.0000 贷=3900.0000
+2241.01 借=0.0000 贷=5500.0000
+5001 借=0.0000 贷=30000.0000
+5602.01 借=7600.0000 贷=0.0000
+5602.03 借=5188.7000 贷=0.0000
+6401 借=5000.0000 贷=0.0000

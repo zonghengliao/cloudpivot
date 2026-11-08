@@ -1,0 +1,13 @@
+--- select p.period_code||' | '||p.status||' | 凭证='||(select count(*) from biz_voucher v where v.period=p.period_code and v.deleted_at is null)||' | 损益发生额(借-贷)='||coalesce((select sum(e.debit_amount-e.credit_amount) from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id join biz_account a on a.account_code=e.account_code where v.period=p.period_code and v.status='POSTED' and a.account_category='PROFIT_LOSS'),0) from biz_accounting_period p where p.period_year=2026 order by p.period_code
+2026-01 | CLOSED | 凭证=3 | 损益发生额(借-贷)=471.7000
+2026-02 | CLOSED | 凭证=5 | 损益发生额(借-贷)=-3768.3000
+2026-03 | CLOSED | 凭证=3 | 损益发生额(借-贷)=1231.7000
+2026-04 | CLOSED | 凭证=5 | 损益发生额(借-贷)=-3768.3000
+2026-05 | CLOSED | 凭证=3 | 损益发生额(借-贷)=1231.7000
+2026-06 | CLOSED | 凭证=5 | 损益发生额(借-贷)=-3768.3000
+2026-07 | CLOSED | 凭证=3 | 损益发生额(借-贷)=1231.7000
+2026-08 | CLOSED | 凭证=5 | 损益发生额(借-贷)=-3768.3000
+2026-09 | CLOSED | 凭证=3 | 损益发生额(借-贷)=1231.7000
+2026-10 | CLOSED | 凭证=5 | 损益发生额(借-贷)=-3768.3000
+2026-11 | CLOSED | 凭证=4 | 损益发生额(借-贷)=1231.7000
+2026-12 | OPEN | 凭证=0 | 损益发生额(借-贷)=0

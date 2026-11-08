@@ -1,0 +1,16 @@
+{
+  "code": 0,
+  "msg": "ok",
+  "data": {
+    "access_token": "***REDACTED***",
+    "refresh_token": "***REDACTED***",
+    "token_type": "Bearer",
+    "expires_in": 900,
+    "user": {
+      "id": "01a1bc2a-bb44-747e-87df-94218bf8e0e0",
+      "username": "cls01_approver",
+      "real_name": "CLS01 审批人"
+    },
+    "must_change_password": false
+  }
+}

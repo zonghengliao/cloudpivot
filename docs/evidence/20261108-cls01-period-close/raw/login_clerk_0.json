@@ -1,0 +1,16 @@
+{
+  "code": 0,
+  "msg": "ok",
+  "data": {
+    "access_token": "***REDACTED***",
+    "refresh_token": "***REDACTED***",
+    "token_type": "Bearer",
+    "expires_in": 900,
+    "user": {
+      "id": "01a1bc2a-bd85-7088-abb2-f4f8d4cdac5f",
+      "username": "cls01_clerk",
+      "real_name": "CLS01 报销人"
+    },
+    "must_change_password": false
+  }
+}

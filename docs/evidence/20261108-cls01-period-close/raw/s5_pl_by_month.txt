@@ -1,0 +1,12 @@
+--- select v.period||' 损益发生额(借-贷)='||coalesce(sum(e.debit_amount-e.credit_amount),0) from biz_voucher v join biz_voucher_entry e on e.voucher_id=v.id join biz_account a on a.account_code=e.account_code where a.account_category='PROFIT_LOSS' group by v.period order by v.period
+2026-01 损益发生额(借-贷)=471.7000
+2026-02 损益发生额(借-贷)=-3768.3000
+2026-03 损益发生额(借-贷)=1231.7000
+2026-04 损益发生额(借-贷)=-3768.3000
+2026-05 损益发生额(借-贷)=1231.7000
+2026-06 损益发生额(借-贷)=-3768.3000
+2026-07 损益发生额(借-贷)=1231.7000
+2026-08 损益发生额(借-贷)=-3768.3000
+2026-09 损益发生额(借-贷)=1231.7000
+2026-10 损益发生额(借-贷)=-3768.3000
+2026-11 损益发生额(借-贷)=1231.7000

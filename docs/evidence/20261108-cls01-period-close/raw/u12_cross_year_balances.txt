@@ -1,0 +1,11 @@
+--- select a.account_code||' | '||a.account_name||' | 2026期末(借正贷负)='||coalesce((select sum(e.debit_amount-e.credit_amount) from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id where v.status='POSTED' and v.voucher_date<='2026-12-31' and e.account_code=a.account_code),0)||' | 2027期初台账借='||coalesce((select sum(debit_opening) from biz_opening_balance ob where ob.period_code='2027-01' and ob.account_code=a.account_code),0)||' 贷='||coalesce((select sum(credit_opening) from biz_opening_balance ob where ob.period_code='2027-01' and ob.account_code=a.account_code),0) from biz_account a where a.deleted_at is null and (coalesce((select sum(e.debit_amount-e.credit_amount) from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id where v.status='POSTED' and v.voucher_date<='2026-12-31' and e.account_code=a.account_code),0)<>0 or exists (select 1 from biz_opening_balance ob where ob.period_code='2027-01' and ob.account_code=a.account_code)) order by a.account_code
+1002 | 银行存款 | 2026期末(借正贷负)=200.0000 | 2027期初台账借=200.0000 贷=0.0000
+1122 | 应收账款 | 2026期末(借正贷负)=33700.0000 | 2027期初台账借=33700.0000 贷=0.0000
+1405 | 库存商品 | 2026期末(借正贷负)=17000.0000 | 2027期初台账借=17000.0000 贷=0.0000
+1601 | 固定资产 | 2026期末(借正贷负)=48000.0000 | 2027期初台账借=48000.0000 贷=0.0000
+1602 | 累计折旧 | 2026期末(借正贷负)=-7600.0000 | 2027期初台账借=0.0000 贷=7600.0000
+2202 | 应付账款 | 2026期末(借正贷负)=-72860.0000 | 2027期初台账借=0.0000 贷=72860.0000
+2221.01 | 应交税费-进项税 | 2026期末(借正贷负)=3171.3000 | 2027期初台账借=3171.3000 贷=0.0000
+2221.02 | 应交税费-销项税 | 2026期末(借正贷负)=-3900.0000 | 2027期初台账借=0.0000 贷=3900.0000
+2241.01 | 其他应付款-员工垫付 | 2026期末(借正贷负)=-5500.0000 | 2027期初台账借=0.0000 贷=5500.0000
+3104 | 利润分配 | 2026期末(借正贷负)=-12211.3000 | 2027期初台账借=0.0000 贷=12211.3000
