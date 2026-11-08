@@ -526,7 +526,7 @@
           <DocAttachmentPanel
             :doc-type="DOC_KIND.PAYABLE"
             :doc-id="detail.id"
-            default-role="INVOICE"
+            default-role="INVOICE_SCAN"
             testid-prefix="payable-attach"
           />
         </div>

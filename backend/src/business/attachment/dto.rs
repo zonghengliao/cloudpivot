@@ -9,7 +9,7 @@
 //! |------|------|------|
 //! | `doc_type` | 必须是 [`DocKind::ALL`] 之一（大小写不敏感） | 400 + `PARAM_INVALID`（消息列出可选值） |
 //! | `doc_id` | 必须是 UUID | 400 + `PARAM_INVALID` |
-//! | `file_role` | 缺省 / 空串 → `OTHER`；非白名单值 | 400 + `PARAM_INVALID` |
+//! | `file_role` | 缺省 / 空串 → `DEFAULT`；老值 `INVOICE`/`OTHER` 归一；非白名单值 | 400 + `PARAM_INVALID` |
 //! | `remark` | ≤ 200 字符（列 `VARCHAR(255)`，留余量） | 400 + `PARAM_INVALID` |
 //! | 单据存在性 | 由 handler 查库（`model::doc_exists`） | 404 + `RESOURCE_NOT_FOUND` |
 //! | 附件个数 | ≤ [`model::MAX_ATTACHMENTS_PER_DOC`] | 400 + `PARAM_INVALID` |
@@ -95,6 +95,30 @@ pub struct DocAttachmentItemRes {
     pub can_delete: bool,
 }
 
+/// 一个文件角色分组（ATT-04 面板分栏）。
+///
+/// # 为什么由后端下发分组清单，而不是前端自己遍历 items 分组
+///
+/// 卡面验收②要求「**空分组**显示『暂无 XX，点击上传』引导」。只遍历 `list` 的话，
+/// 空分组恰好不在数据里 —— 前端就得自己维护一份角色词表，两份词表必然漂移
+/// （后端加一个角色 → 前端不认识 → 那个分组永远不出现）。
+///
+/// 所以后端直接给「该显示的全部角色 + 各自条数」，前端只负责按这个顺序画：
+///
+/// - 固定 6 个（[`FileRole::GROUPS`]，`count = 0` 也要出现）；
+/// - 外加数据里真实存在、但不在固定清单里的兼容角色（如老值 `SIGN_RECEIPT`）。
+///
+/// 不变式：`sum(count) == total`（每条附件恰好落进一个分组；未知值进 `DEFAULT`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct DocAttachmentRoleRes {
+    /// 角色字面值（`CONTRACT_SCAN` / `SUPPLEMENT` / …）。
+    pub code: String,
+    /// 中文分组标题（`合同扫描件` / `补充协议` / …）。
+    pub label: String,
+    /// 该角色下的附件条数（0 = 空分组，前端显示上传引导）。
+    pub count: u64,
+}
+
 /// 附件列表（`GET /business/attachment/list`）。
 #[derive(Debug, Clone, Serialize)]
 pub struct DocAttachmentListRes {
@@ -113,6 +137,10 @@ pub struct DocAttachmentListRes {
     /// 回显而不是让前端记：`PUT /attachment/sort` 固定用 `manual` 回读，
     /// 前端拿同一份结构直接替换列表，不必自己猜「这份是哪个口径的」。
     pub sort: String,
+    /// 分组口径（ATT-04）：固定 6 个角色（含空分组）+ 数据里存在的兼容角色。
+    ///
+    /// 前端按这个数组的顺序渲染分组（不再自己维护词表，见 [`DocAttachmentRoleRes`]）。
+    pub roles: Vec<DocAttachmentRoleRes>,
 }
 
 /// 上传结果。
@@ -458,7 +486,7 @@ pub fn to_item(row: &DocAttachmentRow, claims: &TokenClaims) -> DocAttachmentIte
         file_id: row.file_id.to_string(),
         file_role: row.file_role.clone(),
         file_role_label: FileRole::parse(Some(&row.file_role))
-            .unwrap_or(FileRole::Other)
+            .unwrap_or(FileRole::Default)
             .label()
             .to_string(),
         remark: row.remark.clone(),
@@ -471,4 +499,71 @@ pub fn to_item(row: &DocAttachmentRow, claims: &TokenClaims) -> DocAttachmentIte
         created_at: row.created_at,
         can_delete: can_delete(claims, row.uploaded_by),
     }
+}
+
+/// 按 `file_role` 汇总分组（ATT-04 面板分栏，**纯逻辑**，不连库）。
+///
+/// # 参数
+///
+/// - `items`：出参列表（`to_item` 的结果，顺序即当前排序口径下的顺序）；
+///
+/// # 返回值
+///
+/// 分组清单，顺序固定为：
+///
+/// 1. [`FileRole::GROUPS`] 的 6 个角色（**空分组也在**，`count = 0` —— 卡面验收②
+///    要靠它显示「暂无 XX，点击上传」）；
+/// 2. 数据里真实存在、但不在固定清单里的兼容角色（目前只有老值 `SIGN_RECEIPT`），
+///    按 [`FileRole::ALL`] 的顺序追加（**没有数据就不出现**，避免给每张单据都多画一个
+///    用不上的「签收单」空分组）。
+///
+/// # 归一与不变式
+///
+/// 每条附件的 `file_role` 先过 [`FileRole::parse`]（老值 `INVOICE` / `OTHER` 归一，
+/// 未知值兜底 `DEFAULT`），因此：
+///
+/// ```text
+///   sum(roles[].count) == items.len()      // 每条附件恰好落进一个分组
+/// ```
+///
+/// 未知值兜底 `DEFAULT` 而不是丢弃：`count` 与 `total` 对不上时，前端「已上传 N 个」
+/// 与分组条数会互相矛盾，用户会以为有附件丢了。
+///
+/// # 为什么 `label` 从 [`FileRole::label`] 取
+///
+/// 中文名只有一份（后端枚举）；前端 `FILE_ROLE_OPTIONS` 作为上传下拉的词表由单测比对，
+/// 但**分组标题直接用后端下发的 `label`**，不做第二份映射。
+pub fn role_catalog(items: &[DocAttachmentItemRes]) -> Vec<DocAttachmentRoleRes> {
+    use std::collections::HashMap;
+
+    let mut counts: HashMap<FileRole, u64> = HashMap::new();
+    for item in items {
+        let role = FileRole::parse(Some(&item.file_role)).unwrap_or(FileRole::Default);
+        *counts.entry(role).or_insert(0) += 1;
+    }
+
+    let mut catalog: Vec<DocAttachmentRoleRes> = FileRole::GROUPS
+        .iter()
+        .map(|role| DocAttachmentRoleRes {
+            code: role.as_str().to_string(),
+            label: role.label().to_string(),
+            count: counts.get(role).copied().unwrap_or(0),
+        })
+        .collect();
+
+    for role in FileRole::ALL {
+        if role.is_group() {
+            continue;
+        }
+        let count = counts.get(&role).copied().unwrap_or(0);
+        if count > 0 {
+            catalog.push(DocAttachmentRoleRes {
+                code: role.as_str().to_string(),
+                label: role.label().to_string(),
+                count,
+            });
+        }
+    }
+
+    catalog
 }

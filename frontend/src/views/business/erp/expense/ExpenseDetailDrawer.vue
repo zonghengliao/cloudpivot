@@ -269,7 +269,7 @@
       <DocAttachmentPanel
         :doc-type="DOC_KIND.EXPENSE_REPORT"
         :doc-id="report.id"
-        default-role="INVOICE"
+        default-role="INVOICE_SCAN"
         testid-prefix="expense-attach"
       />
     </div>

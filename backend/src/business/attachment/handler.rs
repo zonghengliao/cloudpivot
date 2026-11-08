@@ -69,7 +69,7 @@ const UPLOAD_CATEGORY: &str = "attachment";
 /// |------|------|------|
 /// | `doc_type` | 是 | `CONTRACT` / `PURCHASE_ORDER` / `STOCK_IN` / `PAYABLE` / `PAYMENT` |
 /// | `doc_id` | 是 | 单据主键（UUID） |
-/// | `file_role` | 否 | `CONTRACT_SCAN` / `SIGN_RECEIPT` / `INVOICE` / `OTHER`（缺省 `OTHER`） |
+/// | `file_role` | 否 | `CONTRACT_SCAN` / `SUPPLEMENT` / `ACCEPTANCE` / `INVOICE_SCAN` / `BANK_RECEIPT` / `DEFAULT`（缺省 `DEFAULT`；老值 `SIGN_RECEIPT` / `INVOICE` / `OTHER` 仍接受，后两者归一） |
 /// | `remark` | 否 | ≤ 200 字符 |
 /// | `file` | 是 | 文件本体（字段名**必须**是 `file`） |
 ///
@@ -289,6 +289,8 @@ async fn list_of(
         .map_err(|error| utils::db_error(error, "查询单据附件"))?;
     let list: Vec<DocAttachmentItemRes> =
         rows.iter().map(|row| dto::to_item(row, claims)).collect();
+    // ATT-04：分组口径随列表一起下发（空分组也要能画出来 → 不能只靠遍历 list）
+    let roles = dto::role_catalog(&list);
 
     Ok(Res::ok(DocAttachmentListRes {
         doc_type: kind.as_str().to_string(),
@@ -297,6 +299,7 @@ async fn list_of(
         list,
         max_count: MAX_ATTACHMENTS_PER_DOC,
         sort: order.as_str().to_string(),
+        roles,
     }))
 }
 

@@ -108,20 +108,177 @@ fn doc_kinds_cover_five_distinct_tables() {
     assert_eq!(DocKind::parse(""), None);
 }
 
-/// 文件角色：四个白名单值 + 空值回落 OTHER + 未知值拒绝。
+/// 文件角色：7 个可落库值 + 空值回落 DEFAULT + 老值归一 + 未知值拒绝（ATT-04）。
 #[test]
 fn file_roles_parse_and_default() {
-    assert_eq!(FileRole::ALL.len(), 4);
+    // 可落库范围 = 分栏 6 个 + 兼容值 SIGN_RECEIPT
+    assert_eq!(FileRole::ALL.len(), 7);
+    assert_eq!(FileRole::GROUPS.len(), 6);
     for role in FileRole::ALL {
         assert_eq!(FileRole::parse(Some(role.as_str())), Some(role));
         assert!(!role.label().is_empty());
+        // 每个可落库值都必须在约束允许的字面值里（两套词表不能有孤儿）
+        assert!(
+            FileRole::GROUPS.contains(&role) || role == FileRole::SignReceipt,
+            "{} 既不在 GROUPS 里，也不是兼容值",
+            role.as_str()
+        );
     }
-    assert_eq!(FileRole::parse(None), Some(FileRole::Other));
-    assert_eq!(FileRole::parse(Some("   ")), Some(FileRole::Other));
-    assert_eq!(FileRole::parse(Some("invoice")), Some(FileRole::Invoice));
+    // 卡面（ATT-04）的 6 个分组，顺序逐字一致
+    let groups: Vec<&str> = FileRole::GROUPS.iter().map(|role| role.as_str()).collect();
+    assert_eq!(
+        groups,
+        vec![
+            "CONTRACT_SCAN",
+            "SUPPLEMENT",
+            "ACCEPTANCE",
+            "INVOICE_SCAN",
+            "BANK_RECEIPT",
+            "DEFAULT"
+        ]
+    );
+    // 卡面的中文映射逐字一致（前端分组标题直接用后端 label）
+    let labels: Vec<&str> = FileRole::GROUPS.iter().map(|role| role.label()).collect();
+    assert_eq!(
+        labels,
+        vec![
+            "合同扫描件",
+            "补充协议",
+            "验收单",
+            "发票影像",
+            "银行回单",
+            "其他附件"
+        ]
+    );
+
+    // 空值 → DEFAULT（验收④：不传 role 的文件进 DEFAULT 组）
+    assert_eq!(FileRole::parse(None), Some(FileRole::Default));
+    assert_eq!(FileRole::parse(Some("   ")), Some(FileRole::Default));
+
+    // 老值归一（ATT-04）：INVOICE → INVOICE_SCAN、OTHER → DEFAULT，写库只写规范值
+    assert_eq!(
+        FileRole::parse(Some("invoice")),
+        Some(FileRole::InvoiceScan)
+    );
+    assert_eq!(
+        FileRole::parse(Some("INVOICE")),
+        Some(FileRole::InvoiceScan)
+    );
+    assert_eq!(FileRole::parse(Some("other")), Some(FileRole::Default));
+    assert_eq!(FileRole::InvoiceScan.as_str(), "INVOICE_SCAN");
+    assert_eq!(FileRole::Default.as_str(), "DEFAULT");
+
+    // 小写 / 去空白都能用（前端大小写不一致不挡人）
+    assert_eq!(
+        FileRole::parse(Some(" supplement ")),
+        Some(FileRole::Supplement)
+    );
+    assert_eq!(
+        FileRole::parse(Some("Bank_Receipt")),
+        Some(FileRole::BankReceipt)
+    );
+
     // 典型的「写错」：CONTRACT_SCANNED / SIGN 都不能被猜成 SCAN / RECEIPT
     assert_eq!(FileRole::parse(Some("CONTRACT_SCANNED")), None);
     assert_eq!(FileRole::parse(Some("SIGN")), None);
+    // 新角色也不能被「近似猜中」（缺少 RECEIPT / 多了 S 都不行）
+    assert_eq!(FileRole::parse(Some("BANK_RECEIPTS")), None);
+    assert_eq!(FileRole::parse(Some("ACCEPT")), None);
+}
+
+/// 分栏清单（ATT-04）：固定 6 个必出现（含空分组），兼容角色只在有数据时出现。
+#[test]
+fn role_catalog_keeps_empty_groups_and_counts_every_item() {
+    let claims = claims_of(U_OWNER, &[]);
+
+    // ① 空列表也要给全 6 个分组（验收②：空分组显示上传引导）
+    let empty = dto::role_catalog(&[]);
+    assert_eq!(empty.len(), 6);
+    assert!(empty.iter().all(|group| group.count == 0));
+    assert_eq!(empty[0].code, "CONTRACT_SCAN");
+    assert_eq!(empty[0].label, "合同扫描件");
+    assert_eq!(empty[5].code, "DEFAULT");
+    assert_eq!(empty[5].label, "其他附件");
+
+    // ② 合同单据：合同扫描件 + 补充协议 → 两个分组各 1 条（验收①）
+    let mut scan = fixture_item("CONTRACT_SCAN");
+    let supplement = fixture_item("SUPPLEMENT");
+    // 同一 role 多个文件（验收③）
+    let scan2 = {
+        let mut item = fixture_item("CONTRACT_SCAN");
+        item.file_name = "合同扫描件-第2页.pdf".to_string();
+        item
+    };
+    scan.remark = Some("第一联".to_string());
+
+    let items = vec![scan, scan2, supplement];
+    let catalog = dto::role_catalog(&items);
+    assert_eq!(catalog.len(), 6, "没有兼容角色时仍是 6 个分组");
+    let pick = |code: &str| {
+        catalog
+            .iter()
+            .find(|group| group.code == code)
+            .unwrap_or_else(|| panic!("分组 {code} 必须存在"))
+            .clone()
+    };
+    assert_eq!(pick("CONTRACT_SCAN").count, 2);
+    assert_eq!(pick("CONTRACT_SCAN").label, "合同扫描件");
+    assert_eq!(pick("SUPPLEMENT").count, 1);
+    assert_eq!(pick("SUPPLEMENT").label, "补充协议");
+    // 空分组仍在（验收②）
+    assert_eq!(pick("ACCEPTANCE").count, 0);
+    assert_eq!(pick("BANK_RECEIPT").count, 0);
+    assert_eq!(pick("DEFAULT").count, 0);
+
+    // ③ 不变式：每条附件恰好落进一个分组
+    let sum: u64 = catalog.iter().map(|group| group.count).sum();
+    assert_eq!(sum, items.len() as u64);
+
+    // ④ 老值 / 未知值：INVOICE 归到 INVOICE_SCAN，OTHER 与未知值归到 DEFAULT（验收④）
+    let legacy = vec![
+        fixture_item("INVOICE"),
+        fixture_item("OTHER"),
+        fixture_item("NOT_A_ROLE"),
+        fixture_item("DEFAULT"),
+    ];
+    let catalog = dto::role_catalog(&legacy);
+    assert_eq!(catalog.len(), 6, "归一后不该多出「INVOICE」分组");
+    let pick = |code: &str| {
+        catalog
+            .iter()
+            .find(|group| group.code == code)
+            .expect("分组必须存在")
+            .count
+    };
+    assert_eq!(pick("INVOICE_SCAN"), 1);
+    assert_eq!(pick("DEFAULT"), 3, "OTHER / 未知值 / DEFAULT 都进其他附件");
+    assert_eq!(catalog.iter().map(|group| group.count).sum::<u64>(), 4);
+
+    // ⑤ 兼容角色 SIGN_RECEIPT：有数据才追加（位置在 6 个固定分组之后）
+    let with_legacy = vec![fixture_item("SIGN_RECEIPT"), fixture_item("CONTRACT_SCAN")];
+    let catalog = dto::role_catalog(&with_legacy);
+    assert_eq!(catalog.len(), 7);
+    assert_eq!(catalog[6].code, "SIGN_RECEIPT");
+    assert_eq!(catalog[6].label, "签收单");
+    assert_eq!(catalog[6].count, 1);
+    assert_eq!(catalog.iter().map(|group| group.count).sum::<u64>(), 2);
+
+    // ⑥ TO-DTO：file_role_label 也要用归一后的中文名（tag 与分组标题同一份词表）
+    let row = fixture_row();
+    let item = dto::to_item(&row, &claims);
+    assert_eq!(item.file_role, "INVOICE_SCAN");
+    assert_eq!(item.file_role_label, "发票影像");
+}
+
+/// 构造一条列表出参（`role_catalog` 的入参，只需要 role）。
+fn fixture_item(file_role: &str) -> dto::DocAttachmentItemRes {
+    let mut item = dto::to_item(&fixture_row(), &claims_of(U_OWNER, &[]));
+    item.file_role = file_role.to_string();
+    item.file_role_label = FileRole::parse(Some(file_role))
+        .unwrap_or(FileRole::Default)
+        .label()
+        .to_string();
+    item
 }
 
 /// 上传元信息：doc_id 必须是 UUID，缺字段直接 400（不是 500）。
@@ -432,7 +589,7 @@ fn download_log_fields() {
     );
     assert_eq!(detail["file_name"], serde_json::json!("发票影像.pdf"));
     assert_eq!(detail["file_size"], serde_json::json!(2048));
-    assert_eq!(detail["file_role"], serde_json::json!("INVOICE"));
+    assert_eq!(detail["file_role"], serde_json::json!("INVOICE_SCAN"));
     // 读操作不留请求体 / 响应体（文件字节不进日志）
     assert!(entry.request_params.is_none());
     assert!(entry.response_data.is_none());
@@ -446,7 +603,7 @@ fn fixture_row() -> model::DocAttachmentRow {
         doc_type: "PAYABLE".to_string(),
         doc_id: uid(DOC_PAYABLE),
         file_id: uid(FILE_B),
-        file_role: "INVOICE".to_string(),
+        file_role: "INVOICE_SCAN".to_string(),
         remark: Some("发票第一联".to_string()),
         uploaded_by: Some(uid(U_OWNER)),
         uploader_name: "附件上传人".to_string(),
@@ -738,7 +895,7 @@ async fn db_bind_is_idempotent_per_doc_and_file() {
         DocKind::PurchaseOrder,
         &uid(DOC_PO),
         &uid(FILE_B),
-        FileRole::Other,
+        FileRole::Default,
         None,
         Some(uid(U_OWNER)),
     )
@@ -763,8 +920,8 @@ async fn db_bind_is_idempotent_per_doc_and_file() {
     .await
     .expect("查列表");
     assert_eq!(list.len(), 1, "同一文件不能在同一单据上出现两行");
-    // 幂等不覆盖角色：第二次的角色被忽略（行仍是首次的 OTHER），这是刻意的
-    assert_eq!(list[0].file_role, "OTHER");
+    // 幂等不覆盖角色：第二次的角色被忽略（行仍是首次的 DEFAULT），这是刻意的
+    assert_eq!(list[0].file_role, "DEFAULT");
 }
 
 /// 秒传共享的文件：还在被别的单据引用时，引用计数必须 > 0（删除时据此保留 `sys_file`）。
@@ -1228,7 +1385,7 @@ async fn db_list_default_order_is_time_desc() {
         DocKind::Contract,
         &uid(DOC_CONTRACT),
         &uid(FILE_C),
-        FileRole::Invoice,
+        FileRole::InvoiceScan,
         None,
         owner,
     )
@@ -1313,7 +1470,7 @@ async fn db_insert_appends_sort_order() {
         DocKind::Contract,
         &uid(DOC_CONTRACT),
         &uid(FILE_B),
-        FileRole::Other,
+        FileRole::Default,
         None,
         owner,
     )
@@ -1397,7 +1554,7 @@ async fn db_manual_sort_persists_and_rejects_foreign_ids() {
         DocKind::Contract,
         &uid(DOC_CONTRACT),
         &uid(FILE_C),
-        FileRole::Invoice,
+        FileRole::InvoiceScan,
         None,
         owner,
     )
@@ -1408,7 +1565,7 @@ async fn db_manual_sort_persists_and_rejects_foreign_ids() {
         DocKind::PurchaseOrder,
         &uid(DOC_PO),
         &uid(FILE_A),
-        FileRole::Other,
+        FileRole::Default,
         None,
         owner,
     )
@@ -1511,7 +1668,7 @@ fn delete_log_fields() {
     assert_eq!(detail["doc_id"], serde_json::json!(DOC_PAYABLE));
     assert_eq!(detail["file_name"], serde_json::json!("发票影像.pdf"));
     assert_eq!(detail["file_size"], serde_json::json!(2048));
-    assert_eq!(detail["file_role"], serde_json::json!("INVOICE"));
+    assert_eq!(detail["file_role"], serde_json::json!("INVOICE_SCAN"));
     assert_eq!(
         detail["file_deleted"],
         serde_json::json!(true),
@@ -1626,7 +1783,169 @@ async fn db_delete_log_lands_in_operation_logs() {
     println!("[ATT-03] 删除留痕真库落库（operation/target/detail/ip）✓");
 }
 
-/// 收尾：断言夹具全部清干净（跨 run 不留残留）。
+/// 仓库根（`backend/` 的上一级），用于读前端的角色词表镜像（与 `doc_kind_tests` 同款做法）。
+fn repo_root() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("backend/ 必须有上级目录")
+        .to_path_buf()
+}
+
+/// 从前端 `attachment.ts` 里抠出 `FILE_ROLE_OPTIONS` 的 (value, label) 列表（保序）。
+fn frontend_file_role_options() -> Vec<(String, String)> {
+    let path = repo_root().join("frontend/src/api/business/erp/attachment.ts");
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("读不到前端角色词表 {}：{err}", path.display()));
+    let start = text
+        .find("export const FILE_ROLE_OPTIONS")
+        .expect("前端 attachment.ts 必须有 FILE_ROLE_OPTIONS");
+    let body = &text[start..];
+    let end = body.find("];").expect("FILE_ROLE_OPTIONS 数组必须闭合");
+    let mut rest = &body[..end];
+    let mut options = Vec::new();
+    while let Some(value_at) = rest.find("value: '") {
+        let after = &rest[value_at + "value: '".len()..];
+        let value_end = after.find('\'').expect("value 字符串必须闭合");
+        let value = after[..value_end].to_string();
+        let label_at = after.find("label: '").expect("每个选项必须有 label");
+        let label_after = &after[label_at + "label: '".len()..];
+        let label_end = label_after.find('\'').expect("label 字符串必须闭合");
+        let label = label_after[..label_end].to_string();
+        options.push((value, label));
+        rest = &label_after[label_end..];
+    }
+    options
+}
+
+/// 前端上传下拉 ↔ 后端分栏词表逐条一致（ATT-04：分组标题用后端的，下拉用这份）。
+///
+/// 漂移后果：前端给一个后端不认的 role → 上传 400；后端加一个 role 而前端没有 →
+/// 那个分组永远「暂无」。所以两边必须是同一份 6 项、同序、同文案。
+#[test]
+fn file_roles_match_frontend_vocabulary() {
+    let expected: Vec<(String, String)> = FileRole::GROUPS
+        .iter()
+        .map(|role| (role.as_str().to_string(), role.label().to_string()))
+        .collect();
+    assert_eq!(
+        frontend_file_role_options(),
+        expected,
+        "前端 FILE_ROLE_OPTIONS 必须与 FileRole::GROUPS（code + 中文名 + 顺序）逐字一致"
+    );
+}
+
+/// 真库：新角色能落库（CHECK 已放开），且分组按 role 正确切分（验收①③④）。
+#[tokio::test]
+async fn db_role_groups_split_contract_scan_and_supplement() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    let owner = Some(uid(U_OWNER));
+    // 验收①：合同扫描件 + 补充协议；验收③：同一 role 多个文件
+    let scan1 = model::insert(
+        DocKind::Contract,
+        &uid(DOC_CONTRACT),
+        &uid(FILE_A),
+        FileRole::ContractScan,
+        None,
+        owner,
+    )
+    .await
+    .expect("绑合同扫描件");
+    let scan2 = model::insert(
+        DocKind::Contract,
+        &uid(DOC_CONTRACT),
+        &uid(FILE_B),
+        FileRole::ContractScan,
+        None,
+        owner,
+    )
+    .await
+    .expect("绑第二个合同扫描件");
+    let supplement = model::insert(
+        DocKind::Contract,
+        &uid(DOC_CONTRACT),
+        &uid(FILE_C),
+        FileRole::Supplement,
+        Some("补充条款第 3 条"),
+        owner,
+    )
+    .await
+    .expect("绑补充协议（新角色必须能被 CHECK 放行）");
+
+    let rows = model::list_by_doc(
+        DocKind::Contract,
+        &uid(DOC_CONTRACT),
+        model::ListOrder::TimeDesc,
+    )
+    .await
+    .expect("查列表");
+    assert_eq!(rows.len(), 3);
+    assert_eq!(
+        rows.iter()
+            .filter(|row| row.file_role == "CONTRACT_SCAN")
+            .count(),
+        2
+    );
+    assert!(rows.iter().any(|row| row.id == supplement));
+
+    let claims = claims_of(U_OWNER, &[]);
+    let items: Vec<dto::DocAttachmentItemRes> =
+        rows.iter().map(|row| dto::to_item(row, &claims)).collect();
+    let catalog = dto::role_catalog(&items);
+    assert_eq!(catalog.len(), 6, "固定 6 个分组（含空分组）");
+    let count = |code: &str| {
+        catalog
+            .iter()
+            .find(|group| group.code == code)
+            .unwrap_or_else(|| panic!("分组 {code} 必须存在"))
+            .count
+    };
+    assert_eq!(count("CONTRACT_SCAN"), 2);
+    assert_eq!(count("SUPPLEMENT"), 1);
+    assert_eq!(count("ACCEPTANCE"), 0, "空分组必须留着（前端画上传引导）");
+    assert_eq!(catalog.iter().map(|group| group.count).sum::<u64>(), 3);
+    let _ = (scan1, scan2);
+
+    // 验收④：不写 file_role 的行必须落 DEFAULT（列默认值 = 迁移 §2）
+    // 用应付单夹具 + FILE_A（合同单据上已绑过 FILE_A，撞部分唯一索引）
+    exec(&format!(
+        "INSERT INTO biz_doc_attachment (id, doc_type, doc_id, file_id, uploaded_by) \
+         VALUES ('d2120400-0000-4000-8000-000000000001'::uuid, 'PAYABLE', \
+                 '{DOC_PAYABLE}'::uuid, \
+                 'd2120f01-0000-4000-8000-000000000001'::uuid, \
+                 '{U_OWNER}'::uuid)"
+    ))
+    .await;
+    let default_role: String = db()
+        .scalar_with_params(
+            "SELECT file_role FROM biz_doc_attachment \
+              WHERE id = 'd2120400-0000-4000-8000-000000000001'::uuid",
+            vec![],
+        )
+        .await
+        .expect("读默认角色");
+    assert_eq!(default_role, "DEFAULT", "不传 role 必须落 DEFAULT 组");
+
+    // 老值已从约束里剔除（归一在 parse 侧完成，写库只会写规范值）
+    let bad = db()
+        .execute_with_params(
+            "UPDATE biz_doc_attachment SET file_role = 'INVOICE' \
+              WHERE id = 'd2120400-0000-4000-8000-000000000001'::uuid",
+            vec![],
+        )
+        .await;
+    assert!(bad.is_err(), "V0345 之后不应再能写入老值 INVOICE");
+
+    exec(
+        "DELETE FROM biz_doc_attachment \
+          WHERE id = 'd2120400-0000-4000-8000-000000000001'::uuid",
+    )
+    .await;
+    println!("[ATT-04] 新角色可落库 / 分组切分正确 / 缺省落 DEFAULT ✓");
+}
+
+/// 收尾：清夹具（必须最后跑，`zz_` 前缀保证顺序）。
 #[tokio::test]
 async fn zz_teardown_purges_fixtures() {
     let Some(_guard) = setup().await else {

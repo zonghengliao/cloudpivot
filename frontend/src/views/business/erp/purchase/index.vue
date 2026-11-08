@@ -852,7 +852,7 @@
         <DocAttachmentPanel
           :doc-type="DOC_KIND.PURCHASE_ORDER"
           :doc-id="detail.id"
-          default-role="OTHER"
+          default-role="DEFAULT"
           testid-prefix="purchase-attach"
         />
 

@@ -39,8 +39,32 @@ import {
  */
 export type DocType = AttachmentDocType;
 
-/** 文件角色（与 DDL 的 `ck_biz_doc_attachment_role` 逐字一致）。 */
-export type FileRole = 'CONTRACT_SCAN' | 'SIGN_RECEIPT' | 'INVOICE' | 'OTHER';
+/**
+ * 文件角色（与 DDL 的 `ck_biz_doc_attachment_role` 逐字一致）。
+ *
+ * ATT-04 起分 6 个业务角色 + 1 个兼容值：
+ *
+ * | 值 | 中文 | 说明 |
+ * |----|------|------|
+ * | `CONTRACT_SCAN` | 合同扫描件 | |
+ * | `SUPPLEMENT` | 补充协议 | |
+ * | `ACCEPTANCE` | 验收单 | |
+ * | `INVOICE_SCAN` | 发票影像 | |
+ * | `BANK_RECEIPT` | 银行回单 | |
+ * | `DEFAULT` | 其他附件 | 缺省值（不传 role 的文件进这组） |
+ * | `SIGN_RECEIPT` | 签收单 | **兼容值**：老数据仍在用，不出现在上传下拉里 |
+ *
+ * 老拼写 `INVOICE` / `OTHER` 后端会在解析时归一（`INVOICE`→`INVOICE_SCAN`、
+ * `OTHER`→`DEFAULT`），前端不再使用。
+ */
+export type FileRole =
+  | 'CONTRACT_SCAN'
+  | 'SUPPLEMENT'
+  | 'ACCEPTANCE'
+  | 'INVOICE_SCAN'
+  | 'BANK_RECEIPT'
+  | 'SIGN_RECEIPT'
+  | 'DEFAULT';
 
 /** 单据类型中文名（错误提示 / 空态文案用；取自词表，不另写一份）。 */
 export const DOC_TYPE_LABELS: Record<DocType, string> = {
@@ -54,16 +78,22 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
 };
 
 /**
- * 文件角色下拉项。
+ * 文件角色下拉项（ATT-04 的 6 个分栏角色，顺序 = 分组顺序）。
  *
- * 顺序按「最常见」排：合同扫描件 → 签收单 → 发票影像 → 其他。
- * 合同页也会用它（合同页默认选 `CONTRACT_SCAN`，其余页面默认 `OTHER`）。
+ * ⚠ 这份表与后端 `FileRole::GROUPS` 由 Rust 单测 `file_roles_match_frontend_vocabulary`
+ * 逐条比对（code + 中文名 + 顺序）。加角色必须两边一起，否则单测直接红 ——
+ * 不是「最好同步」，是**必须同步**。
+ *
+ * 分组标题请用接口下发的 `roles[].label`（后端唯一真相），这份表只用于「上传到哪个角色」
+ * 的下拉；兼容值 `SIGN_RECEIPT` 不在下拉里（老数据仍会显示成自己的分组）。
  */
 export const FILE_ROLE_OPTIONS: { value: FileRole; label: string }[] = [
   { value: 'CONTRACT_SCAN', label: '合同扫描件' },
-  { value: 'SIGN_RECEIPT', label: '签收单' },
-  { value: 'INVOICE', label: '发票影像' },
-  { value: 'OTHER', label: '其他' },
+  { value: 'SUPPLEMENT', label: '补充协议' },
+  { value: 'ACCEPTANCE', label: '验收单' },
+  { value: 'INVOICE_SCAN', label: '发票影像' },
+  { value: 'BANK_RECEIPT', label: '银行回单' },
+  { value: 'DEFAULT', label: '其他附件' },
 ];
 
 /** 一条附件（对应后端 `DocAttachmentItemRes`）。 */
@@ -93,6 +123,16 @@ export interface DocAttachmentItem {
 /** 列表排序口径（ATT-03，对应后端 `attachment::model::ListOrder`） */
 export type DocAttachmentSortMode = 'time' | 'manual';
 
+/** 一个角色分组（对应后端 `DocAttachmentRoleRes`，ATT-04）。 */
+export interface DocAttachmentRoleGroup {
+  /** 角色字面值（`CONTRACT_SCAN` / `SUPPLEMENT` / …） */
+  code: string;
+  /** 中文分组标题（后端 `FileRole::label`，前端不再维护第二份） */
+  label: string;
+  /** 该角色下的附件条数（0 = 空分组，前端显示「暂无 XX，点击上传」） */
+  count: number;
+}
+
 /** 列表（对应后端 `DocAttachmentListRes`）。 */
 export interface DocAttachmentList {
   doc_type: string;
@@ -103,6 +143,13 @@ export interface DocAttachmentList {
   max_count: number;
   /** 本次响应用的排序口径（后端回显；`PUT /sort` 固定回 `manual`） */
   sort: DocAttachmentSortMode;
+  /**
+   * 分组口径（ATT-04）：固定 6 个角色（**空分组也在**）+ 数据里存在的兼容角色。
+   *
+   * 前端按这个数组的顺序渲染分组 —— 空分组只能从这里知道，遍历 `list` 是看不到的。
+   * 后端没给（老实例）时组件回落本地 `FILE_ROLE_OPTIONS`，见 `resolveRoleCatalog`。
+   */
+  roles: DocAttachmentRoleGroup[];
 }
 
 /** 上传结果（对应后端 `DocAttachmentUploadRes`）。 */
@@ -175,7 +222,7 @@ export async function uploadDocAttachment(
   docType: DocType,
   docId: string,
   file: File,
-  fileRole: FileRole = 'OTHER',
+  fileRole: FileRole = 'DEFAULT',
   remark?: string,
 ): Promise<DocAttachmentUploadResult> {
   const form = new FormData();
@@ -236,18 +283,20 @@ export function saveBlob(blob: Blob, fileName: string): void {
 }
 
 /**
- * 合同页的默认角色（合同最常见的附件就是扫描件）。
+ * 各单据的默认上传角色（ATT-04 词表）。
  *
- * 其余单据页默认 `OTHER`：收货单要签收单、付款单要发票影像，各页在调用处显式传。
+ * 合同 → 合同扫描件；收货 → 验收单；应付 / 付款 / 报销 → 发票影像；采购 → 其他附件。
+ * （收货页原先是 `SIGN_RECEIPT`（签收单）：ATT-04 的分栏词表里没有签收单，
+ * 收货验收归到「验收单」；老数据里的 `SIGN_RECEIPT` 仍会显示成独立分组。）
  */
 export const DEFAULT_ROLE_BY_DOC: Record<DocType, FileRole> = {
   CONTRACT: 'CONTRACT_SCAN',
-  PURCHASE_ORDER: 'OTHER',
-  STOCK_IN: 'SIGN_RECEIPT',
-  PAYABLE: 'INVOICE',
-  PAYMENT: 'INVOICE',
-  /** 固定资产卡片附件最常见的是合同/发票影像，但卡片页可自选，默认「其它」与采购单口径一致。 */
-  FIXED_ASSET: 'OTHER',
+  PURCHASE_ORDER: 'DEFAULT',
+  STOCK_IN: 'ACCEPTANCE',
+  PAYABLE: 'INVOICE_SCAN',
+  PAYMENT: 'INVOICE_SCAN',
+  /** 固定资产卡片附件最常见的是合同/发票影像，但卡片页可自选，默认「其他附件」与采购单口径一致。 */
+  FIXED_ASSET: 'DEFAULT',
   /** 报销单附件就是发票影像（ARCH-6 §4.7.1）。 */
-  EXPENSE_REPORT: 'INVOICE',
+  EXPENSE_REPORT: 'INVOICE_SCAN',
 };

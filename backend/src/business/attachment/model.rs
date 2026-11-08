@@ -57,11 +57,21 @@ pub const DOC_EXPENSE_REPORT: &str = "EXPENSE_REPORT";
 
 /// 文件角色：合同扫描件。
 pub const ROLE_CONTRACT_SCAN: &str = "CONTRACT_SCAN";
-/// 文件角色：签收单。
+/// 文件角色：补充协议（ATT-04）。
+pub const ROLE_SUPPLEMENT: &str = "SUPPLEMENT";
+/// 文件角色：验收单（ATT-04）。
+pub const ROLE_ACCEPTANCE: &str = "ACCEPTANCE";
+/// 文件角色：发票影像（ATT-04 规范值）。
+pub const ROLE_INVOICE_SCAN: &str = "INVOICE_SCAN";
+/// 文件角色：银行回单（ATT-04）。
+pub const ROLE_BANK_RECEIPT: &str = "BANK_RECEIPT";
+/// 文件角色：签收单（V0212 老值，保留兼容，不再作为上传选项）。
 pub const ROLE_SIGN_RECEIPT: &str = "SIGN_RECEIPT";
-/// 文件角色：发票影像。
+/// 文件角色：其他附件（ATT-04 规范值 = 缺省）。
+pub const ROLE_DEFAULT: &str = "DEFAULT";
+/// 文件角色老值：发票影像（V0212 拼法，解析时归一为 `INVOICE_SCAN`）。
 pub const ROLE_INVOICE: &str = "INVOICE";
-/// 文件角色：其他。
+/// 文件角色老值：其他（V0212 拼法，解析时归一为 `DEFAULT`）。
 pub const ROLE_OTHER: &str = "OTHER";
 
 /// 单张单据的附件上限（**读流之前**判定，避免大文件先读进内存再被拒）。
@@ -303,61 +313,126 @@ impl DocKind {
 }
 
 /// 文件角色枚举（与迁移里的 `ck_biz_doc_attachment_role` 逐字对应）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// # 两套词表：`GROUPS`（ATT-04 分栏）vs `ALL`（可写入范围）
+///
+/// ATT-04 要求附件面板按 `file_role` 分栏，卡面给的是 6 个角色（[`FileRole::GROUPS`]）。
+/// V0212 建的 CHECK 还有两个老值：`SIGN_RECEIPT`（签收单，真实业务语义，保留）与
+/// `INVOICE` / `OTHER`（与 `INVOICE_SCAN` / `DEFAULT` 同义，**解析时归一**）。
+///
+/// | 常量 | 用途 |
+/// |------|------|
+/// | [`FileRole::GROUPS`] | 面板「一定要出现」的分组（空分组也要显示上传引导） |
+/// | [`FileRole::ALL`] | 可被解析 / 可被落库的全部值（含老值 `SIGN_RECEIPT`） |
+///
+/// 为什么 `SIGN_RECEIPT` 不进 `GROUPS`：收货签收 ≠ 合同验收，不能并进 `ACCEPTANCE`；
+/// 但它没有对应的新值，所以保留为**兼容值** —— 老数据照常显示（`dto::role_catalog`
+/// 会在有数据时把它追加成一个分组），新上传不再提供这个选项。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FileRole {
     /// 合同扫描件
     ContractScan,
-    /// 签收单
-    SignReceipt,
+    /// 补充协议
+    Supplement,
+    /// 验收单
+    Acceptance,
     /// 发票影像
-    Invoice,
-    /// 其他（缺省）
-    Other,
+    InvoiceScan,
+    /// 银行回单
+    BankReceipt,
+    /// 签收单（V0212 老值，仅兼容：有数据时显示，不再作为上传选项）
+    SignReceipt,
+    /// 其他附件（缺省）
+    Default,
 }
 
 impl FileRole {
-    /// 全部角色（顺序与前端下拉一致）。
-    pub const ALL: [FileRole; 4] = [
+    /// 面板分栏的 6 个角色（顺序 = 卡面顺序 = 前端分组顺序）。
+    ///
+    /// 空分组也要显示（「暂无 XX，点击上传」是卡面验收②），所以这个清单是**固定**的，
+    /// 不能由「库里有哪些值」推出来。
+    pub const GROUPS: [FileRole; 6] = [
         FileRole::ContractScan,
-        FileRole::SignReceipt,
-        FileRole::Invoice,
-        FileRole::Other,
+        FileRole::Supplement,
+        FileRole::Acceptance,
+        FileRole::InvoiceScan,
+        FileRole::BankReceipt,
+        FileRole::Default,
     ];
 
-    /// 解析角色：**空值回落 `OTHER`**，未知值返回 `None`。
+    /// 全部可解析 / 可落库的角色（`GROUPS` + 兼容值 `SIGN_RECEIPT`）。
+    pub const ALL: [FileRole; 7] = [
+        FileRole::ContractScan,
+        FileRole::Supplement,
+        FileRole::Acceptance,
+        FileRole::InvoiceScan,
+        FileRole::BankReceipt,
+        FileRole::SignReceipt,
+        FileRole::Default,
+    ];
+
+    /// 解析角色：**空值回落 `DEFAULT`**，未知值返回 `None`。
     ///
     /// 空值回落是刻意的：`file_role` 是分类而非契约，前端老版本不带该字段时
-    /// 不应该把上传挡在 400。
+    /// 不应该把上传挡在 400（卡面验收④：不传 role 的文件进 DEFAULT 组）。
+    ///
+    /// # 老值归一（ATT-04）
+    ///
+    /// | 入参 | 结果 | 理由 |
+    /// |------|------|------|
+    /// | `INVOICE` | `INVOICE_SCAN` | 同一事物的两种拼法，不归一会显示成两个「发票影像」分组 |
+    /// | `OTHER` | `DEFAULT` | 同上 |
+    /// | `SIGN_RECEIPT` | `SIGN_RECEIPT` | 没有等价新值，原样保留（兼容老前端 / 老数据） |
     pub fn parse(raw: Option<&str>) -> Option<FileRole> {
         let Some(text) = raw.map(str::trim).filter(|text| !text.is_empty()) else {
-            return Some(FileRole::Other);
+            return Some(FileRole::Default);
         };
         match text.to_ascii_uppercase().as_str() {
             ROLE_CONTRACT_SCAN => Some(FileRole::ContractScan),
+            ROLE_SUPPLEMENT => Some(FileRole::Supplement),
+            ROLE_ACCEPTANCE => Some(FileRole::Acceptance),
+            ROLE_INVOICE_SCAN => Some(FileRole::InvoiceScan),
+            // 老值归一（见上表）
+            ROLE_INVOICE => Some(FileRole::InvoiceScan),
+            ROLE_BANK_RECEIPT => Some(FileRole::BankReceipt),
             ROLE_SIGN_RECEIPT => Some(FileRole::SignReceipt),
-            ROLE_INVOICE => Some(FileRole::Invoice),
-            ROLE_OTHER => Some(FileRole::Other),
+            ROLE_DEFAULT => Some(FileRole::Default),
+            ROLE_OTHER => Some(FileRole::Default),
             _ => None,
         }
     }
 
-    /// 数据库 / 前端使用的字面值。
+    /// 数据库 / 前端使用的字面值（**归一后的规范值**）。
     pub fn as_str(self) -> &'static str {
         match self {
             FileRole::ContractScan => ROLE_CONTRACT_SCAN,
+            FileRole::Supplement => ROLE_SUPPLEMENT,
+            FileRole::Acceptance => ROLE_ACCEPTANCE,
+            FileRole::InvoiceScan => ROLE_INVOICE_SCAN,
+            FileRole::BankReceipt => ROLE_BANK_RECEIPT,
             FileRole::SignReceipt => ROLE_SIGN_RECEIPT,
-            FileRole::Invoice => ROLE_INVOICE,
-            FileRole::Other => ROLE_OTHER,
+            FileRole::Default => ROLE_DEFAULT,
         }
     }
 
-    /// 中文标签（列表里的 tag）。
+    /// 该角色是否属于固定分栏清单（`GROUPS`）。
+    pub fn is_group(self) -> bool {
+        Self::GROUPS.contains(&self)
+    }
+
+    /// 中文标签（列表里的 tag / 面板分组标题）。
+    ///
+    /// 与卡面（ATT-04）的词表逐字一致；前端 `FILE_ROLE_OPTIONS` 与本文案由
+    /// `tests::file_roles_match_frontend_vocabulary` 逐条比对（漂了直接红）。
     pub fn label(self) -> &'static str {
         match self {
             FileRole::ContractScan => "合同扫描件",
+            FileRole::Supplement => "补充协议",
+            FileRole::Acceptance => "验收单",
+            FileRole::InvoiceScan => "发票影像",
+            FileRole::BankReceipt => "银行回单",
             FileRole::SignReceipt => "签收单",
-            FileRole::Invoice => "发票影像",
-            FileRole::Other => "其他",
+            FileRole::Default => "其他附件",
         }
     }
 }

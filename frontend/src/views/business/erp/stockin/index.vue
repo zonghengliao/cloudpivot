@@ -850,7 +850,7 @@
         <DocAttachmentPanel
           :doc-type="DOC_KIND.STOCK_IN"
           :doc-id="detail.header.id"
-          default-role="SIGN_RECEIPT"
+          default-role="ACCEPTANCE"
           testid-prefix="stockin-attach"
         />
       </div>
