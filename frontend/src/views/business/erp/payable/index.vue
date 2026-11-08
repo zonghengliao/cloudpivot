@@ -254,6 +254,18 @@
             >
               作废审批中不能付款（撤回或驳回后回到「未付」才能付）
             </span>
+            <!--
+              ★ P3-07：审批已通过但还没执行 —— 后端的 `blocked_reason` 说的是
+              「已有一笔付款在审批中，请等待审批结果」，审批其实已经结束了，照抄会误导。
+            -->
+            <span
+              v-else-if="awaitingExecutePayment"
+              class="drawer-actions__blocked"
+              data-testid="payable-pay-blocked-awaiting-executor"
+            >
+              付款 {{ awaitingExecutePayment.payment_no }} 审批已通过、钱还没付出去：
+              请让另一位有付款权限的账号点下方付款记录里的「执行付款」
+            </span>
             <span
               v-else-if="payInfo && !payInfo.payable.can_pay"
               class="drawer-actions__blocked"
@@ -456,6 +468,23 @@
                   >
                     重新提交
                   </t-link>
+                  <!--
+                    ★ P3-07：审批通过但**还没执行**（`erp.separation_of_duties.approve_execute`
+                    打开时的两段式付款）→ 给另一位有付款权限的人一个执行入口。
+                    开关关闭时审批通过即自动记账（付款直接是「已通过」），按钮不会出现。
+                  -->
+                  <t-button
+                    v-if="isAwaitingExecutor(item, instanceStatusOf(item))"
+                    v-privilege="[PAY_PERMISSION]"
+                    class="payment-row__execute"
+                    size="small"
+                    theme="primary"
+                    :loading="executingPaymentId === item.id"
+                    :data-testid="`payable-payment-execute-${item.payment_no}`"
+                    @click="openExecutePayment(item)"
+                  >
+                    执行付款
+                  </t-button>
                 </div>
                 <div v-if="item.remark" class="payment-row__remark">{{ item.remark }}</div>
               </t-timeline-item>
@@ -638,6 +667,7 @@ import {
 import {
   submitCancelPayable,
   fetchPayableDetail,
+  executePayment,
   fetchPayablePaymentInfo,
   payPayable,
   withdrawCancelPayable,
@@ -666,6 +696,9 @@ import {
   canWithdrawCancel,
   cancelReasonText,
   emptyPayableFilter,
+  executePaymentConfirmText,
+  executorProbeInstanceId,
+  isAwaitingExecutor,
   isPayableFiltered,
   isPendingCancel,
   overdueText,
@@ -949,6 +982,8 @@ async function openDetail(row: PayableRow): Promise<void> {
     // P-FLOW-3B：作废审批中用 `cancel_instance_id`（新字段）；否则看有没有审批中的付款
     // （`approvalTargetOf` 是纯函数，单测直接打；失败不影响详情展示）
     await refreshApprovalProgress(detail.value);
+    // ★ P3-07：付款「审批通过但还没执行」的判据（后端没下发 `awaiting_executor` 时探一次实例状态）
+    await loadExecutorGate(detail.value);
   } catch (error) {
     void MessagePlugin.error(messageOf(error));
   } finally {
@@ -992,6 +1027,8 @@ async function refreshDetail(id: string, approvalInstanceId?: string | null): Pr
     if (approvalInstanceId && !hasApprovalProgress(approvalProgress.value)) {
       await loadApprovalProgressOf(approvalInstanceId);
     }
+    // ★ P3-07：审批进度变了 → 「执行付款」按钮的判据跟着重算
+    await loadExecutorGate(fresh);
   } catch (error) {
     // 抽屉不关：单头 / 付款记录仍是上一次的快照，但至少要说清「没刷新成功」
     void MessagePlugin.warning(`详情刷新失败：${messageOf(error)}`);
@@ -1094,6 +1131,128 @@ function openPayFromDetail(): void {
   }
 }
 
+// ==================== P3-07：审批 ≠ 执行（「执行付款」按钮） ====================
+
+/**
+ * 付款审批**实例状态**缓存（`实例 id → APPROVED / RUNNING / …`；`UNKNOWN` = 拉不到）。
+ *
+ * 只在后端**没有**下发 `awaiting_executor` 时才需要（老后端兜底）：
+ * 「审批通过但还没执行」= 付款仍 `PENDING` 且实例已 `APPROVED`，这个状态只有实例详情知道。
+ * 审批进度块（`loadApprovalProgressOf`）本来就会拉同一张实例，顺手把状态记进来 ——
+ * 于是常态下**零额外请求**。
+ */
+const paymentInstanceStatus = ref<Record<string, string>>({});
+
+/** 正在执行的那笔付款 id（按钮 loading / 防重复点） */
+const executingPaymentId = ref('');
+
+/** 记一条实例状态（`status` 空 = 未知，按钮不出现） */
+function cacheInstanceStatus(instanceId: string | null | undefined, status: string | null | undefined): void {
+  if (!instanceId) {
+    return;
+  }
+  paymentInstanceStatus.value = { ...paymentInstanceStatus.value, [instanceId]: (status ?? '').trim() };
+}
+
+/**
+ * 某笔付款的审批实例状态（没实例 / 还没查到 → `null`）。
+ *
+ * 供 `isAwaitingExecutor(item, instanceStatusOf(item))` 用：模板里直接算，不缓存派生布尔值
+ * （避免「实例状态后到、缓存先定死」这类假阴性）。
+ */
+function instanceStatusOf(item: PayablePayment): string | null {
+  const instanceId = (item.approval_instance_id ?? '').trim();
+  if (!instanceId) {
+    return null;
+  }
+  return paymentInstanceStatus.value[instanceId] ?? null;
+}
+
+/** 详情里那笔「审批通过、等别人执行」的付款（没有 → `null`；动作条提示 / 按钮判据共用） */
+const awaitingExecutePayment = computed<PayablePayment | null>(() => {
+  const list = detail.value?.payments ?? [];
+  return list.find((item) => isAwaitingExecutor(item, instanceStatusOf(item))) ?? null;
+});
+
+/**
+ * 拉「执行付款」判据需要的那一次实例状态（**幂等**，可重复调）。
+ *
+ * - 后端已下发 `awaiting_executor`（`executorProbeInstanceId` 返回 `null`）→ 什么都不做；
+ * - 审批进度块刚拉过同一张实例（缓存命中）→ 复用，不再请求；
+ * - 否则 `GET /business/flow/instance/{id}` 一次，失败只记 `UNKNOWN`（按钮不出现，
+ *   不能因为审批中心抽风或 403 就显示一个点下去必然 409 的按钮）。
+ */
+async function loadExecutorGate(row: PayableDetail): Promise<void> {
+  const instanceId = executorProbeInstanceId(row.payments);
+  if (!instanceId || paymentInstanceStatus.value[instanceId] !== undefined) {
+    return;
+  }
+  try {
+    const instance = await getFlowInstance(instanceId);
+    cacheInstanceStatus(instanceId, instance?.instance?.status);
+  } catch {
+    cacheInstanceStatus(instanceId, 'UNKNOWN');
+  }
+}
+
+/**
+ * 点「执行付款」→ 二次确认（钱还没出去，先说清点完会发生什么）。
+ *
+ * 确认文案里三个事实都不能省：①这笔钱还没付 ②执行后立即应付回写 + 付款凭证
+ * ③审批人不能执行自己审批的付款（内控，后端还会再拦一次）。
+ */
+function openExecutePayment(item: PayablePayment): void {
+  if (executingPaymentId.value) {
+    return;
+  }
+  const dialog = DialogPlugin.confirm({
+    header: '执行付款',
+    theme: 'warning',
+    body: executePaymentConfirmText(item.payment_no, formatMoney(item.amount)),
+    confirmBtn: { content: '确认执行', theme: 'primary' },
+    cancelBtn: '再想想',
+    onConfirm: async () => {
+      dialog.hide();
+      await doExecutePayment(item);
+    },
+  });
+}
+
+/**
+ * 真正执行付款（确认弹窗回调里调）。
+ *
+ * 成功：提示后端 `data.message`（「付款 PM-xxx 已执行：应付回写 + 付款凭证已生成」）后
+ * **从读接口重取**详情与列表 —— 付款记录变「已通过」、未付减少、按钮消失都靠重取，
+ * 不信写接口回包（与 `refreshDetail` 同一条口径）。
+ *
+ * 失败：**原样弹出 `msg`**。409 + `66013`「操作人就是这张付款的审批人」是内控的中文明文，
+ * 一个字都不改；409 + `10003`（已执行 / 已终止 / 审批还没通过）说明状态早变了，顺手刷新一次
+ * 让按钮跟着真实状态消失。
+ */
+async function doExecutePayment(item: PayablePayment): Promise<void> {
+  if (executingPaymentId.value) {
+    return;
+  }
+  executingPaymentId.value = item.id;
+  try {
+    const result = await executePayment(item.id);
+    MessagePlugin.success(result.message);
+    const payableId = detail.value?.id;
+    if (payableId) {
+      await refreshDetail(payableId);
+    }
+    void loadPayables();
+  } catch (error) {
+    MessagePlugin.error(messageOf(error));
+    const payableId = detail.value?.id;
+    if (payableId) {
+      await refreshDetail(payableId);
+    }
+  } finally {
+    executingPaymentId.value = '';
+  }
+}
+
 // ==================== 付款审批进度（P17） ====================
 
 /** 审批进度（`FlowProgress` 的最小形状，只来自后端节点行）+ 审批人明细（C2 起同传 `tasks`）。 */
@@ -1120,7 +1279,14 @@ async function loadApprovalProgressOf(
   title = '付款审批进度',
 ): Promise<void> {
   approvalTitle.value = title;
-  approvalProgress.value = await loadApprovalProgress(instanceId, getFlowInstance);
+  // ★ P3-07：这一发顺便把**实例状态**记进缓存 —— 付款「审批通过但还没执行」的判据
+  // （开关开着时审批通过后付款仍 PENDING，只有实例落 APPROVED 才说明该有人执行了）。
+  // 与 `loadExecutorGate` 共用同一张缓存 → 常态下一次请求都不多。
+  approvalProgress.value = await loadApprovalProgress(instanceId, async (id) => {
+    const instance = await getFlowInstance(id);
+    cacheInstanceStatus(id, instance?.instance?.status);
+    return instance;
+  });
 }
 
 /** 付款记录的审批状态配色：审批中=橙色告警，已通过=绿色，驳回=红色，终止=灰。 */
@@ -1707,6 +1873,15 @@ onMounted(() => {
   margin-top: 2px;
   font-size: 12px;
   color: var(--td-text-color-placeholder);
+}
+
+/*
+ * ★ P3-07：付款记录行里的「执行付款」按钮。
+ * 该行是 `align-items: baseline` 的 flex 换行行（金额 / 单号 / 状态 / 方式 / 两个链接），
+ * 620px 抽屉里按钮基本必然换到第二行 —— 让它在本行垂直居中，别跟 13px 文字挤在基线上。
+ */
+.payment-row__execute {
+  align-self: center;
 }
 
 .dialog-body {

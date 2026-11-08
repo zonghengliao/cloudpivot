@@ -54,6 +54,32 @@ export interface PayablePayment {
   approval_instance_id: string | null;
   /** 是否尚未生效（`approval_status === 'PENDING'`） */
   pending: boolean;
+  /**
+   * **审批通过但还没执行**（P3-07 `erp.separation_of_duties.approve_execute` 开着才可能出现）。
+   *
+   * 后端 `payments_res` 目前**还没下发这个字段**（已开小卡给 backend-developer 补），
+   * 所以这里声明成可选：缺席时前端退回「用付款记录上的 `approval_instance_id` 查一次
+   * 审批实例状态、`APPROVED` 即视为待执行」的兜底（见 `payable-logic.ts::isAwaitingExecutor`）。
+   * 字段一旦下发就以它为准 —— 只有后端知道开关状态与审批票数。
+   */
+  awaiting_executor?: boolean;
+}
+
+/**
+ * 执行一笔「审批已通过」的付款（`payable_payment.rs::PaymentExecuteRes`）。
+ *
+ * 后端：`POST /business/erp/payable/payment/{id}/execute`，权限码与「发起付款」同一个
+ * （`business:erp:payable:pay`）。异常：409 + `66013`（操作人就是这张付款的审批人，
+ * 内控「审批 ≠ 执行」）、409 + `10003`（已执行 / 已终止 / 审批还没通过 / 没有审批实例）、
+ * 404（付款记录不存在）。
+ */
+export interface PaymentExecuteResult {
+  /** 付款记录 id */
+  payment_id: string;
+  /** 结果（目前只有 `PAID`） */
+  outcome: string;
+  /** 面向业务人员的一句话（**直接展示**，前端不改写） */
+  message: string;
 }
 
 /**
@@ -244,4 +270,27 @@ export function submitCancelPayable(id: string, reason: string): Promise<CancelS
  */
 export function withdrawCancelPayable(id: string, reason?: string | null): Promise<PayableDetail> {
   return post<PayableDetail>(`${BASE}/payable/${id}/withdraw-cancel`, reason ? { reason } : {});
+}
+
+// ==================== P3-07：审批 ≠ 执行（人工执行入口） ====================
+
+/**
+ * 执行一笔「审批已通过、但还没记账」的付款。
+ *
+ * 后端：`POST /business/erp/payable/payment/{id}/execute`
+ * （`payable_payment.rs::execute_approved_payment`）。
+ *
+ * # 什么时候才调
+ *
+ * 只在 `erp.separation_of_duties.approve_execute` 打开时才会出现这种状态
+ * （审批通过时引擎把付款留在 `PENDING`、账一分没动）。开关关闭时审批通过即自动记账，
+ * 付款记录直接是 `APPROVED`，本接口会 409 + `10003`（已经执行过）。
+ *
+ * # 错误直接透传
+ *
+ * 409 + `66013`「操作人就是这张付款的审批人」是后端内控的中文明文，
+ * 页面**原样弹出**，不要改写成自己的话（否则用户不知道该找谁）。
+ */
+export function executePayment(paymentId: string): Promise<PaymentExecuteResult> {
+  return post<PaymentExecuteResult>(`${BASE}/payable/payment/${paymentId}/execute`, {});
 }

@@ -392,6 +392,102 @@ export function cancelReasonText(row: { cancel_reason?: string | null } | null |
   return (row?.cancel_reason ?? '').trim();
 }
 
+// ==================== P3-07：审批 ≠ 执行（「执行付款」按钮）====================
+
+/**
+ * 「审批通过但还没执行」的判定只需要付款记录上的这几个字段
+ * （`PaymentRes` 的子集，单测不依赖 api 模块）。
+ */
+export interface ExecutorGatePayment {
+  /** 审批状态（`NONE` / `PENDING` / `APPROVED` / `REJECTED` / `CANCELLED`） */
+  approval_status: string;
+  /** 审批实例 id（没配流程 / 直付时是 null） */
+  approval_instance_id?: string | null;
+  /** 后端 P3-07 补丁下发的中性判据（缺席 = 老后端，走实例状态兜底） */
+  awaiting_executor?: boolean | null;
+}
+
+/**
+ * 这笔付款是不是「审批通过、但还没人执行」。
+ *
+ * # 两种来源，后端优先
+ *
+ * 1. **`awaiting_executor`（后端下发）** —— 唯一知道「开关状态 + 审批票数」的一侧，
+ *    有就直接用，真 / 假都信（`false` 时**不**再去探实例，省一次请求也避免误判）；
+ * 2. **兜底：付款仍 `PENDING` 且它的审批实例已是 `APPROVED`** —— 老后端没有字段时
+ *    前端拿 `approval_instance_id` 查一次实例（`instanceStatus`），落 `APPROVED` 即视为待执行。
+ *
+ * 为什么不能只看 `approval_status`：开关**关闭**时审批通过即自动记账、付款直接是
+ * `APPROVED`；而开关**打开**时审批通过后付款仍是 `PENDING`（账一分没动）。两种状态的
+ * `PENDING` 无法从付款记录本身区分。
+ *
+ * ⚠️ 兜底的代价：`GET /business/flow/instance/{id}` 只对**参与人 / `business:flow:admin`**
+ * 开放，普通执行人可能 403 → 拿不到状态 → 按钮不出现（不会误显示）。这类用户要等后端把
+ * `awaiting_executor` 下发到位（已开小卡），这是兜底方案的已知边界。
+ *
+ * @param payment 付款记录（可空：列表 / 详情还没加载时模板照样安全）
+ * @param instanceStatus 该付款审批实例的状态（`APPROVED` / `RUNNING` / …；拿不到传 null）
+ */
+export function isAwaitingExecutor(
+  payment: ExecutorGatePayment | null | undefined,
+  instanceStatus?: string | null,
+): boolean {
+  if (!payment) {
+    return false;
+  }
+  if (typeof payment.awaiting_executor === 'boolean') {
+    return payment.awaiting_executor;
+  }
+  if (payment.approval_status !== 'PENDING') {
+    return false;
+  }
+  return (instanceStatus ?? '').trim().toUpperCase() === 'APPROVED';
+}
+
+/**
+ * 详情抽屉要不要为「待执行」这件事去探一次审批实例状态 —— 返回实例 id，或 `null` 表示不用探。
+ *
+ * 三种不探的情况：
+ * 1. 后端已经下发 `awaiting_executor`（权威判据在手，探了也是白探）；
+ * 2. 没有「审批中的付款」（`approval_status !== 'PENDING'`）；
+ * 3. 付款没有审批实例（直付路径当场生效，不存在「批过再执行」这一步）。
+ *
+ * 一张应付单**同时最多一笔**审批中的付款（库侧 `uk_biz_payment_pending`），
+ * 所以最多一次请求；实例详情与审批进度块共用同一个实例 id 时，调用方用状态缓存去重。
+ */
+export function executorProbeInstanceId(
+  payments: readonly ExecutorGatePayment[] | null | undefined,
+): string | null {
+  for (const payment of payments ?? []) {
+    // 后端已下发权威判据（真或假都算）→ 不再探实例状态
+    if (typeof payment.awaiting_executor === 'boolean') {
+      return null;
+    }
+    const instanceId = (payment.approval_instance_id ?? '').trim();
+    if (payment.approval_status === 'PENDING' && instanceId) {
+      return instanceId;
+    }
+  }
+  return null;
+}
+
+/**
+ * 「执行付款」二次确认的正文（钱还没出去，说清点完会发生什么）。
+ *
+ * 单独成函数只为一件事：这句文案里「还没付」「立即记账」「审批人不能执行自己审批的」
+ * 三个事实都不能丢（用户点下去就是真付款），用单测钉住。
+ */
+export function executePaymentConfirmText(
+  paymentNo: string,
+  amountText: string,
+): string {
+  return (
+    `付款 ${paymentNo}（${amountText}）的审批已通过，但这笔钱还没付出去。` +
+    '点「确认执行」后立即记账：应付回写（已付 / 未付）+ 生成付款凭证，之后不可撤销。' +
+    '内控要求审批与执行分离：审批过这张单的人不能执行，请换一位有付款权限的账号操作。'
+  );
+}
+
 /**
  * 来源单据的跳转路径（`STOCK_IN` → 收货单页并打开详情）。
  *
