@@ -719,7 +719,11 @@ fn upload_preflight_forbids_blind_upload_before_existence_check() {
             error.msg
         );
         // 消息里不得出现 id / 文件名 / 「不存在」这类会泄露存在性的事实
-        assert!(!error.msg.contains(doc_id), "403 消息不得回显 doc_id：{}", error.msg);
+        assert!(
+            !error.msg.contains(doc_id),
+            "403 消息不得回显 doc_id：{}",
+            error.msg
+        );
         assert!(!error.msg.contains("不存在"), "{}", error.msg);
         messages.push(error.msg);
     }
@@ -808,7 +812,10 @@ fn can_delete_requires_doc_read_for_the_delete_code_branch() {
     // 无属主历史行：只有 delete 码能删，且同样要看读码
     assert!(!dto::can_delete(&deleter, None, false));
     assert!(dto::can_delete(&deleter, None, true));
-    assert!(!dto::can_delete(&owner, None, true), "上传人不是属主时不能删无主行");
+    assert!(
+        !dto::can_delete(&owner, None, true),
+        "上传人不是属主时不能删无主行"
+    );
 
     // 超管：两个短路都要生效（has_permission("*") + has_any_permission("*")）
     assert!(dto::can_delete(
@@ -2596,8 +2603,10 @@ async fn db_role_groups_split_contract_scan_and_supplement() {
     assert!(rows.iter().any(|row| row.id == supplement));
 
     let claims = claims_of(U_OWNER, &[]);
-    let items: Vec<dto::DocAttachmentItemRes> =
-        rows.iter().map(|row| dto::to_item(row, &claims, true)).collect();
+    let items: Vec<dto::DocAttachmentItemRes> = rows
+        .iter()
+        .map(|row| dto::to_item(row, &claims, true))
+        .collect();
     let catalog = dto::role_catalog(DocKind::Contract, &items);
     assert_eq!(catalog.len(), 3, "合同的分组清单（含空分组）");
     let count = |code: &str| {

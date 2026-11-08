@@ -27,15 +27,17 @@
 //!
 //! | 方法 | 路径 | 权限码 | 说明 |
 //! |------|------|--------|------|
-//! | POST | `/attachment/upload` | `business:attachment:upload` | 上传并绑定（multipart：`doc_type` / `doc_id` / `file_role` / `remark` / `file`） |
+//! | POST | `/attachment/upload` | `business:attachment:upload` + 单据读码 | 上传并绑定（multipart：`doc_type` / `doc_id` / `file_role` / `remark` / `file`） |
 //! | GET | `/attachment/list` | `business:attachment:list` + 单据读码 | 按 `doc_type + doc_id` 查（ATT-03：`sort=time` 缺省按上传时间倒序，`sort=manual` 按 `sort_order`） |
 //! | PUT | `/attachment/sort` | `business:attachment:upload` + 单据读码 | 手动排序（ATT-03：提交该单据附件的完整 id 顺序） |
-//! | DELETE | `/attachment/{id}` | `business:attachment:upload` + 行级 `:delete` | 软删绑定（上传人本人 ∪ `business:attachment:delete`；写接口不能挂读码，见 `authz_tests::o13`） |
+//! | DELETE | `/attachment/{id}` | `business:attachment:upload` + 行级 | 软删绑定（上传人本人；删别人的要 `business:attachment:delete` **且**看得见该单据；写接口不能挂读码，见 `authz_tests::o13`） |
 //! | GET | `/attachment/download/{id}` | `business:attachment:list` + 单据读码 | 下载（复用 storage 出流 + 落 `operation_logs`） |
 //! | GET | `/attachment/check` | `business:attachment:list` + 单据读码 | **ATT-08**：本单据在本动作下缺什么附件（前端禁用按钮 / 红字 / tooltip 的数据源） |
 //!
 //! 「单据读码」是 ATT-02 补的行级判据（[`model::DocKind::view_permissions`]）：
 //! 路由码只回答「能不能用附件功能」，不回答「能不能看这张单」。
+//! **ATT-04** 把它补到了写路径（`upload`）与「删别人的附件」分支上 ——
+//! 读、写、删三处同一把尺子：看不见的单据，既不能看它的附件，也不能往上挂东西。
 //!
 //! # 表结构与权限码的唯一依据
 //!

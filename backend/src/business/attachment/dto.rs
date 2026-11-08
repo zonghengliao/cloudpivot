@@ -13,6 +13,7 @@
 //! | `remark` | ≤ 200 字符（列 `VARCHAR(255)`，留余量） | 400 + `PARAM_INVALID` |
 //! | 单文件大小 | ≤ [`MAX_FILE_BYTES`]（20 MB，ATT-05） | 400 + `PARAM_INVALID`（[`FILE_TOO_LARGE_MSG`]） |
 //! | 单据存在性 | 由 handler 查库（`model::doc_exists`） | 404 + `RESOURCE_NOT_FOUND` |
+//! | 单据读码（上传 / 重排 / 删他人附件） | [`preflight_upload`] / [`can_delete`]（ATT-04） | 403 + `PERMISSION_DENIED` |
 //! | 附件个数 | ≤ [`model::MAX_ATTACHMENTS_PER_DOC`] | 400 + `PARAM_INVALID` |
 //! | `sort`（列表） | 缺省 / `time` → 时间倒序；`manual` → 手动序号 | 400 + `PARAM_INVALID`（ATT-03） |
 //! | `ids`（重排） | 非空、全部 UUID、无重复 | 400 + `PARAM_INVALID`（ATT-03） |
@@ -462,6 +463,48 @@ pub fn parse_upload_meta(
     })
 }
 
+/// 上传的**前置判定链**（纯逻辑，不连库）：字段合法性（400）→ 单据读码（403）。
+///
+/// # 为什么要有这一步（ATT-04）
+///
+/// ATT-02 把 `list` / `download` 收到「附件可见性 = 单据可见性」，但写路径没动：
+/// 只持 `business:attachment:upload`、没有该模块读码的人，仍能往**自己看不见的单据**
+/// 上盲传文件 —— 那张单据的附件列表里随即出现他的上传物（跨部门投毒面），
+/// 而且 `404 单据不存在` / `400 字段非法` 的差异让他能枚举「某个 payable / contract id
+/// 是否存在」。上传必须与读同一把尺子：看不见的单，不许挂东西。
+///
+/// # 顺序（卡面 ATT-04）
+///
+/// ```text
+///   400 字段非法（不含 doc_type 白名单外的值） → 403 缺单据读码 → 〔handler〕404 单据不存在
+/// ```
+///
+/// 存在性判定要查库，留在 handler；本函数只做「不查库就能判的」两步，
+/// 从而保证**无权用户无论拿什么 id（存在的、不存在的、随机的）都拿到同一份 403**，
+/// 探测面在权限判定处被彻底截断。
+///
+/// # 异常情况
+///
+/// - 400 + `PARAM_INVALID`：[`parse_upload_meta`] 的失败；
+/// - 403 + `PERMISSION_DENIED`：缺该单据模块的读码（[`doc_upload_forbidden`]）。
+///
+/// # 可见性
+///
+/// `pub`：handler 用，`tests::upload_preflight_*` 直接断言顺序（不连库）。
+pub fn preflight_upload(
+    claims: &TokenClaims,
+    doc_type: Option<&str>,
+    doc_id: Option<&str>,
+    file_role: Option<&str>,
+    remark: Option<&str>,
+) -> std::result::Result<UploadMeta, ApiError> {
+    let meta = parse_upload_meta(doc_type, doc_id, file_role, remark)?;
+    if !can_view_doc(claims, meta.doc_type) {
+        return Err(doc_upload_forbidden(meta.doc_type));
+    }
+    Ok(meta)
+}
+
 /// 解析单据类型。
 ///
 /// # 异常情况
@@ -636,15 +679,31 @@ pub fn attachment_not_found() -> ApiError {
     ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "附件不存在或已删除")
 }
 
-/// 行级删除判据：上传人本人 ∪ 持 `business:attachment:delete`。
+/// 行级删除判据：上传人本人 ∪ 持 `business:attachment:delete`（ATT-04 补单据读码）。
 ///
 /// # 参数
 ///
 /// - `claims`：当前用户；
-/// - `uploaded_by`：附件上传人（历史行可能为 `NULL` —— 无属主行按「只有升权码能删」处理）。
-pub fn can_delete(claims: &TokenClaims, uploaded_by: Option<Uuid>) -> bool {
+/// - `uploaded_by`：附件上传人（历史行可能为 `NULL` —— 无属主行按「只有升权码能删」处理）；
+/// - `can_view_doc`：当前用户能否查看**该附件所属单据**（[`can_view_doc`] 的结果，
+///   由调用方算好传进来，避免本函数再持有 `DocKind` 概念）。
+///
+/// # 两个分支的语义（ATT-04 拍板）
+///
+/// | 分支 | 判据 | 为什么 |
+/// |------|------|--------|
+/// | 上传人本人 | 只认「我是上传人」，**不看单据读码** | 删除是撤回自己的行为：「传错了要能撤」是上传人自己的事。换岗 / 调部门后仍能删当年挂上去的附件 —— **明确接受**（否则那条附件就再也删不掉，只能找管理员改库） |
+/// | 持 `:delete` 的人 | 要 delete 码 **且** 能看见该单据 | 升权删**别人**的附件，是「对这张单据的处置」；看不见这张单还谈得上处置它吗？与 ATT-02「附件可见性 = 单据可见性」同一把尺子 |
+///
+/// 无属主的历史行（`uploaded_by = NULL`）落进第二行分支：同样要 delete 码 + 看得见。
+///
+/// # 与前端 `can_delete` 的一致性
+///
+/// 列表出参的 `can_delete` 直接由本函数（经 [`to_item`]）算出，接口与按钮永远是同一条判据 ——
+/// 「按钮亮着点了 403」这种事不会发生。
+pub fn can_delete(claims: &TokenClaims, uploaded_by: Option<Uuid>, can_view_doc: bool) -> bool {
     if claims.has_permission(PERM_DELETE) {
-        return true;
+        return can_view_doc;
     }
     match (uploaded_by, crate::utils::current_user_uuid(claims)) {
         (Some(owner), Some(me)) => owner == me,
@@ -686,12 +745,37 @@ pub fn can_view_doc(claims: &TokenClaims, kind: DocKind) -> bool {
 /// 只说「无权查看该附件所属的应付单」，**不**说文件名 / 大小 / 是否存在 ——
 /// 消息由单据**类型**推导，不含任何一条附件行的事实。
 pub fn doc_forbidden(kind: DocKind) -> ApiError {
+    denied(kind, &format!("查看该附件所属的{}", kind.label()))
+}
+
+/// 无权向该单据上传附件时的错误（403 + 明确提示，**ATT-04**）。
+///
+/// # 与 [`doc_forbidden`] 的关系
+///
+/// 同一条 403 + `30001` 出口，只把动作短语换成「上传」：对上传的人来说，
+/// 「无权查看该附件所属的应付单」是句答非所问的话（他本来就没在查看附件）。
+/// 权限码清单仍然由 [`DocKind::view_permissions`] 推导，两份消息不会漂移。
+///
+/// # 不泄露什么（探测面）
+///
+/// 消息只含**单据类型**与所需权限码，与「这个 doc_id 存不存在」完全无关 ——
+/// 这正是 ATT-04 要把 403 放在 404 之前的目的：无权用户拿任何 id 都得到这一句。
+pub fn doc_upload_forbidden(kind: DocKind) -> ApiError {
+    denied(kind, &format!("向该{}上传附件", kind.label()))
+}
+
+/// 403 `PERMISSION_DENIED` 的统一构造：`无权{动作}（需要以下任一权限：a / b）`。
+///
+/// # 参数
+///
+/// - `kind`：单据类型（决定单据中文名与所需读码，**不接受调用方自拼权限码**）；
+/// - `action`：动作短语（`查看该附件所属的应付单` / `向该应付单上传附件`）。
+fn denied(kind: DocKind, action: &str) -> ApiError {
     ApiError::new(
         403,
         error_code::PERMISSION_DENIED,
         format!(
-            "无权查看该附件所属的{}（需要以下任一权限：{}）",
-            kind.label(),
+            "无权{action}（需要以下任一权限：{}）",
             kind.view_permissions().join(" / ")
         ),
     )
@@ -702,8 +786,14 @@ pub fn doc_forbidden(kind: DocKind) -> ApiError {
 /// # 参数
 ///
 /// - `row`：数据层的附件行；
-/// - `claims`：当前用户（算 `can_delete`）。
-pub fn to_item(row: &DocAttachmentRow, claims: &TokenClaims) -> DocAttachmentItemRes {
+/// - `claims`：当前用户（算 `can_delete`）；
+/// - `can_view_doc`：当前用户能否查看该附件所属单据（ATT-04：由调用方用
+///   [`can_view_doc`] 算好传进来 —— 列表接口已经在进门前判过，这里再算一遍不查库，几乎零成本）。
+pub fn to_item(
+    row: &DocAttachmentRow,
+    claims: &TokenClaims,
+    can_view_doc: bool,
+) -> DocAttachmentItemRes {
     DocAttachmentItemRes {
         id: row.id.to_string(),
         doc_type: row.doc_type.clone(),
@@ -722,7 +812,7 @@ pub fn to_item(row: &DocAttachmentRow, claims: &TokenClaims) -> DocAttachmentIte
         uploaded_by: row.uploaded_by.map(|id| id.to_string()),
         uploader_name: row.uploader_name.clone(),
         created_at: row.created_at,
-        can_delete: can_delete(claims, row.uploaded_by),
+        can_delete: can_delete(claims, row.uploaded_by, can_view_doc),
     }
 }
 
