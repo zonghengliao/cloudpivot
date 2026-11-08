@@ -350,6 +350,14 @@ async fn set_actual(
 
 /// 状态流转（成功）。
 async fn transition(id: &str, target: &str, reason: Option<&str>) -> StockTakeDetailRes {
+    // ATT-06：确认（→ PENDING_POST）前必须已有盘点表 / 盈亏说明，先挂一份 pdf 夹具
+    if target == STATUS_PENDING_POST {
+        crate::business::attachment::test_support::attach_pdf(
+            crate::business::attachment::model::DocKind::StockTake,
+            uid(id),
+        )
+        .await;
+    }
     let req = StockTakeStatusReq {
         status: Some(target.to_string()),
         reason: reason.map(|text| text.to_string()),

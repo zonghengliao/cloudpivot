@@ -762,6 +762,14 @@ async fn status_change(
     target_status: &str,
     reason: &str,
 ) -> std::result::Result<AssetDetailRes, ApiError> {
+    // ATT-06：启用（→ IN_USE）前必须已有发票 / 验收单，先挂一份 pdf 夹具再走真实 handler
+    if target_status == asset_dto::STATUS_IN_USE {
+        crate::business::attachment::test_support::attach_pdf(
+            crate::business::attachment::model::DocKind::FixedAsset,
+            asset_id,
+        )
+        .await;
+    }
     let res = asset_status_change(
         Extension(AuthClaims(claims_of(user))),
         Path(asset_id.to_string()),

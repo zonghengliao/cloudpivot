@@ -320,6 +320,12 @@ async fn status_of(report_id: Uuid) -> String {
 
 /// 提交（走真实 handler：预算守卫 + 状态机 + 发起审批 + 联动）。
 async fn submit(report_id: Uuid) -> String {
+    // ATT-06：报销提交前必须有发票影像 / 费用凭证，先挂一份 pdf 夹具
+    crate::business::attachment::test_support::attach_pdf(
+        crate::business::attachment::model::DocKind::ExpenseReport,
+        report_id,
+    )
+    .await;
     let (user, _, _) = reporter().await.expect("用户");
     let detail = data(
         report_submit(
