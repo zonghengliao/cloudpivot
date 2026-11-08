@@ -675,9 +675,9 @@ mod tests {
         assert_eq!(ctx.doc_label, "派工单");
         assert_eq!(ctx.status, "进行中");
         assert_eq!(ctx.status_kind, "is-doing");
-        // 12 个信息字段 → 4 行 × 3 组
-        assert_eq!(ctx.meta_rows.len(), 4);
-        assert!(ctx.meta_rows.iter().all(|row| row.len() == 3));
+        // 12 个信息字段 → 6 行 × 2 组（每行 2 组：姓名字段与项目名较长，3 组会把值挤成两行）
+        assert_eq!(ctx.meta_rows.len(), 6);
+        assert!(ctx.meta_rows.iter().all(|row| row.len() == 2));
         let flat: Vec<(String, String)> = ctx
             .meta_rows
             .iter()

@@ -2434,7 +2434,7 @@ pub struct TaskContext {
     pub status: String,
     /// 状态配色类（`is-todo` / `is-doing` / `is-review` / `is-done` / `is-void`）
     pub status_kind: String,
-    /// 任务信息字段（每行 3 组）
+    /// 任务信息字段（每行 2 组：中文字段名 + 姓名 / 项目名较长，3 组会把值挤成两行）
     pub meta_rows: Vec<Vec<OrderMetaField>>,
     /// 任务描述**原文**（换行 / 缩进原样保留，模板 `white-space: pre-wrap`）
     pub description: String,
@@ -2491,7 +2491,7 @@ impl TaskContext {
             status_kind: args.status_kind,
             meta_rows: args
                 .meta
-                .chunks(3)
+                .chunks(2)
                 .map(<[OrderMetaField]>::to_vec)
                 .collect(),
             has_description: !args.description.trim().is_empty(),
