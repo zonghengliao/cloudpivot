@@ -1,0 +1,157 @@
+=== 改造前：1c6abbf（ATT-04 之前的最后状态，AUD-01 与 ATT-04 都还没进）uplod 段 ===
+///
+/// 1. `Content-Length` 与服务端硬顶（**读流之前**，否则大文件会先读进内存再被拒）；
+/// 2. 单文件 ≤ **20 MB**（ATT-05，按分片累加，超限立刻掐断 —— 见 [`dto::MAX_FILE_BYTES`]）；
+/// 3. 文本字段白名单（`doc_type` / `doc_id` / `file_role` / `remark`）；
+/// 4. 单据存在性（404 —— 不允许给不存在的单据挂号）；
+/// 5. 单张单据附件数上限（50）；
+/// 6. 读文件 + 走 storage 策略（大小 / 扩展名 / MIME）。
+///
+/// # 异常情况
+///
+/// - 400：字段缺失 / 类型非法 / 备注超长 / 附件数已达上限 / **文件超过 20 MB** /
+///   扩展名或 MIME 不被策略允许；
+/// - 403：无 `business:attachment:upload`；
+/// - 404：单据不存在或已删除；
+/// - 422：超过策略或服务端大小上限（`60003`）；
+/// - 500 / 502：写对象或落库失败（对象失败时不插绑定行）。
+#[nik::permission(
+    path = "/business/attachment/upload",
+    method = "POST",
+    permission = "business:attachment:upload"
+)]
+#[nik::post("/business/attachment/upload")]
+pub async fn upload(
+    headers: HeaderMap,
+    ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    multipart: Multipart,
+) -> ResResult<DocAttachmentUploadRes> {
+    let server_limit = server_upload_limit_bytes();
+    if let Some(declared) = declared_content_length(&headers)
+        && server_limit > 0
+        && declared > server_limit
+    {
+        return Err(server_size_error(server_limit));
+    }
+
+    let (fields, file) = read_multipart(multipart, server_limit).await?;
+    let meta = dto::parse_upload_meta(
+        fields.doc_type.as_deref(),
+        fields.doc_id.as_deref(),
+        fields.file_role.as_deref(),
+        fields.remark.as_deref(),
+    )?;
+
+    if !model::doc_exists(meta.doc_type, &meta.doc_id)
+        .await
+        .map_err(|error| utils::db_error(error, "校验单据存在性"))?
+    {
+        return Err(dto::doc_not_found(meta.doc_type));
+    }
+
+    let existing = model::count_by_doc(meta.doc_type, &meta.doc_id)
+        .await
+        .map_err(|error| utils::db_error(error, "统计单据附件"))?;
+    if existing >= MAX_ATTACHMENTS_PER_DOC {
+
+=== 改造前：1c6abbf 的 can_delete 签名 ===
+/// 行级删除判据：上传人本人 ∪ 持 `business:attachment:delete`。
+///
+/// # 参数
+///
+/// - `claims`：当前用户；
+/// - `uploaded_by`：附件上传人（历史行可能为 `NULL` —— 无属主行按「只有升权码能删」处理）。
+pub fn can_delete(claims: &TokenClaims, uploaded_by: Option<Uuid>) -> bool {
+    if claims.has_permission(PERM_DELETE) {
+        return true;
+    }
+    match (uploaded_by, crate::utils::current_user_uuid(claims)) {
+        (Some(owner), Some(me)) => owner == me,
+        _ => false,
+    }
+}
+
+/// 行级读判据（**ATT-02**）：当前用户能否查看「该附件所属的单据」。
+
+=== 改造后：dae260b 同一段（upload 用 preflight_upload）===
+/// # 校验顺序（每一步都先于「更贵的那一步」）
+///
+/// 1. `Content-Length` 与服务端硬顶（**读流之前**，否则大文件会先读进内存再被拒）；
+/// 2. 单文件 ≤ **20 MB**（ATT-05，按分片累加，超限立刻掐断 —— 见 [`dto::MAX_FILE_BYTES`]）；
+/// 3. 文本字段白名单（`doc_type` / `doc_id` / `file_role` / `remark`）；
+/// 4. **单据读码**（403，[`dto::can_view_doc`]，ATT-04）—— 与 `list` / `download` 同一把尺子：
+///    看不见这张单，就别往上挂东西（否则会往别人的单据里投毒，并能用 404/400 差异探测
+///    单据是否存在）。第 3、4 步合在 [`dto::preflight_upload`] 里，**不查库**；
+/// 5. 单据存在性（404 —— 不允许给不存在的单据挂号）：排在 403 **之后**，
+///    无读码的人拿任何 id 都只能拿到 403，探测面在此截断；
+/// 6. 单张单据附件数上限（50）；
+/// 7. 读文件 + 走 storage 策略（大小 / 扩展名 / MIME）。
+///
+/// # 异常情况
+///
+/// - 400：字段缺失 / 类型非法 / 备注超长 / 附件数已达上限 / **文件超过 20 MB** /
+///   扩展名或 MIME 不被策略允许；
+/// - 403：无 `business:attachment:upload`；或**缺该单据模块的读码**
+///   （[`dto::doc_upload_forbidden`]，点名所需权限码）；
+/// - 404：单据不存在或已删除（**只有过了读码这一关才可能看到 404**）；
+/// - 422：超过策略或服务端大小上限（`60003`）；
+/// - 500 / 502：写对象或落库失败（对象失败时不插绑定行）。
+#[nik::permission(
+    path = "/business/attachment/upload",
+    method = "POST",
+    permission = "business:attachment:upload"
+)]
+#[nik::post("/business/attachment/upload")]
+pub async fn upload(
+    headers: HeaderMap,
+    ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    multipart: Multipart,
+) -> ResResult<DocAttachmentUploadRes> {
+    let server_limit = server_upload_limit_bytes();
+    if let Some(declared) = declared_content_length(&headers)
+        && server_limit > 0
+        && declared > server_limit
+    {
+        return Err(server_size_error(server_limit));
+    }
+
+    let (fields, file) = read_multipart(multipart, server_limit).await?;
+    // ATT-04：字段合法性（400）→ 单据读码（403）。两步都不查库，保证「无权用户拿任何
+    // doc_id 都拿到同一份 403」，不给出「这个 id 存不存在」的任何信息。
+    let meta = dto::preflight_upload(
+        &claims,
+        fields.doc_type.as_deref(),
+        fields.doc_id.as_deref(),
+        fields.file_role.as_deref(),
+        fields.remark.as_deref(),
+    )
+    .inspect_err(|error| {
+        if error.status == 403 {
+            tracing::warn!(
+                doc_type = fields.doc_type.as_deref().unwrap_or_default(),
+                doc_id = fields.doc_id.as_deref().unwrap_or_default(),
+                user = ?utils::current_user_uuid(&claims),
+                "越权上传单据附件被拒（缺模块读码）"
+            );
+        }
+    })?;
+
+
+=== 改造后：can_delete 三分支判据 ===
+704:pub fn can_delete(claims: &TokenClaims, uploaded_by: Option<Uuid>, can_view_doc: bool) -> bool {
+705-    if claims.has_permission(PERM_DELETE) {
+706-        return can_view_doc;
+707-    }
+708-    match (uploaded_by, crate::utils::current_user_uuid(claims)) {
+709-        (Some(owner), Some(me)) => owner == me,
+710-        _ => false,
+711-    }
+712-}
+713-
+714-/// 行级读判据（**ATT-02**）：当前用户能否查看「该附件所属的单据」。
+715-///
+716-/// # 为什么这条判据必须存在
+717-///
+718-/// 路由码 `business:attachment:list` 回答的是「能不能用附件功能」，不是
