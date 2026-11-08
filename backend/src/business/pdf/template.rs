@@ -68,6 +68,8 @@ fn tera() -> &'static Tera {
             .expect("内置退货单模板语法错误（编译期常量，改模板后必须跑 cargo test）");
         tera.add_raw_template(APPROVAL_NAME, APPROVAL_TEMPLATE)
             .expect("内置审批单模板语法错误（编译期常量，改模板后必须跑 cargo test）");
+        tera.add_raw_template(TASK_NAME, TASK_TEMPLATE)
+            .expect("内置派工单模板语法错误（编译期常量，改模板后必须跑 cargo test）");
         tera
     })
 }
@@ -508,6 +510,12 @@ pub const APPROVAL_TEMPLATE: &str = include_str!("templates/approval.html.tera")
 
 /// 审批单模板的注册名。
 pub const APPROVAL_NAME: &str = "approval.html";
+
+/// 内嵌的工作任务派工单模板（PDF-06：任务信息 + 描述全文 + 检查项 + 签字栏）。
+pub const TASK_TEMPLATE: &str = include_str!("templates/task.html.tera");
+
+/// 派工单模板的注册名（`.html` 后缀 → 启用 HTML 自动转义）。
+pub const TASK_NAME: &str = "task.html";
 
 /// 盘点表「空白栏」的填表说明（**与模板里的实际列一一对应**）。
 ///
@@ -2377,6 +2385,221 @@ pub fn sample_approval() -> ApprovalContext {
     })
 }
 
+// ==================== ⑧ 工作任务派工单模板（PDF-06） ====================
+
+/// 派工单的「检查项」一行（= 任务的一条直接子任务）。
+///
+/// # 为什么只有「序号 / 标题 / 负责人 / 截止日」，没有「已完成」
+///
+/// 卡面验收②：检查项要「显示为勾选框（**空白供手填**）」。派工单是发给接收人
+/// 拿去现场用的纸质单据，勾选框由接收人完成一项画一项；把库里的 `status`
+/// 预先印成 ☑ 会让「系统里已标完成」和「纸上已勾」混为一谈，纸质件就不再是
+/// 接收人的确认凭证。所以本结构体**刻意不携带子任务状态**——
+/// 模板想印也印不出来（与盘点表的空白三栏同一手法）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TaskChecklistItem {
+    /// 序号（1 起，展示串）
+    pub seq: String,
+    /// 检查项标题（子任务标题）
+    pub title: String,
+    /// 负责人姓名（子任务负责人；已删号则空）
+    pub owner: String,
+    /// 截止日（`yyyy-MM-dd`；无则 `—`）
+    pub due: String,
+}
+
+/// 签字栏的一格（标签在上、预印提示在下，签名区留空）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TaskSignCell {
+    /// 栏名（`派工人` / `接收人` / `完成确认` / `日期`）
+    pub label: String,
+    /// 预印提示（该由谁签 / 验收口径；空 = 无）
+    pub hint: String,
+}
+
+/// 一张派工单的渲染上下文。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskContext {
+    /// 公司名
+    pub company: String,
+    /// 页眉标题
+    pub doc_title: String,
+    /// 单据名（下载文件名的前缀）
+    pub doc_label: String,
+    /// 任务号（`biz_task.task_no`）
+    pub doc_no: String,
+    /// 任务标题（整行大字）
+    pub subject: String,
+    /// 状态文案（`待开始` / `进行中` / `待验收` / `已完成` / `已取消`）
+    pub status: String,
+    /// 状态配色类（`is-todo` / `is-doing` / `is-review` / `is-done` / `is-void`）
+    pub status_kind: String,
+    /// 任务信息字段（每行 3 组）
+    pub meta_rows: Vec<Vec<OrderMetaField>>,
+    /// 任务描述**原文**（换行 / 缩进原样保留，模板 `white-space: pre-wrap`）
+    pub description: String,
+    /// 描述是否非空（空 → 印「没有填写描述」的占位块）
+    pub has_description: bool,
+    /// 检查项
+    pub checklist: Vec<TaskChecklistItem>,
+    /// 是否有检查项（无 → 整节不出现，不印空表）
+    pub has_checklist: bool,
+    /// 检查项条数（展示串）
+    pub checklist_count: String,
+    /// 签字栏（固定 4 格：派工人 / 接收人 / 完成确认 / 日期）
+    pub sign_cells: Vec<TaskSignCell>,
+    /// 打印时间
+    pub printed_at: String,
+    /// 引擎标识
+    pub engine: String,
+}
+
+/// [`TaskContext`] 的构造入参。
+#[derive(Debug, Clone)]
+pub struct TaskContextArgs {
+    /// 任务号
+    pub doc_no: String,
+    /// 任务标题
+    pub subject: String,
+    /// 状态文案
+    pub status: String,
+    /// 状态配色类
+    pub status_kind: String,
+    /// 任务信息字段
+    pub meta: Vec<OrderMetaField>,
+    /// 任务描述原文
+    pub description: String,
+    /// 检查项
+    pub checklist: Vec<TaskChecklistItem>,
+    /// 签字栏
+    pub sign_cells: Vec<TaskSignCell>,
+    /// 打印时间
+    pub printed_at: String,
+}
+
+impl TaskContext {
+    /// 组装上下文（标题 / 公司名 / 计数都在这里定死，调用方只给数据）。
+    pub fn new(args: TaskContextArgs) -> Self {
+        let checklist_count = format_int(args.checklist.len() as i64);
+        Self {
+            company: COMPANY_NAME.to_string(),
+            doc_title: "工 作 任 务 派 工 单".to_string(),
+            doc_label: "派工单".to_string(),
+            doc_no: args.doc_no,
+            subject: args.subject,
+            status: args.status,
+            status_kind: args.status_kind,
+            meta_rows: args
+                .meta
+                .chunks(3)
+                .map(<[OrderMetaField]>::to_vec)
+                .collect(),
+            has_description: !args.description.trim().is_empty(),
+            description: args.description,
+            has_checklist: !args.checklist.is_empty(),
+            checklist_count,
+            checklist: args.checklist,
+            sign_cells: args.sign_cells,
+            printed_at: args.printed_at,
+            engine: "Chromium · CDP printToPDF".to_string(),
+        }
+    }
+}
+
+/// 渲染派工单 HTML。
+///
+/// # 异常情况
+///
+/// - [`PdfError::Template`]：模板渲染失败。
+pub fn render_task(ctx: &TaskContext) -> Result<String, PdfError> {
+    let context = Context::from_serialize(ctx)
+        .map_err(|error| PdfError::Template(format!("派工单上下文序列化失败：{error}")))?;
+    tera()
+        .render(TASK_NAME, &context)
+        .map_err(|error| PdfError::Template(format!("派工单模板渲染失败：{error}")))
+}
+
+/// 派工单页脚（单号 + 「第 X 页 / 共 Y 页」）。
+pub fn task_footer(doc_no: &str) -> String {
+    format!(
+        "<div style=\"width:100%;padding:0 10mm;font-family:'Noto Sans SC',sans-serif;\
+         font-size:8pt;color:#86909c;display:flex;justify-content:space-between;\">\
+         <span>{} {}</span>\
+         <span>第 <span class=\"pageNumber\"></span> 页 / 共 <span class=\"totalPages\"></span> 页</span>\
+         </div>",
+        "派工单",
+        escape_html(doc_no)
+    )
+}
+
+/// 派工单 PDF 的渲染参数（A4 纵向：现场夹在写字板上用，横向夹板放不下）。
+pub fn task_pdf_opts(doc_no: &str, filename: Option<String>) -> crate::business::pdf::dto::PdfOpts {
+    doc_pdf_opts(task_footer(doc_no), filename)
+}
+
+/// 生成「样本派工单」上下文（联调 / 验收用，数据确定性、不依赖数据库）。
+///
+/// # 参数
+///
+/// - `checklist`：检查项条数（0 = 走「无检查项」分支，整节不出现）。
+pub fn sample_task(checklist: u32) -> TaskContext {
+    let items = (1..=checklist)
+        .map(|index| TaskChecklistItem {
+            seq: index.to_string(),
+            title: format!("核对第 {index} 台阀体的密封面并拍照留档"),
+            owner: if index % 2 == 0 { "王五" } else { "赵六" }.to_string(),
+            due: format!("2026-11-{:02}", 10 + index),
+        })
+        .collect();
+
+    TaskContext::new(TaskContextArgs {
+        doc_no: "TSK-202611-000123".to_string(),
+        subject: "云枢 3 号泵站阀门到货验收与安装".to_string(),
+        status: "进行中".to_string(),
+        status_kind: "is-doing".to_string(),
+        meta: vec![
+            OrderMetaField::new("任务号", "TSK-202611-000123"),
+            OrderMetaField::new("优先级", "P1（高）"),
+            OrderMetaField::new("截止日期", "2026-11-20"),
+            OrderMetaField::new("负责人", "张工"),
+            OrderMetaField::new("协作人", "王五、赵六"),
+            OrderMetaField::new("所属项目", "PRJ-2026-011 泵站改造"),
+            OrderMetaField::new("状态", "进行中"),
+            OrderMetaField::new("创建人", "李经理"),
+            OrderMetaField::new("分派人", "李经理"),
+            OrderMetaField::new("计划开始", "2026-11-09"),
+            OrderMetaField::new("预估工时", "16.0 小时"),
+            OrderMetaField::new("部门", "设备部"),
+        ],
+        description: "1. 到货后核对装箱单与实物数量，逐台登记序列号。\n\
+                      2. 检查阀体密封面无划伤、砂眼，发现问题拍照并挂红牌。\n\
+                      3. 安装前确认管道已泄压、盲板已加装。\n\
+                      \n\
+                      注意：夜间施工需提前一天报安全科备案。"
+            .to_string(),
+        checklist: items,
+        sign_cells: vec![
+            TaskSignCell {
+                label: "派工人".to_string(),
+                hint: "李经理".to_string(),
+            },
+            TaskSignCell {
+                label: "接收人".to_string(),
+                hint: "张工".to_string(),
+            },
+            TaskSignCell {
+                label: "完成确认".to_string(),
+                hint: "验收人：李经理".to_string(),
+            },
+            TaskSignCell {
+                label: "日期".to_string(),
+                hint: String::new(),
+            },
+        ],
+        printed_at: "2026-11-08 22:05".to_string(),
+    })
+}
+
 /// 极简 HTML 转义（用于**拼进 HTML 片段**的少量字段：页脚里的单号）。
 fn escape_html(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -3892,5 +4115,160 @@ mod tests {
         assert!(opts.display_header_footer);
         assert!(opts.margins.bottom_mm >= 14.0);
         assert_eq!(opts.filename.as_deref(), Some("审批单-FLW-1.pdf"));
+    }
+
+    // ==================== 派工单模板（PDF-06） ====================
+
+    /// 验收①②：任务信息齐全 + 检查项每条一个**空白**勾选框 + 签字栏 4 格。
+    #[test]
+    fn renders_sample_task_html() {
+        let ctx = sample_task(3);
+        let html = render_task(&ctx).expect("派工单模板渲染必须成功");
+
+        // 页眉标题 + 任务标题（整行）
+        assert!(html.contains("工 作 任 务 派 工 单"));
+        assert!(html.contains("云枢 3 号泵站阀门到货验收与安装"));
+        assert!(html.contains("任务号 TSK-202611-000123"));
+
+        // 任务信息：卡面点名的 7 个字段一个不能少
+        for label in [
+            "任务号",
+            "优先级",
+            "截止日期",
+            "负责人",
+            "协作人",
+            "所属项目",
+            "状态",
+        ] {
+            assert!(
+                html.contains(&format!("<td class=\"label\">{label}</td>")),
+                "任务信息缺字段：{label}"
+            );
+        }
+        assert!(html.contains("P1（高）"), "优先级要带人读标签，不只印 P1");
+        assert!(html.contains("王五、赵六"), "协作人多名用「、」连");
+        assert!(html.contains("PRJ-2026-011 泵站改造"));
+
+        // 描述原文（含空行与缩进，用 pre-wrap 保留）
+        assert!(html.contains("逐台登记序列号"));
+        assert!(html.contains("夜间施工需提前一天报安全科备案"));
+
+        // 检查项：3 行，每行恰好一个空白方框；不出现任何「已勾」记号
+        assert_eq!(
+            html.matches("<td class=\"c-box\"><span class=\"cb\"></span></td>")
+                .count(),
+            3
+        );
+        assert!(!html.contains('☑'), "勾选框必须留空，不许预印已勾");
+        assert!(
+            !html.contains('☐'),
+            "勾选框用 CSS 画框，不依赖字体里的 ☐ 字形"
+        );
+        assert!(!html.contains("已完成"), "检查项不许印子任务状态");
+
+        // 签字栏：4 格，标签 + 预印提示，签名区全空
+        for label in ["派工人", "接收人", "完成确认", "日期"] {
+            assert!(html.contains(&format!("<th>{label}")), "签字栏缺：{label}");
+        }
+        assert_eq!(html.matches("<td class=\"blank\"></td>").count(), 4);
+        assert!(html.contains("验收人：李经理"));
+    }
+
+    /// 没有子任务 → 整个「检查项」节不出现（不印空表、不印 0 项）。
+    #[test]
+    fn task_without_checklist_hides_section() {
+        let ctx = sample_task(0);
+        assert!(!ctx.has_checklist);
+        let html = render_task(&ctx).expect("渲染必须成功");
+        assert!(!html.contains("class=\"check\""));
+        assert!(
+            !html.contains("检查项<span class=\"count\""),
+            "没检查项就不该出现「检查项」小节标题"
+        );
+        // 签字栏与描述照旧
+        assert!(html.contains("签字栏"));
+        assert!(html.contains("逐台登记序列号"));
+    }
+
+    /// 描述为空 → 印占位说明（不印空白框，让人以为打印坏了）。
+    #[test]
+    fn task_without_description_shows_placeholder() {
+        let mut ctx = sample_task(1);
+        ctx.description = "   \n  ".to_string();
+        let rebuilt = TaskContext::new(TaskContextArgs {
+            doc_no: ctx.doc_no.clone(),
+            subject: ctx.subject.clone(),
+            status: ctx.status.clone(),
+            status_kind: ctx.status_kind.clone(),
+            meta: Vec::new(),
+            description: ctx.description.clone(),
+            checklist: Vec::new(),
+            sign_cells: Vec::new(),
+            printed_at: ctx.printed_at.clone(),
+        });
+        assert!(!rebuilt.has_description);
+        let html = render_task(&rebuilt).expect("渲染必须成功");
+        assert!(html.contains("本任务没有填写描述"));
+        assert!(!html.contains("class=\"desc\""));
+    }
+
+    /// 标题 / 描述 / 检查项标题都是自由文本，必须转义。
+    #[test]
+    fn task_content_is_escaped() {
+        let mut ctx = sample_task(1);
+        ctx.subject = "<script>alert('x')</script>".to_string();
+        ctx.description = "A&B <img src=x onerror=alert(1)>".to_string();
+        ctx.checklist[0].title = "<b>不要加粗</b>".to_string();
+        let html = render_task(&ctx).expect("渲染必须成功");
+        assert!(!html.contains("<script>alert('x')</script>"));
+        assert!(!html.contains("<img src=x"));
+        assert!(!html.contains("<b>不要加粗</b>"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(html.contains("A&amp;B"));
+    }
+
+    /// 验收③的模板侧：长描述逐行都在，且换行原样保留（跨页交给 Chromium，
+    /// 模板**刻意不加** break-inside: avoid，加了这个断言就该红）。
+    #[test]
+    fn task_long_description_is_verbatim() {
+        let mut ctx = sample_task(0);
+        let lines: Vec<String> = (1..=120)
+            .map(|i| format!("第 {i:03} 行：现场检查记录"))
+            .collect();
+        ctx.description = lines.join("\n");
+        let html = render_task(&ctx).expect("渲染必须成功");
+        for line in &lines {
+            assert!(html.contains(line), "长描述丢行：{line}");
+        }
+        // 原文的换行必须留给 CSS pre-wrap，而不是被模板折成一行
+        assert!(html.contains("第 001 行：现场检查记录\n第 002 行"));
+        let start = html.find(".desc {").expect("模板里必须有 .desc 样式");
+        let end = start + html[start..].find('}').expect("样式块必须闭合");
+        let desc_css = &html[start..end];
+        assert!(
+            !desc_css.contains("break-inside"),
+            "描述块不许加 break-inside: avoid（长描述会整块被挤到下一页）：{desc_css}"
+        );
+        assert!(
+            desc_css.contains("white-space: pre-wrap"),
+            "换行要靠 pre-wrap 保留"
+        );
+    }
+
+    /// 派工单页脚与渲染参数（A4 纵向）。
+    #[test]
+    fn task_footer_and_opts() {
+        let footer = task_footer("TSK-202611-000123");
+        assert!(footer.contains("class=\"pageNumber\""));
+        assert!(footer.contains("class=\"totalPages\""));
+        assert!(footer.contains("派工单 TSK-202611-000123"));
+        assert!(footer.contains("font-size:8pt"));
+
+        let opts = task_pdf_opts("TSK-1", Some("派工单-TSK-1.pdf".to_string()));
+        assert_eq!(opts.page, crate::business::pdf::dto::PageSize::A4);
+        assert!(!opts.landscape, "现场夹在写字板上，必须纵向");
+        assert!(opts.display_header_footer);
+        assert!(opts.margins.bottom_mm >= 14.0);
+        assert_eq!(opts.filename.as_deref(), Some("派工单-TSK-1.pdf"));
     }
 }

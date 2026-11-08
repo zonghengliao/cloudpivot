@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>{{ doc_label }} {{ doc_no }}</title>
+<style>
+/* ===========================================================================
+   云枢 工作任务派工单模板（PDF-06）
+   ---------------------------------------------------------------------------
+   结构：页眉（公司名 + 「工 作 任 务 派 工 单」）→ 任务标题（整行大字）→
+        任务信息（任务号 / 优先级 / 截止日期 / 负责人 / 协作人 / 所属项目 / 状态 /
+        创建人 / 分派人 / 计划开始 / 预估工时 / 部门）→ **任务描述全文** →
+        **检查项**（有才出现，每条一个空白勾选框）→ **签字栏**（派工人 / 接收人 /
+        完成确认 / 日期，全部留空手写）→ 页脚。
+
+   打印四条铁律（与订单 / 审批单模板同源）：
+     ① @page 定死纸张与外边距；
+     ② thead { display: table-header-group } —— 检查项跨页时表头重复；
+     ③ 小结构（标题 / 信息表 / 签字栏）break-inside: avoid —— 不腰斩；
+     ④ .num { font-variant-numeric: tabular-nums } —— 日期工时等宽。
+
+   **描述区刻意不加 break-inside: avoid**（卡面验收③「长描述跨页正常」）：
+   描述可以很长，整块不可分割会让排版把它整体挤到下一页，前面留一大片空白；
+   这里让它在行间自然断开，只把「任务描述」这个小标题粘在首段上
+   （.section-title { break-after: avoid }）。
+
+   页码（「第 X 页 / 共 Y 页」）由 CDP footerTemplate 输出
+   （`pdf::template::task_footer`），HTML 里刻意不放占位符。
+   =========================================================================== */
+@page {
+  size: A4 portrait;
+  margin: 12mm 10mm 16mm 10mm;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Noto Sans SC", "Noto Sans CJK SC", sans-serif;
+  font-size: 10pt;
+  line-height: 1.4;
+  color: #1f2329;
+  word-break: break-word;
+}
+
+/* ---------- 页眉 ---------- */
+.sheet-header {
+  border-bottom: 1.5pt solid #1f2329;
+  padding-bottom: 4pt;
+  margin-bottom: 8pt;
+}
+.sheet-header .company {
+  font-size: 12.5pt;
+  font-weight: 700;
+  letter-spacing: 1pt;
+}
+.sheet-header .doc-title {
+  font-size: 17pt;
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: 4pt;
+  margin: 4pt 0 6pt;
+}
+.sheet-header .doc-sub {
+  text-align: center;
+  font-size: 9pt;
+  color: #4e5969;
+  margin-top: -2pt;
+}
+
+/* ---------- 任务标题（整行） ---------- */
+.subject {
+  break-inside: avoid;
+  page-break-inside: avoid;
+  border: 0.8pt solid #1f2329;
+  background: #f7f8fa;
+  padding: 6pt 9pt;
+  margin-bottom: 8pt;
+}
+.subject .label {
+  font-size: 9pt;
+  color: #4e5969;
+  margin-right: 6pt;
+}
+.subject .text {
+  font-size: 13.5pt;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+/* ---------- 任务信息 ---------- */
+table.head-fields {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9.5pt;
+  margin-bottom: 8pt;
+}
+table.head-fields { break-inside: avoid; page-break-inside: avoid; }
+table.head-fields td {
+  border: 0.5pt solid #c9cdd4;
+  padding: 3pt 5pt;
+  vertical-align: middle;
+}
+table.head-fields td.label {
+  width: 62pt;
+  background: #f2f3f5;
+  color: #4e5969;
+  text-align: center;
+  white-space: nowrap;
+}
+table.head-fields td.value { width: auto; }
+.status-pill {
+  display: inline-block;
+  padding: 0 5pt;
+  border: 0.5pt solid #86909c;
+  border-radius: 2pt;
+  font-weight: 700;
+  font-size: 9pt;
+}
+.status-pill.is-todo { color: #4e5969; border-color: #86909c; }
+.status-pill.is-doing { color: #1f5fbf; border-color: #1f5fbf; }
+.status-pill.is-review { color: #d46b08; border-color: #d46b08; }
+.status-pill.is-done { color: #0f7b46; border-color: #0f7b46; }
+.status-pill.is-void { color: #b3261e; border-color: #b3261e; }
+
+/* ---------- 区块小标题 ---------- */
+.section-title {
+  font-size: 10.5pt;
+  font-weight: 700;
+  margin: 10pt 0 4pt;
+  padding-left: 4pt;
+  border-left: 3pt solid #1f2329;
+  /* 标题不落在页底（后面紧跟正文 / 表格） */
+  break-after: avoid;
+  page-break-after: avoid;
+}
+.section-title .count {
+  font-size: 8.8pt;
+  font-weight: 400;
+  color: #4e5969;
+  margin-left: 4pt;
+}
+
+/* ---------- 任务描述（长文，允许跨页） ---------- */
+.desc {
+  border: 0.5pt solid #c9cdd4;
+  padding: 7pt 9pt;
+  font-size: 9.8pt;
+  line-height: 1.75;
+  /* 保留库里的换行与缩进：描述是「原文照印」，不做任何改写 */
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.desc-empty {
+  border: 0.5pt dashed #c9cdd4;
+  padding: 12pt;
+  text-align: center;
+  color: #86909c;
+  font-size: 9pt;
+}
+
+/* ---------- 检查项（空白勾选框） ---------- */
+table.check {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9.2pt;
+  table-layout: fixed;
+}
+table.check thead { display: table-header-group; }
+table.check th,
+table.check td {
+  border: 0.5pt solid #86909c;
+  padding: 4pt 5pt;
+  vertical-align: middle;
+}
+table.check th {
+  background: #f2f3f5;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+}
+table.check tr { break-inside: avoid; page-break-inside: avoid; }
+.c-box   { width: 34pt; text-align: center; }
+.c-seq   { width: 30pt; text-align: center; }
+.c-item  { width: auto; }
+.c-owner { width: 72pt; }
+.c-due   { width: 66pt; text-align: center; }
+
+/* 空白勾选框：画一个 9pt 方框（不印任何「方框字符」—— 字体缺字会变成豆腐块，
+   也不预印「已勾」记号：系统里记为干完的子任务同样留空，卡面要求「空白供手填」） */
+.cb {
+  display: inline-block;
+  width: 9pt;
+  height: 9pt;
+  border: 0.8pt solid #1f2329;
+  vertical-align: -1pt;
+}
+.c-due .num { font-variant-numeric: tabular-nums; }
+
+/* ---------- 签字栏 ---------- */
+table.sign-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9.2pt;
+  margin-top: 4pt;
+}
+table.sign-table { break-inside: avoid; page-break-inside: avoid; }
+table.sign-table th,
+table.sign-table td {
+  border: 0.5pt solid #86909c;
+  padding: 3pt 5pt;
+  vertical-align: top;
+}
+table.sign-table th {
+  background: #f2f3f5;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+}
+table.sign-table th .hint {
+  display: block;
+  font-weight: 400;
+  font-size: 7.8pt;
+  color: #86909c;
+  margin-top: 1pt;
+  white-space: normal;
+}
+table.sign-table td.blank { height: 34pt; }
+.sign-hint {
+  margin-top: 3pt;
+  font-size: 8pt;
+  color: #86909c;
+}
+
+/* ---------- 说明 / 页脚 ---------- */
+.remark {
+  margin-top: 9pt;
+  font-size: 8.8pt;
+  color: #4e5969;
+  line-height: 1.6;
+}
+.remark .tag { font-weight: 700; color: #1f2329; }
+
+.footnote {
+  margin-top: 5pt;
+  font-size: 7.5pt;
+  color: #86909c;
+  text-align: right;
+}
+</style>
+</head>
+<body>
+<div class="sheet-header">
+  <div class="company">{{ company }}</div>
+  <div class="doc-title">{{ doc_title }}</div>
+  <div class="doc-sub">任务号 {{ doc_no }}</div>
+</div>
+
+<div class="subject">
+  <span class="label">任务标题</span><span class="text">{{ subject }}</span>
+</div>
+
+<table class="head-fields">
+{% for row in meta_rows %}
+  <tr>
+{% for field in row %}
+    <td class="label">{{ field.label }}</td>
+    <td class="value">{{ field.value }}</td>
+{% endfor %}
+  </tr>
+{% endfor %}
+</table>
+
+<div class="section-title">任务描述</div>
+{% if has_description %}
+<div class="desc">{{ description }}</div>
+{% else %}
+<div class="desc-empty">本任务没有填写描述（如需补充，请在系统中编辑任务后重新打印）</div>
+{% endif %}
+
+{% if has_checklist %}
+<div class="section-title">检查项<span class="count">（共 {{ checklist_count }} 项，勾选框留空，由接收人逐项手填）</span></div>
+<table class="check">
+  <thead>
+    <tr>
+      <th class="c-box">完成</th>
+      <th class="c-seq">序号</th>
+      <th class="c-item">检查项（子任务）</th>
+      <th class="c-owner">负责人</th>
+      <th class="c-due">截止日</th>
+    </tr>
+  </thead>
+  <tbody>
+{% for item in checklist %}
+    <tr>
+      <td class="c-box"><span class="cb"></span></td>
+      <td class="c-seq num">{{ item.seq }}</td>
+      <td class="c-item">{{ item.title }}</td>
+      <td class="c-owner">{{ item.owner }}</td>
+      <td class="c-due num">{{ item.due }}</td>
+    </tr>
+{% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<div class="section-title">签字栏</div>
+<table class="sign-table">
+  <thead>
+    <tr>
+{% for cell in sign_cells %}
+      <th>{{ cell.label }}{% if cell.hint %}<span class="hint">{{ cell.hint }}</span>{% endif %}</th>
+{% endfor %}
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+{% for cell in sign_cells %}
+      <td class="blank"></td>
+{% endfor %}
+    </tr>
+  </tbody>
+</table>
+<div class="sign-hint">签名与日期一律留空，由相关人员接收任务时现场手写（打印件不作电子签名效力）。</div>
+
+<div class="remark"><span class="tag">说明：</span>任务描述与检查项均照录系统内的当前内容，未做删减或改写；检查项即本任务的直接子任务，完成一栏由接收人在纸质件上逐项勾选。</div>
+
+<div class="footnote">打印时间：{{ printed_at }}　本单据由云枢系统生成（{{ engine }}）</div>
+</body>
+</html>

@@ -82,6 +82,7 @@ pub mod model;
 pub mod recurring;
 pub mod schedule;
 pub mod state;
+pub mod task_pdf;
 pub mod template;
 pub mod workspace_files;
 
