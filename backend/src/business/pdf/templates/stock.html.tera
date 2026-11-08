@@ -97,14 +97,16 @@ table.detail th {
 }
 table.detail tr { break-inside: avoid; page-break-inside: avoid; }
 table.detail td.c-seq { text-align: center; width: 22pt; }
-table.detail td.c-code { width: 80pt; white-space: nowrap; }
+/* 列宽实测（PDF-03）：物料编码 / 规格 / 批次号 折行会让「逐行核对批次」变成瞎猜，
+   所以编码与批次号整串不折行，规格给足 62pt（DN50/PN16 这种 9 字符规格一行放得下） */
+table.detail td.c-code { width: 78pt; white-space: nowrap; }
 table.detail td.c-name { width: auto; }
-table.detail td.c-spec { width: 54pt; }
+table.detail td.c-spec { width: 62pt; }
 table.detail td.c-unit { text-align: center; width: 26pt; }
 table.detail td.c-qty { width: 40pt; }
 table.detail td.c-price { width: 50pt; }
-table.detail td.c-amount { width: 64pt; }
-table.detail td.c-lot { width: 62pt; overflow-wrap: anywhere; }
+table.detail td.c-amount { width: 60pt; }
+table.detail td.c-lot { width: 78pt; overflow-wrap: anywhere; }
 table.detail td.c-loc { width: 50pt; overflow-wrap: anywhere; }
 table.detail td.c-code,
 table.detail td.c-name,
