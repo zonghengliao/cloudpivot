@@ -21,8 +21,15 @@ export interface FileRes {
   category: string;
   /** 状态 */
   status: StatusValue;
-  /** 上传人 */
+  /** 上传人用户 ID */
   uploaded_by: string;
+  /**
+   * 上传人显示名（ATT-03：后端按 `real_name → username → ''` 下发）
+   *
+   * 空串表示上传人已不存在（历史脏数据），界面显示 `-`；
+   * 可选是因为老后端 / 老缓存里没有这个字段，此时才回退 `uploaded_by`。
+   */
+  uploader_name?: string;
   /** 上传时间 */
   created_at: string;
   /** 访问地址 */

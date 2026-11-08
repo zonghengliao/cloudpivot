@@ -192,9 +192,20 @@ pub async fn check_duplicate(
     let existing = model::find_reusable_file(file_hash)
         .await
         .map_err(|e| utils::db_error(e, "秒传预检"))?;
+    let file = match existing {
+        Some(file) => {
+            // ATT-03：秒传命中的是**别人**上传的记录，上传人要从库里现取，
+            // 不能拿当前操作者顶替。
+            let uploader_name = model::uploader_display_name(file.uploaded_by)
+                .await
+                .map_err(|e| utils::db_error(e, "查询上传人显示名"))?;
+            Some(FileRes::from((&file, uploader_name)))
+        }
+        None => None,
+    };
     Ok(Res::ok(FileDuplicateRes {
-        duplicated: existing.is_some(),
-        file: existing.as_ref().map(FileRes::from),
+        duplicated: file.is_some(),
+        file,
     }))
 }
 
@@ -249,7 +260,7 @@ pub async fn page(
 ///
 /// # 返回值
 ///
-/// 成功返回文件记录。
+/// 成功返回文件记录（`uploader_name` 由 `sys_user` 实时 join，ATT-03）。
 ///
 /// # 异常情况
 ///
@@ -264,11 +275,11 @@ pub async fn page(
 #[nik::get("/support/file/{id}")]
 pub async fn detail(Path(id): Path<String>) -> ResResult<FileRes> {
     let id = utils::require_uuid(&id, "id")?;
-    let file = SysFileModel::find_or_none(db(), &id)
+    let row = model::find_file_with_uploader(&id)
         .await
         .map_err(|e| utils::db_error(e, "查询文件详情"))?
         .ok_or_else(|| ApiError::new(404, error_code::FILE_NOT_FOUND, "文件不存在"))?;
-    Ok(Res::ok(FileRes::from(&file)))
+    Ok(Res::ok(FileRes::from(&row)))
 }
 
 /// 删除文件（软删元数据，并尽力删除磁盘文件）。
@@ -523,7 +534,12 @@ async fn store_file_bytes(
             file_key = %existing.file_key,
             "命中文件秒传，复用已存记录"
         );
-        return Ok(FileRes::from(&existing));
+        // ATT-03：秒传复用的是**别人**上传的记录，上传人按记录里的 `uploaded_by` 现取，
+        // 不能用当前操作者顶替。
+        let uploader_name = model::uploader_display_name(existing.uploaded_by)
+            .await
+            .map_err(|e| utils::db_error(e, "查询上传人显示名"))?;
+        return Ok(FileRes::from((&existing, uploader_name)));
     }
 
     let id = uuid::Uuid::now_v7();
@@ -586,7 +602,11 @@ async fn store_file_bytes(
         .insert(db())
         .await
         .map_err(|e| utils::db_error(e, "写入文件元数据"))?;
-    Ok(FileRes::from(&file_record))
+    // ATT-03：把刚写入的上传人解析成显示名，让上传接口的响应与列表 / 详情契约一致
+    let uploader_name = model::uploader_display_name(file_record.uploaded_by)
+        .await
+        .map_err(|e| utils::db_error(e, "查询上传人显示名"))?;
+    Ok(FileRes::from((&file_record, uploader_name)))
 }
 
 /// 把文件名降级为 ASCII 安全的回退名（供 `filename="..."` 使用）。

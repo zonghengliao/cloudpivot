@@ -58,6 +58,7 @@
         @page-change="handlePageChange"
       >
         <template #category="{ row }">{{ categoryLabel(row.category) }}</template>
+        <template #uploader_name="{ row }">{{ uploaderLabel(row) }}</template>
         <template #file_size="{ row }">{{ formatFileSize(row.file_size) }}</template>
         <template #created_at="{ row }">{{ formatDateTime(row.created_at) }}</template>
         <template #op="{ row }">
@@ -135,6 +136,7 @@ const previewIndex = ref(0);
  * 预览列表：用当前页的行，左右切换即页内翻动。
  *
  * `load` 不传 → 组件默认走 `support/file/download/{id}`（带鉴权头取 blob）。
+ * `uploader` 用显示名（ATT-03：不再把 UUID 递给预览面板）。
  */
 const previewItems = computed<PreviewItem[]>(() =>
   rows.value.map((row) => ({
@@ -143,10 +145,25 @@ const previewItems = computed<PreviewItem[]>(() =>
     name: row.original_name || row.file_name,
     size: row.file_size,
     mimeType: row.mime_type,
-    uploader: row.uploaded_by,
+    uploader: uploaderLabel(row),
     uploadedAt: row.created_at,
   })),
 );
+
+/**
+ * 上传人显示名（ATT-03）：后端已下发 `uploader_name` 时以它为准。
+ *
+ * - 有名字 → 显示名字；
+ * - 空串 → 上传人已被删除 / `uploaded_by` 是历史脏数据（指向不存在用户），显示 `-`，
+ *   绝不把 UUID 甩给用户；
+ * - 字段缺失（老后端）→ 才回退 `uploaded_by`，再空显示 `-`。
+ */
+function uploaderLabel(row: FileRes): string {
+  if (row.uploader_name !== undefined) {
+    return row.uploader_name.trim() || '-';
+  }
+  return row.uploaded_by || '-';
+}
 
 /** 打开预览（越界/找不到时退化成第 0 个，不让组件收到 -1） */
 function openPreview(row: FileRes): void {
@@ -175,7 +192,7 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'category', title: '分类', width: 120, cell: 'category' },
   { colKey: 'mime_type', title: '文件类型', width: 180, ellipsis: true },
   { colKey: 'file_size', title: '大小', width: 110, cell: 'file_size' },
-  { colKey: 'uploaded_by', title: '上传人', width: 140 },
+  { colKey: 'uploader_name', title: '上传人', width: 140, cell: 'uploader_name' },
   { colKey: 'created_at', title: '上传时间', width: 180, cell: 'created_at' },
   { colKey: 'op', title: '操作', width: 170, fixed: 'right' },
 ];

@@ -6,7 +6,7 @@
 use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::support::file::model::SysFileModel;
+use crate::support::file::model::{FileRow, SysFileModel};
 
 /// 文件记录响应。
 ///
@@ -34,23 +34,25 @@ pub struct FileRes {
     pub status: i16,
     /// 上传人用户 ID。
     pub uploaded_by: String,
+    /// 上传人显示名（ATT-03）：`real_name` 优先 → `username` → 空串。
+    ///
+    /// 恒为非 NULL 字符串。**空串表示上传人已不存在**（历史脏数据 / 用户被物理删除），
+    /// 前端显示 `-`，不再把 UUID 甩给用户；只有老后端未下发本字段时才回退 `uploaded_by`。
+    pub uploader_name: String,
     /// 上传时间。
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// 访问地址（下载 / 预览）。
     pub url: String,
 }
 
-impl From<&SysFileModel> for FileRes {
-    /// 由文件模型构造响应对象。
+impl FileRes {
+    /// 由文件模型 + 上传人显示名组装（唯一出口）。
     ///
     /// # 参数
     ///
-    /// - `m`：文件元数据模型引用。
-    ///
-    /// # 返回值
-    ///
-    /// 对应的 [`FileRes`]，其中 `url` 指向本记录的下载接口。
-    fn from(m: &SysFileModel) -> Self {
+    /// - `m`：文件元数据模型引用；
+    /// - `uploader_name`：上传人显示名（无则空串）。
+    fn assemble(m: &SysFileModel, uploader_name: String) -> Self {
         Self {
             id: m.id.to_string(),
             file_name: m.file_name.clone(),
@@ -62,9 +64,43 @@ impl From<&SysFileModel> for FileRes {
             category: m.category.clone().unwrap_or_default(),
             status: m.status.as_i16(),
             uploaded_by: m.uploaded_by.map(|v| v.to_string()).unwrap_or_default(),
+            uploader_name,
             created_at: m.created_at,
             url: format!("/api/support/file/download/{}", m.id),
         }
+    }
+}
+
+impl From<&SysFileModel> for FileRes {
+    /// 由文件模型构造响应对象（**不含**上传人显示名，`uploader_name` 为空串）。
+    ///
+    /// 仅用于拿不到 join 结果的兜底路径；需要真名的接口请用 [`FileRes::from`] 的
+    /// `&FileRow` 版本，或显式传入 [`FileRes::assemble`] 的第二参数
+    /// （`handler` 里上传 / 秒传 / 秒传预检走 `model::uploader_display_name`）。
+    ///
+    /// # 参数
+    ///
+    /// - `m`：文件元数据模型引用。
+    ///
+    /// # 返回值
+    ///
+    /// 对应的 [`FileRes`]，其中 `url` 指向本记录的下载接口。
+    fn from(m: &SysFileModel) -> Self {
+        Self::assemble(m, String::new())
+    }
+}
+
+impl From<(&SysFileModel, String)> for FileRes {
+    /// 由文件模型 + 已解析的上传人显示名构造（上传 / 秒传路径用）。
+    fn from((m, uploader_name): (&SysFileModel, String)) -> Self {
+        Self::assemble(m, uploader_name)
+    }
+}
+
+impl From<&FileRow> for FileRes {
+    /// 由「文件行 + join 出来的上传人显示名」构造（分页 / 详情路径用）。
+    fn from(row: &FileRow) -> Self {
+        Self::assemble(&row.file, row.uploader_name.clone())
     }
 }
 
