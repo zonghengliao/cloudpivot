@@ -56,6 +56,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
+use crate::business::attachment::model::DocKind as AttachDocKind;
+use crate::business::attachment::rule::{self as attach_rule, RequiredAt as AttachAt};
 use crate::business::erp::sales_order_model;
 use crate::business::erp::sales_return_model::{
     self as model, NewReturn, NewReturnItem, ReturnItemRow, ReturnRow,
@@ -1216,6 +1218,10 @@ pub async fn change_return_status(
     }
 
     // ③ 业务闸
+    // ATT-06：提交（DRAFT → SUBMITTED）前必须已有退货单 / 物流凭证（规则表 biz_attachment_rule）
+    if target == model::STATUS_SUBMITTED {
+        attach_rule::ensure_attachments(AttachDocKind::SalesReturn, id, AttachAt::Submit).await?;
+    }
     match target.as_str() {
         model::STATUS_POSTED => {
             // 过账执行体在 `sales_return_posting::post_in_tx`（本函数的同一事务里调用）：

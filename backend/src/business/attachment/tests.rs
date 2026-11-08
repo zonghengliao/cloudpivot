@@ -30,6 +30,7 @@ use nik::uuid::Uuid;
 
 use super::dto;
 use super::model::{self, DocKind, FileRole};
+use super::rule::{self as att_rule, AttachRuleError, RequiredAt};
 use crate::shared::error_code;
 
 // ---------- 纯逻辑 ----------
@@ -54,11 +55,18 @@ const SUPPLIER: &str = "d2120200-0000-4000-8000-000000000001";
 /// 仓库夹具。
 const WAREHOUSE: &str = "d2120200-0000-4000-8000-000000000002";
 
+/// 销售发票夹具（**数电票**：`invoice_code IS NULL` → 命中电子票规则 pdf/ofd/xml）。
+const DOC_INVOICE: &str = "d2120106-0000-4000-8000-000000000001";
+/// 销售发票夹具（**纸质票**：带税控代码 → 命中纸质票规则 pdf/jpg/png）。
+const DOC_INVOICE_PAPER: &str = "d2120107-0000-4000-8000-000000000001";
+
 /// 两个 `sys_file` 夹具（不同内容哈希，避免撞 `uk_sys_file_hash`）。
 const FILE_A: &str = "d2120f01-0000-4000-8000-000000000001";
 const FILE_B: &str = "d2120f02-0000-4000-8000-000000000002";
 /// 第三个文件（ATT-03 排序用例需要「同一张单据 3 个附件」才能验出顺序）。
 const FILE_C: &str = "d2120f03-0000-4000-8000-000000000003";
+/// ATT-06：`jpg` 夹具（验「格式不对」必须用白名单外的真实扩展名）。
+const FILE_D: &str = "d2120f04-0000-4000-8000-000000000004";
 
 fn uid(text: &str) -> Uuid {
     Uuid::parse_str(text).expect("夹具 UUID 非法")
@@ -78,17 +86,17 @@ fn claims_of(user: &str, permissions: &[&str]) -> TokenClaims {
     }
 }
 
-/// 七类单据 → 七张表，一一对应且不重复（FIN-3 加了报销单）。
+/// 十二类单据 → 十二张表，一一对应且不重复（FIN-3 加报销单；ATT-06 加发票 / 收款 / 盘点 / 采购退货 / 销售退货）。
 #[test]
 fn doc_kinds_cover_five_distinct_tables() {
-    assert_eq!(DocKind::ALL.len(), 7);
+    assert_eq!(DocKind::ALL.len(), 12);
     let mut tables: Vec<&str> = DocKind::ALL.iter().map(|kind| kind.table()).collect();
     tables.sort_unstable();
     tables.dedup();
     assert_eq!(
         tables.len(),
-        7,
-        "七类单据必须落在七张不同的表上：{tables:?}"
+        12,
+        "十二类单据必须落在十二张不同的表上：{tables:?}"
     );
     for kind in DocKind::ALL {
         // 字面值与 DDL 的 ck_biz_doc_attachment_type 逐字一致
@@ -105,8 +113,13 @@ fn doc_kinds_cover_five_distinct_tables() {
     assert_eq!(DocKind::parse(" contract "), Some(DocKind::Contract));
     assert_eq!(DocKind::parse("stock_in"), Some(DocKind::StockIn));
     // 未知类型一律 None（绝不做「默认当合同」这种猜测）
-    assert_eq!(DocKind::parse("INVOICE"), None);
+    assert_eq!(DocKind::parse("BILL"), None);
     assert_eq!(DocKind::parse(""), None);
+    // ATT-06 新增的 5 类必须可回解析（附件要能挂到它们上）
+    for raw in ["INVOICE", "RECEIPT", "STOCK_TAKE", "PURCHASE_RETURN", "SALES_RETURN"] {
+        let kind = DocKind::parse(raw).unwrap_or_else(|| panic!("{raw} 必须可解析"));
+        assert_eq!(kind.as_str(), raw);
+    }
 }
 
 /// 文件角色：7 个可落库值 + 空值回落 DEFAULT + 老值归一 + 未知值拒绝（ATT-04）。
@@ -400,7 +413,7 @@ fn doc_not_found_message_names_the_kind() {
 /// [`view_permissions_are_real_menu_codes`] 再兜一层（防哑弹）。
 #[test]
 fn view_permissions_map_to_erp_read_codes() {
-    let expected: [(DocKind, &[&str]); 7] = [
+    let expected: [(DocKind, &[&str]); 12] = [
         (DocKind::Contract, &["business:erp:contract:list"]),
         (
             DocKind::PurchaseOrder,
@@ -427,8 +440,30 @@ fn view_permissions_map_to_erp_read_codes() {
             DocKind::ExpenseReport,
             &["business:erp:expense:list", "business:erp:expense:detail"],
         ),
+        // ATT-06 新增 5 类：发票 / 收款 / 盘点 / 采购退货 / 销售退货
+        (
+            DocKind::Invoice,
+            &["business:erp:invoice:list", "business:erp:invoice:detail"],
+        ),
+        (
+            DocKind::Receipt,
+            &["business:erp:receipt:list", "business:erp:receipt:detail"],
+        ),
+        (
+            DocKind::StockTake,
+            &[
+                "business:erp:stock-take:list",
+                "business:erp:stock-take:detail",
+            ],
+        ),
+        // 采购退货 / 销售退货没有独立的 GET 详情路由（`GET {id}` 也挂 `:list`）
+        (
+            DocKind::PurchaseReturn,
+            &["business:erp:purchase-return:list"],
+        ),
+        (DocKind::SalesReturn, &["business:erp:sales-return:list"]),
     ];
-    assert_eq!(expected.len(), DocKind::ALL.len(), "七类单据必须全覆盖");
+    assert_eq!(expected.len(), DocKind::ALL.len(), "十二类单据必须全覆盖");
     for (kind, codes) in expected {
         assert_eq!(
             kind.view_permissions(),
@@ -668,13 +703,22 @@ async fn purge_fixtures() {
             'd2120102-0000-4000-8000-000000000001'::uuid, \
             'd2120103-0000-4000-8000-000000000001'::uuid, \
             'd2120104-0000-4000-8000-000000000001'::uuid, \
-            'd2120105-0000-4000-8000-000000000001'::uuid)"
+            'd2120105-0000-4000-8000-000000000001'::uuid, \
+            'd2120106-0000-4000-8000-000000000001'::uuid, \
+            'd2120107-0000-4000-8000-000000000001'::uuid)"
             .to_string(),
         "DELETE FROM sys_file WHERE id IN \
             ('d2120f01-0000-4000-8000-000000000001'::uuid, \
              'd2120f02-0000-4000-8000-000000000002'::uuid, \
-             'd2120f03-0000-4000-8000-000000000003'::uuid)"
+             'd2120f03-0000-4000-8000-000000000003'::uuid, \
+             'd2120f04-0000-4000-8000-000000000004'::uuid)"
             .to_string(),
+        // ATT-06：发票夹具 + 规则开关复原（用例里改过 enabled 的，下一轮从启用态开始）
+        "DELETE FROM biz_invoice WHERE id IN \
+            ('d2120106-0000-4000-8000-000000000001'::uuid, \
+             'd2120107-0000-4000-8000-000000000001'::uuid)"
+            .to_string(),
+        "UPDATE biz_attachment_rule SET enabled = TRUE WHERE doc_type = 'INVOICE'".to_string(),
         "DELETE FROM biz_payment WHERE id = 'd2120105-0000-4000-8000-000000000001'::uuid"
             .to_string(),
         "DELETE FROM biz_payable WHERE id = 'd2120104-0000-4000-8000-000000000001'::uuid"
@@ -755,6 +799,15 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
              ON CONFLICT DO NOTHING"
         ),
         format!(
+            "INSERT INTO biz_invoice (id, invoice_no, invoice_type, invoice_code, customer_id, \
+                 invoice_date, amount, tax_amount, total_with_tax, tax_rate, status) \
+             VALUES ('{DOC_INVOICE}'::uuid, 'ATT-IV-0001', 'OUT', NULL, '{SUPPLIER}'::uuid, \
+                 '2033-03-01', 100, 13, 113, 0.13, 'DRAFT'), \
+                    ('{DOC_INVOICE_PAPER}'::uuid, 'ATT-IV-0002', 'OUT', '044031900111', \
+                 '{SUPPLIER}'::uuid, '2033-03-01', 100, 13, 113, 0.13, 'DRAFT') \
+             ON CONFLICT DO NOTHING"
+        ),
+        format!(
             "INSERT INTO sys_file (id, file_name, original_name, file_key, file_size, file_hash, \
                  mime_type, extension, category, uploaded_by, upload_mode, is_shared) \
              VALUES ('{FILE_A}'::uuid, '2033/03/01/att_a.png', '合同扫描件.png', '2033/03/01/att_a.png', \
@@ -763,8 +816,10 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
                  2048, 'att-hash-b', 'application/pdf', 'pdf', 'attachment', '{U_OWNER}'::uuid, 'SERVER', FALSE), \
                     ('{FILE_C}'::uuid, '2033/03/01/att_c.xlsx', '对账表.xlsx', '2033/03/01/att_c.xlsx', \
                  1536000, 'att-hash-c', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', \
-                 'xlsx', 'attachment', '{U_OWNER}'::uuid, 'SERVER', FALSE) \
-             ON CONFLICT DO NOTHING"
+                 'xlsx', 'attachment', '{U_OWNER}'::uuid, 'SERVER', FALSE), \
+                 ('{FILE_D}'::uuid, '2033/03/01/att_d.jpg', '发票影像.jpg', '2033/03/01/att_d.jpg', \
+                 8192, 'att-hash-d', 'image/jpeg', 'jpg', 'attachment', '{U_OWNER}'::uuid, 'SERVER', FALSE) \
+                 ON CONFLICT DO NOTHING"
         ),
     ];
     for sql in statements {
@@ -1287,9 +1342,9 @@ fn parse_sort_request_validates() {
     let err = dto::parse_sort_request(&bad_doc).expect_err("非法 doc_id");
     assert_eq!(err.status, 400);
 
-    // 单据类型非法 → 400（消息列出七个可选值）
+    // 单据类型非法 → 400（消息列出全部可选值）
     let mut bad_kind = build(vec![FILE_A]);
-    bad_kind.doc_type = "INVOICE".to_string();
+    bad_kind.doc_type = "BILL".to_string();
     let err = dto::parse_sort_request(&bad_kind).expect_err("非法 doc_type");
     assert_eq!(err.status, 400);
     assert!(err.msg.contains("CONTRACT"), "{}", err.msg);
@@ -2119,6 +2174,254 @@ async fn db_role_groups_split_contract_scan_and_supplement() {
     println!("[ATT-04] 新角色可落库 / 分组切分正确 / 缺省落 DEFAULT ✓");
 }
 
+// ============================================================================
+// ATT-06：附件必传规则（真库）—— 卡面验收 ①②③④⑤ 各一条
+// ============================================================================
+
+/// 取出规则违例的人话；读库失败直接炸（那不是「规则不满足」）。
+fn violation_text(error: AttachRuleError) -> String {
+    match error {
+        AttachRuleError::Violation(violations) => violations
+            .iter()
+            .map(|violation| violation.message())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        AttachRuleError::Db(detail) => panic!("期望规则违例，实际是读库失败：{detail}"),
+    }
+}
+
+/// 给单据绑一份夹具文件（角色 DEFAULT：种子规则的 file_role 都是 NULL = 任意角色）。
+async fn bind_file(doc_type: DocKind, doc: &str, file: &str) {
+    model::insert(
+        doc_type,
+        &uid(doc),
+        &uid(file),
+        FileRole::Default,
+        Some("ATT-06 夹具"),
+        Some(uid(U_OWNER)),
+    )
+    .await
+    .expect("绑定附件夹具");
+}
+
+/// 验收①：迁移后规则表有 8 条以上规则，且覆盖卡面点名的 8 个单据。
+#[tokio::test]
+async fn db_rule_seeds_cover_card_documents() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    let total: i64 = db()
+        .scalar_with_params(
+            "SELECT count(*) FROM biz_attachment_rule WHERE enabled AND deleted_at IS NULL",
+            vec![],
+        )
+        .await
+        .expect("数规则");
+    assert!(total >= 8, "启用中的规则必须 ≥ 8 条，实际 {total}");
+
+    // 卡面点名的 8 个单据 + 各自 required_at 都要有启用中的规则
+    for (doc_type, at) in [
+        ("INVOICE", "SUBMIT"),
+        ("RECEIPT", "SUBMIT"),
+        ("PAYMENT", "ACTIVATE"),
+        ("EXPENSE_REPORT", "SUBMIT"),
+        ("FIXED_ASSET", "ACTIVATE"),
+        ("STOCK_TAKE", "CONFIRM"),
+        ("PURCHASE_RETURN", "SUBMIT"),
+        ("SALES_RETURN", "SUBMIT"),
+    ] {
+        let count: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_attachment_rule \
+                  WHERE doc_type = ? AND required_at = ? AND enabled AND deleted_at IS NULL",
+                vec![Value::Text(doc_type.to_string()), Value::Text(at.to_string())],
+            )
+            .await
+            .expect("数规则");
+        assert!(count >= 1, "{doc_type} 的 {at} 规则缺失");
+    }
+
+    // 发票的两条分支：电子票 pdf/ofd/xml、纸质票 pdf/jpg/png
+    let rules = att_rule::load_rules(DocKind::Invoice, RequiredAt::Submit)
+        .await
+        .expect("读发票规则");
+    assert_eq!(rules.len(), 2, "发票提交必须有电子 / 纸质两条规则");
+    let electronic = rules
+        .iter()
+        .find(|rule| rule.condition_sql.as_deref() == Some("invoice_code IS NULL"))
+        .expect("缺电子票规则");
+    assert_eq!(
+        electronic.allow_exts.as_deref(),
+        Some(&["pdf".to_string(), "ofd".to_string(), "xml".to_string()][..])
+    );
+    assert_eq!(electronic.requirement(), "发票必须上传发票影像（pdf/ofd/xml）");
+}
+
+/// 验收②：不传附件提交发票 → 结构化错误，文案逐字含「发票必须上传发票影像（pdf/ofd/xml）」。
+#[tokio::test]
+async fn db_invoice_without_attachment_is_blocked_verbatim() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    let error = att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+        .await
+        .expect_err("没有附件必须被拦");
+    let text = violation_text(error);
+    assert!(
+        text.contains("发票必须上传发票影像（pdf/ofd/xml）"),
+        "文案必须逐字包含要求：{text}"
+    );
+    assert!(text.contains("还差 1 个"), "文案必须说清还差几个：{text}");
+
+    // 闸门转 HTTP：400 + 10001（前端按 code 分流，不靠文案）
+    let api = match att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit).await {
+        Ok(()) => panic!("没有附件必须被拦"),
+        Err(error) => error.into_api_error(),
+    };
+    assert_eq!(api.status, 400);
+    assert_eq!(api.code, error_code::PARAM_INVALID);
+}
+
+/// 验收③：传了 jpg 但规则要求 pdf/ofd/xml → 400 + 明确提示格式（现有是什么、要什么）。
+#[tokio::test]
+async fn db_invoice_wrong_format_is_blocked_with_format_hint() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    bind_file(DocKind::Invoice, DOC_INVOICE, FILE_D).await; // FILE_D = 发票影像.jpg
+    let error = att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+        .await
+        .expect_err("格式不对必须被拦");
+    let text = violation_text(error);
+    assert!(
+        text.contains("现有附件是 jpg 格式，不在白名单内，请上传 pdf/ofd/xml 格式"),
+        "文案必须点明现有格式与要求格式：{text}"
+    );
+
+    // 换一份 pdf（FILE_B = 签收单.pdf）后同样这张单能过 —— 说明拦的是格式而不是「有没有传」
+    bind_file(DocKind::Invoice, DOC_INVOICE, FILE_B).await;
+    att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+        .await
+        .expect("有 pdf 后必须放行（jpg 那份还在，但只要求至少一个命中白名单）");
+}
+
+/// 验收④：传了正确格式 → 通过。
+#[tokio::test]
+async fn db_invoice_correct_format_passes() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    // 先确认此刻是被拦的（避免「规则根本没生效」导致的假绿）
+    assert!(
+        att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+            .await
+            .is_err()
+    );
+    bind_file(DocKind::Invoice, DOC_INVOICE, FILE_B).await; // pdf
+    att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+        .await
+        .expect("pdf 必须通过");
+}
+
+/// 验收⑤：规则表改 `enabled = false` → 该规则不再校验（**不重启服务**），改回来又重新校验。
+#[tokio::test]
+async fn db_rule_disabled_takes_effect_without_restart() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    // 关掉电子票那条规则（发票只有这一条会命中数电票夹具）
+    let affected = db()
+        .execute_with_params(
+            "UPDATE biz_attachment_rule SET enabled = FALSE, updated_at = now() \
+              WHERE doc_type = 'INVOICE' AND condition_sql = 'invoice_code IS NULL'",
+            vec![],
+        )
+        .await
+        .expect("关规则");
+    assert_eq!(affected, 1, "必须正好关掉一条规则");
+
+    // 同一个进程、没有任何重启：立刻放行
+    att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+        .await
+        .expect("规则停用后必须放行");
+
+    // 再打开：立刻又拦（证明是每次读表，不是进程内缓存）
+    db().execute_with_params(
+        "UPDATE biz_attachment_rule SET enabled = TRUE, updated_at = now() \
+          WHERE doc_type = 'INVOICE' AND condition_sql = 'invoice_code IS NULL'",
+        vec![],
+    )
+    .await
+    .expect("开规则");
+    assert!(
+        att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+            .await
+            .is_err(),
+        "规则重新启用后必须再次拦截"
+    );
+}
+
+/// `condition_sql` 分支：纸质票（带税控代码）只命中 pdf/jpg/png 那条，jpg 直接通过。
+#[tokio::test]
+async fn db_paper_invoice_uses_scan_rule_branch() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    // 纸质票没附件：文案是「纸质发票扫描件」，而不是电子票的 pdf/ofd/xml
+    let error = att_rule::assert_attachments(
+        DocKind::Invoice,
+        uid(DOC_INVOICE_PAPER),
+        RequiredAt::Submit,
+    )
+    .await
+    .expect_err("纸质票没附件也要拦");
+    let text = violation_text(error);
+    assert!(
+        text.contains("发票必须上传纸质发票扫描件（pdf/jpg/png）"),
+        "纸质票分支文案不对：{text}"
+    );
+
+    // 纸质票传 jpg：通过（电子票分支对它是「不适用」，不是「格式错」）
+    bind_file(DocKind::Invoice, DOC_INVOICE_PAPER, FILE_D).await;
+    att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE_PAPER), RequiredAt::Submit)
+        .await
+        .expect("纸质票 jpg 扫描件必须通过");
+
+    // 反过来：电子票挂 jpg 仍然被拦（分支互斥，不是「任一分支满足即可」）
+    bind_file(DocKind::Invoice, DOC_INVOICE, FILE_D).await;
+    assert!(att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+        .await
+        .is_err());
+}
+
+/// 没配规则的（动作, 单据）组合直接放行；动作不匹配的规则不参与校验。
+#[tokio::test]
+async fn db_rule_scope_is_doc_type_and_action() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    // 合同没有配任何必传规则 → 放行
+    att_rule::assert_attachments(DocKind::Contract, uid(DOC_CONTRACT), RequiredAt::Submit)
+        .await
+        .expect("合同没有规则必须放行");
+    assert!(
+        att_rule::load_rules(DocKind::Contract, RequiredAt::Submit)
+            .await
+            .expect("读规则")
+            .is_empty()
+    );
+    // 发票的规则是 SUBMIT：ACTIVATE 动作下一条都不加载
+    assert!(
+        att_rule::load_rules(DocKind::Invoice, RequiredAt::Activate)
+            .await
+            .expect("读规则")
+            .is_empty()
+    );
+    att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Activate)
+        .await
+        .expect("动作不匹配必须放行");
+}
+
 /// 收尾：清夹具（必须最后跑，`zz_` 前缀保证顺序）。
 #[tokio::test]
 async fn zz_teardown_purges_fixtures() {
@@ -2133,7 +2436,9 @@ async fn zz_teardown_purges_fixtures() {
                  'd2120102-0000-4000-8000-000000000001'::uuid, \
                  'd2120103-0000-4000-8000-000000000001'::uuid, \
                  'd2120104-0000-4000-8000-000000000001'::uuid, \
-                 'd2120105-0000-4000-8000-000000000001'::uuid)",
+                 'd2120105-0000-4000-8000-000000000001'::uuid, \
+                 'd2120106-0000-4000-8000-000000000001'::uuid, \
+                 'd2120107-0000-4000-8000-000000000001'::uuid)",
             vec![],
         )
         .await
@@ -2144,7 +2449,8 @@ async fn zz_teardown_purges_fixtures() {
             "SELECT count(*) FROM sys_file WHERE id IN \
                 ('d2120f01-0000-4000-8000-000000000001'::uuid, \
                  'd2120f02-0000-4000-8000-000000000002'::uuid, \
-                 'd2120f03-0000-4000-8000-000000000003'::uuid)",
+                 'd2120f03-0000-4000-8000-000000000003'::uuid, \
+                 'd2120f04-0000-4000-8000-000000000004'::uuid)",
             vec![],
         )
         .await

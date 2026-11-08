@@ -14,6 +14,7 @@
 //! | [`model`] | 行结构、单据类型 → 表名映射 / 存在性校验、文件角色词表（[`model::FileRole`]）、绑定 / 列表（两种排序口径）/ 软删 / 重排 / 引用计数 |
 //! | [`dto`] | 入参出参契约（上传 / 列表 / 重排 / 删除 / 下载）+ 纯逻辑校验（类型 / 角色 / 排序口径 / id 列表 / 行级删除判据）+ **角色分组**（[`dto::role_catalog`]，ATT-04） |
 //! | [`handler`] | 5 个接口：`upload` / `list` / `sort` / `delete` / `download` |
+//! | [`rule`] | 附件必传规则（**ATT-06**）：`biz_attachment_rule` 读侧 + 闸门 [`rule::assert_attachments`]（单据 submit / confirm / activate 前调用） |
 //!
 //! # 文件角色分栏（ATT-04）
 //!
@@ -53,6 +54,56 @@
 pub mod dto;
 pub mod handler;
 pub mod model;
+pub mod rule;
 
 #[cfg(test)]
 mod tests;
+
+/// 其它模块的真库用例用的小工具（**只编译进测试**）：给单据挂一份 pdf 附件。
+///
+/// 为什么需要它：ATT-06 给「提交 / 确认 / 生效」加了必传闸门，凡是会走这些动作的
+/// 既有 ERP 用例（盘点提交、报销提交、退货提交……）都要先满足闸门才能继续验它自己
+/// 的业务。与其在十几个用例里各抄一遍 `sys_file` + 绑定 SQL，不如在这里给一个
+/// `attach_pdf(kind, doc_id)`：内容哈希按 `doc_id` 派生，不会撞 `uk_sys_file_hash`。
+#[cfg(test)]
+pub mod test_support {
+    use nik::prelude::*;
+    use nik::uuid::Uuid;
+
+    use super::model::{self, DocKind, FileRole};
+
+    /// 给单据挂一份 `pdf` 附件（必传规则里所有单据类型都接受 pdf）。
+    ///
+    /// # 异常情况
+    ///
+    /// 写库失败直接 panic（测试夹具失败应该是显式红色，而不是静默跳过）。
+    pub async fn attach_pdf(doc_type: DocKind, doc_id: Uuid) {
+        let file_id = Uuid::now_v7();
+        let key = format!("att06-fixture/{file_id}.pdf");
+        db()
+            .execute_with_params(
+                "INSERT INTO sys_file (id, file_name, original_name, file_key, file_size, \
+                     file_hash, mime_type, extension, category, upload_mode, is_shared) \
+                 VALUES (?::uuid, ?, '必传规则夹具.pdf', ?, 2048, ?, 'application/pdf', 'pdf', \
+                     'attachment', 'SERVER', FALSE) ON CONFLICT DO NOTHING",
+                vec![
+                    Value::from(&file_id),
+                    Value::Text(key.clone()),
+                    Value::Text(key),
+                    Value::Text(format!("att06-hash-{file_id}")),
+                ],
+            )
+            .await
+            .unwrap_or_else(|error| panic!("插入附件夹具文件失败：{error}"));
+        model::insert(
+            doc_type,
+            &doc_id,
+            &file_id,
+            FileRole::Default,
+            Some("ATT-06 夹具"),
+            None,
+        )
+        .await
+        .unwrap_or_else(|error| panic!("绑定附件夹具失败：{error}"));
+    }
+}

@@ -96,6 +96,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
+use crate::business::attachment::model::DocKind as AttachDocKind;
+use crate::business::attachment::rule::{self as attach_rule, RequiredAt as AttachAt};
 use crate::business::erp::currency;
 use crate::business::erp::model::normalize_page;
 use crate::business::erp::period;
@@ -1582,6 +1584,11 @@ pub async fn change_status(
                 status_label(&target),
                 describe_next(&invoice.status)
             )));
+        }
+        // ATT-06：开票（DRAFT → ISSUED）即发票的「提交」动作 —— 发票影像必传。
+        // 规则来自 `biz_attachment_rule`（改 enabled / remark / allow_exts 立即生效，不重启）。
+        if target == STATUS_ISSUED {
+            attach_rule::ensure_attachments(AttachDocKind::Invoice, id, AttachAt::Submit).await?;
         }
         match target.as_str() {
             STATUS_ISSUED | STATUS_POSTED => {

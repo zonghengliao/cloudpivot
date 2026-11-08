@@ -37,6 +37,8 @@ use nik::uuid::Uuid;
 use serde_json::json;
 use std::result::Result;
 
+use crate::business::attachment::model::DocKind as AttachDocKind;
+use crate::business::attachment::rule::{self as attach_rule, RequiredAt as AttachAt};
 use crate::business::erp::code_policy;
 use crate::business::erp::expense_bridge::{self, BIZ_TYPE};
 use crate::business::erp::expense_compute::{self, Summary};
@@ -956,6 +958,8 @@ pub async fn report_submit(
             ),
         ));
     }
+    // ATT-06：报销提交前必须已有发票影像 / 费用凭证（规则表 biz_attachment_rule，改 enabled 立即生效）
+    attach_rule::ensure_attachments(AttachDocKind::ExpenseReport, id, AttachAt::Submit).await?;
     let flow = expense_bridge::published_expense_flow()
         .await
         .map_err(|error| db_err(error, "查询报销审批流程"))?

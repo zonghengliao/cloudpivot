@@ -95,6 +95,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
+use crate::business::attachment::model::DocKind as AttachDocKind;
+use crate::business::attachment::rule::{self as attach_rule, RequiredAt as AttachAt};
 use crate::business::erp::approval_gate;
 use crate::business::erp::form_snapshot;
 use crate::business::erp::payable::{self, PayableRow};
@@ -1787,6 +1789,10 @@ pub async fn execute_approved_payment(
             payment.payment_no, instance.status
         )));
     }
+
+    // ATT-06：付款出款前的必传闸门（规则 required_at = ACTIVATE）—— 银行回单必传。
+    // 付款记录是提交动作内部创建的，提交那一刻还没有单据可挂附件；真正可控的闸口在这里。
+    attach_rule::ensure_attachments(AttachDocKind::Payment, payment_id, AttachAt::Activate).await?;
 
     // ★ 内控：审批 ≠ 执行（`approve_execute` 开着才拦；关闭时与改动前一致放行）
     let approvers = separation::approvers_of(Some(instance_id)).await;

@@ -49,6 +49,8 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::business::attachment::model::DocKind as AttachDocKind;
+use crate::business::attachment::rule::{self as attach_rule, RequiredAt as AttachAt};
 use crate::business::erp::approval_gate::{self, ApprovalGate};
 use crate::business::erp::purchase_return_bridge;
 use crate::business::erp::purchase_return_dto::{
@@ -602,6 +604,8 @@ pub async fn submit_return(
             ),
         ));
     }
+    // ATT-06：采购退货提交审批前必须已有退货单 / 签收凭证（规则表 biz_attachment_rule）
+    attach_rule::ensure_attachments(AttachDocKind::PurchaseReturn, id, AttachAt::Submit).await?;
     let items = model::items_of(id)
         .await
         .map_err(|error| utils::db_error(error, "查询退货明细"))?;

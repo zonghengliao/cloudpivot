@@ -38,6 +38,8 @@ use nik::uuid::Uuid;
 use serde_json::json;
 use std::result::Result;
 
+use crate::business::attachment::model::DocKind as AttachDocKind;
+use crate::business::attachment::rule::{self as attach_rule, RequiredAt as AttachAt};
 use crate::business::erp::asset_bridge;
 use crate::business::erp::asset_compute;
 use crate::business::erp::asset_dto::{
@@ -1346,6 +1348,11 @@ pub async fn asset_status_change(
     let operator = operator_of(&claims);
     let spec = asset_dto::validate_status_change(&req, voucher_today())?;
     let operator_name = operator_name_of(&claims);
+    // ATT-06：启用（IDLE → IN_USE）即资产的「入账 / 生效」动作 —— 发票或验收单必传。
+    // 建卡（asset_create）本身就把状态置为 `IN_USE` 并生成购入凭证，所以「新建可无」仍然成立。
+    if spec.target_status == asset_dto::STATUS_IN_USE {
+        attach_rule::ensure_attachments(AttachDocKind::FixedAsset, id, AttachAt::Activate).await?;
+    }
     let tx = db()
         .begin()
         .await

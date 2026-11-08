@@ -54,6 +54,16 @@ pub const DOC_PAYMENT: &str = "PAYMENT";
 pub const DOC_FIXED_ASSET: &str = "FIXED_ASSET";
 /// 单据类型：费用报销单（FIN-3：发票影像）。
 pub const DOC_EXPENSE_REPORT: &str = "EXPENSE_REPORT";
+/// 单据类型：销售发票（ATT-06：发票影像必传）。
+pub const DOC_INVOICE: &str = "INVOICE";
+/// 单据类型：收款单（ATT-06：银行回单必传）。
+pub const DOC_RECEIPT: &str = "RECEIPT";
+/// 单据类型：盘点单（ATT-06：确认时盘点表必传）。
+pub const DOC_STOCK_TAKE: &str = "STOCK_TAKE";
+/// 单据类型：采购退货单（ATT-06：提交时退货凭证必传）。
+pub const DOC_PURCHASE_RETURN: &str = "PURCHASE_RETURN";
+/// 单据类型：销售退货单（ATT-06：提交时退货凭证必传）。
+pub const DOC_SALES_RETURN: &str = "SALES_RETURN";
 
 /// 文件角色：合同扫描件。
 pub const ROLE_CONTRACT_SCAN: &str = "CONTRACT_SCAN";
@@ -164,11 +174,25 @@ pub enum DocKind {
     FixedAsset,
     /// 费用报销单 → `biz_expense_report`（ARCH-6 §4.7.1：发票影像；明细级附件 v1 不做）
     ExpenseReport,
+    /// 销售发票 → `biz_invoice`（ATT-06：发票影像必传，电子 / 纸质按 `invoice_code` 分支）
+    Invoice,
+    /// 收款单 → `biz_receipt`（ATT-06：银行回单必传）
+    Receipt,
+    /// 盘点单 → `biz_stock_take`（ATT-06：确认时盘点表必传）
+    StockTake,
+    /// 采购退货单 → `biz_purchase_return`（ATT-06：提交时退货凭证必传）
+    PurchaseReturn,
+    /// 销售退货单 → `biz_sales_return`（ATT-06：提交时退货凭证必传）
+    SalesReturn,
 }
 
 impl DocKind {
     /// 全部类型（顺序与前端下拉一致）。
-    pub const ALL: [DocKind; 7] = [
+    ///
+    /// ATT-06 从 7 类扩到 12 类：新增 `INVOICE` / `RECEIPT` / `STOCK_TAKE` /
+    /// `PURCHASE_RETURN` / `SALES_RETURN`，与 `V0347` 放宽后的
+    /// `ck_biz_doc_attachment_type` 逐字对应。
+    pub const ALL: [DocKind; 12] = [
         DocKind::Contract,
         DocKind::PurchaseOrder,
         DocKind::StockIn,
@@ -176,6 +200,11 @@ impl DocKind {
         DocKind::Payment,
         DocKind::FixedAsset,
         DocKind::ExpenseReport,
+        DocKind::Invoice,
+        DocKind::Receipt,
+        DocKind::StockTake,
+        DocKind::PurchaseReturn,
+        DocKind::SalesReturn,
     ];
 
     /// 解析单据类型（大小写不敏感、去空白）。
@@ -196,6 +225,11 @@ impl DocKind {
             DOC_PAYMENT => Some(DocKind::Payment),
             DOC_FIXED_ASSET => Some(DocKind::FixedAsset),
             DOC_EXPENSE_REPORT => Some(DocKind::ExpenseReport),
+            DOC_INVOICE => Some(DocKind::Invoice),
+            DOC_RECEIPT => Some(DocKind::Receipt),
+            DOC_STOCK_TAKE => Some(DocKind::StockTake),
+            DOC_PURCHASE_RETURN => Some(DocKind::PurchaseReturn),
+            DOC_SALES_RETURN => Some(DocKind::SalesReturn),
             _ => None,
         }
     }
@@ -210,6 +244,11 @@ impl DocKind {
             DocKind::Payment => DOC_PAYMENT,
             DocKind::FixedAsset => DOC_FIXED_ASSET,
             DocKind::ExpenseReport => DOC_EXPENSE_REPORT,
+            DocKind::Invoice => DOC_INVOICE,
+            DocKind::Receipt => DOC_RECEIPT,
+            DocKind::StockTake => DOC_STOCK_TAKE,
+            DocKind::PurchaseReturn => DOC_PURCHASE_RETURN,
+            DocKind::SalesReturn => DOC_SALES_RETURN,
         }
     }
 
@@ -223,6 +262,11 @@ impl DocKind {
             DocKind::Payment => "付款单",
             DocKind::FixedAsset => "固定资产",
             DocKind::ExpenseReport => "费用报销单",
+            DocKind::Invoice => "发票",
+            DocKind::Receipt => "收款单",
+            DocKind::StockTake => "盘点单",
+            DocKind::PurchaseReturn => "采购退货单",
+            DocKind::SalesReturn => "销售退货单",
         }
     }
 
@@ -236,6 +280,11 @@ impl DocKind {
             DocKind::Payment => "biz_payment",
             DocKind::FixedAsset => "biz_fixed_asset",
             DocKind::ExpenseReport => "biz_expense_report",
+            DocKind::Invoice => "biz_invoice",
+            DocKind::Receipt => "biz_receipt",
+            DocKind::StockTake => "biz_stock_take",
+            DocKind::PurchaseReturn => "biz_purchase_return",
+            DocKind::SalesReturn => "biz_sales_return",
         }
     }
 
@@ -266,6 +315,18 @@ impl DocKind {
             // `ck_biz_doc_attachment_type`（7 值）逐字对应。
             DocKind::ExpenseReport => {
                 "SELECT 1 FROM biz_expense_report WHERE id = ?::uuid AND deleted_at IS NULL"
+            }
+            // ATT-06：发票 / 收款 / 盘点 / 采购退货 / 销售退货（迁移 V0347 放宽到 12 值）
+            DocKind::Invoice => "SELECT 1 FROM biz_invoice WHERE id = ?::uuid AND deleted_at IS NULL",
+            DocKind::Receipt => "SELECT 1 FROM biz_receipt WHERE id = ?::uuid AND deleted_at IS NULL",
+            DocKind::StockTake => {
+                "SELECT 1 FROM biz_stock_take WHERE id = ?::uuid AND deleted_at IS NULL"
+            }
+            DocKind::PurchaseReturn => {
+                "SELECT 1 FROM biz_purchase_return WHERE id = ?::uuid AND deleted_at IS NULL"
+            }
+            DocKind::SalesReturn => {
+                "SELECT 1 FROM biz_sales_return WHERE id = ?::uuid AND deleted_at IS NULL"
             }
         }
     }
@@ -308,6 +369,13 @@ impl DocKind {
             }
             DocKind::FixedAsset => &["business:erp:asset:list", "business:erp:asset:detail"],
             DocKind::ExpenseReport => &["business:erp:expense:list", "business:erp:expense:detail"],
+            DocKind::Invoice => &["business:erp:invoice:list", "business:erp:invoice:detail"],
+            DocKind::Receipt => &["business:erp:receipt:list", "business:erp:receipt:detail"],
+            DocKind::StockTake => &["business:erp:stock-take:list", "business:erp:stock-take:detail"],
+            // 采购退货 / 销售退货没有独立的 GET 详情路由（`GET {id}` 也挂 `:list`），
+            // 与采购订单同口径：只给列表码（多给一个不存在的码就是「点了必然 403」的哑弹）。
+            DocKind::PurchaseReturn => &["business:erp:purchase-return:list"],
+            DocKind::SalesReturn => &["business:erp:sales-return:list"],
         }
     }
 }

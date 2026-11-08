@@ -32,6 +32,8 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::business::attachment::model::DocKind as AttachDocKind;
+use crate::business::attachment::rule::{self as attach_rule, RequiredAt as AttachAt};
 use crate::business::erp::approval_gate;
 use crate::business::erp::separation;
 use crate::business::erp::stockout_model;
@@ -371,6 +373,10 @@ pub async fn change_status(
             status_label(&target),
             target
         )));
+    }
+    // ATT-06：盘点单的「确认」= 提交审批（DRAFT → PENDING_POST），此时盘点表 / 盈亏说明必传
+    if target.as_str() == STATUS_PENDING_POST {
+        attach_rule::ensure_attachments(AttachDocKind::StockTake, id, AttachAt::Confirm).await?;
     }
     match target.as_str() {
         STATUS_PENDING_POST => submit_for_approval(id, req, claims, op).await,

@@ -73,6 +73,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
+use crate::business::attachment::model::DocKind as AttachDocKind;
+use crate::business::attachment::rule::{self as attach_rule, RequiredAt as AttachAt};
 use crate::business::erp::credit;
 use crate::business::erp::currency;
 use crate::business::erp::model::normalize_page;
@@ -1536,6 +1538,10 @@ pub async fn change_status(
                 status_label(&target),
                 describe_next(&receipt.status)
             )));
+        }
+        // ATT-06：收款单没有独立的「提交」态，CONFIRMED（确认收款）就是提交动作 —— 银行回单必传。
+        if target == STATUS_CONFIRMED {
+            attach_rule::ensure_attachments(AttachDocKind::Receipt, id, AttachAt::Submit).await?;
         }
         match target.as_str() {
             STATUS_POSTED => {
