@@ -1,7 +1,8 @@
-== 本卡 commit
-b418838bf0780b6e0350863d9c5e4a8576720ebc feat(flow): P3-06 APPROVAL 默认或签 —— 复用 approval_mode + 存量冻结（V0339 + 启动期快照冻结器）(t_8f3284f4)
+== 本卡 commit（rebase 到 origin/main 后的最终哈希）
+1ed172e8a8e79a5c4fe7d1c54d09614325899fe2 docs(evidence): P3-06 证据补 git 改动面（b418838）(t_8f3284f4)
+00cab46081a108149212ce3a482e20aedc8d4267 feat(flow): P3-06 APPROVAL 默认或签 —— 复用 approval_mode + 存量冻结（V0339 + 启动期快照冻结器）(t_8f3284f4)
 
-== 本卡改动文件（commit 内）
+== 本卡改动文件
  .../V0339__approval_sign_mode_freeze.down.sql      |  38 ++
  .../V0339__approval_sign_mode_freeze.up.sql        | 131 +++++++
  backend/src/bootstrap.rs                           |  37 ++
@@ -30,7 +31,7 @@ b418838bf0780b6e0350863d9c5e4a8576720ebc feat(flow): P3-06 APPROVAL 默认或签
  frontend/tests/unit/flow-sign-mode.test.ts         |  60 +++
  26 files changed, 1983 insertions(+), 51 deletions(-)
 
-== 工作区里**不属于本卡**的他人改动（提交时按路径 add，未裹带）
+== 工作区里**不属于本卡**的他人未提交改动（按路径 add，未裹带）
  M backend/src/business/erp/asset_compute.rs
  M backend/src/business/erp/asset_handler.rs
  M backend/src/business/erp/asset_linkage.rs
@@ -48,4 +49,6 @@ b418838bf0780b6e0350863d9c5e4a8576720ebc feat(flow): P3-06 APPROVAL 默认或签
  M docs/evidence/20261107-p003-inventory-chain/raw/04_stockin_post.json
  M docs/evidence/20261107-p003-inventory-chain/raw/stockin.id
 ?? docs/evidence/20261107-p0-reverify/chains/
-?? docs/evidence/20261108-code02-master-code-autogen/
+
+== 已推送
+1ed172e docs(evidence): P3-06 证据补 git 改动面（b418838）(t_8f3284f4)
