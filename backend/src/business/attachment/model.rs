@@ -64,6 +64,14 @@ pub const DOC_STOCK_TAKE: &str = "STOCK_TAKE";
 pub const DOC_PURCHASE_RETURN: &str = "PURCHASE_RETURN";
 /// 单据类型：销售退货单（ATT-06：提交时退货凭证必传）。
 pub const DOC_SALES_RETURN: &str = "SALES_RETURN";
+/// 单据类型：库存调拨单（ATT-11：建议上传调拨审批单）。
+pub const DOC_STOCK_TRANSFER: &str = "STOCK_TRANSFER";
+/// 单据类型：供应商（主数据，ATT-11：营业执照 / 开户许可 / 资质证书）。
+pub const DOC_SUPPLIER: &str = "SUPPLIER";
+/// 单据类型：客户（主数据，ATT-11：营业执照 / 信用资料）。
+pub const DOC_CUSTOMER: &str = "CUSTOMER";
+/// 单据类型：期初余额（ATT-11：期初依据；`doc_id` = 期初凭证 id）。
+pub const DOC_OPENING_BALANCE: &str = "OPENING_BALANCE";
 
 /// 文件角色：合同扫描件。
 pub const ROLE_CONTRACT_SCAN: &str = "CONTRACT_SCAN";
@@ -83,6 +91,22 @@ pub const ROLE_DEFAULT: &str = "DEFAULT";
 pub const ROLE_INVOICE: &str = "INVOICE";
 /// 文件角色老值：其他（V0212 拼法，解析时归一为 `DEFAULT`）。
 pub const ROLE_OTHER: &str = "OTHER";
+/// 文件角色：营业执照（ATT-11，供应商 / 客户）。
+pub const ROLE_BIZ_LICENSE: &str = "BIZ_LICENSE";
+/// 文件角色：开户许可（ATT-11，供应商）。
+pub const ROLE_BANK_ACCOUNT_PERMIT: &str = "BANK_ACCOUNT_PERMIT";
+/// 文件角色：资质证书（ATT-11，供应商）。
+pub const ROLE_QUALIFICATION: &str = "QUALIFICATION";
+/// 文件角色：信用资料（ATT-11，客户）。
+pub const ROLE_CREDIT_FILE: &str = "CREDIT_FILE";
+/// 文件角色：报价单（ATT-11，采购订单）。
+pub const ROLE_QUOTATION: &str = "QUOTATION";
+/// 文件角色：客户 PO（ATT-11，采购订单 —— 客户下的采购单原件）。
+pub const ROLE_CUSTOMER_PO: &str = "CUSTOMER_PO";
+/// 文件角色：调拨审批单（ATT-11，库存调拨单）。
+pub const ROLE_TRANSFER_APPROVAL: &str = "TRANSFER_APPROVAL";
+/// 文件角色：期初依据（ATT-11，期初余额）。
+pub const ROLE_OPENING_EVIDENCE: &str = "OPENING_EVIDENCE";
 
 /// 单张单据的附件上限（**读流之前**判定，避免大文件先读进内存再被拒）。
 ///
@@ -184,6 +208,21 @@ pub enum DocKind {
     PurchaseReturn,
     /// 销售退货单 → `biz_sales_return`（ATT-06：提交时退货凭证必传）
     SalesReturn,
+    /// 库存调拨单 → `biz_stock_transfer`（ATT-11：建议上传调拨审批单）
+    StockTransfer,
+    /// 供应商 → `biz_supplier`（ATT-11：主数据，营业执照 / 开户许可 / 资质证书）
+    Supplier,
+    /// 客户 → `biz_customer`（ATT-11：主数据，营业执照 / 信用资料）
+    Customer,
+    /// 期初余额 → `biz_voucher`（ATT-11：期初依据；`doc_id` = 期初凭证 id）
+    ///
+    /// # 为什么存在性校验查的是凭证
+    ///
+    /// 期初是「按期间整体覆盖」的录入动作（`biz_opening_balance` 一个科目一行、
+    /// 每次保存整期覆盖），没有单头行可以当 `doc_id`。一个期间只有**一张**期初凭证
+    /// （`biz_voucher.voucher_type='OPENING'`，V0189 的唯一索引兜死），
+    /// 它才是「这份依据属于哪一期期初」的稳定锚点。
+    OpeningBalance,
 }
 
 impl DocKind {
@@ -192,7 +231,7 @@ impl DocKind {
     /// ATT-06 从 7 类扩到 12 类：新增 `INVOICE` / `RECEIPT` / `STOCK_TAKE` /
     /// `PURCHASE_RETURN` / `SALES_RETURN`，与 `V0347` 放宽后的
     /// `ck_biz_doc_attachment_type` 逐字对应。
-    pub const ALL: [DocKind; 12] = [
+    pub const ALL: [DocKind; 16] = [
         DocKind::Contract,
         DocKind::PurchaseOrder,
         DocKind::StockIn,
@@ -205,6 +244,11 @@ impl DocKind {
         DocKind::StockTake,
         DocKind::PurchaseReturn,
         DocKind::SalesReturn,
+        // ATT-11：建议传（不校验）的 4 类，V0350 把 CHECK 放宽到 16 值。
+        DocKind::StockTransfer,
+        DocKind::Supplier,
+        DocKind::Customer,
+        DocKind::OpeningBalance,
     ];
 
     /// 解析单据类型（大小写不敏感、去空白）。
@@ -230,6 +274,10 @@ impl DocKind {
             DOC_STOCK_TAKE => Some(DocKind::StockTake),
             DOC_PURCHASE_RETURN => Some(DocKind::PurchaseReturn),
             DOC_SALES_RETURN => Some(DocKind::SalesReturn),
+            DOC_STOCK_TRANSFER => Some(DocKind::StockTransfer),
+            DOC_SUPPLIER => Some(DocKind::Supplier),
+            DOC_CUSTOMER => Some(DocKind::Customer),
+            DOC_OPENING_BALANCE => Some(DocKind::OpeningBalance),
             _ => None,
         }
     }
@@ -249,6 +297,10 @@ impl DocKind {
             DocKind::StockTake => DOC_STOCK_TAKE,
             DocKind::PurchaseReturn => DOC_PURCHASE_RETURN,
             DocKind::SalesReturn => DOC_SALES_RETURN,
+            DocKind::StockTransfer => DOC_STOCK_TRANSFER,
+            DocKind::Supplier => DOC_SUPPLIER,
+            DocKind::Customer => DOC_CUSTOMER,
+            DocKind::OpeningBalance => DOC_OPENING_BALANCE,
         }
     }
 
@@ -267,6 +319,10 @@ impl DocKind {
             DocKind::StockTake => "盘点单",
             DocKind::PurchaseReturn => "采购退货单",
             DocKind::SalesReturn => "销售退货单",
+            DocKind::StockTransfer => "库存调拨单",
+            DocKind::Supplier => "供应商",
+            DocKind::Customer => "客户",
+            DocKind::OpeningBalance => "期初余额",
         }
     }
 
@@ -285,6 +341,11 @@ impl DocKind {
             DocKind::StockTake => "biz_stock_take",
             DocKind::PurchaseReturn => "biz_purchase_return",
             DocKind::SalesReturn => "biz_sales_return",
+            DocKind::StockTransfer => "biz_stock_transfer",
+            DocKind::Supplier => "biz_supplier",
+            DocKind::Customer => "biz_customer",
+            // 期初余额没有单头表：锚点是期初凭证（`voucher_type = 'OPENING'`）
+            DocKind::OpeningBalance => "biz_voucher",
         }
     }
 
@@ -331,6 +392,23 @@ impl DocKind {
             }
             DocKind::SalesReturn => {
                 "SELECT 1 FROM biz_sales_return WHERE id = ?::uuid AND deleted_at IS NULL"
+            }
+            // ATT-11：调拨单 / 主数据（供应商、客户）
+            DocKind::StockTransfer => {
+                "SELECT 1 FROM biz_stock_transfer WHERE id = ?::uuid AND deleted_at IS NULL"
+            }
+            DocKind::Supplier => {
+                "SELECT 1 FROM biz_supplier WHERE id = ?::uuid AND deleted_at IS NULL"
+            }
+            DocKind::Customer => {
+                "SELECT 1 FROM biz_customer WHERE id = ?::uuid AND deleted_at IS NULL"
+            }
+            // ATT-11：期初余额的存在性 = 「这一期已经有期初凭证」。
+            // 只认 `voucher_type = 'OPENING'`：传一张普通凭证的 id 不算期初单据
+            // （否则附件会挂到任意凭证上，与「期初依据」的语义无关）。
+            DocKind::OpeningBalance => {
+                "SELECT 1 FROM biz_voucher \
+                  WHERE id = ?::uuid AND voucher_type = 'OPENING' AND deleted_at IS NULL"
             }
         }
     }
@@ -383,6 +461,14 @@ impl DocKind {
             // 与采购订单同口径：只给列表码（多给一个不存在的码就是「点了必然 403」的哑弹）。
             DocKind::PurchaseReturn => &["business:erp:purchase-return:list"],
             DocKind::SalesReturn => &["business:erp:sales-return:list"],
+            // ATT-11：调拨单（列表 / 详情两码）、主数据（列表码）、期初（读码）。
+            // 与各模块自己的读码逐字一致；`view_permissions_are_real_menu_codes` 真库回查。
+            DocKind::StockTransfer => {
+                &["business:erp:transfer:list", "business:erp:transfer:detail"]
+            }
+            DocKind::Supplier => &["business:erp:supplier:list"],
+            DocKind::Customer => &["business:erp:customer:list"],
+            DocKind::OpeningBalance => &["business:erp:opening:read"],
         }
     }
 }
@@ -417,34 +503,106 @@ pub enum FileRole {
     BankReceipt,
     /// 签收单（V0212 老值，仅兼容：有数据时显示，不再作为上传选项）
     SignReceipt,
+    /// 营业执照（ATT-11：供应商 / 客户）
+    BizLicense,
+    /// 开户许可（ATT-11：供应商）
+    BankAccountPermit,
+    /// 资质证书（ATT-11：供应商）
+    Qualification,
+    /// 信用资料（ATT-11：客户）
+    CreditFile,
+    /// 报价单（ATT-11：采购订单）
+    Quotation,
+    /// 客户 PO（ATT-11：采购订单）
+    CustomerPo,
+    /// 调拨审批单（ATT-11：库存调拨单）
+    TransferApproval,
+    /// 期初依据（ATT-11：期初余额）
+    OpeningEvidence,
     /// 其他附件（缺省）
     Default,
 }
 
 impl FileRole {
-    /// 面板分栏的 6 个角色（顺序 = 卡面顺序 = 前端分组顺序）。
+    /// 面板分栏的全部角色（顺序 = 前端上传下拉 / 分组顺序）。
     ///
     /// 空分组也要显示（「暂无 XX，点击上传」是卡面验收②），所以这个清单是**固定**的，
     /// 不能由「库里有哪些值」推出来。
-    pub const GROUPS: [FileRole; 6] = [
+    ///
+    /// # ATT-11：从 6 个扩到 14 个，但每张单据只画自己那几个
+    ///
+    /// 卡面要求按业务给角色（供应商 = 营业执照 / 开户许可 / 资质证书…），
+    /// 若把 14 个分组都画到每张单据上，一张合同详情下面会挂 13 个空分组 —— 那是噪声不是信息。
+    /// 所以本常量是**全量词表**，真正渲染哪几个由 [`FileRole::catalog`] 按单据类型决定。
+    pub const GROUPS: [FileRole; 14] = [
         FileRole::ContractScan,
         FileRole::Supplement,
         FileRole::Acceptance,
         FileRole::InvoiceScan,
         FileRole::BankReceipt,
+        FileRole::Quotation,
+        FileRole::CustomerPo,
+        FileRole::BizLicense,
+        FileRole::BankAccountPermit,
+        FileRole::Qualification,
+        FileRole::CreditFile,
+        FileRole::TransferApproval,
+        FileRole::OpeningEvidence,
         FileRole::Default,
     ];
 
     /// 全部可解析 / 可落库的角色（`GROUPS` + 兼容值 `SIGN_RECEIPT`）。
-    pub const ALL: [FileRole; 7] = [
+    pub const ALL: [FileRole; 15] = [
         FileRole::ContractScan,
         FileRole::Supplement,
         FileRole::Acceptance,
         FileRole::InvoiceScan,
         FileRole::BankReceipt,
         FileRole::SignReceipt,
+        FileRole::BizLicense,
+        FileRole::BankAccountPermit,
+        FileRole::Qualification,
+        FileRole::CreditFile,
+        FileRole::Quotation,
+        FileRole::CustomerPo,
+        FileRole::TransferApproval,
+        FileRole::OpeningEvidence,
         FileRole::Default,
     ];
+
+    /// 某类单据在面板上要画的角色分组（顺序 = 渲染顺序，`DEFAULT` 永远最后）。
+    ///
+    /// # 这是「建议」不是「白名单」
+    ///
+    /// 上传时后端**不校验** role 与单据类型的匹配（`file_role` 是分类不是契约），
+    /// 分组列表的用处是「告诉用户通常该传什么 + 让空分组成为上传入口」。
+    /// 已有数据里出现了不在本表里的角色（老数据 / 接口直传），
+    /// [`super::dto::role_catalog`] 会按 `ALL` 顺序补一个分组出来 —— 附件绝不凭空消失。
+    pub const fn catalog(kind: DocKind) -> &'static [FileRole] {
+        use FileRole::{
+            Acceptance, BankAccountPermit, BankReceipt, BizLicense, ContractScan, CreditFile,
+            CustomerPo, Default, InvoiceScan, OpeningEvidence, Qualification, Quotation,
+            Supplement, TransferApproval,
+        };
+        match kind {
+            // 合同：扫描件 + 补充协议（ATT-11 明确补充协议要独立分组）
+            DocKind::Contract => &[ContractScan, Supplement, Default],
+            // 采购：报价单 / 客户 PO
+            DocKind::PurchaseOrder => &[Quotation, CustomerPo, Default],
+            DocKind::StockIn => &[Acceptance, Default],
+            DocKind::Payable | DocKind::Payment => &[InvoiceScan, BankReceipt, Default],
+            DocKind::FixedAsset => &[InvoiceScan, Acceptance, Default],
+            DocKind::ExpenseReport | DocKind::Invoice => &[InvoiceScan, Default],
+            DocKind::Receipt => &[BankReceipt, Default],
+            // 盘点表 / 盈亏说明 / 退货凭证：没有专用角色，统一进「其他附件」
+            DocKind::StockTake | DocKind::PurchaseReturn | DocKind::SalesReturn => &[Default],
+            // ATT-11
+            DocKind::StockTransfer => &[TransferApproval, Default],
+            DocKind::OpeningBalance => &[OpeningEvidence, Default],
+            DocKind::Supplier => &[BizLicense, BankAccountPermit, Qualification, Default],
+            DocKind::Customer => &[BizLicense, CreditFile, Default],
+        }
+    }
 
     /// 解析角色：**空值回落 `DEFAULT`**，未知值返回 `None`。
     ///
@@ -471,6 +629,14 @@ impl FileRole {
             ROLE_INVOICE => Some(FileRole::InvoiceScan),
             ROLE_BANK_RECEIPT => Some(FileRole::BankReceipt),
             ROLE_SIGN_RECEIPT => Some(FileRole::SignReceipt),
+            ROLE_BIZ_LICENSE => Some(FileRole::BizLicense),
+            ROLE_BANK_ACCOUNT_PERMIT => Some(FileRole::BankAccountPermit),
+            ROLE_QUALIFICATION => Some(FileRole::Qualification),
+            ROLE_CREDIT_FILE => Some(FileRole::CreditFile),
+            ROLE_QUOTATION => Some(FileRole::Quotation),
+            ROLE_CUSTOMER_PO => Some(FileRole::CustomerPo),
+            ROLE_TRANSFER_APPROVAL => Some(FileRole::TransferApproval),
+            ROLE_OPENING_EVIDENCE => Some(FileRole::OpeningEvidence),
             ROLE_DEFAULT => Some(FileRole::Default),
             ROLE_OTHER => Some(FileRole::Default),
             _ => None,
@@ -486,13 +652,16 @@ impl FileRole {
             FileRole::InvoiceScan => ROLE_INVOICE_SCAN,
             FileRole::BankReceipt => ROLE_BANK_RECEIPT,
             FileRole::SignReceipt => ROLE_SIGN_RECEIPT,
+            FileRole::BizLicense => ROLE_BIZ_LICENSE,
+            FileRole::BankAccountPermit => ROLE_BANK_ACCOUNT_PERMIT,
+            FileRole::Qualification => ROLE_QUALIFICATION,
+            FileRole::CreditFile => ROLE_CREDIT_FILE,
+            FileRole::Quotation => ROLE_QUOTATION,
+            FileRole::CustomerPo => ROLE_CUSTOMER_PO,
+            FileRole::TransferApproval => ROLE_TRANSFER_APPROVAL,
+            FileRole::OpeningEvidence => ROLE_OPENING_EVIDENCE,
             FileRole::Default => ROLE_DEFAULT,
         }
-    }
-
-    /// 该角色是否属于固定分栏清单（`GROUPS`）。
-    pub fn is_group(self) -> bool {
-        Self::GROUPS.contains(&self)
     }
 
     /// 中文标签（列表里的 tag / 面板分组标题）。
@@ -507,6 +676,14 @@ impl FileRole {
             FileRole::InvoiceScan => "发票影像",
             FileRole::BankReceipt => "银行回单",
             FileRole::SignReceipt => "签收单",
+            FileRole::BizLicense => "营业执照",
+            FileRole::BankAccountPermit => "开户许可",
+            FileRole::Qualification => "资质证书",
+            FileRole::CreditFile => "信用资料",
+            FileRole::Quotation => "报价单",
+            FileRole::CustomerPo => "客户PO",
+            FileRole::TransferApproval => "调拨审批单",
+            FileRole::OpeningEvidence => "期初依据",
             FileRole::Default => "其他附件",
         }
     }

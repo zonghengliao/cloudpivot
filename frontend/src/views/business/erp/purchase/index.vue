@@ -852,7 +852,8 @@
         <DocAttachmentPanel
           :doc-type="DOC_KIND.PURCHASE_ORDER"
           :doc-id="detail.id"
-          default-role="DEFAULT"
+          :default-role="DEFAULT_ROLE_BY_DOC.PURCHASE_ORDER"
+          hint="报价单 / 客户PO；不传也能提交审批"
           testid-prefix="purchase-attach"
         />
 
@@ -919,6 +920,7 @@ import {
 } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
 import { DOC_KIND, DOC_KIND_ROUTES } from '@/api/business/erp/doc-kinds';
+import { DEFAULT_ROLE_BY_DOC } from '@/api/business/erp/attachment';
 import { getFlowInstance } from '@/api/business/flow-api';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';

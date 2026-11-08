@@ -168,8 +168,8 @@ pub struct DocAttachmentItemRes {
 ///
 /// 所以后端直接给「该显示的全部角色 + 各自条数」，前端只负责按这个顺序画：
 ///
-/// - 固定 6 个（[`FileRole::GROUPS`]，`count = 0` 也要出现）；
-/// - 外加数据里真实存在、但不在固定清单里的兼容角色（如老值 `SIGN_RECEIPT`）。
+/// - 该单据类型的分组清单（[`FileRole::catalog`]，`count = 0` 也要出现）；
+/// - 外加数据里真实存在、但不在清单里的角色（老值 `SIGN_RECEIPT`、或接口直传的越界角色）。
 ///
 /// 不变式：`sum(count) == total`（每条附件恰好落进一个分组；未知值进 `DEFAULT`）。
 #[derive(Debug, Clone, Serialize)]
@@ -200,7 +200,7 @@ pub struct DocAttachmentListRes {
     /// 回显而不是让前端记：`PUT /attachment/sort` 固定用 `manual` 回读，
     /// 前端拿同一份结构直接替换列表，不必自己猜「这份是哪个口径的」。
     pub sort: String,
-    /// 分组口径（ATT-04）：固定 6 个角色（含空分组）+ 数据里存在的兼容角色。
+    /// 分组口径（ATT-04 / ATT-11）：该单据类型的分组清单（含空分组）+ 数据里存在的其它角色。
     ///
     /// 前端按这个数组的顺序渲染分组（不再自己维护词表，见 [`DocAttachmentRoleRes`]）。
     pub roles: Vec<DocAttachmentRoleRes>,
@@ -726,21 +726,27 @@ pub fn to_item(row: &DocAttachmentRow, claims: &TokenClaims) -> DocAttachmentIte
     }
 }
 
-/// 按 `file_role` 汇总分组（ATT-04 面板分栏，**纯逻辑**，不连库）。
+/// 按 `file_role` 汇总分组（ATT-04 面板分栏 / ATT-11 按单据给角色，**纯逻辑**，不连库）。
 ///
 /// # 参数
 ///
+/// - `kind`：单据类型（决定画哪些分组，见 [`FileRole::catalog`]）；
 /// - `items`：出参列表（`to_item` 的结果，顺序即当前排序口径下的顺序）；
 ///
 /// # 返回值
 ///
 /// 分组清单，顺序固定为：
 ///
-/// 1. [`FileRole::GROUPS`] 的 6 个角色（**空分组也在**，`count = 0` —— 卡面验收②
+/// 1. [`FileRole::catalog`] 给的清单（**空分组也在**，`count = 0` —— 卡面验收②
 ///    要靠它显示「暂无 XX，点击上传」）；
-/// 2. 数据里真实存在、但不在固定清单里的兼容角色（目前只有老值 `SIGN_RECEIPT`），
-///    按 [`FileRole::ALL`] 的顺序追加（**没有数据就不出现**，避免给每张单据都多画一个
-///    用不上的「签收单」空分组）。
+/// 2. 数据里真实存在、但不在清单里的角色（老值 `SIGN_RECEIPT`，或接口直传的越界角色），
+///    按 [`FileRole::ALL`] 的顺序追加（**没有数据就不出现**）。
+///
+/// # 为什么要按单据类型过滤（ATT-11）
+///
+/// 卡面把 14 个角色按业务分给了不同单据（供应商 = 营业执照 / 开户许可 / 资质证书…）。
+/// 若每张单据都把 14 个分组画出来，一张合同详情下面会挂 13 个用不上的空分组 ——
+/// 「空分组也要显示」这条规则的目的是**提示缺什么**，挂 13 个无关分组就变成噪声。
 ///
 /// # 归一与不变式
 ///
@@ -758,7 +764,7 @@ pub fn to_item(row: &DocAttachmentRow, claims: &TokenClaims) -> DocAttachmentIte
 ///
 /// 中文名只有一份（后端枚举）；前端 `FILE_ROLE_OPTIONS` 作为上传下拉的词表由单测比对，
 /// 但**分组标题直接用后端下发的 `label`**，不做第二份映射。
-pub fn role_catalog(items: &[DocAttachmentItemRes]) -> Vec<DocAttachmentRoleRes> {
+pub fn role_catalog(kind: DocKind, items: &[DocAttachmentItemRes]) -> Vec<DocAttachmentRoleRes> {
     use std::collections::HashMap;
 
     let mut counts: HashMap<FileRole, u64> = HashMap::new();
@@ -767,7 +773,8 @@ pub fn role_catalog(items: &[DocAttachmentItemRes]) -> Vec<DocAttachmentRoleRes>
         *counts.entry(role).or_insert(0) += 1;
     }
 
-    let mut catalog: Vec<DocAttachmentRoleRes> = FileRole::GROUPS
+    let planned = FileRole::catalog(kind);
+    let mut catalog: Vec<DocAttachmentRoleRes> = planned
         .iter()
         .map(|role| DocAttachmentRoleRes {
             code: role.as_str().to_string(),
@@ -777,7 +784,7 @@ pub fn role_catalog(items: &[DocAttachmentItemRes]) -> Vec<DocAttachmentRoleRes>
         .collect();
 
     for role in FileRole::ALL {
-        if role.is_group() {
+        if planned.contains(&role) {
             continue;
         }
         let count = counts.get(&role).copied().unwrap_or(0);

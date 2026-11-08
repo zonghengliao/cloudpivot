@@ -36,6 +36,8 @@
 
 // ==================== ① 业务对象 ====================
 
+// ATT-11：末尾加了主数据（SUPPLIER / CUSTOMER）与期初余额（OPENING_BALANCE）——
+// 它们不是可审批单据，但都是有实体表的**业务对象**（附件 / 提醒要挂在上面）。
 /** 业务对象类型（大写下划线，落库值）。顺序与 Rust `DocKind::ALL` 逐字一致。 */
 export const DOC_KINDS = [
   'PURCHASE_ORDER',
@@ -64,6 +66,9 @@ export const DOC_KINDS = [
   'INVOICE',
   'SALES_RETURN',
   'PURCHASE_RETURN',
+  'SUPPLIER',
+  'CUSTOMER',
+  'OPENING_BALANCE',
 ] as const;
 
 /** 业务对象类型（联合类型 —— 写错编译期就报错）。 */
@@ -97,6 +102,10 @@ export const DOC_KIND_LABELS: Readonly<Record<DocKind, string>> = {
   INVOICE: '销售发票',
   SALES_RETURN: '销售退货单',
   PURCHASE_RETURN: '采购退货单',
+  // ATT-11
+  SUPPLIER: '供应商',
+  CUSTOMER: '客户',
+  OPENING_BALANCE: '期初余额',
 };
 
 /**
@@ -137,6 +146,10 @@ export const DOC_KIND_TABLES: Readonly<Partial<Record<DocKind, string>>> = {
   INVOICE: 'biz_invoice',
   SALES_RETURN: 'biz_sales_return',
   PURCHASE_RETURN: 'biz_purchase_return',
+  // ATT-11：期初余额没有单头表，锚点是期初凭证（doc_id = 期初凭证 id）
+  SUPPLIER: 'biz_supplier',
+  CUSTOMER: 'biz_customer',
+  OPENING_BALANCE: 'biz_voucher',
 };
 
 /**
@@ -157,8 +170,10 @@ export const DOC_KIND_ROUTES = {
 /** 支持联动作废的业务对象（`/cancel-impact`、`/cancel-cascade` 的可选项）。 */
 export type CancelDocType = keyof typeof DOC_KIND_ROUTES;
 
+// ATT-11：ATTACHMENT_DOC_TYPES 末尾加 4 类「建议传（不校验）」的对象：
+// 调拨单 / 供应商 / 客户 / 期初余额（V0350 把 DDL 的 CHECK 放宽到 16 值）。
 /**
- * 能挂业务附件的业务对象（`biz_doc_attachment.doc_type` 的 12 类）。
+ * 能挂业务附件的业务对象（`biz_doc_attachment.doc_type` 的 16 类）。
  *
  * 与后端 `doc_kind::ATTACHMENT_DOC_KINDS` + DDL 的 `ck_biz_doc_attachment_type`
  * 逐字一致（后端单测 `attachment_doc_types_match_rust` 会比对顺序与取值）。
@@ -181,6 +196,10 @@ export const ATTACHMENT_DOC_TYPES = [
   'STOCK_TAKE',
   'PURCHASE_RETURN',
   'SALES_RETURN',
+  'STOCK_TRANSFER',
+  'SUPPLIER',
+  'CUSTOMER',
+  'OPENING_BALANCE',
 ] as const;
 
 /** 能挂业务附件的业务对象（联合类型）。 */

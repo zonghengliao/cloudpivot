@@ -494,7 +494,8 @@
         <DocAttachmentPanel
           :doc-type="DOC_KIND.CONTRACT"
           :doc-id="detail.id"
-          default-role="CONTRACT_SCAN"
+          :default-role="DEFAULT_ROLE_BY_DOC.CONTRACT"
+          hint="合同扫描件（含签章页）/ 补充协议；不传也能保存与提交"
           testid-prefix="contract-attach"
         />
       </div>
@@ -573,6 +574,7 @@ import {
 } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
 import { DOC_KIND } from '@/api/business/erp/doc-kinds';
+import { DEFAULT_ROLE_BY_DOC } from '@/api/business/erp/attachment';
 import StatusBadge from '@/views/business/task/components/StatusBadge.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
 import { shortId, todayString } from '@/views/business/erp/shared/money';

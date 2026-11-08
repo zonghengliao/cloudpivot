@@ -86,17 +86,18 @@ fn claims_of(user: &str, permissions: &[&str]) -> TokenClaims {
     }
 }
 
-/// 十二类单据 → 十二张表，一一对应且不重复（FIN-3 加报销单；ATT-06 加发票 / 收款 / 盘点 / 采购退货 / 销售退货）。
+/// 十六类单据 → 十六张表，一一对应且不重复（FIN-3 加报销单；ATT-06 加发票 / 收款 / 盘点 / 采购退货 / 销售退货；
+/// ATT-11 加调拨单 / 供应商 / 客户 / 期初余额）。
 #[test]
 fn doc_kinds_cover_five_distinct_tables() {
-    assert_eq!(DocKind::ALL.len(), 12);
+    assert_eq!(DocKind::ALL.len(), 16);
     let mut tables: Vec<&str> = DocKind::ALL.iter().map(|kind| kind.table()).collect();
     tables.sort_unstable();
     tables.dedup();
     assert_eq!(
         tables.len(),
-        12,
-        "十二类单据必须落在十二张不同的表上：{tables:?}"
+        16,
+        "十六类单据必须落在十六张不同的表上：{tables:?}"
     );
     for kind in DocKind::ALL {
         // 字面值与 DDL 的 ck_biz_doc_attachment_type 逐字一致
@@ -126,14 +127,27 @@ fn doc_kinds_cover_five_distinct_tables() {
         let kind = DocKind::parse(raw).unwrap_or_else(|| panic!("{raw} 必须可解析"));
         assert_eq!(kind.as_str(), raw);
     }
+    // ATT-11 新增的 4 类（建议传，不校验）同样必须可回解析
+    for raw in ["STOCK_TRANSFER", "SUPPLIER", "CUSTOMER", "OPENING_BALANCE"] {
+        let kind = DocKind::parse(raw).unwrap_or_else(|| panic!("{raw} 必须可解析"));
+        assert_eq!(kind.as_str(), raw);
+    }
+    // 期初余额的锚点是**期初凭证**：存在性 SQL 必须带 voucher_type 限定，
+    // 否则任意凭证 id 都能当「期初单据」挂附件。
+    assert!(
+        DocKind::OpeningBalance
+            .exists_sql()
+            .contains("voucher_type = 'OPENING'"),
+        "期初余额的存在性校验必须限定 voucher_type = 'OPENING'"
+    );
 }
 
-/// 文件角色：7 个可落库值 + 空值回落 DEFAULT + 老值归一 + 未知值拒绝（ATT-04）。
+/// 文件角色：15 个可落库值 + 空值回落 DEFAULT + 老值归一 + 未知值拒绝（ATT-04 / ATT-11）。
 #[test]
 fn file_roles_parse_and_default() {
-    // 可落库范围 = 分栏 6 个 + 兼容值 SIGN_RECEIPT
-    assert_eq!(FileRole::ALL.len(), 7);
-    assert_eq!(FileRole::GROUPS.len(), 6);
+    // 可落库范围 = 分栏 14 个 + 兼容值 SIGN_RECEIPT
+    assert_eq!(FileRole::ALL.len(), 15);
+    assert_eq!(FileRole::GROUPS.len(), 14);
     for role in FileRole::ALL {
         assert_eq!(FileRole::parse(Some(role.as_str())), Some(role));
         assert!(!role.label().is_empty());
@@ -144,7 +158,7 @@ fn file_roles_parse_and_default() {
             role.as_str()
         );
     }
-    // 卡面（ATT-04）的 6 个分组，顺序逐字一致
+    // 词表顺序逐字一致（ATT-04 的 6 个 + ATT-11 的 8 个，DEFAULT 殿后）
     let groups: Vec<&str> = FileRole::GROUPS.iter().map(|role| role.as_str()).collect();
     assert_eq!(
         groups,
@@ -154,6 +168,14 @@ fn file_roles_parse_and_default() {
             "ACCEPTANCE",
             "INVOICE_SCAN",
             "BANK_RECEIPT",
+            "QUOTATION",
+            "CUSTOMER_PO",
+            "BIZ_LICENSE",
+            "BANK_ACCOUNT_PERMIT",
+            "QUALIFICATION",
+            "CREDIT_FILE",
+            "TRANSFER_APPROVAL",
+            "OPENING_EVIDENCE",
             "DEFAULT"
         ]
     );
@@ -167,6 +189,14 @@ fn file_roles_parse_and_default() {
             "验收单",
             "发票影像",
             "银行回单",
+            "报价单",
+            "客户PO",
+            "营业执照",
+            "开户许可",
+            "资质证书",
+            "信用资料",
+            "调拨审批单",
+            "期初依据",
             "其他附件"
         ]
     );
@@ -211,16 +241,18 @@ fn file_roles_parse_and_default() {
 fn role_catalog_keeps_empty_groups_and_counts_every_item() {
     let claims = claims_of(U_OWNER, &[]);
 
-    // ① 空列表也要给全 6 个分组（验收②：空分组显示上传引导）
-    let empty = dto::role_catalog(&[]);
-    assert_eq!(empty.len(), 6);
+    // ① 空列表也要给全**该单据类型**的分组（验收②：空分组显示上传引导）。
+    // 合同 = 合同扫描件 / 补充协议 / 其他附件（ATT-11 按业务裁剪，不再画 14 个空分组）。
+    let empty = dto::role_catalog(DocKind::Contract, &[]);
+    assert_eq!(empty.len(), 3);
     assert!(empty.iter().all(|group| group.count == 0));
     assert_eq!(empty[0].code, "CONTRACT_SCAN");
     assert_eq!(empty[0].label, "合同扫描件");
-    assert_eq!(empty[5].code, "DEFAULT");
-    assert_eq!(empty[5].label, "其他附件");
+    assert_eq!(empty[1].code, "SUPPLEMENT");
+    assert_eq!(empty[2].code, "DEFAULT");
+    assert_eq!(empty[2].label, "其他附件");
 
-    // ② 合同单据：合同扫描件 + 补充协议 → 两个分组各 1 条（验收①）
+    // ② 合同单据：合同扫描件 + 补充协议 → 两个分组（验收①）
     let mut scan = fixture_item("CONTRACT_SCAN");
     let supplement = fixture_item("SUPPLEMENT");
     // 同一 role 多个文件（验收③）
@@ -232,8 +264,8 @@ fn role_catalog_keeps_empty_groups_and_counts_every_item() {
     scan.remark = Some("第一联".to_string());
 
     let items = vec![scan, scan2, supplement];
-    let catalog = dto::role_catalog(&items);
-    assert_eq!(catalog.len(), 6, "没有兼容角色时仍是 6 个分组");
+    let catalog = dto::role_catalog(DocKind::Contract, &items);
+    assert_eq!(catalog.len(), 3, "没有兼容角色时就是该类型的 3 个分组");
     let pick = |code: &str| {
         catalog
             .iter()
@@ -246,8 +278,6 @@ fn role_catalog_keeps_empty_groups_and_counts_every_item() {
     assert_eq!(pick("SUPPLEMENT").count, 1);
     assert_eq!(pick("SUPPLEMENT").label, "补充协议");
     // 空分组仍在（验收②）
-    assert_eq!(pick("ACCEPTANCE").count, 0);
-    assert_eq!(pick("BANK_RECEIPT").count, 0);
     assert_eq!(pick("DEFAULT").count, 0);
 
     // ③ 不变式：每条附件恰好落进一个分组
@@ -255,14 +285,16 @@ fn role_catalog_keeps_empty_groups_and_counts_every_item() {
     assert_eq!(sum, items.len() as u64);
 
     // ④ 老值 / 未知值：INVOICE 归到 INVOICE_SCAN，OTHER 与未知值归到 DEFAULT（验收④）
+    //    合同的分组清单里没有 INVOICE_SCAN → 它作为「数据里存在的其它角色」被追加，
+    //    附件不会因为「不在建议清单里」而消失。
     let legacy = vec![
         fixture_item("INVOICE"),
         fixture_item("OTHER"),
         fixture_item("NOT_A_ROLE"),
         fixture_item("DEFAULT"),
     ];
-    let catalog = dto::role_catalog(&legacy);
-    assert_eq!(catalog.len(), 6, "归一后不该多出「INVOICE」分组");
+    let catalog = dto::role_catalog(DocKind::Contract, &legacy);
+    assert_eq!(catalog.len(), 4, "归一后不该多出「INVOICE」分组");
     let pick = |code: &str| {
         catalog
             .iter()
@@ -274,16 +306,50 @@ fn role_catalog_keeps_empty_groups_and_counts_every_item() {
     assert_eq!(pick("DEFAULT"), 3, "OTHER / 未知值 / DEFAULT 都进其他附件");
     assert_eq!(catalog.iter().map(|group| group.count).sum::<u64>(), 4);
 
-    // ⑤ 兼容角色 SIGN_RECEIPT：有数据才追加（位置在 6 个固定分组之后）
+    // ⑤ 兼容角色 SIGN_RECEIPT：有数据才追加（位置在该类型的固定分组之后）
     let with_legacy = vec![fixture_item("SIGN_RECEIPT"), fixture_item("CONTRACT_SCAN")];
-    let catalog = dto::role_catalog(&with_legacy);
-    assert_eq!(catalog.len(), 7);
-    assert_eq!(catalog[6].code, "SIGN_RECEIPT");
-    assert_eq!(catalog[6].label, "签收单");
-    assert_eq!(catalog[6].count, 1);
+    let catalog = dto::role_catalog(DocKind::Contract, &with_legacy);
+    assert_eq!(catalog.len(), 4);
+    assert_eq!(catalog[3].code, "SIGN_RECEIPT");
+    assert_eq!(catalog[3].label, "签收单");
+    assert_eq!(catalog[3].count, 1);
     assert_eq!(catalog.iter().map(|group| group.count).sum::<u64>(), 2);
 
-    // ⑥ TO-DTO：file_role_label 也要用归一后的中文名（tag 与分组标题同一份词表）
+    // ⑥ ATT-11 业务口径：每类单据画自己那几个角色（顺序 = 卡面顺序）
+    let codes = |kind: DocKind| -> Vec<String> {
+        dto::role_catalog(kind, &[])
+            .iter()
+            .map(|group| group.code.clone())
+            .collect()
+    };
+    assert_eq!(
+        codes(DocKind::Supplier),
+        vec![
+            "BIZ_LICENSE",
+            "BANK_ACCOUNT_PERMIT",
+            "QUALIFICATION",
+            "DEFAULT"
+        ]
+    );
+    assert_eq!(
+        codes(DocKind::Customer),
+        vec!["BIZ_LICENSE", "CREDIT_FILE", "DEFAULT"]
+    );
+    assert_eq!(
+        codes(DocKind::PurchaseOrder),
+        vec!["QUOTATION", "CUSTOMER_PO", "DEFAULT"]
+    );
+    assert_eq!(
+        codes(DocKind::StockTransfer),
+        vec!["TRANSFER_APPROVAL", "DEFAULT"]
+    );
+    assert_eq!(
+        codes(DocKind::OpeningBalance),
+        vec!["OPENING_EVIDENCE", "DEFAULT"]
+    );
+    assert_eq!(codes(DocKind::Receipt), vec!["BANK_RECEIPT", "DEFAULT"]);
+
+    // ⑦ TO-DTO：file_role_label 也要用归一后的中文名（tag 与分组标题同一份词表）
     let row = fixture_row();
     let item = dto::to_item(&row, &claims);
     assert_eq!(item.file_role, "INVOICE_SCAN");
@@ -419,7 +485,7 @@ fn doc_not_found_message_names_the_kind() {
 /// [`view_permissions_are_real_menu_codes`] 再兜一层（防哑弹）。
 #[test]
 fn view_permissions_map_to_erp_read_codes() {
-    let expected: [(DocKind, &[&str]); 12] = [
+    let expected: [(DocKind, &[&str]); 16] = [
         (DocKind::Contract, &["business:erp:contract:list"]),
         (
             DocKind::PurchaseOrder,
@@ -468,8 +534,16 @@ fn view_permissions_map_to_erp_read_codes() {
             &["business:erp:purchase-return:list"],
         ),
         (DocKind::SalesReturn, &["business:erp:sales-return:list"]),
+        // ATT-11：调拨单（列表 / 详情）、供应商 / 客户（列表）、期初（读码）
+        (
+            DocKind::StockTransfer,
+            &["business:erp:transfer:list", "business:erp:transfer:detail"],
+        ),
+        (DocKind::Supplier, &["business:erp:supplier:list"]),
+        (DocKind::Customer, &["business:erp:customer:list"]),
+        (DocKind::OpeningBalance, &["business:erp:opening:read"]),
     ];
-    assert_eq!(expected.len(), DocKind::ALL.len(), "十二类单据必须全覆盖");
+    assert_eq!(expected.len(), DocKind::ALL.len(), "十六类单据必须全覆盖");
     for (kind, codes) in expected {
         assert_eq!(
             kind.view_permissions(),
@@ -2274,8 +2348,8 @@ async fn db_role_groups_split_contract_scan_and_supplement() {
     let claims = claims_of(U_OWNER, &[]);
     let items: Vec<dto::DocAttachmentItemRes> =
         rows.iter().map(|row| dto::to_item(row, &claims)).collect();
-    let catalog = dto::role_catalog(&items);
-    assert_eq!(catalog.len(), 6, "固定 6 个分组（含空分组）");
+    let catalog = dto::role_catalog(DocKind::Contract, &items);
+    assert_eq!(catalog.len(), 3, "合同的分组清单（含空分组）");
     let count = |code: &str| {
         catalog
             .iter()
@@ -2285,7 +2359,7 @@ async fn db_role_groups_split_contract_scan_and_supplement() {
     };
     assert_eq!(count("CONTRACT_SCAN"), 2);
     assert_eq!(count("SUPPLEMENT"), 1);
-    assert_eq!(count("ACCEPTANCE"), 0, "空分组必须留着（前端画上传引导）");
+    assert_eq!(count("DEFAULT"), 0, "空分组必须留着（前端画上传引导）");
     assert_eq!(catalog.iter().map(|group| group.count).sum::<u64>(), 3);
     let _ = (scan1, scan2);
 

@@ -205,6 +205,16 @@
               <span class="field__value">{{ textOr(detail.remark) }}</span>
             </div>
           </div>
+
+          <!-- ATT-11：营业执照 / 开户许可 / 资质证书（建议传，不校验） -->
+          <div class="section-title">附件（资质）</div>
+          <DocAttachmentPanel
+            :doc-type="DOC_KIND.SUPPLIER"
+            :doc-id="detail.id"
+            :default-role="DEFAULT_ROLE_BY_DOC.SUPPLIER"
+            hint="营业执照 / 开户许可 / 资质证书；不传也能保存供应商"
+            testid-prefix="supplier-attach"
+          />
         </div>
       </div>
     </t-drawer>
@@ -388,6 +398,9 @@ import {
   type Supplier,
 } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
+import { DOC_KIND } from '@/api/business/erp/doc-kinds';
+import { DEFAULT_ROLE_BY_DOC } from '@/api/business/erp/attachment';
+import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
 import ImportEntryButton from '@/components/ImportEntryButton.vue';
 import { loadAllowManualCode, manualCodeDisabled, manualCodeHelp } from '../shared/code-policy';
 import {

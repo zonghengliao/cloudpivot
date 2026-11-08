@@ -514,6 +514,10 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('STATUS_ENTITY', 'SALES_RETURN',      'biz_sales_return',      'deleted_at', '销售退货单（销售链 SO-29）'),
     -- 采购链 P2-03：采购退货单进状态日志（`purchase_return_handler` 的建单 / 提交 / 确认 / 作废都写 entity_type=PURCHASE_RETURN）
     ('STATUS_ENTITY', 'PURCHASE_RETURN',   'biz_purchase_return',   'deleted_at', '采购退货单（采购链 P2-03）'),
+    -- ATT-11：主数据与期初也是「业务对象」（附件要挂在它们上），但都不是可审批单据
+    ('STATUS_ENTITY', 'SUPPLIER',          'biz_supplier',          'deleted_at', '供应商（主数据，ATT-11：无状态机）'),
+    ('STATUS_ENTITY', 'CUSTOMER',          'biz_customer',          'deleted_at', '客户（主数据，ATT-11：无状态机）'),
+    ('STATUS_ENTITY', 'OPENING_BALANCE',   'biz_voucher',           'deleted_at', '期初余额（ATT-11：entity_id 存期初凭证 id）'),
     -- ⑤ 序列号来源：biz_material_serial.source_type + source_id（P2-6b 补全映射）
     ('SERIAL_SOURCE', 'PURCHASE', 'biz_stock_in',       'deleted_at', '收货过账生成（in_type=PURCHASE），source_id = 收货单 id'),
     ('SERIAL_SOURCE', 'RETURN',   'biz_stock_in',       'deleted_at', '退货入库生成（in_type=RETURN，同一张收货单表），source_id = 收货单 id'),
@@ -533,6 +537,12 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('ATTACHMENT_DOC', 'STOCK_TAKE',      'biz_stock_take',     'deleted_at', '盘点表 / 盈亏说明（ATT-06）'),
     ('ATTACHMENT_DOC', 'PURCHASE_RETURN', 'biz_purchase_return', 'deleted_at', '采购退货单 / 签收凭证（ATT-06）'),
     ('ATTACHMENT_DOC', 'SALES_RETURN',    'biz_sales_return',   'deleted_at', '销售退货单 / 物流凭证（ATT-06）'),
+    -- ATT-11：建议传（不校验）的 4 类（V0350 放宽 CHECK 到 16 值）
+    --   期初余额没有单头表：doc_id 指向该期间的期初凭证（voucher_type='OPENING'）
+    ('ATTACHMENT_DOC', 'STOCK_TRANSFER',  'biz_stock_transfer', 'deleted_at', '调拨审批单（ATT-11）'),
+    ('ATTACHMENT_DOC', 'SUPPLIER',        'biz_supplier',       'deleted_at', '营业执照 / 开户许可 / 资质证书（ATT-11）'),
+    ('ATTACHMENT_DOC', 'CUSTOMER',        'biz_customer',       'deleted_at', '营业执照 / 信用资料（ATT-11）'),
+    ('ATTACHMENT_DOC', 'OPENING_BALANCE', 'biz_voucher',        'deleted_at', '期初依据（ATT-11：doc_id = 期初凭证 id，voucher_type=OPENING）'),
     -- ⑦ 业务提醒台账：biz_reminder_log.doc_type + doc_id（P2-6b，取值域 = REMINDER_DOC_KINDS）
     ('REMINDER_DOC', 'PAYABLE',        'biz_payable',        'deleted_at', '应付到期提醒'),
     ('REMINDER_DOC', 'PURCHASE_ORDER', 'biz_purchase_order', 'deleted_at', '采购超期提醒'),
@@ -1135,6 +1145,44 @@ SELECT m.ref_domain, 'biz_doc_attachment', a.id, a.id::text, 'doc_id', m.ref_typ
   JOIN di.v_poly_ref_map m ON m.ref_domain = 'ATTACHMENT_DOC' AND m.ref_type = a.doc_type
   LEFT JOIN biz_sales_return t ON t.id = a.doc_id
  WHERE a.deleted_at IS NULL AND a.doc_type = 'SALES_RETURN' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+-- ATT-11：调拨单 / 供应商 / 客户（建议传，不校验；悬空照样要查出来）
+UNION ALL
+SELECT m.ref_domain, 'biz_doc_attachment', a.id, a.id::text, 'doc_id', m.ref_type, a.doc_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_doc_attachment a
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'ATTACHMENT_DOC' AND m.ref_type = a.doc_type
+  LEFT JOIN biz_stock_transfer t ON t.id = a.doc_id
+ WHERE a.deleted_at IS NULL AND a.doc_type = 'STOCK_TRANSFER' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+UNION ALL
+SELECT m.ref_domain, 'biz_doc_attachment', a.id, a.id::text, 'doc_id', m.ref_type, a.doc_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_doc_attachment a
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'ATTACHMENT_DOC' AND m.ref_type = a.doc_type
+  LEFT JOIN biz_supplier t ON t.id = a.doc_id
+ WHERE a.deleted_at IS NULL AND a.doc_type = 'SUPPLIER' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+UNION ALL
+SELECT m.ref_domain, 'biz_doc_attachment', a.id, a.id::text, 'doc_id', m.ref_type, a.doc_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_doc_attachment a
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'ATTACHMENT_DOC' AND m.ref_type = a.doc_type
+  LEFT JOIN biz_customer t ON t.id = a.doc_id
+ WHERE a.deleted_at IS NULL AND a.doc_type = 'CUSTOMER' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+-- ATT-11：期初余额锚定期初凭证（只认 voucher_type = 'OPENING'）
+UNION ALL
+SELECT m.ref_domain, 'biz_doc_attachment', a.id, a.id::text, 'doc_id', m.ref_type, a.doc_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_doc_attachment a
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'ATTACHMENT_DOC' AND m.ref_type = a.doc_type
+  LEFT JOIN biz_voucher t ON t.id = a.doc_id AND t.voucher_type = 'OPENING'
+ WHERE a.deleted_at IS NULL AND a.doc_type = 'OPENING_BALANCE' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
 -- ========== ⑦ 业务提醒台账（P2-6b） ==========
 --   `biz_reminder_log` 是幂等台账（只增不改）：单据被删是正常生命周期，
 --   所以这里只报 DANGLING，不加 MISSING_ID（`doc_id` 列 NOT NULL，缺 id 写不进来）。

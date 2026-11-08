@@ -40,13 +40,21 @@ function readSource(relative: string): string {
   return readFileSync(join(SRC, relative), 'utf8');
 }
 
-/** 卡面（ATT-04）的 6 个分组，顺序 = 后端 `FileRole::GROUPS` */
+/** 卡面的分组词表（ATT-04 的 6 个 + ATT-11 的 8 个），顺序 = 后端 `FileRole::GROUPS` */
 const CATALOG: RoleOption[] = [
   { code: 'CONTRACT_SCAN', label: '合同扫描件' },
   { code: 'SUPPLEMENT', label: '补充协议' },
   { code: 'ACCEPTANCE', label: '验收单' },
   { code: 'INVOICE_SCAN', label: '发票影像' },
   { code: 'BANK_RECEIPT', label: '银行回单' },
+  { code: 'QUOTATION', label: '报价单' },
+  { code: 'CUSTOMER_PO', label: '客户PO' },
+  { code: 'BIZ_LICENSE', label: '营业执照' },
+  { code: 'BANK_ACCOUNT_PERMIT', label: '开户许可' },
+  { code: 'QUALIFICATION', label: '资质证书' },
+  { code: 'CREDIT_FILE', label: '信用资料' },
+  { code: 'TRANSFER_APPROVAL', label: '调拨审批单' },
+  { code: 'OPENING_EVIDENCE', label: '期初依据' },
   { code: 'DEFAULT', label: '其他附件' },
 ];
 
@@ -71,7 +79,7 @@ test('验收①：合同扫描件 + 补充协议 → 两个分组（其余是空
   const items = [item('CONTRACT_SCAN', '合同扫描件.pdf'), item('SUPPLEMENT', '补充协议.pdf')];
   const groups = groupByRole(items, CATALOG);
 
-  assert.equal(groups.length, 6, '固定 6 个分组');
+  assert.equal(groups.length, CATALOG.length, '分组数 = 词表项数（固定清单，空分组也在）');
   assert.equal(bucket(groups, 'CONTRACT_SCAN').count, 1);
   assert.equal(bucket(groups, 'CONTRACT_SCAN').items[0].name, '合同扫描件.pdf');
   assert.equal(bucket(groups, 'SUPPLEMENT').count, 1);
@@ -89,9 +97,9 @@ test('验收②：空分组保留且 count = 0（引导文案靠它）', () => {
     assert.equal(bucket(groups, code).count, 0, `${code} 应是空分组`);
     assert.deepEqual(bucket(groups, code).items, []);
   }
-  // 完全没数据时也是 6 个空分组（面板首次打开就是这个状态）
+  // 完全没数据时也是全量空分组（面板首次打开就是这个状态）
   const empty = groupByRole([], CATALOG);
-  assert.equal(empty.length, 6);
+  assert.equal(empty.length, CATALOG.length);
   assert.ok(empty.every((group) => group.count === 0));
 });
 
@@ -149,7 +157,7 @@ test('兼容 role SIGN_RECEIPT：接口给了分组就单独成组，不并进�
   const groups = groupByRole([item('SIGN_RECEIPT'), item('ACCEPTANCE')], catalog);
   assert.equal(bucket(groups, 'SIGN_RECEIPT').count, 1);
   assert.equal(bucket(groups, 'ACCEPTANCE').count, 1);
-  assert.equal(groups.length, 7);
+  assert.equal(groups.length, catalog.length);
 });
 
 // ==================== 词表解析 ====================
@@ -248,9 +256,9 @@ test('面板：分组清单来自接口、用纯函数分组与整单重排', ()
   assert.ok(panel.includes('multiple'), '一次可选多个文件');
 });
 
-test('接口词表：FILE_ROLE_OPTIONS = 卡面 6 项，且出参带 roles', () => {
+test('接口词表：FILE_ROLE_OPTIONS = 卡面 14 项，且出参带 roles', () => {
   const api = readSource('api/business/erp/attachment.ts');
-  // 6 个 code 与卡面顺序一致（Rust 侧 file_roles_match_frontend_vocabulary 再钉一遍）
+  // 14 个 code 与卡面顺序一致（Rust 侧 file_roles_match_frontend_vocabulary 再钉一遍）
   const codes = [...api.matchAll(/value: '([A-Z_]+)', label: '([^']+)'/g)].map((match) => [
     match[1],
     match[2],

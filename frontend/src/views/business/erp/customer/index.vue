@@ -329,6 +329,23 @@
           />
         </t-form-item>
       </t-form>
+
+      <!--
+        ATT-11：营业执照 / 信用资料（建议传，不校验）。
+        只有在**编辑已保存的客户**时才出现 —— 新建时还没有 doc id，附件无处可挂；
+        保存后重新打开编辑即可上传。
+      -->
+      <template v-if="isEdit && editing">
+        <div class="section-title">附件（资质）</div>
+        <p class="dlg-attach-tip">营业执照 / 信用资料建议上传；<b>不传也能保存客户</b>。</p>
+        <DocAttachmentPanel
+          :doc-type="DOC_KIND.CUSTOMER"
+          :doc-id="editing.id"
+          :default-role="DEFAULT_ROLE_BY_DOC.CUSTOMER"
+          hint="营业执照 / 信用资料（评级报告、授信批复）"
+          testid-prefix="customer-attach"
+        />
+      </template>
     </t-dialog>
   </div>
 </template>
@@ -370,6 +387,9 @@ import {
   type UpdateCustomerReq,
 } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
+import { DOC_KIND } from '@/api/business/erp/doc-kinds';
+import { DEFAULT_ROLE_BY_DOC } from '@/api/business/erp/attachment';
+import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
 import { loadAllowManualCode, manualCodeDisabled, manualCodeHelp } from '../shared/code-policy';
 import {
   CUSTOMER_COLUMNS,
@@ -802,5 +822,18 @@ onMounted(async () => {
   color: var(--td-text-color-placeholder);
   max-width: 460px;
   line-height: 1.6;
+}
+
+/* ATT-11：编辑弹窗里的附件区（小标题 + 一句建议说明） */
+.section-title {
+  font-weight: 600;
+  font-size: 14px;
+  margin: 12px 0 4px;
+}
+
+.dlg-attach-tip {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--td-text-color-secondary);
 }
 </style>

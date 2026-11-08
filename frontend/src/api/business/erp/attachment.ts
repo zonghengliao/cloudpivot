@@ -54,6 +54,19 @@ export type DocType = AttachmentDocType;
  * | `DEFAULT` | 其他附件 | 缺省值（不传 role 的文件进这组） |
  * | `SIGN_RECEIPT` | 签收单 | **兼容值**：老数据仍在用，不出现在上传下拉里 |
  *
+ * ATT-11 新增 8 个业务角色（按单据建议使用，后端**不校验**匹配关系）：
+ *
+ * | 值 | 中文 | 用于 |
+ * |----|------|------|
+ * | `BIZ_LICENSE` | 营业执照 | 供应商 / 客户 |
+ * | `BANK_ACCOUNT_PERMIT` | 开户许可 | 供应商 |
+ * | `QUALIFICATION` | 资质证书 | 供应商 |
+ * | `CREDIT_FILE` | 信用资料 | 客户 |
+ * | `QUOTATION` | 报价单 | 采购订单 |
+ * | `CUSTOMER_PO` | 客户PO | 采购订单 |
+ * | `TRANSFER_APPROVAL` | 调拨审批单 | 库存调拨单 |
+ * | `OPENING_EVIDENCE` | 期初依据 | 期初余额 |
+ *
  * 老拼写 `INVOICE` / `OTHER` 后端会在解析时归一（`INVOICE`→`INVOICE_SCAN`、
  * `OTHER`→`DEFAULT`），前端不再使用。
  */
@@ -64,6 +77,14 @@ export type FileRole =
   | 'INVOICE_SCAN'
   | 'BANK_RECEIPT'
   | 'SIGN_RECEIPT'
+  | 'BIZ_LICENSE'
+  | 'BANK_ACCOUNT_PERMIT'
+  | 'QUALIFICATION'
+  | 'CREDIT_FILE'
+  | 'QUOTATION'
+  | 'CUSTOMER_PO'
+  | 'TRANSFER_APPROVAL'
+  | 'OPENING_EVIDENCE'
   | 'DEFAULT';
 
 /** 单据类型中文名（错误提示 / 空态文案用；取自词表，不另写一份）。 */
@@ -80,6 +101,11 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
   STOCK_TAKE: DOC_KIND_LABELS.STOCK_TAKE,
   PURCHASE_RETURN: DOC_KIND_LABELS.PURCHASE_RETURN,
   SALES_RETURN: DOC_KIND_LABELS.SALES_RETURN,
+  // ATT-11
+  STOCK_TRANSFER: DOC_KIND_LABELS.STOCK_TRANSFER,
+  SUPPLIER: DOC_KIND_LABELS.SUPPLIER,
+  CUSTOMER: DOC_KIND_LABELS.CUSTOMER,
+  OPENING_BALANCE: DOC_KIND_LABELS.OPENING_BALANCE,
 };
 
 /**
@@ -98,6 +124,14 @@ export const FILE_ROLE_OPTIONS: { value: FileRole; label: string }[] = [
   { value: 'ACCEPTANCE', label: '验收单' },
   { value: 'INVOICE_SCAN', label: '发票影像' },
   { value: 'BANK_RECEIPT', label: '银行回单' },
+  { value: 'QUOTATION', label: '报价单' },
+  { value: 'CUSTOMER_PO', label: '客户PO' },
+  { value: 'BIZ_LICENSE', label: '营业执照' },
+  { value: 'BANK_ACCOUNT_PERMIT', label: '开户许可' },
+  { value: 'QUALIFICATION', label: '资质证书' },
+  { value: 'CREDIT_FILE', label: '信用资料' },
+  { value: 'TRANSFER_APPROVAL', label: '调拨审批单' },
+  { value: 'OPENING_EVIDENCE', label: '期初依据' },
   { value: 'DEFAULT', label: '其他附件' },
 ];
 
@@ -381,7 +415,8 @@ export function checkDocAttachments(
  */
 export const DEFAULT_ROLE_BY_DOC: Record<DocType, FileRole> = {
   CONTRACT: 'CONTRACT_SCAN',
-  PURCHASE_ORDER: 'DEFAULT',
+  /** ATT-11：采购单最常见的附件是报价单（次之客户 PO）。 */
+  PURCHASE_ORDER: 'QUOTATION',
   STOCK_IN: 'ACCEPTANCE',
   PAYABLE: 'INVOICE_SCAN',
   PAYMENT: 'INVOICE_SCAN',
@@ -399,4 +434,12 @@ export const DEFAULT_ROLE_BY_DOC: Record<DocType, FileRole> = {
   PURCHASE_RETURN: 'DEFAULT',
   /** 销售退货：退货单 / 物流凭证 → 其他附件。 */
   SALES_RETURN: 'DEFAULT',
+  /** ATT-11：调拨单建议传调拨审批单。 */
+  STOCK_TRANSFER: 'TRANSFER_APPROVAL',
+  /** ATT-11：供应商档案从营业执照开始（开户许可 / 资质证书也在同一面板）。 */
+  SUPPLIER: 'BIZ_LICENSE',
+  /** ATT-11：客户档案同理（信用资料在另一分组）。 */
+  CUSTOMER: 'BIZ_LICENSE',
+  /** ATT-11：期初依据（doc_id = 期初凭证 id）。 */
+  OPENING_BALANCE: 'OPENING_EVIDENCE',
 };

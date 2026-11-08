@@ -417,6 +417,16 @@
             data-testid="transfer-approval-progress"
           />
         </template>
+
+        <!-- ATT-11：调拨审批单（建议传，不校验）—— 已保存单据才有 doc id -->
+        <div class="section-title">附件（调拨审批单）</div>
+        <DocAttachmentPanel
+          :doc-type="DOC_KIND.STOCK_TRANSFER"
+          :doc-id="detail.id"
+          :default-role="DEFAULT_ROLE_BY_DOC.STOCK_TRANSFER"
+          hint="调拨审批单 / 双方签字单；不传也能提交与收发货"
+          testid-prefix="transfer-attach"
+        />
       </div>
     </t-drawer>
 
@@ -784,6 +794,9 @@ import {
   type ApprovalProgress,
 } from '@/views/business/erp/shared/approval-progress';
 import DocActionBar from '@/views/business/erp/shared/DocActionBar.vue';
+import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
+import { DOC_KIND } from '@/api/business/erp/doc-kinds';
+import { DEFAULT_ROLE_BY_DOC } from '@/api/business/erp/attachment';
 import StockPickerDialog from '@/views/business/erp/shared/StockPickerDialog.vue';
 import type { StockPick } from '@/views/business/erp/shared/stock-pick';
 import {

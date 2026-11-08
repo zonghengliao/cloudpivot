@@ -274,3 +274,140 @@ test('8 个单据页都有附件区（含已有的报销），且新建态不显
     );
   }
 });
+
+// ==================== ⑪ ATT-11：建议传（不校验）的 6 个页面 ====================
+//
+// 卡面把「建议传」和「必传」分得很清：这里**不许**出现闸门（没有 @changed 重查、
+// 没有 disabled ∪ canProceed），只有「能传 + 一句建议上传的提示」。
+// 断言两件事：① 面板挂对了 doc_type 与已保存单据的 id；② 提示文案存在且写明「非必传」。
+
+test('ATT-11：6 个建议传页面都挂对了 DocAttachmentPanel（doc_type / doc_id / 默认角色）', () => {
+  const cases: Array<[string, string, RegExp, string, string]> = [
+    // 页面, testid 前缀, doc-id 绑定, doc_type, 默认角色
+    [
+      'contract/index.vue',
+      'contract-attach',
+      /:doc-id="detail\.id"/,
+      ':doc-type="DOC_KIND.CONTRACT"',
+      'DEFAULT_ROLE_BY_DOC.CONTRACT',
+    ],
+    [
+      'purchase/index.vue',
+      'purchase-attach',
+      /:doc-id="detail\.id"/,
+      ':doc-type="DOC_KIND.PURCHASE_ORDER"',
+      'DEFAULT_ROLE_BY_DOC.PURCHASE_ORDER',
+    ],
+    [
+      'transfer/index.vue',
+      'transfer-attach',
+      /:doc-id="detail\.id"/,
+      ':doc-type="DOC_KIND.STOCK_TRANSFER"',
+      'DEFAULT_ROLE_BY_DOC.STOCK_TRANSFER',
+    ],
+    [
+      'supplier/index.vue',
+      'supplier-attach',
+      /:doc-id="detail\.id"/,
+      ':doc-type="DOC_KIND.SUPPLIER"',
+      'DEFAULT_ROLE_BY_DOC.SUPPLIER',
+    ],
+    [
+      'customer/index.vue',
+      'customer-attach',
+      /:doc-id="editing\.id"/,
+      ':doc-type="DOC_KIND.CUSTOMER"',
+      'DEFAULT_ROLE_BY_DOC.CUSTOMER',
+    ],
+    [
+      'opening/index.vue',
+      'opening-attach',
+      /:doc-id="opening\?\.voucher\?\.id \?\? null"/,
+      ':doc-type="DOC_KIND.OPENING_BALANCE"',
+      'DEFAULT_ROLE_BY_DOC.OPENING_BALANCE',
+    ],
+  ];
+
+  for (const [page, prefix, docIdPattern, docType, defaultRole] of cases) {
+    const source = readSource(`views/business/erp/${page}`);
+    assert.ok(source.includes(`testid-prefix="${prefix}"`), `${page} 必须有附件面板（验收①）`);
+    assert.ok(source.includes(docType), `${page} 的 doc_type 必须是 ${docType}`);
+    assert.ok(docIdPattern.test(source), `${page} 的附件面板必须绑已保存对象的 id`);
+    assert.ok(
+      source.includes(`:default-role="${defaultRole}"`),
+      `${page} 的默认上传角色必须是 ${defaultRole}（按业务给）`,
+    );
+    // 建议上传提示（不是「必须」）
+    assert.ok(source.includes('hint="'), `${page} 必须有「建议上传」提示文案（验收②）`);
+    assert.ok(
+      !source.includes('useAttachmentGate('),
+      `${page} 是建议传：不许接闸门（接了就变成阻断）`,
+    );
+  }
+});
+
+test('ATT-11：客户页的附件区只在「编辑已保存客户」时出现（新建没有 doc id）', () => {
+  const page = readSource('views/business/erp/customer/index.vue');
+  // 附件块被 isEdit && editing 包住（新建客户时 form 里还没有 id）
+  assert.ok(
+    /v-if="isEdit && editing"[\s\S]{0,600}?<DocAttachmentPanel/.test(page),
+    '客户附件区必须在 isEdit && editing 条件下渲染',
+  );
+  assert.ok(
+    !/v-model:visible="dialogVisible"[\s\S]{0,3000}?<DocAttachmentPanel[\s\S]{0,200}?:doc-id="form\./.test(
+      page,
+    ),
+    '附件不能绑未保存表单上的临时 id',
+  );
+});
+
+test('ATT-11：期初页把期初凭证号写进提示（用户要知道附件挂在哪一期）', () => {
+  const page = readSource('views/business/erp/opening/index.vue');
+  assert.ok(page.includes('data-testid="opening-attach-voucher"'), '必须显示期初凭证号');
+  assert.ok(page.includes("?? null"), '还没有凭证时 doc-id 必须传 null（面板显示「保存后可上传」）');
+});
+
+test('ATT-11：词表 16 类单据 / 14 个可上传角色（前后端由 Rust 单测再钉一遍）', () => {
+  const kinds = readSource('api/business/erp/doc-kinds.ts');
+  const block = kinds.slice(
+    kinds.indexOf('export const ATTACHMENT_DOC_TYPES'),
+    kinds.indexOf('] as const;', kinds.indexOf('export const ATTACHMENT_DOC_TYPES')),
+  );
+  const codes = [...block.matchAll(/'([A-Z_]+)'/g)].map((match) => match[1]);
+  assert.deepEqual(codes, [
+    'CONTRACT',
+    'PURCHASE_ORDER',
+    'STOCK_IN',
+    'PAYABLE',
+    'PAYMENT',
+    'FIXED_ASSET',
+    'EXPENSE_REPORT',
+    'INVOICE',
+    'RECEIPT',
+    'STOCK_TAKE',
+    'PURCHASE_RETURN',
+    'SALES_RETURN',
+    'STOCK_TRANSFER',
+    'SUPPLIER',
+    'CUSTOMER',
+    'OPENING_BALANCE',
+  ]);
+
+  const api = readSource('api/business/erp/attachment.ts');
+  for (const role of [
+    'QUOTATION',
+    'CUSTOMER_PO',
+    'BIZ_LICENSE',
+    'BANK_ACCOUNT_PERMIT',
+    'QUALIFICATION',
+    'CREDIT_FILE',
+    'TRANSFER_APPROVAL',
+    'OPENING_EVIDENCE',
+  ]) {
+    assert.ok(api.includes(`value: '${role}'`), `FILE_ROLE_OPTIONS 必须含 ${role}`);
+  }
+  // 每类单据的默认角色都要有（Record<DocType, FileRole> 是穷举的，漏一个 typecheck 就红）
+  for (const doc of ['STOCK_TRANSFER', 'SUPPLIER', 'CUSTOMER', 'OPENING_BALANCE']) {
+    assert.ok(api.includes(`${doc}: '`), `DEFAULT_ROLE_BY_DOC 必须含 ${doc}`);
+  }
+});

@@ -292,8 +292,8 @@ async fn list_of(
         .map_err(|error| utils::db_error(error, "查询单据附件"))?;
     let list: Vec<DocAttachmentItemRes> =
         rows.iter().map(|row| dto::to_item(row, claims)).collect();
-    // ATT-04：分组口径随列表一起下发（空分组也要能画出来 → 不能只靠遍历 list）
-    let roles = dto::role_catalog(&list);
+    // ATT-04 / ATT-11：分组口径随列表一起下发（空分组也要能画出来 → 不能只靠遍历 list）
+    let roles = dto::role_catalog(kind, &list);
 
     Ok(Res::ok(DocAttachmentListRes {
         doc_type: kind.as_str().to_string(),

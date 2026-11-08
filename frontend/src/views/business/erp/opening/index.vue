@@ -312,6 +312,30 @@
         </span>
       </div>
     </t-card>
+
+    <!-- ==================== ⑤ 附件（期初依据，ATT-11：建议传，不校验） ==================== -->
+    <!--
+      期初没有单头行（一个科目一行、保存即整期覆盖），所以附件挂在**本期的期初凭证**上
+      （doc_id = opening.voucher.id，后端校验 voucher_type='OPENING'）。
+      还没保存过任何期初时没有凭证 → 面板显示「保存单据后可上传附件」，保存后自动出现。
+    -->
+    <t-card :bordered="false" class="main-card">
+      <div class="section-title">附件（期初依据）</div>
+      <div class="panel-tip">
+        期初依据（上期余额表 / 审计报告 / 交接单等）建议上传；
+        <b>不传也能保存期初、也能结账</b>。附件挂在本期的期初凭证上：
+        <span class="mono" data-testid="opening-attach-voucher">
+          {{ opening?.voucher?.voucher_no ?? '还没有期初凭证' }}
+        </span>
+      </div>
+      <DocAttachmentPanel
+        :doc-type="DOC_KIND.OPENING_BALANCE"
+        :doc-id="opening?.voucher?.id ?? null"
+        :default-role="DEFAULT_ROLE_BY_DOC.OPENING_BALANCE"
+        hint="期初依据（上期余额表 / 审计报告 / 交接单）"
+        testid-prefix="opening-attach"
+      />
+    </t-card>
   </div>
 </template>
 
@@ -364,6 +388,9 @@ import {
   type Warehouse,
 } from '@/api/business/erp';
 import { useUserStore } from '@/stores/user';
+import { DOC_KIND } from '@/api/business/erp/doc-kinds';
+import { DEFAULT_ROLE_BY_DOC } from '@/api/business/erp/attachment';
+import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
 import {
   OPENING_PERMISSIONS,
   balanceOf,
@@ -740,6 +767,13 @@ onMounted(async () => {
   font-size: 13px;
   line-height: 1.7;
   margin: 8px 0 12px;
+}
+
+/* ATT-11：附件区的小标题（与其它单据详情页的 section-title 同款观感） */
+.section-title {
+  font-weight: 600;
+  font-size: 14px;
+  margin: 12px 0 6px;
 }
 
 .grid-head,

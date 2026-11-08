@@ -57,6 +57,9 @@
     <div class="doc-attach__head">
       <span class="doc-attach__title">附件</span>
       <span class="doc-attach__hint">已上传 {{ total }} / {{ maxCount }}</span>
+      <span v-if="hint" class="doc-attach__suggest" :data-testid="`${testidPrefix}-suggest`">
+        建议上传（非必传，不传也能保存）：{{ hint }}
+      </span>
       <span class="doc-attach__grow" />
       <t-radio-group
         v-if="docId && items.length > 0"
@@ -333,10 +336,18 @@ const props = withDefaults(
     docType: DocType;
     docId?: string | null;
     defaultRole?: FileRole;
+    /**
+     * 「建议上传」提示（ATT-11）。
+     *
+     * 只是提示：**后端不校验**、页面也不拦保存。有值才显示，
+     * 文案由各页面按业务给（供应商 = 营业执照 / 开户许可 / 资质证书…）。
+     * 必传单据（发票 / 收款 / 盘点…）不要用它 —— 那些走 ATT-08 的闸门与红字。
+     */
+    hint?: string;
     /** data-testid 前缀（五个页面各不同，便于 e2e 定位） */
     testidPrefix?: string;
   }>(),
-  { docId: null, defaultRole: 'DEFAULT', testidPrefix: 'doc-attach' },
+  { docId: null, defaultRole: 'DEFAULT', hint: '', testidPrefix: 'doc-attach' },
 );
 
 const emit = defineEmits<{ (event: 'changed', total: number): void }>();
@@ -357,10 +368,6 @@ const pendingRole = ref<FileRole>(props.defaultRole);
 /** 后端下发的分组口径（老实例没给时为空 → 回落本地词表） */
 const backendRoles = ref<DocAttachmentRoleGroup[]>([]);
 
-const roleOptions = computed(() =>
-  FILE_ROLE_OPTIONS.map((option) => ({ label: option.label, value: option.value })),
-);
-
 /**
  * 本地分组词表（`resolveRoleCatalog` 的回落值）。
  *
@@ -374,6 +381,20 @@ const LOCAL_ROLE_CATALOG: RoleOption[] = FILE_ROLE_OPTIONS.map((option) => ({
 
 /** 渲染用的分组清单：后端口径优先，老实例回落本地词表 */
 const catalog = computed(() => resolveRoleCatalog(backendRoles.value, LOCAL_ROLE_CATALOG));
+
+/**
+ * 上传下拉的选项：以**后端下发的分组**为准（ATT-11 起后端按单据类型裁剪，
+ * 供应商页只会给营业执照 / 开户许可 / 资质证书 / 其他）。
+ *
+ * 老实例不返回 `roles` 时回落本地全量词表（`FILE_ROLE_OPTIONS`）—— 那时后端也没有
+ * 按类型裁剪的能力，宁可在下拉里多列几个能传的角色（后端本身不校验匹配关系），
+ * 也不要让「界面没有这个选项、但接口接受」变成死路。
+ */
+const roleOptions = computed(() =>
+  backendRoles.value.length > 0
+    ? catalog.value.map((option) => ({ label: option.label, value: option.code as FileRole }))
+    : FILE_ROLE_OPTIONS.map((option) => ({ label: option.label, value: option.value })),
+);
 
 /**
  * 每行的派生展示信息（图标 / 类型名 / 大小文案）+ 分组用的角色字段。
@@ -684,6 +705,12 @@ defineExpose({ reload: load });
 
 .doc-attach__hint {
   color: var(--td-text-color-placeholder);
+  font-size: 12px;
+}
+
+/* ATT-11「建议上传」提示：比 hint 显眼一点（用户要能看见建议传什么），但不是红色警告 */
+.doc-attach__suggest {
+  color: var(--td-warning-color);
   font-size: 12px;
 }
 

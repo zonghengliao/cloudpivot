@@ -579,9 +579,18 @@ fn cross_axis_mappings_are_consistent() {
             );
         }
     }
-    // 附件 / 提醒的白名单必须是单据或被提醒对象
+    // 附件 / 提醒的白名单必须是「有实体表的对象」。
+    //
+    // ATT-11 之前这里断言 `is_document()`；供应商 / 客户是**主数据**（没有审批 /
+    // 作废流转，`is_document() = false`）、期初余额挂的是期初凭证 —— 三者都有实体表
+    // 可做存在性校验，所以判据改成「有目标表」。变成 `is_document()` 就会挡住
+    // 「营业执照挂在供应商上」这个真实需求。
     for kind in ATTACHMENT_DOC_KINDS {
-        assert!(kind.is_document(), "{} 不是单据，不能挂附件", kind.as_str());
+        assert!(
+            kind.table().is_some(),
+            "{} 没有实体表，不能挂附件",
+            kind.as_str()
+        );
     }
     for kind in REMINDER_DOC_KINDS {
         assert!(

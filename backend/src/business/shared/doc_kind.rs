@@ -164,11 +164,26 @@ pub enum DocKind {
     /// 冲减应付（已付款部分转 `biz_supplier_receivable`）+ 冲销凭证。
     /// 明细 `biz_purchase_return_item` 没有状态、也不单独记 `doc_type`（属单头）。
     PurchaseReturn,
+    /// 供应商 `biz_supplier`（**主数据**，ATT-11：营业执照 / 开户许可 / 资质证书）。
+    ///
+    /// 与单据的差别：没有状态机、不能审批作废（[`DocKind::is_document`] 为 `false`），
+    /// 但它确实是一个有实体表的**业务对象**，所以进了本轴 —— 附件 / 提醒这类
+    /// 「挂在对象上」的能力需要它有一个规范取值，而不是各模块自己拼字符串。
+    Supplier,
+    /// 客户 `biz_customer`（**主数据**，ATT-11：营业执照 / 信用资料）。
+    Customer,
+    /// 期初余额（ATT-11：期初依据）。
+    ///
+    /// **没有自己的单据表**：`doc_id` 指向该期间的**期初凭证**
+    /// （`biz_voucher.voucher_type = 'OPENING'`，一个期间最多一张，V0189 的唯一索引兜死）。
+    /// 期初是「按期间整体覆盖」的录入动作，没有单头行可挂，挂到期初凭证才是
+    /// 「这份依据属于哪一期期初」的唯一稳定锚点。
+    OpeningBalance,
 }
 
 impl DocKind {
     /// 全部业务对象（顺序 = 声明顺序；前端 TS 常量表与巡检按此顺序逐字比对）。
-    pub const ALL: [DocKind; 26] = [
+    pub const ALL: [DocKind; 29] = [
         DocKind::PurchaseOrder,
         DocKind::StockIn,
         DocKind::StockOut,
@@ -195,6 +210,11 @@ impl DocKind {
         DocKind::Invoice,
         DocKind::SalesReturn,
         DocKind::PurchaseReturn,
+        // ATT-11：主数据（供应商 / 客户）与期初余额 —— 这三类不是「可审批单据」，
+        // 但都是有实体表的业务对象，附件要挂在它们上面。
+        DocKind::Supplier,
+        DocKind::Customer,
+        DocKind::OpeningBalance,
     ];
 
     /// 落库值（大写下划线）。**唯一拼写**。
@@ -226,6 +246,10 @@ impl DocKind {
             DocKind::Invoice => "INVOICE",
             DocKind::SalesReturn => "SALES_RETURN",
             DocKind::PurchaseReturn => "PURCHASE_RETURN",
+            // ATT-11
+            DocKind::Supplier => "SUPPLIER",
+            DocKind::Customer => "CUSTOMER",
+            DocKind::OpeningBalance => "OPENING_BALANCE",
         }
     }
 
@@ -258,6 +282,10 @@ impl DocKind {
             DocKind::Invoice => "销售发票",
             DocKind::SalesReturn => "销售退货单",
             DocKind::PurchaseReturn => "采购退货单",
+            // ATT-11
+            DocKind::Supplier => "供应商",
+            DocKind::Customer => "客户",
+            DocKind::OpeningBalance => "期初余额",
         }
     }
 
@@ -289,6 +317,10 @@ impl DocKind {
             DocKind::Invoice => "biz_invoice",
             DocKind::SalesReturn => "biz_sales_return",
             DocKind::PurchaseReturn => "biz_purchase_return",
+            // ATT-11：主数据直接落自己的表；期初余额挂期初凭证（biz_voucher）
+            DocKind::Supplier => "biz_supplier",
+            DocKind::Customer => "biz_customer",
+            DocKind::OpeningBalance => "biz_voucher",
             // 年结没有实体表：状态记在 `biz_status_log`，`entity_id` 存结转凭证 id
             DocKind::AccountingYear => return None,
         })
@@ -383,7 +415,7 @@ impl DocKind {
 /// 也能挂附件），但本常量与前端 `ATTACHMENT_DOC_TYPES` 当时仍是 7 值 —— 于是
 /// 「发票必须传发票影像」这条规则在界面上**无法被满足**（前端下拉里根本没有 INVOICE）。
 /// ATT-08 做前端必传校验时补齐：界面上能挂，才谈得上提前告诉用户缺什么。
-pub const ATTACHMENT_DOC_KINDS: [DocKind; 12] = [
+pub const ATTACHMENT_DOC_KINDS: [DocKind; 16] = [
     DocKind::Contract,
     DocKind::PurchaseOrder,
     DocKind::StockIn,
@@ -399,6 +431,12 @@ pub const ATTACHMENT_DOC_KINDS: [DocKind; 12] = [
     DocKind::StockTake,
     DocKind::PurchaseReturn,
     DocKind::SalesReturn,
+    // ATT-11：建议传（不校验）的 4 类 —— 调拨单 / 期初余额 / 供应商 / 客户。
+    // 顺序 = 「有实体表的对象」在前面、主数据与期初在末尾，与前端词表逐字一致。
+    DocKind::StockTransfer,
+    DocKind::Supplier,
+    DocKind::Customer,
+    DocKind::OpeningBalance,
 ];
 
 /// 能记业务提醒的对象（与 `ck_biz_reminder_log_doc_type` 逐字一致）。
@@ -1274,7 +1312,7 @@ pub struct ColumnDomain {
     pub axis: &'static str,
 }
 
-const DOC_KIND_VALUES: [&str; 26] = [
+const DOC_KIND_VALUES: [&str; 29] = [
     "PURCHASE_ORDER",
     "STOCK_IN",
     "STOCK_OUT",
@@ -1301,6 +1339,9 @@ const DOC_KIND_VALUES: [&str; 26] = [
     "INVOICE",
     "SALES_RETURN",
     "PURCHASE_RETURN",
+    "SUPPLIER",
+    "CUSTOMER",
+    "OPENING_BALANCE",
 ];
 
 const FLOW_BIZ_TYPE_VALUES: [&str; 16] = [
