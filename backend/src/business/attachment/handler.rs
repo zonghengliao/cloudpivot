@@ -928,14 +928,27 @@ struct UploadedFile {
 ///
 /// - 400 + `PAYLOAD_INVALID`：表单解析失败 / 缺 `file` 字段 / 文件名为空；
 /// - 400 + `PARAM_INVALID`：**文件本体超过 [`dto::MAX_FILE_BYTES`]**（ATT-05：20 MB）——
-///   按分片累加判断，超限立刻返回，不在内存里留半份文件；
+///   按分片累加判断，超限后**只排水不入内存**，读完整个请求体再回 400；
 /// - 422 + `60003`：body 超过服务端硬顶（框架在中途掐断）。
+///
+/// # 为什么「超限之后还要把请求体读完」
+///
+/// 直接 `return Err(...)` 会让 hyper 在客户端还在发 body 时关掉连接：curl 通常还能读到
+/// 那一份 400（它边发边收），但「一次性写完再读」的客户端（Python urllib、部分 SDK）
+/// 会先撞 `ECONNRESET`、拿不到业务文案 —— 用户看到的是「上传失败」，不是
+/// 「文件超过 20MB，请压缩或分卷上传」。
+///
+/// 所以超限后继续 `chunk()` 把剩余字节**读完并丢弃**（不进 `bytes`、不进内存），
+/// 再在外层统一返回 400。读到多少有上限：框架的 `DefaultBodyLimit`
+/// （`[upload].max_size_mb`）会在超顶时自己掐断并报 413 → [`multipart_error`]。
 async fn read_multipart(
     mut multipart: Multipart,
     server_limit: u64,
 ) -> std::result::Result<(RawFields, UploadedFile), ApiError> {
     let mut fields = RawFields::default();
     let mut file: Option<UploadedFile> = None;
+    // 文件本体已超 20 MB：后续字节全部丢弃，读完再统一报错
+    let mut too_large = false;
 
     while let Some(mut field) = multipart
         .next_field()
@@ -949,14 +962,24 @@ async fn read_multipart(
                 .content_type()
                 .unwrap_or("application/octet-stream")
                 .to_string();
-            // ATT-05：逐片累加 + 超限即返回（不先 `bytes()` 整份读进内存）
+            // ATT-05：逐片累加 + 超限后只排水（不先把整份 `bytes()` 读进内存）
             let mut bytes: Vec<u8> = Vec::new();
             while let Some(chunk) = field
                 .chunk()
                 .await
                 .map_err(|error| multipart_error(error.status(), server_limit))?
             {
-                dto::extend_within_file_limit(&mut bytes, &chunk)?;
+                if too_large {
+                    continue;
+                }
+                if dto::extend_within_file_limit(&mut bytes, &chunk).is_err() {
+                    too_large = true;
+                    // 已经读到的半份数据也没有保留价值（要报错），立刻释放
+                    bytes = Vec::new();
+                }
+            }
+            if too_large {
+                continue;
             }
             if file_name.is_empty() {
                 return Err(ApiError::new(
@@ -977,6 +1000,10 @@ async fn read_multipart(
             .text()
             .await
             .map_err(|error| multipart_error(error.status(), server_limit))?;
+        if too_large {
+            // 已经要报超限了：剩余文本字段只用于把 body 读完，不再解析
+            continue;
+        }
         match name.as_str() {
             "doc_type" => fields.doc_type = Some(value),
             "doc_id" => fields.doc_id = Some(value),
@@ -985,6 +1012,11 @@ async fn read_multipart(
             // 未知字段忽略（前端可能带 `category` 一类历史字段）
             _ => {}
         }
+    }
+
+    // 排水完毕再报错：客户端能完整拿到 400 + 业务文案（见函数文档）
+    if too_large {
+        return Err(dto::file_too_large());
     }
 
     let Some(file) = file else {

@@ -1983,6 +1983,31 @@ async fn db_attachment_policy_allows_office_and_wps() {
     println!("[ATT-05] attachment 策略白名单含 Office + WPS · max={max_mb} MB ✓");
 }
 
+/// ATT-05：超限后必须「先排水再报错」——直接 `?` 返回会让客户端撞 ECONNRESET。
+///
+/// # 这条为什么值得钉
+///
+/// 本卡在 145 实测踩到过：直接 `dto::extend_within_file_limit(...)?` 时，curl 能拿到 400，
+/// 但「一次写完再读」的客户端（Python urllib / 部分 SDK）先撞 `ECONNRESET`，拿不到
+/// 「文件超过 20MB，请压缩或分卷上传」。修法是超限后继续 `chunk()` 读完丢弃、读完再报错。
+/// 这段行为在 handler 的异步读流里，纯逻辑测试覆盖不到，只能用源码契约钉住。
+#[test]
+fn upload_drains_body_before_reporting_too_large() {
+    let src = include_str!("handler.rs");
+    assert!(
+        src.contains("if too_large {\n                    continue;"),
+        "超限后必须继续读分片（排水），否则大文件上传会变成连接重置"
+    );
+    assert!(
+        !src.contains("dto::extend_within_file_limit(&mut bytes, &chunk)?;"),
+        "超限处不许直接 `?` 返回 —— 必须先排水再统一报 400"
+    );
+    assert!(
+        src.contains("return Err(dto::file_too_large());"),
+        "排水完之后要统一返回 400 + 卡面文案"
+    );
+}
+
 /// 真库：新角色能落库（CHECK 已放开），且分组按 role 正确切分（验收①③④）。
 #[tokio::test]
 async fn db_role_groups_split_contract_scan_and_supplement() {
