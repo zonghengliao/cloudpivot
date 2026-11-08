@@ -342,6 +342,8 @@ fn graph_to_save_req(graph: &FlowGraph) -> flow_dto::GraphSaveReq {
                 max_remind_times: None,
                 cc_on_approved: None,
                 config: Some(node.config.clone()),
+                // V0341（P3-08 子流程）新增字段：本夹具不含子流程节点，取 None
+                subprocess_def_id: None,
                 assignees: node
                     .assignees
                     .iter()
