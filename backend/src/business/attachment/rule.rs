@@ -167,10 +167,10 @@ impl AttachmentRule {
             self.doc_type.label(),
             self.requirement_name()
         );
-        if let Some(exts) = self.allow_exts.as_deref() {
-            if !exts.is_empty() {
-                text.push_str(&format!("（{}）", exts.join("/")));
-            }
+        if let Some(exts) = self.allow_exts.as_deref()
+            && !exts.is_empty()
+        {
+            text.push_str(&format!("（{}）", exts.join("/")));
         }
         text
     }
@@ -216,13 +216,13 @@ impl RuleViolation {
     /// 单条违例的人话（多段用中文分号连接）。
     pub fn message(&self) -> String {
         // ① 超上限：多出来的先删（比「缺」更容易让用户自己修好）
-        if let Some(max) = self.max_count {
-            if self.total > max {
-                return format!(
-                    "{}最多允许 {max} 个附件，当前 {} 个：请先删掉多余附件再重试",
-                    self.requirement, self.total
-                );
-            }
+        if let Some(max) = self.max_count
+            && self.total > max
+        {
+            return format!(
+                "{}最多允许 {max} 个附件，当前 {} 个：请先删掉多余附件再重试",
+                self.requirement, self.total
+            );
         }
         let role_text = self
             .file_role
@@ -493,9 +493,7 @@ pub async fn condition_applies(
     doc_id: &Uuid,
     condition: Option<&str>,
 ) -> std::result::Result<bool, AttachRuleError> {
-    let Some(fragment) =
-        condition_sql_is_safe(condition).map_err(|reason| AttachRuleError::Db(reason))?
-    else {
+    let Some(fragment) = condition_sql_is_safe(condition).map_err(AttachRuleError::Db)? else {
         return Ok(true);
     };
     let sql = format!(
