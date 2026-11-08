@@ -283,4 +283,39 @@ pub async fn node_arrived(
     Ok(total > 0)
 }
 
+/// 某实例在某一轮里「还在跑」的节点 key（`ACTIVE` + 汇聚等待中的 `PENDING`），去重升序。
+///
+/// 用途：[`crate::business::flow::engine::Run::step`] 判定 **END 该不该现在结束**
+/// （P3-09 B2b 修复）。END 没有「等所有入边到达」的语义（条件分支只走一支，
+/// 另一支永远不来），它的判据是「上游还有没有在跑的节点」：
+/// 有 → 保持 `PENDING`；没有 → 结束实例。
+///
+/// # 为什么必须带 `round`
+///
+/// 与 [`node_arrived`] 同一条理由：退回后上一轮的 `PENDING` / `ACTIVE` 行还在库里，
+/// 不带 `round` 会把「上一轮没跑完的幽灵节点」当成还在跑，END 永远等下去。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn inflight_node_keys(
+    ex: &Transaction,
+    instance_id: Uuid,
+    round: i32,
+) -> DbResult<Vec<String>> {
+    let rows = ex
+        .find_with_params(
+            "SELECT DISTINCT node_key FROM biz_flow_instance_node \
+              WHERE instance_id = ?::uuid AND round = ? AND status IN ('ACTIVE','PENDING') \
+              ORDER BY node_key",
+            vec![Value::from(&instance_id), Value::from(round)],
+        )
+        .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        out.push(row.get_typed("node_key")?);
+    }
+    Ok(out)
+}
+
 // ---------- 写：待办 ----------

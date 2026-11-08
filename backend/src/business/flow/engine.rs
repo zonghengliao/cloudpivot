@@ -57,7 +57,7 @@
 //! 递归 async fn 在 Rust 里要 `Box::pin` 才能编译，而显式队列顺带让「并行分支」
 //! 天然按优先级逐条推进、日志可读。
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 
 use nik::prelude::*;
 use nik::uuid::Uuid;
@@ -2295,6 +2295,7 @@ impl<'a> Run<'a> {
         }
 
         // 汇聚闸（入度 ≥ 2 才有意义）：**判定必须带 round**（坑 4 的第 5 条）
+        let node_type = NodeType::parse(&spec.node_type).unwrap_or(NodeType::Approval);
         let in_edges: Vec<SnapshotEdge> = self
             .snapshot
             .edges
@@ -2303,15 +2304,26 @@ impl<'a> Run<'a> {
             .cloned()
             .collect();
         if in_edges.len() >= 2 {
+            // 两条判据，按节点类型分派：
+            //
+            // - **END**：不问「入边是否都到达」，只问「上游还有没有在跑的节点」
+            //   （[`Self::end_waits_upstream`]，P3-09 B2b 修复）。
+            //   理由见该函数的文档：条件分支只走一支，另一支永远不来 —— 按入边数等
+            //   必然永久 `PENDING`（`maybe_finish` 永不触发 = 静默卡单）。
+            // - **其它汇聚节点**（并行汇聚 / 条件汇聚）：`AND` 时等人齐，`OR` 时先到先走。
             let mut arrived = 0usize;
-            for edge in &in_edges {
-                if model::node_arrived(self.ex, self.instance.id, &edge.from, round).await? {
-                    arrived += 1;
+            let wait = if node_type == NodeType::End {
+                self.end_waits_upstream(&spec.key).await?
+            } else {
+                for edge in &in_edges {
+                    if model::node_arrived(self.ex, self.instance.id, &edge.from, round).await? {
+                        arrived += 1;
+                    }
                 }
-            }
-            let join_and =
-                GatewayMode::parse(&spec.join_mode).unwrap_or(GatewayMode::And) == GatewayMode::And;
-            if join_and && arrived < in_edges.len() {
+                GatewayMode::parse(&spec.join_mode).unwrap_or(GatewayMode::And) == GatewayMode::And
+                    && arrived < in_edges.len()
+            };
+            if wait {
                 // 等人齐：登记「到达过」但保持 PENDING（不建待办）
                 model::touch_node(
                     self.ex,
@@ -2335,6 +2347,7 @@ impl<'a> Run<'a> {
                 tracing::info!(
                     instance_id = %self.instance.id,
                     node_key = %key,
+                    node_type = %spec.node_type,
                     round,
                     arrived,
                     total = in_edges.len(),
@@ -2375,7 +2388,6 @@ impl<'a> Run<'a> {
             return Ok(Step::Idle);
         }
 
-        let node_type = NodeType::parse(&spec.node_type).unwrap_or(NodeType::Approval);
         match node_type {
             NodeType::End => {
                 model::end_node_row(self.ex, row.id, "APPROVED", Tally::default(), None, false)
@@ -3568,6 +3580,38 @@ impl<'a> Run<'a> {
         Ok(failure)
     }
 
+    /// END 现在该不该「等人」——**END 专用汇聚判据**（P3-09 B2b 修复）。
+    ///
+    /// # 判据
+    ///
+    /// 本轮（`round`）还有没有**上游**节点在跑（`ACTIVE` / 汇聚等待中的 `PENDING`）：
+    /// 有 → 返回 `true`（END 保持 `PENDING`）；没有 → 返回 `false`（END 立刻 `APPROVED`，
+    /// `maybe_finish` 随即判定实例 APPROVED）。
+    ///
+    /// 「上游」= 沿快照入边反向可达 END 的节点集合（[`Self::upstream_closure`]，内存里算）。
+    /// **不能只数直接入边，也不能数全实例** —— 这三种写法的差别正是本函数存在的理由：
+    ///
+    /// | 判据 | 条件分叉 → 同一个 END | 并行分叉 → 同一个 END | 两个 END 各接一支 |
+    /// |---|---|---|---|
+    /// | 入边都到达（旧口径） | ❌ 另两支永远不来 → 永久 `PENDING` | ✅ 等齐 | ✅ |
+    /// | 入边到达 ≥ 1（= 无条件放行） | ✅ | ❌ 第一支到达就结束，另一支的待办成孤儿 | ✅ |
+    /// | 全实例有在跑节点 | ✅ | ✅ | ❌ 两个 END 互等 → 死锁 |
+    /// | **本函数（上游可达闭包）** | ✅ | ✅ | ✅ |
+    ///
+    /// 也就是说：「END 不参与汇聚门控」（`graph::check_join_mode` 的 R8 文档口径）说的是
+    /// **不需要作者手选 `join_mode`**，而不是「到达即结束」；并行两支都还在跑时提前结束会
+    /// 让另一支的待办变成孤儿（实例还 `PENDING`、END 已 `APPROVED`，`maybe_finish` 再也不会被
+    /// 调到 —— 又是一个静默卡单）。所以 END 的 `join_mode` 在运行期**不再使用**，
+    /// 由「上游是否还有活」这一条动态判据取代（AND / OR 都不需要作者填）。
+    async fn end_waits_upstream(&self, end_key: &str) -> DbResult<bool> {
+        let live = model::inflight_node_keys(self.ex, self.instance.id, self.round).await?;
+        if live.is_empty() {
+            return Ok(false);
+        }
+        let upstream = upstream_closure(&self.snapshot, end_key);
+        Ok(end_waits(&live, &upstream, end_key))
+    }
+
     /// 本轮「已通过的上游来源节点」：
     ///
     /// - 入度 = 1（链式）：BFS 反向找**最近**的那个已通过节点；
@@ -3629,6 +3673,51 @@ impl<'a> Run<'a> {
 }
 
 // ==================== 引擎内部小工具 ====================
+
+/// END 该不该继续等人：**本轮还有没有上游节点在跑**（P3-09 B2b 修复的唯一判据）。
+///
+/// - 自身那一行此刻就是 `PENDING`（上次「等人齐」留下的），必须排除，否则永远等自己；
+/// - 只认**上游可达**的在跑节点：并行分叉的另一支如果走的是**另一个 END**，与本 END 无关，
+///   等它就会让两个 END 互相等待（死锁）。
+///
+/// 抽成自由函数同样是为了能纯单测（决策本身与 DB 无关）。
+fn end_waits(live: &[String], upstream: &HashSet<String>, end_key: &str) -> bool {
+    live.iter()
+        .any(|key| key != end_key && upstream.contains(key))
+}
+
+/// `to_key` 的**上游可达闭包**（含 `to_key` 自身）：沿入边反向 BFS 收集所有能走到它的节点 key。
+///
+/// 用途：[`Run::end_waits_upstream`] 判「END 上游还有没有在跑的节点」。
+/// 单独抽成自由函数是为了**能纯单测**（`Run` 要 `Transaction`，测不了内存算法）。
+///
+/// 图规模上限是 200 节点 / 400 边（`graph::MAX_NODES` / `MAX_EDGES`，发布期 R15 拦），
+/// 且快照无环（发布期 R3 拦），所以这里与 `graph.rs` 一样用显式队列 + 迭代次数保险：
+/// 不递归、不设语义上的深度上限。
+fn upstream_closure(snapshot: &Snapshot, to_key: &str) -> HashSet<String> {
+    let mut seen: HashSet<String> = HashSet::from([to_key.to_string()]);
+    let mut queue: VecDeque<&str> = VecDeque::from([to_key]);
+    let budget = snapshot.nodes.len() * 2 + snapshot.edges.len() * 2 + 8;
+    let mut steps = 0usize;
+    while let Some(key) = queue.pop_front() {
+        steps += 1;
+        if steps > budget {
+            // 快照理论上不可能有环（发布期 R3 拦）；真遇到坏快照就按「已收集到的部分」判定，
+            // 不再抛 500 —— 引擎在这里能做的正确的事只有「别把流程挂死」。
+            tracing::warn!(
+                node_key = to_key,
+                "END 上游闭包遍历超限（快照可能有环），按已收集结果判定"
+            );
+            break;
+        }
+        for edge in snapshot.edges.iter().filter(|edge| edge.to == key) {
+            if seen.insert(edge.from.clone()) {
+                queue.push_back(edge.from.as_str());
+            }
+        }
+    }
+    seen
+}
 
 // SCOPE-EXEMPT: 引擎只按「实例已绑定的 `instance.version_id`」读快照、按 id 读实例 / 节点 / 待办，
 // SCOPE-EXEMPT: 全部是**单条按主键查询**（`WHERE id = ?`），没有列表 / 分页；可见性与数据范围
@@ -4441,6 +4530,184 @@ mod tests {
         };
         assert_eq!(start_keys_of(&snapshot), vec!["n_a".to_string()]);
         assert_eq!(start_key_of(&snapshot), Some("n_a".to_string()));
+    }
+
+    // ==================================================================
+    // P3-09 B2b 修复：END 的汇聚判据 = 「本轮上游还有没有在跑的节点」
+    // ==================================================================
+    //
+    // 缺陷原样：`START → CONDITION → 三条分支各一个审批节点 → 同一个 END`，
+    // END 没配 join_mode（NULL → 旧代码 unwrap_or(AND)）→ 引擎按「入边都到达」等人齐，
+    // 而条件分支只走一支，另两支永远不来 ⇒ END 停在 PENDING、实例永久 PENDING，
+    // 发布校验（R8 跳过 END）也不报错 = 静默卡单。
+    //
+    // 新判据 = `end_waits(live, upstream(e), e)`，这里把三个关键形态钉成单测：
+    // ① 条件分叉汇到一个 END → 不等（到达即结束）；
+    // ② 并行分叉汇到一个 END → 等（另一支还在跑时结束会让它的待办变孤儿）；
+    // ③ 并行分叉各接一个 END → 各等各的上游，绝不互等（否则死锁）。
+
+    /// 造一个只关心 key / 类型的快照节点（其余字段取默认）。
+    fn snap_node(key: &str, node_type: &str) -> SnapshotNode {
+        SnapshotNode {
+            key: key.to_string(),
+            name: key.to_string(),
+            node_type: node_type.to_string(),
+            assignee_type: None,
+            approval_mode: None,
+            approve_ratio: None,
+            reject_veto: false,
+            join_mode: "AND".to_string(),
+            fork_mode: "AND".to_string(),
+            form_var_key: None,
+            superior_levels: 1,
+            empty_assignee: "SKIP".to_string(),
+            self_approval: "SKIP".to_string(),
+            allow_robot: false,
+            fallback_user_id: None,
+            fallback_role_id: None,
+            timeout_hours: None,
+            timeout_action: "REMIND".to_string(),
+            remind_before_hours: None,
+            max_remind_times: 3,
+            cc_on_approved: false,
+            x: 0,
+            y: 0,
+            sort_order: 0,
+            config: Json::Object(Map::new()),
+            assignees: Vec::new(),
+        }
+    }
+
+    /// 造一条无条件快照边。
+    fn snap_edge(from: &str, to: &str) -> SnapshotEdge {
+        SnapshotEdge {
+            key: format!("{from}_{to}"),
+            from: from.to_string(),
+            to: to.to_string(),
+            condition: None,
+            label: None,
+            priority: 0,
+            is_default: false,
+        }
+    }
+
+    fn snap(nodes: &[(&str, &str)], edges: &[(&str, &str)]) -> Snapshot {
+        Snapshot {
+            schema_version: graph::SNAPSHOT_SCHEMA_VERSION,
+            nodes: nodes.iter().map(|(k, t)| snap_node(k, t)).collect(),
+            edges: edges.iter().map(|(f, t)| snap_edge(f, t)).collect(),
+        }
+    }
+
+    #[test]
+    fn upstream_closure_covers_condition_fan_in() {
+        // s → c1 → {n_low, n_mid, n_high} → e
+        let s = snap(
+            &[
+                ("s", "START"),
+                ("c1", "CONDITION"),
+                ("n_low", "APPROVAL"),
+                ("n_mid", "APPROVAL"),
+                ("n_high", "APPROVAL"),
+                ("e", "END"),
+            ],
+            &[
+                ("s", "c1"),
+                ("c1", "n_low"),
+                ("c1", "n_mid"),
+                ("c1", "n_high"),
+                ("n_low", "e"),
+                ("n_mid", "e"),
+                ("n_high", "e"),
+            ],
+        );
+        let closure = upstream_closure(&s, "e");
+        for key in ["e", "n_low", "n_mid", "n_high", "c1", "s"] {
+            assert!(closure.contains(key), "上游闭包必须含 {key}");
+        }
+        assert_eq!(closure.len(), 6);
+    }
+
+    #[test]
+    fn upstream_closure_does_not_cross_into_the_other_end() {
+        // p(PARALLEL) → {a1 → e1, b1 → e2}：两个 END 各有各的上游，不能互串
+        let s = snap(
+            &[
+                ("s", "START"),
+                ("p", "PARALLEL"),
+                ("a1", "APPROVAL"),
+                ("b1", "APPROVAL"),
+                ("e1", "END"),
+                ("e2", "END"),
+            ],
+            &[
+                ("s", "p"),
+                ("p", "a1"),
+                ("p", "b1"),
+                ("a1", "e1"),
+                ("b1", "e2"),
+            ],
+        );
+        let e1 = upstream_closure(&s, "e1");
+        assert!(e1.contains("a1") && e1.contains("p") && e1.contains("s"));
+        assert!(!e1.contains("b1"), "e1 的上游不该有 b1（那支通往 e2）");
+        assert!(!e1.contains("e2"));
+        let e2 = upstream_closure(&s, "e2");
+        assert!(!e2.contains("a1") && !e2.contains("e1"));
+    }
+
+    #[test]
+    fn end_waits_only_for_live_upstream_nodes() {
+        let live = |keys: &[&str]| keys.iter().map(|k| (*k).to_string()).collect::<Vec<_>>();
+
+        // 形态 A：并行分叉 → 两支汇到**同一个** END
+        let same_end = snap(
+            &[
+                ("s", "START"),
+                ("p", "PARALLEL"),
+                ("a1", "APPROVAL"),
+                ("b0", "APPROVAL"),
+                ("e", "END"),
+            ],
+            &[
+                ("s", "p"),
+                ("p", "a1"),
+                ("p", "b0"),
+                ("a1", "e"),
+                ("b0", "e"),
+            ],
+        );
+        let e = upstream_closure(&same_end, "e");
+        // ① 条件分叉的唯一一支已通过（本轮无在跑上游）→ 立刻结束
+        assert!(!end_waits(&live(&[]), &e, "e"));
+        // ② 并行分叉的另一支还在跑（且是本 END 的上游）→ 等
+        assert!(end_waits(&live(&["b0"]), &e, "e"));
+        // ③ END 自己那一行是 PENDING（旧口径留下的「等人齐」行）→ 不能把自己算成上游
+        assert!(!end_waits(&live(&["e"]), &e, "e"));
+
+        // 形态 B：并行分叉 → 两支各接一个 END（互不相关，绝不互等）
+        let two_ends = snap(
+            &[
+                ("s", "START"),
+                ("p", "PARALLEL"),
+                ("a1", "APPROVAL"),
+                ("b1", "APPROVAL"),
+                ("e1", "END"),
+                ("e2", "END"),
+            ],
+            &[
+                ("s", "p"),
+                ("p", "a1"),
+                ("p", "b1"),
+                ("a1", "e1"),
+                ("b1", "e2"),
+            ],
+        );
+        let e1 = upstream_closure(&two_ends, "e1");
+        // ④ 在跑的是另一支（b1 → e2）→ 不属于本 END 的上游，不许等
+        assert!(!end_waits(&live(&["b1"]), &e1, "e1"));
+        // ⑤ 但 START 这种共用上游若还在跑（例如人工卡住）仍算上游 —— 闭包含 s
+        assert!(end_waits(&live(&["s"]), &e1, "e1"));
     }
 
     #[test]

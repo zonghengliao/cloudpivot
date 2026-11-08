@@ -1955,6 +1955,17 @@ impl FlowGraph {
     ///
     /// **END 不参与**：结束节点不做汇聚门控，两个分支各自连到 END 是合法建模
     /// （否则「条件 A 走 end1、条件 B 走 end2」会被误报）。
+    ///
+    /// # END 的运行期口径（P3-09 B2b 修复后两边逐字一致）
+    ///
+    /// 作者**不需要**给 END 填 `join_mode`，填了也不参与运行期判定：
+    /// `engine::Run::step` 对 END 不再按「入边是否都到达」门控，而是判「本轮上游还有没有
+    /// 在跑的节点」（`engine::Run::end_waits_upstream`）。条件分支只走一支 → 到达即结束；
+    /// 并行分支两支都在跑 → 等它们跑完再结束。
+    ///
+    /// 修复前：校验侧跳过 END（本节口径），运行期却按 `join_mode.unwrap_or(AND)` 等齐**入边** ⇒
+    /// 条件多分支汇到同一个 END 时另几支永远不来，END 停在 `PENDING`、实例永久 `PENDING`，
+    /// 且没有任何报错（P3-09 场景 B2b 实测）。详见 `docs/工作流END汇聚语义修复.md`。
     fn check_join_mode(&self, in_degree: &HashMap<&str, usize>) -> Vec<Issue> {
         let mut issues = Vec::new();
         let in_map = self.in_edges();
