@@ -377,6 +377,23 @@ DB CHECK      → 单行内、与外部无关的事实（枚举、区间、精�
 3. **结构留位**：`party_b_type` 枚举、`ck_biz_contract_type_party_pair` 配对 CHECK、`idx_biz_contract_party_b` 索引全部按两分支建好（DEC-08）。
 4. **不发种子数据**：不造任何示例客户/客户合同（违反「不编造审计事实」）。
 
+> **2026-11-09 口径更新（CTR-02-F1 / 卡 `t_be837864`，决策文档 `docs/合同类型开放口径-决策.md`）**
+>
+> 上面第 2 条「前端降级」**只关了 `CUSTOMER` 分支，却把 `SERVICE`/`LEASE` 整类一起关了**
+> （`contract_dto::SUPPORTED_TYPES = [PURCHASE, SALES]`），与本节原意（「乙方=供应商」的服务/租赁**可用**）不一致。
+> 客户主档已随 SO-02/SO-26 上线，残留的只有这两类，现定稿：
+>
+> | 口径 | 定稿 |
+> |---|---|
+> | 合同类型 | **四类全开**（`PURCHASE` / `SALES` / `SERVICE` / `LEASE`） |
+> | 乙方主档 | `PURCHASE` → `SUPPLIER`、`SALES` → `CUSTOMER`、**`SERVICE`/`LEASE` → `SUPPLIER`（单向，应用层强制）**；不新建「服务商/出租方」主档（理由见决策文档 §二） |
+> | 审批 | 沿用 `contract_approve`，阈值 10 万不变，**不按类型分流**（决策文档 §三） |
+> | 履约口径 | 服务/租赁**不挂**订单；详情返回 `commitment_scope=NOT_APPLICABLE`，前端不得渲染成 `0.00`（决策文档 §四） |
+>
+> 因此本节的「批次 2 替换点」R1–R4 已完成，**新增替换点仅 R4′：`SERVICE`/`LEASE` 放开**；
+> `party_b_type` 枚举与 `ck_biz_contract_type_party_pair` 的 ELSE 分支**保持宽容（两值都允许）**，
+> 收窄交由应用层做 —— 不收 DDL，避免为一件没有收益的事付迁移风险。
+
 **批次 2 替换点（客户表落地后，改 4 处，表结构 0 改动）**
 
 | # | 位置 | 改动 | 风险 |
@@ -560,6 +577,17 @@ SELECT id, contract_no, amount, party_b_id, start_date, end_date, status
 - **提交 / 审批 / 收货** → **不再复检合同状态**。
 
 理由：合同在单据生命周期中途变 `COMPLETED`（履约完成）或 `TERMINATED` 是常态。若在提交/审批处复检，会出现「PO 建好三天后合同到期，PO 再也提交不了」——把一个**已成立的业务承诺**卡死。合同状态影响的是「能不能新承诺」，不是「能不能继续履行已承诺的」。这条必须在实现卡里写明，否则会被"顺手加一道校验"破坏。
+
+> **2026-11-09 口径（CTR-02-F1）：第 0 步「类型」是硬闸，且是口径不是缺陷。**
+> 采购单/销售单在建单与换合同时，先判 `contract_type`：采购侧只接受 `PURCHASE`
+> （`purchase_handler.rs:219`），销售侧只接受 `SALES`（`sales_order_handler.rs:631`）。
+> 因此 **`SERVICE` / `LEASE` 合同不能被任何采购单/销售单引用** —— 这不是漏校验，是本次定稿的
+> 「服务/租赁不挂订单」口径（决策文档 `docs/合同类型开放口径-决策.md` §四）。
+> 连带两件事必须一起记住：
+> ① 这两类合同的 `committed_amount` / `open_order_count` 恒 0 是**正确值**，接口用
+> `commitment_scope=NOT_APPLICABLE` 与「真没下单」区分，前端不得显示 `0.00`；
+> ② 报表凡按 `committed_amount` 算履约率，**必须**过滤 `commitment_scope=ORDER_LINKED`，
+> 否则服务/租赁合同永远按 0% 计入。
 
 ### 5.2 合同 `TERMINATED` 之后：已有下游单据怎么处理
 
