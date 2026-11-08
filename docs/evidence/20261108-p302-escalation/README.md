@@ -32,7 +32,7 @@
 | 场景 A（角色 3 人、制单人 1 人 → 其余 2 人审批）不退化 | ✅ | 同文件「场景 A 回归」（2 行待办、无人被升级、制单人 SKIPPED 1 行） |
 | 场景 F（FORBID → 65019）不退化 | ✅ | 同文件「场景 F 回归」（422 / 65019、零残留实例） |
 | `cargo fmt` + `cargo clippy --lib -D warnings`（只允许既有基线告警）+ 新增单测全绿 | ✅ | `raw/30_checks.txt` |
-| `pnpm typecheck` exit 0 | ✅ | `raw/30_checks.txt`、`raw/30_typecheck.log` |
+| `pnpm typecheck` exit 0 | ✅ | `raw/30_checks.txt`、`raw/30_typecheck.txt` |
 | 证据文档（README + 断言脚本 + 输出） | ✅ | 本文件 + `scripts/` + `raw/` |
 | 提交只按路径 `git add` | ✅ | 见 §五 提交清单 |
 
