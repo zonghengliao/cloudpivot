@@ -2503,10 +2503,26 @@ export function deleteUnit(id: string): Promise<void> {
   return del<void>(`${BASE}/unit/${id}`);
 }
 
+/**
+ * 编码预览响应（`GET /business/erp/{supplier,customer}/next-code`）。
+ *
+ * 后端 `preview_*_code` 只读号段表（不占号），所以同一个号可以反复出现在这里；
+ * 真到保存时号被别人抢走 → `409 + 66001`，提示用户重新生成即可。
+ */
+export interface NextCodePreview {
+  /** 下一个可用编码（如 `SUP-0003` / `CUS-0005`） */
+  code: string;
+}
+
 /** 新建供应商（`dto::CreateSupplierReq`，字段与 `biz_supplier` 列逐字一致） */
 export interface CreateSupplierReq {
-  /** 编码（≤40，未删除内唯一） */
-  supplier_code: string;
+  /**
+   * 编码（≤40，未删除内唯一）。
+   *
+   * **留空（`null` / `''` / 纯空白）⇒ 后端自动取号 `SUP-0001` 形态**（CODE-02）；
+   * 有值则原样保留（企业自有编码体系如 `GYS-001` 要能对接）。
+   */
+  supplier_code: string | null;
   /** 名称（≤200） */
   supplier_name: string;
   /** 简称（≤100） */
@@ -2591,6 +2607,18 @@ export function fetchSupplierPage(query: {
 /** 供应商详情（`GET /erp/supplier/{id}`，也是 `:list` 权限） */
 export function fetchSupplierDetail(id: string): Promise<Supplier> {
   return get<Supplier>(`${BASE}/supplier/${id}`);
+}
+
+/**
+ * 供应商编码预览（`GET /business/erp/supplier/next-code`，权限 `business:erp:supplier:create`）。
+ *
+ * **只读、不占号**（交互方式 B 的方案 B）：连点两次拿到同一个号，点了又取消不会浪费流水；
+ * 并发下两个人可能看到同一个号 —— 保存时被抢走后端回 `409 + 66001`，提示重新生成即可。
+ *
+ * 注意路径写全 `/api`（`${BASE}` 已含），漏前缀会命中 SPA fallback 返回 HTML。
+ */
+export function fetchSupplierNextCode(): Promise<NextCodePreview> {
+  return get<NextCodePreview>(`${BASE}/supplier/next-code`);
 }
 
 /** 新建供应商（`POST /erp/supplier`，权限 `business:erp:supplier:create`） */
@@ -4335,13 +4363,14 @@ export interface Customer {
 /**
  * 新建客户（`customer_handler::CreateCustomerReq`）。
  *
- * - `code` / `name` 必填；`credit_limit >= 0`（`0` = 不控额度）；
+ * - `name` 必填；**`code` 留空（`null` / `''` / 纯空白）⇒ 后端自动取号 `CUS-0001` 形态**（CODE-02）；
+ * - `credit_limit >= 0`（`0` = 不控额度）；
  * - `status` 留空 → 后端默认 `ACTIVE`；
  * - 文本字段传 `null` 或省略等价（后端 `clean_optional` 会把空白折成 `None`）。
  */
 export interface CreateCustomerReq {
-  /** 客户编码（必填，≤40） */
-  code: string;
+  /** 客户编码（≤40；`null` / 空串 = 让后端自动取号） */
+  code: string | null;
   /** 客户全称（必填，≤200） */
   name: string;
   /** 纳税人识别号（≤50） */
@@ -4411,6 +4440,16 @@ export function fetchCustomerPage(query: {
 /** 客户详情（`GET /business/erp/customer/{id}`，同样是 `:list` 权限；软删行 404） */
 export function fetchCustomerDetail(id: string): Promise<Customer> {
   return get<Customer>(`${BASE}/customer/${id}`);
+}
+
+/**
+ * 客户编码预览（`GET /business/erp/customer/next-code`，权限 `business:erp:customer:create`）。
+ *
+ * 与供应商同一口径：**只读、不占号**（交互方式 B 的方案 B），撞号由保存时的
+ * `409 + 66001` 兜底，前端提示重新生成即可。
+ */
+export function fetchCustomerNextCode(): Promise<NextCodePreview> {
+  return get<NextCodePreview>(`${BASE}/customer/next-code`);
 }
 
 /** 新建客户（`POST /business/erp/customer`，权限 `business:erp:customer:create`） */

@@ -16,13 +16,14 @@
 //! | 计量单位 | `/business/erp/unit/...` | `business:erp:unit:{list,create,update}` |
 //! | 供应商 | `/business/erp/supplier/...` | `business:erp:supplier:{list,create,update}` |
 //!
-//! ## ② 特殊查询（3 条）
+//! ## ② 特殊查询（4 条）
 //!
 //! | 方法 | 路径 | 说明 |
 //! |------|------|------|
 //! | GET | `/business/erp/warehouse/tree?root_id=` | 仓库树（物化路径 + `text_pattern_ops`，组装 1–3 层） |
 //! | GET | `/business/erp/location/list?warehouse_id=` | 库位下拉（按仓库，可选含停用） |
 //! | GET | `/business/erp/material/list?keyword=` | 物料搜索（编码 / 名称模糊，最多 100 条） |
+//! | GET | `/business/erp/supplier/next-code` | 供应商编码预览（**只读不占号**，CODE-05「生成编码」按钮用） |
 //!
 //! ## ③ 只读台账（8 张，列表 + 详情）
 //!
@@ -66,6 +67,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 use crate::business::erp::dto::{
     AccountFilter, AccountRes, CreateLocationReq, CreateMaterialReq, CreateSupplierReq,
@@ -1679,6 +1681,41 @@ pub async fn supplier_page(
         .map_err(|error| utils::db_error(error, "分页查询供应商"))?;
     let list = rows.iter().map(SupplierRes::from).collect();
     Ok(page_body(list, total, page, page_size))
+}
+
+/// 供应商编码预览（卡 CODE-05 · 交互方式 B：前端「生成编码」按钮先看号，
+/// 保存时把这个号当**手工编码**提交）。
+///
+/// # 为什么不占号（用户拍板的方案 B）
+///
+/// `peek_master_code` 只读：`biz_seq.current_no` 不动，所以点了按钮又取消不会浪费号。
+/// 代价是并发下两个人可能看到同一个号 —— 真到保存那一刻号被别人抢走，就走
+/// 手工编码撞唯一索引的老路（`409 + 66001`，文案点名编码），前端提示重新生成即可。
+///
+/// 换句话说：**预览 = 看格式，取号仍发生在保存时**（不点按钮直接保存则由后端取号）。
+#[nik::permission(
+    path = "/business/erp/supplier/next-code",
+    method = "GET",
+    permission = "business:erp:supplier:create"
+)]
+#[nik::get("/business/erp/supplier/next-code")]
+pub async fn supplier_next_code(
+    Extension(AuthClaims(_claims)): Extension<AuthClaims>,
+) -> ResResult<serde_json::Value> {
+    let code = preview_supplier_code().await?;
+    Ok(Res::ok(json!({ "code": code })))
+}
+
+/// 供应商编码预览的**业务主体**（单测直接调本函数，不走认证）。
+///
+/// 号段口径：`biz_seq` 的 SUP 规则 —— 前缀 `SUP`、分隔符 `-`、纯流水 4 位、不计日期、
+/// 永不重置；连号被占（如历史数据留着 `SUP-0001`）则顺延到下一个空号。
+///
+/// 错误口径与取号一致：规则缺失 / 连号全被占 ⇒ `500 + 10004`，细节只进日志。
+pub async fn preview_supplier_code() -> std::result::Result<String, ApiError> {
+    seq::peek_master_code(db(), "SUP")
+        .await
+        .map_err(|error| seq_error(error, "预览供应商编码"))
 }
 
 /// 供应商详情（3 码制下由 `:list` 覆盖）。
@@ -3964,6 +4001,68 @@ mod tests {
             error.msg.contains(&manual),
             "错误文案要点名具体编码：{}",
             error.msg
+        );
+
+        hard_delete("biz_supplier", Uuid::parse_str(&created.id).expect("id")).await;
+    }
+
+    /// ㉔-CODE05 供应商编码预览：**只读不占号**（方案 B），保存时才真取号。
+    #[tokio::test]
+    async fn supplier_preview_code_does_not_consume_sequence() {
+        let Some(_guard) = setup().await else { return };
+
+        let first = preview_supplier_code().await.expect("预览应成功");
+        assert!(
+            is_auto_code(&first, "SUP"),
+            "预览必须是 SUP-0001 形态，实际 {first}"
+        );
+        let second = preview_supplier_code().await.expect("再预览应成功");
+        assert_eq!(
+            first, second,
+            "预览不得推进 biz_seq（点了「生成编码」又取消不能浪费号）"
+        );
+
+        // 保存时才真取号：留空编码建单拿到的正是预览的那个号
+        let created = create_supplier(None, supplier_req(None, "预览后建单供应商"))
+            .await
+            .expect("留空编码应自动取号");
+        assert_eq!(
+            created.supplier_code, first,
+            "自动取号必须用掉预览的那个号（预览不占号，取号在保存时）"
+        );
+
+        let third = preview_supplier_code().await.expect("预览应成功");
+        assert_ne!(third, first, "号已被保存用掉，再预览必须给新号");
+
+        hard_delete("biz_supplier", Uuid::parse_str(&created.id).expect("id")).await;
+    }
+
+    /// ㉕-CODE05 供应商：预览号当**手工编码**提交 ⇒ 原样保留；撞号按 409 + 66001 兜。
+    #[tokio::test]
+    async fn supplier_previewed_code_is_used_verbatim_on_create() {
+        let Some(_guard) = setup().await else { return };
+
+        let previewed = preview_supplier_code().await.expect("预览应成功");
+        let created = create_supplier(None, supplier_req(Some(&previewed), "用预览号建单供应商"))
+            .await
+            .expect("预览号当手工编码应创建成功");
+        assert_eq!(
+            created.supplier_code, previewed,
+            "手工提交的编码必须原样保留（不能被再取号覆盖）"
+        );
+
+        let after = preview_supplier_code().await.expect("预览应成功");
+        assert_ne!(after, previewed, "预览必须跳过已占用的号");
+
+        let conflict = create_supplier(None, supplier_req(Some(&previewed), "预览号重复供应商"))
+            .await
+            .expect_err("已占用的编码必须被拒");
+        assert_eq!(conflict.status, 409);
+        assert_eq!(conflict.code, error_code::ERP_CODE_CONFLICT, "66001");
+        assert!(
+            conflict.msg.contains(&previewed),
+            "文案要点名编码：{}",
+            conflict.msg
         );
 
         hard_delete("biz_supplier", Uuid::parse_str(&created.id).expect("id")).await;

@@ -228,15 +228,35 @@
           :status="formErrors.supplier_code ? 'error' : undefined"
           :tips="formErrors.supplier_code"
         >
-          <t-input
-            v-model="form.supplier_code"
-            :disabled="isEdit"
-            :maxlength="40"
-            placeholder="如 SUP-0002（未删除内唯一）"
-            data-testid="sup-code"
-          />
-          <template v-if="isEdit" #help>
-            <span class="dlg-help">编码是供应商身份，不支持修改</span>
+          <!-- CODE-05 交互方式 B：编码框 + 「生成编码」按钮（编辑态都禁用） -->
+          <div class="dlg-inline dlg-inline--grow">
+            <t-input
+              v-model="form.supplier_code"
+              :disabled="isEdit"
+              :maxlength="40"
+              placeholder="留空自动生成，如 SUP-0002"
+              class="dlg-inline__grow"
+              data-testid="sup-code"
+            />
+            <t-button
+              variant="outline"
+              theme="primary"
+              :disabled="isEdit"
+              :loading="genCodeLoading"
+              data-testid="sup-gen-code"
+              @click="handleGenCode"
+            >
+              生成编码
+            </t-button>
+          </div>
+          <template #help>
+            <span class="dlg-help">
+              {{
+                isEdit
+                  ? '编码是供应商身份，不支持修改'
+                  : '不点「生成编码」则保存时自动生成；生成后仍可手改（已有编码体系可直接填）'
+              }}
+            </span>
           </template>
         </t-form-item>
 
@@ -359,6 +379,7 @@ import {
   deleteSupplier,
   fetchAccountOptions,
   fetchSupplierDetail,
+  fetchSupplierNextCode,
   fetchSupplierPage,
   updateSupplier,
   type AccountRow,
@@ -588,6 +609,36 @@ function openEdit(row: Supplier): void {
   dialogVisible.value = true;
 }
 
+// ==================== 生成编码（CODE-05 交互方式 B） ====================
+
+/** 「生成编码」按钮加载中 */
+const genCodeLoading = ref(false);
+
+/**
+ * 取下一个可用编码填入编码框（**不占号**，可手改）。
+ *
+ * 后端 `GET /business/erp/supplier/next-code` 只读 `biz_seq`（方案 B）：
+ * - 点了又取消不会浪费流水；
+ * - 并发下两人可能看到同一个号 ⇒ 保存时被抢走的人是 `409 + 66001`，
+ *   错误面板会把后端原文（点名编码）弹出来，点一次「生成编码」换个号即可。
+ */
+async function handleGenCode(): Promise<void> {
+  if (isEdit.value) {
+    return;
+  }
+  genCodeLoading.value = true;
+  try {
+    const preview = await fetchSupplierNextCode();
+    form.supplier_code = preview.code;
+    // 之前「超长」之类的提示已不成立，清掉免得红框跟着新号走
+    delete formErrors.value.supplier_code;
+  } catch (error) {
+    MessagePlugin.error(`生成编码失败：${messageOf(error)}`);
+  } finally {
+    genCodeLoading.value = false;
+  }
+}
+
 /** 提交（新建 / 编辑） */
 async function handleConfirm(): Promise<void> {
   const errors = validateSupplierForm(form, isEdit.value);
@@ -602,8 +653,11 @@ async function handleConfirm(): Promise<void> {
       await updateSupplier(editing.value.id, buildSupplierUpdatePayload(form, editing.value));
       MessagePlugin.success('供应商已保存');
     } else {
-      await createSupplier(buildSupplierCreatePayload(form));
-      MessagePlugin.success('供应商已创建');
+      const created = await createSupplier(buildSupplierCreatePayload(form));
+      // 没点「生成编码」直接保存时编码是后端取的号 —— 回填到表单并在提示里报出来，
+      // 用户当场就能看到自己这条到底叫 SUP-000几（卡片验收 ④）。
+      form.supplier_code = created.supplier_code;
+      MessagePlugin.success(`供应商已创建 · 编码 ${created.supplier_code}`);
     }
     dialogVisible.value = false;
     await loadSuppliers(editing.value ? current.value : 1);
@@ -723,6 +777,17 @@ onMounted(async () => {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+/* CODE-05：「编码框 + 生成编码」一行铺满（输入框吃掉剩余宽度，按钮不缩） */
+.dlg-inline--grow {
+  width: 100%;
+  flex-wrap: nowrap;
+}
+
+.dlg-inline__grow {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .dlg-help {

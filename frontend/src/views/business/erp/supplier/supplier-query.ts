@@ -244,10 +244,10 @@ export function hasSupplierFieldError(errors: SupplierFieldErrors): boolean {
 export function validateSupplierForm(form: SupplierFormState, isEdit: boolean): SupplierFieldErrors {
   const errors: SupplierFieldErrors = {};
   if (!isEdit) {
+    // CODE-05：编码**可以留空** —— 留空由后端自动取号（SUP-0001 形态），
+    // 「生成编码」按钮只是提前看号。所以这里只校验长度，不再拦「必填」。
     const code = form.supplier_code.trim();
-    if (!code) {
-      errors.supplier_code = '供应商编码必填';
-    } else if (code.length > 40) {
+    if (code.length > 40) {
       errors.supplier_code = '供应商编码最多 40 个字符';
     }
   }
@@ -279,7 +279,9 @@ function nullable(text: string): string | null {
 /** 新建请求体 */
 export function buildSupplierCreatePayload(form: SupplierFormState): CreateSupplierReq {
   return {
-    supplier_code: form.supplier_code.trim(),
+    // CODE-05：留空发 `null`（不是 `''`）—— 语义更明确，后端 `resolve_manual_code` 两种都收，
+    // 但 `null` 一眼能看出「没填」而不是「填了个空串」。
+    supplier_code: nullable(form.supplier_code),
     supplier_name: form.supplier_name.trim(),
     short_name: nullable(form.short_name),
     contact_person: nullable(form.contact_person),

@@ -1,0 +1,108 @@
+=== 1) preview_ (CODE-05 新用例) ===
+   Compiling nik-core v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-core)
+   Compiling nik-config v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-config)
+   Compiling nik-db-core v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-db-core)
+   Compiling nik-db-build v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-db-build)
+   Compiling nik-db v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-db)
+   Compiling nik-db-sql v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-db-sql)
+   Compiling nik-utils v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-utils)
+   Compiling nik-db-driver-postgres v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-db-driver-postgres)
+   Compiling nik-db-macro v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-db-macro)
+   Compiling nik-cache v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-cache)
+   Compiling nik-log v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-log)
+   Compiling nik-macros v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-macros)
+   Compiling nik-web v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-web)
+   Compiling nik-plugin v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-plugin)
+   Compiling nik-fs v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-fs)
+   Compiling nik v0.4.2 (/root/cp-code05-wt/backend/vendor/nik)
+   Compiling cloudpivot v0.1.0 (/root/cp-code05-wt/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 36s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 7 tests
+test business::announcement::handler::manage_tests::preview_warnings_report_sanitizing ... ok
+test business::changelog::diff::tests::big_preview_is_truncated_to_200_chars ... ok
+test business::erp::customer_handler::tests::preview_code_does_not_consume_sequence ... ok
+test business::erp::handler::tests::supplier_preview_code_does_not_consume_sequence ... ok
+test business::task::workspace_files::tests::csv_preview_keeps_first_hundred_lines ... ok
+test business::task::workspace_files::tests::markdown_preview_truncates_by_chars ... ok
+test business::task::workspace_files::tests::preview_kind_matches_card ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 3495 filtered out; finished in 1.28s
+
+EXIT_preview=0
+=== 2) supplier_ (含 3+2 条 CODE-02/05 用例) ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.44s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 23 tests
+test business::erp::aux_tests::p21_aux_balance_supplier_sums_credit_side ... ok
+test business::erp::contract_dto::tests::sales_with_supplier_party_type_is_rejected ... ok
+test business::erp::contract_model::tests::party_b_ref_returns_supplier_name ... ok
+test business::erp::handler::tests::supplier_auto_code_generated_when_blank ... ok
+test business::erp::handler::tests::supplier_auto_code_increments_consecutively ... ok
+test business::erp::handler::tests::supplier_crud_cycle ... ok
+test business::erp::handler::tests::supplier_duplicate_code_rejected_with_message ... ok
+test business::erp::handler::tests::supplier_manual_code_is_preserved ... ok
+test business::erp::handler::tests::supplier_preview_code_does_not_consume_sequence ... ok
+test business::erp::handler::tests::supplier_previewed_code_is_used_verbatim_on_create ... ok
+test business::erp::model::tests::supplier_row_maps_credit_limit ... ok
+test business::erp::price_inquiry_dto::tests::group_by_supplier_is_deterministic ... ok
+test business::erp::price_inquiry_dto::tests::unmatched_awards_flag_supplier_without_quote ... ok
+test business::erp::purchase_credit::tests::missing_supplier_is_not_a_blocker ... ok
+test business::erp::purchase_dto::tests::supplier_and_warehouse_are_required ... ok
+test business::erp::purchase_handler::tests::contract_order_derives_supplier_and_writes_snapshots ... ok
+test business::erp::purchase_handler::tests::contract_order_with_mismatched_supplier_is_rejected ... ok
+test business::erp::purchase_requisition_dto::tests::supplier_resolution_rules ... ok
+test business::erp::purchase_return_dto::tests::payable_offset_turns_paid_part_into_supplier_receivable ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_05_client_supplier_mismatch_is_400 ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_07_non_purchase_with_supplier_db_rejects ... ok
+test business::impexp::builtin::master_data::db_tests::supplier_import_is_idempotent_and_reports_row_numbers ... ok
+test business::impexp::builtin::master_data::db_tests::supplier_skip_strategy_keeps_existing_rows ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 3479 filtered out; finished in 14.01s
+
+EXIT_supplier=0
+=== 3) customer_handler::tests ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 13 tests
+test business::erp::customer_handler::tests::auto_code_generated_when_blank ... ok
+test business::erp::customer_handler::tests::auto_code_increments_consecutively ... ok
+test business::erp::customer_handler::tests::create_customer_persists_all_fields ... ok
+test business::erp::customer_handler::tests::duplicate_code_rejected_and_reusable_after_soft_delete ... ok
+test business::erp::customer_handler::tests::duplicate_manual_code_rejected_with_message ... ok
+test business::erp::customer_handler::tests::manual_code_is_preserved ... ok
+test business::erp::customer_handler::tests::negative_credit_limit_rejected_zero_allowed ... ok
+test business::erp::customer_handler::tests::page_filters_by_code_name_and_status ... ok
+test business::erp::customer_handler::tests::permission_codes_are_unique_and_prefixed ... ok
+test business::erp::customer_handler::tests::preview_code_does_not_consume_sequence ... ok
+test business::erp::customer_handler::tests::previewed_code_is_used_verbatim_on_create ... ok
+test business::erp::customer_handler::tests::soft_delete_hides_row_but_keeps_it ... ok
+test business::erp::customer_handler::tests::update_is_partial_and_checks_code_uniqueness ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 3489 filtered out; finished in 5.12s
+
+EXIT_customer=0
+=== 4) seq::tests ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 11 tests
+test business::erp::seq::tests::t01_format_master_code_pads_by_width ... ok
+test business::erp::seq::tests::t02_exists_sql_covers_exactly_six_types ... ok
+test business::erp::seq::tests::t02b_manual_code_resolution ... ok
+test business::erp::seq::tests::t02c_manual_code_validation_rejects_unusable_input ... ok
+test business::erp::seq::tests::t03_seeded_rules_match_spec ... ok
+test business::erp::seq::tests::t04_consecutive_takes_increment ... ok
+test business::erp::seq::tests::t05_two_digit_pad_and_overflow ... ok
+test business::erp::seq::tests::t06_concurrent_ten_takes_never_duplicate ... ok
+test business::erp::seq::tests::t07_free_code_skips_taken_codes ... ok
+test business::erp::seq::tests::t08_unknown_and_missing_rule_errors ... ok
+test business::erp::seq::tests::t09_peek_never_consumes ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 3491 filtered out; finished in 2.93s
+
+EXIT_seq=0
+ALL_DONE

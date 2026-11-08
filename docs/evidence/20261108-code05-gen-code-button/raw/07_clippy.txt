@@ -1,0 +1,31 @@
+    Blocking waiting for file lock on build directory
+    Checking nik-core v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-core)
+    Checking nik-config v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-config)
+    Checking nik-db-core v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-db-core)
+    Checking nik-db-sql v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-db-sql)
+    Checking nik-utils v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-utils)
+    Checking nik-db-driver-postgres v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-db-driver-postgres)
+   Compiling nik-db-macro v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-db-macro)
+   Compiling nik-db v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-db)
+    Checking nik-cache v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-cache)
+    Checking nik-log v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-log)
+    Checking nik-web v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-web)
+    Checking nik-plugin v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-plugin)
+    Checking nik-fs v0.4.2 (/root/cp-code05-wt/backend/vendor/nik-fs)
+    Checking nik v0.4.2 (/root/cp-code05-wt/backend/vendor/nik)
+    Checking cloudpivot v0.1.0 (/root/cp-code05-wt/backend)
+src/business/erp/sales_order_model.rs:699:1: warning: this function has too many arguments (8/7)
+warning: `cloudpivot` (lib) generated 1 warning
+src/business/flow/edge_admin_tests.rs:356:1: warning: empty line after doc comment
+src/business/erp/asset_linkage.rs:423:33: warning: useless use of `format!`: help: consider using `.to_string()`: `"trigger_entity = 'FIXED_ASSET'".to_string()`
+src/business/erp/fx_revaluation.rs:788:13: warning: useless use of `format!`
+src/business/erp/opening.rs:2738:43: warning: binary comparison to literal `Option::None`: help: use `Option::is_some()` instead: `loc.is_some()`
+src/business/erp/purchase_requisition_dto.rs:864:36: warning: this call to `clone` can be replaced with `std::slice::from_ref`: help: try: `std::slice::from_ref(&plain)`
+src/business/erp/voucher.rs:5258:74: warning: this call to `clone` can be replaced with `std::slice::from_ref`: help: try: `std::slice::from_ref(&material_line)`
+src/business/erp/voucher.rs:5287:13: warning: this call to `clone` can be replaced with `std::slice::from_ref`: help: try: `std::slice::from_ref(&material_line)`
+src/business/erp/year_end_linkage_tests.rs:214:17: warning: `format!` in `format!` args
+src/business/flow/assignee.rs:4852:32: warning: unnecessary use of `get(&fx.approver).is_none()`
+src/business/flow/self_approval.rs:1103:5: warning: this function has too many arguments (8/7)
+src/business/flow/self_approval.rs:1229:18: warning: useless use of `format!`: help: consider using `.to_string()`: `"p305_log_init".to_string()`
+warning: `cloudpivot` (lib test) generated 12 warnings (1 duplicate) (run `cargo clippy --fix --lib -p cloudpivot --tests` to apply 4 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 29s

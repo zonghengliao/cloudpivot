@@ -356,10 +356,10 @@ export function validateCustomerForm(
 
   // 编辑态的编码是只读的（后端 `UpdateCustomerReq` 虽允许改，但界面上不给改）
   if (!isEdit) {
+    // CODE-05：编码**可以留空** —— 留空由后端自动取号（`CUS-0001` 形态），
+    // 「生成编码」按钮只是提前看号。这里只校验长度，不再拦「必填」。
     const code = form.code.trim();
-    if (!code) {
-      errors.code = '客户编码必填';
-    } else if (charCount(code) > CUSTOMER_LIMITS.code) {
+    if (charCount(code) > CUSTOMER_LIMITS.code) {
       errors.code = `客户编码最多 ${CUSTOMER_LIMITS.code} 个字符`;
     }
   }
@@ -446,7 +446,9 @@ export function creditDaysValue(value: number | string | null | undefined): numb
 /** 新建请求体 */
 export function buildCustomerCreatePayload(form: CustomerFormState): CreateCustomerReq {
   return {
-    code: form.code.trim(),
+    // CODE-05：留空发 `null`（不是 `''`）—— 后端两种都当「没填」并自动取号，
+    // 但 `null` 语义更准：客户编码没填 ≠ 填了个空串。
+    code: nullable(form.code),
     name: form.name.trim(),
     tax_no: nullable(form.tax_no),
     contact_name: nullable(form.contact_name),

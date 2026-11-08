@@ -1,0 +1,77 @@
+login ok, access_token 长度 = 461
+首登改密（初始口令 → 新口令）→ HTTP 200
+
+
+=== ① 供应商预览接口 GET /api/business/erp/supplier/next-code ===
+预览 #1 → HTTP 200, code=SUP-0002
+  PASS  ① 预览 HTTP = 200 = 200
+  PASS  ① 预览形态 = SUP-NNNN（纯流水 4 位） = SUP-0002
+预览 #2 → HTTP 200, code=SUP-0002
+  PASS  ① 预览只读不占号：连点两次同号 = SUP-0002
+
+=== ② 供应商：编码留空保存 ⇒ 自动取号（前端「不点生成」路径） ===
+POST 不带 supplier_code → HTTP 200, code=SUP-0002, id=01a1b976-2c1c-76dd-9684-3ef9976d37cd
+  PASS  ② HTTP = 200 = 200
+  PASS  ② 自动号 == 刚才预览的号（预览没占号，取号在保存时） = SUP-0002
+保存后再预览 → code=SUP-0003
+  PASS  ② 号被用掉后预览往后走（SUP-0002 ≠ SUP-0003）
+POST supplier_code="" → HTTP 200, code=SUP-0003
+  PASS  ② 空串也自动取号（形态不变） = SUP-0003
+POST supplier_code=null → HTTP 200, code=SUP-0004
+  PASS  ② null 也自动取号（连续 +1） = SUP-0004
+
+=== ③ 供应商：手工编码原样保留（企业自有体系对接） ===
+POST supplier_code=GYS-001 → HTTP 200, code=GYS-001
+  PASS  ③ 手工编码原样保留（不被改成 SUP-NNNN） = GYS-001
+重复 GYS-001 → HTTP 409, 业务码=66001, msg=供应商编码 `GYS-001` 已存在（已软删的编码可以复用）
+  PASS  ⑥ 重复编码 HTTP = 409 = 409
+  PASS  ⑥ 重复编码业务码 = 66001 = 66001
+  PASS  ⑥ 文案点名具体编码
+
+=== ④ 供应商：交互方式 B 全链路（点「生成编码」→ 填的号保存 → 成功） ===
+点「生成编码」→ 预览 code=SUP-0005
+  PASS  ④ 预览形态仍是 SUP-NNNN = SUP-0005
+用该号保存 → HTTP 200, code=SUP-0005
+  PASS  ④ HTTP = 200 = 200
+  PASS  ④ 保存结果就是预览看到的那个号 = SUP-0005
+同号再提交（模拟被抢） → HTTP 409, 业务码=66001
+  PASS  ⑥ 被抢号后提交 HTTP = 409 = 409
+  PASS  ⑥ 被抢号后业务码 = 66001 = 66001
+非法编码 "BAD CODE" → HTTP 400, 业务码=10001
+  PASS  编码含空格 HTTP = 400 = 400
+  PASS  编码含空格业务码 = 10001 = 10001
+
+=== ⑤ 供应商编辑：不带编码 ⇒ 编码不变（前端编辑态编码框 + 按钮都禁用） ===
+PUT 只改名称 → HTTP 200, code=SUP-0002, name=CODE05 自动编码供应商（改名）
+  PASS  ⑤ 编辑 HTTP = 200 = 200
+  PASS  ⑤ 编辑不改编码 = SUP-0002
+
+=== ⑥ 客户预览接口 GET /api/business/erp/customer/next-code ===
+预览 #1 → HTTP 200, code=CUS-0004
+  PASS  ⑥ 预览 HTTP = 200 = 200
+  PASS  ⑥ 预览形态 = CUS-NNNN = CUS-0004
+预览 #2 → code=CUS-0004
+  PASS  ⑥ 预览只读不占号：连点两次同号 = CUS-0004
+
+=== ⑥ 客户：留空保存 ⇒ 自动取号 ===
+POST 不带 code → HTTP 200, code=CUS-0004
+  PASS  ⑥ 自动号 == 预览号 = CUS-0004
+POST code=null → HTTP 200, code=CUS-0005
+  PASS  ⑥ null 自动取号（连续 +1） = CUS-0005
+
+=== ⑥ 客户：手工编码 + 重复 + 编辑不改码 ===
+POST code=KH-001 → HTTP 200, code=KH-001
+  PASS  ⑥ 手工编码原样保留 = KH-001
+重复 KH-001 → HTTP 409, 业务码=66001, msg=客户编码 `KH-001` 已存在（已软删的编码可以复用）
+  PASS  ⑥ 客户重复编码 HTTP = 409 = 409
+  PASS  ⑥ 客户重复编码业务码 = 66001 = 66001
+  PASS  ⑥ 客户文案点名具体编码
+建单后再预览 → code=CUS-0006
+  PASS  ⑥ 预览跳过已占用的号（≠ 刚用的自动号）（CUS-0005 ≠ CUS-0006）
+PUT 只改名称 → HTTP 200, code=CUS-0004
+  PASS  ⑥ 编辑 HTTP = 200 = 200
+  PASS  ⑥ 编辑不改编码 = CUS-0004
+
+=== 全部断言 PASS ===
+SUP_P1=SUP-0002 SUP_A1=SUP-0002 SUP_A2=SUP-0003 SUP_A3=SUP-0004 SUP_M=GYS-001 SUP_P4=SUP-0005
+CUS_P1=CUS-0004 CUS_A1=CUS-0004 CUS_A2=CUS-0005 CUS_M=KH-001

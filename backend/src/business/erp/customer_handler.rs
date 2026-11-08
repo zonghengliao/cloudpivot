@@ -4,11 +4,12 @@
 //!
 //! | 方法 | 路径 | 权限码 | 说明 |
 //! |------|------|--------|------|
-//! | POST | `/business/erp/customer` | `business:erp:customer:create` | 新建（编码未删内唯一，信用额度 `>= 0`） |
+//! | POST | `/business/erp/customer` | `business:erp:customer:create` | 新建（编码未删内唯一，信用额度 `>= 0`；**编码留空自动取号**） |
 //! | PUT | `/business/erp/customer/{id}` | `business:erp:customer:update` | 编辑（部分更新：只改传了的字段） |
 //! | DELETE | `/business/erp/customer/{id}` | `business:erp:customer:delete` | **软删**（`deleted_at`，编码随之释放可复用） |
 //! | GET | `/business/erp/customer/{id}` | `business:erp:customer:list` | 详情（软删行 404） |
 //! | GET | `/business/erp/customer/page` | `business:erp:customer:list` | 分页（`code` / `name` 模糊，`status` 精确） |
+//! | GET | `/business/erp/customer/next-code` | `business:erp:customer:create` | 编码预览（**只读不占号**，前端「生成编码」按钮用） |
 //!
 //! # 为什么业务逻辑是普通 `async fn`（与采购 / 序列号同一范式）
 //!
@@ -47,6 +48,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 use crate::business::erp::customer_model::{
     self, CustomerRow, CustomerWrite, MAX_CODE_LEN, MAX_NAME_LEN, STATUS_ACTIVE, is_valid_status,
@@ -699,6 +701,33 @@ pub async fn customer_page(
     Ok(Res::ok(page_customer(filter).await?))
 }
 
+/// 客户编码预览（卡 CODE-05 · 交互方式 B：前端「生成编码」按钮先看号，
+/// 保存时把这个号当**手工编码**提交）。
+///
+/// 与供应商 `preview_supplier_code` 同一口径：**只读、不占号**（方案 B），
+/// 并发撞号由保存时的 `409 + 66001` 兜底，前端提示重新生成即可。
+#[nik::permission(
+    path = "/business/erp/customer/next-code",
+    method = "GET",
+    permission = "business:erp:customer:create"
+)]
+#[nik::get("/business/erp/customer/next-code")]
+pub async fn customer_next_code(
+    Extension(AuthClaims(_claims)): Extension<AuthClaims>,
+) -> ResResult<serde_json::Value> {
+    Ok(Res::ok(json!({ "code": preview_customer_code().await? })))
+}
+
+/// 客户编码预览的**业务主体**（单测直接调本函数，不走认证）。
+///
+/// 号段口径：`biz_seq` 的 CUS 规则 —— 前缀 `CUS`、分隔符 `-`、纯流水 4 位、不计日期、
+/// 永不重置；连号被占（如历史数据留着 `CUS-0001..0003`）则顺延到下一个空号。
+pub async fn preview_customer_code() -> std::result::Result<String, ApiError> {
+    seq::peek_master_code(db(), "CUS")
+        .await
+        .map_err(|error| seq_error(error, "预览客户编码"))
+}
+
 /// 客户详情。
 #[nik::permission(
     path = "/business/erp/customer/{id}",
@@ -1226,6 +1255,73 @@ mod tests {
             err.msg.contains(&manual),
             "错误文案要点名具体编码：{}",
             err.msg
+        );
+
+        hard_delete(&created.id).await;
+    }
+
+    /// ㊴ CODE-05：预览**只读不占号** —— 连点两次拿到同一个号；真正取号发生在保存时。
+    #[tokio::test]
+    async fn preview_code_does_not_consume_sequence() {
+        let Some(_guard) = setup().await else { return };
+
+        let first = preview_customer_code().await.expect("预览应成功");
+        assert!(
+            is_auto_code(&first, "CUS"),
+            "预览必须是 CUS-0001 形态，实际 {first}"
+        );
+        let second = preview_customer_code().await.expect("再预览应成功");
+        assert_eq!(
+            first, second,
+            "预览不得推进 biz_seq（方案 B：点了又取消不能浪费号）"
+        );
+
+        // 保存时才真取号：留空编码建单拿到的正是刚才预览的号
+        let created = create_customer(None, auto_req("预览后建单客户"))
+            .await
+            .expect("留空编码应自动取号");
+        assert_eq!(
+            created.code, first,
+            "自动取号必须用掉预览的那个号（说明预览没占号、取号在保存时）"
+        );
+
+        // 用掉之后，下一个预览必须往后走
+        let third = preview_customer_code().await.expect("预览应成功");
+        assert_ne!(
+            third, first,
+            "号已被保存用掉，再预览必须给出新的号（{first} → {third}）"
+        );
+
+        hard_delete(&created.id).await;
+    }
+
+    /// ㊵ CODE-05：预览号当**手工编码**提交 —— 原样保留（交互方式 B 的保存路径）。
+    ///
+    /// 这条钉住「点生成 → 填入编码框 → 保存」时后端不能偷偷把它当自动号再取一次。
+    #[tokio::test]
+    async fn previewed_code_is_used_verbatim_on_create() {
+        let Some(_guard) = setup().await else { return };
+
+        let previewed = preview_customer_code().await.expect("预览应成功");
+        let created = create_customer(None, req(&previewed, "用预览号建单客户"))
+            .await
+            .expect("预览号当手工编码应创建成功");
+        assert_eq!(created.code, previewed, "手工提交的编码必须原样保留");
+
+        // 该号已被占用 ⇒ 下一个预览必须跳过它（撞号顺延，不会给出重号）
+        let after = preview_customer_code().await.expect("预览应成功");
+        assert_ne!(after, previewed, "预览必须跳过已占用的号");
+
+        // 同一号再建一次 ⇒ 409 + 66001（并发抢号的兜底口径）
+        let conflict = create_customer(None, req(&previewed, "预览号重复客户"))
+            .await
+            .expect_err("已占用的编码必须被拒");
+        assert_eq!(conflict.status, 409);
+        assert_eq!(conflict.code, error_code::ERP_CODE_CONFLICT, "66001");
+        assert!(
+            conflict.msg.contains(&previewed),
+            "文案要点名编码：{}",
+            conflict.msg
         );
 
         hard_delete(&created.id).await;

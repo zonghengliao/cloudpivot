@@ -154,9 +154,10 @@ test('isCustomerListEmpty', () => {
   assert.equal(isCustomerListEmpty([{ id: 'a' }]), false);
 });
 
-test('validateCustomerForm：新建必填编码 + 名称，超长与负额度都要拦', () => {
+test('validateCustomerForm：编码可留空（后端自动取号）+ 名称必填，超长与负额度都要拦', () => {
   const errors = validateCustomerForm(emptyCustomerForm(), false);
-  assert.equal(errors.code, '客户编码必填');
+  // CODE-05：编码留空**不再拦**（留空 = 后端自动取号 CUS-0001 形态）
+  assert.equal(errors.code, undefined);
   assert.equal(errors.name, '客户名称必填');
   assert.equal(hasCustomerFieldError(errors), true);
 

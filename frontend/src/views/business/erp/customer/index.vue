@@ -186,15 +186,35 @@
           :status="formErrors.code ? 'error' : undefined"
           :tips="formErrors.code"
         >
-          <t-input
-            v-model="form.code"
-            :disabled="isEdit"
-            :maxlength="CUSTOMER_LIMITS.code"
-            placeholder="如 CUS-0002（未删除内唯一）"
-            data-testid="cus-code"
-          />
-          <template v-if="isEdit" #help>
-            <span class="dlg-help">编码是客户身份，不支持修改（已软删的编码可以再建）</span>
+          <!-- CODE-05 交互方式 B：编码框 + 「生成编码」按钮（编辑态都禁用） -->
+          <div class="dlg-inline dlg-inline--grow">
+            <t-input
+              v-model="form.code"
+              :disabled="isEdit"
+              :maxlength="CUSTOMER_LIMITS.code"
+              placeholder="留空自动生成，如 CUS-0002"
+              class="dlg-inline__grow"
+              data-testid="cus-code"
+            />
+            <t-button
+              variant="outline"
+              theme="primary"
+              :disabled="isEdit"
+              :loading="genCodeLoading"
+              data-testid="cus-gen-code"
+              @click="handleGenCode"
+            >
+              生成编码
+            </t-button>
+          </div>
+          <template #help>
+            <span class="dlg-help">
+              {{
+                isEdit
+                  ? '编码是客户身份，不支持修改（已软删的编码可以再建）'
+                  : '不点「生成编码」则保存时自动生成；生成后仍可手改（已有编码体系可直接填）'
+              }}
+            </span>
           </template>
         </t-form-item>
 
@@ -341,6 +361,7 @@ import { useUserStore } from '@/stores/user';
 import {
   createCustomer,
   deleteCustomer,
+  fetchCustomerNextCode,
   fetchCustomerPage,
   updateCustomer,
   type Customer,
@@ -518,6 +539,34 @@ function openEdit(row: Customer): void {
   dialogVisible.value = true;
 }
 
+// ==================== 生成编码（CODE-05 交互方式 B） ====================
+
+/** 「生成编码」按钮加载中 */
+const genCodeLoading = ref(false);
+
+/**
+ * 取下一个可用编码填入编码框（**不占号**，可手改）。
+ *
+ * 后端 `GET /business/erp/customer/next-code` 只读 `biz_seq`（方案 B）：
+ * 点了又取消不浪费流水；并发撞号在保存时由 `409 + 66001` 兜（原文点名编码）。
+ */
+async function handleGenCode(): Promise<void> {
+  if (isEdit.value) {
+    return;
+  }
+  genCodeLoading.value = true;
+  try {
+    const preview = await fetchCustomerNextCode();
+    form.code = preview.code;
+    // 之前「超长」之类的提示已不成立，清掉免得红框跟着新号走
+    delete formErrors.value.code;
+  } catch (error) {
+    MessagePlugin.error(`生成编码失败：${messageOf(error)}`);
+  } finally {
+    genCodeLoading.value = false;
+  }
+}
+
 /** 提交（新建 / 编辑） */
 async function handleConfirm(): Promise<void> {
   const errors = validateCustomerForm(form, isEdit.value);
@@ -539,8 +588,10 @@ async function handleConfirm(): Promise<void> {
       await updateCustomer(editing.value.id, payload);
       MessagePlugin.success('客户已保存');
     } else {
-      await createCustomer(buildCustomerCreatePayload(form));
-      MessagePlugin.success('客户已创建');
+      const created = await createCustomer(buildCustomerCreatePayload(form));
+      // 没点「生成编码」直接保存时编码由后端取号 —— 回填表单 + 提示里报出来（验收 ④）
+      form.code = created.code;
+      MessagePlugin.success(`客户已创建 · 编码 ${created.code}`);
     }
     dialogVisible.value = false;
     await loadCustomers(editing.value ? current.value : 1);
@@ -682,6 +733,17 @@ onMounted(() => {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+/* CODE-05：「编码框 + 生成编码」一行铺满（输入框吃掉剩余宽度，按钮不缩） */
+.dlg-inline--grow {
+  width: 100%;
+  flex-wrap: nowrap;
+}
+
+.dlg-inline__grow {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .dlg-help {
