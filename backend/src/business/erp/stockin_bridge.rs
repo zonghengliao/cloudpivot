@@ -482,13 +482,40 @@ async fn settle_post(instance_id: Uuid, verdict: PostVerdict) -> DbResult<Option
                 .await
             {
                 Ok(()) => Ok(Some(stock_in_id)),
+                // ★ BUG-01（同源）：审批已 APPROVED，过账却失败 —— 单据停在 PENDING_POST
+                //   时**没有任何待办会来推进它**，也没有人工过账接口，就是死单。
+                //   与免审分支同一把尺子：任何失败都打回 DRAFT，让人修正后重新提交。
                 Err(error) => {
-                    tracing::warn!(
-                        %stock_in_id,
-                        code = error.code,
-                        msg = %error.msg,
-                        "过账审批已通过，但过账失败（单据仍是过账审批中，等待人工处置）"
+                    let reason = format!(
+                        "过账审批已通过，但过账失败：{}，已打回草稿（修正后可重新提交）",
+                        error.msg
                     );
+                    match stockin_handler::restore_after_post_rejection(
+                        stock_in_id,
+                        &row,
+                        &reason,
+                        approver.or(row.create_by),
+                    )
+                    .await
+                    {
+                        Ok(()) => {
+                            tracing::warn!(
+                                %stock_in_id,
+                                code = error.code,
+                                msg = %error.msg,
+                                "过账审批已通过但过账失败：单据已打回 DRAFT"
+                            );
+                        }
+                        Err(restore_error) => {
+                            tracing::error!(
+                                %stock_in_id,
+                                code = error.code,
+                                original_error = %error.msg,
+                                restore_error = %restore_error.msg,
+                                "过账失败后打回草稿也失败：单据可能停在 PENDING_POST"
+                            );
+                        }
+                    }
                     Ok(None)
                 }
             }

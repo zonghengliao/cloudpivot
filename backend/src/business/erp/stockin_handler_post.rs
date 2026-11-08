@@ -244,34 +244,38 @@ pub(super) async fn submit_post_approval(
     if auto_finished {
         match post_after_approval(row.id, Some(operator_id)).await {
             Ok(()) => return Ok(()),
-            // ★ ERP-B2：免审直过被「制单 ≠ 过账」拦下 —— 单据已经在 PENDING_POST，
-            //   而流程没有留下任何待办（免审），必须当场打回 DRAFT，否则就是一张死单。
-            //   打回后由**别人**来提交即可过账（换人这条路正是内控想要的）。
-            Err(error) if error.code == error_code::ERP_SEPARATION_OF_DUTIES => {
-                if let Err(restore_error) = restore_after_post_rejection(
-                    row.id,
-                    row,
-                    "制单与过账分离：免审过账被内控拦截，已打回草稿等待他人过账",
-                    Some(operator_id),
-                )
-                .await
+            // ★ BUG-01：免审直过失败 → **任何原因**都必须当场打回 DRAFT。
+            //   此刻事务已提交（单据 PENDING_POST + 实例 APPROVED），而免审分支没有
+            //   留下任何待办：没有人会来推进它，界面上也没有接口能动它 —— 不回滚就是死单。
+            //   所以这里**不再特判** ERP_SEPARATION_OF_DUTIES（它只是许多原因里的一种，
+            //   超收 / 供应商不符 / 单位不符 / 库位停用 同样会让过账失败）。
+            //   打回后由人修正单据再重新提交；打回本身失败才记 ERROR（那时单据可能真的停在
+            //   PENDING_POST，必须能在日志里查到）。
+            Err(error) => {
+                let reason = format!("免审过账失败：{}，已打回草稿", error.msg);
+                if let Err(restore_error) =
+                    restore_after_post_rejection(row.id, row, &reason, Some(operator_id)).await
                 {
                     tracing::error!(
                         stock_in_id = %row.id,
                         in_no = %row.in_no,
-                        error = %restore_error.msg,
-                        "免审过账被内控拦截后打回草稿失败：单据可能停在 PENDING_POST"
+                        error_code = error.code,
+                        original_error = %error.msg,
+                        restore_error = %restore_error.msg,
+                        "免审过账失败后打回草稿也失败：单据可能停在 PENDING_POST"
                     );
-                    return Err(restore_error);
+                } else {
+                    tracing::warn!(
+                        stock_in_id = %row.id,
+                        in_no = %row.in_no,
+                        error_code = error.code,
+                        error_msg = %error.msg,
+                        "免审过账失败，单据已打回 DRAFT（可修正后重试）"
+                    );
                 }
-                tracing::warn!(
-                    stock_in_id = %row.id,
-                    in_no = %row.in_no,
-                    "免审过账被「制单与过账分离」拦截，单据已打回 DRAFT（需他人提交过账）"
-                );
+                // 错误照常返回给前端（前端拿到的仍是原始失败原因，不是「打回成功」）
                 return Err(error);
             }
-            Err(error) => return Err(error),
         }
     }
     Ok(())

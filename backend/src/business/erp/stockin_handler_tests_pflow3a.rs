@@ -446,3 +446,169 @@ async fn pflow3a_si_maker_cannot_approve_own_post() {
     ))
     .await;
 }
+
+// ============================================================================
+// BUG-01（t_f427e5d6）：免审过账失败必须打回草稿
+//
+// 生产事故 IN-20261031-000002：免审分支里 `post_after_approval` 失败时只有
+// `ERP_SEPARATION_OF_DUTIES` 有兜底，其它错误直接 `return Err` —— 事务已提交
+// （单据 PENDING_POST + 实例 APPROVED），没有待办、没有人工过账接口 ⇒ 死单。
+// 下面三条钉住「任何失败都打回 DRAFT + 原因写进状态日志 + 正常免审仍直过」。
+// ============================================================================
+
+/// 某单最近一条状态日志：`(from_status, to_status, reason)`。
+async fn last_status_log(id: Uuid) -> (String, String, String) {
+    let rows = db()
+        .find_with_params(
+            "SELECT from_status, to_status, COALESCE(reason, '') AS reason \
+               FROM biz_status_log WHERE entity_type = 'STOCK_IN' AND entity_id = ?::uuid \
+              ORDER BY created_at DESC, id DESC LIMIT 1",
+            vec![Value::from(&id)],
+        )
+        .await
+        .expect("读状态日志失败");
+    let row = rows.first().expect("必须留下状态日志");
+    (
+        row.get_typed("from_status").unwrap_or_default(),
+        row.get_typed("to_status").unwrap_or_default(),
+        row.get_typed("reason").unwrap_or_default(),
+    )
+}
+
+/// ① 来源采购单已被**另一张**入库单收满 → 免审过账失败 → 409 + 打回 DRAFT（不是死单）。
+#[tokio::test]
+async fn bug01_auto_post_over_receive_reverts_to_draft() {
+    let _db = match setup().await {
+        Some(guard) => guard,
+        None => return,
+    };
+    setup_post_approval().await;
+    // 采购单 100 件；两张入库单在「都还没过账」时双开，各按 100 件待收建单
+    let (order_id, item_id) = a4_seed_po(A4_SUPPLIER_B, "100", "SUBMITTED").await;
+    let first = create_stock_in(&a4_sourced_req(order_id, item_id, "100", None), None)
+        .await
+        .expect("建单 A");
+    let second = create_stock_in(&a4_sourced_req(order_id, item_id, "100", None), None)
+        .await
+        .expect("建单 B");
+
+    // A 先过账（100×2 = 200 元 < 1000 → 免审直过）
+    submit_post(first, &post_req(), Some(uid_of(U_KEEPER)), &none_gate())
+        .await
+        .unwrap_or_else(|err| panic!("A 应免审直过：{} {}", err.code, err.msg));
+    assert_eq!(stock_in_status(first).await, "POSTED");
+    assert_eq!(
+        a4_po_status(order_id).await,
+        "RECEIVED",
+        "A 过账后采购单收满"
+    );
+
+    // B 再提交 → 来源采购单已收满/已收货 → 必须失败，且**打回草稿**
+    let err = submit_post(second, &post_req(), Some(uid_of(U_KEEPER)), &none_gate())
+        .await
+        .expect_err("收满后另一张入库单不许过账");
+    assert_eq!(err.status, 409, "{}", err.msg);
+
+    assert_eq!(
+        stock_in_status(second).await,
+        "DRAFT",
+        "免审过账失败必须打回 DRAFT —— 停在 PENDING_POST 就是死单（BUG-01）"
+    );
+    let row = stockin_model::find_stock_in(second).await.unwrap().unwrap();
+    assert!(
+        row.approval_instance_id.is_none(),
+        "打回草稿必须清空审批实例（否则再也提交不了）"
+    );
+    // 状态日志：PENDING_POST → DRAFT，原因带原始错误
+    let (from, to, reason) = last_status_log(second).await;
+    assert_eq!((from.as_str(), to.as_str()), ("PENDING_POST", "DRAFT"));
+    assert!(reason.contains("免审过账失败"), "原因要能看懂：{reason}");
+    assert!(
+        reason.contains(&err.msg),
+        "原因要带原始错误（{reason} 不含 {}）",
+        err.msg
+    );
+    // 六本账只有 A 的 100 件，B 一分没动
+    assert_eq!(inventory_of(MATERIAL_A).await.0, dec("100"), "B 不许加库存");
+    // 打回后可以修单重提（界面能继续操作）
+    let again = submit_post(second, &post_req(), Some(uid_of(U_KEEPER)), &none_gate()).await;
+    assert!(
+        again.is_err(),
+        "额度仍是 0，重提仍会被拦 —— 但必须是「可重试」的普通错误"
+    );
+    assert_eq!(
+        stock_in_status(second).await,
+        "DRAFT",
+        "重试失败也要回到 DRAFT"
+    );
+}
+
+/// ② 供应商与来源采购单不符（绕过接口改库）→ 免审过账失败 → 同样的打回。
+#[tokio::test]
+async fn bug01_auto_post_supplier_mismatch_reverts_to_draft() {
+    let _db = match setup().await {
+        Some(guard) => guard,
+        None => return,
+    };
+    setup_post_approval().await;
+    let (order_id, item_id) = a4_seed_po(A4_SUPPLIER_B, "10", "SUBMITTED").await;
+    let id = create_stock_in(&a4_sourced_req(order_id, item_id, "2", None), None)
+        .await
+        .expect("建单");
+    // 模拟「绕过接口直接改库」把单据头供应商换掉（金额 4 元 → 免审）
+    db().execute_with_params(
+        "UPDATE biz_stock_in SET supplier_id = ?::uuid WHERE id = ?::uuid",
+        vec![
+            Value::from(&Uuid::parse_str(SUPPLIER).unwrap()),
+            Value::from(&id),
+        ],
+    )
+    .await
+    .expect("模拟改库");
+
+    let err = submit_post(id, &post_req(), Some(uid_of(U_KEEPER)), &none_gate())
+        .await
+        .expect_err("供应商不符必须拦下");
+    assert_eq!(err.status, 400, "{}", err.msg);
+    assert_eq!(err.code, error_code::ERP_SI_SUPPLIER_MISMATCH);
+
+    assert_eq!(
+        stock_in_status(id).await,
+        "DRAFT",
+        "免审过账失败必须打回 DRAFT（不只是 SoD 才兜底）"
+    );
+    let row = stockin_model::find_stock_in(id).await.unwrap().unwrap();
+    assert!(row.approval_instance_id.is_none());
+    let (from, to, reason) = last_status_log(id).await;
+    assert_eq!((from.as_str(), to.as_str()), ("PENDING_POST", "DRAFT"));
+    assert!(reason.contains("免审过账失败"), "{reason}");
+    assert_eq!(
+        inventory_of(MATERIAL_A).await.0,
+        Decimal::ZERO,
+        "被拦下后库存一分没动"
+    );
+}
+
+/// ③ 回归：一切正常的小额单 → 仍然免审直过（打回逻辑不许把正常路径也打回）。
+#[tokio::test]
+async fn bug01_auto_post_success_still_posts() {
+    let _db = match setup().await {
+        Some(guard) => guard,
+        None => return,
+    };
+    setup_post_approval().await;
+    let (order_id, item_id) = a4_seed_po(A4_SUPPLIER_B, "10", "SUBMITTED").await;
+    let id = create_stock_in(&a4_sourced_req(order_id, item_id, "2", None), None)
+        .await
+        .expect("建单");
+    submit_post(id, &post_req(), Some(uid_of(U_KEEPER)), &none_gate())
+        .await
+        .unwrap_or_else(|err| panic!("正常免审必须直过：{} {}", err.code, err.msg));
+    assert_eq!(stock_in_status(id).await, "POSTED");
+    assert_eq!(inventory_of(MATERIAL_A).await.0, dec("2"), "库存已加");
+    assert_eq!(
+        a4_po_status(order_id).await,
+        "PARTIAL_RECEIVED",
+        "采购单推进"
+    );
+}
