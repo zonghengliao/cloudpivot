@@ -144,6 +144,8 @@ pub mod contract_handler;
 /// LNK-07 合同状态变更的联动 hook（唯一一份上下文 / 排除清单 / 幂等口径）。
 pub(crate) mod contract_linkage;
 pub mod contract_model;
+/// 合同 PDF 导出（PDF-03）：条款正文 + 签章位 + 附件清单 + 骑缝章提示。
+pub mod contract_pdf;
 pub mod credit;
 pub mod currency;
 pub mod currency_admin_handler;
@@ -158,6 +160,8 @@ pub mod depreciation_handler;
 /// （`depreciation_linkage_tests`）也要够得着同一份上下文口径。
 pub(crate) mod depreciation_linkage;
 pub mod depreciation_model;
+/// PDF-03 起的公共数据访问层：库位 / 仓库 / 供应商 / 客户补名 + 序列号 + 导出审计。
+pub mod doc_pdf_model;
 pub mod dto;
 pub mod expense_bridge;
 pub mod expense_compute;
@@ -255,6 +259,8 @@ pub mod shipment_handler;
 pub mod shipment_model;
 pub mod shipment_posting;
 pub mod statement;
+/// 收货入库单 / 出库单 PDF 导出（PDF-03）：批次号 / 库位 / 来源单据号 / 序列号。
+pub mod stock_pdf;
 pub mod stockin_bridge;
 pub mod stockin_dto;
 pub mod stockin_handler;

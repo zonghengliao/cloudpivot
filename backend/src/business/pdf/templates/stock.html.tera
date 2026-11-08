@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>{{ doc_label }} {{ doc_no }}</title>
+<style>
+/* ===========================================================================
+   云枢 ERP 出入库单模板（PDF-03）：收货入库单 / 出库单共用一份
+   ---------------------------------------------------------------------------
+   结构：页眉（公司名 + 单据标题）→ 单据头（仓库 / 供应商(客户) / 经办人 /
+        来源单据号 …）→ 明细（**含批次号 + 库位**）→ 序列号清单（有一物一码时）
+        → 合计 → 收货 / 发货签字栏 → 页脚。
+
+   打印四条铁律（与订单模板同源）：
+     ① @page 定死纸张与外边距；
+     ② thead { display: table-header-group } —— 明细跨页时表头重复（验收④）；
+     ③ tr / .sign / .summary { break-inside: avoid } —— 单行、合计、签字栏不腰斩；
+     ④ .num { font-variant-numeric: tabular-nums } —— 数量金额等宽右对齐。
+
+   页码（「第 X 页 / 共 Y 页」）由 CDP footerTemplate 输出
+   （`pdf::template::stock_footer`），HTML 里刻意不放占位符。
+   =========================================================================== */
+@page {
+  size: A4 portrait;
+  margin: 12mm 10mm 16mm 10mm;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Noto Sans SC", "Noto Sans CJK SC", sans-serif;
+  font-size: 10pt;
+  line-height: 1.4;
+  color: #1f2329;
+  word-break: break-word;
+}
+
+/* ---------- 页眉 ---------- */
+.sheet-header {
+  border-bottom: 1.5pt solid #1f2329;
+  padding-bottom: 4pt;
+  margin-bottom: 8pt;
+}
+.sheet-header .company {
+  font-size: 12.5pt;
+  font-weight: 700;
+  letter-spacing: 1pt;
+}
+.sheet-header .doc-title {
+  font-size: 17pt;
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: 8pt;
+  margin: 4pt 0 6pt;
+}
+
+/* ---------- 单据头 ---------- */
+table.head-fields {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9.5pt;
+  margin-bottom: 8pt;
+}
+table.head-fields td {
+  border: 0.5pt solid #c9cdd4;
+  padding: 3pt 5pt;
+  vertical-align: middle;
+}
+table.head-fields td.label {
+  width: 62pt;
+  background: #f2f3f5;
+  color: #4e5969;
+  text-align: center;
+  white-space: nowrap;
+}
+table.head-fields td.value { width: auto; }
+
+/* ---------- 明细表 ---------- */
+table.detail {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9pt;
+}
+table.detail thead { display: table-header-group; }
+table.detail th,
+table.detail td {
+  border: 0.5pt solid #86909c;
+  padding: 2.4pt 3.5pt;
+  vertical-align: middle;
+}
+table.detail th {
+  background: #f2f3f5;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+}
+table.detail tr { break-inside: avoid; page-break-inside: avoid; }
+table.detail td.c-seq { text-align: center; width: 22pt; }
+table.detail td.c-code { width: 80pt; white-space: nowrap; }
+table.detail td.c-name { width: auto; }
+table.detail td.c-spec { width: 54pt; }
+table.detail td.c-unit { text-align: center; width: 26pt; }
+table.detail td.c-qty { width: 40pt; }
+table.detail td.c-price { width: 50pt; }
+table.detail td.c-amount { width: 64pt; }
+table.detail td.c-lot { width: 62pt; overflow-wrap: anywhere; }
+table.detail td.c-loc { width: 50pt; overflow-wrap: anywhere; }
+table.detail td.c-code,
+table.detail td.c-name,
+table.detail td.c-spec { overflow-wrap: anywhere; }
+
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ---------- 序列号清单（只有一物一码的单据才出现） ---------- */
+.section-title {
+  font-size: 10.5pt;
+  font-weight: 700;
+  border-left: 3pt solid #1f2329;
+  padding-left: 6pt;
+  margin: 9pt 0 4pt;
+  break-after: avoid;
+  page-break-after: avoid;
+}
+table.serials {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 8.6pt;
+}
+table.serials thead { display: table-header-group; }
+table.serials th,
+table.serials td {
+  border: 0.5pt solid #86909c;
+  padding: 2.2pt 3.5pt;
+  vertical-align: top;
+}
+table.serials th { background: #f2f3f5; font-weight: 700; text-align: center; }
+table.serials tr { break-inside: avoid; page-break-inside: avoid; }
+/* 序列号清单用 s-* 前缀：与明细表的 c-* 分开，避免「数 c-seq 单元格」的断言把两张表混在一起 */
+table.serials td.s-seq { text-align: center; width: 22pt; }
+table.serials td.s-code { width: 80pt; white-space: nowrap; }
+table.serials td.s-name { width: 110pt; }
+table.serials td.s-nos { width: auto; overflow-wrap: anywhere; }
+
+/* ---------- 合计区（整块不跨页） ---------- */
+.summary {
+  break-inside: avoid;
+  page-break-inside: avoid;
+  margin-top: 8pt;
+}
+.summary table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9.5pt;
+}
+.summary table td {
+  border: 0.5pt solid #86909c;
+  padding: 3pt 5pt;
+}
+.summary .label {
+  width: 80pt;
+  text-align: center;
+  background: #f2f3f5;
+  font-weight: 700;
+}
+.summary .value-cn { font-weight: 700; letter-spacing: 0.3pt; }
+
+/* ---------- 收货 / 发货签字栏 ---------- */
+.sign {
+  break-inside: avoid;
+  page-break-inside: avoid;
+  margin-top: 12pt;
+  display: flex;
+  justify-content: space-between;
+  gap: 8pt;
+  font-size: 9pt;
+}
+.sign .box { flex: 1 1 0; }
+.sign .cap { color: #4e5969; white-space: nowrap; }
+.sign .line { margin-top: 16pt; border-bottom: 0.5pt solid #4e5969; height: 1pt; }
+.sign .date { margin-top: 3pt; color: #86909c; font-size: 8.5pt; }
+
+.remark {
+  margin-top: 9pt;
+  font-size: 8.8pt;
+  color: #4e5969;
+  line-height: 1.6;
+}
+.remark .tag { font-weight: 700; color: #1f2329; }
+
+.footnote {
+  margin-top: 5pt;
+  font-size: 7.5pt;
+  color: #86909c;
+  text-align: right;
+}
+</style>
+</head>
+<body>
+<div class="sheet-header">
+  <div class="company">{{ company }}</div>
+  <div class="doc-title">{{ doc_title }}</div>
+</div>
+
+<table class="head-fields">
+{% for row in meta_rows %}
+  <tr>
+{% for field in row %}
+    <td class="label">{{ field.label }}</td>
+    <td class="value">{{ field.value }}</td>
+{% endfor %}
+  </tr>
+{% endfor %}
+</table>
+
+<table class="detail">
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>物料编码</th>
+      <th>物料名称</th>
+      <th>规格</th>
+      <th>单位</th>
+      <th>数量</th>
+      <th>单价</th>
+      <th>金额</th>
+      <th>批次号</th>
+      <th>库位</th>
+    </tr>
+  </thead>
+  <tbody>
+{% for item in items %}
+    <tr>
+      <td class="c-seq">{{ item.seq }}</td>
+      <td class="c-code">{{ item.material_code }}</td>
+      <td class="c-name">{{ item.material_name }}</td>
+      <td class="c-spec">{{ item.spec }}</td>
+      <td class="c-unit">{{ item.unit }}</td>
+      <td class="c-qty num">{{ item.qty }}</td>
+      <td class="c-price num">{{ item.price }}</td>
+      <td class="c-amount num">{{ item.amount }}</td>
+      <td class="c-lot">{{ item.lot_no }}</td>
+      <td class="c-loc">{{ item.location }}</td>
+    </tr>
+{% endfor %}
+  </tbody>
+</table>
+
+{% if has_serials %}
+<div class="section-title">序列号清单（一物一码）</div>
+<table class="serials">
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>物料编码</th>
+      <th>物料名称</th>
+      <th>序列号（本单登记）</th>
+    </tr>
+  </thead>
+  <tbody>
+{% for group in serial_groups %}
+    <tr>
+      <td class="s-seq">{{ group.seq }}</td>
+      <td class="s-code">{{ group.material_code }}</td>
+      <td class="s-name">{{ group.material_name }}</td>
+      <td class="s-nos">{{ group.numbers }}</td>
+    </tr>
+{% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<div class="summary">
+  <table>
+    <tr>
+      <td class="label">行数合计</td>
+      <td class="num" style="width:56pt">{{ row_count }}</td>
+      <td class="label">数量合计</td>
+      <td class="num" style="width:80pt">{{ total_qty }}</td>
+{% if show_tax %}
+      <td class="label">金额合计（{{ currency }}）</td>
+      <td class="num" style="width:96pt">{{ total_amount }}</td>
+{% else %}
+      <td class="label">成本结转合计（{{ currency }}）</td>
+      <td class="num" style="width:96pt">{{ total_amount }}</td>
+{% endif %}
+    </tr>
+{% if show_tax %}
+    <tr>
+      <td class="label">税额</td>
+      <td class="num">{{ total_tax }}</td>
+      <td class="label">价税合计</td>
+      <td class="num value-cn">{{ total_with_tax }}</td>
+      <td class="label">币种</td>
+      <td class="num">{{ currency }}</td>
+    </tr>
+{% endif %}
+    <tr>
+      <td class="label">{% if show_tax %}价税合计（大写）{% else %}成本金额（大写）{% endif %}</td>
+      <td colspan="5" class="value-cn">{{ currency_cn }}{{ amount_cn }}（{{ currency_symbol }}{{ amount_for_upper }}）</td>
+    </tr>
+  </table>
+</div>
+
+{% if reason %}
+<div class="remark"><span class="tag">{% if show_tax %}入库事由{% else %}出库事由{% endif %}：</span>{{ reason }}</div>
+{% endif %}
+{% if remark %}
+<div class="remark"><span class="tag">备注：</span>{{ remark }}</div>
+{% endif %}
+
+<div class="sign">
+{% for cap in sign_caps %}
+  <div class="box">
+    <div class="cap">{{ cap }}</div>
+    <div class="line"></div>
+    <div class="date">日期：__________</div>
+  </div>
+{% endfor %}
+</div>
+
+<div class="footnote">打印时间：{{ printed_at }}　本单据由云枢系统生成（{{ engine }}）</div>
+</body>
+</html>

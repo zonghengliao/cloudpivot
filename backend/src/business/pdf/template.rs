@@ -56,6 +56,10 @@ fn tera() -> &'static Tera {
             .expect("内置单据模板语法错误（编译期常量，改模板后必须跑 cargo test）");
         tera.add_raw_template(ORDER_NAME, ORDER_TEMPLATE)
             .expect("内置订单模板语法错误（编译期常量，改模板后必须跑 cargo test）");
+        tera.add_raw_template(CONTRACT_NAME, CONTRACT_TEMPLATE)
+            .expect("内置合同模板语法错误（编译期常量，改模板后必须跑 cargo test）");
+        tera.add_raw_template(STOCK_NAME, STOCK_TEMPLATE)
+            .expect("内置出入库单模板语法错误（编译期常量，改模板后必须跑 cargo test）");
         tera
     })
 }
@@ -457,6 +461,808 @@ pub fn order_pdf_opts(
         filename,
         ..PdfOpts::default()
     }
+}
+
+// ==================== ③ 合同模板（PDF-03：合同） ====================
+
+/// 内嵌的合同模板（条款正文 + 签章位 + 附件清单）。
+pub const CONTRACT_TEMPLATE: &str = include_str!("templates/contract.html.tera");
+
+/// 合同模板的注册名（`.html` 后缀 → 启用 HTML 自动转义）。
+pub const CONTRACT_NAME: &str = "contract.html";
+
+/// 内嵌的出入库单模板（收货入库单 / 出库单共用）。
+pub const STOCK_TEMPLATE: &str = include_str!("templates/stock.html.tera");
+
+/// 出入库单模板的注册名（`.html` 后缀 → 启用 HTML 自动转义）。
+pub const STOCK_NAME: &str = "stock.html";
+
+/// 合同没有单独的「付款方式」列时打在 PDF 上的兜底文案。
+///
+/// # 为什么是一句「以合同条款约定为准」而不是编一个值
+///
+/// `biz_contract`（V0195 + V0209）**没有**付款方式 / 账期列，本系统也没有维护
+/// 合同级的付款计划。打印时不能凭空写「月结 30 天」——
+/// 那会变成一份与真实合同不符的凭证。所以：备注里能识别出
+/// 「付款方式：…」就印那个值（见 [`labeled_value`]），识别不出就如实说明。
+pub const PAYMENT_TERMS_EMPTY: &str = "以合同条款约定为准（本系统未单独登记付款方式）";
+
+/// 合同没有正文（备注）时的提示：条款以纸质件 / 扫描件为准。
+pub const CONTRACT_BODY_EMPTY_HINT: &str =
+    "本合同未在系统中录入条款正文；条款以双方签章的纸质合同为准（扫描件见下方附件清单）。";
+
+/// 合同没有关联附件时的提示。
+pub const CONTRACT_ATTACHMENT_EMPTY_HINT: &str =
+    "（暂无关联附件；如需归档请在合同详情页上传扫描件或补充协议）";
+
+/// 签署页的骑缝章提示（**措辞本身是条件式的**：多页才需要骑缝章）。
+///
+/// # 为什么不按真实页数动态显示
+///
+/// 页数只有 Chromium 打完才知道（`footerTemplate` 里的 `totalPages` 拿不回来），
+/// 在 HTML 里判断「是否多页」会变成「渲染 → 数页 → 再渲染」的两倍开销。
+/// 单页合同上出现一句「多页请加盖骑缝章」是行业通行写法（它是一条**条件指令**，
+/// 不是对页数的断言），因此固定在签署页印出。
+pub const CONTRACT_SEAL_NOTE: &str = "多页合同请在第 1 页至末页右侧骑缝处逐页加盖骑缝章\
+（章面须压住接缝、相邻页章体相连）；单页合同在签署页盖章即可。";
+
+/// 合同附件清单的一行。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContractAttachment {
+    /// 序号（从 1 开始，按手动排序）
+    pub seq: u32,
+    /// 文件名（`sys_file.original_name` 优先）
+    pub file_name: String,
+    /// 文件角色标签（合同扫描件 / 补充协议 / 验收单 / 其他）
+    pub role_label: String,
+    /// 大小（人类可读：`12.3 KB`）
+    pub size: String,
+    /// 上传人
+    pub uploader: String,
+    /// 上传时间（`yyyy-MM-dd HH:mm`，北京时间）
+    pub uploaded_at: String,
+}
+
+/// 合同的渲染上下文（合同模板变量的一一对应结构体）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContractContext {
+    /// 公司名
+    pub company: String,
+    /// 页眉标题（「合 同」）
+    pub doc_title: String,
+    /// 单据名（文件名 / 日志用）
+    pub doc_label: String,
+    /// 合同号
+    pub doc_no: String,
+    /// 合同名称
+    pub contract_name: String,
+    /// 概要字段（每行 3 组）
+    pub meta_rows: Vec<Vec<OrderMetaField>>,
+    /// 甲方信息
+    pub party_a_rows: Vec<OrderMetaField>,
+    /// 乙方信息
+    pub party_b_rows: Vec<OrderMetaField>,
+    /// 甲方名称（签章位抬头）
+    pub party_a_name: String,
+    /// 乙方名称（签章位抬头）
+    pub party_b_name: String,
+    /// 币种代码
+    pub currency: String,
+    /// 币种符号
+    pub currency_symbol: String,
+    /// 大写金额前缀（人民币 / 空串）
+    pub currency_cn: String,
+    /// 合同金额（小写，两位小数 + 千分位）
+    pub amount: String,
+    /// 合同金额（大写）
+    pub amount_cn: String,
+    /// 合同期限（`2026-01-01 至 2026-12-31`）
+    pub term_range: String,
+    /// 付款方式（备注里识别到的值，或 [`PAYMENT_TERMS_EMPTY`]）
+    pub payment_terms: String,
+    /// 条款正文（**全文**，不做任何截断）
+    pub body: String,
+    /// 是否有正文（决定印正文还是提示语）
+    pub has_body: bool,
+    /// 无正文时的提示语
+    pub body_empty_hint: String,
+    /// 附件清单
+    pub attachments: Vec<ContractAttachment>,
+    /// 附件份数（展示串）
+    pub attachment_count: String,
+    /// 无附件时的提示语
+    pub attachment_empty_hint: String,
+    /// 骑缝章提示
+    pub seal_note: String,
+    /// 打印时间
+    pub printed_at: String,
+    /// 引擎标识（页脚）
+    pub engine: String,
+}
+
+/// [`ContractContext`] 的构造入参。
+#[derive(Debug, Clone)]
+pub struct ContractContextArgs {
+    /// 合同号
+    pub doc_no: String,
+    /// 合同名称
+    pub contract_name: String,
+    /// 概要字段（按传入顺序每 3 组一行）
+    pub meta: Vec<OrderMetaField>,
+    /// 甲方字段
+    pub party_a: Vec<OrderMetaField>,
+    /// 乙方字段
+    pub party_b: Vec<OrderMetaField>,
+    /// 甲方名称
+    pub party_a_name: String,
+    /// 乙方名称
+    pub party_b_name: String,
+    /// 币种代码
+    pub currency_code: String,
+    /// 合同金额（元）
+    pub amount: Decimal,
+    /// 合同期限（见 [`term_range_of`]）
+    pub term_range: String,
+    /// 付款方式（见 [`payment_terms_of`]）
+    pub payment_terms: String,
+    /// 条款正文
+    pub body: String,
+    /// 附件清单
+    pub attachments: Vec<ContractAttachment>,
+    /// 打印时间
+    pub printed_at: String,
+}
+
+impl ContractContext {
+    /// 组装上下文。金额的「小写 / 大写」出自同一个整数「分」，逐位自洽。
+    pub fn new(args: ContractContextArgs) -> Self {
+        let amount_fen = yuan_to_fen(args.amount);
+        let currency_code = args.currency_code.trim().to_ascii_uppercase();
+        let is_cny = currency_code == "CNY" || currency_code.is_empty();
+        let body = args.body.trim_end().to_string();
+        let attachment_count = format_int(args.attachments.len() as i64);
+        Self {
+            company: COMPANY_NAME.to_string(),
+            doc_title: "合 同".to_string(),
+            doc_label: "合同".to_string(),
+            doc_no: args.doc_no,
+            contract_name: args.contract_name,
+            meta_rows: args
+                .meta
+                .chunks(3)
+                .map(<[OrderMetaField]>::to_vec)
+                .collect(),
+            party_a_rows: args.party_a,
+            party_b_rows: args.party_b,
+            party_a_name: args.party_a_name,
+            party_b_name: args.party_b_name,
+            currency: if currency_code.is_empty() {
+                "CNY".to_string()
+            } else {
+                currency_code.clone()
+            },
+            currency_symbol: if is_cny {
+                "￥".to_string()
+            } else {
+                format!("{currency_code} ")
+            },
+            currency_cn: if is_cny {
+                "人民币".to_string()
+            } else {
+                String::new()
+            },
+            amount: format_money(amount_fen),
+            amount_cn: amount_upper(amount_fen),
+            term_range: args.term_range,
+            payment_terms: args.payment_terms,
+            has_body: !body.is_empty(),
+            body,
+            body_empty_hint: CONTRACT_BODY_EMPTY_HINT.to_string(),
+            attachments: args.attachments,
+            attachment_count,
+            attachment_empty_hint: CONTRACT_ATTACHMENT_EMPTY_HINT.to_string(),
+            seal_note: CONTRACT_SEAL_NOTE.to_string(),
+            printed_at: args.printed_at,
+            engine: "Chromium · CDP printToPDF".to_string(),
+        }
+    }
+}
+
+/// 渲染合同 HTML。
+///
+/// # 异常情况
+///
+/// - [`PdfError::Template`]：模板渲染失败（缺变量 / 语法错）。
+pub fn render_contract(ctx: &ContractContext) -> Result<String, PdfError> {
+    let context = Context::from_serialize(ctx)
+        .map_err(|error| PdfError::Template(format!("合同上下文序列化失败：{error}")))?;
+    tera()
+        .render(CONTRACT_NAME, &context)
+        .map_err(|error| PdfError::Template(format!("合同模板渲染失败：{error}")))
+}
+
+/// 合同期限展示串。
+///
+/// # 参数
+///
+/// - `start`：生效日（`yyyy-MM-dd`，无则 `None`）；
+/// - `end`：到期日。
+///
+/// # 返回值
+///
+/// 两段都齐 → `2026-01-01 至 2026-12-31`；只有一端 → `2026-01-01 起` / `至 2026-12-31`；
+/// 都没有 → `—`（**不编日期**：草稿合同本来就可能没有期限）。
+pub fn term_range_of(start: Option<&str>, end: Option<&str>) -> String {
+    let start = start.map(str::trim).filter(|text| !text.is_empty());
+    let end = end.map(str::trim).filter(|text| !text.is_empty());
+    match (start, end) {
+        (Some(from), Some(to)) => format!("{from} 至 {to}"),
+        (Some(from), None) => format!("{from} 起"),
+        (None, Some(to)) => format!("至 {to}"),
+        (None, None) => "—".to_string(),
+    }
+}
+
+/// 从一段自由文本里识别「标签：值」形态的字段（付款方式的唯一取值路径）。
+///
+/// # 参数
+///
+/// - `text`：合同备注（条款正文）；
+/// - `labels`：可接受的标签（如 `["付款方式", "付款条件", "结算方式"]`，长标签优先）。
+///
+/// # 返回值
+///
+/// 命中时返回值部分（同一行内、去首尾空白）；未命中 `None`。
+///
+/// # 为什么按行扫而不是正则全串扫
+///
+/// 条款正文是人工录入的多行文本，`付款方式：` 可能出现在行首，也可能出现在
+/// 「1. 付款方式：」这种带序号的句子中间；按行扫 + 行内首次命中已经能覆盖
+/// 两种写法，且不会把下一行的内容吞进来。
+pub fn labeled_value(text: &str, labels: &[&str]) -> Option<String> {
+    for line in text.lines() {
+        for label in labels {
+            let Some(position) = line.find(label) else {
+                continue;
+            };
+            let rest = &line[position + label.len()..];
+            let value = rest
+                .trim_start_matches([':', '：', ' ', '\u{3000}', '-', '—', '－', '='])
+                .trim();
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// 合同备注 → 付款方式（识别不到就用 [`PAYMENT_TERMS_EMPTY`]）。
+pub fn payment_terms_of(remark: Option<&str>) -> String {
+    const LABELS: [&str; 5] = ["付款方式", "付款条件", "结算方式", "支付方式", "付款安排"];
+    remark
+        .and_then(|text| labeled_value(text, &LABELS))
+        .unwrap_or_else(|| PAYMENT_TERMS_EMPTY.to_string())
+}
+
+/// 字节数 → 人类可读（`512 B` / `12.3 KB` / `4.7 MB`）。
+///
+/// 附件清单要让「有没有扫描件、是不是空文件」一眼可见，用字节数没人看得懂。
+pub fn format_size(bytes: i64) -> String {
+    if bytes < 0 {
+        return "—".to_string();
+    }
+    const KB: f64 = 1024.0;
+    const MB: f64 = 1024.0 * 1024.0;
+    let value = bytes as f64;
+    if value < KB {
+        format!("{bytes} B")
+    } else if value < MB {
+        format!("{:.1} KB", value / KB)
+    } else {
+        format!("{:.1} MB", value / MB)
+    }
+}
+
+/// 合同 PDF 的页脚模板（CDP `footerTemplate`）：单号 + 页码 + 骑缝章提示位。
+///
+/// 页码只能是 CDP 的 `.pageNumber` / `.totalPages`（`@page` 计数器在
+/// `printToPDF` 下不生效），字号与字体必须显式写，否则页脚不可见。
+pub fn contract_footer(doc_no: &str) -> String {
+    format!(
+        "<div style=\"width:100%;padding:0 10mm;font-family:'Noto Sans SC',sans-serif;\
+         font-size:8pt;color:#86909c;display:flex;justify-content:space-between;\">\
+         <span>合同 {}　（多页请加盖骑缝章）</span>\
+         <span>第 <span class=\"pageNumber\"></span> 页 / 共 <span class=\"totalPages\"></span> 页</span>\
+         </div>",
+        escape_html(doc_no)
+    )
+}
+
+/// 出入库单 PDF 的页脚模板：单号 + 页码。
+pub fn stock_footer(kind: StockDocKind, doc_no: &str) -> String {
+    format!(
+        "<div style=\"width:100%;padding:0 10mm;font-family:'Noto Sans SC',sans-serif;\
+         font-size:8pt;color:#86909c;display:flex;justify-content:space-between;\">\
+         <span>{} {}</span>\
+         <span>第 <span class=\"pageNumber\"></span> 页 / 共 <span class=\"totalPages\"></span> 页</span>\
+         </div>",
+        kind.label(),
+        escape_html(doc_no)
+    )
+}
+
+// ==================== ④ 出入库单模板（PDF-03：收货入库单 / 出库单） ====================
+
+/// 出入库单种类（决定标题、表名、合计口径与签字栏）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StockDocKind {
+    /// 收货入库单（`biz_stock_in`）
+    StockIn,
+    /// 出库单（`biz_stock_out`）
+    StockOut,
+}
+
+impl StockDocKind {
+    /// 页眉标题。
+    pub fn title(self) -> &'static str {
+        match self {
+            StockDocKind::StockIn => "收 货 入 库 单",
+            StockDocKind::StockOut => "出 库 单",
+        }
+    }
+
+    /// 单据名（文件名 / 日志用）。
+    pub fn label(self) -> &'static str {
+        match self {
+            StockDocKind::StockIn => "收货入库单",
+            StockDocKind::StockOut => "出库单",
+        }
+    }
+
+    /// `shared::doc_kind` 的落库值。
+    pub fn doc_kind_str(self) -> &'static str {
+        match self {
+            StockDocKind::StockIn => "STOCK_IN",
+            StockDocKind::StockOut => "STOCK_OUT",
+        }
+    }
+
+    /// 单据表名（`operation_logs.target_type`）。
+    pub fn table(self) -> &'static str {
+        match self {
+            StockDocKind::StockIn => "biz_stock_in",
+            StockDocKind::StockOut => "biz_stock_out",
+        }
+    }
+
+    /// 是否有税额口径（入库单有金额 / 税额 / 价税合计三档；出库单只有成本结转金额）。
+    pub fn has_tax(self) -> bool {
+        matches!(self, StockDocKind::StockIn)
+    }
+
+    /// 签字栏（收货 / 发货两套，顺序即打印顺序）。
+    pub fn sign_caps(self) -> Vec<String> {
+        match self {
+            StockDocKind::StockIn => vec![
+                "收货人：".to_string(),
+                "质检：".to_string(),
+                "仓管：".to_string(),
+                "供应商送货人：".to_string(),
+                "制单：".to_string(),
+            ],
+            StockDocKind::StockOut => vec![
+                "发货人：".to_string(),
+                "领用人／收货人：".to_string(),
+                "仓管：".to_string(),
+                "审核：".to_string(),
+                "制单：".to_string(),
+            ],
+        }
+    }
+}
+
+/// 明细行（数量 / 金额已是**展示字符串**，模板不做任何计算）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StockItem {
+    /// 序号（从 1 开始，跨页连续）
+    pub seq: u32,
+    /// 物料编码
+    pub material_code: String,
+    /// 物料名称
+    pub material_name: String,
+    /// 规格
+    pub spec: String,
+    /// 计量单位
+    pub unit: String,
+    /// 数量（去尾零 + 千分位）
+    pub qty: String,
+    /// 单价（入库 = 不含税进价；出库 = 成本单价）
+    pub price: String,
+    /// 金额（入库 = 不含税金额；出库 = 成本结转金额）
+    pub amount: String,
+    /// 批次号（`—` 表示本行没有批次）
+    pub lot_no: String,
+    /// 库位编码（`未分配` 表示未指定库位）
+    pub location: String,
+}
+
+/// 序列号清单的一行（按物料分组）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SerialGroup {
+    /// 序号
+    pub seq: u32,
+    /// 物料编码
+    pub material_code: String,
+    /// 物料名称
+    pub material_name: String,
+    /// 本单登记的序列号（顿号分隔）
+    pub numbers: String,
+}
+
+/// 一张出入库单的渲染上下文。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StockContext {
+    /// 公司名
+    pub company: String,
+    /// 页眉标题
+    pub doc_title: String,
+    /// 单据名
+    pub doc_label: String,
+    /// 单号
+    pub doc_no: String,
+    /// 单据头字段（每行 3 组）
+    pub meta_rows: Vec<Vec<OrderMetaField>>,
+    /// 明细
+    pub items: Vec<StockItem>,
+    /// 序列号清单
+    pub serial_groups: Vec<SerialGroup>,
+    /// 是否有序列号清单（决定整段是否出现）
+    pub has_serials: bool,
+    /// 行数合计
+    pub row_count: String,
+    /// 数量合计
+    pub total_qty: String,
+    /// 金额合计（入库：不含税；出库：成本结转）
+    pub total_amount: String,
+    /// 税额合计（出库为空串）
+    pub total_tax: String,
+    /// 价税合计（出库为空串）
+    pub total_with_tax: String,
+    /// 大写金额
+    pub amount_cn: String,
+    /// 大写对应的金额小写（入库 = 价税合计；出库 = 成本结转合计）
+    pub amount_for_upper: String,
+    /// 是否展示税额行
+    pub show_tax: bool,
+    /// 币种代码
+    pub currency: String,
+    /// 币种符号
+    pub currency_symbol: String,
+    /// 大写金额前缀
+    pub currency_cn: String,
+    /// 事由
+    pub reason: String,
+    /// 备注
+    pub remark: String,
+    /// 签字栏
+    pub sign_caps: Vec<String>,
+    /// 打印时间
+    pub printed_at: String,
+    /// 引擎标识
+    pub engine: String,
+}
+
+/// [`StockContext`] 的构造入参。
+#[derive(Debug, Clone)]
+pub struct StockContextArgs {
+    /// 单据种类
+    pub kind: StockDocKind,
+    /// 单号
+    pub doc_no: String,
+    /// 单据头字段
+    pub meta: Vec<OrderMetaField>,
+    /// 币种代码
+    pub currency_code: String,
+    /// 明细
+    pub items: Vec<StockItem>,
+    /// 序列号清单
+    pub serial_groups: Vec<SerialGroup>,
+    /// 数量合计（原始值）
+    pub total_qty: Decimal,
+    /// 金额合计（元）
+    pub total_amount: Decimal,
+    /// 税额合计（元；出库传 0）
+    pub total_tax: Decimal,
+    /// 价税合计（元；出库传 0）
+    pub total_with_tax: Decimal,
+    /// 事由
+    pub reason: String,
+    /// 备注
+    pub remark: String,
+    /// 打印时间
+    pub printed_at: String,
+}
+
+impl StockContext {
+    /// 组装上下文。大写金额取「价税合计」（入库）/「成本结转合计」（出库）。
+    pub fn new(args: StockContextArgs) -> Self {
+        let currency_code = args.currency_code.trim().to_ascii_uppercase();
+        let is_cny = currency_code == "CNY" || currency_code.is_empty();
+        let upper_of = if args.kind.has_tax() {
+            args.total_with_tax
+        } else {
+            args.total_amount
+        };
+        let upper_fen = yuan_to_fen(upper_of);
+        Self {
+            company: COMPANY_NAME.to_string(),
+            doc_title: args.kind.title().to_string(),
+            doc_label: args.kind.label().to_string(),
+            doc_no: args.doc_no,
+            meta_rows: args
+                .meta
+                .chunks(3)
+                .map(<[OrderMetaField]>::to_vec)
+                .collect(),
+            has_serials: !args.serial_groups.is_empty(),
+            serial_groups: args.serial_groups,
+            row_count: format_int(args.items.len() as i64),
+            items: args.items,
+            total_qty: format_quantity(args.total_qty),
+            total_amount: format_money(yuan_to_fen(args.total_amount)),
+            total_tax: if args.kind.has_tax() {
+                format_money(yuan_to_fen(args.total_tax))
+            } else {
+                String::new()
+            },
+            total_with_tax: if args.kind.has_tax() {
+                format_money(yuan_to_fen(args.total_with_tax))
+            } else {
+                String::new()
+            },
+            amount_for_upper: format_money(upper_fen),
+            amount_cn: amount_upper(upper_fen),
+            show_tax: args.kind.has_tax(),
+            currency: if currency_code.is_empty() {
+                "CNY".to_string()
+            } else {
+                currency_code.clone()
+            },
+            currency_symbol: if is_cny {
+                "￥".to_string()
+            } else {
+                format!("{currency_code} ")
+            },
+            currency_cn: if is_cny {
+                "人民币".to_string()
+            } else {
+                String::new()
+            },
+            reason: args.reason,
+            remark: args.remark,
+            sign_caps: args.kind.sign_caps(),
+            printed_at: args.printed_at,
+            engine: "Chromium · CDP printToPDF".to_string(),
+        }
+    }
+}
+
+/// 渲染出入库单 HTML。
+///
+/// # 异常情况
+///
+/// - [`PdfError::Template`]：模板渲染失败。
+pub fn render_stock(ctx: &StockContext) -> Result<String, PdfError> {
+    let context = Context::from_serialize(ctx)
+        .map_err(|error| PdfError::Template(format!("出入库单上下文序列化失败：{error}")))?;
+    tera()
+        .render(STOCK_NAME, &context)
+        .map_err(|error| PdfError::Template(format!("出入库单模板渲染失败：{error}")))
+}
+
+/// 单据 PDF 的通用渲染参数（A4 纵向 + 页脚页码；下边距 16mm 给页脚留打印区）。
+fn doc_pdf_opts(footer: String, filename: Option<String>) -> crate::business::pdf::dto::PdfOpts {
+    use crate::business::pdf::dto::{PageSize, PdfMargins, PdfOpts};
+    PdfOpts {
+        page: PageSize::A4,
+        landscape: false,
+        prefer_css_page_size: false,
+        margins: PdfMargins {
+            top_mm: 12.0,
+            right_mm: 10.0,
+            bottom_mm: 16.0,
+            left_mm: 10.0,
+        },
+        display_header_footer: true,
+        header_template: Some("<span></span>".to_string()),
+        footer_template: Some(footer),
+        filename,
+        ..PdfOpts::default()
+    }
+}
+
+/// 合同 PDF 的渲染参数（A4 纵向 + 页脚：页码 + 骑缝章提示位）。
+pub fn contract_pdf_opts(
+    doc_no: &str,
+    filename: Option<String>,
+) -> crate::business::pdf::dto::PdfOpts {
+    doc_pdf_opts(contract_footer(doc_no), filename)
+}
+
+/// 出入库单 PDF 的渲染参数。
+pub fn stock_pdf_opts(
+    kind: StockDocKind,
+    doc_no: &str,
+    filename: Option<String>,
+) -> crate::business::pdf::dto::PdfOpts {
+    doc_pdf_opts(stock_footer(kind, doc_no), filename)
+}
+
+/// 生成「样本合同」上下文（联调 / 验收用，数据确定性、不依赖数据库）。
+///
+/// # 参数
+///
+/// - `attachments`：附件份数（0 = 走「无附件」分支）。
+pub fn sample_contract(attachments: u32) -> ContractContext {
+    let roles = ["合同扫描件", "补充协议", "验收单", "其他"];
+    let files: Vec<ContractAttachment> = (0..attachments)
+        .map(|index| ContractAttachment {
+            seq: index + 1,
+            file_name: format!("采购合同-HT-20261108-000001-第{}页.pdf", index + 1),
+            role_label: roles[(index % 4) as usize].to_string(),
+            size: format_size(1024 * (128 + index as i64 * 37)),
+            uploader: "张三".to_string(),
+            uploaded_at: format!("2026-11-0{} 10:{:02}", index % 8 + 1, index % 60),
+        })
+        .collect();
+    ContractContext::new(ContractContextArgs {
+        doc_no: "HT-20261108-000001".to_string(),
+        contract_name: "不锈钢管件年度采购合同".to_string(),
+        meta: vec![
+            OrderMetaField::new("合同号", "HT-20261108-000001"),
+            OrderMetaField::new("合同类型", "采购合同"),
+            OrderMetaField::new("状态", "已签订"),
+            OrderMetaField::new("负责人", "李四"),
+            OrderMetaField::new("签订日期", "2026-11-01"),
+            OrderMetaField::new("制单人", "张三"),
+        ],
+        party_a: vec![
+            OrderMetaField::new("名称", COMPANY_NAME),
+            OrderMetaField::new("地址", "上海市浦东新区张江路 100 号"),
+            OrderMetaField::new("联系人", "王五"),
+            OrderMetaField::new("电话", "021-5000 0000"),
+        ],
+        party_b: vec![
+            OrderMetaField::new("名称", "北京某某机电设备有限公司"),
+            OrderMetaField::new("地址", "北京市朝阳区建国路 8 号"),
+            OrderMetaField::new("联系人", "赵六"),
+            OrderMetaField::new("电话", "010-6000 0000"),
+        ],
+        party_a_name: COMPANY_NAME.to_string(),
+        party_b_name: "北京某某机电设备有限公司".to_string(),
+        currency_code: "CNY".to_string(),
+        amount: Decimal::new(123_456_789, 2),
+        term_range: term_range_of(Some("2026-11-01"), Some("2027-10-31")),
+        payment_terms: "货到验收合格后 30 日内电汇支付，质保金 5% 于质保期满后支付".to_string(),
+        body: "第一条 标的物\n\
+               乙方向甲方供应不锈钢管件若干，具体规格、数量以甲方下达的采购订单为准。\n\n\
+               第二条 质量标准\n\
+               产品须符合 GB/T 12459-2017 标准，随货提供材质证明书与出厂检验报告。\n\n\
+               第三条 交货方式\n\
+               乙方负责送货至甲方指定仓库，运费、保险费由乙方承担；风险自验收合格时转移。\n\n\
+               第四条 付款方式\n\
+               货到验收合格后 30 日内电汇支付，质保金 5% 于质保期满后支付。\n\n\
+               第五条 违约责任\n\
+               逾期交货的，每逾期一日按合同总额的 0.5‰ 支付违约金，累计不超过合同总额的 5%。"
+            .to_string(),
+        attachments: files,
+        printed_at: "2026-11-08 19:30".to_string(),
+    })
+}
+
+/// 生成「样本出入库单」上下文（联调 / 验收用）。
+///
+/// # 参数
+///
+/// - `kind`：单据种类；
+/// - `rows`：明细行数。
+pub fn sample_stock(kind: StockDocKind, rows: u32) -> StockContext {
+    let names = ["球阀", "法兰", "弯头", "三通"];
+    let mut items = Vec::with_capacity(rows as usize);
+    let mut total_qty = Decimal::ZERO;
+    let mut total_amount = Decimal::ZERO;
+    let mut total_tax = Decimal::ZERO;
+    for index in 0..rows {
+        let qty = Decimal::from(((index % 9) + 1) as i64 * 5);
+        let price = Decimal::new(1234 + (index % 37) as i64 * 11, 2);
+        let amount = (price * qty).round_dp(2);
+        let tax = (amount * Decimal::new(13, 2) / Decimal::from(100)).round_dp(2);
+        total_qty += qty;
+        total_amount += amount;
+        total_tax += tax;
+        items.push(StockItem {
+            seq: index + 1,
+            material_code: format!("MAT-{:05}", index % 97 + 1),
+            material_name: format!(
+                "{}Φ{}mm 不锈钢法兰",
+                names[(index % 4) as usize],
+                index % 90 + 10
+            ),
+            spec: format!("DN{}/PN16", 50 + (index % 8) * 10),
+            unit: ["件", "台", "套", "米"][(index % 4) as usize].to_string(),
+            qty: format_quantity(qty),
+            price: format_quantity(price),
+            amount: format_money(yuan_to_fen(amount)),
+            lot_no: format!("LOT2026110{}", index % 9 + 1),
+            location: format!("A-{:02}-{:02}", index % 6 + 1, index % 12 + 1),
+        });
+    }
+    let serial_groups = if kind == StockDocKind::StockIn && rows > 0 {
+        vec![SerialGroup {
+            seq: 1,
+            material_code: items[0].material_code.clone(),
+            material_name: items[0].material_name.clone(),
+            numbers: "SN-20261108-000001、SN-20261108-000002、SN-20261108-000003".to_string(),
+        }]
+    } else {
+        Vec::new()
+    };
+    StockContext::new(StockContextArgs {
+        kind,
+        doc_no: match kind {
+            StockDocKind::StockIn => "IN-20261108-000001".to_string(),
+            StockDocKind::StockOut => "OUT-20261108-000001".to_string(),
+        },
+        meta: vec![
+            OrderMetaField::new(
+                "单号",
+                match kind {
+                    StockDocKind::StockIn => "IN-20261108-000001",
+                    StockDocKind::StockOut => "OUT-20261108-000001",
+                },
+            ),
+            OrderMetaField::new("日期", "2026-11-08"),
+            OrderMetaField::new("状态", "已过账"),
+            OrderMetaField::new(
+                match kind {
+                    StockDocKind::StockIn => "供应商",
+                    StockDocKind::StockOut => "客户",
+                },
+                "北京某某机电设备有限公司",
+            ),
+            OrderMetaField::new("仓库", "上海一号仓"),
+            OrderMetaField::new(
+                "来源单据号",
+                match kind {
+                    StockDocKind::StockIn => "PO-20261108-000004",
+                    StockDocKind::StockOut => "SH-20261108-000003",
+                },
+            ),
+            OrderMetaField::new("经办人", "李四"),
+            OrderMetaField::new(
+                "类型",
+                match kind {
+                    StockDocKind::StockIn => "采购入库",
+                    StockDocKind::StockOut => "领用",
+                },
+            ),
+            OrderMetaField::new("库位", "A-01-03 / A-01-04"),
+        ],
+        currency_code: "CNY".to_string(),
+        items,
+        serial_groups,
+        total_qty,
+        total_amount,
+        total_tax,
+        total_with_tax: total_amount + total_tax,
+        reason: match kind {
+            StockDocKind::StockIn => "采购订单 PO-20261108-000004 到货验收".to_string(),
+            StockDocKind::StockOut => "生产领用（一号线检修）".to_string(),
+        },
+        remark: "收货时外包装完好，随货附材质证明书。".to_string(),
+        printed_at: "2026-11-08 19:30".to_string(),
+    })
 }
 
 /// 极简 HTML 转义（用于**拼进 HTML 片段**的少量字段：页脚里的单号）。
@@ -1148,5 +1954,371 @@ mod tests {
         let html = render_order(&ctx).expect("渲染必须成功");
         assert!(!html.contains("<script>alert(1)</script>"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    // ==================== 合同模板（PDF-03） ====================
+
+    /// 四份模板全部注册成功（语法错在测试里炸）。
+    #[test]
+    fn all_templates_register() {
+        let names: Vec<&str> = tera().get_template_names().collect();
+        for name in [STATEMENT_NAME, ORDER_NAME, CONTRACT_NAME, STOCK_NAME] {
+            assert!(names.contains(&name), "模板未注册：{name}");
+        }
+    }
+
+    /// 合同 HTML：甲乙双方 / 金额 / 期限 / 付款方式 / 正文 / 附件清单 /
+    /// 签字盖章位（甲方盖章 / 乙方盖章 / 日期）/ 骑缝章提示，一个都不能少。
+    #[test]
+    fn renders_sample_contract_html() {
+        let ctx = sample_contract(3);
+        let html = render_contract(&ctx).expect("模板渲染必须成功");
+
+        assert!(html.contains("<html lang=\"zh-CN\">"));
+        assert!(html.contains("合 同"), "页眉标题必须渲染");
+        assert!(html.contains(COMPANY_NAME));
+        assert!(html.contains("HT-20261108-000001"));
+        assert!(html.contains("不锈钢管件年度采购合同"), "合同名称必须在");
+
+        // 概要 + 甲乙双方
+        for label in ["合同类型", "状态", "负责人", "签订日期", "制单人"] {
+            assert!(html.contains(label), "合同概要缺字段：{label}");
+        }
+        assert!(html.contains("甲 方") && html.contains("乙 方"));
+        assert!(html.contains("北京某某机电设备有限公司"));
+        assert!(html.contains("上海市浦东新区张江路 100 号"));
+
+        // 金额 / 期限 / 付款方式
+        assert!(html.contains("1,234,567.89"), "小写金额必须千分位");
+        assert!(
+            html.contains("壹佰贰拾叁万肆仟伍佰陆拾柒元捌角玖分"),
+            "大写金额必须与小数同源"
+        );
+        assert!(html.contains("人民币"));
+        assert!(html.contains("2026-11-01 至 2027-10-31"), "期限必须在");
+        assert!(html.contains("付款方式"));
+        assert!(html.contains("货到验收合格后 30 日内电汇支付"));
+
+        // 正文全文（五条条款一条不缺 —— 「完整渲染」的正面断言）
+        for clause in [
+            "第一条 标的物",
+            "第二条 质量标准",
+            "第三条 交货方式",
+            "第四条",
+            "第五条 违约责任",
+        ] {
+            assert!(html.contains(clause), "条款正文缺：{clause}");
+        }
+
+        // 附件清单
+        assert!(html.contains("附件清单（共 3 份）"));
+        assert!(html.contains("采购合同-HT-20261108-000001-第1页.pdf"));
+        assert!(html.contains("合同扫描件"));
+        assert!(html.contains("补充协议"));
+        assert!(html.contains("KB"), "附件大小必须人类可读");
+
+        // 签字盖章位
+        assert!(html.contains("甲方（盖章）"));
+        assert!(html.contains("乙方（盖章）"));
+        assert!(html.contains("单位公章 / 合同专用章"));
+        assert_eq!(
+            html.matches("日期：________年____月____日").count(),
+            2,
+            "甲乙双方各一个日期位"
+        );
+        // 骑缝章提示
+        assert!(html.contains("骑缝章"), "骑缝章提示必须在");
+        assert!(html.contains(CONTRACT_SEAL_NOTE));
+
+        assert!(html.contains("tabular-nums"), "等宽数字必须在");
+        assert!(html.contains("Noto Sans SC"));
+        assert!(
+            html.contains("break-inside: avoid"),
+            "盖章位防断裂规则必须在"
+        );
+        assert!(
+            !html.contains("class=\"pageNumber\""),
+            "页码必须交给 footerTemplate"
+        );
+    }
+
+    /// 正文很长（多段 + 空行）时**一字不丢**：40 段全部出现，顺序不变。
+    #[test]
+    fn contract_body_is_rendered_in_full() {
+        let mut ctx = sample_contract(0);
+        let paragraphs: Vec<String> = (1..=40)
+            .map(|index| format!("第{index}段：本段落用于验证长正文不截断。"))
+            .collect();
+        ctx.body = paragraphs.join("\n\n");
+        ctx.has_body = true;
+        let html = render_contract(&ctx).expect("渲染必须成功");
+        for paragraph in &paragraphs {
+            assert!(html.contains(paragraph), "正文段落丢失：{paragraph}");
+        }
+        // 正文容器必须保留换行（pre-wrap），否则多段会挤成一坨
+        assert!(html.contains("white-space: pre-wrap"));
+    }
+
+    /// 没有正文 / 没有附件时走提示分支，而不是留一片空白。
+    #[test]
+    fn contract_without_body_or_attachments_shows_hint() {
+        let mut ctx = sample_contract(0);
+        ctx.body = "   ".to_string();
+        ctx.has_body = false;
+        let html = render_contract(&ctx).expect("渲染必须成功");
+        assert!(html.contains(CONTRACT_BODY_EMPTY_HINT));
+        assert!(html.contains(CONTRACT_ATTACHMENT_EMPTY_HINT));
+        assert!(html.contains("附件清单（共 0 份）"));
+        // 盖章位仍然要在（草稿合同也要能签字）
+        assert!(html.contains("甲方（盖章）"));
+    }
+
+    /// 合同里的用户数据必须被转义（正文里写 `<script>` 不能执行）。
+    #[test]
+    fn contract_content_is_escaped() {
+        let mut ctx = sample_contract(1);
+        ctx.body = "<script>alert(1)</script>".to_string();
+        ctx.contract_name = "<b>假合同</b>".to_string();
+        ctx.attachments[0].file_name = "<img src=x onerror=alert(1)>.pdf".to_string();
+        let html = render_contract(&ctx).expect("渲染必须成功");
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(!html.contains("<b>假合同</b>"));
+        assert!(!html.contains("<img src=x onerror=alert(1)>.pdf"));
+    }
+
+    /// 期限：两端 / 只有起 / 只有止 / 都没有（不编日期）。
+    #[test]
+    fn term_range_cases() {
+        assert_eq!(
+            term_range_of(Some("2026-01-01"), Some("2026-12-31")),
+            "2026-01-01 至 2026-12-31"
+        );
+        assert_eq!(term_range_of(Some("2026-01-01"), None), "2026-01-01 起");
+        assert_eq!(term_range_of(None, Some("2026-12-31")), "至 2026-12-31");
+        assert_eq!(term_range_of(None, None), "—");
+        assert_eq!(term_range_of(Some("  "), Some("")), "—");
+    }
+
+    /// 付款方式：能从备注里识别就印识别值，识别不到就如实说明（**不编值**）。
+    #[test]
+    fn payment_terms_extraction() {
+        assert_eq!(
+            payment_terms_of(Some(
+                "第四条 付款方式：货到验收后 30 日内电汇付清\n第五条 …"
+            )),
+            "货到验收后 30 日内电汇付清"
+        );
+        assert_eq!(
+            payment_terms_of(Some("结算方式 - 月结 60 天")),
+            "月结 60 天"
+        );
+        assert_eq!(payment_terms_of(Some("1. 付款条件: 预付 30%")), "预付 30%");
+        // 没有这个字段 / 只有标签没有值 → 兜底文案
+        assert_eq!(
+            payment_terms_of(Some("本合同自双方签字盖章之日起生效")),
+            PAYMENT_TERMS_EMPTY
+        );
+        assert_eq!(payment_terms_of(Some("付款方式：")), PAYMENT_TERMS_EMPTY);
+        assert_eq!(payment_terms_of(None), PAYMENT_TERMS_EMPTY);
+    }
+
+    /// 附件大小人类可读。
+    #[test]
+    fn size_formatting() {
+        assert_eq!(format_size(0), "0 B");
+        assert_eq!(format_size(512), "512 B");
+        assert_eq!(format_size(1024), "1.0 KB");
+        assert_eq!(format_size(1024 * 128 + 512), "128.5 KB");
+        assert_eq!(format_size(5 * 1024 * 1024), "5.0 MB");
+        assert_eq!(format_size(-1), "—");
+    }
+
+    /// 合同页脚：两个 Chromium 内建页码类 + 骑缝章提示 + 显式字号（默认 0 = 看不见）。
+    #[test]
+    fn contract_footer_has_pages_and_seal_hint() {
+        let footer = contract_footer("HT-20261108-000001");
+        assert!(footer.contains("class=\"pageNumber\""));
+        assert!(footer.contains("class=\"totalPages\""));
+        assert!(footer.contains("第 ") && footer.contains(" 页 / 共 "));
+        assert!(footer.contains("骑缝章"), "页脚要有骑缝章提示位");
+        assert!(footer.contains("font-size:8pt"));
+        assert!(footer.contains("Noto Sans SC"));
+        assert!(footer.contains("HT-20261108-000001"));
+        // 单号里的尖括号不能破坏页脚 HTML
+        let escaped = contract_footer("<b>HT</b>");
+        assert!(!escaped.contains("<b>HT</b>"));
+        assert!(escaped.contains("&lt;b&gt;HT&lt;/b&gt;"));
+    }
+
+    /// 合同渲染参数：A4 纵向 + 页脚开 + 下边距 ≥ 14mm。
+    #[test]
+    fn contract_pdf_opts_are_a4_with_footer() {
+        let opts = contract_pdf_opts(
+            "HT-20261108-000001",
+            Some("合同-HT-20261108-000001.pdf".to_string()),
+        );
+        assert_eq!(opts.page, crate::business::pdf::dto::PageSize::A4);
+        assert!(!opts.landscape);
+        assert!(opts.display_header_footer);
+        assert!(opts.footer_template.is_some());
+        assert!(opts.margins.bottom_mm >= 14.0);
+        assert!(!opts.prefer_css_page_size);
+        assert_eq!(
+            opts.filename.as_deref(),
+            Some("合同-HT-20261108-000001.pdf")
+        );
+    }
+
+    // ==================== 出入库单模板（PDF-03） ====================
+
+    /// 入库单 HTML：仓库 / 库位 / 经办人 / 供应商 / 来源单据号 / 批次号 / 收货签字栏。
+    #[test]
+    fn renders_sample_stock_in_html() {
+        let ctx = sample_stock(StockDocKind::StockIn, 3);
+        let html = render_stock(&ctx).expect("模板渲染必须成功");
+
+        assert!(html.contains("收 货 入 库 单"));
+        assert!(html.contains(COMPANY_NAME));
+        for label in [
+            "单号",
+            "日期",
+            "状态",
+            "供应商",
+            "仓库",
+            "来源单据号",
+            "经办人",
+        ] {
+            assert!(html.contains(label), "单据头缺字段：{label}");
+        }
+        assert!(html.contains("PO-20261108-000004"), "来源单据号必须打印");
+        // 明细列（含批次号 / 库位）
+        for head in [
+            "物料编码",
+            "物料名称",
+            "规格",
+            "单位",
+            "数量",
+            "单价",
+            "金额",
+            "批次号",
+            "库位",
+        ] {
+            assert!(html.contains(head), "明细表缺列：{head}");
+        }
+        assert!(html.contains("LOT20261101"), "批次号必须打印");
+        assert!(html.contains("A-01-01"), "库位必须打印");
+        assert_eq!(
+            html.matches("<td class=\"c-seq\">").count(),
+            3,
+            "3 行明细必须各出一个序号单元格"
+        );
+        // 合计四要素 + 大写
+        for total in [
+            "数量合计",
+            "金额合计",
+            "税额",
+            "价税合计",
+            "价税合计（大写）",
+        ] {
+            assert!(html.contains(total), "合计行缺：{total}");
+        }
+        assert!(html.contains("人民币"));
+        // 收货签字栏
+        for cap in ["收货人：", "质检：", "仓管：", "供应商送货人：", "制单："]
+        {
+            assert!(html.contains(cap), "签字栏缺：{cap}");
+        }
+        // 序列号清单（一物一码）
+        assert!(html.contains("序列号清单（一物一码）"));
+        assert!(html.contains("SN-20261108-000001"));
+        assert!(
+            html.contains("display: table-header-group"),
+            "跨页表头重复规则必须在"
+        );
+        assert!(!html.contains("class=\"pageNumber\""));
+    }
+
+    /// 出库单 HTML：标题 / 来源单据号 / 客户 / 发货签字栏；**不出现税额行**（成本口径）。
+    #[test]
+    fn renders_sample_stock_out_html() {
+        let ctx = sample_stock(StockDocKind::StockOut, 50);
+        let html = render_stock(&ctx).expect("模板渲染必须成功");
+
+        assert!(html.contains("出 库 单"));
+        assert!(!html.contains("收 货 入 库 单"));
+        assert!(html.contains("客户"));
+        assert!(
+            html.contains("SH-20261108-000003"),
+            "出库单必须打印来源单据号"
+        );
+        assert!(html.contains("领用"), "出库类型必须打印");
+        assert!(html.contains("成本结转合计"));
+        assert!(html.contains("成本金额（大写）"));
+        assert!(
+            !html.contains("价税合计"),
+            "出库单没有税额口径，不许出现价税合计"
+        );
+        assert!(!html.contains("税额"), "出库单不许出现税额行");
+        for cap in ["发货人：", "领用人／收货人：", "仓管：", "审核：", "制单："]
+        {
+            assert!(html.contains(cap), "发货签字栏缺：{cap}");
+        }
+        assert_eq!(
+            html.matches("<td class=\"c-seq\">").count(),
+            50,
+            "50 行明细必须全部渲染（跨页由浏览器分页，不是截断）"
+        );
+        // 出库单不登记序列号 → 整段不出现（按标题断言：模板内联 CSS 的注释里也有这个词）
+        assert!(!html.contains("序列号清单（一物一码）"));
+    }
+
+    /// 明细里的用户数据必须被转义。
+    #[test]
+    fn stock_item_content_is_escaped() {
+        let mut ctx = sample_stock(StockDocKind::StockIn, 1);
+        ctx.items[0].material_name = "<script>alert(1)</script>".to_string();
+        ctx.items[0].lot_no = "\"lot\"".to_string();
+        let html = render_stock(&ctx).expect("渲染必须成功");
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    /// 出入库单页脚与渲染参数。
+    #[test]
+    fn stock_footer_and_opts() {
+        let footer = stock_footer(StockDocKind::StockOut, "OUT-20261108-000001");
+        assert!(footer.contains("class=\"pageNumber\""));
+        assert!(footer.contains("class=\"totalPages\""));
+        assert!(footer.contains("出库单 OUT-20261108-000001"));
+        assert!(footer.contains("font-size:8pt"));
+
+        let opts = stock_pdf_opts(
+            StockDocKind::StockIn,
+            "IN-1",
+            Some("收货入库单-IN-1.pdf".to_string()),
+        );
+        assert_eq!(opts.page, crate::business::pdf::dto::PageSize::A4);
+        assert!(opts.display_header_footer);
+        assert!(opts.margins.bottom_mm >= 14.0);
+        assert_eq!(opts.filename.as_deref(), Some("收货入库单-IN-1.pdf"));
+    }
+
+    /// 单据种类 → 标题 / 表名 / 税额口径 / 签字栏 一一对应（拼错就等于打错单据）。
+    #[test]
+    fn stock_doc_kind_metadata() {
+        assert_eq!(StockDocKind::StockIn.title(), "收 货 入 库 单");
+        assert_eq!(StockDocKind::StockOut.title(), "出 库 单");
+        assert_eq!(StockDocKind::StockIn.table(), "biz_stock_in");
+        assert_eq!(StockDocKind::StockOut.table(), "biz_stock_out");
+        assert_eq!(StockDocKind::StockIn.doc_kind_str(), "STOCK_IN");
+        assert_eq!(StockDocKind::StockOut.doc_kind_str(), "STOCK_OUT");
+        assert!(StockDocKind::StockIn.has_tax());
+        assert!(!StockDocKind::StockOut.has_tax());
+        assert_ne!(
+            StockDocKind::StockIn.sign_caps(),
+            StockDocKind::StockOut.sign_caps(),
+            "收货 / 发货签字栏必须不同"
+        );
     }
 }
