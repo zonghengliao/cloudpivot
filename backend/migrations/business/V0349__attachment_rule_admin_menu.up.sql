@@ -22,7 +22,8 @@
 --   title  = `附件规则`（侧边栏显示名，4 字，不带标点 / 说明）
 --   path   = `/support/attachment-rule`（与前端路由、`component` 逐字对齐）
 --   parent = `10000000-0000-0000-0000-000000000022`（支撑功能目录）
---   sort   = 70（支撑功能下已有 10/20/30/40/50/60，**同父唯一**）
+--   sort   = 80（支撑功能下已有 10/20/30/40/50/60 + 账务巡检 70，**同父唯一**；
+--            首版写 70，被 `scripts/verify/menu_invariants.sh` ⑦ 断言拦下后改 80）
 --
 -- # 幂等
 --
@@ -46,7 +47,7 @@ VALUES ('20000000-0000-0000-0000-0000000a0901'::uuid,
         'support:attachment-rule', 2, 'support:attachment-rule:list',
         '/support/attachment-rule', '10000000-0000-0000-0000-000000000022'::uuid,
         'support/attachment-rule/index',
-        70, 1, 'file', '附件规则', TRUE, 'support')
+        80, 1, 'file', '附件规则', TRUE, 'support')
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================
