@@ -1,0 +1,13 @@
+=== schema_migrations 条数（空库首启应用 278 条，DB 侧复核） ===
+278
+
+=== 重启幂等：第二次启动应用 0 条（instance.log 头 5 行）===
+[2m2026-11-08T11:56:38.640512Z[0m [32m INFO[0m [2mnik_db::factory[0m[2m:[0m database connection established [3mdb_type[0m[2m=[0mpostgres [3murl[0m[2m=[0mpostgres://cloudpivot:***@127.0.0.1:5432/cloudpivot_pdf03?sslmode=prefer
+[2m2026-11-08T11:56:38.641324Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库连接成功
+[2m2026-11-08T11:56:38.830091Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+[2m2026-11-08T11:56:38.830179Z[0m [32m INFO[0m [2mnik_cache[0m[2m:[0m 使用 Redis 缓存 url=redis://127.0.0.1:6379/8 app=cloudpivot
+[2m2026-11-08T11:56:38.831074Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 上传目录就绪 path=uploads max_size_mb=128
+
+=== 实例二进制 / 端口 ===
+2e4ec1fd97281aa00a31b1a34451ec52  /root/pdf03-bin/cloudpivot
+LISTEN 0      128        127.0.0.1:8078      0.0.0.0:*   
