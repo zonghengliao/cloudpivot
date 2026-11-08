@@ -213,7 +213,8 @@ pub fn format_int(value: i64) -> String {
     let digits = value.unsigned_abs().to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3 + 1);
     for (index, ch) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index) % 3 == 0 {
+        // 每 3 位插一个千分位分隔符（clippy: 用 is_multiple_of 而不是 % == 0）
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
             out.push(',');
         }
         out.push(ch);

@@ -54,6 +54,10 @@ sudo bash scripts/pdf/install-pdf-infra.sh --check  # 只自检，不改系统�
 三个接口都挂权限码 `business:pdf:render:export`，而迁移 `V0343` **只把这个码授予
 `SUPER_ADMIN`**。`/render` 接受任意 HTML，等价于「让服务器渲染任意页面」，不能给普通角色。
 
+> 空库首启时 `V0343` 里那条 `sys_role_menu` 插入是 **0 行**（`SUPER_ADMIN` 由 seed 在全部
+> `V*` 之后才种，`V0020` 的监控权限点同理）。这不影响鉴权：超管走 `role_code` 短路。
+> 已有数据的库升级时会正常插入 1 行，角色授权页可见该权限点。
+
 ### 4.1 `GET /api/business/pdf/health`
 
 自检（运维巡检用）：返回 Chromium 版本、协议版本、并发上限、当前在渲数、累计成功/失败数、
