@@ -118,9 +118,19 @@ down.sql：只清草稿（本次 0 个），已发布档保持冻结；再重放
 
 ### 3.3 门禁（`raw/30_checks.txt`）
 
-- `cargo fmt`（本卡 7 个 Rust 文件）干净；
+- `cargo fmt`（本卡 8 个 Rust 文件）干净；
 - `cargo clippy --lib -- -D warnings`：只剩既有基线 `erp/sales_order_model.rs update_order too_many_arguments(8/7)`（P2-02 起），本卡文件零告警；
 - 单测：`business::flow::graph::tests` 39 passed / `flow::engine` 15 passed（含新增 4 条）/ `flow::sign_freeze` 1 passed；
+- **全量 flow 真库套件**（干净库 `cloudpivot_p306_clean`）：`482 passed / 3 failed`，3 条失败全是
+  P2-03 起的 `linkage` 既有基线（`PURCHASE_RETURN` 由其它卡新接、装配表未同步），与本卡无关；
+  原始输出 `raw/35_flow_suite.txt`。**同一条命令在本卡改守卫之前是 18 failed** —— 多出的 15 条是
+  `edge_admin_tests` 的「种子图 hash 字面基线」，见下一条；
+- **改了 `edge_admin_tests` 的基线守卫**（本卡唯一改动到别人测试文件的地方，必须说明）：
+  它把 `BASELINE_GRAPH_HASH = "c0ad61…"` 当「图没被改过」的证据。P3-06 之后 `approval_mode`
+  是**按环境数据冻结**的（角色成员数决定 `ALL`/`ANY`），同一份种子图在不同库的 hash **本来就不同**，
+  字面 hash 会变成「换个库就红」。因此守卫改为**结构断言**（定义 id / 节点 key / 节点数 / 边数 /
+  `n_cfg` 审批人来源与空审批人策略 / 审批人行），并把「行 ↔ hash ↔ 快照三者一致」留给同文件的
+  `seed_flow_hash_matches_rows`（那才是 D4d 日检口径）；V0206 原始 hash 在注释里留档；
 - `pnpm typecheck`（`vue-tsc --noEmit`）exit 0；
 - 前端 `pnpm test:unit`：**1051 tests / 1049 pass / 2 fail**，两条失败均为**他人在本工作区的在途改动**
   （`erp-sales-order` 的 `currency_code` 字段、`flow-biz-link` 的 `FlowBizType` 15→16 条），与本卡文件无关（见 `raw/40_git.txt` 的改动面）。

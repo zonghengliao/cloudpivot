@@ -1,0 +1,18 @@
+== cargo test --lib -j 1 -- business::flow:: --skip business::flow::internal_control::db_tests
+库：cloudpivot_p306_clean（scripts/verify/erp_clean_db.sh RECREATE=1，用本卡二进制首启建库）
+
+test result: FAILED. 482 passed; 3 failed; 0 ignored; 0 measured; 2996 filtered out; finished in 85.61s
+
+-- 失败清单（3 条均为 P2-03 起的 linkage 既有基线：PURCHASE_RETURN 由其它卡新接、装配表未同步）
+failures:
+
+---- business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag stdout ----
+
+thread 'business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag' (147426) panicked at src/business/flow/linkage/admin.rs:1159:9:
+assertion `left == right` failed: 已接线的触发点：STOCK_IN / STOCK_OUT（P1-FIX-5C 新接）/ STOCK_TRANSFER（LNK-01 新接）/ PURCHASE_ORDER（LNK-02 新接）/ PAYABLE（LNK-03 新接）/ VOUCHER（LNK-06 新接）/ ACCOUNTING_PERIOD（LNK-08 新接）/ ACCOUNTING_YEAR（LNK-11 新接）/ CONTRACT（LNK-07 新接）/ STOCK_TAKE（LNK-04 新接）/ FIXED_ASSET（LNK-09 新接）/ DEPRECIATION（LNK-10 新接）/ EXPENSE_REPORT（LNK-05 新接）/ TASK / FLOW_INSTANCE（LNK-12 新接）
+  left: ["STOCK_IN", "STOCK_OUT", "STOCK_TRANSFER", "PURCHASE_ORDER", "PAYABLE", "VOUCHER", "ACCOUNTING_PERIOD", "ACCOUNTING_YEAR", "CONTRACT", "STOCK_TAKE", "FIXED_ASSET", "DEPRECIATION", "EXPENSE_REPORT", "PURCHASE_RETURN", "TASK", "FLOW_INSTANCE"]
+ right: ["STOCK_IN", "STOCK_OUT", "STOCK_TRANSFER", "PURCHASE_ORDER", "PAYABLE", "VOUCHER", "ACCOUNTING_PERIOD", "ACCOUNTING_YEAR", "CONTRACT", "STOCK_TAKE", "FIXED_ASSET", "DEPRECIATION", "EXPENSE_REPORT", "TASK", "FLOW_INSTANCE"]
+
+-- 上一轮（未修 edge_admin 基线守卫前的同一命令）
+test result: FAILED. 467 passed; 18 failed; 0 ignored; 0 measured; 2996 filtered out; finished in 57.26s
+   18 failed = 15 条 edge_admin 基线守卫 + 3 条 linkage 基线

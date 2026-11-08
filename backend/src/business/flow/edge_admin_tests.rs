@@ -341,12 +341,19 @@ async fn purge() {
 /// 种子流程 `flow_edge_config` 的定义 id（V0206 里写死的 uuid；被换掉 = 别人重新发布了流程）。
 const SEED_DEF_ID: &str = "20000000-0000-4000-8000-0000000e0206";
 
-/// 种子图的基线指纹（V0206 的 `graph_hash`，与「从 node/edge/assignee 行重建」逐字节一致）。
+/// 种子图的基线指纹 —— **P3-06 起不再用字面 hash**。
 ///
-/// 变了只有两种可能：① 有人正当改了种子（那要同步改这里，并在提交里写明是哪条迁移）；
-/// ② 有人在共用库上把图改了（夹具污染，本例的前提没了）。守卫的报错会把这两种可能都写出来。
-const BASELINE_GRAPH_HASH: &str =
-    "c0ad61937b734114f6865f9347b57ab9824f560605e522a204d22650baa30e08";
+/// # 为什么（P3-06 的语义变更）
+///
+/// `approval_mode` 从「NULL = 全员签」改成「NULL = 或签」之后，存量节点的模式必须**按环境数据
+/// 冻结**（候选人数 ≥2 → `ALL`，否则 `ANY`，见 `V0339` + `flow::sign_freeze`）。也就是说
+/// 同一份种子图在不同环境的快照 hash **本来就不同**（该角色有几个成员决定 `ALL`/`ANY`），
+/// 字面 hash 基线会变成「换个库就红」。
+///
+/// 所以守卫改成**结构断言**（定义 id / 节点 key / 节点数 / 边数 / `n_cfg` 的审批人来源与
+/// 空审批人策略 / 审批人行）—— 那才是「图被改过」的真正信号；「行 ↔ 快照 ↔ hash 三者一致」
+/// 由 [`seed_flow_hash_matches_rows`] 守（那才是 D4d 日检的口径）。
+/// 历史值（V0206 原始 hash，冻结前）留档备查：`c0ad61937b734114f6865f9347b57ab9824f560605e522a204d22650baa30e08`。
 
 /// 复核岗角色码（V0206 种子角色；`n_cfg` 的审批人来源）。
 const APPROVER_ROLE_CODE: &str = "FLOW_CONFIG_APPROVER";
@@ -449,15 +456,15 @@ async fn guard_published_flow_graph() {
              {detail}\n\
              本模块全部真库用例的前提是「s → n_cfg(ROLE={APPROVER_ROLE_CODE}, 单人复核) → e」。\n\
              两种可能：① 有用例/脚本在**共用库**上改了这张图（改完没恢复）；\n\
-             ② 种子被正当替换了 —— 那要同步更新本文件的 `BASELINE_GRAPH_HASH` / `SEED_DEF_ID`，\n\
+             ② 种子被正当替换了 —— 那要同步本文件的 `SEED_DEF_ID` 与结构断言，\n\
                 并在提交里写明是哪条迁移改的图。\n\
              修法：换一个干净隔离库跑（`scripts/verify/erp_clean_db.sh`），或把种子图恢复成 V0206 的版本。"
         )
     };
 
-    if hash != BASELINE_GRAPH_HASH || nodes != 3 || edges != 2 {
+    if nodes != 3 || edges != 2 {
         pollution(format!(
-            "基线：hash={BASELINE_GRAPH_HASH} node_count=3 edge_count=2\n\
+            "基线：node_count=3 edge_count=2\n\
              实际：hash={hash} node_count={nodes} edge_count={edges}（版本 {}）",
             flow.version_id
         ));
@@ -594,11 +601,18 @@ async fn seed_flow_hash_matches_rows() {
     let status: String = row.get_typed("status").expect("status");
     assert_eq!(biz_type, edge_admin::BIZ_TYPE);
     assert_eq!(status, "PUBLISHED");
-    // 与 `prepare()` 里那道守卫同一口径：指纹必须还是 V0206 的基线（图被改过 = 夹具污染，
-    // 那会让本模块所有「单人复核」用例一起假红，见文件头「夹具：隔离 + 守卫」）。
+    // P3-06 起不再比字面基线（`approval_mode` 是按环境数据冻结的，见守卫处的说明）：
+    // 这里只要求「是个合法 sha256」，真正的守卫是下面的三条一致（行 ↔ hash ↔ 快照）。
     assert_eq!(
-        stored_hash, BASELINE_GRAPH_HASH,
-        "已发布 flow_edge_config 的 graph_hash 已偏离基线（图被改过？见 guard_published_flow_graph 的说明）"
+        stored_hash.len(),
+        64,
+        "graph_hash 必须是 64 位小写十六进制（当前 {stored_hash}）"
+    );
+    assert!(
+        stored_hash
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+        "graph_hash 必须是 64 位小写十六进制（当前 {stored_hash}）"
     );
     assert_eq!(row.get_typed::<i32>("node_count").expect("node_count"), 3);
     assert_eq!(row.get_typed::<i32>("edge_count").expect("edge_count"), 2);
