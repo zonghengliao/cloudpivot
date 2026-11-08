@@ -87,7 +87,17 @@ pdffonts /tmp/statement500.pdf
 pdfinfo /tmp/statement500.pdf | grep -E 'Pages|Page size|PDF version'
 ```
 
-## 六、过程中发现并修掉的问题（都写进了代码注释）
+## 六、门禁（最终 commit `2dc0912` 上重跑）
+
+| 检查 | 命令 | 结果 |
+|------|------|------|
+| 模块单测 | `cargo test --lib business::pdf` | **35 passed / 0 failed / 0 ignored** |
+| clippy | `cargo clippy --lib` | `business/pdf` **0 告警**（全 lib 剩 6 条都是别的模块的既有告警：`unused import`） |
+| 全量 lib 单测 | `cargo test --lib` | **3571 passed / 4 failed**；4 条全是**既有红**：`business::flow::linkage::{admin,tests_wiring}` ×3（LNK-12 触发点计数未跟上）+ `shared::startup_guard::tests::merge_semantics_or_base_and_profile`。这三个文件最后的改动者是 LNK-12（`6eb7699` / `e83e1f8`）与 `47043b6`，与本卡无关 |
+| 迁移 | 空库首启 / 二次启动 | **276 条** / **0 条**（幂等）；`business:pdf:render:export` 权限点行存在（`menu_type=3`，空库首启 `sys_role_menu` 0 行，见 V0343 注释） |
+| 安装脚本 | `bash scripts/pdf/install-pdf-infra.sh --check` | **8 项全 PASS** |
+
+## 七、过程中发现并修掉的问题（都写进了代码注释）
 
 1. **字体是体积的生死线**：`fonts-noto-cjk` 的 `NotoSansCJK-*.ttc`（CFF + 字体集合）被 Chromium
    的 Skia 退化成「每个字形一个 Type3 字体对象」，20 行对账单单页 **311KB**；换成从可变字体实例化
