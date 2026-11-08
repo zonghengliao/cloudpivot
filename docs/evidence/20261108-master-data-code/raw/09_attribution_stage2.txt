@@ -1,0 +1,192 @@
+=== 归因第二阶段：补带部门用户后重跑 ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 114 tests
+test business::erp::asset_linkage_tests::lnk09_cancel_disposal_triggers_restore_notice ... ok
+test business::erp::asset_linkage_tests::lnk09_disposal_triggers_disposed_notice ... ok
+test business::erp::asset_linkage_tests::lnk09_excluded_voucher_actions_never_run ... ok
+test business::erp::asset_linkage_tests::lnk09_repeat_disposal_does_not_trigger_twice ... ok
+test business::erp::asset_linkage_tests::lnk09_rolled_back_tx_never_sends_notice ... ok
+test business::erp::asset_linkage_tests::st02_dispose_restore_dispose_notifies_twice ... ok
+test business::erp::asset_linkage_tests::st02_enable_triggers_once ... ok
+test business::erp::asset_linkage_tests::st02_excluded_actions_not_run ... ok
+test business::erp::asset_linkage_tests::st02_idle_triggers_once ... ok
+test business::erp::asset_linkage_tests::st02_repeat_idle_conflicts ... ok
+test business::erp::asset_linkage_tests::st02_reversible_edges_notify_twice ... ok
+test business::erp::expense_linkage_tests::lnk05_approve_triggers_linkage_notice_and_single_voucher ... FAILED
+test business::erp::expense_linkage_tests::lnk05_cancel_triggers_linkage_notice ... FAILED
+test business::erp::expense_linkage_tests::lnk05_pay_triggers_only_on_full_payment ... FAILED
+test business::erp::expense_linkage_tests::lnk05_reject_reverts_to_draft_and_triggers ... FAILED
+test business::erp::expense_linkage_tests::lnk05_repeat_submit_and_pay_do_not_trigger_twice ... FAILED
+test business::erp::expense_linkage_tests::lnk05_submit_triggers_linkage_notice ... FAILED
+test business::erp::receivable_aging::tests::assemble_computes_ratio_and_detail_buckets ... ok
+test business::erp::receivable_aging::tests::bucket_boundaries_are_identical_to_payable ... ok
+test business::erp::receivable_aging::tests::db_bucket_boundaries_and_backet_source_agree ... ok
+test business::erp::receivable_aging::tests::db_customer_pivot_and_summary_are_consistent ... ok
+test business::erp::receivable_aging::tests::db_period_cutoff_excludes_later_documents ... ok
+test business::erp::receivable_aging::tests::overdue_and_as_of_are_shared_with_payable ... ok
+test business::erp::receivable_aging::tests::pivot_fills_missing_buckets_and_sorts_by_amount ... ok
+test business::erp::receivable_aging::tests::sql_bucket_case_comes_from_payable ... ok
+test business::erp::receivable_aging::tests::summary_sums_match_customers ... ok
+test business::erp::voucher_linkage_tests::lnk06_create_audit_post_each_trigger_once ... ok
+test business::erp::voucher_linkage_tests::lnk06_excluded_generate_voucher_never_runs ... ok
+test business::erp::voucher_linkage_tests::lnk06_forbidden_actions_are_declared ... ok
+test business::erp::voucher_linkage_tests::lnk06_generate_voucher_rule_is_rejected_on_save ... ok
+test business::erp::voucher_linkage_tests::lnk06_repeat_post_does_not_trigger_twice ... ok
+test business::erp::voucher_linkage_tests::lnk06_reverse_triggers_posted_for_red_voucher ... ok
+test business::flow::linkage::admin::tests::catalog_covers_every_action_and_trigger ... ok
+test business::flow::linkage::admin::tests::catalog_implemented_flags_match_spec ... ok
+test business::flow::linkage::admin::tests::catalog_triggers_carry_status_labels ... ok
+test business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag ... FAILED
+test business::flow::linkage::admin::tests::draft_check_rejects_bad_input ... ok
+test business::flow::linkage::admin::tests::draft_check_rejects_unwired_trigger ... ok
+test business::flow::linkage::admin::tests::rule_res_carries_trigger_status_label ... ok
+test business::flow::linkage::admin::tests::unknown_trigger_and_status_are_rejected ... ok
+test business::flow::linkage::spec::tests::status_label_lookup_rejects_unknown ... ok
+test business::flow::linkage::spec::tests::status_labels_are_well_formed ... ok
+test business::flow::linkage::spec::tests::status_labels_cover_known_statuses ... ok
+test business::flow::linkage::spec::tests::status_labels_match_doc_modules ... ok
+test business::flow::linkage::tests::after_commit_actions_are_never_critical ... ok
+test business::flow::linkage::tests::engine_critical_failure_rolls_back ... ok
+test business::flow::linkage::tests::engine_is_fail_safe_when_table_missing ... ok
+test business::flow::linkage::tests::engine_runs_in_seq_order ... ok
+test business::flow::linkage::tests::engine_skips_disabled_rules ... ok
+test business::flow::linkage::tests::engine_skips_missing_target ... ok
+test business::flow::linkage::tests::engine_skips_placeholder_action ... ok
+test business::flow::linkage::tests::forbidden_sql_keys_are_rejected ... ok
+test business::flow::linkage::tests::migration_check_covers_every_action_code ... ok
+test business::flow::linkage::tests::notice_setting_parsing ... ok
+test business::flow::linkage::tests::param_types_are_enforced ... ok
+test business::flow::linkage::tests::params_must_be_object ... ok
+test business::flow::linkage::tests::required_params_are_enforced ... ok
+test business::flow::linkage::tests::shape_notice_defaults_are_identical ... ok
+test business::flow::linkage::tests::status_notice_bad_params_fall_back_to_legacy ... ok
+test business::flow::linkage::tests::status_notice_shadow_keeps_legacy ... ok
+test business::flow::linkage::tests::status_notice_takeover_sends_configured_notice ... ok
+test business::flow::linkage::tests::status_notice_without_rule_is_legacy ... ok
+test business::flow::linkage::tests::triggers_cover_state_machine_entities ... ok
+test business::flow::linkage::tests::unknown_param_key_is_rejected ... ok
+test business::flow::linkage::tests::upsert_rejects_not_implemented_action ... ok
+test business::flow::linkage::tests::upsert_rejects_params_with_sql_key ... ok
+test business::flow::linkage::tests::upsert_rejects_unknown_action_code ... ok
+test business::flow::linkage::tests::upsert_rejects_unknown_trigger ... ok
+test business::flow::linkage::tests::upsert_requires_super_admin_and_confirm ... ok
+test business::flow::linkage::tests::upsert_then_load_roundtrip ... ok
+test business::flow::linkage::tests::uuid_list_kind_validates_items ... ok
+test business::flow::linkage::tests::voucher_action_fails_and_rolls_back_when_period_closed ... ok
+test business::flow::linkage::tests::voucher_action_params_are_validated_on_write ... ok
+test business::flow::linkage::tests::voucher_action_skips_inactive_template ... ok
+test business::flow::linkage::tests::voucher_action_skips_missing_target ... ok
+test business::flow::linkage::tests::voucher_action_skips_zero_amount_doc ... ok
+test business::flow::linkage::tests::voucher_new_path_matches_legacy_field_by_field ... ok
+test business::flow::linkage::tests::voucher_shadow_rolls_back_and_compares ... ok
+test business::flow::linkage::tests::whitelist_has_eight_or_more_actions ... ok
+test business::flow::linkage::tests_presets::engine_skips_only_actions_routed_elsewhere ... ok
+test business::flow::linkage::tests_presets::every_preset_action_is_implemented ... ok
+test business::flow::linkage::tests_presets::every_preset_params_have_no_sql_key ... ok
+test business::flow::linkage::tests_presets::every_preset_params_pass_layer2_validation ... ok
+test business::flow::linkage::tests_presets::every_preset_status_is_reachable ... ok
+test business::flow::linkage::tests_presets::every_preset_trigger_is_whitelisted ... ok
+test business::flow::linkage::tests_presets::migration_down_removes_the_same_keys ... ok
+test business::flow::linkage::tests_presets::migration_seeds_every_preset_row ... ok
+test business::flow::linkage::tests_presets::preset_keys_are_unique ... ok
+test business::flow::linkage::tests_presets::presets_are_exactly_three ... ok
+test business::flow::linkage::tests_presets::presets_are_takeover_not_shadow ... ok
+test business::flow::linkage::tests_presets::presets_cover_both_execution_entries ... ok
+test business::flow::linkage::tests_presets::stockin_post_wires_generic_engine_and_excludes_voucher ... ok
+test business::flow::linkage::tests_wiring::asset_wires_generic_engine_and_excludes_voucher ... ok
+test business::flow::linkage::tests_wiring::contract_wires_generic_engine_and_excludes_voucher ... ok
+test business::flow::linkage::tests_wiring::depreciation_wires_generic_engine_and_excludes_voucher ... ok
+test business::flow::linkage::tests_wiring::every_trigger_declares_wired_and_reason ... ok
+test business::flow::linkage::tests_wiring::expense_excluded_actions_are_routed_elsewhere ... ok
+test business::flow::linkage::tests_wiring::expense_wires_generic_engine_and_excludes_voucher ... ok
+test business::flow::linkage::tests_wiring::flow_instance_wires_generic_engine_and_excludes_ledger_actions ... ok
+test business::flow::linkage::tests_wiring::payable_excluded_actions_are_routed_elsewhere ... ok
+test business::flow::linkage::tests_wiring::payable_status_wires_generic_engine_and_excludes_balance_and_voucher ... ok
+test business::flow::linkage::tests_wiring::period_wires_generic_engine_and_excludes_ledger_actions ... ok
+test business::flow::linkage::tests_wiring::purchase_excluded_actions_are_routed_elsewhere ... ok
+test business::flow::linkage::tests_wiring::purchase_order_wires_generic_engine_and_excludes_stock_actions ... ok
+test business::flow::linkage::tests_wiring::stockout_post_wires_generic_engine_and_excludes_dedicated_actions ... ok
+test business::flow::linkage::tests_wiring::stocktake_excluded_actions_are_routed_elsewhere ... ok
+test business::flow::linkage::tests_wiring::stocktake_wires_generic_engine_and_excludes_inventory ... ok
+test business::flow::linkage::tests_wiring::transfer_excluded_actions_are_routed_elsewhere ... ok
+test business::flow::linkage::tests_wiring::transfer_status_wires_generic_engine_and_excludes_inventory ... ok
+test business::flow::linkage::tests_wiring::trigger_specs_cover_whitelist_in_order ... FAILED
+test business::flow::linkage::tests_wiring::voucher_wires_generic_engine_excludes_and_forbids_generate ... ok
+test business::flow::linkage::tests_wiring::wired_trigger_proofs_exist_in_source ... ok
+test business::flow::linkage::tests_wiring::wired_triggers_match_call_sites ... FAILED
+test business::flow::linkage::tests_wiring::year_end_wires_generic_engine_and_excludes_ledger_actions ... ok
+
+failures:
+
+---- business::erp::expense_linkage_tests::lnk05_approve_triggers_linkage_notice_and_single_voucher stdout ----
+
+thread 'business::erp::expense_linkage_tests::lnk05_approve_triggers_linkage_notice_and_single_voucher' (598427) panicked at src/business/erp/expense_linkage_tests.rs:330:31:
+提交失败：65018 节点「直属上级审批」的审批人全部是制单人 / 发起人本人，内控（职责分离）不允许他们审批自己的单据，本节点没有一个可用审批人：超级管理员（内控：单据制单人不可审批自己制单的单据（职责分离），已跳过并留痕）。升级链与兜底人均未配置。请先把该节点的审批岗位（角色成员 / 指定审批人）、升级链上每一级的角色或节点兜底人指派给非制单人、非发起人；或改由他人提交本单。（报销单保持草稿、没有生成审批单：请让能审批的人提交，或把一位非制单人加入该节点的审批岗位后再提交）
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- business::erp::expense_linkage_tests::lnk05_cancel_triggers_linkage_notice stdout ----
+
+thread 'business::erp::expense_linkage_tests::lnk05_cancel_triggers_linkage_notice' (598462) panicked at src/business/erp/expense_linkage_tests.rs:330:31:
+提交失败：65018 节点「直属上级审批」的审批人全部是制单人 / 发起人本人，内控（职责分离）不允许他们审批自己的单据，本节点没有一个可用审批人：超级管理员（内控：单据制单人不可审批自己制单的单据（职责分离），已跳过并留痕）。升级链与兜底人均未配置。请先把该节点的审批岗位（角色成员 / 指定审批人）、升级链上每一级的角色或节点兜底人指派给非制单人、非发起人；或改由他人提交本单。（报销单保持草稿、没有生成审批单：请让能审批的人提交，或把一位非制单人加入该节点的审批岗位后再提交）
+
+---- business::erp::expense_linkage_tests::lnk05_pay_triggers_only_on_full_payment stdout ----
+
+thread 'business::erp::expense_linkage_tests::lnk05_pay_triggers_only_on_full_payment' (598496) panicked at src/business/erp/expense_linkage_tests.rs:330:31:
+提交失败：65018 节点「直属上级审批」的审批人全部是制单人 / 发起人本人，内控（职责分离）不允许他们审批自己的单据，本节点没有一个可用审批人：超级管理员（内控：单据制单人不可审批自己制单的单据（职责分离），已跳过并留痕）。升级链与兜底人均未配置。请先把该节点的审批岗位（角色成员 / 指定审批人）、升级链上每一级的角色或节点兜底人指派给非制单人、非发起人；或改由他人提交本单。（报销单保持草稿、没有生成审批单：请让能审批的人提交，或把一位非制单人加入该节点的审批岗位后再提交）
+
+---- business::erp::expense_linkage_tests::lnk05_reject_reverts_to_draft_and_triggers stdout ----
+
+thread 'business::erp::expense_linkage_tests::lnk05_reject_reverts_to_draft_and_triggers' (598530) panicked at src/business/erp/expense_linkage_tests.rs:330:31:
+提交失败：65018 节点「直属上级审批」的审批人全部是制单人 / 发起人本人，内控（职责分离）不允许他们审批自己的单据，本节点没有一个可用审批人：超级管理员（内控：单据制单人不可审批自己制单的单据（职责分离），已跳过并留痕）。升级链与兜底人均未配置。请先把该节点的审批岗位（角色成员 / 指定审批人）、升级链上每一级的角色或节点兜底人指派给非制单人、非发起人；或改由他人提交本单。（报销单保持草稿、没有生成审批单：请让能审批的人提交，或把一位非制单人加入该节点的审批岗位后再提交）
+
+---- business::erp::expense_linkage_tests::lnk05_repeat_submit_and_pay_do_not_trigger_twice stdout ----
+
+thread 'business::erp::expense_linkage_tests::lnk05_repeat_submit_and_pay_do_not_trigger_twice' (598565) panicked at src/business/erp/expense_linkage_tests.rs:330:31:
+提交失败：65018 节点「直属上级审批」的审批人全部是制单人 / 发起人本人，内控（职责分离）不允许他们审批自己的单据，本节点没有一个可用审批人：超级管理员（内控：单据制单人不可审批自己制单的单据（职责分离），已跳过并留痕）。升级链与兜底人均未配置。请先把该节点的审批岗位（角色成员 / 指定审批人）、升级链上每一级的角色或节点兜底人指派给非制单人、非发起人；或改由他人提交本单。（报销单保持草稿、没有生成审批单：请让能审批的人提交，或把一位非制单人加入该节点的审批岗位后再提交）
+
+---- business::erp::expense_linkage_tests::lnk05_submit_triggers_linkage_notice stdout ----
+
+thread 'business::erp::expense_linkage_tests::lnk05_submit_triggers_linkage_notice' (598600) panicked at src/business/erp/expense_linkage_tests.rs:330:31:
+提交失败：65018 节点「直属上级审批」的审批人全部是制单人 / 发起人本人，内控（职责分离）不允许他们审批自己的单据，本节点没有一个可用审批人：超级管理员（内控：单据制单人不可审批自己制单的单据（职责分离），已跳过并留痕）。升级链与兜底人均未配置。请先把该节点的审批岗位（角色成员 / 指定审批人）、升级链上每一级的角色或节点兜底人指派给非制单人、非发起人；或改由他人提交本单。（报销单保持草稿、没有生成审批单：请让能审批的人提交，或把一位非制单人加入该节点的审批岗位后再提交）
+
+---- business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag stdout ----
+
+thread 'business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag' (598940) panicked at src/business/flow/linkage/admin.rs:1159:9:
+assertion `left == right` failed: 已接线的触发点：STOCK_IN / STOCK_OUT（P1-FIX-5C 新接）/ STOCK_TRANSFER（LNK-01 新接）/ PURCHASE_ORDER（LNK-02 新接）/ PAYABLE（LNK-03 新接）/ VOUCHER（LNK-06 新接）/ ACCOUNTING_PERIOD（LNK-08 新接）/ ACCOUNTING_YEAR（LNK-11 新接）/ CONTRACT（LNK-07 新接）/ STOCK_TAKE（LNK-04 新接）/ FIXED_ASSET（LNK-09 新接）/ DEPRECIATION（LNK-10 新接）/ EXPENSE_REPORT（LNK-05 新接）/ TASK / FLOW_INSTANCE（LNK-12 新接）
+  left: ["STOCK_IN", "STOCK_OUT", "STOCK_TRANSFER", "PURCHASE_ORDER", "PAYABLE", "VOUCHER", "ACCOUNTING_PERIOD", "ACCOUNTING_YEAR", "CONTRACT", "STOCK_TAKE", "FIXED_ASSET", "DEPRECIATION", "EXPENSE_REPORT", "PURCHASE_RETURN", "TASK", "FLOW_INSTANCE"]
+ right: ["STOCK_IN", "STOCK_OUT", "STOCK_TRANSFER", "PURCHASE_ORDER", "PAYABLE", "VOUCHER", "ACCOUNTING_PERIOD", "ACCOUNTING_YEAR", "CONTRACT", "STOCK_TAKE", "FIXED_ASSET", "DEPRECIATION", "EXPENSE_REPORT", "TASK", "FLOW_INSTANCE"]
+
+---- business::flow::linkage::tests_wiring::trigger_specs_cover_whitelist_in_order stdout ----
+
+thread 'business::flow::linkage::tests_wiring::trigger_specs_cover_whitelist_in_order' (599462) panicked at src/business/flow/linkage/tests_wiring.rs:114:5:
+assertion `left == right` failed: 当前白名单是 15 个触发点
+  left: 16
+ right: 15
+
+---- business::flow::linkage::tests_wiring::wired_triggers_match_call_sites stdout ----
+
+thread 'business::flow::linkage::tests_wiring::wired_triggers_match_call_sites' (599465) panicked at src/business/flow/linkage/tests_wiring.rs:227:5:
+assertion `left == right` failed: 当前真实调用点 16 个文件（收货过账 / 出库过账 handler + 出库联动 hook + 调拨联动 hook + 采购联动 hook + 应付联动 hook + 盘点联动 hook + 报销联动 hook + 凭证联动 hook + 合同联动 hook + 会计期间联动 hook + 会计年度联动 hook + 固定资产联动 hook + 折旧批次联动 hook + 任务状态通知 + 审批实例联动 hook）：{"src/business/erp/asset_linkage.rs", "src/business/erp/contract_linkage.rs", "src/business/erp/depreciation_linkage.rs", "src/business/erp/expense_linkage.rs", "src/business/erp/payable_linkage.rs", "src/business/erp/period_linkage.rs", "src/business/erp/purchase_linkage.rs", "src/business/erp/purchase_return_handler.rs", "src/business/erp/stockin_handler_post.rs", "src/business/erp/stockout_handler.rs", "src/business/erp/stockout_linkage.rs", "src/business/erp/stocktake_linkage.rs", "src/business/erp/transfer_linkage.rs", "src/business/erp/voucher_linkage.rs", "src/business/erp/year_end_linkage.rs", "src/business/flow/instance_linkage.rs", "src/business/task/task_handler_notice.rs"}
+⚠️ 本计数器是**文件级去重 + 只认 `linkage::engine::*` 直调**：
+固定资产新增的「停用 / 启用」写在 `erp/asset_handler.rs` 里、只间接调`asset_linkage::run_in_tx`（引擎在 hook 里被调），所以**不会**也不该让这个数字 +1；
+那条触发点的守卫在 `asset_wires_generic_engine_and_excludes_voucher` 的函数内计数上。
+  left: 17
+ right: 16
+
+
+failures:
+    business::erp::expense_linkage_tests::lnk05_approve_triggers_linkage_notice_and_single_voucher
+    business::erp::expense_linkage_tests::lnk05_cancel_triggers_linkage_notice
+    business::erp::expense_linkage_tests::lnk05_pay_triggers_only_on_full_payment
+    business::erp::expense_linkage_tests::lnk05_reject_reverts_to_draft_and_triggers
+    business::erp::expense_linkage_tests::lnk05_repeat_submit_and_pay_do_not_trigger_twice
+    business::erp::expense_linkage_tests::lnk05_submit_triggers_linkage_notice
+    business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag
+    business::flow::linkage::tests_wiring::trigger_specs_cover_whitelist_in_order
+    business::flow::linkage::tests_wiring::wired_triggers_match_call_sites
+
+test result: FAILED. 105 passed; 9 failed; 0 ignored; 0 measured; 3412 filtered out; finished in 51.20s
+
+error: test failed, to rerun pass `--lib`

@@ -1,0 +1,108 @@
+库 = cloudpivot_code09  时间 = 2026-11-08 14:53:29 CST
+
+=== 全量留存（含软删种子，审计用）===
+SUP 40 行：GYS-001,GYS-001,SUP-0001,SUP-0001,SUP-0001,SUP-0002,SUP-0002,SUP-0002,SUP-0003,SUP-0003,SUP-0004,SUP-0004,SUP-0005,SUP-0005,SUP-0006,SUP-0006,SUP-0007,SUP-0007,SUP-0008,SUP-0008,SUP-0009,SUP-0009,SUP-0010,SUP-0010,SUP-0011,SUP-0011,SUP-0012,SUP-0012,SUP-0013,SUP-0013,SUP-0014,SUP-0014,SUP-0015,SUP-0015,SUP-0016,SUP-0016,SUP-0017,SUP-0017,SUP-0018,SUP-0018
+CUS 18 行：CUS-0001,CUS-0001,CUS-0001,CUS-0002,CUS-0002,CUS-0002,CUS-0003,CUS-0003,CUS-0003,CUS-0004,CUS-0004,CUS-0004,CUS-0005,CUS-0005,KH-001,KH-001,KH-BACK-001,KH-BACK-001
+MAT 17 行：MAT-0001,MAT-0001,MAT-0002,MAT-0002,MAT-0003,MAT-0003,MAT-0004,MAT-0004,MAT-0005,MAT-0005,M-W1A-001,M-W1A-002,M-W1A-003,M-W1A-004,M-W1A-005,YB-001-02,YB-001-02
+WH  15 行：CK-001,CK-001,WH-01,WH-01,WH01,WH-02,WH-02,WH02,WH-03,WH-03,WH-04,WH-04,WH-05,WH-05,WH-TRANSIT
+AC  17 行：AC-01,AC-01,AC-02,AC-02,AC-03,AC-03,AC-04,AC-04,AC-05,AC-05,BUILDING,CAT-BUILDING,CAT-BUILDING,ELEC,FURNITURE,MACHINE,VEHICLE
+ET  20 行：ADMIN-FEE,ADMIN-FEE,COMM,ET-01,ET-01,ET-02,ET-02,ET-03,ET-03,ET-04,ET-04,ET-05,ET-05,MEAL,OFFICE,OTHER,PENALTY,TRAIN,TRAVEL,WELFARE
+
+=== biz_seq 六条主数据规则 ===
+AC prefix=AC sep=- pad=2 current_no=4
+CUS prefix=CUS sep=- pad=4 current_no=4
+ET prefix=ET sep=- pad=2 current_no=4
+MAT prefix=MAT sep=- pad=4 current_no=4
+SUP prefix=SUP sep=- pad=4 current_no=18
+WH prefix=WH sep=- pad=2 current_no=4
+
+=== 1) 未删行编码唯一（不重号）===
+  PASS  biz_supplier 未删行数 == 去重编码数（19） = 19
+  PASS  biz_customer 未删行数 == 去重编码数（7） = 7
+  PASS  biz_material 未删行数 == 去重编码数（6） = 6
+  PASS  biz_warehouse 未删行数 == 去重编码数（6） = 6
+  PASS  biz_asset_category 未删行数 == 去重编码数（6） = 6
+  PASS  biz_expense_type 未删行数 == 去重编码数（6） = 6
+
+=== 2) 自动取号编码格式（PREFIX-4位 / PREFIX-2位）===
+  SUP 不符合 (SUP + 4 位)：0（期望 0）
+  PASS  SUP 自动码全部 4 位补零 = 0
+  PASS  CUS 自动码全部 4 位补零 = 0
+  PASS  MAT 自动码全部 4 位补零 = 0
+  PASS  WH 自动码全部 2 位补零 = 0
+  PASS  AC 自动码全部 2 位补零 = 0
+  PASS  ET 自动码全部 2 位补零 = 0
+  首号（矩阵用例 1 的落库值）：sup SUP-0001 cus CUS-0001 mat MAT-0001 wh WH-01 ac AC-01 et ET-01 
+  PASS  SUP 首号落库 = SUP-0001 = 1
+  PASS  CUS 首号落库 = CUS-0001 = 1
+  PASS  MAT 首号落库 = MAT-0001 = 1
+  PASS  WH 首号落库 = WH-01 = 1
+  PASS  AC 首号落库 = AC-01 = 1
+  PASS  ET 首号落库 = ET-01 = 1
+
+=== 3) 手工码原样落库（用例 3 + 恢复用例）===
+  PASS  供应商手工码 GYS-001 = 1
+  PASS  客户手工码 KH-001 = 1
+  PASS  物料手工码 YB-001-02 = 1
+  PASS  仓库手工码 CK-001 = 1
+  PASS  资产分类手工码 CAT-BUILDING = 1
+  PASS  费用类型手工码 ADMIN-FEE = 1
+  PASS  参数恢复后手工码 KH-BACK-001 = 1
+  PASS  用例 4 重复编码没有多插一行（GYS-001 未删行仍 1 行） = 1
+
+=== 4) 开关关闭时被拒的 6 个编码 → 0 行落库 ===
+  PASS  SUP-OFF-001 未落库 = 0
+  PASS  CUS-OFF-001 未落库 = 0
+  PASS  MAT-OFF-001 未落库 = 0
+  PASS  WH-OFF-001 未落库 = 0
+  PASS  AC-OFF-001 未落库 = 0
+  PASS  ET-OFF-001 未落库 = 0
+
+=== 5) biz_seq 规则（前缀 / 分隔符 / 补零位数）===
+  PASS  SUP prefix = SUP
+  PASS  CUS prefix = CUS
+  PASS  MAT prefix = MAT
+  PASS  WH prefix = WH
+  PASS  AC prefix = AC
+  PASS  ET prefix = ET
+  PASS  SUP pad_width（纯流水 4 位） = 4
+  PASS  CUS pad_width（纯流水 4 位） = 4
+  PASS  MAT pad_width（纯流水 4 位） = 4
+  PASS  WH pad_width（纯流水 2 位） = 2
+  PASS  AC pad_width（纯流水 2 位） = 2
+  PASS  ET pad_width（纯流水 2 位） = 2
+  PASS  六条规则都不带日期（date_pattern 不参与主数据编码） = 6
+
+=== 6) 预览不占号 + 撞号跳号的库侧证据 ===
+  SUP：同前缀编码 18 个 / current_no=18
+       （其中 SUP-0005 是手工占位、SUP-0017 是预览号当手工码；取号器跳过的正好也是这 2 个号，
+        所以「编码数 = current_no」在这个实体上恰好相等，而跳过行为本身由下面两条断言钉住）
+  PASS  SUP 同前缀编码数 = 18
+  PASS  SUP current_no（分配次数，含 2 次跳过） = 18
+  CUS：同前缀编码 5 个 / current_no=4（预览号当手工码提交 → 编码多 1 个但计数器只推进了自动取号次数）
+  PASS  CUS 同前缀编码数 = 5
+  PASS  CUS current_no（预览不占号） = 4
+  MAT：同前缀编码 5 个 / current_no=4（预览号当手工码提交 → 编码多 1 个但计数器只推进了自动取号次数）
+  PASS  MAT 同前缀编码数 = 5
+  PASS  MAT current_no（预览不占号） = 4
+  WH：同前缀编码 5 个 / current_no=4（预览号当手工码提交 → 编码多 1 个但计数器只推进了自动取号次数）
+  PASS  WH 同前缀编码数 = 5
+  PASS  WH current_no（预览不占号） = 4
+  AC：同前缀编码 5 个 / current_no=4（预览号当手工码提交 → 编码多 1 个但计数器只推进了自动取号次数）
+  PASS  AC 同前缀编码数 = 5
+  PASS  AC current_no（预览不占号） = 4
+  ET：同前缀编码 5 个 / current_no=4（预览号当手工码提交 → 编码多 1 个但计数器只推进了自动取号次数）
+  PASS  ET 同前缀编码数 = 5
+  PASS  ET current_no（预览不占号） = 4
+  PASS  手工占位 SUP-0005 落库 = 1
+  PASS  撞号后自动取号落到 SUP-0006 = 1
+  PASS  并发 10 个编码全部落库（SUP-0007..0016） = 10
+
+=== 7) 计量单位回归 ===
+  PASS  计量单位 KG9 手工码落库 = 1
+  PASS  biz_seq 无 UNIT 号段（本批不自动生成单位编码） = 0
+  PASS  种子单位 PCS 仍在（未被影响） = 1
+  PASS  空编码单位没有落库 = 0
+
+RESULT: ALL PASS（库侧断言全绿）
+biz_seq 全部号段（确认只有 6 条主数据规则被使用）：AC,CUS,ET,MAT,SUP,WH

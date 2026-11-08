@@ -1,0 +1,24 @@
+CODE-09 前端 6 个主数据表单实测（浏览器真点，vite dev 127.0.0.1:5179 → 后端 127.0.0.1:8049 / 库 cloudpivot_code09）
+账号 admin（首登已改密），逐表单验证三件事：① 点「生成编码」→ 编码框出现预览号；② 不点 → 保存后 toast 报出后端真正用的编码；
+③ 编辑态编码框 disabled、按钮置灰。截图见本目录同名 .png。
+
+| 表单 | ① 点「生成编码」填入 | ② 不点生成直接保存（toast 原文） | ③ 编辑态 |
+|---|---|---|---|
+| 供应商 /business/erp/supplier         | SUP-0019（50_ui_supplier_gen_code.png） | 「供应商已创建 · 编码 SUP-0019」（51） | 编码框 disabled=true，按钮 t-is-disabled，提示「编码是供应商身份，不支持修改」（52） |
+| 客户 /business/erp/customer           | CUS-0006（60）                          | 「客户已创建 · 编码 CUS-0006」（62）    | disabled=true，按钮置灰（61） |
+| 物料 /business/erp/material           | MAT-0006（70）                          | 「物料已创建 · 编码 MAT-0006」（72）    | disabled=true，按钮置灰（71） |
+| 仓库 /business/erp/warehouse          | WH-06（80）                             | 「仓库「CODE09 UI 仓库（不点生成）」已创建 · 编码 WH-06」（82） | disabled=true，按钮置灰（81） |
+| 资产分类 /business/erp/asset-category | AC-06（90）                             | 「分类已创建 · 编码 AC-06」（91）       | disabled=true，按钮置灰（92） |
+| 费用类型 /business/erp/expense-type   | ET-06（95）                             | 「已新建费用类型 · 编码 ET-06」（96）   | disabled=true，按钮置灰（97） |
+
+补充观察（6 个表单一致的行为）：
+1. 编码输入框 placeholder 统一是「留空自动生成，如 <PREFIX>-<示例>」，辅助文案统一是
+   「不点「生成编码」则保存时自动生成；生成后仍可手改（已有编码体系可直接填）」。
+2. **预览不占号**在 UI 层同样成立：供应商点「生成编码」拿到 SUP-0019 后取消，重新建单不点生成，
+   保存拿到仍是 SUP-0019；客户 CUS-0006、物料 MAT-0006、仓库 WH-06、资产分类 AC-06、费用类型 ET-06 同理。
+3. 编辑态六个表单的「生成编码」按钮都**保留在 DOM 里但 disabled**（不是 v-if 隐藏），编码框 disabled，
+   提示文案按实体分别说「编码是<实体>身份，不支持修改」。参数开关关闭时按钮才 v-if 隐藏（CODE-08 行为）。
+4. 前端没有任何「编码必填」校验挡路：不点生成的建单全部一次通过（CODE-05/06 删掉的校验仍在生效）。
+
+抓取方式：注入式 JS 点击（`document.querySelectorAll('button')` 按文本匹配）＋ `getBoundingClientRect().width>0` 过滤可见元素；
+读值用 `.t-form__item input.value` / `.t-dialog input.value`，只读态读 `input.disabled`。

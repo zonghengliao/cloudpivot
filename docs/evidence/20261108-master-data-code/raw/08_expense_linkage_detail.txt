@@ -1,0 +1,72 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.50s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 14 tests
+test business::erp::expense_linkage_tests::lnk05_approve_triggers_linkage_notice_and_single_voucher ... FAILED
+test business::erp::expense_linkage_tests::lnk05_cancel_triggers_linkage_notice ... FAILED
+test business::erp::expense_linkage_tests::lnk05_pay_triggers_only_on_full_payment ... FAILED
+test business::erp::expense_linkage_tests::lnk05_reject_reverts_to_draft_and_triggers ... FAILED
+test business::erp::expense_linkage_tests::lnk05_repeat_submit_and_pay_do_not_trigger_twice ... FAILED
+test business::erp::expense_linkage_tests::lnk05_submit_triggers_linkage_notice ... FAILED
+test business::flow::linkage::admin::tests::catalog_covers_every_action_and_trigger ... ok
+test business::flow::linkage::admin::tests::catalog_implemented_flags_match_spec ... ok
+test business::flow::linkage::admin::tests::catalog_triggers_carry_status_labels ... ok
+test business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag ... FAILED
+test business::flow::linkage::admin::tests::draft_check_rejects_bad_input ... ok
+test business::flow::linkage::admin::tests::draft_check_rejects_unwired_trigger ... ok
+test business::flow::linkage::admin::tests::rule_res_carries_trigger_status_label ... ok
+test business::flow::linkage::admin::tests::unknown_trigger_and_status_are_rejected ... ok
+
+failures:
+
+---- business::erp::expense_linkage_tests::lnk05_approve_triggers_linkage_notice_and_single_voucher stdout ----
+
+thread 'business::erp::expense_linkage_tests::lnk05_approve_triggers_linkage_notice_and_single_voucher' (597324) panicked at src/business/erp/expense_linkage_tests.rs:155:47:
+库里必须有一名带部门的用户
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- business::erp::expense_linkage_tests::lnk05_cancel_triggers_linkage_notice stdout ----
+
+thread 'business::erp::expense_linkage_tests::lnk05_cancel_triggers_linkage_notice' (597339) panicked at src/business/erp/expense_linkage_tests.rs:155:47:
+库里必须有一名带部门的用户
+
+---- business::erp::expense_linkage_tests::lnk05_pay_triggers_only_on_full_payment stdout ----
+
+thread 'business::erp::expense_linkage_tests::lnk05_pay_triggers_only_on_full_payment' (597344) panicked at src/business/erp/expense_linkage_tests.rs:155:47:
+库里必须有一名带部门的用户
+
+---- business::erp::expense_linkage_tests::lnk05_reject_reverts_to_draft_and_triggers stdout ----
+
+thread 'business::erp::expense_linkage_tests::lnk05_reject_reverts_to_draft_and_triggers' (597349) panicked at src/business/erp/expense_linkage_tests.rs:155:47:
+库里必须有一名带部门的用户
+
+---- business::erp::expense_linkage_tests::lnk05_repeat_submit_and_pay_do_not_trigger_twice stdout ----
+
+thread 'business::erp::expense_linkage_tests::lnk05_repeat_submit_and_pay_do_not_trigger_twice' (597354) panicked at src/business/erp/expense_linkage_tests.rs:155:47:
+库里必须有一名带部门的用户
+
+---- business::erp::expense_linkage_tests::lnk05_submit_triggers_linkage_notice stdout ----
+
+thread 'business::erp::expense_linkage_tests::lnk05_submit_triggers_linkage_notice' (597359) panicked at src/business/erp/expense_linkage_tests.rs:155:47:
+库里必须有一名带部门的用户
+
+---- business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag stdout ----
+
+thread 'business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag' (597368) panicked at src/business/flow/linkage/admin.rs:1159:9:
+assertion `left == right` failed: 已接线的触发点：STOCK_IN / STOCK_OUT（P1-FIX-5C 新接）/ STOCK_TRANSFER（LNK-01 新接）/ PURCHASE_ORDER（LNK-02 新接）/ PAYABLE（LNK-03 新接）/ VOUCHER（LNK-06 新接）/ ACCOUNTING_PERIOD（LNK-08 新接）/ ACCOUNTING_YEAR（LNK-11 新接）/ CONTRACT（LNK-07 新接）/ STOCK_TAKE（LNK-04 新接）/ FIXED_ASSET（LNK-09 新接）/ DEPRECIATION（LNK-10 新接）/ EXPENSE_REPORT（LNK-05 新接）/ TASK / FLOW_INSTANCE（LNK-12 新接）
+  left: ["STOCK_IN", "STOCK_OUT", "STOCK_TRANSFER", "PURCHASE_ORDER", "PAYABLE", "VOUCHER", "ACCOUNTING_PERIOD", "ACCOUNTING_YEAR", "CONTRACT", "STOCK_TAKE", "FIXED_ASSET", "DEPRECIATION", "EXPENSE_REPORT", "PURCHASE_RETURN", "TASK", "FLOW_INSTANCE"]
+ right: ["STOCK_IN", "STOCK_OUT", "STOCK_TRANSFER", "PURCHASE_ORDER", "PAYABLE", "VOUCHER", "ACCOUNTING_PERIOD", "ACCOUNTING_YEAR", "CONTRACT", "STOCK_TAKE", "FIXED_ASSET", "DEPRECIATION", "EXPENSE_REPORT", "TASK", "FLOW_INSTANCE"]
+
+
+failures:
+    business::erp::expense_linkage_tests::lnk05_approve_triggers_linkage_notice_and_single_voucher
+    business::erp::expense_linkage_tests::lnk05_cancel_triggers_linkage_notice
+    business::erp::expense_linkage_tests::lnk05_pay_triggers_only_on_full_payment
+    business::erp::expense_linkage_tests::lnk05_reject_reverts_to_draft_and_triggers
+    business::erp::expense_linkage_tests::lnk05_repeat_submit_and_pay_do_not_trigger_twice
+    business::erp::expense_linkage_tests::lnk05_submit_triggers_linkage_notice
+    business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag
+
+test result: FAILED. 7 passed; 7 failed; 0 ignored; 0 measured; 3512 filtered out; finished in 0.84s
+
+error: test failed, to rerun pass `--lib`

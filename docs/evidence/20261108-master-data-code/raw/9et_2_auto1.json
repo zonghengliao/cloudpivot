@@ -1,0 +1,1 @@
+{"code":0,"msg":"ok","data":{"id":"01a1b9ee-3e02-71df-ae8f-20c2dbae2266","type_code":"ET-02","type_name":"CODE09 费用类型 （用例2 连续1）","account_id":"ce022f63-c80d-412d-b00c-ac146a60ad32","account_code":"5602.01","account_name":"管理费用-折旧费","tax_deductible":true,"budget_controlled":true,"need_invoice_no":true,"amount_limit":"0.0000","sort_order":0,"status":1,"remark":null}}
