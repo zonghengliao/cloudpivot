@@ -46,6 +46,7 @@ use super::expense_handler::{report_cancel, report_pay, report_submit};
 use super::expense_model::{self, ItemInsert, ReportInsert};
 use crate::business::flow::engine;
 use crate::business::flow::linkage::spec;
+use crate::shared::test_helpers as seed_guard;
 
 fn dec(text: &str) -> Decimal {
     Decimal::from_str(text).expect("金额字面量非法")
@@ -119,6 +120,24 @@ async fn exec(text: &str) {
     if let Err(err) = db().execute_with_params(text, vec![]).await {
         panic!("SQL 失败：{err}\nSQL: {text}");
     }
+}
+
+/// TST-02：空库前置体检 —— 报销单要「挂部门的用户 + 费用类型 + 科目」，
+/// 走审批还要六个关键岗位有人在（否则提交 422 / 65018）。
+///
+/// 放在每条用例的 `ensure_db()` 之后：缺种子时**在造单之前**报出「缺什么 / 怎么补」，
+/// 而不是等 `create_report()` 甩一句「库里必须有一名带部门的用户」。
+async fn require_seed() {
+    seed_guard::require_seed_data(
+        "expense_linkage_tests",
+        &[
+            seed_guard::DEPT_USER,
+            seed_guard::EXPENSE_TYPE,
+            seed_guard::ACCOUNT,
+            seed_guard::APPROVER_ROLES,
+        ],
+    )
+    .await;
 }
 
 /// 一名**有部门**的用户（报销单的部门是预算维度，没有部门的用户建不了单）。
@@ -470,6 +489,7 @@ async fn lnk05_submit_triggers_linkage_notice() {
     if !ensure_db().await {
         return;
     }
+    require_seed().await;
     clear_rules().await;
     let report_id = create_report(dec("500")).await;
     add_rule(
@@ -548,6 +568,7 @@ async fn lnk05_approve_triggers_linkage_notice_and_single_voucher() {
     if !ensure_db().await {
         return;
     }
+    require_seed().await;
     clear_rules().await;
     let report_id = create_report(dec("500")).await;
     add_rule(
@@ -602,6 +623,7 @@ async fn lnk05_pay_triggers_only_on_full_payment() {
     if !ensure_db().await {
         return;
     }
+    require_seed().await;
     clear_rules().await;
     let report_id = create_report(dec("500")).await;
     add_rule(
@@ -651,6 +673,7 @@ async fn lnk05_cancel_triggers_linkage_notice() {
     if !ensure_db().await {
         return;
     }
+    require_seed().await;
     clear_rules().await;
     let report_id = create_report(dec("500")).await;
     add_rule(
@@ -720,6 +743,7 @@ async fn lnk05_repeat_submit_and_pay_do_not_trigger_twice() {
     if !ensure_db().await {
         return;
     }
+    require_seed().await;
     clear_rules().await;
     let report_id = create_report(dec("500")).await;
     add_rule(
@@ -793,6 +817,7 @@ async fn lnk05_reject_reverts_to_draft_and_triggers() {
     if !ensure_db().await {
         return;
     }
+    require_seed().await;
     clear_rules().await;
     let report_id = create_report(dec("500")).await;
     add_rule(

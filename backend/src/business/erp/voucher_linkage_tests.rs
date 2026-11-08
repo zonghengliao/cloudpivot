@@ -40,6 +40,7 @@ use super::voucher_write::{
 use crate::business::flow::linkage::{model as linkage_model, spec};
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
+use crate::shared::test_helpers as seed_guard;
 
 /// 本文件造的所有夹具摘要前缀（清场口径）。
 const TAG: &str = "LNK06";
@@ -89,7 +90,16 @@ async fn exec(text: &str) {
 /// 两个**真实存在**的账号：制单人 ≠ 审核人（内控：制单不能审自己的凭证），
 /// 且收件人必须在 `sys_user` 里存活 —— 否则 `SEND_NOTICE` 会判「收件人为空/不存在」Skipped，
 /// 用例会变成假红（不是接线没生效，是夹具失真）。
+///
+/// TST-02：这里**先做种子体检**。旧写法在只有 1 个账号的库上 `return None`，
+/// 调用方 `else { return; }` ⇒ 用例静默 pass 却一行断言没跑（假绿）。现在缺种子直接 panic，
+/// 报「缺 2 名在职用户 / 缺科目」以及怎么补。
 async fn two_users() -> Option<(Uuid, Uuid)> {
+    seed_guard::require_seed_data(
+        "voucher_linkage_tests",
+        &[seed_guard::TWO_USERS, seed_guard::ACCOUNT],
+    )
+    .await;
     let rows = db()
         .query_sql(
             "SELECT id FROM sys_user WHERE deleted_at IS NULL ORDER BY created_at LIMIT 2"

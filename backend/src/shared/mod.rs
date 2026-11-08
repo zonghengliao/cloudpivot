@@ -23,3 +23,7 @@ pub mod permission_alias;
 pub mod session_cache;
 pub mod startup_guard;
 pub mod token_revocation;
+
+/// 真库用例的前置体检（TST-02）：`require_seed_data()` —— 空库缺种子时点名缺什么、怎么补。
+#[cfg(test)]
+pub mod test_helpers;

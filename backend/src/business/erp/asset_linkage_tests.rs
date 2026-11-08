@@ -65,6 +65,7 @@ use crate::business::flow::linkage;
 use crate::business::flow::linkage::spec;
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
+use crate::shared::test_helpers as seed_guard;
 
 /// 处置日期（库里没有 2099-03 的期间行，见文件头）。
 const DISPOSE_DATE: &str = "2099-03-15";
@@ -174,6 +175,17 @@ async fn setup() -> Option<(tokio::sync::MutexGuard<'static, ()>, Uuid)> {
     if !support::ensure_db().await {
         return None;
     }
+    // TST-02：空库先在这里点名叫停（缺部门 / 资产分类 / 科目），
+    // 不要等跑到 any_dept() 才报一句「库里没有部门」。
+    seed_guard::require_seed_data(
+        "asset_linkage_tests",
+        &[
+            seed_guard::DEPT,
+            seed_guard::ASSET_CATEGORY,
+            seed_guard::ACCOUNT,
+        ],
+    )
+    .await;
     purge().await;
     support::cleanup().await;
     let user = support::seed_user("p2.lnk09_maker", "LNK09 资产管理员").await;
