@@ -19,6 +19,7 @@
 //! | [`task`] | 工作任务管理（批次 C+ · T1）：7 张表、任务 CRUD、可见性（scope ∪ 参与关系） |
 //! | [`attachment`] | 业务单据附件（ARCH-3 DC-17）：`biz_doc_attachment` 桥接表 + 4 个通用端点（复用 storage） |
 //! | [`aiagent`] | AI 用户（云枢 × Hermes · L1）：profile 自动创建、SOUL.md 编辑、事务性回滚 |
+//! | [`pdf`] | PDF 导出（PDF-01）：Chromium CDP 渲染引擎、对账单模板、金额大写 |
 
 pub mod aiagent;
 pub mod announcement;
@@ -32,6 +33,7 @@ pub mod masking;
 pub mod monitor;
 pub mod mutex;
 pub mod notice;
+pub mod pdf;
 pub mod permission;
 pub mod project;
 pub mod shared;

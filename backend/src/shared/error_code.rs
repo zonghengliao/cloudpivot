@@ -41,6 +41,7 @@
 //! | `64xxx` | 云枢 × Hermes（AI 用户 / profile / SOUL.md：`64001`–`64014`） |
 //! | `65xxx` | 批次 D（业务审批流：定义侧 12 + 运行侧 10，`65001`–`65005` / `65010`–`65024` / `65030`–`65031`） |
 //! | `66xxx` | 批次 D（ERP 主数据接口层 W1c：`66001`–`66006`；后续 ERP 卡续用 `66007`–`66021`，其中 `66014`–`66021` 为合同域；`66022`–`66026` 采购单↔合同、`66027`–`66029` 入库↔采购、`66030` 单位止血、`66031`–`66032` 过账复核来源采购单、`66033` 审批流未配置默认拒绝、`66034`–`66035` 出库单、`66036` 信用额度、`66037` 预算超支（FIN-1）、`66038`–`66040` 固定资产期间/批次/处置（FIN-2）、`66041`–`66043` 费用报销状态/明细合计/入账期间（FIN-3）、`66044` 收款退款过账审批前置（SO-14 遗留 D10）、`66045` 销售订单↔合同客户不符（SO-27）、`66046` 资产停用/启用状态非法（FIN-ASSET-ST02）、`66054` 主数据编码禁止手工指定（CODE-08）） |
+//! | `67xxx` | PDF 导出（PDF-01：`67001` 渲染服务不可用 / `67002` 超时 / `67003` 模板错误 / `67004` 参数非法 / `67005` 请求过大） |
 //!
 //! > 错误码统一在此定义并在处理器中引用，禁止散落魔法数字。
 
@@ -1551,6 +1552,66 @@ pub const ERP_PURCHASE_RETURN_PRICE_LOCKED: i32 = 66053;
 /// 改编码框）与「这个环境根本不许填」（把编码框整个置灰并提示去系统参数开开关），
 /// 两种情况的引导完全不同。留空仍然合法（= 自动取号），不受本码影响。
 pub const ERP_MANUAL_CODE_FORBIDDEN: i32 = 66054;
+
+// ==================== 67xxx：PDF 导出（PDF-01） ====================
+//
+// 为什么单独开 67xxx：66xxx 是 ERP 主数据的段（66001–66054 已排到 66054，前端
+// `error-code.ts` 按段做文案映射）；PDF 导出不是 ERP 能力（发票 / 入库单 / 对账单
+// 都会用），与主数据语义不重叠，独立成段便于后续 PDF-02..08 直接续号。
+
+/// PDF 渲染服务不可用（HTTP 503，`67001`）。
+///
+/// 这是**运维信号**：本机常驻 Chromium（`chromium-pdf.service`，:9222）没起来、
+/// 端口改了、或进程被 OOM 杀掉。前端文案应提示「导出服务暂不可用，请联系管理员」，
+/// 而不是让用户反复重试。
+pub const PDF_RENDER_UNAVAILABLE: i32 = 67001;
+
+/// PDF 渲染超时（HTTP 504，`67002`）。
+///
+/// 单次渲染超过 `PDF_RENDER_TIMEOUT_MS`（默认 20s，实测 500 行仅 332ms，留了 60 倍
+/// 余量）。真触发时通常是「一次导出几百张单」把并发队列打满，而不是单张太慢。
+pub const PDF_RENDER_TIMEOUT: i32 = 67002;
+
+/// PDF 模板渲染失败（HTTP 422，`67003`）。
+///
+/// 模板语法错、缺变量、或调用方给的上下文类型不对。与 [`INTERNAL_ERROR`] 分开的
+/// 理由：这是**调用方/模板作者**要修的问题，不是系统故障。
+pub const PDF_TEMPLATE_INVALID: i32 = 67003;
+
+/// PDF 渲染参数非法（HTTP 400，`67004`）。
+///
+/// 纸张代码不认识、`CUSTOM` 缺宽高、缩放不在 0.1–2.0、边距吃掉整张纸。
+/// CDP 对越界值**不报错**（静默出空白纸 / 1 页空 PDF），所以必须在这里挡。
+pub const PDF_OPTIONS_INVALID: i32 = 67004;
+
+/// PDF 请求体过大（HTTP 413，`67005`）。
+///
+/// [`crate::business::pdf::dto::MAX_RENDER_HTML_BYTES`]（4MiB）是硬上限：
+/// 挡住「传一个巨型 HTML 让 chromium 吃满内存」的用法。
+pub const PDF_RENDER_TOO_LARGE: i32 = 67005;
+
+#[cfg(test)]
+mod pdf_error_codes_are_stable {
+    use super::*;
+
+    /// PDF 段（67xxx）码值冻结：前端 `error-code.ts` 与运维告警按这些值映射。
+    #[test]
+    fn pdf_error_codes_are_stable() {
+        let codes = [
+            (PDF_RENDER_UNAVAILABLE, 67001),
+            (PDF_RENDER_TIMEOUT, 67002),
+            (PDF_TEMPLATE_INVALID, 67003),
+            (PDF_OPTIONS_INVALID, 67004),
+            (PDF_RENDER_TOO_LARGE, 67005),
+        ];
+        let unique: std::collections::BTreeSet<i32> = codes.iter().map(|(c, _)| *c).collect();
+        assert_eq!(unique.len(), codes.len(), "67xxx 段不得有重复码值");
+        assert!(
+            codes.iter().all(|(code, _)| *code > 66054 && *code < 68000),
+            "67xxx 段必须落在 66054 之后、68000 之前"
+        );
+    }
+}
 
 #[cfg(test)]
 mod tests {

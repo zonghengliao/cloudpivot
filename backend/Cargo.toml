@@ -142,6 +142,26 @@ pulldown-cmark = { version = "0.13", default-features = false, features = ["html
 ammonia = "4.2"
 
 # ======================================================================
+# PDF 导出（PDF-01）：Chromium CDP 客户端 + tera 模板引擎
+#
+# 这两个都是**本批新增的非 nik 依赖**（此前仓库里没有任何 CDP 客户端或模板引擎：
+# `grep -rniE "chromiumoxide|headless_chrome|tera|minijinja" backend/src` 零命中）。
+#
+# · chromiumoxide —— 连本机常驻 Chromium（`scripts/pdf/chromium-pdf.service`，:9222）
+#   的 DevTools 协议，`Page.printToPDF` 直接拿 PDF 字节。
+#   版本说明：卡面写的是 0.7 + `tokio-runtime` feature，但 0.7 的该 feature 在
+#   0.9 已被移除（crate 只剩 tokio 运行时），且 0.9 才支持 `Browser::connect(url)`
+#   直接吃 `http://…:9222`（0.7 要自己先 curl `json/version` 取 ws 地址）。
+#   因此按 0.9 落地，仓库 rust-version 1.94.1 ≥ 其要求的 1.85。
+# · tera —— Jinja 风格模板（单据 HTML 由模板渲染，含自动 HTML 转义）。
+#   框架自带的 `nik-template` 需要开 `template` feature 且未在本仓库启用，故直连 tera。
+# 实测（145/arm64）：新增依赖首次 release 编译约 96s，之后增量 ≈ 4s；
+# 渲染 20 行 87ms / 500 行 332ms（详见 docs/PDF导出基础设施.md）。
+# ======================================================================
+chromiumoxide = "0.9"
+tera = "1"
+
+# ======================================================================
 # C7 回滚探针 example（`scripts/verify/changelog_rollback.sh` 调用）
 #
 # `required-features` 是红线的一部分：不带 `--features test-hooks` 时，cargo

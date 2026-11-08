@@ -1,0 +1,46 @@
+[Unit]
+Description=Chromium headless (CDP :9222) for CloudPivot PDF rendering
+Documentation=file:///opt/cloudpivot/docs/PDF导出基础设施.md
+# PDF 渲染是纯计算，不依赖数据库/Redis；只要网络栈起来即可。
+After=network.target
+
+[Service]
+Type=simple
+# ---------------------------------------------------------------------------
+# 为什么是这些参数（每一条都有踩坑记录，改之前先看 docs/PDF导出基础设施.md）
+#
+#   --headless                 Chromium 157 起 `--headless` 即 new headless，
+#                              Page.printToPDF / CDP 全可用；旧 `--headless=old`
+#                              在 132 之后已被移除。
+#   --no-sandbox               容器 / LXD 内没有 user namespace 时无沙箱不可用，
+#                              不加会直接 "Failed to move to new namespace"。
+#   --disable-gpu              服务器无显卡；不加会有 GPU 进程反复重启的日志噪音。
+#   --disable-dev-shm-usage    容器 /dev/shm 默认 64MB，大表格渲染会崩（SIGBUS）。
+#   --remote-debugging-port    唯一对外端口，只监听 127.0.0.1（见下文 IPAddress）。
+#   --remote-allow-origins=*   Chromium >= 111 对跨源 WebSocket 强制校验 Origin，
+#                              不放开则 CDP 连接被 403 拒绝。
+#   --font-render-hinting=none 关掉 hinting，避免中文小字号在 PDF 里粗细跳变。
+#   --disable-background-networking / --disable-sync / --mute-audio
+#                              去掉一切与打印无关的后台网络与音频，降低空载内存。
+# ---------------------------------------------------------------------------
+ExecStart=/snap/bin/chromium --headless --no-sandbox --disable-gpu \
+  --disable-dev-shm-usage --remote-debugging-address=127.0.0.1 \
+  --remote-debugging-port=9222 \
+  --remote-allow-origins=* --font-render-hinting=none \
+  --no-first-run --no-default-browser-check --disable-extensions \
+  --disable-background-networking --disable-component-update \
+  --disable-sync --mute-audio --hide-scrollbars \
+  about:blank
+
+# CDP 端口只对本机开放（--remote-debugging-address=127.0.0.1 已限定；跨机调试走 ssh 端口转发）。
+Restart=always
+RestartSec=3
+# 每天凌晨 3 点（RuntimeMaxSec 到期）由 systemd 重启一次，防长期运行的内存增长。
+RuntimeMaxSec=86400
+# 3 并发 + 500 行单据实测峰值约 1.1G，留 2G 上限兜底；超限由 kernel 杀掉后
+# Restart=always 立刻拉起，后端侧表现为一次 502 + 重试成功（不会拖垮整机）。
+MemoryMax=2G
+LimitNOFILE=8192
+
+[Install]
+WantedBy=multi-user.target
