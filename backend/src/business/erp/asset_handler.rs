@@ -47,6 +47,7 @@ use crate::business::erp::asset_dto::{
 };
 use crate::business::erp::asset_linkage;
 use crate::business::erp::asset_model::{self, AssetInsert, ChangeInsert};
+use crate::business::erp::code_policy;
 use crate::business::erp::seq;
 use crate::business::erp::voucher_multi;
 use crate::business::flow::{engine, model as flow_model};
@@ -188,6 +189,11 @@ pub async fn create_asset_category(
 ) -> Result<CategoryRes, ApiError> {
     let mut spec = asset_dto::validate_category(&req)?;
     // ① 手工编码：有值就保留（先查重，给出「编码 XXX 已存在」的人话错误）
+    // CODE-08：开关关闭时填了编码直接 400（读在 begin 之前，被拒不占号）
+    code_policy::guard_manual(
+        code_policy::allow_manual_code().await,
+        Some(spec.category_code.as_str()),
+    )?;
     if !spec.category_code.is_empty() {
         let taken = seq::master_code_taken(db(), "AC", &spec.category_code)
             .await

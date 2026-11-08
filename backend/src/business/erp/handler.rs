@@ -71,6 +71,7 @@ use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use crate::business::erp::code_policy;
 use crate::business::erp::dto::{
     AccountFilter, AccountRes, CreateLocationReq, CreateMaterialReq, CreateSupplierReq,
     CreateUnitReq, CreateWarehouseReq, InventoryFilter, InventoryLocationFilter,
@@ -529,6 +530,11 @@ pub async fn create_warehouse(
 ) -> std::result::Result<WarehouseRes, ApiError> {
     req.validate()?;
     // ① 手工编码：有值就保留（先去重，给出「编码 XXX 已存在」的人话错误）
+    // CODE-08：开关关闭时填了编码直接 400（读在 begin 之前，被拒不占号）
+    code_policy::guard_manual(
+        code_policy::allow_manual_code().await,
+        req.warehouse_code.as_deref(),
+    )?;
     let manual = seq::resolve_manual_code(req.warehouse_code.as_deref(), seq::MAX_MANUAL_CODE_LEN)
         .map_err(|reason| param_invalid(format!("warehouse_code 不合法：{reason}")))?;
     if let Some(code) = manual.as_deref() {
@@ -1166,6 +1172,11 @@ pub async fn create_material(
 ) -> std::result::Result<MaterialRes, ApiError> {
     req.validate()?;
     // ① 手工编码：有值就保留（先去重，给出「编码 XXX 已存在」的人话错误）
+    // CODE-08：开关关闭时填了编码直接 400（读在 begin 之前，被拒不占号）
+    code_policy::guard_manual(
+        code_policy::allow_manual_code().await,
+        req.material_code.as_deref(),
+    )?;
     let manual = seq::resolve_manual_code(req.material_code.as_deref(), seq::MAX_MANUAL_CODE_LEN)
         .map_err(|reason| param_invalid(format!("material_code 不合法：{reason}")))?;
     if let Some(code) = manual.as_deref() {
@@ -1844,7 +1855,43 @@ pub async fn create_supplier(
     operator: Option<Uuid>,
     req: CreateSupplierReq,
 ) -> std::result::Result<SupplierRes, ApiError> {
+    // CODE-08：编码策略读一次（进程内快照，命中是纯内存读），交给实现体；
+    // 实现体不自己读配置，用例才能在不改库、不动全局快照的前提下分别钉死两条分支。
+    let allow_manual = code_policy::allow_manual_code().await;
+    create_supplier_with_policy(operator, req, allow_manual).await
+}
+
+/// 建供应商的实现体：**编码策略由调用方传入**（`true` = 允许手工编码）。
+///
+/// # 参数
+///
+/// - `operator`：操作人。
+/// - `req`：建单请求（编码可留空 ⇒ 自动取号）。
+/// - `allow_manual`：是否允许手工指定编码（生产路径由 [`code_policy::allow_manual_code`] 给）。
+///
+/// 为什么单独拆出来：`allow_manual` 是**进程级**系统参数的投影，用例如果靠改
+/// `sys_config` + 重载快照来验证两条分支，就会和同进程里其它用例抢同一个全局状态
+/// （实测：并发跑时别的用例建单突然收到 400 + 66054）。把策略作为入参传进来，
+/// 用例就能在零副作用的前提下覆盖「允许 / 禁止」两条路。
+pub(crate) async fn create_supplier_with_policy(
+    operator: Option<Uuid>,
+    req: CreateSupplierReq,
+    allow_manual: bool,
+) -> std::result::Result<SupplierRes, ApiError> {
     req.validate()?;
+    // ① 手工编码：有值就保留（先去重，给出「编码 XXX 已存在」的人话错误）
+    // CODE-08：开关关闭时填了编码直接 400（闸在 begin 之前 —— 被拒不占号、不留空号）
+    code_policy::guard_manual(allow_manual, req.supplier_code.as_deref())?;
+    let manual = seq::resolve_manual_code(req.supplier_code.as_deref(), seq::MAX_MANUAL_CODE_LEN)
+        .map_err(|reason| param_invalid(format!("supplier_code 不合法：{reason}")))?;
+    if let Some(code) = manual.as_deref() {
+        let taken = seq::master_code_taken(db(), "SUP", code)
+            .await
+            .map_err(|error| utils::db_error(error, "校验供应商编码唯一性"))?;
+        if taken {
+            return Err(supplier_code_conflict(code));
+        }
+    }
     let payable_account_id = match req
         .payable_account_id
         .as_deref()
@@ -1862,18 +1909,6 @@ pub async fn create_supplier(
         None => None,
     };
     let id = Uuid::now_v7();
-
-    // ① 手工编码：有值就保留（先去重，给出「编码 XXX 已存在」的人话错误）
-    let manual = seq::resolve_manual_code(req.supplier_code.as_deref(), seq::MAX_MANUAL_CODE_LEN)
-        .map_err(|reason| param_invalid(format!("supplier_code 不合法：{reason}")))?;
-    if let Some(code) = manual.as_deref() {
-        let taken = seq::master_code_taken(db(), "SUP", code)
-            .await
-            .map_err(|error| utils::db_error(error, "校验供应商编码唯一性"))?;
-        if taken {
-            return Err(supplier_code_conflict(code));
-        }
-    }
 
     // ② 编码 + INSERT 同一事务：没填就取号，插入失败则号一起回滚
     let tx = db()

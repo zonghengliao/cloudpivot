@@ -115,16 +115,18 @@
           <t-col :span="12">
             <t-form-item label="分类编码" :status="statusOf('category_code')">
               <!-- CODE-07 交互方式 B：编码框 + 「生成编码」按钮（编辑态都禁用） -->
+              <!-- CODE-08：系统参数关闭「允许手工指定编码」后编码栏只读、按钮隐藏 -->
               <div class="dlg-inline dlg-inline--grow">
                 <t-input
                   v-model="form.category_code"
                   :maxlength="40"
                   placeholder="留空自动生成，如 AC-01"
-                  :disabled="!!editingId"
+                  :disabled="manualCodeDisabled(!!editingId, allowManualCode)"
                   class="dlg-inline__grow"
                   data-testid="category-form-code"
                 />
                 <t-button
+                  v-if="allowManualCode"
                   variant="outline"
                   theme="primary"
                   :disabled="!!editingId"
@@ -141,7 +143,7 @@
                     errors.category_code ||
                     (editingId
                       ? '编码是分类身份，不支持修改'
-                      : '不点「生成编码」则保存时自动生成；生成后仍可手改（企业自有编码如 CAT-BUILDING 也可直接填）')
+                      : manualCodeHelp(allowManualCode, '不点「生成编码」则保存时自动生成；生成后仍可手改（企业自有编码如 CAT-BUILDING 也可直接填）'))
                   }}
                 </span>
               </template>
@@ -255,6 +257,7 @@ import {
   methodLabel,
 } from './category-logic';
 import { toMasterCodeInput } from '../shared/master-code';
+import { loadAllowManualCode, manualCodeDisabled, manualCodeHelp } from '../shared/code-policy';
 import {
   emptyCategoryForm,
   errorText,
@@ -397,6 +400,13 @@ function toPayload(): AssetCategoryPayload {
 const genCodeLoading = ref(false);
 
 /**
+ * 是否允许手工指定编码（CODE-08，系统参数 `erp.master_data.allow_manual_code`）。
+ *
+ * `false` ⇒ 编码栏只读 + 「生成编码」按钮隐藏 + 提示「编码由系统自动生成」。
+ */
+const allowManualCode = ref(true);
+
+/**
  * 取下一个可用编码填入编码框（**不占号**，可手改）。
  *
  * 后端 `GET /business/erp/asset-category/next-code` 只读 `biz_seq`（方案 B）：
@@ -470,6 +480,8 @@ function confirmDelete(row: AssetCategory): void {
 
 onMounted(async () => {
   await Promise.all([loadAccounts(), loadRows()]);
+  // CODE-08：编码策略单独取（失败按「允许手填」兜底，不打断列表）
+  allowManualCode.value = await loadAllowManualCode();
 });
 </script>
 

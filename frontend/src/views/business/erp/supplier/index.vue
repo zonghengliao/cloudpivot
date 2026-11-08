@@ -229,16 +229,18 @@
           :tips="formErrors.supplier_code"
         >
           <!-- CODE-05 交互方式 B：编码框 + 「生成编码」按钮（编辑态都禁用） -->
+          <!-- CODE-08：系统参数关闭「允许手工指定编码」后编码栏只读、按钮隐藏 -->
           <div class="dlg-inline dlg-inline--grow">
             <t-input
               v-model="form.supplier_code"
-              :disabled="isEdit"
+              :disabled="manualCodeDisabled(isEdit, allowManualCode)"
               :maxlength="40"
               placeholder="留空自动生成，如 SUP-0002"
               class="dlg-inline__grow"
               data-testid="sup-code"
             />
             <t-button
+              v-if="allowManualCode"
               variant="outline"
               theme="primary"
               :disabled="isEdit"
@@ -254,7 +256,7 @@
               {{
                 isEdit
                   ? '编码是供应商身份，不支持修改'
-                  : '不点「生成编码」则保存时自动生成；生成后仍可手改（已有编码体系可直接填）'
+                  : manualCodeHelp(allowManualCode, '不点「生成编码」则保存时自动生成；生成后仍可手改（已有编码体系可直接填）')
               }}
             </span>
           </template>
@@ -387,6 +389,7 @@ import {
 } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
 import ImportEntryButton from '@/components/ImportEntryButton.vue';
+import { loadAllowManualCode, manualCodeDisabled, manualCodeHelp } from '../shared/code-policy';
 import {
   SUPPLIER_COLUMNS,
   SUPPLIER_PAGE_SIZE,
@@ -615,6 +618,14 @@ function openEdit(row: Supplier): void {
 const genCodeLoading = ref(false);
 
 /**
+ * 是否允许手工指定编码（CODE-08，系统参数 `erp.master_data.allow_manual_code`）。
+ *
+ * `false` ⇒ 编码栏只读 + 「生成编码」按钮隐藏 + 提示「编码由系统自动生成」。
+ * 初始 `true` 是**乐观**默认：策略接口回来之前不让输入框先灰一下再亮（闪一下更疑惑）。
+ */
+const allowManualCode = ref(true);
+
+/**
  * 取下一个可用编码填入编码框（**不占号**，可手改）。
  *
  * 后端 `GET /business/erp/supplier/next-code` 只读 `biz_seq`（方案 B）：
@@ -695,6 +706,8 @@ function confirmRemove(row: Supplier): void {
 onMounted(async () => {
   // 科目字典与列表并行：字典拉不到只是「应付科目」列显示 `—`
   await Promise.all([loadAccounts(), loadSuppliers(1)]);
+  // CODE-08：编码策略不影响列表首屏，单独取（失败按「允许手填」兜底，不打断页面）
+  allowManualCode.value = await loadAllowManualCode();
 });
 </script>
 

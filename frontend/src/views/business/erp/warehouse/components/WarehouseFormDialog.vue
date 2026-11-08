@@ -30,16 +30,18 @@
     <t-form :data="form" label-width="96px" class="warehouse-form">
       <t-form-item label="仓库编码" name="warehouse_code" :status="statusOf('warehouse_code')" :tips="formErrors.warehouse_code">
         <!-- CODE-06 交互方式 B：编码框 + 「生成编码」按钮（编辑态都禁用） -->
+        <!-- CODE-08：系统参数关闭「允许手工指定编码」后编码栏只读、按钮隐藏 -->
         <div class="dlg-inline dlg-inline--grow">
           <t-input
             v-model="form.warehouse_code"
-            :disabled="isEdit"
+            :disabled="manualCodeDisabled(isEdit, allowManualCode)"
             :maxlength="40"
             placeholder="留空自动生成，如 WH-01"
             class="dlg-inline__grow"
             data-testid="wh-code"
           />
           <t-button
+            v-if="allowManualCode"
             variant="outline"
             theme="primary"
             :disabled="isEdit"
@@ -55,7 +57,7 @@
             {{
               isEdit
                 ? '编码是仓库身份，不支持修改'
-                : '不点「生成编码」则保存时自动生成；生成后仍可手改（已有编码体系可直接填）'
+                : manualCodeHelp(allowManualCode, '不点「生成编码」则保存时自动生成；生成后仍可手改（已有编码体系可直接填）')
             }}
           </span>
         </template>
@@ -148,6 +150,7 @@ import {
   type FieldErrors,
   type WarehouseFormState,
 } from '../warehouse-tree';
+import { loadAllowManualCode, manualCodeDisabled, manualCodeHelp } from '../../shared/code-policy';
 
 const props = defineProps<{
   /** 是否显示 */
@@ -173,6 +176,22 @@ const form = reactive<WarehouseFormState>(emptyWarehouseForm());
 const formErrors = ref<FieldErrors>({});
 const submitError = ref('');
 const saving = ref(false);
+
+/**
+ * 是否允许手工指定编码（CODE-08，系统参数 `erp.master_data.allow_manual_code`）。
+ *
+ * `false` ⇒ 编码栏只读 + 「生成编码」按钮隐藏 + 提示「编码由系统自动生成」。
+ * 每次打开弹窗读一次（缓存在 `shared/code-policy`，管理端改完参数后重开页面即生效）。
+ * 声明放在下面的 `watch` 之前：那个 watch 是 `immediate: true`，会立刻执行。
+ */
+const allowManualCode = ref(true);
+
+/** 读编码策略（失败按「允许手填」兜底，弹窗照常可用） */
+function refreshCodePolicy(): void {
+  void loadAllowManualCode().then((allow) => {
+    allowManualCode.value = allow;
+  });
+}
 
 const isEdit = computed(() => props.editing !== null);
 
@@ -242,6 +261,8 @@ watch(
           props.defaultParentId ? findNode(props.tree, props.defaultParentId) : null,
         );
     Object.assign(form, next);
+    // CODE-08：编码栏只读 / 按钮隐藏由这条策略决定
+    refreshCodePolicy();
   },
   { immediate: true },
 );

@@ -2549,6 +2549,36 @@ export interface NextCodePreview {
   code: string;
 }
 
+/**
+ * 主数据编码策略（`GET /business/erp/master-data/code-policy`，CODE-08）。
+ *
+ * 系统参数 `erp.master_data.allow_manual_code` 的对外投影：由它决定 6 个主数据表单的
+ * 编码栏是「可填 + 有生成编码按钮」还是「只读 + 没有按钮」。
+ *
+ * 后端在**建单入口**也按同一条参数把关（关闭时手工编码 `400 + 66054`），所以前端拿不到
+ * 这个接口时按 `default_allow_manual_code`（= 允许）渲染不影响正确性 —— 最坏情况是用户
+ * 看到输入框却提交不了，错误信息会说明原因。
+ */
+export interface MasterDataCodePolicy {
+  /** 生效值：`true` = 可手填企业自有编码；`false` = 编码完全由系统生成 */
+  allow_manual_code: boolean;
+  /** 参数键（排查用，如 `erp.master_data.allow_manual_code`） */
+  config_key: string;
+  /** 代码默认值（参数缺失 / 接口不可用时前端的兜底口径） */
+  default_allow_manual_code: boolean;
+}
+
+/**
+ * 读主数据编码策略（登录即可，不挂权限码）。
+ *
+ * 六个主数据表单共用一条策略，所以调用方一律经
+ * `@/views/business/erp/shared/code-policy` 的 `loadAllowManualCode()`（带进程内缓存），
+ * 不要在页面里直接调本函数。
+ */
+export function fetchMasterDataCodePolicy(): Promise<MasterDataCodePolicy> {
+  return get<MasterDataCodePolicy>(`${BASE}/master-data/code-policy`);
+}
+
 /** 新建供应商（`dto::CreateSupplierReq`，字段与 `biz_supplier` 列逐字一致） */
 export interface CreateSupplierReq {
   /**

@@ -50,6 +50,7 @@ use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use crate::business::erp::code_policy;
 use crate::business::erp::customer_model::{
     self, CustomerRow, CustomerWrite, MAX_CODE_LEN, MAX_NAME_LEN, STATUS_ACTIVE, is_valid_status,
     normalize_code,
@@ -490,6 +491,8 @@ pub async fn create_customer(
 ) -> std::result::Result<CustomerRes, ApiError> {
     req.validate()?;
     // ① 手工编码：有值就保留（先去重，给出「编码 XXX 已存在」的人话错误）
+    // CODE-08：开关关闭时填了编码直接 400（读在 begin 之前，被拒不占号）
+    code_policy::guard_manual(code_policy::allow_manual_code().await, req.code.as_deref())?;
     let manual = seq::resolve_manual_code(req.code.as_deref(), MAX_CODE_LEN)
         .map_err(|reason| bad_request(format!("code 不合法：{reason}")))?;
     if let Some(code) = manual.as_deref()

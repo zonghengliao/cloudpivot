@@ -128,6 +128,8 @@ pub mod budget_handler;
 pub mod budget_model;
 pub mod cancel_cascade;
 pub mod cash_flow;
+/// 主数据编码策略（CODE-08）：`erp.master_data.allow_manual_code` 的唯一读取点 + 建单闸。
+pub mod code_policy;
 pub mod commission_dto;
 pub mod commission_handler;
 pub mod commission_model;

@@ -37,6 +37,7 @@ use nik::uuid::Uuid;
 use serde_json::json;
 use std::result::Result;
 
+use crate::business::erp::code_policy;
 use crate::business::erp::expense_bridge::{self, BIZ_TYPE};
 use crate::business::erp::expense_compute::{self, Summary};
 use crate::business::erp::expense_dto::{
@@ -262,6 +263,11 @@ pub async fn create_expense_type(
 ) -> Result<TypeRes, ApiError> {
     let mut spec = expense_dto::validate_type(&req, true)?;
     // ① 手工编码：有值就保留（先查重，给出「编码 XXX 已存在」的人话错误）
+    // CODE-08：开关关闭时填了编码直接 400（读在 begin 之前，被拒不占号）
+    code_policy::guard_manual(
+        code_policy::allow_manual_code().await,
+        Some(spec.type_code.as_str()),
+    )?;
     if !spec.type_code.is_empty() {
         let taken = expense_model::type_find_by_code(db(), &spec.type_code)
             .await
