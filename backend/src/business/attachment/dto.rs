@@ -274,6 +274,51 @@ pub fn can_delete(claims: &TokenClaims, uploaded_by: Option<Uuid>) -> bool {
     }
 }
 
+/// 行级读判据（**ATT-02**）：当前用户能否查看「该附件所属的单据」。
+///
+/// # 为什么这条判据必须存在
+///
+/// 路由码 `business:attachment:list` 回答的是「能不能用附件功能」，不是
+/// 「能不能看这一张单的附件」。只靠它，仓库主管（`WAREHOUSE_MANAGER` 持
+/// `business:attachment:list`，但没有 `business:erp:payable:*`）可以拿着一条
+/// 应付单的附件 id 把发票影像下载走 —— 越权读财务凭证。
+///
+/// # 判据
+///
+/// [`DocKind::view_permissions`] 里任一码命中即可（列表码 ∪ 详情码）。
+/// `SUPER_ADMIN` 由框架的 `has_any_permission` 短路（`*` / `*:*:*`），不必另写分支。
+///
+/// # 参数
+///
+/// - `claims`：当前用户（来自中间件的 `AuthClaims`，**不**取自请求参数）；
+/// - `kind`：附件所属单据的类型。
+pub fn can_view_doc(claims: &TokenClaims, kind: DocKind) -> bool {
+    claims.has_any_permission(kind.view_permissions())
+}
+
+/// 无权查看附件所属单据时的错误（403 + 明确提示）。
+///
+/// # 提示里为什么点名权限码
+///
+/// 与本模块其它 4xx 同口径（`doc_not_found` 点名单据类型、`parse_doc_type` 列出可选值）：
+/// 运维 / 使用者能直接看出「缺哪一个授权」，不必翻代码。
+///
+/// # 不泄露什么
+///
+/// 只说「无权查看该附件所属的应付单」，**不**说文件名 / 大小 / 是否存在 ——
+/// 消息由单据**类型**推导，不含任何一条附件行的事实。
+pub fn doc_forbidden(kind: DocKind) -> ApiError {
+    ApiError::new(
+        403,
+        error_code::PERMISSION_DENIED,
+        format!(
+            "无权查看该附件所属的{}（需要以下任一权限：{}）",
+            kind.label(),
+            kind.view_permissions().join(" / ")
+        ),
+    )
+}
+
 /// 行 → 出参。
 ///
 /// # 参数

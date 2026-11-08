@@ -5,9 +5,12 @@
 //! | 方法 | 路径 | 权限码 | 说明 |
 //! |------|------|--------|------|
 //! | POST | `/attachment/upload` | `business:attachment:upload` | 上传 + 绑定（multipart：`doc_type` / `doc_id` / `file_role` / `remark` / `file`） |
-//! | GET | `/attachment/list` | `business:attachment:list` | 按 `doc_type + doc_id` 查 |
+//! | GET | `/attachment/list` | `business:attachment:list` + 单据读码 | 按 `doc_type + doc_id` 查 |
 //! | DELETE | `/attachment/{id}` | `business:attachment:list` + 行级 | 软删绑定（上传人 ∪ `business:attachment:delete`） |
-//! | GET | `/attachment/download/{id}` | `business:attachment:list` | 下载（复用 storage 出流） |
+//! | GET | `/attachment/download/{id}` | `business:attachment:list` + 单据读码 | 下载（复用 storage 出流 + 写 `operation_logs`） |
+//!
+//! 「单据读码」= 该类单据所在模块的读权限码（[`model::DocKind::view_permissions`]），
+//! 由 **ATT-02** 补上：附件可见性 = 单据可见性，见 [`dto::can_view_doc`]。
 //!
 //! # 三个「不重造」的红线（卡面「不要做的事」）
 //!
@@ -42,6 +45,7 @@ use crate::business::storage::handler::{
 };
 use crate::shared::error_code;
 use crate::support::log;
+use crate::support::log::model::OperationLogModel;
 use crate::utils;
 
 use super::dto::{
@@ -211,9 +215,19 @@ pub async fn upload(
 /// `doc_type` / `doc_id` 回显 + `list` + `total` + `max_count`；每条带
 /// `can_delete`（前端据此决定显示删除按钮，判据与后端删除接口**同一条函数**）。
 ///
+/// # 校验顺序（ATT-02：先判读权，再判存在）
+///
+/// 1. `doc_type` / `doc_id` 合法性（400）；
+/// 2. **单据读码**（403，[`dto::can_view_doc`]）—— 先于存在性判定，
+///    否则「有没有这张单」会从 404/200 的差异里漏出去；
+/// 3. 单据存在性（404）。
+///
+/// 列表与下载共用第 2 步：能列出附件却下载不了（或反之）是没有业务含义的组合。
+///
 /// # 异常情况
 ///
 /// - 400：`doc_type` 不在白名单 / `doc_id` 不是 UUID；
+/// - 403：缺该模块的读码（`business:erp:payable:*` 等，见 [`model::DocKind::view_permissions`]）；
 /// - 404：单据不存在或已删除（**不给已删单据挂的附件留后门**）；
 /// - 500：数据库异常。
 #[nik::permission(
@@ -228,6 +242,16 @@ pub async fn list(
 ) -> ResResult<DocAttachmentListRes> {
     let kind = dto::parse_doc_type(&query.doc_type)?;
     let doc_id = utils::require_uuid(&query.doc_id, "doc_id")?;
+
+    if !dto::can_view_doc(&claims, kind) {
+        tracing::warn!(
+            doc_type = kind.as_str(),
+            %doc_id,
+            user = ?utils::current_user_uuid(&claims),
+            "越权查看单据附件列表被拒（缺模块读码）"
+        );
+        return Err(dto::doc_forbidden(kind));
+    }
 
     if !model::doc_exists(kind, &doc_id)
         .await
@@ -373,9 +397,42 @@ pub async fn remove(
 /// （UUID v7 时间有序，枚举成本低）。下载前先查绑定行 → 再交给 storage 出流，
 /// 与任务附件「先校验任务可见性、再出流」的顺序完全一致。
 ///
+/// # 权限（ATT-02）
+///
+/// 两道判据，各管一件事：
+///
+/// 1. **路由码** `business:attachment:list`（`#[nik::permission]`，中间件判）=
+///    「能不能用附件功能」；
+/// 2. **行级单据读码**（[`dto::can_view_doc`]）= 「能不能看这张单」。
+///
+/// 第 2 道是 ATT-02 补的：此前只有第 1 道，于是任何持 `business:attachment:list`
+/// 的角色（仓库主管、采购、仓管……）都能下载财务单据的发票影像。
+///
+/// # 判定顺序与「存在性探测面」
+///
+/// `400 非法 id` → `404 绑定行不存在` → `403 缺单据读码` → 出流。
+///
+/// 绑定行的 `doc_type` 是判权限的前提，所以「附件是否存在」必须**先**读出来，
+/// 于是两者的先后无法反转为「先判权再审存在」。可接受的理由：
+///
+/// - 403 的消息由单据**类型**推导（不含文件名 / 大小 / 任何行的事实），
+///   只有「该 id 是不是一条附件绑定行」这一位信息会从 403/404 的差异里漏出；
+/// - 主键是 UUID v7（时间有序但随机位足够），枚举不可行；
+/// - 持该模块读码的人本来就能列出这类单据的附件 —— 对他而言存在性不是秘密。
+///
+/// 越权分支一律 403 + 点名缺失的权限码（不返回 404 假装不存在：那会让
+/// 「为什么我打不开」变成需要翻代码的谜题，见 [`dto::doc_forbidden`]）。
+///
+/// # 留痕
+///
+/// 成功出流后写一条 `operation_logs`（`DOC_ATTACHMENT_DOWNLOAD`，
+/// 目标 = 附件绑定行，`detail` 含单据类型 / 单据 id / 文件 id / 文件名 / 字节数）。
+/// 写库失败只记 `warn`，**不影响下载**（留痕是旁路，不能反压业务）。
+///
 /// # 异常情况
 ///
-/// - 400：id 不是 UUID；
+/// - 400：id 不是 UUID / 库里的 `doc_type` 不在白名单（数据漂移要响，不能静默放行）；
+/// - 403：缺该单据模块的读码；
 /// - 404：附件不存在 / 已软删 / 物理对象丢失；
 /// - 409 / 502：存储后端不可用（透传 storage 的口径）。
 #[nik::permission(
@@ -384,21 +441,55 @@ pub async fn remove(
     permission = "business:attachment:list"
 )]
 #[nik::get("/business/attachment/download/{id}")]
-pub async fn download(Path(id): Path<String>) -> Response {
-    match download_inner(&id).await {
+pub async fn download(
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+) -> Response {
+    let started = std::time::Instant::now();
+    match download_inner(&id, &claims, &headers, &connect_info, started).await {
         Ok(response) => response,
         Err(error) => error.into_response(),
     }
 }
 
 /// 下载的实际流程（错误走 [`ApiError`]，便于 `into_response`）。
-async fn download_inner(raw_id: &str) -> std::result::Result<Response, ApiError> {
+///
+/// # 参数
+///
+/// - `raw_id`：路径里的附件绑定行 id；
+/// - `claims`：当前用户（判单据读码 + 写留痕）；
+/// - `headers` / `connect_info` / `started`：留痕用的请求上下文（IP / UA / 耗时）。
+async fn download_inner(
+    raw_id: &str,
+    claims: &TokenClaims,
+    headers: &HeaderMap,
+    connect_info: &SocketAddr,
+    started: std::time::Instant,
+) -> std::result::Result<Response, ApiError> {
     let attachment_id = utils::require_uuid(raw_id, "id")?;
     let row = model::find_active(&attachment_id)
         .await
         .map_err(|error| utils::db_error(error, "查询附件"))?
         .ok_or_else(dto::attachment_not_found)?;
-    download_response(&row.file_id.to_string())
+
+    // ATT-02 · 行级：附件可见性 = 单据可见性。
+    // 库里出现未知 doc_type 说明 CHECK 约束被绕过 / 代码与 DDL 漂移：报 400 而不是放行。
+    let kind = dto::parse_doc_type(&row.doc_type)?;
+    if !dto::can_view_doc(claims, kind) {
+        tracing::warn!(
+            attachment_id = %attachment_id,
+            doc_type = kind.as_str(),
+            doc_id = %row.doc_id,
+            file_id = %row.file_id,
+            user = ?utils::current_user_uuid(claims),
+            "越权下载单据附件被拒（缺模块读码）"
+        );
+        return Err(dto::doc_forbidden(kind));
+    }
+
+    let response = download_response(&row.file_id.to_string())
         .await
         .inspect_err(|error| {
             tracing::warn!(
@@ -408,7 +499,106 @@ async fn download_inner(raw_id: &str) -> std::result::Result<Response, ApiError>
                 error = %error.msg,
                 "单据附件下载失败"
             );
-        })
+        })?;
+
+    record_download_log(headers, connect_info, claims, &row, kind, started).await;
+    Ok(response)
+}
+
+/// 下载留痕的操作码（`operation_logs.operation`）。
+pub const OP_DOWNLOAD: &str = "DOC_ATTACHMENT_DOWNLOAD";
+
+/// 构造一条下载留痕（**纯逻辑**：不连库、不写库，单测直接断言字段）。
+///
+/// # 为什么自己写一行而不是等全局中间件
+///
+/// 全局 `operation_log` 中间件只记 [`crate::shared::constants::AUDITED_METHODS`]
+/// （POST / PUT / PATCH / DELETE）：下载是 `GET`，不会留下任何痕迹。而「谁把发票影像
+/// 拷走了」恰是最需要留痕的读操作。
+///
+/// # 参数
+///
+/// - `headers` / `connect_info`：取 IP / UA / `x-request-id`（与其它日志同源）；
+/// - `claims`：操作人；
+/// - `row`：被下载的附件绑定行（目标对象）；
+/// - `kind`：单据类型（`detail.doc_type` 用它，保证与库里的标签一致）；
+/// - `duration_ms`：从进入 handler 到出流的耗时。
+///
+/// # 可见性
+///
+/// `pub(crate)`：`tests::download_log_*` 直接断言字段（不连库），
+/// `tests::db_download_log_lands_in_operation_logs` 用它跑真实写库。
+pub(crate) fn download_log(
+    headers: &HeaderMap,
+    connect_info: &SocketAddr,
+    claims: &TokenClaims,
+    row: &model::DocAttachmentRow,
+    kind: model::DocKind,
+    duration_ms: i32,
+) -> OperationLogModel {
+    OperationLogModel {
+        id: uuid::Uuid::now_v7(),
+        request_id: utils::request_id(headers),
+        user_id: utils::current_user_uuid(claims),
+        username: claims.username.clone(),
+        operation: OP_DOWNLOAD.to_string(),
+        target_type: Some("DocAttachment".to_string()),
+        target_id: Some(row.id.to_string()),
+        detail: Some(serde_json::json!({
+            "doc_type": kind.as_str(),
+            "doc_id": row.doc_id.to_string(),
+            "file_id": row.file_id.to_string(),
+            "file_role": row.file_role,
+            "file_name": row.file_name,
+            "file_size": row.file_size,
+        })),
+        ip: utils::client_ip(headers, Some(connect_info)),
+        user_agent: utils::user_agent(headers),
+        duration_ms: Some(duration_ms),
+        request_path: Some(format!("/api/business/attachment/download/{}", row.id)),
+        request_method: Some("GET".to_string()),
+        // 读操作没有请求体 / 响应体快照（文件字节不进日志）
+        request_params: None,
+        response_data: None,
+        status_code: Some(200),
+        // 追加写表关闭时间戳 Hook，created_at 由写入方显式赋值
+        created_at: chrono::Utc::now(),
+    }
+}
+
+/// 把一条下载留痕写进 `operation_logs`（失败只 `warn`，不影响已成功的下载）。
+///
+/// # 为什么直写而不是投递日志总线
+///
+/// 总线是异步批量（500 ms 一批），而下载是**低频**操作：直写多花的这一次往返
+/// （毫秒级）换的是「响应返回时这一行已经在库里」。总线在未初始化的进程
+/// （单测 / 定时任务）里会丢事件，审计行静默消失比慢 1 ms 严重得多。
+///
+/// 先例：`business/flow/self_approval.rs::record` 同样是直写 `operation_logs`。
+async fn record_download_log(
+    headers: &HeaderMap,
+    connect_info: &SocketAddr,
+    claims: &TokenClaims,
+    row: &model::DocAttachmentRow,
+    kind: model::DocKind,
+    started: std::time::Instant,
+) {
+    let mut entry = download_log(
+        headers,
+        connect_info,
+        claims,
+        row,
+        kind,
+        utils::elapsed_ms(started),
+    );
+    if let Err(error) = entry.insert(db()).await {
+        tracing::warn!(
+            attachment_id = %row.id,
+            operation = OP_DOWNLOAD,
+            error = %error,
+            "单据附件下载留痕写库失败（下载已完成，不因此报错）"
+        );
+    }
 }
 
 // ==================== 公共辅助 ====================

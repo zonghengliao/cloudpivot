@@ -231,6 +231,230 @@ fn doc_not_found_message_names_the_kind() {
     assert!(error.msg.contains("附件"), "{}", error.msg);
 }
 
+// ---------- ATT-02：附件下载权限（纯逻辑） ----------
+
+/// ATT-02 ①：单据类型 → 模块读码的映射必须与各 ERP 模块的真实读码逐字一致。
+///
+/// 这张表是 `dto::can_view_doc` 的唯一依据，改一个字母就会让「有权限的人 403」或
+/// 「没权限的人放行」，所以在这里钉死。库侧一致性由真库用例
+/// [`view_permissions_are_real_menu_codes`] 再兜一层（防哑弹）。
+#[test]
+fn view_permissions_map_to_erp_read_codes() {
+    let expected: [(DocKind, &[&str]); 7] = [
+        (DocKind::Contract, &["business:erp:contract:list"]),
+        (
+            DocKind::PurchaseOrder,
+            &["business:erp:purchase-order:list"],
+        ),
+        (
+            DocKind::StockIn,
+            &["business:erp:stock-in:list", "business:erp:stock-in:detail"],
+        ),
+        (
+            DocKind::Payable,
+            &["business:erp:payable:list", "business:erp:payable:detail"],
+        ),
+        // 付款单没有独立菜单：可见性同应付单（付款记录挂在应付详情里）
+        (
+            DocKind::Payment,
+            &["business:erp:payable:list", "business:erp:payable:detail"],
+        ),
+        (
+            DocKind::FixedAsset,
+            &["business:erp:asset:list", "business:erp:asset:detail"],
+        ),
+        (
+            DocKind::ExpenseReport,
+            &["business:erp:expense:list", "business:erp:expense:detail"],
+        ),
+    ];
+    assert_eq!(expected.len(), DocKind::ALL.len(), "七类单据必须全覆盖");
+    for (kind, codes) in expected {
+        assert_eq!(
+            kind.view_permissions(),
+            codes,
+            "{} 的模块读码漂移了",
+            kind.label()
+        );
+        for code in codes {
+            // 形态 `business:erp:{资源}:{动作}`（模块前缀本身带冒号），且全小写
+            assert!(
+                code.starts_with("business:erp:") && code.split(':').count() >= 4,
+                "权限码形态不对：{code}（{}）",
+                kind.label()
+            );
+            assert_eq!(*code, code.to_ascii_lowercase(), "权限码必须小写：{code}");
+        }
+    }
+    println!("[ATT-02] 七类单据 → 模块读码一一对应 ✓");
+}
+
+/// ATT-02 ②：`can_view_doc` 的真值表 —— 只认「该模块的读码」。
+///
+/// | 持有的码 | 期望 |
+/// |---|---|
+/// | 该模块 `:list` | 放行 |
+/// | 该模块 `:detail` | 放行（有的模块详情另有码） |
+/// | 别的模块的 `:list` | **拒绝**（仓库主管读应付单附件 = 越权） |
+/// | 只有 `business:attachment:*` | **拒绝**（附件码 ≠ 单据码） |
+/// | 空权限 | 拒绝 |
+/// | `*`（SUPER_ADMIN） | 全放行（框架短路） |
+#[test]
+fn can_view_doc_truth_table() {
+    let payable_list = claims_of(U_OTHER, &["business:erp:payable:list"]);
+    let payable_detail = claims_of(U_OTHER, &["business:erp:payable:detail"]);
+    let stock_in = claims_of(U_OTHER, &["business:erp:stock-in:list"]);
+    let attachment_only = claims_of(
+        U_OTHER,
+        &[
+            "business:attachment:list",
+            "business:attachment:upload",
+            "business:attachment:delete",
+        ],
+    );
+    let nobody = claims_of(U_OTHER, &[]);
+    let wildcard = claims_of(U_OTHER, &["*"]);
+
+    assert!(dto::can_view_doc(&payable_list, DocKind::Payable));
+    assert!(dto::can_view_doc(&payable_detail, DocKind::Payable));
+    // 付款单同应付单口径
+    assert!(dto::can_view_doc(&payable_list, DocKind::Payment));
+
+    // 有别的模块的读码 ≠ 有应付单的读码（ATT-02 的核心）
+    assert!(
+        !dto::can_view_doc(&stock_in, DocKind::Payable),
+        "收货单读码不能放行应付单附件"
+    );
+    assert!(dto::can_view_doc(&stock_in, DocKind::StockIn));
+    assert!(
+        !dto::can_view_doc(&attachment_only, DocKind::Payable),
+        "只有附件码（能用附件功能）不等于能看这张单"
+    );
+    for kind in DocKind::ALL {
+        assert!(
+            !dto::can_view_doc(&attachment_only, kind),
+            "{}",
+            kind.label()
+        );
+        assert!(!dto::can_view_doc(&nobody, kind), "{}", kind.label());
+        // 超管短路（框架的 has_any_permission）
+        assert!(dto::can_view_doc(&wildcard, kind), "{}", kind.label());
+    }
+    println!("[ATT-02] can_view_doc 真值表：本模块读码→放行；他模块/仅附件码→拒；超管→放行 ✓");
+}
+
+/// ATT-02 ③：403 的口径 —— 状态码 / 错误码 / 点名缺失权限 / 不泄露附件事实。
+#[test]
+fn doc_forbidden_names_the_missing_permission() {
+    let error = dto::doc_forbidden(DocKind::Payable);
+    assert_eq!(error.status, 403);
+    assert_eq!(error.code, crate::shared::error_code::PERMISSION_DENIED);
+    assert!(error.msg.contains("应付单"), "{}", error.msg);
+    assert!(
+        error.msg.contains("business:erp:payable:list"),
+        "必须点名缺哪个码：{}",
+        error.msg
+    );
+    // 消息由「单据类型」推导，不含任何附件行的事实（文件名 / 大小 / 备注）
+    for leaked in ["签收单.pdf", "合同扫描件.png", "1024", "附件不存在"] {
+        assert!(
+            !error.msg.contains(leaked),
+            "403 消息不得含附件行的事实（{leaked}）：{}",
+            error.msg
+        );
+    }
+    // 每类单据都能生成 403（不留「某类单据没配码 → 空消息」的坑）
+    for kind in DocKind::ALL {
+        let error = dto::doc_forbidden(kind);
+        assert_eq!(error.status, 403, "{}", kind.label());
+        assert!(error.msg.contains(kind.label()), "{}", error.msg);
+        // 至少点名一个可申请的权限码，且列表不出现空段（`… / ）`）
+        assert!(
+            error.msg.contains(kind.view_permissions()[0]),
+            "{} 必须点名读码：{}",
+            kind.label(),
+            error.msg
+        );
+        assert!(!error.msg.contains("/ ）"), "{}", error.msg);
+        assert!(!error.msg.contains("/ )"), "{}", error.msg);
+    }
+    println!("[ATT-02] 403 + 30001 + 点名权限码，且不泄露附件事实 ✓");
+}
+
+/// ATT-02 ④：下载留痕的字段（纯逻辑，不连库）。
+///
+/// 「谁下载了什么」必须一行读得懂：操作码 / 操作人 / 目标 = 附件绑定行 /
+/// `detail` 里带单据类型 + 单据 id + 文件 id + 文件名 + 字节数。
+#[test]
+fn download_log_fields() {
+    use axum::http::HeaderMap;
+
+    let mut headers = HeaderMap::new();
+    headers.insert("x-request-id", "req-att02-1".parse().expect("头值"));
+    headers.insert("user-agent", "att02-test/1.0".parse().expect("头值"));
+    headers.insert("x-real-ip", "10.9.8.7".parse().expect("头值"));
+    let connect: std::net::SocketAddr = "127.0.0.1:54321".parse().expect("地址");
+    let claims = claims_of(U_OWNER, &["business:erp:payable:list"]);
+    let row = fixture_row();
+
+    let entry =
+        super::handler::download_log(&headers, &connect, &claims, &row, DocKind::Payable, 7);
+
+    assert_eq!(entry.operation, super::handler::OP_DOWNLOAD);
+    assert_eq!(entry.target_type.as_deref(), Some("DocAttachment"));
+    assert_eq!(entry.target_id.as_deref(), Some(&*row.id.to_string()));
+    assert_eq!(entry.request_method.as_deref(), Some("GET"));
+    assert_eq!(
+        entry.request_path.as_deref(),
+        Some(&*format!("/api/business/attachment/download/{}", row.id))
+    );
+    assert_eq!(entry.status_code, Some(200));
+    assert_eq!(entry.duration_ms, Some(7));
+    // 操作人（谁）
+    assert_eq!(entry.user_id, Some(uid(U_OWNER)));
+    assert_eq!(
+        entry.username.as_deref(),
+        Some(&*format!("att_{}", &U_OWNER[..8]))
+    );
+    // 请求上下文与其它日志同源
+    assert_eq!(entry.request_id, "req-att02-1");
+    assert_eq!(entry.user_agent.as_deref(), Some("att02-test/1.0"));
+    assert_eq!(entry.ip, Some("10.9.8.7".parse().expect("IP")));
+    // 下载了什么（detail 五个事实）
+    let detail = entry.detail.as_ref().expect("detail 必须有");
+    assert_eq!(detail["doc_type"], serde_json::json!("PAYABLE"));
+    assert_eq!(detail["doc_id"], serde_json::json!(row.doc_id.to_string()));
+    assert_eq!(
+        detail["file_id"],
+        serde_json::json!(row.file_id.to_string())
+    );
+    assert_eq!(detail["file_name"], serde_json::json!("发票影像.pdf"));
+    assert_eq!(detail["file_size"], serde_json::json!(2048));
+    assert_eq!(detail["file_role"], serde_json::json!("INVOICE"));
+    // 读操作不留请求体 / 响应体（文件字节不进日志）
+    assert!(entry.request_params.is_none());
+    assert!(entry.response_data.is_none());
+    println!("[ATT-02] 下载留痕：operation/target/detail/IP/UA/request_id 全部就位 ✓");
+}
+
+/// 构造一条下载留痕用的附件行（字段与 `find_active` 的投影一致）。
+fn fixture_row() -> model::DocAttachmentRow {
+    model::DocAttachmentRow {
+        id: uid("d2120300-0000-4000-8000-000000000001"),
+        doc_type: "PAYABLE".to_string(),
+        doc_id: uid(DOC_PAYABLE),
+        file_id: uid(FILE_B),
+        file_role: "INVOICE".to_string(),
+        remark: Some("发票第一联".to_string()),
+        uploaded_by: Some(uid(U_OWNER)),
+        uploader_name: "附件上传人".to_string(),
+        file_name: "发票影像.pdf".to_string(),
+        file_size: 2048,
+        mime_type: Some("application/pdf".to_string()),
+        created_at: chrono::Utc::now(),
+    }
+}
+
 // ---------- 真库 ----------
 
 /// 真库用例必须串行（共用全局 `db()` 与同一批夹具）。
@@ -621,6 +845,150 @@ async fn db_count_by_doc_isolation_and_quota() {
     );
     // 上限常量必须与前端文案一致（50）
     assert_eq!(model::MAX_ATTACHMENTS_PER_DOC, 50);
+}
+
+// ---------- ATT-02：真库 ----------
+
+/// ATT-02 ⑤（防哑弹）：`view_permissions()` 里的每个码都必须在 `sys_menu` 里真实存在。
+///
+/// 权限码与菜单行是一一对应的（AGENTS.md 约定 7）：写一个库里没有的码，等于给
+/// 「有权限的角色」也发 403，而这种错误**只会在真机上被用户体验到**，单测看不出来。
+/// 同一批码还必须至少被一个角色持有，否则它仍是个哑弹 —— 这里只查菜单存在性，
+/// 「谁持有」由各模块的角色矩阵迁移负责。
+#[tokio::test]
+async fn view_permissions_are_real_menu_codes() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    for kind in DocKind::ALL {
+        for code in kind.view_permissions() {
+            let found: i64 = db()
+                .scalar_with_params(
+                    "SELECT count(*) FROM sys_menu WHERE auth_code = ? AND deleted_at IS NULL",
+                    vec![Value::from(*code)],
+                )
+                .await
+                .expect("查 sys_menu");
+            assert!(
+                found > 0,
+                "{} 的读码 {code} 不在 sys_menu 里（哑弹：有权限的人也会 403）",
+                kind.label()
+            );
+        }
+    }
+    // 反例守卫：BUG-SYS-05 删掉的采购单详情码不能被重新写回清单
+    for kind in DocKind::ALL {
+        assert!(
+            !kind
+                .view_permissions()
+                .contains(&"business:erp:purchase-order:detail"),
+            "{} 引用了已删除的采购单详情码",
+            kind.label()
+        );
+    }
+    println!("[ATT-02] 七类单据的读码全部命中 sys_menu ✓");
+}
+
+/// ATT-02 ⑥（真库）：下载留痕能真正落进 `operation_logs`（含 INET / JSONB 绑定）。
+///
+/// 单测只验「模型字段对不对」；这条验「写库路径真的能通」—— `ip` 是 `INET`、
+/// `detail` 是 `JSONB`，绑定类型写错在编译期看不出来，只会在运行期报错，
+/// 而留痕失败是被 `warn` 吞掉的（不能因此让下载失败），所以必须有这条用例兜住。
+#[tokio::test]
+async fn db_download_log_lands_in_operation_logs() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    use axum::http::HeaderMap;
+
+    let log_id = uid("d2120e01-0000-4000-8000-000000000001");
+    // 先清（重跑安全）
+    exec(&format!(
+        "DELETE FROM operation_logs WHERE id = '{log_id}'::uuid"
+    ))
+    .await;
+
+    let mut headers = HeaderMap::new();
+    headers.insert("x-request-id", "req-att02-db".parse().expect("头值"));
+    headers.insert("user-agent", "att02-db-test/1.0".parse().expect("头值"));
+    headers.insert("x-real-ip", "10.9.8.7".parse().expect("头值"));
+    let connect: std::net::SocketAddr = "127.0.0.1:54321".parse().expect("地址");
+    let claims = claims_of(U_OWNER, &["business:erp:payable:list"]);
+    let row = fixture_row();
+
+    let mut entry =
+        super::handler::download_log(&headers, &connect, &claims, &row, DocKind::Payable, 7);
+    entry.id = log_id;
+    entry
+        .insert(db())
+        .await
+        .expect("下载留痕必须能写进 operation_logs");
+
+    let rows = db()
+        .find_with_params(
+            "SELECT operation, target_type, target_id, status_code, request_method, \
+                    request_path, username, detail->>'doc_type' AS doc_type, \
+                    detail->>'file_name' AS file_name, \
+                    (detail->>'file_size')::bigint AS file_size, \
+                    ip::text AS ip_text \
+               FROM operation_logs WHERE id = ?::uuid",
+            vec![Value::from(&log_id)],
+        )
+        .await
+        .expect("读回留痕");
+    assert_eq!(rows.len(), 1, "留痕必须恰好一行");
+    let sql_row = &rows[0];
+    assert_eq!(
+        sql_row.get_typed::<String>("operation").expect("operation"),
+        super::handler::OP_DOWNLOAD
+    );
+    assert_eq!(
+        sql_row.get_typed::<String>("target_type").expect("type"),
+        "DocAttachment"
+    );
+    assert_eq!(
+        sql_row.get_typed::<String>("target_id").expect("id"),
+        row.id.to_string()
+    );
+    assert_eq!(
+        sql_row.get_typed::<i32>("status_code").expect("状态码"),
+        200
+    );
+    assert_eq!(
+        sql_row.get_typed::<String>("request_method").expect("方法"),
+        "GET"
+    );
+    assert_eq!(
+        sql_row.get_typed::<String>("doc_type").expect("doc_type"),
+        "PAYABLE"
+    );
+    assert_eq!(
+        sql_row.get_typed::<String>("file_name").expect("文件名"),
+        "发票影像.pdf"
+    );
+    assert_eq!(sql_row.get_typed::<i64>("file_size").expect("大小"), 2048);
+    assert_eq!(
+        sql_row.get_typed::<String>("ip_text").expect("IP"),
+        "10.9.8.7"
+    );
+    assert_eq!(
+        sql_row.get_typed::<String>("username").expect("账号"),
+        format!("att_{}", &U_OWNER[..8])
+    );
+
+    exec(&format!(
+        "DELETE FROM operation_logs WHERE id = '{log_id}'::uuid"
+    ))
+    .await;
+    let left: i64 = db()
+        .scalar_with_params(
+            "SELECT count(*) FROM operation_logs WHERE id = ?::uuid",
+            vec![Value::from(&log_id)],
+        )
+        .await
+        .expect("查残留");
+    assert_eq!(left, 0, "夹具留痕必须清干净");
+    println!("[ATT-02] operation_logs 真库留痕：operation/target/detail/ip 全部正确落库 ✓");
 }
 
 /// 收尾：断言夹具全部清干净（跨 run 不留残留）。

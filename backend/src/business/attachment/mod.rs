@@ -20,9 +20,12 @@
 //! | 方法 | 路径 | 权限码 | 说明 |
 //! |------|------|--------|------|
 //! | POST | `/attachment/upload` | `business:attachment:upload` | 上传并绑定（multipart：`doc_type` / `doc_id` / `file_role` / `remark` / `file`） |
-//! | GET | `/attachment/list` | `business:attachment:list` | 按 `doc_type + doc_id` 查 |
+//! | GET | `/attachment/list` | `business:attachment:list` + 单据读码 | 按 `doc_type + doc_id` 查 |
 //! | DELETE | `/attachment/{id}` | `business:attachment:upload` + 行级 `:delete` | 软删绑定（上传人本人 ∪ `business:attachment:delete`；写接口不能挂读码，见 `authz_tests::o13`） |
-//! | GET | `/attachment/download/{id}` | `business:attachment:list` | 下载（复用 storage 出流） |
+//! | GET | `/attachment/download/{id}` | `business:attachment:list` + 单据读码 | 下载（复用 storage 出流 + 落 `operation_logs`） |
+//!
+//! 「单据读码」是 ATT-02 补的行级判据（[`model::DocKind::view_permissions`]）：
+//! 路由码只回答「能不能用附件功能」，不回答「能不能看这张单」。
 //!
 //! # 表结构与权限码的唯一依据
 //!

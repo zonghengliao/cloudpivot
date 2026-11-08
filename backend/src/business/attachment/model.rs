@@ -24,10 +24,18 @@
 //!
 //! # SCOPE-EXEMPT: 附件的可见性 = 单据的可见性
 //!
-//! 本文件的查询都发生在「调用方已经按单据做了业务判定」之后（handler 先校验单据存在、
-//! 再由路由权限码 `business:attachment:list` 控制入口）。给附件再注入一次数据范围谓词
-//! 会需要 join 五张单据表并各写一套范围规则，收益为零、静默少数据的风险反而更大。
-//! 与 `biz_task_attachment`（`task/collab.rs` 文件头同款豁免）同一口径。
+//! 本文件的查询不注入 `data_scope`：七张单据表都没有部门列 / 归属人列，数据范围
+//! 在它们上面表达不出来（各 ERP 模块文件头同一条 `SCOPE-EXEMPT`）。
+//!
+//! **ATT-02 起，这层「单据可见性」由 handler 显式校验**，而不是默默假设：
+//! [`DocKind::view_permissions`] 给出各类单据的模块读码，`handler::list` /
+//! `handler::download` 在取数据之前先比一次。此前只校验了路由码
+//! `business:attachment:list`（= 「能用附件功能」），于是**任何**持该码的人都能
+//! 拿别人的应付单 / 报销单附件（同一台机器上仓库主管读财务凭证影像就是一次越权）。
+//!
+//! 与 `biz_task_attachment`（`task/collab.rs` 文件头同款豁免）的差别：任务附件的
+//! 单条读路径会先 `find_detail(&principal, task_id)`（看不见即 404），本模块此前没有
+//! 等价的一步 —— ATT-02 补的就是它。
 
 use nik::prelude::*;
 use nik::uuid::Uuid;
@@ -182,6 +190,47 @@ impl DocKind {
             DocKind::ExpenseReport => {
                 "SELECT 1 FROM biz_expense_report WHERE id = ?::uuid AND deleted_at IS NULL"
             }
+        }
+    }
+
+    /// 查看这一类单据所需的权限码（**ATT-02**：附件可见性 = 单据可见性）。
+    ///
+    /// # 这条判据从哪来
+    ///
+    /// 单据的可见性在本仓是**由模块权限码控制**的，不是 `data_scope`：
+    /// 七张单据表都没有部门列 / 归属人列，`data_scope`（SELF / DEPT_*）在它们上面
+    /// 表达不出来 —— 各模块文件头都写了同一条 `SCOPE-EXEMPT`（例：
+    /// `erp/payable.rs`「应付单是财务台账（V0148 建表，无 `dept_id` / 归属人列），
+    /// 数据范围表达不出来；可见性由 `business:erp:payable:*` 权限码控制」）。
+    /// 附件若另立一套判据，就会出现「列表看得见单据、详情页却打不开它的附件」——
+    /// 那种不一致比少一层过滤更容易变成长期隐患。
+    ///
+    /// 所以这里**照抄各模块自己的读码**：列表码 ∪（存在的）详情码。
+    /// 只给「能进入该模块并看到这张单的人」发附件。
+    ///
+    /// # 为什么是切片而不是单个码
+    ///
+    /// 有的模块详情与列表同码（合同 / 采购单：`GET {id}` 也挂 `:list`），有的模块
+    /// 另有详情码（应付 / 收货 / 资产 / 报销）。给一个**或**关系，才不会让「只有详情码」
+    /// 的角色被误挡。
+    ///
+    /// # 与库的一致性
+    ///
+    /// 每个字面值都必须在 `sys_menu.auth_code` 里真实存在（否则就是「点了必然 403」
+    /// 的哑弹）。`business:erp:purchase-order:detail` 曾在 `V0146` 种过、随后按
+    /// BUG-SYS-05 删除（采购订单没有 GET 详情路由），所以它**不在**下面的清单里。
+    /// `tests::view_permissions_are_real_menu_codes`（真库用例）逐个回查库。
+    pub fn view_permissions(self) -> &'static [&'static str] {
+        match self {
+            DocKind::Contract => &["business:erp:contract:list"],
+            DocKind::PurchaseOrder => &["business:erp:purchase-order:list"],
+            DocKind::StockIn => &["business:erp:stock-in:list", "business:erp:stock-in:detail"],
+            // 付款单是「应付单的付款记录」（没有独立的付款菜单），可见性同应付。
+            DocKind::Payable | DocKind::Payment => {
+                &["business:erp:payable:list", "business:erp:payable:detail"]
+            }
+            DocKind::FixedAsset => &["business:erp:asset:list", "business:erp:asset:detail"],
+            DocKind::ExpenseReport => &["business:erp:expense:list", "business:erp:expense:detail"],
         }
     }
 }
