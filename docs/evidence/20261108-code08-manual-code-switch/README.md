@@ -122,3 +122,12 @@ ERP_DB_URL='postgres://alun:alun@127.0.0.1:5432/cloudpivot_code08c' \
    编码框也一直只读，因此没有额外加闸（写了也没有入口）。
 5. **未碰计量单位**（卡面禁止）：单位编码仍手工填，本卡未改。
 6. **未碰 144 生产**；未改任何已应用的迁移（新增 `V0342` 是首个空位，V0341 之后）。
+7. **改了一条他卡的断言（不是放宽，是换口径）**：`frontend/tests/unit/code05-gen-code-button.test.ts`
+   里「供应商/客户编码框必须 `:disabled="isEdit"`」钉的是 CODE-05 当时的字面量，本卡把禁用条件
+   合并成 `manualCodeDisabled(isEdit, allowManualCode)`（编辑态 + 开关关闭都要禁用）。断言随之改成
+   新表达式，**语义没变**（编辑态仍只读，由 `manualCodeDisabled(true, *) === true` 保证，
+   code08 单测里有一条纯逻辑用例钉死）。
+8. **前端全量单测的 3 条红是他卡在飞的改动**（与本卡无关，commit 前逐条归因）：
+   `flow-biz-link.test.ts`（后端 FlowBizType 多出第 16 个字面量）、`erp-sales-order.test.ts`
+   （payload 新增 `currency_code`）、`p307-awaiting-executor.test.ts`（`payable-logic` 暂缺
+   `executePaymentConfirmText` 导出）。本卡相关的 18 条（code05 7 + code08 11）全绿。

@@ -122,6 +122,19 @@ test('客户页：编码栏旁有「生成编码」按钮，编辑态禁用，�
 test('两页的编码输入框仍然是「编辑态只读」', () => {
   const supplier = read('views/business/erp/supplier/index.vue');
   const customer = read('views/business/erp/customer/index.vue');
-  assert.match(supplier, /v-model="form\.supplier_code"\s*\n?\s*:disabled="isEdit"/, '供应商编码框必须保持 :disabled="isEdit"');
-  assert.match(customer, /v-model="form\.code"\s*\n?\s*:disabled="isEdit"/, '客户编码框必须保持 :disabled="isEdit"');
+  // CODE-08 起，「编辑态只读」不再是裸 `:disabled="isEdit"`：编码框还要受
+  // 系统参数 `erp.master_data.allow_manual_code` 控制（关闭时新建也不可填），
+  // 两条合并在 `manualCodeDisabled(isEdit, allowManualCode)` 里。
+  // 本用例护的语义不变：编辑态的编码框必须禁用（该函数对 `isEdit = true` 恒返回 true，
+  // 见 code08-manual-code-switch.test.ts 的纯逻辑用例）。
+  assert.match(
+    supplier,
+    /v-model="form\.supplier_code"\s*\n?\s*:disabled="manualCodeDisabled\(isEdit, allowManualCode\)"/,
+    '供应商编码框必须走 manualCodeDisabled(isEdit, allowManualCode)（编辑态仍只读）',
+  );
+  assert.match(
+    customer,
+    /v-model="form\.code"\s*\n?\s*:disabled="manualCodeDisabled\(isEdit, allowManualCode\)"/,
+    '客户编码框必须走 manualCodeDisabled(isEdit, allowManualCode)（编辑态仍只读）',
+  );
 });
