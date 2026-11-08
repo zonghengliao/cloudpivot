@@ -9,8 +9,8 @@
 | 验收 | 结果 | 证据 |
 |------|------|------|
 | ① 采购/销售订单、合同、入库、出库、调拨、盘点、退货（采购+销售）都有按钮 | ✅ 9 页 | `sample/ui-*-button.png`（9 张截图）+ 单测 `tests/unit/pdf08-doc-pdf.test.ts` 页面契约 14 条 |
-| ② 审批实例、任务、三张报表也有 | ✅ 5 页 | 同上（`ui-任务-button.png`、`ui-资产负债表-button.png` 等） |
-| ③ 点击能下载，文件名正确、中文不乱码 | ✅ 9 个真实浏览器下载 | `sample/dl-*.pdf`（9 份真文件，24KB–215KB）；文件名断言见 `raw_browser.txt` |
+| ② 审批实例、任务、三张报表也有 | ✅ 5 页 | 同上（`ui-任务-button.png`、`ui-资产负债表-button.png` 等）；审批实例/三张报表的接口侧由 curl 逐条验（浏览器只点任务 + 资产负债表各一） |
+| ③ 点击能下载，文件名正确、中文不乱码 | ✅ 11 个真实浏览器下载 | `sample/dl-*.pdf`（11 份真文件，24KB–215KB）；文件名断言见 `raw_browser.txt` |
 | ④ `operation_logs` 有导出记录 | ✅ 12 类导出逐条 +1 | `raw/run_145.log`（每行 `audit=操作码|target_type|单号|admin|时间`） |
 | ⑤ 无权限 → 403 + 提示 | ✅ | `sample/ui-403-toast.png`（提示原文见下）+ `raw/run_145.log` 的 401/403/404 段 |
 
@@ -78,17 +78,17 @@ EXPORT_REPORT_PDF         | biz_report         | 资产负债表 2026-10 | admin
 
 ## 2. 前端实测（真实 Chromium 点击按钮）
 
-前端用 `vite dev` + `BACKEND_ORIGIN` 反代到 145 的隔离实例（三个 UI 端口 5191/5194/5195），
+前端用 `vite dev` + `BACKEND_ORIGIN` 反代到 145 的隔离实例（四个 UI 端口 5191/5192/5194/5195），
 `browser_check.mjs` 用 Playwright 真点按钮、真收文件：
 
 ```bash
 node docs/evidence/20261108-pdf08/browser_check.mjs
-# 真实浏览器断言 71 项：PASS=71 FAIL=0（raw_browser.txt）
+# 真实浏览器断言 86 项：PASS=86 FAIL=0（raw_browser.txt）
 ```
 
-每个入口断言 7 项：有「下载 PDF」按钮 / 文案 / 真收到 download 事件 /
-文件名匹配后端中文名 / 文件 > 20KB / 请求带 `Authorization: Bearer` / 页面无 JS 报错。
-另外两条专项：
+11 个入口（9 张单据 + 任务 + 资产负债表）每个断言 7 项：有「下载 PDF」按钮 / 文案 /
+真收到 download 事件 / 文件名匹配后端中文名 / 文件 > 20KB / 请求带 `Authorization: Bearer` /
+页面无 JS 报错。另加两条专项：
 
 - **loading**：把 PDF 请求人为延迟 1.5s，点下去 500ms 时按钮 `t-button--loading` →
   「采购订单：下载中按钮进入 loading」PASS；
@@ -103,15 +103,15 @@ node docs/evidence/20261108-pdf08/browser_check.mjs
 20261108-pdf08/
 ├── README.md             # 本文件
 ├── e2e145.py             # 后端 12 类导出 + 审计 + 401/403/404（145，stdlib）
-├── browser_check.mjs     # 真实 Chromium 点击 9 个入口（Playwright）
+├── browser_check.mjs     # 真实 Chromium 点击 11 个入口（Playwright）
 ├── fixture_403.sql       # 报表「可看不可导出」夹具（角色 + 用户，仅 pdf07 库）
 ├── raw/
 │   ├── run_145.log       # e2e145.py 全程输出（165 断言）
 │   └── raw_e2e.txt       # PASS/FAIL 汇总
-├── raw_browser.txt       # 浏览器断言逐条（71 条）
+├── raw_browser.txt       # 浏览器断言逐条（86 条）
 ├── curl/                 # 145 导出的 14 份 PDF（curl 侧）
 └── sample/
-    ├── dl-*.pdf          # 浏览器真下载的 9 份（文件名即浏览器看到的名字）
+    ├── dl-*.pdf          # 浏览器真下载的 11 份（文件名即浏览器看到的名字）
     ├── ui-*-button.png   # 每个入口的按钮位置（右上角/吸顶动作条）
     ├── ui-*-after.png    # 下载后的页面
     └── ui-403-toast.png  # 无权限红条
