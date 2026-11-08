@@ -1,0 +1,11 @@
+== 节点审批人（角色名）
+assignee n_gm(总经理审批（≥ 10 万·第二级）) type=ROLE role=GENERAL_MANAGER user=-
+assignee n_pm(采购经理审批（< 10 万）) type=ROLE role=PURCHASE_MANAGER user=-
+assignee n_pm_hi(采购经理审批（≥ 10 万·第一级）) type=ROLE role=PURCHASE_MANAGER user=-
+== 条件边（金额分级阈值）
+edge c_amt->n_pm default=false cond={"op": "cmp", "cmp": "lt", "field": "form.amount", "value": 100000}
+edge c_amt->n_pm_hi default=true cond=-
+edge n_gm->e default=false cond=-
+edge n_pm->e default=false cond=-
+edge n_pm_hi->n_gm default=false cond=-
+edge s->c_amt default=false cond=-

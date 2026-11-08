@@ -154,8 +154,15 @@ HT-20261109-000004  PURCHASE  DRAFT（同到期日，用于证明「草稿不提
 
 ### F5（P3）销售合同仍由**采购经理**审批
 
-- `contract_approve` 流程只有一套（`biz_flow_def` 里 `biz_type=CONTRACT_APPROVE`），审批人节点 `n_pm` / `n_pm_hi` → `PURCHASE_MANAGER`，`n_gm` → `GENERAL_MANAGER`。
-- 实测：销售合同（`HT-20261109-000002`）的待办 `assignee_name` = 采购经理角色的成员。
+- `contract_approve` 流程只有一套（`biz_flow_def.flow_code='contract_approve'`，`biz_type=CONTRACT_APPROVE`），**与 contract_type 无关**。
+  节点审批人（只读体检 `tools/probe_assignee.txt`）：
+  ```
+  n_pm(采购经理审批（< 10 万）)      ROLE=PURCHASE_MANAGER
+  n_pm_hi(采购经理审批（≥ 10 万·第一级）) ROLE=PURCHASE_MANAGER
+  n_gm(总经理审批（≥ 10 万·第二级）)    ROLE=GENERAL_MANAGER
+  条件边：c_amt -[form.amount < 100000]-> n_pm ；c_amt -[default]-> n_pm_hi ；n_pm_hi -> n_gm
+  ```
+- 实测：销售合同（`HT-20261109-000002`，5.5 万）的待办落到 `n_pm`，`assignee_name` = 采购经理角色成员。
 - 影响：销售合同的商务复核落在采购口，销售主管（`SALES_SUPERVISOR`）全程不参与；金额分级阈值（10 万）也是采购口径。
 
 ### F6（P3）合同没有「已执行金额」字段/接口
@@ -202,8 +209,9 @@ bash docs/evidence/20261108-ctr01-contract-chain/tools/01_drill.sh   # 期望 PA
 bash docs/evidence/20261108-ctr01-contract-chain/tools/00_env.sh down
 ```
 
-证据脚本约定：`tools/01_drill.sh` 每步落 `raw/<步名>.json`（响应体，token 不外泄）+ `raw/<步名>.txt`（库快照），
-断言计数 `PASS/FAIL` 打在末尾；`tools/00b_*`/`00c_*`/`00d_*` 是只读体检（种子角色、流程节点、`sys_job`、权限码）。
+证据脚本约定：`tools/01_drill.sh` 每步落 `raw/<步名>.json`（响应体，token 已打码）+ `raw/<步名>.txt`（库快照），
+断言计数 `PASS/FAIL` 打在末尾；`tools/00b_*`~`00e_*` 是只读体检（种子角色、流程节点与审批人、条件边、`sys_job`、权限码），
+输出见 `tools/probe.txt` / `probe2.txt` / `probe_flow.txt` / `probe_assignee.txt`。
 
 ## 6. 本轮未覆盖 / 边界
 
