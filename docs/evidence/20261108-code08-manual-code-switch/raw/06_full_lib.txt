@@ -1,0 +1,42 @@
+== cargo test --lib（全量，真库 ERP_DB_URL=cloudpivot_code08d，默认并行）==
+
+running 3526 tests
+test result: FAILED. 3503 passed; 23 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1348.07s
+
+-- 23 条失败清单（逐条归因见下）--
+business::erp::asset_linkage_tests::lnk09_cancel_disposal_triggers_restore_notice
+business::erp::asset_linkage_tests::lnk09_disposal_triggers_disposed_notice
+business::erp::asset_linkage_tests::lnk09_excluded_voucher_actions_never_run
+business::erp::asset_linkage_tests::lnk09_repeat_disposal_does_not_trigger_twice
+business::erp::asset_linkage_tests::lnk09_rolled_back_tx_never_sends_notice
+business::erp::asset_linkage_tests::st02_dispose_restore_dispose_notifies_twice
+business::erp::asset_linkage_tests::st02_enable_triggers_once
+business::erp::asset_linkage_tests::st02_excluded_actions_not_run
+business::erp::asset_linkage_tests::st02_idle_triggers_once
+business::erp::asset_linkage_tests::st02_reversible_edges_notify_twice
+business::erp::expense_linkage_tests::lnk05_approve_triggers_linkage_notice_and_single_voucher
+business::erp::expense_linkage_tests::lnk05_cancel_triggers_linkage_notice
+business::erp::expense_linkage_tests::lnk05_pay_triggers_only_on_full_payment
+business::erp::expense_linkage_tests::lnk05_reject_reverts_to_draft_and_triggers
+business::erp::expense_linkage_tests::lnk05_repeat_submit_and_pay_do_not_trigger_twice
+business::erp::expense_linkage_tests::lnk05_submit_triggers_linkage_notice
+business::erp::receivable_aging::tests::db_period_cutoff_excludes_later_documents
+business::erp::voucher_linkage_tests::lnk06_create_audit_post_each_trigger_once
+business::erp::voucher_linkage_tests::lnk06_excluded_generate_voucher_never_runs
+business::erp::voucher_linkage_tests::lnk06_repeat_post_does_not_trigger_twice
+business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag
+business::flow::linkage::tests_wiring::trigger_specs_cover_whitelist_in_order
+business::flow::linkage::tests_wiring::wired_triggers_match_call_sites
+result: FAILED. 3503 passed; 23 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1348.07s
+
+-- 归因（三类，全部与本卡无关）--
+① 10 条 asset_linkage / 6 条 expense_linkage：库是全新一次性库（275 个 V 迁移、sys_dept=0 行），用例 panic「库里没有部门 / 库里必须有一名带部门的用户」—— 环境缺种子，不是代码。
+② 3 条 voucher_linkage：biz_flow_linkage_rule 唯一键冲突（uk_flow_linkage_rule）—— 同一库里上轮残留的规则行，夹具卫生问题。
+③ 3 条 flow::linkage（wiring/admin）+ 1 条 receivable_aging：联动触发点计数（16 个文件）与期间数据断言 —— 他卡在飞的联动/期间 WIP（工作区里 asset_linkage.rs / expense_linkage.rs / opening.rs / invoice.rs 均有他卡未提交改动）。
+
+-- 本卡 RED 数 = 0 --
+失败日志里 grep '66054|系统已禁止手工指定编码|allow_manual' 命中数：0
+
+-- 本卡模块与相关模块（同库、串行）--
+docs/evidence/20261108-code08-manual-code-switch/raw/03_backend_unit_tests.txt:test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 3516 filtered out; finished in 0.60s
+docs/evidence/20261108-code08-manual-code-switch/raw/04_module_tests.txt:test result: ok. 116 passed; 0 failed; 0 ignored; 0 measured; 3410 filtered out; finished in 27.47s

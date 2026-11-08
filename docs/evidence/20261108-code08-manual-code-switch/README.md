@@ -98,10 +98,31 @@ ERP_DB_URL='postgres://alun:alun@127.0.0.1:5432/cloudpivot_code08c' \
 | `50_policy_anon.json` | 无 token → 401 |
 | `60_config_after.json` | 收尾时参数行（true / BOOLEAN / erp_master_data） |
 | `01_migration_fresh.txt` / `01b_migration_idempotent.txt` | 空库首启 275 个迁移 / 二次启动 0 个 |
-| `02_db_assert.txt` | 38 条库侧断言（ALL PASS） |
+| `02_db_assert.txt` | 42 条库侧断言（ALL PASS） |
 | `03_backend_unit_tests.txt` | 本卡 10 条用例（真库，无 skip） |
 | `04_module_tests.txt` | 相关模块回归 116 passed / 0 failed |
-| `raw_prev-debug-run/` | 调试期两轮落证（库被重复跑污染，正式证据用 `08c`） |
+| `raw_prev-debug-run/` | 调试期两轮落证（库被重复跑污染 / 二进制早于最后一次重构），正式证据用 `08d` |
+
+## 测试结果汇总
+
+| 层 | 结果 | 落证 |
+|---|---|---|
+| 真实 token curl（6 类 × 3 轮开关） | **60/60 PASS** | `raw/00_summary.txt` |
+| 库侧断言（参数行 / 字典项 / 落库 / 不推进号段 / 无重复） | **42/42 PASS** | `raw/02_db_assert.txt` |
+| 迁移幂等 | 空库首启 **275** 个 / 二次启动 **0** 个 | `raw/01_migration_fresh.txt`、`raw/01b_migration_idempotent.txt` |
+| 本卡后端单测（真库 `ERP_DB_URL`） | **10 passed / 0 failed / 0 ignored** | `raw/03_backend_unit_tests.txt` |
+| 相关模块回归（handler / customer_handler / dto / seq / asset_dto / expense_dto / error_code） | **116 passed / 0 failed** | `raw/04_module_tests.txt` |
+| 后端全量 `cargo test --lib` | 3503 passed / **23 failed**（全部他卡/环境，本卡 0 条） | `raw/06_full_lib.txt` |
+| 前端本卡单测 | **11/11 PASS**（+ CODE-05 换口径后 7/7） | `pnpm test:unit` |
+| 前端全量单测 | 1088 passed / 3 failed（均他卡在飞改动） | 见 README §坑与偏差 8 |
+| 前端 typecheck / build | exit 0 / exit 0（产物含 `code-policy` chunk） | `raw/05_checks.txt` |
+| rustfmt / clippy | clean / 本卡文件 0 命中（2 个 error 是他卡 `tests/pflow1a.rs`/`pflow1b.rs`） | `raw/05_checks.txt` |
+
+全量 23 条失败的逐条归因（**没有一条落在本卡路径**）：10 条 asset_linkage + 6 条 expense_linkage
+在一次性库上 panic「库里没有部门 / 库里必须有一名带部门的用户」（该库只有 275 个 V 迁移、
+`sys_dept` 0 行）；3 条 voucher_linkage 撞 `uk_flow_linkage_rule` 唯一键（同库上轮残留规则行）；
+3 条 flow::linkage + 1 条 receivable_aging 是他卡在飞的联动 / 期间 WIP。失败日志里
+`66054|系统已禁止手工指定编码|allow_manual` 命中数 = **0**。
 
 ## 坑与偏差（如实记录）
 
