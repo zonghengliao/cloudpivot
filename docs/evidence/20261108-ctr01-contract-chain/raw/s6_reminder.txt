@@ -1,0 +1,7 @@
+--- select 'log='||doc_type||'|'||remind_kind||'|'||stage||'|'||remind_date||'|'||coalesce(sent_at::text,'-') from biz_reminder_log order by sent_at
+log=CONTRACT|CONTRACT_EXPIRE|D-30|2026-11-09|2026-11-09 00:23:52.012136+08
+--- select 'notice='||biz_type||'|'||title||'|'||created_at from sys_notice where biz_type='contract_expire' order by created_at
+notice=contract_expire|合同 30 天后到期：HT-20261109-000003|2026-11-09 00:23:52.009571+08
+--- select 'receiver='||u.username from sys_notice_receiver r join sys_notice n on n.id=r.notice_id join sys_user u on u.id=r.user_id where n.biz_type='contract_expire'
+receiver=admin
+receiver=ctr01_approver

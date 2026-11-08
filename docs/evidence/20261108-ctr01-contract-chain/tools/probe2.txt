@@ -1,0 +1,33 @@
+== flow contract_approve
+ERROR:  column d.definition_key does not exist
+LINE 1: ...iz_type||' status='||d.status||' path='||coalesce(d.definiti...
+                                                             ^
+ERROR:  column v.flow_id does not exist
+LINE 1: ...iz_flow_def_version v join biz_flow_def d on d.id=v.flow_id ...
+                                                             ^
+ERROR:  column n.flow_id does not exist
+LINE 1: ... from biz_flow_node n join biz_flow_def d on d.id=n.flow_id ...
+                                                             ^
+ERROR:  column a.flow_id does not exist
+LINE 1: ..._flow_node_assignee a join biz_flow_def d on d.id=a.flow_id ...
+                                                             ^
+ERROR:  column e.flow_id does not exist
+LINE 1: ... from biz_flow_edge e join biz_flow_def d on d.id=e.flow_id ...
+                                                             ^
+== accounting period
+2026-12 OPEN
+2026-11 OPEN
+2026-10 OPEN
+2026-09 OPEN
+2026-08 OPEN
+2026-07 OPEN
+== contract menu/auth codes
+/business/erp/contract | 合同管理 | 合同管理 | business:erp:contract:list
+== roles with contract perms
+FINANCE_MANAGER business:erp:contract:list
+GENERAL_MANAGER business:erp:contract:list
+PURCHASE_MANAGER business:erp:contract:create
+PURCHASE_MANAGER business:erp:contract:delete
+PURCHASE_MANAGER business:erp:contract:list
+PURCHASE_MANAGER business:erp:contract:status
+PURCHASE_MANAGER business:erp:contract:update

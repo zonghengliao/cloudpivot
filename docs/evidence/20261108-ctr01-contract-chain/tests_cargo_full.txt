@@ -1,0 +1,41 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized] target(s) in 48.24s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-930b19506cfabac2)
+
+...(3799 条用例输出已裁剪，仅保留结果与失败明细)...
+failures:
+
+---- business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag stdout ----
+
+thread 'business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag' (1255503) panicked at src/business/flow/linkage/admin.rs:1159:9:
+assertion `left == right` failed: 已接线的触发点：STOCK_IN / STOCK_OUT（P1-FIX-5C 新接）/ STOCK_TRANSFER（LNK-01 新接）/ PURCHASE_ORDER（LNK-02 新接）/ PAYABLE（LNK-03 新接）/ VOUCHER（LNK-06 新接）/ ACCOUNTING_PERIOD（LNK-08 新接）/ ACCOUNTING_YEAR（LNK-11 新接）/ CONTRACT（LNK-07 新接）/ STOCK_TAKE（LNK-04 新接）/ FIXED_ASSET（LNK-09 新接）/ DEPRECIATION（LNK-10 新接）/ EXPENSE_REPORT（LNK-05 新接）/ TASK / FLOW_INSTANCE（LNK-12 新接）
+  left: ["STOCK_IN", "STOCK_OUT", "STOCK_TRANSFER", "PURCHASE_ORDER", "PAYABLE", "VOUCHER", "ACCOUNTING_PERIOD", "ACCOUNTING_YEAR", "CONTRACT", "STOCK_TAKE", "FIXED_ASSET", "DEPRECIATION", "EXPENSE_REPORT", "PURCHASE_RETURN", "TASK", "FLOW_INSTANCE"]
+ right: ["STOCK_IN", "STOCK_OUT", "STOCK_TRANSFER", "PURCHASE_ORDER", "PAYABLE", "VOUCHER", "ACCOUNTING_PERIOD", "ACCOUNTING_YEAR", "CONTRACT", "STOCK_TAKE", "FIXED_ASSET", "DEPRECIATION", "EXPENSE_REPORT", "TASK", "FLOW_INSTANCE"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- business::flow::linkage::tests_wiring::trigger_specs_cover_whitelist_in_order stdout ----
+
+thread 'business::flow::linkage::tests_wiring::trigger_specs_cover_whitelist_in_order' (1255578) panicked at src/business/flow/linkage/tests_wiring.rs:114:5:
+assertion `left == right` failed: 当前白名单是 15 个触发点
+  left: 16
+ right: 15
+
+---- business::flow::linkage::tests_wiring::wired_triggers_match_call_sites stdout ----
+
+thread 'business::flow::linkage::tests_wiring::wired_triggers_match_call_sites' (1255581) panicked at src/business/flow/linkage/tests_wiring.rs:227:5:
+assertion `left == right` failed: 当前真实调用点 16 个文件（收货过账 / 出库过账 handler + 出库联动 hook + 调拨联动 hook + 采购联动 hook + 应付联动 hook + 盘点联动 hook + 报销联动 hook + 凭证联动 hook + 合同联动 hook + 会计期间联动 hook + 会计年度联动 hook + 固定资产联动 hook + 折旧批次联动 hook + 任务状态通知 + 审批实例联动 hook）：{"src/business/erp/asset_linkage.rs", "src/business/erp/contract_linkage.rs", "src/business/erp/depreciation_linkage.rs", "src/business/erp/expense_linkage.rs", "src/business/erp/payable_linkage.rs", "src/business/erp/period_linkage.rs", "src/business/erp/purchase_linkage.rs", "src/business/erp/purchase_return_handler.rs", "src/business/erp/stockin_handler_post.rs", "src/business/erp/stockout_handler.rs", "src/business/erp/stockout_linkage.rs", "src/business/erp/stocktake_linkage.rs", "src/business/erp/transfer_linkage.rs", "src/business/erp/voucher_linkage.rs", "src/business/erp/year_end_linkage.rs", "src/business/flow/instance_linkage.rs", "src/business/task/task_handler_notice.rs"}
+⚠️ 本计数器是**文件级去重 + 只认 `linkage::engine::*` 直调**：
+固定资产新增的「停用 / 启用」写在 `erp/asset_handler.rs` 里、只间接调`asset_linkage::run_in_tx`（引擎在 hook 里被调），所以**不会**也不该让这个数字 +1；
+那条触发点的守卫在 `asset_wires_generic_engine_and_excludes_voucher` 的函数内计数上。
+  left: 17
+ right: 16
+
+
+failures:
+    business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag
+    business::flow::linkage::tests_wiring::trigger_specs_cover_whitelist_in_order
+    business::flow::linkage::tests_wiring::wired_triggers_match_call_sites
+
+test result: FAILED. 3799 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.87s
+
+error: test failed, to rerun pass `--lib`

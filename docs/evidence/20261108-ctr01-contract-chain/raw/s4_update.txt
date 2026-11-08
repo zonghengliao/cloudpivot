@@ -1,0 +1,4 @@
+--- select 'contract='||contract_no||'|amt='||amount||'|end='||end_date||'|status='||status||'|updated_by='||coalesce(update_by::text,'-') from biz_contract where id='01a1bbf9-26a4-75ea-973d-a86570b70acd'
+contract=HT-20261109-000002|amt=55000.0000|end=2027-07-31|status=DRAFT|updated_by=01a1bbf9-12d0-7374-96ac-4e8dfd2ff53d
+--- select 'change_log_rows='||count(*) from sys_change_log where resource_id='01a1bbf9-26a4-75ea-973d-a86570b70acd' or resource like '%contract%'
+change_log_rows=0

@@ -1,0 +1,20 @@
+== def
+def 20000000-0000-4000-8000-0000000c0209 contract_approve CONTRACT_APPROVE status=PUBLISHED cur_ver=20000000-0000-4000-8000-0000000c020a
+== version
+ver 20000000-0000-4000-8000-0000000c020a no=1 status=PUBLISHED current=true hash=54e67e57d3e0406ca19785b484f8b07555034a3c470558c6524cbf6d65446480
+== nodes
+node c_amt type=CONDITION name=金额分级（< 10 万单级） empty=SKIP self=SKIP
+node e type=END name=结束 empty=SKIP self=SKIP
+node n_gm type=APPROVAL name=总经理审批（≥ 10 万·第二级） empty=FALLBACK_ADMIN self=ALLOW
+node n_pm type=APPROVAL name=采购经理审批（< 10 万） empty=FALLBACK_ADMIN self=ALLOW
+node n_pm_hi type=APPROVAL name=采购经理审批（≥ 10 万·第一级） empty=FALLBACK_ADMIN self=ALLOW
+node s type=START name=开始 empty=SKIP self=SKIP
+== assignees
+ERROR:  column a.version_id does not exist
+LINE 1: ...de_assignee a join biz_flow_def_version v on v.id=a.version_...
+                                                             ^
+HINT:  Perhaps you meant to reference the column "v.version_no".
+== edges
+ERROR:  column e.from_key does not exist
+LINE 1: select 'edge '||e.from_key||'->'||e.to_key||' cond='||coales...
+                        ^

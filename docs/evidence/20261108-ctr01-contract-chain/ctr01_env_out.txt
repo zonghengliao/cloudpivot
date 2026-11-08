@@ -1,0 +1,9 @@
+✅ 空库 cloudpivot_ctr01 已创建（owner cloudpivot），迁移由后端首启自跑
+✅ 实例健康 health=200 port=18226 pid=870710 log=/tmp/ctr01_server.log
+--- 环境指纹
+git_head=762c1c50486104a3830599986077ac095aee4f91
+binary_sha256=00b10a0793daf1ff075c9ee864ecd33493dc5c46d79babba92f0d11699da8303
+binary_mtime=2026-11-09 00:21:13
+migrations=283
+health_body={"code":0,"msg":"ok","data":{"status":"ok","app":"cloudpivot","profile":"dev","time":"2026-11-08T16:23:47.746716192+00:00"}}
+seed=users=1 sup=1 cust=3 mat=5 wh=3 unit=28 role=11 contract=0 job=7

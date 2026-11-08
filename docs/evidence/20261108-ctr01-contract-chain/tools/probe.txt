@@ -1,0 +1,88 @@
+== roles
+20000000-0000-4000-8000-0000000f0001 DEPT_LEADER 部门主管
+20000000-0000-4000-8000-0000000f0009 EMPLOYEE 员工自助
+20000000-0000-4000-8000-0000000f0006 FINANCE_DIRECTOR 财务总监
+20000000-0000-4000-8000-0000000f0005 FINANCE_MANAGER 财务经理
+20000000-0000-4000-8000-0000000f0015 FLOW_CONFIG_APPROVER 流程配置复核员
+20000000-0000-4000-8000-0000000f0003 GENERAL_MANAGER 总经理
+20000000-0000-4000-8000-0000000f0002 PURCHASE_MANAGER 采购经理
+20000000-0000-4000-8000-0000000f0008 SALES_CLERK 销售员
+20000000-0000-4000-8000-0000000f0007 SALES_SUPERVISOR 销售主管
+dedbb612-4efc-4ec9-a0f9-d9420e3fda01 SUPER_ADMIN 超级管理员
+20000000-0000-4000-8000-0000000f0004 WAREHOUSE_MANAGER 仓管主管
+== suppliers
+d1370005-0000-4000-8000-000000000001 SUP-0001 示例供应商（种子） status=1
+== customers
+d0260000-0000-4000-8000-000000000001 CUS-0001 北京云枢科技有限公司 status=ACTIVE
+d0260000-0000-4000-8000-000000000002 CUS-0002 上海云枢贸易有限公司 status=ACTIVE
+d0260000-0000-4000-8000-000000000003 CUS-0003 广州云枢实业有限公司 status=ACTIVE
+== materials
+d1370003-0000-4000-8000-000000000002 M-W1A-002 原料B（种子） unit=d1370000-0000-4000-8000-000000000001 tax=13.0000 status=1
+d1370003-0000-4000-8000-000000000005 M-W1A-005 成品E（种子） unit=d1370000-0000-4000-8000-000000000001 tax=13.0000 status=1
+d1370003-0000-4000-8000-000000000001 M-W1A-001 原料A（种子） unit=d1370000-0000-4000-8000-000000000002 tax=13.0000 status=1
+d1370003-0000-4000-8000-000000000003 M-W1A-003 半成品C（种子） unit=d1370000-0000-4000-8000-000000000001 tax=13.0000 status=1
+d1370003-0000-4000-8000-000000000004 M-W1A-004 成品D（种子） unit=d1370000-0000-4000-8000-000000000001 tax=13.0000 status=1
+== warehouses
+d1370001-0000-4000-8000-000000000001 WH01 总仓（种子） neg=0
+d1370001-0000-4000-8000-000000000002 WH02 分仓（种子） neg=0
+d1390001-0000-4000-8000-000000000001 WH-TRANSIT 在途仓 neg=0
+== flow contract_approve
+ERROR:  relation "biz_flow_definition" does not exist
+LINE 1: ...|' cur='||d.is_current||' status='||d.status from biz_flow_d...
+                                                             ^
+ERROR:  relation "biz_flow_definition" does not exist
+LINE 1: ...||' name='||n.node_name from biz_flow_node n join biz_flow_d...
+                                                             ^
+ERROR:  relation "biz_flow_definition" does not exist
+LINE 1: ..._id::text,'-') from biz_flow_node_assignee a join biz_flow_d...
+                                                             ^
+ERROR:  relation "biz_flow_definition" does not exist
+LINE 1: ...e(e.condition_expr,'-') from biz_flow_edge e join biz_flow_d...
+                                                             ^
+== sys_job
+erp_contract_expire_scan | status=1 | cron=0 30 7 * * * | target=erp_contract_expire_scan
+erp_credit_recompute | status=0 | cron=0 10 2 * * * | target=erp_credit_recompute
+erp_depreciation_run | status=0 | cron=0 30 1 1 * * | target=erp_depreciation_run
+erp_low_stock_scan | status=1 | cron=0 40 7 * * * | target=erp_low_stock_scan
+erp_payable_due_scan | status=1 | cron=0 10 7 * * * | target=erp_payable_due_scan
+erp_po_overdue_scan | status=1 | cron=0 20 7 * * * | target=erp_po_overdue_scan
+invariant_audit | status=0 | cron=0 20 2 * * * | target=invariant_audit
+== doc attachment kinds/roles
+NOT NULL file_role
+CHECK (((file_role)::text = ANY ((ARRAY['CONTRACT_SCAN'::character varying, 'SUPPLEMENT'::character varying, 'ACCEPTANCE'::character varying, 'INVOICE_SCAN'::character varying, 'BANK_RECEIPT'::character varying, 'SIGN_RECEIPT'::character varying, 'BIZ_LICENSE'::character varying, 'BANK_ACCOUNT_PERMIT'::character varying, 'QUALIFICATION'::character varying, 'CREDIT_FILE'::character varying, 'QUOTATION'::character varying, 'CUSTOMER_PO'::character varying, 'TRANSFER_APPROVAL'::character varying, 'OPENING_EVIDENCE'::character varying, 'DEFAULT'::character varying])::text[])))
+== contract columns
+id:uuid
+contract_no:character varying
+contract_name:character varying
+contract_type:character varying
+party_a_id:uuid
+party_a_name:character varying
+party_b_type:character varying
+party_b_id:uuid
+party_b_name:character varying
+amount:numeric
+currency_code:character
+sign_date:date
+start_date:date
+end_date:date
+status:character varying
+owner_id:uuid
+dept_id:uuid
+remark:text
+created_at:timestamp with time zone
+updated_at:timestamp with time zone
+create_by:uuid
+update_by:uuid
+deleted_at:timestamp with time zone
+approval_instance_id:uuid
+== contract status check
+CHECK (((status)::text = ANY ((ARRAY['DRAFT'::character varying, 'PENDING_APPROVAL'::character varying, 'SIGNED'::character varying, 'ACTIVE'::character varying, 'COMPLETED'::character varying, 'TERMINATED'::character varying])::text[])))
+== reminder log
+CHECK (((doc_type)::text = ANY ((ARRAY['PAYABLE'::character varying, 'PURCHASE_ORDER'::character varying, 'CONTRACT'::character varying, 'INVENTORY'::character varying, 'EXPENSE_REPORT'::character varying, 'VOUCHER'::character varying, 'STOCK_IN'::character varying, 'STOCK_TRANSFER'::character varying])::text[])))
+CHECK (((remind_kind)::text = ANY ((ARRAY['PAYABLE_DUE'::character varying, 'PO_OVERDUE'::character varying, 'CONTRACT_EXPIRE'::character varying, 'LOW_STOCK'::character varying, 'PERIOD_REMIND'::character varying, 'YEAR_END_REMIND'::character varying])::text[])))
+== accounting period
+ERROR:  column "period" does not exist
+LINE 1: select period||' '||status from biz_accounting_period order ...
+               ^
+== admin
+admin must_change=true status=1

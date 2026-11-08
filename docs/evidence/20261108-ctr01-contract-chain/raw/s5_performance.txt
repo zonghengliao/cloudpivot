@@ -1,0 +1,12 @@
+--- select 'contract='||contract_no||'|amt='||amount from biz_contract where id in ('01a1bbf9-2685-719f-b30f-0dd84bf84328','01a1bbf9-26a4-75ea-973d-a86570b70acd') order by contract_no
+contract=HT-20261109-000001|amt=100000.0000
+contract=HT-20261109-000002|amt=55000.0000
+--- select 'po='||order_no||'|'||status||'|type='||purchase_type||'|total='||total_with_tax||'|contract='||coalesce(contract_no_snapshot,'-') from biz_purchase_order order by created_at
+po=PO-20261109-000001|DRAFT|type=CONTRACT|total=33900.0000|contract=HT-20261109-000001
+po=PO-20261109-000002|DRAFT|type=CONTRACT|total=66100.0000|contract=HT-20261109-000001
+--- select 'po_committed='||coalesce(sum(total_with_tax),0) from biz_purchase_order where contract_id='01a1bbf9-2685-719f-b30f-0dd84bf84328' and status<>'CANCELLED' and deleted_at is null
+po_committed=100000.0000
+--- select 'so='||so_no||'|'||status||'|total='||total_with_tax||'|contract='||coalesce(contract_id::text,'-') from biz_sales_order order by created_at
+so=SO-20261109-000001|DRAFT|total=33900.0000|contract=01a1bbf9-26a4-75ea-973d-a86570b70acd
+--- select 'so_committed='||coalesce(sum(total_with_tax),0) from biz_sales_order where contract_id='01a1bbf9-26a4-75ea-973d-a86570b70acd' and status<>'CANCELLED' and deleted_at is null
+so_committed=33900.0000

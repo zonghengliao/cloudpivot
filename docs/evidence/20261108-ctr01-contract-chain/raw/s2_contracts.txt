@@ -1,0 +1,5 @@
+--- select 'contract='||contract_no||'|'||contract_type||'|'||status||'|amt='||amount||'|party='||party_b_type||':'||party_b_name||'|sign='||coalesce(sign_date::text,'-')||'|start='||coalesce(start_date::text,'-')||'|end='||coalesce(end_date::text,'-') from biz_contract order by contract_no
+contract=HT-20261109-000001|PURCHASE|DRAFT|amt=100000.0000|party=SUPPLIER:CTR01 演练供应商|sign=2026-11-01|start=2026-11-01|end=2027-11-01
+contract=HT-20261109-000002|SALES|DRAFT|amt=50000.0000|party=CUSTOMER:CTR01 演练客户|sign=2026-11-01|start=2026-11-01|end=2027-06-30
+--- select 'attach='||doc_type||'|'||file_role||'|file='||file_id from biz_doc_attachment where doc_id='01a1bbf9-2685-719f-b30f-0dd84bf84328'
+attach=CONTRACT|CONTRACT_SCAN|file=01a1bbf9-26dd-73a8-a5b7-e2c20ed85c6c

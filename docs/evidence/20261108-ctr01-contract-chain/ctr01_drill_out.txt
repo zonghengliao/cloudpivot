@@ -1,0 +1,151 @@
+== 环境：http://127.0.0.1:18226/api 库=cloudpivot_ctr01 业务日=2026-11-09 到期档=2026-12-09
+   git_head=762c1c50486104a3830599986077ac095aee4f91
+   binary_sha256=00b10a0793daf1ff075c9ee864ecd33493dc5c46d79babba92f0d11699da8303
+
+S0 认证与审批人（制单人 admin ≠ 审批人 ctr01_approver）
+  ✅ 种子 admin 登录 HTTP=200
+  ✅ admin 首登改密 = 0
+  ✅ admin token 已取得（改密后重新登录）
+  ✅ 审批人账号创建 = 0
+  ✅ 审批人 token 已取得 id=01a1bbf9-2404-77ae-9b8b-8b7e9b445333
+
+S1 主数据：供应商（采购合同乙方）/ 客户（销售合同乙方）
+  ✅ 供应商 SUP-0002 id=01a1bbf9-2661-7382-a8c4-1c612a6cc226
+  ✅ 客户 C-CTR01-001 id=01a1bbf9-2675-74a9-bce0-db9d2c1f3551
+
+S2 建合同：PURCHASE / SALES 各一个；SERVICE / LEASE 各试一次（查类型闸）
+  ✅ 采购合同 HT-20261109-000001 id=01a1bbf9-2685-719f-b30f-0dd84bf84328 金额=100000.0000 乙方快照=CTR01 演练供应商
+  ✅ 采购合同初始状态 = DRAFT
+  ✅ 采购合同可编辑 = true
+  ✅ 采购合同可用于下单（草稿=false） = false
+  ✅ 采购合同 next_statuses = PENDING_APPROVAL
+  ✅ 合同号格式 HT-20261109-000001（HT-yyyyMMdd-000001）
+  ✅ 销售合同 HT-20261109-000002 id=01a1bbf9-26a4-75ea-973d-a86570b70acd 乙方类型=CUSTOMER 乙方快照=CTR01 演练客户
+  ✅ SERVICE 合同建档（类型闸） HTTP=400
+  ✅ SERVICE 合同错误码 code=10001
+     SERVICE 文案：contract_type `SERVICE` 本批次未开放：只支持 PURCHASE / SALES
+  ✅ SERVICE 拒绝文案点名放行集（PURCHASE / SALES）
+  ✅ LEASE 合同建档（类型闸） HTTP=400
+  ✅ LEASE 合同错误码 code=10001
+
+S2b 合同附件（CONTRACT / CONTRACT_SCAN）
+  ✅ 合同扫描件已上传
+  ✅ 附件行数（biz_doc_attachment） = 1
+
+S3 提交审批：先打两条负例（DRAFT 直签 / 直生效），再走真实审批
+  ✅ 负例：DRAFT → SIGNED（跳过审批） HTTP=409
+  ✅ 负例：DRAFT → SIGNED 错误码 code=66015
+  ✅ 拒绝文案指向「先提交审批」
+  ✅ 负例：DRAFT → ACTIVE 错误码 code=66015
+  ✅ 采购合同提交后状态 = PENDING_APPROVAL
+  ✅ 审批实例已挂 approval_instance_id=01a1bbf9-2754-7137-967f-d5004a00231e
+  ✅ 流程实例状态 = PENDING
+  -- 负例：制单人（admin）自己批自己的合同
+  ✅ 负例：自批自己的合同 HTTP=403
+     自批结果：code=65019 msg=不能审批自己提交的合同：合同 HT-20261109-000001 由你本人提交（内控要求制单与审批分离），请交给其他有审批权限的账号处理（内控开关 erp.separation_of_duties.approve 已开启；小团队如确需本人处理，可在系统参数中关闭该开关）
+  -- 真实审批（审批人 ctr01_approver，最多 4 轮）
+  ✅ 审批通过 task=01a1bbf9-275d-7224-a79a-d007406405dd（第 1 轮）
+  ✅ 审批通过 task=01a1bbf9-2825-74d4-b418-3f1801802a07（第 2 轮）
+  ✅ 审批轮次（≥10 万两级） = 2
+  ✅ 审批结果实例状态 = APPROVED
+  ✅ 采购合同审批后状态 = SIGNED
+  ✅ SIGNED 保留实例 id（审计） = t
+  ✅ 状态日志：DRAFT → PENDING_APPROVAL = 1
+  ✅ 状态日志：PENDING_APPROVAL → SIGNED = 1
+  ✅ 采购合同生效后状态 = ACTIVE
+  ✅ 生效后可用于下单 = true
+  ✅ 生效后不可编辑 = false
+
+S4 变更（金额 / 期限）：草稿可改、签后冻结、有没有变更记录表
+  ✅ 草稿改金额 = 55000.0000
+  ✅ 草稿改到期日 = 2027-07-31
+  ✅ 改单后状态仍是 DRAFT = DRAFT
+  ✅ 改单不新增状态日志（字段变更不是状态变更） = 0
+  ✅ sys_change_log 里的合同变更留痕 = 0
+  ✅ 独立变更记录表数量（biz_contract* 之外） = 0
+  -- 销售合同走审批到 SIGNED，再试改金额（应被字段冻结拦）
+  ✅ 销售合同提交审批 = PENDING_APPROVAL
+  ✅ 负例：审批中改金额（审 A 改 B 洞） HTTP=409
+  ✅ 负例：审批中改金额错误码 code=66016
+  ✅ 审批中金额未被改动 = 55000.0000
+  ✅ 销售合同审批通过 task=01a1bbf9-2a28-75a0-9bd3-7f19a24b06ed（第 1 轮）
+  ✅ 销售合同审批后状态 = SIGNED
+     审批人链路：n_pm:CTR01 审批人
+  ✅ 负例：已签订改金额 HTTP=409
+  ✅ 负例：已签订改金额错误码 code=66016
+     冻结文案：合同当前是「SIGNED」（已签订）：只有草稿（DRAFT）可以修改。已签合同的关键字段要改，只能作废（软删）后重签，状态流转走 PATCH /status
+  ✅ 销售合同生效 = ACTIVE
+
+S5 履约：采购单挂合同（供应商派生 + 累计额度勾稽）
+  ✅ 采购单1 PO-20261109-000001 id=01a1bbf9-2b35-74f4-9e20-af01afe4618f 价税合计=33900.0000
+  ✅ 采购单1 采购类型 = CONTRACT
+  ✅ 采购单1 供应商=合同乙方（派生） = 01a1bbf9-2661-7382-a8c4-1c612a6cc226
+  ✅ 采购单1 合同号快照 = HT-20261109-000001
+  ✅ 采购单1 价税合计 33900 = 33900.0000
+  ✅ 负例：累计超合同金额 HTTP=409
+  ✅ 负例：超额错误码 code=66019
+     超额文案：合同 HT-20261109-000001 额度不足：合同金额 100000.0000，已下单 33900.0000（不含作废单），本单 67800，下单后累计 101700.0000 将超出合同额 66100.0000
+  ✅ 采购单2 id=01a1bbf9-2b7e-709a-a0ec-66822904b04d 价税合计=66100.0000
+  ✅ 累计已下单额 = 合同金额（边界相等放行） = 100000.0000
+  ✅ 负例：超出 1 元也拒（66019） code=66019
+  -- 销售单挂销售合同
+  ✅ 销售单 SO-20261109-000001 id=01a1bbf9-2bbf-747c-b08a-8df90a367b6c 价税合计=33900.0000
+  ✅ 销售单详情带合同号（SO-27） = HT-20261109-000002
+  ✅ 负例：销售单累计超合同金额 code=66019
+  -- 跨类型 / 跨乙方的合同引用负例
+  ✅ 负例：下单日超出合同到期日 HTTP=400
+  ✅ 负例：超出有效期错误码 code=66014
+     文案：下单日期 2028-01-01 已超出合同 HT-20261109-000001 的到期日 2027-11-01（请续签或改用新合同）
+  ✅ 负例：采购单挂销售合同 HTTP=400
+     结果：code=66014 msg=合同 HT-20261109-000002 的类型是 SALES，不能用于采购下单（只接受 PURCHASE）
+  ✅ 负例：销售单挂采购合同 HTTP=400
+     结果：code=66014 msg=合同 HT-20261109-000001 的类型是 PURCHASE，不能挂到销售订单上（只接受 SALES）
+  ✅ 合同详情是否下发已执行金额字段 = false
+
+S6 到期提醒：建一张 2026-12-09 到期（D-30 档）的生效合同 + 一张同日期草稿，手动触发扫描
+  ✅ 提醒用合同 HT-20261109-000003 到期日=2026-12-09
+  ✅ 提醒用合同生效 = ACTIVE
+  -- ① 定时任务页面有没有这个任务（sys_job）
+  ✅ sys_job 有 erp_contract_expire_scan = 1
+     erp_contract_expire_scan status=1 cron=0 30 7 * * * target=erp_contract_expire_scan
+  -- ② 手动触发（业务提醒接口 contract_expire）
+  ✅ 提醒扫描接口返回 = 0
+     runs=[{"kind":"contract_expire","task":"erp_contract_expire_scan","scanned":1,"sent":1,"skipped_reminded":0,"skipped_recent":0,"skipped_no_recipient":0,"failed":0,"summary":"erp_contract_expire_scan: scanned=1 sent=1 skipped_reminded=0 skipped_recent=0 skipped_no_recipient=0 failed=0"}]
+  ✅ 本轮发出提醒 sent=1
+  ✅ 台账行（biz_reminder_log CONTRACT_EXPIRE / D-30） = 1
+  ✅ 提醒通知（sys_notice biz_type=contract_expire） = 1
+  ✅ 提醒收件人数=2（制单人/负责人/采购经理）
+  ✅ 草稿合同不提醒（同到期日也无台账） = 0
+  -- ③ 同一天再触发一次（幂等）
+  ✅ 第二次触发 sent=0 = 0
+  ✅ 第二次触发 skipped_reminded=1
+  ✅ 台账仍只有 1 行（同日不重复） = 1
+  -- ④ 定时任务页「立即执行」也跑一次
+  ✅ sys_job 立即执行返回 = 0
+     null
+
+S7 归档关闭：ACTIVE → COMPLETED（有在途采购单也允许？），之后还能挂新单吗
+  ✅ 合同归档（COMPLETED）成功
+  ✅ 归档后状态 = COMPLETED
+  ✅ 负例：归档后再关联新采购单 HTTP=400
+  ✅ 负例：归档后挂单错误码 code=66014
+     文案：合同 HT-20261109-000001 当前是「已完成」（COMPLETED），只有已签署（SIGNED）/ 生效（ACTIVE）的合同可以下单
+  ✅ 负例：被采购单引用的合同不可删 HTTP=409
+  ✅ 负例：不可删错误码 code=66018
+     文案：合同 HT-20261109-000001 已被采购单 「PO-20261109-000001」 / 「PO-20261109-000002」 引用，不能删除：请先作废或改挂这些采购单，或改用「终止」流转（TERMINATED）而不是删除
+  -- 终止：无原因 vs 有原因
+  ✅ 负例：终止未填原因 HTTP=400
+     结果：code=10001 msg=合同 HT-20261109-000002 从 ACTIVE 流转到 TERMINATED 必须给出原因（reason）：该动作会影响已入账的数据或已生效的承诺，原因要能追溯到为什么
+  ✅ 终止成功（带原因）
+  ✅ 终止后状态 = TERMINATED
+  ✅ 终止原因落 biz_status_log.reason = CTR-01 演练：客户要求提前终止框架合同
+  ✅ 终止原因回写 remark（V-18：追加且保留原备注） = yes
+  ✅ 负例：终止后再关联新销售单 HTTP=400
+  ✅ 负例：终止后挂销售单错误码 code=66014
+
+S8 收口：合同链不产生任何凭证（合同不记账）
+  ✅ 凭证张数（合同 / 订单都不记账） = 0
+  ✅ 库存流水条数（合同链不碰库存） = 0
+
+===== 汇总：PASS=101 FAIL=0 =====
+raw 目录：/tmp/ctr01_raw（57 个文件）

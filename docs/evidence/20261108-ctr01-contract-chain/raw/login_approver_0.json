@@ -1,0 +1,1 @@
+{"code":0,"msg":"ok","data":{"access_token":"***REDACTED***","refresh_token":"***REDACTED***","token_type":"Bearer","expires_in":900,"user":{"id":"01a1bbf9-2404-77ae-9b8b-8b7e9b445333","username":"ctr01_approver","real_name":"CTR01 审批人"},"must_change_password":false}}

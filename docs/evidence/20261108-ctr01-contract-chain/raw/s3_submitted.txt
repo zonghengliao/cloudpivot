@@ -1,0 +1,4 @@
+--- select 'contract='||contract_no||'|'||status||'|inst='||coalesce(approval_instance_id::text,'-') from biz_contract where id='01a1bbf9-2685-719f-b30f-0dd84bf84328'
+contract=HT-20261109-000001|PENDING_APPROVAL|inst=01a1bbf9-2754-7137-967f-d5004a00231e
+--- select 'task='||node_key||'|'||status||'|assignee='||coalesce(assignee_name,'-') from biz_flow_task where instance_id='01a1bbf9-2754-7137-967f-d5004a00231e' order by created_at
+task=n_pm_hi|PENDING|assignee=CTR01 审批人

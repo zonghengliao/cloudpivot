@@ -1,0 +1,25 @@
+--- select 'contract='||contract_no||'|'||contract_type||'|'||status||'|amt='||amount||'|end='||coalesce(end_date::text,'-') from biz_contract order by contract_no
+contract=HT-20261109-000001|PURCHASE|COMPLETED|amt=100000.0000|end=2027-11-01
+contract=HT-20261109-000002|SALES|TERMINATED|amt=55000.0000|end=2027-07-31
+contract=HT-20261109-000003|PURCHASE|ACTIVE|amt=20000.0000|end=2026-12-09
+contract=HT-20261109-000004|PURCHASE|DRAFT|amt=20000.0000|end=2026-12-09
+--- select 'log='||entity_id||'|'||from_status||'->'||to_status||'|'||coalesce(reason,'-') from biz_status_log order by created_at
+log=01a1bbf9-2685-719f-b30f-0dd84bf84328|DRAFT->PENDING_APPROVAL|提交审批
+log=01a1bbf9-2685-719f-b30f-0dd84bf84328|PENDING_APPROVAL->SIGNED|合同审批通过（已签订）
+log=01a1bbf9-2685-719f-b30f-0dd84bf84328|SIGNED->ACTIVE|-
+log=01a1bbf9-26a4-75ea-973d-a86570b70acd|DRAFT->PENDING_APPROVAL|提交审批
+log=01a1bbf9-26a4-75ea-973d-a86570b70acd|PENDING_APPROVAL->SIGNED|合同审批通过（已签订）
+log=01a1bbf9-26a4-75ea-973d-a86570b70acd|SIGNED->ACTIVE|-
+
+
+
+log=01a1bbf9-2caa-75cb-8020-7574ad2bf4ba|DRAFT->PENDING_APPROVAL|提交审批
+log=01a1bbf9-2caa-75cb-8020-7574ad2bf4ba|PENDING_APPROVAL->SIGNED|合同审批通过（已签订）
+log=01a1bbf9-2caa-75cb-8020-7574ad2bf4ba|SIGNED->ACTIVE|-
+log=01a1bbf9-2685-719f-b30f-0dd84bf84328|ACTIVE->COMPLETED|-
+log=01a1bbf9-26a4-75ea-973d-a86570b70acd|ACTIVE->TERMINATED|CTR-01 演练：客户要求提前终止框架合同
+--- select 'po='||order_no||'|'||status||'|'||total_with_tax from biz_purchase_order order by created_at
+po=PO-20261109-000001|DRAFT|33900.0000
+po=PO-20261109-000002|DRAFT|66100.0000
+--- select 'so='||so_no||'|'||status||'|'||total_with_tax from biz_sales_order order by created_at
+so=SO-20261109-000001|DRAFT|33900.0000

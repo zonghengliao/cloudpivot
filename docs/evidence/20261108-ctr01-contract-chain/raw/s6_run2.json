@@ -1,0 +1,1 @@
+{"code":0,"msg":"ok","data":{"runs":[{"kind":"contract_expire","task":"erp_contract_expire_scan","scanned":1,"sent":0,"skipped_reminded":1,"skipped_recent":0,"skipped_no_recipient":0,"failed":0,"summary":"erp_contract_expire_scan: scanned=1 sent=0 skipped_reminded=1 skipped_recent=0 skipped_no_recipient=0 failed=0"}],"message":"扫到 1 条，已发 0 条通知，1 条今天已提醒过（不重复打扰）"}}
