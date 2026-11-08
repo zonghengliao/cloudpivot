@@ -57,6 +57,17 @@
 #   psql ... -c "update sys_menu set parent_id='10000000-0000-0000-0000-000000000001'
 #                where path='/system/user';"
 #   bash scripts/verify/menu_invariants.sh <db>; echo rc=$?   # 期望 rc=0
+#
+# ⑥⑦ 的牙（同样**只在测试库**做，做完立刻复原；生产只读，别注入）：
+#   psql ... -c "update sys_menu set title='即时 / 月末汇率维护 + 按月批量录入（ARCH-7 §15.6.3 ②）'
+#                where path='/business/erp/exchange-rate';"
+#   bash scripts/verify/menu_invariants.sh <db>; echo rc=$?   # 期望 rc=1、⑥ 报 1（打印 38 字 title）
+#   psql ... -c "insert into sys_menu (id,name,title,menu_type,path,parent_id,sort_order)
+#                select gen_random_uuid(),'重复sort','重复sort',2,'/tmp/dup',
+#                       parent_id, sort_order from sys_menu where path='/business/erp/exchange-rate';"
+#   bash scripts/verify/menu_invariants.sh <db>; echo rc=$?   # 期望 rc=1、⑦ 报 1 组
+#   复原：删掉那条 /tmp/dup、把 title 改回去（或干脆在副本库/临时库上做，见
+#         docs/evidence/20261108-menu-fix2/raw/12_invariants_teeth_build.sql 的造数写法）
 # =============================================================================
 set -uo pipefail
 
