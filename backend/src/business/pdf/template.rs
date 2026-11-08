@@ -70,6 +70,10 @@ fn tera() -> &'static Tera {
             .expect("内置审批单模板语法错误（编译期常量，改模板后必须跑 cargo test）");
         tera.add_raw_template(TASK_NAME, TASK_TEMPLATE)
             .expect("内置派工单模板语法错误（编译期常量，改模板后必须跑 cargo test）");
+        tera.add_raw_template(REPORT_BALANCE_NAME, REPORT_BALANCE_TEMPLATE)
+            .expect("内置资产负债表模板语法错误（编译期常量，改模板后必须跑 cargo test）");
+        tera.add_raw_template(REPORT_AMOUNT_NAME, REPORT_AMOUNT_TEMPLATE)
+            .expect("内置利润表/现金流量表模板语法错误（编译期常量，改模板后必须跑 cargo test）");
         tera
     })
 }
@@ -516,6 +520,18 @@ pub const TASK_TEMPLATE: &str = include_str!("templates/task.html.tera");
 
 /// 派工单模板的注册名（`.html` 后缀 → 启用 HTML 自动转义）。
 pub const TASK_NAME: &str = "task.html";
+
+/// 内嵌的资产负债表模板（PDF-07：左右两栏 + 期末 / 期初两列）。
+pub const REPORT_BALANCE_TEMPLATE: &str = include_str!("templates/report_balance.html.tera");
+
+/// 资产负债表模板的注册名。
+pub const REPORT_BALANCE_NAME: &str = "report_balance.html";
+
+/// 内嵌的利润表 / 现金流量表模板（PDF-07：项目 / 本期金额 / 本年累计）。
+pub const REPORT_AMOUNT_TEMPLATE: &str = include_str!("templates/report_amount.html.tera");
+
+/// 利润表 / 现金流量表模板的注册名。
+pub const REPORT_AMOUNT_NAME: &str = "report_amount.html";
 
 /// 盘点表「空白栏」的填表说明（**与模板里的实际列一一对应**）。
 ///
@@ -2923,6 +2939,375 @@ fn section_upper(section: u32) -> String {
     out
 }
 
+// ==================== 财务报表（PDF-07） ====================
+
+/// 三张财务报表共用的页眉（卡面要求：公司名 / 报表名称 / 编制单位 / 日期 / 单位：元）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReportHead {
+    /// 公司名（页眉左侧大字）
+    pub company: String,
+    /// 报表名称（居中大字）
+    pub doc_title: String,
+    /// 金额单位（`单位：元`）
+    pub unit_label: String,
+    /// 编制单位
+    pub preparer: String,
+    /// 会计期间（`2026年11月`）
+    pub period_label: String,
+    /// 报表日期（期末日，`2026-11-30`）
+    pub date_label: String,
+    /// 期间状态（`未结账` / `已结账` / `未开账·按自然月推算`）
+    pub status_label: String,
+}
+
+/// 资产负债表的一格：项目名 + 期末 + 期初（金额**已格式化**，空白项是 `-`）。
+///
+/// 金额在 `erp::report_pdf` 里就格式化成字符串，模板只负责排版 —— 模板层
+/// 一旦参与数字计算，三张报表就会各自漂出不同的舍入口径（PDF-01 起的约定）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct ReportCell {
+    /// 项目名（减项已带「减：」前缀，只补一次）
+    pub label: String,
+    /// 期末余额（已格式化；空白项 `-`）
+    pub end: String,
+    /// 期初余额（已格式化；空白项 `-`）
+    pub begin: String,
+    /// 项目名单元格的样式类（`is-major` / `is-detail` / `is-deduction` / `is-blank`）
+    pub cls: String,
+}
+
+impl ReportCell {
+    /// 空行（对面没有对应项目时用来补位，整格透明）。
+    pub fn blank() -> Self {
+        Self {
+            cls: "is-blank".to_string(),
+            ..Self::default()
+        }
+    }
+
+    /// 一格（`label` 已定稿，两个金额也已格式化）。
+    pub fn new(label: impl Into<String>, end: impl Into<String>, begin: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            end: end.into(),
+            begin: begin.into(),
+            cls: String::new(),
+        }
+    }
+
+    /// 追加样式类（层级 / 减项；空串不加，避免出现 `class=" "`）。
+    pub fn with_cls(mut self, cls: &str) -> Self {
+        if !cls.is_empty() {
+            if !self.cls.is_empty() {
+                self.cls.push(' ');
+            }
+            self.cls.push_str(cls);
+        }
+        self
+    }
+}
+
+/// 资产负债表的一行：左（资产）/ 右（负债及所有者权益）两栏按行号对齐。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BalanceReportRow {
+    /// 左栏（资产）
+    pub left: ReportCell,
+    /// 右栏（负债及所有者权益）
+    pub right: ReportCell,
+    /// 整行样式（任一侧为合计行 → `is-total`）
+    pub cls: String,
+}
+
+/// 勾稽校验块（三张报表共用）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReportCheckBlock {
+    /// 结论行首句（加粗）
+    pub title: String,
+    /// 逐条明细（已格式化，模板逐行打印）
+    pub lines: Vec<String>,
+    /// 样式类：`is-ok`（平）/ `is-bad`（不平）
+    pub cls: String,
+}
+
+/// 资产负债表渲染上下文。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BalanceReportContext {
+    /// 页眉
+    pub head: ReportHead,
+    /// 报表名（下载文件名前缀）
+    pub doc_label: String,
+    /// 报表号（`BALANCE_SHEET-2026-11`，页脚与文件名用）
+    pub doc_no: String,
+    /// 期末列表头（`期末余额`）
+    pub end_label: String,
+    /// 期初列表头（`期初余额`）
+    pub begin_label: String,
+    /// 主体行（两栏已对齐）
+    pub rows: Vec<BalanceReportRow>,
+    /// 勾稽校验
+    pub check: ReportCheckBlock,
+    /// 附注（留抵税额重分类等）
+    pub notes: Vec<String>,
+    /// 是否有附注
+    pub has_notes: bool,
+    /// 打印时间
+    pub printed_at: String,
+    /// 引擎标识
+    pub engine: String,
+}
+
+/// 利润表 / 现金流量表的一行（项目 + 两列金额，`kind` 决定视觉）。
+///
+/// `code` 是报表项编码（`NET_PROFIT` / `OPER_SALES_RECEIPTS` / …），**模板不打印**，
+/// 但审计与单测靠它定位（行名里可能含别的行名，例如「未归类损益（未计入净利润…）」
+/// 本身含「净利润」三个字，按名字找行会找错）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AmountReportRow {
+    /// 报表项编码（可审计；不打印）
+    pub code: String,
+    /// 项目名（分节标题 / 明细 / 小计 / 合计 / 说明原文）
+    pub label: String,
+    /// 行类型：`section` / `line` / `subtotal` / `total` / `note`
+    pub kind: String,
+    /// 整行样式类（由 `kind` 推出，模板直接用）
+    pub cls: String,
+    /// 项目名单元格的缩进类（`l1` / `l2` / `l3`）
+    pub level_cls: String,
+    /// 本期金额（已格式化；`note` 行为空）
+    pub current: String,
+    /// 本年累计（已格式化；`note` 行为空）
+    pub ytd: String,
+}
+
+impl AmountReportRow {
+    /// 按行类型推出样式类（`kind` 与 `cls` 由同一处产生，模板不必写判断）。
+    pub fn styled(
+        code: impl Into<String>,
+        label: impl Into<String>,
+        kind: &str,
+        level: u8,
+    ) -> Self {
+        let level_cls = match level {
+            0 | 1 => "l1",
+            2 => "l2",
+            _ => "l3",
+        };
+        Self {
+            code: code.into(),
+            label: label.into(),
+            kind: kind.to_string(),
+            cls: format!("is-{kind}"),
+            level_cls: level_cls.to_string(),
+            current: String::new(),
+            ytd: String::new(),
+        }
+    }
+
+    /// 填两列金额（已格式化）。
+    pub fn with_amounts(mut self, current: impl Into<String>, ytd: impl Into<String>) -> Self {
+        self.current = current.into();
+        self.ytd = ytd.into();
+        self
+    }
+}
+
+/// 利润表 / 现金流量表渲染上下文（两张报表共用一份模板）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AmountReportContext {
+    /// 页眉
+    pub head: ReportHead,
+    /// 报表名（下载文件名前缀）
+    pub doc_label: String,
+    /// 报表号（`INCOME_STATEMENT-2026-11`）
+    pub doc_no: String,
+    /// 第一列列名（`本期金额`）
+    pub current_label: String,
+    /// 第二列列名（`本年累计`）
+    pub ytd_label: String,
+    /// 主体行
+    pub rows: Vec<AmountReportRow>,
+    /// 勾稽校验
+    pub check: ReportCheckBlock,
+    /// 附注（口径说明 / 告警）
+    pub notes: Vec<String>,
+    /// 是否有附注
+    pub has_notes: bool,
+    /// 打印时间
+    pub printed_at: String,
+    /// 引擎标识
+    pub engine: String,
+}
+
+/// 渲染资产负债表 HTML。
+///
+/// # 异常情况
+///
+/// - [`PdfError::Template`]：模板渲染失败。
+pub fn render_balance_report(ctx: &BalanceReportContext) -> Result<String, PdfError> {
+    let context = Context::from_serialize(ctx)
+        .map_err(|error| PdfError::Template(format!("资产负债表上下文序列化失败：{error}")))?;
+    tera()
+        .render(REPORT_BALANCE_NAME, &context)
+        .map_err(|error| PdfError::Template(format!("资产负债表模板渲染失败：{error}")))
+}
+
+/// 渲染利润表 / 现金流量表 HTML。
+///
+/// # 异常情况
+///
+/// - [`PdfError::Template`]：模板渲染失败。
+pub fn render_amount_report(ctx: &AmountReportContext) -> Result<String, PdfError> {
+    let context = Context::from_serialize(ctx)
+        .map_err(|error| PdfError::Template(format!("财务报表上下文序列化失败：{error}")))?;
+    tera()
+        .render(REPORT_AMOUNT_NAME, &context)
+        .map_err(|error| PdfError::Template(format!("财务报表模板渲染失败：{error}")))
+}
+
+/// 财务报表页脚（报表名 + 报表号 + 「第 X 页 / 共 Y 页」）。
+pub fn report_footer(doc_label: &str, doc_no: &str) -> String {
+    format!(
+        "<div style=\"width:100%;padding:0 8mm;font-family:'Noto Sans SC',sans-serif;\
+         font-size:8pt;color:#86909c;display:flex;justify-content:space-between;\">\
+         <span>{} {}</span>\
+         <span>第 <span class=\"pageNumber\"></span> 页 / 共 <span class=\"totalPages\"></span> 页</span>\
+         </div>",
+        escape_html(doc_label),
+        escape_html(doc_no)
+    )
+}
+
+/// 财务报表 PDF 的渲染参数（A4 纵向：与会计凭证、账簿装订同一尺寸）。
+pub fn report_pdf_opts(
+    doc_label: &str,
+    doc_no: &str,
+    filename: Option<String>,
+) -> crate::business::pdf::dto::PdfOpts {
+    let mut opts = doc_pdf_opts(report_footer(doc_label, doc_no), filename);
+    // 6 列（资产负债表）要在 210mm 里排下，左右边距收到 8mm（模板 @page 同值）
+    opts.margins.left_mm = 8.0;
+    opts.margins.right_mm = 8.0;
+    opts
+}
+
+/// 生成「样本资产负债表」上下文（联调 / 验收用，不依赖数据库）。
+pub fn sample_balance_report() -> BalanceReportContext {
+    let mut rows = Vec::new();
+    let left = [
+        ("流动资产", "is-major"),
+        ("  货币资金", ""),
+        ("  应收账款", ""),
+        ("流动资产合计", "is-total"),
+        ("非流动资产", "is-major"),
+        ("  固定资产净值", ""),
+        ("非流动资产合计", "is-total"),
+        ("资产总计", "is-total"),
+    ];
+    let right = [
+        ("流动负债", "is-major"),
+        ("  应付账款", ""),
+        ("流动负债合计", "is-total"),
+        ("所有者权益", "is-major"),
+        ("  实收资本", ""),
+        ("  未分配利润", ""),
+        ("所有者权益合计", "is-total"),
+        ("负债和所有者权益总计", "is-total"),
+    ];
+    for index in 0..left.len().max(right.len()) {
+        let cell = |source: &[(&str, &str)], index: usize| match source.get(index) {
+            Some((label, cls)) => {
+                ReportCell::new(*label, "1,234,567.89", "1,000,000.00").with_cls(cls)
+            }
+            None => ReportCell::blank(),
+        };
+        rows.push(BalanceReportRow {
+            left: cell(&left, index),
+            right: cell(&right, index),
+            cls: String::new(),
+        });
+    }
+    BalanceReportContext {
+        head: ReportHead {
+            company: COMPANY_NAME.to_string(),
+            doc_title: "资 产 负 债 表".to_string(),
+            unit_label: "单位：元".to_string(),
+            preparer: COMPANY_NAME.to_string(),
+            period_label: "2026年11月".to_string(),
+            date_label: "2026-11-30".to_string(),
+            status_label: "未结账".to_string(),
+        },
+        doc_label: "资产负债表".to_string(),
+        doc_no: "BALANCE_SHEET-2026-11".to_string(),
+        end_label: "期末余额".to_string(),
+        begin_label: "期初余额".to_string(),
+        rows,
+        check: ReportCheckBlock {
+            title: "勾稽校验：资产总计 ≡ 负债和所有者权益总计".to_string(),
+            lines: vec![
+                "资产总计 1,234,567.89".to_string(),
+                "负债和所有者权益总计 1,234,567.89".to_string(),
+                "差额 0.00 —— 借贷平衡".to_string(),
+            ],
+            cls: "is-ok".to_string(),
+        },
+        notes: Vec::new(),
+        has_notes: false,
+        printed_at: "2026-11-08 22:05".to_string(),
+        engine: "Chromium · CDP printToPDF".to_string(),
+    }
+}
+
+/// 生成「样本利润表 / 现金流量表」上下文（`kind` 决定列名与行结构）。
+pub fn sample_amount_report(kind: AmountReportKind) -> AmountReportContext {
+    let (doc_label, doc_no, title) = match kind {
+        AmountReportKind::Income => ("利润表", "INCOME_STATEMENT-2026-11", "利 润 表"),
+        AmountReportKind::CashFlow => ("现金流量表", "CASH_FLOW-2026-11", "现 金 流 量 表"),
+    };
+    let rows = vec![
+        AmountReportRow::styled("REVENUE", "一、营业收入", "section", 1)
+            .with_amounts("1,234,567.89", "9,876,543.21"),
+        AmountReportRow::styled("COST_OF_SALES", "  减：营业成本", "line", 2)
+            .with_amounts("800,000.00", "6,400,000.00"),
+        AmountReportRow::styled("ADMIN_EXPENSE", "  管理费用", "line", 2).with_amounts("-", "-"),
+        AmountReportRow::styled("NET_PROFIT", "二、净利润", "total", 1)
+            .with_amounts("434,567.89", "3,476,543.21"),
+    ];
+    AmountReportContext {
+        head: ReportHead {
+            company: COMPANY_NAME.to_string(),
+            doc_title: title.to_string(),
+            unit_label: "单位：元".to_string(),
+            preparer: COMPANY_NAME.to_string(),
+            period_label: "2026年11月".to_string(),
+            date_label: "2026-11-30".to_string(),
+            status_label: "未结账".to_string(),
+        },
+        doc_label: doc_label.to_string(),
+        doc_no: doc_no.to_string(),
+        current_label: "本期金额".to_string(),
+        ytd_label: "本年累计".to_string(),
+        rows,
+        check: ReportCheckBlock {
+            title: "勾稽校验：净利润（本年累计）≡ 未分配利润本年变动".to_string(),
+            lines: vec!["净利润 3,476,543.21 —— 一致".to_string()],
+            cls: "is-ok".to_string(),
+        },
+        notes: Vec::new(),
+        has_notes: false,
+        printed_at: "2026-11-08 22:05".to_string(),
+        engine: "Chromium · CDP printToPDF".to_string(),
+    }
+}
+
+/// 两张「项目 / 本期 / 本年累计」报表的类别（列名与标题不同，模板相同）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AmountReportKind {
+    /// 利润表
+    Income,
+    /// 现金流量表
+    CashFlow,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4270,5 +4655,84 @@ mod tests {
         assert!(opts.display_header_footer);
         assert!(opts.margins.bottom_mm >= 14.0);
         assert_eq!(opts.filename.as_deref(), Some("派工单-TSK-1.pdf"));
+    }
+
+    /// 资产负债表模板：两个表头（资产 / 负债及所有者权益）、两列金额、
+    /// 表尾三格签字、勾稽块都必须在渲染结果里（卡面表头 / 表尾 / 验收②）。
+    #[test]
+    fn balance_template_renders_paper_layout() {
+        let ctx = sample_balance_report();
+        let html = render_balance_report(&ctx).expect("资产负债表模板必须渲染成功");
+        assert!(html.contains("资 产 负 债 表"), "页眉大标题");
+        assert!(html.contains("编制单位："), "表头必须有编制单位");
+        assert!(html.contains("单位：元"), "表头必须有金额单位");
+        assert!(html.contains("2026年11月"), "表头必须有期间");
+        assert!(html.contains("2026-11-30"), "表头必须有报表日期");
+        // 左右两栏的表头（卡面：资产 | 负债及所有者权益）
+        assert!(html.contains(">资产<"));
+        assert!(html.contains("负债及所有者权益"));
+        // 期末 / 期初两列各出现两次（左右各一）
+        assert_eq!(html.matches(">期末余额<").count(), 2);
+        assert_eq!(html.matches(">期初余额<").count(), 2);
+        // 表尾三格
+        for label in ["制表人：", "审核人：", "日期："] {
+            assert!(html.contains(label), "表尾缺「{label}」");
+        }
+        // 勾稽校验块
+        assert!(html.contains("勾稽校验"));
+        assert!(html.contains("is-ok"));
+        // 六列 = 6 个 <col>，且金额用等宽数字
+        assert_eq!(html.matches("<col style=\"width:").count(), 6);
+        assert!(html.contains("tabular-nums"));
+        assert!(
+            html.contains("display: table-header-group"),
+            "换页要重复表头"
+        );
+    }
+
+    /// 利润表 / 现金流量表模板：项目 / 本期金额 / 本年累计 三列 + 合计行加粗。
+    #[test]
+    fn amount_template_renders_three_columns() {
+        for kind in [AmountReportKind::Income, AmountReportKind::CashFlow] {
+            let ctx = sample_amount_report(kind);
+            let title = ctx.head.doc_title.clone();
+            let html = render_amount_report(&ctx).expect("财务报表模板必须渲染成功");
+            assert!(html.contains(&title), "页眉大标题丢了：{title}");
+            assert!(html.contains(">项目<"), "第一列必须是「项目」");
+            assert!(html.contains(">本期金额<"));
+            assert!(html.contains(">本年累计<"));
+            assert!(html.contains("is-total"), "合计行要有样式类（加粗）");
+            assert!(html.contains(">制表人：<") || html.contains("制表人："));
+            assert_eq!(html.matches("<col style=\"width:").count(), 3);
+            // `note` 行必须跨三列（不印金额）
+            assert!(
+                html.contains("colspan=\"3\"") || !ctx.rows.iter().any(|row| row.kind == "note")
+            );
+        }
+    }
+
+    /// 财务报表页脚与渲染参数：A4 纵向、左右各 8mm（资产负债表 6 列要排下）、
+    /// 页脚带页码占位符与报表号。
+    #[test]
+    fn report_footer_and_opts() {
+        let footer = report_footer("资产负债表", "BALANCE_SHEET-2026-11");
+        assert!(footer.contains("class=\"pageNumber\""));
+        assert!(footer.contains("class=\"totalPages\""));
+        assert!(footer.contains("BALANCE_SHEET-2026-11"));
+        let opts = report_pdf_opts(
+            "资产负债表",
+            "BALANCE_SHEET-2026-11",
+            Some("资产负债表-BALANCE_SHEET-2026-11.pdf".to_string()),
+        );
+        assert_eq!(opts.page, crate::business::pdf::dto::PageSize::A4);
+        assert!(!opts.landscape, "财务报表与会计凭证同尺寸装订：A4 纵向");
+        assert!(opts.display_header_footer);
+        assert_eq!(opts.margins.left_mm, 8.0, "6 列要在 210mm 里排下");
+        assert_eq!(opts.margins.right_mm, 8.0);
+        assert!(opts.margins.bottom_mm >= 14.0, "页脚要有打印区");
+        assert_eq!(
+            opts.filename.as_deref(),
+            Some("资产负债表-BALANCE_SHEET-2026-11.pdf")
+        );
     }
 }

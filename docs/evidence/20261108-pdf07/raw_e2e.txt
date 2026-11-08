@@ -1,0 +1,175 @@
+==============================================================================
+PDF-07 财务报表 PDF 145 实测
+BASE=http://127.0.0.1:8082 DB=cloudpivot_pdf07
+==============================================================================
+  admin 登录成功
+— 夹具：2026-11 两张 POSTED 凭证（借 1001 1000 / 贷 3001 1000；借 1122 500 / 贷 5001 500）
+  [PASS] 夹具凭证 2 张 POSTED 已入库
+  [PASS] 2026-11 / 2026-10 期间行存在
+— 权限夹具
+    [role] PDF07_REPORT id=01a1bc1a-003e-72d5-a3db-f97ea5acd064 权限=[business:erp:report:export]
+  [PASS] 角色 PDF07_REPORT 权限与计划一致
+    [role] PDF07_NONE id=01a1bc1a-0086-73e1-840a-fb86216cbd0c 权限=[business:erp:report:balance-sheet]
+  [PASS] 角色 PDF07_NONE 权限与计划一致
+— ① balance-sheet PDF
+  [PASS] balance-sheet：HTTP 200
+  [PASS] balance-sheet：响应是合法 PDF（%PDF-）
+  [PASS] balance-sheet：Content-Type
+  [PASS] balance-sheet：Content-Length = 实际字节数
+  [PASS] balance-sheet：Content-Disposition attachment
+  [PASS] balance-sheet：中文文件名走 RFC 5987
+  [PASS] balance-sheet：禁止缓存 no-store
+  [PASS] balance-sheet：pages >= 1
+  [PASS] balance-sheet：页眉大标题「资 产 负 债 表」
+  [PASS] balance-sheet：表头有公司名
+  [PASS] balance-sheet：表头有编制单位
+  [PASS] balance-sheet：表头有期间
+  [PASS] balance-sheet：表头有报表日期
+  [PASS] balance-sheet：表头有金额单位
+  [PASS] balance-sheet：表尾有「制表人」
+  [PASS] balance-sheet：表尾有「审核人」
+  [PASS] balance-sheet：表尾有「日期」
+  [PASS] balance-sheet：列头「资产」
+  [PASS] balance-sheet：列头「负债及所有者权益」
+  [PASS] balance-sheet：列头「期末余额」
+  [PASS] balance-sheet：列头「期初余额」
+  [PASS] balance-sheet：文本层所有金额都符合千分位+两位小数（③）
+  [PASS] balance-sheet：>=1000 的金额都带千分位逗号（③）
+— ① income-statement PDF
+  [PASS] income-statement：HTTP 200
+  [PASS] income-statement：响应是合法 PDF（%PDF-）
+  [PASS] income-statement：Content-Type
+  [PASS] income-statement：Content-Length = 实际字节数
+  [PASS] income-statement：Content-Disposition attachment
+  [PASS] income-statement：中文文件名走 RFC 5987
+  [PASS] income-statement：禁止缓存 no-store
+  [PASS] income-statement：pages >= 1
+  [PASS] income-statement：页眉大标题「利 润 表」
+  [PASS] income-statement：表头有公司名
+  [PASS] income-statement：表头有编制单位
+  [PASS] income-statement：表头有期间
+  [PASS] income-statement：表头有报表日期
+  [PASS] income-statement：表头有金额单位
+  [PASS] income-statement：表尾有「制表人」
+  [PASS] income-statement：表尾有「审核人」
+  [PASS] income-statement：表尾有「日期」
+  [PASS] income-statement：列头「项目」
+  [PASS] income-statement：列头「本期金额」
+  [PASS] income-statement：列头「本年累计」
+  [PASS] income-statement：文本层所有金额都符合千分位+两位小数（③）
+— ① cash-flow PDF
+  [PASS] cash-flow：HTTP 200
+  [PASS] cash-flow：响应是合法 PDF（%PDF-）
+  [PASS] cash-flow：Content-Type
+  [PASS] cash-flow：Content-Length = 实际字节数
+  [PASS] cash-flow：Content-Disposition attachment
+  [PASS] cash-flow：中文文件名走 RFC 5987
+  [PASS] cash-flow：禁止缓存 no-store
+  [PASS] cash-flow：pages >= 1
+  [PASS] cash-flow：页眉大标题「现 金 流 量 表」
+  [PASS] cash-flow：表头有公司名
+  [PASS] cash-flow：表头有编制单位
+  [PASS] cash-flow：表头有期间
+  [PASS] cash-flow：表头有报表日期
+  [PASS] cash-flow：表头有金额单位
+  [PASS] cash-flow：表尾有「制表人」
+  [PASS] cash-flow：表尾有「审核人」
+  [PASS] cash-flow：表尾有「日期」
+  [PASS] cash-flow：列头「项目」
+  [PASS] cash-flow：列头「本期金额」
+  [PASS] cash-flow：列头「本年累计」
+  [PASS] cash-flow：文本层所有金额都符合千分位+两位小数（③）
+  [PASS] cash-flow：>=1000 的金额都带千分位逗号（③）
+— ② 借贷平衡（资产负债表左右相等）
+  [PASS] 资产负债表主体解析成功（6 列切片）
+  [PASS] 表头解析出 6 列起点
+  [PASS] 左栏有「资产总计」行
+  [PASS] 右栏有「负债和所有者权益总计」行
+  [PASS] 卡面②：资产总计（期末） == 负债和所有者权益总计（期末）
+  [PASS] 资产总计（期末） = 1,500.00（1000 现金 + 500 应收）
+  [PASS] 负债和所有者权益总计（期末） = 1,500.00（1000 实收 + 500 利润）
+  [PASS] 两个总计确实在表格的同一行（版面对齐）
+  [PASS] 勾稽块写明「借贷平衡」
+  [PASS] 勾稽块写明差额 0.00
+  [PASS] 勾稽块标题（资产总计 ≡ 负债和所有者权益总计）
+  [PASS] 勾稽块打印资产总计
+  [PASS] 勾稽块打印负债和权益总计
+  [PASS] 表内有「货币资金」行
+  [PASS] 表内有「应收账款」行
+  [PASS] 表内有「实收资本」行
+  [PASS] 表内有「未分配利润」行
+  [PASS] 货币资金 期末 = 1,000.00
+  [PASS] 应收账款 期末 = 500.00
+  [PASS] 实收资本 期末 = 1,000.00
+  [PASS] 未分配利润 期末 = 500.00
+— ④ 空白项显示「-」（不是 0 也不是空）
+  [PASS] 左栏「应收票据」期末列 = "-"
+  [PASS] 左栏「应收票据」期初列 = "-"
+  [PASS] 左栏「预付账款」期末列 = "-"
+  [PASS] 左栏「预付账款」期初列 = "-"
+  [PASS] 左栏「其他应收款」期末列 = "-"
+  [PASS] 左栏「其他应收款」期初列 = "-"
+  [PASS] 左栏「存货」期末列 = "-"
+  [PASS] 左栏「存货」期初列 = "-"
+  [PASS] 右栏「短期借款」期末列 = "-"
+  [PASS] 右栏「短期借款」期初列 = "-"
+  [PASS] 右栏「应付账款」期末列 = "-"
+  [PASS] 右栏「应付账款」期初列 = "-"
+  [PASS] 右栏「预收账款」期末列 = "-"
+  [PASS] 右栏「预收账款」期初列 = "-"
+  [PASS] 右栏「应付职工薪酬」期末列 = "-"
+  [PASS] 右栏「应付职工薪酬」期初列 = "-"
+  [PASS] 右栏「应交税费」期末列 = "-"
+  [PASS] 右栏「应交税费」期初列 = "-"
+  [PASS] 右栏「盈余公积」期末列 = "-"
+  [PASS] 右栏「盈余公积」期初列 = "-"
+  [PASS] 货币资金 期初 = "-"（上期无凭证，不冒充 0.00）
+  [PASS] 报表主体里没有任何金额恰为 0.00（零一律印 -）
+  [PASS] 空白项数量 >= 20（期初整列 + 空项）
+— ③ 利润表 / 现金流量表金额
+  [PASS] 利润表 营业收入行有两列金额
+  [PASS] 利润表 营业收入 本期 = 500.00
+  [PASS] 利润表 营业收入 本年累计 = 500.00
+  [PASS] 利润表 净利润行有两列金额
+  [PASS] 利润表 净利润 本期 = 500.00
+  [PASS] 利润表 净利润 本年累计 = 500.00
+  [PASS] 利润表勾稽：净利润 ≡ 未分配利润本年变动
+  [PASS] 利润表勾稽结论一致
+  [PASS] 利润表勾稽差额 0.00
+  [PASS] 现金流量表有「经营活动」节
+  [PASS] 现金流量表有「投资活动」节
+  [PASS] 现金流量表有「筹资活动」节
+  [PASS] 现金流量表有且仅有一行「期末现金及现金等价物余额」（两列金额）
+  [PASS] 期末现金行有两列金额
+  [PASS] 现金流量表 期末现金 本期 = 1,000.00
+  [PASS] 现金流量表 期末现金 本年累计 = 1,000.00
+  [PASS] 现金流量表勾稽：期末现金 ≡ 资产负债表货币资金
+  [PASS] 现金流量表带简化口径说明（不许静默）
+— 负面分支
+  [PASS] 401：不带 token
+  [PASS] 403：有报表读权限但没有导出权限
+  [PASS] 403 错误信息点名权限码
+  [PASS] 200：只有 business:erp:report:export 的用户可以导出
+  [PASS] 普通用户拿到的也是合法 PDF
+  [PASS] 未知 type「profit」→ 400
+  [PASS] 未知 type「profit」→ 错误码 10001
+  [PASS] 未知 type「profit」：msg 列出合法值
+  [PASS] 未知 type「balance-sheetx」→ 400
+  [PASS] 未知 type「balance-sheetx」→ 错误码 10001
+  [PASS] 未知 type「balance-sheetx」：msg 列出合法值
+  [PASS] period 缺失 → 400 + 10001
+  [PASS] period 缺失 → 400 + 10001：错误码
+  [PASS] period 月份非法 → 400 + 10001
+  [PASS] period 月份非法 → 400 + 10001：错误码
+  [PASS] period 带日期 → 400 + 10001
+  [PASS] period 带日期 → 400 + 10001：错误码
+  [PASS] 期间不存在 → 400 + 66010（与页面同码）
+  [PASS] 期间不存在 → 400 + 66010（与页面同码）：错误码
+— 审计
+    审计汇总：EXPORT_REPORT_PDF|biz_report|14
+  [PASS] 导出写入了 EXPORT_REPORT_PDF 审计行
+    report_type 种类：balance-sheet,cash-flow,income-statement
+  [PASS] 三张报表的 report_type 都出现在审计里
+  [PASS] 审计 detail.source = PDF-07
+==============================================================================
+PASS=154 FAIL=0

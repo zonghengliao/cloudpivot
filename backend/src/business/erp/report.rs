@@ -1483,7 +1483,10 @@ pub fn into_response(
 // ==================== 接口层 ====================
 
 /// 参数校验（纯逻辑）：返回规整后的期间编码。
-fn validate_period(raw: Option<&str>) -> std::result::Result<String, ApiError> {
+///
+/// `pub(crate)`：PDF-07 的报表导出（[`crate::business::erp::report_pdf`]）复用同一份
+/// 校验与同一句错误文案 —— 页面能出来的期间，PDF 也一定能出；反之亦然。
+pub(crate) fn validate_period(raw: Option<&str>) -> std::result::Result<String, ApiError> {
     let Some(text) = raw.map(str::trim).filter(|text| !text.is_empty()) else {
         return Err(ApiError::new(
             400,
@@ -1502,7 +1505,11 @@ fn validate_period(raw: Option<&str>) -> std::result::Result<String, ApiError> {
 }
 
 /// 在 REPEATABLE READ 快照里算报表，并把数据层错误翻成 HTTP 错误。
-async fn snapshot_or_error(period: &str) -> std::result::Result<SheetSnapshot, ApiError> {
+///
+/// `pub(crate)`：PDF-07 复用（报表 PDF 与页面必须同一快照口径、同一错误码）。
+pub(crate) async fn snapshot_or_error(
+    period: &str,
+) -> std::result::Result<SheetSnapshot, ApiError> {
     let tx = db()
         .begin()
         .await
@@ -1559,7 +1566,10 @@ fn period_error(period: &str, message: String) -> ApiError {
 }
 
 /// 编制单位（取系统配置里的系统名，取不到就用产品名）。
-async fn company_name() -> String {
+///
+/// `pub(crate)`：PDF-07 的三张报表共用这一份取数（页眉「公司名」与「编制单位」
+/// 必须与页面显示完全一致，不能有两份 SQL）。
+pub(crate) async fn company_name() -> String {
     let sql = "SELECT COALESCE(NULLIF(config_value, ''), '云枢') AS name \
                  FROM sys_config WHERE config_key = 'system.name' AND deleted_at IS NULL \
                 LIMIT 1";

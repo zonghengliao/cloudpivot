@@ -18,6 +18,10 @@
           <template #icon><t-icon name="download" /></template>
           导出 Excel
         </t-button>
+        <t-button variant="outline" :disabled="!sheet" data-testid="cf-export-pdf" @click="handleExportPdf">
+          <template #icon><t-icon name="download" /></template>
+          导出 PDF
+        </t-button>
         <span v-if="periodHint" class="tool-row__hint" data-testid="cf-period-hint">{{ periodHint }}</span>
       </div>
 
@@ -197,6 +201,7 @@ import { MessagePlugin } from 'tdesign-vue-next';
 
 import {
   exportCashFlow,
+  exportReportPdf,
   fetchCashFlow,
   fetchPeriodPage,
   type AccountPeriodRow,
@@ -355,6 +360,18 @@ async function handleExport() {
     MessagePlugin.success('已导出');
   } catch (err) {
     MessagePlugin.error(`导出失败：${(err as Error).message ?? err}`);
+  }
+}
+
+/** 导出 PDF（PDF-07：三大活动分节 + 本期/本年累计 + 勾稽货币资金） */
+async function handleExportPdf() {
+  if (!sheet.value) return;
+  try {
+    const blob = await exportReportPdf('cash-flow', sheet.value.period);
+    saveBlob(blob, `现金流量表_${sheet.value.period}.pdf`);
+    MessagePlugin.success('已导出 PDF');
+  } catch (err) {
+    MessagePlugin.error(`导出 PDF 失败：${(err as Error).message ?? err}`);
   }
 }
 

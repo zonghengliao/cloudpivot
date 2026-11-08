@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>{{ doc_label }} {{ head.period_label }}</title>
+<style>
+/* ===========================================================================
+   云枢 资产负债表模板（PDF-07）
+   ---------------------------------------------------------------------------
+   版式 = 企业会计准则「资产负债表」：左右两栏（资产 | 负债及所有者权益），
+   每栏两列金额（期末余额 / 期初余额），表头 公司名 / 报表名称 / 编制单位 /
+   期间 / 日期 / 单位：元，表尾 制表人 / 审核人 / 日期 + 勾稽校验。
+
+   打印四条铁律（与订单 / 派工单模板同源）：
+     ① @page 定死纸张与外边距（左右 8mm：6 列要在 210mm 里塞下，比单据更紧）；
+     ② thead { display: table-header-group } —— 报表换页时表头重复；
+     ③ tr { break-inside: avoid } —— 不腰斩一行；
+     ④ .num { font-variant-numeric: tabular-nums } —— 金额等宽逐位对齐。
+
+   金额列的宽度是**按最宽数字倒推**的：8.5pt 等宽数字下 21mm 能放下
+   「123,456,789.00」（14 字符）。再宽就得牺牲项目名列，中文项目名
+   （「负债和所有者权益总计」9 字）会折行。
+   =========================================================================== */
+@page {
+  size: A4 portrait;
+  margin: 12mm 8mm 16mm 8mm;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Noto Sans SC", "Noto Sans CJK SC", sans-serif;
+  font-size: 9pt;
+  line-height: 1.35;
+  color: #1f2329;
+}
+
+/* ---------- 表头 ---------- */
+.head { margin-bottom: 5pt; }
+.head-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  font-size: 9.5pt;
+}
+.head-top .company { font-weight: 700; letter-spacing: 0.5pt; }
+.head-top .unit { color: #1f2329; }
+h1.title {
+  text-align: center;
+  font-size: 16pt;
+  font-weight: 700;
+  letter-spacing: 6pt;
+  margin: 4pt 0 5pt;
+}
+.meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 8.5pt;
+  color: #1f2329;
+  padding: 0 2pt;
+  margin-bottom: 3pt;
+}
+
+/* ---------- 报表主体 ---------- */
+table.grid {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+table.grid thead { display: table-header-group; }
+table.grid th,
+table.grid td {
+  border: 0.5pt solid #86909c;
+  padding: 2.2pt 3pt;
+  vertical-align: middle;
+}
+table.grid th {
+  background: #f2f3f5;
+  font-weight: 700;
+  font-size: 8.5pt;
+  text-align: center;
+}
+table.grid th.lbl { text-align: left; }
+table.grid tr { break-inside: avoid; page-break-inside: avoid; }
+td.lbl { text-align: left; white-space: nowrap; overflow: hidden; }
+td.num {
+  text-align: right;
+  white-space: nowrap;
+  font-size: 8.5pt;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 层级：大类加粗，明细缩进，减项灰色（与页面同一套视觉语义） */
+td.is-major { font-weight: 700; }
+td.is-detail { padding-left: 10pt; }
+td.is-deduction { color: #4e5969; }
+td.is-blank { color: transparent; }
+tr.is-total td { font-weight: 700; background: #f7f8fa; }
+
+/* ---------- 勾稽校验 ---------- */
+.check {
+  margin-top: 6pt;
+  border: 0.5pt solid #86909c;
+  padding: 4pt 6pt;
+  font-size: 8.5pt;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.check .check-title { font-weight: 700; margin-bottom: 2pt; }
+.check .line { margin: 1pt 0; }
+.check.is-ok { border-color: #00a870; }
+.check.is-ok .check-title { color: #00733f; }
+.check.is-bad { border-color: #d54941; background: #fff1f0; }
+.check.is-bad .check-title { color: #b32b25; }
+
+/* ---------- 附注 ---------- */
+.notes { margin-top: 5pt; font-size: 8pt; color: #4e5969; }
+.notes .note-title { font-weight: 700; color: #1f2329; }
+.notes div.note { margin: 1pt 0; }
+
+/* ---------- 表尾签字 ---------- */
+.sign {
+  margin-top: 10pt;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9pt;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.sign td {
+  border: 0.5pt solid #86909c;
+  padding: 4pt 6pt 12pt;
+  width: 33.33%;
+}
+.sign .label { color: #4e5969; }
+.print-meta {
+  margin-top: 4pt;
+  font-size: 7.5pt;
+  color: #86909c;
+  display: flex;
+  justify-content: space-between;
+}
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <!-- ==================== 表头：公司名 / 报表名 / 编制单位 / 期间 / 日期 / 单位 ==================== -->
+  <div class="head">
+    <div class="head-top">
+      <span class="company">{{ head.company }}</span>
+      <span class="unit">{{ head.unit_label }}</span>
+    </div>
+    <h1 class="title">{{ head.doc_title }}</h1>
+    <div class="meta">
+      <span>编制单位：{{ head.preparer }}</span>
+      <span>期间：{{ head.period_label }}（{{ head.status_label }}）</span>
+      <span>日期：{{ head.date_label }}</span>
+    </div>
+  </div>
+
+  <!-- ==================== 主体：左资产 / 右负债及所有者权益 ==================== -->
+  <table class="grid">
+    <colgroup>
+      <col style="width:28%"><col style="width:11%"><col style="width:11%">
+      <col style="width:28%"><col style="width:11%"><col style="width:11%">
+    </colgroup>
+    <thead>
+      <tr>
+        <th class="lbl">资产</th>
+        <th>{{ end_label }}</th>
+        <th>{{ begin_label }}</th>
+        <th class="lbl">负债及所有者权益</th>
+        <th>{{ end_label }}</th>
+        <th>{{ begin_label }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr class="{{ row.cls }}">
+        <td class="lbl {{ row.left.cls }}">{{ row.left.label }}</td>
+        <td class="num">{{ row.left.end }}</td>
+        <td class="num">{{ row.left.begin }}</td>
+        <td class="lbl {{ row.right.cls }}">{{ row.right.label }}</td>
+        <td class="num">{{ row.right.end }}</td>
+        <td class="num">{{ row.right.begin }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- ==================== 勾稽校验：资产总计 ≡ 负债和所有者权益总计 ==================== -->
+  <div class="check {{ check.cls }}">
+    <div class="check-title">{{ check.title }}</div>
+    {% for line in check.lines %}<div class="line">{{ line }}</div>{% endfor %}
+  </div>
+
+  <!-- ==================== 附注（留抵税额重分类等） ==================== -->
+  {% if has_notes %}
+  <div class="notes">
+    <div class="note-title">附注</div>
+    {% for note in notes %}<div class="note">{{ loop.index }}. {{ note }}</div>{% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- ==================== 表尾：制表人 / 审核人 / 日期（手写） ==================== -->
+  <table class="sign">
+    <tr>
+      <td><span class="label">制表人：</span></td>
+      <td><span class="label">审核人：</span></td>
+      <td><span class="label">日期：</span></td>
+    </tr>
+  </table>
+  <div class="print-meta">
+    <span>{{ doc_label }} · {{ doc_no }}</span>
+    <span>打印时间 {{ printed_at }} · {{ engine }}</span>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,19 @@
+Title:           利润表 2026年11月
+Creator:         Mozilla/5.0 (X11; Ubuntu; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36
+Producer:        Skia/PDF m157
+CreationDate:    Mon Nov  9 01:14:04 2026 CST
+ModDate:         Mon Nov  9 01:14:04 2026 CST
+Custom Metadata: no
+Metadata Stream: no
+Tagged:          yes
+UserProperties:  no
+Suspects:        no
+Form:            none
+JavaScript:      no
+Pages:           1
+Encrypted:       no
+Page size:       595.92 x 841.92 pts (A4)
+Page rot:        0
+File size:       52652 bytes
+Optimized:       no
+PDF version:     1.4

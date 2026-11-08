@@ -240,6 +240,8 @@ pub mod reminder_stock;
 pub mod report;
 pub mod report_item_admin;
 pub mod report_item_model;
+/// 财务报表 PDF 导出（PDF-07）：资产负债表 / 利润表 / 现金流量表。
+pub mod report_pdf;
 pub mod requisition_bridge;
 /// 采购退货单 / 销售退货单 PDF 导出（PDF-04）：原单号 + 退货原因 + 双向库位口径。
 pub mod return_pdf;

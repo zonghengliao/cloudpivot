@@ -1455,7 +1455,10 @@ fn period_error(period: &str, message: String) -> ApiError {
 }
 
 /// 在 REPEATABLE READ 快照里算报表，并把数据层错误翻成 HTTP 错误。
-async fn snapshot_or_error(period: &str) -> std::result::Result<CashFlowSnapshot, ApiError> {
+/// `pub(crate)`：PDF-07（[`crate::business::erp::report_pdf`]）复用同一快照与错误码。
+pub(crate) async fn snapshot_or_error(
+    period: &str,
+) -> std::result::Result<CashFlowSnapshot, ApiError> {
     let tx = db()
         .begin()
         .await
@@ -1487,7 +1490,8 @@ async fn snapshot_or_error(period: &str) -> std::result::Result<CashFlowSnapshot
 }
 
 /// 编制单位（取系统配置里的系统名，取不到就用产品名）。
-async fn company_name() -> String {
+/// `pub(crate)`：PDF-07 复用同一份编制单位取数。
+pub(crate) async fn company_name() -> String {
     let sql = "SELECT COALESCE(NULLIF(config_value, ''), '云枢') AS name \
                  FROM sys_config WHERE config_key = 'system.name' AND deleted_at IS NULL \
                 LIMIT 1";

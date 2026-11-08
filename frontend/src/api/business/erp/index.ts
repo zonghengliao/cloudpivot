@@ -3576,6 +3576,24 @@ export async function exportIncomeStatement(period: string): Promise<Blob> {
   return response.data;
 }
 
+/**
+ * 导出利润表 PDF（`GET /erp/report/{type}/pdf`，PDF-07）。
+ *
+ * 与 xlsx 导出**同一个权限码**（`business:erp:report:export`）、同一份数据，
+ * 只是纸面不同：项目 / 本期金额 / 本年累计三列 + 勾稽校验 + 表尾签字。
+ * 返回文件字节流，同样必须 `responseType: 'blob'`。
+ */
+export async function exportReportPdf(
+  type: 'balance-sheet' | 'income-statement' | 'cash-flow',
+  period: string,
+): Promise<Blob> {
+  const response = await service.get<Blob>(`${BASE}/report/${type}/pdf`, {
+    params: asParams({ period }),
+    responseType: 'blob',
+  });
+  return response.data;
+}
+
 // ==================== 现金流量表（ERP-R3，简化版） ====================
 
 /** 现金流量表的一行（对应后端 `cash_flow::CashLineRes`） */
