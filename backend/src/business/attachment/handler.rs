@@ -88,6 +88,16 @@ const UPLOAD_CATEGORY: &str = "attachment";
 /// 6. 单张单据附件数上限（50）；
 /// 7. 读文件 + 走 storage 策略（大小 / 扩展名 / MIME）。
 ///
+/// # 留痕（AUD-02）
+///
+/// 绑定成功且**响应发出之前**写一条 `operation_logs`（`DOC_ATTACHMENT_UPLOAD`，
+/// 目标 = 附件绑定行，`detail` 带单据类型 / 单据 id / 文件 id / 角色 / 文件名 /
+/// 原始文件名 / 字节数 / 秒传标记 / 存储后端），直写库见 [`record_upload_log`]。
+/// 写库失败只记 `warn`，**不影响上传**（留痕是旁路，不能反压业务）。
+///
+/// 被 403 / 400 / 404 拦下的请求不会留这条结构化行（没有绑定行可指），
+/// 它们出现在全局中间件的通用流水里。
+///
 /// # 异常情况
 ///
 /// - 400：字段缺失 / 类型非法 / 备注超长 / 附件数已达上限 / **文件超过 20 MB** /
@@ -109,6 +119,7 @@ pub async fn upload(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     multipart: Multipart,
 ) -> ResResult<DocAttachmentUploadRes> {
+    let started = std::time::Instant::now();
     let server_limit = server_upload_limit_bytes();
     if let Some(declared) = declared_content_length(&headers)
         && server_limit > 0
@@ -196,27 +207,35 @@ pub async fn upload(
     .await
     .map_err(|error| utils::db_error(error, "写入附件绑定"))?;
 
-    log::record_audit(
+    // 显示名口径与响应体同一份：秒传复用别人的记录时，`record.original_name` 是
+    // 首个上传者的名字；响应与留痕都用它，保证「界面看到的」= 「审计记下的」。
+    let file_name = record
+        .original_name
+        .clone()
+        .unwrap_or_else(|| file.name.clone());
+
+    // AUD-02：直写 `operation_logs`（不走日志总线）。总线是 500 ms 批量，未初始化
+    // 的进程会丢事件 —— 145 上实测上传 8 次、`DOC_ATTACHMENT_UPLOAD` 一行没有。
+    // 与 [`download_log`] / [`delete_log`] 同一条做法：写库失败只 warn，不反压上传。
+    record_upload_log(
         &headers,
         &connect_info,
-        log::audit_input(
-            &claims,
-            "DOC_ATTACHMENT_UPLOAD",
-            "DocAttachment",
-            binding_id.to_string(),
-            None,
-            Some(serde_json::json!({
-                "doc_type": meta.doc_type.as_str(),
-                "doc_id": meta.doc_id.to_string(),
-                "file_id": record.id.to_string(),
-                "file_role": meta.file_role.as_str(),
-                "original_name": file.name,
-                "file_size": record.file_size,
-                "storage_code": record.storage_code,
-                "duplicated": duplicated,
-            })),
-        ),
-    );
+        &claims,
+        &UploadLogFacts {
+            binding_id,
+            doc_type: meta.doc_type,
+            doc_id: meta.doc_id,
+            file_id: record.id,
+            file_role: meta.file_role,
+            file_name: &file_name,
+            submitted_name: &file.name,
+            file_size: record.file_size,
+            storage_code: record.storage_code.as_deref(),
+            duplicated,
+        },
+        started,
+    )
+    .await;
 
     tracing::info!(
         doc_type = meta.doc_type.as_str(),
@@ -231,16 +250,157 @@ pub async fn upload(
     Ok(Res::ok(DocAttachmentUploadRes {
         id: binding_id.to_string(),
         file_id: record.id.to_string(),
-        file_name: record
-            .original_name
-            .clone()
-            .unwrap_or_else(|| file.name.clone()),
+        file_name,
         file_size: record.file_size,
         file_role: meta.file_role.as_str().to_string(),
         doc_type: meta.doc_type.as_str().to_string(),
         doc_id: meta.doc_id.to_string(),
         duplicated,
     }))
+}
+
+// ==================== 上传留痕（AUD-02） ====================
+
+/// 上传留痕的操作码（`operation_logs.operation`，AUD-02）。
+pub const OP_UPLOAD: &str = "DOC_ATTACHMENT_UPLOAD";
+
+/// 一次上传留痕要用到的事实（**纯数据**：不连库、不依赖 storage 类型，单测直接构造）。
+///
+/// # 为什么需要这个结构
+///
+/// `upload` 里能拿到的东西来自三处（`dto::UploadMeta` 的解析结果、`sys_file` 记录、
+/// multipart 的表单文件名），直接摊成 10 个位置参数既难读又容易错位。收成一个
+/// 结构后，[`upload_log`] 的签名只剩「请求上下文 + 事实 + 耗时」三段。
+#[derive(Debug, Clone)]
+pub(crate) struct UploadLogFacts<'a> {
+    /// 附件绑定行 id（`target_id`：审计要能回指到具体这张单据上的这一行）。
+    pub binding_id: uuid::Uuid,
+    /// 单据类型。
+    pub doc_type: model::DocKind,
+    /// 单据主键。
+    pub doc_id: uuid::Uuid,
+    /// `sys_file.id`。
+    pub file_id: uuid::Uuid,
+    /// 文件角色。
+    pub file_role: model::FileRole,
+    /// 落库的显示名（`sys_file.original_name`，与列表 / 下载 / 删除留痕的
+    /// `file_name` 同一口径；秒传时是**首个**上传者的文件名）。
+    pub file_name: &'a str,
+    /// 本次请求 multipart 里提交的文件名（秒传复用别人的记录时与 `file_name`
+    /// 不同 —— 这个差异本身有审计价值：说明本次没写对象）。
+    pub submitted_name: &'a str,
+    /// 字节数（`sys_file.file_size`）。
+    pub file_size: i64,
+    /// 文件所在后端编码（`NULL` = A1 之前的本地默认目录；秒传时是旧记录的编码）。
+    pub storage_code: Option<&'a str>,
+    /// 是否命中秒传（复用已有 `sys_file`，本次未写物理对象）。
+    pub duplicated: bool,
+}
+
+/// 构造一条上传留痕（**纯逻辑**：不连库、不写库，单测直接断言字段）。
+///
+/// # 为什么上传也要自己写一行（AUD-02 实测发现）
+///
+/// 改造前上传走 `log::record_audit(...)` → 日志总线（500 ms 批量）。145 用真 token
+/// 上传 8 次（4 成功 / 2×403 / 1×400 / 1×404）后查 `operation_logs`：
+///
+/// ```sql
+/// select operation, count(*) from operation_logs
+///  where created_at > now() - interval '45 minutes' and operation like 'DOC_ATTACHMENT%'
+///  group by 1;
+/// -- DOC_ATTACHMENT_DELETE | 3     ← 删除是直写，落了
+/// -- （无 DOC_ATTACHMENT_UPLOAD）
+/// ```
+///
+/// 只剩全局中间件那条 `POST /api/business/attachment/upload`（没有单据类型 / 文件名 /
+/// 大小）。这与 ATT-03 修删除时的现象**逐字相同**，做法也照抄：直写 `operation_logs`，
+/// 写库失败只 `warn`（留痕是旁路，不能反压上传）。
+///
+/// # `detail` 的键名（ATT-04 清理脚本踩过的坑）
+///
+/// 旧实现只有 `original_name`，于是按 `detail->>'file_name'` 检索**一条也查不到**。
+/// 现在两个键都给：`file_name`（显示名）+ `original_name`（本次提交的文件名）。
+/// 两个键都能查到这一行，且语义分明。
+///
+/// # 与中间件那条 `POST /api/business/attachment/upload` 的关系
+///
+/// 两条都留：中间件是「HTTP 层面发生了什么」的通用流水，本条是「业务层面谁往哪张
+/// 单据上挂了哪个附件」的结构化记录。
+pub(crate) fn upload_log(
+    headers: &HeaderMap,
+    connect_info: &SocketAddr,
+    claims: &TokenClaims,
+    facts: &UploadLogFacts<'_>,
+    duration_ms: i32,
+) -> OperationLogModel {
+    OperationLogModel {
+        id: uuid::Uuid::now_v7(),
+        request_id: utils::request_id(headers),
+        user_id: utils::current_user_uuid(claims),
+        username: claims.username.clone(),
+        operation: OP_UPLOAD.to_string(),
+        target_type: Some("DocAttachment".to_string()),
+        target_id: Some(facts.binding_id.to_string()),
+        detail: Some(serde_json::json!({
+            "doc_type": facts.doc_type.as_str(),
+            "doc_id": facts.doc_id.to_string(),
+            "file_id": facts.file_id.to_string(),
+            "file_role": facts.file_role.as_str(),
+            // 两个键都要：ATT-04 清理脚本按 file_name 检索时踩过「只有 original_name」的坑
+            "file_name": facts.file_name,
+            "original_name": facts.submitted_name,
+            "file_size": facts.file_size,
+            "storage_code": facts.storage_code,
+            "duplicated": facts.duplicated,
+        })),
+        ip: utils::client_ip(headers, Some(connect_info)),
+        user_agent: utils::user_agent(headers),
+        duration_ms: Some(duration_ms),
+        request_path: Some("/api/business/attachment/upload".to_string()),
+        request_method: Some("POST".to_string()),
+        // multipart 正文（含文件字节）不进日志；结构化事实都在 detail 里
+        request_params: None,
+        response_data: Some(serde_json::json!({
+            "id": facts.binding_id.to_string(),
+            "file_id": facts.file_id.to_string(),
+            "file_size": facts.file_size,
+            "duplicated": facts.duplicated,
+        })),
+        status_code: Some(200),
+        // 追加写表关闭时间戳 Hook，created_at 由写入方显式赋值
+        created_at: chrono::Utc::now(),
+    }
+}
+
+/// 把一条上传留痕写进 `operation_logs`（失败只 `warn`，不影响已成功的上传）。
+///
+/// # 为什么直写而不是投递日志总线
+///
+/// 与 [`record_download_log`] 同一条理由：总线在未初始化的进程里会丢事件
+/// （AUD-02 在 145 实测：8 次上传，结构化审计行 0 条），而「谁往哪张单挂了什么附件」
+/// 正是审计要回答的问题。多花的这一次往返（毫秒级）换「响应返回时这行已在库里」。
+async fn record_upload_log(
+    headers: &HeaderMap,
+    connect_info: &SocketAddr,
+    claims: &TokenClaims,
+    facts: &UploadLogFacts<'_>,
+    started: std::time::Instant,
+) {
+    let mut entry = upload_log(
+        headers,
+        connect_info,
+        claims,
+        facts,
+        utils::elapsed_ms(started),
+    );
+    if let Err(error) = entry.insert(db()).await {
+        tracing::warn!(
+            attachment_id = %facts.binding_id,
+            operation = OP_UPLOAD,
+            error = %error,
+            "单据附件上传留痕写库失败（上传已完成，不因此报错）"
+        );
+    }
 }
 
 /// 按单据查附件（`GET /business/attachment/list?doc_type=&doc_id=&sort=`）。

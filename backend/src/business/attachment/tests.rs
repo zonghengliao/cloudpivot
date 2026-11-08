@@ -2323,6 +2323,231 @@ async fn db_delete_log_lands_in_operation_logs() {
     println!("[ATT-03] 删除留痕真库落库（operation/target/detail/ip）✓");
 }
 
+/// 上传留痕的夹具事实（纯逻辑用例用，`&'static str` 便于构造）。
+fn fixture_upload_facts() -> super::handler::UploadLogFacts<'static> {
+    super::handler::UploadLogFacts {
+        binding_id: uid("d2120e03-0000-4000-8000-000000000003"),
+        doc_type: DocKind::Payable,
+        doc_id: uid(DOC_PAYABLE),
+        file_id: uid(FILE_B),
+        file_role: FileRole::InvoiceScan,
+        file_name: "发票影像.pdf",
+        submitted_name: "发票影像.pdf",
+        file_size: 2048,
+        storage_code: Some("LOCAL"),
+        duplicated: false,
+    }
+}
+
+/// 上传留痕（纯逻辑）：操作码 / 目标 / detail 九个事实 / 方法 / 路径全都要对。
+///
+/// 为什么这条必须有：AUD-02 在 145 实测发现上传走审计总线，**总线那行没落库**，
+/// `operation_logs` 里只剩中间件的 `POST /api/business/attachment/upload`（不带单据
+/// 类型 / 文件名）。改成直写后，字段正确性由这条用例钉住。
+///
+/// 另钉一条坑：`detail` 里 **`file_name` 与 `original_name` 两个键都要有**。
+/// 旧实现只有 `original_name`，ATT-04 的清理脚本按 `detail->>'file_name'` 检索时
+/// 一条也查不到。
+#[test]
+fn upload_log_fields() {
+    use axum::http::HeaderMap;
+
+    let mut headers = HeaderMap::new();
+    headers.insert("x-request-id", "req-aud02-up".parse().expect("头值"));
+    headers.insert("user-agent", "aud02-test/1.0".parse().expect("头值"));
+    headers.insert("x-real-ip", "10.9.8.11".parse().expect("头值"));
+    let connect: std::net::SocketAddr = "127.0.0.1:54323".parse().expect("地址");
+    let claims = claims_of(U_OWNER, &["business:attachment:upload"]);
+    let facts = fixture_upload_facts();
+
+    let entry = super::handler::upload_log(&headers, &connect, &claims, &facts, 23);
+
+    // 操作码 / 目标
+    assert_eq!(entry.operation, super::handler::OP_UPLOAD);
+    assert_eq!(entry.operation, "DOC_ATTACHMENT_UPLOAD");
+    assert_eq!(entry.target_type.as_deref(), Some("DocAttachment"));
+    assert_eq!(
+        entry.target_id.as_deref(),
+        Some(&*facts.binding_id.to_string()),
+        "target_id 必须是绑定行 id（不是 file_id / doc_id）"
+    );
+    // 请求上下文
+    assert_eq!(entry.request_method.as_deref(), Some("POST"));
+    assert_eq!(
+        entry.request_path.as_deref(),
+        Some("/api/business/attachment/upload")
+    );
+    assert_eq!(entry.status_code, Some(200));
+    assert_eq!(entry.duration_ms, Some(23));
+    assert_eq!(entry.user_id, Some(uid(U_OWNER)));
+    assert_eq!(
+        entry.username.as_deref(),
+        Some(&*format!("att_{}", &U_OWNER[..8]))
+    );
+    assert_eq!(entry.request_id, "req-aud02-up");
+    assert_eq!(entry.user_agent.as_deref(), Some("aud02-test/1.0"));
+    assert_eq!(
+        entry.ip,
+        Some("10.9.8.11".parse::<std::net::IpAddr>().expect("IP"))
+    );
+    // multipart 正文（含文件字节）不进日志
+    assert!(entry.request_params.is_none());
+    assert_eq!(
+        entry.response_data.as_ref().map(|v| v["id"].clone()),
+        Some(serde_json::json!(facts.binding_id.to_string()))
+    );
+
+    // detail：九个事实一个都不能少
+    let detail = entry.detail.as_ref().expect("detail 必须存在");
+    assert_eq!(detail["doc_type"], serde_json::json!("PAYABLE"));
+    assert_eq!(detail["doc_id"], serde_json::json!(DOC_PAYABLE));
+    assert_eq!(detail["file_id"], serde_json::json!(FILE_B));
+    assert_eq!(detail["file_role"], serde_json::json!("INVOICE_SCAN"));
+    assert_eq!(detail["file_name"], serde_json::json!("发票影像.pdf"));
+    assert_eq!(detail["original_name"], serde_json::json!("发票影像.pdf"));
+    assert_eq!(detail["file_size"], serde_json::json!(2048));
+    assert_eq!(detail["storage_code"], serde_json::json!("LOCAL"));
+    assert_eq!(detail["duplicated"], serde_json::json!(false));
+
+    // 秒传：显示名是首个上传者的，original_name 是本次提交的 —— 两个键可分辨
+    let duplicated_facts = super::handler::UploadLogFacts {
+        submitted_name: "同名副本.pdf",
+        duplicated: true,
+        ..facts.clone()
+    };
+    let dup_entry = super::handler::upload_log(&headers, &connect, &claims, &duplicated_facts, 5);
+    let dup_detail = dup_entry.detail.as_ref().expect("detail 必须存在");
+    assert_eq!(dup_detail["file_name"], serde_json::json!("发票影像.pdf"));
+    assert_eq!(
+        dup_detail["original_name"],
+        serde_json::json!("同名副本.pdf")
+    );
+    assert_eq!(dup_detail["duplicated"], serde_json::json!(true));
+    println!("[AUD-02] 上传留痕字段（operation/target/九个 detail/秒传双键）✓");
+}
+
+/// 真库：上传留痕能真正落进 `operation_logs`（`ip` 是 INET、`detail` 是 JSONB）。
+///
+/// 单测只验模型字段；这条验写库路径 —— 绑定类型写错只在运行期报错，而留痕失败会被
+/// `warn` 吞掉（不能因此让上传失败），所以必须有真库用例兜住。
+#[tokio::test]
+async fn db_upload_log_lands_in_operation_logs() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    use axum::http::HeaderMap;
+
+    let log_id = uid("d2120e03-0000-4000-8000-000000000004");
+    exec(&format!(
+        "DELETE FROM operation_logs WHERE id = '{log_id}'::uuid"
+    ))
+    .await;
+
+    let mut headers = HeaderMap::new();
+    headers.insert("x-request-id", "req-aud02-db-up".parse().expect("头值"));
+    headers.insert("user-agent", "aud02-db-test/1.0".parse().expect("头值"));
+    headers.insert("x-real-ip", "10.9.8.11".parse().expect("头值"));
+    let connect: std::net::SocketAddr = "127.0.0.1:54323".parse().expect("地址");
+    let claims = claims_of(U_OWNER, &["business:attachment:upload"]);
+    let facts = fixture_upload_facts();
+
+    let mut entry = super::handler::upload_log(&headers, &connect, &claims, &facts, 23);
+    entry.id = log_id;
+    entry
+        .insert(db())
+        .await
+        .expect("上传留痕必须能写进 operation_logs");
+
+    let rows = db()
+        .find_with_params(
+            "SELECT operation, target_type, target_id, status_code, request_method, \
+                    request_path, username, detail->>'doc_type' AS doc_type, \
+                    detail->>'file_name' AS file_name, \
+                    detail->>'original_name' AS original_name, \
+                    detail->>'storage_code' AS storage_code, \
+                    (detail->>'file_size')::bigint AS file_size, \
+                    (detail->>'duplicated')::boolean AS duplicated, \
+                    host(ip) AS ip_text \
+               FROM operation_logs WHERE id = ?::uuid",
+            vec![Value::from(&log_id)],
+        )
+        .await
+        .expect("读回留痕");
+    let sql_row = rows.first().expect("留痕必须落库");
+
+    assert_eq!(
+        sql_row.get_typed::<String>("operation").expect("操作码"),
+        "DOC_ATTACHMENT_UPLOAD"
+    );
+    assert_eq!(
+        sql_row
+            .get_typed::<String>("target_type")
+            .expect("目标类型"),
+        "DocAttachment"
+    );
+    assert_eq!(
+        sql_row.get_typed::<String>("target_id").expect("目标 id"),
+        facts.binding_id.to_string()
+    );
+    assert_eq!(
+        sql_row.get_typed::<String>("request_method").expect("方法"),
+        "POST"
+    );
+    assert_eq!(
+        sql_row.get_typed::<String>("request_path").expect("路径"),
+        "/api/business/attachment/upload"
+    );
+    assert_eq!(
+        sql_row.get_typed::<i32>("status_code").expect("状态码"),
+        200
+    );
+    assert_eq!(
+        sql_row.get_typed::<String>("username").expect("账号"),
+        format!("att_{}", &U_OWNER[..8])
+    );
+    assert_eq!(
+        sql_row.get_typed::<String>("doc_type").expect("doc_type"),
+        "PAYABLE"
+    );
+    // 两个键都在库里（ATT-04 清理脚本按 file_name 检索的坑）
+    assert_eq!(
+        sql_row.get_typed::<String>("file_name").expect("文件名"),
+        "发票影像.pdf"
+    );
+    assert_eq!(
+        sql_row
+            .get_typed::<String>("original_name")
+            .expect("原始文件名"),
+        "发票影像.pdf"
+    );
+    assert_eq!(
+        sql_row
+            .get_typed::<String>("storage_code")
+            .expect("存储后端"),
+        "LOCAL"
+    );
+    assert_eq!(sql_row.get_typed::<i64>("file_size").expect("大小"), 2048);
+    assert!(!sql_row.get_typed::<bool>("duplicated").expect("秒传标记"));
+    assert_eq!(
+        sql_row.get_typed::<String>("ip_text").expect("IP"),
+        "10.9.8.11"
+    );
+
+    exec(&format!(
+        "DELETE FROM operation_logs WHERE id = '{log_id}'::uuid"
+    ))
+    .await;
+    let left: i64 = db()
+        .scalar_with_params(
+            "SELECT count(*) FROM operation_logs WHERE id = ?::uuid",
+            vec![Value::from(&log_id)],
+        )
+        .await
+        .expect("查残留");
+    assert_eq!(left, 0, "夹具留痕必须清干净");
+    println!("[AUD-02] operation_logs 真库上传留痕：operation/target/detail/ip 全部正确落库 ✓");
+}
+
 /// 仓库根（`backend/` 的上一级），用于读前端的角色词表镜像（与 `doc_kind_tests` 同款做法）。
 fn repo_root() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
