@@ -37,12 +37,24 @@
 -- 应用侧 `attachment::dto::parse_upload_meta` 也会把空值解析成 `DEFAULT`，双保险：
 -- 直接写 SQL 的脚本 / 老客户端都落到同一组。
 --
+-- # 顺序（**升级既有库才会暴露的坑**）
+--
+--   ① 拆旧 CHECK（旧定义只允许 4 个老值，不先拆，归一会撞约束）
+--   ② 老值归一（`INVOICE`→`INVOICE_SCAN`、`OTHER`→`DEFAULT`）
+--   ③ 列默认值改成 `DEFAULT`
+--   ④ 建新 CHECK（7 值）
+--   ⑤ 自检
+--
+--   空库首启时表是空的，①② 的先后无所谓；**升级既有库**时顺序反了会直接
+--   `check constraint ... is violated by some row`（本卡在退化成 V0212 状态的库上实测踩到过）。
+--
 -- # 幂等
 --
+--   · 拆 CHECK：只在「约束存在且不是新版」时拆（已是新版的库重放不会留下无约束窗口）；
 --   · 归一 UPDATE：匹配即改、改完不匹配；
 --   · `ALTER COLUMN ... SET DEFAULT`：重复设置同一默认值是空操作；
 --   · CHECK 重建：先看 `pg_get_constraintdef`，**已经是新版就跳过**（不 DROP 再 ADD，
---     避免每次重放都全表校验一遍，也避免在重放期间留下无约束的窗口）；
+--     避免每次重放都全表校验一遍）；
 --   · `COMMENT ON COLUMN` 幂等。
 --   文件内**不写** BEGIN/COMMIT（迁移器自己在事务里跑）。
 --
@@ -55,27 +67,15 @@
 -- ============================================================
 
 -- ============================================================
--- §1 老值归一（先改数据，后换约束：顺序反了会撞旧 CHECK）
--- ============================================================
-UPDATE biz_doc_attachment
-   SET file_role = 'INVOICE_SCAN'
- WHERE file_role = 'INVOICE';
-
-UPDATE biz_doc_attachment
-   SET file_role = 'DEFAULT'
- WHERE file_role = 'OTHER';
-
--- ============================================================
--- §2 列默认值 + 列注释
--- ============================================================
-ALTER TABLE biz_doc_attachment
-    ALTER COLUMN file_role SET DEFAULT 'DEFAULT';
-
-COMMENT ON COLUMN biz_doc_attachment.file_role IS
-    '文件角色（ATT-04 分栏）：CONTRACT_SCAN 合同扫描件 / SUPPLEMENT 补充协议 / ACCEPTANCE 验收单 / INVOICE_SCAN 发票影像 / BANK_RECEIPT 银行回单 / SIGN_RECEIPT 签收单（V0212 老值，保留兼容）/ DEFAULT 其他附件';
-
--- ============================================================
--- §3 CHECK 约束重建（幂等：定义已是新版就跳过）
+-- §1 先拆掉旧 CHECK（**顺序关键**）
+--
+-- 归一把 `INVOICE` 改成 `INVOICE_SCAN`、`OTHER` 改成 `DEFAULT`，而旧约束只允许
+-- 4 个老值 —— 不先拆约束，两条 UPDATE 必然报
+-- `check constraint "ck_biz_doc_attachment_role" ... is violated by some row`。
+-- （空库首启时表是空的，这个顺序问题不会暴露；**升级既有库才会**，所以这里按
+--  「先拆 → 改数据 → 再建」的顺序，任何路径都成立。）
+--
+-- 拆只在「约束存在且不是新版」时做：已升级过的库重放本迁移不会留下无约束窗口。
 -- ============================================================
 DO $$
 DECLARE
@@ -87,7 +87,47 @@ BEGIN
      WHERE conname = 'ck_biz_doc_attachment_role'
        AND conrelid = 'biz_doc_attachment'::regclass;
 
-    -- 已含新值就不动（幂等）；旧定义 / 不存在则重建
+    IF v_def IS NOT NULL AND position('BANK_RECEIPT' IN v_def) = 0 THEN
+        ALTER TABLE biz_doc_attachment
+            DROP CONSTRAINT ck_biz_doc_attachment_role;
+        RAISE NOTICE 'V0345：先拆旧 CHECK（旧定义 %）', v_def;
+    END IF;
+END $$;
+
+-- ============================================================
+-- §2 老值归一
+-- ============================================================
+UPDATE biz_doc_attachment
+   SET file_role = 'INVOICE_SCAN'
+ WHERE file_role = 'INVOICE';
+
+UPDATE biz_doc_attachment
+   SET file_role = 'DEFAULT'
+ WHERE file_role = 'OTHER';
+
+-- ============================================================
+-- §3 列默认值 + 列注释
+-- ============================================================
+ALTER TABLE biz_doc_attachment
+    ALTER COLUMN file_role SET DEFAULT 'DEFAULT';
+
+COMMENT ON COLUMN biz_doc_attachment.file_role IS
+    '文件角色（ATT-04 分栏）：CONTRACT_SCAN 合同扫描件 / SUPPLEMENT 补充协议 / ACCEPTANCE 验收单 / INVOICE_SCAN 发票影像 / BANK_RECEIPT 银行回单 / SIGN_RECEIPT 签收单（V0212 老值，保留兼容）/ DEFAULT 其他附件';
+
+-- ============================================================
+-- §4 CHECK 约束重建（幂等：已是新版就跳过；不存在则建）
+-- ============================================================
+DO $$
+DECLARE
+    v_def text;
+BEGIN
+    SELECT pg_get_constraintdef(oid)
+      INTO v_def
+      FROM pg_constraint
+     WHERE conname = 'ck_biz_doc_attachment_role'
+       AND conrelid = 'biz_doc_attachment'::regclass;
+
+    -- 已含新值就不动（幂等）；旧定义 / 不存在则建
     IF v_def IS NULL OR position('BANK_RECEIPT' IN v_def) = 0 THEN
         ALTER TABLE biz_doc_attachment
             DROP CONSTRAINT IF EXISTS ck_biz_doc_attachment_role;
@@ -102,7 +142,7 @@ BEGIN
 END $$;
 
 -- ============================================================
--- §4 自检（up 后必须全为真）
+-- §5 自检（up 后必须全为真）
 -- ============================================================
 DO $$
 DECLARE
