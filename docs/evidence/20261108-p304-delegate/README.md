@@ -112,6 +112,10 @@ V0335__menu_title_shorten_and_sort.up.sql ← 并行卡片 MENU-FIX-1（t_95bc00
 ✅ up 重放后表回来了 = 1                ✅ up 重放后排除约束也在 = 1
 ```
 
+> 采集时 `schema_migrations` 最大号 = 336（首启 269 个迁移）。随后并行卡 CODE-01 落了
+> `V0337__master_data_seq`（提交 555337e），所以**现在**从空库首启是 270 个迁移、最大号 337 ——
+> 两者不冲突（V0336 只建 `biz_flow_delegate` + 菜单，V0337 只建主数据取号序列）。
+
 ### ② 场景 E 真 HTTP（`scripts/20_e2e_scenarios.sh` → `raw/20_e2e_scenarios.txt`，**69 断言 0 失败**）
 
 隔离实例 `:18304` + 独立空库 `cloudpivot_p304_e2e`（首启 269 迁移），夹具全部走真 HTTP：
