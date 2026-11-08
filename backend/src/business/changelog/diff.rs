@@ -186,6 +186,34 @@ pub const BIZ_TASK: ResourceSpec = ResourceSpec {
     big: &[],
 };
 
+/// `biz_contract`（ERP 合同，CTR-02 接入：**草稿改单留痕**）。
+///
+/// 白名单口径 = `PUT /contract/{id}` 真正能改的 8 列（见 `UpdateContractReq`）。
+/// 「改了会被人追问」的正是这 8 列：金额改了、到期日延了、乙方换了 —— 审计要能回答
+/// 「谁、何时、从什么改成什么」（CTR-01 §3 F2 的缺口）。
+///
+/// 刻意**不含**：
+/// - `status`：状态变更已有 `biz_status_log`（状态机唯一入口逐条落库，含 reason），
+///   再记一遍等于两张表各写半句；
+/// - `contract_no` / `contract_type` / `create_by` / `created_at`：建单后不可改；
+/// - `updated_at` / `update_by`：每次写都变，进白名单等于把审计表变成访问日志；
+/// - `party_b_current_name`：不是列，是 JOIN 主档的现值。
+pub const BIZ_CONTRACT: ResourceSpec = ResourceSpec {
+    table: "biz_contract",
+    module: "business",
+    fields: &[
+        "contract_name",
+        "party_b_id",
+        "party_b_name",
+        "amount",
+        "sign_date",
+        "start_date",
+        "end_date",
+        "remark",
+    ],
+    big: &[],
+};
+
 /// `biz_flow_def`（流程定义，批次 D · D3c 接入）。
 ///
 /// 口径：**配置面**（名字/类型/是否默认/自动通过开关）进白名单，运行时列不进。
@@ -384,6 +412,8 @@ pub const REGISTRY: &[&ResourceSpec] = &[
     &SYS_ANNOUNCEMENT,
     &SYS_HELP_DOC,
     &BIZ_TASK,
+    // CTR-02 F2：合同草稿改单留痕（`PUT /business/erp/contract/{id}`）
+    &BIZ_CONTRACT,
     // 批次 D · D3c：审批三张表（实例 / 待办 / 定义）
     &FLOW_DEF,
     &FLOW_INSTANCE,

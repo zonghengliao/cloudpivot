@@ -428,6 +428,101 @@ pub struct ContractMut {
     pub remark: Option<String>,
 }
 
+// ==================== 变更留痕快照（CTR-02 F2）====================
+
+/// 合同**可改列**的快照（`sys_change_log.diff` 的 `b` / `a` 两侧）。
+///
+/// # 为什么要这个结构而不是 `serde_json::json!(row)`
+///
+/// ① **键必须与 `changelog::diff::BIZ_CONTRACT` 的白名单逐字一致**（列名小写下划线），
+///    整行序列化会把 `party_b_current_name`（JOIN 出来的、不是列）之类塞进 diff 输入，
+///    虽然会被白名单裁掉，但读代码的人会以为它也是被审计的列；
+/// ② **值必须规范化**，否则「没改」也会被判成变化：DB 读回来的 `NUMERIC(18,4)` 是
+///    `50000.0000`，客户端原样回传的 JSON 数字是 `50000` —— 直接比字符串会天天写假日志。
+///    金额统一 [`amount_text`]（固定 4 位小数），日期统一 `YYYY-MM-DD`。
+///
+/// 两个来源（库里的旧行 / 合并后的新值）**都走本结构**，因此两侧键集合天然相同。
+#[derive(Debug, Clone)]
+struct ContractDiffFields<'a> {
+    contract_name: &'a str,
+    party_b_id: Uuid,
+    party_b_name: &'a str,
+    amount: Decimal,
+    sign_date: Option<NaiveDate>,
+    start_date: Option<NaiveDate>,
+    end_date: Option<NaiveDate>,
+    remark: Option<&'a str>,
+}
+
+impl ContractDiffFields<'_> {
+    /// 序列化成 diff 输入（键 = 列名，金额固定 4 位小数，日期 `YYYY-MM-DD`）。
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "contract_name": self.contract_name,
+            "party_b_id": self.party_b_id.to_string(),
+            "party_b_name": self.party_b_name,
+            "amount": amount_text(self.amount),
+            "sign_date": date_text_opt(self.sign_date),
+            "start_date": date_text_opt(self.start_date),
+            "end_date": date_text_opt(self.end_date),
+            "remark": self.remark,
+        })
+    }
+}
+
+impl<'a> From<&'a ContractRow> for ContractDiffFields<'a> {
+    fn from(row: &'a ContractRow) -> Self {
+        Self {
+            contract_name: &row.contract_name,
+            party_b_id: row.party_b_id,
+            party_b_name: &row.party_b_name,
+            amount: row.amount,
+            sign_date: row.sign_date,
+            start_date: row.start_date,
+            end_date: row.end_date,
+            remark: row.remark.as_deref(),
+        }
+    }
+}
+
+impl<'a> From<&'a ContractMut> for ContractDiffFields<'a> {
+    fn from(mut_row: &'a ContractMut) -> Self {
+        Self {
+            contract_name: &mut_row.contract_name,
+            party_b_id: mut_row.party_b_id,
+            party_b_name: &mut_row.party_b_name,
+            amount: mut_row.amount,
+            sign_date: mut_row.sign_date,
+            start_date: mut_row.start_date,
+            end_date: mut_row.end_date,
+            remark: mut_row.remark.as_deref(),
+        }
+    }
+}
+
+/// 改单前的快照（`PUT` 的 `DiffInput::update` 的 `before` 侧）。
+pub fn diff_snapshot_before(row: &ContractRow) -> serde_json::Value {
+    ContractDiffFields::from(row).to_json()
+}
+
+/// 改单后的快照（`DiffInput::update` 的 `after` 侧；入参是**合并后的最终值**）。
+pub fn diff_snapshot_after(mut_row: &ContractMut) -> serde_json::Value {
+    ContractDiffFields::from(mut_row).to_json()
+}
+
+/// 金额的 diff 文本：固定 4 位小数（与 `NUMERIC(18,4)` 同精度）。
+///
+/// 不用 `Decimal::normalize()`：`50000.0000` 会变成 `5E+4` 之类的科学计数形态，
+/// 而 `50000` 是 `5E+4` 的另一种写法 —— 两种写法进 diff 就成「假变更」。
+fn amount_text(value: Decimal) -> String {
+    format!("{value:.4}")
+}
+
+/// 日期的 diff 文本：`YYYY-MM-DD`（与接口契约同格式），`None` 落 JSON `null`。
+fn date_text_opt(value: Option<NaiveDate>) -> Option<String> {
+    value.map(|date| date.format("%Y-%m-%d").to_string())
+}
+
 /// 只含主键 / 单号 / 状态的最小投影（状态流转入口用）。
 #[derive(Debug, Clone)]
 pub struct ContractStateRow {
@@ -963,6 +1058,137 @@ pub fn legal_edges_match_registry() -> bool {
     state_machine::Entity::Contract.edges() == &LEGAL_EDGES[..]
 }
 
+// ==================== 履约口径（CTR-02 F6 / F3）====================
+
+/// `open_order_nos` 最多返回多少个单号（完整清单走订单页按合同筛）。
+///
+/// 定 20 不是随手取的：合同详情是**人读**的页面，弹「还有 137 张未关闭订单」时
+/// 逐个列出来只会淹没重点；前端要全量清单就去订单页筛选（那里有分页）。
+pub const OPEN_ORDER_LIST_LIMIT: usize = 20;
+
+/// 一张**未完成**的下游单据（口径见 [`ContractCommitment`]）。
+#[derive(Debug, Clone)]
+pub struct OpenOrder {
+    /// `PURCHASE` / `SALES`。
+    pub order_type: &'static str,
+    /// 单号（`PO-…` 落 `order_no`，`SO-…` 落 `so_no`）。
+    pub order_no: String,
+    /// 当前状态码（前端要显示「草稿 / 已审批 / 部分收货」）。
+    pub status: String,
+}
+
+/// 合同履约口径（CTR-02 F6「已执行金额」+ F3「归档时的未完成单据」）。
+///
+/// # 金额口径（与额度守卫**同一个函数**，不另写 SQL）
+///
+/// `committed_amount` = `purchase_model::committed_amount` +
+/// `sales_order_model::committed_amount`，两者都是「`contract_id` 命中且
+/// `status <> 'CANCELLED'` 且未软删」的 `SUM(total_with_tax)` 现算值。
+/// 现算而不是缓存列：作废 / 改单 / 软删都不会漂移（CTR-01 §1.3 实测）。
+///
+/// `remaining_amount` = `amount - committed_amount`，**允许为负**：
+/// 草稿期把合同额改小到低于已下单额时，负数正是「超签了多少」的证据，
+/// 夹到 0 会让这个异常消失。
+///
+/// # 「未完成」的口径（哪些单算未关闭）
+///
+/// | 表 | 算「已完成」的状态 | 依据 |
+/// |---|---|---|
+/// | `biz_purchase_order` | `RECEIVED` / `CLOSED` / `CANCELLED` | 收满 = `RECEIVED`（P2-3 起已收数量是派生值），`CLOSED` = 人工了结，`CANCELLED` = 作废 |
+/// | `biz_sales_order` | `OUTBOUND` / `CLOSED` / `CANCELLED` | 发全 = `OUTBOUND`，`CLOSED` = 人工了结，`CANCELLED` = 作废 |
+///
+/// `DRAFT` / `SUBMITTED` / `APPROVED` / `PARTIAL_RECEIVED` / `PARTIAL_OUT` 都算未完成
+/// ——「还没收货 / 只收了一部分」对合同履约进度是同一件事：货没到齐。
+///
+/// ⚠️ **口径的边界**：本结构只**报告**未完成单据，**不阻止** `ACTIVE → COMPLETED`。
+/// ARCH-2 §4.1 E4 明确「无未关闭下游单据（建议；不硬拦）」，§5.2 的理由是
+/// 「合同状态影响的是能不能新承诺，不是能不能继续履行已承诺的」——已成立的采购单
+/// 不该因为合同被归档就失去继续收货的资格。所以 COMPLETED = **归档**（不再接新单），
+/// 不等于「履约完成」；报表要判「已履行」请用本结构的 `open_order_count == 0`。
+#[derive(Debug, Clone)]
+pub struct ContractCommitment {
+    /// 采购侧已下单金额（价税合计，现算）。
+    pub purchase_committed: Decimal,
+    /// 销售侧已下单金额（价税合计，现算）。
+    pub sales_committed: Decimal,
+    /// 未关闭下游单据总数（不受 [`OPEN_ORDER_LIST_LIMIT`] 限制）。
+    pub open_order_count: i64,
+    /// 未关闭下游单据（按单号升序，最多 [`OPEN_ORDER_LIST_LIMIT`] 个）。
+    pub open_orders: Vec<OpenOrder>,
+}
+
+impl ContractCommitment {
+    /// 已执行金额 = 采购 + 销售（两表都是价税合计）。
+    pub fn committed_amount(&self) -> Decimal {
+        self.purchase_committed + self.sales_committed
+    }
+
+    /// 剩余额度 = 合同额 − 已执行（**可为负**，见类型文档）。
+    pub fn remaining_amount(&self, contract_amount: Decimal) -> Decimal {
+        contract_amount - self.committed_amount()
+    }
+}
+
+/// 现算一张合同的履约口径（一次调用 = 3 条只读 SQL：两张订单表的 SUM + 未完成单据清单）。
+///
+/// # 异常情况
+///
+/// 数据库异常原样上抛（`DbError`），由 handler 折成 500 —— 详情页宁可报错，
+/// 也不显示一个「已执行 0.00」的假数字。
+pub async fn commitment_of(
+    ex: &impl SqlExecutor,
+    contract_id: Uuid,
+) -> DbResult<ContractCommitment> {
+    use crate::business::erp::{purchase_model, sales_order_model};
+
+    let purchase_committed = purchase_model::committed_amount(ex, contract_id, None).await?;
+    let sales_committed = sales_order_model::committed_amount(ex, contract_id, None).await?;
+
+    // 未完成单据：两张表 UNION 后一次取回（`count(*) OVER ()` 给总数，`LIMIT` 只截列表）
+    let sql = format!(
+        "SELECT order_type, order_no, status, count(*) OVER ()::bigint AS total \
+           FROM ( \
+                 SELECT 'PURCHASE'::text AS order_type, order_no, status \
+                   FROM biz_purchase_order \
+                  WHERE contract_id = ?::uuid AND deleted_at IS NULL \
+                    AND status NOT IN ('RECEIVED', 'CLOSED', 'CANCELLED') \
+                 UNION ALL \
+                 SELECT 'SALES'::text AS order_type, so_no AS order_no, status \
+                   FROM biz_sales_order \
+                  WHERE contract_id = ?::uuid AND deleted_at IS NULL \
+                    AND status NOT IN ('OUTBOUND', 'CLOSED', 'CANCELLED') \
+                ) pending \
+          ORDER BY order_no ASC \
+          LIMIT {OPEN_ORDER_LIST_LIMIT}"
+    );
+    let rows = ex
+        .query_sql(
+            sql,
+            vec![Value::from(&contract_id), Value::from(&contract_id)],
+        )
+        .await?;
+    let mut open_order_count = 0_i64;
+    let mut open_orders = Vec::with_capacity(rows.len());
+    for row in rows {
+        open_order_count = row.get_typed("total")?;
+        open_orders.push(OpenOrder {
+            order_type: if row.get_typed::<String>("order_type")? == "SALES" {
+                "SALES"
+            } else {
+                "PURCHASE"
+            },
+            order_no: row.get_typed("order_no")?,
+            status: row.get_typed("status")?,
+        });
+    }
+    Ok(ContractCommitment {
+        purchase_committed,
+        sales_committed,
+        open_order_count,
+        open_orders,
+    })
+}
+
 // ==================== 单测（真库用例需 ERP_DB_URL，未设置则跳过） ====================
 
 #[cfg(test)]
@@ -1259,6 +1485,175 @@ mod tests {
             termination_remark(Some(&once), "  供应商违约  "),
             once,
             "reason trim 后判同，避免同一原因因空格叠成两行"
+        );
+    }
+}
+
+/// CTR-02（F2 变更留痕 / F6 履约口径）的**纯逻辑**单测：不连库、不需要 `ERP_DB_URL`。
+///
+/// 三个断言面：
+/// ① 快照的键集合与 `changelog::diff::BIZ_CONTRACT` 白名单**逐字相等**
+///    （少一个键 = 那一列永远不记；多一个键 = 白名单漏登记，读代码的人会以为记了）；
+/// ② 金额只有「小数位写法不同」时**不产生 diff**（否则每次原样回传都写一条假日志）；
+/// ③ 真改了金额时 diff 恰好是 `amount` 一个字段，旧的 `50000.0000` / 新的 `55000.0000` 都在。
+#[cfg(test)]
+mod ctr02_tests {
+    use super::*;
+    use crate::business::changelog::diff::{self, BIZ_CONTRACT};
+    use crate::business::changelog::{Action, mask};
+    use std::str::FromStr;
+
+    fn amount(text: &str) -> Decimal {
+        Decimal::from_str(text).expect("金额夹具")
+    }
+
+    fn row(amount_text: &str) -> ContractRow {
+        ContractRow {
+            id: Uuid::now_v7(),
+            contract_no: "HT-20261109-000001".to_string(),
+            contract_name: "CTR-02 变更留痕合同".to_string(),
+            contract_type: "PURCHASE".to_string(),
+            party_a_id: None,
+            party_a_name: None,
+            party_b_type: PARTY_B_SUPPLIER.to_string(),
+            party_b_id: Uuid::now_v7(),
+            party_b_name: "乙方快照".to_string(),
+            party_b_current_name: None,
+            amount: amount(amount_text),
+            currency_code: "CNY".to_string(),
+            sign_date: NaiveDate::from_ymd_opt(2026, 1, 1),
+            start_date: NaiveDate::from_ymd_opt(2026, 1, 2),
+            end_date: NaiveDate::from_ymd_opt(2026, 12, 31),
+            status: STATUS_DRAFT.to_string(),
+            owner_id: None,
+            dept_id: None,
+            remark: Some("初始备注".to_string()),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            create_by: None,
+            update_by: None,
+            deleted_at: None,
+            approval_instance_id: None,
+        }
+    }
+
+    fn mutation(source: &ContractRow, amount_text: &str) -> ContractMut {
+        ContractMut {
+            contract_name: source.contract_name.clone(),
+            party_b_id: source.party_b_id,
+            party_b_name: source.party_b_name.clone(),
+            amount: amount(amount_text),
+            sign_date: source.sign_date,
+            start_date: source.start_date,
+            end_date: source.end_date,
+            remark: source.remark.clone(),
+        }
+    }
+
+    /// ① 快照键集合 == 登记白名单（防「登记了 8 列，快照只给 6 列」的静默漏记）。
+    #[test]
+    fn snapshot_keys_match_registered_whitelist() {
+        let source = row("50000.0000");
+        let before = diff_snapshot_before(&source);
+        let after = diff_snapshot_after(&mutation(&source, "55000"));
+        let keys: std::collections::BTreeSet<String> = before
+            .as_object()
+            .expect("快照必须是 JSON 对象")
+            .keys()
+            .cloned()
+            .collect();
+        let whitelist: std::collections::BTreeSet<String> =
+            BIZ_CONTRACT.fields.iter().map(|f| f.to_string()).collect();
+        assert_eq!(
+            keys, whitelist,
+            "快照键必须与 diff::BIZ_CONTRACT 白名单逐字相等"
+        );
+        assert_eq!(
+            after.as_object().map(|o| o.len()),
+            Some(whitelist.len()),
+            "改前 / 改后快照的键集合必须相同（都来自 ContractDiffFields）"
+        );
+    }
+
+    /// ② 金额只是小数位写法不同（`50000` vs `50000.0000`）→ **不产生 diff**。
+    #[test]
+    fn scale_only_difference_produces_no_change() {
+        let source = row("50000.0000");
+        let before = diff_snapshot_before(&source);
+        let after = diff_snapshot_after(&mutation(&source, "50000"));
+        let policy = mask::Policy::builtin_only(CONTRACT_TABLE);
+        let doc = diff::build(
+            &BIZ_CONTRACT,
+            &policy,
+            Action::Update,
+            "c-1",
+            Some(&before),
+            Some(&after),
+        );
+        assert!(
+            doc.is_empty(),
+            "写法不同但数值相同不得写日志，实际变化字段：{:?}",
+            doc.changed_fields()
+        );
+    }
+
+    /// ③ 5 万 → 5.5 万：diff 恰好 `amount`，且旧值 / 新值都是 4 位小数（可直接给人读）。
+    #[test]
+    fn amount_change_records_both_sides() {
+        let source = row("50000.0000");
+        let before = diff_snapshot_before(&source);
+        let after = diff_snapshot_after(&mutation(&source, "55000"));
+        let policy = mask::Policy::builtin_only(CONTRACT_TABLE);
+        let doc = diff::build(
+            &BIZ_CONTRACT,
+            &policy,
+            Action::Update,
+            "c-1",
+            Some(&before),
+            Some(&after),
+        );
+        assert_eq!(doc.changed_fields(), vec!["amount".to_string()]);
+        let field = &doc.fields["amount"];
+        assert_eq!(field.b, serde_json::json!("50000.0000"));
+        assert_eq!(field.a, serde_json::json!("55000.0000"));
+    }
+
+    /// ④ 清空备注（`Some(None)` 的落库结果）也记成一次变更（旧值 → null）。
+    #[test]
+    fn clearing_remark_is_recorded() {
+        let source = row("50000.0000");
+        let before = diff_snapshot_before(&source);
+        let mut cleared = mutation(&source, "50000");
+        cleared.remark = None;
+        let after = diff_snapshot_after(&cleared);
+        let policy = mask::Policy::builtin_only(CONTRACT_TABLE);
+        let doc = diff::build(
+            &BIZ_CONTRACT,
+            &policy,
+            Action::Update,
+            "c-1",
+            Some(&before),
+            Some(&after),
+        );
+        assert_eq!(doc.changed_fields(), vec!["remark".to_string()]);
+        assert_eq!(doc.fields["remark"].b, serde_json::json!("初始备注"));
+        assert_eq!(doc.fields["remark"].a, serde_json::Value::Null);
+    }
+
+    /// ⑤ 剩余额度允许为负（超签要靠它看出来），不夹到 0。
+    #[test]
+    fn remaining_amount_keeps_negative_overrun() {
+        let commitment = ContractCommitment {
+            purchase_committed: amount("60000.00"),
+            sales_committed: Decimal::ZERO,
+            open_order_count: 2,
+            open_orders: Vec::new(),
+        };
+        assert_eq!(commitment.committed_amount(), amount("60000.00"));
+        assert_eq!(
+            commitment.remaining_amount(amount("55000.00")),
+            amount("-5000.00"),
+            "合同额被改小到低于已下单额时，负数就是超签金额"
         );
     }
 }

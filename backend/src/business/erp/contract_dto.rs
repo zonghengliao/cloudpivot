@@ -813,6 +813,46 @@ pub struct ContractDetailRes {
     pub usable_for_order: bool,
     /// 当前状态的合法去向（**由状态机给**，前端别硬编码边）。
     pub next_statuses: Vec<String>,
+    /// **已执行金额**（CTR-02 F6）：关联采购单 + 销售单的 `SUM(total_with_tax)`，现算。
+    ///
+    /// 与下单额度守卫（`purchase_model::committed_amount` /
+    /// `sales_order_model::committed_amount`）**同一个口径**，所以「详情页的履约进度」
+    /// 与「能不能再下单」永远对得上，前端别自己再 SUM 一遍。
+    /// 口径细节（含作废 / 软删如何排除）见 `contract_model::ContractCommitment`。
+    pub committed_amount: Decimal,
+    /// **剩余额度** = `amount - committed_amount`，现算。
+    ///
+    /// **允许为负**：合同额被改小到低于已下单额时，负数就是「超签了多少」，
+    /// 夹到 0 会把异常藏起来。
+    pub remaining_amount: Decimal,
+    /// 未关闭的下游单据数（CTR-02 F3）：采购单 ≠ `RECEIVED/CLOSED/CANCELLED`、
+    /// 销售单 ≠ `OUTBOUND/CLOSED/CANCELLED` 的条数。
+    ///
+    /// 用途：归档（`ACTIVE → COMPLETED`）前给人一句「还有 N 张单没走完」。
+    /// ⚠️ **它不是拦截条件**：按 ARCH-2 §4.1 E4「不硬拦」，
+    /// `COMPLETED` 只表示**归档**（不再接新单），不代表履约完成；
+    /// 报表要判「已履行」用 `open_order_count == 0`。
+    pub open_order_count: i64,
+    /// 未关闭下游单据的单号（最多 `contract_model::OPEN_ORDER_LIST_LIMIT` 个，按单号升序）。
+    pub open_order_nos: Vec<String>,
+}
+
+impl ContractDetailRes {
+    /// 把履约口径（现算结果）灌进详情。
+    ///
+    /// 为什么不在 `From<&ContractRow>` 里做：那是**纯函数**（不查库），
+    /// 而这两个金额必须现算 SUM —— 放在 handler 的 [`crate::business::erp::contract_handler`]
+    /// 里由 `detail_of` 统一调用，保证四个写接口的回读体口径一致。
+    pub fn apply_commitment(&mut self, commitment: &contract_model::ContractCommitment) {
+        self.committed_amount = commitment.committed_amount();
+        self.remaining_amount = commitment.remaining_amount(self.base.amount);
+        self.open_order_count = commitment.open_order_count;
+        self.open_order_nos = commitment
+            .open_orders
+            .iter()
+            .map(|order| order.order_no.clone())
+            .collect();
+    }
 }
 
 impl From<&ContractRow> for ContractDetailRes {
@@ -838,6 +878,13 @@ impl From<&ContractRow> for ContractDetailRes {
                 .into_iter()
                 .map(|status| status.to_string())
                 .collect(),
+            // CTR-02 F6 / F3：履约口径必须现算 SUM（本函数是纯函数、不查库），
+            // 这里只给「一张单都没挂」的自洽默认值（已执行 0、剩余 = 合同额），
+            // 真值由 `contract_handler::detail_of` 调 [`ContractDetailRes::apply_commitment`] 灌入。
+            committed_amount: Decimal::ZERO,
+            remaining_amount: row.amount,
+            open_order_count: 0,
+            open_order_nos: Vec::new(),
         }
     }
 }

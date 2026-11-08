@@ -56,11 +56,13 @@
 //! * 卡面「删除被引用 → 400 + 66018」→ 实际 **409**（冲突语义），并在文案里带出采购单号。
 
 use axum::Json;
-use axum::extract::{Path, Query};
+use axum::extract::{ConnectInfo, Path, Query};
+use axum::http::HeaderMap;
 use nik::prelude::chrono::Utc;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::business::changelog::{self, Action as ChangeAction, ChangeTarget, DiffInput};
 use crate::business::erp::approval_gate;
 use crate::business::erp::contract_bridge;
 use crate::business::erp::contract_dto::{
@@ -253,6 +255,13 @@ async fn detail_of(id: Uuid) -> ResResult<ContractDetailRes> {
         .ok_or_else(|| not_usable(&format!("id={id}")))?;
     let mut detail = ContractDetailRes::from(&row);
     fill_approval_no(std::slice::from_mut(&mut detail.base)).await;
+    // CTR-02 F6 / F3：履约口径**现算**（已执行金额 / 剩余额度 / 未关闭下游单据）。
+    // 与下单额度守卫同一函数，前端「履约进度」与「还能不能下单」不会两个口径。
+    // 查库失败直接 500：宁可报错，也不给一个「已执行 0.00」的假数字。
+    let commitment = contract_model::commitment_of(db(), id)
+        .await
+        .map_err(|error| utils::db_error(error, "现算合同履约口径"))?;
+    detail.apply_commitment(&commitment);
     // AUD-02：负责人 / 制单人 / 修改人补姓名（批量入口，恒 1 条 SQL；失败只降级为空）
     user_name::fill_person_names(std::slice::from_mut(&mut detail))
         .await
@@ -446,6 +455,18 @@ pub async fn contract_create(
 /// 可改列：名称 / 乙方 / 金额 / 三个日期 / 备注。`contract_no` / `status` / `create_by` /
 /// `created_at` 不在 `UpdateContractReq` 里，客户端传了也被 serde 丢掉。
 ///
+/// # 变更留痕（CTR-02 F2）
+///
+/// 「草稿改单零留痕」是 CTR-01 演练发现的实际审计缺口（改前值永久丢失）。现在每次
+/// `PUT` 在**同一个事务里**写一条 `sys_change_log`（`resource = biz_contract`，
+/// `action = UPDATE`）：
+///
+/// * diff 输入 = 锁行读到的**旧值**（`contract_model::diff_snapshot_before`）与
+///   合并后的**新值**（`diff_snapshot_after`），键与列名逐字一致；
+/// * 值已规范化（金额固定 4 位小数、日期 `YYYY-MM-DD`），所以「金额 5 万原样回传」
+///   不会写出一条假变更；值确实没变时 `record_in` 返回 `Skipped`，**不写空日志**；
+/// * 日志与业务**同生共死**：写日志失败 → 整笔回滚（不允许「合同改了但审计没记」）。
+///
 /// # 并发
 ///
 /// 事务内 `SELECT … FOR UPDATE` 锁行 → 合并 → 校验 → 带 `WHERE status='DRAFT'` 整写，
@@ -455,7 +476,7 @@ pub async fn contract_create(
 ///
 /// - 400 + `10001`：入参不合法 / 合并后的日期区间反了；400 + `66021`：换乙方但乙方无效；
 /// - 404 + `66014`：不存在或已删；409 + `66016`：非 `DRAFT`；
-/// - 500：数据库异常。
+/// - 500：数据库异常 / 变更日志写不进去（含 `62012` 未登记白名单，属接入缺陷）。
 #[nik::permission(
     path = "/business/erp/contract/{id}",
     method = "PUT",
@@ -463,6 +484,8 @@ pub async fn contract_create(
 )]
 #[nik::put("/business/erp/contract/{id}")]
 pub async fn contract_update(
+    headers: HeaderMap,
+    ConnectInfo(connect_info): ConnectInfo<std::net::SocketAddr>,
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
     Json(req): Json<UpdateContractReq>,
@@ -547,6 +570,12 @@ pub async fn contract_update(
         return Err(error);
     }
 
+    // CTR-02 F2：改前 / 改后快照（键 = 列名，金额/日期已规范化 —— 见
+    // `contract_model::ContractDiffFields`；原样回传未变的金额不会写出假变更）
+    let before_snapshot = contract_model::diff_snapshot_before(&current);
+    let after_snapshot = contract_model::diff_snapshot_after(&merged);
+    let change_ctx = changelog::RequestCtx::from_request(&claims, &headers, Some(&connect_info));
+
     let affected = match contract_model::contract_apply(&tx, id, &merged, operator).await {
         Ok(rows) => rows,
         Err(error) => {
@@ -562,6 +591,25 @@ pub async fn contract_update(
             error_code::ERP_CONTRACT_STATUS_ILLEGAL,
             "合同在本次修改期间状态已变化（不再是草稿或被删除），请刷新后重试",
         ));
+    }
+    // CTR-02 F2：变更留痕与业务写**同事务**（D11）。失败 → 整笔回滚：
+    // 宁可这次改单失败，也不留「合同改了、审计没记」的半截事实。
+    // 值没变时 `record_in` 返回 `Skipped`，不写空日志。
+    let record = changelog::record_in(
+        &tx,
+        &change_ctx.ctx(),
+        ChangeTarget::of(
+            contract_model::CONTRACT_TABLE,
+            id.to_string(),
+            ChangeAction::Update,
+            "修改合同",
+        ),
+        DiffInput::update(&before_snapshot, &after_snapshot),
+    )
+    .await;
+    if let Err(error) = record {
+        let _ = tx.rollback().await;
+        return Err(utils::db_error(error, "写合同变更日志"));
     }
     tx.commit()
         .await
@@ -1288,6 +1336,16 @@ mod tests {
         NaiveDate::parse_from_str(text, "%Y-%m-%d").expect("日期夹具")
     }
 
+    /// `ConnectInfo` 夹具：真库用例直接调 handler，补上对端地址
+    /// （CTR-02 起 `contract_update` 要它来落 `sys_change_log.client_ip`）。
+    ///
+    /// ⚠️ 用 **TEST-NET-3（203.0.113.0/24）** 而不是 127.0.0.1：`utils::client_ip` 对
+    /// 私网 / 回环地址一律归零（框架口径「内网保护」），拿回环地址断言 `client_ip` 永远是
+    /// `None` —— 会写出一条测不出东西的假绿用例。
+    fn peer() -> ConnectInfo<std::net::SocketAddr> {
+        ConnectInfo(std::net::SocketAddr::from(([203, 0, 113, 9], 5555)))
+    }
+
     // ---------- 纯逻辑用例（无需数据库） ----------
 
     /// ① 权限码：5 个、不重复、统一前缀 `business:erp:contract:`（P2-4 前缀统一后四段式）。
@@ -1910,6 +1968,8 @@ mod tests {
 
         let detail = data(
             contract_update(
+                HeaderMap::new(),
+                peer(),
                 Extension(AuthClaims(claims())),
                 Path(id.to_string()),
                 Json(UpdateContractReq {
@@ -1933,6 +1993,198 @@ mod tests {
         );
         assert_eq!(detail.remark.as_deref(), Some("改后备注"));
         assert_eq!(detail.base.status, "DRAFT", "改单不动状态");
+    }
+
+    /// **CTR-02 F2**：草稿改金额 5000 → 5500，`sys_change_log` 必须落**一行**，
+    /// 且 diff 里能读到「谁、什么时候、从什么改成什么」；值没变时**不写空日志**。
+    ///
+    /// 这条替代了 CTR-01 §3 F2 的实测缺口（当时 `sys_change_log` 0 行）。
+    #[tokio::test]
+    async fn update_draft_writes_change_log() {
+        let Some(_guard) = setup().await else { return };
+        let (id, _name) = create_ok("LOG").await;
+
+        let updated = data(
+            contract_update(
+                HeaderMap::new(),
+                peer(),
+                Extension(AuthClaims(claims())),
+                Path(id.to_string()),
+                Json(UpdateContractReq {
+                    amount: Some(Decimal::new(550_000, 2)), // 5000.00 → 5500.00
+                    ..Default::default()
+                }),
+            )
+            .await
+            .expect("改草稿"),
+        );
+        assert_eq!(updated.base.amount, Decimal::new(550_000, 2));
+        // F6：没挂订单时已执行 0、剩余 = 合同额
+        assert_eq!(updated.committed_amount, Decimal::ZERO, "无订单时已执行 0");
+        assert_eq!(
+            updated.remaining_amount,
+            Decimal::new(550_000, 2),
+            "无订单时剩余额度 = 合同额"
+        );
+        assert_eq!(updated.open_order_count, 0);
+        assert!(updated.open_order_nos.is_empty());
+
+        let rows = db()
+            .find_with_params(
+                "SELECT operator_name, module, action, action_label, \
+                        array_to_string(changed_fields, ',') AS changed_fields, \
+                        diff::text AS diff, host(client_ip) AS client_ip \
+                   FROM sys_change_log \
+                  WHERE resource = 'biz_contract' AND resource_id = ?",
+                vec![Value::Text(id.to_string())],
+            )
+            .await
+            .expect("查变更日志");
+        assert_eq!(rows.len(), 1, "改一次只写一行（F2 的判据就是这行）");
+        let row = &rows[0];
+        assert_eq!(
+            row.get_typed::<String>("module").expect("module"),
+            "business",
+            "module 由登记表决定"
+        );
+        assert_eq!(row.get_typed::<String>("action").expect("action"), "UPDATE");
+        assert_eq!(
+            row.get_typed::<String>("action_label")
+                .expect("action_label"),
+            "修改合同"
+        );
+        assert_eq!(
+            row.get_typed::<String>("changed_fields").expect("changed"),
+            "amount",
+            "只有金额变了"
+        );
+        assert_eq!(
+            row.get_typed::<Option<String>>("operator_name")
+                .expect("operator_name")
+                .as_deref(),
+            Some("a2-contract-test"),
+            "操作人姓名是快照（改单时是谁）"
+        );
+        assert_eq!(
+            row.get_typed::<Option<String>>("client_ip")
+                .expect("client_ip")
+                .as_deref(),
+            Some("203.0.113.9"),
+            "客户端 IP 取自 ConnectInfo（回环/私网会被归零，夹具用 TEST-NET-3）"
+        );
+        let diff: serde_json::Value =
+            serde_json::from_str(&row.get_typed::<String>("diff").expect("diff"))
+                .expect("diff json");
+        assert_eq!(
+            diff["fields"]["amount"]["b"],
+            serde_json::json!("5000.0000"),
+            "改前值必须留下来（CTR-01 当时丢的就是它）"
+        );
+        assert_eq!(
+            diff["fields"]["amount"]["a"],
+            serde_json::json!("5500.0000")
+        );
+
+        // 同值再改一次：不许写空日志
+        contract_update(
+            HeaderMap::new(),
+            peer(),
+            Extension(AuthClaims(claims())),
+            Path(id.to_string()),
+            Json(UpdateContractReq {
+                amount: Some(Decimal::new(550_000, 2)),
+                ..Default::default()
+            }),
+        )
+        .await
+        .expect("同值再改应当成功");
+        let count: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM sys_change_log \
+                  WHERE resource = 'biz_contract' AND resource_id = ?",
+                vec![Value::Text(id.to_string())],
+            )
+            .await
+            .expect("count");
+        assert_eq!(count, 1, "值没变不写空日志（diff 引擎 Skipped）");
+    }
+
+    /// 夹具：往合同上挂一张采购单（只填 `biz_purchase_order` 的必填列）。
+    ///
+    /// `supplier_id` / `warehouse_id` 都是**弱引用**（V0137 / V0198 无外键），
+    /// 所以这里不需要真造供应商与仓库 —— 本用例验的是履约口径的 SQL，不是下单链。
+    async fn insert_po(contract_id: Uuid, order_no: &str, total_with_tax: &str, status: &str) {
+        // `ck_biz_po_contract_pair`：`purchase_type='CONTRACT'` ⇒ `contract_id` 与
+        // `contract_no_snapshot` 都必须非空（V0198 的强化版），所以先取合同号再插。
+        let contract_no: String = db()
+            .scalar_with_params(
+                "SELECT contract_no FROM biz_contract WHERE id = ?::uuid",
+                vec![Value::from(&contract_id)],
+            )
+            .await
+            .expect("取合同号");
+        db().execute_with_params(
+            "INSERT INTO biz_purchase_order \
+                     (id, order_no, supplier_id, order_date, warehouse_id, status, purchase_type, \
+                      contract_id, contract_no_snapshot, \
+                      total_qty, total_amount, total_tax, total_with_tax) \
+                 VALUES (?, ?, ?, CURRENT_DATE, ?, ?, 'CONTRACT', ?::uuid, ?, \
+                         1, ?::text::numeric, 0, ?::text::numeric)",
+            vec![
+                Value::from(&Uuid::now_v7()),
+                Value::Text(order_no.to_string()),
+                Value::from(&Uuid::now_v7()),
+                Value::from(&Uuid::now_v7()),
+                Value::Text(status.to_string()),
+                Value::from(&contract_id),
+                Value::Text(contract_no),
+                Value::Text(total_with_tax.to_string()),
+                Value::Text(total_with_tax.to_string()),
+            ],
+        )
+        .await
+        .expect("插采购单夹具");
+    }
+
+    /// **CTR-02 F6 / F3（真库）**：详情现算「已执行金额 / 剩余额度 / 未关闭单据」。
+    ///
+    /// 断言面：
+    /// ① 已执行 = 采购单价税合计的 SUM（**排除 CANCELLED**，与下单额度守卫同函数）；
+    /// ② 剩余额度**允许为负**（合同 5000，已下单 34000 → -29000 = 超签金额）；
+    /// ③ 未关闭单据口径：`DRAFT` 算未完成、`RECEIVED` / `CANCELLED` 不算；
+    /// ④ 条款禁止改归档行为 —— 本用例**不断言** 409（ARCH-2 §4.1 E4「不硬拦」）。
+    #[tokio::test]
+    async fn detail_reports_commitment_and_open_orders() {
+        let Some(_guard) = setup().await else { return };
+        let (id, _name) = create_ok("CMT").await;
+        // 单号带合同 id 前 8 位：`uk_biz_po_no` 是全库唯一索引，重复跑同一用例不能撞
+        let tag = &id.to_string()[..8];
+
+        insert_po(id, &format!("PO-CTR02-{tag}-1"), "33900.00", "DRAFT").await;
+        insert_po(id, &format!("PO-CTR02-{tag}-2"), "100.00", "RECEIVED").await;
+        insert_po(id, &format!("PO-CTR02-{tag}-3"), "999.00", "CANCELLED").await;
+
+        let detail = data(
+            contract_detail(Path(id.to_string()))
+                .await
+                .expect("合同详情"),
+        );
+        assert_eq!(
+            detail.committed_amount,
+            Decimal::new(3_400_000, 2),
+            "已执行 = 33900 + 100（CANCELLED 的 999 不计）"
+        );
+        assert_eq!(
+            detail.remaining_amount,
+            Decimal::new(500_000, 2) - Decimal::new(3_400_000, 2),
+            "剩余额度 = 合同额 5000 - 已执行 34000 = -29000（超签，不夹到 0）"
+        );
+        assert_eq!(detail.open_order_count, 1, "只有 DRAFT 那张算未完成");
+        assert_eq!(
+            detail.open_order_nos,
+            vec![format!("PO-CTR02-{tag}-1")],
+            "未关闭单号要点名（前端在归档前据此提示）"
+        );
     }
 
     /// 前置：把合同直接推到某个「已签」状态（**只用于给别的用例造前置**）。
@@ -1959,6 +2211,8 @@ mod tests {
         force_status(id, "SIGNED").await;
 
         let err = contract_update(
+            HeaderMap::new(),
+            peer(),
             Extension(AuthClaims(claims())),
             Path(id.to_string()),
             Json(UpdateContractReq {
