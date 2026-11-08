@@ -1,0 +1,51 @@
+== 本卡 commit
+b418838bf0780b6e0350863d9c5e4a8576720ebc feat(flow): P3-06 APPROVAL 默认或签 —— 复用 approval_mode + 存量冻结（V0339 + 启动期快照冻结器）(t_8f3284f4)
+
+== 本卡改动文件（commit 内）
+ .../V0339__approval_sign_mode_freeze.down.sql      |  38 ++
+ .../V0339__approval_sign_mode_freeze.up.sql        | 131 +++++++
+ backend/src/bootstrap.rs                           |  37 ++
+ backend/src/business/flow/dto.rs                   |   8 +-
+ backend/src/business/flow/engine.rs                |  46 ++-
+ backend/src/business/flow/flow_model_base.rs       |   4 +-
+ backend/src/business/flow/graph.rs                 | 175 +++++++--
+ backend/src/business/flow/mod.rs                   |   1 +
+ backend/src/business/flow/sign_freeze.rs           | 260 +++++++++++++
+ docs/evidence/20261108-p306-sign-mode/README.md    | 144 +++++++
+ .../20261108-p306-sign-mode/raw/10_upgrade.txt     |  97 +++++
+ .../raw/20_e2e_sign_mode.txt                       |  79 ++++
+ .../raw/20_predict_probe.txt                       |  13 +
+ .../20261108-p306-sign-mode/raw/30_checks.txt      |  40 ++
+ .../scripts/10_migration.sh                        | 230 ++++++++++++
+ .../scripts/20_e2e_sign_mode.sh                    | 414 +++++++++++++++++++++
+ .../20261108-p306-sign-mode/scripts/jget.py        |  41 ++
+ .../20261108-p306-sign-mode/scripts/lib.sh         |  65 ++++
+ .../scripts/predict_freeze.sql                     |  43 +++
+ .../scripts/probe_candidates.sql                   |  55 +++
+ frontend/src/api/business/flow-api.ts              |   4 +-
+ .../views/business/flow/components/FlowCanvas.vue  |  10 +-
+ .../views/business/flow/components/NodeProps.vue   |  23 +-
+ .../business/flow/components/flow-node-view.ts     |  12 +-
+ frontend/src/views/business/flow/graph.ts          |   4 +-
+ frontend/tests/unit/flow-sign-mode.test.ts         |  60 +++
+ 26 files changed, 1983 insertions(+), 51 deletions(-)
+
+== 工作区里**不属于本卡**的他人改动（提交时按路径 add，未裹带）
+ M backend/src/business/erp/asset_compute.rs
+ M backend/src/business/erp/asset_handler.rs
+ M backend/src/business/erp/asset_linkage.rs
+ M backend/src/business/erp/asset_model.rs
+ M backend/src/business/erp/currency_admin_model.rs
+ M backend/src/business/erp/dto.rs
+ M backend/src/business/erp/handler.rs
+ M backend/src/business/erp/invoice.rs
+ M backend/src/business/erp/opening.rs
+ M backend/src/business/erp/report.rs
+ M backend/src/business/erp/transfer_handler_common.rs
+ M backend/src/business/erp/transfer_handler_db_tests_settle.rs
+ M docs/evidence/20261107-p003-inventory-chain/raw/03_opening.json
+ M docs/evidence/20261107-p003-inventory-chain/raw/04_stockin.json
+ M docs/evidence/20261107-p003-inventory-chain/raw/04_stockin_post.json
+ M docs/evidence/20261107-p003-inventory-chain/raw/stockin.id
+?? docs/evidence/20261107-p0-reverify/chains/
+?? docs/evidence/20261108-code02-master-code-autogen/
