@@ -351,14 +351,14 @@ fn role_catalog_keeps_empty_groups_and_counts_every_item() {
 
     // ⑦ TO-DTO：file_role_label 也要用归一后的中文名（tag 与分组标题同一份词表）
     let row = fixture_row();
-    let item = dto::to_item(&row, &claims);
+    let item = dto::to_item(&row, &claims, true);
     assert_eq!(item.file_role, "INVOICE_SCAN");
     assert_eq!(item.file_role_label, "发票影像");
 }
 
 /// 构造一条列表出参（`role_catalog` 的入参，只需要 role）。
 fn fixture_item(file_role: &str) -> dto::DocAttachmentItemRes {
-    let mut item = dto::to_item(&fixture_row(), &claims_of(U_OWNER, &[]));
+    let mut item = dto::to_item(&fixture_row(), &claims_of(U_OWNER, &[]), true);
     item.file_role = file_role.to_string();
     item.file_role_label = FileRole::parse(Some(file_role))
         .unwrap_or(FileRole::Default)
@@ -415,6 +415,9 @@ fn upload_meta_rejects_long_remark() {
 }
 
 /// 行级删除判据：上传人本人可删；别人必须持 `business:attachment:delete`。
+///
+/// ATT-04 起多了一个入参 `can_view_doc`（持 delete 码时还要求看得见该单据），
+/// 两个分支的完整真值表见 [`can_delete_requires_doc_read_for_the_delete_code_branch`]。
 #[test]
 fn can_delete_is_owner_or_privileged() {
     let owner = claims_of(U_OWNER, &[]);
@@ -422,14 +425,14 @@ fn can_delete_is_owner_or_privileged() {
     let auditor = claims_of(U_OTHER, &["business:attachment:delete"]);
     let wildcard = claims_of(U_OTHER, &["*"]);
 
-    assert!(dto::can_delete(&owner, Some(uid(U_OWNER))));
-    assert!(!dto::can_delete(&stranger, Some(uid(U_OWNER))));
-    assert!(dto::can_delete(&auditor, Some(uid(U_OWNER))));
+    assert!(dto::can_delete(&owner, Some(uid(U_OWNER)), true));
+    assert!(!dto::can_delete(&stranger, Some(uid(U_OWNER)), true));
+    assert!(dto::can_delete(&auditor, Some(uid(U_OWNER)), true));
     // 通配权限（SUPER_ADMIN）走框架的 has_permission 短路
-    assert!(dto::can_delete(&wildcard, Some(uid(U_OWNER))));
+    assert!(dto::can_delete(&wildcard, Some(uid(U_OWNER)), true));
     // 无属主的历史行：只有升权码能删
-    assert!(!dto::can_delete(&owner, None));
-    assert!(dto::can_delete(&auditor, None));
+    assert!(!dto::can_delete(&owner, None, true));
+    assert!(dto::can_delete(&auditor, None, true));
 }
 
 /// 显示名：原始名优先；原始名为空时只取对象键的最后一段（不把日期目录漏给前端）。
@@ -654,6 +657,173 @@ fn doc_forbidden_names_the_missing_permission() {
         assert!(!error.msg.contains("/ )"), "{}", error.msg);
     }
     println!("[ATT-02] 403 + 30001 + 点名权限码，且不泄露附件事实 ✓");
+}
+
+// ---------- ATT-04：上传 / 删除补单据读码 ----------
+
+/// ATT-04 ①：上传前置判定链的顺序 —— **字段非法 400 先于 单据读码 403**，
+/// 且**无读码的人拿任何 `doc_id` 都只得到同一份 403**（探测面截断）。
+///
+/// # 为什么这条测试能证明「403 先于 404」
+///
+/// [`dto::preflight_upload`] 是 handler 在**查库之前**调用的最后一步：
+/// 它不接触数据库，所以「这个 id 在库里存不存在」在这里根本不可见。于是
+/// **存在的 id / 不存在的 id / 临时生成的随机 UUID 返回逐字相同的 403 消息**，
+/// 就说明用户拿不到「某 payable/contract id 是否存在」的任何一位信息
+/// （404 只可能出现在读码通过之后，见 `handler::upload` 的第 5 步）。
+#[test]
+fn upload_preflight_forbids_blind_upload_before_existence_check() {
+    // 典型口子（ATT-02 遗留）：持附件码 + 合同读码，**没有**应付单读码
+    let blind = claims_of(
+        U_OTHER,
+        &[
+            "business:attachment:upload",
+            "business:attachment:list",
+            "business:erp:contract:list",
+        ],
+    );
+    // 什么都不持（连路由码都没有 —— 这里只看本函数的口径）
+    let nobody = claims_of(U_OTHER, &[]);
+    // 有应付单读码的人：本函数放行，存在性交给 handler 的 404 分支
+    let payable = claims_of(U_OTHER, &["business:erp:payable:list"]);
+
+    // ① 400 先于 403：连权都没有的人把 doc_type 写错 → 400（不是 403）
+    let error = dto::preflight_upload(&nobody, Some("NOT_A_DOC"), Some(DOC_PAYABLE), None, None)
+        .expect_err("非法 doc_type 必须 400");
+    assert_eq!(error.status, 400, "{}", error.msg);
+    assert_eq!(error.code, error_code::PARAM_INVALID);
+    assert!(error.msg.contains("doc_type"), "{}", error.msg);
+
+    // 400 也先于 403：有附件码但 id 不是 UUID → 400
+    let error = dto::preflight_upload(&blind, Some("PAYABLE"), Some("not-a-uuid"), None, None)
+        .expect_err("非法 doc_id 必须 400");
+    assert_eq!(error.status, 400, "{}", error.msg);
+
+    // ② 403：无读码 → 无论 id 是「存在 / 不存在 / 随机」都是同一份 403
+    let random = Uuid::now_v7().to_string();
+    let ghost = "00000000-0000-4000-8000-0000000000ff";
+    let mut messages: Vec<String> = Vec::new();
+    for doc_id in [DOC_PAYABLE, ghost, random.as_str()] {
+        let error = dto::preflight_upload(&blind, Some("PAYABLE"), Some(doc_id), None, None)
+            .expect_err("无应付单读码 → 不许盲传");
+        assert_eq!(error.status, 403, "doc_id={doc_id}：{}", error.msg);
+        assert_eq!(error.code, error_code::PERMISSION_DENIED);
+        assert!(
+            error.msg.contains("上传附件"),
+            "上传被拒的消息要说「上传」而不是「查看」：{}",
+            error.msg
+        );
+        assert!(
+            error.msg.contains("business:erp:payable:list"),
+            "必须点名缺哪个码：{}",
+            error.msg
+        );
+        // 消息里不得出现 id / 文件名 / 「不存在」这类会泄露存在性的事实
+        assert!(!error.msg.contains(doc_id), "403 消息不得回显 doc_id：{}", error.msg);
+        assert!(!error.msg.contains("不存在"), "{}", error.msg);
+        messages.push(error.msg);
+    }
+    assert_eq!(
+        messages[0], messages[2],
+        "存在的 id 与随机 id 的 403 消息必须逐字相同（否则就是存在性探测面）"
+    );
+
+    // ③ 非一刀切：同一账号对「有读码的模块」（合同）放行到查库阶段
+    let ok = dto::preflight_upload(
+        &blind,
+        Some("CONTRACT"),
+        Some(DOC_CONTRACT),
+        Some("CONTRACT_SCAN"),
+        Some("合同扫描件"),
+    )
+    .expect("有合同读码 → 上传前置通过");
+    assert_eq!(ok.doc_type, DocKind::Contract);
+    assert_eq!(ok.file_role, FileRole::ContractScan);
+    assert_eq!(ok.remark.as_deref(), Some("合同扫描件"));
+
+    // ④ 有应付单读码 → 也放行（存在性判定由 handler 负责）
+    assert!(
+        dto::preflight_upload(&payable, Some("PAYABLE"), Some(DOC_PAYABLE), None, None).is_ok()
+    );
+
+    // ⑤ 白名单外的 doc_type 之上再叠非法 doc_id：仍然是 400（先判字段）
+    let error = dto::preflight_upload(&blind, Some("NOT_A_DOC"), Some("bad"), None, None)
+        .expect_err("字段非法优先");
+    assert_eq!(error.status, 400);
+
+    println!("[ATT-04] 上传前置：400 先于 403；无读码时任意 id 均同一份 403（无可探测位）✓");
+}
+
+/// ATT-04 ②：上传 403 的消息口径（与 ATT-02 的 403 同一出口，只换动作短语）。
+#[test]
+fn doc_upload_forbidden_names_the_missing_permission() {
+    let error = dto::doc_upload_forbidden(DocKind::Payable);
+    assert_eq!(error.status, 403);
+    assert_eq!(error.code, error_code::PERMISSION_DENIED);
+    assert!(error.msg.contains("应付单"), "{}", error.msg);
+    assert!(error.msg.contains("上传"), "{}", error.msg);
+
+    // 16 类单据都能生成 403（不留「某类单据没配码 → 空消息」的坑）
+    for kind in DocKind::ALL {
+        let error = dto::doc_upload_forbidden(kind);
+        assert_eq!(error.status, 403, "{}", kind.label());
+        assert!(error.msg.contains(kind.label()), "{}", error.msg);
+        assert!(
+            error.msg.contains(kind.view_permissions()[0]),
+            "{} 必须点名读码：{}",
+            kind.label(),
+            error.msg
+        );
+        assert!(!error.msg.contains("/ ）"), "{}", error.msg);
+        assert!(!error.msg.contains("/ )"), "{}", error.msg);
+        // 与读侧 403 共用同一条构造：只差动作短语
+        let view = dto::doc_forbidden(kind);
+        assert_ne!(view.msg, error.msg, "读 / 写两条 403 的措辞要能区分动作");
+    }
+    println!("[ATT-04] 上传 403：30001 + 点名读码，16 类单据全覆盖 ✓");
+}
+
+/// ATT-04 ③：`can_delete` 真值表 —— **上传人删自己的不看读码；删别人的要 delete 码且看得见**。
+#[test]
+fn can_delete_requires_doc_read_for_the_delete_code_branch() {
+    let owner = claims_of(U_OWNER, &["business:attachment:upload"]);
+    let deleter = claims_of(U_OTHER, &["business:attachment:delete"]);
+    let wildcard = claims_of(U_OTHER, &["*"]);
+    let viewer = claims_of(U_OTHER, &["business:erp:payable:list"]);
+
+    // 上传人本人：看不看得见都能删（换岗后仍能撤自己当年挂的附件 —— 卡面明确接受）
+    assert!(dto::can_delete(&owner, Some(uid(U_OWNER)), true));
+    assert!(
+        dto::can_delete(&owner, Some(uid(U_OWNER)), false),
+        "上传人本人在看不见单据时仍能删自己的（否则那条附件只能改库删）"
+    );
+
+    // 持 delete 码删别人的：必须看得见该单据（ATT-04 补的）
+    assert!(dto::can_delete(&deleter, Some(uid(U_OWNER)), true));
+    assert!(
+        !dto::can_delete(&deleter, Some(uid(U_OWNER)), false),
+        "持 :delete 但看不见该单据 → 不许删（升权处置一张看不见的单没有业务含义）"
+    );
+
+    // 无属主历史行：只有 delete 码能删，且同样要看读码
+    assert!(!dto::can_delete(&deleter, None, false));
+    assert!(dto::can_delete(&deleter, None, true));
+    assert!(!dto::can_delete(&owner, None, true), "上传人不是属主时不能删无主行");
+
+    // 超管：两个短路都要生效（has_permission("*") + has_any_permission("*")）
+    assert!(dto::can_delete(
+        &wildcard,
+        Some(uid(U_OWNER)),
+        dto::can_view_doc(&wildcard, DocKind::Payable)
+    ));
+
+    // 关键不变式：**能看 ≠ 能删**（读码不能替代删除权）
+    assert!(
+        !dto::can_delete(&viewer, Some(uid(U_OWNER)), true),
+        "只有读码、既非上传人又无 :delete → 不许删别人的"
+    );
+
+    println!("[ATT-04] can_delete：上传人本人不看读码；删别人的要 :delete + 读码；能看 ≠ 能删 ✓");
 }
 
 /// ATT-02 ④：下载留痕的字段（纯逻辑，不连库）。
@@ -1168,6 +1338,86 @@ async fn db_bind_list_and_soft_delete() {
     assert_eq!(model::soft_delete(db(), &id).await.expect("再删"), 0);
 }
 
+/// AUD-01：上传人姓名是**快照**（写入即落库、改名不回改），
+/// 没有快照的历史行回落实时 join 现值 —— 两条路都不许出现 UUID。
+#[tokio::test]
+async fn db_uploader_name_is_snapshot_and_survives_rename() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    let owner = uid(U_OWNER);
+
+    // ① 生产路径：`insert_with_uploader`（handler 走的就是它）带姓名快照
+    let with_snapshot = model::insert_with_uploader(
+        DocKind::Contract,
+        &uid(DOC_CONTRACT),
+        &uid(FILE_A),
+        FileRole::ContractScan,
+        None,
+        Some(owner),
+        Some("张三"),
+    )
+    .await
+    .expect("绑定附件（带姓名快照）");
+
+    // ② 历史行：V0352 之前的行 / 夹具没有快照（只有 uploaded_by）
+    let legacy = model::insert(
+        DocKind::Contract,
+        &uid(DOC_CONTRACT),
+        &uid(FILE_B),
+        FileRole::Default,
+        None,
+        Some(owner),
+    )
+    .await
+    .expect("绑定附件（无快照）");
+
+    // ③ 用户改名：审计列的分水岭
+    exec(&format!(
+        "UPDATE sys_user SET real_name = '张三丰' WHERE id = '{U_OWNER}'::uuid"
+    ))
+    .await;
+
+    let list = model::list_by_doc(
+        DocKind::Contract,
+        &uid(DOC_CONTRACT),
+        model::ListOrder::TimeDesc,
+    )
+    .await
+    .expect("查列表");
+    let snap = list
+        .iter()
+        .find(|row| row.id == with_snapshot)
+        .expect("带快照的行在列表里");
+    assert_eq!(
+        snap.uploader_name, "张三",
+        "快照生效：改名后旧附件必须显示**上传当时**的名字"
+    );
+    let live = list
+        .iter()
+        .find(|row| row.id == legacy)
+        .expect("历史行在列表里");
+    assert_eq!(
+        live.uploader_name, "张三丰",
+        "没有快照的历史行回落实时 join 现值（不是 UUID、不是空白）"
+    );
+
+    // ④ 单条读（下载 / 删除路径）同样优先快照
+    let row = model::find_active(&with_snapshot)
+        .await
+        .expect("查单条")
+        .expect("应存在");
+    assert_eq!(row.uploader_name, "张三");
+
+    // 复原夹具姓名（后续用例依赖 '附件上传人'）
+    exec(&format!(
+        "UPDATE sys_user SET real_name = '附件上传人' WHERE id = '{U_OWNER}'::uuid"
+    ))
+    .await;
+
+    println!("[AUD-01] 单据附件上传人姓名快照（写入 / 改名 / 历史行回落）✓");
+}
+
 /// 同一张单据重复绑定同一份文件 → 幂等（返回同一行，不撞部分唯一索引）。
 #[tokio::test]
 async fn db_bind_is_idempotent_per_doc_and_file() {
@@ -1619,7 +1869,7 @@ fn to_item_carries_sort_order() {
     let mut row = fixture_row();
     row.sort_order = 7;
     let claims = claims_of(U_OWNER, &["business:attachment:list"]);
-    let item = dto::to_item(&row, &claims);
+    let item = dto::to_item(&row, &claims, true);
     assert_eq!(item.sort_order, 7);
     assert_eq!(item.file_name, "发票影像.pdf");
     assert_eq!(item.file_size, 2048);
@@ -2347,7 +2597,7 @@ async fn db_role_groups_split_contract_scan_and_supplement() {
 
     let claims = claims_of(U_OWNER, &[]);
     let items: Vec<dto::DocAttachmentItemRes> =
-        rows.iter().map(|row| dto::to_item(row, &claims)).collect();
+        rows.iter().map(|row| dto::to_item(row, &claims, true)).collect();
     let catalog = dto::role_catalog(DocKind::Contract, &items);
     assert_eq!(catalog.len(), 3, "合同的分组清单（含空分组）");
     let count = |code: &str| {

@@ -212,15 +212,29 @@ pub async fn apply_ai_done(
 
 /// 绑定一个 AI 产出的附件（幂等：`(task_id, file_id)` 唯一，重复绑定不报错）。
 ///
+/// # 参数
+///
+/// - `uploader_name`：上传人姓名**快照**（AUD-01，
+///   [`crate::business::shared::user_name::snapshot_name`] 的返回值）。落库后永不回改；
+///   `None` 时该列留空，读路径回落实时 join（仅历史行 / 夹具）。
+///
 /// # 返回值
 ///
 /// 新绑定的附件 id；已绑定过则返回既有 id。
+///
+/// # 「复活」分支为什么连 `create_by` 与 `uploader_name` 一起改
+///
+/// `uk_biz_task_attachment (task_id, file_id)` 是全表唯一，删掉附件后重传同一份字节
+/// 会走「复活」（清 `deleted_at`）。复活之后这条附件的上传人是**这次传的人**，
+/// 所以 id（`create_by`，行级删除判据）与姓名快照必须同时更新 ——
+/// 只改姓名会出现「界面显示 B、B 却删不掉」；只改 id 会出现「B 能删，界面显示 A」。
 pub async fn bind_ai_attachment(
     ex: &impl SqlExecutor,
     task_id: Uuid,
     file_id: Uuid,
     ai_profile: Option<&str>,
     operator: Uuid,
+    uploader_name: Option<&str>,
 ) -> DbResult<Uuid> {
     if let Some(existing) = ex
         .query_sql(
@@ -237,7 +251,8 @@ pub async fn bind_ai_attachment(
         // （清 `deleted_at`），否则 bind 会返回一条已删行、列表里永远看不到它。
         ex.exec_sql(
             "UPDATE biz_task_attachment \
-                SET source = 'AI', ai_profile = ?, deleted_at = NULL \
+                SET source = 'AI', ai_profile = ?, create_by = ?::uuid, \
+                    uploader_name = COALESCE(?, uploader_name), deleted_at = NULL \
               WHERE id = ?::uuid"
                 .to_string(),
             vec![
@@ -245,6 +260,8 @@ pub async fn bind_ai_attachment(
                     Some(profile) => Value::Text(profile.to_string()),
                     None => Value::Null,
                 },
+                Value::from(&operator),
+                uploader_name.map_or(Value::Null, |name| Value::Text(name.to_string())),
                 Value::from(&id),
             ],
         )
@@ -262,8 +279,8 @@ pub async fn bind_ai_attachment(
         .unwrap_or(0);
     ex.exec_sql(
         "INSERT INTO biz_task_attachment \
-             (id, task_id, file_id, sort_order, source, ai_profile, created_at, create_by) \
-         VALUES (?::uuid, ?::uuid, ?::uuid, ?::int4, 'AI', ?, now(), ?::uuid)"
+             (id, task_id, file_id, sort_order, source, ai_profile, created_at, create_by, uploader_name) \
+         VALUES (?::uuid, ?::uuid, ?::uuid, ?::int4, 'AI', ?, now(), ?::uuid, ?)"
             .to_string(),
         vec![
             Value::from(&id),
@@ -275,6 +292,7 @@ pub async fn bind_ai_attachment(
                 None => Value::Null,
             },
             Value::from(&operator),
+            uploader_name.map_or(Value::Null, |name| Value::Text(name.to_string())),
         ],
     )
     .await?;
@@ -282,11 +300,21 @@ pub async fn bind_ai_attachment(
 }
 
 /// 绑定一个人工上传的附件（幂等）。
+///
+/// # 参数
+///
+/// - `uploader_name`：上传人姓名快照（口径同 [`bind_ai_attachment`]；复活分支同样
+///   `create_by` 与姓名一起更新，理由见该函数文档）。
+///
+/// # 返回值
+///
+/// 新绑定 / 复活的附件 id。
 pub async fn bind_human_attachment(
     ex: &impl SqlExecutor,
     task_id: Uuid,
     file_id: Uuid,
     operator: Uuid,
+    uploader_name: Option<&str>,
 ) -> DbResult<Uuid> {
     if let Some(existing) = ex
         .query_sql(
@@ -300,8 +328,16 @@ pub async fn bind_human_attachment(
         let id: Uuid = existing.get_typed("id")?;
         // 同 `bind_ai_attachment`：全表唯一 → 重新上传同一个文件走「复活」。
         ex.exec_sql(
-            "UPDATE biz_task_attachment SET deleted_at = NULL WHERE id = ?::uuid".to_string(),
-            vec![Value::from(&id)],
+            "UPDATE biz_task_attachment \
+                SET create_by = ?::uuid, uploader_name = COALESCE(?, uploader_name), \
+                    deleted_at = NULL \
+              WHERE id = ?::uuid"
+                .to_string(),
+            vec![
+                Value::from(&operator),
+                uploader_name.map_or(Value::Null, |name| Value::Text(name.to_string())),
+                Value::from(&id),
+            ],
         )
         .await?;
         return Ok(id);
@@ -317,8 +353,8 @@ pub async fn bind_human_attachment(
         .unwrap_or(0);
     ex.exec_sql(
         "INSERT INTO biz_task_attachment \
-             (id, task_id, file_id, sort_order, source, created_at, create_by) \
-         VALUES (?::uuid, ?::uuid, ?::uuid, ?::int4, 'HUMAN', now(), ?::uuid)"
+             (id, task_id, file_id, sort_order, source, created_at, create_by, uploader_name) \
+         VALUES (?::uuid, ?::uuid, ?::uuid, ?::int4, 'HUMAN', now(), ?::uuid, ?)"
             .to_string(),
         vec![
             Value::from(&id),
@@ -326,6 +362,7 @@ pub async fn bind_human_attachment(
             Value::from(&file_id),
             Value::I32(sort_order as i32),
             Value::from(&operator),
+            uploader_name.map_or(Value::Null, |name| Value::Text(name.to_string())),
         ],
     )
     .await?;

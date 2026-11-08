@@ -402,13 +402,25 @@ pub struct AttachmentRow {
 /// [`model::display_file_name`] 在 `from_row` 里算（优先原始名，回退 basename）。
 /// 这里若再写 `COALESCE(f.original_name, f.file_name)`，存储路径
 /// （`2026/10/29/….md`）就会漏进 `file_name` 下发到前端当下载保存名（E12）。
+///
+/// # `uploader_name` 的三段回落（AUD-01）
+///
+/// ```text
+///   ① a.uploader_name            上传时落库的姓名快照 —— 优先（改名后仍显示当时的名字）
+///   ② u.real_name / u.username   实时 join —— 只给 V0352 之前的历史行兜底（回填未跑）
+///   ③ ''                          两者都没有 → 空串，前端显示 '-'（**永不回落 UUID**）
+/// ```
+///
+/// 上传人 id 在 `create_by`（行级删除判据 `uploader_id == me` 用它），姓名快照单独一列 ——
+/// 两者一起更新（见 `task_model_ai::bind_*_attachment` 的「复活」分支），
+/// 否则会出现「界面显示 B、B 却删不掉」的错位。
 const ATTACHMENT_COLUMNS: &str = "a.id, a.file_id, \
      COALESCE(f.original_name, '') AS original_name, \
      COALESCE(f.file_name, '') AS file_name, \
      COALESCE(f.file_size, 0) AS file_size, \
      COALESCE(f.mime_type, '') AS mime_type, \
      a.source, a.ai_profile, a.create_by, a.created_at, \
-     COALESCE(NULLIF(u.real_name, ''), u.username, '') AS uploader_name";
+     COALESCE(NULLIF(a.uploader_name, ''), NULLIF(u.real_name, ''), u.username, '') AS uploader_name";
 
 impl AttachmentRow {
     /// 从查询行构造。

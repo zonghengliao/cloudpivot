@@ -96,6 +96,13 @@ mod tests;
 #[path = "task_doc_link_tests.rs"]
 mod doc_link_tests;
 
+/// AUD-01：任务附件**上传人姓名快照**的真库用例（写入 / 改名 / 历史行回落 / 复活）。
+///
+/// `TASK_DB_URL` 未设置则整段 SKIP（打印原因，不静默假绿）。
+#[cfg(test)]
+#[path = "task_attachment_snapshot_tests.rs"]
+mod attachment_snapshot_tests;
+
 /// E12：附件显示名的纯逻辑回归（不连库，`cargo test` 里必然跑到）。
 #[cfg(test)]
 #[path = "task_model_display_file_name_tests.rs"]

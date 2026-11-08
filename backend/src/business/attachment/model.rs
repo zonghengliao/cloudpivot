@@ -725,8 +725,20 @@ pub struct DocAttachmentRow {
 /// **`original_name` 与 `file_name` 分开取原始值**：显示名由 [`display_name`] 算。
 /// 若直接 `COALESCE(original_name, file_name)`，存储路径（`2026/11/03/….png`）
 /// 就会漏进前端当下载保存名（任务附件 E12 踩过同一个坑）。
+///
+/// # `uploader_name` 的三段回落（AUD-01）
+///
+/// ```text
+///   ① a.uploader_name            上传时落库的姓名快照 —— 优先（改名后仍显示当时的名字）
+///   ② u.real_name / u.username   实时 join —— 只给 V0352 之前的历史行兜底（回填未跑）
+///   ③ ''                          两者都没有 → 空串，前端显示 '-'（**永不回落 UUID**）
+/// ```
+///
+/// 为什么快照优先而不是现值优先：附件上传人是**审计属性**（AGENTS.md 约定 13）。
+/// 用户 3 月改名，6 月回看 1 月的合同扫描件，必须显示 3 月那时的名字。
 const COLUMNS: &str = "a.id, a.doc_type, a.doc_id, a.file_id, a.file_role, a.remark, \
-                       a.uploaded_by, COALESCE(NULLIF(u.real_name, ''), u.username, '') AS uploader_name, \
+                       a.uploaded_by, \
+                       COALESCE(NULLIF(a.uploader_name, ''), NULLIF(u.real_name, ''), u.username, '') AS uploader_name, \
                        COALESCE(f.original_name, '') AS original_name, \
                        COALESCE(f.file_name, '') AS stored_name, \
                        COALESCE(f.file_size, 0) AS file_size, f.mime_type, a.sort_order, a.created_at";
@@ -823,7 +835,7 @@ pub async fn count_by_file(file_id: &Uuid) -> DbResult<i64> {
     .await
 }
 
-/// 绑定一行（幂等：同一张单据重复绑定同一份文件时返回既有行主键）。
+/// 绑定一行，并**落库上传人姓名快照**（`biz_doc_attachment.uploader_name`，AUD-01）。
 ///
 /// # 参数
 ///
@@ -831,7 +843,17 @@ pub async fn count_by_file(file_id: &Uuid) -> DbResult<i64> {
 /// - `file_id`：`sys_file.id`（调用方已确认该记录有效）；
 /// - `role`：文件角色；
 /// - `remark`：备注；
-/// - `uploaded_by`：上传人。
+/// - `uploaded_by`：上传人 id（行级删除判据用它）；
+/// - `uploader_name`：上传人姓名快照（[`crate::business::shared::user_name::snapshot_name`]
+///   的返回值）。**写进库后永不回改** —— 用户改名 / 销号后，历史附件仍显示当时的名字。
+///
+/// # 为什么姓名要单独传，不在 SQL 里 `JOIN sys_user` 现取
+///
+/// 现取只能拿到「此刻的名字」，而本列的全部价值就在「当时是谁」。handler 侧显式
+/// `let name = snapshot_name(uid).await?;` 有三个好处：① 写库语句只有一处依赖 sys_user
+/// （读的时候不需要再 join 才能解释这一列）；② 追溯不到人（已删 / 行不存在）时的
+/// 占位串由 [`crate::business::shared::user_name`] 统一给出，不散落在 SQL 字面量里；
+/// ③ 测试夹具可以不传（`None`），不会因为「库里没这个用户」而写失败。
 ///
 /// # 返回值
 ///
@@ -850,19 +872,21 @@ pub async fn count_by_file(file_id: &Uuid) -> DbResult<i64> {
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]（外键失败说明 `file_id` 不存在，调用方应先校验）。
-pub async fn insert(
+pub async fn insert_with_uploader(
     kind: DocKind,
     doc_id: &Uuid,
     file_id: &Uuid,
     role: FileRole,
     remark: Option<&str>,
     uploaded_by: Option<Uuid>,
+    uploader_name: Option<&str>,
 ) -> DbResult<Uuid> {
     let rows = db()
         .find_with_params(
             "INSERT INTO biz_doc_attachment \
-                 (id, doc_type, doc_id, file_id, file_role, remark, uploaded_by, created_at, sort_order) \
-             VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?::uuid, now(), \
+                 (id, doc_type, doc_id, file_id, file_role, remark, uploaded_by, uploader_name, \
+                  created_at, sort_order) \
+             VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?::uuid, ?, now(), \
                      COALESCE((SELECT max(x.sort_order) + 1 FROM biz_doc_attachment x \
                                 WHERE x.doc_type = ? AND x.doc_id = ?::uuid AND x.deleted_at IS NULL), 0)) \
              ON CONFLICT (doc_type, doc_id, file_id) WHERE deleted_at IS NULL DO NOTHING \
@@ -875,6 +899,7 @@ pub async fn insert(
                 Value::Text(role.as_str().to_string()),
                 remark.map_or(Value::Null, |text| Value::Text(text.to_string())),
                 uploaded_by.map_or(Value::Null, |id| Value::from(&id)),
+                uploader_name.map_or(Value::Null, |text| Value::Text(text.to_string())),
                 // 子查询的两个占位：与上面同一口径的 (doc_type, doc_id)
                 Value::Text(kind.as_str().to_string()),
                 Value::from(doc_id),
@@ -885,7 +910,8 @@ pub async fn insert(
         return row.get_typed("id");
     }
 
-    // 已绑定过（并发或重复上传同一份字节）：返回既有行主键，不报错
+    // 已绑定过（并发或重复上传同一份字节）：返回既有行主键，不报错。
+    // **不回写姓名**：既有行的上传人是谁，就保留谁的名字（重复上传同一份字节不算换人）。
     let existing = db()
         .find_with_params(
             "SELECT id FROM biz_doc_attachment \
@@ -901,6 +927,28 @@ pub async fn insert(
         .first()
         .ok_or_else(|| DbError::InvalidValue("附件绑定冲突且查不到既有行".to_string()))?
         .get_typed("id")
+}
+
+/// 绑定一行（**不带姓名快照**）—— 只给测试夹具用。
+///
+/// # 为什么它只在 `#[cfg(test)]` 里
+///
+/// 生产路径必须写姓名快照（AUD-01 的验收②），给一个「可以不传姓名」的生产入口，
+/// 早晚会有人在某个新分支里调它，然后界面上又出现 UUID。
+/// 于是把它收成测试专用：夹具库里不一定有 `sys_user` 行，读路径会按
+/// `COALESCE(NULLIF(a.uploader_name,''), <实时 join>)` 回落到现值，断言不受影响。
+///
+/// 实现在 [`insert_with_uploader`]（`uploader_name = None`）。
+#[cfg(test)]
+pub async fn insert(
+    kind: DocKind,
+    doc_id: &Uuid,
+    file_id: &Uuid,
+    role: FileRole,
+    remark: Option<&str>,
+    uploaded_by: Option<Uuid>,
+) -> DbResult<Uuid> {
+    insert_with_uploader(kind, doc_id, file_id, role, remark, uploaded_by, None).await
 }
 
 /// 按单据列附件（未删）。

@@ -46,6 +46,7 @@ use nik::uuid::Uuid;
 use crate::business::aiagent::hermes::{Hermes, KanbanCreate, KanbanSnapshot};
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
 use crate::business::notice::{self, NoticeDraft, NoticeTarget};
+use crate::business::shared::user_name;
 use crate::business::storage;
 use crate::business::task::model::{self, SyncTargetRow, TaskDetailRow};
 use crate::shared::error_code;
@@ -761,6 +762,20 @@ async fn relay_done(
         );
     }
     let profile = ai_profile_of(target.owner_id).await;
+    // AUD-01：AI 产出附件的上传人姓名快照（口径同人上传：取一次现值、落库不回改）。
+    // 读失败只 warn 不阻断 —— 本函数的原则是「附件传不上去也不能卡住流转」，
+    // 姓名留空时读路径会回落实时 join，界面不会出现 UUID。
+    let uploader_name = match user_name::snapshot_name(target.owner_id).await {
+        Ok(name) => Some(name),
+        Err(error) => {
+            tracing::warn!(
+                task_id = %target.id,
+                error = %error,
+                "查询上传人姓名快照失败，AI 附件的 uploader_name 留空"
+            );
+            None
+        }
+    };
     let workspace_root = workspace_root();
     for raw in &declared {
         match resolve_workspace_file(&workspace_root, raw).await {
@@ -783,6 +798,7 @@ async fn relay_done(
                             record.id,
                             profile.as_deref(),
                             target.owner_id,
+                            uploader_name.as_deref(),
                         )
                         .await
                         {

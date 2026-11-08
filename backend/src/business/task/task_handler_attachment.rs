@@ -10,6 +10,7 @@ use axum::extract::Path;
 use nik::prelude::*;
 
 use super::task_handler_common::*;
+use crate::business::shared::user_name;
 use crate::business::storage;
 use crate::business::task::dto::TaskUploadRes;
 use crate::business::task::hermes_sync;
@@ -107,6 +108,11 @@ pub async fn upload_attachment(
         HUMAN_UPLOAD_CATEGORY
     };
     let operator = reader.user_id();
+    // AUD-01：上传人姓名**快照**（写库后不回改）。任务附件的上传人 id 在 `create_by`，
+    // 姓名单独一列 —— 用户改名 / 销号后，回看这条附件仍然是「上传当时是谁」。
+    let uploader_name = user_name::snapshot_name(operator)
+        .await
+        .map_err(|error| utils::db_error(error, "查询上传人姓名"))?;
     let record = storage::handler::store_server_upload(
         category,
         &file_name,
@@ -134,13 +140,26 @@ pub async fn upload_attachment(
             TaskReader::Ai(actor) => actor.profile.clone(),
             TaskReader::Human(_) => None,
         };
-        model::bind_ai_attachment(db(), task_id, record.id, profile.as_deref(), operator)
-            .await
-            .map_err(|error| utils::db_error(error, "绑定 AI 附件"))?
+        model::bind_ai_attachment(
+            db(),
+            task_id,
+            record.id,
+            profile.as_deref(),
+            operator,
+            Some(uploader_name.as_str()),
+        )
+        .await
+        .map_err(|error| utils::db_error(error, "绑定 AI 附件"))?
     } else {
-        model::bind_human_attachment(db(), task_id, record.id, operator)
-            .await
-            .map_err(|error| utils::db_error(error, "绑定任务附件"))?
+        model::bind_human_attachment(
+            db(),
+            task_id,
+            record.id,
+            operator,
+            Some(uploader_name.as_str()),
+        )
+        .await
+        .map_err(|error| utils::db_error(error, "绑定任务附件"))?
     };
 
     tracing::info!(

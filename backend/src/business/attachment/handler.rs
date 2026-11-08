@@ -4,10 +4,10 @@
 //!
 //! | 方法 | 路径 | 权限码 | 说明 |
 //! |------|------|--------|------|
-//! | POST | `/attachment/upload` | `business:attachment:upload` | 上传 + 绑定（multipart：`doc_type` / `doc_id` / `file_role` / `remark` / `file`） |
+//! | POST | `/attachment/upload` | `business:attachment:upload` + 单据读码 | 上传 + 绑定（multipart：`doc_type` / `doc_id` / `file_role` / `remark` / `file`） |
 //! | GET | `/attachment/list` | `business:attachment:list` + 单据读码 | 按 `doc_type + doc_id` 查（`sort=time` 缺省 / `manual`） |
 //! | PUT | `/attachment/sort` | `business:attachment:upload` + 单据读码 | 手动排序（ATT-03：提交完整 id 顺序，回读 `manual` 列表） |
-//! | DELETE | `/attachment/{id}` | `business:attachment:list` + 行级 | 软删绑定（上传人 ∪ `business:attachment:delete`） |
+//! | DELETE | `/attachment/{id}` | `business:attachment:upload` + 行级 | 软删绑定（上传人本人；删别人的要 `business:attachment:delete` **且**看得见该单据，ATT-04） |
 //! | GET | `/attachment/download/{id}` | `business:attachment:list` + 单据读码 | 下载（复用 storage 出流 + 写 `operation_logs`） |
 //! | GET | `/attachment/check` | `business:attachment:list` + 单据读码 | **ATT-08**：本单据在本动作下缺什么附件（`can_proceed` / `missing[].hint`） |
 //!
@@ -40,6 +40,7 @@ use nik::prelude::*;
 
 use std::net::SocketAddr;
 
+use crate::business::shared::user_name;
 use crate::business::storage;
 use crate::business::storage::handler::{
     declared_content_length, download_response, server_size_error, server_upload_limit_bytes,
@@ -79,16 +80,21 @@ const UPLOAD_CATEGORY: &str = "attachment";
 /// 1. `Content-Length` 与服务端硬顶（**读流之前**，否则大文件会先读进内存再被拒）；
 /// 2. 单文件 ≤ **20 MB**（ATT-05，按分片累加，超限立刻掐断 —— 见 [`dto::MAX_FILE_BYTES`]）；
 /// 3. 文本字段白名单（`doc_type` / `doc_id` / `file_role` / `remark`）；
-/// 4. 单据存在性（404 —— 不允许给不存在的单据挂号）；
-/// 5. 单张单据附件数上限（50）；
-/// 6. 读文件 + 走 storage 策略（大小 / 扩展名 / MIME）。
+/// 4. **单据读码**（403，[`dto::can_view_doc`]，ATT-04）—— 与 `list` / `download` 同一把尺子：
+///    看不见这张单，就别往上挂东西（否则会往别人的单据里投毒，并能用 404/400 差异探测
+///    单据是否存在）。第 3、4 步合在 [`dto::preflight_upload`] 里，**不查库**；
+/// 5. 单据存在性（404 —— 不允许给不存在的单据挂号）：排在 403 **之后**，
+///    无读码的人拿任何 id 都只能拿到 403，探测面在此截断；
+/// 6. 单张单据附件数上限（50）；
+/// 7. 读文件 + 走 storage 策略（大小 / 扩展名 / MIME）。
 ///
 /// # 异常情况
 ///
 /// - 400：字段缺失 / 类型非法 / 备注超长 / 附件数已达上限 / **文件超过 20 MB** /
 ///   扩展名或 MIME 不被策略允许；
-/// - 403：无 `business:attachment:upload`；
-/// - 404：单据不存在或已删除；
+/// - 403：无 `business:attachment:upload`；或**缺该单据模块的读码**
+///   （[`dto::doc_upload_forbidden`]，点名所需权限码）；
+/// - 404：单据不存在或已删除（**只有过了读码这一关才可能看到 404**）；
 /// - 422：超过策略或服务端大小上限（`60003`）；
 /// - 500 / 502：写对象或落库失败（对象失败时不插绑定行）。
 #[nik::permission(
@@ -112,12 +118,25 @@ pub async fn upload(
     }
 
     let (fields, file) = read_multipart(multipart, server_limit).await?;
-    let meta = dto::parse_upload_meta(
+    // ATT-04：字段合法性（400）→ 单据读码（403）。两步都不查库，保证「无权用户拿任何
+    // doc_id 都拿到同一份 403」，不给出「这个 id 存不存在」的任何信息。
+    let meta = dto::preflight_upload(
+        &claims,
         fields.doc_type.as_deref(),
         fields.doc_id.as_deref(),
         fields.file_role.as_deref(),
         fields.remark.as_deref(),
-    )?;
+    )
+    .inspect_err(|error| {
+        if error.status == 403 {
+            tracing::warn!(
+                doc_type = fields.doc_type.as_deref().unwrap_or_default(),
+                doc_id = fields.doc_id.as_deref().unwrap_or_default(),
+                user = ?utils::current_user_uuid(&claims),
+                "越权上传单据附件被拒（缺模块读码）"
+            );
+        }
+    })?;
 
     if !model::doc_exists(meta.doc_type, &meta.doc_id)
         .await
@@ -138,6 +157,17 @@ pub async fn upload(
     }
 
     let operator = utils::current_user_uuid(&claims);
+    // AUD-01：上传人姓名**快照**。写库后永不回改 —— 用户改名 / 销号后，
+    // 回看这条附件仍然显示「上传当时是谁」。追溯不到账号时由
+    // `user_name::snapshot_name` 给占位串（`(已删除用户)`），不留空、不落 UUID。
+    let uploader_name = match operator {
+        Some(user_id) => Some(
+            user_name::snapshot_name(user_id)
+                .await
+                .map_err(|error| utils::db_error(error, "查询上传人姓名"))?,
+        ),
+        None => None,
+    };
     // 秒传标记：命中内容 hash 时 storage 会复用已有 `sys_file`（不写对象、不插行）
     let hash = storage::sigv4::hex_sha256(&file.bytes);
     let duplicated = storage::model::find_reusable_file(&hash)
@@ -154,13 +184,14 @@ pub async fn upload(
     )
     .await?;
 
-    let binding_id = model::insert(
+    let binding_id = model::insert_with_uploader(
         meta.doc_type,
         &meta.doc_id,
         &record.id,
         meta.file_role,
         meta.remark.as_deref(),
         operator,
+        uploader_name.as_deref(),
     )
     .await
     .map_err(|error| utils::db_error(error, "写入附件绑定"))?;
@@ -290,8 +321,13 @@ async fn list_of(
     let rows = model::list_by_doc(kind, &doc_id, order)
         .await
         .map_err(|error| utils::db_error(error, "查询单据附件"))?;
-    let list: Vec<DocAttachmentItemRes> =
-        rows.iter().map(|row| dto::to_item(row, claims)).collect();
+    // ATT-04：`can_delete` 的「删别人」分支要求看得见这张单；能走到这里说明读码已过，
+    // 但判据仍按 `can_view_doc` 计算（同一条函数，权限码若日后细分也不会失配）。
+    let can_view = dto::can_view_doc(claims, kind);
+    let list: Vec<DocAttachmentItemRes> = rows
+        .iter()
+        .map(|row| dto::to_item(row, claims, can_view))
+        .collect();
     // ATT-04 / ATT-11：分组口径随列表一起下发（空分组也要能画出来 → 不能只靠遍历 list）
     let roles = dto::role_catalog(kind, &list);
 
@@ -580,10 +616,19 @@ pub(crate) fn ensure_same_members(
 ///   正是「应该能撤销自己上传」的那批人 —— 挂 `:upload` 让上传人不必再等一次授权；
 /// - **行级**用 `business:attachment:delete` 判「删**别人**的」：见 [`super::dto::can_delete`]。
 ///
+/// # ATT-04：行级补「单据读码」
+///
+/// | 分支 | 判据 | 卡面口径 |
+/// |------|------|----------|
+/// | 上传人删自己的 | 只认上传人本人，**不看单据读码** | 明确可接受（「换岗后仍能删当年挂的附件」，反过来则那条附件只能改库删） |
+/// | 持 `:delete` 删别人的 | delete 码 **且** 看得见该单据 | ATT-04 补上（升权处置一张看不见的单没有业务含义，与 ATT-02 同一把尺子） |
+///
 /// # 异常情况
 ///
+/// - 400：`id` 不是 UUID；库里的 `doc_type` 不在白名单（数据漂移要响，不能静默放行）；
+/// - 403：既不是上传人、也没有升权码；持升权码但看不见该单据（[`dto::doc_forbidden`]）；
+///   或没有 `business:attachment:upload`；
 /// - 404：附件不存在 / 已删除；
-/// - 403：既不是上传人，也没有升权码；或没有 `business:attachment:upload`；
 /// - 500：数据库异常。
 #[nik::permission(
     path = "/business/attachment/{id}",
@@ -603,7 +648,22 @@ pub async fn remove(
         .map_err(|error| utils::db_error(error, "查询附件"))?
         .ok_or_else(dto::attachment_not_found)?;
 
-    if !dto::can_delete(&claims, row.uploaded_by) {
+    // ATT-04 · 行级：库里的 doc_type 决定「看得见这张单吗」。
+    // 数据漂移（未知 doc_type）报 400 而不是放行 —— 与 download 一致。
+    let kind = dto::parse_doc_type(&row.doc_type)?;
+    let can_view = dto::can_view_doc(&claims, kind);
+    if !dto::can_delete(&claims, row.uploaded_by, can_view) {
+        // 两种拒绝原因分开说：缺单据读码 vs 既非上传人又无升权码
+        if claims.has_permission(dto::PERM_DELETE) {
+            tracing::warn!(
+                attachment_id = %attachment_id,
+                doc_type = kind.as_str(),
+                doc_id = %row.doc_id,
+                user = ?utils::current_user_uuid(&claims),
+                "越权删除单据附件被拒（持 delete 码但缺模块读码）"
+            );
+            return Err(dto::doc_forbidden(kind));
+        }
         return Err(ApiError::new(
             403,
             error_code::PERMISSION_DENIED,
