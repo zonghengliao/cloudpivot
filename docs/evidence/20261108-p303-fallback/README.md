@@ -136,6 +136,16 @@ up.sql 重放 → 全部回来
 | `assignee::fallback_db_tests` | 6 | ①升级链走完 + fallback_user（`assigned_by_rule=FALLBACK`）②兜底人=发起人 422 ③兜底角色 3 人 ④未配兜底含「均未配置」 ⑤用户不存在 65042 ⑥已停用 65042 |
 | 回归 | 11 | P3-02 升级链 10 条 + 码表唯一性 1 条 |
 
+### ③b 全量 flow 模块回归：`raw/40_flow_suite_regression.txt`
+
+`cargo test --lib business::flow::`（真库）→ **452 passed / 3 failed**。
+
+3 条红全部是 `business::flow::linkage::*` 的「联动触发点接线清单」断言：P2-03（`9cf6cc1`）给
+`erp/purchase_return_handler.rs` 新增了 `PURCHASE_RETURN` 调用点，但没把期望集合 +1。
+**本卡提交 `70cfd8e` 没碰 `linkage/` 与 `purchase_return_handler.rs`**（`git show --stat` 与
+`git status` 均可复核），与 P3-02 交付时记录的 `known_preexisting_failures` 是同一批 3 条。
+因为门禁要的是「本卡零新增」，这 3 条不计入本卡回归。
+
 ## 5. 复跑
 
 ```bash

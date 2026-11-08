@@ -1,0 +1,17 @@
+=== P3-03 全量 flow 模块单测回归（cargo test --lib business::flow::，ERP_DB_URL=cloudpivot_p303_upgrade）===
+EXIT=101
+test result: FAILED. 452 passed; 3 failed; 0 ignored; 0 measured; 2960 filtered out; finished in 50.19s
+
+--- 失败三条（**既有基线**，非本卡引入）---
+    business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag
+    business::flow::linkage::tests_wiring::trigger_specs_cover_whitelist_in_order
+    business::flow::linkage::tests_wiring::wired_triggers_match_call_sites
+
+关键断言（第一条）：
+  left: ["STOCK_IN", "STOCK_OUT", "STOCK_TRANSFER", "PURCHASE_ORDER", "PAYABLE", "VOUCHER", "ACCOUNTING_PERIOD", "ACCOUNTING_YEAR", "CONTRACT", "STOCK_TAKE", "FIXED_ASSET", "DEPRECIATION", "EXPENSE_REPORT", "PURCHASE_RETURN", "TASK", "FLOW_INSTANCE"]
+
+--- 归因（可复核）---
+· 断言语义：linkage 触发点「白名单 15 个 / 真实调用点 16 个文件」的期望集合没跟上新增的 PURCHASE_RETURN 调用点；
+· 引入者：P2-03 的 purchase_return_handler.rs（git log -1 -- src/business/erp/purchase_return_handler.rs → 9cf6cc1）；
+· 本卡：提交 70cfd8e 的 --stat 里没有 linkage/ 也没有 purchase_return_handler.rs（git status 对这两个路径为空）；
+· 与 P3-02 交付时记录的 known_preexisting_failures 完全一致（同一批 3 条）。
