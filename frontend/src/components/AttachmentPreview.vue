@@ -215,6 +215,7 @@ import {
   zoomBy,
   type PreviewItem,
 } from './attachment-preview-pure';
+import { downloadHintFor } from './attachment-upload-pure';
 
 const props = withDefaults(
   defineProps<{
@@ -547,7 +548,13 @@ function onPointerUp(event: PointerEvent): void {
   (event.target as HTMLElement | null)?.releasePointerCapture?.(event.pointerId);
 }
 
-/** 下载：Office / 压缩包的唯一出口；图片 / PDF 也保留这个入口 */
+/**
+ * 下载：Office / 压缩包的唯一出口；图片 / PDF 也保留这个入口。
+ *
+ * ATT-05：非可预览类型（Office / 压缩包 / 其他）下载完要提示「用本地软件打开」——
+ * 预览弹窗里点下载的用户同样需要这句引导（`downloadHintFor` 与单据附件面板共用同一份文案，
+ * 见 `attachment-upload-pure.ts`）。
+ */
 async function download(): Promise<void> {
   const item = currentItem.value;
   if (!item || downloading.value) {
@@ -556,6 +563,10 @@ async function download(): Promise<void> {
   downloading.value = true;
   try {
     saveBlob(await fetchBlob(item), item.name || item.fileId);
+    const hint = downloadHintFor(item.name || '', item.mimeType);
+    if (hint) {
+      MessagePlugin.info(hint, 5000);
+    }
   } catch (cause) {
     MessagePlugin.error(describeError(cause));
   } finally {

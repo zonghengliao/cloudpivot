@@ -38,6 +38,19 @@
   显示与否完全由后端 `can_delete` 决定（上传人本人 ∪ `business:attachment:delete`），
   前端不自己算一遍权限 —— 两处判据必然漂移，最后就是「按钮在、点了 403」。
   删除是**软删**（后端写 `deleted_at` + `operation_logs`），页面只是不再出现这一行。
+
+  # ATT-05：Office 只下载 + 单文件 20 MB
+
+  - **「预览」按钮只在图片 / PDF 出现**（判据 `row.display.previewable`，来自
+    `attachment-panel-pure.describeAttachment`，面板不自己再判扩展名）；
+    Office（doc/docx/xls/xlsx/ppt/pptx/wps/et/dps）/ 压缩包 / 其他只有「下载」。
+  - **下载完弹引导**：Office 提示「已下载到文件夹，请用本地 Office/WPS 打开」
+    （`attachment-upload-pure.downloadHintFor`，压缩包 / 其他各有自己的文案；图片 / PDF 不弹）。
+  - **单文件 20 MB**：前端在发请求前按 `partitionFilesBySize` 分流，超限的一个都不发，
+    弹一条汇总提示「文件超过 20MB，请压缩或分卷上传」；后端 `dto::MAX_FILE_BYTES` 同口径
+    （绕过前端直传 → 400 + 同一句话）。
+  - **图标配色**：Word 蓝 / Excel 绿 / PPT 橙 / WPS 红（`.wps` / `.et` / `.dps` 走红，
+    形状图标沿用对应家族）。
 -->
 <template>
   <div class="doc-attach">
@@ -90,7 +103,8 @@
       >
         <t-icon name="upload" size="18px" />
         <span>
-          拖拽文件到此处，或点击选择（按上方角色上传；单文件上限 100 MB，大小 / 格式按存储策略）
+          拖拽文件到此处，或点击选择（按上方角色上传；单文件上限 {{ MAX_ATTACHMENT_FILE_MB }} MB，
+          超过请压缩或分卷；格式按存储策略）
         </span>
         <input
           ref="fileInputRef"
@@ -206,8 +220,24 @@
                     下移
                   </t-button>
                 </template>
-                <t-button size="small" variant="text" @click="openPreview(row.item)">预览</t-button>
-                <t-button size="small" variant="text" @click="download(row.item)">下载</t-button>
+                <!-- ATT-05：只有图片 / PDF 给「预览」；Office / 压缩包 / 其他一律只下载 -->
+                <t-button
+                  v-if="row.display.previewable"
+                  size="small"
+                  variant="text"
+                  :data-testid="`${testidPrefix}-preview`"
+                  @click="openPreview(row.item)"
+                >
+                  预览
+                </t-button>
+                <t-button
+                  size="small"
+                  variant="text"
+                  :data-testid="`${testidPrefix}-download`"
+                  @click="download(row.item)"
+                >
+                  下载
+                </t-button>
                 <t-button
                   v-if="row.item.can_delete"
                   size="small"
@@ -289,6 +319,12 @@ import {
   resolveRoleCatalog,
   type RoleOption,
 } from '@/components/attachment-roles-pure';
+import {
+  downloadHintFor,
+  MAX_ATTACHMENT_FILE_MB,
+  partitionFilesBySize,
+  tooLargeMessage,
+} from '@/components/attachment-upload-pure';
 import { ApiError } from '@/api/request';
 import { formatDateTime } from '@/utils/format';
 
@@ -448,6 +484,13 @@ function onFilePicked(event: Event): void {
 /**
  * 上传一批文件到**同一个角色**（策略校验 / 配额都在后端，前端只做「到上限就别再发」的省流量检查）。
  *
+ * # ATT-05：单文件 20 MB 前端先拦
+ *
+ * 超限文件**一个都不发**（不是发出去等 400）：提示文案与后端逐字一致
+ * （`FILE_TOO_LARGE_MESSAGE`），一次批量选 10 个只弹一条汇总，不刷屏。
+ * 后端同样拦（`dto::MAX_FILE_BYTES`），绕过前端 curl 直传会拿到 400 + 同一句话 ——
+ * 前端拦截是体验，后端拦截才是规则。
+ *
  * 逐个串行上传：并发多文件时后端每个请求都要校验单据 + 配额，串行更容易看清失败的是哪一个，
  * 也不会让「内容秒传」的判据在并发下互相竞争。
  */
@@ -455,13 +498,23 @@ async function upload(files: File[], roleCode: FileRole): Promise<void> {
   if (!props.docId || files.length === 0) {
     return;
   }
+  // ATT-05：先按 20 MB 分流（超限的连请求都不发）
+  const { accepted: withinSize, rejected } = partitionFilesBySize(files);
+  const tooLarge = tooLargeMessage(rejected);
+  if (tooLarge) {
+    MessagePlugin.warning(tooLarge);
+  }
+  if (withinSize.length === 0) {
+    return;
+  }
+
   const room = maxCount.value - total.value;
   if (room <= 0) {
     MessagePlugin.warning(`单张单据最多 ${maxCount.value} 个附件，请先删除不再需要的`);
     return;
   }
-  const accepted = files.slice(0, room);
-  if (accepted.length < files.length) {
+  const accepted = withinSize.slice(0, room);
+  if (accepted.length < withinSize.length) {
     MessagePlugin.warning(`一次最多还能上传 ${room} 个（单张单据上限 ${maxCount.value}）`);
   }
 
@@ -495,10 +548,26 @@ async function upload(files: File[], roleCode: FileRole): Promise<void> {
   }
 }
 
+/**
+ * 下载（ATT-05：Office / 压缩包 / 其他下载完提示「用本地软件打开」）。
+ *
+ * # 为什么提示是「下载完才弹」
+ *
+ * 用户拍板：**不做在线预览**，Office 文档只能落到本地再用 Office/WPS 打开。
+ * 提示必须出现在「点完之后」——否则用户会以为点了没反应（浏览器下载不一定抢焦点），
+ * 或者还在等页面里打开。图片 / PDF 可预览，下载只是另存一份，不弹提示（
+ * `downloadHintFor` 返回 `null`）。
+ */
 async function download(item: DocAttachmentItem): Promise<void> {
   try {
     const blob = await downloadDocAttachment(item.id);
     saveBlob(blob, item.file_name);
+    const hint = downloadHintFor(item.file_name, item.mime_type);
+    if (hint) {
+      // 用 info（不是 success）：这是一句「接下来怎么打开」的引导，不是「操作成功」；
+      // 5 秒（比默认 3 秒长一点）：用户可能正在浏览器的下载栏里找文件，太短会看漏。
+      MessagePlugin.info(hint, 5000);
+    }
   } catch (error) {
     MessagePlugin.error(error instanceof ApiError ? error.message : '下载失败');
   }

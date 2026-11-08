@@ -30,6 +30,7 @@ use nik::uuid::Uuid;
 
 use super::dto;
 use super::model::{self, DocKind, FileRole};
+use crate::shared::error_code;
 
 // ---------- 纯逻辑 ----------
 
@@ -1832,6 +1833,154 @@ fn file_roles_match_frontend_vocabulary() {
         expected,
         "前端 FILE_ROLE_OPTIONS 必须与 FileRole::GROUPS（code + 中文名 + 顺序）逐字一致"
     );
+}
+
+// ---------- ATT-05：单文件 20 MB 上限 + 下载引导 ----------
+
+/// ATT-05：上限数字与提示文案（验收③④的后端口径）。
+///
+/// 数字写死在单测里（不是引用常量）—— 常量改了这里必须跟着改，否则「产品说 20MB、
+/// 代码写成 50MB」这种漂移没人发现。
+#[test]
+fn file_size_limit_is_20mb_with_exact_message() {
+    assert_eq!(
+        dto::MAX_FILE_BYTES,
+        20 * 1024 * 1024,
+        "单文件上限必须是 20 MiB"
+    );
+    assert_eq!(dto::MAX_FILE_BYTES, 20_971_520, "20 MiB 的十进制值");
+    assert_eq!(dto::MAX_FILE_MB, 20);
+    assert_eq!(dto::FILE_TOO_LARGE_MSG, "文件超过 20MB，请压缩或分卷上传");
+
+    let error = dto::file_too_large();
+    assert_eq!(
+        error.status, 400,
+        "卡面验收④：后端必须是 400（不是 413 / 422）"
+    );
+    assert_eq!(error.code, error_code::PARAM_INVALID, "入参不合法 → 10001");
+    assert_eq!(error.msg, dto::FILE_TOO_LARGE_MSG);
+}
+
+/// ATT-05：分片累加的上限判定（真库用例之前的纯逻辑闸门）。
+#[test]
+fn extend_within_file_limit_truth_table() {
+    // 空 buffer + 空分片：不算超限
+    let mut buffer: Vec<u8> = Vec::new();
+    dto::extend_within_file_limit(&mut buffer, &[]).expect("空分片必须通过");
+    assert!(buffer.is_empty());
+
+    // 刚好到上限：通过（20 MB 整的文件要能传 —— 边界不能提前一天拒绝）
+    let mut buffer: Vec<u8> = Vec::new();
+    let full = vec![7u8; dto::MAX_FILE_BYTES as usize];
+    dto::extend_within_file_limit(&mut buffer, &full).expect("正好 20 MB 必须通过");
+    assert_eq!(buffer.len() as u64, dto::MAX_FILE_BYTES);
+
+    // 再多 1 字节：拒绝，且 buffer 保持原样（不写入半份超限数据）
+    let before = buffer.len();
+    let error = dto::extend_within_file_limit(&mut buffer, &[0u8]).expect_err("超 1 字节必须拒");
+    assert_eq!(error.status, 400);
+    assert_eq!(error.msg, dto::FILE_TOO_LARGE_MSG);
+    assert_eq!(buffer.len(), before, "超限分片绝不能落进内存缓冲区");
+
+    // 多片累加：每片都不超限，但总量超限 → 在最后一片处拒绝
+    let mut buffer: Vec<u8> = Vec::new();
+    let chunk = vec![1u8; 8 * 1024 * 1024];
+    for _ in 0..2 {
+        dto::extend_within_file_limit(&mut buffer, &chunk).expect("8 MB + 8 MB 必须通过");
+    }
+    assert_eq!(buffer.len(), 16 * 1024 * 1024);
+    // 再来 4 MB → 20 MB 整，通过；再来 1 字节 → 拒绝
+    dto::extend_within_file_limit(&mut buffer, &vec![2u8; 4 * 1024 * 1024]).expect("凑满 20 MB");
+    assert_eq!(buffer.len() as u64, dto::MAX_FILE_BYTES);
+    assert!(dto::extend_within_file_limit(&mut buffer, &[3u8]).is_err());
+
+    // 25 MB 单片（卡面验收④的真实场景：curl 直传）→ 直接拒
+    let mut buffer: Vec<u8> = Vec::new();
+    let big = vec![0u8; 25 * 1024 * 1024];
+    let error = dto::extend_within_file_limit(&mut buffer, &big).expect_err("25 MB 必须拒");
+    assert_eq!(error.status, 400);
+    assert_eq!(error.msg, dto::FILE_TOO_LARGE_MSG);
+    assert!(buffer.is_empty(), "超限文件一个字节都不留");
+}
+
+/// ATT-05：前端必须与后端同一个数字、同一句提示（漂了就在前端放行 25 MB 让后端 400 打脸）。
+fn frontend_upload_pure_source() -> String {
+    let path = repo_root().join("frontend/src/components/attachment-upload-pure.ts");
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("读不到前端上限词表 {}：{err}", path.display()))
+}
+
+#[test]
+fn file_size_limit_matches_frontend() {
+    let source = frontend_upload_pure_source();
+    assert!(
+        source.contains(&format!(
+            "export const MAX_ATTACHMENT_FILE_BYTES = {} * 1024 * 1024;",
+            dto::MAX_FILE_MB
+        )),
+        "前端 MAX_ATTACHMENT_FILE_BYTES 必须是 {} * 1024 * 1024（与后端 MAX_FILE_BYTES 同一数字）",
+        dto::MAX_FILE_MB
+    );
+    assert!(
+        source.contains(&format!(
+            "export const FILE_TOO_LARGE_MESSAGE = '{}';",
+            dto::FILE_TOO_LARGE_MSG
+        )),
+        "前端超限文案必须与后端 FILE_TOO_LARGE_MSG 逐字一致（卡面：文件超过 20MB，请压缩或分卷上传）"
+    );
+    assert!(
+        source.contains(
+            "export const OFFICE_OPEN_HINT = '已下载到文件夹，请用本地 Office/WPS 打开';"
+        ),
+        "前端 Office 下载后的提示文案必须逐字为「已下载到文件夹，请用本地 Office/WPS 打开」"
+    );
+}
+
+/// ATT-05 真库：`attachment` 存储策略必须放行 Office + WPS 九种扩展名。
+///
+/// # 为什么要在真库上验
+///
+/// 「Office 只下载」的前提是**能传上来**：`sys_storage_policy.allowed_extensions` 是
+/// fail-closed 白名单，V0048 种的那份原本没有 wps / et / dps —— 而 ATT-05 卡面明确要求
+/// 这九种扩展名都要能进、能下。V0346 补的就是这三个；本用例钉住「策略行里真的有」，
+/// 防止有人回滚了迁移或改窄了白名单（改窄后前端能选 WPS 文件、上传却被拒，用户看到的是
+/// 「不支持的文件类型 .wps」，很难自查）。
+#[tokio::test]
+async fn db_attachment_policy_allows_office_and_wps() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    let raw: String = db()
+        .scalar_with_params(
+            "SELECT allowed_extensions FROM sys_storage_policy \
+              WHERE category = 'attachment' AND deleted_at IS NULL",
+            vec![],
+        )
+        .await
+        .expect("读 attachment 策略");
+    let exts: Vec<&str> = raw.split(',').map(str::trim).collect();
+    for ext in [
+        "doc", "docx", "xls", "xlsx", "ppt", "pptx", "wps", "et", "dps", "pdf", "jpg", "png",
+    ] {
+        assert!(
+            exts.contains(&ext),
+            "attachment 策略必须放行 .{ext}（当前：{raw}）"
+        );
+    }
+    // 上限仍由 storage 策略给出（业务 20 MB 闸更严，见 `dto::MAX_FILE_BYTES`）
+    let max_mb: i32 = db()
+        .scalar_with_params(
+            "SELECT max_size_mb FROM sys_storage_policy \
+              WHERE category = 'attachment' AND deleted_at IS NULL",
+            vec![],
+        )
+        .await
+        .expect("读 attachment 策略上限");
+    assert!(
+        max_mb >= 20,
+        "策略上限（{max_mb} MB）不能比业务闸（20 MB）还小，否则 20 MB 边界传不上来"
+    );
+    println!("[ATT-05] attachment 策略白名单含 Office + WPS · max={max_mb} MB ✓");
 }
 
 /// 真库：新角色能落库（CHECK 已放开），且分组按 role 正确切分（验收①③④）。

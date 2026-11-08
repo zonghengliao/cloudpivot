@@ -76,14 +76,16 @@ const UPLOAD_CATEGORY: &str = "attachment";
 /// # 校验顺序（每一步都先于「更贵的那一步」）
 ///
 /// 1. `Content-Length` 与服务端硬顶（**读流之前**，否则大文件会先读进内存再被拒）；
-/// 2. 文本字段白名单（`doc_type` / `doc_id` / `file_role` / `remark`）；
-/// 3. 单据存在性（404 —— 不允许给不存在的单据挂号）；
-/// 4. 单张单据附件数上限（50）；
-/// 5. 读文件 + 走 storage 策略（大小 / 扩展名 / MIME）。
+/// 2. 单文件 ≤ **20 MB**（ATT-05，按分片累加，超限立刻掐断 —— 见 [`dto::MAX_FILE_BYTES`]）；
+/// 3. 文本字段白名单（`doc_type` / `doc_id` / `file_role` / `remark`）；
+/// 4. 单据存在性（404 —— 不允许给不存在的单据挂号）；
+/// 5. 单张单据附件数上限（50）；
+/// 6. 读文件 + 走 storage 策略（大小 / 扩展名 / MIME）。
 ///
 /// # 异常情况
 ///
-/// - 400：字段缺失 / 类型非法 / 备注超长 / 附件数已达上限 / 扩展名或 MIME 不被策略允许；
+/// - 400：字段缺失 / 类型非法 / 备注超长 / 附件数已达上限 / **文件超过 20 MB** /
+///   扩展名或 MIME 不被策略允许；
 /// - 403：无 `business:attachment:upload`；
 /// - 404：单据不存在或已删除；
 /// - 422：超过策略或服务端大小上限（`60003`）；
@@ -925,6 +927,8 @@ struct UploadedFile {
 /// # 异常情况
 ///
 /// - 400 + `PAYLOAD_INVALID`：表单解析失败 / 缺 `file` 字段 / 文件名为空；
+/// - 400 + `PARAM_INVALID`：**文件本体超过 [`dto::MAX_FILE_BYTES`]**（ATT-05：20 MB）——
+///   按分片累加判断，超限立刻返回，不在内存里留半份文件；
 /// - 422 + `60003`：body 超过服务端硬顶（框架在中途掐断）。
 async fn read_multipart(
     mut multipart: Multipart,
@@ -933,7 +937,7 @@ async fn read_multipart(
     let mut fields = RawFields::default();
     let mut file: Option<UploadedFile> = None;
 
-    while let Some(field) = multipart
+    while let Some(mut field) = multipart
         .next_field()
         .await
         .map_err(|error| multipart_error(error.status(), server_limit))?
@@ -945,11 +949,15 @@ async fn read_multipart(
                 .content_type()
                 .unwrap_or("application/octet-stream")
                 .to_string();
-            let bytes = field
-                .bytes()
+            // ATT-05：逐片累加 + 超限即返回（不先 `bytes()` 整份读进内存）
+            let mut bytes: Vec<u8> = Vec::new();
+            while let Some(chunk) = field
+                .chunk()
                 .await
                 .map_err(|error| multipart_error(error.status(), server_limit))?
-                .to_vec();
+            {
+                dto::extend_within_file_limit(&mut bytes, &chunk)?;
+            }
             if file_name.is_empty() {
                 return Err(ApiError::new(
                     400,

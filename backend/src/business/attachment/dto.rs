@@ -11,6 +11,7 @@
 //! | `doc_id` | 必须是 UUID | 400 + `PARAM_INVALID` |
 //! | `file_role` | 缺省 / 空串 → `DEFAULT`；老值 `INVOICE`/`OTHER` 归一；非白名单值 | 400 + `PARAM_INVALID` |
 //! | `remark` | ≤ 200 字符（列 `VARCHAR(255)`，留余量） | 400 + `PARAM_INVALID` |
+//! | 单文件大小 | ≤ [`MAX_FILE_BYTES`]（20 MB，ATT-05） | 400 + `PARAM_INVALID`（[`FILE_TOO_LARGE_MSG`]） |
 //! | 单据存在性 | 由 handler 查库（`model::doc_exists`） | 404 + `RESOURCE_NOT_FOUND` |
 //! | 附件个数 | ≤ [`model::MAX_ATTACHMENTS_PER_DOC`] | 400 + `PARAM_INVALID` |
 //! | `sort`（列表） | 缺省 / `time` → 时间倒序；`manual` → 手动序号 | 400 + `PARAM_INVALID`（ATT-03） |
@@ -34,6 +35,68 @@ pub const PERM_DELETE: &str = "business:attachment:delete";
 
 /// 备注列的字符上限（列是 `VARCHAR(255)`，留 55 字符余量给后续加工）。
 pub const REMARK_MAX_CHARS: usize = 200;
+
+/// 单个附件的大小上限：**20 MB**（ATT-05 用户拍板）。
+///
+/// 这是**业务口径**，比 storage 的 `attachment` 策略（100 MB）更严：单据附件是
+/// 合同扫描件 / 发票影像这类「单页或多页文档」，超过 20 MB 基本是没压缩的扫描件，
+/// 传上去列表页也打不开、下载也慢。所以在本模块先拦一道，storage 策略继续做
+/// 「扩展名 / MIME / 秒传」的第二道闸。
+///
+/// ⚠ 与前端 [`MAX_FILE_MB`] / `frontend/src/components/attachment-upload-pure.ts`
+/// 的 `MAX_ATTACHMENT_FILE_BYTES` 是**同一个数字**，单测
+/// `file_size_limit_matches_frontend` 逐字比对（两边漂了直接红）。
+pub const MAX_FILE_BYTES: u64 = 20 * 1024 * 1024;
+
+/// 大小上限的 MB 数值（拼文案用，避免 `20` 在代码里出现两次）。
+pub const MAX_FILE_MB: u64 = MAX_FILE_BYTES / (1024 * 1024);
+
+/// 单文件超限的提示文案（与前端 `FILE_TOO_LARGE_MESSAGE` 逐字一致）。
+pub const FILE_TOO_LARGE_MSG: &str = "文件超过 20MB，请压缩或分卷上传";
+
+/// 单文件超限错误：**400 + `PARAM_INVALID`**。
+///
+/// # 为什么不是 413 / 422
+///
+/// `413` 是「网关 / 框架把请求体掐断」，`422 + 60003` 是 storage 策略上限；
+/// 而 20 MB 是**本模块的业务规则**，属于「入参不合法」，前端要按 400 弹业务文案
+/// （卡面验收④：绕过前端直接 curl 25 MB → 后端 400）。
+pub fn file_too_large() -> ApiError {
+    ApiError::new(400, error_code::PARAM_INVALID, FILE_TOO_LARGE_MSG)
+}
+
+/// 把一块 multipart 分片并进缓冲区，**先判上限再拷贝**。
+///
+/// # 参数
+///
+/// - `buffer`：已读到的文件字节（原地追加）；
+/// - `chunk`：本次读到的分片。
+///
+/// # 返回值
+///
+/// 追加成功 → `Ok(())`。
+///
+/// # 异常情况
+///
+/// - 400 + `PARAM_INVALID`（[`file_too_large`]）：加上本片后超过 [`MAX_FILE_BYTES`]。
+///   **超限时不写入 `buffer`** —— 调用方立刻返回错误，内存里不会留下半份超限文件。
+///
+/// # 为什么要流式判
+///
+/// 先 `field.bytes()` 把整个文件读进内存再判大小，等于让任意大小的文件先把进程内存
+/// 打满（25 MB 无所谓，500 MB 就是事故）。按分片累加 + 提前返回，才能做到
+/// 「超限的字节一个都不留」。
+pub fn extend_within_file_limit(
+    buffer: &mut Vec<u8>,
+    chunk: &[u8],
+) -> std::result::Result<(), ApiError> {
+    let next = buffer.len() as u64 + chunk.len() as u64;
+    if next > MAX_FILE_BYTES {
+        return Err(file_too_large());
+    }
+    buffer.extend_from_slice(chunk);
+    Ok(())
+}
 
 /// 列表查询参数（`GET /business/attachment/list?doc_type=&doc_id=&sort=`）。
 #[derive(Debug, Clone, Deserialize)]

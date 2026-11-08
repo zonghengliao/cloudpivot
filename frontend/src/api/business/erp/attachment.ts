@@ -215,8 +215,18 @@ export function sortDocAttachments(
 /**
  * 上传并绑定附件（`POST /api/business/attachment/upload`，multipart，字段名 `file`）。
  *
- * 走 A 批次的存储策略（分类 `attachment`：100 MB、办公文档 / 图片 / 压缩包白名单）：
- * 扩展名 / MIME / 大小由后端策略判，前端不做二次校验（两处规则必然漂移）。
+ * # 契约
+ *
+ * - **单文件 ≤ 20 MB**（ATT-05）：后端 `dto::MAX_FILE_BYTES` 硬拦，超限 → **400** +
+ *   「文件超过 20MB，请压缩或分卷上传」；前端在发请求前先用
+ *   `components/attachment-upload-pure.ts` 的 `partitionFilesBySize` 拦一遍（超限的一个都不发）。
+ *   两处同一个数字（`MAX_ATTACHMENT_FILE_BYTES`），漂了 cargo test 直接红。
+ * - 扩展名 / MIME / 秒传仍由 storage 的 `attachment` 策略判（后端唯一判据，前端不重复实现）。
+ *
+ * # 为什么要 `service.post` 再手工解 `code`
+ *
+ * 上传是 multipart，统一响应包装要自己拆（`ApiResult.code !== 0` 时抛 `ApiError`，
+ * 这样调用方的 `catch` 能拿到后端文案 —— 包括上面那句 20 MB 的提示）。
  */
 export async function uploadDocAttachment(
   docType: DocType,

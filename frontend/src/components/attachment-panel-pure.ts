@@ -14,7 +14,7 @@
  * 不是遗漏 —— 合并会把别的页面显示一起改掉。若将来要统一，改这里 + 卡面确认。
  */
 
-import { extensionOf } from './attachment-preview-pure';
+import { extensionOf, isPreviewable, resolvePreviewKind } from './attachment-preview-pure';
 
 /** 附件文件类型（图标 / 文案的口径，与卡面 pdf/word/excel/ppt/image/zip/other 逐字一致） */
 export type AttachmentFileKind = 'pdf' | 'word' | 'excel' | 'ppt' | 'image' | 'zip' | 'other';
@@ -29,6 +29,36 @@ export const KIND_EXTENSIONS: Record<AttachmentFileKind, readonly string[]> = {
   zip: ['zip', 'rar', '7z', 'gz', 'tar', 'bz2', 'xz'],
   other: [],
 };
+
+/**
+ * WPS 三件套扩展名（ATT-05 配色口径：Word 蓝 / Excel 绿 / PPT 橙 / **WPS 红**）。
+ *
+ * # 为什么不是第八个 `kind`
+ *
+ * `wps` / `et` / `dps` 与 `doc` / `xls` / `ppt` 是**同一种文档**（文字 / 表格 / 演示），
+ * 形状图标（`file-word` / `file-excel` / `file-powerpoint`）完全一样，用户一眼就能看出
+ * 「这是文字文档」；真正的差别在**软件归属**，所以只换颜色（红）与文案（`WPS 文字` / …），
+ * 不新增 kind —— 新增会让 `KIND_EXTENSIONS` 多一层交叉，`fileKindOf` 的优先级规则也得重写。
+ */
+export const WPS_EXTENSIONS = ['wps', 'et', 'dps'] as const;
+
+/** WPS 三件套的中文名（键是扩展名；非 WPS 扩展名查不到 → `undefined`） */
+export const WPS_KIND_LABELS: Record<string, string> = {
+  wps: 'WPS 文字',
+  et: 'WPS 表格',
+  dps: 'WPS 演示',
+};
+
+/**
+ * 是否是 WPS 家族的某个文件；返回它的中文名（不是 WPS 家族则 `undefined`）。
+ *
+ * 只看**扩展名**（与 `fileKindOf` 同一口径），不认 MIME：`.wps` 的 MIME 各家给得五花八门
+ * （`application/kswps` / `application/vnd.ms-works` / 空），靠它判会把 WPS 文档当成「其他」。
+ */
+export function wpsKindLabelOf(fileName: string): string | undefined {
+  const ext = extensionOf(fileName);
+  return WPS_KIND_LABELS[ext];
+}
 
 /**
  * TDesign 图标名（`t-icon name`）。
@@ -197,26 +227,46 @@ export interface AttachmentDisplay {
   kind: AttachmentFileKind;
   /** TDesign 图标名 */
   icon: string;
-  /** 图标主题色 */
+  /** 图标主题色（WPS 三件套固定 `danger` 红） */
   theme: 'danger' | 'primary' | 'success' | 'warning' | 'default';
-  /** 类型中文名 */
+  /** 类型中文名（WPS 文件显示「WPS 文字 / 表格 / 演示」，其余按 kind） */
   kindLabel: string;
   /** 大小文案（B / KB / MB） */
   sizeLabel: string;
+  /** 能否在线预览（ATT-05：只有图片 / PDF 给「预览」按钮，Office 一律只下载） */
+  previewable: boolean;
 }
 
-/** 由 (文件名, MIME, 字节数) 算出展示信息（单一入口，面板不各写一份） */
+/**
+ * 由 (文件名, MIME, 字节数) 算出展示信息（单一入口，面板不各写一份）。
+ *
+ * # 配色口径（ATT-05 用户拍板）
+ *
+ * | 家族 | 扩展名 | 图标 | 颜色 |
+ * |------|--------|------|------|
+ * | Word | doc / docx | `file-word` | 蓝（`primary`） |
+ * | Excel | xls / xlsx / csv | `file-excel` | 绿（`success`） |
+ * | PPT | ppt / pptx | `file-powerpoint` | 橙（`warning`） |
+ * | WPS | wps / et / dps | 同对应形状 | **红（`danger`）** |
+ *
+ * # 「预览」按钮的判据也在这里
+ *
+ * `previewable` 直接给面板用（`v-if`），面板不许自己再判一次扩展名 ——
+ * 「列表说能预览、弹窗说不能预览」这种自相矛盾只可能来自两处判据。
+ */
 export function describeAttachment(
   fileName: string,
   mimeType: string | null | undefined,
   fileSize: number,
 ): AttachmentDisplay {
   const kind = fileKindOf(fileName, mimeType);
+  const wpsLabel = wpsKindLabelOf(fileName);
   return {
     kind,
     icon: KIND_ICONS[kind],
-    theme: KIND_THEMES[kind],
-    kindLabel: fileKindLabel(kind),
+    theme: wpsLabel ? 'danger' : KIND_THEMES[kind],
+    kindLabel: wpsLabel ?? fileKindLabel(kind),
     sizeLabel: formatAttachmentSize(fileSize),
+    previewable: isPreviewable(resolvePreviewKind(fileName, mimeType)),
   };
 }
