@@ -53,6 +53,7 @@ PDF 事实：单页 A4 纵向、字体已内嵌（`pdffonts` 有 `emb=yes`）、
 
 ```
 raw/e2e_run.txt                     127 项断言的完整输出（含每项 [PASS]）
+raw/curl_example.txt                真实 token curl 实测：200 application/pdf 头 + 401/400/404 分支 + 落盘与 pdftotext 解析
 raw/operation_logs.txt              S7 抓到的审计行（operation|target_type|doc_no|trace_count|amount|source）
 raw/pdftotext_approval-*.txt        五张 PDF 的文本层（核对轨迹 / 标记 / 签字位）
 raw/pdfinfo_approval-*.txt          页数 / 页面尺寸（A4 纵向）

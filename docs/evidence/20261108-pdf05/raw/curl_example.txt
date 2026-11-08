@@ -1,0 +1,46 @@
+# PDF-05 审批单 PDF · 真实 token curl 实测（145 隔离实例 127.0.0.1:8079，库 cloudpivot_pdf05）
+# 采集时间：2026-11-08 23:13:58 CST
+
+## ① 正常导出（发起人 u_init 的 JWT）
+$ curl -D - -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8079/api/business/flow/instance/01a1bbb2-80e3-722d-bef7-3df5fa45d88e/pdf
+HTTP/1.1 200 OK
+content-type: application/pdf
+content-length: 63544
+content-disposition: attachment; filename="___-FLW-20261108-AD5A4448.pdf"; filename*=UTF-8''%E5%AE%A1%E6%89%B9%E5%8D%95-FLW-20261108-AD5A4448.pdf
+cache-control: no-store
+x-content-type-options: nosniff
+vary: accept-encoding
+vary: origin
+
+## ② 未登录（无 Authorization）
+$ curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8079/api/business/flow/instance/01a1bbb2-80e3-722d-bef7-3df5fa45d88e/pdf
+http=401
+{"code":401,"msg":"未授权访问，请先登录"}
+
+## ③ 非法 id
+$ curl ... /instance/not-a-uuid/pdf
+{"code":66006,"msg":"id 不是合法的 UUID：not-a-uuid"}  http=400
+
+
+## ④ 不存在的实例
+{"code":10002,"msg":"审批单不存在或已删除"}  http=404
+
+
+## ⑤ 落盘 + 解析
+/root/curl_body.pdf: PDF document, version 1.4, 1 page(s)
+云枢（上海）科技有限公司
+
+                                               审       批        单
+
+  单据类型        PDF05_S5                         单号         FLW-20261108-AD5A4448   业务单号       —
+
+    金额        4,321.00                        申请人         PDF05 发起人 u_init        申请时间       2026-11-08 23:06
+
+    流程        pdf05_s5（v6）                     状态         已通过                     完成时间       2026-11-08 23:06
+
+    标题        PDF05 采购申请（兜底审批）
+
+
+ 审批结论：已通过 （兜底人代审同意）
+
+ 审批轨迹（共 1 级／1 条记录）
