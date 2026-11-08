@@ -930,7 +930,7 @@ async fn db_download_log_lands_in_operation_logs() {
                     request_path, username, detail->>'doc_type' AS doc_type, \
                     detail->>'file_name' AS file_name, \
                     (detail->>'file_size')::bigint AS file_size, \
-                    ip::text AS ip_text \
+                    host(ip) AS ip_text \
                FROM operation_logs WHERE id = ?::uuid",
             vec![Value::from(&log_id)],
         )
