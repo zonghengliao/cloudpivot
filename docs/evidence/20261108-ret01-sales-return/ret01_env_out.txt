@@ -1,0 +1,9 @@
+✅ 空库 cloudpivot_ret01 已创建（owner cloudpivot），迁移由后端首启自跑
+✅ 实例健康 health=200 port=18225 pid=800884 log=/tmp/ret01_server.log
+--- 环境指纹
+git_head=91e36c320ce523c2443968438c20f3e56c78a1a5
+binary_sha256=5defface74620eeb8495c31beb97d738801b78cfc6838371ae4201ee7dd504f8
+binary_mtime=2026-11-08 22:41:05
+migrations=281
+health_body={"code":0,"msg":"ok","data":{"status":"ok","app":"cloudpivot","profile":"dev","time":"2026-11-08T14:44:08.572313718+00:00"}}
+seed=users=1 mat=5 wh=3 unit=28 role=11 so=0 sr=0

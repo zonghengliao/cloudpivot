@@ -1,0 +1,7 @@
+--- select 'so='||so_no||'|'||status||'|amt='||total_amount||'|tax='||total_tax||'|total='||total_with_tax from biz_sales_order where id='01a1bb9d-ecb8-764b-9eed-bb0d117c811b'
+so=SO-20261108-000001|APPROVED|amt=30000.0000|tax=3900.0000|total=33900.0000
+--- select 'item: line='||line_no||'|qty='||qty||'|price='||price||'|rate='||tax_rate||'|delivered='||delivered_qty from biz_sales_order_item where so_id='01a1bb9d-ecb8-764b-9eed-bb0d117c811b'
+item: line=1|qty=100.0000|price=300.000000|rate=13.0000|delivered=0.0000
+--- select 'flow: '||node_key||'|'||status||'|assignee='||coalesce(assignee_name,'-') from biz_flow_task where instance_id in (select id from biz_flow_instance where biz_id='01a1bb9d-ecb8-764b-9eed-bb0d117c811b') order by created_at
+flow: n_sales|APPROVED|assignee=RET01 审批人
+flow: n_finance|APPROVED|assignee=RET01 审批人

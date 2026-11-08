@@ -1,0 +1,1 @@
+{"code":0,"msg":"ok","data":{"access_token":"<redacted>","refresh_token":"<redacted>","token_type":"Bearer","expires_in":900,"user":{"id":"01a1bb9d-e96c-73e3-a24e-a7afd5257642","username":"ret01_approver","real_name":"RET01 审批人"},"must_change_password":false}}

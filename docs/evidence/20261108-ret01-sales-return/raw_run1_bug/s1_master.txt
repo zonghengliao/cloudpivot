@@ -1,0 +1,8 @@
+--- select 'customer='||code||'|'||name||'|limit='||credit_limit from biz_customer where id='01a1bb96-a787-755a-bbe2-a5050e34b4a6'
+customer=C-RET01-001|退货演练客户A|limit=100000.0000
+--- select 'material='||material_code||'|'||material_name||'|costing='||costing_method||'|serial='||serial_required from biz_material where id='01a1bb96-a7a3-7774-aa8b-bead6ad18b98'
+material=RET01-MAT-001|退货演练成品|costing=MOVING_AVG|serial=false
+--- select 'inv='||qty||'|amt='||amount||'|avg='||avg_cost from biz_inventory where material_id='01a1bb96-a7a3-7774-aa8b-bead6ad18b98'
+inv=200.0000|amt=60000.0000|avg=300.000000
+--- select 'txn='||txn_type||'|'||biz_type||'|'||qty||'|before='||before_qty||'|after='||after_qty from biz_inventory_txn where material_id='01a1bb96-a7a3-7774-aa8b-bead6ad18b98' order by created_at
+txn=IN|OPENING|200.0000|before=0.0000|after=200.0000

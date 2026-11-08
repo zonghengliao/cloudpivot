@@ -1,0 +1,10 @@
+--- WITH inv AS (SELECT material_id, warehouse_id, SUM(qty) qty FROM biz_inventory GROUP BY 1,2), txn AS (SELECT material_id, warehouse_id, SUM(CASE WHEN txn_type='IN' THEN qty ELSE -qty END) qty FROM biz_inventory_txn GROUP BY 1,2) SELECT 'recon1 '||coalesce(m.material_code,'?')||' wh='||coalesce(w.warehouse_code,'?')||' inv='||coalesce(inv.qty,0)||' txn='||coalesce(txn.qty,0)||' diff='||coalesce(inv.qty,0)-coalesce(txn.qty,0) FROM inv FULL JOIN txn USING (material_id, warehouse_id) LEFT JOIN biz_material m ON m.id=coalesce(inv.material_id,txn.material_id) LEFT JOIN biz_warehouse w ON w.id=coalesce(inv.warehouse_id,txn.warehouse_id)
+recon1 RET01-MAT-001 wh=WH01 inv=200.0000 txn=200.0000 diff=0.0000
+--- select 'stock_all='||qty||'|amt='||amount||'|avg='||avg_cost from biz_inventory where material_id='01a1bb96-a7a3-7774-aa8b-bead6ad18b98'
+stock_all=200.0000|amt=60000.0000|avg=300.000000
+--- select 'loc='||coalesce(location_id::text,'-')||'|qty='||qty from biz_inventory_location where material_id='01a1bb96-a7a3-7774-aa8b-bead6ad18b98'
+loc=-|qty=200.0000
+--- select 'ar_all='||ar_no||'|'||status||'|amt='||amount||'|unsettled='||unsettled_amount from biz_receivable order by created_at
+ar_all=AR-20261108-000001|CANCELLED|amt=20340.0000|unsettled=20340.0000
+--- select 'cust_open_ar='||coalesce(sum(unsettled_amount),0) from biz_receivable where customer_id='01a1bb96-a787-755a-bbe2-a5050e34b4a6'
+cust_open_ar=20340.0000

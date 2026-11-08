@@ -1,0 +1,32 @@
+--- select 'sr='||return_no||'|'||status||'|amt='||total_amount||'|tax='||total_tax||'|total='||total_with_tax from biz_sales_return where id='01a1bb9d-f12e-74a5-bd0d-1d461dc4e0f5'
+sr=SR-20261108-000001|POSTED|amt=12000.0000|tax=1560.0000|total=13560.0000
+--- select 'inv='||qty||'|amt='||amount||'|avg='||avg_cost from biz_inventory where material_id='01a1bb9d-ebeb-7346-9c30-5f7c0385c7bb'
+inv=140.0000|amt=42000.0000|avg=300.000000
+--- select 'txn='||txn_type||'|'||biz_type||'|'||qty||'|before='||before_qty||'|after='||after_qty||'|amt='||amount from biz_inventory_txn where material_id='01a1bb9d-ebeb-7346-9c30-5f7c0385c7bb' order by created_at
+txn=IN|OPENING|200.0000|before=0.0000|after=200.0000|amt=60000.0000
+txn=OUT|SALE_OUT|100.0000|before=200.0000|after=100.0000|amt=30000.0000
+txn=IN|SALES_RETURN_IN|40.0000|before=100.0000|after=140.0000|amt=12000.0000
+--- select 'voucher='||voucher_no||'|'||source_type||'|'||total_debit||'/'||total_credit||'|'||summary from biz_voucher order by created_at
+voucher=PZ-20261108-000001|OPENING|60000.0000/60000.0000|期初余额结转
+voucher=PZ-20261108-000002|STOCK_OUT|30000.0000/30000.0000|其他出库 OUT-20261108-000001 结转成本 30000.0000
+voucher=PZ-20261108-000003|INVOICE|33900.0000/33900.0000|开票 IV-20261108-000001 客户 01a1bb9d-ebd6-7197-a584-3011e35a55cb
+voucher=PZ-20261108-000004|STOCK_IN|12000.0000/12000.0000|销售退货 SR-20261108-000001 成本冲减
+voucher=PZ-20261108-000005|INVOICE|13560.0000/13560.0000|销售退货 SR-20261108-000001 收入冲减
+--- select 'entry='||e.account_code||'|'||e.account_name||'|D='||e.debit_amount||'|C='||e.credit_amount||'|'||v.source_type from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id order by v.created_at, e.line_no
+entry=1405|库存商品|D=60000.0000|C=0.0000|OPENING
+entry=3103|本年利润|D=0.0000|C=60000.0000|OPENING
+entry=6401|主营业务成本|D=30000.0000|C=0.0000|STOCK_OUT
+entry=1405|库存商品|D=0.0000|C=30000.0000|STOCK_OUT
+entry=1122|应收账款|D=33900.0000|C=0.0000|INVOICE
+entry=5001|主营业务收入|D=0.0000|C=30000.0000|INVOICE
+entry=2221.02|应交税费-销项税|D=0.0000|C=3900.0000|INVOICE
+entry=1405|库存商品|D=12000.0000|C=0.0000|STOCK_IN
+entry=5001|主营业务收入|D=12000.0000|C=0.0000|INVOICE
+entry=6401|主营业务成本|D=0.0000|C=12000.0000|STOCK_IN
+entry=2221.02|应交税费-销项税|D=1560.0000|C=0.0000|INVOICE
+entry=1122|应收账款|D=0.0000|C=13560.0000|INVOICE
+--- select 'ar='||ar_no||'|'||status||'|amt='||amount||'|received='||received_amount||'|unsettled='||unsettled_amount from biz_receivable where id='5a143a1b-8e54-454e-888d-71e893c47b88'
+ar=AR-20261108-000001|OPEN|amt=20340.0000|received=0.0000|unsettled=20340.0000
+--- select 'iv='||invoice_no||'|'||invoice_type||'|'||status||'|amt='||amount||'|tax='||tax_amount||'|total='||total_with_tax from biz_invoice order by created_at
+iv=IV-20261108-000001|OUT|ISSUED|amt=30000.0000|tax=3900.0000|total=33900.0000
+iv=IV-20261108-000002|OUT_RED|ISSUED|amt=-12000.0000|tax=-1560.0000|total=-13560.0000

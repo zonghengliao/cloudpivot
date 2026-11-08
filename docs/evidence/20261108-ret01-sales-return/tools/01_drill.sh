@@ -263,7 +263,7 @@ snap s6_post \
   "select 'inv='||qty||'|amt='||amount||'|avg='||avg_cost from biz_inventory where material_id='$MAT'" \
   "select 'txn='||txn_type||'|'||biz_type||'|'||qty||'|before='||before_qty||'|after='||after_qty||'|amt='||amount from biz_inventory_txn where material_id='$MAT' order by created_at" \
   "select 'voucher='||voucher_no||'|'||source_type||'|'||total_debit||'/'||total_credit||'|'||summary from biz_voucher order by created_at" \
-  "select 'entry='||v.account_code||'|'||e.account_name||'|D='||e.debit_amount||'|C='||e.credit_amount||'|'||v.source_type from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id order by v.created_at, e.line_no" \
+  "select 'entry='||e.account_code||'|'||e.account_name||'|D='||e.debit_amount||'|C='||e.credit_amount||'|'||v.source_type from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id order by v.created_at, e.line_no" \
   "select 'ar='||ar_no||'|'||status||'|amt='||amount||'|received='||received_amount||'|unsettled='||unsettled_amount from biz_receivable where id='$AR'" \
   "select 'iv='||invoice_no||'|'||invoice_type||'|'||status||'|amt='||amount||'|tax='||tax_amount||'|total='||total_with_tax from biz_invoice order by created_at"
 
@@ -282,7 +282,7 @@ for target in SUBMITTED APPROVED PENDING_POST POSTED; do
 done
 check "二次退货后应收状态（作废）" "$(P "select status from biz_receivable where id='$AR'")" "CANCELLED"
 check "二次退货后应收已收金额（0，未动过钱）" "$(P "select received_amount from biz_receivable where id='$AR'")" "0.0000"
-check "账龄口径未结合计（作废单不计入：status∈OPEN/PARTIAL）" "$(P "select coalesce(sum(unsettled_amount),0) from biz_receivable where customer_id='$CUST' and status in ('OPEN','PARTIAL')")" "0.0000"
+check "账龄口径未结合计（作废单不计入：status∈OPEN/PARTIAL）" "$(P "select coalesce(sum(unsettled_amount),0)::text from biz_receivable where customer_id='$CUST' and status in ('OPEN','PARTIAL')")" "0"
 check "红字发票价税合计（−33900 = 全额红冲）" "$(P "select sum(total_with_tax) from biz_invoice where invoice_type='OUT_RED'")" "-33900.0000"
 check "红字发票不含税合计（−30000）" "$(P "select sum(amount) from biz_invoice where invoice_type='OUT_RED'")" "-30000.0000"
 check "库存回到期初（200 / 60000）" "$(P "select qty||'/'||amount from biz_inventory where material_id='$MAT' and warehouse_id='$WH'")" "200.0000/60000.0000"
@@ -312,7 +312,8 @@ snap s9_reconcile \
   "select 'stock_all='||qty||'|amt='||amount||'|avg='||avg_cost from biz_inventory where material_id='$MAT'" \
   "select 'loc='||coalesce(location_id::text,'-')||'|qty='||qty from biz_inventory_location where material_id='$MAT'" \
   "select 'ar_all='||ar_no||'|'||status||'|amt='||amount||'|unsettled='||unsettled_amount from biz_receivable order by created_at" \
-  "select 'cust_open_ar='||coalesce(sum(unsettled_amount),0) from biz_receivable where customer_id='$CUST'"
+  "select 'cust_open_ar(账龄口径 OPEN/PARTIAL)='||coalesce(sum(unsettled_amount),0) from biz_receivable where customer_id='$CUST' and status in ('OPEN','PARTIAL')" \
+  "select 'cust_open_ar(全状态含作废)='||coalesce(sum(unsettled_amount),0) from biz_receivable where customer_id='$CUST'"
 
 api s9_tb GET "/business/erp/ledger/trial-balance?period=$PERIOD" "$T_ADMIN" ""
 if [ "$CODE" = "0" ]; then

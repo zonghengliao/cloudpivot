@@ -1,0 +1,1 @@
+{"code":0,"msg":"ok","data":{"access_token":"<redacted>","refresh_token":"<redacted>","token_type":"Bearer","expires_in":900,"user":{"id":"01a1bb94-9397-76ae-8a84-c728fea6bc87","username":"admin","real_name":"超级管理员"},"must_change_password":true}}

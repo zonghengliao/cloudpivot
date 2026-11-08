@@ -1,0 +1,10 @@
+login http=200 0 msg=ok
+--- GET /business/erp/sales-return/page
+http=200
+code=0 total=0 msg=ok
+--- GET /business/erp/sales-return/returnable/{uuid}（无此发货单 → 400/404，证明路由存在且参数校验生效）
+http=404
+code=10002 msg=发货单不存在或已删除
+--- GET /business/erp/ledger/trial-balance?period=2026-11（总账接口在 145 共用库上可用）
+http=200
+code=0 balanced=true

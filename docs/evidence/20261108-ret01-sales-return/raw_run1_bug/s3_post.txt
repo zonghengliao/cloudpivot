@@ -1,0 +1,10 @@
+--- select 'inv='||qty||'|amt='||amount||'|avg='||avg_cost from biz_inventory where material_id='01a1bb96-a7a3-7774-aa8b-bead6ad18b98'
+inv=100.0000|amt=30000.0000|avg=300.000000
+--- select 'ar='||ar_no||'|'||status||'|amt='||amount||'|received='||received_amount||'|unsettled='||unsettled_amount from biz_receivable where id='287b5d3f-5495-409b-a7fd-2a2fe5d1f4e8'
+ar=AR-20261108-000001|OPEN|amt=33900.0000|received=0.0000|unsettled=33900.0000
+--- select 'voucher='||voucher_no||'|'||source_type||'|'||total_debit||'/'||total_credit from biz_voucher order by created_at
+voucher=PZ-20261108-000001|OPENING|60000.0000/60000.0000
+voucher=PZ-20261108-000002|STOCK_OUT|30000.0000/30000.0000
+--- select 'entry='||account_code||'|D='||debit_amount||'|C='||credit_amount from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id where v.source_type='STOCK_OUT' order by e.line_no
+entry=6401|D=30000.0000|C=0.0000
+entry=1405|D=0.0000|C=30000.0000

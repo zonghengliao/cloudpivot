@@ -1,0 +1,6 @@
+--- select 'sr='||return_no||'|'||status||'|total='||total_with_tax||'|stock_in='||coalesce(stock_in_id::text,'-')||'|ar='||coalesce(receivable_id::text,'-')||'|red_iv='||coalesce(red_invoice_id::text,'-') from biz_sales_return where id='01a1bb9d-f12e-74a5-bd0d-1d461dc4e0f5'
+sr=SR-20261108-000001|PENDING_POST|total=13560.0000|stock_in=-|ar=-|red_iv=-
+--- select 'inv_before='||qty||'|amt='||amount from biz_inventory where material_id='01a1bb9d-ebeb-7346-9c30-5f7c0385c7bb'
+inv_before=100.0000|amt=30000.0000
+--- select 'ar_before='||status||'|amt='||amount||'|unsettled='||unsettled_amount from biz_receivable where id='5a143a1b-8e54-454e-888d-71e893c47b88'
+ar_before=OPEN|amt=33900.0000|unsettled=33900.0000

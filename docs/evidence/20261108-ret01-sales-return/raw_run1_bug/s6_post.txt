@@ -1,0 +1,24 @@
+--- select 'sr='||return_no||'|'||status||'|amt='||total_amount||'|tax='||total_tax||'|total='||total_with_tax from biz_sales_return where id='01a1bb96-aca1-73e1-bfc3-f5a7a4ce82c4'
+sr=SR-20261108-000001|POSTED|amt=12000.0000|tax=1560.0000|total=13560.0000
+--- select 'inv='||qty||'|amt='||amount||'|avg='||avg_cost from biz_inventory where material_id='01a1bb96-a7a3-7774-aa8b-bead6ad18b98'
+inv=140.0000|amt=42000.0000|avg=300.000000
+--- select 'txn='||txn_type||'|'||biz_type||'|'||qty||'|before='||before_qty||'|after='||after_qty||'|amt='||amount from biz_inventory_txn where material_id='01a1bb96-a7a3-7774-aa8b-bead6ad18b98' order by created_at
+txn=IN|OPENING|200.0000|before=0.0000|after=200.0000|amt=60000.0000
+txn=OUT|SALE_OUT|100.0000|before=200.0000|after=100.0000|amt=30000.0000
+txn=IN|SALES_RETURN_IN|40.0000|before=100.0000|after=140.0000|amt=12000.0000
+--- select 'voucher='||voucher_no||'|'||source_type||'|'||total_debit||'/'||total_credit||'|'||summary from biz_voucher order by created_at
+voucher=PZ-20261108-000001|OPENING|60000.0000/60000.0000|期初余额结转
+voucher=PZ-20261108-000002|STOCK_OUT|30000.0000/30000.0000|其他出库 OUT-20261108-000001 结转成本 30000.0000
+voucher=PZ-20261108-000003|INVOICE|33900.0000/33900.0000|开票 IV-20261108-000001 客户 01a1bb96-a787-755a-bbe2-a5050e34b4a6
+voucher=PZ-20261108-000004|STOCK_IN|12000.0000/12000.0000|销售退货 SR-20261108-000001 成本冲减
+voucher=PZ-20261108-000005|INVOICE|13560.0000/13560.0000|销售退货 SR-20261108-000001 收入冲减
+--- select 'entry='||v.account_code||'|'||e.account_name||'|D='||e.debit_amount||'|C='||e.credit_amount||'|'||v.source_type from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id order by v.created_at, e.line_no
+ERROR:  column v.account_code does not exist
+LINE 1: select 'entry='||v.account_code||'|'||e.account_name||'|D='|...
+                         ^
+HINT:  Perhaps you meant to reference the column "e.account_code".
+--- select 'ar='||ar_no||'|'||status||'|amt='||amount||'|received='||received_amount||'|unsettled='||unsettled_amount from biz_receivable where id='287b5d3f-5495-409b-a7fd-2a2fe5d1f4e8'
+ar=AR-20261108-000001|OPEN|amt=20340.0000|received=0.0000|unsettled=20340.0000
+--- select 'iv='||invoice_no||'|'||invoice_type||'|'||status||'|amt='||amount||'|tax='||tax_amount||'|total='||total_with_tax from biz_invoice order by created_at
+iv=IV-20261108-000001|OUT|ISSUED|amt=30000.0000|tax=3900.0000|total=33900.0000
+iv=IV-20261108-000002|OUT_RED|ISSUED|amt=-12000.0000|tax=-1560.0000|total=-13560.0000

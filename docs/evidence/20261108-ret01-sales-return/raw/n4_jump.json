@@ -1,0 +1,1 @@
+{"code":10003,"msg":"非法状态迁移：草稿（DRAFT）→ 已过账（POSTED）不在合法边表里；当前可流转到：SUBMITTED（已提交） / CANCELLED（已取消）"}

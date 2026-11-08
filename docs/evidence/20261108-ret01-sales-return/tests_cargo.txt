@@ -1,0 +1,37 @@
+RET-01 后端用例结果（145，`cargo test --lib`，git_head 91e36c3）
+环境注意：145 只有 7.4G 内存且多 agent 共享，默认 `cargo test` 的 debuginfo=2
+在链接 lib-test 时被 OOM killer SIGKILL 过两次；改用 CARGO_PROFILE_TEST_DEBUG=0
+（只影响调试符号，不影响断言）后稳定通过。
+
+=== cargo test --lib erp::receivable（本卡改动的模块）
+test result: ok. 46 passed; 0 failed; 0 ignored; 0 measured; 3722 filtered out; finished in 0.01s
+
+=== cargo test --lib erp::sales_return（本卡改动的模块：handler + model + posting）
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 3735 filtered out; finished in 0.00s
+
+=== 新增两条用例（定点过滤，确认真的跑了而不是被过滤掉）
+test business::erp::receivable::tests::cancel_revenue_mode_decides_whether_original_voucher_is_reversed ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3767 filtered out; finished in 0.00s
+test business::erp::sales_return_posting::tests::full_return_cancel_must_not_reverse_original_revenue_voucher ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3767 filtered out; finished in 0.00s
+
+=== cargo test --lib（全量 3768 条）
+test result: FAILED. 3765 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.64s
+
+failures:
+    business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag
+    business::flow::linkage::tests_wiring::trigger_specs_cover_whitelist_in_order
+    business::flow::linkage::tests_wiring::wired_triggers_match_call_sites
+
+断言原文（第一条）：
+  assertion `left == right` failed: 已接线的触发点：STOCK_IN / STOCK_OUT（P1-FIX-5C 新接）/ …
+  left:  [..., "EXPENSE_REPORT", "PURCHASE_RETURN", "TASK", "FLOW_INSTANCE"]
+  right: [..., "EXPENSE_REPORT", "TASK", "FLOW_INSTANCE"]
+
+—— 这 3 条是**既有红**，与本卡改动无因果关系：
+   · 断言文本直接点名 PURCHASE_RETURN（left 比 right 多一个值）；
+   · `PURCHASE_RETURN` 由 9cf6cc1（P2-03 采购退货闭环）引入，该提交是本卡基线 07c39d4 的祖先
+     （`git merge-base --is-ancestor 9cf6cc1 07c39d4` 通过）；
+   · `tests_wiring.rs` 最后一次改动是 e83e1f8（LNK-12），P2-03 没同步更新这三条 wiring 断言；
+   · 本卡只改 `erp/receivable.rs` 与 `erp/sales_return_posting.rs`，不碰 `flow/linkage/*`。
+   建议单开一张卡补 P2-03 的 wiring 断言（本卡 ≤2 文件预算已用完，不越界）。
