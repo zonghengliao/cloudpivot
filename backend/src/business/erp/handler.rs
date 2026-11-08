@@ -81,6 +81,7 @@ use crate::business::erp::inventory_audit::AuditReport;
 use crate::business::erp::model::{
     self, InventoryLocationRow, InventoryRow, InventoryTxnRow, WarehouseRow,
 };
+use crate::business::erp::seq;
 use crate::business::erp::tax_rate as tax_rate_mod;
 use crate::business::erp::unit_guard;
 use crate::shared::error_code;
@@ -262,6 +263,25 @@ fn not_found(what: &str) -> ApiError {
 /// 弱引用缺失统一 400（`66002`）。
 fn reference_missing(message: impl Into<String>) -> ApiError {
     ApiError::new(400, error_code::ERP_REFERENCE_MISSING, message.into())
+}
+
+/// 入参不合法统一 400（`10001`）。
+fn param_invalid(message: impl Into<String>) -> ApiError {
+    ApiError::new(400, error_code::PARAM_INVALID, message.into())
+}
+
+/// 自动取号失败（`biz_seq` 没有可用规则 / 连号全被占）→ `500 + 10004`。
+///
+/// 对外只说「找管理员」，真实原因（带 `seq_type` 与建议）进 `internal_detail`，
+/// 与 [`utils::db_error`] 同一口径：不把库里的细节丢给前端。
+fn seq_error(error: DbError, ctx: &str) -> ApiError {
+    ApiError {
+        status: 500,
+        code: error_code::INTERNAL_ERROR,
+        msg: format!("{ctx}：自动取号失败，请联系管理员检查取号规则"),
+        internal_detail: Some(format!("{ctx}: {error}")),
+        data: None,
+    }
 }
 
 /// 布尔入参 → `SMALLINT`（库里的 `is_base` / `is_default` / `allow_negative` 都是 0/1）。
@@ -1538,7 +1558,7 @@ pub async fn supplier_detail(Path(id): Path<String>) -> ResResult<SupplierRes> {
     Ok(Res::ok(SupplierRes::from(&row)))
 }
 
-/// 新建供应商。
+/// 新建供应商（`409 + 66001` 表示编码重复）。
 #[nik::permission(
     path = "/business/erp/supplier",
     method = "POST",
@@ -1549,6 +1569,37 @@ pub async fn supplier_create(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Json(req): Json<CreateSupplierReq>,
 ) -> ResResult<SupplierRes> {
+    let res = create_supplier(utils::current_user_uuid(&claims), req).await?;
+    Ok(Res::ok(res))
+}
+
+/// 新建供应商的**业务主体**（CODE-02：编码留空则由后端取号）。
+///
+/// axum handler [`supplier_create`] 只做参数解包，单测直接调本函数（同一条代码路径，只跳过认证）。
+///
+/// # 编码口径（用户已拍板，不许改）
+///
+/// | 入参 `supplier_code` | 行为 |
+/// |---|---|
+/// | `null` / `""` / 纯空白 | 自动取号：`SUP-0001` 形态（`biz_seq` 的 SUP 号段，纯流水 4 位、不计日期、永不重置）；撞号自动顺延 |
+/// | 有值 | **原样保留**（企业自有编码体系要能对接，`GYS-001` 也行），只校验长度 ≤ 40 + 字符集 |
+///
+/// 手工编码**不强制** `SUP-xxx` 形态 —— 只挡真正没法用的输入（空白 / 控制字符 / 中文标点）。
+///
+/// # 取号与落库同一事务
+///
+/// 取号是 `UPDATE biz_seq … RETURNING`（行锁），插入失败则整体回滚、号一起退回，
+/// 不留空号；并发建两个也不会拿到同一个号。
+///
+/// # 错误口径
+///
+/// - 手工编码已存在（预检命中 / 并发撞唯一索引）→ `409 + 66001`「供应商编码 `XXX` 已存在」；
+/// - 编码格式不合法 → `400 + 10001`；
+/// - 取号规则缺失 / 连号全被占 → `500 + 10004`（细节只进日志，提示找管理员）。
+pub async fn create_supplier(
+    operator: Option<Uuid>,
+    req: CreateSupplierReq,
+) -> std::result::Result<SupplierRes, ApiError> {
     req.validate()?;
     let payable_account_id = match req
         .payable_account_id
@@ -1567,44 +1618,87 @@ pub async fn supplier_create(
         None => None,
     };
     let id = Uuid::now_v7();
-    db()
-        .execute_with_params(
-            "INSERT INTO biz_supplier \
-             (id, supplier_code, supplier_name, short_name, contact_person, contact_phone, email, \
-              tax_no, address, credit_days, credit_limit, payable_account_id, invoice_title, \
-              invoice_bank_name, invoice_bank_account, status, remark, created_at, updated_at, \
-              create_by, update_by) \
-             VALUES (?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::uuid, \
-                     ?, ?, ?, ?, ?, now(), now(), NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)",
-            vec![
-                Value::from(&id),
-                Value::from(req.supplier_code.trim().to_string()),
-                Value::from(req.supplier_name.trim().to_string()),
-                Value::from(req.short_name.clone()),
-                Value::from(req.contact_person.clone()),
-                Value::from(req.contact_phone.clone()),
-                Value::from(req.email.clone()),
-                Value::from(req.tax_no.clone()),
-                Value::from(req.address.clone()),
-                Value::I32(req.credit_days),
-                Value::Text(req.credit_limit.unwrap_or(Decimal::ZERO).to_string()),
-                uuid_text(payable_account_id),
-                Value::from(req.invoice_title.clone()),
-                Value::from(req.invoice_bank_name.clone()),
-                Value::from(req.invoice_bank_account.clone()),
-                Value::I16(req.status),
-                Value::from(req.remark.clone()),
-                operator_of(&claims),
-                operator_of(&claims),
-            ],
-        )
+
+    // ① 手工编码：有值就保留（先去重，给出「编码 XXX 已存在」的人话错误）
+    let manual = seq::resolve_manual_code(req.supplier_code.as_deref(), seq::MAX_MANUAL_CODE_LEN)
+        .map_err(|reason| param_invalid(format!("supplier_code 不合法：{reason}")))?;
+    if let Some(code) = manual.as_deref() {
+        let taken = seq::master_code_taken(db(), "SUP", code)
+            .await
+            .map_err(|error| utils::db_error(error, "校验供应商编码唯一性"))?;
+        if taken {
+            return Err(supplier_code_conflict(code));
+        }
+    }
+
+    // ② 编码 + INSERT 同一事务：没填就取号，插入失败则号一起回滚
+    let tx = db()
+        .begin()
         .await
-        .map_err(|error| write_error(error, "新建供应商"))?;
+        .map_err(|error| utils::db_error(error, "开启新建供应商事务"))?;
+    let supplier_code = match manual {
+        Some(code) => code,
+        None => seq::next_master_code_free(&tx, "SUP")
+            .await
+            .map_err(|error| seq_error(error, "新建供应商"))?,
+    };
+    tx.execute_with_params(
+        "INSERT INTO biz_supplier \
+         (id, supplier_code, supplier_name, short_name, contact_person, contact_phone, email, \
+          tax_no, address, credit_days, credit_limit, payable_account_id, invoice_title, \
+          invoice_bank_name, invoice_bank_account, status, remark, created_at, updated_at, \
+          create_by, update_by) \
+         VALUES (?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::uuid, \
+                 ?, ?, ?, ?, ?, now(), now(), NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)",
+        vec![
+            Value::from(&id),
+            Value::from(supplier_code.clone()),
+            Value::from(req.supplier_name.trim().to_string()),
+            Value::from(req.short_name.clone()),
+            Value::from(req.contact_person.clone()),
+            Value::from(req.contact_phone.clone()),
+            Value::from(req.email.clone()),
+            Value::from(req.tax_no.clone()),
+            Value::from(req.address.clone()),
+            Value::I32(req.credit_days),
+            Value::Text(req.credit_limit.unwrap_or(Decimal::ZERO).to_string()),
+            uuid_text(payable_account_id),
+            Value::from(req.invoice_title.clone()),
+            Value::from(req.invoice_bank_name.clone()),
+            Value::from(req.invoice_bank_account.clone()),
+            Value::I16(req.status),
+            Value::from(req.remark.clone()),
+            uuid_text(operator),
+            uuid_text(operator),
+        ],
+    )
+    .await
+    .map_err(|error| supplier_write_error(error, &supplier_code))?;
+    tx.commit()
+        .await
+        .map_err(|error| utils::db_error(error, "提交新建供应商事务"))?;
     let row = model::supplier_find_by_id(id)
         .await
         .map_err(|error| utils::db_error(error, "回读新建供应商"))?
         .ok_or_else(|| not_found("供应商"))?;
-    Ok(Res::ok(SupplierRes::from(&row)))
+    Ok(SupplierRes::from(&row))
+}
+
+/// 供应商编码重复（409 + `66001`）：文案与客户 / 物料同一套口径（已软删的编码可复用）。
+fn supplier_code_conflict(code: &str) -> ApiError {
+    ApiError::new(
+        409,
+        error_code::ERP_CODE_CONFLICT,
+        format!("供应商编码 `{code}` 已存在（已软删的编码可以复用）"),
+    )
+}
+
+/// 供应商写路径的 DB 错误收口：唯一索引冲突翻成**带编码**的 409，其余走 [`write_error`]。
+fn supplier_write_error(err: DbError, code: &str) -> ApiError {
+    match &err {
+        DbError::UniqueViolation { .. } => supplier_code_conflict(code),
+        _ => write_error(err, "新建供应商"),
+    }
 }
 
 /// 编辑供应商。
@@ -3506,7 +3600,7 @@ mod tests {
             supplier_create(
                 Extension(AuthClaims(claims())),
                 Json(CreateSupplierReq {
-                    supplier_code: supplier_code.clone(),
+                    supplier_code: Some(supplier_code.clone()),
                     supplier_name: "W1C 供应商".to_string(),
                     short_name: Some("W1C 供应".to_string()),
                     contact_person: Some("张三".to_string()),
@@ -3571,6 +3665,169 @@ mod tests {
             "软删后按主键查不到"
         );
         hard_delete("biz_supplier", id).await;
+    }
+
+    // ==================== CODE-02：供应商编码自动取号 ====================
+    //
+    // 这几条用例会真的**消耗 SUP 号段**（自动取号就是被验证的行为本身），只按 id
+    // 物理删掉自己建的行，不回退 `biz_seq.current_no`：主数据是档案，建成功就该永久占号。
+
+    /// `SUP-0001` 形态（前缀 + `-` + ≥4 位纯流水）。
+    fn is_auto_code(code: &str, prefix: &str) -> bool {
+        let Some(rest) = code.strip_prefix(prefix) else {
+            return false;
+        };
+        let Some(digits) = rest.strip_prefix('-') else {
+            return false;
+        };
+        digits.len() >= 4 && digits.chars().all(|ch| ch.is_ascii_digit())
+    }
+
+    /// 流水号（取最后一段数字）。
+    fn seq_no(code: &str) -> i64 {
+        code.rsplit('-')
+            .next()
+            .and_then(|digits| digits.parse::<i64>().ok())
+            .unwrap_or_else(|| panic!("编码里没有流水段：{code}"))
+    }
+
+    /// 造一个供应商请求：`supplier_code` 传 `None` = 留空自动取号。
+    fn supplier_req(supplier_code: Option<&str>, supplier_name: &str) -> CreateSupplierReq {
+        CreateSupplierReq {
+            supplier_code: supplier_code.map(str::to_string),
+            supplier_name: supplier_name.to_string(),
+            short_name: None,
+            contact_person: None,
+            contact_phone: None,
+            email: None,
+            tax_no: None,
+            address: None,
+            credit_days: 30,
+            credit_limit: Some(Decimal::ZERO),
+            payable_account_id: None,
+            invoice_title: None,
+            invoice_bank_name: None,
+            invoice_bank_account: None,
+            status: 1,
+            remark: None,
+        }
+    }
+
+    /// ㉕ CODE-02 ①：`null` / `""` / 纯空白三种「没填」都自动取号，且真落库。
+    #[tokio::test]
+    async fn supplier_auto_code_generated_when_blank() {
+        let Some(_guard) = setup().await else { return };
+
+        let by_none = create_supplier(None, supplier_req(None, "自动编码供应商（未传）"))
+            .await
+            .expect("supplier_code 缺席应自动取号");
+        assert!(
+            is_auto_code(&by_none.supplier_code, "SUP"),
+            "自动编码必须是 SUP-0001 形态，实际 {}",
+            by_none.supplier_code
+        );
+        let id = Uuid::parse_str(&by_none.id).expect("id");
+        let row = model::supplier_find_by_id(id)
+            .await
+            .expect("回读")
+            .expect("行存在");
+        assert_eq!(
+            row.supplier_code, by_none.supplier_code,
+            "自动编码必须真落库"
+        );
+
+        let by_empty = create_supplier(None, supplier_req(Some(""), "自动编码供应商（空串）"))
+            .await
+            .expect("空串应自动取号");
+        assert!(
+            is_auto_code(&by_empty.supplier_code, "SUP"),
+            "{}",
+            by_empty.supplier_code
+        );
+        assert_ne!(
+            by_empty.supplier_code, by_none.supplier_code,
+            "两次自动取号不得同号"
+        );
+
+        let by_blank = create_supplier(None, supplier_req(Some("   "), "自动编码供应商（空白）"))
+            .await
+            .expect("纯空白应自动取号");
+        assert!(
+            is_auto_code(&by_blank.supplier_code, "SUP"),
+            "{}",
+            by_blank.supplier_code
+        );
+        assert_ne!(
+            by_blank.supplier_code, by_empty.supplier_code,
+            "三次自动取号两两不同"
+        );
+
+        for created in [by_none, by_empty, by_blank] {
+            hard_delete("biz_supplier", Uuid::parse_str(&created.id).expect("id")).await;
+        }
+    }
+
+    /// ㉖ CODE-02 ②：手工编码原样保留（不强制 `SUP-xxx` 形态），只 trim。
+    #[tokio::test]
+    async fn supplier_manual_code_is_preserved() {
+        let Some(_guard) = setup().await else { return };
+        let manual = "W1C-GYS-001";
+        let created = create_supplier(
+            None,
+            supplier_req(Some(&format!("  {manual}  ")), "手工编码供应商"),
+        )
+        .await
+        .expect("手工编码应保留");
+        assert_eq!(
+            created.supplier_code, manual,
+            "手工编码只 trim，不改成 SUP-xxx"
+        );
+
+        hard_delete("biz_supplier", Uuid::parse_str(&created.id).expect("id")).await;
+    }
+
+    /// ㉗ CODE-02 ③：连续两次自动取号 → 流水 +1。
+    #[tokio::test]
+    async fn supplier_auto_code_increments_consecutively() {
+        let Some(_guard) = setup().await else { return };
+        let first = create_supplier(None, supplier_req(None, "连续取号甲"))
+            .await
+            .expect("建甲");
+        let second = create_supplier(None, supplier_req(None, "连续取号乙"))
+            .await
+            .expect("建乙");
+        assert_eq!(
+            seq_no(&second.supplier_code),
+            seq_no(&first.supplier_code) + 1,
+            "连续自动取号必须 +1（{} → {}）",
+            first.supplier_code,
+            second.supplier_code
+        );
+
+        hard_delete("biz_supplier", Uuid::parse_str(&first.id).expect("id")).await;
+        hard_delete("biz_supplier", Uuid::parse_str(&second.id).expect("id")).await;
+    }
+
+    /// ㉘ CODE-02 ④：手工编码重复 → `409 + 66001`，文案点名具体编码（不靠 DB 唯一索引兜底）。
+    #[tokio::test]
+    async fn supplier_duplicate_code_rejected_with_message() {
+        let Some(_guard) = setup().await else { return };
+        let manual = code("SUPDUP");
+        let created = create_supplier(None, supplier_req(Some(&manual), "重复编码一号"))
+            .await
+            .expect("首次创建应成功");
+        let error = create_supplier(None, supplier_req(Some(&manual), "重复编码二号"))
+            .await
+            .expect_err("重复手工编码必须被拒");
+        assert_eq!(error.status, 409);
+        assert_eq!(error.code, error_code::ERP_CODE_CONFLICT, "66001");
+        assert!(
+            error.msg.contains(&manual),
+            "错误文案要点名具体编码：{}",
+            error.msg
+        );
+
+        hard_delete("biz_supplier", Uuid::parse_str(&created.id).expect("id")).await;
     }
 
     /// ㉔ 仓库分页：`page_size` 截断与 `keyword` 组合。

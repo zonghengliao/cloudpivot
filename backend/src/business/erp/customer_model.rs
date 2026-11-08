@@ -267,12 +267,26 @@ pub async fn customer_insert(
     write: &CustomerWrite,
     operator: Option<Uuid>,
 ) -> DbResult<u64> {
-    db().execute_with_params(
+    customer_insert_ex(db(), id, write, operator).await
+}
+
+/// 同 [`customer_insert`]，但在**调用方给的事务 / 执行器**里执行。
+///
+/// CODE-02：自动取号与落库必须在同一事务（取号是 `UPDATE biz_seq … RETURNING`，
+/// 插入失败则整体回滚、号一起退回，不留空号）。单测也可以用它把夹具包进一个事务里回滚。
+pub async fn customer_insert_ex(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    write: &CustomerWrite,
+    operator: Option<Uuid>,
+) -> DbResult<u64> {
+    ex.exec_sql(
         "INSERT INTO biz_customer \
              (id, code, name, tax_no, contact_name, contact_phone, address, \
               credit_days, credit_limit, status, remark, created_at, updated_at, create_by, update_by) \
              VALUES (?::uuid, ?, ?, ?, ?, ?, ?, ?, ?::text::numeric, ?, ?, now(), now(), \
-                     NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)",
+                     NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)"
+            .to_string(),
         vec![
             Value::from(&id),
             Value::from(write.code.clone()),

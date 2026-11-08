@@ -1239,7 +1239,12 @@ impl From<&MaterialRow> for MaterialRes {
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateSupplierReq {
     /// 编码（`VARCHAR(40)`，未删除内唯一）。
-    pub supplier_code: String,
+    ///
+    /// **CODE-02**：留空（`null` / `""` / 纯空白）⇒ 后端自动取号 `SUP-0001` 形态；
+    /// 有值 ⇒ 原样保留（企业自有编码体系要能对接），只校验长度与字符集，
+    /// 解析口径见 `erp::seq::resolve_manual_code`。
+    #[serde(default)]
+    pub supplier_code: Option<String>,
     /// 名称（`VARCHAR(200)`）。
     pub supplier_name: String,
     /// 简称。
@@ -1292,7 +1297,13 @@ pub struct CreateSupplierReq {
 impl CreateSupplierReq {
     /// 校验（`400 + 10001`）。
     pub fn validate(&self) -> std::result::Result<(), ApiError> {
-        require_text(&self.supplier_code, "supplier_code", 40)?;
+        // 编码可留空（CODE-02：留空则由后端取号）；填了才校验「可用性」——
+        // 长度 ≤ 40（VARCHAR(40)）+ 字符集，**不要求 SUP-xxx 形态**。
+        crate::business::erp::seq::resolve_manual_code(
+            self.supplier_code.as_deref(),
+            crate::business::erp::seq::MAX_MANUAL_CODE_LEN,
+        )
+        .map_err(|reason| bad_request(format!("supplier_code 不合法：{reason}")))?;
         require_text(&self.supplier_name, "supplier_name", 200)?;
         require_flag(self.status, "status")?;
         check_optional_text(self.short_name.as_deref(), "short_name", 100)?;

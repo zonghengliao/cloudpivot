@@ -52,6 +52,7 @@ use crate::business::erp::customer_model::{
     self, CustomerRow, CustomerWrite, MAX_CODE_LEN, MAX_NAME_LEN, STATUS_ACTIVE, is_valid_status,
     normalize_code,
 };
+use crate::business::erp::seq;
 use crate::shared::error_code;
 use crate::utils;
 
@@ -209,6 +210,30 @@ fn write_error(err: DbError, ctx: &str) -> ApiError {
     }
 }
 
+/// 建客户写路径的 DB 错误收口（CODE-02）：唯一索引冲突翻成**带编码**的 409。
+///
+/// 与 [`write_error`] 的区别只有一点 —— 唯一冲突时文案点名具体编码，
+/// 运维 / 用户一眼能看出撞的是哪个号（`uk_biz_customer_code`）。
+fn customer_write_error(err: DbError, code: &str) -> ApiError {
+    match &err {
+        DbError::UniqueViolation { .. } => code_conflict(code),
+        _ => write_error(err, "新建客户"),
+    }
+}
+
+/// 自动取号失败（`biz_seq` 没有可用规则 / 连号全被占）→ `500 + 10004`。
+///
+/// 对外只说「找管理员」，真实原因进 `internal_detail`（与 [`utils::db_error`] 同口径）。
+fn seq_error(error: DbError, ctx: &str) -> ApiError {
+    ApiError {
+        status: 500,
+        code: error_code::INTERNAL_ERROR,
+        msg: format!("{ctx}：自动取号失败，请联系管理员检查取号规则"),
+        internal_detail: Some(format!("{ctx}: {error}")),
+        data: None,
+    }
+}
+
 // ==================== 契约 ====================
 
 /// 分页筛选：`code` / `name` 模糊，`status` 精确（`ACTIVE` / `FROZEN`）。
@@ -243,7 +268,12 @@ impl Default for CustomerFilter {
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct CreateCustomerReq {
     /// 客户编码（`VARCHAR(40)`，未删除内唯一）。
-    pub code: String,
+    ///
+    /// **CODE-02**：留空（`null` / `""` / 纯空白）⇒ 后端自动取号 `CUS-0001` 形态；
+    /// 有值 ⇒ 原样保留（企业自有编码体系要能对接），只校验长度与字符集，
+    /// 解析口径见 `erp::seq::resolve_manual_code`。
+    #[serde(default)]
+    pub code: Option<String>,
     /// 客户全称（`VARCHAR(200)`）。
     pub name: String,
     /// 纳税人识别号（`VARCHAR(50)`）。
@@ -275,7 +305,10 @@ pub struct CreateCustomerReq {
 impl CreateCustomerReq {
     /// 校验（`400 + 10001`）。
     pub fn validate(&self) -> std::result::Result<(), ApiError> {
-        require_text(&self.code, "code", MAX_CODE_LEN)?;
+        // 编码可留空（CODE-02：留空则由后端取号）；填了才校验「可用性」——
+        // 长度 ≤ 40（VARCHAR(40)）+ 字符集，**不要求 CUS-xxx 形态**。
+        crate::business::erp::seq::resolve_manual_code(self.code.as_deref(), MAX_CODE_LEN)
+            .map_err(|reason| bad_request(format!("code 不合法：{reason}")))?;
         require_text(&self.name, "name", MAX_NAME_LEN)?;
         check_optional_text(self.tax_no.as_deref(), "tax_no", 50)?;
         check_optional_text(self.contact_name.as_deref(), "contact_name", 50)?;
@@ -434,21 +467,40 @@ impl From<&CustomerRow> for CustomerRes {
 
 // ==================== 业务逻辑（单测直接调这些） ====================
 
-/// 新建客户。
+/// 新建客户（CODE-02：编码留空则自动取号 `CUS-0001` 形态）。
+///
+/// # 编码口径（用户已拍板，不许改）
+///
+/// | 入参 `code` | 行为 |
+/// |---|---|
+/// | `null` / `""` / 纯空白 | 自动取号：`biz_seq` 的 CUS 号段（纯流水 4 位、不计日期、永不重置）；撞号自动顺延 |
+/// | 有值 | **原样保留**（企业自有编码体系，`KH-001` 也行），只校验长度 ≤ 40 + 字符集 |
+///
+/// 手工编码不强制 `CUS-xxx` 形态，只挡真正没法用的输入（空白 / 控制字符 / 中文标点）。
+///
+/// # 取号与落库同一事务
+///
+/// 取号是 `UPDATE biz_seq … RETURNING`（行锁），插入失败整体回滚、号一起退回，不留空号；
+/// 并发建两个客户也不会拿到同一个号。
 pub async fn create_customer(
     operator: Option<Uuid>,
     req: CreateCustomerReq,
 ) -> std::result::Result<CustomerRes, ApiError> {
     req.validate()?;
-    let code = normalize_code(&req.code);
-    if customer_model::customer_code_taken(&code, None)
-        .await
-        .map_err(|error| utils::db_error(error, "校验客户编码唯一性"))?
+    // ① 手工编码：有值就保留（先去重，给出「编码 XXX 已存在」的人话错误）
+    let manual = seq::resolve_manual_code(req.code.as_deref(), MAX_CODE_LEN)
+        .map_err(|reason| bad_request(format!("code 不合法：{reason}")))?;
+    if let Some(code) = manual.as_deref()
+        && customer_model::customer_code_taken(code, None)
+            .await
+            .map_err(|error| utils::db_error(error, "校验客户编码唯一性"))?
     {
-        return Err(code_conflict(&code));
+        return Err(code_conflict(code));
     }
     let write = CustomerWrite {
-        code,
+        // 自动生成时先占位空串，真正编码在事务里取（`CustomerWrite` 是值类型，
+        // 下面 begin 之后再填，避免「事务外取号」导致的空号）
+        code: manual.clone().unwrap_or_default(),
         name: req.name.trim().to_string(),
         tax_no: clean_optional(req.tax_no),
         contact_name: clean_optional(req.contact_name),
@@ -466,9 +518,24 @@ pub async fn create_customer(
         remark: clean_optional(req.remark),
     };
     let id = Uuid::now_v7();
-    customer_model::customer_insert(id, &write, operator)
+    // ② 编码 + INSERT 同一事务
+    let tx = db()
+        .begin()
         .await
-        .map_err(|error| write_error(error, "新建客户"))?;
+        .map_err(|error| utils::db_error(error, "开启新建客户事务"))?;
+    let mut write = write;
+    if manual.is_none() {
+        write.code = seq::next_master_code_free(&tx, "CUS")
+            .await
+            .map_err(|error| seq_error(error, "新建客户"))?;
+    }
+    let code = write.code.clone();
+    customer_model::customer_insert_ex(&tx, id, &write, operator)
+        .await
+        .map_err(|error| customer_write_error(error, &code))?;
+    tx.commit()
+        .await
+        .map_err(|error| utils::db_error(error, "提交新建客户事务"))?;
     let row = customer_model::customer_find_by_id(id)
         .await
         .map_err(|error| utils::db_error(error, "回读新建客户"))?
@@ -775,9 +842,18 @@ mod tests {
     /// 造一个请求（默认 `ACTIVE` / 额度 0）。
     fn req(code: &str, name: &str) -> CreateCustomerReq {
         CreateCustomerReq {
-            code: code.to_string(),
+            code: Some(code.to_string()),
             name: name.to_string(),
             credit_limit: Some(Decimal::from(1000)),
+            ..Default::default()
+        }
+    }
+
+    /// 造一个**留空编码**的请求（CODE-02：交给后端自动取号）。
+    fn auto_req(name: &str) -> CreateCustomerReq {
+        CreateCustomerReq {
+            code: None,
+            name: name.to_string(),
             ..Default::default()
         }
     }
@@ -1017,6 +1093,142 @@ mod tests {
         assert_eq!(b.code, format!("{CODE_PREFIX}UP-0002"));
 
         cleanup().await;
+    }
+
+    // ==================== CODE-02：客户编码自动取号 ====================
+    //
+    // 说明：这几条用例真的会**消耗 CUS 号段**（自动取号是业务要验证的行为本身），
+    // 所以只按 id 物理删掉自己建的行，不动 `biz_seq.current_no`：
+    //   ① 测试库号段被推高是正常现象，生产库不会被测试碰到（ERP_DB_URL 指向测试库）；
+    //   ② 回滚号只有在 insert 失败时才发生，成功建档案就该永久占用一个号（主数据是档案）。
+
+    /// `CUS-0001` 形态（前缀 + `-` + ≥4 位纯流水）。
+    fn is_auto_code(code: &str, prefix: &str) -> bool {
+        let Some(rest) = code.strip_prefix(prefix) else {
+            return false;
+        };
+        let Some(digits) = rest.strip_prefix('-') else {
+            return false;
+        };
+        digits.len() >= 4 && digits.chars().all(|ch| ch.is_ascii_digit())
+    }
+
+    /// 流水号（取最后一段数字）。
+    fn seq_no(code: &str) -> i64 {
+        code.rsplit('-')
+            .next()
+            .and_then(|digits| digits.parse::<i64>().ok())
+            .unwrap_or_else(|| panic!("编码里没有流水段：{code}"))
+    }
+
+    /// 物理删掉本用例造的行（`cleanup()` 只清 `SO2T-` 前缀，自动取号的行要单独删）。
+    async fn hard_delete(id: &str) {
+        // `?::uuid` 只收 UUID 值，绑 `&str` 会撞「cannot bind parameter to column type uuid」
+        let uuid = Uuid::parse_str(id).unwrap_or_else(|_| panic!("id 不是 UUID：{id}"));
+        let affected = db()
+            .execute_with_params(
+                "DELETE FROM biz_customer WHERE id = ?::uuid",
+                vec![Value::from(&uuid)],
+            )
+            .await
+            .expect("物理删客户夹具");
+        assert_eq!(affected, 1, "夹具行必须删掉（id={id}）");
+    }
+
+    /// ① `null` / `""` / 纯空白三种「没填」都自动取号，且真落库（详情回读一致）。
+    #[tokio::test]
+    async fn auto_code_generated_when_blank() {
+        let Some(_guard) = setup().await else { return };
+
+        // null（字段缺席）
+        let by_none = create_customer(None, auto_req("自动编码客户（未传）"))
+            .await
+            .expect("code 缺席应自动取号");
+        assert!(
+            is_auto_code(&by_none.code, "CUS"),
+            "自动编码必须是 CUS-0001 形态，实际 {}",
+            by_none.code
+        );
+        let detail = get_customer(&by_none.id).await.expect("详情回读");
+        assert_eq!(detail.code, by_none.code, "自动编码必须真落库");
+
+        // 空串（前端表单常见形态）
+        let mut empty = auto_req("自动编码客户（空串）");
+        empty.code = Some(String::new());
+        let by_empty = create_customer(None, empty).await.expect("空串应自动取号");
+        assert!(is_auto_code(&by_empty.code, "CUS"), "{}", by_empty.code);
+        assert_ne!(by_empty.code, by_none.code, "两次自动取号不得同号");
+
+        // 纯空白（用户随手敲了空格）
+        let mut blank = auto_req("自动编码客户（空白）");
+        blank.code = Some("   ".to_string());
+        let by_blank = create_customer(None, blank)
+            .await
+            .expect("纯空白应自动取号");
+        assert!(is_auto_code(&by_blank.code, "CUS"), "{}", by_blank.code);
+        assert_ne!(by_blank.code, by_empty.code, "三次自动取号两两不同");
+
+        hard_delete(&by_none.id).await;
+        hard_delete(&by_empty.id).await;
+        hard_delete(&by_blank.id).await;
+    }
+
+    /// ② 手工编码原样保留（不强制 `CUS-xxx` 形态，企业自有体系要能对接），只 trim。
+    #[tokio::test]
+    async fn manual_code_is_preserved() {
+        let Some(_guard) = setup().await else { return };
+        let manual = format!("{CODE_PREFIX}KH-001");
+        let created = create_customer(None, req(&format!("  {manual}  "), "手工编码客户"))
+            .await
+            .expect("手工编码应保留");
+        assert_eq!(created.code, manual, "手工编码只 trim，不改成 CUS-xxx");
+        assert!(!is_auto_code(&created.code, "CUS"), "不得被改成自动编码");
+
+        hard_delete(&created.id).await;
+    }
+
+    /// ③ 连续两次自动取号 → 流水连续（+1）。
+    #[tokio::test]
+    async fn auto_code_increments_consecutively() {
+        let Some(_guard) = setup().await else { return };
+        let first = create_customer(None, auto_req("连续取号甲"))
+            .await
+            .expect("建甲");
+        let second = create_customer(None, auto_req("连续取号乙"))
+            .await
+            .expect("建乙");
+        assert_eq!(
+            seq_no(&second.code),
+            seq_no(&first.code) + 1,
+            "连续自动取号必须 +1（{} → {}）",
+            first.code,
+            second.code
+        );
+
+        hard_delete(&first.id).await;
+        hard_delete(&second.id).await;
+    }
+
+    /// ④ 手工编码重复 → `409 + 66001`，文案点名具体编码。
+    #[tokio::test]
+    async fn duplicate_manual_code_rejected_with_message() {
+        let Some(_guard) = setup().await else { return };
+        let manual = format!("{CODE_PREFIX}DUP-CODE");
+        let created = create_customer(None, req(&manual, "重复编码一号"))
+            .await
+            .expect("首次创建应成功");
+        let err = create_customer(None, req(&manual, "重复编码二号"))
+            .await
+            .expect_err("重复手工编码必须被拒");
+        assert_eq!(err.status, 409);
+        assert_eq!(err.code, error_code::ERP_CODE_CONFLICT, "66001");
+        assert!(
+            err.msg.contains(&manual),
+            "错误文案要点名具体编码：{}",
+            err.msg
+        );
+
+        hard_delete(&created.id).await;
     }
 
     /// 权限码自检：4 个码、无重复、前缀 `business:erp:customer:`（V0261 的菜单行逐字对应）。

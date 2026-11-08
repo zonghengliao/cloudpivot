@@ -96,6 +96,68 @@ pub fn master_code_exists_sql(seq_type: &str) -> Option<&'static str> {
     }
 }
 
+/// 手工指定编码的最大长度（与 `biz_supplier.supplier_code` / `biz_customer.code`
+/// 等主数据编码列的 `VARCHAR(40)` 逐字同口径）。
+pub const MAX_MANUAL_CODE_LEN: usize = 40;
+
+/// 手工编码允许的字符集：ASCII 字母、数字，以及 `-` `_` `.` 三个分隔符。
+///
+/// **不强制 `SUP-0001` 这种形态**（用户已拍板）：企业自有编码体系（`GYS-001` / `S.001.A`）
+/// 必须能共存，这里只挡掉真正没法用的输入 —— 空白、控制字符、中文标点、`/`、`#` 等。
+fn is_manual_code_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.')
+}
+
+/// 归一化用户传来的编码：`None` / `""` / 纯空白 ⇒ `None`（= 交给取号器自动生成）。
+///
+/// 前端三种「没填」的形态（`null` 反序列化成 `None`、空串、空格）在这里统一收口，
+/// 调用方不必各自判断。
+pub fn manual_code(input: Option<&str>) -> Option<String> {
+    input
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
+}
+
+/// 手工编码格式校验（**只校验可用性，不校验编码规则**）：
+///
+/// - 长度：去空白后 `1..=max_len`（`chars().count()`，与 `VARCHAR(n)` 同口径）；
+/// - 字符集：见 [`is_manual_code_char`]。
+///
+/// 返回 `Err(人话原因)`，由调用方翻译成自己的错误码（供应商 / 客户各自 `400 + 10001`）。
+pub fn validate_manual_code(code: &str, max_len: usize) -> std::result::Result<(), String> {
+    let text = code.trim();
+    if text.is_empty() {
+        return Err("编码不能为空（留空则由系统自动生成）".to_string());
+    }
+    let len = text.chars().count();
+    if len > max_len {
+        return Err(format!("编码最长 {max_len} 个字符（当前 {len} 个）"));
+    }
+    if let Some(bad) = text.chars().find(|ch| !is_manual_code_char(*ch)) {
+        return Err(format!(
+            "编码里不能出现 `{}`：只允许字母、数字与 `-` `_` `.`（企业自有编码可直接沿用）",
+            bad.escape_debug()
+        ));
+    }
+    Ok(())
+}
+
+/// 一次搞定「有没有手工指定编码」：`Ok(None)` = 留空（交给取号器），
+/// `Ok(Some(code))` = 合法的手工编码（已去首尾空白），`Err(原因)` = 格式不合法。
+///
+/// 供应商 / 客户的建单路径都走这一个入口，保证两边口径一致。
+pub fn resolve_manual_code(
+    input: Option<&str>,
+    max_len: usize,
+) -> std::result::Result<Option<String>, String> {
+    let Some(code) = manual_code(input) else {
+        return Ok(None);
+    };
+    validate_manual_code(&code, max_len)?;
+    Ok(Some(code))
+}
+
 /// 纯函数：按「前缀 + 分隔符 + 流水」拼编码（位数不足左补 0，超过位数按实际输出）。
 ///
 /// ```ignore
@@ -196,6 +258,23 @@ async fn code_taken(ex: &impl SqlExecutor, exists_sql: &str, code: &str) -> DbRe
         .query_first_sql(exists_sql.to_string(), vec![Value::from(code)])
         .await?
         .is_some())
+}
+
+/// 某个主数据编码是否已被占用（按 `seq_type` 自动选表，表名/列名来自常量表）。
+///
+/// 建档案时用它做**手工编码的预检**：撞了就返回「编码 `XXX` 已存在」的人话错误，
+/// 不必等 DB 的部分唯一索引抛 `23505` 再翻译。
+pub async fn master_code_taken(
+    ex: &impl SqlExecutor,
+    seq_type: &str,
+    code: &str,
+) -> DbResult<bool> {
+    let Some(exists_sql) = master_code_exists_sql(seq_type) else {
+        return Err(DbError::InvalidValue(format!(
+            "唯一性校验失败：seq_type='{seq_type}' 不是主数据号段（支持 SUP/CUS/MAT/WH/AC/ET）"
+        )));
+    };
+    code_taken(ex, exists_sql, code).await
 }
 
 /// 取一个**未被占用**的主数据编码：撞了就继续取下一个号，最多 `max_attempts` 次。
@@ -375,6 +454,60 @@ mod tests {
         assert!(!is_master_code_type("SN"));
     }
 
+    // ---------- ①b 手工编码：空 → 自动；有值 → 保留；非法 → 报错 ----------
+
+    /// 三种「没填」都归一到 `None`；有值只去空白，**不校验 `SUP-xxx` 形态**。
+    #[test]
+    fn t02b_manual_code_resolution() {
+        assert_eq!(manual_code(None), None, "null ⇒ 自动生成");
+        assert_eq!(manual_code(Some("")), None, "空串 ⇒ 自动生成");
+        assert_eq!(manual_code(Some("   ")), None, "纯空白 ⇒ 自动生成");
+
+        assert_eq!(
+            manual_code(Some("  GYS-001 ")),
+            Some("GYS-001".to_string()),
+            "手工编码只 trim，不改大小写与分隔符"
+        );
+        assert_eq!(
+            resolve_manual_code(Some("S.001_A"), MAX_MANUAL_CODE_LEN),
+            Ok(Some("S.001_A".to_string())),
+            "企业自有编码体系要能共存"
+        );
+        assert_eq!(
+            resolve_manual_code(Some("SUP-9999"), MAX_MANUAL_CODE_LEN),
+            Ok(Some("SUP-9999".to_string()))
+        );
+        assert_eq!(
+            resolve_manual_code(Some("  "), MAX_MANUAL_CODE_LEN),
+            Ok(None),
+            "空白仍是自动生成"
+        );
+    }
+
+    /// 手工编码格式校验：超长 / 含非法字符 → 人话错误（不静默截断或吞掉）。
+    #[test]
+    fn t02c_manual_code_validation_rejects_unusable_input() {
+        let long = "A".repeat(MAX_MANUAL_CODE_LEN + 1);
+        let err = resolve_manual_code(Some(&long), MAX_MANUAL_CODE_LEN).expect_err("超长必须被拒");
+        assert!(err.contains("最长"), "超长文案：{err}");
+
+        let exact = "A".repeat(MAX_MANUAL_CODE_LEN);
+        assert!(
+            resolve_manual_code(Some(&exact), MAX_MANUAL_CODE_LEN).is_ok(),
+            "恰好 {MAX_MANUAL_CODE_LEN} 个字符是合法的（与 VARCHAR(40) 同口径）"
+        );
+
+        for bad in ["GYS 001", "供应商001", "GYS/001", "GYS#001", "GYS\t001"] {
+            match resolve_manual_code(Some(bad), MAX_MANUAL_CODE_LEN) {
+                Ok(got) => panic!("`{bad}` 应被拒，却通过：{got:?}"),
+                Err(msg) => assert!(
+                    msg.contains("只允许"),
+                    "`{bad}` 的错误文案应说明字符集：{msg}"
+                ),
+            }
+        }
+    }
+
     // ---------- ② 迁移落地：六条规则就是拍板的那六条 ----------
 
     #[tokio::test]
@@ -540,6 +673,19 @@ mod tests {
         .expect("造已占用编码");
 
         let exists_sql = master_code_exists_sql("SUP").expect("SUP 占位 SQL");
+        // 预检入口（建档案时给「编码已存在」用）与占位 SQL 同口径
+        assert!(
+            master_code_taken(db(), "SUP", code_taken_by_seed)
+                .await
+                .expect("查占用"),
+            "0001 已被占用"
+        );
+        assert!(
+            !master_code_taken(db(), "SUP", "T7S-0002")
+                .await
+                .expect("查占用"),
+            "0002 还没人占"
+        );
         let got = next_master_code_free_with(db(), SEQ, exists_sql, 5)
             .await
             .expect("取号（应跳过 0001）");
