@@ -115,10 +115,11 @@ table.detail th {
 }
 table.detail tr { break-inside: avoid; page-break-inside: avoid; }
 table.detail td.c-seq { text-align: center; width: 22pt; }
-/* 列宽实测口径（PDF-04）：编码整串不折行；规格 56pt 容得下 DN50／PN16 这类 9 字符规格 */
+/* 列宽实测口径（PDF-04）：编码整串不折行；规格 66pt —— 56pt 会把 DN100/PN16 折成
+   「DN100/PN」+「16」两行（实测 145 的 pdftotext），66pt 才整串一行 */
 table.detail td.c-code { width: 76pt; white-space: nowrap; }
 table.detail td.c-name { width: auto; }
-table.detail td.c-spec { width: 56pt; }
+table.detail td.c-spec { width: 66pt; }
 table.detail td.c-unit { text-align: center; width: 26pt; }
 table.detail td.c-qty { width: 44pt; }
 table.detail td.c-from { width: 52pt; overflow-wrap: anywhere; }
