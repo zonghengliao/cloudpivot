@@ -1,0 +1,25 @@
+    Blocking waiting for file lock on artifact directory
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 58.26s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 17 tests
+test business::erp::separation::tests::changes_take_effect_immediately ... ok
+test business::erp::separation::tests::approve_execute_switch_blocks_approver_when_on ... ok
+test business::erp::separation::tests::approve_duty_blocks_creator_by_default ... ok
+test business::erp::separation::tests::approver_list_is_checked_as_a_whole ... ok
+test business::erp::separation::tests::default_off_lets_creator_post ... ok
+test business::erp::separation::tests::missing_parameters_fall_back_to_code_defaults ... ok
+test business::erp::separation::tests::master_switch_turns_on_new_duties_by_default ... ok
+test business::erp::separation::tests::invalid_value_falls_back_to_default_and_reports ... ok
+test business::erp::separation::tests::new_duties_error_text_names_the_duty_pair ... ok
+test business::erp::separation::tests::purchase_accept_switch_blocks_buyer_when_on ... ok
+test business::erp::separation::tests::rejection_text_is_complete_for_every_duty ... ok
+test business::erp::separation::tests::parse_amount_only_accepts_non_negative_decimal ... ok
+test business::erp::separation::tests::stocktake_switch_blocks_creator_when_on ... ok
+test business::erp::separation::tests::switch_on_blocks_creator_with_readable_409 ... ok
+test business::erp::separation::tests::switch_on_lets_others_post ... ok
+test business::erp::separation::tests::duty_matrix_is_coherent ... ok
+test business::erp::separation::tests::pay_duty_blocks_creator_by_default ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 3481 filtered out; finished in 0.00s
+

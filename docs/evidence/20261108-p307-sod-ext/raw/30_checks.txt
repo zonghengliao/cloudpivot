@@ -1,0 +1,41 @@
+================ P3-07 门禁（fmt / clippy / 单测）================
+
+--- rustfmt --check（本卡 5 个文件；cargo fmt --check -- <files> 不按路径过滤，会去查别人的文件）---
+  ✅ fmt 干净（5 个文件）
+
+--- cargo clippy --lib -D warnings ---
+clippy exit=101
+      1 error: this function has too many arguments (8/7)
+      1 error: could not compile `cloudpivot` (lib) due to 1 previous error
+  ✅ clippy 只报既有基线（sales_order_model.rs too_many_arguments）
+--- 本卡文件是否出现在 clippy 输出里 ---
+  ✅ 本卡 5 个文件在 clippy 输出里零命中
+
+--- 单测：business::erp::separation ---
+running 17 tests
+test business::erp::separation::tests::changes_take_effect_immediately ... ok
+test business::erp::separation::tests::approve_execute_switch_blocks_approver_when_on ... ok
+test business::erp::separation::tests::approve_duty_blocks_creator_by_default ... ok
+test business::erp::separation::tests::approver_list_is_checked_as_a_whole ... ok
+test business::erp::separation::tests::default_off_lets_creator_post ... ok
+test business::erp::separation::tests::missing_parameters_fall_back_to_code_defaults ... ok
+test business::erp::separation::tests::master_switch_turns_on_new_duties_by_default ... ok
+test business::erp::separation::tests::invalid_value_falls_back_to_default_and_reports ... ok
+test business::erp::separation::tests::new_duties_error_text_names_the_duty_pair ... ok
+test business::erp::separation::tests::purchase_accept_switch_blocks_buyer_when_on ... ok
+test business::erp::separation::tests::rejection_text_is_complete_for_every_duty ... ok
+test business::erp::separation::tests::parse_amount_only_accepts_non_negative_decimal ... ok
+test business::erp::separation::tests::stocktake_switch_blocks_creator_when_on ... ok
+test business::erp::separation::tests::switch_on_blocks_creator_with_readable_409 ... ok
+test business::erp::separation::tests::switch_on_lets_others_post ... ok
+test business::erp::separation::tests::duty_matrix_is_coherent ... ok
+test business::erp::separation::tests::pay_duty_blocks_creator_by_default ... ok
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 3481 filtered out; finished in 0.00s
+  ✅ separation 单测全绿（17 passed）
+
+--- 迁移：空库首启 / 重启 ---
+首启：应用 273 个迁移
+  ✅ V0340 生效：erp.separation_of_duties.* = 8 条 = 8
+（重启「应用 0 个迁移」由 20_e2e_sod.sh 的实例生命周期外的一次手工重启验证，见 README §4）
+
+===== 结果：PASS=5 FAIL=0 =====
