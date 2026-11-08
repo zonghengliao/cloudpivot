@@ -73,6 +73,7 @@ pub mod handler;
 pub mod instance_linkage;
 #[cfg(test)]
 pub mod instance_linkage_db_tests;
+pub mod instance_pdf;
 pub mod internal_control;
 pub mod linkage;
 pub mod maintain;

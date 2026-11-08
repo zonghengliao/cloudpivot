@@ -66,6 +66,8 @@ fn tera() -> &'static Tera {
             .expect("内置盘点单模板语法错误（编译期常量，改模板后必须跑 cargo test）");
         tera.add_raw_template(RETURN_NAME, RETURN_TEMPLATE)
             .expect("内置退货单模板语法错误（编译期常量，改模板后必须跑 cargo test）");
+        tera.add_raw_template(APPROVAL_NAME, APPROVAL_TEMPLATE)
+            .expect("内置审批单模板语法错误（编译期常量，改模板后必须跑 cargo test）");
         tera
     })
 }
@@ -500,6 +502,12 @@ pub const RETURN_TEMPLATE: &str = include_str!("templates/return_doc.html.tera")
 
 /// 退货单模板的注册名。
 pub const RETURN_NAME: &str = "return_doc.html";
+
+/// 内嵌的审批单模板（PDF-05：审批轨迹时间轴 + 每级意见 + 各级签字位）。
+pub const APPROVAL_TEMPLATE: &str = include_str!("templates/approval.html.tera");
+
+/// 审批单模板的注册名。
+pub const APPROVAL_NAME: &str = "approval.html";
 
 /// 盘点表「空白栏」的填表说明（**与模板里的实际列一一对应**）。
 ///
@@ -2093,6 +2101,282 @@ pub fn sample_return(kind: ReturnDocKind, rows: u32) -> ReturnContext {
     })
 }
 
+// ==================== ⑦ 审批单模板（PDF-05：审批轨迹） ====================
+
+/// 一条审批轨迹（模板里的一行）。
+///
+/// # 为什么「降级标记」是独立字段而不是拼进 `opinion`
+///
+/// 卡面（ARCH-8）要求打印件上能看出「已跳过（自审）」/「已升级至 XX」/「兜底审批人」，
+/// 但审批意见本身是审批人写的原文，**不许被系统改写**。两者混在一个字段里，
+/// 要么污染意见（审计失真），要么被前端/单测误判成「意见里写了这句话」。
+/// 因此 `opinion` 保持原文，标记走 `tag` + `tag_kind`（独立一行、独立配色）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ApprovalTrace {
+    /// 级次（`第 1 级`）
+    pub level: String,
+    /// 退回轮次标记（`第 2 轮`；首轮为空串）
+    pub round_note: String,
+    /// 节点名（快照）
+    pub node_name: String,
+    /// 审批人（姓名快照；系统代点为「系统」）
+    pub approver: String,
+    /// 结果（通过 / 驳回 / 跳过 / 待审批 / 已转办 / 已作废）
+    pub result: String,
+    /// 结果配色类（`is-approve` / `is-reject` / `is-skip` / `is-pending`）
+    pub cls: String,
+    /// 时间（`yyyy-MM-dd HH:mm`；未处理为空则印 `—`）
+    pub at: String,
+    /// 审批意见（**原文**，不做任何加工）
+    pub opinion: String,
+    /// 系统代点标注（`系统代点` / 空）
+    pub auto_note: String,
+    /// 降级标记（ARCH-8：`已跳过（自审）` / `已升级至…` / `兜底审批人` / `委托代批`；空 = 无）
+    pub tag: String,
+    /// 标记配色类（`is-skip` / `is-escalate` / `is-fallback` / `is-delegate`；空 = 无）
+    pub tag_kind: String,
+}
+
+/// 一级的签字位（空白栏，由审批人现场手写）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ApprovalSignSlot {
+    /// 级次（`第 1 级`）
+    pub level: String,
+    /// 节点名
+    pub node_name: String,
+    /// 该级审批人（多个用「、」连）
+    pub approver: String,
+}
+
+/// 一张审批单的渲染上下文。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApprovalContext {
+    /// 公司名
+    pub company: String,
+    /// 页眉标题
+    pub doc_title: String,
+    /// 单据名
+    pub doc_label: String,
+    /// 单号（`biz_flow_instance.instance_no`）
+    pub doc_no: String,
+    /// 审批结论（`已通过` / `已驳回` / `审批中` …）
+    pub status: String,
+    /// 结论配色类（`is-approve` / `is-reject` / `is-pending` / `is-void`）
+    pub status_kind: String,
+    /// 单据信息字段（每行 3 组）
+    pub meta_rows: Vec<Vec<OrderMetaField>>,
+    /// 审批轨迹（按轮次 + 落待办时间排序）
+    pub traces: Vec<ApprovalTrace>,
+    /// 各级签字位
+    pub sign_slots: Vec<ApprovalSignSlot>,
+    /// 轨迹条数（展示串，千分位）
+    pub trace_count: String,
+    /// 级数（展示串）
+    pub degree_count: String,
+    /// 结束说明（`result_comment`，可为空）
+    pub result_comment: String,
+    /// 打印时间
+    pub printed_at: String,
+    /// 引擎标识
+    pub engine: String,
+}
+
+/// [`ApprovalContext`] 的构造入参。
+#[derive(Debug, Clone)]
+pub struct ApprovalContextArgs {
+    /// 单号
+    pub doc_no: String,
+    /// 审批结论文案
+    pub status: String,
+    /// 结论配色类
+    pub status_kind: String,
+    /// 单据信息字段
+    pub meta: Vec<OrderMetaField>,
+    /// 审批轨迹
+    pub traces: Vec<ApprovalTrace>,
+    /// 各级签字位
+    pub sign_slots: Vec<ApprovalSignSlot>,
+    /// 结束说明
+    pub result_comment: String,
+    /// 打印时间
+    pub printed_at: String,
+}
+
+impl ApprovalContext {
+    /// 组装上下文（标题 / 公司名 / 计数都在这里定死，调用方只给数据）。
+    pub fn new(args: ApprovalContextArgs) -> Self {
+        let trace_count = format_int(args.traces.len() as i64);
+        let degree_count = format_int(args.sign_slots.len() as i64);
+        Self {
+            company: COMPANY_NAME.to_string(),
+            doc_title: "审 批 单".to_string(),
+            doc_label: "审批单".to_string(),
+            doc_no: args.doc_no,
+            status: args.status,
+            status_kind: args.status_kind,
+            meta_rows: args
+                .meta
+                .chunks(3)
+                .map(<[OrderMetaField]>::to_vec)
+                .collect(),
+            trace_count,
+            degree_count,
+            traces: args.traces,
+            sign_slots: args.sign_slots,
+            result_comment: args.result_comment,
+            printed_at: args.printed_at,
+            engine: "Chromium · CDP printToPDF".to_string(),
+        }
+    }
+}
+
+/// 渲染审批单 HTML。
+///
+/// # 异常情况
+///
+/// - [`PdfError::Template`]：模板渲染失败。
+pub fn render_approval(ctx: &ApprovalContext) -> Result<String, PdfError> {
+    let context = Context::from_serialize(ctx)
+        .map_err(|error| PdfError::Template(format!("审批单上下文序列化失败：{error}")))?;
+    tera()
+        .render(APPROVAL_NAME, &context)
+        .map_err(|error| PdfError::Template(format!("审批单模板渲染失败：{error}")))
+}
+
+/// 审批单页脚（单号 + 「第 X 页 / 共 Y 页」）。
+pub fn approval_footer(doc_no: &str) -> String {
+    format!(
+        "<div style=\"width:100%;padding:0 10mm;font-family:'Noto Sans SC',sans-serif;\
+         font-size:8pt;color:#86909c;display:flex;justify-content:space-between;\">\
+         <span>{} {}</span>\
+         <span>第 <span class=\"pageNumber\"></span> 页 / 共 <span class=\"totalPages\"></span> 页</span>\
+         </div>",
+        "审批单",
+        escape_html(doc_no)
+    )
+}
+
+/// 审批单 PDF 的渲染参数（A4 纵向：轨迹 6 列 + 意见列吃剩余宽度）。
+pub fn approval_pdf_opts(
+    doc_no: &str,
+    filename: Option<String>,
+) -> crate::business::pdf::dto::PdfOpts {
+    doc_pdf_opts(approval_footer(doc_no), filename)
+}
+
+/// 生成「样本审批单」上下文（联调 / 验收用，覆盖 ARCH-8 三种降级标记）。
+pub fn sample_approval() -> ApprovalContext {
+    let trace = |level: &str,
+                 round_note: &str,
+                 node: &str,
+                 who: &str,
+                 result: &str,
+                 cls: &str,
+                 at: &str,
+                 opinion: &str,
+                 tag: &str,
+                 tag_kind: &str| ApprovalTrace {
+        level: level.to_string(),
+        round_note: round_note.to_string(),
+        node_name: node.to_string(),
+        approver: who.to_string(),
+        result: result.to_string(),
+        cls: cls.to_string(),
+        at: at.to_string(),
+        opinion: opinion.to_string(),
+        auto_note: String::new(),
+        tag: tag.to_string(),
+        tag_kind: tag_kind.to_string(),
+    };
+
+    let traces = vec![
+        trace(
+            "第 1 级",
+            "",
+            "部门经理审批",
+            "王五",
+            "跳过",
+            "is-skip",
+            "2026-11-08 09:12",
+            "制单人不可审批本人单据",
+            "已跳过（自审）",
+            "is-skip",
+        ),
+        trace(
+            "第 1 级",
+            "",
+            "部门经理审批",
+            "赵六",
+            "通过",
+            "is-approve",
+            "2026-11-08 09:40",
+            "金额与合同条款一致，同意",
+            "",
+            "",
+        ),
+        trace(
+            "第 2 级",
+            "",
+            "总经理审批",
+            "孙七",
+            "通过",
+            "is-approve",
+            "2026-11-08 10:05",
+            "同意，按流程执行",
+            "已升级至 总经理（原角色无人）",
+            "is-escalate",
+        ),
+        trace(
+            "第 3 级",
+            "",
+            "财务复核",
+            "周八",
+            "通过",
+            "is-approve",
+            "2026-11-08 10:30",
+            "票据已核",
+            "兜底审批人",
+            "is-fallback",
+        ),
+    ];
+    ApprovalContext::new(ApprovalContextArgs {
+        doc_no: "FLW-20261108-00012345".to_string(),
+        status: "已通过".to_string(),
+        status_kind: "is-approve".to_string(),
+        meta: vec![
+            OrderMetaField::new("单据类型", "PURCHASE_ORDER"),
+            OrderMetaField::new("单号", "FLW-20261108-00012345"),
+            OrderMetaField::new("业务单号", "PO-20261108-000004"),
+            OrderMetaField::new("金额", "12,345.67"),
+            OrderMetaField::new("申请人", "张三"),
+            OrderMetaField::new("申请时间", "2026-11-08 09:00"),
+            OrderMetaField::new("流程", "采购订单审批（v1）"),
+            OrderMetaField::new("状态", "已通过"),
+            OrderMetaField::new("完成时间", "2026-11-08 10:30"),
+        ],
+        traces,
+        sign_slots: vec![
+            ApprovalSignSlot {
+                level: "第 1 级".to_string(),
+                node_name: "部门经理审批".to_string(),
+                approver: "王五、赵六".to_string(),
+            },
+            ApprovalSignSlot {
+                level: "第 2 级".to_string(),
+                node_name: "总经理审批".to_string(),
+                approver: "孙七".to_string(),
+            },
+            ApprovalSignSlot {
+                level: "第 3 级".to_string(),
+                node_name: "财务复核".to_string(),
+                approver: "周八".to_string(),
+            },
+        ],
+        result_comment: String::new(),
+        printed_at: "2026-11-08 21:40".to_string(),
+    })
+}
+
 /// 极简 HTML 转义（用于**拼进 HTML 片段**的少量字段：页脚里的单号）。
 fn escape_html(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -3459,5 +3743,154 @@ mod tests {
             ReturnDocKind::Sales.sign_caps(),
             "供应商签收 / 客户签收 必须分开"
         );
+    }
+
+    // ==================== 审批单模板（PDF-05） ====================
+
+    /// 审批单模板必须注册进 tera 并能渲染（语法错在单测里就炸）。
+    #[test]
+    fn approval_template_registers_and_renders() {
+        let ctx = sample_approval();
+        let html = render_approval(&ctx).expect("审批单模板渲染必须成功");
+
+        assert!(html.contains("审 批 单"));
+        assert_eq!(ctx.doc_label, "审批单");
+        assert!(html.contains(COMPANY_NAME));
+        assert!(html.contains("FLW-20261108-00012345"));
+        // 单据信息的六个必备字段（卡面「单据信息」段）
+        for label in [
+            "单据类型",
+            "单号",
+            "业务单号",
+            "金额",
+            "申请人",
+            "申请时间",
+            "流程",
+            "状态",
+        ] {
+            assert!(html.contains(label), "单据头缺字段：{label}");
+        }
+        assert!(html.contains("12,345.67"), "金额必须打印（千分位）");
+        assert!(html.contains("张三"), "申请人必须打印");
+        assert!(html.contains("2026-11-08 09:00"), "申请时间必须打印");
+        // 轨迹表头六列
+        for head in ["级次", "节点", "审批人", "结果", "时间", "意见"] {
+            assert!(html.contains(head), "轨迹表缺列：{head}");
+        }
+        // 4 条轨迹 = 4 个 trace-row；意见原文必须逐条打印
+        assert_eq!(html.matches("class=\"trace-row\"").count(), 4);
+        assert!(html.contains("金额与合同条款一致，同意"));
+        assert!(html.contains("同意，按流程执行"));
+        // 签字位：3 级各一行 + 签字栏留空（不得预印任何签名）
+        assert!(html.contains("审批人签字"));
+        assert!(html.contains("签名（留空手写）"));
+        assert!(html.contains("由各级审批人在纸质件上现场手写签名"));
+        assert_eq!(
+            html.matches("<td class=\"blank\"></td>").count(),
+            6,
+            "3 级 × 签名+日期 两格"
+        );
+        // 页脚页码由 CDP footerTemplate 输出，HTML 里不该有占位符
+        assert!(!html.contains("class=\"pageNumber\""));
+        assert!(html.contains("display: table-header-group"));
+    }
+
+    /// ARCH-8 三种降级标记都必须能被打印出来（卡面「特别要求」）。
+    #[test]
+    fn approval_renders_arch8_downgrade_tags() {
+        let html = render_approval(&sample_approval()).expect("渲染必须成功");
+        assert!(html.contains("已跳过（自审）"), "自审跳过标记必须打印");
+        assert!(
+            html.contains("已升级至 总经理（原角色无人）"),
+            "升级标记必须打印（含原角色无人的原因）"
+        );
+        assert!(html.contains("兜底审批人"), "兜底标记必须打印");
+        // 标记行与轨迹行是**两种行**：塞进结果格会被 40pt 挤成三行
+        assert_eq!(html.matches("class=\"tag-row").count(), 3);
+        // 三条标记各自的配色类
+        assert!(html.contains("tag-row is-skip"));
+        assert!(html.contains("tag-row is-escalate"));
+        assert!(html.contains("tag-row is-fallback"));
+    }
+
+    /// 驳回流程：结论横幅 + 轨迹结果 + 驳回意见三者都要出现。
+    #[test]
+    fn approval_renders_rejected_flow() {
+        let mut ctx = sample_approval();
+        ctx.status = "已驳回".to_string();
+        ctx.status_kind = "is-reject".to_string();
+        ctx.result_comment = "总经理驳回：单价高于年度框架协议".to_string();
+        ctx.traces = vec![ApprovalTrace {
+            level: "第 1 级".to_string(),
+            round_note: String::new(),
+            node_name: "部门经理审批".to_string(),
+            approver: "王五".to_string(),
+            result: "驳回".to_string(),
+            cls: "is-reject".to_string(),
+            at: "2026-11-08 09:20".to_string(),
+            opinion: "单价比框架协议高 8%，先与供应商重谈。".to_string(),
+            auto_note: String::new(),
+            tag: String::new(),
+            tag_kind: String::new(),
+        }];
+        let html = render_approval(&ctx).expect("渲染必须成功");
+        assert!(html.contains("已驳回"));
+        assert!(html.contains("verdict is-reject"));
+        assert!(html.contains("总经理驳回：单价高于年度框架协议"));
+        assert!(html.contains("单价比框架协议高 8%，先与供应商重谈。"));
+        assert_eq!(html.matches("class=\"trace-row\"").count(), 1);
+        assert_eq!(
+            html.matches("class=\"tag-row").count(),
+            0,
+            "无降级 → 无标记行"
+        );
+    }
+
+    /// 退回轮次要能看出来（同一节点第 2 轮 = 另一条轨迹），空轨迹给提示不印空表。
+    #[test]
+    fn approval_round_note_and_empty_trace() {
+        let mut ctx = sample_approval();
+        ctx.traces[1].round_note = "第 2 轮".to_string();
+        let html = render_approval(&ctx).expect("渲染必须成功");
+        assert!(html.contains("第 2 轮"));
+
+        let mut empty = sample_approval();
+        empty.traces.clear();
+        empty.sign_slots.clear();
+        empty.trace_count = format_int(0);
+        empty.degree_count = format_int(0);
+        let html = render_approval(&empty).expect("空轨迹也必须渲染成功");
+        assert!(html.contains("暂无审批记录"));
+        assert!(html.contains("本单没有审批节点，无需签字"));
+        assert!(!html.contains("class=\"trace-row\""));
+    }
+
+    /// 审批意见 / 节点名都要转义（意见是自由文本，可能带 `<script>`）。
+    #[test]
+    fn approval_content_is_escaped() {
+        let mut ctx = sample_approval();
+        ctx.traces[0].opinion = "<script>alert(1)</script>".to_string();
+        ctx.traces[0].node_name = "A&B 审批".to_string();
+        let html = render_approval(&ctx).expect("渲染必须成功");
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(html.contains("A&amp;B 审批"));
+    }
+
+    /// 审批单页脚与渲染参数（A4 纵向）。
+    #[test]
+    fn approval_footer_and_opts() {
+        let footer = approval_footer("FLW-20261108-00012345");
+        assert!(footer.contains("class=\"pageNumber\""));
+        assert!(footer.contains("class=\"totalPages\""));
+        assert!(footer.contains("审批单 FLW-20261108-00012345"));
+        assert!(footer.contains("font-size:8pt"));
+
+        let opts = approval_pdf_opts("FLW-1", Some("审批单-FLW-1.pdf".to_string()));
+        assert_eq!(opts.page, crate::business::pdf::dto::PageSize::A4);
+        assert!(!opts.landscape, "轨迹 6 列 + 意见列，纵向够用");
+        assert!(opts.display_header_footer);
+        assert!(opts.margins.bottom_mm >= 14.0);
+        assert_eq!(opts.filename.as_deref(), Some("审批单-FLW-1.pdf"));
     }
 }

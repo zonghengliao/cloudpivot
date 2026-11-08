@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>{{ doc_label }} {{ doc_no }}</title>
+<style>
+/* ===========================================================================
+   云枢 审批单模板（PDF-05：审批轨迹时间轴 + 每级意见 + 签字位）
+   ---------------------------------------------------------------------------
+   结构：页眉（公司名 + 单据标题）→ 单据信息（类型 / 单号 / 金额 / 申请人 /
+        申请时间 …）→ 审批结论横幅 → **审批轨迹表**（级次 / 节点 / 审批人 /
+        结果 / 时间 / 意见 + 降级标记行）→ **各级签字位**（留空手写）→ 页脚。
+
+   打印四条铁律（与订单 / 出入库 / 调拨模板同源）：
+     ① @page 定死纸张与外边距；
+     ② thead { display: table-header-group } —— 轨迹跨页时表头重复；
+     ③ tr / .banner / .sign-block { break-inside: avoid } —— 不腰斩；
+     ④ .num { font-variant-numeric: tabular-nums } —— 金额时间等宽。
+
+   页码（「第 X 页 / 共 Y 页」）由 CDP footerTemplate 输出
+   （`pdf::template::approval_footer`），HTML 里刻意不放占位符。
+
+   降级标记（ARCH-8 / P3-02~04）单独一行 `tr.tag-row`（colspan=6）：
+   「已跳过（自审）」/「已升级至 XX（原角色无人）」/「兜底审批人」/「委托代批」。
+   放独立行而不是塞进结果格，是为了让长文案不被 44pt 的结果列劈成三行。
+   =========================================================================== */
+@page {
+  size: A4 portrait;
+  margin: 12mm 10mm 16mm 10mm;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Noto Sans SC", "Noto Sans CJK SC", sans-serif;
+  font-size: 10pt;
+  line-height: 1.4;
+  color: #1f2329;
+  word-break: break-word;
+}
+
+/* ---------- 页眉 ---------- */
+.sheet-header {
+  border-bottom: 1.5pt solid #1f2329;
+  padding-bottom: 4pt;
+  margin-bottom: 8pt;
+}
+.sheet-header .company {
+  font-size: 12.5pt;
+  font-weight: 700;
+  letter-spacing: 1pt;
+}
+.sheet-header .doc-title {
+  font-size: 17pt;
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: 8pt;
+  margin: 4pt 0 6pt;
+}
+
+/* ---------- 单据信息 ---------- */
+table.head-fields {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9.5pt;
+  margin-bottom: 8pt;
+}
+table.head-fields td {
+  border: 0.5pt solid #c9cdd4;
+  padding: 3pt 5pt;
+  vertical-align: middle;
+}
+table.head-fields td.label {
+  width: 62pt;
+  background: #f2f3f5;
+  color: #4e5969;
+  text-align: center;
+  white-space: nowrap;
+}
+table.head-fields td.value { width: auto; }
+
+/* ---------- 结论横幅 ---------- */
+.banner {
+  break-inside: avoid;
+  page-break-inside: avoid;
+  border: 0.8pt solid #1f2329;
+  background: #f7f8fa;
+  padding: 5pt 8pt;
+  margin-bottom: 9pt;
+  font-size: 10.5pt;
+}
+.banner .tag { font-weight: 700; color: #4e5969; }
+.banner .verdict { font-weight: 700; font-size: 12pt; }
+.banner .verdict.is-approve { color: #0f7b46; }
+.banner .verdict.is-reject { color: #b3261e; }
+.banner .verdict.is-pending { color: #1f5fbf; }
+.banner .verdict.is-void { color: #4e5969; }
+.banner .note { font-size: 9pt; color: #4e5969; margin-top: 2pt; }
+
+/* ---------- 区块小标题 ---------- */
+.section-title {
+  font-size: 10.5pt;
+  font-weight: 700;
+  margin: 10pt 0 4pt;
+  padding-left: 4pt;
+  border-left: 3pt solid #1f2329;
+}
+
+/* ---------- 审批轨迹 ---------- */
+table.trace {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9pt;
+  table-layout: fixed;
+}
+table.trace thead { display: table-header-group; }
+table.trace th,
+table.trace td {
+  border: 0.5pt solid #86909c;
+  padding: 2.6pt 4pt;
+  vertical-align: top;
+}
+table.trace th {
+  background: #f2f3f5;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+}
+table.trace tr { break-inside: avoid; page-break-inside: avoid; }
+/* 列宽：级次 40pt / 节点 78pt / 审批人 62pt / 结果 40pt / 时间 74pt / 意见 auto */
+.c-level { width: 40pt; text-align: center; }
+.c-node  { width: 78pt; }
+.c-who   { width: 62pt; }
+.c-result{ width: 40pt; text-align: center; }
+.c-at    { width: 74pt; }
+.c-opinion{ width: auto; }
+
+.c-level .level { font-weight: 700; white-space: nowrap; }
+.c-level .round { display: block; font-size: 7.5pt; color: #86909c; white-space: nowrap; }
+.c-at { font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 8.5pt; }
+.c-result .verdict { font-weight: 700; white-space: nowrap; }
+.c-result .verdict.is-approve { color: #0f7b46; }
+.c-result .verdict.is-reject { color: #b3261e; }
+.c-result .verdict.is-skip { color: #4e5969; }
+.c-result .verdict.is-pending { color: #1f5fbf; }
+.c-opinion { overflow-wrap: anywhere; }
+.c-opinion .auto-tag { color: #86909c; font-size: 8pt; }
+
+/* 降级标记行（ARCH-8）：整行浅橙底 + 左侧色条 */
+table.trace tr.tag-row td {
+  background: #fff7e8;
+  border-top: 0;
+  border-left: 2.5pt solid #d46b08;
+  font-size: 8.8pt;
+  color: #8a4b00;
+  padding: 2.2pt 6pt;
+}
+table.trace tr.tag-row.is-skip td { border-left-color: #86909c; color: #4e5969; background: #f7f8fa; }
+table.trace tr.tag-row.is-escalate td { border-left-color: #d46b08; }
+table.trace tr.tag-row.is-fallback td { border-left-color: #b3261e; color: #8c1d18; background: #fff1f0; }
+table.trace tr.tag-row.is-delegate td { border-left-color: #1f5fbf; color: #1f3f7a; background: #f0f5ff; }
+
+.trace-empty {
+  border: 0.5pt dashed #c9cdd4;
+  padding: 10pt;
+  text-align: center;
+  color: #86909c;
+  font-size: 9pt;
+}
+
+/* ---------- 签字位（留空手写） ---------- */
+table.sign-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9pt;
+  margin-top: 4pt;
+}
+table.sign-table thead { display: table-header-group; }
+table.sign-table th,
+table.sign-table td {
+  border: 0.5pt solid #86909c;
+  padding: 3pt 4pt;
+  vertical-align: middle;
+}
+table.sign-table th {
+  background: #f2f3f5;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+}
+table.sign-table tr { break-inside: avoid; page-break-inside: avoid; }
+table.sign-table td.blank { height: 26pt; }
+.sign-hint {
+  margin-top: 3pt;
+  font-size: 8pt;
+  color: #86909c;
+}
+
+/* ---------- 说明 / 页脚 ---------- */
+.remark {
+  margin-top: 9pt;
+  font-size: 8.8pt;
+  color: #4e5969;
+  line-height: 1.6;
+}
+.remark .tag { font-weight: 700; color: #1f2329; }
+
+.footnote {
+  margin-top: 5pt;
+  font-size: 7.5pt;
+  color: #86909c;
+  text-align: right;
+}
+</style>
+</head>
+<body>
+<div class="sheet-header">
+  <div class="company">{{ company }}</div>
+  <div class="doc-title">{{ doc_title }}</div>
+</div>
+
+<table class="head-fields">
+{% for row in meta_rows %}
+  <tr>
+{% for field in row %}
+    <td class="label">{{ field.label }}</td>
+    <td class="value">{{ field.value }}</td>
+{% endfor %}
+  </tr>
+{% endfor %}
+</table>
+
+<div class="banner">
+  <span class="tag">审批结论：</span><span class="verdict {{ status_kind }}">{{ status }}</span>
+{% if result_comment %}
+  <span class="note">（{{ result_comment }}）</span>
+{% endif %}
+</div>
+
+<div class="section-title">审批轨迹（共 {{ degree_count }} 级／{{ trace_count }} 条记录）</div>
+{% if traces %}
+<table class="trace">
+  <thead>
+    <tr>
+      <th class="c-level">级次</th>
+      <th class="c-node">节点</th>
+      <th class="c-who">审批人</th>
+      <th class="c-result">结果</th>
+      <th class="c-at">时间</th>
+      <th class="c-opinion">意见</th>
+    </tr>
+  </thead>
+  <tbody>
+{% for trace in traces %}
+    <tr class="trace-row">
+      <td class="c-level"><span class="level">{{ trace.level }}</span>{% if trace.round_note %}<span class="round">{{ trace.round_note }}</span>{% endif %}</td>
+      <td class="c-node">{{ trace.node_name }}</td>
+      <td class="c-who">{{ trace.approver }}</td>
+      <td class="c-result"><span class="verdict {{ trace.cls }}">{{ trace.result }}</span></td>
+      <td class="c-at">{{ trace.at }}</td>
+      <td class="c-opinion">{{ trace.opinion }}{% if trace.auto_note %} <span class="auto-tag">{{ trace.auto_note }}</span>{% endif %}</td>
+    </tr>
+{% if trace.tag %}
+    <tr class="tag-row {{ trace.tag_kind }}">
+      <td colspan="6">⚠ {{ trace.tag }}</td>
+    </tr>
+{% endif %}
+{% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="trace-empty">暂无审批记录（本单尚未生成任何审批待办）</div>
+{% endif %}
+
+<div class="section-title">审批人签字</div>
+{% if sign_slots %}
+<table class="sign-table">
+  <thead>
+    <tr>
+      <th style="width:46pt">级次</th>
+      <th style="width:100pt">节点</th>
+      <th style="width:110pt">审批人</th>
+      <th>签名（留空手写）</th>
+      <th style="width:96pt">日期</th>
+    </tr>
+  </thead>
+  <tbody>
+{% for slot in sign_slots %}
+    <tr>
+      <td class="c-level">{{ slot.level }}</td>
+      <td>{{ slot.node_name }}</td>
+      <td>{{ slot.approver }}</td>
+      <td class="blank"></td>
+      <td class="blank"></td>
+    </tr>
+{% endfor %}
+  </tbody>
+</table>
+<div class="sign-hint">签名栏与日期栏一律留空，由各级审批人在纸质件上现场手写签名（打印件不作电子签名效力）。</div>
+{% else %}
+<div class="trace-empty">本单没有审批节点，无需签字。</div>
+{% endif %}
+
+<div class="remark"><span class="tag">说明：</span>本表轨迹按「退回轮次 → 落待办时间」排序，逐条对应系统内的审批留痕（含自审跳过 / 升级 / 兜底 / 委托记录），未做任何删减或合并。</div>
+
+<div class="footnote">打印时间：{{ printed_at }}　本单据由云枢系统生成（{{ engine }}）</div>
+</body>
+</html>
