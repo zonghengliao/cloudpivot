@@ -41,6 +41,15 @@
           @patch="emitPatch"
         />
 
+        <!-- ===== 子流程配置（仅 SUBPROCESS，P3-08 / ARCH-5 §4.14）=====
+             放在「基础信息」之后：先选「调用哪条流程」，再配版本策略与映射。 -->
+        <SubprocessNodeConfig
+          v-if="isSubprocessNode(node.type)"
+          :node="node"
+          :readonly="readonly"
+          @patch="emitPatch"
+        />
+
         <!-- 审批人（审批 / 会签 / 抄送 / 任务负责人） -->
         <template v-if="needsAssignee">
           <t-form-item :label="assigneeSourceLabel">
@@ -354,10 +363,12 @@ import ConditionTree from '@/views/business/flow/components/ConditionTree.vue';
 import RulePreview from '@/views/business/flow/components/RulePreview.vue';
 import NotifyNodeConfig from '@/views/business/flow/components/NotifyNodeConfig.vue';
 import TaskNodeConfig from '@/views/business/flow/components/TaskNodeConfig.vue';
+import SubprocessNodeConfig from '@/views/business/flow/components/SubprocessNodeConfig.vue';
 import {
   assigneeKindOptionsOf,
   capabilitiesOf,
   isNotifyNode,
+  isSubprocessNode,
   isTaskNode,
   timeoutActionOptionsOf,
 } from '@/views/business/flow/components/flow-node-caps';

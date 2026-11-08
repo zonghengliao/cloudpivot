@@ -999,6 +999,8 @@ function buildPayload(): { nodes: FlowNodeReq[]; edges: FlowEdgeReq[] } {
       max_remind_times: node.max_remind_times,
       cc_on_approved: node.cc_on_approved,
       config: node.config,
+      // ★ P3-08：子流程定义指针（物理列，不是 config 里的键）
+      subprocess_def_id: node.subprocess_def_id ?? null,
       assignees: (node.assignees ?? [])
         .filter((assignee) => ['USER', 'ROLE', 'DEPT_LEADER'].includes(assignee.type))
         .map((assignee, order) => ({

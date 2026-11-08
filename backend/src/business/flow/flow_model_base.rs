@@ -45,7 +45,8 @@ pub(super) const NODE_COLUMNS: &str = "\
      n.reject_veto, n.empty_assignee, n.self_approval, n.allow_robot, \
      n.fallback_user_id, n.fallback_role_id, n.join_mode, n.fork_mode, \
      n.timeout_hours, n.timeout_action, n.remind_before_hours, n.max_remind_times, \
-     n.cc_on_approved, n.position_x, n.position_y, n.sort_order, n.config::text AS config_text";
+     n.cc_on_approved, n.position_x, n.position_y, n.sort_order, n.subprocess_def_id, \
+     n.config::text AS config_text";
 
 // ==================== 参数助手 ====================
 

@@ -227,6 +227,7 @@ fn node_res(node: &NodeSpec) -> dto::GraphNodeRes {
         max_remind_times: node.max_remind_times,
         cc_on_approved: node.cc_on_approved,
         config: node.config.clone(),
+        subprocess_def_id: node.subprocess_def_id.map(|id| id.to_string()),
         assignees: node
             .assignees
             .iter()
@@ -629,6 +630,13 @@ pub async fn publish(
         crate::business::flow::notify_node::template_issues(&graph)
             .await
             .map_err(|error| utils::db_error(error, "校验通知模板"))?,
+    );
+    // P3-08（ARCH-5 §4.14）：SUBPROCESS 节点指向的子流程定义必须存在 / 已发布，
+    // 且不许自递归、嵌套深度 ≤ 3（这两条要顺着"定义 → 当前版本 → 它的子流程"查库）。
+    issues.extend(
+        crate::business::flow::subprocess::validate_publish(&graph, def_id)
+            .await
+            .map_err(|error| utils::db_error(error, "校验子流程定义"))?,
     );
     if !issues.is_empty() {
         return Err(validation_error(&issues));
@@ -1811,6 +1819,10 @@ pub async fn approve_task(
     // D3b：审批单可能已落终态（APPROVED）→ 以 FlowCallback 身份推进任务
     // （**事务已提交**：回调失败只记日志，不回滚审批单）
     task_bridge::on_instance_settled(out.instance_id, &out.instance_status).await;
+    // ★ P3-08：这单也可能是**子流程实例** —— 结算了就回调父流程的 SUBPROCESS 节点
+    //   （幂等：父实例已终结 / 父节点已是终态 → 静默跳过；失败只 warn）
+    crate::business::flow::subprocess::on_instance_settled(out.instance_id, &out.instance_status)
+        .await;
     // W3b：同一条审批单也可能是「库存调拨单」发起的 —— 与任务回调并列、互不影响
     task_bridge::on_transfer_settled(out.instance_id, &out.instance_status).await;
     // P16：也可能是「收货单作废」发起的 —— 通过则执行六本账回滚，驳回则打回已过账
@@ -1928,6 +1940,9 @@ pub async fn reject_task(
     // D3b：驳回并终止（REJECTED）→ 以 FlowCallback 身份把任务打回 DOING
     // （「退回上一节点」仍是 PENDING，回调不推进；落到 REJECTED 才动任务）
     task_bridge::on_instance_settled(out.instance_id, &out.instance_status).await;
+    // ★ P3-08：子流程实例被驳回并终止 → 按 fail_action 回调父节点（ABORT 会让父实例终止）
+    crate::business::flow::subprocess::on_instance_settled(out.instance_id, &out.instance_status)
+        .await;
     // W3b：同一条审批单也可能是「库存调拨单」发起的 —— 与任务回调并列、互不影响
     task_bridge::on_transfer_settled(out.instance_id, &out.instance_status).await;
     // P16：收货单作废被驳回 → 单据回到已过账（账一动没动）

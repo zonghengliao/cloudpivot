@@ -23,7 +23,7 @@
  * | `needsConfig` | `config.*` 分区：`task`（§2.3）/ `notify`（§2.6）/ `expression`（EXPRESSION 指派） |
  */
 
-/** 九种节点（与后端 `graph::NodeType` 逐字对应；新增两种在末尾） */
+/** 十种节点（与后端 `graph::NodeType` 逐字对应；新增两种在末尾） */
 export type NodeType =
   | 'START'
   | 'APPROVAL'
@@ -33,7 +33,8 @@ export type NodeType =
   | 'CC'
   | 'END'
   | 'TASK_NODE'
-  | 'NOTIFY_NODE';
+  | 'NOTIFY_NODE'
+  | 'SUBPROCESS';
 
 /** 一种节点的能力 */
 export interface NodeCaps {
@@ -48,7 +49,7 @@ export interface NodeCaps {
   /** 是否阻塞等人（画布配色 + 副标题用） */
   blocksOnHuman: boolean;
   /** `config` 分区：`null` = 无 */
-  needsConfig: null | 'task' | 'notify' | 'expression';
+  needsConfig: null | 'task' | 'notify' | 'expression' | 'sub';
 }
 
 /** 能力表（**唯一来源**，逐行照设计 §4.1 的表） */
@@ -125,6 +126,17 @@ export const CAPS: Record<NodeType, NodeCaps> = {
     blocksOnHuman: false,
     needsConfig: 'notify',
   },
+  // ★ P3-08 / ARCH-5 §4.14：子流程节点 —— 一个节点里跑另一张完整的图。
+  //   它**阻塞等人**（父节点 ACTIVE 等子实例结算），但没有审批人 / 超时概念：
+  //   子流程的超时归子流程自己的节点管，父侧再配一份会两处打架。
+  SUBPROCESS: {
+    editable: true,
+    canHaveAssignee: false,
+    canHaveTimeout: false,
+    canHaveConditionOut: false,
+    blocksOnHuman: true,
+    needsConfig: 'sub',
+  },
 };
 
 /** 未知类型的兜底能力（后端新增类型时画布不白屏：按「可编辑、无配置」处理） */
@@ -156,6 +168,11 @@ export function isTaskNode(type: string | null | undefined): boolean {
 /** 是否通知节点 */
 export function isNotifyNode(type: string | null | undefined): boolean {
   return (type ?? '').trim().toUpperCase() === 'NOTIFY_NODE';
+}
+
+/** 是否子流程节点（P3-08 / ARCH-5 §4.14） */
+export function isSubprocessNode(type: string | null | undefined): boolean {
+  return (type ?? '').trim().toUpperCase() === 'SUBPROCESS';
 }
 
 /** 是否需要审批人（画布「未配置审批人」提示 + 属性面板整块显隐共用） */

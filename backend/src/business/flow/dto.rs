@@ -338,6 +338,12 @@ pub struct GraphNodeReq {
     /// 扩展配置。
     #[serde(default)]
     pub config: Option<serde_json::Value>,
+    /// 子流程定义（仅 `SUBPROCESS`，P3-08 / ARCH-5 §4.14）。
+    ///
+    /// 走**物理列**而不是 `config.sub.def_id`：外键只能在列上生效，
+    /// 「哪些流程引用了这个子流程定义」也要能反查（见 `V0341` 的 `idx_biz_flow_node_subprocess_def` 同级说明）。
+    #[serde(default)]
+    pub subprocess_def_id: Option<String>,
     /// 可枚举审批人。
     #[serde(default)]
     pub assignees: Vec<AssigneeReq>,
@@ -484,6 +490,7 @@ impl GraphSaveReq {
                 )
             })?;
             let name = normalize_name(&raw.name)?;
+            let subprocess_def_id = parse_subprocess_def(&key, raw.subprocess_def_id.as_deref())?;
             let assignee_type = match raw.assignee_type.as_deref() {
                 None => None,
                 Some(text) if text.trim().is_empty() => None,
@@ -619,6 +626,7 @@ impl GraphSaveReq {
                 x: raw.x.unwrap_or(0),
                 y: raw.y.unwrap_or(0),
                 sort_order: raw.sort_order.unwrap_or(0),
+                subprocess_def_id,
                 config: raw
                     .config
                     .clone()
@@ -720,6 +728,19 @@ fn parse_fallback(
         ));
     }
     Ok((user_id, role_id))
+}
+
+/// 解析节点的「子流程定义」指针（P3-08）。
+///
+/// 空 / 空白 → `None`（非子流程节点必须为空，由 R27 兜）；
+/// 非法 UUID → 中文 400，不等到库层报 `22P02`（那句英文用户读不懂）。
+fn parse_subprocess_def(node_key: &str, raw: Option<&str>) -> Result<Option<Uuid>, String> {
+    match raw.map(str::trim).filter(|text| !text.is_empty()) {
+        None => Ok(None),
+        Some(text) => Uuid::parse_str(text).map(Some).map_err(|_| {
+            format!("节点 {node_key} 的子流程定义 {text} 不是合法 id（应为流程定义的 UUID）")
+        }),
+    }
 }
 
 fn parse_gateway(raw: Option<&str>, label: &str, node_key: &str) -> Result<GatewayMode, String> {
@@ -1103,6 +1124,8 @@ pub struct GraphNodeRes {
     pub cc_on_approved: bool,
     /// 扩展配置。
     pub config: serde_json::Value,
+    /// 子流程定义（仅 `SUBPROCESS`；其余类型恒 `null`）。
+    pub subprocess_def_id: Option<String>,
     /// 可枚举审批人。
     pub assignees: Vec<AssigneeRes>,
 }
@@ -2149,6 +2172,7 @@ mod tests {
             x: None,
             y: None,
             sort_order: None,
+            subprocess_def_id: None,
             assignee_type: Some("INITIATOR".to_string()),
             superior_levels: None,
             form_var_key: None,

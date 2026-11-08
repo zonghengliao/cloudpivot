@@ -75,6 +75,7 @@ export const NODE_GLYPH: Record<string, string> = {
   END: '■',
   TASK_NODE: '☑',
   NOTIFY_NODE: '✉',
+  SUBPROCESS: '⧉',
 };
 
 /** 运行状态 → 中文（副标题 / 状态点共用） */
@@ -137,6 +138,10 @@ export function nodeSubLabel(node: FlowNode, status?: string): string {
     subLabel = ON_COMPLETE_LABELS[(node.config as { task?: { on_complete?: string } })?.task?.on_complete as OnComplete] ?? '生成任务';
   } else if (node.type === 'NOTIFY_NODE') {
     subLabel = '发通知（发完即通过）';
+  } else if (node.type === 'SUBPROCESS') {
+    // 子流程节点：有定义就报「子流程」，没配就点名缺配置（后端 R27 也会拦）
+    const subDefId = (node as { subprocess_def_id?: string | null }).subprocess_def_id;
+    subLabel = subDefId ? '子流程（等子单批复）' : '未选择子流程';
   } else if (node.type === 'CONDITION') {
     subLabel = '分支网关';
   } else if (node.type === 'PARALLEL') {
@@ -213,6 +218,7 @@ export function buildNodeView(node: FlowNode, ctx: FlowNodeViewContext = {}): Fl
       'is-cc': node.type === 'CC',
       'is-task': node.type === 'TASK_NODE',
       'is-notify': node.type === 'NOTIFY_NODE',
+      'is-subprocess': node.type === 'SUBPROCESS',
       'is-active': status === 'ACTIVE',
       'is-approved': status === 'APPROVED',
       'is-rejected': status === 'REJECTED',

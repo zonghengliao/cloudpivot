@@ -78,7 +78,7 @@ function rustConst(source: string, name: string): string {
   return (matched[1] as string).trim();
 }
 
-/** 全部 9 种节点类型（表的键） */
+/** 全部 10 种节点类型（表的键；P3-08 追加 SUBPROCESS） */
 const ALL_TYPES = Object.keys(CAPS) as NodeType[];
 
 /** 一份合法的起点配置 */
@@ -86,13 +86,17 @@ const baseConfig = (): TaskConfig => ({ ...DEFAULT_TASK_CONFIG, title_template: 
 
 // ==================== ① 节点能力表 ====================
 
-test('能力表覆盖 9 种节点，两种新节点各自的 config 分区正确', () => {
-  assert.equal(ALL_TYPES.length, 9);
-  for (const type of ['START', 'APPROVAL', 'COUNTERSIGN', 'CONDITION', 'PARALLEL', 'CC', 'END', 'TASK_NODE', 'NOTIFY_NODE'] as NodeType[]) {
+test('能力表覆盖 10 种节点，三种新节点各自的 config 分区正确', () => {
+  assert.equal(ALL_TYPES.length, 10);
+  for (const type of ['START', 'APPROVAL', 'COUNTERSIGN', 'CONDITION', 'PARALLEL', 'CC', 'END', 'TASK_NODE', 'NOTIFY_NODE', 'SUBPROCESS'] as NodeType[]) {
     assert.ok(ALL_TYPES.includes(type), `能力表缺 ${type}`);
   }
   assert.equal(CAPS.TASK_NODE.needsConfig, 'task');
   assert.equal(CAPS.NOTIFY_NODE.needsConfig, 'notify');
+  // P3-08：子流程节点用 config.sub 分区，且阻塞等人（父节点等子实例结算）
+  assert.equal(CAPS.SUBPROCESS.needsConfig, 'sub');
+  assert.equal(CAPS.SUBPROCESS.blocksOnHuman, true);
+  assert.equal(CAPS.SUBPROCESS.canHaveAssignee, false, '子流程节点没有审批人概念');
   // 出入口不可编辑（固定节点）
   assert.equal(CAPS.START.editable, false);
   assert.equal(CAPS.END.editable, false);

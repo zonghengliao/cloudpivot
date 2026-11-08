@@ -22,6 +22,7 @@
  */
 import type { FlowEdge, FlowNode, FlowNodeType } from '@/api/business/flow-api';
 import { DEFAULT_TASK_CONFIG } from '@/views/business/flow/components/task-node-config';
+import { DEFAULT_SUB_CONFIG } from '@/views/business/flow/components/subprocess-node-config';
 
 /** 画布坐标点 */
 export interface Point {
@@ -90,6 +91,8 @@ export const NODE_TYPES: NodeTypeMeta[] = [
   { type: 'PARALLEL', label: '并行', shape: 'diamond', defaultName: '并行网关', size: { w: 132, h: 84 }, hint: '并行分叉 / 汇聚' },
   { type: 'CC', label: '抄送', shape: 'rect', defaultName: '抄送', size: { w: 140, h: 60 }, hint: '只读知会，不出审批任务' },
   { type: 'NOTIFY_NODE', label: '通知', shape: 'rect', defaultName: '通知', size: { w: 140, h: 60 }, hint: '发通知（发完即通过，不阻塞流程）' },
+  // ★ P3-08 / ARCH-5 §4.14：子流程节点 —— 跑另一张完整的图，父节点等子实例结算
+  { type: 'SUBPROCESS', label: '子流程', shape: 'rect', defaultName: '子流程', size: { w: 160, h: 64 }, hint: '调用另一条已发布流程（出度必须为 1）' },
   { type: 'END', label: '结束', shape: 'capsule', defaultName: '结束', size: { w: 96, h: 44 }, hint: '流程出口（至少一个）' },
 ];
 
@@ -274,6 +277,7 @@ export function makeNode(type: FlowNodeType, at: Point, used: Iterable<string>, 
   const x = snapGrid(at.x - (type === 'START' || type === 'END' ? meta.size.w : meta.size.w / 2));
   const y = snapGrid(at.y - meta.size.h / 2);
   const isTask = type === 'TASK_NODE';
+  const isSubprocess = type === 'SUBPROCESS';
   return {
     key,
     name: name ?? meta.defaultName,
@@ -307,7 +311,11 @@ export function makeNode(type: FlowNodeType, at: Point, used: Iterable<string>, 
     // 拖进来就是空的会让「发布」直接 65034，用户在面板里补全即可（预演会先攒红字）
     config: isTask
       ? { task: { ...DEFAULT_TASK_CONFIG, title_template: `{{instance.biz_no}} ${name ?? meta.defaultName}` } }
-      : {},
+      : isSubprocess
+        // 子流程节点拖进来先给一份「默认配置」（version_policy=PIN_CURRENT / fail_action=ABORT），
+        // 定义（subprocess_def_id）必须由用户选 —— 后端 R27 会拦「没选子流程」。
+        ? { sub: { ...DEFAULT_SUB_CONFIG } }
+        : {},
     assignees: [],
   };
 }

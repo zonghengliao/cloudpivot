@@ -133,6 +133,7 @@ pub async fn load_graph(version_id: Uuid) -> DbResult<FlowGraph> {
             x: row.get_typed("position_x")?,
             y: row.get_typed("position_y")?,
             sort_order: row.get_typed("sort_order")?,
+            subprocess_def_id: row.get_typed("subprocess_def_id")?,
             config,
         });
     }
@@ -250,9 +251,9 @@ pub async fn replace_graph(ex: &Transaction, version_id: Uuid, graph: &FlowGraph
                   self_approval, allow_robot, fallback_user_id, fallback_role_id, \
                   join_mode, fork_mode, timeout_hours, timeout_action, \
                   remind_before_hours, max_remind_times, cc_on_approved, \
-                  position_x, position_y, sort_order, config) \
+                  position_x, position_y, sort_order, subprocess_def_id, config) \
              VALUES (?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?::text::numeric, ?, ?, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, \
-                     ?, ?, ?, ?::jsonb)",
+                     ?, ?, ?, ?::uuid, ?::jsonb)",
             vec![
                 Value::from(&id),
                 Value::from(&version_id),
@@ -283,6 +284,7 @@ pub async fn replace_graph(ex: &Transaction, version_id: Uuid, graph: &FlowGraph
                 Value::from(node.x),
                 Value::from(node.y),
                 Value::from(node.sort_order),
+                opt_uuid(node.subprocess_def_id),
                 Value::Json(node.config.to_string()),
             ],
         )

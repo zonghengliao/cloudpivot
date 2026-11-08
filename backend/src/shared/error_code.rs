@@ -1043,6 +1043,33 @@ pub const FLOW_DELEGATE_INVALID: i32 = 65043;
 /// 参数缺失 / 值为 0 = 不限额（默认口径），此时本码不会出现。
 pub const FLOW_SELF_APPROVAL_AMOUNT_LIMIT: i32 = 65044;
 
+/// 子流程定义非法 / 未发布（HTTP 422，P3-08 / ARCH-5 §4.14 R27）。
+///
+/// 四种情形共用一码（都是「这个 SUBPROCESS 节点指向的目标不能用」）：
+/// `subprocess_def_id` 为空 / 指向的定义已软删 / 定义不是 `PUBLISHED`
+/// （没有 `current_version_id`）/ `config.sub.param_mapping` 映射到了
+/// 子流程表单里不存在的键。
+///
+/// 为什么发布期就要拦：运行期才失败的后果是**父流程停在 SUBPROCESS 节点 ACTIVE**，
+/// 而节点上没有待办、没有超时、没有人能点 —— 单据永久卡死（与 `65018` 治理思路一致）。
+pub const FLOW_SUBPROCESS_DEF_INVALID: i32 = 65045;
+
+/// 子流程自递归 / 嵌套过深（HTTP 422，P3-08 / ARCH-5 §4.14 R27）。
+///
+/// 两种情形共用一码：① `subprocess_def_id` 指向自己（直接的 A→A，或间接的 A→B→A 环）；
+/// ② 嵌套深度超过 [`crate::business::flow::subprocess::MAX_NEST_DEPTH`]（= 3 层）。
+///
+/// 递归子流程的后果不是「慢」而是**无限发起**：每层都是一个真实例，
+/// 一条单据一次能生出无数张子单（且都能撞在同一个父节点上）。
+pub const FLOW_SUBPROCESS_RECURSION: i32 = 65046;
+
+/// 子实例发起失败（HTTP 422，P3-08 / ARCH-5 §4.14）。
+///
+/// 事务内建子实例失败（子流程没有可发的版本 / 子流程没有 START / 子流程派不出审批人 …）。
+/// 与 [`FLOW_SUBPROCESS_DEF_INVALID`] 的分界：那个是**静态配置问题**（发布期就能查出来），
+/// 本码是**运行期**才可能出现的失败（同一份配置昨天能发、今天因为角色被删发不出去）。
+pub const FLOW_SUBPROCESS_START_FAILED: i32 = 65047;
+
 // ==================== 66xxx：ERP 主数据 / 仓储（批次 D · W1c） ====================
 //
 // 码段说明：64xxx 是云枢 × Hermes，65xxx 是审批流；ERP 接口层（W1c）新开 66xxx，
@@ -1915,6 +1942,9 @@ mod tests {
             (FLOW_FALLBACK_INVALID, 65042),
             (FLOW_DELEGATE_INVALID, 65043),
             (FLOW_SELF_APPROVAL_AMOUNT_LIMIT, 65044),
+            (FLOW_SUBPROCESS_DEF_INVALID, 65045),
+            (FLOW_SUBPROCESS_RECURSION, 65046),
+            (FLOW_SUBPROCESS_START_FAILED, 65047),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "65xxx 段码值不得改动");
@@ -1929,17 +1959,17 @@ mod tests {
         assert_eq!(unique.len(), codes.len(), "65xxx 段不得有重复码值");
         assert_eq!(
             unique.len(),
-            39,
-            "65xxx 段必须是 39 个码（架构 §10.3 的 22 个 + D2 追加的 5 个运行侧细分码 + P1-A2 的 65033 \
+            42,
+            "65xxx 段必须是 42 个码（架构 §10.3 的 22 个 + D2 追加的 5 个运行侧细分码 + P1-A2 的 65033 \
              + P-FLOW-1A 的 65034–65039 + P3-02 的 65040–65041 + P3-03 的 65042 + P3-04 的 65043 \
-             + P3-05 的 65044）"
+             + P3-05 的 65044 + P3-08 的 65045–65047）"
         );
         assert!(
             codes.iter().all(|(code, _)| *code > 64014 && *code < 66000),
             "65xxx 段必须落在 64014 与 66000 之间（不侵占 AI 用户段）"
         );
         println!(
-            "[码表] 65xxx 段 {} 个码齐全且不重复（65001–65005 / 65010–65028 / 65030–65044）✓",
+            "[码表] 65xxx 段 {} 个码齐全且不重复（65001–65005 / 65010–65028 / 65030–65047）✓",
             codes.len()
         );
     }

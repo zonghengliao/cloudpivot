@@ -1564,6 +1564,20 @@ fn parse_string_list(
     Ok(out)
 }
 
+// ==================== `config.sub`（P3-08，转发到 subprocess 模块） ====================
+
+/// 解析 `config.sub`（子流程节点配置）。
+///
+/// **实现只有一份**：在 [`super::subprocess::parse_config`]。这里留一个转发名字，是因为
+/// `graph::validate_with` 的 R27 与 `parse_task_config` / `parse_notify_config` 排在一起读最顺
+/// （R18 用 `node_config::parse_task_config`、R19 用 `parse_notify_config`、R27 用本函数），
+/// 而 `SUBPROCESS` 的解析器要跟「发起子实例」的代码住在一起（同一个模块讲清一件事）。
+pub fn parse_sub_config(
+    value: &Value,
+) -> std::result::Result<super::subprocess::SubConfig, super::subprocess::SubConfigError> {
+    super::subprocess::parse_config(value)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

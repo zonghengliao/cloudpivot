@@ -53,7 +53,7 @@ function asParams<T extends object>(query: T): Record<string, unknown> {
 
 // ==================== 枚举字面量 ====================
 
-/** 七种节点类型（与后端 `graph::NodeType` 逐字一致） */
+/** 十种节点类型（与后端 `graph::NodeType` 逐字一致；`SUBPROCESS` 是 P3-08 新增的子流程节点） */
 export type FlowNodeType =
   | 'START'
   | 'APPROVAL'
@@ -63,7 +63,8 @@ export type FlowNodeType =
   | 'CC'
   | 'END'
   | 'TASK_NODE'
-  | 'NOTIFY_NODE';
+  | 'NOTIFY_NODE'
+  | 'SUBPROCESS';
 
 /** 审批人来源（与后端 `graph::AssigneeKind` 逐字一致） */
 export type FlowAssigneeKind =
@@ -166,6 +167,8 @@ export interface FlowNode {
   cc_on_approved: boolean;
   /** 扩展配置 */
   config: unknown;
+  /** 子流程定义 id（仅 `SUBPROCESS`；其余类型为 null，P3-08） */
+  subprocess_def_id?: string | null;
   /** 可枚举审批人 */
   assignees: FlowAssignee[];
 }
@@ -509,6 +512,8 @@ export interface FlowNodeReq {
   cc_on_approved?: boolean;
   /** 扩展配置 */
   config?: unknown;
+  /** 子流程定义 id（仅 `SUBPROCESS`，P3-08） */
+  subprocess_def_id?: string | null;
   /** 可枚举审批人 */
   assignees?: FlowAssigneeReq[];
 }

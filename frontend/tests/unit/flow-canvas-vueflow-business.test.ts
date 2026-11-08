@@ -291,8 +291,8 @@ test('⑪ 副标题规则没有「两份实现漂移」：老画布里的每条�
   assert.doesNotMatch(NEW_CODE, /未配置审批人/, '新画布里又内联了一份副标题文案（与 flow-node-view.ts 重复）');
 });
 
-test('⑪ 图标 / 尺寸：9 种节点一个不落，尺寸口径与老画布同一份（NODE_META）', () => {
-  const types = ['START', 'APPROVAL', 'COUNTERSIGN', 'CONDITION', 'PARALLEL', 'CC', 'END', 'TASK_NODE', 'NOTIFY_NODE'];
+test('⑪ 图标 / 尺寸：10 种节点一个不落，尺寸口径与老画布同一份（NODE_META）', () => {
+  const types = ['START', 'APPROVAL', 'COUNTERSIGN', 'CONDITION', 'PARALLEL', 'CC', 'END', 'TASK_NODE', 'NOTIFY_NODE', 'SUBPROCESS'];
   assert.deepEqual(Object.keys(NODE_GLYPH).sort(), [...types].sort());
   for (const type of types) {
     const size = nodeSizeOf(type);

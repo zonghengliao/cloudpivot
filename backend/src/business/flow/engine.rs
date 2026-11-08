@@ -68,6 +68,7 @@ use crate::business::flow::no_assignee;
 use crate::business::flow::node_config;
 use crate::business::flow::notify_node;
 use crate::business::flow::self_approval;
+use crate::business::flow::subprocess;
 use crate::business::flow::task_node::{self, SpawnOutcome};
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
 use crate::business::notice::{self, NoticeDraft, NoticeTarget};
@@ -2656,6 +2657,79 @@ impl<'a> Run<'a> {
                 }
                 Ok(Step::Next(self.out_targets(&spec.key, None, false)))
             }
+            // ★ P3-08 / ARCH-5 §4.14：子流程节点 —— 一个节点里跑**另一张完整的图**。
+            //
+            // 与审批类节点的区别：这里不生成 `biz_flow_task`，而是在**同一个事务里**
+            // 用 `engine::start_in_tx` 建一张真正的子审批实例，父节点保持 ACTIVE 等子实例结算
+            // （回调入口 `subprocess::on_instance_settled` → [`resume_parent_after_subprocess`]）。
+            //
+            // 为什么不展开子流程的节点：见 `flow::subprocess` 文件头（key 撞名 / 改版重展开 /
+            // 记录混成一锅）。真子实例的唯一代价是两列父子指针。
+            NodeType::Subprocess => {
+                // `config.sub` 发布期已被 R27 解析过一遍；这里再解析一次是因为实例可能
+                // 跑在**旧快照**上（发布后改库 / 回滚），不能让坏配置静默变成「不跑子流程」。
+                let cfg = match node_config::parse_sub_config(&spec.config["sub"]) {
+                    Ok(cfg) => cfg,
+                    Err(error) => {
+                        return Ok(Step::Fail(ApiError::new(422, error.code, error.message)));
+                    }
+                };
+                let spawned = match subprocess::spawn_child(
+                    self.ex,
+                    &self.instance,
+                    &spec,
+                    round,
+                    &cfg,
+                )
+                .await
+                {
+                    Ok(spawned) => spawned,
+                    Err(subprocess::spawn_error::Error::Api(error)) => {
+                        return Ok(Step::Fail(error));
+                    }
+                    Err(subprocess::spawn_error::Error::Db(error)) => return Err(error),
+                };
+
+                // `spawn_task=true`：在父侧生成一条 `biz_task`，让父流程的人看得见「子流程在跑」。
+                // **失败只 warn**：这是可见性附加物，不该让一张已经建好的子单被回滚
+                // （子实例建不出来才是 65047，那条路在上面已经 return 了）。
+                if cfg.spawn_task
+                    && let Err(error) =
+                        spawn_visibility_task(self.ex, &self.instance, &spec, round).await
+                {
+                    tracing::warn!(
+                        instance_id = %self.instance.id,
+                        node_key = %spec.key,
+                        %error,
+                        "子流程可见性任务生成失败（不影响子流程本身）"
+                    );
+                }
+
+                tracing::info!(
+                    instance_id = %self.instance.id,
+                    node_key = %spec.key,
+                    round,
+                    child_instance_id = %spawned.instance_id,
+                    child_def_id = %spawned.def_id,
+                    child_version_id = %spawned.version_id,
+                    child_version_no = spawned.version_no,
+                    child_status = %spawned.status,
+                    version_policy = cfg.version_policy.as_str(),
+                    fail_action = cfg.fail_action.as_str(),
+                    "子流程节点已发起子实例"
+                );
+
+                if spawned.status == "PENDING" {
+                    // 阻塞在这里等子实例结算（父节点 ACTIVE + approver_count=1 = 「等 1 张子单」）
+                    model::activate_node_row(self.ex, row.id, 1).await?;
+                    return Ok(Step::Idle);
+                }
+
+                // 子流程在本事务内就跑完了（例如只有 START → END）：当场按回调同一套逻辑推进，
+                // 不能让父节点停在 ACTIVE 等一个永远不会到来的回调。
+                self.settle_subprocess(&row, &spec, &cfg, &spawned.status, spawned.instance_id)
+                    .await
+            }
             NodeType::Approval | NodeType::Countersign => {
                 let ctx = self.instance.assignee_ctx();
                 let eval = self.eval_context().await?;
@@ -3201,6 +3275,107 @@ impl<'a> Run<'a> {
         })
     }
 
+    /// 子流程结出结论后推进父节点（**两条路径共用**：事务内立即完成 / 事务外回调）。
+    ///
+    /// | 子实例结论 | `fail_action` | 父节点 | 父实例 |
+    /// |---|---|---|---|
+    /// | `APPROVED` | — | `APPROVED` → 继续往下走 | 不变 |
+    /// | 其它终态 | `CONTINUE` | `APPROVED` → 继续往下走 | 不变 |
+    /// | 其它终态 | `ABORT` | `REJECTED` | `REJECTED`（终止） |
+    ///
+    /// 幂等不由本函数保证（调用方已锁行 + 判终态），这里只负责「一次推进」。
+    async fn settle_subprocess(
+        &mut self,
+        row: &model::NodeRow,
+        spec: &SnapshotNode,
+        cfg: &subprocess::SubConfig,
+        child_status: &str,
+        child_instance_id: Uuid,
+    ) -> DbResult<Step> {
+        let approved = child_status.eq_ignore_ascii_case("APPROVED");
+
+        // 结果回写：子流程通过后把子表单的值写回父表单（`config.sub.result_mapping`）
+        if approved
+            && !cfg.result_mapping.is_empty()
+            && let Err(error) = subprocess::apply_result_mapping(
+                self.ex,
+                self.instance.id,
+                child_instance_id,
+                &cfg.result_mapping,
+            )
+            .await
+        {
+            // 回写失败不改变「节点通过」这个结论（子单已经结完了），但要留 warn
+            tracing::warn!(
+                instance_id = %self.instance.id,
+                node_key = %spec.key,
+                %error,
+                "子流程结果映射回写父表单失败（不改变节点结论）"
+            );
+        }
+
+        // 父侧可见性任务（`spawn_task=true` 时生成的那条 biz_task）一并收尾
+        if let Err(error) =
+            close_visibility_task(self.ex, self.instance.id, &spec.key, approved).await
+        {
+            tracing::warn!(
+                instance_id = %self.instance.id,
+                node_key = %spec.key,
+                %error,
+                "子流程可见性任务收尾失败（不影响流程推进）"
+            );
+        }
+
+        if approved || cfg.fail_action == subprocess::FailAction::Continue {
+            let tally = Tally {
+                total: 1,
+                approved: 1,
+                rejected: 0,
+                pending: 0,
+            };
+            model::end_node_row(self.ex, row.id, "APPROVED", tally, None, true).await?;
+            let targets = self.out_targets(&spec.key, None, false);
+            tracing::info!(
+                instance_id = %self.instance.id,
+                node_key = %spec.key,
+                round = row.round,
+                child_status = %child_status,
+                fail_action = cfg.fail_action.as_str(),
+                "子流程节点已按结论推进（父节点 APPROVED）"
+            );
+            return Ok(Step::Next(targets));
+        }
+
+        // fail_action = ABORT 且子流程没通过 → 父实例终止
+        let tally = Tally {
+            total: 1,
+            approved: 0,
+            rejected: 1,
+            pending: 0,
+        };
+        model::end_node_row(self.ex, row.id, "REJECTED", tally, None, false).await?;
+        self.final_status = Some("REJECTED".to_string());
+        self.effects.notice(
+            vec![self.instance.initiator_id],
+            format!("审批已驳回：{}", self.instance.title),
+            format!(
+                "审批单 {} 的子流程节点「{}」没有通过（子流程结论 {child_status}），流程已终止。",
+                self.instance.instance_no, spec.name
+            ),
+            format!("/flow/instance/{}", self.instance.id),
+            self.instance.id,
+            true,
+        );
+        tracing::info!(
+            instance_id = %self.instance.id,
+            node_key = %spec.key,
+            round = row.round,
+            child_status = %child_status,
+            "子流程未通过且 fail_action=ABORT：父实例终止"
+        );
+        Ok(Step::Idle)
+    }
+
     /// 实例是否该结束了（没有 ACTIVE / 等待中的节点）。
     async fn maybe_finish(&mut self) -> DbResult<()> {
         let inflight = model::count_inflight(self.ex, self.instance.id).await?;
@@ -3460,6 +3635,320 @@ impl<'a> Run<'a> {
 // SCOPE-EXEMPT: 的判定在 handler（`instance_detail` / `page_instances`）与
 // SCOPE-EXEMPT: `model::page_instances`（那里接了 `scope::filter_for`）。引擎在事务里再注入一次
 // SCOPE-EXEMPT: 数据范围只会把「已被授权的流转」打断（例如并行分支上的节点由外部门审批）。
+
+// ==================== 子流程：可见性任务 + 父侧结算回调（P3-08） ====================
+
+/// 在父侧生成一条 `biz_task`，让父流程的人看得见「子流程在跑」（`config.sub.spawn_task`）。
+///
+/// 复用 [`task_node::spawn`]（不另写一套建任务逻辑）：负责人固定为**父实例发起人**
+/// （子流程是「他自己那张单的一部分」，派给别人没有意义），来源写成 `INITIATOR`。
+/// 任务完成由 [`close_visibility_task`] 在子流程结算时收尾。
+async fn spawn_visibility_task(
+    ex: &Transaction,
+    instance: &model::InstanceRow,
+    spec: &SnapshotNode,
+    round: i32,
+) -> DbResult<()> {
+    // 任务节点配置：标题固定（不读模板，避免把用户表单变量渲染进「系统提示任务」）
+    let cfg = node_config::parse_task_config(&Json::Object(Map::from_iter([
+        (
+            "title_template".to_string(),
+            Json::String(format!("子流程运行中：{}", spec.name)),
+        ),
+        // `on_complete` 是必填项（`parse_task_config` 的硬约束）：这张任务只是「看得见」用的，
+        // 它的完成由子流程结算驱动 —— 直接完成，不产生二次审批。
+        (
+            "on_complete".to_string(),
+            Json::String("DIRECT".to_string()),
+        ),
+        ("need_review".to_string(), Json::Bool(false)),
+    ])))
+    .map_err(|error| DbError::InvalidValue(format!("子流程可见性任务配置非法：{}", error.msg)))?;
+
+    // 负责人 = 父实例发起人（`self_approval=ALLOW`：发起人给自己干活是合法的）
+    let mut work_spec = spec.clone();
+    work_spec.assignee_type = Some("INITIATOR".to_string());
+    work_spec.self_approval = "ALLOW".to_string();
+
+    let ctx = instance.assignee_ctx();
+    let mut run = Run::new(
+        ex,
+        instance.clone(),
+        Snapshot {
+            schema_version: graph::SNAPSHOT_SCHEMA_VERSION,
+            nodes: vec![work_spec.clone()],
+            edges: Vec::new(),
+        },
+    );
+    run.round = round;
+    let eval = run.eval_context().await?;
+    match task_node::spawn(ex, instance, &work_spec, round, &cfg, &ctx, &eval).await? {
+        SpawnOutcome::Created {
+            task_id, task_no, ..
+        } => {
+            tracing::info!(
+                instance_id = %instance.id,
+                node_key = %spec.key,
+                %task_id,
+                %task_no,
+                "子流程可见性任务已生成"
+            );
+            Ok(())
+        }
+        SpawnOutcome::AlreadyExists { task_id } => {
+            tracing::debug!(instance_id = %instance.id, node_key = %spec.key, ?task_id, "可见性任务已存在（幂等）");
+            Ok(())
+        }
+        SpawnOutcome::Skipped { reason } => {
+            tracing::info!(instance_id = %instance.id, node_key = %spec.key, %reason, "可见性任务按配置跳过");
+            Ok(())
+        }
+        SpawnOutcome::Failed(error) => Err(DbError::InvalidValue(format!(
+            "子流程可见性任务生成失败：{}",
+            error.msg
+        ))),
+    }
+}
+
+/// 子流程结算时把父侧的可见性任务收尾（通过 → `DONE`；没通过 → `CANCELLED`）。
+///
+/// 只动 `source='FLOW'` 且 `flow_instance_id + flow_node_key` 对得上的那一行；
+/// 已经是终态的行不动（幂等：重复回调不会把 `DONE` 改回 `CANCELLED`）。
+async fn close_visibility_task(
+    ex: &Transaction,
+    parent_id: Uuid,
+    node_key: &str,
+    approved: bool,
+) -> DbResult<u64> {
+    let (status, comment) = if approved {
+        ("DONE", String::new())
+    } else {
+        (
+            "CANCELLED",
+            "子流程未通过，该提示任务随节点一并结束".to_string(),
+        )
+    };
+    ex.execute_with_params(
+        "UPDATE biz_task \
+            SET status = ?, progress = CASE WHEN ? = 'DONE' THEN 100 ELSE progress END, \
+                done_at = CASE WHEN ? = 'DONE' THEN now() ELSE done_at END, \
+                cancel_reason = COALESCE(NULLIF(?, ''), cancel_reason), updated_at = now() \
+          WHERE flow_instance_id = ?::uuid AND flow_node_key = ? \
+            AND status IN ('TODO','DOING','REVIEW') AND deleted_at IS NULL",
+        vec![
+            Value::Text(status.to_string()),
+            Value::Text(status.to_string()),
+            Value::Text(status.to_string()),
+            Value::Text(comment),
+            Value::from(&parent_id),
+            Value::Text(node_key.to_string()),
+        ],
+    )
+    .await
+}
+
+/// 子实例落终态后**推进父流程**（`subprocess::on_instance_settled` 的实现体）。
+///
+/// 返回被推进的父实例 id（`None` = 这单不是子流程实例 / 不是终态 / 已经回调过）。
+///
+/// # 幂等（卡面硬约束）
+///
+/// | 闸 | 判据 | 重复回调的结果 |
+/// |---|---|---|
+/// | 父实例状态 | 不是 `PENDING` | 直接返回 `None`（父单已终结，不刷日志） |
+/// | 父节点行 | 已是终态（`APPROVED`/`REJECTED`/`CANCELLED`/`SKIPPED`） | 直接返回 `None` |
+///
+/// 两把闸都在**行锁内**判：并发两次回调时第二个会阻塞到第一个提交，然后读到终态自己退出。
+///
+/// # 异常情况
+///
+/// 数据库异常 / 推进被业务拒绝（例如下游节点派不出审批人）→ `Err`，**整笔回调事务回滚**：
+/// 父节点保持 `ACTIVE`（停在子流程上），子单结论不受影响。这种状态需要人工介入，
+/// 日志里 `warn!` 带父子两个 id，一眼能捞出来。
+pub async fn resume_parent_after_subprocess(
+    ex: &Transaction,
+    child_instance_id: Uuid,
+) -> DbResult<Option<Uuid>> {
+    // ① 子实例上的父子指针（这是「是不是子实例」的唯一判据）
+    let rows = ex
+        .find_with_params(
+            "SELECT parent_instance_id, parent_node_key, status \
+               FROM biz_flow_instance WHERE id = ?::uuid",
+            vec![Value::from(&child_instance_id)],
+        )
+        .await?;
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+    let parent_id: Option<Uuid> = row.get_typed("parent_instance_id")?;
+    let node_key: Option<String> = row.get_typed("parent_node_key")?;
+    let child_status: String = row.get_typed("status")?;
+    let (Some(parent_id), Some(node_key)) = (parent_id, node_key) else {
+        return Ok(None);
+    };
+    if !subprocess::is_terminal(&child_status) {
+        return Ok(None);
+    }
+
+    // ② 锁父实例（锁序第三层，与 vote 一致）
+    let Some(parent) = model::lock_instance(ex, parent_id).await? else {
+        tracing::warn!(%parent_id, child_instance_id = %child_instance_id, "子实例的父实例不存在（数据异常）");
+        return Ok(None);
+    };
+    if !parent.is_pending() {
+        tracing::debug!(
+            %parent_id,
+            child_instance_id = %child_instance_id,
+            parent_status = %parent.status,
+            "父实例已不在审批中（重复回调 / 已终结），跳过"
+        );
+        return Ok(None);
+    }
+
+    // ③ 锁父节点行（最新一轮）
+    let Some(node) = lock_latest_node(ex, parent_id, &node_key).await? else {
+        tracing::warn!(
+            %parent_id,
+            node_key = %node_key,
+            "子实例指向的父节点行不存在（快照与实例行不一致？）"
+        );
+        return Ok(None);
+    };
+    if node.is_terminal() {
+        tracing::debug!(
+            %parent_id,
+            node_key = %node_key,
+            node_status = %node.status,
+            "父节点已是终态（重复回调），跳过"
+        );
+        return Ok(None);
+    }
+
+    // ④ 快照 + 节点配置
+    let snapshot = load_snapshot(ex, parent.version_id).await?;
+    let Some(spec) = snapshot
+        .nodes
+        .iter()
+        .find(|candidate| candidate.key == node_key)
+        .cloned()
+    else {
+        tracing::warn!(%parent_id, node_key = %node_key, "父实例快照里没有这个节点（版本被改过？）");
+        return Ok(None);
+    };
+    let cfg = subprocess::parse_config(&spec.config["sub"]).map_err(|error| {
+        DbError::InvalidValue(format!(
+            "父节点 {node_key} 的子流程配置非法（{}）：{}",
+            error.code, error.message
+        ))
+    })?;
+
+    // ⑤ 推进（父节点结算 + 驱动下游）
+    let mut run = Run::new(ex, parent.clone(), snapshot);
+    run.round = node.round;
+    match run
+        .settle_subprocess(&node, &spec, &cfg, &child_status, child_instance_id)
+        .await?
+    {
+        Step::Idle => {}
+        Step::Next(targets) => {
+            if let Some(error) = run.drive(targets).await? {
+                return Err(DbError::InvalidValue(format!(
+                    "子流程结算后推进父流程被拒绝（{} {}）：父实例 {parent_id} 停在节点 {node_key}，需人工介入",
+                    error.code, error.msg
+                )));
+            }
+        }
+        Step::Fail(error) => {
+            return Err(DbError::InvalidValue(format!(
+                "子流程结算后推进父流程失败（{} {}）：父实例 {parent_id} 停在节点 {node_key}",
+                error.code, error.msg
+            )));
+        }
+    }
+
+    // ⑥ 实例 CAS（与 vote 同款：0 行 → 重读重试一次）
+    let auto_passed = model::sync_auto_passed(ex, parent_id).await?;
+    let status_after = run
+        .final_status
+        .clone()
+        .unwrap_or_else(|| "PENDING".to_string());
+    let round_total = model::max_round(ex, parent_id)
+        .await?
+        .max(parent.round_total);
+    let mut updated = model::bump_instance(
+        ex,
+        parent_id,
+        parent.revision,
+        Some(&status_after),
+        None,
+        round_total,
+    )
+    .await?;
+    if updated == 0
+        && let Some(fresh) = model::lock_instance(ex, parent_id).await?
+    {
+        updated = model::bump_instance(
+            ex,
+            parent_id,
+            fresh.revision,
+            Some(&status_after),
+            None,
+            round_total,
+        )
+        .await?;
+    }
+    if updated == 0 {
+        return Err(DbError::InvalidValue(format!(
+            "父实例 {parent_id} 推进时 revision CAS 冲突（并发回调？），请重试"
+        )));
+    }
+
+    // ⑦ 父流程到终态 → 清掉挂着的流程任务（与 vote 同口径）
+    if status_after != "PENDING" {
+        let comment = format!("流程已终止（{}）", parent.instance_no);
+        let cancelled =
+            model::cancel_flow_tasks(ex, parent_id, &parent.instance_no, &comment).await?;
+        if !cancelled.is_empty() {
+            tracing::info!(
+                %parent_id,
+                cancelled_biz_tasks = cancelled.len() as i64,
+                "父流程因节点 ABORT 终止：未完成的流程任务一并取消"
+            );
+        }
+    }
+
+    tracing::info!(
+        %parent_id,
+        child_instance_id = %child_instance_id,
+        node_key = %node_key,
+        child_status = %child_status,
+        parent_status = %status_after,
+        auto_passed_nodes = auto_passed,
+        "子流程结算回调节点完成，父流程已推进"
+    );
+    Ok(Some(parent_id))
+}
+
+/// 锁父实例里某个节点的**最新一轮**行（父子回调专用）。
+async fn lock_latest_node(
+    ex: &Transaction,
+    instance_id: Uuid,
+    node_key: &str,
+) -> DbResult<Option<model::NodeRow>> {
+    let rows = ex
+        .find_with_params(
+            "SELECT id FROM biz_flow_instance_node \
+              WHERE instance_id = ?::uuid AND node_key = ? \
+              ORDER BY round DESC LIMIT 1 FOR UPDATE",
+            vec![Value::from(&instance_id), Value::Text(node_key.to_string())],
+        )
+        .await?;
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+    let id: Uuid = row.get_typed("id")?;
+    model::lock_node(ex, id).await
+}
 
 /// 读发布快照（**引擎唯一的图来源**：只读 `version.graph_snapshot`，不 JOIN 定义行，D2）。
 async fn load_snapshot(ex: &Transaction, version_id: Uuid) -> DbResult<Snapshot> {

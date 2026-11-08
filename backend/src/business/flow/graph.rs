@@ -93,6 +93,22 @@ pub enum NodeType {
     /// `when=ON_TIMEOUT` 时节点保持 `ACTIVE`，由 `engine::fire_notify_node` 在超时后放行。
     /// 发布校验见 `FlowGraph::validate_with` 的 R19。
     Notify,
+    /// 子流程节点（P3-08 / ARCH-5 §4.14）：一个节点里跑**另一张完整的图**（出度必须 = 1）。
+    ///
+    /// # 与「展开子流程」的区别（为什么是真子实例）
+    ///
+    /// 把子流程的节点内联展开进父图会撞 `node_key`（只能加前缀），而前缀一加，
+    /// 子流程改版就得重新展开所有父流程 —— 子流程自己的审批记录、超时、统计也全部混进
+    /// 父实例，没人能说清「这张单到底卡在哪」。所以落地方式是**真子实例**：
+    /// 父实例的 SUBPROCESS 节点保持 `ACTIVE`，子实例跑自己的图，结算时回调父节点。
+    ///
+    /// # 三条运行期约束
+    ///
+    /// ① `biz_flow_node.subprocess_def_id` 必填且必须已发布（R27，`65045`）；
+    /// ② 嵌套深度 ≤ [`crate::business::flow::subprocess::MAX_NEST_DEPTH`]（R27，`65046`）；
+    /// ③ 子实例 `biz_id = NULL` —— 不撞父流程的 `uk_biz_flow_instance_biz_active`
+    ///    （同单据同时只能一个在跑）。
+    Subprocess,
     /// 结束（≥ 1 个，出度 0）。
     End,
 }
@@ -109,6 +125,7 @@ impl NodeType {
             NodeType::Cc => "CC",
             NodeType::Task => "TASK_NODE",
             NodeType::Notify => "NOTIFY_NODE",
+            NodeType::Subprocess => "SUBPROCESS",
             NodeType::End => "END",
         }
     }
@@ -124,13 +141,14 @@ impl NodeType {
             "CC" => Some(NodeType::Cc),
             "TASK_NODE" => Some(NodeType::Task),
             "NOTIFY_NODE" => Some(NodeType::Notify),
+            "SUBPROCESS" => Some(NodeType::Subprocess),
             "END" => Some(NodeType::End),
             _ => None,
         }
     }
 
     /// 全部节点类型（入库字符串，顺序与 `as_str` 一致；错误文案拼「只允许 …」用）。
-    pub const ALL: [NodeType; 9] = [
+    pub const ALL: [NodeType; 10] = [
         NodeType::Start,
         NodeType::Approval,
         NodeType::Countersign,
@@ -139,6 +157,7 @@ impl NodeType {
         NodeType::Cc,
         NodeType::Task,
         NodeType::Notify,
+        NodeType::Subprocess,
         NodeType::End,
     ];
 
@@ -158,9 +177,13 @@ impl NodeType {
         )
     }
 
-    /// 出度必须 = 1 的节点（审批类 + 任务 + 通知；R6 / R17 的共同判据）。
+    /// 出度必须 = 1 的节点（审批类 + 任务 + 通知 + 子流程；R6 / R17 / R27 的共同判据）。
     pub fn is_single_exit(self) -> bool {
-        self.is_approval_class() || matches!(self, NodeType::Task | NodeType::Notify)
+        self.is_approval_class()
+            || matches!(
+                self,
+                NodeType::Task | NodeType::Notify | NodeType::Subprocess
+            )
     }
 
     /// 是否分支网关（条件 / 并行，出度 ≥ 2）。
@@ -431,6 +454,14 @@ pub struct NodeSpec {
     pub y: i32,
     /// 排序。
     pub sort_order: i32,
+    /// 子流程定义（仅 `SUBPROCESS`；P3-08 / ARCH-5 §4.14）。
+    ///
+    /// 对应表列 `biz_flow_node.subprocess_def_id`（FK RESTRICT 到 `biz_flow_def`）。
+    /// 用**物理列**而不是 `config.sub.def_id` 的三个理由：
+    /// ① 外键约束只在列上生效（JSONB 里的 uuid 没人拦得住「删了定义父流程还指着它」）；
+    /// ② 「哪些流程引用了这个子流程定义」要能反查（`idx_biz_flow_node_subprocess_def`）；
+    /// ③ `config` 整块进 `graph_hash`，uuid 放列上还能让「只换子流程版本」不改 hash。
+    pub subprocess_def_id: Option<Uuid>,
     /// 扩展配置（JSONB，**不含审批人**）。
     pub config: Value,
 }
@@ -463,6 +494,7 @@ impl Default for NodeSpec {
             x: 0,
             y: 0,
             sort_order: 0,
+            subprocess_def_id: None,
             config: Value::Object(Map::new()),
         }
     }
@@ -1290,9 +1322,12 @@ impl FlowGraph {
         // ---------- R16（批次 D · EXPRESSION DSL §8.5）：表达式审批人必须可解析 ----------
         issues.extend(self.expression_issues());
 
-        // ---------- R17（P-FLOW-1A）：TASK_NODE / NOTIFY_NODE 出度必须 = 1 ----------
+        // ---------- R17（P-FLOW-1A / P3-08）：TASK_NODE / NOTIFY_NODE / SUBPROCESS 出度必须 = 1 ----------
         for node in &self.nodes {
-            if !matches!(node.node_type, NodeType::Task | NodeType::Notify) {
+            if !matches!(
+                node.node_type,
+                NodeType::Task | NodeType::Notify | NodeType::Subprocess
+            ) {
                 continue;
             }
             let outdegree = out_degree.get(node.key.as_str()).copied().unwrap_or(0);
@@ -1302,11 +1337,11 @@ impl FlowGraph {
                         "R17",
                         error_code::FLOW_GRAPH_DEGREE,
                         format!(
-                            "{}节点 {}（{}）有 {outdegree} 条出边（只能有一条出边：任务完成 / 通知发完之后「往哪走」必须唯一；分支请用条件网关）",
-                            if node.node_type == NodeType::Task {
-                                "任务"
-                            } else {
-                                "通知"
+                            "{}节点 {}（{}）有 {outdegree} 条出边（只能有一条出边：任务完成 / 通知发完 / 子流程结算之后「往哪走」必须唯一；分支请用条件网关）",
+                            match node.node_type {
+                                NodeType::Task => "任务",
+                                NodeType::Notify => "通知",
+                                _ => "子流程",
                             },
                             node.key,
                             node.name
@@ -1557,6 +1592,98 @@ impl FlowGraph {
         // ---------- R22（P3-03 / ARCH-8 场景 C）：节点兜底人配置纪律 ----------
         issues.extend(self.fallback_issues());
 
+        // ---------- R27（P3-08 / ARCH-5 §4.14）：SUBPROCESS 节点配置纪律 ----------
+        issues.extend(self.subprocess_issues());
+
+        issues
+    }
+
+    /// R27（纯函数部分）：`SUBPROCESS` 节点的静态配置纪律（P3-08 / ARCH-5 §4.14）。
+    ///
+    /// # 这里能查什么、不能查什么
+    ///
+    /// `validate_with` 没有 `SqlExecutor`（60 多条存量单测都靠这一点），所以：
+    ///
+    /// | 判据 | 在哪 | 错误码 |
+    /// |---|---|---|
+    /// | `subprocess_def_id` 必填 | 本函数（列上的值随快照进内存） | `65045` ⓐ |
+    /// | `config.sub` 形状 / 枚举取值 | 本函数（[`node_config::parse_sub_config`]） | `65045` ⓑ |
+    /// | `config.sub` 只许出现在 SUBPROCESS 上（分区纪律） | 本函数 | `65045` ⓒ |
+    /// | 出度 = 1 | R17（`is_single_exit` 已含 Subprocess） | `65010` |
+    /// | 定义存在 / 已发布 / 不自递归 / 深度 ≤ 3 / param_mapping 键存在 | [`super::subprocess::validate_publish`]（要查库） | `65045` / `65046` |
+    ///
+    /// 自递归与深度**不能**在这里判：`subprocess_def_id` 指向的是另一张图，
+    /// 它的子流程关系只有查库才知道（`biz_flow_node` 的另一行）。
+    pub fn subprocess_issues(&self) -> Vec<Issue> {
+        let mut issues = Vec::new();
+        for node in &self.nodes {
+            let has_sub = node.config.get("sub").is_some_and(|value| !value.is_null());
+            if node.node_type != NodeType::Subprocess {
+                // 分区纪律（与 R18 的 task / R19 的 notify 同款）：静默忽略比报错更坏 ——
+                // 用户以为配上了，实际引擎根本不读。
+                if has_sub {
+                    issues.push(
+                        Issue::new(
+                            "R27",
+                            error_code::FLOW_SUBPROCESS_DEF_INVALID,
+                            format!(
+                                "节点 {}（{}）的类型是 {}，不允许配置子流程配置（config.sub）；子流程配置只能放在 SUBPROCESS 上",
+                                node.key,
+                                node.name,
+                                node.node_type.as_str()
+                            ),
+                        )
+                        .with_nodes(vec![node.key.clone()]),
+                    );
+                }
+                if node.subprocess_def_id.is_some() {
+                    issues.push(
+                        Issue::new(
+                            "R27",
+                            error_code::FLOW_SUBPROCESS_DEF_INVALID,
+                            format!(
+                                "节点 {}（{}）的类型是 {}，却配了「子流程定义」；只有 SUBPROCESS 节点能指向子流程",
+                                node.key,
+                                node.name,
+                                node.node_type.as_str()
+                            ),
+                        )
+                        .with_nodes(vec![node.key.clone()]),
+                    );
+                }
+                continue;
+            }
+
+            // ⓐ 必须指向一个子流程定义
+            if node.subprocess_def_id.is_none() {
+                issues.push(
+                    Issue::new(
+                        "R27",
+                        error_code::FLOW_SUBPROCESS_DEF_INVALID,
+                        format!(
+                            "子流程节点 {}（{}）没有选择要执行的子流程（subprocess_def_id 为空）",
+                            node.key, node.name
+                        ),
+                    )
+                    .with_nodes(vec![node.key.clone()]),
+                );
+            }
+
+            // ⓑ 形状 / 枚举（缺 config.sub 不报错：五个键全有默认值，空对象是合法的最简配置）
+            if has_sub && let Err(error) = node_config::parse_sub_config(&node.config["sub"]) {
+                issues.push(
+                    Issue::new(
+                        "R27",
+                        error.code,
+                        format!(
+                            "子流程节点 {}（{}）：{}",
+                            node.key, node.name, error.message
+                        ),
+                    )
+                    .with_nodes(vec![node.key.clone()]),
+                );
+            }
+        }
         issues
     }
 
