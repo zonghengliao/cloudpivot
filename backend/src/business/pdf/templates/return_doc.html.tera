@@ -96,6 +96,9 @@ table.detail {
   width: 100%;
   border-collapse: collapse;
   font-size: 9pt;
+  /* 固定列宽：auto 布局会按内容重算宽度，序列号列被挤到 100pt 以下 → 号码从中间折行。
+     定死总宽度（横版可用 ≈785pt）后各列按声明值分配，剩余给「物料名称」。 */
+  table-layout: fixed;
 }
 table.detail thead { display: table-header-group; }
 table.detail th,
@@ -112,7 +115,7 @@ table.detail th {
 }
 table.detail tr { break-inside: avoid; page-break-inside: avoid; }
 table.detail td.c-seq { text-align: center; width: 22pt; }
-table.detail td.c-code { width: 80pt; white-space: nowrap; }
+table.detail td.c-code { width: 76pt; white-space: nowrap; }
 table.detail td.c-name { width: auto; }
 /* 规格 66pt（横版空间充裕）：56pt 会把 DN100/PN16 折行 */
 table.detail td.c-spec { width: 66pt; }
@@ -124,7 +127,7 @@ table.detail td.c-rate { width: 34pt; }
 table.detail td.c-tax { width: 56pt; }
 table.detail td.c-with-tax { width: 66pt; }
 table.detail td.c-loc { width: 52pt; overflow-wrap: anywhere; }
-table.detail td.c-sn { width: 150pt; overflow-wrap: anywhere; }
+table.detail td.c-sn { width: 170pt; overflow-wrap: anywhere; }
 table.detail td.c-code,
 table.detail td.c-name,
 table.detail td.c-spec { overflow-wrap: anywhere; }
