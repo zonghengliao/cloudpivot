@@ -107,15 +107,16 @@ table.detail tr {
   break-inside: avoid;
   page-break-inside: avoid;
 }
-table.detail td.c-seq { text-align: center; width: 26pt; }
-table.detail td.c-code { width: 62pt; }
+table.detail td.c-seq { text-align: center; width: 24pt; }
+/* 物料编码必须整串不折行：`PDF02-MAT-001` 折成两行是硬伤（验收①/② 逐行核对时看不清） */
+table.detail td.c-code { width: 82pt; white-space: nowrap; }
 table.detail td.c-name { width: auto; }
-table.detail td.c-spec { width: 62pt; }
-table.detail td.c-unit { text-align: center; width: 30pt; }
-table.detail td.c-qty { width: 44pt; }
-table.detail td.c-price { width: 58pt; }
-table.detail td.c-amount { width: 70pt; }
-table.detail td.c-remark { width: 56pt; color: #4e5969; }
+table.detail td.c-spec { width: 60pt; }
+table.detail td.c-unit { text-align: center; width: 28pt; }
+table.detail td.c-qty { width: 42pt; }
+table.detail td.c-price { width: 54pt; }
+table.detail td.c-amount { width: 68pt; }
+table.detail td.c-remark { width: 52pt; color: #4e5969; }
 table.detail td.c-code,
 table.detail td.c-name,
 table.detail td.c-spec,
