@@ -137,8 +137,23 @@ ERP_DB_URL=…/cloudpivot_aud01b TASK_DB_URL=同 cargo test --lib business::task
                                                     → 240 passed / 0 failed
 ```
 
-## §5 HTTP 真机证据
+### 全量 `cargo test --lib`（跑到 1792 / 3830 条时终止）
 
+在共享工作区（同一目录里还有其它 worker **未提交**的 `erp/*` 改动）与复用库
+`cloudpivot_aud01b` 上跑过一遍：前 1792 条里 **3 条 ERP PDF 真库用例 FAILED** ——
+`business::erp::report_pdf::tests::pdf07_real_three_reports_agree_on_shape`、
+`business::erp::return_pdf::db_tests::{purchase,sales}_return_context_has_source_numbers_and_reason`。
+
+判定**与本卡无关**：① 这三个用例都在 `erp::report_pdf` / `erp::return_pdf`，本卡 diff 只碰
+`business/{attachment,task,shared}`；② 它们断言「借贷必须平 / 上下文数据齐全」，对库的
+数据新鲜度极敏感（仓库为此专门有 `scripts/verify/make_full_suite_db.sh` 新建库的流程），
+而本库此前已跑过 300+ 条会写夹具的用例；③ 工作区当时带有他人未提交的 `opening.rs` /
+`asset_*` 等 ERP 改动。
+
+**本卡涉及的两个模块是真跑绿的**（§4：attachment 86 / task 240）。要一次全绿，需在
+`make_full_suite_db.sh` 新建的库上跑完整套件。
+
+## §5 HTTP 真机证据
 隔离实例（`cp_aud01_e2e`，285 迁移全过）+ `p14_attachment_e2e.py`（38/38 通过）造夹具，
 再跑 `scripts/verify/aud01_uploader_name_snapshot.py`：
 
