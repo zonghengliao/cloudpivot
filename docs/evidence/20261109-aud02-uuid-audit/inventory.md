@@ -1,7 +1,7 @@
 # AUD-02 盘点表（脚本生成，勿手改）
 
 - 含人员字段的结构体：245
-- 缺 name：166（出参 DTO 19）
+- 缺 name：161（出参 DTO 19）
 - 生成命令：`python3 scripts/verify/aud02_person_name_inventory.py`
 
 | # | 文件 | 结构体 | 分类 | 人字段 | 缺 name |
@@ -196,7 +196,7 @@
 | 188 | `api/business/flow-api.ts` | `FlowSelfApprovalPerson` | 前端类型 | user_id | user_id |
 | 189 | `api/business/flow-api.ts` | `FlowSelfApprovalTicket` | 前端类型 | user_id | user_id |
 | 190 | `api/business/help-api.ts` | `HelpVersion` | 前端类型 | create_by | — |
-| 191 | `api/business/mutex-api.ts` | `MutexRes` | 前端类型 | create_by | create_by |
+| 191 | `api/business/mutex-api.ts` | `MutexRes` | 前端类型 | create_by | — |
 | 192 | `api/business/mutex-api.ts` | `MutexHolderRes` | 前端类型 | user_id | user_id |
 | 193 | `api/business/mutex-api.ts` | `MutexConflictRes` | 前端类型 | user_id | user_id |
 | 194 | `api/business/permission-scope-api.ts` | `ScopeSelfCheckRes` | 前端类型 | user_id | user_id |
@@ -228,15 +228,15 @@
 | 220 | `api/business/erp/commission.ts` | `SettleCommissionReq` | 前端类型 | salesperson_id | salesperson_id |
 | 221 | `api/business/erp/commission.ts` | `CommissionSkippedRow` | 前端类型 | salesperson_id | — |
 | 222 | `api/business/erp/index.ts` | `TransferRow` | 前端类型 | applicant_id, approver_id | approver_id |
-| 223 | `api/business/erp/index.ts` | `StockInRow` | 前端类型 | create_by | create_by |
-| 224 | `api/business/erp/index.ts` | `InventoryTxnRow` | 前端类型 | operator_id | operator_id |
+| 223 | `api/business/erp/index.ts` | `StockInRow` | 前端类型 | create_by | — |
+| 224 | `api/business/erp/index.ts` | `InventoryTxnRow` | 前端类型 | operator_id | — |
 | 225 | `api/business/erp/index.ts` | `SalesOrder` | 前端类型 | salesperson_id | — |
 | 226 | `api/business/erp/index.ts` | `CreateSalesOrderReq` | 前端类型 | salesperson_id | salesperson_id |
 | 227 | `api/business/erp/index.ts` | `UpdateSalesOrderReq` | 前端类型 | salesperson_id | salesperson_id |
 | 228 | `api/business/erp/purchase-requisition.ts` | `RequisitionRow` | 前端类型 | applicant_id | — |
 | 229 | `api/business/erp/purchase-requisition.ts` | `CreateRequisitionPayload` | 前端类型 | applicant_id | applicant_id |
-| 230 | `api/business/erp/stock-out.ts` | `StockOutRow` | 前端类型 | create_by | create_by |
-| 231 | `api/business/erp/stock-take.ts` | `StockTakeRow` | 前端类型 | create_by | create_by |
+| 230 | `api/business/erp/stock-out.ts` | `StockOutRow` | 前端类型 | create_by | — |
+| 231 | `api/business/erp/stock-take.ts` | `StockTakeRow` | 前端类型 | create_by | — |
 | 232 | `api/business/storage/index.ts` | `StorageFileRes` | 前端类型 | uploaded_by | — |
 | 233 | `api/support/file-api.ts` | `FileRes` | 前端类型 | uploaded_by | — |
 | 234 | `api/support/log-api.ts` | `LogRes` | 前端类型 | user_id | user_id |

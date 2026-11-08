@@ -40,10 +40,10 @@ python3 scripts/verify/aud02_person_name_inventory.py --check
 
 | 范围 | 含人员字段的结构体 | 缺 name | 其中「出参 DTO」 |
 |---|---|---|---|
-| 后端 `backend/src` | 245 | 166 | 19（**逐个判定为 N/A，见 §6**） |
-| 前端 `frontend/src` | 66 个类型 | 41 | 0（全部是 `*Req` / `*Query` / 表单草稿，见 §6） |
+| 后端 `backend/src` | 245 | 161 | 19（**逐个判定为 N/A，见 §6**） |
+| 前端 `frontend/src` | 66 个类型 | 35 | 0（全部是 `*Req` / `*Query` / 表单草稿，见 §6） |
 
-> 「缺 name 166 个」听起来很多，其实是**库行 `*Row` 与入参 `*Req`**：它们不该有 `*_name`
+> 「缺 name 161 个」听起来很多，其实是**库行 `*Row` 与入参 `*Req`**：它们不该有 `*_name`
 > —— `Row` 只做 ORM 中转（名字在 DTO 里补），`Req` 是前端提交的 id（给人名反而会被误回写）。
 > 真正会序列化给前端的「出参 DTO」只有 19 个缺，且全部已判定为 N/A（§6 逐条给了理由）。
 
@@ -204,8 +204,11 @@ assert_eq!(stats::count(), 1, "一次详情只允许 1 条取名字 SQL");
 | `cargo test --lib business::mutex` | 23 passed |
 | `cargo test --lib system::dept` | 12 passed |
 | `cargo test --lib business::storage` | 78 passed |
-| `cargo test --lib stockin / stockout / stocktake` | 见 §5 末尾追加记录 |
+| `cargo test --lib stockin` | 158 passed / 0 failed（472s） |
+| `cargo test --lib stockout` | 28 passed / 0 failed |
+| `cargo test --lib stocktake` | 27 passed / 0 failed |
 | `pnpm typecheck` | 通过 |
+| `pnpm test:unit`（全量 1239） | 1237 passed / 2 failed（**均与本卡无关**，见 §9） |
 | `python3 scripts/verify/aud02_person_name_inventory.py --check` | 13 + 3 条约束全过 |
 | `aud02_person_name_e2e.py`（HTTP 真机） | 全部断言 PASS（本机 25 项，见上） |
 
@@ -249,7 +252,6 @@ assert_eq!(stats::count(), 1, "一次详情只允许 1 条取名字 SQL");
 ---
 
 ## 8. 复现步骤（从零跑一遍）
-
 ```bash
 # 0) 门禁
 python3 scripts/verify/aud02_person_name_inventory.py --check
@@ -270,3 +272,18 @@ cd backend && ERP_DB_URL=postgres://alun:alun@127.0.0.1:5432/cp_aud02_e2e \
 # 4) 收尾
 bash scripts/verify/p14_instance.sh stop   # 或 P14_PIDFILE=... stop
 ```
+
+---
+
+## 9. 如实记录：跑到的「与本卡无关的红」
+
+`pnpm test:unit`（全量 1239 条）在本机有 **2 条红**，均与本卡改动无交集（本卡没碰销售订单表单、
+没碰流程枚举）：
+
+| 失败用例 | 实际 vs 期望 | 归属判断 |
+|---|---|---|
+| `erp-sales-order.test.ts` "create payload keeps dates and folds empty remark to null" | 实际 payload 多了 `currency_code: null` | SO-37 佣金 / 销售员选择器那一批（`sales-order-query.ts`），不是本卡文件 |
+| `flow-biz-link.test.ts` "后端 FlowBizType 的落库字面量 = 前端 FLOW_BIZ_TYPES（15 个）" | 后端已 16 个（PURCHASE_RETURN 被 TST-01 补进链路） | 流程枚举联动，属 TST-01 / P2-03 那条线 |
+
+`cargo clippy --lib` 的 3 条告警同样都在本卡没碰的文件（`invoice.rs` / `receivable.rs` /
+`sales_order_model.rs`），是既存告警。
