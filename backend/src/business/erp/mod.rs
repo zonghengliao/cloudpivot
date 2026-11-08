@@ -240,6 +240,8 @@ pub mod sales_target_dto;
 pub mod sales_target_handler;
 pub mod sales_target_model;
 pub mod separation;
+/// 主数据编码取号器（CODE-01）：`biz_seq` 纯流水号段 → `SUP-0001` / `WH-01`。
+pub mod seq;
 pub mod serial_dto;
 pub mod serial_handler;
 pub mod serial_model;
