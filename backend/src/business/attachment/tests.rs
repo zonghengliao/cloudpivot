@@ -1474,6 +1474,158 @@ async fn db_manual_sort_persists_and_rejects_foreign_ids() {
     println!("[ATT-03] 手动排序落库 / active_ids 同步 / 跨单据与已删行不命中 ✓");
 }
 
+/// 删除留痕（纯逻辑）：操作码 / 目标 / detail / 方法 / 路径全都要对。
+///
+/// 为什么这条必须有：ATT-03 在 145 实测发现删除原来走审计总线，**总线那行没落库**，
+/// `operation_logs` 里只剩中间件的 `DELETE /api/business/attachment/{id}`（不带文件名）。
+/// 改成直写后，字段正确性由这条用例钉住。
+#[test]
+fn delete_log_fields() {
+    use axum::http::HeaderMap;
+
+    let mut headers = HeaderMap::new();
+    headers.insert("x-request-id", "req-att03-del".parse().expect("头值"));
+    headers.insert("user-agent", "att03-test/1.0".parse().expect("头值"));
+    headers.insert("x-real-ip", "10.9.8.9".parse().expect("头值"));
+    let connect: std::net::SocketAddr = "127.0.0.1:54322".parse().expect("地址");
+    let claims = claims_of(U_OWNER, &["business:attachment:upload"]);
+    let row = fixture_row();
+
+    let entry = super::handler::delete_log(&headers, &connect, &claims, &row, true, 12);
+    let id_text = row.id.to_string();
+    let username_text = format!("att_{}", &U_OWNER[..8]);
+    let path_text = format!("/api/business/attachment/{}", row.id);
+    assert_eq!(entry.operation, super::handler::OP_DELETE);
+    assert_eq!(entry.operation, "DOC_ATTACHMENT_DELETE");
+    assert_eq!(entry.target_type.as_deref(), Some("DocAttachment"));
+    assert_eq!(entry.target_id.as_deref(), Some(id_text.as_str()));
+    assert_eq!(entry.request_method.as_deref(), Some("DELETE"));
+    assert_eq!(entry.request_path.as_deref(), Some(path_text.as_str()));
+    assert_eq!(entry.status_code, Some(200));
+    assert_eq!(entry.duration_ms, Some(12));
+    assert_eq!(entry.user_id, Some(uid(U_OWNER)));
+    assert_eq!(entry.username.as_deref(), Some(username_text.as_str()));
+
+    let detail = entry.detail.clone().expect("detail 必须存在");
+    assert_eq!(detail["doc_type"], serde_json::json!("PAYABLE"));
+    assert_eq!(detail["doc_id"], serde_json::json!(DOC_PAYABLE));
+    assert_eq!(detail["file_name"], serde_json::json!("发票影像.pdf"));
+    assert_eq!(detail["file_size"], serde_json::json!(2048));
+    assert_eq!(detail["file_role"], serde_json::json!("INVOICE"));
+    assert_eq!(
+        detail["file_deleted"],
+        serde_json::json!(true),
+        "detail 要记文件是否一并软删"
+    );
+    assert_eq!(
+        detail["soft_delete"],
+        serde_json::json!(true),
+        "必须能看出这是软删"
+    );
+    assert_eq!(
+        entry.response_data.as_ref().map(|v| v["deleted"].clone()),
+        Some(serde_json::json!(true))
+    );
+    assert_eq!(
+        entry.ip,
+        Some("10.9.8.9".parse::<std::net::IpAddr>().expect("IP"))
+    );
+    println!("[ATT-03] 删除留痕字段（operation/target/detail/软删标记）✓");
+}
+
+/// 真库：删除留痕能真正落进 `operation_logs`（`ip` 是 INET、`detail` 是 JSONB）。
+///
+/// 单测只验模型字段；这条验写库路径 —— 绑定类型写错只在运行期报错，而留痕失败会被
+/// `warn` 吞掉（不能因此让删除失败），所以必须有真库用例兜住。
+#[tokio::test]
+async fn db_delete_log_lands_in_operation_logs() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    use axum::http::HeaderMap;
+
+    let log_id = uid("d2120e02-0000-4000-8000-000000000002");
+    exec(&format!(
+        "DELETE FROM operation_logs WHERE id = '{log_id}'::uuid"
+    ))
+    .await;
+
+    let mut headers = HeaderMap::new();
+    headers.insert("x-request-id", "req-att03-db-del".parse().expect("头值"));
+    headers.insert("user-agent", "att03-db-test/1.0".parse().expect("头值"));
+    headers.insert("x-real-ip", "10.9.8.9".parse().expect("头值"));
+    let connect: std::net::SocketAddr = "127.0.0.1:54322".parse().expect("地址");
+    let claims = claims_of(U_OWNER, &["business:attachment:upload"]);
+    let row = fixture_row();
+
+    let mut entry = super::handler::delete_log(&headers, &connect, &claims, &row, false, 9);
+    entry.id = log_id;
+    entry
+        .insert(db())
+        .await
+        .expect("删除留痕必须能写进 operation_logs");
+
+    let rows = db()
+        .find_with_params(
+            "SELECT operation, target_type, target_id, status_code, request_method, \
+                    detail->>'doc_type' AS doc_type, detail->>'file_name' AS file_name, \
+                    (detail->>'file_size')::bigint AS file_size, \
+                    (detail->>'soft_delete')::boolean AS soft_delete, \
+                    host(ip) AS ip_text \
+               FROM operation_logs WHERE id = ?::uuid",
+            vec![Value::from(&log_id)],
+        )
+        .await
+        .expect("读回留痕");
+    let row_db = rows.first().expect("留痕必须落库");
+
+    assert_eq!(
+        row_db.get_typed::<String>("operation").expect("操作码"),
+        "DOC_ATTACHMENT_DELETE"
+    );
+    assert_eq!(
+        row_db.get_typed::<String>("target_type").expect("目标类型"),
+        "DocAttachment"
+    );
+    assert_eq!(
+        row_db.get_typed::<String>("target_id").expect("目标 id"),
+        row.id.to_string()
+    );
+    assert_eq!(
+        row_db.get_typed::<String>("request_method").expect("方法"),
+        "DELETE"
+    );
+    assert_eq!(row_db.get_typed::<i32>("status_code").expect("状态码"), 200);
+    assert_eq!(
+        row_db.get_typed::<String>("doc_type").expect("doc_type"),
+        "PAYABLE"
+    );
+    assert_eq!(
+        row_db.get_typed::<String>("file_name").expect("文件名"),
+        "发票影像.pdf"
+    );
+    assert_eq!(row_db.get_typed::<i64>("file_size").expect("大小"), 2048);
+    assert!(row_db.get_typed::<bool>("soft_delete").expect("软删标记"));
+    assert_eq!(
+        row_db.get_typed::<String>("ip_text").expect("IP"),
+        "10.9.8.9"
+    );
+
+    exec(&format!(
+        "DELETE FROM operation_logs WHERE id = '{log_id}'::uuid"
+    ))
+    .await;
+    let left: i64 = db()
+        .scalar_with_params(
+            "SELECT count(*) FROM operation_logs WHERE id = ?::uuid",
+            vec![Value::from(&log_id)],
+        )
+        .await
+        .expect("查残留");
+    assert_eq!(left, 0, "夹具留痕必须清干净");
+    println!("[ATT-03] 删除留痕真库落库（operation/target/detail/ip）✓");
+}
+
 /// 收尾：断言夹具全部清干净（跨 run 不留残留）。
 #[tokio::test]
 async fn zz_teardown_purges_fixtures() {

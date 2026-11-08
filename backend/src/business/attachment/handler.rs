@@ -330,8 +330,9 @@ async fn list_of(
 ///
 /// # 留痕
 ///
-/// 写一条 `operation_logs`（`DOC_ATTACHMENT_SORT`，detail 含单据 + 新顺序的前若干 id），
-/// 与上传 / 删除 / 下载同一条审计口径。
+/// 通过审计总线投递一条 `DOC_ATTACHMENT_SORT`（与上传同口径；总线批量落库）。
+/// 删除 / 下载是**直写** `operation_logs` —— 那两条的审计价值高于排序，
+/// 不能容忍「进批次丢了就没了」。HTTP 层面还有全局中间件的一条 `PUT` 流水。
 ///
 /// # 异常情况
 ///
@@ -535,6 +536,7 @@ pub async fn remove(
         ));
     }
 
+    let started = std::time::Instant::now();
     let affected = model::soft_delete(db(), &attachment_id)
         .await
         .map_err(|error| utils::db_error(error, "删除附件绑定"))?;
@@ -562,24 +564,15 @@ pub async fn remove(
         ),
     }
 
-    log::record_audit(
+    record_delete_log(
         &headers,
         &connect_info,
-        log::audit_input(
-            &claims,
-            "DOC_ATTACHMENT_DELETE",
-            "DocAttachment",
-            attachment_id.to_string(),
-            Some(serde_json::json!({
-                "doc_type": row.doc_type,
-                "doc_id": row.doc_id.to_string(),
-                "file_id": row.file_id.to_string(),
-                "file_role": row.file_role,
-                "file_name": row.file_name,
-            })),
-            Some(serde_json::json!({ "deleted": true, "file_deleted": file_deleted })),
-        ),
-    );
+        &claims,
+        &row,
+        file_deleted,
+        started,
+    )
+    .await;
 
     tracing::info!(
         attachment_id = %attachment_id,
@@ -594,6 +587,91 @@ pub async fn remove(
         deleted: affected > 0,
         file_deleted,
     }))
+}
+
+/// 删除留痕的操作码（`operation_logs.operation`，ATT-03）。
+pub const OP_DELETE: &str = "DOC_ATTACHMENT_DELETE";
+
+/// 构造一条删除留痕（**纯逻辑**：不连库，单测直接断言字段）。
+///
+/// # 为什么删除要自己写一行（ATT-03 实测发现）
+///
+/// 改造前删除走 `log::record_audit(...)` → 日志总线（500 ms 批量）。在 145 隔离实例上
+/// 实测：**总线里的审计行始终没落库**，`operation_logs` 里只剩全局中间件写的那条
+/// `DELETE /api/business/attachment/{id}`（只有 target_id，没有单据类型 / 文件名）。
+/// 而「谁删了哪张单的哪个附件」正是审计要回答的问题。
+///
+/// 与 [`download_log`] 同一条理由与同一种做法：直写 `operation_logs`，
+/// 写库失败只 `warn`（留痕是旁路，不能反压业务）。
+///
+/// # 与中间件那条 `DELETE /api/business/attachment/{id}` 的关系
+///
+/// 两条都留：中间件是「HTTP 层面发生了什么」的通用流水，本条是「业务层面删了哪张单据的
+/// 哪个附件」的结构化记录（`detail` 带 doc_type / doc_id / file_name / 大小 / 引用是否释放）。
+pub(crate) fn delete_log(
+    headers: &HeaderMap,
+    connect_info: &SocketAddr,
+    claims: &TokenClaims,
+    row: &model::DocAttachmentRow,
+    file_deleted: bool,
+    duration_ms: i32,
+) -> OperationLogModel {
+    OperationLogModel {
+        id: uuid::Uuid::now_v7(),
+        request_id: utils::request_id(headers),
+        user_id: utils::current_user_uuid(claims),
+        username: claims.username.clone(),
+        operation: OP_DELETE.to_string(),
+        target_type: Some("DocAttachment".to_string()),
+        target_id: Some(row.id.to_string()),
+        detail: Some(serde_json::json!({
+            "doc_type": row.doc_type,
+            "doc_id": row.doc_id.to_string(),
+            "file_id": row.file_id.to_string(),
+            "file_role": row.file_role,
+            "file_name": row.file_name,
+            "file_size": row.file_size,
+            "file_deleted": file_deleted,
+            "soft_delete": true,
+        })),
+        ip: utils::client_ip(headers, Some(connect_info)),
+        user_agent: utils::user_agent(headers),
+        duration_ms: Some(duration_ms),
+        request_path: Some(format!("/api/business/attachment/{}", row.id)),
+        request_method: Some("DELETE".to_string()),
+        request_params: None,
+        response_data: Some(serde_json::json!({ "deleted": true, "file_deleted": file_deleted })),
+        status_code: Some(200),
+        // 追加写表关闭时间戳 Hook，created_at 由写入方显式赋值
+        created_at: chrono::Utc::now(),
+    }
+}
+
+/// 把一条删除留痕写进 `operation_logs`（失败只 `warn`，不影响已成功的删除）。
+async fn record_delete_log(
+    headers: &HeaderMap,
+    connect_info: &SocketAddr,
+    claims: &TokenClaims,
+    row: &model::DocAttachmentRow,
+    file_deleted: bool,
+    started: std::time::Instant,
+) {
+    let mut entry = delete_log(
+        headers,
+        connect_info,
+        claims,
+        row,
+        file_deleted,
+        utils::elapsed_ms(started),
+    );
+    if let Err(error) = entry.insert(db()).await {
+        tracing::warn!(
+            attachment_id = %row.id,
+            operation = OP_DELETE,
+            error = %error,
+            "单据附件删除留痕写库失败（删除已完成，不因此报错）"
+        );
+    }
 }
 
 /// 下载附件（`GET /business/attachment/download/{id}`）。
