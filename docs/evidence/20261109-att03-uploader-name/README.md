@@ -117,6 +117,11 @@ Running 3 tests using 1 worker
 
 ## 3. 已知与边界（如实记录）
 
+- **全量 `cargo test --lib` 是 3820 passed / 3 failed**，3 条全在 `business::flow::linkage`
+  （`admin::tests::catalog_triggers_carry_wired_flag` / `tests_wiring::trigger_specs_cover_whitelist_in_order` /
+  `tests_wiring::wired_triggers_match_call_sites`）：采购退货卡 `9cf6cc1`（P2-03）新接了
+  `PURCHASE_RETURN` 触发点但没同步白名单断言的期望值（`left` 比 `right` 多一个 `PURCHASE_RETURN`）。
+  这三个文件 `git status --porcelain` 为空、与本卡零交集；本卡 6 条用例在 3820 里全绿。
 - **`cargo clippy --lib -- -D warnings` 与 `cargo fmt --check` 当前基线是红的**，红点全在别人的文件里：
   `business/erp/invoice.rs:1967`（`explicit lifetimes`）、`receivable.rs:800`（doc list indentation）、
   `sales_order_model.rs:699`（8/7 args）、`business/erp/report.rs`（`cargo fmt` 换行）——
