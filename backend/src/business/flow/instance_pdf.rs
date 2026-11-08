@@ -316,6 +316,15 @@ fn at_text(value: Option<chrono::DateTime<chrono::Utc>>) -> String {
     }
 }
 
+/// 一条待办是否「需要这个人签字」。
+///
+/// `SKIPPED`（自审 / 内控剔掉的人）、`TRANSFERRED`（已转办出去的人）、`CANCELLED`
+/// （或签被别人抢先后作废的票）**都没有审过这张单**，在签字位里给他们留栏
+/// 会让打印件看起来「他也签过」。签字位只收真要签字的人。
+pub fn signable(status: &str) -> bool {
+    matches!(status, "APPROVED" | "REJECTED" | "PENDING")
+}
+
 /// 由「实例 + 节点 + 待办」组装渲染上下文（**纯函数**，不碰数据库）。
 ///
 /// # 参数
@@ -328,7 +337,8 @@ fn at_text(value: Option<chrono::DateTime<chrono::Utc>>) -> String {
 ///
 /// - **一条待办 = 一行轨迹**：会签 3 人就是 3 行（打印件要能逐人签字）；
 /// - 级次取 `(node_key, round)` 的首次出现序号，`round > 1` 另打「第 N 轮」；
-/// - 签字位按「级」聚合（同一级多个审批人写成「张三、李四」）；
+/// - 签字位按「级」聚合，且**只收真的要签字的人**（见 [`signable`]）；某一级一个人都不剩时
+///   仍保留该行、姓名打「—（本节点无人签字）」——「这一级走过了但没人签」正是审计要看的信息；
 /// - 没有待办时 `traces` / `sign_slots` 为空，模板打「暂无审批记录」。
 pub fn build_context(
     meta: &InstanceMeta,
@@ -385,6 +395,8 @@ pub fn build_context(
             tag_kind,
         });
 
+        // 签字位：同级的行都要登记（哪怕这个人不签），否则「整级都被剔光」时
+        // 连行都不会出现；姓名在下面统一按 `signable` 过滤。
         match slots
             .iter_mut()
             .find(|(slot_index, ..)| *slot_index == index)
@@ -398,12 +410,40 @@ pub fn build_context(
         }
     }
 
+    // 每一级「真要签字的人」：按 status 过滤（自审跳过 / 转办 / 作废的票不算签字人）
+    let mut signable_names: HashMap<usize, Vec<String>> = HashMap::new();
+    for task in tasks {
+        if !signable(&task.status) {
+            continue;
+        }
+        let index = levels
+            .get(&(task.node_key.clone(), task.round))
+            .copied()
+            .unwrap_or(1);
+        let name = task
+            .assignee_name
+            .clone()
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| "（未记录）".to_string());
+        let bucket = signable_names.entry(index).or_default();
+        if !bucket.contains(&name) {
+            bucket.push(name);
+        }
+    }
+
     let sign_slots: Vec<ApprovalSignSlot> = slots
         .into_iter()
-        .map(|(_, level, node_name, approvers)| ApprovalSignSlot {
-            level,
-            node_name,
-            approver: approvers.join("、"),
+        .map(|(index, level, node_name, _all)| {
+            let names = signable_names.remove(&index).unwrap_or_default();
+            ApprovalSignSlot {
+                level,
+                node_name,
+                approver: if names.is_empty() {
+                    "—（本节点无人签字）".to_string()
+                } else {
+                    names.join("、")
+                },
+            }
         })
         .collect();
 
@@ -767,9 +807,12 @@ mod tests {
         assert_eq!(ctx.traces[0].tag, "已跳过（自审）");
         assert_eq!(ctx.traces[0].tag_kind, "is-skip");
         assert!(ctx.traces[1].tag.is_empty());
-        // 同一级两个人 → 一个签字位，两人都列上
+        // 同一级两个人 → 一个签字位，但**只列真要签字的人**（被跳过的人没签过）
         assert_eq!(ctx.sign_slots.len(), 1);
-        assert_eq!(ctx.sign_slots[0].approver, "张三、王五");
+        assert_eq!(
+            ctx.sign_slots[0].approver, "王五",
+            "被自审跳过的人不该出现在签字位里"
+        );
 
         let html = template::render_approval(&ctx).expect("模板必须渲染成功");
         assert!(html.contains("已跳过（自审）"));
@@ -1010,6 +1053,31 @@ mod tests {
         row.assignee_name = None;
         let ctx = build_context(&meta("APPROVED"), &[node("gm", "总经理")], &[row]);
         assert_eq!(ctx.traces[0].approver, "（未记录）");
+    }
+
+    /// 签字位只收真要签字的人；整级都被剔光时留一行「无人签字」。
+    #[test]
+    fn sign_slots_only_list_real_signers() {
+        // 状态判据
+        assert!(signable("APPROVED"));
+        assert!(signable("REJECTED"));
+        assert!(signable("PENDING"));
+        assert!(!signable("SKIPPED"), "自审 / 内控剔掉的人不算签字人");
+        assert!(!signable("TRANSFERRED"), "转办出去的人没审过");
+        assert!(!signable("CANCELLED"), "或签抢先后作废的票不算");
+
+        // 整级被剔光（节点自动通过）：行还在，但写明没人签字
+        let nodes = vec![node("cs", "自动通过节点")];
+        let mut skipped = task("cs", "张三", "SKIPPED");
+        skipped.is_self_approval = true;
+        let ctx = build_context(&meta("APPROVED"), &nodes, &[skipped]);
+        assert_eq!(ctx.traces.len(), 1, "轨迹仍要留痕");
+        assert_eq!(ctx.sign_slots.len(), 1, "「这一级走过了」本身要印");
+        assert_eq!(ctx.sign_slots[0].approver, "—（本节点无人签字）");
+        let html = template::render_approval(&ctx).expect("模板必须渲染成功");
+        assert!(html.contains("—（本节点无人签字）"));
+        // 空白签字栏照样留（现场仍可能补签）
+        assert_eq!(html.matches("<td class=\"blank\"></td>").count(), 2);
     }
 
     /// 状态映射的完整性（改码值时这条会先红）。
@@ -1301,9 +1369,12 @@ mod db_tests {
             "升级标记要打出目标角色名 + 原因 + 原角色编码"
         );
 
-        // 签字位：2 级；第 1 级两人（张三、王五）
+        // 签字位：2 级；第 1 级只剩真正签过的王五（张三 是自审跳过，不占签字位）
         assert_eq!(ctx.sign_slots.len(), 2);
-        assert_eq!(ctx.sign_slots[0].approver, "张三、王五");
+        assert_eq!(
+            ctx.sign_slots[0].approver, "王五",
+            "被自审跳过的张三不该出现在签字位"
+        );
         assert_eq!(ctx.sign_slots[1].approver, "孙七");
 
         // 落到 HTML 上也要有（验收②③的字样）
