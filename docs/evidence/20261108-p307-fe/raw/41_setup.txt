@@ -1,0 +1,29 @@
+== 等后端健康 ==
+ok (2 s)
+== admin 首登改密 ==
+admin token len=462
+== 建两个账号（发起付款人 / 部门主管=审批人） ==
+{"code":0,"msg":"ok"}
+{"code":0,"msg":"ok"}
+p307.pay token len=7233 must_change=false
+p307.mgr token len=7690 must_change=false
+== 打开 erp.separation_of_duties.approve_execute（系统参数 API） ==
+{"code":0,"value":"true"}
+== 应付单夹具（含供应商） ==
+  payable_no  |  amount   | unpaid_amount | status | period_code 
+--------------+-----------+---------------+--------+-------------
+ AP-P307-0001 | 1200.0000 |     1200.0000 | OPEN   | 2026-11
+ AP-P307-0002 |  800.0000 |      800.0000 | OPEN   | 2026-11
+(2 rows)
+
+  payable_no  |  amount   | status 
+--------------+-----------+--------
+ AP-P307-0001 | 1200.0000 | OPEN
+ AP-P307-0002 |  800.0000 | OPEN
+ AP-P307-0003 |  600.0000 | OPEN
+(3 rows)
+
+== 就绪 ==
+AP-P307-0001|1200.0000|0.0000|OPEN
+AP-P307-0002|800.0000|0.0000|OPEN
+AP-P307-0003|600.0000|0.0000|OPEN

@@ -1,0 +1,106 @@
+TAP version 13
+# Subtest: p307 付款审批中 + 实例 APPROVED ⇒ 需要有人执行（按钮出现）
+ok 1 - p307 付款审批中 + 实例 APPROVED ⇒ 需要有人执行（按钮出现）
+  ---
+  duration_ms: 0.805348
+  type: 'test'
+  ...
+# Subtest: p307 付款审批中 + 实例仍 RUNNING ⇒ 只是在等审批，不给执行按钮
+ok 2 - p307 付款审批中 + 实例仍 RUNNING ⇒ 只是在等审批，不给执行按钮
+  ---
+  duration_ms: 0.113919
+  type: 'test'
+  ...
+# Subtest: p307 实例状态大小写 / 前后空格不影响判定（后端 status 是文本列）
+ok 3 - p307 实例状态大小写 / 前后空格不影响判定（后端 status 是文本列）
+  ---
+  duration_ms: 0.080002
+  type: 'test'
+  ...
+# Subtest: p307 付款已是 APPROVED ⇒ 账已经记过（开关关闭 / 已执行），不给按钮
+ok 4 - p307 付款已是 APPROVED ⇒ 账已经记过（开关关闭 / 已执行），不给按钮
+  ---
+  duration_ms: 0.217087
+  type: 'test'
+  ...
+# Subtest: p307 付款没有审批实例（直付路径）⇒ 不存在「批过再执行」这一步
+ok 5 - p307 付款没有审批实例（直付路径）⇒ 不存在「批过再执行」这一步
+  ---
+  duration_ms: 0.122294
+  type: 'test'
+  ...
+# Subtest: p307 空值安全（模板在详情还没加载时照样求值）
+ok 6 - p307 空值安全（模板在详情还没加载时照样求值）
+  ---
+  duration_ms: 0.071252
+  type: 'test'
+  ...
+# Subtest: p307 后端下发 awaiting_executor=true ⇒ 直接显示（不依赖实例状态）
+ok 7 - p307 后端下发 awaiting_executor=true ⇒ 直接显示（不依赖实例状态）
+  ---
+  duration_ms: 0.152795
+  type: 'test'
+  ...
+# Subtest: p307 后端下发 awaiting_executor=false ⇒ 不显示，哪怕实例恰好是 APPROVED
+ok 8 - p307 后端下发 awaiting_executor=false ⇒ 不显示，哪怕实例恰好是 APPROVED
+  ---
+  duration_ms: 0.069001
+  type: 'test'
+  ...
+# Subtest: p307 只有「付款 PENDING + 有实例 + 后端没给字段」才探实例状态
+ok 9 - p307 只有「付款 PENDING + 有实例 + 后端没给字段」才探实例状态
+  ---
+  duration_ms: 0.336965
+  type: 'test'
+  ...
+# Subtest: p307 后端已下发 awaiting_executor ⇒ 一次都不探（老前端多发请求的坑）
+ok 10 - p307 后端已下发 awaiting_executor ⇒ 一次都不探（老前端多发请求的坑）
+  ---
+  duration_ms: 0.35459
+  type: 'test'
+  ...
+# Subtest: p307 没有审批中的付款 / 空列表 ⇒ 不探
+ok 11 - p307 没有审批中的付款 / 空列表 ⇒ 不探
+  ---
+  duration_ms: 0.156044
+  type: 'test'
+  ...
+# Subtest: p307 多笔付款里挑「审批中那笔」的实例（部分付款场景）
+ok 12 - p307 多笔付款里挑「审批中那笔」的实例（部分付款场景）
+  ---
+  duration_ms: 0.117752
+  type: 'test'
+  ...
+# Subtest: p307 确认文案必须讲清「还没付 / 立即记账 / 审批人不能执行」
+ok 13 - p307 确认文案必须讲清「还没付 / 立即记账 / 审批人不能执行」
+  ---
+  duration_ms: 0.185461
+  type: 'test'
+  ...
+# Subtest: p307 页面：按钮挂在付款记录行内，且带 business:erp:payable:pay 权益门禁
+ok 14 - p307 页面：按钮挂在付款记录行内，且带 business:erp:payable:pay 权益门禁
+  ---
+  duration_ms: 0.388341
+  type: 'test'
+  ...
+# Subtest: p307 页面：失败原样弹后端 msg（409+66013 中文明文不许改写）
+ok 15 - p307 页面：失败原样弹后端 msg（409+66013 中文明文不许改写）
+  ---
+  duration_ms: 0.329298
+  type: 'test'
+  ...
+# Subtest: p307 API：路径逐字对齐后端注解（/business/erp/payable/payment/{id}/execute，前缀补 /api）
+ok 16 - p307 API：路径逐字对齐后端注解（/business/erp/payable/payment/{id}/execute，前缀补 /api）
+  ---
+  duration_ms: 1.310941
+  type: 'test'
+  ...
+1..16
+# tests 16
+# suites 0
+# pass 16
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 121.746893

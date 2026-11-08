@@ -1,0 +1,9 @@
+not ok 358 - create payload keeps dates and folds empty remark to null
+not ok 597 - 后端 FlowBizType 的落库字面量 = 前端 FLOW_BIZ_TYPES（逐字、同序，15 个）
+# tests 1067
+# pass 1065
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3989.474587
