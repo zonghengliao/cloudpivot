@@ -1,0 +1,1 @@
+{"v": 1, "meta": {"pk": "01a1bcd4-ae12-758c-92e5-7c0ece7f6567", "table": "biz_contract", "action": "UPDATE"}, "mode": "WHITELIST", "fields": {"amount": {"a": "55000.0000", "b": "50000.0000"}, "remark": {"a": "CTR-02 改后备注：金额与到期日都改了", "b": "CTR-02 初始备注"}, "end_date": {"a": "2027-06-30", "b": "2026-12-31"}}}

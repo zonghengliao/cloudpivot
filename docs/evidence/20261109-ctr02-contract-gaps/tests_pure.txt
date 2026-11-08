@@ -1,0 +1,12 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 5 tests
+test business::erp::contract_model::ctr02_tests::remaining_amount_keeps_negative_overrun ... ok
+test business::erp::contract_model::ctr02_tests::scale_only_difference_produces_no_change ... ok
+test business::erp::contract_model::ctr02_tests::clearing_remark_is_recorded ... ok
+test business::erp::contract_model::ctr02_tests::amount_change_records_both_sides ... ok
+test business::erp::contract_model::ctr02_tests::snapshot_keys_match_registered_whitelist ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 3840 filtered out; finished in 0.00s
+

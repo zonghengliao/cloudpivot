@@ -469,6 +469,16 @@ CREATE TRIGGER trg_biz_contract_party_b BEFORE INSERT OR UPDATE OF party_b_id, p
 | E4 | `ACTIVE` | `COMPLETED` | 履约完成 | 否 | 无未关闭下游单据（建议；不硬拦，见 §5.2 注） |
 | E5 | `ACTIVE` | `TERMINATED` | 中途终止 | **是** | 无未关闭下游单据（同上） |
 
+> **CTR-02 落地口径（2026-11-09）**：E4 / E5 的「无未关闭下游单据」**是提示，不是闸**。
+> 判据与数值口径固定为：采购单 `status NOT IN ('RECEIVED','CLOSED','CANCELLED')`、
+> 销售单 `status NOT IN ('OUTBOUND','CLOSED','CANCELLED')` 即「未完成」；该清单与
+> 「已执行金额 / 剩余额度」一起由 `GET /business/erp/contract/{id}` 现算返回
+> （`open_order_count` / `open_order_nos` / `committed_amount` / `remaining_amount`），
+> 前端在「归档」按钮前据此提示，接口**不返回 409**。
+> 理由即 §5.2：合同状态影响的是「能不能新承诺」，不是「能不能继续履行已承诺的」；
+> 因此 `COMPLETED` 的准确语义是「**归档**（不再接新单）」，**不代表履约完成**；
+> 报表要判「已履行」必须用 `open_order_count = 0`，不能只看 `status = 'COMPLETED'`。
+
 Rust 侧落地形状（**设计规格，不是代码交付**）：在 `business/shared/state_machine.rs` 新增
 
 ```text

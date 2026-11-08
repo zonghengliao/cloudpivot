@@ -1,0 +1,51 @@
+== S0 登录（种子 admin，首登强制改密；重跑时直接用改后的口令） ==
+PASS 改密后登录 = 200
+
+== S1 主数据 + 建两张草稿合同（PURCHASE 50000 / 8000） ==
+PASS 供应商建档 = 0
+PASS 建合同 A(50000) 草稿 = 0
+PASS 建合同 B(8000) 草稿 = 0
+   C_MAIN=01a1bcd4-ae12-758c-92e5-7c0ece7f6567  C_IDLE=01a1bcd4-ae27-7242-ab56-0ff3fba11515
+
+== S2 F6：无订单时 已执行 0 / 剩余=合同额 / 未关闭 0 ==
+PASS 详情 HTTP = 200
+PASS 无订单 committed_amount = 0
+PASS 无订单 remaining_amount（NUMERIC(18,4) 原样下发） = 8000.0000
+PASS 无订单 open_order_count = 0
+
+== S3 F2：草稿改金额 50000 → 55000（改前值必须留痕） ==
+PASS 改草稿 HTTP = 200
+PASS 改后 amount = 55000.0000
+PASS 改后 end_date = 2027-06-30
+   sys_change_log 行数：改前 0 → 改后 1
+PASS sys_change_log 新增恰好 1 行 = 1
+row: operator=admin action=UPDATE(修改合同) changed=amount,end_date,remark ip=203.0.113.9/32 at=2026-11-09 04:23:37
+PASS diff.amount.b（改前值） = 50000.0000
+PASS diff.amount.a（改后值） = 55000.0000
+PASS diff.end_date.b = 2026-12-31
+PASS diff.end_date.a = 2027-06-30
+PASS diff.remark.b = CTR-02 初始备注
+PASS changed_fields 含 amount/end_date/remark = amount,end_date,remark
+
+== S4 F2 反例：原样回传（同值）不得写假日志 ==
+PASS 同值改单 HTTP = 200
+PASS 同值改单后仍是 1 行（Skipped，不写空日志） = 1
+
+== S5 F6/F3：挂 2 张未关闭采购单（33900 + 66100） ==
+PASS 已执行金额 = 33900+66100 = 100000.0000
+PASS 剩余额度 = 55000-100000 = -45000（超签，不夹 0） = -45000.0000
+PASS 未关闭单据数 = 2
+PASS 未关闭单号 = PO-CTR02-042336-1,PO-CTR02-042336-2
+
+== S6 F3：ACTIVE 状态下带 2 张未关闭单归档 —— 仍放行（ARCH-2 §4.1 E4 不硬拦） ==
+PASS 归档 HTTP = 200
+PASS 归档后状态 = COMPLETED
+PASS 归档后未关闭单据数（口径可查） = 2
+PASS 归档后已执行金额仍可查 = 100000.0000
+status_log: ACTIVE->COMPLETED at 2026-11-09 04:23:37
+
+== S7 合同明细的变更留痕（改后备注保留 + 状态日志不受影响） ==
+contract: CTR02 变更留痕合同 042336 amount=55000.0000 end_date=2027-06-30 status=COMPLETED remark=CTR-02 改后备注：金额与到期日都改了
+status_log_rows=1
+
+===== 断言汇总 PASS=28 FAIL=0 =====

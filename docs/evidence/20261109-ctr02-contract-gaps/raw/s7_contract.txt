@@ -1,0 +1,1 @@
+contract: CTR02 变更留痕合同 042336 amount=55000.0000 end_date=2027-06-30 status=COMPLETED remark=CTR-02 改后备注：金额与到期日都改了

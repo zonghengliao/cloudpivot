@@ -1,0 +1,6 @@
+test system::authz_tests::o13_every_write_route_requires_permission ... ok
+test system::authz_tests::o14_permission_code_format ... ok
+test system::auth::handler::tests::login_rate_resets_after_window_expires ... ok
+
+test result: ok. 3845 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.79s
+
