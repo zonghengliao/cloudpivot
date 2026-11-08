@@ -1,0 +1,30 @@
+$ fc-list :lang=zh | wc -l
+85
+
+$ fc-list :lang=zh family | sort -u | head -12
+Droid Sans Fallback
+Noto Sans CJK HK
+Noto Sans CJK HK,Noto Sans CJK HK Black
+Noto Sans CJK HK,Noto Sans CJK HK DemiLight
+Noto Sans CJK HK,Noto Sans CJK HK Light
+Noto Sans CJK HK,Noto Sans CJK HK Medium
+Noto Sans CJK HK,Noto Sans CJK HK Thin
+Noto Sans CJK JP
+Noto Sans CJK JP,Noto Sans CJK JP Black
+Noto Sans CJK JP,Noto Sans CJK JP DemiLight
+Noto Sans CJK JP,Noto Sans CJK JP Light
+Noto Sans CJK JP,Noto Sans CJK JP Medium
+
+$ fc-match "Noto Sans CJK SC"
+NotoSansCJK-Regular.ttc: "Noto Sans CJK SC" "Regular"
+$ fc-match "Noto Sans SC"
+NotoSansSC-Regular.ttf: "Noto Sans SC" "Regular"
+$ fc-match -v "Noto Sans SC" | grep -E 'file:|fontformat'
+	file: "/usr/share/fonts/truetype/noto-sc/NotoSansSC-Regular.ttf"(s)
+	fontformat: "TrueType"(s)
+$ ls -la /usr/share/fonts/truetype/noto-sc/
+total 20688
+drwxr-xr-x 2 root root       63 Nov  8 16:43 .
+drwxr-xr-x 7 root root       71 Nov  8 16:43 ..
+-rw-r--r-- 1 root root 10585456 Nov  8 16:43 NotoSansSC-Bold.ttf
+-rw-r--r-- 1 root root 10595932 Nov  8 16:43 NotoSansSC-Regular.ttf

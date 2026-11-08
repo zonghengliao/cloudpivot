@@ -1,0 +1,20 @@
+### qpdf --check
+checking /root/pdf01/evidence/sample500.pdf
+PDF Version: 1.4
+File is not encrypted
+File is not linearized
+No syntax or stream encoding errors found; the file may still contain
+errors that qpdf cannot detect
+
+### Ghostscript 独立解析链复渲（无输出 = 无错误）
+  gs_exit=0
+
+### Poppler 光栅化（第三条解析链）
+  68468 bytes  /tmp/pop_check-01.png
+
+### 加密 / JavaScript / 附件（跨端打开的三个常见拦截项）
+Form:            none
+JavaScript:      no
+Encrypted:       no
+PDF version:     1.4
+0 embedded files

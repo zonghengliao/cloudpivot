@@ -1,0 +1,13 @@
+### 空载（无在渲请求）
+  chromium PSS 合计 = 129 MiB
+
+### 并发 3 × 500 行 × 3 轮，每 0.25s 采样 PSS
+  round1 结束，当前 PSS = 131 MiB
+  round2 结束，当前 PSS = 133 MiB
+  round3 结束，当前 PSS = 133 MiB
+  采样峰值 PSS = 528 MiB
+  结束后 PSS = 130 MiB（回落到空载水平 = 不泄漏）
+
+### 机器内存（free -m）
+               total        used        free      shared  buff/cache   available
+Mem:            7397        1203        1921          52        4508        6193

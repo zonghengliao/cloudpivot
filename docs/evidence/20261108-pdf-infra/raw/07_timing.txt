@@ -1,0 +1,24 @@
+### 单页（20 行）热态 × 5
+  run1 http=200 time=1.716575s
+  run2 http=200 time=0.169592s
+  run3 http=200 time=0.153958s
+  run4 http=200 time=0.166231s
+  run5 http=200 time=0.158333s
+
+### 500 行 × 5
+  run1 http=200 time=0.432637s
+  run2 http=200 time=0.426878s
+  run3 http=200 time=0.405367s
+  run4 http=200 time=0.411379s
+  run5 http=200 time=0.414199s
+
+### 并发 3 × 500 行（3 个 curl 同时发出）
+  req1 http=200 time=0.499182s bytes=1265627
+  req3 http=200 time=0.508149s bytes=1265627
+  req2 http=200 time=0.527393s bytes=1265627
+  3 个并发全部完成 wall=0.535s
+
+### 5000 行（样本上限）
+  http=200 time=3.853869s bytes=12479490
+Pages:           132
+File size:       12479490 bytes

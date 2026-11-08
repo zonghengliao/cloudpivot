@@ -1,0 +1,7 @@
+### 参数与边界（错误码 67xxx）
+纸张代码 B5        http=400  code=67004 msg=纸张代码不支持：B5（可选 A3 / A4 / A5 / LETTER / CUSTOM）
+CUSTOM 缺宽高       http=400  code=67004 msg=page=CUSTOM 时必须同时给出 width_mm 与 height_mm
+render 空 html        http=400  code=67004 msg=html 不能为空
+
+### 无 token 访问（权限链路）
+{"code":401,"msg":"未授权访问，请先登录"} http=401

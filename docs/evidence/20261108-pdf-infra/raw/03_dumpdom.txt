@@ -1,0 +1,3 @@
+$ chromium --headless --no-sandbox --disable-gpu --dump-dom about:blank
+<html><head></head><body></body></html>
+exit=0

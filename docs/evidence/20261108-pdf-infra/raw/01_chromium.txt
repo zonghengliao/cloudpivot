@@ -1,0 +1,17 @@
+$ chromium --version
+Chromium 157.0.8103.38 snap
+
+$ systemctl status chromium-pdf --no-pager | head -5
+● chromium-pdf.service - Chromium headless (CDP :9222) for CloudPivot PDF rendering
+     Loaded: loaded (/etc/systemd/system/chromium-pdf.service; enabled; preset: enabled)
+     Active: active (running) since Sun 2026-11-08 16:52:11 CST; 35min ago
+      Until: Mon 2026-11-09 16:52:11 CST; 23h left
+ Invocation: 930ad68f665a46b3904d54bdb1caded5
+
+$ systemctl show -p RuntimeMaxSec -p Restart -p MainPID chromium-pdf
+Restart=always
+MainPID=644671
+
+$ systemctl show -p RuntimeMaxUSec -p MemoryMax chromium-pdf
+RuntimeMaxUSec=1d
+MemoryMax=2147483648

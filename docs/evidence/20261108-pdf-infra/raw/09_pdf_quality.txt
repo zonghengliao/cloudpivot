@@ -1,0 +1,59 @@
+### pdfinfo
+Title:           对 账 单 AR-2026-11-0001
+Creator:         Mozilla/5.0 (X11; Ubuntu; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36
+Producer:        Skia/PDF m157
+CreationDate:    Sun Nov  8 17:27:37 2026 CST
+ModDate:         Sun Nov  8 17:27:37 2026 CST
+Custom Metadata: no
+Metadata Stream: no
+Tagged:          yes
+UserProperties:  no
+Suspects:        no
+Form:            none
+JavaScript:      no
+Pages:           14
+Encrypted:       no
+Page size:       595.92 x 841.92 pts (A4)
+Page rot:        0
+File size:       1265627 bytes
+Optimized:       no
+PDF version:     1.4
+
+### pdffonts（必须全是 CID TrueType 且 emb=yes；出现 Type 3 就是体积回退）
+name                                 type              encoding         emb sub uni object ID
+------------------------------------ ----------------- ---------------- --- --- --- ---------
+AAAAAA+NotoSansSC-Bold               CID TrueType      Identity-H       yes yes yes      4  0
+BAAAAA+NotoSansSC-Regular            CID TrueType      Identity-H       yes yes yes      5  0
+
+### 每页表头重复（thead → table-header-group）
+  带表头页数 = 14 / 14
+
+### 每页明细行数（前 3 页 / 末页）
+  p1: 34 行
+  p2: 38 行
+  p3: 38 行
+  p14: 10 行
+
+### 合计行 + 签字栏（末页尾部）
+
+   行数合计              500   数量合计                 12,450      金额合计                   177,813.75
+
+   金额大写         人民币壹拾柒万柒仟捌佰壹拾叁元柒角伍分（￥177,813.75）
+
+
+制单：李四                      审核：王五                              客户确认（盖章）
+                                                                     ：
+
+
+日期：__________              日期：__________                      日期：__________
+
+备注：对账无误请于 7 个工作日内盖章回传；逾期视为确认。
+                            《合同》第 12 条、附件二……
+全角字符与标点自检：ＡＢＣ１２３ 全角空格（含税）
+                        《对账单》——顿号、书名号、破折号、省略号…… 均应正常显示；中文标点紧排
+不出现分号错位。
+
+                                                         本单据由云枢系统生成（Chromium · CDP printToPDF）
+
+### 每页体积
+  总 1265627 B / 14 页 = 88.3 KB/页

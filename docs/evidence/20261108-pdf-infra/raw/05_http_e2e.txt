@@ -1,0 +1,29 @@
+### 登录（真实 token）
+code=0 msg=ok token_len=461 token_prefix=<redacted> must_change_password=False
+
+### GET /api/business/pdf/health
+{"code":0,"msg":"ok","data":{"cdp_url":"http://127.0.0.1:9222","browser":"Chrome/157.0.8103.38","protocol_version":"1.3","max_concurrency":3,"active":0,"idle_connections":1,"rendered_total":0,"failed_total":0,"last_render_ms":0,"last_document_bytes":0,"timeout_ms":20000}}
+http=200 time=0.011562s
+
+### POST /api/business/pdf/sample {"rows":20}
+http=200 time=0.266552s bytes=98057 type=application/pdf
+### POST /api/business/pdf/sample {"rows":500}
+http=200 time=0.414179s bytes=1265627 type=application/pdf
+
+### 响应头（sample500）
+HTTP/1.1 200 OK
+content-type: application/pdf
+content-length: 1265627
+content-disposition: attachment; filename="___-500_.pdf"; filename*=UTF-8''%E5%AF%B9%E8%B4%A6%E5%8D%95-500%E8%A1%8C.pdf
+cache-control: no-store
+x-content-type-options: nosniff
+vary: accept-encoding
+vary: origin
+x-request-id: 12bf60723e6a4c20
+access-control-allow-credentials: true
+x-frame-options: DENY
+strict-transport-security: max-age=31536000; includeSubDomains
+content-security-policy: default-src 'self'
+referrer-policy: strict-origin-when-cross-origin
+date: Sun, 08 Nov 2026 09:27:37 GMT
+
