@@ -487,7 +487,11 @@ pub fn validate_invoice_code(raw: Option<&str>) -> std::result::Result<Option<St
 /// 规则在 `biz_attachment_rule` 里按 `is_electronic` 分支（V0348）。这里只给中文标签，
 /// 供错误文案 / 前端兜底共用。
 pub fn electronic_label(is_electronic: bool) -> &'static str {
-    if is_electronic { "电子票" } else { "纸质票" }
+    if is_electronic {
+        "电子票"
+    } else {
+        "纸质票"
+    }
 }
 
 /// 票面形式归一：请求不传（`None`）= **电子票**（数电票为主，与 V0348 默认值一致）。
