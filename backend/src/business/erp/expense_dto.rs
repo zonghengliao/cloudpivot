@@ -175,7 +175,12 @@ pub struct TypeFilter {
 /// 新建 / 编辑费用类型入参。
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct TypeReq {
-    /// 编码（大写字母开头，TRAVEL / MEAL …）。
+    /// 编码（`VARCHAR(40)`，未删除内唯一）。
+    ///
+    /// **卡 CODE-04**：留空（`null` / `""` / 纯空白）⇒ 新建时后端取号 **`ET-01` 形态**
+    /// （`biz_seq` 的 ET 号段：纯流水 2 位、不计日期、永不重置；撞号自动顺延，
+    /// 超过 2 位按实际位数输出，如 `ET-100`）；有值 ⇒ 原样保留（转大写），
+    /// 只校验 ≤ 40 + 字符集（字母 / 数字 / `-` `_` `.`），不强制 `ET-xx` 形态。
     pub type_code: Option<String>,
     /// 名称。
     pub type_name: Option<String>,
@@ -201,6 +206,8 @@ pub struct TypeReq {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeSpec {
     /// 编码。
+    ///
+    /// **空串 = 用户没填**：新建时由 handler 取号（`ET-01` 形态）；修改时编码不可改（不落库）。
     pub type_code: String,
     /// 名称。
     pub type_name: String,
@@ -222,25 +229,21 @@ pub struct TypeSpec {
     pub remark: Option<String>,
 }
 
-/// 校验费用类型入参。`creating = true` 时编码 / 名称 / 科目必填。
+/// 校验费用类型入参。`creating = true` 时名称 / 科目必填；**编码可以留空**
+/// （卡 CODE-04：留空则由 handler 取号 `ET-01` 形态）。
 pub fn validate_type(req: &TypeReq, creating: bool) -> Result<TypeSpec, ApiError> {
-    let type_code = match creating {
-        true => required(req.type_code.as_ref(), "费用类型编码", 40)?.to_ascii_uppercase(),
-        false => trimmed(req.type_code.as_ref(), "费用类型编码", 40)?
-            .map(|text| text.to_ascii_uppercase())
-            .unwrap_or_default(),
-    };
-    if creating {
-        let mut chars = type_code.chars();
-        let first = chars.next().unwrap_or(' ');
-        if !first.is_ascii_uppercase()
-            || !chars.all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
-        {
-            return Err(invalid(format!(
-                "费用类型编码「{type_code}」不合法：必须大写字母开头，只含大写字母 / 数字 / 下划线（如 TRAVEL）"
-            )));
-        }
-    }
+    // 编码（卡 CODE-04）：
+    // * 留空（`null` / `""` / 纯空白）⇒ 空串，新建时由 handler 取号（`ET-01` 形态）；
+    // * 有值 ⇒ 原样保留（转大写），只校验长度 ≤ 40 + 字符集（字母 / 数字 / `-` `_` `.`），
+    //   **不强制 `ET-xx` 形态**（企业已有编码体系要能对接）。
+    let type_code = crate::business::erp::seq::resolve_manual_code(
+        req.type_code.as_deref(),
+        crate::business::erp::seq::MAX_MANUAL_CODE_LEN,
+    )
+    .map_err(|reason| invalid(format!("费用类型编码不合法：{reason}")))?
+    // 统一大写：存量编码（TRAVEL / MEAL …）与取号器的 ET-01 都是大写。
+    .map(|text| text.to_ascii_uppercase())
+    .unwrap_or_default();
     let type_name = match creating {
         true => required(req.type_name.as_ref(), "费用类型名称", 120)?,
         false => trimmed(req.type_name.as_ref(), "费用类型名称", 120)?.unwrap_or_default(),
@@ -944,5 +947,51 @@ mod tests {
         ok.amount_limit = Some(dec("5000"));
         let spec = validate_type(&ok, true).expect("合法类型");
         assert_eq!(spec.type_code, "TRAVEL", "编码归一成大写");
+    }
+
+    /// ⑨ CODE-04：编码留空 = 后端取号（`ET-01` 形态），手工编码保留（含企业自有形态）。
+    #[test]
+    fn type_code_blank_means_auto_and_manual_is_kept() {
+        let base = TypeReq {
+            type_code: Some("travel".to_string()),
+            type_name: Some("差旅费".to_string()),
+            account_id: Some("20000000-0000-4000-8000-000000000902".to_string()),
+            ..Default::default()
+        };
+
+        // 三种「没填」都放行，且 spec 里是空串（handler 据此取号）
+        for blank in [None, Some(String::new()), Some("   ".to_string())] {
+            let mut req = base.clone();
+            req.type_code = blank.clone();
+            assert_eq!(
+                validate_type(&req, true)
+                    .expect("编码留空不能拒（要自动取号）")
+                    .type_code,
+                "",
+                "留空（{blank:?}）应归一成空串"
+            );
+        }
+
+        // 取号器产出的形态（ET-01）与手工自有编码（如 ADMIN-FEE）都要能通过
+        for manual in ["ET-01", "ADMIN-FEE", "FY_2026.01"] {
+            let mut req = base.clone();
+            req.type_code = Some(manual.to_string());
+            assert_eq!(
+                validate_type(&req, true).expect("合法手工编码").type_code,
+                manual.to_ascii_uppercase(),
+                "手工编码原样保留（转大写）"
+            );
+        }
+
+        // 字符集外的输入仍然要拒（否则 DDL 后才炸，还拿不到字段名）
+        let mut bad = base.clone();
+        bad.type_code = Some("差旅费".to_string());
+        let err = validate_type(&bad, true).expect_err("中文编码必须拒绝");
+        assert_eq!(err.code, error_code::PARAM_INVALID);
+        assert!(
+            err.msg.contains("费用类型编码"),
+            "文案要点名是编码的问题：{}",
+            err.msg
+        );
     }
 }

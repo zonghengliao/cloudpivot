@@ -28,6 +28,8 @@
 //! 2. [`next_master_code_free`] —— 取号并**跳过已占用的号**（主数据推荐用这个）。
 //!    例：老库已有 `SUP-0001`（V0137 种子）⇒ 第一次自动编码给 `SUP-0002`。
 //! 3. [`next_master_code_free_with`] —— 同上，但占位检查 SQL 由调用方给（非标准表/特殊软删口径）。
+//! 4. [`peek_master_code`] —— **只看不动**：预览下一个可用编码，不推进 `current_no`
+//!    （前端「生成编码」按钮用；不是占号）。
 //!
 //! 每个入口都有 `_in` 变体区别只在**执行器**：接受 `&impl SqlExecutor` 的版本可以在
 //! **调用方的事务里**取号（建单/建档案与取号同一事务，回滚时号一起回滚，不留空号）；
@@ -175,12 +177,17 @@ pub fn format_master_code(prefix: &str, separator: &str, pad_width: i32, no: i64
     }
 }
 
-/// 一条取号规则（`biz_seq` 里那一行里取号需要的三列）。
+/// 一条取号规则（`biz_seq` 里那一行里取号需要的列）。
+///
+/// `current_no` / `step` 只有**预览**（[`peek_master_code`]）会用到：真实取号走
+/// `UPDATE … RETURNING`，不让「读出来的旧值 + 加法」参与发号，避免并发下算重。
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SeqRule {
     prefix: String,
     separator: String,
     pad_width: i32,
+    current_no: i64,
+    step: i64,
 }
 
 /// 读规则（**必须**是启用中的存活行；停用 = 不参与取号）。
@@ -188,7 +195,8 @@ async fn load_rule(ex: &impl SqlExecutor, seq_type: &str) -> DbResult<SeqRule> {
     // SCOPE-EXEMPT: biz_seq 是全局取号规则字典，没有归属列。
     let row = ex
         .query_first_sql(
-            "SELECT prefix, separator, pad_width::int AS pad_width \
+            "SELECT prefix, separator, pad_width::int AS pad_width, \
+                    current_no, step::bigint AS step \
                FROM biz_seq \
               WHERE seq_type = ? AND deleted_at IS NULL AND status = 1"
                 .to_string(),
@@ -205,6 +213,8 @@ async fn load_rule(ex: &impl SqlExecutor, seq_type: &str) -> DbResult<SeqRule> {
         prefix: row.get_typed::<String>("prefix")?,
         separator: row.get_typed::<String>("separator")?,
         pad_width: row.get_typed::<i32>("pad_width")?,
+        current_no: row.get_typed::<i64>("current_no")?,
+        step: row.get_typed::<i64>("step")?,
     })
 }
 
@@ -324,6 +334,62 @@ pub async fn next_master_code_free(ex: &impl SqlExecutor, seq_type: &str) -> DbR
 /// 同 [`next_master_code_free`]，但走全局 `db()`。
 pub async fn next_master_code_free_global(seq_type: &str) -> DbResult<String> {
     next_master_code_free(db(), seq_type).await
+}
+
+/// 预览下一个可用主数据编码（**不消耗号**）。
+///
+/// # 用途
+///
+/// 交互方式 B（用户已拍板）：表单里点「生成编码」按钮先看号，保存时把看到的号当
+/// **手工编码**提交。前端因此需要一个「只看不动」的接口 —— 就是本函数。
+///
+/// # 与 [`next_master_code_free`] 的唯一差别
+///
+/// **不推进 `biz_seq.current_no`**（纯读 + 查重），所以：
+///
+/// * 用户点了按钮又取消 ⇒ 号不会被白白吃掉（没有空号）；
+/// * 同一时刻别人抢走这个号 ⇒ 保存时按手工编码撞唯一索引处理（409），再点一次按钮即可。
+///
+/// 也就是说预览是「**当下最优猜测**」，不是占号。要占号请直接建档案（取号与 INSERT 同事务）。
+pub async fn peek_master_code(ex: &impl SqlExecutor, seq_type: &str) -> DbResult<String> {
+    let Some(exists_sql) = master_code_exists_sql(seq_type) else {
+        return Err(DbError::InvalidValue(format!(
+            "预览编码失败：seq_type='{seq_type}' 不是主数据号段（支持 SUP/CUS/MAT/WH/AC/ET）"
+        )));
+    };
+    peek_master_code_with(ex, seq_type, exists_sql, FREE_CODE_MAX_ATTEMPTS).await
+}
+
+/// 同 [`peek_master_code`]，但占位检查 SQL 由调用方给（非标准表 / 特殊软删口径）。
+///
+/// `exists_sql` 必须是**常量** SQL（一个 `?` 占位，绑定候选编码），不接受拼接。
+pub async fn peek_master_code_with(
+    ex: &impl SqlExecutor,
+    seq_type: &str,
+    exists_sql: &str,
+    max_attempts: u32,
+) -> DbResult<String> {
+    let rule = load_rule(ex, seq_type).await?;
+    let attempts = max_attempts.max(1);
+    // 步长兜底 ≥1：即使有脏数据把 step 写成 0，也不会原地打转出重复号。
+    let step = rule.step.max(1);
+    let mut no = rule.current_no;
+    for _ in 0..attempts {
+        no += step;
+        let code = format_master_code(&rule.prefix, &rule.separator, rule.pad_width, no);
+        if !code_taken(ex, exists_sql, &code).await? {
+            return Ok(code);
+        }
+    }
+    Err(DbError::InvalidValue(format!(
+        "预览编码失败：seq_type='{seq_type}' 连续 {attempts} 个号都已被占用。\
+         请核对主数据表里的历史编码，或把 biz_seq.current_no 抬到已有最大流水之上。"
+    )))
+}
+
+/// 同 [`peek_master_code`]，但走全局 `db()`（只读，不参与调用方事务）。
+pub async fn peek_master_code_global(seq_type: &str) -> DbResult<String> {
+    peek_master_code(db(), seq_type).await
 }
 
 #[cfg(test)]
@@ -751,5 +817,77 @@ mod tests {
             "停用号段的错误应说明「没有可用规则」：{err}"
         );
         drop_test_seq("TOFF").await;
+    }
+
+    // ---------- ⑧ 预览（CODE-04）：「只看不动」，不消耗号 ----------
+
+    #[tokio::test]
+    async fn t09_peek_never_consumes() {
+        if !ensure_db().await {
+            return;
+        }
+        const SEQ: &str = "TPEEK";
+        reset_test_seq(SEQ, "TPK", 4, 0).await;
+        // 测试号段不在六类主数据里 ⇒ 没有内置占位表，用 SUP 的占位 SQL 代打
+        // （只查 `biz_supplier.supplier_code`，与 TPK-xxxx 不会真撞上，除非下面故意造一行）
+        let exists_sql = master_code_exists_sql("SUP").expect("SUP 占位 SQL");
+
+        // 非主数据号段走内置入口：明确报错，不猜表
+        let err = peek_master_code(db(), SEQ)
+            .await
+            .expect_err("非六类必须报错");
+        assert!(
+            format!("{err}").contains("不是主数据号段"),
+            "错误要说清楚支持范围：{err}"
+        );
+
+        // 连看三次都是同一个号（真实取号才会推进）
+        for _ in 0..3 {
+            assert_eq!(
+                peek_master_code_with(db(), SEQ, exists_sql, 5)
+                    .await
+                    .expect("预览"),
+                "TPK-0001",
+                "预览不能推进 current_no"
+            );
+        }
+        assert_eq!(current_no_of(SEQ).await, 0, "预览后 current_no 必须还是 0");
+
+        // 真实取号拿到的正是刚才预览的那个号
+        assert_eq!(
+            next_master_code(db(), SEQ).await.expect("取号"),
+            "TPK-0001",
+            "预览值与随后真实取号必须一致"
+        );
+        assert_eq!(current_no_of(SEQ).await, 1);
+
+        // 预览同样会跳过已被占用的号（用 SUP 的占位 SQL + 临时供应商夹具）
+        let taken = "TPK-0002";
+        db().execute_with_params(
+            "INSERT INTO biz_supplier (id, supplier_code, supplier_name, credit_days, status) \
+             VALUES (gen_random_uuid(), ?, 'CODE-04 预览撞号夹具', 30, 1)",
+            vec![Value::from(taken)],
+        )
+        .await
+        .expect("造已占用编码");
+        db().execute_with_params(
+            "UPDATE biz_seq SET current_no = 1 WHERE seq_type = ?",
+            vec![Value::from(SEQ)],
+        )
+        .await
+        .expect("把预览起点拨到 1");
+        let peeked = peek_master_code_with(db(), SEQ, exists_sql, 5)
+            .await
+            .expect("按自定义占位 SQL 预览");
+        assert_eq!(peeked, "TPK-0003", "0002 已被占用，预览必须顺延到 0003");
+        assert_eq!(current_no_of(SEQ).await, 1, "预览依旧不动 current_no");
+
+        db().execute_with_params(
+            "DELETE FROM biz_supplier WHERE supplier_code = ?",
+            vec![Value::from(taken)],
+        )
+        .await
+        .expect("清供应商夹具");
+        drop_test_seq(SEQ).await;
     }
 }

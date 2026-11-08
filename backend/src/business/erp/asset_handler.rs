@@ -4,7 +4,8 @@
 //! |------|------|--------|------|
 //! | GET | `/business/erp/asset-category/page` | `asset-category:list` | 分类分页 |
 //! | GET | `/business/erp/asset-category/list` | `asset-category:list` | 启用分类（建卡下拉） |
-//! | POST | `/business/erp/asset-category` | `asset-category:create` | 新建分类 |
+//! | POST | `/business/erp/asset-category` | `asset-category:create` | 新建分类（**编码留空自动取号 `AC-01`**） |
+//! | GET | `/business/erp/asset-category/next-code` | `asset-category:create` | 预览下一个可用编码（只读，不消耗号） |
 //! | PUT | `/business/erp/asset-category/{id}` | `asset-category:update` | 改分类 |
 //! | DELETE | `/business/erp/asset-category/{id}` | `asset-category:delete` | 删分类（有卡片则 409） |
 //! | GET | `/business/erp/asset/page` | `asset:list` | 卡片分页 |
@@ -46,6 +47,7 @@ use crate::business::erp::asset_dto::{
 };
 use crate::business::erp::asset_linkage;
 use crate::business::erp::asset_model::{self, AssetInsert, ChangeInsert};
+use crate::business::erp::seq;
 use crate::business::erp::voucher_multi;
 use crate::business::flow::{engine, model as flow_model};
 use crate::business::shared::state_machine;
@@ -122,7 +124,7 @@ pub async fn asset_category_list(
     Ok(Res::ok(rows.iter().map(CategoryRes::from).collect()))
 }
 
-/// 新建分类。
+/// 新建分类（编码留空则由后端取号 `AC-01` 形态）。
 #[nik::permission(
     path = "/business/erp/asset-category",
     method = "POST",
@@ -133,12 +135,81 @@ pub async fn asset_category_create(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Json(req): Json<CategoryReq>,
 ) -> ResResult<CategoryRes> {
-    let spec = asset_dto::validate_category(&req)?;
-    let operator = operator_of(&claims);
+    let res = create_asset_category(operator_of(&claims), req).await?;
+    Ok(Res::ok(res))
+}
+
+/// 分类编码预览（交互方式 B：前端「生成编码」按钮先看号，保存时把该号当手工编码提交）。
+///
+/// **只读、不消耗号**：`biz_seq.current_no` 不动，所以点了按钮又取消不会留空号；
+/// 真到保存那一刻号被别人抢走 ⇒ 按手工编码撞唯一索引处理（409 + 66001），再点一次即可。
+#[nik::permission(
+    path = "/business/erp/asset-category/next-code",
+    method = "GET",
+    permission = "business:erp:asset-category:create"
+)]
+#[nik::get("/business/erp/asset-category/next-code")]
+pub async fn asset_category_next_code(
+    Extension(AuthClaims(_claims)): Extension<AuthClaims>,
+) -> ResResult<serde_json::Value> {
+    let code = seq::peek_master_code(db(), "AC")
+        .await
+        .map_err(|error| code_seq_error(error, "预览资产分类编码"))?;
+    Ok(Res::ok(json!({ "code": code })))
+}
+
+/// 新建分类的**业务主体**（卡 CODE-04：编码留空则由后端取号 `AC-01` 形态）。
+///
+/// axum handler [`asset_category_create`] 只做参数解包，单测直接调本函数
+/// （同一条代码路径，只跳过认证）。
+///
+/// # 编码口径（用户已拍板，不许改）
+///
+/// | 入参 `category_code` | 行为 |
+/// |---|---|
+/// | `null` / `""` / 纯空白 | 自动取号：`AC-01` 形态（`biz_seq` 的 AC 号段，**纯流水 2 位**、不计日期、永不重置）；撞号自动顺延 |
+/// | 有值 | **原样保留**（转大写；`CAT-BUILDING` / `AC-01` 都能对接），只校验长度 ≤ 40 + 字符集 |
+///
+/// 位数由 `biz_seq.pad_width` 决定（AC = 2）：`AC-01` … `AC-99`，第 100 个起自然变成
+/// `AC-100`（[`seq::format_master_code`] 只补零不截断，避免 2 位号段被腰斩成重号）。
+///
+/// # 取号与落库同一事务
+///
+/// 取号是 `UPDATE biz_seq … RETURNING`（行锁），插入失败则整体回滚、号一起退回，
+/// 不留空号；并发建两个分类也不会拿到同一个号。
+///
+/// # 存量数据
+///
+/// **不动**任何已有分类（`ELEC` / `FURNITURE` / `VEHICLE` … 这些手工编码照旧），
+/// 本函数只影响「此后新建且没填编码」的档案。
+pub async fn create_asset_category(
+    operator: Option<Uuid>,
+    req: CategoryReq,
+) -> Result<CategoryRes, ApiError> {
+    let mut spec = asset_dto::validate_category(&req)?;
+    // ① 手工编码：有值就保留（先查重，给出「编码 XXX 已存在」的人话错误）
+    if !spec.category_code.is_empty() {
+        let taken = seq::master_code_taken(db(), "AC", &spec.category_code)
+            .await
+            .map_err(|error| db_err(error, "校验分类编码唯一性"))?;
+        if taken {
+            return Err(category_code_conflict(&spec.category_code));
+        }
+    }
     let (asset_account, accum_account, expense_account) = resolve_category_accounts(&spec).await?;
     let id = Uuid::now_v7();
+    // ② 编码 + INSERT 同一事务：没填就取号，插入失败则号一起回滚
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| db_err(error, "开启新建资产分类事务"))?;
+    if spec.category_code.is_empty() {
+        spec.category_code = seq::next_master_code_free(&tx, "AC")
+            .await
+            .map_err(|error| code_seq_error(error, "新建资产分类"))?;
+    }
     asset_model::category_insert(
-        db(),
+        &tx,
         id,
         &spec,
         asset_account,
@@ -147,19 +218,44 @@ pub async fn asset_category_create(
         operator,
     )
     .await
-    .map_err(|error| match error {
-        DbError::UniqueViolation { .. } => conflict(format!(
-            "分类编码 {} 已存在：编码是分类的唯一标识，请换一个",
-            spec.category_code
-        )),
-        other => db_err(other, "写入资产分类"),
-    })?;
+    .map_err(|error| category_write_error(error, &spec.category_code))?;
+    tx.commit()
+        .await
+        .map_err(|error| db_err(error, "提交新建资产分类事务"))?;
     tracing::info!(%id, code = %spec.category_code, "资产分类已新建");
     let row = asset_model::category_find(id)
         .await
         .map_err(|error| db_err(error, "查询资产分类"))?
         .ok_or_else(category_not_found)?;
-    Ok(Res::ok(CategoryRes::from(&row)))
+    Ok(CategoryRes::from(&row))
+}
+
+/// 分类编码重复（409 + `66001`）：文案与其它主数据同一套口径（已软删的编码可复用）。
+fn category_code_conflict(code: &str) -> ApiError {
+    ApiError::new(
+        409,
+        error_code::ERP_CODE_CONFLICT,
+        format!("分类编码 `{code}` 已存在（已软删的编码可以复用）"),
+    )
+}
+
+/// 分类写路径的 DB 错误收口：唯一索引冲突翻成**带编码**的 409，其余走 [`db_err`]。
+fn category_write_error(err: DbError, code: &str) -> ApiError {
+    match &err {
+        DbError::UniqueViolation { .. } => category_code_conflict(code),
+        _ => db_err(err, "写入资产分类"),
+    }
+}
+
+/// 取号失败（规则缺失 / 连号全被占）：500 + `10004`，`internal_detail` 留原始错误。
+fn code_seq_error(error: DbError, ctx: &str) -> ApiError {
+    ApiError {
+        status: 500,
+        code: error_code::INTERNAL_ERROR,
+        msg: format!("{ctx}：自动取号失败，请联系管理员检查取号规则"),
+        internal_detail: Some(format!("{ctx}: {error}")),
+        data: None,
+    }
 }
 
 /// 修改分类。
@@ -180,7 +276,9 @@ pub async fn asset_category_update(
         .map_err(|error| db_err(error, "查询资产分类"))?
         .ok_or_else(category_not_found)?;
     let mut spec = asset_dto::validate_category(&req)?;
-    if spec.category_code != existing.category_code {
+    // 编码留空 = 不改编码（编辑表单里编码常是只读/预填，提交空值不应报错）；
+    // 填了就必须与原来一致 —— 编码是历史卡片的快照口径，改了会让老卡片对不上。
+    if !spec.category_code.is_empty() && spec.category_code != existing.category_code {
         return Err(invalid(format!(
             "分类编码不可修改（当前 {}）：编码是历史卡片的快照口径，改了会让老卡片的 \
              category_code 与新分类对不上",
@@ -928,7 +1026,10 @@ pub async fn asset_dispose(
                      当月减少的资产当月照提，先处置会让这一个月的折旧永远提不到\
                      （处置凭证已按处置时点的累计折旧落账）。\
                      若该期间的批次已过账但不含本资产、或已被红冲，需先红冲该批次再重新计提。",
-                    row.asset_no, miss.label(), disposal_period, disposal_period
+                    row.asset_no,
+                    miss.label(),
+                    disposal_period,
+                    disposal_period
                 ),
             ));
         }
@@ -1448,4 +1549,265 @@ fn voucher_today() -> nik::prelude::chrono::NaiveDate {
 pub struct CancelDisposalReq {
     /// 原因（必填）。
     pub reason: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    //! 卡 CODE-04：**资产分类编码**真库用例（`ERP_DB_URL` 开关，未设则 SKIP）。
+    //!
+    //! ```bash
+    //! ERP_DB_URL="postgres://alun:***@127.0.0.1:5432/<已迁移的库>" \
+    //!   cargo test --lib business::erp::asset_handler -- --test-threads=1
+    //! ```
+    //!
+    //! | # | 用例 | 覆盖 |
+    //! |---|---|---|
+    //! | 1 | `category_auto_code_generated_when_blank` | `null` / `""` / 纯空白 三种「没填」都取号 `AC-NN`，且真落库 |
+    //! | 2 | `category_manual_code_is_kept` | 手工编码原样保留（`CAT-BUILDING` 这种企业自有形态），不强行改成 `AC-NN` |
+    //! | 3 | `category_auto_code_increments` | 连续两次留空 ⇒ 号递增（= `biz_seq` 推进），不重号 |
+    //! | 4 | `category_duplicate_code_conflicts` | 重复编码 ⇒ **409 + 66001** 且文案点名编码 |
+    //!
+    //! 这四条会**真的消耗 AC 号段**（自动取号就是被验证的行为本身）。只按 id 物理删
+    //! 自己建的行，**不回退** `biz_seq.current_no`：主数据是档案，建成功就该永久占号
+    //! （与 CODE-02/03 同口径）。存量 5 条分类（ELEC / FURNITURE / VEHICLE …）不动。
+
+    use super::*;
+    use crate::business::erp::period_test_support as support;
+
+    /// 自动编码形态：`AC-` + ≥2 位纯流水（AC 的 `biz_seq.pad_width = 2` ⇒ `AC-01`）。
+    fn is_auto_ac_code(code: &str) -> bool {
+        let Some(digits) = code.strip_prefix("AC-") else {
+            return false;
+        };
+        digits.len() >= 2 && digits.chars().all(|ch| ch.is_ascii_digit())
+    }
+
+    /// 分类请求：`category_code` 传 `None` / `Some("")` = 留空（自动取号）。
+    /// 科目全部缺省 ⇒ 按编码取 1601 / 1602 / 5602.01（迁移种好的末级科目）。
+    fn category_req(category_code: Option<&str>, name: &str) -> CategoryReq {
+        CategoryReq {
+            category_code: category_code.map(str::to_string),
+            category_name: Some(name.to_string()),
+            useful_life_months: Some(36),
+            salvage_rate: None,
+            asset_account_id: None,
+            accum_account_id: None,
+            expense_account_id: None,
+            status: None,
+            sort_order: None,
+            remark: None,
+        }
+    }
+
+    /// 读回一行分类（验「真落库」，不只信返回值）。
+    async fn category_row(id: &str) -> asset_model::CategoryRow {
+        let id = Uuid::parse_str(id).expect("分类 id");
+        asset_model::category_find(id)
+            .await
+            .expect("回读分类")
+            .expect("分类行必须存在")
+    }
+
+    /// 物理删掉本用例造的行（业务接口走软删；用例不留痕）。
+    async fn drop_category(id: &str) {
+        let id = Uuid::parse_str(id).expect("分类 id");
+        db().execute_with_params(
+            "DELETE FROM biz_asset_category WHERE id = ?::uuid",
+            vec![Value::from(&id)],
+        )
+        .await
+        .expect("清分类夹具");
+    }
+
+    /// 当前 AC 号段的 `current_no`（判断「有没有真的推进」用）。
+    async fn ac_current_no() -> i64 {
+        db().query_first_sql(
+            "SELECT current_no FROM biz_seq WHERE seq_type = 'AC' AND deleted_at IS NULL"
+                .to_string(),
+            vec![],
+        )
+        .await
+        .expect("查 AC 号段")
+        .expect("AC 号段必须由 V0337 种入")
+        .get_typed::<i64>("current_no")
+        .expect("current_no")
+    }
+
+    /// ① 三种「没填」都自动取号，且真落库（存量分类不动）。
+    #[tokio::test]
+    async fn category_auto_code_generated_when_blank() {
+        let Some(_guard) = support::setup().await else {
+            return;
+        };
+        let before = ac_current_no().await;
+        let seeded = asset_model::category_active().await.expect("存量分类");
+
+        let by_none = create_asset_category(None, category_req(None, "CODE04 自动分类（未传）"))
+            .await
+            .expect("category_code 缺席应自动取号");
+        assert!(
+            is_auto_ac_code(&by_none.category_code),
+            "自动编码必须是 AC-01 形态，实际 {}",
+            by_none.category_code
+        );
+        let row = category_row(&by_none.id).await;
+        assert_eq!(
+            row.category_code, by_none.category_code,
+            "自动编码必须真落库"
+        );
+
+        let by_empty =
+            create_asset_category(None, category_req(Some(""), "CODE04 自动分类（空串）"))
+                .await
+                .expect("空串应自动取号");
+        assert!(
+            is_auto_ac_code(&by_empty.category_code),
+            "{}",
+            by_empty.category_code
+        );
+
+        let by_spaces =
+            create_asset_category(None, category_req(Some("   "), "CODE04 自动分类（空白）"))
+                .await
+                .expect("纯空白应自动取号");
+        assert!(
+            is_auto_ac_code(&by_spaces.category_code),
+            "{}",
+            by_spaces.category_code
+        );
+
+        // 三个号互不相同，且号段正好推进 3
+        let mut codes = vec![
+            by_none.category_code.clone(),
+            by_empty.category_code.clone(),
+            by_spaces.category_code.clone(),
+        ];
+        codes.sort();
+        codes.dedup();
+        assert_eq!(codes.len(), 3, "三次取号必须是 3 个不同号：{codes:?}");
+        assert_eq!(ac_current_no().await, before + 3, "取号数应与号段推进一致");
+
+        // 存量分类一条不动
+        let after = asset_model::category_active().await.expect("存量分类");
+        assert_eq!(
+            after.len(),
+            seeded.len() + 3,
+            "只应有新建的 3 条，存量分类不许被改"
+        );
+
+        for created in [&by_none, &by_empty, &by_spaces] {
+            drop_category(&created.id).await;
+        }
+    }
+
+    /// ② 手工编码原样保留（企业自有编码体系要能对接），不走取号。
+    #[tokio::test]
+    async fn category_manual_code_is_kept() {
+        let Some(_guard) = support::setup().await else {
+            return;
+        };
+        let before = ac_current_no().await;
+        let manual = format!("CAT-BUILDING-{}", &Uuid::now_v7().simple().to_string()[..6]);
+        let created = create_asset_category(None, category_req(Some(&manual), "CODE04 手工分类"))
+            .await
+            .expect("手工编码应通过");
+        assert_eq!(
+            created.category_code,
+            manual.to_ascii_uppercase(),
+            "手工编码必须原样保留（只转大写）"
+        );
+        assert!(
+            !is_auto_ac_code(&created.category_code),
+            "手工编码不该被改写成交号形态"
+        );
+        let row = category_row(&created.id).await;
+        assert_eq!(
+            row.category_code,
+            manual.to_ascii_uppercase(),
+            "手工编码真落库"
+        );
+        assert_eq!(
+            ac_current_no().await,
+            before,
+            "手工编码不消耗号段（取号器不该被调用）"
+        );
+
+        // 预览接口口径：peek 不消耗号，拿到的号可以直接当手工编码保存
+        let peeked = seq::peek_master_code(db(), "AC")
+            .await
+            .expect("预览 AC 编码");
+        assert!(is_auto_ac_code(&peeked), "预览必须给 AC-NN 形态：{peeked}");
+        assert_eq!(ac_current_no().await, before, "预览不能推进号段");
+        let from_peek =
+            create_asset_category(None, category_req(Some(&peeked), "CODE04 预览号分类"))
+                .await
+                .expect("预览号应当能直接保存");
+        assert_eq!(from_peek.category_code, peeked);
+
+        drop_category(&created.id).await;
+        drop_category(&from_peek.id).await;
+    }
+
+    /// ③ 连续两次留空 ⇒ 号递增（与 `biz_seq` 推进一致）。
+    #[tokio::test]
+    async fn category_auto_code_increments() {
+        let Some(_guard) = support::setup().await else {
+            return;
+        };
+        let first = create_asset_category(None, category_req(None, "CODE04 连号分类 A"))
+            .await
+            .expect("第一次取号");
+        let second = create_asset_category(None, category_req(None, "CODE04 连号分类 B"))
+            .await
+            .expect("第二次取号");
+        assert_ne!(
+            first.category_code, second.category_code,
+            "两次自动编码不能相同"
+        );
+        let n1 = first
+            .category_code
+            .strip_prefix("AC-")
+            .and_then(|d| d.parse::<i64>().ok())
+            .expect("AC-NN 形态");
+        let n2 = second
+            .category_code
+            .strip_prefix("AC-")
+            .and_then(|d| d.parse::<i64>().ok())
+            .expect("AC-NN 形态");
+        assert_eq!(
+            n2,
+            n1 + 1,
+            "第二次必须正好是下一个号（{} → {}）",
+            first.category_code,
+            second.category_code
+        );
+
+        drop_category(&first.id).await;
+        drop_category(&second.id).await;
+    }
+
+    /// ④ 重复编码 ⇒ 409 + 66001，文案点名编码（预检先拦，不等 DB 唯一索引）。
+    #[tokio::test]
+    async fn category_duplicate_code_conflicts() {
+        let Some(_guard) = support::setup().await else {
+            return;
+        };
+        let manual = format!("CAT-DUP-{}", &Uuid::now_v7().simple().to_string()[..6]);
+        let created = create_asset_category(None, category_req(Some(&manual), "CODE04 重复分类"))
+            .await
+            .expect("第一次应当成功");
+
+        let err = create_asset_category(None, category_req(Some(&manual), "CODE04 重复分类 2"))
+            .await
+            .expect_err("重复编码必须被拒");
+        assert_eq!(err.status, 409, "重复编码是冲突，不是参数错");
+        assert_eq!(err.code, error_code::ERP_CODE_CONFLICT);
+        assert!(
+            err.msg.contains(&manual.to_ascii_uppercase()),
+            "文案必须点名具体编码：{}",
+            err.msg
+        );
+
+        drop_category(&created.id).await;
+    }
 }

@@ -197,6 +197,8 @@ pub struct CategoryReq {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CategorySpec {
     /// 编码。
+    ///
+    /// **空串 = 用户没填**：新建时由 handler 取号（`AC-01` 形态），修改时表示「不改编码」。
     pub category_code: String,
     /// 名称。
     pub category_name: String,
@@ -219,27 +221,25 @@ pub struct CategorySpec {
 }
 
 /// 分类校验（编码格式 / 年限区间 / 残值率区间）。
+///
+/// # 编码（卡 CODE-04）
+///
+/// * **留空**（`null` / `""` / 纯空白）⇒ `CategorySpec.category_code` 返回**空串**，
+///   由 handler 用 `erp::seq::next_master_code_free(&tx, "AC")` 生成 `AC-01` 形态的编码；
+/// * **有值** ⇒ 原样保留（转大写），只校验长度 ≤ 40 + 字符集（字母 / 数字 / `-` `_` `.`），
+///   **不强制 `AC-xx` 形态**（企业已有编码体系如 `CAT-BUILDING` 要能对接）。
+///
+/// 两条目的区别只在调用方怎么用这个空串：新建时取号，修改时「不改编码」。
 pub fn validate_category(req: &CategoryReq) -> Result<CategorySpec, ApiError> {
-    let code = req
-        .category_code
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-        .ok_or_else(|| invalid("分类编码必填（如 ELEC / VEHICLE）"))?;
-    if code.len() > 40 {
-        return Err(invalid(format!(
-            "分类编码最长 40 字符（当前 {}）",
-            code.len()
-        )));
-    }
-    if !code
-        .chars()
-        .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit() || ch == '_')
-    {
-        return Err(invalid(format!(
-            "分类编码只允许大写字母 / 数字 / 下划线（当前 {code}）"
-        )));
-    }
+    let code = crate::business::erp::seq::resolve_manual_code(
+        req.category_code.as_deref(),
+        crate::business::erp::seq::MAX_MANUAL_CODE_LEN,
+    )
+    .map_err(|reason| invalid(format!("分类编码不合法：{reason}")))?
+    // 编码统一大写：库里的存量编码（ELEC / FURNITURE / VEHICLE …）与取号器的 AC-01 都是大写，
+    // 免得「elec」与「ELEC」变成两个看起来相同的分类。
+    .map(|text| text.to_ascii_uppercase())
+    .unwrap_or_default();
     let name = req
         .category_name
         .as_deref()
@@ -1512,8 +1512,49 @@ mod tests {
         );
 
         let mut bad_code = ok.clone();
-        bad_code.category_code = Some("elec".to_string());
-        assert!(validate_category(&bad_code).is_err(), "编码必须大写");
+        bad_code.category_code = Some("CAT BUILDING".to_string());
+        let err = validate_category(&bad_code).expect_err("编码含空格必须拒绝");
+        assert!(
+            err.msg.contains("分类编码"),
+            "文案要点名是编码的问题：{}",
+            err.msg
+        );
+
+        // CODE-04：编码留空 = 交给 handler 取号（`AC-01` 形态），不能拒
+        let mut blank = ok.clone();
+        blank.category_code = Some("   ".to_string());
+        assert_eq!(
+            validate_category(&blank).expect("留空应放行").category_code,
+            "",
+            "留空 → 空串（handler 据此取号）"
+        );
+        blank.category_code = None;
+        assert_eq!(
+            validate_category(&blank)
+                .expect("缺席同样放行")
+                .category_code,
+            ""
+        );
+
+        // CODE-04：自动编码形态（AC-01）与企业自有编码（CAT-BUILDING）都得能存
+        let mut auto_like = ok.clone();
+        auto_like.category_code = Some("AC-01".to_string());
+        assert_eq!(
+            validate_category(&auto_like)
+                .expect("AC-01 合法")
+                .category_code,
+            "AC-01",
+            "取号器产出的编码必须能通过校验"
+        );
+        let mut legacy = ok.clone();
+        legacy.category_code = Some("cat-building".to_string());
+        assert_eq!(
+            validate_category(&legacy)
+                .expect("企业自有编码合法")
+                .category_code,
+            "CAT-BUILDING",
+            "手工编码统一大写（与存量 ELEC/VEHICLE 同口径）"
+        );
     }
 
     /// ⑨ 处置校验：类型取值域 / 无收入处置不许填售价 / 出售必须有价。

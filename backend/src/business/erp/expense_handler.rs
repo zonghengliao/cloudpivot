@@ -4,7 +4,8 @@
 //! |------|------|--------|------|
 //! | GET | `/business/erp/expense-type/page` | `expense-type:list` | 费用类型分页 |
 //! | GET | `/business/erp/expense-type/list` | `expense-type:list` | 启用类型（建单下拉） |
-//! | POST | `/business/erp/expense-type` | `expense-type:create` | 新建类型 |
+//! | POST | `/business/erp/expense-type` | `expense-type:create` | 新建类型（**编码留空自动取号 `ET-01`**） |
+//! | GET | `/business/erp/expense-type/next-code` | `expense-type:create` | 预览下一个可用编码（只读，不消耗号） |
 //! | PUT | `/business/erp/expense-type/{id}` | `expense-type:update` | 改类型 |
 //! | DELETE | `/business/erp/expense-type/{id}` | `expense-type:delete` | 删类型（被引用则 409） |
 //! | GET | `/business/erp/expense/page` | `expense:list` | 报销单分页（按 dept 数据权限） |
@@ -47,6 +48,7 @@ use crate::business::erp::expense_linkage;
 use crate::business::erp::expense_model::{
     self, ItemInsert, PaymentInsert, ReportInsert, ReportRow, TypeRow,
 };
+use crate::business::erp::seq;
 use crate::business::erp::{budget_guard, voucher, voucher_multi};
 use crate::business::flow::{engine, model as flow_model};
 use crate::business::shared::state_machine;
@@ -210,28 +212,117 @@ pub async fn type_create(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Json(req): Json<TypeReq>,
 ) -> ResResult<TypeRes> {
-    let spec = expense_dto::validate_type(&req, true)?;
-    let operator = operator_of(&claims);
-    if expense_model::type_find_by_code(db(), &spec.type_code)
+    let res = create_expense_type(operator_of(&claims), req).await?;
+    Ok(Res::ok(res))
+}
+
+/// 费用类型编码预览（交互方式 B：前端「生成编码」按钮先看号，保存时把该号当手工编码提交）。
+///
+/// **只读、不消耗号**：`biz_seq.current_no` 不动，点了按钮又取消不会留空号；
+/// 保存那一刻号被别人抢走 ⇒ 按手工编码撞唯一索引处理（409 + 66001），再点一次即可。
+#[nik::permission(
+    path = "/business/erp/expense-type/next-code",
+    method = "GET",
+    permission = "business:erp:expense-type:create"
+)]
+#[nik::get("/business/erp/expense-type/next-code")]
+pub async fn type_next_code(
+    Extension(AuthClaims(_claims)): Extension<AuthClaims>,
+) -> ResResult<serde_json::Value> {
+    let code = seq::peek_master_code(db(), "ET")
         .await
-        .map_err(|error| db_err(error, "查询费用类型编码"))?
-        .is_some()
-    {
-        return Err(conflict(format!(
-            "费用类型编码 {} 已存在（同编码只能有一个未删除的类型）",
-            spec.type_code
-        )));
+        .map_err(|error| type_seq_error(error, "预览费用类型编码"))?;
+    Ok(Res::ok(json!({ "code": code })))
+}
+
+/// 新建费用类型的**业务主体**（卡 CODE-04：编码留空则由后端取号 `ET-01` 形态）。
+///
+/// axum handler [`type_create`] 只做参数解包，单测直接调本函数（同一条代码路径，只跳过认证）。
+///
+/// # 编码口径（用户已拍板，不许改）
+///
+/// | 入参 `type_code` | 行为 |
+/// |---|---|
+/// | `null` / `""` / 纯空白 | 自动取号：`ET-01` 形态（`biz_seq` 的 ET 号段，**纯流水 2 位**、不计日期、永不重置）；撞号自动顺延 |
+/// | 有值 | **原样保留**（转大写；`TRAVEL` / `ADMIN-FEE` 都能对接），只校验长度 ≤ 40 + 字符集 |
+///
+/// 位数由 `biz_seq.pad_width` 决定（ET = 2）：`ET-01` … `ET-99`，第 100 个起自然变成 `ET-100`。
+///
+/// # 取号与落库同一事务
+///
+/// 取号是 `UPDATE biz_seq … RETURNING`（行锁），插入失败则整体回滚、号一起退回，
+/// 不留空号；并发建两个类型也不会拿到同一个号。
+///
+/// # 存量数据
+///
+/// **不动**任何已有类型（`TRAVEL` / `MEAL` / `OFFICE` … 这些手工编码照旧）。
+pub async fn create_expense_type(
+    operator: Option<Uuid>,
+    req: TypeReq,
+) -> Result<TypeRes, ApiError> {
+    let mut spec = expense_dto::validate_type(&req, true)?;
+    // ① 手工编码：有值就保留（先查重，给出「编码 XXX 已存在」的人话错误）
+    if !spec.type_code.is_empty() {
+        let taken = expense_model::type_find_by_code(db(), &spec.type_code)
+            .await
+            .map_err(|error| db_err(error, "查询费用类型编码"))?
+            .is_some();
+        if taken {
+            return Err(type_code_conflict(&spec.type_code));
+        }
     }
     let account = resolve_account(spec.account_id).await?;
     let id = Uuid::now_v7();
-    expense_model::type_insert(db(), id, &spec, &account.code, operator)
+    // ② 编码 + INSERT 同一事务：没填就取号，插入失败则号一起回滚
+    let tx = db()
+        .begin()
         .await
-        .map_err(|error| db_err(error, "新建费用类型"))?;
+        .map_err(|error| db_err(error, "开启新建费用类型事务"))?;
+    if spec.type_code.is_empty() {
+        spec.type_code = seq::next_master_code_free(&tx, "ET")
+            .await
+            .map_err(|error| type_seq_error(error, "新建费用类型"))?;
+    }
+    expense_model::type_insert(&tx, id, &spec, &account.code, operator)
+        .await
+        .map_err(|error| type_write_error(error, &spec.type_code))?;
+    tx.commit()
+        .await
+        .map_err(|error| db_err(error, "提交新建费用类型事务"))?;
+    tracing::info!(%id, code = %spec.type_code, "费用类型已新建");
     let row = expense_model::type_find(id)
         .await
         .map_err(|error| db_err(error, "读回费用类型"))?
         .ok_or_else(type_not_found)?;
-    Ok(Res::ok(type_res(&row)))
+    Ok(type_res(&row))
+}
+
+/// 费用类型编码重复（409 + `66001`）：文案与其它主数据同一套口径（已软删的编码可复用）。
+fn type_code_conflict(code: &str) -> ApiError {
+    ApiError::new(
+        409,
+        error_code::ERP_CODE_CONFLICT,
+        format!("费用类型编码 `{code}` 已存在（已软删的编码可以复用）"),
+    )
+}
+
+/// 费用类型写路径的 DB 错误收口：唯一索引冲突翻成**带编码**的 409，其余走 [`db_err`]。
+fn type_write_error(err: DbError, code: &str) -> ApiError {
+    match &err {
+        DbError::UniqueViolation { .. } => type_code_conflict(code),
+        _ => db_err(err, "新建费用类型"),
+    }
+}
+
+/// 取号失败（规则缺失 / 连号全被占）：500 + `10004`，`internal_detail` 留原始错误。
+fn type_seq_error(error: DbError, ctx: &str) -> ApiError {
+    ApiError {
+        status: 500,
+        code: error_code::INTERNAL_ERROR,
+        msg: format!("{ctx}：自动取号失败，请联系管理员检查取号规则"),
+        internal_detail: Some(format!("{ctx}: {error}")),
+        data: None,
+    }
 }
 
 #[nik::permission(
@@ -1538,4 +1629,280 @@ pub async fn report_pay(
     };
     tracing::info!(%id, report_no = %row.report_no, %payment_no, amount = %spec.amount, "报销付款已登记");
     Ok(Res::ok(detail_of(id).await?))
+}
+
+#[cfg(test)]
+mod tests {
+    //! 卡 CODE-04：**费用类型编码**真库用例（`ERP_DB_URL` 开关，未设则 SKIP）。
+    //!
+    //! ```bash
+    //! ERP_DB_URL="postgres://alun:***@127.0.0.1:5432/<已迁移的库>" \
+    //!   cargo test --lib business::erp::expense_handler -- --test-threads=1
+    //! ```
+    //!
+    //! | # | 用例 | 覆盖 |
+    //! |---|---|---|
+    //! | 1 | `type_auto_code_generated_when_blank` | `null` / `""` / 纯空白 三种「没填」都取号 `ET-NN`，且真落库 |
+    //! | 2 | `type_manual_code_is_kept` | 手工编码原样保留（`ADMIN-FEE` 这种企业自有形态），不消耗号段 |
+    //! | 3 | `type_auto_code_increments` | 连续两次留空 ⇒ 号递增（= `biz_seq` 推进），不重号 |
+    //! | 4 | `type_duplicate_code_conflicts` | 重复编码 ⇒ **409 + 66001** 且文案点名编码 |
+    //!
+    //! 这四条会**真的消耗 ET 号段**（与 CODE-02/03 / 本卡资产分类用例同口径）：
+    //! 只按 id 物理删自己建的行，不回退 `biz_seq.current_no`。存量 8 条类型
+    //! （TRAVEL / MEAL / OFFICE …）不动。
+
+    use super::*;
+    use crate::business::erp::period_test_support as support;
+
+    /// 自动编码形态：`ET-` + ≥2 位纯流水（ET 的 `biz_seq.pad_width = 2` ⇒ `ET-01`）。
+    fn is_auto_et_code(code: &str) -> bool {
+        let Some(digits) = code.strip_prefix("ET-") else {
+            return false;
+        };
+        digits.len() >= 2 && digits.chars().all(|ch| ch.is_ascii_digit())
+    }
+
+    /// 借用一个末级借方科目（费用类型必须挂末级借方科目）。
+    async fn debit_leaf_account() -> Uuid {
+        let rows = db()
+            .query_sql(
+                "SELECT id FROM biz_account \
+                  WHERE account_code = '5602.02' AND deleted_at IS NULL AND is_leaf = 1"
+                    .to_string(),
+                vec![],
+            )
+            .await
+            .expect("查借方科目");
+        rows.first()
+            .expect("5602.02 必须由迁移种入（末级借方科目）")
+            .get_typed::<Uuid>("id")
+            .expect("科目 id")
+    }
+
+    /// 费用类型请求：`type_code` 传 `None` / `Some("")` = 留空（自动取号）。
+    fn type_req(type_code: Option<&str>, name: &str, account_id: &Uuid) -> TypeReq {
+        TypeReq {
+            type_code: type_code.map(str::to_string),
+            type_name: Some(name.to_string()),
+            account_id: Some(account_id.to_string()),
+            ..Default::default()
+        }
+    }
+
+    /// 读回一行费用类型（验「真落库」）。
+    async fn type_row(id: &str) -> TypeRow {
+        let id = Uuid::parse_str(id).expect("类型 id");
+        expense_model::type_find(id)
+            .await
+            .expect("回读费用类型")
+            .expect("费用类型行必须存在")
+    }
+
+    /// 物理删掉本用例造的行。
+    async fn drop_type(id: &str) {
+        let id = Uuid::parse_str(id).expect("类型 id");
+        db().execute_with_params(
+            "DELETE FROM biz_expense_type WHERE id = ?::uuid",
+            vec![Value::from(&id)],
+        )
+        .await
+        .expect("清费用类型夹具");
+    }
+
+    /// 当前 ET 号段的 `current_no`。
+    async fn et_current_no() -> i64 {
+        db().query_first_sql(
+            "SELECT current_no FROM biz_seq WHERE seq_type = 'ET' AND deleted_at IS NULL"
+                .to_string(),
+            vec![],
+        )
+        .await
+        .expect("查 ET 号段")
+        .expect("ET 号段必须由 V0337 种入")
+        .get_typed::<i64>("current_no")
+        .expect("current_no")
+    }
+
+    /// ① 三种「没填」都自动取号，且真落库（存量类型不动）。
+    #[tokio::test]
+    async fn type_auto_code_generated_when_blank() {
+        let Some(_guard) = support::setup().await else {
+            return;
+        };
+        let account = debit_leaf_account().await;
+        let before = et_current_no().await;
+        let seeded = expense_model::type_active().await.expect("存量类型");
+
+        let by_none =
+            create_expense_type(None, type_req(None, "CODE04 自动类型（未传）", &account))
+                .await
+                .expect("type_code 缺席应自动取号");
+        assert!(
+            is_auto_et_code(&by_none.type_code),
+            "自动编码必须是 ET-01 形态，实际 {}",
+            by_none.type_code
+        );
+        assert_eq!(
+            type_row(&by_none.id).await.type_code,
+            by_none.type_code,
+            "自动编码必须真落库"
+        );
+
+        let by_empty = create_expense_type(
+            None,
+            type_req(Some(""), "CODE04 自动类型（空串）", &account),
+        )
+        .await
+        .expect("空串应自动取号");
+        assert!(
+            is_auto_et_code(&by_empty.type_code),
+            "{}",
+            by_empty.type_code
+        );
+
+        let by_spaces = create_expense_type(
+            None,
+            type_req(Some("   "), "CODE04 自动类型（空白）", &account),
+        )
+        .await
+        .expect("纯空白应自动取号");
+        assert!(
+            is_auto_et_code(&by_spaces.type_code),
+            "{}",
+            by_spaces.type_code
+        );
+
+        let mut codes = vec![
+            by_none.type_code.clone(),
+            by_empty.type_code.clone(),
+            by_spaces.type_code.clone(),
+        ];
+        codes.sort();
+        codes.dedup();
+        assert_eq!(codes.len(), 3, "三次取号必须是 3 个不同号：{codes:?}");
+        assert_eq!(et_current_no().await, before + 3, "取号数应与号段推进一致");
+
+        let after = expense_model::type_active().await.expect("存量类型");
+        assert_eq!(
+            after.len(),
+            seeded.len() + 3,
+            "只应有新建的 3 条，存量类型不许被改"
+        );
+
+        for created in [&by_none, &by_empty, &by_spaces] {
+            drop_type(&created.id).await;
+        }
+    }
+
+    /// ② 手工编码原样保留（企业自有编码体系要能对接），不走取号。
+    #[tokio::test]
+    async fn type_manual_code_is_kept() {
+        let Some(_guard) = support::setup().await else {
+            return;
+        };
+        let account = debit_leaf_account().await;
+        let before = et_current_no().await;
+        let manual = format!("ADMIN-FEE-{}", &Uuid::now_v7().simple().to_string()[..6]);
+        let created =
+            create_expense_type(None, type_req(Some(&manual), "CODE04 手工类型", &account))
+                .await
+                .expect("手工编码应通过");
+        assert_eq!(
+            created.type_code,
+            manual.to_ascii_uppercase(),
+            "手工编码必须原样保留（只转大写）"
+        );
+        assert!(
+            !is_auto_et_code(&created.type_code),
+            "手工编码不该被改写成交号形态"
+        );
+        assert_eq!(
+            type_row(&created.id).await.type_code,
+            manual.to_ascii_uppercase(),
+            "手工编码真落库"
+        );
+        assert_eq!(
+            et_current_no().await,
+            before,
+            "手工编码不消耗号段（取号器不该被调用）"
+        );
+
+        // 预览不消耗号；拿到的号可直接当手工编码保存
+        let peeked = seq::peek_master_code(db(), "ET")
+            .await
+            .expect("预览 ET 编码");
+        assert!(is_auto_et_code(&peeked), "预览必须给 ET-NN 形态：{peeked}");
+        assert_eq!(et_current_no().await, before, "预览不能推进号段");
+        let from_peek =
+            create_expense_type(None, type_req(Some(&peeked), "CODE04 预览号类型", &account))
+                .await
+                .expect("预览号应当能直接保存");
+        assert_eq!(from_peek.type_code, peeked);
+
+        drop_type(&created.id).await;
+        drop_type(&from_peek.id).await;
+    }
+
+    /// ③ 连续两次留空 ⇒ 号递增。
+    #[tokio::test]
+    async fn type_auto_code_increments() {
+        let Some(_guard) = support::setup().await else {
+            return;
+        };
+        let account = debit_leaf_account().await;
+        let first = create_expense_type(None, type_req(None, "CODE04 连号类型 A", &account))
+            .await
+            .expect("第一次取号");
+        let second = create_expense_type(None, type_req(None, "CODE04 连号类型 B", &account))
+            .await
+            .expect("第二次取号");
+        assert_ne!(first.type_code, second.type_code, "两次自动编码不能相同");
+        let n1 = first
+            .type_code
+            .strip_prefix("ET-")
+            .and_then(|d| d.parse::<i64>().ok())
+            .expect("ET-NN 形态");
+        let n2 = second
+            .type_code
+            .strip_prefix("ET-")
+            .and_then(|d| d.parse::<i64>().ok())
+            .expect("ET-NN 形态");
+        assert_eq!(
+            n2,
+            n1 + 1,
+            "第二次必须正好是下一个号（{} → {}）",
+            first.type_code,
+            second.type_code
+        );
+
+        drop_type(&first.id).await;
+        drop_type(&second.id).await;
+    }
+
+    /// ④ 重复编码 ⇒ 409 + 66001，文案点名编码。
+    #[tokio::test]
+    async fn type_duplicate_code_conflicts() {
+        let Some(_guard) = support::setup().await else {
+            return;
+        };
+        let account = debit_leaf_account().await;
+        let manual = format!("DUP-FEE-{}", &Uuid::now_v7().simple().to_string()[..6]);
+        let created =
+            create_expense_type(None, type_req(Some(&manual), "CODE04 重复类型", &account))
+                .await
+                .expect("第一次应当成功");
+
+        let err = create_expense_type(None, type_req(Some(&manual), "CODE04 重复类型 2", &account))
+            .await
+            .expect_err("重复编码必须被拒");
+        assert_eq!(err.status, 409, "重复编码是冲突，不是参数错");
+        assert_eq!(err.code, error_code::ERP_CODE_CONFLICT);
+        assert!(
+            err.msg.contains(&manual.to_ascii_uppercase()),
+            "文案必须点名具体编码：{}",
+            err.msg
+        );
+
+        drop_type(&created.id).await;
+    }
 }
