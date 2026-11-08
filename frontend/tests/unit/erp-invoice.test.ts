@@ -30,8 +30,11 @@ import {
   INVOICE_COLUMNS,
   INVOICE_DEFAULT_TAX_RATE,
   INVOICE_EDGES,
+  INVOICE_ELECTRONIC_EXTS,
+  INVOICE_FACE_OPTIONS,
   INVOICE_LOCKED,
   INVOICE_PAGE_SIZE,
+  INVOICE_PAPER_EXTS,
   INVOICE_PERMS,
   INVOICE_REASON_EDGES,
   INVOICE_REASON_MAX,
@@ -49,6 +52,7 @@ import {
   canVoid,
   edgeNeedsReason,
   emptyInvoiceFilter,
+  invoiceAttachmentHint,
   invoiceFormError,
   invoiceHeadroomCents,
   invoiceReasonError,
@@ -75,6 +79,7 @@ function row(overrides: Partial<Invoice> = {}): Invoice {
     invoice_type: 'OUT',
     invoice_type_label: '销项正票',
     invoice_code: null,
+    is_electronic: true,
     customer_id: 'cust-1',
     customer_name: '北京测试客户',
     invoice_date: '2026-11-06',
@@ -103,6 +108,7 @@ function form(overrides: Partial<InvoiceFormState> = {}): InvoiceFormState {
     taxRate: INVOICE_DEFAULT_TAX_RATE,
     invoiceNo: '',
     invoiceCode: '',
+    isElectronic: true,
     remark: '',
     ...overrides,
   };
@@ -426,6 +432,34 @@ test('4 个权限码与 V0296 的 sys_menu.auth_code 逐字一致', () => {
   assert.equal(INVOICE_PAGE_SIZE, 20);
 });
 
+// ==================== 票面形式（ATT-07 / V0348） ====================
+
+test('票面形式：电子票只收 pdf/ofd/xml、纸质票收 jpg/png/pdf，缺省电子票', () => {
+  assert.deepEqual([...INVOICE_ELECTRONIC_EXTS], ['pdf', 'ofd', 'xml'], '电子票白名单 = 数电票三种格式');
+  assert.deepEqual([...INVOICE_PAPER_EXTS], ['pdf', 'jpg', 'png'], '纸质票白名单 = 扫描件');
+  assert.deepEqual(
+    INVOICE_FACE_OPTIONS.map((item) => item.value),
+    [true, false],
+    '选项顺序：电子票在前（与后端 resolve_is_electronic 的缺省一致）',
+  );
+  assert.deepEqual(
+    INVOICE_FACE_OPTIONS.map((item) => item.label),
+    ['电子票（数电票）', '纸质票（扫描件）'],
+  );
+  assert.equal(form().isElectronic, true, '表单缺省 = 电子票');
+
+  // 提示文案必须把「要什么格式」说全 —— 用户据此去传附件，别等 400 才知道
+  for (const ext of INVOICE_ELECTRONIC_EXTS) {
+    assert.ok(invoiceAttachmentHint(true).includes(ext), `电子票提示缺 ${ext}`);
+  }
+  for (const ext of INVOICE_PAPER_EXTS) {
+    assert.ok(invoiceAttachmentHint(false).includes(ext), `纸质票提示缺 ${ext}`);
+  }
+  assert.match(invoiceAttachmentHint(true), /电子票/);
+  assert.match(invoiceAttachmentHint(false), /纸质票/);
+  assert.notEqual(invoiceAttachmentHint(true), invoiceAttachmentHint(false), '两种票面的提示不能一样');
+});
+
 // ==================== 后端源码契约（逐字） ====================
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -456,6 +490,38 @@ test('后端 invoice.rs 的状态域 / 原因长度 / 票种 / 额度口径与�
   for (const code of Object.values(INVOICE_PERMS)) {
     assert.ok(src.includes(code), `后端缺权限码 ${code}`);
   }
+});
+
+test('后端票面形式（is_electronic）落库与规则分支与前端一致', () => {
+  const src = readBackend('erp/invoice.rs');
+  assert.match(
+    src,
+    /pub fn resolve_is_electronic\(raw: Option<bool>\) -> bool/,
+    '缺 resolve_is_electronic（缺省口径在这里）',
+  );
+  assert.ok(src.includes('unwrap_or(true)'), '不传 is_electronic 必须默认电子票');
+  assert.ok(src.includes('pub is_electronic: Option<bool>'), 'CreateInvoiceReq 必须收 is_electronic');
+  assert.ok(
+    /pub const COLUMNS: &str = "[^"]*is_electronic/.test(src),
+    'COLUMNS 必须带 is_electronic（漏了运行期 column not found）',
+  );
+
+  // 迁移 V0348：加列 + 把发票两条规则改按 is_electronic 分支
+  const up = readFileSync(
+    resolve(BACKEND, '../../migrations/business/V0348__invoice_is_electronic.up.sql'),
+    'utf8',
+  );
+  assert.ok(up.includes('ADD COLUMN IF NOT EXISTS is_electronic'), 'V0348 必须幂等加列');
+  assert.ok(up.includes("'is_electronic IS TRUE'"), '电子票规则条件没改');
+  assert.ok(up.includes("'is_electronic IS FALSE'"), '纸质票规则条件没改');
+
+  // 前端白名单必须逐字等于规则表种子的 allow_exts（改一处没改另一处 = 用户按提示传了还被拦）
+  const seeds = readFileSync(
+    resolve(BACKEND, '../../migrations/business/V0347__attachment_required_rules.up.sql'),
+    'utf8',
+  );
+  assert.ok(seeds.includes(`'${INVOICE_ELECTRONIC_EXTS.join(',')}'`), '电子票白名单与规则种子不一致');
+  assert.ok(seeds.includes(`'${INVOICE_PAPER_EXTS.join(',')}'`), '纸质票白名单与规则种子不一致');
 });
 
 test('后端 state_machine.rs 的 INVOICE 边表 / 终态与前端逐条一致', () => {

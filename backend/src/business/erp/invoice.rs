@@ -4,7 +4,8 @@
 //!
 //! ```text
 //! biz_invoice  id, invoice_no(IV-yyyyMMdd-000001 或手填税控号), invoice_type(OUT/OUT_RED),
-//!              invoice_code, customer_id(弱引用), invoice_date, amount(不含税),
+//!              invoice_code, is_electronic(电子票/纸质票，V0348), customer_id(弱引用),
+//!              invoice_date, amount(不含税),
 //!              tax_amount, total_with_tax, tax_rate, status(DRAFT/ISSUED/POSTED/VOID),
 //!              receivable_id(FK RESTRICT，可空), source_type, source_no, voucher_id, remark
 //!              + 审计五件套
@@ -12,6 +13,11 @@
 //!              CHECK OUT: amount>0 且 tax>=0 / OUT_RED: amount<0 且 tax<=0 (ck_biz_invoice_sign)
 //!              UNIQUE (invoice_no) WHERE deleted_at IS NULL
 //! ```
+//!
+//! `is_electronic`（**ATT-07**，迁移 V0348）是票面形式：`true` 电子票 / `false` 纸质票。
+//! 它不只用于展示 —— 「开票（DRAFT→ISSUED）」时的附件必传校验按它分支：
+//! 电子票只认 pdf/ofd/xml（数电票），纸质票认 jpg/png/pdf（扫描件）。
+//! 规则本身在 `biz_attachment_rule`（`condition_sql = 'is_electronic IS TRUE|FALSE'`）。
 //!
 //! # 接口（ARCH-7 §5.6 的 4 个）
 //!
@@ -199,15 +205,15 @@ pub const NO_MAX_CHARS: usize = 64;
 /// 发票代码最长（与 `invoice_code VARCHAR(32)` 一致）。
 pub const CODE_MAX_CHARS: usize = 32;
 
-/// `biz_invoice` 列清单（与 V0298 + V0314 逐列对应）。
-pub const COLUMNS: &str = "id, invoice_no, invoice_type, invoice_code, customer_id, invoice_date, \
+/// `biz_invoice` 列清单（与 V0298 + V0314 + V0348 逐列对应）。
+pub const COLUMNS: &str = "id, invoice_no, invoice_type, invoice_code, is_electronic, customer_id, invoice_date, \
      amount, tax_amount, total_with_tax, tax_rate, tax_rate_mode, status, receivable_id, source_type, source_no, \
      voucher_id, remark, \
      currency_code, exchange_rate, base_total_amount, base_total_tax, base_total_with_tax, \
      created_at, updated_at";
 
 /// 列表列（带客户名，别名 `p` / `c`）。
-pub const LIST_COLUMNS: &str = "p.id, p.invoice_no, p.invoice_type, p.invoice_code, p.customer_id, \
+pub const LIST_COLUMNS: &str = "p.id, p.invoice_no, p.invoice_type, p.invoice_code, p.is_electronic, p.customer_id, \
      COALESCE(c.name, '') AS customer_name, p.invoice_date, p.amount, p.tax_amount, \
      p.total_with_tax, p.tax_rate, p.tax_rate_mode, p.status, p.receivable_id, p.source_type, p.source_no, \
      p.voucher_id, p.remark, p.currency_code, p.exchange_rate, p.base_total_amount, \
@@ -475,6 +481,24 @@ pub fn validate_invoice_code(raw: Option<&str>) -> std::result::Result<Option<St
     Ok(Some(text.to_string()))
 }
 
+/// 票面形式标签（`true` = 电子票 / `false` = 纸质票）。
+///
+/// ATT-07：票面形式决定发票影像的格式白名单（电子票 pdf/ofd/xml，纸质票 jpg/png/pdf），
+/// 规则在 `biz_attachment_rule` 里按 `is_electronic` 分支（V0348）。这里只给中文标签，
+/// 供错误文案 / 前端兜底共用。
+pub fn electronic_label(is_electronic: bool) -> &'static str {
+    if is_electronic { "电子票" } else { "纸质票" }
+}
+
+/// 票面形式归一：请求不传（`None`）= **电子票**（数电票为主，与 V0348 默认值一致）。
+///
+/// 显式传 `false` 才是纸质票 —— 「没选」与「选了纸质」不能混为一谈，
+/// 所以这里不用 `unwrap_or_default()` 之外的任何推断（尤其**不**看有没有 `invoice_code`：
+/// 纸质票可以先不填税控代码，电子票也可能带代码）。
+pub fn resolve_is_electronic(raw: Option<bool>) -> bool {
+    raw.unwrap_or(true)
+}
+
 /// 票种校验：本卡只开放 `OUT`（红字票由退货流程生成，ARCH-7 §15.2.3）。
 pub fn validate_type(raw: Option<&str>) -> std::result::Result<String, ApiError> {
     let text = raw.map(str::trim).unwrap_or_default();
@@ -627,6 +651,8 @@ pub struct InvoiceRow {
     pub invoice_type: String,
     /// 发票代码。
     pub invoice_code: Option<String>,
+    /// 票面形式：`true` = 电子票（数电票），`false` = 纸质票（V0348 / ATT-07）。
+    pub is_electronic: bool,
     /// 客户。
     pub customer_id: Uuid,
     /// 开票日期。
@@ -677,6 +703,7 @@ impl InvoiceRow {
             invoice_no: row.get_typed("invoice_no")?,
             invoice_type: row.get_typed("invoice_type")?,
             invoice_code: row.get_typed("invoice_code")?,
+            is_electronic: row.get_typed("is_electronic")?,
             customer_id: row.get_typed("customer_id")?,
             invoice_date: row.get_typed("invoice_date")?,
             amount: row.get_typed("amount")?,
@@ -819,6 +846,11 @@ pub struct InvoiceRes {
     pub invoice_type_label: String,
     /// 发票代码。
     pub invoice_code: Option<String>,
+    /// 票面形式：`true` = 电子票（数电票，影像只认 pdf/ofd/xml）/ `false` = 纸质票（扫描件 jpg/png/pdf）。
+    ///
+    /// ATT-07：开票时由用户选择，落库 `biz_invoice.is_electronic`（V0348），
+    /// 附件必传规则按它分支（改票面形式即改校验口径）。
+    pub is_electronic: bool,
     /// 客户。
     pub customer_id: String,
     /// 客户名称。
@@ -874,6 +906,7 @@ impl InvoiceRes {
             invoice_type: row.invoice_type.clone(),
             invoice_type_label: type_label(&row.invoice_type).to_string(),
             invoice_code: row.invoice_code.clone(),
+            is_electronic: row.is_electronic,
             customer_id: row.customer_id.to_string(),
             customer_name: customer_name.to_string(),
             invoice_date: row.invoice_date.to_string(),
@@ -1006,6 +1039,12 @@ pub struct CreateInvoiceReq {
     pub invoice_no: Option<String>,
     /// 发票代码（可空）。
     pub invoice_code: Option<String>,
+    /// 票面形式（缺省 = `true` 电子票）：电子票影像只认 pdf/ofd/xml，纸质票认 jpg/png/pdf。
+    ///
+    /// 开票时选择的票面形式会落库 `biz_invoice.is_electronic`（V0348），
+    /// 之后「开票（DRAFT→ISSUED）」动作的附件必传校验按它分支 —— 传错格式 400，
+    /// 想改口径就重新建单 / 改库里的这一列（本卡没有「改票面形式」接口）。
+    pub is_electronic: Option<bool>,
     /// 票种（只认 `OUT`；红字票由退货流程生成）。
     pub invoice_type: Option<String>,
     /// 不含税金额。
@@ -1265,6 +1304,10 @@ pub async fn create(
     let invoice_type = validate_type(req.invoice_type.as_deref())?;
     let invoice_no = validate_invoice_no(req.invoice_no.as_deref())?;
     let invoice_code = validate_invoice_code(req.invoice_code.as_deref())?;
+    // ATT-07：票面形式（缺省电子票）。它决定「开票」动作时发票影像的格式白名单
+    //         （电子票 pdf/ofd/xml / 纸质票 jpg/png/pdf，规则见 biz_attachment_rule）。
+    //         刻意**不**从 invoice_code 推断：纸质票可以现场开完再补录税控代码。
+    let is_electronic = resolve_is_electronic(req.is_electronic);
     // FIX-6：税率一律按**百分数**落库。老前端传小数（0.13）时按过渡期规则 ×100 并打 WARN，
     //        实际采用的标度写进 `tax_rate_mode` 供审计（PRD：「过渡期后删除」）。
     let tax_mode = tax_rate_mod::TaxRateMode::parse(req.tax_rate_mode.as_deref())?;
@@ -1428,12 +1471,12 @@ pub async fn create(
             .query_first_sql(
                 format!(
                     "INSERT INTO {TABLE} \
-                        (invoice_no, invoice_type, invoice_code, customer_id, invoice_date, \
+                        (invoice_no, invoice_type, invoice_code, is_electronic, customer_id, invoice_date, \
                          amount, tax_amount, total_with_tax, tax_rate, tax_rate_mode, status, receivable_id, \
                          source_type, source_no, remark, \
                          currency_code, exchange_rate, base_total_amount, base_total_tax, base_total_with_tax, \
                          created_at, updated_at, create_by, update_by) \
-                     VALUES (?, ?, NULLIF(?::text,''), ?::uuid, ?::text::date, \
+                     VALUES (?, ?, NULLIF(?::text,''), ?, ?::uuid, ?::text::date, \
                              NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
                              NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, ?, \
                              '{STATUS_DRAFT}', NULLIF(?::text,'')::uuid, \
@@ -1446,6 +1489,7 @@ pub async fn create(
                     Value::Text(invoice_no.clone()),
                     Value::Text(invoice_type.clone()),
                     Value::Text(invoice_code.clone().unwrap_or_default()),
+                    Value::Bool(is_electronic),
                     Value::from(&customer_id),
                     Value::Text(invoice_date.to_string()),
                     Value::Text(amount.to_string()),
@@ -2287,5 +2331,34 @@ mod tests {
         assert_eq!(SEQ_TYPE, "IV");
         assert_eq!(NO_PREFIX, "IV");
         assert_eq!(INVOICE_SEQ.seq_type, SEQ_TYPE);
+    }
+
+    /// ATT-07：票面形式归一 —— 不传 = 电子票；显式 false 才是纸质票。
+    ///
+    /// 这里刻意钉住「不从 invoice_code 推断」：纸质票可以现场开完再补录税控代码，
+    /// 电子票也可能带代码，用代码有无反推票面形式会静默改掉用户的附件口径。
+    #[test]
+    fn is_electronic_defaults_to_electronic() {
+        assert!(resolve_is_electronic(None), "不传 is_electronic = 电子票");
+        assert!(resolve_is_electronic(Some(true)));
+        assert!(!resolve_is_electronic(Some(false)), "显式 false 是纸质票");
+        assert_eq!(electronic_label(true), "电子票");
+        assert_eq!(electronic_label(false), "纸质票");
+    }
+
+    /// 列清单必须带 `is_electronic`：漏了它 `InvoiceRow::from_row` 会在运行期报
+    /// `column "is_electronic" not found`（编译期抓不到，所以用文本断言钉住）。
+    #[test]
+    fn column_lists_carry_is_electronic() {
+        for (name, columns) in [("COLUMNS", COLUMNS), ("LIST_COLUMNS", LIST_COLUMNS)] {
+            let found = columns.split(',').map(str::trim).any(|column| {
+                column == "is_electronic" || column.strip_prefix("p.") == Some("is_electronic")
+            });
+            assert!(found, "{name} 缺 is_electronic：{columns}");
+        }
+        assert!(
+            LIST_COLUMNS.contains("p.is_electronic"),
+            "列表 SQL 用别名 p，必须写 p.is_electronic（写成裸列会与 JOIN 的 customer 列歧义）"
+        );
     }
 }

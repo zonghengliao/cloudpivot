@@ -45,6 +45,38 @@ export const INVOICE_REASON_MAX = 500;
 /** 发票默认税率 13%（**百分数**：`invoice::default_tax_rate` = 13，FIX-6 统一标度） */
 export const INVOICE_DEFAULT_TAX_RATE = 13;
 
+/**
+ * 票面形式（`biz_invoice.is_electronic`，V0348 / ATT-07）：`true` 电子票 / `false` 纸质票。
+ *
+ * 后端 `invoice::resolve_is_electronic`：不传 = 电子票，显式 `false` 才是纸质票。
+ */
+export type InvoiceFace = 'ELECTRONIC' | 'PAPER';
+
+/** 电子票影像白名单（`biz_attachment_rule.allow_exts` 电子票那条：`pdf,ofd,xml`） */
+export const INVOICE_ELECTRONIC_EXTS = ['pdf', 'ofd', 'xml'] as const;
+
+/** 纸质票影像白名单（`biz_attachment_rule.allow_exts` 纸质票那条：`pdf,jpg,png`） */
+export const INVOICE_PAPER_EXTS = ['pdf', 'jpg', 'png'] as const;
+
+/** 票面形式单选选项（顺序 = 开票弹窗里的两个选项；label 用财务的说法） */
+export const INVOICE_FACE_OPTIONS = [
+  { label: '电子票（数电票）', value: true },
+  { label: '纸质票（扫描件）', value: false },
+] as const;
+
+/**
+ * 开票前的附件格式提示（弹窗里贴在票面形式下面）。
+ *
+ * 与后端 `assert_attachments` 的拦法同口径：电子票只收 pdf/ofd/xml、纸质票只收 jpg/png/pdf，
+ * **前端提前说清楚**，别让用户点「确认开票」才看到 400。
+ */
+export function invoiceAttachmentHint(isElectronic: boolean): string {
+  if (isElectronic) {
+    return `电子票开票前必须上传发票影像（${INVOICE_ELECTRONIC_EXTS.join('/')}）`;
+  }
+  return `纸质票开票前必须上传扫描件（${INVOICE_PAPER_EXTS.join('/')}）`;
+}
+
 /** 发票的 4 个权限码（`V0299` 种的 `sys_menu.auth_code`，逐字一致） */
 export const INVOICE_PERMS = {
   list: 'business:erp:invoice:list',
@@ -384,6 +416,13 @@ export interface InvoiceFormState {
   invoiceNo: string;
   /** 发票代码（可空） */
   invoiceCode: string;
+  /**
+   * 票面形式（`biz_invoice.is_electronic`，V0348 / ATT-07）：`true` 电子票 / `false` 纸质票。
+   *
+   * 它决定「开票」动作时发票影像的格式白名单（电子票 pdf/ofd/xml、纸质票 jpg/png/pdf），
+   * 传错格式后端 400 —— 所以默认值取「电子票」（与后端缺省一致），由用户显式改。
+   */
+  isElectronic: boolean;
   remark: string;
 }
 

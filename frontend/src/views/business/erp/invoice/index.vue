@@ -416,6 +416,19 @@
             </t-form-item>
           </div>
 
+          <!-- 票面形式：决定「开票」时发票影像的格式白名单（电子票 pdf/ofd/xml、纸质票 jpg/png/pdf），
+               后端 biz_invoice.is_electronic 落库，附件必传规则按它分支（ATT-07 / V0348） -->
+          <t-form-item label="票面形式" required-mark>
+            <t-radio-group
+              v-model="createForm.isElectronic"
+              :options="faceOptions"
+              data-testid="inv-create-face"
+            />
+            <p class="form-tip" data-testid="inv-create-face-hint">
+              {{ invoiceAttachmentHint(createForm.isElectronic) }}
+            </p>
+          </t-form-item>
+
           <t-form-item label="备注">
             <t-input
               v-model="createForm.remark"
@@ -531,6 +544,12 @@
           <div class="detail-item">
             <span class="detail-item__label">发票代码</span>
             <span class="detail-item__value mono">{{ dash(detail.invoice_code) }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-item__label">票面形式</span>
+            <span class="detail-item__value" data-testid="inv-detail-face">
+              {{ detail.is_electronic ? '电子票（数电票）' : '纸质票（扫描件）' }}
+            </span>
           </div>
           <div class="detail-item">
             <span class="detail-item__label">税率</span>
@@ -696,6 +715,7 @@ import { dash, formatCents, formatMoney, shortId, toCents, todayString } from '.
 import {
   INVOICE_COLUMNS,
   INVOICE_DEFAULT_TAX_RATE,
+  INVOICE_FACE_OPTIONS,
   INVOICE_PAGE_SIZE,
   INVOICE_PERMS,
   INVOICE_REASON_MAX,
@@ -704,6 +724,7 @@ import {
   RECEIVABLE_FETCH_LIMIT,
   buildInvoiceQuery,
   emptyInvoiceFilter,
+  invoiceAttachmentHint,
   invoiceFormError,
   invoiceReasonError,
   invoiceSourceText,
@@ -727,6 +748,8 @@ const userStore = useUserStore();
 
 const statusOptions = INVOICE_STATUS_OPTIONS.map((item) => ({ ...item }));
 const typeOptions = INVOICE_TYPE_OPTIONS.map((item) => ({ ...item }));
+/** 票面形式单选（电子票 / 纸质票）—— 逐字来自 `invoice-logic.ts`，与后端 is_electronic 同序 */
+const faceOptions = INVOICE_FACE_OPTIONS.map((item) => ({ ...item }));
 
 const hasCreatePermission = computed(() => userStore.hasPermission(INVOICE_PERMS.create));
 const hasStatusPermission = computed(() => userStore.hasPermission(INVOICE_PERMS.status));
@@ -872,6 +895,7 @@ const createForm = reactive<InvoiceFormState & { issueNow: boolean }>({
   taxRate: INVOICE_DEFAULT_TAX_RATE,
   invoiceNo: '',
   invoiceCode: '',
+  isElectronic: true,
   remark: '',
   issueNow: true,
 });
@@ -961,6 +985,7 @@ function openCreate(): void {
     taxRate: INVOICE_DEFAULT_TAX_RATE,
     invoiceNo: '',
     invoiceCode: '',
+    isElectronic: true,
     remark: '',
     issueNow: true,
   });
@@ -992,6 +1017,8 @@ async function submitCreate(): Promise<void> {
       tax_rate: Number(createForm.taxRate),
       invoice_no: createForm.invoiceNo.trim() || null,
       invoice_code: createForm.invoiceCode.trim() || null,
+      // 票面形式决定开票时发票影像的格式白名单（电子票 pdf/ofd/xml / 纸质票 jpg/png/pdf）
+      is_electronic: createForm.isElectronic,
       remark: createForm.remark.trim() || null,
     });
     createVisible.value = false;

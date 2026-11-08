@@ -5243,6 +5243,13 @@ export interface Invoice {
   invoice_type_label: string;
   /** 发票代码（可空） */
   invoice_code: string | null;
+  /**
+   * 票面形式（`biz_invoice.is_electronic`，V0348 / ATT-07）。
+   *
+   * `true` = 电子票（数电票）：开票时发票影像只收 pdf / ofd / xml；
+   * `false` = 纸质票：只收 jpg / png / pdf 扫描件。传错格式后端 400。
+   */
+  is_electronic: boolean;
   customer_id: string;
   /** 客户名称（LEFT JOIN `biz_customer`，客户软删时是空串） */
   customer_name: string;
@@ -5336,6 +5343,13 @@ export interface CreateInvoiceReq {
   invoice_date?: string | null;
   invoice_no?: string | null;
   invoice_code?: string | null;
+  /**
+   * 票面形式：`true` 电子票（缺省）/ `false` 纸质票。
+   *
+   * 决定「开票」动作时发票影像的格式白名单（电子票 pdf/ofd/xml、纸质票 jpg/png/pdf），
+   * 后端落 `biz_invoice.is_electronic`（V0348）。**不从 `invoice_code` 推断**。
+   */
+  is_electronic?: boolean | null;
   /** 只认 `OUT`（红字票走退货流程） */
   invoice_type?: InvoiceType | null;
   amount?: string | number | null;

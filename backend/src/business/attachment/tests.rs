@@ -805,11 +805,11 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
              ON CONFLICT DO NOTHING"
         ),
         format!(
-            "INSERT INTO biz_invoice (id, invoice_no, invoice_type, invoice_code, customer_id, \
+            "INSERT INTO biz_invoice (id, invoice_no, invoice_type, invoice_code, is_electronic, customer_id, \
                  invoice_date, amount, tax_amount, total_with_tax, tax_rate, status) \
-             VALUES ('{DOC_INVOICE}'::uuid, 'ATT-IV-0001', 'OUT', NULL, '{SUPPLIER}'::uuid, \
+             VALUES ('{DOC_INVOICE}'::uuid, 'ATT-IV-0001', 'OUT', NULL, TRUE, '{SUPPLIER}'::uuid, \
                  '2033-03-01', 100, 13, 113, 0.13, 'DRAFT'), \
-                    ('{DOC_INVOICE_PAPER}'::uuid, 'ATT-IV-0002', 'OUT', '044031900111', \
+                    ('{DOC_INVOICE_PAPER}'::uuid, 'ATT-IV-0002', 'OUT', '044031900111', FALSE, \
                  '{SUPPLIER}'::uuid, '2033-03-01', 100, 13, 113, 0.13, 'DRAFT') \
              ON CONFLICT DO NOTHING"
         ),
@@ -2257,7 +2257,7 @@ async fn db_rule_seeds_cover_card_documents() {
     assert_eq!(rules.len(), 2, "发票提交必须有电子 / 纸质两条规则");
     let electronic = rules
         .iter()
-        .find(|rule| rule.condition_sql.as_deref() == Some("invoice_code IS NULL"))
+        .find(|rule| rule.condition_sql.as_deref() == Some("is_electronic IS TRUE"))
         .expect("缺电子票规则");
     assert_eq!(
         electronic.allow_exts.as_deref(),
@@ -2350,7 +2350,7 @@ async fn db_rule_disabled_takes_effect_without_restart() {
     let affected = db()
         .execute_with_params(
             "UPDATE biz_attachment_rule SET enabled = FALSE, updated_at = now() \
-              WHERE doc_type = 'INVOICE' AND condition_sql = 'invoice_code IS NULL'",
+              WHERE doc_type = 'INVOICE' AND condition_sql = 'is_electronic IS TRUE'",
             vec![],
         )
         .await
@@ -2365,7 +2365,7 @@ async fn db_rule_disabled_takes_effect_without_restart() {
     // 再打开：立刻又拦（证明是每次读表，不是进程内缓存）
     db().execute_with_params(
         "UPDATE biz_attachment_rule SET enabled = TRUE, updated_at = now() \
-          WHERE doc_type = 'INVOICE' AND condition_sql = 'invoice_code IS NULL'",
+          WHERE doc_type = 'INVOICE' AND condition_sql = 'is_electronic IS TRUE'",
         vec![],
     )
     .await
@@ -2378,7 +2378,7 @@ async fn db_rule_disabled_takes_effect_without_restart() {
     );
 }
 
-/// `condition_sql` 分支：纸质票（带税控代码）只命中 pdf/jpg/png 那条，jpg 直接通过。
+/// `condition_sql` 分支：纸质票（`is_electronic = FALSE`）只命中 pdf/jpg/png 那条，jpg 直接通过。
 #[tokio::test]
 async fn db_paper_invoice_uses_scan_rule_branch() {
     let Some(_guard) = setup().await else {
@@ -2408,6 +2408,66 @@ async fn db_paper_invoice_uses_scan_rule_branch() {
             .await
             .is_err()
     );
+}
+
+/// 卡面 ATT-07 验收③④：同一张发票、同一份 jpg 附件，**票面形式一改口径就跟着改** ——
+/// 证明分支读的是 `is_electronic` 列本身，而不是附件内容或历史 `invoice_code`。
+#[tokio::test]
+async fn db_invoice_branch_follows_is_electronic_column() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    // ③ 电子票（fixture: is_electronic = TRUE）+ jpg → 拦（要 pdf/ofd/xml）
+    bind_file(DocKind::Invoice, DOC_INVOICE, FILE_D).await;
+    let error =
+        att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+            .await
+            .expect_err("电子票挂 jpg 必须拦");
+    let text = violation_text(error);
+    assert!(
+        text.contains("发票必须上传发票影像（pdf/ofd/xml）"),
+        "电子票分支文案不对：{text}"
+    );
+    assert!(
+        text.contains("现有附件是 jpg 格式"),
+        "必须点明现有格式：{text}"
+    );
+
+    // ③' 电子票 + pdf → 通过
+    bind_file(DocKind::Invoice, DOC_INVOICE, FILE_B).await;
+    att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+        .await
+        .expect("电子票挂 pdf 必须通过");
+
+    // ④ 同一张单改成纸质票（附件不动）→ 同一份 jpg 现在通过
+    db().execute_with_params(
+        "UPDATE biz_invoice SET is_electronic = FALSE WHERE id = ?::uuid",
+        vec![Value::from(&uid(DOC_INVOICE))],
+    )
+    .await
+    .expect("改票面形式为纸质票");
+    att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+        .await
+        .expect("纸质票挂 jpg 必须通过");
+
+    // 改回电子票（先摘掉那份 pdf，否则电子票规则被 pdf 满足，测不出分支已切回）
+    exec(
+        "DELETE FROM biz_doc_attachment WHERE doc_type = 'INVOICE' AND doc_id = \
+         'd2120106-0000-4000-8000-000000000001'::uuid AND file_id = \
+         'd2120f02-0000-4000-8000-000000000002'::uuid",
+    )
+    .await;
+    db().execute_with_params(
+        "UPDATE biz_invoice SET is_electronic = TRUE WHERE id = ?::uuid",
+        vec![Value::from(&uid(DOC_INVOICE))],
+    )
+    .await
+    .expect("改回电子票");
+    let error =
+        att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+            .await
+            .expect_err("改回电子票后（只剩 jpg）必须再次被拦");
+    assert!(violation_text(error).contains("格式，不在白名单内"));
 }
 
 /// 没配规则的（动作, 单据）组合直接放行；动作不匹配的规则不参与校验。
