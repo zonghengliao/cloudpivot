@@ -789,6 +789,10 @@ pub struct ContractDetailRes {
     pub party_a_name: Option<String>,
     /// 负责人。
     pub owner_id: Option<String>,
+    /// 负责人姓名（AUD-02：实时 join `sys_user` 取现值，改名后这里跟着变）。
+    ///
+    /// `owner_id` 为空 / 账号已被物理清理 → `None`（前端显示 `—`，别回退 id）。
+    pub owner_name: Option<String>,
     /// 归属部门。
     pub dept_id: Option<String>,
     /// 备注。
@@ -797,8 +801,12 @@ pub struct ContractDetailRes {
     pub created_at: DateTime<Utc>,
     /// 创建人。
     pub create_by: Option<String>,
+    /// 创建人姓名（AUD-02：实时口径，见 `business/shared/user_name.rs`）。
+    pub create_by_name: Option<String>,
     /// 最后修改人。
     pub update_by: Option<String>,
+    /// 最后修改人姓名（AUD-02）。
+    pub update_by_name: Option<String>,
     /// 能否编辑（= 状态为 DRAFT；`PUT` 的唯一放行条件，给前端置灰用）。
     pub can_edit: bool,
     /// 能否被采购单引用（`SIGNED` / `ACTIVE`；A3 的选择器用这个字段，别自己判状态）。
@@ -815,11 +823,14 @@ impl From<&ContractRow> for ContractDetailRes {
             party_a_id: row.party_a_id.map(|id| id.to_string()),
             party_a_name: row.party_a_name.clone(),
             owner_id: row.owner_id.map(|id| id.to_string()),
+            owner_name: None,
             dept_id: row.dept_id.map(|id| id.to_string()),
             remark: row.remark.clone(),
             created_at: row.created_at,
             create_by: row.create_by.map(|id| id.to_string()),
+            create_by_name: None,
             update_by: row.update_by.map(|id| id.to_string()),
+            update_by_name: None,
             can_edit: row.status == STATUS_DRAFT,
             usable_for_order: USABLE_FOR_ORDER.contains(&row.status.as_str()),
             next_statuses: entity
@@ -831,8 +842,36 @@ impl From<&ContractRow> for ContractDetailRes {
     }
 }
 
-// ==================== 纯逻辑单测（无需数据库） ====================
+/// AUD-02：详情里三个人字段（负责人 / 制单人 / 修改人）的姓名回填，
+/// 由 `business/shared/user_name.rs` 的批量入口统一驱动（一页/一单恒定 1 条 SQL）。
+impl crate::business::shared::user_name::PersonNameRow for ContractDetailRes {
+    fn person_ids(&self, out: &mut Vec<Uuid>) {
+        for raw in [
+            self.owner_id.as_deref(),
+            self.create_by.as_deref(),
+            self.update_by.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if let Ok(id) = Uuid::parse_str(raw) {
+                out.push(id);
+            }
+        }
+    }
 
+    fn apply_names(&mut self, names: &std::collections::HashMap<Uuid, String>) {
+        let name_of = |raw: Option<&str>| -> Option<String> {
+            raw.and_then(|value| Uuid::parse_str(value).ok())
+                .and_then(|id| names.get(&id).cloned())
+        };
+        self.owner_name = name_of(self.owner_id.as_deref());
+        self.create_by_name = name_of(self.create_by.as_deref());
+        self.update_by_name = name_of(self.update_by.as_deref());
+    }
+}
+
+// ==================== 纯逻辑单测（无需数据库） ====================
 #[cfg(test)]
 mod tests {
     use super::*;

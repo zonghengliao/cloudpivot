@@ -35,6 +35,10 @@
 //! （`erp/order_pdf_model.rs::user_names_of`，`HashMap<Uuid, String>`，PDF 导出用），
 //! 再抄一份没有收益 —— 需要汇总展示时用那一个。
 //!
+//! **AUD-02 补充**：批量取名的唯一实现已经收口到本模块的 [`names_of`]，
+//! `erp/order_pdf_model.rs::user_names_of` 等旧调用点按原样保留（口径一致，不动存量）；
+//! 新代码（DTO 补 `*_name`）一律用 [`names_of`]。
+//!
 //! # 读路径怎么配合
 //!
 //! 本模块只管**写**。读的那一侧统一写成
@@ -128,10 +132,168 @@ pub(crate) fn display_name(
     DELETED_USER_LABEL.to_string()
 }
 
+// ==================== 实时展示口径（AUD-02）====================
+
+/// 实时展示口径的姓名：`real_name` → `username` → [`DELETED_USER_LABEL`]。
+///
+/// 与 [`display_name`] 的**唯一区别**：不把「已软删」折成占位串。
+///
+/// 为什么：展示类字段（合同负责人 / 制单人 / 上传人…）问的是「**现在是谁**」。
+/// 账号停用后姓名仍然是有意义的信息，显示「(已删除用户)」反而丢信息；
+/// 审计类（写入时快照）继续走 [`display_name`] —— 那问的是「**当时是谁**」。
+pub(crate) fn realtime_name(real_name: Option<&str>, username: Option<&str>) -> String {
+    if let Some(name) = real_name.map(str::trim).filter(|name| !name.is_empty()) {
+        return name.to_string();
+    }
+    if let Some(name) = username.map(str::trim).filter(|name| !name.is_empty()) {
+        return name.to_string();
+    }
+    DELETED_USER_LABEL.to_string()
+}
+
+/// 批量取用户显示名（**实时**口径）：一次查询覆盖一整页 / 一整张详情。
+///
+/// # 参数
+///
+/// `ids`：任意多的人 id（**重复值自动去重**，空集合直接返回空表、不发 SQL）。
+///
+/// # 返回值
+///
+/// `Uuid → 显示名`。查不到的行**不出现在表里**（调用方按「缺失 = 人不存在」处理，
+/// 别自己编占位串）。
+///
+/// # 为什么是批量（防 N+1）
+///
+/// 列表一页 20~100 行，逐行查一次就是 20~100 次往返。这里恒定 **1 条 SQL**
+/// （`WHERE id = ANY(...)`），SQL 数量不随行数增长 —— AUD-02 验收 ③。
+///
+/// # 为什么不写 `deleted_at IS NULL`
+///
+/// 与 [`snapshot_name`] 同理：软删的账号仍要显示姓名（展示口径），
+/// 过滤掉会让「负责人」列突然变空。真正要区分「人还在不在」的是审计口径。
+///
+/// # 一般不用直接调
+///
+/// 列表 / 详情请用 [`fill_person_names`]（它负责收集 id、查一次、回填），
+/// 直接调本函数就得自己在 handler 里写三遍循环 —— 那就是 bug 的温床。
+pub async fn names_of<I>(ids: I) -> DbResult<std::collections::HashMap<Uuid, String>>
+where
+    I: IntoIterator<Item = Uuid>,
+{
+    let mut unique: Vec<Uuid> = ids.into_iter().collect();
+    unique.sort_unstable();
+    unique.dedup();
+    if unique.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let joined = unique
+        .iter()
+        .map(Uuid::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+    #[cfg(test)]
+    stats::bump();
+    let rows = db()
+        .find_with_params(
+            "SELECT id, real_name, username FROM sys_user WHERE id = ANY(?::text::uuid[])",
+            vec![Value::Text(format!("{{{joined}}}"))],
+        )
+        .await?;
+    let mut out = std::collections::HashMap::with_capacity(rows.len());
+    for row in &rows {
+        let id: Uuid = row.get_typed("id")?;
+        let real_name: Option<String> = row.get_typed("real_name")?;
+        let username: Option<String> = row.get_typed("username")?;
+        out.insert(id, realtime_name(real_name.as_deref(), username.as_deref()));
+    }
+    Ok(out)
+}
+
+/// 一行响应里「人员 id → 展示名」的映射能力（列表 / 详情补名字的统一入口）。
+///
+/// # 为什么用 trait 而不是每模块写一遍循环
+///
+/// 各模块的 `*Res` 字段名不同（`create_by` / `owner_id` / `uploaded_by`…），
+/// 但「收集 id → 查一次 → 回填」这套动作**完全一样**。抽成 trait 之后
+/// 每张表只需要声明「我有哪些人字段」（[`PersonNameRow::person_ids`] /
+/// [`PersonNameRow::apply_names`] 各 5 行），批量语义（1 条 SQL）由
+/// [`fill_person_names`] 统一保证 —— 谁也不会不小心在循环里查库。
+///
+/// # 实现约定
+///
+/// - `person_ids` **只收集、不去重**（去重由 [`names_of`] 做）；
+/// - `apply_names` 查不到的人**必须保持 `None` / 空串**，绝不回填 id 文本；
+/// - 实现放在 DTO 文件里（Model → Res 转换层），与 `contract_dto.rs` 同口径。
+pub trait PersonNameRow {
+    /// 把本行引用的所有人 id 追加进 `out`（可含重复；解析失败的 raw 值跳过）。
+    fn person_ids(&self, out: &mut Vec<Uuid>);
+
+    /// 用查回的 `id → 姓名` 表回填本行的 `*_name` 字段。
+    fn apply_names(&mut self, names: &std::collections::HashMap<Uuid, String>);
+}
+
+/// 批量回填人员姓名：整页 / 整张详情**恒定 1 条 SQL**（无 N+1）。
+///
+/// # 参数
+///
+/// `rows`：任意多行；全部没有人员字段时**不发 SQL**（直接返回 `Ok(())`）。
+///
+/// # 返回值
+///
+/// 查询失败返回 [`DbError`] —— 调用方决定是「详情 500」还是「展示字段降级为空」。
+/// 推荐后者（见各 handler 的 `unwrap_or_default()`）：姓名查不出来不该把业务页打死。
+pub async fn fill_person_names<T: PersonNameRow>(rows: &mut [T]) -> DbResult<()> {
+    let mut ids: Vec<Uuid> = Vec::new();
+    for row in rows.iter() {
+        row.person_ids(&mut ids);
+    }
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let names = names_of(ids).await?;
+    for row in rows.iter_mut() {
+        row.apply_names(&names);
+    }
+    Ok(())
+}
+
+/// 测试期统计：`names_of` 发了几条 SQL（**AUD-02 验收 ③** 的唯一证据）。
+///
+/// 只在 `cfg(test)` 编译，生产二进制里没有这个计数器。
+///
+/// # 为什么用 thread-local 而不是全局 Atomic
+///
+/// 同一个测试二进制里其它模块的真库用例会并行跑，也会调用 [`names_of`]；
+/// 全局计数器会被它们污染，`assert_eq!(count, 1)` 就成了随机红。
+/// 每个测试在自己的线程上跑（`#[tokio::test]` 默认 `current_thread`），
+/// thread-local 天然按用例隔离。
+#[cfg(test)]
+pub(crate) mod stats {
+    use std::cell::Cell;
+
+    thread_local! {
+        static NAME_QUERIES: Cell<usize> = const { Cell::new(0) };
+    }
+
+    /// 记一条 SQL。
+    pub(crate) fn bump() {
+        NAME_QUERIES.with(|count| count.set(count.get() + 1));
+    }
+
+    /// 归零（每条断言前调用）。
+    pub(crate) fn reset() {
+        NAME_QUERIES.with(|count| count.set(0));
+    }
+
+    /// 当前计数。
+    pub(crate) fn count() -> usize {
+        NAME_QUERIES.with(Cell::get)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{DELETED_USER_LABEL, display_name};
-
+    use super::{DELETED_USER_LABEL, display_name, realtime_name};
     /// 卡面「三个取值口径」的真值表。
     #[test]
     fn display_name_truth_table() {
@@ -148,6 +310,18 @@ mod tests {
         // 两个都空（历史脏数据）：不留空串
         assert_eq!(display_name(None, None, false), DELETED_USER_LABEL);
         assert_eq!(display_name(Some(""), Some(""), false), DELETED_USER_LABEL);
+    }
+
+    /// 展示口径（AUD-02 `realtime_name`）：与快照口径的唯一差别是软删仍取姓名。
+    #[test]
+    fn realtime_name_truth_table() {
+        assert_eq!(realtime_name(Some("张三"), Some("zs")), "张三");
+        assert_eq!(realtime_name(None, Some("zs")), "zs");
+        assert_eq!(realtime_name(Some("   "), Some("zs")), "zs");
+        // 账号在库但两列都空：仍然不留空串（界面显示占位，不是 UUID）
+        assert_eq!(realtime_name(None, None), DELETED_USER_LABEL);
+        // 与快照口径的差异点：软删不在纯函数入参里 → 展示口径天然取姓名
+        assert_eq!(realtime_name(Some("张三"), None), "张三");
     }
 
     /// 占位串必须与回填脚本里的字面值一致（两侧各写死一处，漂了就是两套口径）。

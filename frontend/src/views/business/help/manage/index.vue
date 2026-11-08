@@ -255,7 +255,8 @@
                 <span class="version-item__title">{{ version.title }}</span>
               </div>
               <div class="version-item__meta">
-                <span>{{ version.create_by || '—' }}</span>
+                <!-- AUD-02：原来这里渲染 `create_by`（账号 UUID），现在用后端回填的姓名 -->
+                <span>{{ version.create_by_name || '—' }}</span>
                 <span>{{ version.content_bytes }} 字节</span>
                 <span v-if="version.change_note">说明：{{ version.change_note }}</span>
               </div>

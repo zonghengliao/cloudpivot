@@ -18,6 +18,7 @@ import {
   mergeUserNames,
   pendingUploaderIds,
   uploaderDisplayName,
+  uploaderLabelOf,
 } from '@/views/business/storage/file/uploader-names';
 
 const UID = '01a19012-7573-7602-9b64-6b2e74502477';
@@ -86,4 +87,24 @@ test('② 合并用户表：real_name 空则用 username，两者都空不写（
 
 test('② 译名页大小与其它 ERP 译名页同口径（200）', () => {
   assert.equal(UPLOADER_PAGE_SIZE, 200);
+});
+
+test('AUD-02 列表上传人列：后端姓名优先，兜底前端译名，绝不再渲染 UUID', () => {
+  const names = new Map([
+    ['u1', '张三'],
+    ['u2', 'lisi'],
+  ]);
+  // ① 后端给了姓名（AUD-02 之后的主路径）：直接用，哪怕前端表里有别的名字
+  assert.equal(uploaderLabelOf({ uploaded_by: 'u1', uploader_name: '张三丰' }, names), '张三丰');
+  // ② 后端没给（老后端）→ 前端译名
+  assert.equal(uploaderLabelOf({ uploaded_by: 'u1' }, names), '张三');
+  assert.equal(uploaderLabelOf({ uploaded_by: 'u2', uploader_name: '' }, names), 'lisi');
+  // ③ 后端给了空串（账号已删）且前端也查不到 → 破折号，**不是 UUID**
+  assert.equal(uploaderLabelOf({ uploaded_by: UID, uploader_name: '' }, names), '—');
+  assert.equal(uploaderLabelOf({ uploaded_by: UID }, names), '—');
+  // ④ 历史文件没有上传人
+  assert.equal(uploaderLabelOf({ uploaded_by: '', uploader_name: '' }, names), '—');
+  assert.equal(uploaderLabelOf({}, names), '—');
+  // ⑤ 空白姓名不算数（脏数据），继续往下回退
+  assert.equal(uploaderLabelOf({ uploaded_by: 'u1', uploader_name: '   ' }, names), '张三');
 });

@@ -49,6 +49,8 @@ export interface MutexRes {
   created_at: string;
   /** 创建人 */
   create_by: string | null;
+  /** 创建人姓名（AUD-02 起后端下发；前端只显示这个，不显示 id） */
+  create_by_name?: string | null;
 }
 
 /** 规则分页查询参数 */

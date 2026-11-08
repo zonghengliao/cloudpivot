@@ -1762,6 +1762,8 @@ export interface StockInRow {
   approval_instance_id: string | null;
   /** 创建人（P16：内控口径「复核人 ≠ 制单人」，前端据此提示） */
   create_by: string | null;
+  /** 制单人姓名（AUD-02 起后端批量 join 下发；不再把 id 当显示名） */
+  create_by_name?: string | null;
   /** 创建时间 */
   created_at: string;
   /** 更新时间 */
@@ -3129,6 +3131,8 @@ export interface InventoryTxnRow {
   period_code: string;
   /** 操作人 */
   operator_id: string | null;
+  /** 操作人姓名（AUD-02 起后端批量 join 下发） */
+  operator_name?: string | null;
   /** 备注 */
   remark: string | null;
   /** 记账时间（流水按它倒序） */
@@ -4110,6 +4114,8 @@ export interface ContractDetail extends ContractRow {
   party_a_name: string | null;
   /** 负责人 */
   owner_id: string | null;
+  /** 负责人姓名（AUD-02：后端实时取现值；`null` = 负责人为空 / 账号已不存在，显示 `—`） */
+  owner_name?: string | null;
   /** 归属部门 */
   dept_id: string | null;
   /** 备注 */
@@ -4118,8 +4124,12 @@ export interface ContractDetail extends ContractRow {
   created_at: string;
   /** 创建人 */
   create_by: string | null;
+  /** 创建人姓名（AUD-02：实时取值，不是快照） */
+  create_by_name?: string | null;
   /** 最后修改人 */
   update_by: string | null;
+  /** 最后修改人姓名（AUD-02：实时取值） */
+  update_by_name?: string | null;
   /** 能否编辑（= 状态 `DRAFT`）—— 后端给的唯一判据，前端别自己判状态 */
   can_edit: boolean;
   /** 能否被采购单引用（`SIGNED` / `ACTIVE`） */

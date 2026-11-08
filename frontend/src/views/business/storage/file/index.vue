@@ -95,15 +95,16 @@
         </template>
         <!--
           缺陷②（P2-2B）：后端 `uploaded_by` 是 `sys_file.uploaded_by` 的 UUID 文本，原来直接渲染，
-          列里是 `01a19012-7573-…`。这里译成姓名（回退 用户名 → UUID），译名见 `uploader-names.ts`。
+          列里是 `01a19012-7573-…`。**AUD-02** 起后端直接给 `uploader_name`（一次批量 join），
+          这里的回退链降级为：后端姓名 → 前端译名 → `—`（不再回退渲染 UUID）。
         -->
         <template #uploaded_by="{ row }">
           <span
             class="uploader"
-            :title="uploaderDisplayName(row.uploaded_by, uploaderNames)"
+            :title="uploaderLabelOf(row, uploaderNames)"
             :data-testid="`file-uploader-${row.id}`"
           >
-            {{ uploaderDisplayName(row.uploaded_by, uploaderNames) }}
+            {{ uploaderLabelOf(row, uploaderNames) }}
           </span>
         </template>
         <template #created_at="{ row }">{{ formatDateTime(row.created_at) }}</template>
@@ -161,7 +162,7 @@ import {
   UPLOADER_PAGE_SIZE,
   mergeUserNames,
   pendingUploaderIds,
-  uploaderDisplayName,
+  uploaderLabelOf,
 } from './uploader-names';
 
 /** 表格分页事件载荷 */
@@ -239,7 +240,9 @@ async function loadList(): Promise<void> {
 const uploaderNames = ref<ReadonlyMap<string, string>>(new Map());
 
 async function resolveUploaderNames(list: StorageFileRes[]): Promise<void> {
-  if (pendingUploaderIds(list, uploaderNames.value).length === 0) {
+  // AUD-02：后端已给 `uploader_name` 的行不必再拉用户表（老后端 / 已删账号才回落）
+  const missing = list.filter((row) => !(row.uploader_name ?? '').trim());
+  if (pendingUploaderIds(missing, uploaderNames.value).length === 0) {
     return;
   }
   try {

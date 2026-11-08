@@ -438,7 +438,10 @@
           </div>
           <div class="detail-field">
             <span class="detail-field__label">负责人</span>
-            <span class="detail-field__value">{{ detail.owner_id ? shortId(detail.owner_id) : '—' }}</span>
+            <!-- AUD-02：原来 `shortId(owner_id)` 显示截断 UUID，现在用后端 join 的姓名 -->
+            <span class="detail-field__value" data-testid="contract-detail-owner">{{
+              detail.owner_name || '—'
+            }}</span>
           </div>
           <div class="detail-field">
             <span class="detail-field__label">创建时间</span>
@@ -584,7 +587,7 @@ import { DEFAULT_ROLE_BY_DOC } from '@/api/business/erp/attachment';
 import StatusBadge from '@/views/business/task/components/StatusBadge.vue';
 import DocPdfButton from '@/components/DocPdfButton.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
-import { shortId, todayString } from '@/views/business/erp/shared/money';
+import { todayString } from '@/views/business/erp/shared/money';
 import {
   CONTRACT_PAGE_SIZE,
   CONTRACT_STATUS_FILTER_OPTIONS,

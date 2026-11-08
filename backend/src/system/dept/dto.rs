@@ -77,6 +77,11 @@ pub struct DeptDetailRes {
     pub parent_id: Option<String>,
     /// 负责人用户 id
     pub leader_id: Option<String>,
+    /// 负责人姓名（**AUD-02**：实时取现值；`None` = 没设负责人 / 账号已删除）。
+    ///
+    /// 详情这一侧原来只有 `leader_id`，前端编辑弹窗靠下拉框自己译名；
+    /// 补齐后与列表树 `DeptRes.leader_name` 同一口径，任何一处都不会把 UUID 当名字用。
+    pub leader_name: Option<String>,
     /// 联系电话
     pub phone: String,
     /// 邮箱
@@ -104,6 +109,7 @@ impl From<&SysDeptModel> for DeptDetailRes {
             dept_name: m.dept_name.clone(),
             parent_id: m.parent_id.map(|v| v.to_string()),
             leader_id: m.leader_id.map(|v| v.to_string()),
+            leader_name: None,
             phone: m.phone.clone().unwrap_or_default(),
             email: m.email.clone().unwrap_or_default(),
             status: m.status.as_i16(),

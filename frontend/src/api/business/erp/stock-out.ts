@@ -106,6 +106,8 @@ export interface StockOutRow {
   created_at: string;
   /** 制单人（用户 id） */
   create_by: string | null;
+  /** 制单人姓名（AUD-02 起后端批量 join 下发；不再把 id 当显示名） */
+  create_by_name?: string | null;
 }
 
 /** 明细行（逐字抄 `StockOutItemRes`） */

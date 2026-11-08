@@ -36,6 +36,10 @@ export const UPLOADER_PAGE_SIZE = 200;
  * - `uploaded_by` 为空（历史文件 / 系统导入）→ `—`，不留白；
  * - 解析不到（用户被删 / 超出译名页范围 / 当前账号没有 `system:user:list`）→ **原 UUID**，
  *   用户至少还能拿它去对照；这比显示「未知」更能查问题。
+ *
+ * ⚠️ **AUD-02 起列表不再直接用这个函数**（它会把 UUID 甩到界面上）：页面走
+ * [`uploaderLabelOf`]（后端 `uploader_name` 优先、兜底 `—`）。本函数保留给
+ * 「需要一个 id 译名、且调用方明确接受 UUID 兜底」的地方（导出、日志对照）。
  */
 export function uploaderDisplayName(
   uploadedBy: string | null | undefined,
@@ -48,6 +52,41 @@ export function uploaderDisplayName(
   const hit = names.get(id);
   const label = (hit ?? '').trim();
   return label || id;
+}
+
+/** 列表行里的上传人字段子集（后端 `StorageFileRes` 的可空投影） */
+export interface UploaderRowLike {
+  /** 上传人主键（`sys_file.uploaded_by`） */
+  uploaded_by?: string | null;
+  /** 后端 AUD-02 批量 join 出来的姓名（老后端没有这个字段） */
+  uploader_name?: string | null;
+}
+
+/**
+ * 列表「上传人」列的显示名（**AUD-02**）。
+ *
+ * 回退链：后端 `uploader_name` → 前端译名（姓名 / 用户名）→ `—`。
+ *
+ * # 为什么不回退 UUID
+ *
+ * `uploaderDisplayName` 的最后一档是原 UUID —— 那是 P2-2B 在前端临时救命用的。
+ * 后端补了 `uploader_name` 之后，「界面上出现 `01a19012-7573-…`」正是本卡要消灭的
+ * 问题本身，所以列表这条链到此为止：查不到人显示 `—`（谁都能看懂），不是账号主键。
+ */
+export function uploaderLabelOf(
+  row: UploaderRowLike,
+  names: ReadonlyMap<string, string>,
+): string {
+  const backend = (row.uploader_name ?? '').trim();
+  if (backend) {
+    return backend;
+  }
+  const id = (row.uploaded_by ?? '').trim();
+  if (!id) {
+    return '—';
+  }
+  const label = (names.get(id) ?? '').trim();
+  return label || '—';
 }
 
 /**

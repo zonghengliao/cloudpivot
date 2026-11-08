@@ -485,7 +485,12 @@ pub async fn doc_versions(Path(id): Path<String>) -> ResResult<Vec<HelpVersionRe
     let rows = model::list_versions(&doc.id)
         .await
         .map_err(|error| utils::db_error(error, "查询帮助文档版本"))?;
-    Ok(Res::ok(rows.iter().map(HelpVersionRes::from_row).collect()))
+    let mut list: Vec<HelpVersionRes> = rows.iter().map(HelpVersionRes::from_row).collect();
+    // AUD-02：整份版本列表一次查回所有操作人（逐行查 = 版本越多越慢）
+    crate::business::shared::user_name::fill_person_names(&mut list)
+        .await
+        .unwrap_or_default();
+    Ok(Res::ok(list))
 }
 
 /// 回滚到指定版本（H-06：内容回到 v1，`version` = 原版本 + 1，历史一行不少）。

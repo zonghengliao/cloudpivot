@@ -336,6 +336,8 @@ pub struct StockOutRes {
     pub created_at: String,
     /// 制单人。
     pub create_by: Option<String>,
+    /// 制单人姓名（**AUD-02**：实时取现值；`None` = 账号已不存在）。
+    pub create_by_name: Option<String>,
 }
 
 impl StockOutRes {
@@ -359,7 +361,29 @@ impl StockOutRes {
             source_id: row.source_id.map(|id| id.to_string()),
             created_at: row.created_at.to_rfc3339(),
             create_by: row.create_by.map(|id| id.to_string()),
+            create_by_name: None,
         }
+    }
+}
+
+/// AUD-02：制单人姓名回填（`create_by` → `create_by_name`）。
+impl crate::business::shared::user_name::PersonNameRow for StockOutRes {
+    fn person_ids(&self, out: &mut Vec<nik::uuid::Uuid>) {
+        if let Some(id) = self
+            .create_by
+            .as_deref()
+            .and_then(|raw| nik::uuid::Uuid::parse_str(raw).ok())
+        {
+            out.push(id);
+        }
+    }
+
+    fn apply_names(&mut self, names: &std::collections::HashMap<nik::uuid::Uuid, String>) {
+        self.create_by_name = self
+            .create_by
+            .as_deref()
+            .and_then(|raw| nik::uuid::Uuid::parse_str(raw).ok())
+            .and_then(|id| names.get(&id).cloned());
     }
 }
 

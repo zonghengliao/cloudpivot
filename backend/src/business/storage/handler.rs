@@ -1042,11 +1042,15 @@ pub async fn file_page(
     let result = model::page_storage_files(&filter, page, page_size, &principal)
         .await
         .map_err(|error| utils::db_error(error, "分页查询文件"))?;
-    let list = result
+    let mut list = result
         .list
         .iter()
         .map(StorageFileRes::from_model)
         .collect::<Vec<_>>();
+    // AUD-02：整页一次 `WHERE id = ANY(...)`；失败只降级为空串（前端显示 `—`，不显示 UUID）
+    crate::business::shared::user_name::fill_person_names(&mut list)
+        .await
+        .unwrap_or_default();
     Ok(Res::page(list, result.total, result.page, result.size))
 }
 

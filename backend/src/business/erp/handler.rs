@@ -2387,7 +2387,11 @@ pub async fn inventory_txn_page(
     let (rows, total) = model::inventory_txn_page(&filter)
         .await
         .map_err(|error| utils::db_error(error, "分页查询库存流水"))?;
-    let list = rows.iter().map(InventoryTxnRes::from).collect();
+    let mut list: Vec<InventoryTxnRes> = rows.iter().map(InventoryTxnRes::from).collect();
+    // AUD-02：操作人姓名，整页一次（流水量最大的一张表，逐行查必炸）
+    crate::business::shared::user_name::fill_person_names(&mut list)
+        .await
+        .unwrap_or_default();
     Ok(page_body(list, total, page, page_size))
 }
 
@@ -2403,9 +2407,14 @@ pub async fn inventory_txn_detail(Path(id): Path<String>) -> ResResult<Inventory
     let row = find_row("biz_inventory_txn", model::INVENTORY_TXN_COLUMNS, id, false)
         .await?
         .ok_or_else(|| not_found("库存流水"))?;
-    Ok(Res::ok(InventoryTxnRes::from(
+    let mut res = InventoryTxnRes::from(
         &InventoryTxnRow::from_row(&row).map_err(|error| utils::db_error(error, "解析库存流水"))?,
-    )))
+    );
+    // AUD-02：操作人姓名（单条同一入口）
+    crate::business::shared::user_name::fill_person_names(std::slice::from_mut(&mut res))
+        .await
+        .unwrap_or_default();
+    Ok(Res::ok(res))
 }
 
 // ==================== 查询参数（只在本文件用的三个） ====================

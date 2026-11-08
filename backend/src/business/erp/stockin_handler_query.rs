@@ -58,6 +58,10 @@ pub async fn stock_in_page(
             }
         }
     }
+    // AUD-02：制单人姓名。整页一次 `WHERE id = ANY(...)`（与供应商名同一套批量口径）
+    crate::business::shared::user_name::fill_person_names(&mut list)
+        .await
+        .unwrap_or_default();
     Ok(page_body(list, total, page, page_size))
 }
 

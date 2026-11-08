@@ -386,6 +386,12 @@ pub struct HelpVersionRes {
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// 操作人 ID（未知为空）。
     pub create_by: String,
+    /// 操作人姓名（**AUD-02**：实时取现值，改名后这里跟着变；空 = 账号已不存在）。
+    ///
+    /// 为什么不存快照：「谁发的这版」属于**展示**信息，内容快照才是审计对象；
+    /// 若产品口径改为「当时是谁」，需要给 `sys_help_doc_version` 加 `create_by_name`
+    /// 列（迁移 + 回填，另开卡）。
+    pub create_by_name: String,
     /// 正文字节数。
     pub content_bytes: i64,
 }
@@ -399,7 +405,25 @@ impl HelpVersionRes {
             change_note: row.change_note.clone().unwrap_or_default(),
             created_at: row.created_at,
             create_by: row.create_by.map(|v| v.to_string()).unwrap_or_default(),
+            create_by_name: String::new(),
             content_bytes: row.content_bytes,
+        }
+    }
+}
+
+/// AUD-02：版本列表的「操作人姓名」回填（`create_by` → `create_by_name`）。
+impl crate::business::shared::user_name::PersonNameRow for HelpVersionRes {
+    fn person_ids(&self, out: &mut Vec<uuid::Uuid>) {
+        if let Ok(id) = uuid::Uuid::parse_str(&self.create_by) {
+            out.push(id);
+        }
+    }
+
+    fn apply_names(&mut self, names: &std::collections::HashMap<uuid::Uuid, String>) {
+        if let Ok(id) = uuid::Uuid::parse_str(&self.create_by)
+            && let Some(name) = names.get(&id)
+        {
+            self.create_by_name = name.clone();
         }
     }
 }

@@ -1190,6 +1190,10 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<StockTakeDetailRes, ApiE
     let edges = state_machine::effective_edges(db(), state_machine::Entity::StockTake).await;
     let mut detail = StockTakeDetailRes::of(&row, &pairs, &edges);
     fill_voucher_nos(std::slice::from_mut(&mut detail.header)).await?;
+    // AUD-02：制单人姓名（单条同一入口）
+    crate::business::shared::user_name::fill_person_names(std::slice::from_mut(&mut detail.header))
+        .await
+        .unwrap_or_default();
     Ok(detail)
 }
 
@@ -1201,6 +1205,10 @@ pub async fn page_of(q: &StockTakePageQuery) -> std::result::Result<StockTakePag
         .map_err(|error| utils::db_error(error, "查询盘点单列表"))?;
     let mut list: Vec<StockTakeRes> = rows.iter().map(StockTakeRes::of).collect();
     fill_voucher_nos(&mut list).await?;
+    // AUD-02：制单人姓名，整页一次
+    crate::business::shared::user_name::fill_person_names(&mut list)
+        .await
+        .unwrap_or_default();
     Ok(StockTakePageRes {
         list,
         total,

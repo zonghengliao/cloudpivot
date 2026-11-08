@@ -9,6 +9,7 @@
 //! 单测 `dto_masked_ak_never_leaks_plaintext` 断言序列化结果里不含明文 AK/SK。
 
 use nik::prelude::*;
+use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
@@ -445,6 +446,11 @@ pub struct StorageFileRes {
     pub status: i16,
     /// 上传人。
     pub uploaded_by: String,
+    /// 上传人姓名（**AUD-02**：实时取现值；空串 = 账号已不存在）。
+    ///
+    /// 列表由 `file_page` 批量回填（一次 `WHERE id = ANY(...)`）；上传响应等
+    /// 单条路径不填，前端按「空串 → 显示 `—`」处理，**不要**回退显示 `uploaded_by`。
+    pub uploader_name: String,
     /// 上传时间。
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// 下载地址（新接口）。
@@ -480,10 +486,28 @@ impl StorageFileRes {
                 .uploaded_by
                 .map(|id| id.to_string())
                 .unwrap_or_default(),
+            uploader_name: String::new(),
             created_at: model.created_at,
             url: format!("/api/business/storage/download/{}", model.id),
             storage_code: model.storage_code.clone().unwrap_or_default(),
             upload_mode: model.upload_mode.clone(),
+        }
+    }
+}
+
+/// AUD-02：列表「上传人姓名」回填（`uploaded_by` → `uploader_name`）。
+impl crate::business::shared::user_name::PersonNameRow for StorageFileRes {
+    fn person_ids(&self, out: &mut Vec<Uuid>) {
+        if let Ok(id) = Uuid::parse_str(&self.uploaded_by) {
+            out.push(id);
+        }
+    }
+
+    fn apply_names(&mut self, names: &std::collections::HashMap<Uuid, String>) {
+        if let Ok(id) = Uuid::parse_str(&self.uploaded_by)
+            && let Some(name) = names.get(&id)
+        {
+            self.uploader_name = name.clone();
         }
     }
 }

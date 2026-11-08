@@ -71,6 +71,7 @@ use crate::business::erp::contract_linkage;
 use crate::business::erp::contract_model::{self, ContractMut, STATUS_DRAFT};
 use crate::business::flow::{engine, model as flow_model};
 use crate::business::shared::state_machine;
+use crate::business::shared::user_name;
 use crate::shared::error_code;
 use crate::utils;
 
@@ -252,6 +253,10 @@ async fn detail_of(id: Uuid) -> ResResult<ContractDetailRes> {
         .ok_or_else(|| not_usable(&format!("id={id}")))?;
     let mut detail = ContractDetailRes::from(&row);
     fill_approval_no(std::slice::from_mut(&mut detail.base)).await;
+    // AUD-02：负责人 / 制单人 / 修改人补姓名（批量入口，恒 1 条 SQL；失败只降级为空）
+    user_name::fill_person_names(std::slice::from_mut(&mut detail))
+        .await
+        .unwrap_or_default();
     Ok(Res::ok(detail))
 }
 
@@ -1674,6 +1679,31 @@ mod tests {
         )
         .await
         .unwrap_or_else(|err| panic!("清理供应商失败：{err}"));
+        // AUD-02：人员姓名用例造的账号（见 `make_user`），用例失败也不留痕。
+        db().execute_with_params("DELETE FROM sys_user WHERE username LIKE 'A2CM-U%'", vec![])
+            .await
+            .unwrap_or_else(|err| panic!("清理测试账号失败：{err}"));
+    }
+
+    /// 造一个账号（**AUD-02**：人员字段的姓名来源）。
+    ///
+    /// 只给 `sys_user` 的非空列（与 `granted_contract_permissions_carry_legacy_alias`
+    /// 里的造号语句同口径），不授任何角色。
+    async fn make_user(tag: &str, real_name: &str) -> Uuid {
+        let id = Uuid::now_v7();
+        let suffix = &id.simple().to_string()[..8];
+        db().execute_with_params(
+            "INSERT INTO sys_user (id, username, password, real_name, status) \
+             VALUES (?::uuid, ?, 'x', ?, 1)",
+            vec![
+                Value::from(&id),
+                Value::Text(format!("{PREFIX}U{tag}_{suffix}")),
+                Value::Text(real_name.to_string()),
+            ],
+        )
+        .await
+        .unwrap_or_else(|err| panic!("造账号失败：{err}"));
+        id
     }
 
     /// 造一个供应商（`status = 1` 可新签）。
@@ -1728,6 +1758,92 @@ mod tests {
         );
         let id = Uuid::parse_str(&detail.base.id).expect("id 是 uuid");
         (id, supplier_name)
+    }
+
+    /// **AUD-02** 验收 ②③④：详情下发三个人员字段的**姓名**（不是 UUID）；
+    /// 改名后立刻取新名（实时 join，不是快照）；一次详情只发 **1** 条取名字的 SQL。
+    #[tokio::test]
+    async fn detail_fills_person_names_and_follows_rename() {
+        use crate::business::shared::user_name::stats;
+
+        let Some(_guard) = setup().await else { return };
+        // 三个账号分别占三个字段：负责人 / 制单人 / 修改人
+        let owner = make_user("OW", "张负责").await;
+        let creator = make_user("CR", "王制单").await;
+        let updater = make_user("UP", "李修改").await;
+
+        let (contract_id, _) = create_ok("AUD2").await;
+        db().execute_with_params(
+            "UPDATE biz_contract SET owner_id = ?::uuid, create_by = ?::uuid, update_by = ?::uuid \
+              WHERE id = ?::uuid",
+            vec![
+                Value::from(&owner),
+                Value::from(&creator),
+                Value::from(&updater),
+                Value::from(&contract_id),
+            ],
+        )
+        .await
+        .unwrap_or_else(|err| panic!("写人员列失败：{err}"));
+
+        stats::reset();
+        let detail = data(
+            contract_detail(Path(contract_id.to_string()))
+                .await
+                .unwrap_or_else(|err| panic!("查详情失败：{} {}", err.code, err.msg)),
+        );
+        // ③ 无 N+1：三个字段去重后仍只 1 条 SQL
+        assert_eq!(
+            stats::count(),
+            1,
+            "一次详情只允许 1 条取名字 SQL（实测 {}）",
+            stats::count()
+        );
+        // ② 三个字段都给人名，不是 UUID
+        assert_eq!(detail.owner_name.as_deref(), Some("张负责"), "负责人姓名");
+        assert_eq!(
+            detail.create_by_name.as_deref(),
+            Some("王制单"),
+            "制单人姓名"
+        );
+        assert_eq!(
+            detail.update_by_name.as_deref(),
+            Some("李修改"),
+            "修改人姓名"
+        );
+
+        // ④ 实时 join：改名后详情立刻是新名
+        db().execute_with_params(
+            "UPDATE sys_user SET real_name = '张负责（改名后）' WHERE id = ?::uuid",
+            vec![Value::from(&owner)],
+        )
+        .await
+        .unwrap_or_else(|err| panic!("改名失败：{err}"));
+        let again = data(
+            contract_detail(Path(contract_id.to_string()))
+                .await
+                .unwrap_or_else(|err| panic!("查详情失败：{} {}", err.code, err.msg)),
+        );
+        assert_eq!(
+            again.owner_name.as_deref(),
+            Some("张负责（改名后）"),
+            "展示类字段必须跟改名走（实时 join）"
+        );
+        assert_ne!(
+            again.owner_name.as_deref(),
+            Some("张负责"),
+            "改名后不得还是旧名（那是快照口径，AUD-01 的语义）"
+        );
+
+        // 清场：合同行由 `cleanup()` 统一删，账号这里删（用户无角色关联）
+        for id in [&owner, &creator, &updater] {
+            db().execute_with_params(
+                "DELETE FROM sys_user WHERE id = ?::uuid",
+                vec![Value::from(id)],
+            )
+            .await
+            .unwrap_or_else(|err| panic!("清理账号失败：{err}"));
+        }
     }
 
     /// 验收第 1 条：新建成功 → 拿到 id + HT 号，状态 DRAFT，乙方名称是服务端快照。

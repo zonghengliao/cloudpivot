@@ -47,6 +47,16 @@ use crate::utils;
 
 // ==================== 分页 ====================
 
+/// 单条出参补创建人姓名（**AUD-02**）：写接口回读时也带 `create_by_name`。
+///
+/// 失败只降级为空（前端显示 `—`），不因为一句人名把写操作打成 500。
+async fn filled(mut res: MutexRes) -> MutexRes {
+    crate::business::shared::user_name::fill_person_names(std::slice::from_mut(&mut res))
+        .await
+        .unwrap_or_default();
+    res
+}
+
 /// 互斥规则分页。
 ///
 /// # 参数
@@ -90,7 +100,11 @@ pub async fn page(Query(query): Query<MutexPageQuery>) -> ResResult<PageData<Vec
         model::page_mutexes(role_id, keyword.as_deref(), status, page_no, page_size)
             .await
             .map_err(|error| utils::db_error(error, "分页查询互斥规则"))?;
-    let list: Vec<MutexRes> = rows.iter().map(MutexRes::from_row).collect();
+    let mut list: Vec<MutexRes> = rows.iter().map(MutexRes::from_row).collect();
+    // AUD-02：创建人姓名，整页一次
+    crate::business::shared::user_name::fill_person_names(&mut list)
+        .await
+        .unwrap_or_default();
     Ok(Res::page(
         list,
         u64::try_from(total).unwrap_or(0),
@@ -193,7 +207,7 @@ pub async fn create(
             })),
         ),
     );
-    Ok(Res::ok(MutexRes::from_row(&row)))
+    Ok(Res::ok(filled(MutexRes::from_row(&row)).await))
 }
 
 // ==================== 编辑（理由 / 启停） ====================
@@ -306,7 +320,7 @@ pub async fn update(
         mutex_id = %id, enabled = enabled_after, operator = %operator,
         "互斥规则已更新"
     );
-    Ok(Res::ok(MutexRes::from_row(&row)))
+    Ok(Res::ok(filled(MutexRes::from_row(&row)).await))
 }
 
 // ==================== 删除（停用） ====================

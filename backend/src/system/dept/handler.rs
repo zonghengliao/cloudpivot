@@ -24,6 +24,27 @@ use crate::utils;
 
 // ==================== 接口 ====================
 
+/// 部门详情 + **负责人姓名**（AUD-02）。
+///
+/// 详情 / 新建 / 编辑三个回读点共用：一次 `IN (...)` 查回姓名（`find_user_display_names`），
+/// 不是每个字段一次。查不到只留 `None`（前端显示 `—`），**绝不回填 leader_id**。
+async fn detail_res(dept: &SysDeptModel) -> DeptDetailRes {
+    let mut res = DeptDetailRes::from(dept);
+    let leader_id = res
+        .leader_id
+        .as_deref()
+        .and_then(|raw| uuid::Uuid::parse_str(raw).ok());
+    if let Some(id) = leader_id {
+        match model::find_user_display_names(&[id]).await {
+            Ok(names) => res.leader_name = names.get(&id).cloned(),
+            Err(error) => {
+                tracing::warn!(error = %error, "部门负责人姓名查询失败（展示字段降级为空）")
+            }
+        }
+    }
+    res
+}
+
 /// 部门树查询（支持部门名模糊与状态过滤）。
 ///
 /// # 参数
@@ -150,7 +171,7 @@ pub async fn tree(
 pub async fn detail(Path(id): Path<String>) -> ResResult<DeptDetailRes> {
     let id = utils::require_uuid(&id, "id")?;
     let dept = load_dept(&id).await?;
-    Ok(Res::ok(DeptDetailRes::from(&dept)))
+    Ok(Res::ok(detail_res(&dept).await))
 }
 
 /// 新建部门（自动维护 `dept_path`）。
@@ -247,7 +268,7 @@ pub async fn create(
             })),
         ),
     );
-    Ok(Res::ok(DeptDetailRes::from(&dept)))
+    Ok(Res::ok(detail_res(&dept).await))
 }
 
 /// 更新部门（重算自身 `dept_path`；禁止挂到自身或其子部门下）。
@@ -374,7 +395,7 @@ pub async fn update(
             })),
         ),
     );
-    Ok(Res::ok(DeptDetailRes::from(&dept)))
+    Ok(Res::ok(detail_res(&dept).await))
 }
 
 /// 删除部门（存在子部门或归属用户时拒绝）。

@@ -234,6 +234,10 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<StockInDetailRes, ApiErr
         .map_err(|error| utils::db_error(error, "统计收货入库单序列号"))?;
     // 来源采购单号（F3）：详情页要显示「来源采购单：PO-xxx」并可点回采购单。
     let mut header = StockInRes::from(&row);
+    // AUD-02：制单人姓名（单条也是同一入口，1 条 SQL）
+    crate::business::shared::user_name::fill_person_names(std::slice::from_mut(&mut header))
+        .await
+        .unwrap_or_default();
     let mut contract_no = None;
     if let Some(order_id) = row.source_order_id {
         header.source_order_no = stockin_model::order_no_of(order_id)

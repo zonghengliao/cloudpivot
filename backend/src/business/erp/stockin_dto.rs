@@ -658,6 +658,10 @@ pub struct StockInRes {
     pub approval_instance_id: Option<String>,
     /// 创建人（P16 新增：内控要求「作废复核人 ≠ 制单人」，前端据此禁用自审提示）。
     pub create_by: Option<String>,
+    /// 制单人姓名（**AUD-02**：实时取现值；`None` = 制单人为空 / 账号已不存在）。
+    ///
+    /// 列表与详情都由 handler 的 `fill_person_names` 批量回填（一页恒定 1 条 SQL）。
+    pub create_by_name: Option<String>,
     /// 创建时间。
     pub created_at: DateTime<Utc>,
     /// 更新时间。
@@ -696,9 +700,31 @@ impl From<&StockInRow> for StockInRes {
             cancel_reason: row.cancel_reason.clone(),
             approval_instance_id: row.approval_instance_id.map(|v| v.to_string()),
             create_by: row.create_by.map(|v| v.to_string()),
+            create_by_name: None,
             created_at: row.created_at,
             updated_at: row.updated_at,
         }
+    }
+}
+
+/// AUD-02：制单人姓名回填（`create_by` → `create_by_name`）。
+impl crate::business::shared::user_name::PersonNameRow for StockInRes {
+    fn person_ids(&self, out: &mut Vec<nik::uuid::Uuid>) {
+        if let Some(id) = self
+            .create_by
+            .as_deref()
+            .and_then(|raw| nik::uuid::Uuid::parse_str(raw).ok())
+        {
+            out.push(id);
+        }
+    }
+
+    fn apply_names(&mut self, names: &std::collections::HashMap<nik::uuid::Uuid, String>) {
+        self.create_by_name = self
+            .create_by
+            .as_deref()
+            .and_then(|raw| nik::uuid::Uuid::parse_str(raw).ok())
+            .and_then(|id| names.get(&id).cloned());
     }
 }
 

@@ -217,6 +217,8 @@ export interface HelpVersion {
   created_at: string;
   /** 创建人 */
   create_by: string;
+  /** 创建人姓名（AUD-02 实时取值；空串 = 账号已不存在，显示 `—`） */
+  create_by_name?: string;
   /** 正文字节数 */
   content_bytes: number;
 }

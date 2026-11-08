@@ -210,6 +210,12 @@ export interface StorageFileRes {
   status: number;
   /** 上传人 */
   uploaded_by: string;
+  /**
+   * 上传人姓名（后端 AUD-02 回填；空串 = 账号已不存在 / 老后端没有这个字段）。
+   *
+   * 列表优先用它；没有才回落到前端译名（`uploader-names.ts`）。
+   */
+  uploader_name?: string;
   /** 上传时间 */
   created_at: string;
   /** 访问地址 */

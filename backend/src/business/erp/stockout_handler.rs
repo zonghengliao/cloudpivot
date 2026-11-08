@@ -1338,11 +1338,13 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<StockOutDetailRes, ApiEr
     let edges = state_machine::effective_edges(db(), state_machine::Entity::StockOut).await;
     // ★ P1-FIX-2：草稿 / 待过账的单据附带「哪一行不够、差多少、现有货在哪些库位」。
     let warnings = stock_warnings(&row, &items, &materials).await?;
-    Ok(super::stockout_dto::detail_of(
-        &row, items, &materials, &edges, warnings,
-    ))
+    let mut detail = super::stockout_dto::detail_of(&row, items, &materials, &edges, warnings);
+    // AUD-02：制单人姓名（单条同一入口，1 条 SQL）
+    crate::business::shared::user_name::fill_person_names(std::slice::from_mut(&mut detail.header))
+        .await
+        .unwrap_or_default();
+    Ok(detail)
 }
-
 /// 逐行比「要出的量」与「这一行能拿到的量」，给草稿 / 待过账单据生成库存提示（P1-FIX-2）。
 ///
 /// 三个口径：
@@ -1446,8 +1448,13 @@ pub async fn page_of(q: &StockOutPageQuery) -> std::result::Result<StockOutPageR
     let (rows, total) = stock_out::page(&filter)
         .await
         .map_err(|error| utils::db_error(error, "查询出库单列表"))?;
+    let mut list = list_res(&rows);
+    // AUD-02：制单人姓名，整页一次
+    crate::business::shared::user_name::fill_person_names(&mut list)
+        .await
+        .unwrap_or_default();
     Ok(StockOutPageRes {
-        list: list_res(&rows),
+        list,
         total,
         page: filter.page,
         page_size: filter.page_size,

@@ -38,6 +38,7 @@
 use nik::prelude::chrono::{DateTime, NaiveDate, Utc};
 use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
+use nik::uuid::Uuid;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::business::erp::model::{
@@ -3312,6 +3313,8 @@ pub struct InventoryTxnRes {
     pub period_code: String,
     /// 操作人。
     pub operator_id: Option<String>,
+    /// 操作人姓名（**AUD-02**：实时取现值；`None` = 系统生成 / 账号已不存在）。
+    pub operator_name: Option<String>,
     /// 备注。
     pub remark: Option<String>,
     /// 记账时间。
@@ -3341,9 +3344,31 @@ impl From<&InventoryTxnRow> for InventoryTxnRes {
             after_cost: row.after_cost,
             period_code: row.period_code.clone(),
             operator_id: row.operator_id.map(|id| id.to_string()),
+            operator_name: None,
             remark: row.remark.clone(),
             created_at: row.created_at,
         }
+    }
+}
+
+/// AUD-02：库存流水「操作人姓名」回填（`operator_id` → `operator_name`）。
+impl crate::business::shared::user_name::PersonNameRow for InventoryTxnRes {
+    fn person_ids(&self, out: &mut Vec<Uuid>) {
+        if let Some(id) = self
+            .operator_id
+            .as_deref()
+            .and_then(|raw| Uuid::parse_str(raw).ok())
+        {
+            out.push(id);
+        }
+    }
+
+    fn apply_names(&mut self, names: &std::collections::HashMap<Uuid, String>) {
+        self.operator_name = self
+            .operator_id
+            .as_deref()
+            .and_then(|raw| Uuid::parse_str(raw).ok())
+            .and_then(|id| names.get(&id).cloned());
     }
 }
 
