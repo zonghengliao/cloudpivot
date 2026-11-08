@@ -7,9 +7,9 @@
 #       dbname 省略时取 $NIK_DATABASE_NAME，再退回 cloudpivot_dev
 #   连接参数：PGHOST / PGPORT / PGUSER / PGPASSWORD，未设时回落 NIK_DATABASE_*（psql 惯例）
 #
-# 退出码：0 = 5 条断言全绿 ｜ 1 = 有违规（明细已打印）｜ 2 = 连库/查询失败（基础设施问题）
+# 退出码：0 = 7 条断言全绿 ｜ 1 = 有违规（明细已打印）｜ 2 = 连库/查询失败（基础设施问题）
 #
-# 5 条断言：
+# 7 条断言：
 #   ① 孤儿 parent     parent_id 指向不存在或已软删的记录
 #   ② /system/ 归属   path ~ '/system/%' 的页面/按钮（menu_type 2/3）必须挂在 system 目录下
 #   ③ /business/ 归属 path ~ '/business/%' 的节点沿 parent 链上溯到的**根**必须落在
@@ -30,6 +30,20 @@
 #                     3~4 个按钮」菜单，410 → 423（13 条全部 auth_code 唯一、parent 正确，②③④ 全绿）。
 #                     本断言只防「批量误插 / 大面积误删」这类事故，不是功能增长闸门，故每次只按实测
 #                     基数留 ~8% 余量；再破线时先确认是真实功能增长，再同步改这里和 scripts/verify/README.md。
+#
+#   ⑥ title 长度      menu_type 1/2（目录/页面，也就是侧栏里真正显示的那两层）的 title 长度
+#                     必须 ≤ MENU_TITLE_MAX（默认 12）。title 是**侧栏显示名**，写成功能说明
+#                     （「即时 / 月末汇率维护 + 按月批量录入（ARCH-7 §15.6.3 ②）」这类 38 字长句）
+#                     就会换行/截断。规范见 docs/编码规范.md §1.6.1；口径与边界：
+#                       · 只管 1/2：menu_type=3 是按钮权限点，不进侧栏（它的 title 长句会污染
+#                         「角色-菜单」授权树，属另一件事，实测 155 条 >12 / 最长 73 字）；
+#                       · 12 是**硬顶**不是目标值：规范要求 2-6 字名词短语，留出余量给少量
+#                         正常偏长的业务名（实测基线最长 10 字）。
+#   ⑦ 同父 sort 唯一  同一 parent_id 下 menu_type=2 的 sort_order 不得重复（重复 → 侧栏顺序
+#                     依赖返回行序，刷新一次可能变一次）。**只管 menu_type=2**（照规范校验 SQL
+#                     的字面口径）：跨类型同 sort（目录 vs 页面）不在本断言内，实测顶级有 1 组
+#                     （通用底座 menu_type=1 / 合同管理 menu_type=2 同为 75），已登记待评估，
+#                     不在这里判红 —— 判红会逼着为一条排序噪声改历史数据。
 #
 # 为什么 ③ 不是「必须找到 path='/business' 的祖先」：本仓库 ERP 各模块目录
 # （/business/erp/{finance,sales,warehouse,purchase}-mgmt、master-data、contract）本身就是
@@ -56,6 +70,9 @@ export PGPASSWORD PGHOST PGPORT PGUSER
 SYSTEM_DIR_ID="${MENU_SYSTEM_DIR_ID:-10000000-0000-0000-0000-000000000001}"
 TOTAL_MIN="${MENU_TOTAL_MIN:-400}"
 TOTAL_MAX="${MENU_TOTAL_MAX:-460}"
+# ⑥ title 长度硬顶（menu_type 1/2）。规范目标值是 2-6 字（docs/编码规范.md §1.6.1），
+#   12 是硬顶：留出余量给少量正常偏长的业务名，同时长句说明一定超。置大即放宽（不建议）。
+TITLE_MAX="${MENU_TITLE_MAX:-12}"
 # ③ 豁免：根级白名单（这些根允许承载 path ~ '/business/%' 的子节点，逗号分隔）。默认空：
 #   根级白名单一放就是「这个根下任何 /business/* 都放过」，会掩盖未来新错位，所以默认不启用；
 #   公告中心那 4 条走下面的行级 ID 例外，只豁免已知行，新错位照样报红。
@@ -261,6 +278,41 @@ if [ "$N5" != "x" ] && [ "$N5" -ge "$TOTAL_MIN" ] 2>/dev/null && [ "$N5" -le "$T
 else
   line '⑤ 菜单总数:           ' "$N5" 0 " (期望 $TOTAL_MIN-$TOTAL_MAX)"
   FAILED=$((FAILED+1)); FAIL_NAMES+=('⑤菜单总数')
+fi
+
+# ── ⑥ title 长度（menu_type 1/2，侧栏显示名 ≤ TITLE_MAX）────────────────────
+# 为什么按「字数」而不是「字节」：psql 侧 length() 对 UTF8 文本按**字符**计（不是 octet_length），
+# 中文菜单名一个字算一个，与卡面口径一致。
+Q6="select count(*) from sys_menu
+     where deleted_at is null and menu_type in (1,2) and length(title) > $TITLE_MAX"
+N6=$(sql "$Q6"); N6=${N6:-x}
+if [ "$N6" = "0" ]; then line '⑥ title 长度:         ' "$N6" 1 " (≤$TITLE_MAX 字)"; else
+  line '⑥ title 长度:         ' "$N6" 0 " (≤$TITLE_MAX 字)"
+  FAILED=$((FAILED+1)); FAIL_NAMES+=('⑥title长度')
+  detail "menu_type 1/2 里 title 超过 $TITLE_MAX 字的行" \
+    "select id, name, title, length(title) as len, coalesce(path,'<NULL:无 path>') as path
+       from sys_menu
+      where deleted_at is null and menu_type in (1,2) and length(title) > $TITLE_MAX
+      order by length(title) desc, path limit 10"
+fi
+
+# ── ⑦ 同父 sort_order 唯一（menu_type=2）────────────────────────────────────
+# parent_id 为 NULL 的顶级页面算一组（字面口径：NULL 也参与分组，顶级顺序同样不能撞车）。
+Q7="select count(*) from (
+       select parent_id, sort_order from sys_menu
+        where deleted_at is null and menu_type = 2
+        group by parent_id, sort_order having count(*) > 1) t"
+N7=$(sql "$Q7"); N7=${N7:-x}
+if [ "$N7" = "0" ]; then line '⑦ 同父 sort 唯一:     ' "$N7" 1; else
+  line '⑦ 同父 sort 唯一:     ' "$N7" 0
+  FAILED=$((FAILED+1)); FAIL_NAMES+=('⑦同父sort唯一')
+  detail '同父节点下 sort_order 撞车的组（menu_type=2）' \
+    "select coalesce(parent_id::text,'<顶级>') as parent_id, sort_order, count(*) as n,
+            string_agg(name || '/' || coalesce(title,'<无标题>'), ' | ' order by name) as siblings
+       from sys_menu
+      where deleted_at is null and menu_type = 2
+      group by parent_id, sort_order having count(*) > 1
+      order by n desc, sort_order limit 10"
 fi
 
 # ── 基础设施兜底：任何一条查询 psql 失败 ⇒ rc=2（绝不降级成「结构违规」去骗迁移）──

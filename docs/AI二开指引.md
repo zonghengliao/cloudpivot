@@ -70,6 +70,9 @@
 - 不要漏 `/api` 前缀（前端）或写死 `/api` 前缀（后端宏）。
 - 不要写 `unwrap/expect`、不要静默写空串、不要 `tmp/var/data` 命名。
 - 不要新建 `V0018` 或改动已应用迁移；不要写 `t-col-xs-24`、图标用 `user-check`/`speed`。
+- 不要往 `sys_menu.title` 塞功能说明 / `ARCH-x §y` 章节号 / 卡号 / 箭头流程（侧栏会换行截断）：
+  `title` 只写 2-6 字名词短语（硬顶 12 字），`name` 用短名，同父 `sort_order` 间隔 10 递增且唯一；
+  规则与自查 SQL 见 `docs/编码规范.md` §1.6.1，闸门是 `scripts/verify/menu_invariants.sh` ⑥⑦。
 - 不要在新迁移的 `INSERT INTO sys_role_menu` 里**抄老迁移的 `role_code` 清单**：`ADMIN` / `ACCOUNTANT` /
   `FINANCE` / `TEST_UADMIN` / `BUYER` / `PURCHASER` / `WAREHOUSE_KEEPER` / `WAREHOUSE` 在生产**都不存在**，
   SQL 不报错、迁移照样记账，但授权静默 0 行。角色码只从 `select role_code from sys_role` 拿

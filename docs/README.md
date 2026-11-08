@@ -96,6 +96,7 @@ cd frontend && pnpm typecheck
 7. **路由宏路径不含 `/api` 前缀**（由 `[router] prefix` 注入）；`/health` 手动注册免前缀。
 8. **前端 API 路径必须写全 `/api/...`**（漏前缀命中 SPA fallback 返回 HTML → “响应体格式不符合”）。
 9. **TDesign Grid 是 12 列制**：`t-col-xl-2`=一行 6 个、`-xl-3`=一行 4 个；`t-col-xs-24` 不存在（最大 `xs-12`）。
+10. **菜单迁移**：`sys_menu.title` 是**侧栏显示名**，只写 2-6 字名词短语（硬顶 12 字），禁止塞功能说明 / `ARCH-x §y` / 箭头流程；`name` 用短名；同父 `sort_order` 唯一（间隔 10 递增）。全文见 [编码规范.md](./编码规范.md) §1.6.1，改完跑 `bash scripts/verify/menu_invariants.sh <库>`（⑥ 长度 / ⑦ 同父 sort）。
 
 ---
 
