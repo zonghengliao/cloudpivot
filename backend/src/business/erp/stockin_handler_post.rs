@@ -348,6 +348,20 @@ pub async fn post_after_approval(
     id: Uuid,
     operator: Option<Uuid>,
 ) -> std::result::Result<(), ApiError> {
+    post_after_approval_with_reason(id, operator, None).await
+}
+
+/// [`post_after_approval`] 的「带原因」版本：**只有人工「重新过账」走这条**
+/// （BUG-02），把「这是一次审批通过后的重试」写进 `biz_status_log.reason`。
+///
+/// 其余行为逐字相同 —— 尤其是三条闸一个都不能跳：
+/// `guard_posting_supplier`（供应商复核）、`separation::guard(Duty::Post)`（内控）、
+/// `guard_posting_units` + `post_in_tx` 里的 `guard_purchase_before_post`（采购单状态 / 待收额度）。
+pub async fn post_after_approval_with_reason(
+    id: Uuid,
+    operator: Option<Uuid>,
+    reason: Option<&str>,
+) -> std::result::Result<(), ApiError> {
     let row = stockin_model::find_stock_in(id)
         .await
         .map_err(|error| utils::db_error(error, "查询收货入库单"))?
@@ -403,7 +417,7 @@ pub async fn post_after_approval(
         &provided,
         &op,
         STATUS_PENDING_POST,
-        None,
+        reason,
         now,
         &mut linkage_outbox,
     )
@@ -427,6 +441,88 @@ pub async fn post_after_approval(
             Err(error)
         }
     }
+}
+
+/// **重新过账**（BUG-02）：给「审批已通过、但上次过账失败」的死单一条出路。
+///
+/// # 为什么需要它
+///
+/// 生产事故 `IN-20261031-000002`：审批实例 `APPROVED`、单据停在 `PENDING_POST`、
+/// 六本账没动，而系统里**没有任何接口**能推进它（`PATCH /status` 明确拒绝
+/// `PENDING_POST → POSTED`，审批通过回调已经跑过一次不会再回来），只能删单重建。
+///
+/// # 前置（两条都不满足 → 400）
+///
+/// 1. 单据必须是 `PENDING_POST`（`DRAFT` 请走「过账 / 提交过账审批」，`POSTED` 不许重复过账）；
+/// 2. 关联审批实例必须是 `APPROVED` —— 审批还在跑时重试等于绕过复核。
+///
+/// # 行为
+///
+/// 直接走 [`post_after_approval_with_reason`]：**重跑全部闸**（供应商复核 / 制单≠过账 /
+/// 单位复检 / 采购单状态与待收额度），一个都不放松。成功 → `POSTED` + 六本账落库；
+/// 失败 → 事务整笔回滚，**单据仍是 `PENDING_POST`**，用户修完数据可以再点一次。
+///
+/// 失败**不打回草稿**（与 BUG-01 的免审分支不同）：这里没有「无人推进」的问题 ——
+/// 审批已经通过，按钮还在，用户可以原地重试；打回草稿反而要重新走一遍审批。
+pub async fn repost_stock_in(
+    id: Uuid,
+    operator: impl Into<state_machine::Operator>,
+) -> std::result::Result<(), ApiError> {
+    let op = operator.into();
+    let Some(operator_id) = op.id else {
+        return Err(ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_MISSING,
+            "重新过账需要登录用户（令牌里没有用户 id）",
+        ));
+    };
+    let row = stockin_model::find_stock_in(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询收货入库单"))?
+        .ok_or_else(|| not_found("收货入库单"))?;
+    // ① 只有「过账审批中」可以重试 —— 措辞按当前状态分叉，别让人猜下一步该点哪
+    if row.status != STATUS_PENDING_POST {
+        let hint = match row.status.as_str() {
+            STATUS_DRAFT => "草稿请直接点「过账」（配了审批流会先送审）",
+            STATUS_POSTED => "已过账的单据不能重复过账：库存只加一次，要重收请先作废后重开",
+            _ => "只有「过账审批中」的单据可以重新过账",
+        };
+        return Err(bad_request(format!(
+            "收货入库单 {} 当前是「{}」（{}），不能重新过账：{hint}",
+            row.in_no,
+            status_label(&row.status),
+            row.status
+        )));
+    }
+    // ② 审批实例必须已通过（还没批完就重试 = 绕过复核）
+    let instance_status =
+        crate::business::flow::task_bridge::instance_status_of(row.approval_instance_id)
+            .await
+            .map_err(|error| utils::db_error(error, "查询收货单审批实例状态"))?;
+    match instance_status.as_deref() {
+        Some(status) if status.eq_ignore_ascii_case("APPROVED") => {}
+        Some(status) => {
+            return Err(bad_request(format!(
+                "收货入库单 {} 的过账审批实例当前是「{}」：审批还没通过（通过后系统会自动过账），\
+                 现在不能重新过账；要撤销本次提交请用「撤回」",
+                row.in_no, status
+            )));
+        }
+        None => {
+            return Err(bad_request(format!(
+                "收货入库单 {} 没有关联的过账审批实例，不能重新过账：请先点「过账」提交审批",
+                row.in_no
+            )));
+        }
+    }
+    tracing::info!(
+        stock_in_id = %row.id,
+        in_no = %row.in_no,
+        operator = %operator_id,
+        "收货单重新过账：审批已通过，重跑全部过账闸"
+    );
+    // ③ 与「审批通过回调」同一条实现（guard 全跑，SoD 仍然生效）
+    post_after_approval_with_reason(id, Some(operator_id), Some("审批通过后重新过账")).await
 }
 
 /// 审批**未通过**之后把单据打回草稿（驳回 / 撤回 / 终止）。

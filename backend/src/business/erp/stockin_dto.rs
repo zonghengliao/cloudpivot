@@ -822,6 +822,17 @@ pub struct StockInDetailRes {
     /// 由服务端按当前数据现算（草稿态把本单数量算进来），因此过账后再看详情
     /// 不会重复计一遍；前端把它显示成告警条即可。
     pub location_warnings: Vec<String>,
+    /// 关联审批实例的当前状态（`PENDING` / `APPROVED` / `REJECTED` / `WITHDRAWN` / `CANCELLED`；
+    /// 没挂实例 = `None`）。
+    ///
+    /// **为什么详情要带它（BUG-02）**：单据只有一个 `PENDING_POST`，分不清「审批还在跑」
+    /// 和「审批已通过但过账失败」—— 后者是死单，唯一的出路是 `POST /repost`。
+    /// 前端据此显示「审批已通过，过账失败，可重试」并放出「重新过账」按钮。
+    pub approval_instance_status: Option<String>,
+    /// 是否允许「重新过账」（BUG-02）：`status == PENDING_POST && 实例 == APPROVED`。
+    ///
+    /// 服务端算好给前端用，前端不再自己拼两个条件（口径只有一份）。
+    pub repost_available: bool,
 }
 
 impl StockInDetailRes {
@@ -835,6 +846,8 @@ impl StockInDetailRes {
             purchase_order_no: header.source_order_no.clone(),
             contract_no: None,
             location_warnings: Vec::new(),
+            approval_instance_status: None,
+            repost_available: false,
             header,
         }
     }

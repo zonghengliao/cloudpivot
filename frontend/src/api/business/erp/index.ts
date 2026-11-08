@@ -1842,6 +1842,18 @@ export interface StockInDetail {
    * 服务端按当前数据现算（草稿态已把本单数量算进来），前端显示成告警条即可。
    */
   location_warnings?: string[];
+  /**
+   * 关联审批实例的当前状态（BUG-02）：`PENDING` / `APPROVED` / `REJECTED` / `WITHDRAWN` / `CANCELLED`。
+   *
+   * `PENDING_POST` 一个状态分不清「审批还在跑」和「审批已通过但过账失败」—— 后者要看这里。
+   */
+  approval_instance_status?: string | null;
+  /**
+   * 能不能点「重新过账」（BUG-02）：服务端算好的 `status === 'PENDING_POST' && 实例 === 'APPROVED'`。
+   *
+   * 前端只认这个字段，不自己拼条件（口径只有一份，避免两边不一致）。
+   */
+  repost_available?: boolean;
 }
 
 /**
@@ -2007,6 +2019,20 @@ export function submitStockInPost(
     status: 'POSTED',
     ...payload,
   });
+}
+
+/**
+ * 重新过账（`POST /erp/stock-in/{id}/repost`，BUG-02）。
+ *
+ * 只对「审批已通过、但上次过账失败」的死单开放：单据 `PENDING_POST` + 审批实例 `APPROVED`。
+ * 后端重跑**全部**过账闸（供应商复核 / 制单≠过账 / 单位复检 / 采购单状态与待收额度），
+ * 成功 → `POSTED` 且六本账落库；失败 → 状态仍是 `PENDING_POST`（改完数据可以再点一次）。
+ *
+ * 注意：`PATCH /status` 走不通这条路（后端明确拒绝 `PENDING_POST → POSTED`，防绕过审批），
+ * 这就是为什么要单独一个接口。
+ */
+export function repostStockIn(id: string): Promise<StockInDetail> {
+  return post<StockInDetail>(`${BASE}/stock-in/${id}/repost`, {});
 }
 
 /**

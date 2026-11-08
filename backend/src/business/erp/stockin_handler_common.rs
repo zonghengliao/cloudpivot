@@ -263,6 +263,21 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<StockInDetailRes, ApiErr
     );
     detail.contract_no = contract_no;
 
+    // ★ BUG-02：详情带上「审批实例状态」+「能不能重新过账」。
+    //
+    // 单据只有一个 `PENDING_POST`：审批还在跑 / 审批已通过但过账失败，界面分不清。
+    // 死单（审批 APPROVED + 单据 PENDING_POST）的唯一出路是 `POST /repost`，
+    // 所以这两个字段由服务端算好给前端，口径只留一份。
+    let instance_status =
+        crate::business::flow::task_bridge::instance_status_of(row.approval_instance_id)
+            .await
+            .map_err(|error| utils::db_error(error, "查询收货单审批实例状态"))?;
+    detail.repost_available = row.status == stockin_model::STATUS_PENDING_POST
+        && instance_status
+            .as_deref()
+            .is_some_and(|status| status.eq_ignore_ascii_case("APPROVED"));
+    detail.approval_instance_status = instance_status;
+
     // ★ P2-4：库位译名 + 「未分配 / 超容量」提示（只提示不拦截）
     //
     // 两种口径都要能译名：新客户端给 `location_dict_id`；旧客户端给 `location_id`（库位账行），

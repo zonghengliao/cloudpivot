@@ -612,3 +612,352 @@ async fn bug01_auto_post_success_still_posts() {
         "采购单推进"
     );
 }
+
+// ============================================================================
+// BUG-02（t_1bf6c58d）：重新过账 —— 「审批已通过、过账失败」死单的唯一出路
+//
+// 生产事故 IN-20261031-000002：审批实例 APPROVED、单据停在 PENDING_POST、六本账没动。
+// `PATCH /status` 明确拒绝 PENDING_POST → POSTED（防绕过审批）、审批通过回调已经跑过
+// 一次不会再回来 —— 没有 repost 就只能删单重建（单号与历史全丢）。
+//
+// 下面钉死：正常重试能落六本账 / 数据有问题给明确错误且**不改状态** / 修好数据能再试 /
+// DRAFT 与 POSTED 一律 400 / 审批还在跑不能重试 / 内控开关打开时制单人被拦。
+// ============================================================================
+
+/// 把审批实例推到 `APPROVED`，但**不跑**审批通过回调。
+///
+/// 这正是 BUG-01 之前的存量死单现场：回调那次过账失败后单据留在 `PENDING_POST`，
+/// 而实例已经是 `APPROVED`、待办全空 —— 没有任何人会再来推进它。
+async fn approve_instance_without_callback(stock_in_id: Uuid) -> Uuid {
+    let instance = running_post_instance(stock_in_id).await;
+    let tasks = post_pending_tasks(instance).await;
+    assert_eq!(tasks.len(), 1, "夹具：应恰好一条审批待办");
+    let task_id = tasks[0].0;
+    let out = db()
+        .transaction(|tx| async move {
+            crate::business::flow::engine::approve(&tx, task_id, uid_of(U_WH_MGR), Some("同意"))
+                .await
+        })
+        .await
+        .unwrap_or_else(|err| panic!("审批推进失败：{err}"));
+    assert!(
+        out.instance_status.eq_ignore_ascii_case("APPROVED"),
+        "夹具：实例应 APPROVED，实际 {}",
+        out.instance_status
+    );
+    instance
+}
+
+/// 打开 / 关闭「制单 ≠ 过账」开关（写库 + 立刻重载进程内快照）。
+async fn set_sod_post(enabled: bool) {
+    let value = if enabled { "true" } else { "false" };
+    sql(&format!(
+        "UPDATE sys_config SET config_value = '{value}', updated_at = now() \
+          WHERE config_key = 'erp.separation_of_duties.post'"
+    ))
+    .await;
+    crate::support::config::model::reload_runtime_snapshot()
+        .await
+        .expect("重载参数快照失败");
+}
+
+/// ① 正常重试：PENDING_POST + 实例 APPROVED → repost → POSTED + 六本账落库。
+#[tokio::test]
+async fn bug02_repost_pending_approved_posts_and_moves_books() {
+    let _db = match setup().await {
+        Some(guard) => guard,
+        None => return,
+    };
+    setup_post_approval().await;
+    // 600 × 2 = 1200 元 ≥ 1000 → 走仓管主管审批（不是小额免审，才能造出死单现场）
+    let (order_id, item_id) = a4_seed_po(A4_SUPPLIER_B, "600", "SUBMITTED").await;
+    let id = create_stock_in(&a4_sourced_req(order_id, item_id, "600", None), None)
+        .await
+        .expect("建单");
+    submit_post(id, &post_req(), Some(uid_of(U_KEEPER)), &none_gate())
+        .await
+        .unwrap_or_else(|err| panic!("提交过账审批失败：{} {}", err.code, err.msg));
+    assert_eq!(stock_in_status(id).await, "PENDING_POST");
+    assert_eq!(
+        inventory_of(MATERIAL_A).await.0,
+        Decimal::ZERO,
+        "送审不动账"
+    );
+
+    approve_instance_without_callback(id).await;
+    // 死单现场：单据仍是 PENDING_POST、实例 APPROVED、六本账一两没动
+    assert_eq!(stock_in_status(id).await, "PENDING_POST");
+    assert_eq!(inventory_of(MATERIAL_A).await.0, Decimal::ZERO);
+
+    // 详情必须告诉前端「审批已通过 + 可以重试」，否则按钮永远不出现
+    let detail = detail_of(id).await.expect("读详情");
+    assert_eq!(
+        detail.approval_instance_status.as_deref(),
+        Some("APPROVED"),
+        "详情要带审批实例状态"
+    );
+    assert!(
+        detail.repost_available,
+        "PENDING_POST + 实例 APPROVED 必须 repost_available=true"
+    );
+
+    repost_stock_in(id, Some(uid_of(U_WH_MGR)))
+        .await
+        .unwrap_or_else(|err| panic!("重新过账应成功：{} {}", err.code, err.msg));
+
+    assert_eq!(stock_in_status(id).await, "POSTED", "过账成功");
+    assert_eq!(inventory_of(MATERIAL_A).await.0, dec("600"), "库存已加");
+    let txns: i64 = db()
+        .scalar_with_params::<Option<i64>>(
+            "SELECT count(*) FROM biz_inventory_txn WHERE doc_id = ?::uuid",
+            vec![Value::from(&id)],
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(txns, 1, "库存流水已写");
+    let vouchers: i64 = db()
+        .scalar_with_params::<Option<i64>>(
+            "SELECT count(*) FROM biz_voucher WHERE source_id = ?::uuid",
+            vec![Value::from(&id)],
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(vouchers, 1, "凭证已生成");
+    let payables: i64 = db()
+        .scalar_with_params::<Option<i64>>(
+            "SELECT count(*) FROM biz_payable WHERE source_id = ?::uuid AND source_type = 'STOCK_IN'",
+            vec![Value::from(&id)],
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(payables, 1, "应付单已生成");
+    assert_eq!(a4_po_status(order_id).await, "RECEIVED", "采购单推进");
+
+    // 审计留痕：PENDING_POST → POSTED，原因写清是「审批通过后重新过账」
+    let (from, to, reason) = last_status_log(id).await;
+    assert_eq!((from.as_str(), to.as_str()), ("PENDING_POST", "POSTED"));
+    assert!(
+        reason.contains("重新过账"),
+        "状态日志要能看出这是一次重试：{reason}"
+    );
+
+    // 过账后详情不再提示可重试
+    assert!(!detail_of(id).await.unwrap().repost_available);
+}
+
+/// ② 数据有问题（采购单已收满）→ 明确错误 + 状态仍 PENDING_POST；修好数据后再点就成功。
+#[tokio::test]
+async fn bug02_repost_over_receive_keeps_pending_then_recovers_after_fix() {
+    let _db = match setup().await {
+        Some(guard) => guard,
+        None => return,
+    };
+    setup_post_approval().await;
+    let (order_id, item_id) = a4_seed_po(A4_SUPPLIER_B, "600", "SUBMITTED").await;
+    // 两张单在采购单还没收货时双开，各按 600 件待收建单（与 BUG-01 同一夹具口径）
+    let first = create_stock_in(&a4_sourced_req(order_id, item_id, "600", None), None)
+        .await
+        .expect("建单 A");
+    let second = create_stock_in(&a4_sourced_req(order_id, item_id, "600", None), None)
+        .await
+        .expect("建单 B");
+
+    // A 走完审批 → 回调过账成功 → 采购单收满
+    submit_post(first, &post_req(), Some(uid_of(U_KEEPER)), &none_gate())
+        .await
+        .unwrap_or_else(|err| panic!("A 提交失败：{} {}", err.code, err.msg));
+    let instance = running_post_instance(first).await;
+    let tasks = post_pending_tasks(instance).await;
+    post_approve_as(tasks[0].0, U_WH_MGR).await;
+    assert_eq!(stock_in_status(first).await, "POSTED");
+    assert_eq!(a4_po_status(order_id).await, "RECEIVED", "A 收满");
+
+    // B：审批通过但回调那次过账失败 = 存量死单
+    submit_post(second, &post_req(), Some(uid_of(U_KEEPER)), &none_gate())
+        .await
+        .unwrap_or_else(|err| panic!("B 提交失败：{} {}", err.code, err.msg));
+    approve_instance_without_callback(second).await;
+    assert_eq!(stock_in_status(second).await, "PENDING_POST");
+
+    // 重新过账：采购单已收满 → 409 + 明确文案，状态不动、账不动
+    let err = repost_stock_in(second, Some(uid_of(U_WH_MGR)))
+        .await
+        .expect_err("采购单已收满必须拦下");
+    assert_eq!(err.status, 409, "{}", err.msg);
+    assert!(
+        err.msg.contains("不能过账"),
+        "文案要说清为什么：{}",
+        err.msg
+    );
+    assert!(
+        err.msg.contains("已收货") || err.msg.contains("RECEIVED"),
+        "文案要点名采购单现状（已收货 / 已收满）：{}",
+        err.msg
+    );
+    assert_eq!(
+        stock_in_status(second).await,
+        "PENDING_POST",
+        "失败不许改状态（否则又要重新走审批）"
+    );
+    assert_eq!(
+        inventory_of(MATERIAL_A).await.0,
+        dec("600"),
+        "只有 A 的 600 件，B 一分没动"
+    );
+
+    // 「修数据」：采购单退回后重新收货 —— 待收额度加到 1200，状态回部分收货
+    sql(&format!(
+        "UPDATE biz_purchase_order_item SET qty = 1200 WHERE id = '{item_id}'::uuid"
+    ))
+    .await;
+    sql(&format!(
+        "UPDATE biz_purchase_order SET total_qty = 1200, status = 'PARTIAL_RECEIVED' \
+          WHERE id = '{order_id}'::uuid"
+    ))
+    .await;
+
+    // 再点一次「重新过账」→ 这次过账成功（不需要删单重建，单号与历史都保住）
+    repost_stock_in(second, Some(uid_of(U_WH_MGR)))
+        .await
+        .unwrap_or_else(|err| panic!("修好数据后重试应成功：{} {}", err.code, err.msg));
+    assert_eq!(stock_in_status(second).await, "POSTED");
+    assert_eq!(
+        inventory_of(MATERIAL_A).await.0,
+        dec("1200"),
+        "A 600 + B 600"
+    );
+    assert_eq!(a4_po_status(order_id).await, "RECEIVED", "再次收满");
+}
+
+/// ③ DRAFT 调 repost → 400（草稿请走「过账」）。
+#[tokio::test]
+async fn bug02_repost_rejects_draft() {
+    let _db = match setup().await {
+        Some(guard) => guard,
+        None => return,
+    };
+    let id = stock_in_with_amount("500", None).await;
+    let err = repost_stock_in(id, Some(uid_of(U_KEEPER)))
+        .await
+        .expect_err("草稿不能重新过账");
+    assert_eq!(err.status, 400, "{}", err.msg);
+    assert!(err.msg.contains("草稿"), "{}", err.msg);
+    assert_eq!(stock_in_status(id).await, "DRAFT", "状态不许被改");
+    assert!(
+        !detail_of(id).await.unwrap().repost_available,
+        "草稿详情不许给「重新过账」按钮"
+    );
+}
+
+/// ④ POSTED 调 repost → 400（已过账不能重复过账，库存只加一次）。
+#[tokio::test]
+async fn bug02_repost_rejects_posted() {
+    let _db = match setup().await {
+        Some(guard) => guard,
+        None => return,
+    };
+    setup_post_approval().await;
+    // 500 元 < 1000 → 免审直过
+    let id = stock_in_with_amount("500", None).await;
+    submit_post(id, &post_req(), Some(uid_of(U_KEEPER)), &none_gate())
+        .await
+        .unwrap_or_else(|err| panic!("免审过账失败：{} {}", err.code, err.msg));
+    assert_eq!(stock_in_status(id).await, "POSTED");
+
+    let err = repost_stock_in(id, Some(uid_of(U_KEEPER)))
+        .await
+        .expect_err("已过账不能重新过账");
+    assert_eq!(err.status, 400, "{}", err.msg);
+    assert!(err.msg.contains("已过账"), "{}", err.msg);
+    assert_eq!(
+        inventory_of(MATERIAL_A).await.0,
+        dec("1"),
+        "库存只加一次（不许重复过账）"
+    );
+    assert!(!detail_of(id).await.unwrap().repost_available);
+}
+
+/// ⑤ 审批还在跑（实例 PENDING）→ 400：重试等于绕过复核。
+#[tokio::test]
+async fn bug02_repost_rejects_instance_still_pending() {
+    let _db = match setup().await {
+        Some(guard) => guard,
+        None => return,
+    };
+    setup_post_approval().await;
+    let (order_id, item_id) = a4_seed_po(A4_SUPPLIER_B, "600", "SUBMITTED").await;
+    let id = create_stock_in(&a4_sourced_req(order_id, item_id, "600", None), None)
+        .await
+        .expect("建单");
+    submit_post(id, &post_req(), Some(uid_of(U_KEEPER)), &none_gate())
+        .await
+        .unwrap_or_else(|err| panic!("提交失败：{} {}", err.code, err.msg));
+    assert_eq!(stock_in_status(id).await, "PENDING_POST");
+
+    let err = repost_stock_in(id, Some(uid_of(U_WH_MGR)))
+        .await
+        .expect_err("审批没通过不能重新过账");
+    assert_eq!(err.status, 400, "{}", err.msg);
+    assert!(err.msg.contains("还没通过"), "{}", err.msg);
+    assert_eq!(stock_in_status(id).await, "PENDING_POST");
+    assert_eq!(
+        inventory_of(MATERIAL_A).await.0,
+        Decimal::ZERO,
+        "绕过复核的尝试不许动账"
+    );
+    assert!(
+        !detail_of(id).await.unwrap().repost_available,
+        "审批中详情不许给重试按钮"
+    );
+}
+
+/// ⑥ 内控开关「制单 ≠ 过账」打开时：制单人调 repost 被拦（409 + 66013），换个人可以。
+#[tokio::test]
+async fn bug02_repost_blocked_by_separation_of_duties() {
+    let _db = match setup().await {
+        Some(guard) => guard,
+        None => return,
+    };
+    setup_post_approval().await;
+    let (order_id, item_id) = a4_seed_po(A4_SUPPLIER_B, "600", "SUBMITTED").await;
+    // 制单人 = U_KEEPER（SoD 才有「自己」可比）
+    let id = create_stock_in(
+        &a4_sourced_req(order_id, item_id, "600", None),
+        Some(uid_of(U_KEEPER)),
+    )
+    .await
+    .expect("建单");
+    submit_post(id, &post_req(), Some(uid_of(U_KEEPER)), &none_gate())
+        .await
+        .unwrap_or_else(|err| panic!("提交失败：{} {}", err.code, err.msg));
+    approve_instance_without_callback(id).await;
+    assert_eq!(stock_in_status(id).await, "PENDING_POST");
+
+    // 打开开关 → 制单人重试必须被拦
+    set_sod_post(true).await;
+    let blocked = repost_stock_in(id, Some(uid_of(U_KEEPER))).await;
+    // 立刻复位开关，别污染其它用例（哪怕断言失败也要先复位）
+    set_sod_post(false).await;
+
+    let err = blocked.expect_err("内控开关打开时制单人不能自己过账");
+    assert_eq!(err.status, 409, "{}", err.msg);
+    assert_eq!(
+        err.code,
+        error_code::ERP_SEPARATION_OF_DUTIES,
+        "{}",
+        err.msg
+    );
+    assert!(err.msg.contains("制单与过账分离"), "{}", err.msg);
+    assert_eq!(stock_in_status(id).await, "PENDING_POST", "被拦不改状态");
+    assert_eq!(inventory_of(MATERIAL_A).await.0, Decimal::ZERO);
+
+    // 换一个有权限的账号 → 同一张单能正常重试（内控只拦「同一个人」）
+    repost_stock_in(id, Some(uid_of(U_WH_MGR)))
+        .await
+        .unwrap_or_else(|err| panic!("他人重试应成功：{} {}", err.code, err.msg));
+    assert_eq!(stock_in_status(id).await, "POSTED");
+    assert_eq!(inventory_of(MATERIAL_A).await.0, dec("600"));
+}

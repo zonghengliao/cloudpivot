@@ -248,6 +248,33 @@ pub async fn stock_in_submit_post(
     Ok(Res::ok(detail_of(id).await?))
 }
 
+// ==================== ③d 重新过账（BUG-02） ====================
+
+/// **重新过账**：审批已通过、但上次过账失败的单据（`PENDING_POST` + 实例 `APPROVED`）原地重试。
+///
+/// 为什么需要这个接口：审批通过回调已经跑过一次（失败即返回），`PATCH /status` 又明确
+/// 拒绝 `PENDING_POST → POSTED`（防绕过审批）—— 没有这个入口，这类单据只能删单重建，
+/// 单号与历史全丢（生产事故 `IN-20261031-000002`）。
+///
+/// **权限码沿用 `submit-post`**：能提交过账的人就能在审批通过后重试同一次过账；
+/// 「制单 ≠ 过账」「审批 ≠ 执行」这类职责分离仍由 `separation::guard` 按开关拦截，
+/// 不靠权限码表达（权限码只回答「这个岗位能不能碰这张单」）。
+/// **不放松任何校验**：实现直接复用审批通过回调的过账函数（全部 guard 重跑）。
+#[nik::permission(
+    path = "/business/erp/stock-in/{id}/repost",
+    method = "POST",
+    permission = "business:erp:stock-in:submit-post-approval"
+)]
+#[nik::post("/business/erp/stock-in/{id}/repost")]
+pub async fn stock_in_repost(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<StockInDetailRes> {
+    let id = parse_uuid(&id, "id")?;
+    repost_stock_in(id, &claims).await?;
+    Ok(Res::ok(detail_of(id).await?))
+}
+
 // ==================== ③b 撤回作废申请（P16） ====================
 
 /// 撤回收货单的作废申请（`PENDING_CANCEL → POSTED`）。

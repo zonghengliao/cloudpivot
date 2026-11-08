@@ -701,6 +701,23 @@
             <template #icon><t-icon name="file-paste" /></template>
             过账
           </t-button>
+          <!--
+            BUG-02：审批已通过、但上次过账失败的死单 —— 原地重试。
+            只在 `PENDING_POST + 实例 APPROVED` 时出现（服务端算 `repost_available`）；
+            重跑的是**同一个**过账实现，供应商复核 / 制单≠过账 / 采购单待收额度一个都不放松。
+          -->
+          <t-button
+            v-if="detail.repost_available"
+            size="small"
+            theme="warning"
+            variant="outline"
+            :disabled="reposting"
+            data-testid="btn-stockin-detail-repost"
+            @click="confirmRepost(detail.header)"
+          >
+            <template #icon><t-icon name="refresh" /></template>
+            重新过账
+          </t-button>
           <t-button
             size="small"
             theme="danger"
@@ -737,7 +754,37 @@
           <t-tag size="small" variant="outline" :theme="detail.header.invoice_received ? 'success' : 'warning'">
             {{ detail.header.invoice_received ? '发票已到' : '发票未到（暂估）' }}
           </t-tag>
+          <!-- BUG-02：同一个 `PENDING_POST` 要能看出是「审批中」还是「审批已过、过账失败」 -->
+          <t-tag
+            v-if="detail.repost_available"
+            size="small"
+            theme="danger"
+            variant="light-outline"
+            data-testid="stockin-post-failed-tag"
+          >
+            审批已通过 · 过账失败
+          </t-tag>
         </div>
+
+        <!--
+          BUG-02：审批已通过但过账失败（死单）—— 这是唯一的出路说明。
+          六本账一分没动、单据仍是「过账审批中」，改完数据点「重新过账」即可；
+          失败会返回明确原因、状态不变，可以反复重试，不需要删单重建。
+        -->
+        <t-alert
+          v-if="detail.repost_available"
+          theme="error"
+          message="审批已通过，过账失败 —— 修正数据后可重试"
+          data-testid="stockin-repost-alert"
+        >
+          <template #description>
+            <div>
+              上次过账时的校验（采购单状态 / 待收额度 / 供应商 / 单位 / 库位 / 内控）没通过，
+              <strong>六本账一笔都没动</strong>，单据仍停在「过账审批中」。
+              点「重新过账」会重跑全部校验：失败会给出具体原因、状态不变，改完再试即可。
+            </div>
+          </template>
+        </t-alert>
 
         <div class="detail__grid">
           <!-- A6：单据来源（采购入库 / 无源单据）—— 无源是 A4 的显式标记，详情里要说出来 -->
@@ -808,7 +855,10 @@
           都来自同一个 `GET /business/flow/instance/{id}`，`tasks` 就是它的 `timeline[]`。
         -->
         <template v-if="hasApprovalProgress(approvalProgress)">
-          <div class="section-title">作废审批进度</div>
+          <!-- 同一块进度：过账审批中显示「过账」，作废审批中显示「作废」 -->
+          <div class="section-title">
+            {{ detail.header.status === 'PENDING_POST' ? '过账审批进度' : '作废审批进度' }}
+          </div>
           <FlowProgress
             :nodes="approvalProgress.nodes"
             :tasks="approvalProgress.tasks"
@@ -880,6 +930,7 @@ import {
   fetchStockInPage,
   fetchSupplierOptions,
   fetchWarehousePage,
+  repostStockIn,
   submitStockInPost,
   updateStockIn,
   updateStockInStatus,
@@ -1692,6 +1743,8 @@ async function save(): Promise<void> {
 
 const postVisible = ref(false);
 const posting = ref(false);
+/** BUG-02：重新过账进行中（按钮 loading/disabled，防连点重复过账） */
+const reposting = ref(false);
 const postTarget = ref<StockInRow | null>(null);
 /** 发票选项（默认「已随货到达」；「发票未到」置灰不可选） */
 const invoiceChoice = ref<'RECEIVED' | 'ESTIMATE'>(defaultInvoiceChoice());
@@ -1745,6 +1798,44 @@ async function confirmPost(): Promise<void> {
   } finally {
     posting.value = false;
   }
+}
+
+/**
+ * 重新过账（BUG-02）：审批已通过、但上次过账失败的单据原地重试。
+ *
+ * 后端只放行 `PENDING_POST + 实例 APPROVED`，且重跑**全部**过账闸
+ * （供应商复核 / 制单≠过账 / 单位复检 / 采购单状态与待收额度）——
+ * 失败时状态保持不变，用户改完数据可以再点一次；成功后六本账一起落库。
+ */
+function confirmRepost(row: StockInRow): void {
+  if (!detail.value?.repost_available) {
+    MessagePlugin.warning('只有「审批已通过、过账失败」的单据可以重新过账');
+    return;
+  }
+  const dialog = DialogPlugin.confirm({
+    header: '重新过账',
+    body:
+      `${row.in_no} 的过账审批已通过，但上次过账失败（六本账没动）。` +
+      '重新过账会重跑全部校验：失败会给出具体原因、单据状态不变，改完数据可以再试。确认重试？',
+    confirmBtn: { content: '重新过账', theme: 'warning' },
+    onConfirm: async () => {
+      dialog.hide();
+      reposting.value = true;
+      try {
+        const updated = await repostStockIn(row.id);
+        MessagePlugin.success(`${row.in_no} 已重新过账：库存、凭证与应付已写入`);
+        if (detailVisible.value && updated?.header?.id === row.id) {
+          detail.value = updated;
+        }
+        await loadOrders();
+      } catch (error) {
+        // 明确原因原样透出（如「采购单已收满」），状态仍是过账审批中
+        MessagePlugin.error(`重新过账失败：${messageOf(error)}`);
+      } finally {
+        reposting.value = false;
+      }
+    },
+  });
 }
 
 /**
