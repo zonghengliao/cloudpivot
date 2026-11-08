@@ -472,19 +472,32 @@
                     ★ P3-07：审批通过但**还没执行**（`erp.separation_of_duties.approve_execute`
                     打开时的两段式付款）→ 给另一位有付款权限的人一个执行入口。
                     开关关闭时审批通过即自动记账（付款直接是「已通过」），按钮不会出现。
+
+                    ATT-09：出款前必须已有银行回单（规则 `PAYMENT` + `ACTIVATE`，后端
+                    `payable_payment::execute_...` 同一条闸门）→ 缺回单时按钮置灰 + 红字。
                   -->
-                  <t-button
-                    v-if="isAwaitingExecutor(item, instanceStatusOf(item))"
-                    v-privilege="[PAY_PERMISSION]"
-                    class="payment-row__execute"
-                    size="small"
-                    theme="primary"
-                    :loading="executingPaymentId === item.id"
-                    :data-testid="`payable-payment-execute-${item.payment_no}`"
-                    @click="openExecutePayment(item)"
-                  >
-                    执行付款
-                  </t-button>
+                  <template v-if="isAwaitingExecutor(item, instanceStatusOf(item))">
+                    <t-tooltip :content="payGateTip(item)" :disabled="!payGateTip(item)" placement="top-left">
+                      <span class="op-wrap">
+                        <t-button
+                          v-privilege="[PAY_PERMISSION]"
+                          class="payment-row__execute"
+                          size="small"
+                          theme="primary"
+                          :loading="executingPaymentId === item.id"
+                          :disabled="!hasPayPermission || !payGateOf(item).canProceed"
+                          :data-testid="`payable-payment-execute-${item.payment_no}`"
+                          @click="openExecutePayment(item)"
+                        >
+                          执行付款
+                        </t-button>
+                      </span>
+                    </t-tooltip>
+                    <AttachmentGateHint
+                      :hint="payGateOf(item).hint"
+                      :testid="`payable-payment-gate-hint-${item.payment_no}`"
+                    />
+                  </template>
                 </div>
                 <div v-if="item.remark" class="payment-row__remark">{{ item.remark }}</div>
               </t-timeline-item>
@@ -529,6 +542,34 @@
             default-role="INVOICE_SCAN"
             testid-prefix="payable-attach"
           />
+
+          <!--
+            ATT-09：单笔付款的银行回单（`PAYMENT` + `ACTIVATE`）—— 出款前必传。
+            挂的是**付款行**而不是应付单：闸门查的就是 `biz_payment` 这一行缺不缺回单
+            （`payable_payment.rs` 的 `ensure_attachments(Payment, payment_id, Activate)`）。
+            多笔付款时用下拉选哪一笔；被「执行付款」拦住时会自动选中那一笔。
+          -->
+          <template v-if="(detail.payments?.length ?? 0) > 0">
+            <div class="section-title">付款回单（出款前必传）</div>
+            <t-select
+              v-if="(detail.payments?.length ?? 0) > 1"
+              v-model="payAttachDocId"
+              size="small"
+              class="pay-attach-select"
+              :options="payAttachOptions"
+              data-testid="payable-pay-attach-select"
+            />
+            <p class="muted pay-attach-tip" data-testid="payable-pay-attach-tip">
+              选中的付款：{{ selectedPaymentLabel }}
+            </p>
+            <DocAttachmentPanel
+              :doc-type="DOC_KIND.PAYMENT"
+              :doc-id="payAttachDocId"
+              :default-role="DEFAULT_ROLE_BY_DOC.PAYMENT"
+              testid-prefix="payment-attach"
+              @changed="refreshPaymentGates()"
+            />
+          </template>
         </div>
       </div>
     </t-drawer>
@@ -676,8 +717,17 @@ import {
   type PayablePaymentInfo,
 } from './payable-write-api';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
+import AttachmentGateHint from '@/views/business/erp/shared/AttachmentGateHint.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
 import DocActionBar from '@/views/business/erp/shared/DocActionBar.vue';
+import {
+  degradedGate,
+  gateButtonTip,
+  gateFromCheck,
+  pendingGate,
+  type AttachmentGate,
+} from '@/views/business/erp/shared/attachment-gate-pure';
+import { checkDocAttachments, DEFAULT_ROLE_BY_DOC } from '@/api/business/erp/attachment';
 import { getFlowInstance } from '@/api/business/flow-api';
 import {
   EMPTY_APPROVAL_PROGRESS,
@@ -984,6 +1034,9 @@ async function openDetail(row: PayableRow): Promise<void> {
     await refreshApprovalProgress(detail.value);
     // ★ P3-07：付款「审批通过但还没执行」的判据（后端没下发 `awaiting_executor` 时探一次实例状态）
     await loadExecutorGate(detail.value);
+    // ★ ATT-09：待执行付款的银行回单闸门（缺回单 → 「执行付款」置灰 + 红字）
+    syncPayAttachSelection();
+    await refreshPaymentGates();
   } catch (error) {
     void MessagePlugin.error(messageOf(error));
   } finally {
@@ -1029,6 +1082,9 @@ async function refreshDetail(id: string, approvalInstanceId?: string | null): Pr
     }
     // ★ P3-07：审批进度变了 → 「执行付款」按钮的判据跟着重算
     await loadExecutorGate(fresh);
+    // ★ ATT-09：待执行付款的银行回单闸门一起重算（刚传完回单 → 按钮自动变亮）
+    syncPayAttachSelection();
+    await refreshPaymentGates();
   } catch (error) {
     // 抽屉不关：单头 / 付款记录仍是上一次的快照，但至少要说清「没刷新成功」
     void MessagePlugin.warning(`详情刷新失败：${messageOf(error)}`);
@@ -1174,6 +1230,99 @@ const awaitingExecutePayment = computed<PayablePayment | null>(() => {
   return list.find((item) => isAwaitingExecutor(item, instanceStatusOf(item))) ?? null;
 });
 
+// ==================== ATT-09：付款回单闸门（PAYMENT / ACTIVATE） ====================
+
+/**
+ * 每笔付款的附件闸门（键 = 付款行 id）。
+ *
+ * # 为什么是「一张表」而不是一个 `useAttachmentGate`
+ *
+ * 一张应付单可以有**多笔**付款（部分付款），每笔都要出自己的「缺回单」红字。
+ * 单实例组合式函数只能盯一个 document id，所以这里按 id 缓存多份闸门 ——
+ * 判定 / 文案仍然全部走 `gateFromCheck`（与 `useAttachmentGate` 同一套纯函数，
+ * 后端 `GET /attachment/check` 同一条 SQL），不另写第二套判定。
+ *
+ * 查询失败 → `degradedGate`（**不禁用按钮、不画红字**），与 `use-attachment-gate.ts`
+ * 文件头的降级口径一致：真正的闸门在后端（绕过前端直接调照样 400）。
+ */
+const paymentGates = ref<Record<string, AttachmentGate>>({});
+
+/** 某笔付款的闸门（还没查过 → 初始态：不禁用、不画红字） */
+function payGateOf(item: PayablePayment): AttachmentGate {
+  return paymentGates.value[item.id] ?? pendingGate();
+}
+
+/** 执行付款按钮的 tooltip：权限优先，其次回单缺口（定序在 `gateButtonTip` 里） */
+function payGateTip(item: PayablePayment): string {
+  return gateButtonTip(payGateOf(item), hasPayPermission.value ? '' : `缺少权限 ${PAY_PERMISSION}`);
+}
+
+/**
+ * 重查「审批通过待执行」那些付款的回单闸门。
+ *
+ * 只查待执行的那几笔：其它付款（审批中 / 已付 / 已终止）没有「出款前」这个动作，
+ * 查了也只是多几次请求。
+ */
+async function refreshPaymentGates(): Promise<void> {
+  const list = (detail.value?.payments ?? []).filter((item) =>
+    isAwaitingExecutor(item, instanceStatusOf(item)),
+  );
+  if (!list.length) {
+    paymentGates.value = {};
+    return;
+  }
+  const entries = await Promise.all(
+    list.map(async (item) => {
+      try {
+        const check = await checkDocAttachments('PAYMENT', item.id, 'ACTIVATE');
+        return [item.id, gateFromCheck(check)] as const;
+      } catch (error) {
+        console.warn('[payable] 付款回单必传校验查询失败，已降级为“不禁用按钮”', error);
+        return [
+          item.id,
+          degradedGate(error instanceof Error ? error.message : String(error)),
+        ] as const;
+      }
+    }),
+  );
+  paymentGates.value = Object.fromEntries(entries);
+}
+
+// ==================== ATT-09：付款回单上传（挂付款行，不是应付单） ====================
+
+/** 当前在「付款回单」面板里上传的那笔付款（默认选中待执行的那笔） */
+const payAttachDocId = ref('');
+
+const payAttachOptions = computed(() =>
+  (detail.value?.payments ?? []).map((item) => ({
+    value: item.id,
+    label: `${item.payment_no} · ${formatMoney(item.amount)} · ${item.approval_status_label}`,
+  })),
+);
+
+const selectedPaymentLabel = computed(() => {
+  const hit = (detail.value?.payments ?? []).find((item) => item.id === payAttachDocId.value);
+  return hit ? `${hit.payment_no}（${formatMoney(hit.amount)}，${hit.approval_status_label}）` : '—';
+});
+
+/**
+ * 详情加载 / 刷新后选一笔付款：优先「待执行」的那笔（出款要的就是它），否则第一笔。
+ * 已有有效选择就不动它（用户可能正对着某一笔在传文件）。
+ */
+function syncPayAttachSelection(): void {
+  const list = detail.value?.payments ?? [];
+  if (!list.length) {
+    payAttachDocId.value = '';
+    return;
+  }
+  if (list.some((item) => item.id === payAttachDocId.value)) {
+    return;
+  }
+  const awaiting = list.find((item) => isAwaitingExecutor(item, instanceStatusOf(item)));
+  payAttachDocId.value = awaiting?.id ?? list[0].id;
+}
+
+
 /**
  * 拉「执行付款」判据需要的那一次实例状态（**幂等**，可重复调）。
  *
@@ -1203,6 +1352,12 @@ async function loadExecutorGate(row: PayableDetail): Promise<void> {
  */
 function openExecutePayment(item: PayablePayment): void {
   if (executingPaymentId.value) {
+    return;
+  }
+  // ATT-09：回单缺失时按钮是灰的（点不到这里）；万一被脚本/键盘触发，先把人送到回单面板
+  if (!payGateOf(item).canProceed) {
+    payAttachDocId.value = item.id;
+    void MessagePlugin.warning(payGateTip(item) || '还缺付款回单，请先在「付款回单」面板上传');
     return;
   }
   const dialog = DialogPlugin.confirm({
@@ -1882,6 +2037,23 @@ onMounted(() => {
  */
 .payment-row__execute {
   align-self: center;
+}
+
+/* ATT-09：disabled 的 t-button 收不到 hover —— tooltip / 红字都必须包在普通元素里 */
+.op-wrap {
+  display: inline-flex;
+  align-self: center;
+}
+
+/* ATT-09：付款回单面板（多笔付款时选哪一笔） */
+.pay-attach-select {
+  max-width: 420px;
+  margin-bottom: 6px;
+}
+
+.pay-attach-tip {
+  margin: 0 0 8px;
+  font-size: 12px;
 }
 
 .dialog-body {

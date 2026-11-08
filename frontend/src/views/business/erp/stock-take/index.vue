@@ -538,6 +538,19 @@
 
         <t-alert v-if="actualError" theme="error" :message="actualError" class="dlg-alert" data-testid="stocktake-actual-error" />
 
+        <!--
+          ATT-09：盘点表 / 盈亏说明的上传入口 —— 提交审批前必须已有附件
+          （后端 ATT-06 闸门，规则 `STOCK_TAKE` + `CONFIRM`）。
+        -->
+        <div class="section-title">附件（盘点表 / 盈亏说明）</div>
+        <DocAttachmentPanel
+          :doc-type="DOC_KIND.STOCK_TAKE"
+          :doc-id="detail.id"
+          :default-role="DEFAULT_ROLE_BY_DOC.STOCK_TAKE"
+          testid-prefix="stocktake-attach"
+          @changed="refreshAttachGate()"
+        />
+
         <div v-if="editable" class="detail__save-row">
           <t-button
             v-privilege="[PERM.update]"
@@ -554,17 +567,28 @@
 
         <!-- 动作按钮：只由后端 next_statuses 驱动（前端不写第二份状态机） -->
         <div class="detail__actions" data-testid="stocktake-detail-actions">
-          <t-button
-            v-for="action in detailActions"
-            :key="action.status"
-            v-privilege="[PERM.status]"
-            :theme="action.theme === 'default' ? 'default' : action.theme"
-            :variant="action.theme === 'primary' ? 'base' : 'outline'"
-            :data-testid="action.testid"
-            @click="startAction(action)"
-          >
-            {{ action.label }}
-          </t-button>
+          <template v-for="action in detailActions" :key="action.status">
+            <!--
+              ATT-09：只有「提交审批」（DRAFT → PENDING_POST）受附件闸门约束
+              （规则 `STOCK_TAKE` + `CONFIRM`：盘点表 / 盈亏说明必传）。
+              其它动作（过账 / 撤回 / 作废）与附件无关，不加遮罩也不加 tooltip。
+            -->
+            <t-tooltip :content="actionTip(action)" :disabled="!actionTip(action)" placement="top-left">
+              <span class="op-wrap">
+                <t-button
+                  v-privilege="[PERM.status]"
+                  :theme="action.theme === 'default' ? 'default' : action.theme"
+                  :variant="action.theme === 'primary' ? 'base' : 'outline'"
+                  :disabled="!hasStatusPermission || actionGateBlocked(action)"
+                  :data-testid="action.testid"
+                  @click="startAction(action)"
+                >
+                  {{ action.label }}
+                </t-button>
+              </span>
+            </t-tooltip>
+          </template>
+          <AttachmentGateHint :hint="attachGate.hint" testid="stocktake-detail-gate-hint" />
           <span v-if="detailActions.length === 0" class="detail__actions-hint" data-testid="stocktake-no-actions">
             {{ detail.status === 'CANCELLED' ? '已作废：单据不可再流转' : '当前状态没有可执行动作' }}
           </span>
@@ -668,6 +692,13 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
+import { DEFAULT_ROLE_BY_DOC, type DocType } from '@/api/business/erp/attachment';
+import { DOC_KIND } from '@/api/business/erp/doc-kinds';
+import { useUserStore } from '@/stores/user';
+import AttachmentGateHint from '@/views/business/erp/shared/AttachmentGateHint.vue';
+import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
+import { gateButtonTip } from '@/views/business/erp/shared/attachment-gate-pure';
+import { useAttachmentGate } from '@/views/business/erp/shared/use-attachment-gate';
 import {
   fetchInventoryLocationPage,
   fetchLocationList,
@@ -1122,6 +1153,43 @@ const gainLoss = computed(() =>
 const detailActions = computed<StockTakeActionSpec[]>(() =>
   detail.value ? statusActions(detail.value.status, detail.value.next_statuses) : [],
 );
+
+// ==================== 附件必传闸门（ATT-09） ====================
+
+/**
+ * 盘点单「提交审批」= `DRAFT → PENDING_POST`（后端的 `CONFIRM` 动作），
+ * 此时盘点表 / 盈亏说明必传（规则 `STOCK_TAKE` + `CONFIRM`）。
+ *
+ * 只有草稿要查：已待过账 / 已过账 / 已作废不会再走这条边。
+ */
+const attachDocType = ref<DocType>('STOCK_TAKE');
+const attachDocId = computed(() => (detail.value?.status === 'DRAFT' ? detail.value.id : null));
+
+const { gate: attachGate, refresh: refreshAttachGate } = useAttachmentGate({
+  docType: attachDocType,
+  docId: attachDocId,
+  at: 'CONFIRM',
+});
+
+const userStore = useUserStore();
+const hasStatusPermission = computed(() => userStore.hasPermission(PERM.status));
+const statusTip = computed(() => (hasStatusPermission.value ? '' : `缺少权限 ${PERM.status}`));
+
+/** 这个动作是否被附件闸门拦住（只有「提交审批」那一条边受约束，见模板注释） */
+function actionGateBlocked(action: StockTakeActionSpec): boolean {
+  return action.status === 'PENDING_POST' && !attachGate.value.canProceed;
+}
+
+/**
+ * 动作按钮的 tooltip：只有受闸门约束的动作才有文案（权限优先，其次附件缺口）。
+ * 其它动作返回空串 → `:disabled="!tip"` 不挂空 tooltip。
+ */
+function actionTip(action: StockTakeActionSpec): string {
+  if (action.status !== 'PENDING_POST') {
+    return '';
+  }
+  return gateButtonTip(attachGate.value, statusTip.value);
+}
 
 /** 上一次动作失败是不是「没配已发布审批流程」（决定要不要摆出「显式跳过」这条出路） */
 const errorFlowFlag = ref(false);
@@ -1717,6 +1785,11 @@ onMounted(() => {
 .detail__actions-hint {
   font-size: 12px;
   color: var(--td-text-color-placeholder);
+}
+
+/* ATT-09：disabled 的 t-button 收不到 hover —— tooltip 必须包一层普通元素才能对灰按钮生效 */
+.op-wrap {
+  display: inline-flex;
 }
 
 /* ==================== 通用小件 ==================== */

@@ -450,7 +450,11 @@
     </t-dialog>
 
     <!-- ==================== ⑤ 详情抽屉 ==================== -->
-    <ExpenseDetailDrawer v-model="detailVisible" :report-id="detailId" />
+    <ExpenseDetailDrawer
+      v-model="detailVisible"
+      :report-id="detailId"
+      @submitted="onDetailSubmitted"
+    />
   </div>
 </template>
 
@@ -475,6 +479,7 @@ import {
   type ExpenseType,
 } from '@/api/business/erp/expense';
 import { useUserStore } from '@/stores/user';
+import { checkDocAttachments } from '@/api/business/erp/attachment';
 import { formatMoney } from '@/views/business/erp/shared/money';
 import {
   budgetFlag,
@@ -738,6 +743,27 @@ async function handleSave(submitAfter: boolean): Promise<void> {
       ? await updateExpense(editingId.value, payload)
       : await createExpense(payload);
     if (submitAfter) {
+      /*
+       * ATT-09：新建（或刚编辑完）的单据一定还没有附件 —— 「保存并提交审批」必然被闸门拦。
+       * 所以先查一次：缺什么就把单子**存成草稿**、说清缺什么、直接把详情打开（那里能上传，
+       * 也有提交按钮），而不是让用户点完只看到一条 400 报文。
+       * 查询失败 → 不阻断（同 `use-attachment-gate` 的降级口径），交给后端权威判定。
+       */
+      const blocked = await checkDocAttachments('EXPENSE_REPORT', saved.report.id, 'SUBMIT').catch(
+        (error: unknown) => {
+          console.warn('[expense] 保存并提交前必传校验失败，降级为直接提交（后端仍会拦）', error);
+          return null;
+        },
+      );
+      if (blocked && !blocked.can_proceed) {
+        dialogVisible.value = false;
+        await loadRows();
+        MessagePlugin.warning(
+          `已保存草稿：${blocked.at_label || '提交'}前需要补齐 ${blocked.hint ?? '必传附件'}（在详情里上传后再提交）`,
+        );
+        openDetail(saved.report);
+        return;
+      }
       await submitExpense(saved.report.id);
       MessagePlugin.success('已保存并提交审批');
     } else {
@@ -753,6 +779,41 @@ async function handleSave(submitAfter: boolean): Promise<void> {
 }
 
 // ==================== 动作 ====================
+
+/**
+ * 提交前列一次附件闸门（ATT-09）。
+ *
+ * 列表行没有「按钮旁红字」的位置，让用户点一下只拿到后端 400 是最烦的体验：
+ * 缺什么就直说，并**打开详情**（详情里有上传面板 + 那个按钮的红字，验收①②都落在那里）。
+ *
+ * 查询失败 → **不阻断**（`use-attachment-gate.ts` 同一条降级口径）：一次数据库抖动
+ * 不该锁死提交，真正的闸门在后端，绕过前端直接提交照样 400。
+ *
+ * @returns `true` = 可以继续走提交（缺附件时返回 `false`，并已把用户送到详情）
+ */
+async function passAttachmentGate(row: ExpenseReport, openOnBlocked = true): Promise<boolean> {
+  try {
+    const check = await checkDocAttachments('EXPENSE_REPORT', row.id, 'SUBMIT');
+    if (check.can_proceed) {
+      return true;
+    }
+    MessagePlugin.warning(
+      `${check.at_label || '提交'}前需要补齐：${check.hint ?? '缺少必传附件（发票影像或费用凭证）'}`,
+    );
+    if (openOnBlocked) {
+      await openDetail(row);
+    }
+    return false;
+  } catch (error) {
+    console.warn('[expense] 提交前必传校验查询失败，降级为直接提交（后端仍会拦）', error);
+    return true;
+  }
+}
+
+/** 详情抽屉里提交成功：列表要重拉（状态变了），抽屉自己会重读详情 */
+function onDetailSubmitted(): void {
+  void loadRows();
+}
 
 function confirmAction(header: string, body: string, run: () => Promise<void>): void {
   const dialog = DialogPlugin.confirm({
@@ -770,7 +831,12 @@ function confirmAction(header: string, body: string, run: () => Promise<void>): 
   });
 }
 
-function handleSubmit(row: ExpenseReport): void {
+async function handleSubmit(row: ExpenseReport): Promise<void> {
+  // ATT-09：先查附件闸门 —— 缺发票影像就直接点名并打开详情（里面能传、也有红字），
+  // 而不是让用户先点确认、再吃一次 400。
+  if (!(await passAttachmentGate(row))) {
+    return;
+  }
   confirmAction(
     '提交审批',
     `确认提交「${row.report_no}」？提交后按金额分级进入审批流，审批通过会自动生成计提凭证并占用预算。`,

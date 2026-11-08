@@ -566,6 +566,23 @@
                 </div>
               </div>
             </t-tab-panel>
+
+            <!--
+              ATT-09：附件页签 —— 「启用（入账）」前必须有发票或验收单
+              （规则 `FIXED_ASSET` + `ACTIVATE`）。没有上传入口，必传规则永远无法满足。
+            -->
+            <t-tab-panel value="attachments" label="附件">
+              <p class="muted attach-rule">
+                启用（入账）前必须上传发票或验收单（pdf / jpg / png）；停用不受此约束。
+              </p>
+              <DocAttachmentPanel
+                :doc-type="DOC_KIND.FIXED_ASSET"
+                :doc-id="detail.asset.id"
+                :default-role="DEFAULT_ROLE_BY_DOC.FIXED_ASSET"
+                testid-prefix="asset-attach"
+                @changed="refreshAssetGate()"
+              />
+            </t-tab-panel>
           </t-tabs>
         </template>
       </t-loading>
@@ -724,6 +741,7 @@
         content: statusChangeKind === 'IDLE' ? '确认停用' : '确认启用',
         loading: submitting,
         theme: statusChangeKind === 'IDLE' ? 'warning' : 'primary',
+        disabled: statusChangeKind === 'IN_USE' && !assetGate.canProceed,
       }"
       data-testid="asset-status-dialog"
       @confirm="submitStatusChange"
@@ -738,6 +756,26 @@
         theme="info"
         message="启用后资产回到「在役」，继续按月计提折旧。"
       />
+      <!--
+        ATT-09：启用 = 资产的「入账 / 生效」动作，发票或验收单必传
+        （规则 `FIXED_ASSET` + `ACTIVATE`，后端 `asset_status_change` 同一条闸门）。
+        缺附件时「确认启用」置灰并在这里点名缺什么；上传入口在「资产详情 → 附件」页签。
+      -->
+      <AttachmentGateHint
+        v-if="statusChangeKind === 'IN_USE'"
+        class="status-gate-hint"
+        :hint="assetGate.hint"
+        testid="asset-enable-gate-hint"
+      />
+      <t-link
+        v-if="statusChangeKind === 'IN_USE' && !assetGate.canProceed && statusChangeTarget"
+        theme="primary"
+        class="status-gate-link"
+        data-testid="asset-enable-upload-link"
+        @click="openStatusUpload"
+      >
+        去「资产详情 → 附件」上传发票 / 验收单
+      </t-link>
       <t-form label-width="92px" class="cancel-form">
         <t-form-item
           label="原因"
@@ -769,6 +807,11 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 
 import { fetchStockInPage, fetchSupplierOptions, type StockInRow, type Supplier } from '@/api/business/erp';
+import { DEFAULT_ROLE_BY_DOC, type DocType } from '@/api/business/erp/attachment';
+import { DOC_KIND } from '@/api/business/erp/doc-kinds';
+import AttachmentGateHint from '@/views/business/erp/shared/AttachmentGateHint.vue';
+import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
+import { useAttachmentGate } from '@/views/business/erp/shared/use-attachment-gate';
 import {
   cancelAssetDispose,
   changeAssetStatus,
@@ -1195,7 +1238,7 @@ async function submitForm(): Promise<void> {
 const detailVisible = ref(false);
 const detail = ref<AssetDetail | null>(null);
 const detailLoading = ref(false);
-const detailTab = ref<'changes' | 'depreciations' | 'vouchers'>('changes');
+const detailTab = ref<'changes' | 'depreciations' | 'vouchers' | 'attachments'>('changes');
 
 async function openDetail(row: AssetRow): Promise<void> {
   detailVisible.value = true;
@@ -1424,6 +1467,42 @@ const statusChangeForm = reactive({ reason: '', change_date: '' });
 const statusChangeError = ref('');
 const statusChangeTarget = ref<AssetRow | null>(null);
 
+// ==================== 附件必传闸门（ATT-09） ====================
+
+/**
+ * 启用（`IDLE → IN_USE`）= 资产的「入账 / 生效」动作，此时发票或验收单必传
+ * （规则 `FIXED_ASSET` + `ACTIVATE`，后端 `asset_status_change` 里同一条闸门）。
+ *
+ * 只在**启用**弹窗里查（停用与附件无关）：弹窗打开时把 `docId` 指向目标资产，
+ * 关闭 / 切成停用就置 `null`（组合式函数回到初始态，不发请求、不禁用、不画红字）。
+ */
+const assetGateDocType = ref<DocType>('FIXED_ASSET');
+const assetGateDocId = computed(() =>
+  statusChangeKind.value === 'IN_USE' ? statusChangeTarget.value?.id ?? null : null,
+);
+
+const { gate: assetGate, refresh: refreshAssetGate } = useAttachmentGate({
+  docType: assetGateDocType,
+  docId: assetGateDocId,
+  at: 'ACTIVATE',
+});
+
+/**
+ * 从「启用被闸门拦住」的弹窗跳去上传：关掉弹窗 → 打开该资产详情 → 直接切到附件页签。
+ * （不这么做的话，红字只说「缺发票或验收单」，用户找不到上传入口。）
+ */
+function openStatusUpload(): void {
+  const target = statusChangeTarget.value;
+  statusChangeVisible.value = false;
+  if (!target) {
+    return;
+  }
+  void openDetail(target).then(() => {
+    detailTab.value = 'attachments';
+  });
+}
+
+
 function openStatusChange(row: AssetRow, target: 'IDLE' | 'IN_USE'): void {
   statusChangeTarget.value = row;
   statusChangeKind.value = target;
@@ -1439,6 +1518,12 @@ async function submitStatusChange(): Promise<void> {
     return;
   }
   const idling = statusChangeKind.value === 'IDLE';
+  // ATT-09：启用前必须有发票或验收单（弹窗按钮已置灰，这里再兜一次底）
+  if (!idling && !assetGate.value.canProceed) {
+    statusChangeError.value =
+      assetGate.value.hint ?? '还缺必传附件：请先在「资产详情 → 附件」上传发票或验收单';
+    return;
+  }
   const reasonError = requireReasonError(statusChangeForm.reason, idling ? '停用原因' : '启用原因');
   if (reasonError) {
     statusChangeError.value = reasonError;
@@ -1795,5 +1880,22 @@ onMounted(async () => {
 
 .cancel-form {
   margin-top: 12px;
+}
+
+/* ATT-09：启用弹窗里的必传红字 / 去上传的入口 / 附件页签的规则说明 */
+.status-gate-hint {
+  display: block;
+  margin: 8px 0 0;
+}
+
+.status-gate-link {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.attach-rule {
+  margin: 0 0 8px;
+  font-size: 12px;
 }
 </style>

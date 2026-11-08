@@ -271,24 +271,61 @@
         :doc-id="report.id"
         default-role="INVOICE_SCAN"
         testid-prefix="expense-attach"
+        @changed="refreshAttachGate()"
       />
+
+      <!--
+        ==================== ⑦ 提交审批（ATT-09） ====================
+
+        提交按钮放在详情里（而不是只留列表行）：提交前必须已有附件，而附件面板就在上方 ——
+        把「缺什么 / 上传入口 / 提交按钮」摆在一起，用户不必在两处之间来回猜。
+        列表行的「提交」仍保留，但它会先查一次闸门、缺附件时把你送到这里。
+      -->
+      <div class="detail-actions" data-testid="expense-detail-actions">
+        <template v-if="report.status === 'DRAFT'">
+          <!-- 缺附件时按钮 disabled，外面套 tooltip 说明原因（disabled 的 t-button 收不到 hover） -->
+          <t-tooltip :content="submitGateTip" :disabled="!submitGateTip" placement="top-left">
+            <span class="op-wrap">
+              <t-button
+                theme="primary"
+                :loading="submitting"
+                :disabled="!hasSubmitPermission || !attachGate.canProceed"
+                data-testid="expense-detail-submit"
+                @click="handleSubmit"
+              >
+                提交审批
+              </t-button>
+            </span>
+          </t-tooltip>
+          <AttachmentGateHint :hint="attachGate.hint" testid="expense-detail-gate-hint" />
+        </template>
+        <t-button variant="outline" data-testid="expense-detail-close" @click="emit('update:modelValue', false)">
+          关闭
+        </t-button>
+      </div>
     </div>
   </t-drawer>
 </template>
 
 <script setup lang="ts">
 /**
- * 详情抽屉只做「读 + 展示」，动作（提交 / 撤回 / 作废 / 付款）留在列表页的工具条里：
- * 两页共用一份详情，动作各页按自己的角色给（我的报销给提交 / 撤回，待付款给付款登记）。
+ * 详情抽屉主要是「读 + 展示」；唯一的状态动作是**提交审批**（ATT-09）——
+ * 提交前必须已有附件，而附件面板就在同一页，所以把「红字 / 上传入口 / 灰按钮」
+ * 放在一起（其余动作：撤回 / 作废 / 付款登记仍留在列表页的工具条里）。
  */
 import { computed, ref, watch } from 'vue';
-import type { PrimaryTableCol } from 'tdesign-vue-next';
+import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 
-import { fetchExpenseDetail, type ExpenseDetail } from '@/api/business/erp/expense';
+import { fetchExpenseDetail, submitExpense, type ExpenseDetail } from '@/api/business/erp/expense';
 import { DOC_KIND } from '@/api/business/erp/doc-kinds';
+import type { DocType } from '@/api/business/erp/attachment';
 import { getFlowInstance } from '@/api/business/flow-api';
+import { useUserStore } from '@/stores/user';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
+import AttachmentGateHint from '@/views/business/erp/shared/AttachmentGateHint.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
+import { gateButtonTip } from '@/views/business/erp/shared/attachment-gate-pure';
+import { useAttachmentGate } from '@/views/business/erp/shared/use-attachment-gate';
 import {
   EMPTY_APPROVAL_PROGRESS,
   hasApprovalProgress,
@@ -320,6 +357,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   /** 抽屉显隐 */
   (event: 'update:modelValue', value: boolean): void;
+  /** 提交审批成功（父页重拉列表 —— 状态 / 已提交标记都变了） */
+  (event: 'submitted', reportId: string): void;
 }>();
 
 const loading = ref(false);
@@ -328,6 +367,70 @@ const detail = ref<ExpenseDetail | null>(null);
 const approvalProgress = ref<ApprovalProgress>({ ...EMPTY_APPROVAL_PROGRESS });
 
 const report = computed(() => detail.value?.report ?? null);
+
+// ==================== 附件必传闸门（ATT-09） ====================
+
+/**
+ * 报销单提交前必须已有发票影像 / 费用凭证（规则表 `EXPENSE_REPORT` + `SUBMIT`）。
+ *
+ * 只有**草稿**才需要：已提交 / 审批中 / 作废的单子不会再走「提交」这条边，
+ * 传 `null` 让组合式函数回到初始态（不发请求、不禁用按钮、不画红字）。
+ */
+const attachDocType = ref<DocType>('EXPENSE_REPORT');
+const attachDocId = computed(() => (report.value?.status === 'DRAFT' ? report.value.id : null));
+
+const { gate: attachGate, refresh: refreshAttachGate } = useAttachmentGate({
+  docType: attachDocType,
+  docId: attachDocId,
+  at: 'SUBMIT',
+});
+
+/** 提交权限码（与 `expense/index.vue` 的 `PERM.submit` 同码） */
+const SUBMIT_PERMISSION = 'business:erp:expense:submit';
+const userStore = useUserStore();
+const hasSubmitPermission = computed(() => userStore.hasPermission(SUBMIT_PERMISSION));
+const submitTip = computed(() =>
+  hasSubmitPermission.value ? '' : `缺少权限 ${SUBMIT_PERMISSION}`,
+);
+
+/** 提交按钮的 tooltip：权限优先，其次附件缺口（定序在 `gateButtonTip` 里） */
+const submitGateTip = computed(() => gateButtonTip(attachGate.value, submitTip.value));
+
+const submitting = ref(false);
+
+/**
+ * 提交审批。
+ *
+ * 按钮在缺附件时是 disabled，正常点不到这里；这里仍然兜一次底（权限 / 闸门），
+ * 因为 tooltip + disabled 只是「提前告知」，真正的判定在后端。
+ */
+async function handleSubmit(): Promise<void> {
+  const target = report.value;
+  if (!target || submitting.value) {
+    return;
+  }
+  if (!hasSubmitPermission.value) {
+    MessagePlugin.warning(submitTip.value);
+    return;
+  }
+  if (!attachGate.value.canProceed) {
+    MessagePlugin.warning(submitGateTip.value || '还缺必传附件，请先在上方附件面板上传');
+    return;
+  }
+  submitting.value = true;
+  try {
+    await submitExpense(target.id);
+    MessagePlugin.success('已提交审批');
+    emit('submitted', target.id);
+    await load();
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : String(error));
+    // 失败后重查闸门：可能是别人删了附件 / 规则刚被改
+    void refreshAttachGate();
+  } finally {
+    submitting.value = false;
+  }
+}
 
 const itemColumns: PrimaryTableCol[] = [
   { colKey: 'line_no', title: '#', width: 42 },
@@ -581,5 +684,21 @@ watch(
   margin: 8px 0;
   color: var(--td-text-color-secondary);
   font-size: 13px;
+}
+
+/* ATT-09：详情底部动作条（提交审批 + 红字 + 关闭） */
+.detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--td-component-border);
+}
+
+/* disabled 的 t-button 收不到 hover：tooltip 必须包一层普通元素才能对灰按钮生效 */
+.op-wrap {
+  display: inline-flex;
 }
 </style>

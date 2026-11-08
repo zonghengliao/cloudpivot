@@ -381,16 +381,27 @@
             {{ detail.status_label || returnStatusLabel(detail.status) }}
           </t-tag>
           <span class="detail-head__spacer" />
-          <t-button
-            v-if="detailActions.submit"
-            v-privilege="[PERM.status]"
-            size="small"
-            theme="primary"
-            data-testid="btn-return-detail-submit"
-            @click="submitReturn(detail)"
-          >
-            提交
-          </t-button>
+          <template v-if="detailActions.submit">
+            <!--
+              ATT-09：提交（DRAFT → SUBMITTED）前必须已有退货单 / 物流凭证
+              （规则 `SALES_RETURN` + `SUBMIT`）。缺附件时按钮 disabled，并给出红字 + tooltip。
+            -->
+            <t-tooltip :content="submitGateTip" :disabled="!submitGateTip" placement="top-left">
+              <span class="op-wrap">
+                <t-button
+                  v-privilege="[PERM.status]"
+                  size="small"
+                  theme="primary"
+                  :disabled="!hasStatusPermission || !attachGate.canProceed"
+                  data-testid="btn-return-detail-submit"
+                  @click="submitReturn(detail)"
+                >
+                  提交
+                </t-button>
+              </span>
+            </t-tooltip>
+            <AttachmentGateHint :hint="attachGate.hint" testid="return-detail-gate-hint" />
+          </template>
           <t-button
             v-if="detailActions.approve"
             v-privilege="[PERM.status]"
@@ -556,6 +567,19 @@
           </template>
           <template #remark="{ row }">{{ row.remark || '—' }}</template>
         </t-table>
+
+        <!--
+          ATT-09：退货单 / 物流凭证的上传入口。提交前必须已有附件（后端 ATT-06 闸门，
+          规则 `SALES_RETURN` + `SUBMIT`）—— 没有上传入口，必传规则永远无法满足。
+        -->
+        <div class="section-title">附件（退货单 / 物流凭证）</div>
+        <DocAttachmentPanel
+          :doc-type="DOC_KIND.SALES_RETURN"
+          :doc-id="detail.id"
+          :default-role="DEFAULT_ROLE_BY_DOC.SALES_RETURN"
+          testid-prefix="return-attach"
+          @changed="refreshAttachGate()"
+        />
       </template>
     </t-drawer>
 
@@ -644,6 +668,12 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { useUserStore } from '@/stores/user';
 import { ApiError } from '@/api/request';
+import { checkDocAttachments, DEFAULT_ROLE_BY_DOC, type DocType } from '@/api/business/erp/attachment';
+import { DOC_KIND } from '@/api/business/erp/doc-kinds';
+import AttachmentGateHint from '@/views/business/erp/shared/AttachmentGateHint.vue';
+import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
+import { gateButtonTip } from '@/views/business/erp/shared/attachment-gate-pure';
+import { useAttachmentGate } from '@/views/business/erp/shared/use-attachment-gate';
 import {
   fetchCustomerPage,
   fetchLocationList,
@@ -1087,6 +1117,10 @@ async function advance(
 
 /** 提交：`DRAFT → SUBMITTED`（同事务重跑超退闸） */
 async function submitReturn(row: SalesReturn): Promise<void> {
+  // ATT-09：先过附件闸门（列表行也能被这里拦住；详情里的按钮已 disabled，这里只是再兜一次）
+  if (!(await passAttachmentGate(row))) {
+    return;
+  }
   await advance(row, 'SUBMITTED');
 }
 
@@ -1200,6 +1234,54 @@ const detail = ref<SalesReturn | null>(null);
 const approvalProgress = ref<ApprovalProgress>({ ...EMPTY_APPROVAL_PROGRESS });
 
 const detailActions = computed(() => rowActions(detail.value ?? { status: null }));
+
+// ==================== 附件必传闸门（ATT-09） ====================
+
+/**
+ * 销售退货提交前必须已有退货单 / 物流凭证（规则 `SALES_RETURN` + `SUBMIT`；
+ * 后端 `sales_return_handler` 的 `DRAFT → SUBMITTED` 边同一条闸门）。
+ *
+ * 只有**草稿**才查：其它状态不会再走提交边，传 `null` 回到初始态（不查、不禁用、不画红字）。
+ */
+const attachDocType = ref<DocType>('SALES_RETURN');
+const attachDocId = computed(() => (detail.value?.status === 'DRAFT' ? detail.value.id : null));
+
+const { gate: attachGate, refresh: refreshAttachGate } = useAttachmentGate({
+  docType: attachDocType,
+  docId: attachDocId,
+  at: 'SUBMIT',
+});
+
+const hasStatusPermission = computed(() => userStore.hasPermission(PERM.status));
+const statusTip = computed(() => (hasStatusPermission.value ? '' : `缺少权限 ${PERM.status}`));
+/** 提交按钮 tooltip：权限优先，其次附件缺口（定序在 `gateButtonTip` 里） */
+const submitGateTip = computed(() => gateButtonTip(attachGate.value, statusTip.value));
+
+/**
+ * 提交前的附件闸门（列表行 / 详情共用）。
+ *
+ * 详情里的按钮已受「权限 ∪ 闸门」约束；列表行没有红字的位置，所以缺什么就直说、
+ * 并把用户送到详情（那里有上传面板 + 红字）。查询失败不阻断（同 `use-attachment-gate`
+ * 的降级口径），后端才是最终闸门。
+ */
+async function passAttachmentGate(row: SalesReturn): Promise<boolean> {
+  try {
+    const check = await checkDocAttachments('SALES_RETURN', row.id, 'SUBMIT');
+    if (check.can_proceed) {
+      return true;
+    }
+    MessagePlugin.warning(
+      `${check.at_label || '提交'}前需要补齐：${check.hint ?? '缺少必传附件（退货单或物流凭证）'}`,
+    );
+    if (!(detailVisible.value && detail.value?.id === row.id)) {
+      await openDetail(row);
+    }
+    return false;
+  } catch (error) {
+    console.warn('[sales-return] 提交前必传校验查询失败，降级为直接提交（后端仍会拦）', error);
+    return true;
+  }
+}
 const links = computed(() =>
   postingLinks(
     detail.value ?? { status: null, stock_in_id: null, receivable_id: null, red_invoice_id: null },
@@ -1392,6 +1474,11 @@ onMounted(async () => {
   &__spacer {
     flex: 1;
   }
+}
+
+/* ATT-09：disabled 的 t-button 收不到 hover —— tooltip 必须包一层普通元素才能对灰按钮生效 */
+.op-wrap {
+  display: inline-flex;
 }
 
 .status-line {

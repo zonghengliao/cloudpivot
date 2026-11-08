@@ -105,6 +105,40 @@
           <template #price_incl="{ row }">{{ decimalText(row.price_incl, 4) }}</template>
           <template #with_tax_amount="{ row }">{{ decimalText(row.with_tax_amount) }}</template>
         </t-table>
+
+        <!--
+          ATT-09：退货单/签收凭证的上传入口 —— 提交审批前必须已有附件（后端 ATT-06 闸门，
+          规则 `PURCHASE_RETURN` + `SUBMIT`）。没有上传入口的页面，必传规则永远无法满足。
+        -->
+        <h4 class="prt-section">附件（退货单 / 签收凭证）</h4>
+        <DocAttachmentPanel
+          :doc-type="DOC_KIND.PURCHASE_RETURN"
+          :doc-id="detail.purchase_return.id"
+          :default-role="DEFAULT_ROLE_BY_DOC.PURCHASE_RETURN"
+          testid-prefix="prt-attach"
+          @changed="refreshAttachGate()"
+        />
+
+        <div class="prt-actions" data-testid="prt-detail-actions">
+          <template v-if="detail.purchase_return.status === 'DRAFT'">
+            <!-- 缺附件时按钮 disabled，外面套 tooltip（disabled 的 t-button 收不到 hover） -->
+            <t-tooltip :content="submitGateTip" :disabled="!submitGateTip" placement="top-left">
+              <span class="op-wrap">
+                <t-button
+                  theme="primary"
+                  :loading="submitting"
+                  :disabled="!hasSubmitPermission || !attachGate.canProceed"
+                  data-testid="prt-detail-submit"
+                  @click="submitFromDetail"
+                >
+                  提交审批
+                </t-button>
+              </span>
+            </t-tooltip>
+            <AttachmentGateHint :hint="attachGate.hint" testid="prt-detail-gate-hint" />
+          </template>
+          <t-button variant="outline" data-testid="prt-detail-close" @click="detailVisible = false">关闭</t-button>
+        </div>
       </template>
     </t-drawer>
 
@@ -203,6 +237,13 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import type { DateRangeValue } from 'tdesign-vue-next';
 import { fetchStockInPage } from '@/api/business/erp';
+import { checkDocAttachments, DEFAULT_ROLE_BY_DOC, type DocType } from '@/api/business/erp/attachment';
+import { DOC_KIND } from '@/api/business/erp/doc-kinds';
+import { useUserStore } from '@/stores/user';
+import AttachmentGateHint from '@/views/business/erp/shared/AttachmentGateHint.vue';
+import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
+import { gateButtonTip } from '@/views/business/erp/shared/attachment-gate-pure';
+import { useAttachmentGate } from '@/views/business/erp/shared/use-attachment-gate';
 import {
   cancelPurchaseReturn,
   confirmPurchaseReturn,
@@ -322,6 +363,34 @@ async function openDetail(id: string) {
     MessagePlugin.error(String(error));
   }
 }
+
+// ==================== 附件必传闸门（ATT-09） ====================
+
+/**
+ * 采购退货提交审批前必须已有退货单 / 签收凭证
+ * （规则表 `PURCHASE_RETURN` + `SUBMIT`，后端 `purchase_return_handler::submit` 同一条闸门）。
+ *
+ * 只有草稿要查：已提交 / 已批准 / 已确认 / 已作废不会再走 `→ SUBMITTED`。
+ */
+const attachDocType = ref<DocType>('PURCHASE_RETURN');
+const attachDocId = computed(() =>
+  detail.value?.purchase_return.status === 'DRAFT' ? detail.value.purchase_return.id : null,
+);
+
+const { gate: attachGate, refresh: refreshAttachGate } = useAttachmentGate({
+  docType: attachDocType,
+  docId: attachDocId,
+  at: 'SUBMIT',
+});
+
+/** 提交权限码（后端 `purchase_return_handler::submit` 的 `#[nik::permission]`） */
+const SUBMIT_PERMISSION = 'business:erp:purchase-return:submit';
+const userStore = useUserStore();
+const hasSubmitPermission = computed(() => userStore.hasPermission(SUBMIT_PERMISSION));
+const submitTip = computed(() => (hasSubmitPermission.value ? '' : `缺少权限 ${SUBMIT_PERMISSION}`));
+
+/** 提交按钮 tooltip：权限优先，其次附件缺口（定序在 `gateButtonTip` 里） */
+const submitGateTip = computed(() => gateButtonTip(attachGate.value, submitTip.value));
 
 // ==================== 新建 ====================
 
@@ -457,13 +526,74 @@ function confirmAsk() {
   settleAsk(askText.value.trim());
 }
 
-async function onSubmit(row: ReturnRow) {
+const submitting = ref(false);
+
+/**
+ * 提交审批前的附件闸门（ATT-09）。
+ *
+ * 列表行没有「按钮旁红字」的位置，所以缺什么就直说、并**打开详情**（详情里有上传面板
+ * 和那个按钮的红字，验收①②都落在那里）。查询失败不阻断（同 `use-attachment-gate`
+ * 的降级口径），交给后端权威判定。
+ */
+async function passAttachmentGate(docId: string): Promise<boolean> {
   try {
-    await submitPurchaseReturn(row.id);
+    const check = await checkDocAttachments('PURCHASE_RETURN', docId, 'SUBMIT');
+    if (check.can_proceed) {
+      return true;
+    }
+    MessagePlugin.warning(
+      `${check.at_label || '提交'}前需要补齐：${check.hint ?? '缺少必传附件（退货单或签收凭证）'}`,
+    );
+    await openDetail(docId);
+    return false;
+  } catch (error) {
+    console.warn('[purchase-return] 提交前必传校验查询失败，降级为直接提交（后端仍会拦）', error);
+    return true;
+  }
+}
+
+/** 提交审批（列表行）：先查闸门再提交 */
+async function onSubmit(row: ReturnRow): Promise<void> {
+  if (!(await passAttachmentGate(row.id))) {
+    return;
+  }
+  await runSubmit(row.id);
+}
+
+/** 提交审批（详情抽屉）：按钮已受权限 ∪ 闸门约束，这里仍兜一次底 */
+async function submitFromDetail(): Promise<void> {
+  const target = detail.value?.purchase_return;
+  if (!target) {
+    return;
+  }
+  if (!hasSubmitPermission.value) {
+    MessagePlugin.warning(submitTip.value);
+    return;
+  }
+  if (!attachGate.value.canProceed) {
+    MessagePlugin.warning(submitGateTip.value || '还缺必传附件，请先在上方附件面板上传');
+    return;
+  }
+  await runSubmit(target.id);
+}
+
+/** 真正提交（列表 / 详情共用一条路径），成功后列表与（打开着的）详情都刷新 */
+async function runSubmit(id: string): Promise<void> {
+  if (submitting.value) {
+    return;
+  }
+  submitting.value = true;
+  try {
+    await submitPurchaseReturn(id);
     MessagePlugin.success('已提交审批');
-    load();
+    await load();
+    if (detailVisible.value) {
+      detail.value = await getPurchaseReturn(id);
+    }
   } catch (error) {
     MessagePlugin.error(String(error));
+  } finally {
+    submitting.value = false;
   }
 }
 
@@ -522,5 +652,19 @@ onMounted(() => load(1));
   margin-top: 10px;
   text-align: right;
   color: var(--td-text-color-secondary);
+}
+/* ATT-09：详情底部动作条（提交审批 + 红字 + 关闭） */
+.prt-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--td-component-border);
+}
+/* disabled 的 t-button 收不到 hover：tooltip 必须包一层普通元素才能对灰按钮生效 */
+.op-wrap {
+  display: inline-flex;
 }
 </style>
