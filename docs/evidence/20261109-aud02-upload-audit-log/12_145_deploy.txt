@@ -1,0 +1,15 @@
+== git pull ==
+ frontend/src/views/business/erp/stockin/index.vue  |  93 ++++-
+ 21 files changed, 2102 insertions(+), 382 deletions(-)
+ create mode 100644 docs/evidence/20261109-bug02/README.md
+ create mode 100644 docs/evidence/20261109-bug02/runs.md
+ create mode 100644 docs/evidence/20261109-tst02b/README.md
+9201ed45 fix(attachment): 上传审计行直写 operation_logs（AUD-02）
+== cargo build ==
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 38s
+BUILD_EXIT=0
+== restart ==
+active
+28cf2dfcf4fe7beb724d0c685cd558e7  /opt/cloudpivot/backend/target/debug/cloudpivot
+== DONE ==

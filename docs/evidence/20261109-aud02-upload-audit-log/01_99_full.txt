@@ -1,0 +1,16 @@
+# 原文件 331 KB（3854 行 test 结果），此处只留头尾；完整输出可用命令复现：
+# (cd /opt/cloudpivot/backend && unset ERP_DB_URL && cargo test --lib -- --test-threads=4)
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 3854 tests
+test bootstrap::tests::generated_passwords_are_not_repeated ... ok
+test bootstrap::tests::generated_password_has_requested_length_and_charset ... ok
+test business::aiagent::handler::tests::normalize_model_accepts_only_object_or_null ... ok
+test business::aiagent::handler::tests::description_is_flattened_and_bounded ... ok
+...
+test system::auth::handler::tests::login_rate_resets_after_window_expires ... ok
+
+test result: ok. 3854 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.81s
+

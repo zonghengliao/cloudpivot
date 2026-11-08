@@ -1,0 +1,27 @@
+== STAMP=aud02_052911 ==
+TOKEN_LEN=492
+DOC_ID=01a1bc8e-eb4e-70ad-92c6-f383eb93cb9c
+-rw-r--r-- 1 root root 92 Nov  9 05:29 /tmp/aud02_052911.pdf
+== 上传（真 token） ==
+{"code":0,"msg":"ok","data":{"id":"01a1bd10-b601-767a-b367-6600a9354f5b","file_id":"01a1bd10-b600-7652-a9ea-8384b7690369","file_name":"aud02_052911.pdf","file_size":92,"file_role":"CONTRACT_SCAN","doc_type":"CONTRACT","doc_id":"01a1bc8e-eb4e-70ad-92c6-f383eb93cb9c","duplicated":false}}
+BINDING=01a1bd10-b601-767a-b367-6600a9354f5b FILE_ID=01a1bd10-b600-7652-a9ea-8384b7690369
+== 立刻查 operation_logs（无 sleep：响应返回时行必须已在库） ==
+       operation       |  target_type  |              target_id               | status_code | request_method |          request_path           | username | duration_ms | ip | doc_type |               file_id                |   file_role   |    file_name     |  original_name   | file_size | storage_code  | duplicated 
+-----------------------+---------------+--------------------------------------+-------------+----------------+---------------------------------+----------+-------------+----+----------+--------------------------------------+---------------+------------------+------------------+-----------+---------------+------------
+ DOC_ATTACHMENT_UPLOAD | DocAttachment | 01a1bd10-b601-767a-b367-6600a9354f5b |         200 | POST           | /api/business/attachment/upload | admin    |          10 |    | CONTRACT | 01a1bd10-b600-7652-a9ea-8384b7690369 | CONTRACT_SCAN | aud02_052911.pdf | aud02_052911.pdf | 92        | local-default | false
+(1 row)
+
+AUDIT_ROWS=1
+== 按 detail->>'file_name' 检索（ATT-04 清理脚本踩过的键） ==
+file_name_hits=1
+original_name_hits=1
+== 中间件通用流水对照（同一路径近 3 分钟） ==
+ERROR:  aggregate functions are not allowed in GROUP BY
+LINE 1: select operation || ' x' || count(*) from operation_logs whe...
+                                    ^
+== 清理夹具 ==
+DELETE 1
+DELETE 1
+DELETE 1
+residue=0|0|0|0
+== DONE ==

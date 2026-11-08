@@ -1,0 +1,26 @@
+== STAMP=aud02_052922 ==
+TOKEN_LEN=492
+DOC_ID=01a1bc8e-eb4e-70ad-92c6-f383eb93cb9c
+-rw-r--r-- 1 root root 92 Nov  9 05:29 /tmp/aud02_052922.pdf
+== 上传（真 token） ==
+{"code":0,"msg":"ok","data":{"id":"01a1bd10-e432-72fc-8b07-377841ee1465","file_id":"01a1bd10-e431-7315-b987-002797aa4a8d","file_name":"aud02_052922.pdf","file_size":92,"file_role":"CONTRACT_SCAN","doc_type":"CONTRACT","doc_id":"01a1bc8e-eb4e-70ad-92c6-f383eb93cb9c","duplicated":false}}
+BINDING=01a1bd10-e432-72fc-8b07-377841ee1465 FILE_ID=01a1bd10-e431-7315-b987-002797aa4a8d
+== 立刻查 operation_logs（无 sleep：响应返回时行必须已在库） ==
+       operation       |  target_type  |              target_id               | status_code | request_method |          request_path           | username | duration_ms |    ip     | doc_type |               file_id                |   file_role   |    file_name     |  original_name   | file_size | storage_code  | duplicated 
+-----------------------+---------------+--------------------------------------+-------------+----------------+---------------------------------+----------+-------------+-----------+----------+--------------------------------------+---------------+------------------+------------------+-----------+---------------+------------
+ DOC_ATTACHMENT_UPLOAD | DocAttachment | 01a1bd10-e432-72fc-8b07-377841ee1465 |         200 | POST           | /api/business/attachment/upload | admin    |           4 | 10.9.8.11 | CONTRACT | 01a1bd10-e431-7315-b987-002797aa4a8d | CONTRACT_SCAN | aud02_052922.pdf | aud02_052922.pdf | 92        | local-default | false
+(1 row)
+
+AUDIT_ROWS=1
+== 按 detail->>'file_name' 检索（ATT-04 清理脚本踩过的键） ==
+file_name_hits=1
+original_name_hits=1
+== 中间件通用流水对照（同一路径近 3 分钟） ==
+DOC_ATTACHMENT_UPLOAD x1
+POST /api/business/attachment/upload x1
+== 清理夹具 ==
+DELETE 1
+DELETE 1
+DELETE 1
+residue=0|0|0|0
+== DONE ==

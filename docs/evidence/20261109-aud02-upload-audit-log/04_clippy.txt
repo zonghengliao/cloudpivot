@@ -1,0 +1,26 @@
+src/business/erp/invoice.rs:1967:26: warning: the following explicit lifetimes could be elided: 'a
+src/business/erp/receivable.rs:800:5: warning: doc list item without indentation
+src/business/erp/sales_order_model.rs:699:1: warning: this function has too many arguments (8/7)
+warning: `cloudpivot` (lib) generated 3 warnings (run `cargo clippy --fix --lib -p cloudpivot` to apply 1 suggestion)
+src/business/flow/edge_admin_tests.rs:356:1: warning: empty line after doc comment
+src/business/attachment/rule.rs:1039:9: warning: for loop over a single element
+src/business/erp/asset_linkage.rs:417:33: warning: useless use of `format!`: help: consider using `.to_string()`: `"trigger_entity = 'FIXED_ASSET'".to_string()`
+src/business/erp/fx_revaluation.rs:788:13: warning: useless use of `format!`
+src/business/erp/opening.rs:2742:43: warning: binary comparison to literal `Option::None`: help: use `Option::is_some()` instead: `loc.is_some()`
+src/business/erp/purchase_requisition_dto.rs:864:36: warning: this call to `clone` can be replaced with `std::slice::from_ref`: help: try: `std::slice::from_ref(&plain)`
+src/business/erp/voucher.rs:5258:74: warning: this call to `clone` can be replaced with `std::slice::from_ref`: help: try: `std::slice::from_ref(&material_line)`
+src/business/erp/voucher.rs:5287:13: warning: this call to `clone` can be replaced with `std::slice::from_ref`: help: try: `std::slice::from_ref(&material_line)`
+src/business/erp/year_end_linkage_tests.rs:214:17: warning: `format!` in `format!` args
+src/business/flow/assignee.rs:4852:32: warning: unnecessary use of `get(&fx.approver).is_none()`
+src/business/flow/self_approval.rs:1103:5: warning: this function has too many arguments (8/7)
+src/business/flow/self_approval.rs:1229:18: warning: useless use of `format!`: help: consider using `.to_string()`: `"p305_log_init".to_string()`
+src/business/pdf/dto.rs:553:9: warning: field assignment outside of initializer for an instance created with Default::default()
+src/business/pdf/dto.rs:560:9: warning: field assignment outside of initializer for an instance created with Default::default()
+src/business/pdf/dto.rs:564:9: warning: field assignment outside of initializer for an instance created with Default::default()
+src/business/pdf/dto.rs:568:9: warning: field assignment outside of initializer for an instance created with Default::default()
+src/business/pdf/dto.rs:575:9: warning: field assignment outside of initializer for an instance created with Default::default()
+src/business/pdf/dto.rs:586:9: warning: field assignment outside of initializer for an instance created with Default::default()
+src/business/pdf/dto.rs:603:9: warning: field assignment outside of initializer for an instance created with Default::default()
+warning: `cloudpivot` (lib test) generated 22 warnings (3 duplicates) (run `cargo clippy --fix --lib -p cloudpivot --tests` to apply 5 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.29s
+CLIPPY_EXIT=0

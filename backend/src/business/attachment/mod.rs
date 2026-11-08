@@ -39,6 +39,22 @@
 //! **ATT-04** 把它补到了写路径（`upload`）与「删别人的附件」分支上 ——
 //! 读、写、删三处同一把尺子：看不见的单据，既不能看它的附件，也不能往上挂东西。
 //!
+//! # 三个动作的留痕（ATT-02 / ATT-03 / AUD-02）
+//!
+//! 三处都**直写** `operation_logs`（`OperationLogModel::insert(db())`），不走日志总线：
+//! 总线是 500 ms 批量，进程里总线未初始化 / 未刷盘时事件静默消失 —— 145 实测
+//! 「上传 8 次、结构化审计行 0 条」就是这么来的（删除 ATT-03 与上传 AUD-02 同一现象）。
+//!
+//! | 操作码 | 目标 `target_id` | 触发时机 |
+//! |--------|------------------|----------|
+//! | `DOC_ATTACHMENT_UPLOAD` | 附件绑定行 id | 绑定写成功后、响应发出前 |
+//! | `DOC_ATTACHMENT_DOWNLOAD` | 附件绑定行 id | 出流成功后（GET 不进全局中间件，只能自己写） |
+//! | `DOC_ATTACHMENT_DELETE` | 附件绑定行 id | 软删 + 文件引用判定之后 |
+//!
+//! 共同约束：写库失败只 `warn`（留痕是旁路，不能反压业务）；`detail` 必带
+//! `doc_type` / `doc_id` / `file_id` / `file_name`，上传另有 `original_name` /
+//! `file_size` / `storage_code` / `duplicated`。
+//!
 //! # 表结构与权限码的唯一依据
 //!
 //! `backend/migrations/business/V0212__erp_doc_attachment.up.sql`
