@@ -38,3 +38,7 @@ ok 6 - 副标题：没配审批人优先于模式（缺人更该被看见）
 # tests 6
 # pass 6
 # fail 0
+
+== 追加（第 8 个 Rust 文件：test 守卫改动）
+rustfmt +1.94.1 --edition 2024 --check src/business/flow/edge_admin_tests.rs → clean (exit 0)
+（该文件只改了基线守卫的断言方式，见 raw/35_flow_suite.txt 的套件结果与 README §3.3）
