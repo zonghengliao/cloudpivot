@@ -62,6 +62,7 @@
         <template #created_at="{ row }">{{ formatDateTime(row.created_at) }}</template>
         <template #op="{ row }">
           <t-space size="small">
+            <t-link theme="primary" data-testid="file-row-preview" @click="openPreview(row)">预览</t-link>
             <t-link theme="primary" @click="handleDownload(row)">下载</t-link>
             <t-link v-privilege="['support:file:delete']" theme="danger" @click="confirmRemove(row)">
               删除
@@ -70,17 +71,27 @@
         </template>
       </t-table>
     </t-card>
+
+    <!-- ATT-01：统一附件预览（同页文件一起进列表，支持左右切换） -->
+    <attachment-preview
+      v-model:visible="previewVisible"
+      :items="previewItems"
+      :index="previewIndex"
+      title="文件预览"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import {
   DialogPlugin,
   MessagePlugin,
   type PrimaryTableCol,
 } from 'tdesign-vue-next';
 import FileUploader from '@/components/FileUploader.vue';
+import AttachmentPreview from '@/components/AttachmentPreview.vue';
+import type { PreviewItem } from '@/components/attachment-preview-pure';
 import {
   deleteFile,
   downloadFileBlob,
@@ -115,6 +126,35 @@ const pagination = reactive({ current: 1, pageSize: 10, total: 0 });
 /** 上传时携带的分类 */
 const uploadCategory = ref('');
 
+/** 预览弹窗是否显示 */
+const previewVisible = ref(false);
+/** 预览初始定位（点哪一行就从哪一张开始） */
+const previewIndex = ref(0);
+
+/**
+ * 预览列表：用当前页的行，左右切换即页内翻动。
+ *
+ * `load` 不传 → 组件默认走 `support/file/download/{id}`（带鉴权头取 blob）。
+ */
+const previewItems = computed<PreviewItem[]>(() =>
+  rows.value.map((row) => ({
+    key: row.id,
+    fileId: row.id,
+    name: row.original_name || row.file_name,
+    size: row.file_size,
+    mimeType: row.mime_type,
+    uploader: row.uploaded_by,
+    uploadedAt: row.created_at,
+  })),
+);
+
+/** 打开预览（越界/找不到时退化成第 0 个，不让组件收到 -1） */
+function openPreview(row: FileRes): void {
+  const index = rows.value.findIndex((item) => item.id === row.id);
+  previewIndex.value = index >= 0 ? index : 0;
+  previewVisible.value = true;
+}
+
 /** 分类中文名映射：库中分类存的是英文短码，展示统一转中文；未知分类回退原值 */
 const CATEGORY_LABELS: Record<string, string> = {
   attachment: '附件',
@@ -137,7 +177,7 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'file_size', title: '大小', width: 110, cell: 'file_size' },
   { colKey: 'uploaded_by', title: '上传人', width: 140 },
   { colKey: 'created_at', title: '上传时间', width: 180, cell: 'created_at' },
-  { colKey: 'op', title: '操作', width: 120, fixed: 'right' },
+  { colKey: 'op', title: '操作', width: 170, fixed: 'right' },
 ];
 
 /** 统一展示接口错误 */

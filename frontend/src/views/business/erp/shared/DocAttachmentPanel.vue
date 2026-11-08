@@ -70,6 +70,7 @@
           <span class="doc-attach__meta">{{ item.uploader_name || '—' }}</span>
           <span class="doc-attach__meta">{{ formatDateTime(item.created_at) }}</span>
           <span v-if="item.remark" class="doc-attach__note" :title="item.remark">{{ item.remark }}</span>
+          <t-button size="small" variant="text" @click="openPreview(item)">预览</t-button>
           <t-button size="small" variant="text" @click="download(item)">下载</t-button>
           <t-button
             v-if="item.can_delete"
@@ -83,6 +84,14 @@
         </div>
       </div>
     </template>
+
+    <!-- ATT-01：统一附件预览（本单据的全部附件可左右切换；Office/压缩包只给下载） -->
+    <attachment-preview
+      v-model:visible="previewVisible"
+      :items="previewItems"
+      :index="previewIndex"
+      title="附件预览"
+    />
   </div>
 </template>
 
@@ -114,6 +123,8 @@ import {
   type DocType,
   type FileRole,
 } from '@/api/business/erp/attachment';
+import AttachmentPreview from '@/components/AttachmentPreview.vue';
+import type { PreviewItem } from '@/components/attachment-preview-pure';
 import { ApiError } from '@/api/request';
 import { formatDateTime, formatFileSize } from '@/utils/format';
 
@@ -233,6 +244,39 @@ async function download(item: DocAttachmentItem): Promise<void> {
   } catch (error) {
     MessagePlugin.error(error instanceof ApiError ? error.message : '下载失败');
   }
+}
+
+/** 预览弹窗是否显示 */
+const previewVisible = ref(false);
+/** 预览初始定位（点哪个附件就从哪个开始，左右切换走同一张单据内的顺序） */
+const previewIndex = ref(0);
+
+/**
+ * 预览列表。
+ *
+ * 注意下载入口是**绑定行 id**（`item.id`），不是 `file_id` —— 同一份字节被多个单据
+ * 秒传复用时 `file_id` 相同，只有绑定行才知道「当前用户看的是哪张单据的附件」，
+ * 权限判据也在绑定行上。
+ */
+const previewItems = computed<PreviewItem[]>(() =>
+  items.value.map((item) => ({
+    key: item.id,
+    fileId: item.file_id,
+    name: item.file_name,
+    size: item.file_size,
+    mimeType: item.mime_type,
+    uploader: item.uploader_name,
+    uploadedAt: item.created_at,
+    remark: item.remark,
+    tag: item.file_role_label,
+    load: () => downloadDocAttachment(item.id),
+  })),
+);
+
+function openPreview(item: DocAttachmentItem): void {
+  const index = items.value.findIndex((row) => row.id === item.id);
+  previewIndex.value = index >= 0 ? index : 0;
+  previewVisible.value = true;
 }
 
 function remove(item: DocAttachmentItem): void {

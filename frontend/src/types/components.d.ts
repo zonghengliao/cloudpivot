@@ -12,6 +12,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AttachmentPreview: typeof import('./../components/AttachmentPreview.vue')['default']
     BatchActionBar: typeof import('./../components/BatchActionBar.vue')['default']
     DeptTreeSelect: typeof import('./../components/DeptTreeSelect.vue')['default']
     DictSelect: typeof import('./../components/DictSelect.vue')['default']
@@ -96,6 +97,7 @@ declare module 'vue' {
 
 // For TSX support
 declare global {
+  const AttachmentPreview: typeof import('./../components/AttachmentPreview.vue')['default']
   const BatchActionBar: typeof import('./../components/BatchActionBar.vue')['default']
   const DeptTreeSelect: typeof import('./../components/DeptTreeSelect.vue')['default']
   const DictSelect: typeof import('./../components/DictSelect.vue')['default']
