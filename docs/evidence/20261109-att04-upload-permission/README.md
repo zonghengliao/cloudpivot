@@ -37,7 +37,7 @@ delete ：400 非法 id → 404 附件不存在 → 400 库内 doc_type 漂移 �
 
 ## 2. 145 真机矩阵（debug 重建 + `systemctl restart cloudpivot-test`，:8033）
 
-完整输出：`matrix_145.log`。夹具角色 / 用户：`ATT04_NO_PAYABLE` / `att04_wh`（`attachment:upload` +
+完整输出：`matrix_145.txt`。夹具角色 / 用户：`ATT04_NO_PAYABLE` / `att04_wh`（`attachment:upload` +
 `attachment:list` + `erp:contract:list`，**故意不给 payable 码**）、`ATT04_DELETE_NO_PAYABLE` /
 `att04_del`（再多一个 `attachment:delete`）。
 
@@ -66,7 +66,7 @@ delete ：400 非法 id → 404 附件不存在 → 400 库内 doc_type 漂移 �
 
 HTTP 层流水（`operation_logs` 中间件行，POST × 8）与状态码逐条对上：200/200/403/403/200/400/404/200。
 
-夹具清理：`cleanup_145.log` —— 绑定 / `sys_file` / 留痕 / 用户 / 角色 / 用户角色 / 角色菜单
+夹具清理：`cleanup_145.txt` —— 绑定 / `sys_file` / 留痕 / 用户 / 角色 / 用户角色 / 角色菜单
 残留 **0|0|0|0|0|0|0**，4 个物理对象（`uploads/2026/11/08/*.pdf`）已按 `file_key` 删除。
 
 ## 3. 单测
