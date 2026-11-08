@@ -70,6 +70,73 @@ pub const ROLE_OTHER: &str = "OTHER";
 /// 防止误拖整个文件夹把单据变成图床。
 pub const MAX_ATTACHMENTS_PER_DOC: i64 = 50;
 
+/// 列表排序口径（ATT-03）。
+///
+/// # 为什么是一个枚举而不是把 ORDER BY 字符串透传到 SQL
+///
+/// `ORDER BY` 拼外部字符串是注入面；本枚举是**唯一来源**（[`ListOrder::order_by`]
+/// 里的常量 SQL），入参只能落到两个分支之一，未知值在 [`ListOrder::parse`] 就返回 `None`。
+///
+/// # 两种口径
+///
+/// | 口径 | 顺序 | 用途 |
+/// |------|------|------|
+/// | [`ListOrder::TimeDesc`] | `created_at DESC` | **默认**：刚传的在上（与任务附件 / 文件管理同口径） |
+/// | [`ListOrder::Manual`] | `sort_order ASC` → `created_at DESC` | 用户手动排过序（上移 / 下移） |
+///
+/// 两种都以 `a.id DESC` 收尾：同秒上传的多个文件不会因刷新而换位置（UUID v7 时间有序，
+/// 作最终 tiebreak 稳定且与业务无关）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListOrder {
+    /// 按上传时间倒序（默认）。
+    TimeDesc,
+    /// 按 `sort_order` 升序（手动排序），同序号再按上传时间倒序。
+    Manual,
+}
+
+impl ListOrder {
+    /// 入参字面值（`GET /attachment/list?sort=`）。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ListOrder::TimeDesc => "time",
+            ListOrder::Manual => "manual",
+        }
+    }
+
+    /// 解析排序口径：**缺省 / 空串 → 时间倒序**（老前端不带 `sort` 也能用）。
+    ///
+    /// # 参数
+    ///
+    /// - `raw`：请求里的 `sort`（大小写不敏感、去空白）。
+    ///
+    /// # 返回值
+    ///
+    /// 合法口径；未知值返回 `None`（调用方报 400 并列出可选值，别静默回落成默认 ——
+    /// 「写错参数却拿到结果」会让人以为排序生效了）。
+    pub fn parse(raw: Option<&str>) -> Option<ListOrder> {
+        let Some(text) = raw
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_ascii_lowercase)
+        else {
+            return Some(ListOrder::TimeDesc);
+        };
+        match text.as_str() {
+            "time" | "time_desc" | "created_at" => Some(ListOrder::TimeDesc),
+            "manual" | "sort" | "sort_order" => Some(ListOrder::Manual),
+            _ => None,
+        }
+    }
+
+    /// `ORDER BY` 子句（常量 SQL，唯一来源：改排序口径只改这里）。
+    pub fn order_by(self) -> &'static str {
+        match self {
+            ListOrder::TimeDesc => "ORDER BY a.created_at DESC, a.id DESC",
+            ListOrder::Manual => "ORDER BY a.sort_order ASC, a.created_at DESC, a.id DESC",
+        }
+    }
+}
+
 /// 单据类型枚举（与迁移里的 `ck_biz_doc_attachment_type` 逐字对应）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DocKind {
@@ -320,6 +387,8 @@ pub struct DocAttachmentRow {
     pub file_size: i64,
     /// MIME。
     pub mime_type: Option<String>,
+    /// 手动排序序号（ATT-03：`sort_order ASC` 是手动模式的排序键）。
+    pub sort_order: i32,
     /// 创建时间。
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
@@ -333,7 +402,7 @@ const COLUMNS: &str = "a.id, a.doc_type, a.doc_id, a.file_id, a.file_role, a.rem
                        a.uploaded_by, COALESCE(NULLIF(u.real_name, ''), u.username, '') AS uploader_name, \
                        COALESCE(f.original_name, '') AS original_name, \
                        COALESCE(f.file_name, '') AS stored_name, \
-                       COALESCE(f.file_size, 0) AS file_size, f.mime_type, a.created_at";
+                       COALESCE(f.file_size, 0) AS file_size, f.mime_type, a.sort_order, a.created_at";
 
 /// 显示用文件名：原始名优先，为空时退回对象键的 basename（不含日期目录）。
 ///
@@ -369,6 +438,7 @@ impl DocAttachmentRow {
             file_name: display_name(original.as_deref(), &stored),
             file_size: row.get_typed("file_size")?,
             mime_type: row.get_typed("mime_type")?,
+            sort_order: row.get_typed("sort_order")?,
             created_at: row.get_typed("created_at")?,
         })
     }
@@ -440,6 +510,16 @@ pub async fn count_by_file(file_id: &Uuid) -> DbResult<i64> {
 ///
 /// 绑定行主键。
 ///
+/// # 排序序号的写法（ATT-03）
+///
+/// `sort_order = COALESCE(max(sort_order) + 1, 0)` **在同一条 INSERT 里算**：
+///
+/// - 不能让新行吃列的 `DEFAULT 0` —— 用户手排过「A,B,C」后新传 D，D 会插到最前面；
+/// - 也不在 handler 里「先 SELECT max 再 INSERT」—— 两次往返之间有竞态窗口，
+///   两个人同时上传会拿到同一个序号（同序号虽然能靠 created_at 兜底，但排序就不稳定了）。
+///
+/// 子查询在表上没有行时返回 NULL → `COALESCE(..., 0)` 让第一行从 0 开始。
+///
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]（外键失败说明 `file_id` 不存在，调用方应先校验）。
@@ -454,8 +534,10 @@ pub async fn insert(
     let rows = db()
         .find_with_params(
             "INSERT INTO biz_doc_attachment \
-                 (id, doc_type, doc_id, file_id, file_role, remark, uploaded_by, created_at) \
-             VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?::uuid, now()) \
+                 (id, doc_type, doc_id, file_id, file_role, remark, uploaded_by, created_at, sort_order) \
+             VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?::uuid, now(), \
+                     COALESCE((SELECT max(x.sort_order) + 1 FROM biz_doc_attachment x \
+                                WHERE x.doc_type = ? AND x.doc_id = ?::uuid AND x.deleted_at IS NULL), 0)) \
              ON CONFLICT (doc_type, doc_id, file_id) WHERE deleted_at IS NULL DO NOTHING \
              RETURNING id",
             vec![
@@ -466,6 +548,9 @@ pub async fn insert(
                 Value::Text(role.as_str().to_string()),
                 remark.map_or(Value::Null, |text| Value::Text(text.to_string())),
                 uploaded_by.map_or(Value::Null, |id| Value::from(&id)),
+                // 子查询的两个占位：与上面同一口径的 (doc_type, doc_id)
+                Value::Text(kind.as_str().to_string()),
+                Value::from(doc_id),
             ],
         )
         .await?;
@@ -491,19 +576,31 @@ pub async fn insert(
         .get_typed("id")
 }
 
-/// 按单据列附件（未删，按上传时间升序）。
+/// 按单据列附件（未删）。
+///
+/// # 排序（ATT-03）
+///
+/// 由 [`ListOrder`] 决定，SQL 常量只从 [`ListOrder::order_by`] 取：
+///
+/// - [`ListOrder::TimeDesc`]（默认）：`created_at DESC, id DESC` —— 刚传的在上；
+/// - [`ListOrder::Manual`]：`sort_order ASC, created_at DESC, id DESC` —— 用户手排的顺序。
 ///
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub async fn list_by_doc(kind: DocKind, doc_id: &Uuid) -> DbResult<Vec<DocAttachmentRow>> {
+pub async fn list_by_doc(
+    kind: DocKind,
+    doc_id: &Uuid,
+    order: ListOrder,
+) -> DbResult<Vec<DocAttachmentRow>> {
     let sql = format!(
         "SELECT {COLUMNS} \
            FROM biz_doc_attachment a \
            LEFT JOIN sys_file f ON f.id = a.file_id \
            LEFT JOIN sys_user u ON u.id = a.uploaded_by \
           WHERE a.doc_type = ? AND a.doc_id = ?::uuid AND a.deleted_at IS NULL \
-          ORDER BY a.created_at ASC, a.id ASC"
+          {}",
+        order.order_by()
     );
     let rows = db()
         .find_with_params(
@@ -516,6 +613,82 @@ pub async fn list_by_doc(kind: DocKind, doc_id: &Uuid) -> DbResult<Vec<DocAttach
         list.push(DocAttachmentRow::from_row(row)?);
     }
     Ok(list)
+}
+
+/// 当前单据**未删附件**的主键（按 `sort_order` 升序；重排前的「成员校验」用）。
+///
+/// # 为什么要单独一条（不直接用 [`list_by_doc`]）
+///
+/// 重排只需要 id 集合：走 `list_by_doc` 会连带读 `sys_file` / `sys_user`（两表 JOIN），
+/// 在「同一张单据 50 个附件」时是白读。这条 SQL 只碰一张表。
+///
+/// # 异常情况
+///
+/// 数据库异常返回 [`DbError`]。
+pub async fn active_ids(kind: DocKind, doc_id: &Uuid) -> DbResult<Vec<Uuid>> {
+    let rows = db()
+        .find_with_params(
+            "SELECT id FROM biz_doc_attachment \
+              WHERE doc_type = ? AND doc_id = ?::uuid AND deleted_at IS NULL \
+              ORDER BY sort_order ASC, created_at ASC, id ASC",
+            vec![Value::Text(kind.as_str().to_string()), Value::from(doc_id)],
+        )
+        .await?;
+    let mut ids = Vec::with_capacity(rows.len());
+    for row in &rows {
+        ids.push(row.get_typed("id")?);
+    }
+    Ok(ids)
+}
+
+/// 按给定顺序重写 `sort_order`（`ids[0]` → 0、`ids[1]` → 1 …）。
+///
+/// # 为什么逐条 UPDATE 而不是一条 `unnest(uuid[], int[])`
+///
+/// 数组参数在本仓是已知的编码陷阱（`Vec<Uuid>` 驱动编不上，得绕
+/// `Value::Text("{a,b}")` + `?::text::uuid[]`）。单据附件上限
+/// [`MAX_ATTACHMENTS_PER_DOC`] = 50，逐条 UPDATE 最多 50 次主键命中，
+/// 换来的是**不依赖任何数组编码细节**的可读实现。调用方把它放进
+/// `db().transaction(..)` 里，50 条语句仍是一次提交。
+///
+/// # 参数
+///
+/// - `ex`：执行器（`db()` 或事务 `tx`）；
+/// - `kind` / `doc_id`：单据（**写库条件的一部分**：越权传别的单据的附件 id 只会命中 0 行）；
+/// - `ids`：目标顺序。
+///
+/// # 返回值
+///
+/// 实际更新的行数（`< ids.len()` 说明有 id 不属于该单据 / 已被删）。
+///
+/// # 异常情况
+///
+/// 数据库异常返回 [`DbError`]。
+pub async fn set_sort_orders(
+    ex: &impl SqlExecutor,
+    kind: DocKind,
+    doc_id: &Uuid,
+    ids: &[Uuid],
+) -> DbResult<u64> {
+    let mut updated = 0u64;
+    for (index, id) in ids.iter().enumerate() {
+        // 序号从 0 起：`sort_order` 是 `integer`，50 条附件远不到 i32 上限
+        let position = i32::try_from(index).unwrap_or(i32::MAX);
+        updated += ex
+            .exec_sql(
+                "UPDATE biz_doc_attachment SET sort_order = ?::int \
+                  WHERE id = ?::uuid AND doc_type = ? AND doc_id = ?::uuid AND deleted_at IS NULL"
+                    .to_string(),
+                vec![
+                    Value::I32(position),
+                    Value::from(id),
+                    Value::Text(kind.as_str().to_string()),
+                    Value::from(doc_id),
+                ],
+            )
+            .await?;
+    }
+    Ok(updated)
 }
 
 /// 取单条未删附件（下载 / 删除前的归属校验）。

@@ -13,6 +13,8 @@
 //! | `remark` | ≤ 200 字符（列 `VARCHAR(255)`，留余量） | 400 + `PARAM_INVALID` |
 //! | 单据存在性 | 由 handler 查库（`model::doc_exists`） | 404 + `RESOURCE_NOT_FOUND` |
 //! | 附件个数 | ≤ [`model::MAX_ATTACHMENTS_PER_DOC`] | 400 + `PARAM_INVALID` |
+//! | `sort`（列表） | 缺省 / `time` → 时间倒序；`manual` → 手动序号 | 400 + `PARAM_INVALID`（ATT-03） |
+//! | `ids`（重排） | 非空、全部 UUID、无重复 | 400 + `PARAM_INVALID`（ATT-03） |
 //! | 删除他人附件 | 上传人本人 ∪ `business:attachment:delete` | 403 + `PERMISSION_DENIED` |
 
 use nik::prelude::*;
@@ -21,7 +23,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::shared::error_code;
 
-use super::model::{DocAttachmentRow, DocKind, FileRole};
+use super::model::{DocAttachmentRow, DocKind, FileRole, ListOrder};
 
 /// 上传单据附件的权限码。
 pub const PERM_UPLOAD: &str = "business:attachment:upload";
@@ -33,13 +35,16 @@ pub const PERM_DELETE: &str = "business:attachment:delete";
 /// 备注列的字符上限（列是 `VARCHAR(255)`，留 55 字符余量给后续加工）。
 pub const REMARK_MAX_CHARS: usize = 200;
 
-/// 列表查询参数（`GET /business/attachment/list?doc_type=&doc_id=`）。
+/// 列表查询参数（`GET /business/attachment/list?doc_type=&doc_id=&sort=`）。
 #[derive(Debug, Clone, Deserialize)]
 pub struct DocAttachmentQuery {
-    /// 单据类型（`CONTRACT` / `PURCHASE_ORDER` / `STOCK_IN` / `PAYABLE` / `PAYMENT`）。
+    /// 单据类型（`CONTRACT` / `PURCHASE_ORDER` / `STOCK_IN` / `PAYABLE` / `PAYMENT` …）。
     pub doc_type: String,
     /// 单据主键。
     pub doc_id: String,
+    /// 排序口径（ATT-03）：缺省 / `time` = 上传时间倒序；`manual` = 手动序号升序。
+    #[serde(default)]
+    pub sort: Option<String>,
 }
 
 /// 上传时从 multipart 文本字段解析出的元信息。
@@ -78,6 +83,8 @@ pub struct DocAttachmentItemRes {
     pub file_size: i64,
     /// MIME。
     pub mime_type: Option<String>,
+    /// 手动排序序号（ATT-03：手动模式下按它升序，前端上移/下移据此与后端对齐）。
+    pub sort_order: i32,
     /// 上传人。
     pub uploaded_by: Option<String>,
     /// 上传人姓名。
@@ -101,6 +108,11 @@ pub struct DocAttachmentListRes {
     pub total: u64,
     /// 单张单据的附件上限（前端据此禁用上传按钮）。
     pub max_count: i64,
+    /// 本次响应用到的排序口径（`time` / `manual`；ATT-03）。
+    ///
+    /// 回显而不是让前端记：`PUT /attachment/sort` 固定用 `manual` 回读，
+    /// 前端拿同一份结构直接替换列表，不必自己猜「这份是哪个口径的」。
+    pub sort: String,
 }
 
 /// 上传结果。
@@ -240,6 +252,119 @@ pub fn parse_file_role(raw: Option<&str>) -> std::result::Result<FileRole, ApiEr
     })
 }
 
+/// 解析列表排序口径（ATT-03）。
+///
+/// # 参数
+///
+/// - `raw`：请求里的 `sort`（可缺省）。缺省 / 空串 → [`ListOrder::TimeDesc`]（时间倒序）。
+///
+/// # 异常情况
+///
+/// 400 + `PARAM_INVALID`：值不在 `time` / `manual` 白名单内（**不静默回落成默认**：
+/// 「参数写错却拿到默认顺序」会让人以为排序生效了，是最难查的一类“假成功”）。
+pub fn parse_sort_order(raw: Option<&str>) -> std::result::Result<ListOrder, ApiError> {
+    ListOrder::parse(raw).ok_or_else(|| {
+        ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!(
+                "排序口径 sort 非法：{}（可选 {} / {}）",
+                raw.unwrap_or_default(),
+                ListOrder::TimeDesc.as_str(),
+                ListOrder::Manual.as_str()
+            ),
+        )
+    })
+}
+
+/// 解析 UUID 字段（纯逻辑；错误消息带上原文，便于定位是哪一个 id 写错了）。
+///
+/// # 参数
+///
+/// - `raw`：请求里的字符串（去空白后解析）；
+/// - `field`：字段名（`doc_id` / `ids[]`），只用于错误消息。
+fn parse_uuid_field(raw: &str, field: &str) -> std::result::Result<Uuid, ApiError> {
+    Uuid::parse_str(raw.trim()).map_err(|_| {
+        ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!("{field} 不是合法 UUID：{raw}"),
+        )
+    })
+}
+
+/// 重排入参（`PUT /business/attachment/sort`）。
+#[derive(Debug, Clone, Deserialize)]
+pub struct DocAttachmentSortReq {
+    /// 单据类型。
+    pub doc_type: String,
+    /// 单据主键。
+    pub doc_id: String,
+    /// 目标顺序（附件绑定行 id 的完整列表，第 1 个 → `sort_order = 0`）。
+    pub ids: Vec<String>,
+}
+
+/// 重排入参解析结果（已校验：类型 / 单据主键 / 每个附件 id 都是 UUID 且不重复）。
+#[derive(Debug, Clone)]
+pub struct SortTicket {
+    /// 单据类型。
+    pub kind: DocKind,
+    /// 单据主键。
+    pub doc_id: Uuid,
+    /// 目标顺序（已按入参顺序）。
+    pub ids: Vec<Uuid>,
+}
+
+/// 解析重排入参（**纯逻辑**，不连库）。
+///
+/// # 规则
+///
+/// | 输入 | 失败 |
+/// |------|------|
+/// | `doc_type` 不在白名单 | 400（列出可选值） |
+/// | `doc_id` 不是 UUID | 400 |
+/// | `ids` 为空 | 400（「必须给出完整的附件顺序」） |
+/// | 某个 id 不是 UUID | 400（消息带上那个值） |
+/// | `ids` 里重复 | 400（消息带上重复值） |
+///
+/// # 为什么要求「完整列表」而不是增量
+///
+/// 序号是**相对顺序**：只提交一部分 id 时，剩下的行保留旧序号，会与本轮写入的
+/// 0..n-1 撞号，最终顺序取决于 `created_at` 兜底 —— 用户看到的和提交的不是一回事。
+/// 完整列表让「提交了什么 = 库里存的什么」，重排接口的语义才可验证。
+///
+/// # 异常情况
+///
+/// 400 + `PARAM_INVALID`（见上表）。
+pub fn parse_sort_request(req: &DocAttachmentSortReq) -> std::result::Result<SortTicket, ApiError> {
+    let kind = parse_doc_type(&req.doc_type)?;
+    let doc_id = parse_uuid_field(&req.doc_id, "doc_id")?;
+
+    if req.ids.is_empty() {
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            "ids 不能为空：重排必须提交该单据附件的完整顺序",
+        ));
+    }
+
+    let mut ids: Vec<Uuid> = Vec::with_capacity(req.ids.len());
+    let mut seen: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
+    for raw in &req.ids {
+        let id = parse_uuid_field(raw, "ids[]")?;
+        if !seen.insert(id) {
+            return Err(ApiError::new(
+                400,
+                error_code::PARAM_INVALID,
+                format!("ids 里有重复的附件 id：{raw}"),
+            ));
+        }
+        ids.push(id);
+    }
+
+    Ok(SortTicket { kind, doc_id, ids })
+}
+
 /// 单据不存在时的错误（**统一口径**：404 + `RESOURCE_NOT_FOUND`）。
 ///
 /// # 参数
@@ -340,6 +465,7 @@ pub fn to_item(row: &DocAttachmentRow, claims: &TokenClaims) -> DocAttachmentIte
         file_name: row.file_name.clone(),
         file_size: row.file_size,
         mime_type: row.mime_type.clone(),
+        sort_order: row.sort_order,
         uploaded_by: row.uploaded_by.map(|id| id.to_string()),
         uploader_name: row.uploader_name.clone(),
         created_at: row.created_at,

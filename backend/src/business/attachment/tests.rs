@@ -56,6 +56,8 @@ const WAREHOUSE: &str = "d2120200-0000-4000-8000-000000000002";
 /// 两个 `sys_file` 夹具（不同内容哈希，避免撞 `uk_sys_file_hash`）。
 const FILE_A: &str = "d2120f01-0000-4000-8000-000000000001";
 const FILE_B: &str = "d2120f02-0000-4000-8000-000000000002";
+/// 第三个文件（ATT-03 排序用例需要「同一张单据 3 个附件」才能验出顺序）。
+const FILE_C: &str = "d2120f03-0000-4000-8000-000000000003";
 
 fn uid(text: &str) -> Uuid {
     Uuid::parse_str(text).expect("夹具 UUID 非法")
@@ -451,6 +453,7 @@ fn fixture_row() -> model::DocAttachmentRow {
         file_name: "发票影像.pdf".to_string(),
         file_size: 2048,
         mime_type: Some("application/pdf".to_string()),
+        sort_order: 0,
         created_at: chrono::Utc::now(),
     }
 }
@@ -511,7 +514,8 @@ async fn purge_fixtures() {
             .to_string(),
         "DELETE FROM sys_file WHERE id IN \
             ('d2120f01-0000-4000-8000-000000000001'::uuid, \
-             'd2120f02-0000-4000-8000-000000000002'::uuid)"
+             'd2120f02-0000-4000-8000-000000000002'::uuid, \
+             'd2120f03-0000-4000-8000-000000000003'::uuid)"
             .to_string(),
         "DELETE FROM biz_payment WHERE id = 'd2120105-0000-4000-8000-000000000001'::uuid"
             .to_string(),
@@ -598,7 +602,10 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
              VALUES ('{FILE_A}'::uuid, '2033/03/01/att_a.png', '合同扫描件.png', '2033/03/01/att_a.png', \
                  1024, 'att-hash-a', 'image/png', 'png', 'attachment', '{U_OWNER}'::uuid, 'SERVER', FALSE), \
                     ('{FILE_B}'::uuid, '2033/03/01/att_b.pdf', '签收单.pdf', '2033/03/01/att_b.pdf', \
-                 2048, 'att-hash-b', 'application/pdf', 'pdf', 'attachment', '{U_OWNER}'::uuid, 'SERVER', FALSE) \
+                 2048, 'att-hash-b', 'application/pdf', 'pdf', 'attachment', '{U_OWNER}'::uuid, 'SERVER', FALSE), \
+                    ('{FILE_C}'::uuid, '2033/03/01/att_c.xlsx', '对账表.xlsx', '2033/03/01/att_c.xlsx', \
+                 1536000, 'att-hash-c', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', \
+                 'xlsx', 'attachment', '{U_OWNER}'::uuid, 'SERVER', FALSE) \
              ON CONFLICT DO NOTHING"
         ),
     ];
@@ -679,9 +686,13 @@ async fn db_bind_list_and_soft_delete() {
     .await
     .expect("绑定附件");
 
-    let list = model::list_by_doc(DocKind::Contract, &uid(DOC_CONTRACT))
-        .await
-        .expect("查列表");
+    let list = model::list_by_doc(
+        DocKind::Contract,
+        &uid(DOC_CONTRACT),
+        model::ListOrder::TimeDesc,
+    )
+    .await
+    .expect("查列表");
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].id, id);
     assert_eq!(list[0].file_role, "CONTRACT_SCAN");
@@ -703,10 +714,14 @@ async fn db_bind_list_and_soft_delete() {
     let affected = model::soft_delete(db(), &id).await.expect("软删");
     assert_eq!(affected, 1);
     assert!(
-        model::list_by_doc(DocKind::Contract, &uid(DOC_CONTRACT))
-            .await
-            .expect("查列表")
-            .is_empty()
+        model::list_by_doc(
+            DocKind::Contract,
+            &uid(DOC_CONTRACT),
+            model::ListOrder::TimeDesc,
+        )
+        .await
+        .expect("查列表")
+        .is_empty()
     );
     assert!(model::find_active(&id).await.expect("查单条").is_none());
     // 幂等：再删一次影响 0 行（不报错）
@@ -740,9 +755,13 @@ async fn db_bind_is_idempotent_per_doc_and_file() {
     .await
     .expect("重复绑定必须幂等");
     assert_eq!(first, second);
-    let list = model::list_by_doc(DocKind::PurchaseOrder, &uid(DOC_PO))
-        .await
-        .expect("查列表");
+    let list = model::list_by_doc(
+        DocKind::PurchaseOrder,
+        &uid(DOC_PO),
+        model::ListOrder::TimeDesc,
+    )
+    .await
+    .expect("查列表");
     assert_eq!(list.len(), 1, "同一文件不能在同一单据上出现两行");
     // 幂等不覆盖角色：第二次的角色被忽略（行仍是首次的 OTHER），这是刻意的
     assert_eq!(list[0].file_role, "OTHER");
@@ -991,6 +1010,470 @@ async fn db_download_log_lands_in_operation_logs() {
     println!("[ATT-02] operation_logs 真库留痕：operation/target/detail/ip 全部正确落库 ✓");
 }
 
+// ============================================================================
+// ATT-03：列表排序（默认上传时间倒序 + 手动 sort_order）
+// ============================================================================
+
+/// `?sort=` 口径解析：缺省 / 别名 → 时间倒序；未知值必须返回 `None`（由调用方 400）。
+///
+/// 钉住三件事：
+/// 1. 老前端不带 `sort` 时行为不变（时间倒序），不是「报错」也不是「按 id 排」；
+/// 2. 前端写 `manual` / `sort` / `sort_order` 都能命中手动口径（别名收敛，避免大小写漂移）；
+/// 3. **未知值不静默回落** —— 回落会让「排序参数写错却拿到结果」变成最难查的假成功。
+#[test]
+fn list_order_parse_and_sql() {
+    use super::model::ListOrder;
+
+    assert_eq!(ListOrder::parse(None), Some(ListOrder::TimeDesc));
+    assert_eq!(ListOrder::parse(Some("")), Some(ListOrder::TimeDesc));
+    assert_eq!(ListOrder::parse(Some("   ")), Some(ListOrder::TimeDesc));
+    assert_eq!(ListOrder::parse(Some("time")), Some(ListOrder::TimeDesc));
+    assert_eq!(ListOrder::parse(Some(" TIME ")), Some(ListOrder::TimeDesc));
+    assert_eq!(ListOrder::parse(Some("manual")), Some(ListOrder::Manual));
+    assert_eq!(ListOrder::parse(Some("MANUAL")), Some(ListOrder::Manual));
+    assert_eq!(ListOrder::parse(Some("sort")), Some(ListOrder::Manual));
+    assert_eq!(
+        ListOrder::parse(Some("sort_order")),
+        Some(ListOrder::Manual)
+    );
+    assert_eq!(ListOrder::parse(Some("desc")), None, "未知口径必须拒绝");
+    assert_eq!(ListOrder::parse(Some("1")), None);
+
+    // 字面值可回解析（前端拿响应里的 sort 再传回来必须成立）
+    for order in [ListOrder::TimeDesc, ListOrder::Manual] {
+        assert_eq!(ListOrder::parse(Some(order.as_str())), Some(order));
+    }
+
+    // ORDER BY 是常量 SQL：两种口径都必须「时间倒序」兜底，手动口径还必须带 sort_order
+    let time_sql = ListOrder::TimeDesc.order_by();
+    let manual_sql = ListOrder::Manual.order_by();
+    assert!(time_sql.contains("a.created_at DESC"), "{time_sql}");
+    assert!(
+        !time_sql.contains("sort_order"),
+        "时间口径不应读 sort_order"
+    );
+    assert!(
+        manual_sql.starts_with("ORDER BY a.sort_order ASC"),
+        "{manual_sql}"
+    );
+    assert!(manual_sql.contains("a.created_at DESC"), "{manual_sql}");
+    // 两种都以 id 收尾（同秒上传不抖）
+    assert!(time_sql.ends_with("a.id DESC"), "{time_sql}");
+    assert!(manual_sql.ends_with("a.id DESC"), "{manual_sql}");
+    println!("[ATT-03] 排序口径解析 + ORDER BY 常量 ✓");
+}
+
+/// `parse_sort_order`：非法值 400 + 消息里列出可选值（与其它 4xx 同口径，运维不必翻代码）。
+#[test]
+fn parse_sort_order_rejects_unknown() {
+    let ok = dto::parse_sort_order(Some("manual")).expect("manual 合法");
+    assert_eq!(ok, super::model::ListOrder::Manual);
+    let default = dto::parse_sort_order(None).expect("缺省合法");
+    assert_eq!(default, super::model::ListOrder::TimeDesc);
+
+    let error = dto::parse_sort_order(Some("uploaded_at")).expect_err("未知值必须拒绝");
+    assert_eq!(error.status, 400);
+    assert_eq!(error.code, crate::shared::error_code::PARAM_INVALID);
+    assert!(
+        error.msg.contains("time"),
+        "消息要列出可选值：{}",
+        error.msg
+    );
+    assert!(
+        error.msg.contains("manual"),
+        "消息要列出可选值：{}",
+        error.msg
+    );
+}
+
+/// 重排入参：空 / 非 UUID / 重复 全部 400；合法时**按入参顺序**保留 id。
+#[test]
+fn parse_sort_request_validates() {
+    use super::dto::DocAttachmentSortReq;
+
+    let build = |ids: Vec<&str>| DocAttachmentSortReq {
+        doc_type: "contract".to_string(),
+        doc_id: DOC_CONTRACT.to_string(),
+        ids: ids.into_iter().map(str::to_string).collect(),
+    };
+
+    // 合法：小写 doc_type 也能解析（大小写不敏感的老口径）
+    let ok = dto::parse_sort_request(&build(vec![FILE_C, FILE_A, FILE_B])).expect("合法入参");
+    assert_eq!(ok.kind, DocKind::Contract);
+    assert_eq!(ok.doc_id, uid(DOC_CONTRACT));
+    assert_eq!(ok.ids, vec![uid(FILE_C), uid(FILE_A), uid(FILE_B)]);
+    assert_eq!(DocKind::Contract.as_str(), ok.kind.as_str());
+
+    // 空列表
+    let empty = dto::parse_sort_request(&build(vec![])).expect_err("空 ids 必须拒绝");
+    assert_eq!(empty.status, 400);
+    assert!(empty.msg.contains("ids"), "{}", empty.msg);
+
+    // 非 UUID
+    let bad = dto::parse_sort_request(&build(vec![FILE_A, "not-a-uuid"])).expect_err("非法 id");
+    assert_eq!(bad.status, 400);
+    assert!(
+        bad.msg.contains("not-a-uuid"),
+        "消息要带上原文：{}",
+        bad.msg
+    );
+
+    // 重复
+    let dup = dto::parse_sort_request(&build(vec![FILE_A, FILE_A])).expect_err("重复 id");
+    assert_eq!(dup.status, 400);
+    assert!(dup.msg.contains(FILE_A), "{}", dup.msg);
+
+    // 单据主键非法 → 400（不是 500）
+    let mut bad_doc = build(vec![FILE_A]);
+    bad_doc.doc_id = "123".to_string();
+    let err = dto::parse_sort_request(&bad_doc).expect_err("非法 doc_id");
+    assert_eq!(err.status, 400);
+
+    // 单据类型非法 → 400（消息列出七个可选值）
+    let mut bad_kind = build(vec![FILE_A]);
+    bad_kind.doc_type = "INVOICE".to_string();
+    let err = dto::parse_sort_request(&bad_kind).expect_err("非法 doc_type");
+    assert_eq!(err.status, 400);
+    assert!(err.msg.contains("CONTRACT"), "{}", err.msg);
+
+    println!("[ATT-03] 重排入参校验（空/非UUID/重复/类型/主键）✓");
+}
+
+/// 成员校验真值表：**顺序可以变**，集合必须相等（多一个 / 少一个都 400）。
+#[test]
+fn ensure_same_members_truth_table() {
+    let a = uid(FILE_A);
+    let b = uid(FILE_B);
+    let c = uid(FILE_C);
+    let active = vec![a, b, c];
+
+    // 顺序不同 → 通过（重排的本质就是改顺序）
+    super::handler::ensure_same_members(&active, &[c, a, b]).expect("顺序不同应通过");
+    super::handler::ensure_same_members(&active, &active).expect("原样提交应通过");
+
+    // 多一个不属于该单据的 id
+    let extra = super::handler::ensure_same_members(&active, &[a, b, c, uid(DOC_CONTRACT)])
+        .expect_err("多余 id 必须拒绝");
+    assert_eq!(extra.status, 400);
+    assert!(extra.msg.contains("不属于该单据"), "{}", extra.msg);
+
+    // 少一个（漏提）
+    let missing =
+        super::handler::ensure_same_members(&active, &[a, b]).expect_err("缺失 id 必须拒绝");
+    assert_eq!(missing.status, 400);
+    assert!(missing.msg.contains("不完整"), "{}", missing.msg);
+
+    // 空提交：报「缺失」而不是「多余」（顺序重要：先判多余再判缺失）
+    let empty = super::handler::ensure_same_members(&active, &[]).expect_err("空提交必须拒绝");
+    assert!(empty.msg.contains("不完整"), "{}", empty.msg);
+
+    // 都空：0 个附件时提交空列表是合法边界（通过，不写库也没变化）
+    super::handler::ensure_same_members(&[], &[]).expect("空对空应通过");
+
+    println!("[ATT-03] 成员校验真值表（顺序可变 / 多一少一拒绝）✓");
+}
+
+/// 出参必须带 `sort_order`（前端上移 / 下移靠它和后端对齐）。
+#[test]
+fn to_item_carries_sort_order() {
+    let mut row = fixture_row();
+    row.sort_order = 7;
+    let claims = claims_of(U_OWNER, &["business:attachment:list"]);
+    let item = dto::to_item(&row, &claims);
+    assert_eq!(item.sort_order, 7);
+    assert_eq!(item.file_name, "发票影像.pdf");
+    assert_eq!(item.file_size, 2048);
+    assert_eq!(item.uploader_name, "附件上传人");
+    assert!(item.can_delete, "上传人本人可删");
+    // 序列化给前端的键名（前端 api/business/erp/attachment.ts 的 DocAttachmentItem）
+    let json = serde_json::to_value(&item).expect("出参可序列化");
+    assert_eq!(json["sort_order"], serde_json::json!(7));
+    assert!(json["created_at"].is_string(), "时间必须是字符串");
+    println!("[ATT-03] 出参带 sort_order ✓");
+}
+
+/// ATT-03 验收②（后端半边）：**默认口径按上传时间倒序**，`manual` 口径按 `sort_order`。
+///
+/// 三个附件按「A 最旧 → C 最新」造，于是：
+/// - `time` → C, B, A（最近的在最上）；
+/// - 写入 `sort_order = A:0, B:1, C:2` 后 `manual` → A, B, C（与时间口径相反，
+///   这样两个口径不会因为恰好同序而无法区分）。
+#[tokio::test]
+async fn db_list_default_order_is_time_desc() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    let owner = Some(uid(U_OWNER));
+    let a = model::insert(
+        DocKind::Contract,
+        &uid(DOC_CONTRACT),
+        &uid(FILE_A),
+        FileRole::ContractScan,
+        None,
+        owner,
+    )
+    .await
+    .expect("绑 A");
+    let b = model::insert(
+        DocKind::Contract,
+        &uid(DOC_CONTRACT),
+        &uid(FILE_B),
+        FileRole::SignReceipt,
+        None,
+        owner,
+    )
+    .await
+    .expect("绑 B");
+    let c = model::insert(
+        DocKind::Contract,
+        &uid(DOC_CONTRACT),
+        &uid(FILE_C),
+        FileRole::Invoice,
+        None,
+        owner,
+    )
+    .await
+    .expect("绑 C");
+
+    // 显式拉开上传时间（同一毫秒内插入会让倒序断言不稳定，但排序键带 id 兜底——
+    // 这里写死时间是为了让断言表达「按时间」，而不是「按 id」）
+    exec(&format!(
+        "UPDATE biz_doc_attachment SET created_at = now() - interval '3 hours' WHERE id = '{a}'::uuid"
+    ))
+    .await;
+    exec(&format!(
+        "UPDATE biz_doc_attachment SET created_at = now() - interval '2 hours' WHERE id = '{b}'::uuid"
+    ))
+    .await;
+    exec(&format!(
+        "UPDATE biz_doc_attachment SET created_at = now() - interval '1 hour' WHERE id = '{c}'::uuid"
+    ))
+    .await;
+
+    let time_desc = model::list_by_doc(
+        DocKind::Contract,
+        &uid(DOC_CONTRACT),
+        model::ListOrder::TimeDesc,
+    )
+    .await
+    .expect("查列表");
+    assert_eq!(time_desc.len(), 3);
+    assert_eq!(
+        time_desc.iter().map(|row| row.id).collect::<Vec<_>>(),
+        vec![c, b, a],
+        "默认口径必须是上传时间倒序（最新的在最上）"
+    );
+    assert_eq!(time_desc[0].file_name, "对账表.xlsx");
+    assert_eq!(time_desc[0].file_size, 1_536_000);
+
+    // 手动口径：此时还没排过序，序号按插入顺序 0/1/2 → A, B, C
+    let manual_before = model::list_by_doc(
+        DocKind::Contract,
+        &uid(DOC_CONTRACT),
+        model::ListOrder::Manual,
+    )
+    .await
+    .expect("查列表");
+    assert_eq!(
+        manual_before.iter().map(|row| row.id).collect::<Vec<_>>(),
+        vec![a, b, c],
+        "手动口径按 sort_order 升序（新上传追加在末尾）"
+    );
+    assert_eq!(
+        manual_before
+            .iter()
+            .map(|row| row.sort_order)
+            .collect::<Vec<_>>(),
+        vec![0, 1, 2]
+    );
+    println!("[ATT-03] 默认时间倒序 / manual 按 sort_order ✓");
+}
+
+/// 新上传的附件**追加到末尾**（`sort_order = max + 1`），不吃列的 `DEFAULT 0`。
+///
+/// 反例很具体：如果新行拿默认 0，用户把 A,B,C 排好后新传 D 会插到最前面 ——
+/// 这是「手动排序」功能最容易被用户一眼看出的错。
+#[tokio::test]
+async fn db_insert_appends_sort_order() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    let owner = Some(uid(U_OWNER));
+    let first = model::insert(
+        DocKind::Contract,
+        &uid(DOC_CONTRACT),
+        &uid(FILE_A),
+        FileRole::ContractScan,
+        None,
+        owner,
+    )
+    .await
+    .expect("绑 A");
+    let second = model::insert(
+        DocKind::Contract,
+        &uid(DOC_CONTRACT),
+        &uid(FILE_B),
+        FileRole::Other,
+        None,
+        owner,
+    )
+    .await
+    .expect("绑 B");
+
+    let manual = model::list_by_doc(
+        DocKind::Contract,
+        &uid(DOC_CONTRACT),
+        model::ListOrder::Manual,
+    )
+    .await
+    .expect("查列表");
+    assert_eq!(
+        manual
+            .iter()
+            .map(|row| (row.id, row.sort_order))
+            .collect::<Vec<_>>(),
+        vec![(first, 0), (second, 1)]
+    );
+
+    // 删掉第一个再重挂同一份文件：新行必须拿 2（max(1)+1），不能复用 0
+    model::soft_delete(db(), &first).await.expect("软删 A");
+    let again = model::insert(
+        DocKind::Contract,
+        &uid(DOC_CONTRACT),
+        &uid(FILE_A),
+        FileRole::ContractScan,
+        None,
+        owner,
+    )
+    .await
+    .expect("重挂 A");
+    assert_ne!(again, first, "软删后重挂是一条新绑定行");
+    let manual = model::list_by_doc(
+        DocKind::Contract,
+        &uid(DOC_CONTRACT),
+        model::ListOrder::Manual,
+    )
+    .await
+    .expect("查列表");
+    assert_eq!(
+        manual
+            .iter()
+            .map(|row| (row.id, row.sort_order))
+            .collect::<Vec<_>>(),
+        vec![(second, 1), (again, 2)],
+        "重挂的附件必须追加在末尾（max+1），且序号不重号"
+    );
+    println!("[ATT-03] 新绑定追加 sort_order=max+1 ✓");
+}
+
+/// 手动排序写库：提交顺序 → `sort_order`，`active_ids` 同步；跨单据的 id 命中 0 行。
+#[tokio::test]
+async fn db_manual_sort_persists_and_rejects_foreign_ids() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    let owner = Some(uid(U_OWNER));
+    let a = model::insert(
+        DocKind::Contract,
+        &uid(DOC_CONTRACT),
+        &uid(FILE_A),
+        FileRole::ContractScan,
+        None,
+        owner,
+    )
+    .await
+    .expect("绑 A");
+    let b = model::insert(
+        DocKind::Contract,
+        &uid(DOC_CONTRACT),
+        &uid(FILE_B),
+        FileRole::SignReceipt,
+        None,
+        owner,
+    )
+    .await
+    .expect("绑 B");
+    let c = model::insert(
+        DocKind::Contract,
+        &uid(DOC_CONTRACT),
+        &uid(FILE_C),
+        FileRole::Invoice,
+        None,
+        owner,
+    )
+    .await
+    .expect("绑 C");
+    // 另一张单据的附件（越权改排序的目标）
+    let foreign = model::insert(
+        DocKind::PurchaseOrder,
+        &uid(DOC_PO),
+        &uid(FILE_A),
+        FileRole::Other,
+        None,
+        owner,
+    )
+    .await
+    .expect("绑到采购单");
+
+    // 倒序提交：C, B, A
+    let updated = model::set_sort_orders(db(), DocKind::Contract, &uid(DOC_CONTRACT), &[c, b, a])
+        .await
+        .expect("重排");
+    assert_eq!(updated, 3);
+
+    assert_eq!(
+        model::active_ids(DocKind::Contract, &uid(DOC_CONTRACT))
+            .await
+            .expect("查 id"),
+        vec![c, b, a],
+        "active_ids 必须与写入的顺序一致（重排接口的成员校验也读它）"
+    );
+    let manual = model::list_by_doc(
+        DocKind::Contract,
+        &uid(DOC_CONTRACT),
+        model::ListOrder::Manual,
+    )
+    .await
+    .expect("查列表");
+    assert_eq!(
+        manual.iter().map(|row| row.id).collect::<Vec<_>>(),
+        vec![c, b, a]
+    );
+    assert_eq!(
+        manual.iter().map(|row| row.sort_order).collect::<Vec<_>>(),
+        vec![0, 1, 2]
+    );
+
+    // 跨单据的 id：WHERE 里带 doc_type + doc_id，命中 0 行（不会改到采购单那条）
+    let crossed = model::set_sort_orders(
+        db(),
+        DocKind::Contract,
+        &uid(DOC_CONTRACT),
+        &[foreign, a, b, c],
+    )
+    .await
+    .expect("带外部 id 的重排不报错（只是命中少）");
+    assert_eq!(crossed, 3, "只有属于该合同的三行被更新");
+    assert_eq!(
+        model::active_ids(DocKind::PurchaseOrder, &uid(DOC_PO))
+            .await
+            .expect("查 id"),
+        vec![foreign],
+        "采购单的附件序号不能被合同的请求改到"
+    );
+
+    // 已被软删的 id 也不命中
+    model::soft_delete(db(), &c).await.expect("软删 C");
+    assert_eq!(
+        model::set_sort_orders(db(), DocKind::Contract, &uid(DOC_CONTRACT), &[c, a, b])
+            .await
+            .expect("含已删行"),
+        2,
+        "已软删的附件不能被重排"
+    );
+    println!("[ATT-03] 手动排序落库 / active_ids 同步 / 跨单据与已删行不命中 ✓");
+}
+
 /// 收尾：断言夹具全部清干净（跨 run 不留残留）。
 #[tokio::test]
 async fn zz_teardown_purges_fixtures() {
@@ -1015,7 +1498,8 @@ async fn zz_teardown_purges_fixtures() {
         .scalar_with_params(
             "SELECT count(*) FROM sys_file WHERE id IN \
                 ('d2120f01-0000-4000-8000-000000000001'::uuid, \
-                 'd2120f02-0000-4000-8000-000000000002'::uuid)",
+                 'd2120f02-0000-4000-8000-000000000002'::uuid, \
+                 'd2120f03-0000-4000-8000-000000000003'::uuid)",
             vec![],
         )
         .await

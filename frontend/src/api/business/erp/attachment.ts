@@ -21,7 +21,7 @@
  * | 删**别人**的附件 | `business:attachment:delete`（上传人可删自己的，后端行级判据） |
  */
 
-import service, { del, get, ApiError, type ApiResult } from '@/api/request';
+import service, { del, get, put, ApiError, type ApiResult } from '@/api/request';
 import {
   DOC_KIND_LABELS,
   type AttachmentDocType,
@@ -81,12 +81,17 @@ export interface DocAttachmentItem {
   file_name: string;
   file_size: number;
   mime_type: string | null;
+  /** 手动排序序号（ATT-03：手动模式下按它升序；后端 `sort_order ASC`） */
+  sort_order: number;
   uploaded_by: string | null;
   uploader_name: string;
   created_at: string;
   /** 当前用户能否删除（上传人本人 ∪ `business:attachment:delete`） */
   can_delete: boolean;
 }
+
+/** 列表排序口径（ATT-03，对应后端 `attachment::model::ListOrder`） */
+export type DocAttachmentSortMode = 'time' | 'manual';
 
 /** 列表（对应后端 `DocAttachmentListRes`）。 */
 export interface DocAttachmentList {
@@ -96,6 +101,8 @@ export interface DocAttachmentList {
   total: number;
   /** 单张单据的附件上限（后端 `MAX_ATTACHMENTS_PER_DOC` = 50） */
   max_count: number;
+  /** 本次响应用的排序口径（后端回显；`PUT /sort` 固定回 `manual`） */
+  sort: DocAttachmentSortMode;
 }
 
 /** 上传结果（对应后端 `DocAttachmentUploadRes`）。 */
@@ -120,14 +127,41 @@ export interface DocAttachmentDeleteResult {
   file_deleted: boolean;
 }
 
-/** 按单据查附件（`GET /api/business/attachment/list`）。 */
+/**
+ * 按单据查附件（`GET /api/business/attachment/list`）。
+ *
+ * @param sort 排序口径（ATT-03）：`time`（缺省）= 上传时间倒序；`manual` = 手动序号升序。
+ *   后端对未知值返回 400（不静默回落），所以这里只传两个合法值。
+ */
 export function listDocAttachments(
   docType: DocType,
   docId: string,
+  sort: DocAttachmentSortMode = 'time',
 ): Promise<DocAttachmentList> {
   return get<DocAttachmentList>('/api/business/attachment/list', {
     doc_type: docType,
     doc_id: docId,
+    sort,
+  });
+}
+
+/**
+ * 手动排序（`PUT /api/business/attachment/sort`，ATT-03）。
+ *
+ * `ids` 必须是**该单据附件的完整顺序**（第 1 个 → `sort_order = 0`）：
+ * 后端会把它与库里「该单据当前未删附件」逐一对上，多一个 / 少一个都 400。
+ *
+ * 返回值是**重排后的列表**（`sort = manual`），调用方直接替换即可，不必再补一次 GET。
+ */
+export function sortDocAttachments(
+  docType: DocType,
+  docId: string,
+  ids: string[],
+): Promise<DocAttachmentList> {
+  return put<DocAttachmentList>('/api/business/attachment/sort', {
+    doc_type: docType,
+    doc_id: docId,
+    ids,
   });
 }
 

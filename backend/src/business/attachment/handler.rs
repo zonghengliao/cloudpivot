@@ -5,7 +5,8 @@
 //! | 方法 | 路径 | 权限码 | 说明 |
 //! |------|------|--------|------|
 //! | POST | `/attachment/upload` | `business:attachment:upload` | 上传 + 绑定（multipart：`doc_type` / `doc_id` / `file_role` / `remark` / `file`） |
-//! | GET | `/attachment/list` | `business:attachment:list` + 单据读码 | 按 `doc_type + doc_id` 查 |
+//! | GET | `/attachment/list` | `business:attachment:list` + 单据读码 | 按 `doc_type + doc_id` 查（`sort=time` 缺省 / `manual`） |
+//! | PUT | `/attachment/sort` | `business:attachment:upload` + 单据读码 | 手动排序（ATT-03：提交完整 id 顺序，回读 `manual` 列表） |
 //! | DELETE | `/attachment/{id}` | `business:attachment:list` + 行级 | 软删绑定（上传人 ∪ `business:attachment:delete`） |
 //! | GET | `/attachment/download/{id}` | `business:attachment:list` + 单据读码 | 下载（复用 storage 出流 + 写 `operation_logs`） |
 //!
@@ -31,7 +32,7 @@
 //! 本文件是 handler 层，统一 `ResResult<T>`；数据库错误直接 `?`（`DbError → ApiError`
 //! 已有 `From`），**不写多余的 `map_err(ApiError::internal(..))`**。
 
-use axum::extract::{ConnectInfo, Multipart, Path, Query};
+use axum::extract::{ConnectInfo, Json, Multipart, Path, Query};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use nik::prelude::*;
@@ -208,16 +209,22 @@ pub async fn upload(
     }))
 }
 
-/// 按单据查附件（`GET /business/attachment/list?doc_type=&doc_id=`）。
+/// 按单据查附件（`GET /business/attachment/list?doc_type=&doc_id=&sort=`）。
 ///
 /// # 返回
 ///
-/// `doc_type` / `doc_id` 回显 + `list` + `total` + `max_count`；每条带
+/// `doc_type` / `doc_id` 回显 + `list` + `total` + `max_count` + `sort`；每条带
 /// `can_delete`（前端据此决定显示删除按钮，判据与后端删除接口**同一条函数**）。
+///
+/// # 排序（ATT-03）
+///
+/// `sort` 缺省 = `time`：**按上传时间倒序**（刚传的在上）。
+/// `sort=manual`：按 `sort_order` 升序（用户在面板里上移 / 下移后的顺序）。
+/// 两种口径的 ORDER BY 常量只在 [`model::ListOrder::order_by`] 里，本函数不拼 SQL。
 ///
 /// # 校验顺序（ATT-02：先判读权，再判存在）
 ///
-/// 1. `doc_type` / `doc_id` 合法性（400）；
+/// 1. `doc_type` / `doc_id` / `sort` 合法性（400）；
 /// 2. **单据读码**（403，[`dto::can_view_doc`]）—— 先于存在性判定，
 ///    否则「有没有这张单」会从 404/200 的差异里漏出去；
 /// 3. 单据存在性（404）。
@@ -226,7 +233,7 @@ pub async fn upload(
 ///
 /// # 异常情况
 ///
-/// - 400：`doc_type` 不在白名单 / `doc_id` 不是 UUID；
+/// - 400：`doc_type` 不在白名单 / `doc_id` 不是 UUID / `sort` 不在白名单；
 /// - 403：缺该模块的读码（`business:erp:payable:*` 等，见 [`model::DocKind::view_permissions`]）；
 /// - 404：单据不存在或已删除（**不给已删单据挂的附件留后门**）；
 /// - 500：数据库异常。
@@ -242,6 +249,7 @@ pub async fn list(
 ) -> ResResult<DocAttachmentListRes> {
     let kind = dto::parse_doc_type(&query.doc_type)?;
     let doc_id = utils::require_uuid(&query.doc_id, "doc_id")?;
+    let order = dto::parse_sort_order(query.sort.as_deref())?;
 
     if !dto::can_view_doc(&claims, kind) {
         tracing::warn!(
@@ -260,11 +268,27 @@ pub async fn list(
         return Err(dto::doc_not_found(kind));
     }
 
-    let rows = model::list_by_doc(kind, &doc_id)
+    list_of(&claims, kind, doc_id, order).await
+}
+
+/// 组装列表出参（`list` / `sort` 两个接口共用：同一份投影与同一条 `can_delete` 判据）。
+///
+/// # 参数
+///
+/// - `claims`：当前用户（算 `can_delete`）；
+/// - `kind` / `doc_id`：单据；
+/// - `order`：排序口径（调用方已校验权限与存在性）。
+async fn list_of(
+    claims: &TokenClaims,
+    kind: model::DocKind,
+    doc_id: uuid::Uuid,
+    order: model::ListOrder,
+) -> ResResult<DocAttachmentListRes> {
+    let rows = model::list_by_doc(kind, &doc_id, order)
         .await
         .map_err(|error| utils::db_error(error, "查询单据附件"))?;
     let list: Vec<DocAttachmentItemRes> =
-        rows.iter().map(|row| dto::to_item(row, &claims)).collect();
+        rows.iter().map(|row| dto::to_item(row, claims)).collect();
 
     Ok(Res::ok(DocAttachmentListRes {
         doc_type: kind.as_str().to_string(),
@@ -272,7 +296,190 @@ pub async fn list(
         total: u64::try_from(list.len()).unwrap_or(0),
         list,
         max_count: MAX_ATTACHMENTS_PER_DOC,
+        sort: order.as_str().to_string(),
     }))
+}
+
+/// 手动排序（`PUT /business/attachment/sort`，ATT-03）。
+///
+/// # 请求体
+///
+/// ```json
+/// { "doc_type": "CONTRACT", "doc_id": "<uuid>", "ids": ["<附件id>", "<附件id>"] }
+/// ```
+///
+/// `ids` 是**该单据附件的完整顺序**：第 1 个 → `sort_order = 0`，第 2 个 → 1 …
+///
+/// # 语义
+///
+/// 1. 校验单据类型 / 主键 / id 列表（400）；
+/// 2. **单据读码**（403）—— 能看这张单才谈得上排它的附件；
+/// 3. 单据存在性（404）；
+/// 4. **成员校验**：`ids` 必须与「该单据当前未删附件」的集合**逐一对上**，
+///    多一个 / 少一个都 400（见 [`dto::parse_sort_request`] 的「为什么要求完整列表」）；
+/// 5. 一个事务里逐条写 `sort_order`，成功后按 `manual` 口径回读整份列表。
+///
+/// 返回的是**重排后的列表**（与 `GET /list?sort=manual` 同结构）：前端拿到就能直接替换，
+/// 不必再补一次 GET，也避免「写完再读」之间的第二次请求失败导致界面回滚。
+///
+/// # 权限：为什么挂 `:upload` 而不是 `:list`
+///
+/// 与 `remove` 同口径（`system::authz_tests::o13`：写接口不许挂读码）：
+/// 「能上传附件的人」正是「会去整理附件顺序」的那批人。单据读码另判（第 2 步），
+/// 所以「只持 `attachment:upload` 但看不到这张单」的人排不了它的附件。
+///
+/// # 留痕
+///
+/// 写一条 `operation_logs`（`DOC_ATTACHMENT_SORT`，detail 含单据 + 新顺序的前若干 id），
+/// 与上传 / 删除 / 下载同一条审计口径。
+///
+/// # 异常情况
+///
+/// - 400：参数非法 / `ids` 与该单据的附件集合不匹配；
+/// - 403：缺 `business:attachment:upload`，或缺该单据模块的读码；
+/// - 404：单据不存在 / 已删除；
+/// - 500：数据库异常（事务整体回滚，不会留下写了一半的序号）。
+#[nik::permission(
+    path = "/business/attachment/sort",
+    method = "PUT",
+    permission = "business:attachment:upload"
+)]
+#[nik::put("/business/attachment/sort")]
+pub async fn sort(
+    headers: HeaderMap,
+    ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Json(req): Json<dto::DocAttachmentSortReq>,
+) -> ResResult<DocAttachmentListRes> {
+    let ticket = dto::parse_sort_request(&req)?;
+
+    if !dto::can_view_doc(&claims, ticket.kind) {
+        tracing::warn!(
+            doc_type = ticket.kind.as_str(),
+            doc_id = %ticket.doc_id,
+            user = ?utils::current_user_uuid(&claims),
+            "越权重排单据附件被拒（缺模块读码）"
+        );
+        return Err(dto::doc_forbidden(ticket.kind));
+    }
+
+    if !model::doc_exists(ticket.kind, &ticket.doc_id)
+        .await
+        .map_err(|error| utils::db_error(error, "校验单据存在性"))?
+    {
+        return Err(dto::doc_not_found(ticket.kind));
+    }
+
+    // 幂等前置：同一顺序重复提交不会产生任何变化，直接回读返回（少一次事务）
+    let active = model::active_ids(ticket.kind, &ticket.doc_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询单据附件 id"))?;
+    ensure_same_members(&active, &ticket.ids)?;
+
+    let tx_kind = ticket.kind;
+    let tx_doc_id = ticket.doc_id;
+    let tx_ids = ticket.ids.clone();
+    let updated = db()
+        .transaction(
+            |tx| async move { model::set_sort_orders(&tx, tx_kind, &tx_doc_id, &tx_ids).await },
+        )
+        .await
+        .map_err(|error| utils::db_error(error, "重排单据附件"))?;
+
+    log::record_audit(
+        &headers,
+        &connect_info,
+        log::audit_input(
+            &claims,
+            OP_SORT,
+            "DocAttachment",
+            ticket.doc_id.to_string(),
+            None,
+            Some(serde_json::json!({
+                "doc_type": ticket.kind.as_str(),
+                "doc_id": ticket.doc_id.to_string(),
+                "count": ticket.ids.len(),
+                "ordered_ids": ticket
+                    .ids
+                    .iter()
+                    .take(SORT_LOG_ID_LIMIT)
+                    .map(|id| id.to_string())
+                    .collect::<Vec<_>>(),
+                "updated_rows": updated,
+            })),
+        ),
+    );
+
+    tracing::info!(
+        doc_type = ticket.kind.as_str(),
+        doc_id = %ticket.doc_id,
+        count = ticket.ids.len(),
+        updated_rows = updated,
+        "单据附件顺序已更新"
+    );
+
+    list_of(
+        &claims,
+        ticket.kind,
+        ticket.doc_id,
+        model::ListOrder::Manual,
+    )
+    .await
+}
+
+/// 重排留痕的操作码（`operation_logs.operation`）。
+pub const OP_SORT: &str = "DOC_ATTACHMENT_SORT";
+
+/// 留痕里最多记录多少个 id（50 个附件的全量顺序写进 detail 会撑大日志表）。
+const SORT_LOG_ID_LIMIT: usize = 10;
+
+/// 校验 `ids` 与该单据当前未删附件的集合**逐一对上**。
+///
+/// # 为什么在库里比对而不是只信入参
+///
+/// - 入参可能混进别的单据的附件 id（越权改别人的排序）；
+/// - 也可能漏掉某个附件（那一条会保留旧序号，与本轮写入的 0..n-1 撞号）；
+/// - 还可能包含刚被删掉的附件。
+///
+/// 三种情况都让「提交的顺序 ≠ 库里的顺序」，一律 400 并说清差在哪。
+///
+/// # 异常情况
+///
+/// - 400 + `PARAM_INVALID`：多出的 id / 缺失的 id（消息点名第一个，附计数）。
+///
+/// # 可见性
+///
+/// `pub(crate)`：`tests::ensure_same_members_truth_table` 直接断言这条判据（不连库）。
+pub(crate) fn ensure_same_members(
+    active: &[uuid::Uuid],
+    submitted: &[uuid::Uuid],
+) -> std::result::Result<(), ApiError> {
+    let active_set: std::collections::HashSet<uuid::Uuid> = active.iter().copied().collect();
+    let submitted_set: std::collections::HashSet<uuid::Uuid> = submitted.iter().copied().collect();
+
+    if let Some(extra) = submitted.iter().find(|id| !active_set.contains(*id)) {
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!(
+                "ids 里有不属于该单据（或已删除）的附件：{extra}（该单据当前 {} 个附件，提交 {} 个）",
+                active.len(),
+                submitted.len()
+            ),
+        ));
+    }
+    if let Some(missing) = active.iter().find(|id| !submitted_set.contains(*id)) {
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!(
+                "ids 不完整，缺少附件 {missing}（该单据当前 {} 个附件，提交 {} 个）；重排必须提交完整顺序",
+                active.len(),
+                submitted.len()
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// 删除附件（`DELETE /business/attachment/{id}`，软删）。

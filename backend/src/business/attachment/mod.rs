@@ -11,16 +11,17 @@
 //!
 //! | 文件 | 内容 |
 //! |------|------|
-//! | [`model`] | 行结构、单据类型 → 表名映射 / 存在性校验、绑定 / 列表 / 软删 / 引用计数 |
-//! | [`dto`] | 入参出参契约（上传 / 列表 / 删除 / 下载）+ 纯逻辑校验（类型 / 角色 / 行级删除判据） |
-//! | [`handler`] | 4 个接口：`upload` / `list` / `delete` / `download` |
+//! | [`model`] | 行结构、单据类型 → 表名映射 / 存在性校验、绑定 / 列表（两种排序口径）/ 软删 / 重排 / 引用计数 |
+//! | [`dto`] | 入参出参契约（上传 / 列表 / 重排 / 删除 / 下载）+ 纯逻辑校验（类型 / 角色 / 排序口径 / id 列表 / 行级删除判据） |
+//! | [`handler`] | 5 个接口：`upload` / `list` / `sort` / `delete` / `download` |
 //!
 //! # 接口清单（`/api` 前缀由 `[router].prefix` 注入，宏内写 `/business/attachment/...`）
 //!
 //! | 方法 | 路径 | 权限码 | 说明 |
 //! |------|------|--------|------|
 //! | POST | `/attachment/upload` | `business:attachment:upload` | 上传并绑定（multipart：`doc_type` / `doc_id` / `file_role` / `remark` / `file`） |
-//! | GET | `/attachment/list` | `business:attachment:list` + 单据读码 | 按 `doc_type + doc_id` 查 |
+//! | GET | `/attachment/list` | `business:attachment:list` + 单据读码 | 按 `doc_type + doc_id` 查（ATT-03：`sort=time` 缺省按上传时间倒序，`sort=manual` 按 `sort_order`） |
+//! | PUT | `/attachment/sort` | `business:attachment:upload` + 单据读码 | 手动排序（ATT-03：提交该单据附件的完整 id 顺序） |
 //! | DELETE | `/attachment/{id}` | `business:attachment:upload` + 行级 `:delete` | 软删绑定（上传人本人 ∪ `business:attachment:delete`；写接口不能挂读码，见 `authz_tests::o13`） |
 //! | GET | `/attachment/download/{id}` | `business:attachment:list` + 单据读码 | 下载（复用 storage 出流 + 落 `operation_logs`） |
 //!
