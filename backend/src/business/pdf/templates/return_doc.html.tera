@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>{{ doc_label }} {{ doc_no }}</title>
+<style>
+/* ===========================================================================
+   云枢 ERP 退货单模板（PDF-04：采购退货单 / 销售退货单共用一份）
+   ---------------------------------------------------------------------------
+   结构：页眉 → 单据头（单号 / 退货日期 / 状态 / 供应商(客户) / 仓库 /
+        原单号 …）→ 退货原因条 → 明细（采购退货多「价税合计」列；销售退货
+        多「序列号」列）→ 合计 → 备注 → 签字栏 → 页脚。
+
+   为什么用 **A4 横向**：两种退货单都要 12 列（物料三列 + 数量金额四列 +
+   税率税额 + 库位 + 方向专列），纵向 538pt 装不下 —— 列被压窄后单价
+   `12.345600` / 序列号会折行，打印件就没法逐行核对了。横向可用 786pt。
+
+   打印四条铁律（与订单 / 出入库模板同源）：
+     ① @page 定死纸张与外边距；
+     ② thead { display: table-header-group } —— 明细跨页时表头重复；
+     ③ tr / .sign / .summary / .reason { break-inside: avoid } —— 不腰斩；
+     ④ .num { font-variant-numeric: tabular-nums } —— 数量金额等宽右对齐。
+
+   页码由 CDP footerTemplate 输出（`pdf::template::return_footer`）。
+   =========================================================================== */
+@page {
+  size: A4 landscape;
+  margin: 12mm 10mm 16mm 10mm;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Noto Sans SC", "Noto Sans CJK SC", sans-serif;
+  font-size: 10pt;
+  line-height: 1.4;
+  color: #1f2329;
+  word-break: break-word;
+}
+
+/* ---------- 页眉 ---------- */
+.sheet-header {
+  border-bottom: 1.5pt solid #1f2329;
+  padding-bottom: 4pt;
+  margin-bottom: 8pt;
+}
+.sheet-header .company {
+  font-size: 12.5pt;
+  font-weight: 700;
+  letter-spacing: 1pt;
+}
+.sheet-header .doc-title {
+  font-size: 17pt;
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: 8pt;
+  margin: 4pt 0 6pt;
+}
+
+/* ---------- 单据头 ---------- */
+table.head-fields {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9.5pt;
+  margin-bottom: 8pt;
+}
+table.head-fields td {
+  border: 0.5pt solid #c9cdd4;
+  padding: 3pt 5pt;
+  vertical-align: middle;
+}
+table.head-fields td.label {
+  width: 70pt;
+  background: #f2f3f5;
+  color: #4e5969;
+  text-align: center;
+  white-space: nowrap;
+}
+table.head-fields td.value { width: auto; }
+
+/* ---------- 退货原因条（验收③：退货原因必须是显眼的一块） ---------- */
+.reason {
+  break-inside: avoid;
+  page-break-inside: avoid;
+  border: 0.8pt solid #1f2329;
+  background: #f7f8fa;
+  padding: 4pt 8pt;
+  margin-bottom: 8pt;
+  font-size: 10pt;
+}
+.reason .tag { font-weight: 700; }
+
+/* ---------- 明细表 ---------- */
+table.detail {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9pt;
+}
+table.detail thead { display: table-header-group; }
+table.detail th,
+table.detail td {
+  border: 0.5pt solid #86909c;
+  padding: 2.4pt 3.5pt;
+  vertical-align: middle;
+}
+table.detail th {
+  background: #f2f3f5;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+}
+table.detail tr { break-inside: avoid; page-break-inside: avoid; }
+table.detail td.c-seq { text-align: center; width: 22pt; }
+table.detail td.c-code { width: 80pt; white-space: nowrap; }
+table.detail td.c-name { width: auto; }
+table.detail td.c-spec { width: 56pt; }
+table.detail td.c-unit { text-align: center; width: 26pt; }
+table.detail td.c-qty { width: 46pt; }
+table.detail td.c-price { width: 58pt; }
+table.detail td.c-amount { width: 62pt; }
+table.detail td.c-rate { width: 34pt; }
+table.detail td.c-tax { width: 56pt; }
+table.detail td.c-with-tax { width: 66pt; }
+table.detail td.c-loc { width: 52pt; overflow-wrap: anywhere; }
+table.detail td.c-sn { width: 120pt; overflow-wrap: anywhere; }
+table.detail td.c-code,
+table.detail td.c-name,
+table.detail td.c-spec { overflow-wrap: anywhere; }
+
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ---------- 合计区（整块不跨页） ---------- */
+.summary {
+  break-inside: avoid;
+  page-break-inside: avoid;
+  margin-top: 8pt;
+}
+.summary table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9.5pt;
+}
+.summary table td {
+  border: 0.5pt solid #86909c;
+  padding: 3pt 5pt;
+}
+.summary .label {
+  width: 86pt;
+  text-align: center;
+  background: #f2f3f5;
+  font-weight: 700;
+}
+.summary .value-cn { font-weight: 700; letter-spacing: 0.3pt; }
+
+/* ---------- 签字栏 ---------- */
+.sign {
+  break-inside: avoid;
+  page-break-inside: avoid;
+  margin-top: 12pt;
+  display: flex;
+  justify-content: space-between;
+  gap: 8pt;
+  font-size: 9pt;
+}
+.sign .box { flex: 1 1 0; }
+.sign .cap { color: #4e5969; white-space: nowrap; }
+.sign .line { margin-top: 16pt; border-bottom: 0.5pt solid #4e5969; height: 1pt; }
+.sign .date { margin-top: 3pt; color: #86909c; font-size: 8.5pt; }
+
+.remark {
+  margin-top: 9pt;
+  font-size: 8.8pt;
+  color: #4e5969;
+  line-height: 1.6;
+}
+.remark .tag { font-weight: 700; color: #1f2329; }
+
+.footnote {
+  margin-top: 5pt;
+  font-size: 7.5pt;
+  color: #86909c;
+  text-align: right;
+}
+</style>
+</head>
+<body>
+<div class="sheet-header">
+  <div class="company">{{ company }}</div>
+  <div class="doc-title">{{ doc_title }}</div>
+</div>
+
+<table class="head-fields">
+{% for row in meta_rows %}
+  <tr>
+{% for field in row %}
+    <td class="label">{{ field.label }}</td>
+    <td class="value">{{ field.value }}</td>
+{% endfor %}
+  </tr>
+{% endfor %}
+</table>
+
+<div class="reason"><span class="tag">退货原因：</span>{{ reason }}</div>
+
+<table class="detail">
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>物料编码</th>
+      <th>物料名称</th>
+      <th>规格</th>
+      <th>单位</th>
+      <th>数量</th>
+      <th>单价</th>
+      <th>金额</th>
+      <th>税率(%)</th>
+      <th>税额</th>
+{% if show_with_tax %}
+      <th>价税合计</th>
+{% endif %}
+      <th>库位</th>
+{% if show_serials %}
+      <th>序列号</th>
+{% endif %}
+    </tr>
+  </thead>
+  <tbody>
+{% for item in items %}
+    <tr>
+      <td class="c-seq">{{ item.seq }}</td>
+      <td class="c-code">{{ item.material_code }}</td>
+      <td class="c-name">{{ item.material_name }}</td>
+      <td class="c-spec">{{ item.spec }}</td>
+      <td class="c-unit">{{ item.unit }}</td>
+      <td class="c-qty num">{{ item.qty }}</td>
+      <td class="c-price num">{{ item.price }}</td>
+      <td class="c-amount num">{{ item.amount }}</td>
+      <td class="c-rate num">{{ item.tax_rate }}</td>
+      <td class="c-tax num">{{ item.tax_amount }}</td>
+{% if show_with_tax %}
+      <td class="c-with-tax num">{{ item.with_tax }}</td>
+{% endif %}
+      <td class="c-loc">{{ item.location }}</td>
+{% if show_serials %}
+      <td class="c-sn">{{ item.serials }}</td>
+{% endif %}
+    </tr>
+{% endfor %}
+  </tbody>
+</table>
+
+<div class="summary">
+  <table>
+    <tr>
+      <td class="label">行数合计</td>
+      <td class="num" style="width:56pt">{{ row_count }}</td>
+      <td class="label">数量合计</td>
+      <td class="num" style="width:80pt">{{ total_qty }}</td>
+      <td class="label">金额合计（{{ currency }}）</td>
+      <td class="num" style="width:96pt">{{ total_amount }}</td>
+      <td class="label">税额</td>
+      <td class="num" style="width:86pt">{{ total_tax }}</td>
+      <td class="label">价税合计</td>
+      <td class="num" style="width:96pt">{{ total_with_tax }}</td>
+    </tr>
+    <tr>
+      <td class="label">价税合计（大写）</td>
+      <td colspan="9" class="value-cn">{{ currency_cn }}{{ amount_cn }}（{{ currency_symbol }}{{ amount_for_upper }}）</td>
+    </tr>
+  </table>
+</div>
+
+{% if remark %}
+<div class="remark"><span class="tag">备注：</span>{{ remark }}</div>
+{% endif %}
+
+<div class="sign">
+{% for cap in sign_caps %}
+  <div class="box">
+    <div class="cap">{{ cap }}</div>
+    <div class="line"></div>
+    <div class="date">日期：__________</div>
+  </div>
+{% endfor %}
+</div>
+
+<div class="footnote">打印时间：{{ printed_at }}　本单据由云枢系统生成（{{ engine }}）</div>
+</body>
+</html>

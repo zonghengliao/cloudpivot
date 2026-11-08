@@ -162,6 +162,8 @@ pub(crate) mod depreciation_linkage;
 pub mod depreciation_model;
 /// PDF-03 起的公共数据访问层：库位 / 仓库 / 供应商 / 客户补名 + 序列号 + 导出审计。
 pub mod doc_pdf_model;
+/// PDF-04 起的渲染收尾共用件：HTML → 字节 + 文件名 + 行数 + 金额 + 耗时。
+pub mod doc_pdf_render;
 pub mod dto;
 pub mod expense_bridge;
 pub mod expense_compute;
@@ -239,6 +241,8 @@ pub mod report;
 pub mod report_item_admin;
 pub mod report_item_model;
 pub mod requisition_bridge;
+/// 采购退货单 / 销售退货单 PDF 导出（PDF-04）：原单号 + 退货原因 + 双向库位口径。
+pub mod return_pdf;
 pub mod sales_approval_bridge;
 pub mod sales_model;
 pub mod sales_order_handler;
@@ -261,6 +265,8 @@ pub mod shipment_posting;
 pub mod statement;
 /// 收货入库单 / 出库单 PDF 导出（PDF-03）：批次号 / 库位 / 来源单据号 / 序列号。
 pub mod stock_pdf;
+/// 盘点单 PDF 导出（PDF-04）：**唯一**带空白手写栏的单据（实盘 / 差异 / 备注）。
+pub mod stock_take_pdf;
 pub mod stockin_bridge;
 pub mod stockin_dto;
 pub mod stockin_handler;
@@ -277,6 +283,8 @@ pub mod transfer_dto;
 pub mod transfer_handler;
 pub mod transfer_model;
 pub mod transfer_overdue;
+/// 调拨单 PDF 导出（PDF-04）：调出 / 调入仓库 + 双库位 + 原价转移成本口径。
+pub mod transfer_pdf;
 pub mod unit_guard;
 pub mod voucher;
 pub mod voucher_bridge;

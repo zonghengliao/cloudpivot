@@ -60,6 +60,12 @@ fn tera() -> &'static Tera {
             .expect("内置合同模板语法错误（编译期常量，改模板后必须跑 cargo test）");
         tera.add_raw_template(STOCK_NAME, STOCK_TEMPLATE)
             .expect("内置出入库单模板语法错误（编译期常量，改模板后必须跑 cargo test）");
+        tera.add_raw_template(TRANSFER_NAME, TRANSFER_TEMPLATE)
+            .expect("内置调拨单模板语法错误（编译期常量，改模板后必须跑 cargo test）");
+        tera.add_raw_template(STOCK_TAKE_NAME, STOCK_TAKE_TEMPLATE)
+            .expect("内置盘点单模板语法错误（编译期常量，改模板后必须跑 cargo test）");
+        tera.add_raw_template(RETURN_NAME, RETURN_TEMPLATE)
+            .expect("内置退货单模板语法错误（编译期常量，改模板后必须跑 cargo test）");
         tera
     })
 }
@@ -476,6 +482,33 @@ pub const STOCK_TEMPLATE: &str = include_str!("templates/stock.html.tera");
 
 /// 出入库单模板的注册名（`.html` 后缀 → 启用 HTML 自动转义）。
 pub const STOCK_NAME: &str = "stock.html";
+
+/// 内嵌的调拨单模板（PDF-04）。
+pub const TRANSFER_TEMPLATE: &str = include_str!("templates/transfer.html.tera");
+
+/// 调拨单模板的注册名。
+pub const TRANSFER_NAME: &str = "transfer.html";
+
+/// 内嵌的盘点单模板（PDF-04：**唯一**带空白手写栏的单据）。
+pub const STOCK_TAKE_TEMPLATE: &str = include_str!("templates/stock_take.html.tera");
+
+/// 盘点单模板的注册名。
+pub const STOCK_TAKE_NAME: &str = "stock_take.html";
+
+/// 内嵌的退货单模板（采购退货单 / 销售退货单共用）。
+pub const RETURN_TEMPLATE: &str = include_str!("templates/return_doc.html.tera");
+
+/// 退货单模板的注册名。
+pub const RETURN_NAME: &str = "return_doc.html";
+
+/// 盘点表「空白栏」的填表说明（**与模板里的实际列一一对应**）。
+///
+/// # 为什么要把这句话当常量
+///
+/// 卡面把「实盘数量／差异／备注 三栏留空供现场手写」定为验收①。
+/// 文案与列名分散在模板与单测里，改名时必然漏一处；抽成常量后，
+/// 模板渲染与单测断言引用同一份字符串。
+pub const STOCK_TAKE_BLANK_HINT: &str = "「实盘数量」「差异」「备注」三栏留空，由盘点人在现场手写（本表为现场盘点用表，不预印系统值）。";
 
 /// 合同没有单独的「付款方式」列时打在 PDF 上的兜底文案。
 ///
@@ -1261,6 +1294,801 @@ pub fn sample_stock(kind: StockDocKind, rows: u32) -> StockContext {
             StockDocKind::StockOut => "生产领用（一号线检修）".to_string(),
         },
         remark: "收货时外包装完好，随货附材质证明书。".to_string(),
+        printed_at: "2026-11-08 19:30".to_string(),
+    })
+}
+
+// ==================== ⑤ 调拨单模板（PDF-04：仓间调拨） ====================
+
+/// 调拨明细行（数量 / 金额已是**展示字符串**，模板不做任何计算）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TransferItem {
+    /// 序号（从 1 开始，跨页连续）
+    pub seq: u32,
+    /// 物料编码
+    pub material_code: String,
+    /// 物料名称
+    pub material_name: String,
+    /// 规格
+    pub spec: String,
+    /// 计量单位
+    pub unit: String,
+    /// 调拨数量（恒正；方向由调出 / 调入仓库表达）
+    pub qty: String,
+    /// 调出库位编码（`未分配` = 未指定库位）
+    pub from_location: String,
+    /// 调入库位编码
+    pub to_location: String,
+    /// 单位成本（调出仓移动加权均价快照）
+    pub unit_cost: String,
+    /// 金额（= 数量 × 单位成本快照）
+    pub amount: String,
+}
+
+/// 一张调拨单的渲染上下文。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransferContext {
+    /// 公司名
+    pub company: String,
+    /// 页眉标题
+    pub doc_title: String,
+    /// 单据名
+    pub doc_label: String,
+    /// 单号
+    pub doc_no: String,
+    /// 单据头字段（每行 3 组）
+    pub meta_rows: Vec<Vec<OrderMetaField>>,
+    /// 调出仓库名（路线条 + 验收②）
+    pub from_warehouse: String,
+    /// 调入仓库名（路线条 + 验收②）
+    pub to_warehouse: String,
+    /// 在途仓名（未发货 / 未指定时为空串，路线条不显示「在途经」）
+    pub transit_warehouse: String,
+    /// 明细
+    pub items: Vec<TransferItem>,
+    /// 行数合计
+    pub row_count: String,
+    /// 数量合计
+    pub total_qty: String,
+    /// 成本金额合计
+    pub total_amount: String,
+    /// 大写金额
+    pub amount_cn: String,
+    /// 大写对应的小写金额
+    pub amount_for_upper: String,
+    /// 币种代码
+    pub currency: String,
+    /// 币种符号
+    pub currency_symbol: String,
+    /// 大写金额前缀（人民币 / 空）
+    pub currency_cn: String,
+    /// 调拨事由
+    pub reason: String,
+    /// 备注
+    pub remark: String,
+    /// 签字栏
+    pub sign_caps: Vec<String>,
+    /// 打印时间
+    pub printed_at: String,
+    /// 引擎标识
+    pub engine: String,
+}
+
+/// [`TransferContext`] 的构造入参。
+#[derive(Debug, Clone)]
+pub struct TransferContextArgs {
+    /// 单号
+    pub doc_no: String,
+    /// 单据头字段
+    pub meta: Vec<OrderMetaField>,
+    /// 调出仓库名
+    pub from_warehouse: String,
+    /// 调入仓库名
+    pub to_warehouse: String,
+    /// 在途仓名（无则 `None`）
+    pub transit_warehouse: Option<String>,
+    /// 明细
+    pub items: Vec<TransferItem>,
+    /// 数量合计（原始值）
+    pub total_qty: Decimal,
+    /// 成本金额合计（元）
+    pub total_amount: Decimal,
+    /// 调拨事由
+    pub reason: String,
+    /// 备注
+    pub remark: String,
+    /// 打印时间
+    pub printed_at: String,
+}
+
+impl TransferContext {
+    /// 组装上下文。金额口径 = 成本金额（**无税额**：调拨是原价转移，不是购销）。
+    pub fn new(args: TransferContextArgs) -> Self {
+        let fen = yuan_to_fen(args.total_amount);
+        Self {
+            company: COMPANY_NAME.to_string(),
+            doc_title: "调 拨 单".to_string(),
+            doc_label: "调拨单".to_string(),
+            doc_no: args.doc_no,
+            meta_rows: args
+                .meta
+                .chunks(3)
+                .map(<[OrderMetaField]>::to_vec)
+                .collect(),
+            from_warehouse: args.from_warehouse,
+            to_warehouse: args.to_warehouse,
+            transit_warehouse: args.transit_warehouse.unwrap_or_default(),
+            row_count: format_int(args.items.len() as i64),
+            items: args.items,
+            total_qty: format_quantity(args.total_qty),
+            total_amount: format_money(fen),
+            amount_for_upper: format_money(fen),
+            amount_cn: amount_upper(fen),
+            currency: "CNY".to_string(),
+            currency_symbol: "￥".to_string(),
+            currency_cn: "人民币".to_string(),
+            reason: args.reason,
+            remark: args.remark,
+            sign_caps: vec![
+                "调出仓管：".to_string(),
+                "调入仓管：".to_string(),
+                "经办人：".to_string(),
+                "审核：".to_string(),
+                "制单：".to_string(),
+            ],
+            printed_at: args.printed_at,
+            engine: "Chromium · CDP printToPDF".to_string(),
+        }
+    }
+}
+
+/// 渲染调拨单 HTML。
+///
+/// # 异常情况
+///
+/// - [`PdfError::Template`]：模板渲染失败。
+pub fn render_transfer(ctx: &TransferContext) -> Result<String, PdfError> {
+    let context = Context::from_serialize(ctx)
+        .map_err(|error| PdfError::Template(format!("调拨单上下文序列化失败：{error}")))?;
+    tera()
+        .render(TRANSFER_NAME, &context)
+        .map_err(|error| PdfError::Template(format!("调拨单模板渲染失败：{error}")))
+}
+
+/// 调拨单页脚（单号 + 「第 X 页 / 共 Y 页」）。
+pub fn transfer_footer(doc_no: &str) -> String {
+    format!(
+        "<div style=\"width:100%;padding:0 10mm;font-family:'Noto Sans SC',sans-serif;\
+         font-size:8pt;color:#86909c;display:flex;justify-content:space-between;\">\
+         <span>{} {}</span>\
+         <span>第 <span class=\"pageNumber\"></span> 页 / 共 <span class=\"totalPages\"></span> 页</span>\
+         </div>",
+        "调拨单",
+        escape_html(doc_no)
+    )
+}
+
+/// 调拨单 PDF 的渲染参数（A4 纵向）。
+pub fn transfer_pdf_opts(
+    doc_no: &str,
+    filename: Option<String>,
+) -> crate::business::pdf::dto::PdfOpts {
+    doc_pdf_opts(transfer_footer(doc_no), filename)
+}
+
+/// 生成「样本调拨单」上下文（联调 / 验收用，数据确定性、不依赖数据库）。
+pub fn sample_transfer(rows: u32) -> TransferContext {
+    let names = ["球阀", "法兰", "弯头", "三通"];
+    let mut items = Vec::with_capacity(rows as usize);
+    let mut total_qty = Decimal::ZERO;
+    let mut total_amount = Decimal::ZERO;
+    for index in 0..rows {
+        let qty = Decimal::from(((index % 9) + 1) as i64 * 3);
+        let cost = Decimal::new(123_456 + (index % 37) as i64 * 1100, 4);
+        let amount = (cost * qty).round_dp(2);
+        total_qty += qty;
+        total_amount += amount;
+        items.push(TransferItem {
+            seq: index + 1,
+            material_code: format!("MAT-{:05}", index % 97 + 1),
+            material_name: format!(
+                "{}Φ{}mm 不锈钢法兰",
+                names[(index % 4) as usize],
+                index % 90 + 10
+            ),
+            spec: format!("DN{}/PN16", 50 + (index % 8) * 10),
+            unit: ["件", "台", "套", "米"][(index % 4) as usize].to_string(),
+            qty: format_quantity(qty),
+            from_location: format!("A-{:02}-{:02}", index % 6 + 1, index % 12 + 1),
+            to_location: format!("B-{:02}-{:02}", index % 6 + 1, index % 12 + 1),
+            unit_cost: format_quantity(cost),
+            amount: format_money(yuan_to_fen(amount)),
+        });
+    }
+    TransferContext::new(TransferContextArgs {
+        doc_no: "TK-20261108-000001".to_string(),
+        meta: vec![
+            OrderMetaField::new("单号", "TK-20261108-000001"),
+            OrderMetaField::new("调拨日期", "2026-11-08"),
+            OrderMetaField::new("状态", "已签收"),
+            OrderMetaField::new("调出仓库", "上海一号仓"),
+            OrderMetaField::new("调入仓库", "上海二号仓"),
+            OrderMetaField::new("在途仓", "在途仓"),
+            OrderMetaField::new("申请人", "李四"),
+            OrderMetaField::new("审批人", "王五"),
+            OrderMetaField::new("经办人", "李四"),
+        ],
+        from_warehouse: "上海一号仓".to_string(),
+        to_warehouse: "上海二号仓".to_string(),
+        transit_warehouse: Some("在途仓".to_string()),
+        items,
+        total_qty,
+        total_amount,
+        reason: "二号仓备货，平衡区域库存".to_string(),
+        remark: "调拨前已在两仓完成实物清点。".to_string(),
+        printed_at: "2026-11-08 19:30".to_string(),
+    })
+}
+
+// ==================== ⑥ 盘点单模板（PDF-04：盘点表，留空白手写栏） ====================
+
+/// 盘点明细行。
+///
+/// # 为什么**没有** `actual_qty` / `diff_qty` 字段
+///
+/// 盘点表是拿去仓库现场手写的表：实盘数、差异、备注三栏必须留空（验收①）。
+/// 结构体里干脆不放这三个字段 —— 模板想印也印不出来，
+/// 「有人顺手把系统值填进去」这条错路在类型层面就被堵死。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StockTakeItem {
+    /// 序号
+    pub seq: u32,
+    /// 物料编码
+    pub material_code: String,
+    /// 物料名称
+    pub material_name: String,
+    /// 规格
+    pub spec: String,
+    /// 计量单位
+    pub unit: String,
+    /// 库位编码（`未分配` = 未分配库位桶）
+    pub location: String,
+    /// 账面数量（建单时快照）
+    pub book_qty: String,
+}
+
+/// 一张盘点单的渲染上下文。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StockTakeContext {
+    /// 公司名
+    pub company: String,
+    /// 页眉标题
+    pub doc_title: String,
+    /// 单据名
+    pub doc_label: String,
+    /// 单号
+    pub doc_no: String,
+    /// 单据头字段（每行 3 组）
+    pub meta_rows: Vec<Vec<OrderMetaField>>,
+    /// 明细（只有账面数量，实盘 / 差异 / 备注在模板里留空）
+    pub items: Vec<StockTakeItem>,
+    /// 行数合计
+    pub row_count: String,
+    /// 账面数量合计
+    pub total_book_qty: String,
+    /// 盘点类型（全盘 / 抽盘）
+    pub take_type: String,
+    /// 是否展示差异合计（盘盈 / 盘亏任一非零）
+    pub show_diff: bool,
+    /// 盘盈数量合计
+    pub total_gain_qty: String,
+    /// 盘亏数量合计（绝对值）
+    pub total_loss_qty: String,
+    /// 差异金额合计（盘盈 + 盘亏）
+    pub total_diff_amount: String,
+    /// 币种代码
+    pub currency: String,
+    /// 空白栏填表说明
+    pub blank_hint: String,
+    /// 盘点范围 / 备注
+    pub remark: String,
+    /// 签字栏
+    pub sign_caps: Vec<String>,
+    /// 打印时间
+    pub printed_at: String,
+    /// 引擎标识
+    pub engine: String,
+}
+
+/// [`StockTakeContext`] 的构造入参。
+#[derive(Debug, Clone)]
+pub struct StockTakeContextArgs {
+    /// 单号
+    pub doc_no: String,
+    /// 单据头字段
+    pub meta: Vec<OrderMetaField>,
+    /// 明细
+    pub items: Vec<StockTakeItem>,
+    /// 账面数量合计
+    pub total_book_qty: Decimal,
+    /// 盘点类型（FULL / PARTIAL）
+    pub take_type: String,
+    /// 盘盈数量合计
+    pub gain_qty: Decimal,
+    /// 盘亏数量合计
+    pub loss_qty: Decimal,
+    /// 差异金额合计（盘盈金额 + 盘亏金额）
+    pub diff_amount: Decimal,
+    /// 盘点范围 / 备注
+    pub remark: String,
+    /// 打印时间
+    pub printed_at: String,
+}
+
+impl StockTakeContext {
+    /// 组装上下文。
+    ///
+    /// # 差异区块的口径
+    ///
+    /// 只有**库里已经有差异**（单据已过账 / 已录实盘）时才打印盘盈盘亏合计，
+    /// 否则一张全空白的盘点表上出现「盘盈 0 / 盘亏 0」会让人误以为已经盘过。
+    pub fn new(args: StockTakeContextArgs) -> Self {
+        let has_diff =
+            !args.gain_qty.is_zero() || !args.loss_qty.is_zero() || !args.diff_amount.is_zero();
+        Self {
+            company: COMPANY_NAME.to_string(),
+            doc_title: "盘 点 表".to_string(),
+            doc_label: "盘点单".to_string(),
+            doc_no: args.doc_no,
+            meta_rows: args
+                .meta
+                .chunks(3)
+                .map(<[OrderMetaField]>::to_vec)
+                .collect(),
+            row_count: format_int(args.items.len() as i64),
+            items: args.items,
+            total_book_qty: format_quantity(args.total_book_qty),
+            take_type: match args.take_type.as_str() {
+                "FULL" => "全盘",
+                "PARTIAL" => "抽盘",
+                other => other,
+            }
+            .to_string(),
+            show_diff: has_diff,
+            total_gain_qty: format_quantity(args.gain_qty),
+            total_loss_qty: format_quantity(args.loss_qty),
+            total_diff_amount: format_money(yuan_to_fen(args.diff_amount)),
+            currency: "CNY".to_string(),
+            blank_hint: STOCK_TAKE_BLANK_HINT.to_string(),
+            remark: args.remark,
+            sign_caps: vec![
+                "盘点人：".to_string(),
+                "复核人：".to_string(),
+                "仓管主管：".to_string(),
+                "财务：".to_string(),
+                "制单：".to_string(),
+            ],
+            printed_at: args.printed_at,
+            engine: "Chromium · CDP printToPDF".to_string(),
+        }
+    }
+}
+
+/// 渲染盘点单 HTML。
+///
+/// # 异常情况
+///
+/// - [`PdfError::Template`]：模板渲染失败。
+pub fn render_stock_take(ctx: &StockTakeContext) -> Result<String, PdfError> {
+    let context = Context::from_serialize(ctx)
+        .map_err(|error| PdfError::Template(format!("盘点单上下文序列化失败：{error}")))?;
+    tera()
+        .render(STOCK_TAKE_NAME, &context)
+        .map_err(|error| PdfError::Template(format!("盘点单模板渲染失败：{error}")))
+}
+
+/// 盘点单页脚。
+pub fn stock_take_footer(doc_no: &str) -> String {
+    format!(
+        "<div style=\"width:100%;padding:0 10mm;font-family:'Noto Sans SC',sans-serif;\
+         font-size:8pt;color:#86909c;display:flex;justify-content:space-between;\">\
+         <span>{} {}</span>\
+         <span>第 <span class=\"pageNumber\"></span> 页 / 共 <span class=\"totalPages\"></span> 页</span>\
+         </div>",
+        "盘点表",
+        escape_html(doc_no)
+    )
+}
+
+/// 盘点单 PDF 的渲染参数（A4 纵向 —— 现场盘点必须能夹在写字板上）。
+pub fn stock_take_pdf_opts(
+    doc_no: &str,
+    filename: Option<String>,
+) -> crate::business::pdf::dto::PdfOpts {
+    doc_pdf_opts(stock_take_footer(doc_no), filename)
+}
+
+/// 生成「样本盘点表」上下文（联调 / 验收用）。
+pub fn sample_stock_take(rows: u32) -> StockTakeContext {
+    let names = ["球阀", "法兰", "弯头", "三通"];
+    let mut items = Vec::with_capacity(rows as usize);
+    let mut total_book = Decimal::ZERO;
+    for index in 0..rows {
+        let book = Decimal::from(((index % 9) + 1) as i64 * 7);
+        total_book += book;
+        items.push(StockTakeItem {
+            seq: index + 1,
+            material_code: format!("MAT-{:05}", index % 97 + 1),
+            material_name: format!(
+                "{}Φ{}mm 不锈钢法兰",
+                names[(index % 4) as usize],
+                index % 90 + 10
+            ),
+            spec: format!("DN{}/PN16", 50 + (index % 8) * 10),
+            unit: ["件", "台", "套", "米"][(index % 4) as usize].to_string(),
+            location: format!("A-{:02}-{:02}", index % 6 + 1, index % 12 + 1),
+            book_qty: format_quantity(book),
+        });
+    }
+    StockTakeContext::new(StockTakeContextArgs {
+        doc_no: "ST-20261108-000001".to_string(),
+        meta: vec![
+            OrderMetaField::new("单号", "ST-20261108-000001"),
+            OrderMetaField::new("盘点日期", "2026-11-08"),
+            OrderMetaField::new("状态", "待过账"),
+            OrderMetaField::new("仓库", "上海一号仓"),
+            OrderMetaField::new("盘点类型", "全盘"),
+            OrderMetaField::new("制单", "李四"),
+        ],
+        items,
+        total_book_qty: total_book,
+        take_type: "FULL".to_string(),
+        gain_qty: Decimal::ZERO,
+        loss_qty: Decimal::ZERO,
+        diff_amount: Decimal::ZERO,
+        remark: "年末全盘，范围 = 一号仓全部库位".to_string(),
+        printed_at: "2026-11-08 19:30".to_string(),
+    })
+}
+
+// ==================== ⑦ 退货单模板（PDF-04：采购退货 / 销售退货） ====================
+
+/// 退货单种类（决定标题、表名、专有列与签字栏）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReturnDocKind {
+    /// 采购退货单（`biz_purchase_return`）
+    Purchase,
+    /// 销售退货单（`biz_sales_return`）
+    Sales,
+}
+
+impl ReturnDocKind {
+    /// 页眉标题。
+    pub fn title(self) -> &'static str {
+        match self {
+            ReturnDocKind::Purchase => "采 购 退 货 单",
+            ReturnDocKind::Sales => "销 售 退 货 单",
+        }
+    }
+
+    /// 单据名（文件名 / 日志用）。
+    pub fn label(self) -> &'static str {
+        match self {
+            ReturnDocKind::Purchase => "采购退货单",
+            ReturnDocKind::Sales => "销售退货单",
+        }
+    }
+
+    /// `shared::doc_kind` 的落库值（`operation_logs.detail.doc_type`）。
+    pub fn doc_kind_str(self) -> &'static str {
+        match self {
+            ReturnDocKind::Purchase => "PURCHASE_RETURN",
+            ReturnDocKind::Sales => "SALES_RETURN",
+        }
+    }
+
+    /// 单据表名（`operation_logs.target_type`）。
+    pub fn table(self) -> &'static str {
+        match self {
+            ReturnDocKind::Purchase => "biz_purchase_return",
+            ReturnDocKind::Sales => "biz_sales_return",
+        }
+    }
+
+    /// 明细是否打印「价税合计」列（采购退货逐行有；销售退货不存行级价税合计）。
+    pub fn has_line_with_tax(self) -> bool {
+        matches!(self, ReturnDocKind::Purchase)
+    }
+
+    /// 明细是否打印「序列号」列（销售退货一物一码；采购退货按原入库库位退）。
+    pub fn has_serials(self) -> bool {
+        matches!(self, ReturnDocKind::Sales)
+    }
+
+    /// 签字栏。
+    pub fn sign_caps(self) -> Vec<String> {
+        match self {
+            ReturnDocKind::Purchase => vec![
+                "退货经办：".to_string(),
+                "仓管：".to_string(),
+                "质检：".to_string(),
+                "供应商签收：".to_string(),
+                "制单：".to_string(),
+            ],
+            ReturnDocKind::Sales => vec![
+                "退货经办：".to_string(),
+                "仓管：".to_string(),
+                "质检：".to_string(),
+                "客户签收：".to_string(),
+                "制单：".to_string(),
+            ],
+        }
+    }
+}
+
+/// 退货明细行（数量 / 金额已是展示字符串）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReturnItem {
+    /// 序号
+    pub seq: u32,
+    /// 物料编码
+    pub material_code: String,
+    /// 物料名称
+    pub material_name: String,
+    /// 规格
+    pub spec: String,
+    /// 计量单位
+    pub unit: String,
+    /// 退货数量
+    pub qty: String,
+    /// 不含税单价
+    pub price: String,
+    /// 不含税金额
+    pub amount: String,
+    /// 税率（百分数）
+    pub tax_rate: String,
+    /// 税额
+    pub tax_amount: String,
+    /// 价税合计（销售退货打 `—`：库里只有行级不含税金额与税额）
+    pub with_tax: String,
+    /// 库位编码（`整仓` = 未指定库位）
+    pub location: String,
+    /// 序列号（顿号分隔；没有则 `—`）
+    pub serials: String,
+}
+
+/// 一张退货单的渲染上下文。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReturnContext {
+    /// 公司名
+    pub company: String,
+    /// 页眉标题
+    pub doc_title: String,
+    /// 单据名
+    pub doc_label: String,
+    /// 单号
+    pub doc_no: String,
+    /// 单据头字段（每行 3 组）
+    pub meta_rows: Vec<Vec<OrderMetaField>>,
+    /// 退货原因（单独一条醒目横幅 —— 验收③）
+    pub reason: String,
+    /// 明细
+    pub items: Vec<ReturnItem>,
+    /// 行数合计
+    pub row_count: String,
+    /// 数量合计
+    pub total_qty: String,
+    /// 不含税金额合计
+    pub total_amount: String,
+    /// 税额合计
+    pub total_tax: String,
+    /// 价税合计
+    pub total_with_tax: String,
+    /// 大写金额（取价税合计）
+    pub amount_cn: String,
+    /// 大写对应的小写金额
+    pub amount_for_upper: String,
+    /// 币种代码
+    pub currency: String,
+    /// 币种符号
+    pub currency_symbol: String,
+    /// 大写金额前缀
+    pub currency_cn: String,
+    /// 是否打「价税合计」列
+    pub show_with_tax: bool,
+    /// 是否打「序列号」列
+    pub show_serials: bool,
+    /// 备注
+    pub remark: String,
+    /// 签字栏
+    pub sign_caps: Vec<String>,
+    /// 打印时间
+    pub printed_at: String,
+    /// 引擎标识
+    pub engine: String,
+}
+
+/// [`ReturnContext`] 的构造入参。
+#[derive(Debug, Clone)]
+pub struct ReturnContextArgs {
+    /// 单据种类
+    pub kind: ReturnDocKind,
+    /// 单号
+    pub doc_no: String,
+    /// 单据头字段
+    pub meta: Vec<OrderMetaField>,
+    /// 退货原因
+    pub reason: String,
+    /// 明细
+    pub items: Vec<ReturnItem>,
+    /// 数量合计
+    pub total_qty: Decimal,
+    /// 不含税金额合计
+    pub total_amount: Decimal,
+    /// 税额合计
+    pub total_tax: Decimal,
+    /// 价税合计
+    pub total_with_tax: Decimal,
+    /// 备注
+    pub remark: String,
+    /// 打印时间
+    pub printed_at: String,
+}
+
+impl ReturnContext {
+    /// 组装上下文；大写金额取**价税合计**（与购销单据同一口径）。
+    pub fn new(args: ReturnContextArgs) -> Self {
+        let fen = yuan_to_fen(args.total_with_tax);
+        Self {
+            company: COMPANY_NAME.to_string(),
+            doc_title: args.kind.title().to_string(),
+            doc_label: args.kind.label().to_string(),
+            doc_no: args.doc_no,
+            meta_rows: args
+                .meta
+                .chunks(3)
+                .map(<[OrderMetaField]>::to_vec)
+                .collect(),
+            reason: args.reason,
+            row_count: format_int(args.items.len() as i64),
+            items: args.items,
+            total_qty: format_quantity(args.total_qty),
+            total_amount: format_money(yuan_to_fen(args.total_amount)),
+            total_tax: format_money(yuan_to_fen(args.total_tax)),
+            total_with_tax: format_money(fen),
+            amount_for_upper: format_money(fen),
+            amount_cn: amount_upper(fen),
+            currency: "CNY".to_string(),
+            currency_symbol: "￥".to_string(),
+            currency_cn: "人民币".to_string(),
+            show_with_tax: args.kind.has_line_with_tax(),
+            show_serials: args.kind.has_serials(),
+            remark: args.remark,
+            sign_caps: args.kind.sign_caps(),
+            printed_at: args.printed_at,
+            engine: "Chromium · CDP printToPDF".to_string(),
+        }
+    }
+}
+
+/// 渲染退货单 HTML。
+///
+/// # 异常情况
+///
+/// - [`PdfError::Template`]：模板渲染失败。
+pub fn render_return_doc(ctx: &ReturnContext) -> Result<String, PdfError> {
+    let context = Context::from_serialize(ctx)
+        .map_err(|error| PdfError::Template(format!("退货单上下文序列化失败：{error}")))?;
+    tera()
+        .render(RETURN_NAME, &context)
+        .map_err(|error| PdfError::Template(format!("退货单模板渲染失败：{error}")))
+}
+
+/// 退货单页脚。
+pub fn return_footer(kind: ReturnDocKind, doc_no: &str) -> String {
+    format!(
+        "<div style=\"width:100%;padding:0 10mm;font-family:'Noto Sans SC',sans-serif;\
+         font-size:8pt;color:#86909c;display:flex;justify-content:space-between;\">\
+         <span>{} {}</span>\
+         <span>第 <span class=\"pageNumber\"></span> 页 / 共 <span class=\"totalPages\"></span> 页</span>\
+         </div>",
+        kind.label(),
+        escape_html(doc_no)
+    )
+}
+
+/// 退货单 PDF 的渲染参数（**A4 横向**：12 列明细纵向装不下，见模板头注释）。
+pub fn return_pdf_opts(
+    kind: ReturnDocKind,
+    doc_no: &str,
+    filename: Option<String>,
+) -> crate::business::pdf::dto::PdfOpts {
+    let mut opts = doc_pdf_opts(return_footer(kind, doc_no), filename);
+    opts.landscape = true;
+    opts
+}
+
+/// 生成「样本退货单」上下文（联调 / 验收用）。
+pub fn sample_return(kind: ReturnDocKind, rows: u32) -> ReturnContext {
+    let names = ["球阀", "法兰", "弯头", "三通"];
+    let mut items = Vec::with_capacity(rows as usize);
+    let mut total_qty = Decimal::ZERO;
+    let mut total_amount = Decimal::ZERO;
+    let mut total_tax = Decimal::ZERO;
+    for index in 0..rows {
+        let qty = Decimal::from(((index % 5) + 1) as i64 * 2);
+        let price = Decimal::new(123_400 + (index % 37) as i64 * 1100, 4);
+        let amount = (price * qty).round_dp(2);
+        let tax = (amount * Decimal::new(13, 2) / Decimal::from(100)).round_dp(2);
+        total_qty += qty;
+        total_amount += amount;
+        total_tax += tax;
+        items.push(ReturnItem {
+            seq: index + 1,
+            material_code: format!("MAT-{:05}", index % 97 + 1),
+            material_name: format!(
+                "{}Φ{}mm 不锈钢法兰",
+                names[(index % 4) as usize],
+                index % 90 + 10
+            ),
+            spec: format!("DN{}/PN16", 50 + (index % 8) * 10),
+            unit: ["件", "台", "套", "米"][(index % 4) as usize].to_string(),
+            qty: format_quantity(qty),
+            price: format_quantity(price),
+            amount: format_money(yuan_to_fen(amount)),
+            tax_rate: "13".to_string(),
+            tax_amount: format_money(yuan_to_fen(tax)),
+            with_tax: match kind {
+                ReturnDocKind::Purchase => format_money(yuan_to_fen(amount + tax)),
+                ReturnDocKind::Sales => "—".to_string(),
+            },
+            location: format!("A-{:02}-{:02}", index % 6 + 1, index % 12 + 1),
+            serials: match kind {
+                ReturnDocKind::Sales => "SN-20261108-000001、SN-20261108-000002".to_string(),
+                ReturnDocKind::Purchase => String::new(),
+            },
+        });
+    }
+    ReturnContext::new(ReturnContextArgs {
+        kind,
+        doc_no: match kind {
+            ReturnDocKind::Purchase => "PRT-20261108-000001".to_string(),
+            ReturnDocKind::Sales => "SR-20261108-000001".to_string(),
+        },
+        meta: match kind {
+            ReturnDocKind::Purchase => vec![
+                OrderMetaField::new("单号", "PRT-20261108-000001"),
+                OrderMetaField::new("退货日期", "2026-11-08"),
+                OrderMetaField::new("状态", "已确认"),
+                OrderMetaField::new("供应商", "北京某某机电设备有限公司"),
+                OrderMetaField::new("退货仓库", "上海一号仓"),
+                OrderMetaField::new("经办人", "李四"),
+                OrderMetaField::new("原单号（入库）", "IN-20261108-000001"),
+                OrderMetaField::new("原单号（采购订单）", "PO-20261108-000004"),
+                OrderMetaField::new("退货类型", "采购退货"),
+            ],
+            ReturnDocKind::Sales => vec![
+                OrderMetaField::new("单号", "SR-20261108-000001"),
+                OrderMetaField::new("退货日期", "2026-11-08"),
+                OrderMetaField::new("状态", "已过账"),
+                OrderMetaField::new("客户", "上海某某贸易有限公司"),
+                OrderMetaField::new("退回仓库", "上海二号仓"),
+                OrderMetaField::new("经办人", "张三"),
+                OrderMetaField::new("原单号（销售订单）", "SO-20261108-000002"),
+                OrderMetaField::new("原单号（发货单）", "SH-20261108-000003"),
+                OrderMetaField::new("退货类型", "质量退货"),
+            ],
+        },
+        reason: match kind {
+            ReturnDocKind::Purchase => "阀体密封面有砂眼，供应商同意退货".to_string(),
+            ReturnDocKind::Sales => "质量（QUALITY）".to_string(),
+        },
+        items,
+        total_qty,
+        total_amount,
+        total_tax,
+        total_with_tax: total_amount + total_tax,
+        remark: "退货运输由对方承担，附质检报告一份。".to_string(),
         printed_at: "2026-11-08 19:30".to_string(),
     })
 }
@@ -2319,6 +3147,317 @@ mod tests {
             StockDocKind::StockIn.sign_caps(),
             StockDocKind::StockOut.sign_caps(),
             "收货 / 发货签字栏必须不同"
+        );
+    }
+
+    // ==================== 调拨单模板（PDF-04） ====================
+
+    /// 调拨单 HTML：调出 / 调入仓库（验收②）+ 双库位列 + 成本金额口径 + 两仓签字栏。
+    #[test]
+    fn renders_sample_transfer_html() {
+        let ctx = sample_transfer(3);
+        let html = render_transfer(&ctx).expect("模板渲染必须成功");
+
+        assert!(html.contains("调 拨 单"));
+        assert!(html.contains(COMPANY_NAME));
+        assert_eq!(ctx.doc_title, "调 拨 单");
+        assert_eq!(ctx.doc_label, "调拨单");
+
+        // 验收②：调出 / 调入仓库必须在单据头里各占一格（标签 + 值都打出来）
+        for label in ["调出仓库", "调入仓库", "在途仓", "调拨日期"] {
+            assert!(html.contains(label), "单据头缺字段：{label}");
+        }
+        assert!(html.contains("上海一号仓"), "调出仓库名必须打印");
+        assert!(html.contains("上海二号仓"), "调入仓库名必须打印");
+        // 路线条：调出 ➜ 调入（同一行里两个仓库名都要在）
+        assert!(html.contains("调出：上海一号仓"));
+        assert!(html.contains("调入：上海二号仓"));
+        assert!(html.contains("在途经"));
+
+        // 明细列（调出库位 / 调入库位 / 单位成本）
+        for head in [
+            "物料编码",
+            "物料名称",
+            "规格",
+            "单位",
+            "数量",
+            "调出库位",
+            "调入库位",
+            "单位成本",
+            "金额",
+        ] {
+            assert!(html.contains(head), "明细表缺列：{head}");
+        }
+        assert!(html.contains("A-01-01"), "调出库位必须打印");
+        assert!(html.contains("B-01-01"), "调入库位必须打印");
+        assert_eq!(
+            html.matches("<td class=\"c-seq\">").count(),
+            3,
+            "3 行明细必须各出一个序号单元格"
+        );
+        // 成本口径：没有税额三档，不许出现价税合计
+        assert!(html.contains("成本金额合计"));
+        assert!(html.contains("成本金额（大写）"));
+        assert!(!html.contains("价税合计"), "调拨是原价转移，不该有价税合计");
+        // 两仓签字栏
+        for cap in ["调出仓管：", "调入仓管：", "经办人：", "审核：", "制单："]
+        {
+            assert!(html.contains(cap), "签字栏缺：{cap}");
+        }
+        assert!(
+            html.contains("display: table-header-group"),
+            "跨页表头重复规则必须在"
+        );
+        assert!(!html.contains("class=\"pageNumber\""));
+    }
+
+    /// 在途仓为空（草稿 / 未发货）时路线条不显示「在途经」，也不许出现空白括号。
+    #[test]
+    fn transfer_route_hides_missing_transit_warehouse() {
+        let mut ctx = sample_transfer(1);
+        ctx.transit_warehouse = String::new();
+        let html = render_transfer(&ctx).expect("模板渲染必须成功");
+        assert!(html.contains("调出：上海一号仓"));
+        assert!(!html.contains("在途经"), "没有在途仓就不许印「在途经」");
+    }
+
+    /// 调拨单页脚与渲染参数（A4 纵向）。
+    #[test]
+    fn transfer_footer_and_opts() {
+        let footer = transfer_footer("TK-20261108-000001");
+        assert!(footer.contains("class=\"pageNumber\""));
+        assert!(footer.contains("class=\"totalPages\""));
+        assert!(footer.contains("调拨单 TK-20261108-000001"));
+        assert!(footer.contains("font-size:8pt"));
+
+        let opts = transfer_pdf_opts("TK-1", Some("调拨单-TK-1.pdf".to_string()));
+        assert_eq!(opts.page, crate::business::pdf::dto::PageSize::A4);
+        assert!(!opts.landscape, "调拨单 10 列，纵向够用");
+        assert!(opts.display_header_footer);
+        assert!(opts.margins.bottom_mm >= 14.0);
+        assert_eq!(opts.filename.as_deref(), Some("调拨单-TK-1.pdf"));
+    }
+
+    // ==================== 盘点单模板（PDF-04） ====================
+
+    /// 验收①：盘点表必须有「实盘数量 / 差异 / 备注」**三列空白手写栏**。
+    #[test]
+    fn renders_sample_stock_take_with_blank_columns() {
+        let ctx = sample_stock_take(4);
+        let html = render_stock_take(&ctx).expect("模板渲染必须成功");
+
+        assert!(html.contains("盘 点 表"));
+        assert_eq!(ctx.doc_label, "盘点单");
+        assert!(html.contains("全盘"), "盘点类型必须打印");
+
+        // 三列手写栏的表头必须在
+        for head in ["实盘数量", "差异", "备注", "账面数量"] {
+            assert!(html.contains(head), "明细表缺列：{head}");
+        }
+        // 每行三个空白单元格，内容恒为空（验收①的硬判据）
+        assert_eq!(
+            html.matches("<td class=\"w-actual blank\"></td>").count(),
+            4,
+            "4 行明细必须各留一个「实盘数量」空白格"
+        );
+        assert_eq!(
+            html.matches("<td class=\"w-diff blank\"></td>").count(),
+            4,
+            "4 行明细必须各留一个「差异」空白格"
+        );
+        assert_eq!(
+            html.matches("<td class=\"w-note blank\"></td>").count(),
+            4,
+            "4 行明细必须各留一个「备注」空白格"
+        );
+        // 空白格不许被任何数字填上（打印件就是拿去手写的）
+        assert!(!html.contains("w-actual blank\">0"));
+        assert!(!html.contains("w-diff blank\">0"));
+
+        // 账面数量要打出来（现场比对用）
+        assert_eq!(ctx.items[0].book_qty, "7");
+        assert_eq!(
+            html.matches("<td class=\"c-seq\">").count(),
+            4,
+            "4 行明细必须各出一个序号单元格"
+        );
+        // 填表说明 + 签字栏
+        assert!(html.contains(STOCK_TAKE_BLANK_HINT));
+        for cap in ["盘点人：", "复核人：", "仓管主管：", "财务：", "制单："] {
+            assert!(html.contains(cap), "签字栏缺：{cap}");
+        }
+        // 没有差异时不印「盘盈 / 盘亏 0」（会被误读成已经盘过）
+        assert!(!html.contains("盘盈数量合计"));
+    }
+
+    /// 已录实盘 / 已过账（有差异）时才印盘盈盘亏合计。
+    #[test]
+    fn stock_take_shows_diff_only_when_present() {
+        let mut ctx = sample_stock_take(2);
+        ctx.show_diff = false;
+        let html = render_stock_take(&ctx).expect("渲染必须成功");
+        assert!(!html.contains("盘盈数量合计"));
+
+        let ctx = StockTakeContext::new(StockTakeContextArgs {
+            doc_no: "ST-20261108-000002".to_string(),
+            meta: vec![OrderMetaField::new("仓库", "上海一号仓")],
+            items: vec![StockTakeItem {
+                seq: 1,
+                material_code: "MAT-00001".to_string(),
+                material_name: "球阀".to_string(),
+                spec: "DN50".to_string(),
+                unit: "台".to_string(),
+                location: "A-01-01".to_string(),
+                book_qty: "100".to_string(),
+            }],
+            total_book_qty: Decimal::from(100),
+            take_type: "PARTIAL".to_string(),
+            gain_qty: Decimal::from(2),
+            loss_qty: Decimal::from(10),
+            diff_amount: Decimal::new(1234, 2),
+            remark: String::new(),
+            printed_at: "2026-11-08 19:30".to_string(),
+        });
+        assert!(ctx.show_diff);
+        assert_eq!(ctx.take_type, "抽盘");
+        let html = render_stock_take(&ctx).expect("渲染必须成功");
+        assert!(html.contains("盘盈数量合计"));
+        assert!(html.contains("盘亏数量合计"));
+        assert!(html.contains("差异金额合计"));
+        assert!(html.contains("12.34"));
+    }
+
+    /// 盘点单页脚与渲染参数（A4 纵向 —— 现场要夹在写字板上）。
+    #[test]
+    fn stock_take_footer_and_opts() {
+        let footer = stock_take_footer("ST-20261108-000001");
+        assert!(footer.contains("class=\"pageNumber\""));
+        assert!(footer.contains("盘点表 ST-20261108-000001"));
+
+        let opts = stock_take_pdf_opts("ST-1", Some("盘点单-ST-1.pdf".to_string()));
+        assert_eq!(opts.page, crate::business::pdf::dto::PageSize::A4);
+        assert!(!opts.landscape);
+        assert!(opts.margins.bottom_mm >= 14.0);
+    }
+
+    // ==================== 退货单模板（PDF-04） ====================
+
+    /// 验收③（采购侧）：原单号 + 退货原因是显眼的一块；逐行价税合计列在。
+    #[test]
+    fn renders_sample_purchase_return_html() {
+        let ctx = sample_return(ReturnDocKind::Purchase, 2);
+        let html = render_return_doc(&ctx).expect("模板渲染必须成功");
+
+        assert!(html.contains("采 购 退 货 单"));
+        assert!(!html.contains("销 售 退 货 单"));
+        // 原单号：入库单号 + 采购订单号（验收③）
+        assert!(html.contains("原单号（入库）"));
+        assert!(html.contains("原单号（采购订单）"));
+        assert!(html.contains("IN-20261108-000001"));
+        assert!(html.contains("PO-20261108-000004"));
+        // 退货原因横幅
+        assert!(html.contains("退货原因："));
+        assert!(html.contains("阀体密封面有砂眼"));
+        // 供应商 / 仓库
+        assert!(html.contains("供应商"));
+        assert!(html.contains("北京某某机电设备有限公司"));
+        assert!(html.contains("退货仓库"));
+        // 明细：采购退货逐行有价税合计，没有序列号列
+        assert!(html.contains("<th>价税合计</th>"));
+        assert!(!html.contains("<th>序列号</th>"));
+        assert_eq!(
+            html.matches("<td class=\"c-seq\">").count(),
+            2,
+            "2 行明细必须全部渲染"
+        );
+        for head in ["数量", "单价", "金额", "税率(%)", "税额", "库位"] {
+            assert!(html.contains(head), "明细表缺列：{head}");
+        }
+        // 合计四要素 + 大写
+        for label in ["数量合计", "金额合计", "税额", "价税合计（大写）"] {
+            assert!(html.contains(label), "合计行缺：{label}");
+        }
+        assert!(html.contains("人民币"));
+        for cap in ["退货经办：", "仓管：", "质检：", "供应商签收：", "制单："]
+        {
+            assert!(html.contains(cap), "签字栏缺：{cap}");
+        }
+        assert!(html.contains("display: table-header-group"));
+    }
+
+    /// 验收③（销售侧）：原销售订单 / 原发货单 + 退货类型；逐行没有价税合计，但有序列号列。
+    #[test]
+    fn renders_sample_sales_return_html() {
+        let ctx = sample_return(ReturnDocKind::Sales, 3);
+        let html = render_return_doc(&ctx).expect("模板渲染必须成功");
+
+        assert!(html.contains("销 售 退 货 单"));
+        assert!(html.contains("原单号（销售订单）"));
+        assert!(html.contains("原单号（发货单）"));
+        assert!(html.contains("SO-20261108-000002"));
+        assert!(html.contains("SH-20261108-000003"));
+        assert!(html.contains("退货原因："));
+        assert!(html.contains("质量（QUALITY）"));
+        assert!(html.contains("客户"));
+        assert!(html.contains("上海某某贸易有限公司"));
+        // 销售退货没有行级价税合计，但有序列号
+        assert!(!html.contains("<th>价税合计</th>"));
+        assert!(html.contains("<th>序列号</th>"));
+        assert!(html.contains("SN-20261108-000001"));
+        assert_eq!(html.matches("<td class=\"c-seq\">").count(), 3);
+        for cap in ["退货经办：", "仓管：", "质检：", "客户签收：", "制单："] {
+            assert!(html.contains(cap), "签字栏缺：{cap}");
+        }
+    }
+
+    /// 退货单里的用户数据必须被转义。
+    #[test]
+    fn return_content_is_escaped() {
+        let mut ctx = sample_return(ReturnDocKind::Purchase, 1);
+        ctx.reason = "<script>alert(1)</script>".to_string();
+        ctx.items[0].material_name = "<b>假物料</b>".to_string();
+        let html = render_return_doc(&ctx).expect("渲染必须成功");
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(!html.contains("<b>假物料</b>"));
+    }
+
+    /// 退货单页脚与渲染参数：**A4 横向**（12 列纵向装不下）。
+    #[test]
+    fn return_footer_and_opts_are_landscape() {
+        let footer = return_footer(ReturnDocKind::Purchase, "PRT-20261108-000001");
+        assert!(footer.contains("class=\"pageNumber\""));
+        assert!(footer.contains("class=\"totalPages\""));
+        assert!(footer.contains("采购退货单 PRT-20261108-000001"));
+
+        for kind in [ReturnDocKind::Purchase, ReturnDocKind::Sales] {
+            let opts = return_pdf_opts(kind, "X-1", Some("退货单-X-1.pdf".to_string()));
+            assert_eq!(opts.page, crate::business::pdf::dto::PageSize::A4);
+            assert!(opts.landscape, "退货单 12 列必须横向");
+            assert!(opts.display_header_footer);
+            assert!(opts.margins.bottom_mm >= 14.0);
+        }
+    }
+
+    /// 退货单种类 → 标题 / 表名 / 专有列 / 签字栏 一一对应。
+    #[test]
+    fn return_doc_kind_metadata() {
+        assert_eq!(ReturnDocKind::Purchase.title(), "采 购 退 货 单");
+        assert_eq!(ReturnDocKind::Sales.title(), "销 售 退 货 单");
+        assert_eq!(ReturnDocKind::Purchase.label(), "采购退货单");
+        assert_eq!(ReturnDocKind::Sales.label(), "销售退货单");
+        assert_eq!(ReturnDocKind::Purchase.table(), "biz_purchase_return");
+        assert_eq!(ReturnDocKind::Sales.table(), "biz_sales_return");
+        assert_eq!(ReturnDocKind::Purchase.doc_kind_str(), "PURCHASE_RETURN");
+        assert_eq!(ReturnDocKind::Sales.doc_kind_str(), "SALES_RETURN");
+        assert!(ReturnDocKind::Purchase.has_line_with_tax());
+        assert!(!ReturnDocKind::Sales.has_line_with_tax());
+        assert!(!ReturnDocKind::Purchase.has_serials());
+        assert!(ReturnDocKind::Sales.has_serials());
+        assert_ne!(
+            ReturnDocKind::Purchase.sign_caps(),
+            ReturnDocKind::Sales.sign_caps(),
+            "供应商签收 / 客户签收 必须分开"
         );
     }
 }

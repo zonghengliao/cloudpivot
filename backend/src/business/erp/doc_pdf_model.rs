@@ -145,6 +145,37 @@ pub async fn location_labels_of(ids: &[Uuid]) -> DbResult<HashMap<Uuid, String>>
     Ok(map)
 }
 
+/// 批量：**库位字典** id（`biz_location.id`）→ 库位编码。
+///
+/// # 与 [`location_labels_of`] 的区别（混用就是记错桶）
+///
+/// - [`location_labels_of`]：入参是**库位账行**（`biz_inventory_location.id`）——
+///   入库 / 出库 / 调拨 / 盘点明细走这条（V0139 起「location_id」在单据行上一律指账行）；
+/// - 本函数：入参是**库位字典**（`biz_location.id`）—— 销售退货明细的
+///   `biz_sales_return_item.location_id` 是唯一走字典口径的列
+///   （见 `sales_return_posting` 文件头：字典 id 与账行 id 不能混用）。
+///
+/// 字典里查不到（已删）→ 调用方显示 `—`，这里不塞假值。
+pub async fn location_dict_labels_of(ids: &[Uuid]) -> DbResult<HashMap<Uuid, String>> {
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows = db()
+        .find_with_params(
+            "SELECT id, location_code FROM biz_location WHERE id = ANY(?::text::uuid[])",
+            vec![uuid_array(ids)],
+        )
+        .await?;
+    let mut map = HashMap::with_capacity(rows.len());
+    for row in rows.iter() {
+        map.insert(
+            row.get_typed::<Uuid>("id")?,
+            row.get_typed::<String>("location_code")?,
+        );
+    }
+    Ok(map)
+}
+
 /// 批量：仓库 id → 仓库名（含已停用仓库 —— 历史单据上的仓库名不能被改掉）。
 pub async fn warehouse_names_of(ids: &[Uuid]) -> DbResult<HashMap<Uuid, String>> {
     if ids.is_empty() {
@@ -313,6 +344,12 @@ pub struct ExportLog<'a> {
 
 /// 写一条「PDF 导出」审计行。
 ///
+/// # `detail.source`
+///
+/// 固定写 `PDF-03`：它标识的是「单据 PDF 导出」这个**子系统**
+/// （PDF-03 起所有单据共用本函数），不是卡号 —— PDF-04 的调拨 / 盘点 / 退货
+/// 同样落这个值，日志页按它一眼筛出「哪些导出走的是这条通道」。
+///
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]（由调用方决定阻断还是只记日志；导出成功后只记日志）。
@@ -462,6 +499,10 @@ mod tests {
     async fn empty_ids_short_circuit() {
         for map_len in [
             location_labels_of(&[]).await.expect("空列表直接返回").len(),
+            location_dict_labels_of(&[])
+                .await
+                .expect("空列表直接返回")
+                .len(),
             warehouse_names_of(&[]).await.expect("空列表直接返回").len(),
             supplier_names_of(&[]).await.expect("空列表直接返回").len(),
             customer_names_of(&[]).await.expect("空列表直接返回").len(),
