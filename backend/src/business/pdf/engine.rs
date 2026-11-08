@@ -31,8 +31,8 @@
 //! AES 主密钥同样走环境变量，这里与之保持一致。
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use chromiumoxide::browser::Browser;
@@ -157,7 +157,13 @@ impl PdfEngine {
 
     /// 指标快照。
     pub async fn stats(&self) -> EngineStats {
-        let idle = self.pool.lock().await.iter().filter(|c| c.is_alive()).count();
+        let idle = self
+            .pool
+            .lock()
+            .await
+            .iter()
+            .filter(|c| c.is_alive())
+            .count();
         EngineStats {
             max_concurrency: self.limit as u32,
             active: self.active.load(Ordering::Relaxed),
@@ -183,10 +189,11 @@ impl PdfEngine {
         let conn = self.checkout().await?;
         let version = match tokio::time::timeout(self.timeout, conn.browser.version()).await {
             Ok(Ok(v)) => {
-                let browser = if v.browser.is_empty() {
+                // `Product` 形如 `HeadlessChrome/157.0.8103.38`；个别发行版只给 userAgent
+                let browser = if v.product.is_empty() {
                     v.user_agent
                 } else {
-                    v.browser
+                    v.product
                 };
                 Ok((browser, v.protocol_version))
             }
@@ -220,11 +227,12 @@ impl PdfEngine {
         html: &str,
         opts: &PdfOpts,
     ) -> std::result::Result<Vec<u8>, PdfError> {
-        let permit = match tokio::time::timeout(self.timeout, self.permits.clone().acquire_owned()).await {
-            Ok(Ok(permit)) => permit,
-            Ok(Err(_)) => return Err(PdfError::Unavailable("渲染信号量已关闭".into())),
-            Err(_) => return Err(PdfError::Timeout(self.timeout.as_millis() as u64)),
-        };
+        let permit =
+            match tokio::time::timeout(self.timeout, self.permits.clone().acquire_owned()).await {
+                Ok(Ok(permit)) => permit,
+                Ok(Err(_)) => return Err(PdfError::Unavailable("渲染信号量已关闭".into())),
+                Err(_) => return Err(PdfError::Timeout(self.timeout.as_millis() as u64)),
+            };
         self.active.fetch_add(1, Ordering::Relaxed);
         let started = Instant::now();
         let result = self.render_with_retry(html, opts).await;

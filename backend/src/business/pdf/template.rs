@@ -112,11 +112,7 @@ impl StatementContext {
     /// - `items`：明细行（已格式化）；
     /// - `total_qty`：数量合计（原始整数，用于千分位格式化）；
     /// - `total_amount_fen`：金额合计（**分**，同时用于小数与大写两种写法）。
-    pub fn new(
-        items: Vec<StatementItem>,
-        total_qty: i64,
-        total_amount_fen: i64,
-    ) -> Self {
+    pub fn new(items: Vec<StatementItem>, total_qty: i64, total_amount_fen: i64) -> Self {
         Self {
             company: "云枢（上海）科技有限公司".to_string(),
             doc_title: "对 账 单".to_string(),
@@ -153,9 +149,8 @@ impl StatementContext {
 ///
 /// - [`PdfError::Template`]：模板渲染失败（缺变量 / 语法错）。
 pub fn render_statement(ctx: &StatementContext) -> Result<String, PdfError> {
-    let context = Context::from_serialize(ctx).map_err(|error| {
-        PdfError::Template(format!("对账单上下文序列化失败：{error}"))
-    })?;
+    let context = Context::from_serialize(ctx)
+        .map_err(|error| PdfError::Template(format!("对账单上下文序列化失败：{error}")))?;
     tera()
         .render(STATEMENT_NAME, &context)
         .map_err(|error| PdfError::Template(format!("对账单模板渲染失败：{error}")))
@@ -226,11 +221,7 @@ pub fn format_int(value: i64) -> String {
         }
         out.push(ch);
     }
-    if value < 0 {
-        format!("-{out}")
-    } else {
-        out
-    }
+    if value < 0 { format!("-{out}") } else { out }
 }
 
 /// 「分」→ 千分位两位小数（`12345678` → `123,456.78`）。
@@ -386,7 +377,12 @@ mod tests {
             (10020, "壹佰元贰角整"),
         ];
         for (fen, expected) in cases {
-            assert_eq!(amount_upper(fen), expected, "金额 {fen} 分（{}）", format_money(fen));
+            assert_eq!(
+                amount_upper(fen),
+                expected,
+                "金额 {fen} 分（{}）",
+                format_money(fen)
+            );
         }
     }
 
@@ -404,10 +400,19 @@ mod tests {
         let html = render_statement(&ctx).expect("模板渲染必须成功");
 
         assert!(html.contains("<html lang=\"zh-CN\">"));
-        assert!(html.contains("display: table-header-group"), "表头重复规则必须在");
-        assert!(html.contains("break-inside: avoid"), "合计/签字栏防断裂规则必须在");
+        assert!(
+            html.contains("display: table-header-group"),
+            "表头重复规则必须在"
+        );
+        assert!(
+            html.contains("break-inside: avoid"),
+            "合计/签字栏防断裂规则必须在"
+        );
         assert!(html.contains("tabular-nums"), "等宽数字必须在");
-        assert!(html.contains("Noto Sans SC"), "字体族必须是静态 glyf 的 Noto Sans SC");
+        assert!(
+            html.contains("Noto Sans SC"),
+            "字体族必须是静态 glyf 的 Noto Sans SC"
+        );
         assert!(html.contains("对 账 单"));
         assert!(html.contains("球阀Φ10mm"), "明细行内容必须渲染");
         assert_eq!(
@@ -447,7 +452,10 @@ mod tests {
         let mut ctx = sample_statement(1);
         ctx.items[0].name = "<script>alert(1)</script>".to_string();
         let html = render_statement(&ctx).expect("渲染必须成功");
-        assert!(!html.contains("<script>alert(1)</script>"), "脚本标签必须被转义");
+        assert!(
+            !html.contains("<script>alert(1)</script>"),
+            "脚本标签必须被转义"
+        );
         assert!(html.contains("&lt;script&gt;"), "转义后应为实体");
     }
 

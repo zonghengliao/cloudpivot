@@ -29,8 +29,7 @@ use axum::response::{IntoResponse, Response};
 use nik::prelude::*;
 
 use crate::business::pdf::dto::{
-    MAX_RENDER_HTML_BYTES, MAX_SAMPLE_ROWS, PdfHealthRes, PdfOpts, PdfRenderReq, PdfSampleReq,
-    build_opts,
+    MAX_RENDER_HTML_BYTES, MAX_SAMPLE_ROWS, PdfHealthRes, PdfRenderReq, PdfSampleReq, build_opts,
 };
 use crate::business::pdf::{engine, template};
 use crate::shared::error_code;
@@ -287,7 +286,7 @@ fn content_disposition(original: &str) -> HeaderValue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::business::pdf::dto::{PageSize, PdfError};
+    use crate::business::pdf::dto::{PageSize, PdfError, PdfOpts};
 
     /// 中文文件名必须走 RFC 5987 的 `filename*`，ASCII 回退名不许出现控制字符。
     #[test]
@@ -325,10 +324,16 @@ mod tests {
         let response = pdf_response(b"%PDF-1.4\n%fake\n", Some("单据.pdf")).expect("必须成功");
         assert_eq!(response.status(), StatusCode::OK);
         let headers = response.headers();
-        assert_eq!(headers.get(header::CONTENT_TYPE).unwrap(), "application/pdf");
+        assert_eq!(
+            headers.get(header::CONTENT_TYPE).unwrap(),
+            "application/pdf"
+        );
         assert_eq!(headers.get(header::CONTENT_LENGTH).unwrap(), "15");
         assert_eq!(headers.get(header::CACHE_CONTROL).unwrap(), "no-store");
-        assert_eq!(headers.get(header::X_CONTENT_TYPE_OPTIONS).unwrap(), "nosniff");
+        assert_eq!(
+            headers.get(header::X_CONTENT_TYPE_OPTIONS).unwrap(),
+            "nosniff"
+        );
         assert!(
             headers
                 .get(header::CONTENT_DISPOSITION)
@@ -451,7 +456,11 @@ mod tests {
             PdfError::Timeout(20_000).to_string(),
             "渲染超时（>20000ms）"
         );
-        assert!(PdfError::Render("x".into()).to_string().contains("渲染失败"));
+        assert!(
+            PdfError::Render("x".into())
+                .to_string()
+                .contains("渲染失败")
+        );
     }
 
     /// 纸张代码回显（health / 日志里能看出用的是哪种纸）。

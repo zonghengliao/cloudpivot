@@ -315,9 +315,7 @@ impl PdfError {
             Self::Template(message) => {
                 ApiError::new(422, error_code::PDF_TEMPLATE_INVALID, message)
             }
-            Self::Invalid(message) => {
-                ApiError::new(400, error_code::PDF_OPTIONS_INVALID, message)
-            }
+            Self::Invalid(message) => ApiError::new(400, error_code::PDF_OPTIONS_INVALID, message),
             Self::Render(message) => ApiError::new(
                 500,
                 error_code::INTERNAL_ERROR,
@@ -452,14 +450,19 @@ pub fn build_opts(
     scale: Option<f64>,
     filename: Option<&str>,
 ) -> std::result::Result<PdfOpts, ApiError> {
-    let page_code = page.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("A4");
+    let page_code = page
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("A4");
     let mut size = PageSize::parse(page_code)?;
     if page_code.eq_ignore_ascii_case("CUSTOM") {
         match (width_mm, height_mm) {
-            (Some(w), Some(h)) => size = PageSize::Custom {
-                width_mm: w,
-                height_mm: h,
-            },
+            (Some(w), Some(h)) => {
+                size = PageSize::Custom {
+                    width_mm: w,
+                    height_mm: h,
+                }
+            }
             _ => {
                 return Err(ApiError::new(
                     400,
@@ -501,7 +504,10 @@ mod tests {
         let opts = PdfOpts::default();
         let (w, h) = opts.paper_inches();
         assert!((w - 8.2677).abs() < 1e-3, "A4 宽应为 8.2677 英寸，实际 {w}");
-        assert!((h - 11.6929).abs() < 1e-3, "A4 高应为 11.6929 英寸，实际 {h}");
+        assert!(
+            (h - 11.6929).abs() < 1e-3,
+            "A4 高应为 11.6929 英寸，实际 {h}"
+        );
     }
 
     /// 横向 = 纵向交换宽高（不是把纸转 90° 后再缩放）。
@@ -550,7 +556,10 @@ mod tests {
     fn validate_rejects_out_of_range() {
         let mut opts = PdfOpts::default();
         opts.scale = 0.05;
-        assert_eq!(opts.validate().unwrap_err().code, error_code::PDF_OPTIONS_INVALID);
+        assert_eq!(
+            opts.validate().unwrap_err().code,
+            error_code::PDF_OPTIONS_INVALID
+        );
 
         let mut opts = PdfOpts::default();
         opts.scale = 2.5;
@@ -641,8 +650,8 @@ mod tests {
     /// `page=CUSTOM` 缺宽高必须 400。
     #[test]
     fn build_opts_requires_custom_dimensions() {
-        let error = build_opts(Some("CUSTOM"), None, Some(210.0), None, None, None, None)
-            .unwrap_err();
+        let error =
+            build_opts(Some("CUSTOM"), None, Some(210.0), None, None, None, None).unwrap_err();
         assert_eq!(error.status, 400);
         assert!(error.msg.contains("width_mm"));
     }
@@ -651,11 +660,31 @@ mod tests {
     #[test]
     fn pdf_error_maps_to_api_error() {
         let cases = [
-            (PdfError::Unavailable("x".into()), 503, error_code::PDF_RENDER_UNAVAILABLE),
-            (PdfError::Timeout(20000), 504, error_code::PDF_RENDER_TIMEOUT),
-            (PdfError::Template("x".into()), 422, error_code::PDF_TEMPLATE_INVALID),
-            (PdfError::Invalid("x".into()), 400, error_code::PDF_OPTIONS_INVALID),
-            (PdfError::Render("x".into()), 500, error_code::INTERNAL_ERROR),
+            (
+                PdfError::Unavailable("x".into()),
+                503,
+                error_code::PDF_RENDER_UNAVAILABLE,
+            ),
+            (
+                PdfError::Timeout(20000),
+                504,
+                error_code::PDF_RENDER_TIMEOUT,
+            ),
+            (
+                PdfError::Template("x".into()),
+                422,
+                error_code::PDF_TEMPLATE_INVALID,
+            ),
+            (
+                PdfError::Invalid("x".into()),
+                400,
+                error_code::PDF_OPTIONS_INVALID,
+            ),
+            (
+                PdfError::Render("x".into()),
+                500,
+                error_code::INTERNAL_ERROR,
+            ),
         ];
         for (error, status, code) in cases {
             let api = error.into_api();
