@@ -154,6 +154,41 @@ pub const BLOCKER_INVARIANT: &str = "INVARIANT";
 /// 期间自身状态不允许这次操作。
 pub const BLOCKER_PERIOD_STATUS: &str = "PERIOD_STATUS";
 
+// ==================== 年结护栏（R4 之后） ====================
+
+/// 年度是否已经年结：`biz_status_log` 里 `ACCOUNTING_YEAR` 最新一行的 `to_status`。
+///
+/// 判据与 [`crate::business::erp::year_end::load_state_in`] **同源**（同一张表、同一条
+/// `ORDER BY created_at DESC LIMIT 1`）：年度状态不靠「有没有结转凭证」推断 ——
+/// 空年度没有结转凭证，但它确实已经年结过。
+async fn year_end_status_of(ex: &impl SqlExecutor, year: i16) -> Result<Option<String>, ApiError> {
+    let row = ex
+        .query_first_sql(
+            "SELECT to_status FROM biz_status_log \
+              WHERE entity_type = ? AND entity_no = ? \
+              ORDER BY created_at DESC LIMIT 1"
+                .to_string(),
+            vec![
+                Value::Text(state_machine::ENTITY_YEAR_END.to_string()),
+                Value::Text(year.to_string()),
+            ],
+        )
+        .await
+        .map_err(|error| db_error(error, "查询年度结转状态"))?;
+    Ok(row.and_then(|row| row.get_typed::<String>("to_status").ok()))
+}
+
+/// 已年结的年度里，期间还能不能反结账（**纯逻辑**，单测钉住）。
+///
+/// 只有 `ACCOUNTING_YEAR.CLOSED` 才拦：`NOT_CLOSED`（反年结后的状态）与「从没结过」
+/// 都必须放行，否则反年结之后就再也打不开 12 月，改账路径被永久封死。
+pub fn reopen_blocked_by_year_end(year_end_status: Option<&str>) -> bool {
+    matches!(
+        year_end_status,
+        Some(status) if status == crate::business::erp::year_end::STATUS_CLOSED
+    )
+}
+
 /// 试算平衡的容差（与 `scripts/verify/erp_invariants.py` 的 `TOL` 同为 0.0001）。
 ///
 /// 写成函数而不是 `const`：这个版本的 `Decimal::new` 不是 `const fn`。
@@ -1355,6 +1390,23 @@ pub async fn reopen_period(
         )));
     }
 
+    // 年度已年结 ⇒ 这一年任何月份都不许单独反结账。
+    // 理由：下一年度的期初（`biz_opening_balance(YYYY+1-01, source='YEAR_END')`）是
+    // 按**这一年期末**算出来的快照，而报表的「期初」走的是历史累计；单独打开一个月
+    // 补记一笔，历史累计变了、快照没变，两者立刻对不上（口径分裂），而且年结状态还是
+    // CLOSED，从「年结」页看不出任何异常。改账的唯一正路是反年结 —— 它会把结转凭证与
+    // 下年期初台账一起撤掉，再反结账就不会分裂。
+    let year_status = year_end_status_of(&tx, row.period_year).await?;
+    if reopen_blocked_by_year_end(year_status.as_deref()) {
+        return Err(conflict(format!(
+            "会计期间 {} 所属的 {} 年度已经年结：不能单独反结账已年结的月份 —— \
+             下一年度的年初余额是按这一年的期末结转生成的，单独打开一个月补记，\
+             会让报表期初与年初期初台账对不上。要改请先在「年结」页做反年结\
+             （会同时撤销结转凭证与下年期初台账），再回来反结账",
+            row.period_code, row.period_year
+        )));
+    }
+
     // 后续期间必须都还没结账（一次只能从最新封的月份往回撤）
     let later = tx
         .query_sql(
@@ -2515,5 +2567,23 @@ mod tests {
         assert!(unbalanced_blocker(dec("100"), dec("100.0001")).is_none());
         let blocker = unbalanced_blocker(dec("100"), dec("99.9998")).expect("必须有阻塞项");
         assert_eq!(blocker.diff.as_deref(), Some("0.0002"));
+    }
+
+    /// ⑯ 年结护栏（CLS-01 演练发现）：已年结的年度不许单独反结账。
+    ///
+    /// 为什么要这道闸：`biz_opening_balance(YYYY+1-01, source='YEAR_END')` 是「这一年期末」
+    /// 的快照，而报表的期初走历史累计。已年结后单独反结账某个月补记一笔 → 历史累计变了、
+    /// 快照没变，两者立刻对不上；更糟的是年度状态还是 CLOSED，从「年结」页看不出异常。
+    /// 放行的两种状态必须钉住：`NOT_CLOSED`（反年结之后）与「从没结过」——
+    /// 拦错了就把反年结之后的改账路径永久封死。
+    #[test]
+    fn p1_reopen_blocked_only_by_closed_year_end() {
+        use crate::business::erp::year_end::{STATUS_CLOSED as YEAR_CLOSED, STATUS_NOT_CLOSED};
+        assert!(reopen_blocked_by_year_end(Some(YEAR_CLOSED)));
+        assert!(!reopen_blocked_by_year_end(Some(STATUS_NOT_CLOSED)));
+        assert!(!reopen_blocked_by_year_end(None));
+        // 期间自己的 CLOSED 与年度 CLOSED 是两码事，别把期间状态串进来
+        assert!(!reopen_blocked_by_year_end(Some(STATUS_OPEN)));
+        assert!(!reopen_blocked_by_year_end(Some("NOT_OPENED")));
     }
 }
