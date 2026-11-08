@@ -1,0 +1,19 @@
+{
+  "status": 200,
+  "json": {
+    "code": 0,
+    "msg": "ok",
+    "data": {
+      "instance_id": "01a1b9f2-4856-7492-b3bb-455d4bb247f3",
+      "instance_status": "APPROVED",
+      "node_status": "APPROVED",
+      "done": true,
+      "idempotent": false,
+      "next_nodes": [],
+      "auto_passed_nodes": 0,
+      "approver_count": 1,
+      "approved_count": 1,
+      "rejected_count": 0
+    }
+  }
+}

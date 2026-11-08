@@ -1,0 +1,88 @@
+{
+  "results": [
+    {
+      "name": "①-0 发起付款 → 202 + outcome=PENDING_APPROVAL（走了审批流）",
+      "ok": true,
+      "detail": "http=202 payment=PM-20261108-000001 instance=01a1b9f2-4856-7492-b3bb-455d4bb247f3"
+    },
+    {
+      "name": "④-1 审批未通过（实例 RUNNING）→ awaiting_executor 明确下发为 false",
+      "ok": true,
+      "detail": "awaiting_executor=false status=PENDING"
+    },
+    {
+      "name": "①-1 审批人待办里拿到这条付款审批任务",
+      "ok": true,
+      "detail": "task=01a1b9f2-4865-7135-9e30-2cdba015d18b"
+    },
+    {
+      "name": "①-2 审批通过 → 实例 APPROVED，但付款仍 PENDING（approve_execute 生效：账没动）",
+      "ok": true,
+      "detail": "instance_status=APPROVED"
+    },
+    {
+      "name": "①-3 ★ payment-info 里那笔 awaiting_executor = true（本卡核心）",
+      "ok": true,
+      "detail": "awaiting_executor=true status=PENDING"
+    },
+    {
+      "name": "①-4 同一行：付款仍 PENDING、应付未付仍是 1200（钱没付出去）",
+      "ok": true,
+      "detail": "status=PENDING paid=0.0000 unpaid=1200.0000"
+    },
+    {
+      "name": "⑥ 字段对每一笔付款都下发（前端 contract：下发即以它为准）",
+      "ok": true,
+      "detail": "payments=1 keys=id,payment_no,payable_id,amount,pay_date,pay_method,voucher_id,voucher_no,remark,created_at,approval_status,approval_status_label,approval_instance_id,pending,awaiting_executor"
+    },
+    {
+      "name": "②-1 执行人（非参与人）读实例详情 → 403 + 65004（老兜底方案拿不到状态）",
+      "ok": true,
+      "detail": "http=403 code=65004 msg=你与这张审批单无关，不能查看"
+    },
+    {
+      "name": "②-2 但同一时刻 payment-info 对他 200（后端字段绕过了实例可见性）",
+      "ok": true,
+      "detail": "http=200"
+    },
+    {
+      "name": "③-1 执行付款 → 200 + data.message（应付回写 + 付款凭证）",
+      "ok": true,
+      "detail": "http=200 msg=付款 PM-20261108-000001 已执行：应付回写 + 付款凭证已生成"
+    },
+    {
+      "name": "③-2 执行后再查：awaiting_executor = false + 付款 APPROVED",
+      "ok": true,
+      "detail": "awaiting_executor=false status=APPROVED"
+    },
+    {
+      "name": "③-3 账真的动了：未付 1200 → 0，付款凭证已生成",
+      "ok": true,
+      "detail": "paid=1200.0000 unpaid=0.0000 voucher=PZ-20261108-000001"
+    },
+    {
+      "name": "⑤-1 关掉 approve_execute",
+      "ok": true,
+      "detail": "value=false"
+    },
+    {
+      "name": "⑤-2 审批通过即自动记账：付款直接 APPROVED + paid=800",
+      "ok": true,
+      "detail": "status=APPROVED paid=800.0000"
+    },
+    {
+      "name": "⑤-3 已记账的付款 awaiting_executor = false（不会误显示「执行付款」）",
+      "ok": true,
+      "detail": "awaiting_executor=false"
+    },
+    {
+      "name": "⑤-4 开关复原为 true",
+      "ok": true,
+      "detail": "value=true"
+    }
+  ],
+  "summary": {
+    "payment_id": "e45e732f-8dad-4a6d-a40f-aa99b14cac68",
+    "instance_id": "01a1b9f2-4856-7492-b3bb-455d4bb247f3"
+  }
+}

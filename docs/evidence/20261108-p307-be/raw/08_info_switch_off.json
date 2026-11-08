@@ -1,0 +1,136 @@
+{
+  "pay": {
+    "status": 202,
+    "json": {
+      "code": 0,
+      "msg": "已提交审批（付款单 PM-20261108-000002，金额 800.0000），等待审批通过后才会记账",
+      "data": {
+        "outcome": "PENDING_APPROVAL",
+        "message": "已提交审批（付款单 PM-20261108-000002，金额 800.0000），等待审批通过后才会记账",
+        "amount": "800.0000",
+        "payment_id": "c534b43e-2f44-450e-8357-c300c4359467",
+        "payment_no": "PM-20261108-000002",
+        "approval_instance_id": "01a1b9f2-48f7-71c9-9174-51a6833e1118",
+        "detail": {
+          "id": "abe70001-0000-4000-8000-000000000102",
+          "payable_no": "AP-BE1-0002",
+          "supplier_id": "abe70001-0000-4000-8000-000000000001",
+          "supplier_name": "P307BE 验收供应商",
+          "source_type": "STOCK_IN",
+          "source_id": "abe70001-0000-4000-8000-000000000202",
+          "source_no": "IN-BE1-0002",
+          "invoice_no": null,
+          "invoice_date": null,
+          "currency_code": "CNY",
+          "amount": "800.0000",
+          "paid_amount": "0.0000",
+          "unpaid_amount": "800.0000",
+          "credit_days": 30,
+          "due_date": "2026-11-30",
+          "period_code": "2026-11",
+          "status": "OPEN",
+          "status_label": "未付",
+          "overdue": false,
+          "settled_at": null,
+          "voucher_id": null,
+          "remark": "P307 后端验收夹具（开关关闭回归）",
+          "cancel_instance_id": null,
+          "cancel_reason": null,
+          "created_at": "2026-11-08T06:57:03.495749Z",
+          "updated_at": "2026-11-08T06:57:05.782560Z",
+          "voucher_no": null,
+          "payments": [
+            {
+              "id": "c534b43e-2f44-450e-8357-c300c4359467",
+              "payment_no": "PM-20261108-000002",
+              "payable_id": "abe70001-0000-4000-8000-000000000102",
+              "amount": "800.0000",
+              "pay_date": "2026-11-08",
+              "pay_method": "银行转账",
+              "voucher_id": null,
+              "voucher_no": null,
+              "remark": "P307BE 开关关闭回归",
+              "created_at": "2026-11-08T06:57:05.782560Z",
+              "approval_status": "PENDING",
+              "approval_status_label": "审批中",
+              "approval_instance_id": "01a1b9f2-48f7-71c9-9174-51a6833e1118",
+              "pending": true,
+              "awaiting_executor": false
+            }
+          ]
+        }
+      }
+    }
+  },
+  "approve": {
+    "status": 200,
+    "json": {
+      "code": 0,
+      "msg": "ok",
+      "data": {
+        "instance_id": "01a1b9f2-48f7-71c9-9174-51a6833e1118",
+        "instance_status": "APPROVED",
+        "node_status": "APPROVED",
+        "done": true,
+        "idempotent": false,
+        "next_nodes": [],
+        "auto_passed_nodes": 0,
+        "approver_count": 1,
+        "approved_count": 1,
+        "rejected_count": 0
+      }
+    }
+  },
+  "info": {
+    "status": 200,
+    "json": {
+      "code": 0,
+      "msg": "ok",
+      "data": {
+        "payable": {
+          "id": "abe70001-0000-4000-8000-000000000102",
+          "payable_no": "AP-BE1-0002",
+          "supplier_id": "abe70001-0000-4000-8000-000000000001",
+          "supplier_name": "P307BE 验收供应商",
+          "source_type": "STOCK_IN",
+          "source_id": "abe70001-0000-4000-8000-000000000202",
+          "source_no": "IN-BE1-0002",
+          "currency_code": "CNY",
+          "amount": "800.0000",
+          "paid_amount": "800.0000",
+          "unpaid_amount": "0.0000",
+          "status": "SETTLED",
+          "status_label": "已结清",
+          "due_date": "2026-11-30",
+          "overdue": false,
+          "period_code": "2026-11",
+          "can_pay": false,
+          "blocked_reason": "应付单 AP-BE1-0002 已结清（未付金额 0.0000），无需再付款",
+          "default_amount": "0",
+          "pending_payment_no": null,
+          "pending_amount": null,
+          "overpay_risk": null
+        },
+        "payments": [
+          {
+            "id": "c534b43e-2f44-450e-8357-c300c4359467",
+            "payment_no": "PM-20261108-000002",
+            "payable_id": "abe70001-0000-4000-8000-000000000102",
+            "amount": "800.0000",
+            "pay_date": "2026-11-08",
+            "pay_method": "银行转账",
+            "voucher_id": "33e6fddb-2b89-48a7-b5bc-bccb013ec41a",
+            "voucher_no": "PZ-20261108-000002",
+            "remark": "P307BE 开关关闭回归",
+            "created_at": "2026-11-08T06:57:05.782560Z",
+            "approval_status": "APPROVED",
+            "approval_status_label": "已通过",
+            "approval_instance_id": "01a1b9f2-48f7-71c9-9174-51a6833e1118",
+            "pending": false,
+            "awaiting_executor": false
+          }
+        ]
+      }
+    }
+  }
+}

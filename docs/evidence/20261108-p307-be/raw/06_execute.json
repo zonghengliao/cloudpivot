@@ -1,0 +1,12 @@
+{
+  "status": 200,
+  "json": {
+    "code": 0,
+    "msg": "ok",
+    "data": {
+      "payment_id": "e45e732f-8dad-4a6d-a40f-aa99b14cac68",
+      "outcome": "PAID",
+      "message": "付款 PM-20261108-000001 已执行：应付回写 + 付款凭证已生成"
+    }
+  }
+}

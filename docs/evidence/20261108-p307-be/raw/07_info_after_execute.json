@@ -1,0 +1,52 @@
+{
+  "status": 200,
+  "json": {
+    "code": 0,
+    "msg": "ok",
+    "data": {
+      "payable": {
+        "id": "abe70001-0000-4000-8000-000000000101",
+        "payable_no": "AP-BE1-0001",
+        "supplier_id": "abe70001-0000-4000-8000-000000000001",
+        "supplier_name": "P307BE 验收供应商",
+        "source_type": "STOCK_IN",
+        "source_id": "abe70001-0000-4000-8000-000000000201",
+        "source_no": "IN-BE1-0001",
+        "currency_code": "CNY",
+        "amount": "1200.0000",
+        "paid_amount": "1200.0000",
+        "unpaid_amount": "0.0000",
+        "status": "SETTLED",
+        "status_label": "已结清",
+        "due_date": "2026-11-30",
+        "overdue": false,
+        "period_code": "2026-11",
+        "can_pay": false,
+        "blocked_reason": "应付单 AP-BE1-0001 已结清（未付金额 0.0000），无需再付款",
+        "default_amount": "0",
+        "pending_payment_no": null,
+        "pending_amount": null,
+        "overpay_risk": null
+      },
+      "payments": [
+        {
+          "id": "e45e732f-8dad-4a6d-a40f-aa99b14cac68",
+          "payment_no": "PM-20261108-000001",
+          "payable_id": "abe70001-0000-4000-8000-000000000101",
+          "amount": "1200.0000",
+          "pay_date": "2026-11-08",
+          "pay_method": "银行转账",
+          "voucher_id": "3f7769d0-0870-4f82-820e-df736fa0b5d0",
+          "voucher_no": "PZ-20261108-000001",
+          "remark": "P307BE 卡面验收（开关打开）",
+          "created_at": "2026-11-08T06:57:05.621274Z",
+          "approval_status": "APPROVED",
+          "approval_status_label": "已通过",
+          "approval_instance_id": "01a1b9f2-4856-7492-b3bb-455d4bb247f3",
+          "pending": false,
+          "awaiting_executor": false
+        }
+      ]
+    }
+  }
+}

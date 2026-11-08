@@ -34,7 +34,7 @@
 //! | `payable.default_amount` | **= 未付金额**（不是应付总额）：前端把它填进付款金额输入框 |
 //! | `payable.can_pay` / `blocked_reason` | 见 [`payment_capability`] 的判定表（纯函数，单测直接打） |
 //! | `payable.pending_amount` / `overpay_risk` | 审批中的那笔 + 「现在看已经超付」的提示（卡面 ③ 反向） |
-//! | `payments` | [`payments_res`]（含 `approval_status` / `approval_status_label` / 付款凭证号） |
+//! | `payments` | [`payments_res`]（含 `approval_status` / `approval_status_label` / `awaiting_executor` / 付款凭证号） |
 //!
 //! **写路径一行没改**：这个接口只读，真正付款仍走 [`submit_payment`]（P17：有已发布流程就发起审批，
 //! 没有才降级直付），校验仍是 [`validate_payment_target`]（`0 < amount ≤ unpaid`，超付 400 点名两个金额）。
@@ -230,6 +230,13 @@ pub struct PaymentRes {
     pub approval_instance_id: Option<String>,
     /// 是否**尚未生效**（`PENDING`）：前端把它当「橙色待审」，金额也不计入已付。
     pub pending: bool,
+    /// 「审批通过但还没执行」（P3-07 `erp.separation_of_duties.approve_execute` 开着才可能为
+    /// `true`）：付款仍 `PENDING` 且它挂的审批实例已是 `APPROVED`。
+    ///
+    /// 前端据此显示「执行付款」按钮 —— 执行人按设计**不是审批实例的参与人**，
+    /// `GET /business/flow/instance/{id}` 对他 403（`65004`），所以这个事实必须由
+    /// 付款记录自己给出，前端别再去探实例状态。
+    pub awaiting_executor: bool,
 }
 
 /// 提交付款的结果（`POST /payable/{id}/pay` 的出参）。
@@ -420,6 +427,44 @@ pub async fn payments_of(ex: &impl SqlExecutor, payable_id: Uuid) -> DbResult<Ve
     rows.iter().map(PaymentRow::from_row).collect()
 }
 
+/// `awaiting_executor` 的**纯函数**判据（单测直接打，不碰库、不看时间）。
+///
+/// 「审批通过但还没执行」= 付款仍 `PENDING` **且** 它挂的付款审批实例已是 `APPROVED`。
+/// 这是 P3-07 `erp.separation_of_duties.approve_execute` 打开后的中间态：
+/// 审批单落了 `APPROVED` 终态、账一分没动，等另一位有 `business:erp:payable:pay` 的人执行。
+///
+/// 判据只有这一份：读接口（[`awaiting_executor_of`] → `payments_res` 下发的
+/// `awaiting_executor`）与执行入口（[`execute_approved_payment`] 的判据 3）都走它，
+/// 免得将来一边改了另一边忘。
+pub fn is_awaiting_executor(payment_status: &str, instance_status: Option<&str>) -> bool {
+    payment_status == APPROVAL_PENDING
+        && instance_status.is_some_and(|status| status.eq_ignore_ascii_case("APPROVED"))
+}
+
+/// 查库版 [`is_awaiting_executor`]：读付款记录挂的审批实例状态再判。
+///
+/// 只有 `PENDING` 的付款才有「审批已通过、等执行」的可能，所以其余状态直接 `false`
+/// 不查库；一张应付单同时最多一笔 `PENDING`（库侧 `uk_biz_payment_pending`），
+/// 因此整个 `payments[]` 最多产生一次额外查询。
+///
+/// 执行入口不用它（它手里**已经有**实例行，再查一次是白跑一趟），直接调纯函数。
+pub async fn awaiting_executor_of(payment: &PaymentRow) -> std::result::Result<bool, ApiError> {
+    if payment.approval_status != APPROVAL_PENDING {
+        return Ok(false);
+    }
+    let Some(instance_id) = payment.approval_instance_id else {
+        return Ok(false);
+    };
+    let instance_status = flow_model::find_instance(instance_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询付款审批实例"))?
+        .map(|instance| instance.status);
+    Ok(is_awaiting_executor(
+        &payment.approval_status,
+        instance_status.as_deref(),
+    ))
+}
+
 /// 付款记录 → 出参（带付款凭证号）。
 pub async fn payments_res(
     ex: &impl SqlExecutor,
@@ -436,6 +481,9 @@ pub async fn payments_res(
                 .map_err(|error| utils::db_error(error, "查询付款凭证号"))?,
             None => None,
         };
+        // 「审批通过但还没执行」（P3-07）：前端据此显示「执行付款」按钮 —— 执行人不是审批
+        // 参与人，`GET /business/flow/instance/{id}` 对他 403，只能由这里下发。
+        let awaiting_executor = awaiting_executor_of(row).await?;
         list.push(PaymentRes {
             id: row.id.to_string(),
             payment_no: row.payment_no.clone(),
@@ -451,6 +499,7 @@ pub async fn payments_res(
             approval_status_label: approval_status_label(&row.approval_status).to_string(),
             approval_instance_id: row.approval_instance_id.map(|id| id.to_string()),
             pending: row.approval_status == APPROVAL_PENDING,
+            awaiting_executor,
         });
     }
     Ok(list)
@@ -1692,6 +1741,8 @@ async fn find_payment(payment_id: Uuid) -> std::result::Result<Option<PaymentRow
 /// 1. 付款记录存在（`404`）；
 /// 2. 付款记录仍是 `PENDING`（已生效 / 已终止 → 409，文案说明无需再执行）；
 /// 3. 它挂了审批实例，且**实例状态是 `APPROVED`**（没批过不许执行）；
+///    这条判据与 [`payments_res`] 下发的 `awaiting_executor` 是**同一份**规则
+///    （[`is_awaiting_executor`]），两边不会走偏；
 /// 4. **操作人不是这张单的审批人**（`approve_execute` 开着时；多级审批比全部审批人）。
 ///
 /// 权限码复用 `business:erp:payable:pay`：能发起付款的人就应该能执行付款，不新造死码。
@@ -1730,7 +1781,7 @@ pub async fn execute_approved_payment(
             payment.payment_no
         )));
     };
-    if !instance.status.eq_ignore_ascii_case("APPROVED") {
+    if !is_awaiting_executor(&payment.approval_status, Some(&instance.status)) {
         return Err(conflict(format!(
             "付款 {} 的审批尚未通过（当前 {}）：批过才能执行付款",
             payment.payment_no, instance.status
@@ -3851,6 +3902,55 @@ mod tests {
         let (can_pay, reason) = payment_capability(&cancelled, None, None);
         assert!(!can_pay);
         assert!(reason.unwrap_or_default().contains("已作废"));
+    }
+
+    // ---------- P3-07：payments[].awaiting_executor（「审批通过但还没执行」） ----------
+
+    /// ① 实例 `APPROVED` + 付款仍 `PENDING` → **true**（P3-07 开关打开时的中间态：
+    /// 审批单已终态、账没动，等另一位有 `business:erp:payable:pay` 的人执行）。
+    #[test]
+    fn p307_awaiting_executor_true_when_instance_approved_and_payment_pending() {
+        assert!(is_awaiting_executor(APPROVAL_PENDING, Some("APPROVED")));
+        // 实例状态来自库里的字符串，大小写不保证（口径与执行入口 `eq_ignore_ascii_case` 一致）
+        assert!(is_awaiting_executor(APPROVAL_PENDING, Some("approved")));
+    }
+
+    /// ② 实例还在跑（`RUNNING`）+ 付款 `PENDING` → **false**：审批没结束，
+    /// 前端不许显示「执行付款」（点了也是 409）。
+    #[test]
+    fn p307_awaiting_executor_false_when_instance_running() {
+        for status in ["RUNNING", "PENDING", "REJECTED", "CANCELLED", "WITHDRAWN"] {
+            assert!(
+                !is_awaiting_executor(APPROVAL_PENDING, Some(status)),
+                "实例 {status} 不是 APPROVED，不能算「等执行」"
+            );
+        }
+    }
+
+    /// ③ 付款已是 `APPROVED` → **false**：开关关闭时审批通过就当场记账，没有「再执行」这一步。
+    /// 开关打开后执行完也落这个状态 —— 两种来源都是「已经付了」，按钮必须消失。
+    #[test]
+    fn p307_awaiting_executor_false_when_payment_already_approved() {
+        for payment_status in [
+            APPROVAL_APPROVED,
+            APPROVAL_REJECTED,
+            APPROVAL_CANCELLED,
+            APPROVAL_NONE,
+        ] {
+            assert!(
+                !is_awaiting_executor(payment_status, Some("APPROVED")),
+                "付款 {payment_status} 不是「审批中」，不该等执行"
+            );
+        }
+    }
+
+    /// ④ 付款没有审批实例（直付 / 未配流程）+ 付款 `PENDING` → **false**：
+    /// 没有实例就没有「审批已通过」这个事实，`None` 一律 false。
+    #[test]
+    fn p307_awaiting_executor_false_without_instance() {
+        assert!(!is_awaiting_executor(APPROVAL_PENDING, None));
+        assert!(!is_awaiting_executor(APPROVAL_APPROVED, None));
+        assert!(!is_awaiting_executor(APPROVAL_NONE, None));
     }
 
     /// ⓪② `PENDING_CANCEL`（作废审批中）**不能付款**，且 `blocked_reason` 必须带审批单号。

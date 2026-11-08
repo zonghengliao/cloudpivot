@@ -1,0 +1,13 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 41s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 4 tests
+test business::erp::payable_payment::tests::p307_awaiting_executor_false_without_instance ... ok
+test business::erp::payable_payment::tests::p307_awaiting_executor_false_when_payment_already_approved ... ok
+test business::erp::payable_payment::tests::p307_awaiting_executor_true_when_instance_approved_and_payment_pending ... ok
+test business::erp::payable_payment::tests::p307_awaiting_executor_false_when_instance_running ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 3526 filtered out; finished in 0.00s
+
+EXIT=0
