@@ -1,0 +1,88 @@
+==================================================================
+0) 夹具：两个角色 + 两个用户（都持 attachment:upload，都没有 payable 读码）
+==================================================================
+--- att04_wh 实际持有的码 ---
+business:attachment:list
+business:attachment:upload
+business:erp:contract:list
+--- att04_del 实际持有的码 ---
+business:attachment:delete
+business:attachment:upload
+business:erp:contract:list
+
+==================================================================
+1) 取真实 token（登录时把权限快照装进 JWT）
+==================================================================
+[admin] token 里的权限快照 = ["*:*:*"]
+[att04_wh] token 里的权限快照 = ["business:attachment:upload", "business:erp:contract:list", "business:attachment:list", "erp:contract:list"]
+[att04_del] token 里的权限快照 = ["business:attachment:upload", "business:erp:contract:list", "business:attachment:delete", "erp:contract:list"]
+
+==================================================================
+2) admin（有 payable 读码）上传：应付单 / 合同 各一份 → 期望 200
+==================================================================
+HTTP 200 {"code":0,"msg":"ok","data":{"id":"01a1bc87-d6dc-709c-9acf-edcf604f8178","file_id":"01a1bc87-d6db-7610-9ee2-ec3aac54fbb5","file_name":"att04_admin_payable.pdf","file_size":48,"file_role":"DEFAULT","doc_type":"PAYABLE","doc_id":"162506d8-d2b7-4703-a593-12357eaf4d31","duplicated":false}}
+   admin upload PAYABLE
+   => PASS（期望 200）
+HTTP 200 {"code":0,"msg":"ok","data":{"id":"01a1bc87-d6ec-7520-9440-2ba6f3a7654d","file_id":"01a1bc87-d6eb-71ab-b7e9-621079126dfc","file_name":"att04_admin_contract.pdf","file_size":49,"file_role":"DEFAULT","doc_type":"CONTRACT","doc_id":"01a1b5d5-bbd4-7782-8d97-107d4b7fb06c","duplicated":false}}
+   admin upload CONTRACT
+   => PASS（期望 200）
+   绑定行 id：payable=01a1bc87-d6dc-709c-9acf-edcf604f8178 contract=01a1bc87-d6ec-7520-9440-2ba6f3a7654d
+
+==================================================================
+3) att04_wh（持 attachment:upload + contract:list，无 payable 读码）
+==================================================================
+HTTP 403 {"code":30001,"msg":"无权向该应付单上传附件（需要以下任一权限：business:erp:payable:list / business:erp:payable:detail）"}
+   ① 盲传应付单（改造前 200）
+   => PASS（期望 403）
+HTTP 403 {"code":30001,"msg":"无权向该应付单上传附件（需要以下任一权限：business:erp:payable:list / business:erp:payable:detail）"}
+   ② 探测不存在的 payable id
+   => PASS（期望 403）
+   => PASS（存在的 id 与幽灵 id 的 403 消息逐字相同，无可探测位）
+   code=30001 msg=无权向该应付单上传附件（需要以下任一权限：business:erp:payable:list / business:erp:payable:detail）
+HTTP 200 {"code":0,"msg":"ok","data":{"id":"01a1bc87-d714-7098-8de8-00357175229c","file_id":"01a1bc87-d711-7230-9f04-1461e5647fe8","file_name":"att04_wh_contract.pdf","file_size":46,"file_role":"DEFAULT","doc_type":"CONTRACT","doc_id":"01a1b5d5-bbd4-7782-8d97-107d4b7fb06c","duplicated":false}}
+   ③ 有读码的合同（非一刀切）
+   => PASS（期望 200）
+HTTP 400 {"code":10001,"msg":"单据类型 doc_type 非法：BOGUS_DOC（可选 CONTRACT / PURCHASE_ORDER / STOCK_IN / PAYABLE / PAYMENT / FIXED_ASSET / EXPENSE_REPORT / INVOICE / RECEIPT / STOCK_TAKE / PURCHASE_RETURN / SALES_RETURN / STOCK_TRANSFER / SUPPLIER / CUSTOMER / OPENING_BALANCE）"}
+   ④ 字段非法（400 先于 403）
+   => PASS（期望 400）
+
+==================================================================
+4) admin 对不存在的 payable id → 有读码才看得到 404
+==================================================================
+HTTP 404 {"code":10002,"msg":"应付单不存在或已删除，无法挂附件"}
+   admin upload GHOST PAYABLE
+   => PASS（期望 404）
+
+==================================================================
+5) delete 矩阵
+==================================================================
+   a) att04_wh 删自己传的合同附件
+HTTP 200 {"code":0,"msg":"ok","data":{"id":"01a1bc87-d714-7098-8de8-00357175229c","file_id":"01a1bc87-d711-7230-9f04-1461e5647fe8","deleted":true,"file_deleted":true}}
+   => PASS（期望 200）
+   b) 历史行模拟：admin 传的应付附件，把 uploaded_by 改成 att04_wh（当年挂的）；
+      att04_wh 换岗后没有 payable 读码 → 期望仍能删自己的
+HTTP 200 {"code":0,"msg":"ok","data":{"id":"01a1bc87-d740-7175-a40a-7a5db1226f88","file_id":"01a1bc87-d73f-772e-99f0-05f91ab4e8a9","file_name":"att04_legacy_payable.pdf","file_size":49,"file_role":"DEFAULT","doc_type":"PAYABLE","doc_id":"162506d8-d2b7-4703-a593-12357eaf4d31","duplicated":false}}
+      admin 先传: HTTP 200 id=01a1bc87-d740-7175-a40a-7a5db1226f88
+HTTP 200 {"code":0,"msg":"ok","data":{"id":"01a1bc87-d740-7175-a40a-7a5db1226f88","file_id":"01a1bc87-d73f-772e-99f0-05f91ab4e8a9","deleted":true,"file_deleted":true}}
+      att04_wh 删自己的历史行
+   => PASS（期望 200）
+   c) att04_del 持 :delete 但无 payable 读码，删 admin 传的应付附件 → 期望 403
+HTTP 403 {"code":30001,"msg":"无权查看该附件所属的应付单（需要以下任一权限：business:erp:payable:list / business:erp:payable:detail）"}
+   => PASS（期望 403）
+   d) admin 删同一份（超管）→ 期望 200
+HTTP 200 {"code":0,"msg":"ok","data":{"id":"01a1bc87-d6dc-709c-9acf-edcf604f8178","file_id":"01a1bc87-d6db-7610-9ee2-ec3aac54fbb5","deleted":true,"file_deleted":true}}
+   => PASS（期望 200）
+   e) 非法 id → 400
+HTTP 400 {"code":10001,"msg":"id 格式不正确"}
+   => PASS（期望 400）
+
+==================================================================
+6) 留痕检查（上传 / 删除的审计行）
+==================================================================
+02:59:41 | DOC_ATTACHMENT_DELETE | att04_wh | att04_wh_contract.pdf | status=200
+02:59:41 | DOC_ATTACHMENT_DELETE | att04_wh | att04_legacy_payable.pdf | status=200
+02:59:41 | DOC_ATTACHMENT_DELETE | admin | att04_admin_payable.pdf | status=200
+--- 本卡时间窗内 att04 相关的所有审计行（含未成功的？403 不应留下 DOC_ATTACHMENT_UPLOAD）---
+DOC_ATTACHMENT_DELETE|3
+
+ATT-04 矩阵执行结束（清理见 att04_cleanup.sh）

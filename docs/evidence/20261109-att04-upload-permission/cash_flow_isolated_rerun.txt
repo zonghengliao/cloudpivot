@@ -1,0 +1,40 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 4 tests
+test business::erp::cash_flow::tests::r3_real_config_covers_all_accounts ... FAILED
+test business::erp::cash_flow::tests::r3_real_empty_period_is_all_zero ... ok
+test business::erp::cash_flow::tests::r3_real_statement_ties_to_balance_sheet_cash ... FAILED
+test business::erp::cash_flow::tests::r3_real_unclassified_is_visible ... FAILED
+
+failures:
+
+---- business::erp::cash_flow::tests::r3_real_config_covers_all_accounts stdout ----
+
+thread 'business::erp::cash_flow::tests::r3_real_config_covers_all_accounts' (1479253) panicked at src/business/erp/cash_flow.rs:2544:9:
+分类配置漏科目：["P2D1A P2D1 测试现金 没有任何分类行（会全部落到「其他」）", "P2D1B P2D1 测试应付 没有任何分类行（会全部落到「其他」）"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- business::erp::cash_flow::tests::r3_real_statement_ties_to_balance_sheet_cash stdout ----
+
+thread 'business::erp::cash_flow::tests::r3_real_statement_ties_to_balance_sheet_cash' (1479274) panicked at src/business/erp/cash_flow.rs:2428:9:
+assertion `left == right` failed: 这 6 张凭证都能分类
+  left: 1
+ right: 0
+
+---- business::erp::cash_flow::tests::r3_real_unclassified_is_visible stdout ----
+
+thread 'business::erp::cash_flow::tests::r3_real_unclassified_is_visible' (1479295) panicked at src/business/erp/cash_flow.rs:2481:9:
+assertion `left == right` failed
+  left: 2
+ right: 1
+
+
+failures:
+    business::erp::cash_flow::tests::r3_real_config_covers_all_accounts
+    business::erp::cash_flow::tests::r3_real_statement_ties_to_balance_sheet_cash
+    business::erp::cash_flow::tests::r3_real_unclassified_is_visible
+
+test result: FAILED. 1 passed; 3 failed; 0 ignored; 0 measured; 3831 filtered out; finished in 1.62s
+
+error: test failed, to rerun pass `--lib`

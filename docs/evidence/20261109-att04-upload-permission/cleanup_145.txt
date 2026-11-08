@@ -1,0 +1,19 @@
+== 清理前 ==
+4
+4
+== 物理对象（按 file_key 定位）==
+  found /opt/cloudpivot/backend/uploads/2026/11/08/01a1bc87-d6eb-71ab-b7e9-620f6fdcf831.pdf
+  found /opt/cloudpivot/backend/uploads/2026/11/08/01a1bc87-d711-7230-9f04-146090a6e00d.pdf
+  found /opt/cloudpivot/backend/uploads/2026/11/08/01a1bc87-d73f-772e-99f0-05f84b022086.pdf
+  found /opt/cloudpivot/backend/uploads/2026/11/08/01a1bc87-d6da-7444-bb68-017e42efbaf8.pdf
+== 删绑定行（先按 file_id 关联）==
+== 删留痕 / 文件记录 ==
+== 删物理文件 ==
+removed /opt/cloudpivot/backend/uploads/2026/11/08/01a1bc87-d6eb-71ab-b7e9-620f6fdcf831.pdf
+removed /opt/cloudpivot/backend/uploads/2026/11/08/01a1bc87-d711-7230-9f04-146090a6e00d.pdf
+removed /opt/cloudpivot/backend/uploads/2026/11/08/01a1bc87-d73f-772e-99f0-05f84b022086.pdf
+removed /opt/cloudpivot/backend/uploads/2026/11/08/01a1bc87-d6da-7444-bb68-017e42efbaf8.pdf
+removed_total 4
+== 删角色 / 用户 ==
+== 残留检查（绑定|文件|留痕|用户|角色|用户角色|角色菜单 全部应为 0）==
+0|0|0|0|0|0|0
