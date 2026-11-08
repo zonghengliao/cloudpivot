@@ -783,6 +783,10 @@ mod db_tests {
     const OWNER: Uuid = Uuid::from_u128(0x0f62_0000_0000_4000_8000_0000_0000_0002);
     const CREATOR: Uuid = Uuid::from_u128(0x0f62_0000_0000_4000_8000_0000_0000_0003);
     const STRANGER: Uuid = Uuid::from_u128(0x0f62_0000_0000_4000_8000_0000_0000_0004);
+    /// 关注者（`FOLLOWER`）：能看见任务，但**不该进「协作人」栏**。
+    /// 与 STRANGER 分开是必须的 —— 参与关系（含关注者）本身就能让任务可见，
+    /// 若拿 STRANGER 当关注者，`stranger_gets_404_not_403` 永远看不到 404。
+    const FOLLOWER: Uuid = Uuid::from_u128(0x0f62_0000_0000_4000_8000_0000_0000_0005);
     const PROJECT: Uuid = Uuid::from_u128(0x0f62_0000_0000_4000_8000_0000_0000_0200);
     const TASK: Uuid = Uuid::from_u128(0x0f62_0000_0000_4000_8000_0000_0000_0100);
     const CHILD_A: Uuid = Uuid::from_u128(0x0f62_0000_0000_4000_8000_0000_0000_0101);
@@ -852,6 +856,7 @@ mod db_tests {
             (OWNER, "pdf06.owner"),
             (CREATOR, "pdf06.creator"),
             (STRANGER, "pdf06.stranger"),
+            (FOLLOWER, "pdf06.follower"),
         ] {
             exec(
                 "INSERT INTO sys_user (id, username, real_name, password) \
@@ -866,8 +871,8 @@ mod db_tests {
             .await;
         }
         exec(
-            "INSERT INTO biz_project (id, project_no, project_code, project_name, status) \
-             VALUES (?::uuid, 'PRJ-PDF06', 'PRJ-PDF06', 'PDF-06 派工单夹具项目', 'ACTIVE')",
+            "INSERT INTO biz_project (id, project_no, project_name, status) \
+             VALUES (?::uuid, 'PRJP06-T', 'PDF-06 派工单夹具项目', 'ACTIVE')",
             vec![Value::from(&PROJECT)],
             "夹具项目",
         )
@@ -932,7 +937,7 @@ mod db_tests {
             .await;
         }
 
-        for (user, role) in [(OWNER, "COLLABORATOR"), (STRANGER, "FOLLOWER")] {
+        for (user, role) in [(OWNER, "COLLABORATOR"), (FOLLOWER, "FOLLOWER")] {
             exec(
                 "INSERT INTO biz_task_member (task_id, user_id, role) VALUES (?::uuid, ?::uuid, ?)",
                 vec![
@@ -994,9 +999,9 @@ mod db_tests {
         };
         assert_eq!(value_of("优先级"), "P1（高）");
         assert_eq!(value_of("截止日期"), "2026-11-20");
-        assert_eq!(value_of("所属项目"), "PRJ-PDF06 PDF-06 派工单夹具项目");
+        assert_eq!(value_of("所属项目"), "PRJP06-T PDF-06 派工单夹具项目");
         assert_eq!(value_of("预估工时"), "16.0 小时");
-        // 协作人只有 OWNER（STRANGER 是 FOLLOWER，不进这一栏）
+        // 协作人只有 OWNER（FOLLOWER 是关注者，不进这一栏）
         assert_eq!(value_of("协作人"), "PDF06 owner");
 
         // 长描述：80 行一行不少（验收①③的数据侧）
