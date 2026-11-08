@@ -1,0 +1,2 @@
+[2m2026-11-08T06:12:35.031460Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0342：主数据编码开关 erp.master_data.allow_manual_code 已就位（默认 true）
+[2m2026-11-08T06:12:35.057983Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 275 个迁移

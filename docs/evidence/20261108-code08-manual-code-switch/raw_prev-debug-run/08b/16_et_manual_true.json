@@ -1,0 +1,1 @@
+{"code":0,"msg":"ok","data":{"id":"01a1b9be-224c-742c-aac0-8a601528110f","type_code":"ADMIN-FEE","type_name":"CODE08 费用类型（手工）","account_id":"0afc0aaa-dd48-4e1d-8a64-3c40e38a70fa","account_code":"5602.01","account_name":"管理费用-折旧费","tax_deductible":true,"budget_controlled":true,"need_invoice_no":true,"amount_limit":"0.0000","sort_order":0,"status":1,"remark":null}}

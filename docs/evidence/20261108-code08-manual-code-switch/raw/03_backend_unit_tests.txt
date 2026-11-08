@@ -1,0 +1,18 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 06s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 10 tests
+test business::erp::code_policy::tests::create_supplier_respects_policy_argument ... ok
+test business::erp::code_policy::tests::guard_passes_blank_when_forbidden ... ok
+test business::erp::code_policy::tests::guard_passes_everything_when_allowed ... ok
+test business::erp::code_policy::tests::guard_rejects_manual_when_forbidden ... ok
+test business::erp::code_policy::tests::invalid_config_does_not_block_creation ... ok
+test business::erp::code_policy::tests::invalid_text_falls_back_to_allow ... ok
+test business::erp::code_policy::tests::migration_seeds_switch_as_true ... ok
+test business::erp::code_policy::tests::missing_config_falls_back_to_allow ... ok
+test business::erp::code_policy::tests::parses_all_four_bool_spellings ... ok
+test business::erp::code_policy::tests::policy_payload_carries_metadata ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 3516 filtered out; finished in 0.60s
+

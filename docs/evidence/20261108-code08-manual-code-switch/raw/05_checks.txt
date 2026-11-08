@@ -1,0 +1,33 @@
+== CODE-08 提交前检查 ==
+
+-- rustfmt +1.94.1 --edition 2024 --check（本卡 7 个文件）--
+FMT_EXIT=0（clean）
+
+-- cargo clippy --lib --tests --keep-going --
+本卡文件命中数：0
+warning: this function has too many arguments (8/7)
+warning: `cloudpivot` (lib) generated 1 warning
+error[E0063]: missing field `subprocess_def_id` in initializer of `cloudpivot::business::flow::dto::GraphNodeReq`
+error: could not compile `cloudpivot` (test "pflow1b") due to 1 previous error
+error[E0063]: missing field `subprocess_def_id` in initializer of `cloudpivot::business::flow::dto::GraphNodeReq`
+error: could not compile `cloudpivot` (test "pflow1a") due to 1 previous error
+warning: empty line after doc comment
+warning: useless use of `format!`
+warning: useless use of `format!`
+warning: binary comparison to literal `Option::None`
+warning: this call to `clone` can be replaced with `std::slice::from_ref`
+warning: this call to `clone` can be replaced with `std::slice::from_ref`
+warning: this call to `clone` can be replaced with `std::slice::from_ref`
+warning: `format!` in `format!` args
+warning: unnecessary use of `get(&fx.approver).is_none()`
+warning: this function has too many arguments (8/7)
+warning: useless use of `format!`
+
+-- 说明 --
+2 个 error 均为他卡 WIP：tests/pflow1a.rs:280 / tests/pflow1b.rs:280 missing field subprocess_def_id（P3-08 子流程节点）；
+其余 warning 全部落在本卡未触碰的文件（sales_order_model / edge_admin_tests / asset_linkage / fx_revaluation / opening / purchase_requisition_dto）。
+
+-- 前端 --
+vue-tsc --noEmit: exit 0
+vite build: exit 0（产物含 code-policy 独立 chunk，index-*.js 内含 master-data/code-policy）
+frontend/dist/assets/index-CAimWBSv.js:master-data/code-policy

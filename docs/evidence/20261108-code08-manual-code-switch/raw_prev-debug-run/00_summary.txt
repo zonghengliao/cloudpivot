@@ -1,0 +1,79 @@
+login ok, access_token 长度 = 461
+基础单位 PCS id = d1370000-0000-4000-8000-000000000001
+末级科目 id = 08491375-b7da-4bba-beaf-2181960a3f06
+参数行 id = e2b00000-0000-4000-8000-000000000020  初始值 = true  分类 = erp_master_data
+
+=== ① 参数为 true（迁移默认值）→ 六个主数据可手工填编码 ===
+  PASS  迁移默认值 = true
+  PASS  code-policy 生效值（接口） = true
+  FAIL  供应商手工码 HTTP 期望[200] 实际[409]
+  FAIL  供应商手工码原样保留 期望[GYS-001] 实际[]
+  FAIL  客户手工码 HTTP 期望[200] 实际[409]
+  FAIL  客户手工码原样保留 期望[KH-001] 实际[]
+  FAIL  物料手工码 HTTP 期望[200] 实际[409]
+  FAIL  物料手工码原样保留 期望[YB-001-02] 实际[]
+  FAIL  仓库手工码 HTTP 期望[200] 实际[409]
+  FAIL  仓库手工码原样保留 期望[CK-001] 实际[]
+  FAIL  资产分类手工码 HTTP 期望[200] 实际[409]
+  FAIL  资产分类手工码原样保留 期望[CAT-BUILDING] 实际[]
+  FAIL  费用类型手工码 HTTP 期望[200] 实际[409]
+  FAIL  费用类型手工码原样保留 期望[ADMIN-FEE] 实际[]
+
+=== ② 参数改为 false → 六个主数据手工编码全被 400 + 66054 挡住 ===
+改参数 config_value=false → HTTP 200
+  PASS  code-policy 生效值（接口） = false
+  PASS  供应商 手工编码 HTTP（开关关闭） = 400
+  PASS  供应商 错误码 66054 = 66054
+  PASS  供应商 文案「系统已禁止手工指定编码」
+  PASS  供应商 文案点出参数键
+  PASS  客户 手工编码 HTTP（开关关闭） = 400
+  PASS  客户 错误码 66054 = 66054
+  PASS  客户 文案「系统已禁止手工指定编码」
+  PASS  客户 文案点出参数键
+  PASS  物料 手工编码 HTTP（开关关闭） = 400
+  PASS  物料 错误码 66054 = 66054
+  PASS  物料 文案「系统已禁止手工指定编码」
+  PASS  物料 文案点出参数键
+  PASS  仓库 手工编码 HTTP（开关关闭） = 400
+  PASS  仓库 错误码 66054 = 66054
+  PASS  仓库 文案「系统已禁止手工指定编码」
+  PASS  仓库 文案点出参数键
+  PASS  资产分类 手工编码 HTTP（开关关闭） = 400
+  PASS  资产分类 错误码 66054 = 66054
+  PASS  资产分类 文案「系统已禁止手工指定编码」
+  PASS  资产分类 文案点出参数键
+  PASS  费用类型 手工编码 HTTP（开关关闭） = 400
+  PASS  费用类型 错误码 66054 = 66054
+  PASS  费用类型 文案「系统已禁止手工指定编码」
+  PASS  费用类型 文案点出参数键
+
+=== ②b 同一开关下「留空」仍然自动取号（开关只管手填，不改取号口径） ===
+  PASS  供应商留空 HTTP（开关关闭） = 200
+  PASS  供应商自动编码形态（4 位流水） = SUP-0003
+  PASS  客户留空 HTTP（开关关闭） = 200
+  PASS  客户自动编码形态 = CUS-0005
+  PASS  物料留空 HTTP（开关关闭） = 200
+  PASS  物料自动编码形态 = MAT-0002
+  PASS  仓库留空 HTTP（开关关闭） = 200
+  PASS  仓库自动编码形态（2 位流水） = WH-02
+  PASS  资产分类留空 HTTP（开关关闭） = 200
+  PASS  资产分类自动编码形态 = AC-02
+  PASS  费用类型留空 HTTP（开关关闭） = 200
+  PASS  费用类型自动编码形态 = ET-02
+
+=== ③ 参数改回 true → 手工编码恢复（只改参数，不改代码） ===
+改参数 config_value=true → HTTP 200
+  PASS  code-policy 生效值（接口） = true
+  FAIL  供应商手工码 HTTP（恢复后） 期望[200] 实际[409]
+  FAIL  供应商手工码原样保留（恢复后） 期望[GYS-BACK-001] 实际[]
+  FAIL  资产分类手工码 HTTP（恢复后） 期望[200] 实际[409]
+
+=== ④ 权限：code-policy 需要登录（无 token → 401） ===
+  PASS  未登录读 code-policy = 401
+
+=== ⑤ 参数行自检（改回 true 后库里的值） ===
+  PASS  参数最终值 = true
+  PASS  参数类型 = BOOLEAN
+  PASS  参数分类 = erp_master_data
+
+RESULT: FAILED（见上面 FAIL 行）

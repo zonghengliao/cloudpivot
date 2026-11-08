@@ -1,0 +1,59 @@
+== CODE-08 库侧断言（db=cloudpivot_code08d） ==
+
+-- ① 参数行（V0342：默认 true / BOOLEAN / erp_master_data / 可修改） --
+  PASS  参数值 = true
+  PASS  参数类型 = BOOLEAN
+  PASS  分类 = erp_master_data
+  PASS  可修改 = t
+  PASS  未加密 = f
+  PASS  启用 = 1
+  PASS  排序 = 10
+  PASS  选项 = true|开启,false|关闭
+  PASS  固定 id（幂等靠它） = e2b00000-0000-4000-8000-000000000020
+  PASS  同名行只有 1 条（无重复种入） = 1
+
+-- ② 参数分类字典项 --
+  PASS  字典项 erp_master_data = 1
+  PASS  字典项名称 = ERP 主数据
+
+-- ③ 开关 true 时提交的手工码：真的落库且原样 --
+  PASS  供应商 GYS-001 = 1
+  PASS  客户 KH-001 = 1
+  PASS  物料 YB-001-02 = 1
+  PASS  仓库 CK-001 = 1
+  PASS  资产分类 CAT-BUILDING = 1
+  PASS  费用类型 ADMIN-FEE = 1
+  PASS  供应商 GYS-BACK-001（改回 true 后） = 1
+  PASS  资产分类 CAT-BACK-001（改回 true 后） = 1
+
+-- ④ 开关 false 时提交的手工码：一条都没落库（400 = 真的没写） --
+  PASS  供应商 GYS-OFF-001 不存在 = 0
+  PASS  客户 KH-OFF-001 不存在 = 0
+  PASS  物料 MAT-OFF-001 不存在 = 0
+  PASS  仓库 WH-OFF-001 不存在 = 0
+  PASS  资产分类 CAT-OFF-001 不存在 = 0
+  PASS  费用类型 ET-OFF-001 不存在 = 0
+
+-- ⑤ 留空提交的 6 行是号段产物（形态对；只数本卡造的 CODE08* 行） --
+  PASS  供应商自动码形态 = 1
+  PASS  客户自动码形态 = 1
+  PASS  物料自动码形态 = 1
+  PASS  仓库自动码形态 = 1
+  PASS  资产分类自动码形态 = 1
+  PASS  费用类型自动码形态 = 1
+
+-- ⑥ 手工码提交不推进 biz_seq（每类只前进了 1 号 = 只有那次自动取号） --
+     biz_seq：AC=1 CUS=4 ET=1 MAT=1 SUP=2 WH=1
+  PASS  SUP current_no（种子 1 + 自动 1） = 2
+  PASS  MAT current_no（自动 1 次） = 1
+  PASS  WH current_no（自动 1 次） = 1
+  PASS  AC current_no（自动 1 次） = 1
+  PASS  ET current_no（自动 1 次） = 1
+
+-- ⑦ 存量行没有因本卡产生重复编码 --
+  PASS  供应商存活行编码无重复 = 0
+  PASS  物料存活行编码无重复 = 0
+  PASS  仓库存活行编码无重复 = 0
+  PASS  资产分类存活行编码无重复 = 0
+
+RESULT: ALL PASS
