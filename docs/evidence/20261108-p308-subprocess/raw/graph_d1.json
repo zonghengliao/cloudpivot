@@ -1,0 +1,5 @@
+{"nodes":[{"key":"s","name":"开始","type":"START","x":0,"y":0,"sort_order":1},
+          {"key":"n_sub","name":"下一层子流程","type":"SUBPROCESS","x":220,"y":0,"sort_order":2,
+           "subprocess_def_id":"01a1b98b-6548-7565-87c5-c6b3c183606c","config":{"sub":{}}},
+          {"key":"e","name":"结束","type":"END","x":440,"y":0,"sort_order":3}],
+ "edges":[{"key":"e_s","from":"s","to":"n_sub"},{"key":"e_e","from":"n_sub","to":"e"}]}

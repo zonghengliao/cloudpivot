@@ -1,0 +1,13 @@
+{"change_note":"P3-08 父流程（CONTINUE 对照）",
+ "nodes":[{"key":"s","name":"开始","type":"START","x":0,"y":0,"sort_order":1},
+          {"key":"n_sub","name":"预算调整（子流程）","type":"SUBPROCESS","x":220,"y":0,"sort_order":2,
+           "subprocess_def_id":"01a1b98b-5f17-73d4-8dc5-630ed305a1cc",
+           "config":{"sub":{"fail_action":"CONTINUE"}}},
+          {"key":"n_dept","name":"部门负责人审批","type":"APPROVAL","x":440,"y":0,"sort_order":3,
+           "assignee_type":"ROLE","assignees":[{"type":"ROLE","ref_id":"01a1b98b-58bd-725f-bcfd-24d178926c91","sort_order":0}],
+           "approval_mode":"ANY","self_approval":"SKIP","empty_assignee":"ERROR",
+           "join_mode":"AND","fork_mode":"AND","reject_veto":true},
+          {"key":"e","name":"结束","type":"END","x":660,"y":0,"sort_order":4}],
+ "edges":[{"key":"e_s","from":"s","to":"n_sub"},
+          {"key":"e_sub","from":"n_sub","to":"n_dept"},
+          {"key":"e_end","from":"n_dept","to":"e"}]}

@@ -1,0 +1,10 @@
+=== 升级库 cloudpivot_p308_upg（由 P3-07 的 V0340 库 createdb -T 克隆而来，11 张在跑实例）首次启动 ===
+
+[2m2026-11-08T04:55:21.993360Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0341 自检通过：node_type 10 值 + config.sub 形状 + 分区 CHECK + 父子实例两列 + 部分索引
+[2m2026-11-08T04:55:21.998083Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 1 个迁移
+
+=== 同库重启 ===
+[2m2026-11-08T04:55:57.597603Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+
+=== 空库首启（cloudpivot_p308_v2，e2e 用）===
+[2m2026-11-08T05:04:13.207375Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 274 个迁移

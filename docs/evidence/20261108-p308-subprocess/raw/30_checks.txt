@@ -1,0 +1,43 @@
+================ P3-08 代码门禁 ================
+时间：2026-11-08 13:23:32 CST
+
+--- ① rustfmt --check（本卡 9 个文件）---
+  ✅ 9 个文件格式干净
+
+--- ② cargo clippy --lib -- -D warnings ---
+error: this function has too many arguments (8/7)
+   --> src/business/erp/sales_order_model.rs:699:1
+error: could not compile `cloudpivot` (lib) due to 1 previous error
+  基线命中 sales_order_model.rs:699 = 1 条；其它告警位置数 = 0
+  ✅ clippy 只剩既有基线（本卡文件零命中）
+
+--- ③ 单测 business::flow（含本卡 subprocess 10 例）---
+  test business::flow::subprocess::tests::child_title_is_clipped_to_column_width ... ok
+  test business::flow::subprocess::tests::form_mapping_reads_dotted_paths_and_skips_missing ... ok
+  test business::flow::subprocess::tests::nesting_handles_branching_graphs ... ok
+  test business::flow::subprocess::tests::nesting_rejects_indirect_cycle ... ok
+  test business::flow::subprocess::tests::nesting_rejects_self_recursion ... ok
+  test business::flow::subprocess::tests::sub_config_parses_mappings_and_enums_case_insensitively ... ok
+  test business::flow::subprocess::tests::sub_config_rejects_unknown_key_and_bad_enum ... ok
+  test business::flow::subprocess::tests::terminal_status_whitelist ... ok
+  test business::flow::subprocess::tests::sub_config_defaults_are_pin_current_and_abort ... ok
+  test business::flow::subprocess::tests::nesting_allows_three_levels_and_rejects_four ... ok
+failures:
+failures:
+test result: FAILED. 501 passed; 3 failed; 0 ignored; 0 measured; 3012 filtered out; finished in 0.09s
+  基线失败（预期 3 条 linkage 触发点计数）：
+        business::flow::linkage::admin::tests::catalog_triggers_carry_wired_flag
+        business::flow::linkage::tests_wiring::trigger_specs_cover_whitelist_in_order
+        business::flow::linkage::tests_wiring::wired_triggers_match_call_sites
+  ⚠️ 基线说明：HEAD 的 linkage/spec.rs::TRIGGERS 已是 16 条，而 tests_wiring 仍断言 15 条 ——
+     该 3 条在 P3-08 动手前就红（用 git show HEAD:backend/src/business/flow/linkage/spec.rs 可复现）。
+
+--- ④ 前端 pnpm typecheck ---
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+  typecheck exit = 0（0 = 通过）
+
+--- ⑤ 前端子流程相关单测 ---
+  # tests 5
+  # pass 5
+  # fail 0
+  说明：flow-task-node / flow-canvas-vueflow-business 的节点计数断言已随「9 → 10 种」更新。

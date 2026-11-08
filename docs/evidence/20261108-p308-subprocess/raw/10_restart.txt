@@ -1,0 +1,32 @@
+================ P3-08 迁移 V0341：升级 / 幂等 / 回滚（cloudpivot_p308_upg）================
+  ✅ 升级库最新版本 = 341 = 341
+  ✅ V0341 只记录了一次 = 1
+  ✅ node_type CHECK 含 SUBPROCESS（10 值） = 1
+  ✅ 分区 CHECK 含 sub 一条 = 1
+  ✅ biz_flow_node.subprocess_def_id 存在 = 1
+  ✅ biz_flow_instance 父子两列存在 = 2
+  ✅ 父子部分索引存在 = 1
+[2m2026-11-08T05:13:45.942182Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+  ✅ 重启「应用 0 个迁移」（V0341 幂等）
+  ✅ 重启后实例行数不变（迁移不改业务数据） = 11
+
+--- down.sql 回滚 ---
+psql:/opt/cloudpivot/backend/migrations/business/V0341__flow_subprocess_node.down.sql:102: NOTICE:  V0341 down 自检通过：父子实例两列 / 部分索引 / 子流程约束全部清除
+DO
+COMMIT
+  ✅ down 后父子列清除 = 0
+  ✅ down 后部分索引清除 = 0
+  ✅ down 后 subprocess_def_id 清除 = 0
+  ✅ down 后 node_type 退回 9 值（不再含 SUBPROCESS） = f
+  ✅ down 后子流程约束清除 = 0
+
+--- up.sql 重放（幂等）---
+COMMENT
+psql:/opt/cloudpivot/backend/migrations/business/V0341__flow_subprocess_node.up.sql:185: NOTICE:  V0341 自检通过：node_type 10 值 + config.sub 形状 + 分区 CHECK + 父子实例两列 + 部分索引
+DO
+  ✅ 重放后父子列回来 = 2
+  ✅ 重放后 subprocess_def_id 回来 = 1
+  ✅ 重放后 node_type 又含 SUBPROCESS = 1
+  ✅ 回滚重放后重启仍「应用 0 个迁移」（指纹未变）
+
+===== 结果：PASS=18 FAIL=0 =====

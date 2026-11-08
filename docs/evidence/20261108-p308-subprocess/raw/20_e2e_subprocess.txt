@@ -1,0 +1,94 @@
+================ P3-08 子流程节点实测（http://127.0.0.1:18312 / cloudpivot_p308_v2）================
+  ✅ V0341 已记录（1 条） = 1
+  ✅ node_type CHECK 含 SUBPROCESS = 1
+  ✅ 分区 CHECK 同步扩了 sub = 1
+  ✅ biz_flow_instance 父子两列 = 2
+  ✅ 父子部分索引 = 1
+  ✅ 管理员令牌就绪
+  ✅ 2 个角色就绪
+  ✅ 2 个用户就绪（maker=01a1b98b-58dd-7579-bf06-e9c4ecce80ed boss=01a1b98b-5a28-77a3-bbf1-51460ca61303）
+  ✅ 报销人权限码 2 个 = 2
+  ✅ 审批人权限码 4 个 = 4
+  ✅ 2 个业务令牌就绪
+  ✅ boss 已进入种子审批角色（DEPT_LEADER / FINANCE_MANAGER / PURCHASE_MANAGER / GENERAL_MANAGER / WAREHOUSE_MANAGER / FINANCE_DIRECTOR）
+  ✅ 子流程 def 存图 → 200 = 200
+  ✅ 子流程 def「预算调整」发布 → 200 = 200
+  ✅ 存图（SUBPROCESS 节点 + config.sub）→ 200 = 200
+  ✅ 父流程「报销审批（含子流程）」发布 → 200
+  ✅ 节点行 subprocess_def_id 落库 = 01a1b98b-5f17-73d4-8dc5-630ed305a1cc
+  ✅ config.sub 落库（分区 CHECK 未拦） = ABORT
+  ✅ S1 发起父实例 → 200 = 200
+  ✅ S1 父实例 PENDING = PENDING
+  ✅ S1 父实例 id = 01a1b98b-5fec-76ce-bdae-2b90ed8dd48d
+  ✅ S1 子实例已建（01a1b98b-5ff1-7722-815f-934aa6fc5cb5）
+  ✅ S1 子实例 parent_node_key = n_sub
+  ✅ S1 子实例 biz_id 为空（不撞 uk_biz_flow_instance_biz_active） = NULL
+  ✅ S1 子实例 biz_no 为空 = NULL
+  ✅ S1 父子两行并存（同一单据同一时刻） = 2
+  ✅ S1 子实例 form_data 映射到 amount = 5000
+  ✅ S1 子实例 form_data 映射到 dept = D-P308
+  ✅ S1 父节点 n_sub = ACTIVE = ACTIVE
+  ✅ S1 子节点 n_budget = ACTIVE（子流程在等人批） = ACTIVE
+  ✅ S9 spawn_task 生成父侧可见性任务（TODO） = TODO
+  ✅ S1 子流程待办就绪（01a1b98b-5ff5-7791-8a55-7432e35763c4）
+  ✅ S1 子流程审批 → 200 = 200
+  ✅ S1 子实例 APPROVED = APPROVED
+  ✅ S1 父节点 n_sub 自动 APPROVED = APPROVED
+  ✅ S1 父流程继续到 n_dept（ACTIVE） = ACTIVE
+  ✅ S9 父侧可见性任务转 DONE = DONE
+  ✅ S1 result_mapping 指向子表单不存在的键 → 父表单不写（NULL） = NULL
+  ✅ S1 父流程后续审批 → 200 = 200
+  ✅ S1 父实例 APPROVED（走到 END） = APPROVED
+  ✅ S1 父 END 节点 APPROVED = APPROVED
+  ✅ S7 重复点同一条子流程待办 → 200（幂等） = 200
+  ✅ S7 父实例状态不变（APPROVED） = APPROVED
+  ✅ S7 父节点行数不变（不重复落状态） = 4
+  ✅ S7 n_sub 只有一行 = 1
+  ✅ S2 发起父实例 → 200 = 200
+  ✅ S2 子实例已建（01a1b98b-62ad-73bb-8abd-c6b77b5ace32）
+  ✅ S2 子流程驳回并终止 → 200 = 200
+  ✅ S2 子实例 REJECTED = REJECTED
+  ✅ S2 父节点 n_sub = REJECTED = REJECTED
+  ✅ S2 父实例 REJECTED（ABORT 生效） = REJECTED
+  ✅ S2 父流程没有再继续到 n_dept = 0
+  ✅ S9 父侧可见性任务转 CANCELLED = CANCELLED
+  ✅ S2 父实例 result_comment 为空（子流程 ABORT 不写审批意见） = NULL
+  ✅ S3 存图（CONTINUE）→ 200 = 200
+  ✅ S3 发布 → 200 = 200
+  ✅ S3 发起 → 200 = 200
+  ✅ S3 子流程驳回 → 200 = 200
+  ✅ S3 子实例 REJECTED = REJECTED
+  ✅ S3 父节点 n_sub = APPROVED（CONTINUE） = APPROVED
+  ✅ S3 父实例仍 PENDING（继续走 n_dept） = PENDING
+  ✅ S3 父流程继续到 n_dept = ACTIVE
+  ✅ S4 自递归发布被拒 → 400 = 400
+  ✅ S4 错误码 65046 = 65046
+  ✅ S4 文案点名自递归 含「自己」
+  ✅ S5 D0 发布 → 200 = 200
+  ✅ S5 D1 发布（深度 1）→ 200 = 200
+  ✅ S5 D2 发布（深度 2）→ 200 = 200
+  ✅ S5 D3 发布（深度 3，上限内）→ 200 = 200
+  ✅ S5 D4 发布（深度 4）被拒 → 400 = 400
+  ✅ S5 错误码 65046 = 65046
+  ✅ S5 文案点名深度 含「嵌套深度」
+  ✅ 草稿 def 就绪（01a1b98b-66f6-75fb-9685-5679db2ab5f6，不发布）
+  ✅ S6 指向未发布 def 发布被拒 → 400 = 400
+  ✅ S6 错误码 65045 = 65045
+  ✅ S8 po_approve 完整走通（实例 APPROVED） = APPROVED
+  ✅ S8 pr_approve 完整走通（实例 APPROVED） = APPROVED
+  （po_approve 批了 1 次，pr_approve 批了 1 次）
+
+--- 父子实例快照（P1 = 正常路径父单）---
+FLW-20261108-23FD6CD0|-|-|p308_expense_sub|APPROVED|NULL
+FLW-20261108-3BA27001|01a1b98b-5fec-76ce-bdae-2b90ed8dd48d|n_sub|p308_budget_adjust|APPROVED|NULL
+
+--- 状态流转时间线（父 P1 + 子 C1 的节点行）---
+t|n_sub|SUBPROCESS|1|APPROVED|13:04:41|13:04:41
+t|s|START|1|APPROVED|13:04:41|13:04:41
+f|s|START|1|APPROVED|13:04:41|13:04:41
+f|n_budget|APPROVAL|1|APPROVED|13:04:41|13:04:41
+f|e|END|1|APPROVED|13:04:41|13:04:41
+t|n_dept|APPROVAL|1|APPROVED|13:04:41|13:04:41
+t|e|END|1|APPROVED|13:04:41|13:04:41
+
+===== 结果：PASS=77 FAIL=0 =====
