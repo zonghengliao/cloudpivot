@@ -225,10 +225,13 @@ pub fn format_int(value: i64) -> String {
 }
 
 /// 「分」→ 千分位两位小数（`12345678` → `123,456.78`）。
+///
+/// 负数按「符号 + 绝对值」格式化：`-12345` 分必须是 `-123.45`，不能走
+/// `div_euclid`（那会得到 `-124.55`，红字单据的金额就错了）。
 pub fn format_money(fen: i64) -> String {
-    let yuan = fen.div_euclid(100);
-    let cents = fen.rem_euclid(100);
-    format!("{}.{:02}", format_int(yuan), cents)
+    let sign = if fen < 0 { "-" } else { "" };
+    let abs = fen.unsigned_abs();
+    format!("{sign}{}.{:02}", format_int((abs / 100) as i64), abs % 100)
 }
 
 const DIGITS: [char; 10] = ['零', '壹', '贰', '叁', '肆', '伍', '陆', '柒', '捌', '玖'];
@@ -355,7 +358,10 @@ mod tests {
         assert_eq!(format_money(5), "0.05");
         assert_eq!(format_money(1234), "12.34");
         assert_eq!(format_money(123456789), "1,234,567.89");
+        // 负数必须「符号 + 绝对值」：-12345 分 = -123.45（不是 -124.55）
         assert_eq!(format_money(-12345), "-123.45");
+        assert_eq!(format_money(-5), "-0.05");
+        assert_eq!(format_money(-100), "-1.00");
     }
 
     /// 人民币大写：验收点（卡面第 14 项）逐例钉死。
