@@ -116,7 +116,13 @@ fn doc_kinds_cover_five_distinct_tables() {
     assert_eq!(DocKind::parse("BILL"), None);
     assert_eq!(DocKind::parse(""), None);
     // ATT-06 新增的 5 类必须可回解析（附件要能挂到它们上）
-    for raw in ["INVOICE", "RECEIPT", "STOCK_TAKE", "PURCHASE_RETURN", "SALES_RETURN"] {
+    for raw in [
+        "INVOICE",
+        "RECEIPT",
+        "STOCK_TAKE",
+        "PURCHASE_RETURN",
+        "SALES_RETURN",
+    ] {
         let kind = DocKind::parse(raw).unwrap_or_else(|| panic!("{raw} 必须可解析"));
         assert_eq!(kind.as_str(), raw);
     }
@@ -2234,7 +2240,10 @@ async fn db_rule_seeds_cover_card_documents() {
             .scalar_with_params(
                 "SELECT count(*) FROM biz_attachment_rule \
                   WHERE doc_type = ? AND required_at = ? AND enabled AND deleted_at IS NULL",
-                vec![Value::Text(doc_type.to_string()), Value::Text(at.to_string())],
+                vec![
+                    Value::Text(doc_type.to_string()),
+                    Value::Text(at.to_string()),
+                ],
             )
             .await
             .expect("数规则");
@@ -2254,7 +2263,10 @@ async fn db_rule_seeds_cover_card_documents() {
         electronic.allow_exts.as_deref(),
         Some(&["pdf".to_string(), "ofd".to_string(), "xml".to_string()][..])
     );
-    assert_eq!(electronic.requirement(), "发票必须上传发票影像（pdf/ofd/xml）");
+    assert_eq!(
+        electronic.requirement(),
+        "发票必须上传发票影像（pdf/ofd/xml）"
+    );
 }
 
 /// 验收②：不传附件提交发票 → 结构化错误，文案逐字含「发票必须上传发票影像（pdf/ofd/xml）」。
@@ -2263,9 +2275,10 @@ async fn db_invoice_without_attachment_is_blocked_verbatim() {
     let Some(_guard) = setup().await else {
         return;
     };
-    let error = att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
-        .await
-        .expect_err("没有附件必须被拦");
+    let error =
+        att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+            .await
+            .expect_err("没有附件必须被拦");
     let text = violation_text(error);
     assert!(
         text.contains("发票必须上传发票影像（pdf/ofd/xml）"),
@@ -2274,10 +2287,13 @@ async fn db_invoice_without_attachment_is_blocked_verbatim() {
     assert!(text.contains("还差 1 个"), "文案必须说清还差几个：{text}");
 
     // 闸门转 HTTP：400 + 10001（前端按 code 分流，不靠文案）
-    let api = match att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit).await {
-        Ok(()) => panic!("没有附件必须被拦"),
-        Err(error) => error.into_api_error(),
-    };
+    let api =
+        match att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+            .await
+        {
+            Ok(()) => panic!("没有附件必须被拦"),
+            Err(error) => error.into_api_error(),
+        };
     assert_eq!(api.status, 400);
     assert_eq!(api.code, error_code::PARAM_INVALID);
 }
@@ -2289,9 +2305,10 @@ async fn db_invoice_wrong_format_is_blocked_with_format_hint() {
         return;
     };
     bind_file(DocKind::Invoice, DOC_INVOICE, FILE_D).await; // FILE_D = 发票影像.jpg
-    let error = att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
-        .await
-        .expect_err("格式不对必须被拦");
+    let error =
+        att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+            .await
+            .expect_err("格式不对必须被拦");
     let text = violation_text(error);
     assert!(
         text.contains("现有附件是 jpg 格式，不在白名单内，请上传 pdf/ofd/xml 格式"),
@@ -2368,13 +2385,10 @@ async fn db_paper_invoice_uses_scan_rule_branch() {
         return;
     };
     // 纸质票没附件：文案是「纸质发票扫描件」，而不是电子票的 pdf/ofd/xml
-    let error = att_rule::assert_attachments(
-        DocKind::Invoice,
-        uid(DOC_INVOICE_PAPER),
-        RequiredAt::Submit,
-    )
-    .await
-    .expect_err("纸质票没附件也要拦");
+    let error =
+        att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE_PAPER), RequiredAt::Submit)
+            .await
+            .expect_err("纸质票没附件也要拦");
     let text = violation_text(error);
     assert!(
         text.contains("发票必须上传纸质发票扫描件（pdf/jpg/png）"),
@@ -2389,9 +2403,11 @@ async fn db_paper_invoice_uses_scan_rule_branch() {
 
     // 反过来：电子票挂 jpg 仍然被拦（分支互斥，不是「任一分支满足即可」）
     bind_file(DocKind::Invoice, DOC_INVOICE, FILE_D).await;
-    assert!(att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
-        .await
-        .is_err());
+    assert!(
+        att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+            .await
+            .is_err()
+    );
 }
 
 /// 没配规则的（动作, 单据）组合直接放行；动作不匹配的规则不参与校验。

@@ -80,21 +80,20 @@ pub mod test_support {
     pub async fn attach_pdf(doc_type: DocKind, doc_id: Uuid) {
         let file_id = Uuid::now_v7();
         let key = format!("att06-fixture/{file_id}.pdf");
-        db()
-            .execute_with_params(
-                "INSERT INTO sys_file (id, file_name, original_name, file_key, file_size, \
+        db().execute_with_params(
+            "INSERT INTO sys_file (id, file_name, original_name, file_key, file_size, \
                      file_hash, mime_type, extension, category, upload_mode, is_shared) \
                  VALUES (?::uuid, ?, '必传规则夹具.pdf', ?, 2048, ?, 'application/pdf', 'pdf', \
                      'attachment', 'SERVER', FALSE) ON CONFLICT DO NOTHING",
-                vec![
-                    Value::from(&file_id),
-                    Value::Text(key.clone()),
-                    Value::Text(key),
-                    Value::Text(format!("att06-hash-{file_id}")),
-                ],
-            )
-            .await
-            .unwrap_or_else(|error| panic!("插入附件夹具文件失败：{error}"));
+            vec![
+                Value::from(&file_id),
+                Value::Text(key.clone()),
+                Value::Text(key),
+                Value::Text(format!("att06-hash-{file_id}")),
+            ],
+        )
+        .await
+        .unwrap_or_else(|error| panic!("插入附件夹具文件失败：{error}"));
         model::insert(
             doc_type,
             &doc_id,

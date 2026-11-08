@@ -317,8 +317,12 @@ impl DocKind {
                 "SELECT 1 FROM biz_expense_report WHERE id = ?::uuid AND deleted_at IS NULL"
             }
             // ATT-06：发票 / 收款 / 盘点 / 采购退货 / 销售退货（迁移 V0347 放宽到 12 值）
-            DocKind::Invoice => "SELECT 1 FROM biz_invoice WHERE id = ?::uuid AND deleted_at IS NULL",
-            DocKind::Receipt => "SELECT 1 FROM biz_receipt WHERE id = ?::uuid AND deleted_at IS NULL",
+            DocKind::Invoice => {
+                "SELECT 1 FROM biz_invoice WHERE id = ?::uuid AND deleted_at IS NULL"
+            }
+            DocKind::Receipt => {
+                "SELECT 1 FROM biz_receipt WHERE id = ?::uuid AND deleted_at IS NULL"
+            }
             DocKind::StockTake => {
                 "SELECT 1 FROM biz_stock_take WHERE id = ?::uuid AND deleted_at IS NULL"
             }
@@ -371,7 +375,10 @@ impl DocKind {
             DocKind::ExpenseReport => &["business:erp:expense:list", "business:erp:expense:detail"],
             DocKind::Invoice => &["business:erp:invoice:list", "business:erp:invoice:detail"],
             DocKind::Receipt => &["business:erp:receipt:list", "business:erp:receipt:detail"],
-            DocKind::StockTake => &["business:erp:stock-take:list", "business:erp:stock-take:detail"],
+            DocKind::StockTake => &[
+                "business:erp:stock-take:list",
+                "business:erp:stock-take:detail",
+            ],
             // 采购退货 / 销售退货没有独立的 GET 详情路由（`GET {id}` 也挂 `:list`），
             // 与采购订单同口径：只给列表码（多给一个不存在的码就是「点了必然 403」的哑弹）。
             DocKind::PurchaseReturn => &["business:erp:purchase-return:list"],

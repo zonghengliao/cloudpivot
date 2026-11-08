@@ -71,7 +71,11 @@ pub enum RequiredAt {
 
 impl RequiredAt {
     /// 全部动作。
-    pub const ALL: [RequiredAt; 3] = [RequiredAt::Submit, RequiredAt::Confirm, RequiredAt::Activate];
+    pub const ALL: [RequiredAt; 3] = [
+        RequiredAt::Submit,
+        RequiredAt::Confirm,
+        RequiredAt::Activate,
+    ];
 
     /// 数据库字面值（`required_at` 列）。
     pub fn as_str(self) -> &'static str {
@@ -136,7 +140,12 @@ impl AttachmentRule {
 
     /// 要求的人话名：`remark` → 角色中文名 → 「附件」。
     pub fn requirement_name(&self) -> String {
-        if let Some(remark) = self.remark.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+        if let Some(remark) = self
+            .remark
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+        {
             return remark.to_string();
         }
         if let Some(role) = self.file_role.as_deref() {
@@ -227,7 +236,11 @@ impl RuleViolation {
             role_text,
             self.min_count,
             self.matched,
-            if role_text.is_empty() { "" } else { "该角色" },
+            if role_text.is_empty() {
+                ""
+            } else {
+                "该角色"
+            },
             self.total,
             self.shortfall()
         );
@@ -278,14 +291,18 @@ impl AttachRuleError {
                     .collect::<Vec<_>>()
                     .join("\n"),
             ),
-            AttachRuleError::Db(detail) => {
-                ApiError::new(500, error_code::INTERNAL_ERROR, format!("附件必传规则校验失败：{detail}"))
-            }
+            AttachRuleError::Db(detail) => ApiError::new(
+                500,
+                error_code::INTERNAL_ERROR,
+                format!("附件必传规则校验失败：{detail}"),
+            ),
         }
     }
 
     /// `Result<(), AttachRuleError>` → `Result<(), ApiError>`（handler 里一行 `?`）。
-    pub fn into_api_result(result: std::result::Result<(), AttachRuleError>) -> std::result::Result<(), ApiError> {
+    pub fn into_api_result(
+        result: std::result::Result<(), AttachRuleError>,
+    ) -> std::result::Result<(), ApiError> {
         result.map_err(AttachRuleError::into_api_error)
     }
 }
@@ -331,11 +348,7 @@ pub fn parse_exts(raw: Option<&str>) -> Option<Vec<String>> {
             out.push(ext);
         }
     }
-    if out.is_empty() {
-        None
-    } else {
-        Some(out)
-    }
+    if out.is_empty() { None } else { Some(out) }
 }
 
 /// 从文件名 / `sys_file.extension` 取扩展名（小写、无点）。
@@ -368,7 +381,10 @@ pub struct AttachmentFact {
 /// # 异常情况
 ///
 /// 数据库异常 → [`AttachRuleError::Db`]。
-pub async fn attachments_of(kind: DocKind, doc_id: &Uuid) -> std::result::Result<Vec<AttachmentFact>, AttachRuleError> {
+pub async fn attachments_of(
+    kind: DocKind,
+    doc_id: &Uuid,
+) -> std::result::Result<Vec<AttachmentFact>, AttachRuleError> {
     let rows = db()
         .find_with_params(
             "SELECT a.file_role, \
@@ -378,10 +394,7 @@ pub async fn attachments_of(kind: DocKind, doc_id: &Uuid) -> std::result::Result
                LEFT JOIN sys_file f ON f.id = a.file_id \
               WHERE a.doc_type = ? AND a.doc_id = ?::uuid AND a.deleted_at IS NULL \
               ORDER BY a.created_at ASC, a.id ASC",
-            vec![
-                Value::Text(kind.as_str().to_string()),
-                Value::from(doc_id),
-            ],
+            vec![Value::Text(kind.as_str().to_string()), Value::from(doc_id)],
         )
         .await
         .map_err(|error| AttachRuleError::Db(format!("{error}")))?;
@@ -409,7 +422,10 @@ pub async fn attachments_of(kind: DocKind, doc_id: &Uuid) -> std::result::Result
 /// # 异常情况
 ///
 /// 数据库异常 → [`AttachRuleError::Db`]。
-pub async fn load_rules(kind: DocKind, at: RequiredAt) -> std::result::Result<Vec<AttachmentRule>, AttachRuleError> {
+pub async fn load_rules(
+    kind: DocKind,
+    at: RequiredAt,
+) -> std::result::Result<Vec<AttachmentRule>, AttachRuleError> {
     let sql = format!(
         "SELECT id, doc_type, file_role, required_at, min_count, max_count, \
                 allow_exts, condition_sql, remark \
@@ -477,8 +493,8 @@ pub async fn condition_applies(
     doc_id: &Uuid,
     condition: Option<&str>,
 ) -> std::result::Result<bool, AttachRuleError> {
-    let Some(fragment) = condition_sql_is_safe(condition)
-        .map_err(|reason| AttachRuleError::Db(reason))?
+    let Some(fragment) =
+        condition_sql_is_safe(condition).map_err(|reason| AttachRuleError::Db(reason))?
     else {
         return Ok(true);
     };
@@ -650,7 +666,11 @@ mod tests {
     fn parse_exts_normalizes() {
         assert_eq!(
             parse_exts(Some(" PDF, .Ofd ,xml,pdf ")),
-            Some(vec!["pdf".to_string(), "ofd".to_string(), "xml".to_string()])
+            Some(vec![
+                "pdf".to_string(),
+                "ofd".to_string(),
+                "xml".to_string()
+            ])
         );
         assert_eq!(parse_exts(Some(" , ,")), None);
         assert_eq!(parse_exts(None), None);
@@ -709,8 +729,14 @@ mod tests {
         let facts = [fact("DEFAULT", "jpg")];
         let violation = evaluate(&rule(Some("pdf,ofd,xml"), 1, None), &facts).expect("必须违例");
         let message = violation.message();
-        assert!(message.starts_with("发票必须上传发票影像（pdf/ofd/xml）"), "{message}");
-        assert!(message.contains("现有附件是 jpg 格式，不在白名单内，请上传 pdf/ofd/xml 格式"), "{message}");
+        assert!(
+            message.starts_with("发票必须上传发票影像（pdf/ofd/xml）"),
+            "{message}"
+        );
+        assert!(
+            message.contains("现有附件是 jpg 格式，不在白名单内，请上传 pdf/ofd/xml 格式"),
+            "{message}"
+        );
         assert_eq!(violation.actual_exts, vec!["jpg".to_string()]);
     }
 
@@ -727,9 +753,17 @@ mod tests {
         let facts = [fact("DEFAULT", "pdf")];
         let violation = evaluate(&rule(Some("pdf"), 2, None), &facts).expect("必须违例");
         assert_eq!(violation.shortfall(), 1);
-        assert!(violation.message().contains("还差 1 个"), "{}", violation.message());
+        assert!(
+            violation.message().contains("还差 1 个"),
+            "{}",
+            violation.message()
+        );
 
-        let facts = [fact("DEFAULT", "pdf"), fact("DEFAULT", "pdf"), fact("DEFAULT", "pdf")];
+        let facts = [
+            fact("DEFAULT", "pdf"),
+            fact("DEFAULT", "pdf"),
+            fact("DEFAULT", "pdf"),
+        ];
         let violation = evaluate(&rule(Some("pdf"), 1, Some(2)), &facts).expect("必须违例");
         assert!(
             violation.message().contains("最多允许 2 个附件，当前 3 个"),
@@ -748,7 +782,11 @@ mod tests {
         let facts = [fact("DEFAULT", "pdf")];
         let violation = evaluate(&scoped, &facts).expect("必须违例");
         assert_eq!(violation.total, 0);
-        assert!(violation.message().contains("「发票影像」角色"), "{}", violation.message());
+        assert!(
+            violation.message().contains("「发票影像」角色"),
+            "{}",
+            violation.message()
+        );
 
         let facts = [fact("INVOICE_SCAN", "pdf")];
         assert!(evaluate(&scoped, &facts).is_none());
@@ -770,7 +808,11 @@ mod tests {
         let violation = evaluate(&rule(None, 2, None), &facts).expect("必须违例");
         assert_eq!(violation.shortfall(), 1);
         // 不限格式时不该出现「格式不对」的误导性后缀
-        assert!(!violation.message().contains("不在白名单内"), "{}", violation.message());
+        assert!(
+            !violation.message().contains("不在白名单内"),
+            "{}",
+            violation.message()
+        );
     }
 
     /// 文案第一段完全由 `remark` 驱动（改表就是改文案）。
