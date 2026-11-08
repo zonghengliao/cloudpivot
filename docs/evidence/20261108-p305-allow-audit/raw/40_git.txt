@@ -1,0 +1,68 @@
+# P3-05 git 回执（只按路径 add）
+
+生成时间：2026-11-08 10:5x（CST）
+提交：`73a5a19 feat(flow): P3-05 ALLOW 自审配套 —— 金额上限降级 + operation_logs 审计 + 月度自审报表（V0338 / 65044）(t_c56a694e)`
+
+## 1) 本卡实际提交的 13 个文件（`git diff --cached --stat` 原文）
+
+```
+ .../V0338__flow_self_approval_monitor.down.sql     |   14 +
+ .../V0338__flow_self_approval_monitor.up.sql       |  133 ++
+ backend/src/business/erp/separation.rs             |  135 ++
+ backend/src/business/flow/assignee.rs              |  337 +++++
+ backend/src/business/flow/engine.rs                |  104 ++
+ backend/src/business/flow/handler.rs               |  215 ++-
+ backend/src/business/flow/mod.rs                   |    2 +
+ backend/src/business/flow/self_approval.rs         | 1455 ++++++++++++++++++++
+ backend/src/shared/error_code.rs                   |   21 +-
+ frontend/src/api/business/flow-api.ts              |  197 +++
+ frontend/src/router/index.ts                       |   10 +
+ frontend/src/views/business/flow/stats/index.vue   |  554 ++++++++
+ frontend/src/views/business/flow/task/index.vue    |   15 +
+ 13 files changed, 3187 insertions(+), 5 deletions(-)
+```
+
+## 2) 为什么必须按路径 add（共享工作区的硬约束）
+
+`/opt/cloudpivot` 是**多个 worker 共用**的工作区：backend / frontend / test 都在同一个 checkout 里
+直接往 main 提交。本卡开工时 `git status` 里已经躺着别人的在途改动（`backend/src/business/erp/asset_*.rs`
+/ `invoice.rs` / `opening.rs` / `report.rs` / 几份 20261107 的证据 raw 文件…）。
+
+**没有用 `git add -A` / `git commit -a`**：那会把别人的半成品混进本卡的 commit。
+只 `git add <本卡 13 个路径>`，`git diff --cached --stat` 复核过「暂存区只有本卡文件」再提交。
+
+## 3) 本卡开工时的 `git status`（节选：别人的在途改动，本卡一个都没碰）
+
+```
+ M backend/src/business/erp/asset_compute.rs
+ M backend/src/business/erp/asset_handler.rs
+ M backend/src/business/erp/asset_linkage.rs
+ M backend/src/business/erp/asset_model.rs
+ M backend/src/business/erp/currency_admin_model.rs
+ M backend/src/business/erp/dto.rs
+ M backend/src/business/erp/invoice.rs
+ M backend/src/business/erp/opening.rs
+ M backend/src/business/erp/report.rs
+ M backend/src/business/erp/transfer_handler_common.rs
+ M backend/src/business/erp/transfer_handler_db_tests_settle.rs
+ M docs/evidence/20261107-p003-inventory-chain/raw/*.json
+?? docs/evidence/20261107-p0-reverify/chains/
+?? docs/evidence/20261108-code01-master-data-seq/
+```
+
+## 4) 提交前 pre-commit 钩子输出（原文）
+
+```
+▶ pre-commit secret 扫描（暂存区）
+! 未找到 gitleaks（本机未安装）。生产建议：sudo install -m0755 gitleaks /usr/local/bin/
+▶ 内置 toml 规则扫描（降级模式，仅覆盖 backend/config/*.toml）
+内置规则命中 0 处
+▶ pre-commit 库存三本账唯一写入口闸
+扫描 453 个非测试 .rs（豁免 89 个测试文件）
+★ 零越界：非测试代码里没有任何一处直写库存三本账。
+```
+
+## 5) 推送
+
+`git push origin main` —— 见 completion metadata 里的 `pushed` 行（共享 bare 远端
+`/opt/git/cloudpivot.git`，push 前先 `git pull --rebase` 收别人的提交）。

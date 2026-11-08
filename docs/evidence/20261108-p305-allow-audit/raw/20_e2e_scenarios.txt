@@ -1,0 +1,98 @@
+================ P3-05 ② ALLOW 自审配套（http://127.0.0.1:18305 / cloudpivot_p305_ut）================
+  ✅ 管理员登录成功
+  ✅ 首登改密 → 200 = 200
+  ✅ 改密后新令牌就绪
+  [reset] 上一轮夹具已清空（可复跑）
+  ✅ 3 个角色就绪
+  ✅ 2 个用户就绪（A=01a1b8ef-db47-7429-900b-c26b541cd6bb / B=01a1b8ef-dce1-751a-ba97-1bbcc56eb9fc）
+  ✅ R_SOLO 持有 3 个实例侧码 = 3
+  ✅ R_DEG 持有 3 个实例侧码 = 3
+  ✅ R_REGR 持有 3 个实例侧码 = 3
+  ✅ R_SOLO 成员数 = 1（一人公司） = 1
+  ✅ R_DEG 成员数 = 2（A + B） = 2
+  ✅ 4 张流程发布成功（ALLOW 单人 / ALLOW 双人 / SKIP / FORBID）
+  ✅ 两个业务令牌就绪（A 独自一人 / B 第二审批人）
+  ✅ 参数落库：阈值 = 0（不限额） = 0
+
+=== E1 一人公司：唯一审批人 = 发起人，节点 ALLOW，阈值 0（不限额）===
+  ✅ E1 待办落在发起人本人（A） = 01a1b8ef-db47-7429-900b-c26b541cd6bb
+  ✅ E1 待办带自审标 is_self_approval = true = true
+  ✅ E1 落 PENDING 时已写「允许自审」审计 1 行 = 1
+  ✅ E1 自审同意 → 200 = 200
+  ✅ E1 实例已通过 = APPROVED
+
+  --- E1 审计留痕（operation_logs 原文）---
+ERROR:  operator does not exist: text ->> unknown
+LINE 1: ... operation || ' | ' || username || ' | ' || detail->>'node_n...
+                                                             ^
+HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+  ✅ E1 两张审计行（ALLOWED + VOTED） = 2
+  ✅ E1 「真自审了」那行带投票结论 APPROVED = APPROVED
+  ✅ E1 审计行账号列可读（= p305_a） = p305_a
+  ✅ E1 审计行节点名可读 = 部门经理审批
+
+  --- E1 月度报表（GET /business/flow/stats/self-approval?biz_type=P305_SOLO）---
+  ✅ E1 报表接口 → 200 = 200
+  [报表 JSON] {"code":0,"msg":"ok","data":{"month":"2026-11","start":"2026-10-31T16:00:00Z","end":"2026-11-30T16:00:00Z","threshold":0.0,"settled_instances":1,"self_approval_instances":1,"self_approval_tickets":1,"self_approval_amount":"5000","ratio":1.0,"ratio_note":"占比 = 本窗内有自审票被通过的审批单数 ÷ 同窗已结算（APPROVED 且 ended_at 在本窗）的审批单数；窗口按北京时间自然月左闭右开。自审票在本窗而单据下月才结算时，占比可能暂时大于 100%。","blocked_count":0,"blocked_note":"只统计**已生效**的降级（实例仍在，按可见性归属）；被 65044 整单拒绝的提交因事务回滚不在计数内，会在报错报文与服务端 WARN 日志留痕。","by_node":[{"node_key":"n_approve","node_name":"部门经理审批","tickets":1,"instances":1,"amount":"5000"}],"by_person":[{"user_id":"01a1b8ef-db47-7429-900b-c26b541cd6bb","assignee_name":"P3-05 甲乙丙","tickets":1,"instances":1,"amount":"5000"}],"list":[{"task_id":"01a1b8ef-e843-71d1-b2b9-6939b1fb5b1b","instance_id":"01a1b8ef-e837-7429-9daa-61b8e17c5556","instance_no":"FLW-20261108-4E4383D9","title":"[P3-05] 一人公司自审单","node_key":"n_approve","node_name":"部门经理审批","user_id":"01a1b8ef-db47-7429-900b-c26b541cd6bb","assignee_name":"P3-05 甲乙丙","voted_at":"2026-11-08T02:14:52.896116Z","amount":"5000"}]}}
+  ✅ E1 报表：自审单数 = 1 = 1
+  ✅ E1 报表：金额 = 5000 = 5000
+  ✅ E1 报表：分母（同期已结算）= 1 = 1
+  ✅ E1 报表：占比 = 1.0（100%，JSON 里是浮点） = 1.0
+  ✅ E1 报表：按节点节点名 = 部门经理审批
+  ✅ E1 报表：按人姓名 = P3-05 甲乙丙
+  ✅ E1 报表：明细里就是这张单 = 01a1b8ef-e837-7429-9daa-61b8e17c5556
+
+=== E2 阈值 1000 + 金额 5000 + 双人节点 → 发起人被降级，铁票给 B ===
+  ✅ 参数落库：阈值 = 1000 = 1000
+  ✅ E2 发起人 A 的票被降级为 SKIPPED = SKIPPED
+  ✅ E2 降级留痕写明上限 含「超出自审金额上限」
+  ✅ E2 降级留痕写明金额 含「5000.00」
+  ✅ E2 第二审批人 B 拿到 PENDING = PENDING
+  ✅ E2 被拦日志 FLOW_SELF_APPROVAL_BLOCKED 写了 1 行 = 1
+  [被拦日志] 单据金额 5000.00 超出自审金额上限 1000.00，self_approval=ALLOW 降级为 SKIP（不许自审）
+  ✅ E2 B 审批 → 200 = 200
+  ✅ E2 实例通过 = APPROVED
+  ✅ E2 报表接口 → 200 = 200
+  ✅ E2 报表：自审单数 = 0（这单没人自审） = 0
+  ✅ E2 报表：超阈值被降级 = 1 = 1
+
+=== E3 阈值 1000 + 金额 5000 + 只有 A 一个人 → 422 / 65044（报文写明阈值）===
+  ✅ E3 发起 → 422 = 422
+  ✅ E3 错误码 = 65044 = 65044
+  ✅ E3 报文写明「超出自审金额上限」 含「超出自审金额上限」
+  ✅ E3 报文写明金额 5000.00 含「5000.00」
+  ✅ E3 报文写明上限 1000.00 含「1000.00」
+  ✅ E3 报文给出配置键 含「erp.separation_of_duties.self_approval_max_amount」
+  ✅ E3 库里没有留下半张单（整单回滚） = 0
+  ✅ E3 也没有自动通过（auto_passed_nodes 无处可查 = 单不存在） = 0
+
+=== E4 阈值 1000 + 金额 500（不超）→ 照旧自审，不拦 ===
+  ✅ E4 待办仍在 A 手上（PENDING） = PENDING
+  ✅ E4 没有产生被拦日志 = 0
+  ✅ E4 自审同意 → 200 = 200
+  ✅ E4 实例通过 = APPROVED
+
+=== E5 回归：self_approval=SKIP（A 是唯一候选）→ 仍走 P3-02 升级链 → 422 / 65018 ===
+  ✅ E5 发起 → 422 = 422
+  ✅ E5 错误码仍是 65018（不是 65044） = 65018
+  ✅ E5 报文说明升级链已走完 含「升级链」
+  ✅ E5 没有写任何自审审计行 = 0
+
+=== E6 回归：self_approval=FORBID → 仍 422 / 65019 ===
+  ✅ E6 发起 → 422 = 422
+  ✅ E6 错误码仍是 65019 = 65019
+  ✅ E6 报文说明不允许自审 含「self_approval=FORBID」
+
+=== E7 报表口径：分母是「同期已结算」，不是「同期所有单」 ===
+  ✅ E7 报表接口 → 200 = 200
+  ✅ E7 分母仍是 2（E1 的 5000 + E4 的 500，在跑那张不算） = 2
+  ✅ E7 分子 = 2（两张都是自审通过） = 2
+  ✅ E7 金额合计 = 5500 = 5500
+  ✅ E7 占比 = 1.0（分子 2 / 分母 2） = 1.0
+  ✅ E7 非法 month → 400 = 400
+  ✅ E7 非法 month 错误码 65005 = 65005
+
+=== 收尾：把阈值改回 0（保持隔离库可复跑） ===
+  ✅ 阈值已复原为 0
+
+===== 结果：PASS=68 FAIL=0 =====
