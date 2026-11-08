@@ -1,0 +1,2 @@
+d54c32e5f996e9296692968a46b3b094  /root/pdf04-app/backend/target/debug/cloudpivot
+efbb3d95 style(pdf): 盘点表合计「差异金额合计（CNY）」折行 → 标签 nowrap + 币种移到数值格

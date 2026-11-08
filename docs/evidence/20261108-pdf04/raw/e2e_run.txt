@@ -1,0 +1,120 @@
+[PASS] 实例健康（GET /health）  ok
+[PASS] admin 登录拿到 access_token  len=461
+[PASS] 盘点单导出 200  200
+[PASS] 盘点单 Content-Type = application/pdf  application/pdf
+[PASS] 盘点单文件名（中文 RFC 5987）  attachment; filename="___-PDF04-ST-000001.pdf"; filename*=UTF-8''%E7%9B%98%E7%82%B9%E5%8D%95-PDF04-ST-000001.pdf
+[PASS] 盘点单 PDF 文件头 %PDF-  b'%PDF-'
+[PASS] 盘点单标题「盘 点 表」
+[PASS] 盘点单跨页（60 行）  pages=3
+[PASS] 盘点单含仓库
+[PASS] 盘点单含盘点类型（全盘）
+[PASS] 盘点单表头含「账面数量」
+[PASS] 盘点单表头含「实盘数量」
+[PASS] 盘点单表头含「差异」
+[PASS] 盘点单表头含「备注」
+[PASS] 盘点单 60 行明细全都在  rows=60
+[PASS] ★验收①：盘点单每行只有账面数量、实盘/差异/备注三栏留空  60/60 行仅 1 个数字
+[PASS] 盘点单规格 DN100/PN16 整串一行
+[PASS] 盘点单未把系统备注（实物短缺 3 台）印出来
+[PASS] 盘点单填表说明在（留空口径）
+[PASS] 盘点单盘盈/盘亏合计在（已录实盘）
+[PASS] 盘点单签字栏「盘点人：」
+[PASS] 盘点单签字栏「复核人：」
+[PASS] 盘点单签字栏「仓管主管：」
+[PASS] 盘点单签字栏「财务：」
+[PASS] 盘点单签字栏「制单：」
+[PASS] 盘点单每页页脚页码正确  [('1', '3'), ('2', '3'), ('3', '3')]
+[PASS] 盘点单每页都重复表头（含 实盘数量）  数据页数=2
+[PASS] 调拨单导出 200  200
+[PASS] 调拨单 Content-Type = application/pdf  application/pdf
+[PASS] 调拨单 PDF 文件头 %PDF-  b'%PDF-'
+[PASS] 调拨单标题「调 拨 单」
+[PASS] ★验收②：调拨单含「调出仓库」字段
+[PASS] ★验收②：调拨单含「调入仓库」字段
+[PASS] ★验收②：调出仓库名 PDF04 上海一号仓
+[PASS] ★验收②：调入仓库名 PDF04 上海二号仓
+[PASS] 调拨路线条「调出：X ➜ 调入：Y」
+[PASS] 调拨单含在途仓
+[PASS] 调拨单含调出 / 调入库位列
+[PASS] 调拨单规格 DN100/PN16 整串一行
+[PASS] 调拨单含库位编码 A-01-03 / B-02-04
+[PASS] 调拨单 4 行明细全在  4
+[PASS] 调拨单成本口径（无价税合计）
+[PASS] 调拨单大写金额  成本金额（大写）人民币伍佰伍拾伍元陆角整（￥555.60）调拨事由：二号仓备货，平衡区域库存备注：两仓已实物清点说明：调
+[PASS] 调拨单签字栏「调出仓管：」
+[PASS] 调拨单签字栏「调入仓管：」
+[PASS] 调拨单签字栏「经办人：」
+[PASS] 调拨单签字栏「审核：」
+[PASS] 调拨单签字栏「制单：」
+[PASS] 调拨单页脚页码
+[PASS] 采购退货单导出 200  200
+[PASS] 采购退货单 Content-Type = application/pdf  application/pdf
+[PASS] 采购退货单 PDF 文件头 %PDF-  b'%PDF-'
+[PASS] 采购退货单标题「采 购 退 货 单」
+[PASS] ★验收③：采购退货单含「原单号（入库）」
+[PASS] ★验收③：原单号（采购订单）
+[PASS] ★验收③：原入库单号 PDF04-IN-000001
+[PASS] ★验收③：原采购订单号 PDF04-PO-000001
+[PASS] ★验收③：采购退货单含「退货原因」横幅
+[PASS] ★验收③：退货原因正文（砂眼）
+[PASS] 采购退货单含供应商
+[PASS] 采购退货单含退货仓库
+[PASS] 采购退货单逐行价税合计列
+[PASS] 采购退货单 2 行明细全在
+[PASS] 采购退货单合计 97.70 + 大写
+[PASS] 采购退货单签字栏「退货经办：」
+[PASS] 采购退货单签字栏「仓管：」
+[PASS] 采购退货单签字栏「质检：」
+[PASS] 采购退货单签字栏「供应商签收：」
+[PASS] 采购退货单签字栏「制单：」
+[PASS] 采购退货单规格 DN100/PN16 整串一行
+[PASS] 采购退货单横向版式（A4 landscape：宽 > 高）  Page size:       841.92 x 595.92
+[PASS] 销售退货单导出 200  200
+[PASS] 销售退货单 Content-Type = application/pdf  application/pdf
+[PASS] 销售退货单 PDF 文件头 %PDF-  b'%PDF-'
+[PASS] 销售退货单标题「销 售 退 货 单」
+[PASS] ★验收③：原单号（销售订单）
+[PASS] ★验收③：原单号（发货单）
+[PASS] ★验收③：原销售订单号 PDF04-SO-000001
+[PASS] ★验收③：原发货单号 PDF04-SH-000001
+[PASS] ★验收③：退货原因（质量 / QUALITY）
+[PASS] 销售退货单含客户
+[PASS] 销售退货单含退回仓库
+[PASS] 销售退货单含序列号列与序列号
+[PASS] 销售退货单两条序列号整串不折行（固定列宽）  PDF04-SN-000001、PDF04-SN-0000022PDF04-MAT-004止回阀DN100/PN16台1
+[PASS] 销售退货单整仓退货行打「整仓」
+[PASS] 销售退货单 2 行明细全在
+[PASS] 销售退货单签字栏「退货经办：」
+[PASS] 销售退货单签字栏「仓管：」
+[PASS] 销售退货单签字栏「质检：」
+[PASS] 销售退货单签字栏「客户签收：」
+[PASS] 销售退货单签字栏「制单：」
+[PASS] 盘点单 PDF 字体全部嵌入（emb=yes）  AAAAAA+NotoSansSC-Bold               CID TrueType      Identity-H       yes yes yes      4  0
+[PASS] 盘点单 中文可无损抽取
+[PASS] 调拨单 PDF 字体全部嵌入（emb=yes）  AAAAAA+NotoSansSC-Bold               CID TrueType      Identity-H       yes yes yes      5  0
+[PASS] 调拨单 中文可无损抽取
+[PASS] 采购退货单 PDF 字体全部嵌入（emb=yes）  AAAAAA+NotoSansSC-Bold               CID TrueType      Identity-H       yes yes yes      5  0
+[PASS] 采购退货单 中文可无损抽取
+[PASS] 销售退货单 PDF 字体全部嵌入（emb=yes）  AAAAAA+NotoSansSC-Bold               CID TrueType      Identity-H       yes yes yes      5  0
+[PASS] 销售退货单 中文可无损抽取
+[PASS] 无权限角色就绪（PDF04_NO_PERM）  01a1bb47-930b-7275-8818-fcc61b161cdf
+[PASS] 无权限账号已存在（幂等跳过创建）  用户名已存在
+[PASS] 无权限账号可登录（证明不是 401 混成 403）  200
+[PASS] 无权导出 stock-transfer → 403 且点名权限码  403 无权限访问，需要权限: business:erp:transfer:list
+[PASS] 无权导出 stock-take → 403 且点名权限码  403 无权限访问，需要权限: business:erp:stock-take:list
+[PASS] 无权导出 purchase-return → 403 且点名权限码  403 无权限访问，需要权限: business:erp:purchase-return:list
+[PASS] 无权导出 sales-return → 403 且点名权限码  403 无权限访问，需要权限: business:erp:sales-return:list
+[PASS] 不存在调拨单 → 404 且点名  404 调拨单不存在或已删除
+[PASS] 不存在盘点单 → 404 且点名  404 盘点单不存在或已删除
+[PASS] 不存在采购退货单 → 404 且点名  404 采购退货单不存在或已删除
+[PASS] 不存在销售退货单 → 404 且点名  404 销售退货单不存在或已删除
+[PASS] 非法 id（调拨单）→ 400  400
+[PASS] 非法 id（盘点单）→ 400  400
+[PASS] 非法 id（采购退货单）→ 400  400
+[PASS] 非法 id（销售退货单）→ 400  400
+[PASS] 审计行 EXPORT_STOCK_TRANSFER_PDF（target=biz_stock_transfer）  EXPORT_STOCK_TRANSFER_PDF|biz_stock_transfer|STOCK_TRANSFER|4|PDF-03
+[PASS] 审计行 EXPORT_STOCK_TAKE_PDF（target=biz_stock_take）  EXPORT_STOCK_TAKE_PDF|biz_stock_take|STOCK_TAKE|60|PDF-03
+[PASS] 审计行 EXPORT_PURCHASE_RETURN_PDF（target=biz_purchase_return）  EXPORT_PURCHASE_RETURN_PDF|biz_purchase_return|PURCHASE_RETURN|2|PDF-03
+[PASS] 审计行 EXPORT_SALES_RETURN_PDF（target=biz_sales_return）  EXPORT_SALES_RETURN_PDF|biz_sales_return|SALES_RETURN|2|PDF-03
+
+==== 汇总：118 项，失败 0 项 ====

@@ -1,0 +1,28 @@
+         operation          |     target_type     |    doc_type     |      doc_no      | rows | amount | diff_amount | bytes  | render_ms | username | request_method | status_code 
+----------------------------+---------------------+-----------------+------------------+------+--------+-------------+--------+-----------+----------+----------------+-------------
+ EXPORT_STOCK_TAKE_PDF      | biz_stock_take      | STOCK_TAKE      | PDF04-ST-000001  | 60   |        | 74.04       | 213163 | 856       | admin    | GET            |         200
+ EXPORT_STOCK_TRANSFER_PDF  | biz_stock_transfer  | STOCK_TRANSFER  | PDF04-TK-000001  | 4    | 555.60 |             | 77926  | 187       | admin    | GET            |         200
+ EXPORT_PURCHASE_RETURN_PDF | biz_purchase_return | PURCHASE_RETURN | PDF04-PRT-000001 | 2    | 97.70  |             | 69953  | 166       | admin    | GET            |         200
+ EXPORT_SALES_RETURN_PDF    | biz_sales_return    | SALES_RETURN    | PDF04-SR-000001  | 2    | 226.00 |             | 69582  | 163       | admin    | GET            |         200
+ EXPORT_STOCK_TAKE_PDF      | biz_stock_take      | STOCK_TAKE      | PDF04-ST-000001  | 60   |        | 74.04       | 209849 | 674       | admin    | GET            |         200
+ EXPORT_STOCK_TRANSFER_PDF  | biz_stock_transfer  | STOCK_TRANSFER  | PDF04-TK-000001  | 4    | 555.60 |             | 77918  | 198       | admin    | GET            |         200
+ EXPORT_PURCHASE_RETURN_PDF | biz_purchase_return | PURCHASE_RETURN | PDF04-PRT-000001 | 2    | 97.70  |             | 69937  | 170       | admin    | GET            |         200
+ EXPORT_SALES_RETURN_PDF    | biz_sales_return    | SALES_RETURN    | PDF04-SR-000001  | 2    | 226.00 |             | 69578  | 168       | admin    | GET            |         200
+ EXPORT_STOCK_TAKE_PDF      | biz_stock_take      | STOCK_TAKE      | PDF04-ST-000001  | 60   |        | 74.04       | 209849 | 322       | admin    | GET            |         200
+ EXPORT_STOCK_TRANSFER_PDF  | biz_stock_transfer  | STOCK_TRANSFER  | PDF04-TK-000001  | 4    | 555.60 |             | 77603  | 171       | admin    | GET            |         200
+ EXPORT_PURCHASE_RETURN_PDF | biz_purchase_return | PURCHASE_RETURN | PDF04-PRT-000001 | 2    | 97.70  |             | 69635  | 159       | admin    | GET            |         200
+ EXPORT_SALES_RETURN_PDF    | biz_sales_return    | SALES_RETURN    | PDF04-SR-000001  | 2    | 226.00 |             | 69244  | 172       | admin    | GET            |         200
+ EXPORT_STOCK_TAKE_PDF      | biz_stock_take      | STOCK_TAKE      | PDF04-ST-000001  | 60   |        | 74.04       | 209850 | 274       | admin    | GET            |         200
+ EXPORT_STOCK_TRANSFER_PDF  | biz_stock_transfer  | STOCK_TRANSFER  | PDF04-TK-000001  | 4    | 555.60 |             | 77603  | 162       | admin    | GET            |         200
+ EXPORT_PURCHASE_RETURN_PDF | biz_purchase_return | PURCHASE_RETURN | PDF04-PRT-000001 | 2    | 97.70  |             | 69559  | 153       | admin    | GET            |         200
+ EXPORT_SALES_RETURN_PDF    | biz_sales_return    | SALES_RETURN    | PDF04-SR-000001  | 2    | 226.00 |             | 69172  | 155       | admin    | GET            |         200
+ EXPORT_STOCK_TAKE_PDF      | biz_stock_take      | STOCK_TAKE      | PDF04-ST-000001  | 60   |        | 74.04       | 209849 | 444       | admin    | GET            |         200
+ EXPORT_STOCK_TRANSFER_PDF  | biz_stock_transfer  | STOCK_TRANSFER  | PDF04-TK-000001  | 4    | 555.60 |             | 77602  | 168       | admin    | GET            |         200
+ EXPORT_PURCHASE_RETURN_PDF | biz_purchase_return | PURCHASE_RETURN | PDF04-PRT-000001 | 2    | 97.70  |             | 69638  | 172       | admin    | GET            |         200
+ EXPORT_SALES_RETURN_PDF    | biz_sales_return    | SALES_RETURN    | PDF04-SR-000001  | 2    | 226.00 |             | 69229  | 167       | admin    | GET            |         200
+ EXPORT_STOCK_TAKE_PDF      | biz_stock_take      | STOCK_TAKE      | PDF04-ST-000001  | 60   |        | 74.04       | 209739 | 771       | admin    | GET            |         200
+ EXPORT_STOCK_TRANSFER_PDF  | biz_stock_transfer  | STOCK_TRANSFER  | PDF04-TK-000001  | 4    | 555.60 |             | 77604  | 154       | admin    | GET            |         200
+ EXPORT_PURCHASE_RETURN_PDF | biz_purchase_return | PURCHASE_RETURN | PDF04-PRT-000001 | 2    | 97.70  |             | 69639  | 142       | admin    | GET            |         200
+ EXPORT_SALES_RETURN_PDF    | biz_sales_return    | SALES_RETURN    | PDF04-SR-000001  | 2    | 226.00 |             | 69231  | 144       | admin    | GET            |         200
+(24 rows)
+
