@@ -64,6 +64,7 @@ docker compose -f docker/docker-compose.yml up -d   # PG + Redis
     - **禁止**把功能说明写进 `title`。反例：`即时 / 月末汇率维护 + 按月批量录入（ARCH-7 §15.6.3 ②）`（38 字，侧边栏直接换行）。
     - 功能说明放 `description` 列 / `docs/` / 前端 tooltip。
     - 同一父节点下 `sort_order` **必须唯一**（插菜单用 10 递增；插空用中间值如 15/25）。重复会导致侧边栏顺序每次刷新都变。
+    - **完整规范见 `docs/编码规范.md` §1.6.1「菜单迁移规范」**；门禁由 `scripts/verify/menu_invariants.sh` 的 6 条断言兜底（含 title 长度 ≤12、同父 sort 唯一）。
     - **提交前自查**（两条都应为 0 行）：
       ```sql
       SELECT path, name, title, length(title) FROM sys_menu
