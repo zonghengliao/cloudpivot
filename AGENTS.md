@@ -58,6 +58,28 @@ docker compose -f docker/docker-compose.yml up -d   # PG + Redis
     - **判据**：任何"提交后失败"的场景，用户必须能从界面继续操作（重试 / 重开 / 修正后重来），**不允许需要工程师改库才能恢复**。
     - **最高危**：免审直过分支（`auto_finished`）—— 它没有审批人兜底，失败后没有任何待办会来推进它。这类分支的**每一个** `Err` 都必须打回草稿。
     - 反例（2026-11-08 生产实际发生）：收货单免审过账被"采购单已收满"拦下，代码只对 SoD 错误打回 DRAFT，其他错误直接返回 → 单据永久卡 `PENDING_POST`，无待办、无手工过账接口，只能删单重建。
+12. **菜单（`sys_menu`）两列的语义 —— 别把功能说明当名字**。
+    - `name` = 唯一标识（权限码关联），短名，不带空格和长句。
+    - `title` = **侧边栏显示名，2-6 个字的菜单名**，不带标点、不带说明、不带章节引用。
+    - **禁止**把功能说明写进 `title`。反例：`即时 / 月末汇率维护 + 按月批量录入（ARCH-7 §15.6.3 ②）`（38 字，侧边栏直接换行）。
+    - 功能说明放 `description` 列 / `docs/` / 前端 tooltip。
+    - 同一父节点下 `sort_order` **必须唯一**（插菜单用 10 递增；插空用中间值如 15/25）。重复会导致侧边栏顺序每次刷新都变。
+    - **提交前自查**（两条都应为 0 行）：
+      ```sql
+      SELECT path, name, title, length(title) FROM sys_menu
+       WHERE deleted_at IS NULL AND menu_type IN (1,2) AND length(title) > 12;
+      SELECT parent_id, sort_order, count(*) FROM sys_menu
+       WHERE deleted_at IS NULL AND menu_type = 2 GROUP BY 1,2 HAVING count(*) > 1;
+      ```
+13. **姓名：存快照还是实时 join —— 按语义分，不能一刀切**。
+    - **审计/历史类 → 必须存姓名快照**（用户改名/删号后要能回溯"当时是谁"）。
+      例：状态日志 `operator_name`、操作日志 `username`、审批 `assignee_name`、附件 `uploader_name`。
+    - **业务展示类 → join 实时取名**（要显示"现在是谁"）。
+      例：列表的「创建人」、详情的「负责人」、合同 `owner`、佣金 `salesperson`。
+    - **主数据关联 → join 实时取名**（要显示"最新名"）。
+      例：客户 / 物料 / 部门 / 凭证 —— 主数据改名后，单据显示新名才是对的。
+    - 反例（2026-11-08 发现）：附件表只存 `uploaded_by` 不存 `uploader_name` → 界面上直接显示 UUID。
+    - **防 N+1**：批量 join，不能每行查一次；DTO 里凡是 `*_id` 都要同时返回 `*_name`。
 
 ## 高频踩坑（先读）
 - 报表/接口不显示：先查前端 api 路径是否漏 `/api`。
