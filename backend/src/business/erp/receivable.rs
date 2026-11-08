@@ -763,6 +763,60 @@ pub async fn cancel_for_stock_out(
     operator: Option<Uuid>,
     now: DateTime<Utc>,
 ) -> std::result::Result<ReceivableRow, ApiError> {
+    cancel_core(ex, id, reason, operator, now, CancelRevenue::Reverse).await
+}
+
+/// 应收作废时**要不要**红冲「原收入确认凭证」。
+///
+/// | 口径 | 谁调用 | 收入怎么冲 |
+/// |------|--------|-----------|
+/// | [`CancelRevenue::Reverse`] | 出库作废（`receivable_bridge::cancel_for_stock_out`） | 出库作废没有红票，必须在这里红冲原收入凭证 |
+/// | [`CancelRevenue::Keep`] | 销售退货全额冲减（`sales_return_posting::offset_receivable`） | 退货链路**已经**用红字发票 + 收入冲减凭证冲过收入/销项税/应收，再红冲一次 = 重复冲销 |
+///
+/// 反例（RET-01 演练实测，2026-11-08）：40 台部分退 + 60 台全退之后，
+/// 两张红字发票已把 借 5001 30000 / 借 2221.02 3900 / 贷 1122 33900 记平；
+/// 作废应收时又走 `cancel_for_stock_out` 红冲了原发票凭证，
+/// 结果 5001 借方合计 60000、贷方 30000 ⇒ 主营业务收入净额为 **−30000**（凭空亏一笔收入），
+/// 1122 贷方 67800 / 借方 33900 ⇒ 应收账款挂出 33900 的贷方余额。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CancelRevenue {
+    /// 红冲原收入凭证（出库作废口径）。
+    Reverse,
+    /// 不动原收入凭证（销售退货口径：收入已由退货红票冲减）。
+    Keep,
+}
+
+impl CancelRevenue {
+    /// 作废时是否要红冲原收入确认凭证。
+    pub fn reverse_revenue_voucher(self) -> bool {
+        matches!(self, CancelRevenue::Reverse)
+    }
+}
+
+/// 销售退货全额冲减 ⇒ 作废应收（**不**红冲原收入凭证）。
+///
+/// 与 [`cancel_for_stock_out`] 的差别只有一处：退货过账已经生成红字发票
+/// + 收入冲减凭证（借 5001 / 借 2221.02 / 贷 1122），收入侧已经冲干净，
+/// 这里只把应收台账推到 `CANCELLED`，不再碰总账。
+pub async fn cancel_for_sales_return(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    reason: &str,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> std::result::Result<ReceivableRow, ApiError> {
+    cancel_core(ex, id, reason, operator, now, CancelRevenue::Keep).await
+}
+
+/// 作废应收的公共执行体（两条入口只差「要不要红冲原收入凭证」）。
+async fn cancel_core(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    reason: &str,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+    mode: CancelRevenue,
+) -> std::result::Result<ReceivableRow, ApiError> {
     let row = find_by_id(ex, id)
         .await
         .map_err(|error| utils::db_error(error, "查询应收单"))?
@@ -856,7 +910,11 @@ pub async fn cancel_for_stock_out(
     //
     // 凭证与本函数同一个事务（出库作废 `stockout_handler::cancel_out_tx` → 本函数），
     // 所以红字凭证与三本账回滚 / 出库红字凭证同生共死；这里**不**再开事务。
-    if let Some(voucher_id) = row.voucher_id {
+    // 退货链路（`CancelRevenue::Keep`）**跳过**这张红冲：收入/销项税/应收
+    // 已经被退货自己的红字发票 + 收入冲减凭证冲掉了，再冲一次就是重复冲销。
+    if mode.reverse_revenue_voucher()
+        && let Some(voucher_id) = row.voucher_id
+    {
         reverse_revenue_voucher(ex, voucher_id, &row.ar_no, &reason, operator, now).await?;
     }
 
@@ -1211,6 +1269,23 @@ pub async fn receivable_write_off(
 mod tests {
     use super::*;
     use std::str::FromStr;
+
+    /// RET-01：作废应收时「要不要红冲原收入凭证」按调用口径分，不能一刀切。
+    ///
+    /// 出库作废（`cancel_for_stock_out`）没有红票 ⇒ 必须红冲原收入凭证；
+    /// 销售退货（`cancel_for_sales_return`）已经用红字发票 + 收入冲减凭证冲过 ⇒ 必须跳过。
+    /// 混用会让 5001 / 2221.02 / 1122 三个科目各被冲两遍（RET-01 演练实测：收入净额 −30000）。
+    #[test]
+    fn cancel_revenue_mode_decides_whether_original_voucher_is_reversed() {
+        assert!(
+            CancelRevenue::Reverse.reverse_revenue_voucher(),
+            "出库作废：原收入凭证必须红冲"
+        );
+        assert!(
+            !CancelRevenue::Keep.reverse_revenue_voucher(),
+            "销售退货：红票已冲过收入，作废应收不得再冲一次"
+        );
+    }
 
     fn dec(text: &str) -> Decimal {
         Decimal::from_str(text).expect("定点可解析")

@@ -41,7 +41,8 @@
 //
 // ```text
 // 退税额 <= 未收金额           → amount -= 退货含税；unsettled = amount - received
-// 全额退 + 一分没收            → 走 receivable::cancel_for_stock_out（OPEN → CANCELLED）
+// 全额退 + 一分没收            → receivable::cancel_for_sales_return（OPEN → CANCELLED，
+//                                 **不**红冲原收入凭证：红票已冲过，冲第二遍收入变负）
 // 退税额 >  未收金额（钱收多了）→ 409 点名「收款退款单」：已收的钱不能凭空少
 // ```
 //
@@ -943,8 +944,13 @@ async fn offset_receivable(
     .map_err(conflict)?;
 
     if after.cancel {
-        // 全额退 + 一分没收：整张应收作废（复用 SO-12/14 的作废口径，不另写一套）
-        receivable::cancel_for_stock_out(
+        // 全额退 + 一分没收：整张应收作废（复用 SO-12/14 的作废口径，不另写一套）。
+        //
+        // 但**不复用**它的「红冲原收入凭证」那一步：本单过账已经生成红字发票
+        // + 收入冲减凭证（借 5001 / 借 2221.02 / 贷 1122），收入侧已冲干净，
+        // 再走 `cancel_for_stock_out` 会把同一笔收入冲第二遍
+        // （RET-01 演练实测：5001 借 60000 / 贷 30000 ⇒ 收入净额 −30000）。
+        receivable::cancel_for_sales_return(
             ex,
             locked.id,
             &format!("销售退货 {} 全额冲减", row.return_no),
@@ -1490,6 +1496,24 @@ pub fn period_code_of(date: NaiveDate) -> String {
 mod tests {
     use super::*;
     use std::str::FromStr;
+
+    /// RET-01：退货全额冲减走「作废但不红冲原收入凭证」的口径。
+    ///
+    /// 这张卡钉死的是**链路选型**：`offset_receivable` 的 cancel 分支必须用
+    /// `CancelRevenue::Keep`（`cancel_for_sales_return`），否则 5001 / 2221.02 / 1122
+    /// 会被红票与作废红冲各冲一遍（演练实测收入净额 −30000、应收贷方余额 33900）。
+    #[test]
+    fn full_return_cancel_must_not_reverse_original_revenue_voucher() {
+        use crate::business::erp::receivable::CancelRevenue as Mode;
+        assert!(
+            !Mode::Keep.reverse_revenue_voucher(),
+            "销售退货全额冲减：作废应收时不得再红冲原收入凭证（红票已冲过）"
+        );
+        assert!(
+            Mode::Reverse.reverse_revenue_voucher(),
+            "出库作废口径不受影响：仍要红冲原收入凭证"
+        );
+    }
 
     /// 定点字面量（浮点会丢精度，一律走字符串）。
     fn dec(text: &str) -> Decimal {
