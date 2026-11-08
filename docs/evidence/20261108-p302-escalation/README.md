@@ -96,6 +96,7 @@ and escalate_reason is not null`）→ `TaskRes.escalated_to_role`：角色改�
 
 ```bash
 cd /opt/cloudpivot/docs/evidence/20261108-p302-escalation
+export PGPASSWORD=<本机测试库口令>          # 仓库里不写明文凭据（脚本会强制要求）
 BIN=/root/p302-bin/cloudpivot bash scripts/10_upgrade_migration.sh   # 迁移升级/重启/down/up
 BIN=/root/p302-bin/cloudpivot bash scripts/20_e2e_scenarios.sh       # 真 HTTP 场景 B / A / F / 链路
 bash scripts/30_checks.sh                                           # fmt / clippy / 单测 / 前端

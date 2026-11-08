@@ -19,7 +19,8 @@ RUN_DIR=/opt/cloudpivot/backend            # config-test.toml 在这里（gitign
 SRC_ENV_PID="${SRC_ENV_PID:-3055070}"      # 抄环境的既有隔离实例
 PGHOST=127.0.0.1
 PGUSER=alun
-export PGPASSWORD="${PGPASSWORD:-alun}"
+# 仓库里不写明文凭据：运行前 `export PGPASSWORD=<本机测试库口令>`
+export PGPASSWORD="${PGPASSWORD:?运行前先 export PGPASSWORD=<本机测试库口令>（仓库里不写明文凭据）}"
 
 PASS=0
 FAIL=0
