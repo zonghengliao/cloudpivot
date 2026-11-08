@@ -1,0 +1,46 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+warning: unused import: `nik::prelude::*`
+  --> src/business/erp/payable_payment/tests/payable_linkage_db_tests.rs:37:5
+   |
+37 | use nik::prelude::*;
+   |     ^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `nik::prelude::*`
+  --> src/business/erp/stockout_tests.rs:29:5
+   |
+29 | use nik::prelude::*;
+   |     ^^^^^^^^^^^^^^^
+
+warning: unused import: `nik::prelude::*`
+  --> src/business/erp/stockout_fifo_tests.rs:20:5
+   |
+20 | use nik::prelude::*;
+   |     ^^^^^^^^^^^^^^^
+
+warning: `cloudpivot` (lib test) generated 3 warnings (run `cargo fix --lib -p cloudpivot --tests` to apply 3 suggestions)
+    Finished `test` profile [unoptimized] target(s) in 3m 22s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-b175828eddf0d956)
+
+running 17 tests
+test business::erp::invoice::tests::accounts_are_the_ones_that_actually_exist ... ok
+test business::erp::invoice::tests::column_lists_carry_is_electronic ... ok
+test business::erp::invoice::tests::is_electronic_defaults_to_electronic ... ok
+test business::erp::invoice::tests::headroom_rejects_over_invoicing ... ok
+test business::erp::invoice::tests::reason_bounds ... ok
+test business::erp::invoice::tests::invoice_no_shape ... ok
+test business::erp::invoice::tests::edges_are_registered_and_consistent ... ok
+test business::erp::invoice::tests::resolve_amounts_covers_every_combination ... ok
+test business::erp::invoice::tests::source_type_is_normalized_into_check_domain ... ok
+test business::erp::invoice::tests::status_domain_matches_arch7 ... ok
+test business::erp::invoice::tests::period_code_and_date_shape ... ok
+test business::erp::invoice::tests::tax_and_total_math_is_self_consistent ... ok
+test business::erp::invoice::tests::tax_rate_bounds ... ok
+test business::erp::invoice::tests::total_and_sign_rules ... ok
+test business::erp::invoice::tests::type_domain_and_labels ... ok
+test business::erp::invoice::tests::voucher_source_and_doc_kind_are_registered ... ok
+test business::erp::invoice::tests::surviving_pointer_skips_void_and_draft ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 3786 filtered out; finished in 0.00s
+

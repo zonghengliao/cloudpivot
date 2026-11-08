@@ -1,0 +1,1 @@
+{"code":10001,"msg":"金额三列不自洽：total_with_tax(100) ≠ amount + tax_amount(120)：请只给其中两个，或让第三个数等于前两者之和"}

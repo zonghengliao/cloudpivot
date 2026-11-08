@@ -1,0 +1,4 @@
+--- select v.voucher_no||' '||e.line_no||' '||e.account_code||' 借='||e.debit_amount||' 贷='||e.credit_amount from biz_voucher v join biz_voucher_entry e on e.voucher_id=v.id where v.source_type='STOCK_IN' and v.source_id='01a1bc15-c05e-7735-a62f-fe5710aa8df7' order by e.line_no
+PZ-20261109-000001 1 1405 借=10000.0000 贷=0.0000
+PZ-20261109-000001 2 2221.01 借=1300.0000 贷=0.0000
+PZ-20261109-000001 3 2202 借=0.0000 贷=11300.0000

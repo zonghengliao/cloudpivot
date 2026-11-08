@@ -1,0 +1,9 @@
+✅ 空库 cloudpivot_inv01 已创建（owner cloudpivot），迁移由后端首启自跑
+✅ 实例健康 health=200 port=18227 pid=894062 log=/tmp/inv01_server.log
+--- 环境指纹
+git_head=ac8584f8c0c580ecf732effd7dec30e9e1464eb5
+binary_sha256=742468d03ba1ef8446e4a25c5d3c46b7b8d65091a4babd9a2045f1dbfa998ff3
+binary_mtime=2026-11-09 00:54:55
+migrations=283
+health_body={"code":0,"msg":"ok","data":{"status":"ok","app":"cloudpivot","profile":"dev","time":"2026-11-08T16:55:01.973681615+00:00"}}
+seed=users=1 sup=1 cust=3 mat=5 wh=3 unit=28 role=11 ar=0 inv=0 period=12

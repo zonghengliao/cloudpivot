@@ -1,0 +1,4 @@
+--- select e.line_no||' '||e.account_code||' '||e.account_name||' 借='||e.debit_amount||' 贷='||e.credit_amount from biz_voucher_entry e where e.voucher_id='ab24c359-a118-4d3a-b373-0633369c3d21' order by e.line_no
+1 1122 应收账款 借=2260.0000 贷=0.0000
+2 5001 主营业务收入 借=0.0000 贷=2000.0000
+3 2221.02 应交税费-销项税 借=0.0000 贷=260.0000

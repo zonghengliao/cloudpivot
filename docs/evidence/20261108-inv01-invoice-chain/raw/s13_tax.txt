@@ -1,0 +1,3 @@
+--- select e.account_code||' 借='||sum(e.debit_amount)||' 贷='||sum(e.credit_amount)||' 净贷='||sum(e.credit_amount-e.debit_amount) from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id where v.status='POSTED' and e.account_code like '2221%' group by e.account_code
+2221.01 借=1300.0000 贷=0.0000 净贷=-1300.0000
+2221.02 借=540.0000 贷=750.0000 净贷=210.0000

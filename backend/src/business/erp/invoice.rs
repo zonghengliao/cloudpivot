@@ -45,7 +45,9 @@
 //! - **`VOID`**：`DRAFT → VOID` 时账上什么都没动（没有凭证 ⇒ 不红冲），
 //!   `ISSUED → VOID` 时红冲收入凭证（`voucher::reverse_posted`，红字凭证 + 原凭证打
 //!   `reversed_by`），并把应收的 `invoice_no / invoice_date` **按号撤掉**
-//!   （只在它确实指回本发票时才清，别把别人的发票号擦了）。
+//!   （只在它确实指回本发票时才清，别把别人的发票号擦了）；撤完再把指针**改指**
+//!   本应收下仍在生效的最新一张票（[`surviving_pointer`]）—— 一张应收分次开票、
+//!   作废其中一张时，另几张的线索不能跟着丢。
 //!
 //! # 「开票金额不能超过应收金额」（跨表条件，库层无 TRIGGER）
 //!
@@ -1755,6 +1757,9 @@ pub async fn change_status(
             STATUS_VOID => {
                 reverse_invoice_voucher(&tx, &invoice, reason.as_deref(), operator, now).await?;
                 clear_receivable_writeback(&tx, &invoice, operator, now).await?;
+                // 撤号只撤「作废这张」：同一应收下还有生效中的票时，指针要改指那一张
+                // （否则一张「开了 2260 / 还差 3390」的应收会显示成「未开票」）。
+                restore_receivable_pointer(&tx, &invoice, operator, now).await?;
             }
             _ => {}
         }
@@ -1896,6 +1901,9 @@ async fn writeback_receivable(
 ///
 /// `voucher_id` 一起清（SO-22）：蓝字收入凭证已经被红冲了，应收单上再挂着一个
 /// 「已红冲的凭证号」会让 `cancel_for_stock_out` 拿它去第二次红冲。
+///
+/// 清空之后由 [`restore_receivable_pointer`] 把指针改指「本应收下仍在生效的最新一张票」——
+/// 只撤不清会留下一张「有票却显示无票」的应收（V-18 审计口径要求指针可回溯）。
 async fn clear_receivable_writeback(
     tx: &Transaction,
     invoice: &InvoiceRow,
@@ -1922,6 +1930,133 @@ async fn clear_receivable_writeback(
     )
     .await
     .map_err(|error| write_error(error, "撤回应收的发票号"))?;
+    Ok(())
+}
+
+/// 一张候选发票的「指针三元组」——[`surviving_pointer`] 的入参。
+///
+/// 不直接吃 [`InvoiceRow`]：指针选择是纯逻辑（排序 + 过滤），单测不该为了一个排序
+/// 把 25 个字段的行结构造一遍；生产路径由 [`restore_receivable_pointer`] 映射过来。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PointerCandidate {
+    /// 发票 id。
+    pub id: Uuid,
+    /// 发票号。
+    pub invoice_no: String,
+    /// 开票日期。
+    pub invoice_date: NaiveDate,
+    /// 状态。
+    pub status: String,
+    /// 收入凭证（`ISSUED` 才有；`NULL` = 这张票没进过账）。
+    pub voucher_id: Option<Uuid>,
+    /// 创建时间（同日多张票时的次级排序键）。
+    pub created_at: Option<DateTime<Utc>>,
+}
+
+/// 作废一张发票后，应收单的发票指针该指向哪一张：同一应收下**已开票（ISSUED / POSTED）**
+/// 的最新一张 —— 开票日新→旧，同日按创建时间新→旧。
+///
+/// 返回 `None` = 这张应收名下再没有生效过的发票，指针清空（与改造前一致）。
+///
+/// 为什么只认 `ISSUED` / `POSTED`：
+/// * `DRAFT` 还没开票（没有凭证、没有收入），把它的号写进应收等于「虚报已开票」；
+/// * `VOID` 已作废（凭证已红冲），更不能当指针。
+///
+/// `exclude` 是刚作废的那张（调用方在事务里已经把它的 `status` 改成 `VOID`，
+/// 这里再显式排除一次，避免「状态还没落库」的调用顺序把它选回来）。
+pub fn surviving_pointer<'a>(
+    candidates: &'a [PointerCandidate],
+    exclude: Uuid,
+) -> Option<&'a PointerCandidate> {
+    candidates
+        .iter()
+        .filter(|row| {
+            row.id != exclude && matches!(row.status.as_str(), STATUS_ISSUED | STATUS_POSTED)
+        })
+        .max_by_key(|row| (row.invoice_date, row.created_at))
+}
+
+/// 作废一张发票后，把应收单上的发票指针（`invoice_no` / `invoice_date` / `voucher_id`
+/// 三个拷贝列）改指「本应收下仍在生效的最新一张票」；没有就保持清空。
+///
+/// 只对「指针确实被本次作废清成 `NULL`」的行生效（`AND invoice_no IS NULL`）：
+/// 指针本来指着别的发票时不做任何改动 —— 那说明有人按号写了别的票，别覆盖。
+///
+/// 为什么要回填而不是留空：`biz_receivable.invoice_no` 是「本笔应收开过哪张票」的唯一线索
+/// （作废撤号只该撤掉**作废那张**）；留空会让一张「已开票 2260 / 未开票 3390」的应收
+/// 在界面上显示成「未开票」，且 `receivable::cancel_for_stock_out` 靠 `voucher_id`
+/// 判断「要不要一起红冲收入凭证」，留空会让出库作废漏冲 1122。
+async fn restore_receivable_pointer(
+    tx: &Transaction,
+    invoice: &InvoiceRow,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> std::result::Result<(), ApiError> {
+    let Some(receivable_id) = invoice.receivable_id else {
+        return Ok(());
+    };
+    // SCOPE-EXEMPT: 发票 / 应收台账均无归属列（见模块文档）。
+    let rows = tx
+        .query_sql(
+            format!(
+                "SELECT id, invoice_no, invoice_date, status, voucher_id, created_at \
+                   FROM {TABLE} WHERE receivable_id = ?::uuid AND deleted_at IS NULL"
+            ),
+            vec![Value::from(&receivable_id)],
+        )
+        .await
+        .map_err(|error| utils::db_error(error, "查询同应收下的其它发票"))?;
+    let mut candidates = Vec::with_capacity(rows.len());
+    for row in &rows {
+        candidates.push(PointerCandidate {
+            id: row
+                .get_typed("id")
+                .map_err(|error| utils::db_error(error, "读取候选发票 id"))?,
+            invoice_no: row
+                .get_typed("invoice_no")
+                .map_err(|error| utils::db_error(error, "读取候选发票号"))?,
+            invoice_date: row
+                .get_typed("invoice_date")
+                .map_err(|error| utils::db_error(error, "读取候选开票日"))?,
+            status: row
+                .get_typed("status")
+                .map_err(|error| utils::db_error(error, "读取候选发票状态"))?,
+            voucher_id: row
+                .get_typed("voucher_id")
+                .map_err(|error| utils::db_error(error, "读取候选凭证号"))?,
+            created_at: row
+                .get_typed("created_at")
+                .map_err(|error| utils::db_error(error, "读取候选创建时间"))?,
+        });
+    }
+    let Some(picked) = surviving_pointer(&candidates, invoice.id) else {
+        // 没有生效过的票 ⇒ 指针保持清空（clear_receivable_writeback 已经清过了）
+        return Ok(());
+    };
+    tx.exec_sql(
+        format!(
+            "UPDATE {} SET invoice_no = ?, invoice_date = ?::text::date, \
+                    voucher_id = NULLIF(?::text,'')::uuid, updated_at = ?, \
+                    update_by = NULLIF(?::text,'')::uuid \
+              WHERE id = ?::uuid AND deleted_at IS NULL AND invoice_no IS NULL",
+            receivable::TABLE
+        ),
+        vec![
+            Value::Text(picked.invoice_no.clone()),
+            Value::Text(picked.invoice_date.to_string()),
+            Value::Text(
+                picked
+                    .voucher_id
+                    .map(|value| value.to_string())
+                    .unwrap_or_default(),
+            ),
+            Value::from(now),
+            Value::Text(operator.map(|value| value.to_string()).unwrap_or_default()),
+            Value::from(&receivable_id),
+        ],
+    )
+    .await
+    .map_err(|error| write_error(error, "回填应收的发票指针"))?;
     Ok(())
 }
 
@@ -2200,14 +2335,21 @@ mod tests {
             validate_tax_rate(Decimal::ZERO).expect("0 税率可过"),
             Decimal::ZERO
         );
-        assert_eq!(validate_tax_rate(Decimal::ONE).expect("1 = 1% 可过"), Decimal::ONE);
+        assert_eq!(
+            validate_tax_rate(Decimal::ONE).expect("1 = 1% 可过"),
+            Decimal::ONE
+        );
         assert_eq!(
             validate_tax_rate(Decimal::ONE_HUNDRED).expect("100% 可过"),
             Decimal::ONE_HUNDRED
         );
         assert!(validate_tax_rate(dec(100.01)).is_err(), "超过 100% 要拒");
         assert!(validate_tax_rate(dec(-0.01)).is_err(), "负税率要拒");
-        assert_eq!(default_tax_rate(), dec(13.0), "默认 13%（V0327 的库层默认值）");
+        assert_eq!(
+            default_tax_rate(),
+            dec(13.0),
+            "默认 13%（V0327 的库层默认值）"
+        );
     }
 
     #[test]
@@ -2364,5 +2506,55 @@ mod tests {
             LIST_COLUMNS.contains("p.is_electronic"),
             "列表 SQL 用别名 p，必须写 p.is_electronic（写成裸列会与 JOIN 的 customer 列歧义）"
         );
+    }
+
+    /// 作废后的应收指针选择：只认 ISSUED / POSTED，按（开票日, 创建时间）取最新。
+    ///
+    /// 钉住三件事：
+    /// 1. 作废的那张（即使状态还没落库）不会被选回来；
+    /// 2. `DRAFT` 不能被当成「已开票」写进应收（否则应收虚报已开票）；
+    /// 3. 同日多张票时，创建时间更新的是更「晚」的那张。
+    #[test]
+    fn surviving_pointer_skips_void_and_draft() {
+        let day = |text: &str| NaiveDate::parse_from_str(text, "%Y-%m-%d").expect("日期");
+        let at = |secs: i64| DateTime::<Utc>::from_timestamp(secs, 0);
+        let candidate =
+            |no: &str, date: &str, status: &str, created: Option<DateTime<Utc>>| PointerCandidate {
+                id: Uuid::new_v4(),
+                invoice_no: no.to_string(),
+                invoice_date: day(date),
+                status: status.to_string(),
+                voucher_id: None,
+                created_at: created,
+            };
+        let void_one = candidate("IV-A", "2026-11-09", STATUS_VOID, at(3));
+        let draft = candidate("IV-B", "2026-11-08", STATUS_DRAFT, at(2));
+        let posted = candidate("IV-C", "2026-11-07", STATUS_POSTED, at(1));
+        let issued = candidate("IV-D", "2026-11-09", STATUS_ISSUED, at(2));
+        let all = vec![
+            void_one.clone(),
+            draft.clone(),
+            posted.clone(),
+            issued.clone(),
+        ];
+
+        let picked = surviving_pointer(&all, void_one.id).expect("还有生效中的票");
+        assert_eq!(
+            picked.invoice_no, "IV-D",
+            "同日更晚创建的那张 + 状态必须是 ISSUED/POSTED 才算"
+        );
+
+        // 只剩 VOID / DRAFT ⇒ 没有可指的票（指针应该清空）
+        let dead_only = vec![void_one.clone(), draft];
+        let none = surviving_pointer(&dead_only, void_one.id);
+        assert!(none.is_none(), "VOID / DRAFT 都不能当应收的发票指针");
+
+        // 显式排除：即便被排除的那张是唯一一张 ISSUED，也不能选它
+        let only_issued = vec![issued.clone()];
+        assert!(
+            surviving_pointer(&only_issued, issued.id).is_none(),
+            "刚作废的那张不能被自己的 restore 选回来"
+        );
+        println!("[INV01-①] 作废后指针选择：跳过 VOID/DRAFT + 同日取最新 ✓");
     }
 }

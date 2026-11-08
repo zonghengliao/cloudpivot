@@ -1,0 +1,1 @@
+{"code":10001,"msg":"本接口不开放手工建红字票（OUT_RED）：红字发票由退货流程按 ARCH-7 §15.2.3 生成，作废一张发票请用 PATCH /invoice/{id}/status 打 VOID（系统自动红冲其收入凭证）"}
