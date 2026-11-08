@@ -111,7 +111,7 @@ fn trigger_specs_cover_whitelist_in_order() {
         spec::TRIGGERS.to_vec(),
         "TRIGGER_SPECS 必须与 TRIGGERS 逐字同序（新增触发点必须同时声明接线状态）"
     );
-    assert_eq!(entities.len(), 15, "当前白名单是 15 个触发点");
+    assert_eq!(entities.len(), 16, "当前白名单是 16 个触发点");
     assert_eq!(
         spec::wired_triggers(),
         vec![
@@ -128,6 +128,7 @@ fn trigger_specs_cover_whitelist_in_order() {
             "FIXED_ASSET",
             "DEPRECIATION",
             "EXPENSE_REPORT",
+            "PURCHASE_RETURN",
             "TASK",
             "FLOW_INSTANCE"
         ],
@@ -143,6 +144,7 @@ fn trigger_specs_cover_whitelist_in_order() {
          FIXED_ASSET（资产处置 / 作废处置，LNK-09 新接）、\
          DEPRECIATION（折旧批次过账 / 红冲，LNK-10 新接）、\
          EXPENSE_REPORT（报销单提交 / 通过 / 付清 / 作废 / 打回，LNK-05 新接）、\
+         PURCHASE_RETURN（采购退货确认 = 唯一动账点，P2-03 新接）、\
          TASK（任务状态变更）、\
          FLOW_INSTANCE（审批结论 APPROVED / REJECTED / WITHDRAWN，LNK-12 新接）；\
          接线状态变化时这份断言要跟着改，改之前先想清楚「真的有人调引擎了吗」"
@@ -226,11 +228,12 @@ fn wired_triggers_match_call_sites() {
     }
     assert_eq!(
         actual.len(),
-        16,
-        "当前真实调用点 16 个文件（收货过账 / 出库过账 handler + 出库联动 hook + 调拨联动 hook + \
+        17,
+        "当前真实调用点 17 个文件（收货过账 / 出库过账 handler + 出库联动 hook + 调拨联动 hook + \
          采购联动 hook + 应付联动 hook + 盘点联动 hook + 报销联动 hook + 凭证联动 hook + \
          合同联动 hook + 会计期间联动 hook + 会计年度联动 hook + 固定资产联动 hook + \
-         折旧批次联动 hook + 任务状态通知 + 审批实例联动 hook）：{actual:?}\n\
+         折旧批次联动 hook + 任务状态通知 + 审批实例联动 hook + \
+         采购退货联动 hook（purchase_return_handler.rs::confirm_return，P2-03 新接））：{actual:?}\n\
          ⚠️ 本计数器是**文件级去重 + 只认 `linkage::engine::*` 直调**：\n\
          固定资产新增的「停用 / 启用」写在 `erp/asset_handler.rs` 里、只间接调\
          `asset_linkage::run_in_tx`（引擎在 hook 里被调），所以**不会**也不该让这个数字 +1；\n\
@@ -1543,5 +1546,72 @@ fn flow_instance_wires_generic_engine_and_excludes_ledger_actions() {
         spec::forbidden_actions(spec::TRIGGER_FLOW_INSTANCE),
         spec::FLOW_INSTANCE_EXCLUDED_ACTIONS,
         "配置期禁令与运行时排除必须同集，否则会出现「配得上、跑起来被静默跳过」"
+    );
+}
+
+// ============================================================================
+// 采购退货（PURCHASE_RETURN）接线守卫（P2-03 · 补 TST-01）
+// ============================================================================
+
+/// 采购退货的接线细节：**确认退货是唯一个动账点**，必须真的走 `run_excluding` +
+/// 专用排除清单，且通知上下文（`with_notice`）必须在。
+///
+/// 这条防的四种漂移（前三种与出库 / 调拨同型，第四种是本触发点独有的）：
+///
+/// 1. `spec.rs` 把 `wired` 改成 true、handler 里却没调（P1-FIX-5C 的原罪）；
+/// 2. 排除清单从 `GENERATE_VOUCHER` 里丢一项 → 一张退货单两张冲销凭证（凭证生凭证）；
+/// 3. 排除清单丢了库存 / 应付余额动作 → 同一行明细扣两次库存、`unpaid_amount` 直接负数；
+/// 4. 上下文没带通知草稿 → `SEND_NOTICE` **每次都 Skipped**（日志里看得见、界面上什么都没变），
+///    V0351 预置的那条规则就成了摆设。这正是 V0323 记录过的「看起来配好了，实际不工作」。
+///
+/// 另：`spec.rs` 的 `PURCHASE_RETURN_EXCLUDED_ACTIONS` 文档注释里点名了本测试，
+/// 删 / 改名会让那条注释变成死链接。
+#[test]
+fn purchase_return_wires_generic_engine_and_excludes_accounting() {
+    let handler = include_str!("../../erp/purchase_return_handler.rs");
+    assert!(
+        handler.contains("linkage::engine::run_excluding("),
+        "采购退货确认必须调用通用引擎（run_excluding）：否则 PURCHASE_RETURN/CONFIRMED 的联动规则配了也不触发"
+    );
+    assert!(
+        handler.contains("linkage_spec::PURCHASE_RETURN_EXCLUDED_ACTIONS"),
+        "采购退货确认调通用引擎时必须传 spec::PURCHASE_RETURN_EXCLUDED_ACTIONS（不许改成写死的空清单）"
+    );
+    assert!(
+        handler.contains("linkage::engine::run_deferred"),
+        "采购退货的提交后动作必须交给 run_deferred（commit 之后跑），否则通知 / 建任务永远不执行"
+    );
+    for code in [
+        "WRITE_INVENTORY",
+        "WRITE_INVENTORY_TXN",
+        "UPDATE_COST",
+        "UPDATE_PAYABLE_BALANCE",
+        spec::ACTION_GENERATE_VOUCHER,
+    ] {
+        assert!(
+            spec::PURCHASE_RETURN_EXCLUDED_ACTIONS.contains(&code),
+            "采购退货的排除清单漏了 {code}：它在 purchase_return_posting::confirm_tx 有专用落账，\
+             通用引擎再跑一次就是重复落账"
+        );
+    }
+    for code in [spec::ACTION_SEND_NOTICE, spec::ACTION_CREATE_TASK] {
+        assert!(
+            !spec::PURCHASE_RETURN_EXCLUDED_ACTIONS.contains(&code),
+            "{code} 不能被采购退货排除：通知 / 建任务就靠通用引擎的 AfterCommit 动作"
+        );
+    }
+
+    // ④ 通知草稿：`SEND_NOTICE` 的基线（配置不覆盖时逐字沿用触发点算出来的文案 / 收件人）。
+    assert!(
+        handler.contains(".with_notice("),
+        "采购退货的 LinkageContext 必须附通知草稿（with_notice）：否则 SEND_NOTICE 规则永远 Skipped"
+    );
+
+    // 触发点本身必须标 wired（接线表里查得到）。
+    let decl = spec::trigger_spec(crate::business::shared::state_machine::ENTITY_PURCHASE_RETURN)
+        .expect("PURCHASE_RETURN 必须在 spec::TRIGGER_SPECS 里（白名单与接线表逐字同序）");
+    assert!(
+        decl.wired,
+        "PURCHASE_RETURN 必须标 wired = true —— confirm_return 真的在调引擎"
     );
 }

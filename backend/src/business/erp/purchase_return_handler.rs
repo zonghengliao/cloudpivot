@@ -64,12 +64,17 @@ use crate::business::flow::engine;
 use crate::business::flow::linkage;
 use crate::business::flow::linkage::spec as linkage_spec;
 use crate::business::flow::model as flow_model;
+use crate::business::notice;
+use crate::business::notice::dto::{NoticeLevel, NoticeType};
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;
 
-// ==================== 权限码（与 V0332 的 sys_menu.auth_code 逐字一致） ====================
+/// 采购退货状态通知的 `biz_type`（与审批流发的待办区分开：一个是被联动发的状态通知，
+/// 一个是流程引擎的待办）。
+pub const NOTICE_BIZ_TYPE: &str = "PURCHASE_RETURN";
 
+// ==================== 权限码（与 V0332 的 sys_menu.auth_code 逐字一致） ====================
 /// 列表 + 详情。
 pub const PERM_LIST: &str = "business:erp:purchase-return:list";
 /// 新建退货单（含「可退明细」选择）。
@@ -1063,6 +1068,45 @@ fn linkage_ctx<'a>(
     row: &'a model::ReturnRow,
     operator: Option<Uuid>,
 ) -> linkage::LinkageContext<'a> {
+    // 默认收件人 = 制单人（「我经办的单子退货确认了」）：退货单没有负责人字段，
+    // 制单人是唯一稳定的人；没有制单人（外部导入 / 历史行）退操作人；
+    // 都没有 → 空收件人，`SEND_NOTICE` 自己判 Skipped，不会静默发错人。
+    let recipient = row.create_by.or(operator);
+    let label = linkage::spec::status_label_of(
+        state_machine::ENTITY_PURCHASE_RETURN,
+        dto::STATUS_CONFIRMED,
+    )
+    .unwrap_or_else(|| dto::status_label(dto::STATUS_CONFIRMED));
+    let mut draft = notice::NoticeDraft::text(
+        NoticeType::Workflow,
+        NoticeLevel::Info,
+        format!("采购退货{label}"),
+        format!(
+            "采购退货「{}」已{}：供应商 {}，退货数量 {}，价税合计 {}，仓库 {}；\
+             库存回冲、应付冲减与冲销凭证已同事务落账",
+            row.return_no,
+            label,
+            row.supplier_name.as_deref().unwrap_or("-"),
+            row.total_qty,
+            row.total_with_tax,
+            row.warehouse_name.as_deref().unwrap_or("-"),
+        ),
+        notice::NoticeTarget::User(recipient.into_iter().collect()),
+    );
+    // 退货单没有独立详情路由（列表页用抽屉展示），只能深链到列表；单号在正文里，够定位。
+    draft.link_url = Some("/business/erp/purchase-return".to_string());
+    draft.biz_type = Some(NOTICE_BIZ_TYPE.to_string());
+    draft.biz_id = Some(row.id.to_string());
+    draft.sender_name = Some("采购退货".to_string());
+    // 知情类通知（账已落定，漏看不造成损失）→ 尊重 notify.inbox 偏好。
+    draft.force = false;
+    // 幂等键 = 单据 + 目标态：CONFIRMED 是**终态**（确认后不可再确认），一张单一条通知。
+    // `sys_notice.idempotency_key` 是 VARCHAR(128)（V0043），本键 66 字符（单测钉住）。
+    draft.idempotency_key = Some(format!(
+        "LNK:PURCHASE_RETURN:{}:{}",
+        dto::STATUS_CONFIRMED,
+        row.id
+    ));
     linkage::LinkageContext::new(
         state_machine::ENTITY_PURCHASE_RETURN,
         dto::STATUS_CONFIRMED,
@@ -1071,6 +1115,7 @@ fn linkage_ctx<'a>(
         operator,
     )
     .with_people(operator, row.create_by, None)
+    .with_notice(draft)
 }
 
 /// 确认退货（HTTP 入口）。
@@ -1224,4 +1269,127 @@ pub async fn purchase_return_cancel(
     let req = body.map(|Json(item)| item).unwrap_or_default();
     let operator = utils::current_user_uuid(&claims);
     Ok(Res::ok(cancel_return(id, &req, operator).await?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nik::prelude::chrono::Utc;
+    use std::str::FromStr;
+
+    /// 测试用定点数（仓库不引 `rust_decimal_macros`，用 `Decimal::from_str`）。
+    fn dec(text: &str) -> Decimal {
+        Decimal::from_str(text).expect("测试字面量必须是合法小数")
+    }
+
+    /// 一张「已批准、待确认」的退货单（只为联动上下文测试造形，不落库）。
+    fn sample_row(create_by: Option<Uuid>) -> model::ReturnRow {
+        model::ReturnRow {
+            id: Uuid::now_v7(),
+            return_no: "PRT-20990115-000001".to_string(),
+            stock_in_id: Uuid::now_v7(),
+            stock_in_no: "SI-20990115-000001".to_string(),
+            purchase_order_id: None,
+            purchase_order_no: None,
+            supplier_id: Uuid::now_v7(),
+            supplier_name: Some("示范供应商".to_string()),
+            warehouse_id: Uuid::now_v7(),
+            warehouse_name: Some("主仓".to_string()),
+            return_date: dto::today_cst(),
+            status: STATUS_APPROVED.to_string(),
+            total_qty: dec("2"),
+            total_amount: dec("100.00"),
+            total_tax: dec("13.00"),
+            total_with_tax: dec("113.00"),
+            reason: "质量不合格".to_string(),
+            approval_instance_id: None,
+            stock_out_id: None,
+            stock_out_no: None,
+            payable_id: None,
+            payable_no: None,
+            supplier_receivable_id: None,
+            supplier_receivable_no: None,
+            voucher_id: None,
+            voucher_no: None,
+            remark: None,
+            create_by,
+            created_at: Utc::now(),
+        }
+    }
+
+    /// `PURCHASE_RETURN/CONFIRMED` 的上下文必须带**可用的**通知草稿。
+    ///
+    /// 为什么钉住这条：`actions::prepare_notice` 在 `ctx.notice` 为空时直接
+    /// `ActionError::Skipped`（不报错、不发送）。少了它，V0351 预置的
+    /// 「退货确认 → 通知制单人」规则会**每次都跳过**，界面上什么都不会发生 ——
+    /// 这正是 V0323 记录过的「看起来配好了，实际不工作」。
+    #[test]
+    fn confirm_ctx_carries_notice_draft() {
+        let creator = Uuid::now_v7();
+        let row = sample_row(Some(creator));
+        let operator = Uuid::now_v7();
+        let ctx = linkage_ctx(&row, Some(operator));
+
+        assert_eq!(ctx.entity, state_machine::ENTITY_PURCHASE_RETURN);
+        assert_eq!(ctx.status, dto::STATUS_CONFIRMED);
+        assert_eq!(ctx.doc_id, row.id, "触发单据主键必须是退货单 id");
+        assert_eq!(ctx.doc_no, row.return_no);
+        assert_eq!(ctx.operator, Some(operator));
+        assert_eq!(ctx.creator, Some(creator), "creator 必须是制单人");
+
+        let draft = ctx.notice.as_ref().expect("必须带通知草稿");
+        assert_eq!(draft.biz_type.as_deref(), Some(NOTICE_BIZ_TYPE));
+        assert_eq!(draft.biz_id.as_deref(), Some(row.id.to_string().as_str()));
+        assert_eq!(
+            draft.link_url.as_deref(),
+            Some("/business/erp/purchase-return")
+        );
+        assert!(
+            draft.title.contains("已确认"),
+            "标题必须用人读的中文状态名：{}",
+            draft.title
+        );
+        assert!(
+            draft.content.contains(&row.return_no) && draft.content.contains("示范供应商"),
+            "正文必须带单号与供应商：{}",
+            draft.content
+        );
+        assert!(
+            !draft.force,
+            "退货确认是知情类通知（账已落定），默认尊重 notify.inbox 偏好"
+        );
+        match &draft.target {
+            notice::NoticeTarget::User(users) => {
+                assert_eq!(users, &vec![creator], "默认收件人 = 制单人");
+            }
+            other => panic!("默认收件人必须是 User(制单人)，实际 {other:?}"),
+        }
+        let key = draft
+            .idempotency_key
+            .as_deref()
+            .expect("必须带幂等键（重放不重复发）");
+        assert!(
+            key.contains(dto::STATUS_CONFIRMED) && key.contains(&row.id.to_string()),
+            "幂等键必须由「目标态 + 单据 id」组成：{key}"
+        );
+        assert!(
+            key.len() <= 128,
+            "幂等键超长（{}/128）：sys_notice.idempotency_key 是 VARCHAR(128)（V0043）",
+            key.len()
+        );
+    }
+
+    /// 没有制单人（外部导入 / 历史行）时退操作人：不能因为缺人就把通知丢掉。
+    #[test]
+    fn confirm_ctx_falls_back_to_operator_as_recipient() {
+        let row = sample_row(None);
+        let operator = Uuid::now_v7();
+        let draft = linkage_ctx(&row, Some(operator))
+            .notice
+            .expect("必须带通知草稿");
+        match &draft.target {
+            notice::NoticeTarget::User(users) => assert_eq!(users, &vec![operator]),
+            other => panic!("收件人必须是 User(操作人)，实际 {other:?}"),
+        }
+    }
 }

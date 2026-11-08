@@ -1172,6 +1172,7 @@ mod tests {
                 "FIXED_ASSET",
                 "DEPRECIATION",
                 "EXPENSE_REPORT",
+                "PURCHASE_RETURN",
                 "TASK",
                 "FLOW_INSTANCE"
             ],
@@ -1182,7 +1183,8 @@ mod tests {
              CONTRACT（LNK-07 新接）/ \
              STOCK_TAKE（LNK-04 新接）/ FIXED_ASSET（LNK-09 新接）/ \
              DEPRECIATION（LNK-10 新接）/ \
-             EXPENSE_REPORT（LNK-05 新接）/ TASK / FLOW_INSTANCE（LNK-12 新接）"
+             EXPENSE_REPORT（LNK-05 新接）/ PURCHASE_RETURN（P2-03 新接）/ \
+             TASK / FLOW_INSTANCE（LNK-12 新接）"
         );
         for trigger in &triggers {
             assert!(
