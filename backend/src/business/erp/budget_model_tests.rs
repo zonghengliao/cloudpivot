@@ -115,21 +115,13 @@ mod db {
             .await
     }
 
-    /// 取一个已存在的部门 id（夹具用：不新建部门，避免与其它模块抢 sys_dept）。
-    async fn any_dept() -> Option<Uuid> {
-        let rows = db()
-            .query_sql(
-                "SELECT id FROM sys_dept WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1"
-                    .to_string(),
-                vec![],
-            )
-            .await
-            .ok()?;
-        rows.first().and_then(|row| row.get_typed("id").ok())
+    /// 取一个部门 id：**库里有就用，没有就造夹具部门**（TST-02b A 方案）。
+    async fn any_dept() -> Uuid {
+        crate::shared::test_helpers::ensure_any_dept().await
     }
 
-    /// 取 5602.02 科目 id（V0226 种子）。
-    async fn expense_account() -> Option<Uuid> {
+    /// 取 5602.02 科目 id（V0226 迁移种子；查不到 = 库版本不对）。
+    async fn expense_account() -> Uuid {
         let rows = db()
             .query_sql(
                 "SELECT id FROM biz_account WHERE account_code = '5602.02' AND deleted_at IS NULL"
@@ -137,8 +129,10 @@ mod db {
                 vec![],
             )
             .await
-            .ok()?;
-        rows.first().and_then(|row| row.get_typed("id").ok())
+            .expect("查 5602.02 科目");
+        rows.first()
+            .and_then(|row| row.get_typed("id").ok())
+            .unwrap_or_else(|| panic!("库里没有 5602.02 科目（V0226 迁移种子未应用？）"))
     }
 
     /// 清场：删本用例建的预算（按 id 集合，绝不按前缀扫全库）。
@@ -179,10 +173,8 @@ mod db {
             println!("[SKIP] 未设 ERP_DB_URL");
             return;
         }
-        let (Some(dept), Some(account)) = (any_dept().await, expense_account().await) else {
-            println!("[SKIP] 库里没有部门或 5602.02 科目（先跑迁移）");
-            return;
-        };
+        let dept = any_dept().await;
+        let account = expense_account().await;
         let year = 2099i16; // 用一个不会被真实业务占用的年度
         let mut ids: Vec<Uuid> = Vec::new();
         let v1 = Uuid::now_v7();
@@ -288,7 +280,8 @@ mod db {
     }
 
     /// 除 `exclude` 之外的另一个部门（部门覆盖用例用；库里只有一个部门就跳过）。
-    async fn other_dept(exclude: Uuid) -> Option<Uuid> {
+    /// 「另一个部门」：库里有别的就用，没有就造夹具（TST-02b A 方案 ⇒ 部门覆盖子断言**不再跳过**）。
+    async fn other_dept(exclude: Uuid) -> Uuid {
         let rows = db()
             .query_sql(
                 "SELECT id FROM sys_dept WHERE deleted_at IS NULL AND id <> ?::uuid
@@ -297,8 +290,30 @@ mod db {
                 vec![Value::from(&exclude)],
             )
             .await
-            .ok()?;
-        rows.first().and_then(|row| row.get_typed("id").ok())
+            .expect("查第二个部门");
+        if let Some(id) = rows.first().and_then(|row| row.get_typed("id").ok()) {
+            return id;
+        }
+        // 库里只有一个部门（很可能就是 `TST-DEPT`）⇒ 造另一个夹具部门；
+        // 若那个「唯一部门」恰好是 `TST-DEPT-2`，就反过来造 `TST-DEPT`。
+        let (code, name) = if crate::shared::test_helpers::fixture_uuid(&format!(
+            "dept:{}",
+            crate::shared::test_helpers::FIXTURE_DEPT2_CODE
+        )) == exclude
+        {
+            (
+                crate::shared::test_helpers::FIXTURE_DEPT_CODE,
+                crate::shared::test_helpers::FIXTURE_DEPT_NAME,
+            )
+        } else {
+            (
+                crate::shared::test_helpers::FIXTURE_DEPT2_CODE,
+                crate::shared::test_helpers::FIXTURE_DEPT2_NAME,
+            )
+        };
+        let id = crate::shared::test_helpers::ensure_dept(code, name).await;
+        assert_ne!(id, exclude, "第二个部门必须与第一个不同");
+        id
     }
 
     /// ⑥ MATERIAL_TYPE 映射全链路（t_ce73ae26 的回归用例）：
@@ -320,16 +335,11 @@ mod db {
             println!("[SKIP] 未设 ERP_DB_URL");
             return;
         }
-        let Some(account) = expense_account().await else {
-            println!("[SKIP] 库里没有 5602.02 科目（先跑迁移）");
-            return;
-        };
-        // 有部门就用部门级映射（顺带验部门进唯一键），没有就退回全公司映射
-        let dept: Option<Uuid> = any_dept().await;
-        match dept {
-            Some(id) => println!("[信息] 用部门 {id} 跑部门级映射"),
-            None => println!("[信息] 库里没有部门，用全公司映射（dept_id = NULL）跑同一链路"),
-        }
+        let account = expense_account().await;
+        let dept_id = any_dept().await;
+        // A 方案：部门恒有（库里有就用现成的，没有就造 `TST-DEPT`）⇒ 不再退化成全公司映射
+        let dept: Option<Uuid> = Some(dept_id);
+        println!("[信息] 用部门 {dept_id} 跑部门级映射");
         let mut ids: Vec<Uuid> = Vec::new();
 
         // 可重复跑：先把本用例要用的目标上的残留（上次失败 / e2e 留下的）精确清掉
@@ -435,32 +445,25 @@ mod db {
         .await
         .expect("同一目标下的另一种物料类型必须能落库（唯一性按 ref_code 而非 map_type）");
 
-        // ④-b 部门覆盖：同类型在另一个部门可以再配一条（库里没有第二个部门就跳过）
-        let other = match dept {
-            Some(id) => other_dept(id).await,
-            None => None,
-        };
-        if let Some(dept2) = other {
-            purge_target("MATERIAL_TYPE", "RAW", Some(dept2)).await;
-            let covered = Uuid::now_v7();
-            ids.push(covered);
-            map_insert(
-                db(),
-                covered,
-                "MATERIAL_TYPE",
-                None,
-                Some("RAW"),
-                account,
-                Some(dept2),
-                0,
-                None,
-                None,
-            )
-            .await
-            .expect("另一个部门覆盖同一物料类型必须能落库（部门进唯一键）");
-        } else {
-            println!("[信息] 库里没有第二个部门，跳过部门覆盖子断言");
-        }
+        // ④-b 部门覆盖：同类型在另一个部门可以再配一条（A 方案保证一定有第二个部门）
+        let dept2 = other_dept(dept_id).await;
+        purge_target("MATERIAL_TYPE", "RAW", Some(dept2)).await;
+        let covered = Uuid::now_v7();
+        ids.push(covered);
+        map_insert(
+            db(),
+            covered,
+            "MATERIAL_TYPE",
+            None,
+            Some("RAW"),
+            account,
+            Some(dept2),
+            0,
+            None,
+            None,
+        )
+        .await
+        .expect("另一个部门覆盖同一物料类型必须能落库（部门进唯一键）");
 
         // ⑤ 软删后同一目标可以重建（部分索引只覆盖未删除行）
         map_delete(db(), raw, None).await.expect("软删");

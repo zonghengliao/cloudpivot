@@ -72,41 +72,27 @@ mod db {
             .await
     }
 
-    /// 取一个部门 id。
-    async fn any_dept() -> Option<Uuid> {
-        let rows = db()
-            .query_sql(
-                "SELECT id FROM sys_dept WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1"
-                    .to_string(),
-                vec![],
-            )
-            .await
-            .ok()?;
-        rows.first().and_then(|row| row.get_typed("id").ok())
+    /// 取一个部门 id：**库里有就用，没有就造夹具部门**（TST-02b A 方案）。
+    async fn any_dept() -> Uuid {
+        crate::shared::test_helpers::ensure_any_dept().await
     }
 
-    /// 取一个用户 id（报销人）。
-    async fn any_user() -> Option<Uuid> {
-        let rows = db()
-            .query_sql(
-                "SELECT id FROM sys_user WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1"
-                    .to_string(),
-                vec![],
-            )
-            .await
-            .ok()?;
-        rows.first().and_then(|row| row.get_typed("id").ok())
+    /// 取一个用户 id（报销人）：库里有就用，没有就造夹具账号。
+    async fn any_user() -> Uuid {
+        crate::shared::test_helpers::ensure_any_user().await
     }
 
-    /// 取一条费用类型（V0242 种子；`TRAVEL` 优先）。
-    async fn travel_type() -> Option<crate::business::erp::expense_model::TypeRow> {
-        let travel = expense_model::type_find_by_code(db(), "TRAVEL")
-            .await
-            .ok()?;
-        if travel.is_some() {
-            return travel;
+    /// 取一条费用类型（V0242 迁移种子；`TRAVEL` 优先）。查不到 = 库版本不对。
+    async fn travel_type() -> crate::business::erp::expense_model::TypeRow {
+        if let Ok(Some(kind)) = expense_model::type_find_by_code(db(), "TRAVEL").await {
+            return kind;
         }
-        expense_model::type_active().await.ok()?.into_iter().next()
+        expense_model::type_active()
+            .await
+            .expect("查费用类型")
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| panic!("库里没有启用中的费用类型（V0242 迁移种子未应用？）"))
     }
 
     /// 清场：按 id 集合删本用例造的行（**绝不按前缀扫全库**）。
@@ -211,12 +197,9 @@ mod db {
         if !ensure_db().await {
             return;
         }
-        let (Some(dept), Some(user), Some(kind)) =
-            (any_dept().await, any_user().await, travel_type().await)
-        else {
-            println!("SKIP: 库缺部门 / 用户 / 费用类型种子");
-            return;
-        };
+        let dept = any_dept().await;
+        let user = any_user().await;
+        let kind = travel_type().await;
         let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(1060));
         let id = create_report(&insert).await;
         let (total, tax, count) = expense_model::items_sum(db(), id).await.expect("聚合明细");
@@ -243,11 +226,9 @@ mod db {
         if !ensure_db().await {
             return;
         }
-        let (Some(dept), Some(user), Some(kind)) =
-            (any_dept().await, any_user().await, travel_type().await)
-        else {
-            return;
-        };
+        let dept = any_dept().await;
+        let user = any_user().await;
+        let kind = travel_type().await;
         let mut insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(1060));
         insert.total_tax = dec!(9999); // 破坏 total_with_tax = total_amount + total_tax
         let err = expense_model::report_insert(db(), &insert, None).await;
@@ -262,11 +243,9 @@ mod db {
         if !ensure_db().await {
             return;
         }
-        let (Some(dept), Some(user), Some(kind)) =
-            (any_dept().await, any_user().await, travel_type().await)
-        else {
-            return;
-        };
+        let dept = any_dept().await;
+        let user = any_user().await;
+        let kind = travel_type().await;
         let mut insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(1060));
         insert.items[0].tax_amount = dec!(1);
         let id = insert.id;
@@ -288,11 +267,9 @@ mod db {
         if !ensure_db().await {
             return;
         }
-        let (Some(dept), Some(user), Some(kind)) =
-            (any_dept().await, any_user().await, travel_type().await)
-        else {
-            return;
-        };
+        let dept = any_dept().await;
+        let user = any_user().await;
+        let kind = travel_type().await;
         let mut insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(100));
         insert.items[0].amount = Decimal::ZERO;
         insert.items[0].tax_amount = Decimal::ZERO;
@@ -313,11 +290,9 @@ mod db {
         if !ensure_db().await {
             return;
         }
-        let (Some(dept), Some(user), Some(kind)) =
-            (any_dept().await, any_user().await, travel_type().await)
-        else {
-            return;
-        };
+        let dept = any_dept().await;
+        let user = any_user().await;
+        let kind = travel_type().await;
         let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(1060));
         let id = create_report(&insert).await;
         // DRAFT：能改
@@ -348,11 +323,9 @@ mod db {
         if !ensure_db().await {
             return;
         }
-        let (Some(dept), Some(user), Some(kind)) =
-            (any_dept().await, any_user().await, travel_type().await)
-        else {
-            return;
-        };
+        let dept = any_dept().await;
+        let user = any_user().await;
+        let kind = travel_type().await;
         let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(6600));
         let id = create_report(&insert).await;
         db().exec_sql(
@@ -388,11 +361,9 @@ mod db {
         if !ensure_db().await {
             return;
         }
-        let (Some(dept), Some(user), Some(kind)) =
-            (any_dept().await, any_user().await, travel_type().await)
-        else {
-            return;
-        };
+        let dept = any_dept().await;
+        let user = any_user().await;
+        let kind = travel_type().await;
         let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(500));
         let id = create_report(&insert).await;
         db().exec_sql(
@@ -419,11 +390,9 @@ mod db {
         if !ensure_db().await {
             return;
         }
-        let (Some(dept), Some(user), Some(kind)) =
-            (any_dept().await, any_user().await, travel_type().await)
-        else {
-            return;
-        };
+        let dept = any_dept().await;
+        let user = any_user().await;
+        let kind = travel_type().await;
         let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(100));
         let id = create_report(&insert).await;
         db().exec_sql(
@@ -453,11 +422,9 @@ mod db {
         if !ensure_db().await {
             return;
         }
-        let (Some(dept), Some(user), Some(kind)) =
-            (any_dept().await, any_user().await, travel_type().await)
-        else {
-            return;
-        };
+        let dept = any_dept().await;
+        let user = any_user().await;
+        let kind = travel_type().await;
         let before = expense_model::type_used_count(db(), kind.id)
             .await
             .expect("计数");
@@ -480,11 +447,9 @@ mod db {
         if !ensure_db().await {
             return;
         }
-        let (Some(dept), Some(user), Some(kind)) =
-            (any_dept().await, any_user().await, travel_type().await)
-        else {
-            return;
-        };
+        let dept = any_dept().await;
+        let user = any_user().await;
+        let kind = travel_type().await;
         let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(1060));
         let id = create_report(&insert).await;
         let mut row = expense_model::report_find(id).await.unwrap().unwrap();
@@ -508,11 +473,9 @@ mod db {
         if !ensure_db().await {
             return;
         }
-        let (Some(dept), Some(user), Some(kind)) =
-            (any_dept().await, any_user().await, travel_type().await)
-        else {
-            return;
-        };
+        let dept = any_dept().await;
+        let user = any_user().await;
+        let kind = travel_type().await;
         let mut insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(3180));
         // 加第二条：办公费 240（13%），验证「多费用科目 → 多借方行」
         let office = expense_model::type_find_by_code(db(), "OFFICE")
@@ -593,11 +556,9 @@ mod db {
         if !ensure_db().await {
             return;
         }
-        let (Some(dept), Some(user), Some(kind)) =
-            (any_dept().await, any_user().await, travel_type().await)
-        else {
-            return;
-        };
+        let dept = any_dept().await;
+        let user = any_user().await;
+        let kind = travel_type().await;
         let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(1060));
         let id = create_report(&insert).await;
         let row = expense_model::report_find(id).await.unwrap().unwrap();
@@ -638,11 +599,9 @@ mod db {
         if !ensure_db().await {
             return;
         }
-        let (Some(dept), Some(user), Some(kind)) =
-            (any_dept().await, any_user().await, travel_type().await)
-        else {
-            return;
-        };
+        let dept = any_dept().await;
+        let user = any_user().await;
+        let kind = travel_type().await;
         let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(1060));
         let id = create_report(&insert).await;
         let row = expense_model::report_find(id).await.unwrap().unwrap();
@@ -698,11 +657,9 @@ mod db {
         if !ensure_db().await {
             return;
         }
-        let (Some(dept), Some(user), Some(kind)) =
-            (any_dept().await, any_user().await, travel_type().await)
-        else {
-            return;
-        };
+        let dept = any_dept().await;
+        let user = any_user().await;
+        let kind = travel_type().await;
         let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(1200));
         let id = create_report(&insert).await;
         let items = expense_model::items_of(db(), id).await.expect("明细");
@@ -766,11 +723,9 @@ mod db {
         if !ensure_db().await {
             return;
         }
-        let (Some(dept), Some(user), Some(kind)) =
-            (any_dept().await, any_user().await, travel_type().await)
-        else {
-            return;
-        };
+        let dept = any_dept().await;
+        let user = any_user().await;
+        let kind = travel_type().await;
         let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(600));
         let id = create_report(&insert).await;
         db().exec_sql(
@@ -819,12 +774,9 @@ mod db {
         if !ensure_db().await {
             return;
         }
-        let (Some(dept), Some(user), Some(kind)) =
-            (any_dept().await, any_user().await, travel_type().await)
-        else {
-            println!("SKIP: 库缺部门 / 用户 / 费用类型种子");
-            return;
-        };
+        let dept = any_dept().await;
+        let user = any_user().await;
+        let kind = travel_type().await;
         use crate::business::erp::budget_guard;
         let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(1200));
         let id = create_report(&insert).await;
@@ -1080,7 +1032,11 @@ mod db {
 
     // ==================== 18) 带筛选 + 数据权限裁剪（SCOPE-PAGE 真库回归） ====================
 
-    /// 取 `n` 个不同部门（构造「本部门 / 他部门」两张单）。
+    /// 取 n 个部门 id：库里有多少用多少，不够的用夹具补齐（TST-02b A 方案）。
+    ///
+    /// 跨部门数据权限用例过去在「库少于 2 个部门」时 SKIP 假绿；现在空库也会补出
+    /// `TST-DEPT` / `TST-DEPT-2`，断言照跑。补齐用的是固定 UUID + 幂等插入，
+    /// 不会按前缀删别人的行。
     async fn some_depts(n: usize) -> Vec<Uuid> {
         let rows = db()
             .query_sql(
@@ -1091,10 +1047,30 @@ mod db {
                 vec![],
             )
             .await
-            .unwrap_or_default();
-        rows.iter()
+            .unwrap_or_else(|err| panic!("查部门失败：{err}"));
+        let mut ids: Vec<Uuid> = rows
+            .iter()
             .filter_map(|row| row.get_typed::<Uuid>("id").ok())
-            .collect()
+            .collect();
+        let mut seq = 0usize;
+        while ids.len() < n {
+            seq += 1;
+            let code = if seq == 1 {
+                crate::shared::test_helpers::FIXTURE_DEPT_CODE.to_string()
+            } else {
+                format!("{}-{seq}", crate::shared::test_helpers::FIXTURE_DEPT_CODE)
+            };
+            let name = if seq == 1 {
+                crate::shared::test_helpers::FIXTURE_DEPT_NAME.to_string()
+            } else {
+                format!("{}{seq}", crate::shared::test_helpers::FIXTURE_DEPT_NAME)
+            };
+            let id = crate::shared::test_helpers::ensure_dept(&code, &name).await;
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+        ids
     }
 
     /// **SCOPE-PAGE 回归（真库）**：有数据权限裁剪的 principal 带 keyword / status / pay_status
@@ -1108,15 +1084,9 @@ mod db {
         if !ensure_db().await {
             return;
         }
-        let (Some(user), Some(kind)) = (any_user().await, travel_type().await) else {
-            println!("SKIP: 库缺用户 / 费用类型种子");
-            return;
-        };
+        let user = any_user().await;
+        let kind = travel_type().await;
         let depts = some_depts(2).await;
-        if depts.len() < 2 {
-            println!("SKIP: 库少于 2 个可用部门（无法构造跨部门夹具）");
-            return;
-        }
         let (mine, other) = (depts[0], depts[1]);
         let keyword = format!("SCOPE-REGRESS-{}", uniq());
         let mut mine_insert =

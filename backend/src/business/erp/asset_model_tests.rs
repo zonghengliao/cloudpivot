@@ -49,22 +49,20 @@ mod db {
             .await
     }
 
-    /// 取一个已存在的部门 id（夹具用：不新建部门）。
-    async fn any_dept() -> Option<Uuid> {
-        let rows = db()
-            .query_sql(
-                "SELECT id FROM sys_dept WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1"
-                    .to_string(),
-                vec![],
-            )
-            .await
-            .ok()?;
-        rows.first().and_then(|row| row.get_typed("id").ok())
+    /// 取一个可用部门：**库里有就用，没有就造**（TST-02b A 方案，见
+    /// `crate::shared::test_helpers::ensure_any_dept`）。
+    async fn any_dept() -> Uuid {
+        crate::shared::test_helpers::ensure_any_dept().await
     }
 
-    /// 取一个启用中的资产分类（V0229 种子）。
-    async fn any_category() -> Option<CategoryRow> {
-        category_active().await.ok()?.into_iter().next()
+    /// 取一个启用中的资产分类（V0229 迁移种子；空库上也有，查不到就是库版本不对）。
+    async fn any_category() -> CategoryRow {
+        category_active()
+            .await
+            .expect("查资产分类")
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| panic!("库里没有启用中的资产分类（V0229 迁移种子未应用？）"))
     }
 
     /// 清场：按 id 集合删本用例造的行（**绝不按前缀扫全库**）。
@@ -178,10 +176,8 @@ mod db {
             println!("[SKIP] 未设 ERP_DB_URL");
             return;
         }
-        let (Some(dept), Some(category)) = (any_dept().await, any_category().await) else {
-            println!("[SKIP] 库里没有部门或资产分类（先跑 V0229）");
-            return;
-        };
+        let dept = any_dept().await;
+        let category = any_category().await;
         let req = create_req(category.id, dept);
         let spec = crate::business::erp::asset_dto::validate_create(&req).expect("校验通过");
         let id = Uuid::now_v7();
@@ -225,10 +221,8 @@ mod db {
             println!("[SKIP] 未设 ERP_DB_URL");
             return;
         }
-        let (Some(dept), Some(category)) = (any_dept().await, any_category().await) else {
-            println!("[SKIP] 库里没有部门或资产分类");
-            return;
-        };
+        let dept = any_dept().await;
+        let category = any_category().await;
         let source_id = Uuid::now_v7();
         let mut spec = spec_of(&create_req(category.id, dept));
         spec.source_type = "STOCK_IN".to_string();
@@ -273,10 +267,8 @@ mod db {
             println!("[SKIP] 未设 ERP_DB_URL");
             return;
         }
-        let (Some(dept), Some(category)) = (any_dept().await, any_category().await) else {
-            println!("[SKIP] 库里没有部门或资产分类");
-            return;
-        };
+        let dept = any_dept().await;
+        let category = any_category().await;
         let id = Uuid::now_v7();
         asset_insert(
             db(),
@@ -308,10 +300,8 @@ mod db {
             println!("[SKIP] 未设 ERP_DB_URL");
             return;
         }
-        let (Some(dept), Some(category)) = (any_dept().await, any_category().await) else {
-            println!("[SKIP] 库里没有部门或资产分类");
-            return;
-        };
+        let dept = any_dept().await;
+        let category = any_category().await;
         let id = Uuid::now_v7();
         asset_insert(
             db(),

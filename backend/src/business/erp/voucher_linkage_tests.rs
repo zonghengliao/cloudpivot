@@ -91,27 +91,12 @@ async fn exec(text: &str) {
 /// 且收件人必须在 `sys_user` 里存活 —— 否则 `SEND_NOTICE` 会判「收件人为空/不存在」Skipped，
 /// 用例会变成假红（不是接线没生效，是夹具失真）。
 ///
-/// TST-02：这里**先做种子体检**。旧写法在只有 1 个账号的库上 `return None`，
-/// 调用方 `else { return; }` ⇒ 用例静默 pass 却一行断言没跑（假绿）。现在缺种子直接 panic，
-/// 报「缺 2 名在职用户 / 缺科目」以及怎么补。
-async fn two_users() -> Option<(Uuid, Uuid)> {
-    seed_guard::require_seed_data(
-        "voucher_linkage_tests",
-        &[seed_guard::TWO_USERS, seed_guard::ACCOUNT],
-    )
-    .await;
-    let rows = db()
-        .query_sql(
-            "SELECT id FROM sys_user WHERE deleted_at IS NULL ORDER BY created_at LIMIT 2"
-                .to_string(),
-            vec![],
-        )
-        .await
-        .ok()?;
-    if rows.len() < 2 {
-        return None;
-    }
-    Some((rows[0].get_typed("id").ok()?, rows[1].get_typed("id").ok()?))
+/// TST-02b（A 方案）：**不够就自己造**（[`seed_guard::ensure_two_users`]，固定 username /
+/// 固定 UUID / 幂等），不再依赖种子库里有 2 个演示账号；科目是迁移种子（V0226），
+/// 缺了说明这个库的迁移不是当前版本 —— 照旧响亮地报出来，不静默 pass。
+async fn two_users() -> (Uuid, Uuid) {
+    seed_guard::require_seed_data("voucher_linkage_tests", &[seed_guard::ACCOUNT]).await;
+    seed_guard::ensure_two_users().await
 }
 
 /// 当前月会计期间必须 OPEN（手工凭证落库的前置闸）。
@@ -268,13 +253,11 @@ fn lnk06_forbidden_actions_are_declared() {
 /// **卡面强制用例**：在凭证状态上配 `GENERATE_VOUCHER`，保存时直接 400，库里不留行。
 #[tokio::test]
 async fn lnk06_generate_voucher_rule_is_rejected_on_save() {
-    let Some((user, _)) = (if ensure_db().await {
-        two_users().await
-    } else {
-        None
-    }) else {
+    if !ensure_db().await {
+        println!("SKIP: 未设置 ERP_DB_URL（不连真实数据库）");
         return;
-    };
+    }
+    let (user, _) = two_users().await;
     clear_rules().await;
 
     let patch = linkage_model::RulePatch {
@@ -317,13 +300,11 @@ async fn lnk06_generate_voucher_rule_is_rejected_on_save() {
 /// 正常链路：手工凭证落草稿 → 审核 → 记账，三个状态各触发**一次**联动通知。
 #[tokio::test]
 async fn lnk06_create_audit_post_each_trigger_once() {
-    let Some((creator, auditor)) = (if ensure_db().await {
-        two_users().await
-    } else {
-        None
-    }) else {
+    if !ensure_db().await {
+        println!("SKIP: 未设置 ERP_DB_URL（不连真实数据库）");
         return;
-    };
+    }
+    let (creator, auditor) = two_users().await;
     purge().await;
     open_current_period().await;
     add_rule(
@@ -383,13 +364,11 @@ async fn lnk06_create_audit_post_each_trigger_once() {
 /// 重复记账被状态机挡住（409），联动也**不重复**跑。
 #[tokio::test]
 async fn lnk06_repeat_post_does_not_trigger_twice() {
-    let Some((creator, auditor)) = (if ensure_db().await {
-        two_users().await
-    } else {
-        None
-    }) else {
+    if !ensure_db().await {
+        println!("SKIP: 未设置 ERP_DB_URL（不连真实数据库）");
         return;
-    };
+    }
+    let (creator, auditor) = two_users().await;
     purge().await;
     open_current_period().await;
     add_rule(
@@ -427,13 +406,11 @@ async fn lnk06_repeat_post_does_not_trigger_twice() {
 /// 同状态的 `SEND_NOTICE` 规则照跑 —— 这证明「0 条」是排除生效，而不是引擎压根没找到规则。
 #[tokio::test]
 async fn lnk06_excluded_generate_voucher_never_runs() {
-    let Some((creator, _)) = (if ensure_db().await {
-        two_users().await
-    } else {
-        None
-    }) else {
+    if !ensure_db().await {
+        println!("SKIP: 未设置 ERP_DB_URL（不连真实数据库）");
         return;
-    };
+    }
+    let (creator, _) = two_users().await;
     purge().await;
     open_current_period().await;
     let (_id, row) = new_draft(creator).await;
@@ -504,13 +481,11 @@ async fn lnk06_excluded_generate_voucher_never_runs() {
 /// 红冲落一张红字凭证（初始就是 `POSTED`）→ 触发一次 `VOUCHER/POSTED` 通知（红字凭证 id）。
 #[tokio::test]
 async fn lnk06_reverse_triggers_posted_for_red_voucher() {
-    let Some((creator, auditor)) = (if ensure_db().await {
-        two_users().await
-    } else {
-        None
-    }) else {
+    if !ensure_db().await {
+        println!("SKIP: 未设置 ERP_DB_URL（不连真实数据库）");
         return;
-    };
+    }
+    let (creator, auditor) = two_users().await;
     purge().await;
     open_current_period().await;
     add_rule(

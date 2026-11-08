@@ -175,15 +175,12 @@ async fn setup() -> Option<(tokio::sync::MutexGuard<'static, ()>, Uuid)> {
     if !support::ensure_db().await {
         return None;
     }
-    // TST-02：空库先在这里点名叫停（缺部门 / 资产分类 / 科目），
-    // 不要等跑到 any_dept() 才报一句「库里没有部门」。
+    // TST-02b（A 方案）：缺部门就自己造（固定 `TST-DEPT`），不再要求库里有种子组织；
+    // 资产分类 / 科目是迁移种子，缺了说明库的迁移不是当前版本 ⇒ 响亮报错。
+    seed_guard::ensure_any_dept().await;
     seed_guard::require_seed_data(
         "asset_linkage_tests",
-        &[
-            seed_guard::DEPT,
-            seed_guard::ASSET_CATEGORY,
-            seed_guard::ACCOUNT,
-        ],
+        &[seed_guard::ASSET_CATEGORY, seed_guard::ACCOUNT],
     )
     .await;
     purge().await;
@@ -192,19 +189,9 @@ async fn setup() -> Option<(tokio::sync::MutexGuard<'static, ()>, Uuid)> {
     Some((guard, user))
 }
 
-/// 取一个已存在的部门 id（夹具用：不新建部门）。
+/// 取一个可用部门：**库里有就用，没有就造**（TST-02b A 方案）。
 async fn any_dept() -> Uuid {
-    let rows = db()
-        .query_sql(
-            "SELECT id FROM sys_dept WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1"
-                .to_string(),
-            vec![],
-        )
-        .await
-        .expect("查部门");
-    rows.first()
-        .and_then(|row| row.get_typed("id").ok())
-        .unwrap_or_else(|| panic!("库里没有部门（先跑基础种子迁移）"))
+    crate::shared::test_helpers::ensure_any_dept().await
 }
 
 /// 取一个启用中的资产分类（V0229 种子）。

@@ -122,59 +122,44 @@ async fn exec(text: &str) {
     }
 }
 
-/// TST-02：空库前置体检 —— 报销单要「挂部门的用户 + 费用类型 + 科目」，
-/// 走审批还要六个关键岗位有人在（否则提交 422 / 65018）。
+/// TST-02b（A 方案）：报销单要「挂部门的用户 + 费用类型 + 科目」，走审批还要六个关键岗位
+/// 有人（否则提交 422 / 65018）。缺的一律**自己造**（固定 username / 固定 UUID / 幂等）：
+/// 库里已经有就不新增（种子库零变化），空库则补出最小组织。
 ///
-/// 放在每条用例的 `ensure_db()` 之后：缺种子时**在造单之前**报出「缺什么 / 怎么补」，
-/// 而不是等 `create_report()` 甩一句「库里必须有一名带部门的用户」。
-async fn require_seed() {
+/// 费用类型 / 科目是迁移种子（V0242 / V0226）：真缺了说明库的迁移不是当前版本，
+/// 这里照旧响亮报错（不是 SKIP）。
+async fn ensure_fixtures() {
+    seed_guard::ensure_dept_user().await;
+    seed_guard::ensure_approver_roles().await;
     seed_guard::require_seed_data(
         "expense_linkage_tests",
-        &[
-            seed_guard::DEPT_USER,
-            seed_guard::EXPENSE_TYPE,
-            seed_guard::ACCOUNT,
-            seed_guard::APPROVER_ROLES,
-        ],
+        &[seed_guard::EXPENSE_TYPE, seed_guard::ACCOUNT],
     )
     .await;
 }
 
 /// 一名**有部门**的用户（报销单的部门是预算维度，没有部门的用户建不了单）。
-async fn reporter() -> Option<(Uuid, Uuid, String)> {
-    let rows = db()
-        .query_sql(
-            "SELECT u.id, u.dept_id, coalesce(nullif(u.real_name,''), u.username) AS name \
-               FROM sys_user u JOIN sys_dept d ON d.id = u.dept_id AND d.deleted_at IS NULL \
-              WHERE u.deleted_at IS NULL AND u.dept_id IS NOT NULL \
-              ORDER BY u.created_at LIMIT 1"
-                .to_string(),
-            vec![],
-        )
-        .await
-        .ok()?;
-    let row = rows.first()?;
-    Some((
-        row.get_typed("id").ok()?,
-        row.get_typed("dept_id").ok()?,
-        row.get_typed("name").ok()?,
-    ))
+async fn reporter() -> (Uuid, Uuid, String) {
+    seed_guard::ensure_dept_user().await
 }
 
-/// 一条费用类型（V0242 种子；`TRAVEL` 优先）。
-async fn travel_type() -> Option<expense_model::TypeRow> {
+/// 一条费用类型（V0242 迁移种子；`TRAVEL` 优先）。查不到 = 库版本不对。
+async fn travel_type() -> expense_model::TypeRow {
     if let Ok(Some(kind)) = expense_model::type_find_by_code(db(), "TRAVEL").await {
-        return Some(kind);
+        return kind;
     }
-    expense_model::type_active().await.ok()?.into_iter().next()
+    expense_model::type_active()
+        .await
+        .expect("查费用类型")
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| panic!("库里没有启用中的费用类型（V0242 迁移种子未应用？）"))
 }
 
 /// 造单（单头 + 一条 6% 可抵扣明细），返回 id。
 async fn create_report(with_tax: Decimal) -> Uuid {
-    let (user, dept, name) = reporter().await.expect("库里必须有一名带部门的用户");
-    let kind = travel_type()
-        .await
-        .expect("库里必须有费用类型种子（V0242）");
+    let (user, dept, name) = reporter().await;
+    let kind = travel_type().await;
     let expense_date = date("2026-11-03");
     let split = expense_compute::split(with_tax, dec("0.06"), kind.tax_deductible);
     let insert = ReportInsert {
@@ -345,7 +330,7 @@ async fn submit(report_id: Uuid) -> String {
         report_id,
     )
     .await;
-    let (user, _, _) = reporter().await.expect("用户");
+    let (user, _, _) = reporter().await;
     let detail = data(
         report_submit(
             Extension(AuthClaims(claims_of(user))),
@@ -461,7 +446,7 @@ async fn submit_and_approve(report_id: Uuid) -> Uuid {
 
 /// 付款（走真实 handler：行锁 + 付款凭证 + 状态推进 + 联动）。
 async fn pay(report_id: Uuid, amount: Decimal) -> String {
-    let (user, _, _) = reporter().await.expect("用户");
+    let (user, _, _) = reporter().await;
     let detail = data(
         report_pay(
             Extension(AuthClaims(claims_of(user))),
@@ -489,7 +474,7 @@ async fn lnk05_submit_triggers_linkage_notice() {
     if !ensure_db().await {
         return;
     }
-    require_seed().await;
+    ensure_fixtures().await;
     clear_rules().await;
     let report_id = create_report(dec("500")).await;
     add_rule(
@@ -568,7 +553,7 @@ async fn lnk05_approve_triggers_linkage_notice_and_single_voucher() {
     if !ensure_db().await {
         return;
     }
-    require_seed().await;
+    ensure_fixtures().await;
     clear_rules().await;
     let report_id = create_report(dec("500")).await;
     add_rule(
@@ -623,7 +608,7 @@ async fn lnk05_pay_triggers_only_on_full_payment() {
     if !ensure_db().await {
         return;
     }
-    require_seed().await;
+    ensure_fixtures().await;
     clear_rules().await;
     let report_id = create_report(dec("500")).await;
     add_rule(
@@ -673,7 +658,7 @@ async fn lnk05_cancel_triggers_linkage_notice() {
     if !ensure_db().await {
         return;
     }
-    require_seed().await;
+    ensure_fixtures().await;
     clear_rules().await;
     let report_id = create_report(dec("500")).await;
     add_rule(
@@ -690,7 +675,7 @@ async fn lnk05_cancel_triggers_linkage_notice() {
         1
     );
 
-    let (user, _, _) = reporter().await.expect("用户");
+    let (user, _, _) = reporter().await;
     let detail = data(
         report_cancel(
             Extension(AuthClaims(claims_of(user))),
@@ -743,7 +728,7 @@ async fn lnk05_repeat_submit_and_pay_do_not_trigger_twice() {
     if !ensure_db().await {
         return;
     }
-    require_seed().await;
+    ensure_fixtures().await;
     clear_rules().await;
     let report_id = create_report(dec("500")).await;
     add_rule(
@@ -763,7 +748,7 @@ async fn lnk05_repeat_submit_and_pay_do_not_trigger_twice() {
 
     assert_eq!(submit(report_id).await, STATUS_SUBMITTED);
     // 第二次提交：不是草稿 → 409
-    let (user, _, _) = reporter().await.expect("用户");
+    let (user, _, _) = reporter().await;
     let again = report_submit(
         Extension(AuthClaims(claims_of(user))),
         Path(report_id.to_string()),
@@ -817,7 +802,7 @@ async fn lnk05_reject_reverts_to_draft_and_triggers() {
     if !ensure_db().await {
         return;
     }
-    require_seed().await;
+    ensure_fixtures().await;
     clear_rules().await;
     let report_id = create_report(dec("500")).await;
     add_rule(

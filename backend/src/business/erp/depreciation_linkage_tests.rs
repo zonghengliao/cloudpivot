@@ -177,34 +177,14 @@ async fn open_month(month: i16) -> String {
     row.period_code
 }
 
-/// 取一个已存在的部门 id；空库（只有迁移、没有种子部门）时造一个本卡专用的部门。
+/// 取一个可用部门：**库里有就用，没有就造**。
 ///
 /// 真库夹具库常常是「只跑了迁移」的空库（LNK-09 那台 `cloudpivot_lnk09n` 就没有 sys_dept），
-/// 而资产卡片 `use_dept_id` 是硬外键 —— 这里自己造 `LNK10-DEPT` 并在 [`purge`] 里删掉。
+/// 而资产卡片 `use_dept_id` 是硬外键 ⇒ 走 TST-02b 的统一夹具
+/// （[`crate::shared::test_helpers::ensure_any_dept`]：固定 UUID + `ON CONFLICT DO NOTHING`，
+/// 重复跑不会多行）。[`purge`] 里那句 `DELETE … dept_code = 'LNK10-DEPT'` 只清老残留。
 async fn any_dept() -> Uuid {
-    let rows = db()
-        .query_sql(
-            "SELECT id FROM sys_dept WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1"
-                .to_string(),
-            vec![],
-        )
-        .await
-        .expect("查部门");
-    if let Some(id) = rows.first().and_then(|row| row.get_typed("id").ok()) {
-        return id;
-    }
-    let rows = db()
-        .query_sql(
-            "INSERT INTO sys_dept (dept_code, dept_name, status, sort_order) \
-             VALUES ('LNK10-DEPT', 'LNK10 夹具部门', 1, 900) RETURNING id"
-                .to_string(),
-            vec![],
-        )
-        .await
-        .expect("造夹具部门");
-    rows.first()
-        .and_then(|row| row.get_typed("id").ok())
-        .expect("夹具部门 id")
+    crate::shared::test_helpers::ensure_any_dept().await
 }
 
 /// 取一个启用中的资产分类（V0229 种子）。
