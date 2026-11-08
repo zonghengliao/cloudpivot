@@ -1,0 +1,52 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 45 tests
+test business::pdf::dto::tests::a4_converts_to_inches ... ok
+test business::pdf::dto::tests::header_footer_requires_template ... ok
+test business::pdf::dto::tests::build_opts_maps_request_fields ... ok
+test business::pdf::dto::tests::build_opts_requires_custom_dimensions ... ok
+test business::pdf::dto::tests::landscape_swaps_dimensions ... ok
+test business::pdf::dto::tests::page_code_parsing ... ok
+test business::pdf::dto::tests::only_unavailable_is_retryable ... ok
+test business::pdf::dto::tests::preset_sizes_match_spec ... ok
+test business::pdf::dto::tests::pdf_error_maps_to_api_error ... ok
+test business::pdf::dto::tests::validate_rejects_margins_larger_than_paper ... ok
+test business::pdf::dto::tests::validate_rejects_out_of_range ... ok
+test business::pdf::engine::tests::env_defaults ... ok
+test business::pdf::engine::tests::concurrency_is_clamped ... ok
+test business::pdf::engine::tests::new_engine_has_no_side_effects ... ok
+test business::pdf::engine::tests::print_params_map_a4_portrait ... ok
+test business::pdf::handler::tests::content_disposition_sanitizes_quotes ... ok
+test business::pdf::handler::tests::content_disposition_encodes_chinese ... ok
+test business::pdf::engine::tests::print_params_map_custom_landscape ... ok
+test business::pdf::handler::tests::page_code_round_trip ... ok
+test business::pdf::handler::tests::pdf_magic_detection ... ok
+test business::pdf::handler::tests::pdf_error_display_is_human_readable ... ok
+test business::pdf::handler::tests::pdf_response_rejects_non_pdf ... ok
+test business::pdf::handler::tests::pdf_response_sets_headers ... ok
+test business::pdf::handler::tests::render_rejects_empty_html ... ok
+test business::pdf::handler::tests::render_rejects_oversized_html ... ok
+test business::pdf::handler::tests::engine_counts_failures ... ok
+test business::pdf::handler::tests::sample_rejects_bad_page_code ... ok
+test business::pdf::handler::tests::sample_reports_unavailable_when_cdp_is_down ... ok
+test business::pdf::template::tests::amount_upper_five_boundaries ... ok
+test business::pdf::template::tests::amount_upper_matches_bank_style ... ok
+test business::pdf::template::tests::footer_template_has_page_numbers_and_font_size ... ok
+test business::pdf::template::tests::meta_rows_are_chunked_by_three ... ok
+test business::pdf::template::tests::money_and_int_formatting ... ok
+test business::pdf::template::tests::embedded_template_compiles ... ok
+test business::pdf::template::tests::both_templates_register ... ok
+test business::pdf::template::tests::order_item_content_is_escaped ... ok
+test business::pdf::template::tests::order_pdf_opts_are_a4_with_footer ... ok
+test business::pdf::template::tests::item_content_is_escaped ... ok
+test business::pdf::template::tests::quantity_formatting_keeps_decimals ... ok
+test business::pdf::template::tests::renders_sample_purchase_order_html ... ok
+test business::pdf::template::tests::renders_sample_statement_html ... ok
+test business::pdf::template::tests::yuan_to_fen_rounds_half_up ... ok
+test business::pdf::template::tests::totals_follow_row_count ... ok
+test business::pdf::template::tests::zero_rows_is_renderable ... ok
+test business::pdf::template::tests::renders_sample_sales_order_html ... ok
+
+test result: ok. 45 passed; 0 failed; 0 ignored; 0 measured; 3570 filtered out; finished in 0.02s
+

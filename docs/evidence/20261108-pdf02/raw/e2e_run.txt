@@ -1,0 +1,50 @@
+[PASS] 实例健康（GET /health）  {'code': 0, 'msg': 'ok', 'data': {'status': 'ok', 'app': 'cloudpivot', 'profile'
+admin token 长度 = 461
+[PASS] 建 3 行采购订单  {'code': 0, 'msg': 'ok', 'data': {'order': {'id': '01a1bad2-0a8a-71fc-ace0-de75a765cf4e', 'order_no': 'PO-20261108-000004', 'supplier_id': '0f020000-0000-4000-8
+  PO: PO-20261108-000004 01a1bad2-0a8a-71fc-ace0-de75a765cf4e total_with_tax = 421.9900 items = 3
+[PASS] PO 导出 200 + application/pdf  application/pdf / 61243 bytes
+[PASS] PO 导出文件名（中文走 RFC 5987）  attachment; filename="____-PO-20261108-000004.pdf"; filename*=UTF-8''%E9%87%87%E8%B4%AD%E8%AE%A2%E5%8D%95-PO-20261108-000004.pdf
+[PASS] PO PDF 文件头 %PDF-  %PDF-1.4
+[PASS] PO 单页（3 行明细不跨页）  pages=1
+[PASS] PO 页面含「采 购 订 单」
+[PASS] PO 页面含「云枢（上海）科技有限公司」
+[PASS] PO 页面含「供应商」
+[PASS] PO 页面含「PDF02 测试供应商」
+[PASS] PO 页面含「PDF02 一号仓」
+[PASS] PO 页面含「PDF02-MAT-001」
+[PASS] PO 页面含「不锈钢球阀」
+[PASS] PO 页面含「DN50/PN16」
+[PASS] PO 页面含「台」
+[PASS] PO 页面含「数量合计」
+[PASS] PO 页面含「金额合计」
+[PASS] PO 页面含「税额」
+[PASS] PO 页面含「价税合计」
+[PASS] PO 页面含「制单：」
+[PASS] PO 页面含「审核：」
+[PASS] PO 页面含「批准：」
+[PASS] PO 页面含「仓管：」
+[PASS] PO 页面含「客户签收：」
+[PASS] PO 备注含交期
+[PASS] PO 大写金额与独立实现一致（肆佰贰拾壹元玖角玖分）
+[PASS] 建 50 行销售订单  {'code': 0, 'msg': 'ok', 'data': {'id': '01a1bad2-0e9e-761a-8a26-a7eb3e522777', 'so_no': 'SO-20261108-000003', 'customer_id': '0f020000-0000-4000-8000-000000000006', 'customer_code': 'PDF02-CUS', 'cus
+  SO: SO-20261108-000003 01a1bad2-0e9e-761a-8a26-a7eb3e522777 total_with_tax = 565.0000
+[PASS] SO 导出 200 + application/pdf  None / 185311 bytes / None
+[PASS] SO 跨页（50 行 > 1 页）  pages=2
+[PASS] SO 每页都重复表头（2/2 页）
+[PASS] SO 每页页脚页码正确（第 X 页 / 共 Y 页）  p1:['第1页/共2页'] | p2:['第2页/共2页']
+[PASS] SO 50 行明细全部打印（跨页不丢行）  material 出现 50 次
+[PASS] SO 序号 1..50 连续
+[PASS] SO 大写金额与独立实现一致（伍佰陆拾伍元整）
+[PASS] SO 单据头客户名
+[PASS] SO 仓库栏如实打「—」（销售单不指定仓库）
+[PASS] PDF 字体全部嵌入（pdffonts emb=yes）  AAAAAA+NotoSansSC-Bold               CID TrueType      Identity-H       yes yes yes      4  0
+[PASS] 中文可无损抽取（无方框 / 无乱码）
+  role: 409 None
+[PASS] 无权限角色就绪（PDF02_NO_PERM）  01a1bacc-0a07-73ac-8b4e-d30dad744d71
+  user: 409 {'code': 30010, 'msg': '用户名已存在'}
+[PASS] 无权限账号就绪（pdf02_noperm）
+[PASS] 无权限账号可登录（证明不是 401 混成 403）
+[PASS] 无权导出 purchase-order → 403 且点名权限码  403 无权限访问，需要权限: business:erp:purchase-order:list
+[PASS] 无权导出 sales-order → 403 且点名权限码  403 无权限访问，需要权限: business:erp:sale-order:list
+
+==== 汇总：43 项，失败 0 项 ====

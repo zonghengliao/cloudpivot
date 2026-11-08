@@ -1,0 +1,14 @@
+[2m2026-11-08T10:59:00.470380Z[0m [32m INFO[0m [2mnik_db::factory[0m[2m:[0m database connection established [3mdb_type[0m[2m=[0mpostgres [3murl[0m[2m=[0mpostgres://cloudpivot:***@127.0.0.1:5432/cloudpivot_pdf02?sslmode=prefer
+[2m2026-11-08T10:59:00.471090Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库连接成功
+[2m2026-11-08T10:59:00.660356Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+[2m2026-11-08T10:59:00.660427Z[0m [32m INFO[0m [2mnik_cache[0m[2m:[0m 使用 Redis 缓存 url=redis://127.0.0.1:6379/7 app=cloudpivot
+[2m2026-11-08T10:59:00.661311Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 上传目录就绪 path=uploads max_size_mb=128
+[2m2026-11-08T10:59:00.661343Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 下载目录就绪 path=downloads
+[2m2026-11-08T10:59:00.661383Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 执行 1 个自定义启动钩子（按注册顺序）
+[2m2026-11-08T10:59:00.661443Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 启动引导完成 [3mapp[0m[2m=[0mcloudpivot [3mprofile[0m[2m=[0mdev [3mdb_driver[0m[2m=[0mpostgres
+...
+[2m2026-11-08T10:59:00.660356Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+[2m2026-11-08T10:59:34.384708Z[0m [32m INFO[0m [2mcloudpivot::business::pdf::engine[0m[2m:[0m PDF 渲染完成 [3melapsed_ms[0m[2m=[0m195 [3mbytes[0m[2m=[0m61249 [3mpage[0m[2m=[0m"A4" [3mlandscape[0m[2m=[0mfalse
+[2m2026-11-08T10:59:34.623577Z[0m [32m INFO[0m [2mcloudpivot::business::pdf::engine[0m[2m:[0m PDF 渲染完成 [3melapsed_ms[0m[2m=[0m186 [3mbytes[0m[2m=[0m185268 [3mpage[0m[2m=[0m"A4" [3mlandscape[0m[2m=[0mfalse
+[2m2026-11-08T11:01:30.801992Z[0m [32m INFO[0m [2mcloudpivot::business::pdf::engine[0m[2m:[0m PDF 渲染完成 [3melapsed_ms[0m[2m=[0m898 [3mbytes[0m[2m=[0m61243 [3mpage[0m[2m=[0m"A4" [3mlandscape[0m[2m=[0mfalse
+[2m2026-11-08T11:01:31.352144Z[0m [32m INFO[0m [2mcloudpivot::business::pdf::engine[0m[2m:[0m PDF 渲染完成 [3melapsed_ms[0m[2m=[0m406 [3mbytes[0m[2m=[0m185311 [3mpage[0m[2m=[0m"A4" [3mlandscape[0m[2m=[0mfalse

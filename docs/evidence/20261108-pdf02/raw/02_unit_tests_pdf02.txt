@@ -1,0 +1,24 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.23s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 17 tests
+test business::erp::order_pdf::db_tests::export_rejects_bad_uuid_before_query ... ok
+test business::erp::order_pdf::db_tests::export_writes_operation_log_row ... ok
+test business::erp::order_pdf::db_tests::purchase_order_context_reads_real_rows ... ok
+test business::erp::order_pdf::db_tests::sales_order_context_handles_fifty_rows ... ok
+test business::erp::order_pdf::db_tests::soft_deleted_order_is_not_found ... ok
+test business::erp::order_pdf::tests::context_total_round_trips ... ok
+test business::erp::order_pdf::tests::filename_is_sanitized ... ok
+test business::erp::order_pdf::tests::invalid_id_is_rejected ... ok
+test business::erp::order_pdf::tests::missing_material_degrades_gracefully ... ok
+test business::erp::order_pdf::tests::not_found_names_the_document ... ok
+test business::erp::order_pdf::tests::printed_at_is_beijing_time ... ok
+test business::erp::order_pdf::tests::remark_composition_skips_empty ... ok
+test business::erp::order_pdf::tests::seq_is_contiguous_from_one ... ok
+test business::erp::order_pdf::tests::unit_prefers_line_then_material ... ok
+test business::erp::order_pdf_model::tests::empty_ids_short_circuit ... ok
+test business::erp::order_pdf_model::tests::operation_codes_are_distinct ... ok
+test business::erp::order_pdf_model::tests::uuid_array_literal_shape ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 3598 filtered out; finished in 8.30s
+

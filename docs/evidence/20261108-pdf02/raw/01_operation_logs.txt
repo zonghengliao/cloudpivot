@@ -1,0 +1,10 @@
+         operation         |    target_type     | username | status_code | request_method |       doc_no       | rows | amount | bytes  |            filename             | ip |          created_at           
+---------------------------+--------------------+----------+-------------+----------------+--------------------+------+--------+--------+---------------------------------+----+-------------------------------
+ EXPORT_PURCHASE_ORDER_PDF | biz_purchase_order | admin    |         200 | GET            | PO-20261108-000002 | 3    | 421.99 | 61192  | 采购订单-PO-20261108-000002.pdf |    | 2026-11-08 18:54:56.17083+08
+ EXPORT_SALES_ORDER_PDF    | biz_sales_order    | admin    |         200 | GET            | SO-20261108-000001 | 50   | 565.00 | 187802 | 销售订单-SO-20261108-000001.pdf |    | 2026-11-08 18:54:56.474515+08
+ EXPORT_PURCHASE_ORDER_PDF | biz_purchase_order | admin    |         200 | GET            | PO-20261108-000003 | 3    | 421.99 | 61249  | 采购订单-PO-20261108-000003.pdf |    | 2026-11-08 18:59:34.386344+08
+ EXPORT_SALES_ORDER_PDF    | biz_sales_order    | admin    |         200 | GET            | SO-20261108-000002 | 50   | 565.00 | 185268 | 销售订单-SO-20261108-000002.pdf |    | 2026-11-08 18:59:34.624605+08
+ EXPORT_PURCHASE_ORDER_PDF | biz_purchase_order | admin    |         200 | GET            | PO-20261108-000004 | 3    | 421.99 | 61243  | 采购订单-PO-20261108-000004.pdf |    | 2026-11-08 19:01:30.804431+08
+ EXPORT_SALES_ORDER_PDF    | biz_sales_order    | admin    |         200 | GET            | SO-20261108-000003 | 50   | 565.00 | 185311 | 销售订单-SO-20261108-000003.pdf |    | 2026-11-08 19:01:31.359823+08
+(6 rows)
+
