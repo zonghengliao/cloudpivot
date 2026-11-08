@@ -210,13 +210,23 @@ bash tools/03_year_end.sh     # 12 月结账→年结→期初→次年开账   
 bash tools/99_run_all.sh      # 一键（含 00_env 重建库）
 ```
 
-单测（本地 99，无代码库可用时 DB 用例按既有约定软跳过）：
+单测（**真库**，本机 99 的 PG `cloudpivot_cls01_ut`，283 迁移 + admin 已种；`ERP_DB_URL` 打开真库用例）：
 
 ```text
-cargo check --lib                 → 0 warning / 0 error
-rustfmt +1.94.1 --edition 2024 --check src/business/erp/period.rs → exit 0（--check 即校验通过）
-cargo test --lib business::erp::period → ok. 51 passed; 0 failed; 0 ignored（含新增 p1_reopen_blocked_only_by_closed_year_end）
+cargo check --lib                                  → 0 warning / 0 error
+rustfmt +1.94.1 --edition 2024 --check src/business/erp/period.rs → exit 0
+cargo test --lib business::erp::period::tests -- --test-threads=1
+  → test result: ok. 17 passed; 0 failed; 0 ignored（8.04s，无一条 SKIP）
+     含新增 p1_reopen_blocked_only_by_closed_year_end
+     含既有 p1_reopen_blocked_by_later_closed_period / p1_reopen_restores_posting / p1_reopen_requires_reason
+        （证明新闸没有把「合法反结账」一起挡掉）
+cargo test --lib business::erp::period -- --test-threads=1
+  → test result: ok. 51 passed; 0 failed; 0 ignored（55.33s，period + period_items + period_linkage + period_remind 全量）
 ```
+
+> 145 只有 7G 内存，链接 700M 的 test 二进制两次被 OOM SIGKILL（`tools/98_unit_tests.sh` 留档），
+> 所以真库单测改在本机 99（15G）跑；日志见 `cls01_test_period.txt`（用例明细）与
+> `cls01_test_period_db.txt`（51 条全量）。**没有任何一条 ignore / skip**。
 
 真机断言分布：`cls01_drill_out.txt`（307 条 ✅，0 ❌）。摘要：
 

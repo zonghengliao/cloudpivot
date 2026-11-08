@@ -1,0 +1,35 @@
+✅ 空库 cloudpivot_cls01_ut 已建（owner alun）
+health=200
+migrations=283
+users=1
+--- cargo test --lib business::erp::period（真库 cloudpivot_cls01_ut，test-threads=1）
+test business::erp::period_items::tests::next_action_table_is_stable ... ok
+test business::erp::period_items::tests::owner_name_only_when_role_has_single_user ... ok
+test business::erp::period_items::tests::owner_role_is_null_when_no_role_holds_permission ... ok
+test business::erp::period_items::tests::owner_role_is_resolved_from_permission ... ok
+test business::erp::period_items::tests::route_encoding_is_safe ... ok
+test business::erp::period_items::tests::unfinished_items_are_capped_at_fifty_across_types ... ok
+test business::erp::period_linkage::tests::notice_draft_carries_period_context ... ok
+test business::erp::period_linkage::tests::notice_idempotency_key_is_per_status_and_period ... ok
+test business::erp::period_linkage_tests::lnk08_close_triggers_closed_notice ... ok
+test business::erp::period_linkage_tests::lnk08_commit_failure_keeps_period_open_and_silent ... ok
+test business::erp::period_linkage_tests::lnk08_excluded_ledger_actions_never_run ... ok
+test business::erp::period_linkage_tests::lnk08_reopen_triggers_open_notice ... ok
+test business::erp::period_linkage_tests::lnk08_repeat_close_does_not_trigger_twice ... ok
+test business::erp::period_linkage_tests::lnk08_rolled_back_tx_never_sends_notice ... ok
+test business::erp::period_remind::tests::draft_template_matches_card ... ok
+test business::erp::period_remind::tests::ledger_row_maps_all_columns ... ok
+test business::erp::period_remind::tests::money_text_strips_trailing_zeros ... ok
+test business::erp::period_remind::tests::pick_items_filters_by_kind_and_ids ... ok
+test business::erp::period_remind::tests::remind_dedupes_within_24_hours ... ok
+test business::erp::period_remind::tests::remind_on_clean_period_is_noop ... ok
+test business::erp::period_remind::tests::remind_only_selected_items ... ok
+test business::erp::period_remind::tests::remind_permission_is_enforced_and_seeded ... ok
+test business::erp::period_remind::tests::remind_rejects_invalid_item_ids ... ok
+test business::erp::period_remind::tests::remind_sends_to_owner_and_counts_are_consistent ... ok
+test business::erp::period_remind::tests::remind_skips_items_without_owner ... ok
+test business::erp::period_remind::tests::remind_unknown_period_is_404 ... ok
+test business::erp::period_remind::tests::remind_writes_ledger_and_ledger_alone_blocks_repeat ... ok
+
+test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 3766 filtered out; finished in 55.33s
+
