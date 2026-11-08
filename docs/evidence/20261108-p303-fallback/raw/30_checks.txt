@@ -1,0 +1,41 @@
+================ P3-03 ④ 静态检查 + 单测 + typecheck ================
+
+--- 1) rustfmt --check（仅本卡改过的文件）
+  ✅ 14 个 Rust 文件 fmt 干净
+
+--- 2) 迁移号段核对（不得重号）
+  ✅ migrations/business 下 V0334 恰好 2 个文件（up/down） = 2
+  ✅ 全局 4 位版本号无重复（按 *.up.sql 计） = none
+  已用版本号总数 = 256
+
+--- 3) cargo clippy --lib -- -D warnings
+  既有基线（不带 -A 的原始输出，留档 raw/30_clippy_baseline.log）：
+    error: this function has too many arguments (8/7)
+    error: could not compile `cloudpivot` (lib) due to 1 previous error
+  ✅ clippy --lib -D warnings -A too_many_arguments：零告警（本卡零新增）
+  ✅ 既有基线文件 erp/sales_order_model.rs 未被本卡改动 = 0
+
+--- 4) 单测（真库用例带 ERP_DB_URL + --nocapture，避免静默 SKIP 假绿）
+  ERP_DB_URL → 库 cloudpivot_p303_upgrade
+  test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 3411 filtered out; finished in 0.00s
+  test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 3413 filtered out; finished in 0.00s
+  test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 3409 filtered out; finished in 1.36s
+  test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 3405 filtered out; finished in 0.83s
+  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3414 filtered out; finished in 0.00s
+  test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 3399 filtered out; finished in 0.01s
+  ✅ 真库用例没有静默 SKIP = 0
+  ✅ 6 组单测全绿（含真库 6 条）
+  ✅ 单测无 FAILED = 0
+
+--- 5) 前端 typecheck（vue-tsc --noEmit）
+  [WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+  
+  > @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+  > vue-tsc --noEmit
+  
+  ✅ pnpm typecheck 退出码 = 0
+
+--- 6) 改动面：只动 flow / 码表 / 证据，不碰 system 与 support 底座
+  ✅ backend/src/system|support 改动数 = 0
+
+===== 结果：PASS=10 FAIL=0 =====

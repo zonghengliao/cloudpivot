@@ -332,6 +332,8 @@ fn graph_to_save_req(graph: &FlowGraph) -> flow_dto::GraphSaveReq {
                 empty_assignee: Some(node.empty_assignee.clone()),
                 self_approval: None,
                 allow_robot: None,
+                fallback_user_id: node.fallback_user_id.map(|id| id.to_string()),
+                fallback_role_id: node.fallback_role_id.map(|id| id.to_string()),
                 join_mode: None,
                 fork_mode: None,
                 timeout_hours: None,

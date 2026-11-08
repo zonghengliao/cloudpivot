@@ -1945,6 +1945,7 @@ pub async fn transfer(
             assignee_rule_id: None,
             escalated_from_role: None,
             escalate_reason: None,
+            assigned_by_rule: None,
         },
     )
     .await;
@@ -2105,6 +2106,7 @@ pub async fn add_sign(
                 assignee_rule_id: None,
                 escalated_from_role: None,
                 escalate_reason: None,
+                assigned_by_rule: None,
             },
         )
         .await;
@@ -2628,6 +2630,9 @@ impl<'a> Run<'a> {
                 let escalated_from_role = finalized.escalated_from_role.clone();
                 let escalate_reason = finalized.escalate_reason.clone();
                 let escalation = finalized.escalation.clone();
+                // P3-03：兜底留痕 + 派单规则（升级链 / 兜底人只在这两条降级路径上定值）
+                let fallback = finalized.fallback.clone();
+                let assigned_by_rule = finalized.assigned_by_rule.clone();
                 tracing::info!(
                     instance_id = %self.instance.id,
                     node_key = %spec.key,
@@ -2689,6 +2694,8 @@ impl<'a> Run<'a> {
                             assignee_rule_id: finalized.rule_id.clone(),
                             escalated_from_role: None,
                             escalate_reason: None,
+                            // SKIPPED 是「被剔掉的人」，不是「派上去的人」→ 不写派单规则
+                            assigned_by_rule: None,
                         },
                     )
                     .await;
@@ -2740,31 +2747,19 @@ impl<'a> Run<'a> {
                     .await;
                     // P3-02：升级链走过但到顶仍无人 → 报文里必须写「升级链已走完 + 每一级几个人」，
                     // 否则用户只会看到「内控剔光」而不知道系统已经替他想过上级角色了。
-                    let mut error = match escalation.as_ref().filter(|esc| !esc.applied) {
-                        Some(escalation) => ApiError::new(
-                            422,
-                            error_code::FLOW_NO_ASSIGNEE,
-                            format!(
-                                "节点「{}」的审批人全部是制单人 / 发起人本人，内控（职责分离）不允许他们审批自己的单据，\
-                                 本节点没有一个可用审批人：{who}。升级链已走完：{}（括号内为「可用/成员」人数）。\
-                                 请先把该节点的审批岗位（角色成员 / 指定审批人）或升级链上每一级的角色\
-                                 指派给非制单人、非发起人；或改由他人提交本单。",
-                                spec.name,
-                                escalation.chain_text()
-                            ),
+                    // P3-03：兜底人同样要交代（配没配 / 配了为什么没用上）。
+                    let dispatch = assignee::dispatch_hint(escalation.as_ref(), fallback.as_ref());
+                    let mut error = ApiError::new(
+                        422,
+                        error_code::FLOW_NO_ASSIGNEE,
+                        format!(
+                            "节点「{}」的审批人全部是制单人 / 发起人本人，内控（职责分离）不允许他们审批自己的单据，\
+                             本节点没有一个可用审批人：{who}。{dispatch}。\
+                             请先把该节点的审批岗位（角色成员 / 指定审批人）、升级链上每一级的角色\
+                             或节点兜底人指派给非制单人、非发起人；或改由他人提交本单。",
+                            spec.name
                         ),
-                        None => ApiError::new(
-                            422,
-                            error_code::FLOW_NO_ASSIGNEE,
-                            format!(
-                                "节点「{}」的审批人全部是制单人 / 发起人本人，内控（职责分离）不允许他们审批自己的单据，\
-                                 本节点没有一个可用审批人：{who}。\
-                                 请先把该节点的审批岗位（角色成员 / 指定审批人）指派给非制单人、非发起人；\
-                                 或改由他人提交本单。",
-                                spec.name
-                            ),
-                        ),
-                    };
+                    );
                     no_assignee::attach(&mut error, payload);
                     // 引擎比 `assignee::resolve` 多知道一件事：这是**哪一个实例节点行**
                     no_assignee::set_node_id(&mut error, row.id);
@@ -2797,6 +2792,8 @@ impl<'a> Run<'a> {
                             assignee_rule_id: finalized.rule_id.clone(),
                             escalated_from_role: None,
                             escalate_reason: None,
+                            // 内控排除的留痕行同上：不是派上去的人
+                            assigned_by_rule: None,
                         },
                     )
                     .await;
@@ -2848,6 +2845,11 @@ impl<'a> Run<'a> {
                             // 那些人是「被剔掉的」，不是「升级派来的」）
                             escalated_from_role: escalated_from_role.clone(),
                             escalate_reason: escalate_reason.clone(),
+                            // P3-03：升级 → ESCALATED / 兜底 → FALLBACK / 其余按候选来源补 ROLE
+                            assigned_by_rule: assigned_by_rule.clone().or_else(|| {
+                                (candidate.source.as_str() == assignee::ASSIGNED_BY_ROLE)
+                                    .then(|| assignee::ASSIGNED_BY_ROLE.to_string())
+                            }),
                         },
                     )
                     .await;
@@ -3222,6 +3224,7 @@ impl<'a> Run<'a> {
                     assignee_rule_id: None,
                     escalated_from_role: None,
                     escalate_reason: None,
+                    assigned_by_rule: None,
                 },
             )
             .await;
@@ -3727,6 +3730,8 @@ mod tests {
                     empty_assignee: "SKIP".to_string(),
                     self_approval: "SKIP".to_string(),
                     allow_robot: false,
+                    fallback_user_id: None,
+                    fallback_role_id: None,
                     timeout_hours: None,
                     timeout_action: "REMIND".to_string(),
                     remind_before_hours: None,
@@ -3753,6 +3758,8 @@ mod tests {
                     empty_assignee: "SKIP".to_string(),
                     self_approval: "SKIP".to_string(),
                     allow_robot: false,
+                    fallback_user_id: None,
+                    fallback_role_id: None,
                     timeout_hours: None,
                     timeout_action: "REMIND".to_string(),
                     remind_before_hours: None,

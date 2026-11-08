@@ -1014,6 +1014,14 @@ pub const FLOW_ESCALATION_INVALID: i32 = 65040;
 /// （多半是环没被 visited 集合捕获前就已经很长，或误把整张组织表串成了链）。
 pub const FLOW_ESCALATION_TOO_DEEP: i32 = 65041;
 
+/// 节点兜底人配置无效（HTTP 422，P3-03 / ARCH-8 场景 C）。
+///
+/// 兜底人是「升级链走完仍无人」的最后一道人手兜底，配错时必须显式失败：
+/// 用户不存在 / 已被删除 / 已停用 / 是机器人（节点没开 `allow_robot`）/
+/// 兜底角色不存在 / 兜底角色没有可用成员 —— 静默当成「没配兜底」会让
+/// 运维以为已经兜住了，实际单据照样发不出去。
+pub const FLOW_FALLBACK_INVALID: i32 = 65042;
+
 // ==================== 66xxx：ERP 主数据 / 仓储（批次 D · W1c） ====================
 //
 // 码段说明：64xxx 是云枢 × Hermes，65xxx 是审批流；ERP 接口层（W1c）新开 66xxx，
@@ -1883,6 +1891,7 @@ mod tests {
             (FLOW_PREVIEW_INVALID, 65039),
             (FLOW_ESCALATION_INVALID, 65040),
             (FLOW_ESCALATION_TOO_DEEP, 65041),
+            (FLOW_FALLBACK_INVALID, 65042),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "65xxx 段码值不得改动");
@@ -1897,16 +1906,16 @@ mod tests {
         assert_eq!(unique.len(), codes.len(), "65xxx 段不得有重复码值");
         assert_eq!(
             unique.len(),
-            36,
-            "65xxx 段必须是 36 个码（架构 §10.3 的 22 个 + D2 追加的 5 个运行侧细分码 + P1-A2 的 65033 \
-             + P-FLOW-1A 的 65034–65039 + P3-02 的 65040–65041）"
+            37,
+            "65xxx 段必须是 37 个码（架构 §10.3 的 22 个 + D2 追加的 5 个运行侧细分码 + P1-A2 的 65033 \
+             + P-FLOW-1A 的 65034–65039 + P3-02 的 65040–65041 + P3-03 的 65042）"
         );
         assert!(
             codes.iter().all(|(code, _)| *code > 64014 && *code < 66000),
             "65xxx 段必须落在 64014 与 66000 之间（不侵占 AI 用户段）"
         );
         println!(
-            "[码表] 65xxx 段 {} 个码齐全且不重复（65001–65005 / 65010–65028 / 65030–65041）✓",
+            "[码表] 65xxx 段 {} 个码齐全且不重复（65001–65005 / 65010–65028 / 65030–65042）✓",
             codes.len()
         );
     }

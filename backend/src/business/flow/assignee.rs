@@ -197,6 +197,14 @@ pub struct Finalized {
     /// 引擎用它组装「升级链已走完」的 422 报文与结构化诊断（P3-02）；
     /// 走通时它只是排障痕迹，不进业务表（业务表只留 [`Self::escalated_from_role`]）。
     pub escalation: Option<Escalation>,
+    /// 兜底尝试的痕迹（P3-03）；`None` = 节点没配兜底人。
+    pub fallback: Option<Fallback>,
+    /// 派单规则留痕（写 `biz_flow_task.assigned_by_rule`，P3-03）。
+    ///
+    /// 只有「升级链 / 兜底人」这两条**降级路径**在这里定值（`ESCALATED` / `FALLBACK`）；
+    /// 普通路径由引擎按候选来源补 `ROLE`（一个节点可能混着 ROLE + USER 来源，
+    /// 只有引擎逐行看得到候选）。`None` = 由引擎决定。
+    pub assigned_by_rule: Option<String>,
     /// 解析痕迹（写日志 + 详情页提示）。
     pub notes: Vec<String>,
 }
@@ -789,6 +797,7 @@ pub async fn resolve(
                     finalized.fallback_admin = false;
                     finalized.error = None;
                     finalized.escalation = Some(escalation);
+                    finalized.assigned_by_rule = Some(ASSIGNED_BY_ESCALATION.to_string());
                 }
                 EscalationOutcome::Exhausted(escalation) => {
                     // 到顶仍无人：**不在这里报 422**（交给 empty_assignee / 引擎统一处置），
@@ -810,37 +819,81 @@ pub async fn resolve(
         }
     }
 
-    // ⑤ 空审批人策略（升级链没找到人 / 根本不适用时才走这里）
+    // ⑤ 兜底人（P3-03 / ARCH-8 第 ③ 层）：**升级链之后**、空审批人策略之前。
+    //
+    //   到这里 `approvers` 仍为空 = 「升级链走完也没人」（或该节点压根没有升级链可走）。
+    //   节点配了 fallback_user / fallback_role 就由它接管；两列都空则保持原行为。
+    if finalized.approvers.is_empty() {
+        match apply_fallback(ex, node, node.allow_robot, ctx.initiator_id, &mut trace).await? {
+            FallbackOutcome::NotConfigured => {
+                // 只留痕；报文由下面的 `dispatch_hint` 统一拼（「升级链与兜底人均未配置」）
+                finalized.notes.push(
+                    "本节点没有兜底人配置（fallback_user_id / fallback_role_id 均为空）"
+                        .to_string(),
+                );
+            }
+            FallbackOutcome::Applied(fallback, approvers) => {
+                trace.push(format!(
+                    "兜底人接管：{}（{}）→ {} 人",
+                    fallback.target_label(),
+                    fallback.reason,
+                    approvers.len()
+                ));
+                finalized.notes.push(format!(
+                    "升级链走完仍无人，已由兜底人「{}」接管",
+                    fallback.target
+                ));
+                finalized.approvers = approvers;
+                finalized.auto_pass = false;
+                finalized.fallback_admin = false;
+                finalized.error = None;
+                finalized.assigned_by_rule = Some(ASSIGNED_BY_FALLBACK.to_string());
+                finalized.fallback = Some(fallback);
+            }
+            FallbackOutcome::Invalid(error) => {
+                // 65042：兜底配错必须吵（静默当成「没配」会让运维以为已经兜住了）
+                return Ok(Resolution {
+                    finalized: Finalized::failed(error, finalized.notes),
+                    trace,
+                });
+            }
+            FallbackOutcome::SelfConflict(error, fallback) => {
+                // 兜底人就是发起人：内控不允许自审 —— 不放行、也不再往下走 empty_assignee
+                finalized.fallback = Some(fallback);
+                finalized
+                    .notes
+                    .push("兜底人即发起人，内控不允许自审（兜底不是免审）".to_string());
+                return Ok(Resolution {
+                    finalized: Finalized::failed(error, finalized.notes),
+                    trace,
+                });
+            }
+        }
+    }
+
+    // ⑥ 空审批人策略（升级链 / 兜底人都不适用时才走这里）
     apply_empty_policy(&mut finalized, empty_policy);
 
     // `empty_assignee=ERROR`：把「本节点没有一个可用审批人」补成**可执行**的配置指引。
-    // 只改这一种策略的报文（SKIP / FALLBACK_ADMIN 各有自己的语义，一字不动）——
-    // 报文里出现节点名与「去哪儿配」，发起人才知道下一步做什么
-    // （t_e63b600f：作废复核岗位没人时，旧报文只说「没有一个可用审批人」，等于死路）。
+    //
+    // P3-03：报文必须能回答「降级链走到哪了」（升级链走到几级、兜底人配没配），
+    // 所以先算好 `dispatch` 再借 `error`（同时借用 `finalized` 的不可变字段会冲突）。
+    let dispatch = dispatch_hint(finalized.escalation.as_ref(), finalized.fallback.as_ref());
     if let Some(error) = finalized.error.as_mut()
         && error.code == error_code::FLOW_NO_ASSIGNEE
         && error.msg.contains("empty_assignee=ERROR")
     {
-        error.msg = match finalized.escalation.as_ref().filter(|esc| !esc.applied) {
-            Some(escalation) => format!(
-                "节点「{}」没有任何可用审批人（来源 {} 解析出 0 人；**升级链已走完**：{}）。\
-                 该节点配置了 empty_assignee=ERROR，不会兜底给管理员。请到\
-                 「系统管理 → 角色管理 → 上级角色」把该链路上每一级都指派在职成员，\
-                 或到「流程定义 → 本流程 → 节点「{}」」把审批人设为具体角色或人员。",
-                node.name,
-                node.assignee_type.as_deref().unwrap_or("未配置"),
-                escalation.chain_text(),
-                node.name
-            ),
-            None => format!(
-                "节点「{}」没有任何可用审批人（来源 {} 解析出 0 人；该节点配置了 empty_assignee=ERROR，\
-                 不会兜底给管理员）。请到「流程定义 → 本流程 → 节点「{}」」把审批人设为具体角色或人员，\
-                 并确认该角色下有在职成员（角色管理 → 成员）；若该岗位确实无人，可改由有审批权的人提交本单。",
-                node.name,
-                node.assignee_type.as_deref().unwrap_or("未配置"),
-                node.name
-            ),
-        };
+        error.msg = format!(
+            "节点「{}」没有任何可用审批人（来源 {} 解析出 0 人；{dispatch}）。\
+             该节点配置了 empty_assignee=ERROR，不会兜底给管理员。请依次检查：\
+             ①「流程定义 → 本流程 → 节点「{}」」的审批人是否指向有在职成员的角色 / 人；\
+             ②「系统管理 → 角色管理 → 上级角色」把升级链上每一级都指派在职成员；\
+             ③给节点配「兜底审批人」或「兜底角色」（升级链走完仍无人时由它接管，\
+             要多人兜底就配角色）。若该岗位确实无人，可改由有审批权的人提交本单。",
+            node.name,
+            node.assignee_type.as_deref().unwrap_or("未配置"),
+            node.name
+        );
     }
     trace.push(format!(
         "去重 + 策略后：待办 {} 行 / SKIPPED 留痕 {} 行 / 自动通过={} / 升级={}",
@@ -1551,6 +1604,348 @@ fn escalation_start_roles(plans: &[SourcePlan]) -> Vec<Uuid> {
     out
 }
 
+// ==================== 节点兜底人（P3-03 · ARCH-8 第 ③ 层） ====================
+//
+// 场景：角色只有制单人一人（SKIP 剔光）**且**该角色没有上级（`escalation_role_id` 为 NULL）
+// ⇒ 升级链走完仍然 0 人。P3-02 之后这里只能 422，单据永远发不出去（ARCH-8 场景 C）。
+// 现在由**节点**自己配一个「兜底审批人 / 兜底角色」接管。
+//
+// 三条纪律（卡面 §2 / 决策 D3）：
+//
+// 1. **兜底不是免审**：兜底人同样要过停用 / ROBOT / 自审过滤。兜底人就是发起人时
+//    **不许放行**，而是 422（报文点名「兜底人即发起人，内控不允许自审」）——
+//    否则「配个兜底人」就成了「给自己开一条免审通道」；
+// 2. **配错要吵（65042）**：用户已删 / 已停用 / 是机器人（节点没开 `allow_robot`）/
+//    角色已删 / 角色 0 可用成员 —— 静默当成「没配兜底」会让运维以为已经兜住了；
+// 3. **两列二选一**：DB 有 CHECK，发布期 R22 再挡一次（要多人就配角色）。
+
+/// 派单规则留痕值：按角色展开（`assignee_source='ROLE'` 的普通路径）。
+pub const ASSIGNED_BY_ROLE: &str = "ROLE";
+
+/// 派单规则留痕值：沿角色升级链改派（P3-02）。
+pub const ASSIGNED_BY_ESCALATION: &str = "ESCALATED";
+
+/// 派单规则留痕值：升级链走完仍无人 → 节点兜底人接管（P3-03）。
+pub const ASSIGNED_BY_FALLBACK: &str = "FALLBACK";
+
+/// 派单规则留痕值：委托（P3-04 预留；列已建好，P3-04 不再加列）。
+pub const ASSIGNED_BY_DELEGATION: &str = "DELEGATED";
+
+/// 一次兜底尝试的痕迹（报文 / trace / 结构化诊断用）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Fallback {
+    /// 配置的目标名（用户姓名 / 角色名）；空 = 没配。
+    pub target: String,
+    /// 是否按**角色**兜（`false` = 按用户）。
+    pub by_role: bool,
+    /// 是否真的派上了。
+    pub applied: bool,
+    /// 派上 / 没派上的原因（人读）。
+    pub reason: String,
+}
+
+impl Fallback {
+    /// 目标的人读标签：`张三（兜底审批人）` / `销售主管（兜底角色）`。
+    pub fn target_label(&self) -> String {
+        if self.by_role {
+            format!("{}（兜底角色）", self.target)
+        } else {
+            format!("{}（兜底审批人）", self.target)
+        }
+    }
+}
+
+/// 兜底的四种结局。
+#[derive(Debug)]
+pub enum FallbackOutcome {
+    /// 两列都空 —— 不兜底（行为与 P3-02 之后逐字一致）。
+    NotConfigured,
+    /// 兜底生效（附「他们是谁」）。
+    Applied(Fallback, Vec<Candidate>),
+    /// 兜底配置无效（`65042`）：用户不存在 / 停用 / 机器人 / 角色不存在 / 角色无可用成员。
+    Invalid(ApiError),
+    /// 兜底人就是发起人（内控不允许自审）→ `422 + 65018`；附目标名给报文用。
+    SelfConflict(ApiError, Fallback),
+}
+
+/// 快照里的兜底列（`String`）→ `Option<Uuid>`；空串 / 非法值都当「没配」。
+///
+/// 非法值不会静默吞掉：调用方看到两列都解析成 `None` 但原值非空时，报 `65042`
+/// （手工改库把 UUID 写坏的情况也要能说清）。
+fn parse_fallback_ids(node: &SnapshotNode) -> (Option<Uuid>, Option<Uuid>) {
+    let one = |raw: Option<&str>| {
+        raw.map(str::trim)
+            .filter(|text| !text.is_empty())
+            .and_then(|text| Uuid::parse_str(text).ok())
+    };
+    (
+        one(node.fallback_user_id.as_deref()),
+        one(node.fallback_role_id.as_deref()),
+    )
+}
+
+/// 第 ⑦ 步：升级链走完仍无人 → 节点兜底人 / 兜底角色接管（P3-03）。
+///
+/// # 判定顺序（不可换）
+///
+/// 1. 两列都空 → [`FallbackOutcome::NotConfigured`]（交 `empty_assignee` 处置）；
+/// 2. **用户**兜底：查人（软删不返回）→ 停用 / ROBOT / 自审三道过滤 →
+///    发起人本人 → [`FallbackOutcome::SelfConflict`]（内控，**不放行**）；
+/// 3. **角色**兜底：展开在位成员 → 同样三道过滤（固定 `SelfPolicy::Skip`）→
+///    0 人可用 → `65042`（报文说清「在位几人、被谁过滤掉」）。
+///
+/// # 为什么用户兜底还要跑 `filter_candidates`
+///
+/// 不用它就得手写一遍停用 / ROBOT / 自审三判断 —— 那正是「两份实现迟早漂移」的经典形态
+/// （升级链已经因为同一个理由每级重跑 `filter_candidates`）。这里复用同一函数，
+/// 口径与主路 / 升级链逐字一致。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]；配置问题 → [`FallbackOutcome::Invalid`] / `SelfConflict`（不是 500）。
+pub async fn apply_fallback(
+    ex: &impl SqlExecutor,
+    node: &SnapshotNode,
+    allow_robot: bool,
+    initiator: Uuid,
+    trace: &mut Vec<String>,
+) -> DbResult<FallbackOutcome> {
+    let (user_id, role_id) = parse_fallback_ids(node);
+
+    // 原值非空但解析不出 UUID：手工改库写坏了，必须吵（不能当成「没配兜底」）
+    if user_id.is_none() && role_id.is_none() {
+        if node.fallback_user_id.is_some() || node.fallback_role_id.is_some() {
+            let raw = node
+                .fallback_user_id
+                .as_deref()
+                .or(node.fallback_role_id.as_deref())
+                .unwrap_or_default();
+            return Ok(FallbackOutcome::Invalid(ApiError::new(
+                422,
+                error_code::FLOW_FALLBACK_INVALID,
+                format!(
+                    "节点「{}」的兜底人配置无效：{raw} 不是合法的人员 / 角色 id\
+                     （请到「流程定义 → 本流程 → 节点「{}」」重新选择）",
+                    node.name, node.name
+                ),
+            )));
+        }
+        trace.push("节点未配置兜底人（fallback_user_id / fallback_role_id 均为空）".to_string());
+        return Ok(FallbackOutcome::NotConfigured);
+    }
+
+    // ---------- 用户兜底 ----------
+    if let Some(user_id) = user_id {
+        let mut candidates = load_users(ex, &[user_id], AssigneeKind::User).await?;
+        let Some(candidate) = candidates.pop() else {
+            return Ok(FallbackOutcome::Invalid(ApiError::new(
+                422,
+                error_code::FLOW_FALLBACK_INVALID,
+                format!(
+                    "节点「{}」的兜底审批人 {user_id} 不存在（已被删除或 id 非法）。\
+                     请到「流程定义 → 本流程 → 节点「{}」」的「兜底审批人」重新选择，\
+                     或改配「兜底角色」（要多人兜底就配角色）",
+                    node.name, node.name
+                ),
+            )));
+        };
+        // ROBOT：兜底是「人手兜底」，节点没开 allow_robot 时机器人不能顶（与隐式来源同一口径）
+        if candidate.is_robot && !allow_robot {
+            return Ok(FallbackOutcome::Invalid(ApiError::new(
+                422,
+                error_code::FLOW_FALLBACK_INVALID,
+                format!(
+                    "节点「{}」的兜底审批人「{}」是机器人，而本节点没有开启「允许机器人」\
+                     ——兜底要的是能签字的人。请换成真人，或在节点上打开「允许机器人」",
+                    node.name, candidate.name
+                ),
+            )));
+        }
+        let mut notes: Vec<String> = Vec::new();
+        let filtered = match filter_candidates(
+            vec![candidate],
+            SelfPolicy::Skip,
+            allow_robot,
+            initiator,
+            &mut notes,
+        ) {
+            Ok(filtered) => filtered,
+            // Skip 策略不会产生 65019；真出现说明策略被改坏了，按「不可用」处理并留痕
+            Err(error) => return Ok(FallbackOutcome::Invalid(error)),
+        };
+
+        // 自审：兜底人 == 发起人 → 内控不允许，直接 422（不是「静默换人」也不是「放行」）
+        if filtered.skipped.iter().any(|c| c.user_id == initiator) {
+            let name = filtered
+                .skipped
+                .first()
+                .map(|c| c.name.clone())
+                .unwrap_or_default();
+            trace.push(format!(
+                "兜底人「{name}」就是发起人本人，内控不允许自审 → 422"
+            ));
+            return Ok(FallbackOutcome::SelfConflict(
+                ApiError::new(
+                    422,
+                    error_code::FLOW_NO_ASSIGNEE,
+                    format!(
+                        "节点「{}」的兜底审批人「{name}」就是发起人本人 —— \
+                         兜底人即发起人，内控不允许自审（兜底不是免审）。\
+                         请把兜底人换成非发起人、非制单人的在职人员，\
+                         或改配「兜底角色」并确保该角色里有非发起人成员",
+                        node.name
+                    ),
+                ),
+                Fallback {
+                    target: name,
+                    by_role: false,
+                    applied: false,
+                    reason: "兜底人即发起人，内控不允许自审".to_string(),
+                },
+            ));
+        }
+
+        let Some(candidate) = filtered.approvers.into_iter().next() else {
+            // 停用 / 机器人被过滤掉：配置无效
+            return Ok(FallbackOutcome::Invalid(ApiError::new(
+                422,
+                error_code::FLOW_FALLBACK_INVALID,
+                format!(
+                    "节点「{}」的兜底审批人不可用：{}。\
+                     请为他恢复启用状态，或到「流程定义 → 本流程 → 节点「{}」」换一个人 / 改配兜底角色",
+                    node.name,
+                    if notes.is_empty() {
+                        "已停用或不可用".to_string()
+                    } else {
+                        notes.join("；")
+                    },
+                    node.name
+                ),
+            )));
+        };
+        trace.push(format!(
+            "兜底人「{}」接管（第 ⑦ 步：升级链走完仍无人）",
+            candidate.name
+        ));
+        return Ok(FallbackOutcome::Applied(
+            Fallback {
+                target: candidate.name.clone(),
+                by_role: false,
+                applied: true,
+                reason: "兜底审批人接管".to_string(),
+            },
+            vec![candidate],
+        ));
+    }
+
+    // ---------- 角色兜底 ----------
+    let role_id = role_id.expect("上面已保证 user/role 至少有一个");
+    let Some(role) = load_role_chain_node(ex, role_id).await? else {
+        return Ok(FallbackOutcome::Invalid(ApiError::new(
+            422,
+            error_code::FLOW_FALLBACK_INVALID,
+            format!(
+                "节点「{}」的兜底角色 {role_id} 不存在（已被删除）。\
+                 请到「流程定义 → 本流程 → 节点「{}」」重新选择角色，或改配「兜底审批人」",
+                node.name, node.name
+            ),
+        )));
+    };
+    let candidates = load_role_members(ex, &[role_id]).await?;
+    let member_rows = candidates.len();
+    let mut notes: Vec<String> = Vec::new();
+    let filtered = match filter_candidates(
+        candidates,
+        // 兜底同样不许自审：发起人在兜底角色里也只会落 SKIPPED 留痕，不会被塞回待办
+        SelfPolicy::Skip,
+        allow_robot,
+        initiator,
+        &mut notes,
+    ) {
+        Ok(filtered) => filtered,
+        Err(error) => return Ok(FallbackOutcome::Invalid(error)),
+    };
+    if filtered.approvers.is_empty() {
+        return Ok(FallbackOutcome::Invalid(ApiError::new(
+            422,
+            error_code::FLOW_FALLBACK_INVALID,
+            format!(
+                "节点「{}」的兜底角色「{}」没有可用成员（在位 {member_rows} 人{detail}）。\
+                 兜底不是免审：兜底角色里的成员同样不允许是发起人本人 / 已停用 / 机器人。\
+                 请给该角色加一个既不是制单人也不是发起人的在职成员",
+                node.name,
+                role.role_name,
+                detail = if notes.is_empty() {
+                    String::new()
+                } else {
+                    format!("：{}", notes.join("；"))
+                }
+            ),
+        )));
+    }
+    trace.push(format!(
+        "兜底角色「{}」接管 {} 人（在位 {member_rows} 人，第 ⑦ 步：升级链走完仍无人）",
+        role.role_name,
+        filtered.approvers.len()
+    ));
+    Ok(FallbackOutcome::Applied(
+        Fallback {
+            target: role.role_name,
+            by_role: true,
+            applied: true,
+            reason: format!(
+                "兜底角色展开 {} 人（在位 {member_rows} 人）",
+                filtered.approvers.len()
+            ),
+        },
+        filtered.approvers,
+    ))
+}
+
+/// 「为什么还是没人」的处置链人读提示（P3-03）。
+///
+/// 422 报文必须能回答「系统还替你想过什么」：升级链走到哪一级、兜底人有没有配。
+/// 两句合成一句，避免 resolve / engine 两处各拼一遍（文案漂移是最难查的那类不一致）。
+///
+/// # 「升级链没配」的判据是**一级都没走**，不是 `escalation.is_none()`
+///
+/// 角色没有上级（`escalation_role_id IS NULL`）时 `escalate()` 同样会返回
+/// `Exhausted`（只是 `levels` 为空）—— 那本质上就是「这条链没配」，报文里必须说
+/// 「升级链与兜底人均未配置」，而不是让用户去「升级链已走完」里找一个不存在的链路。
+///
+/// | 升级链 | 兜底人 | 文案 |
+/// |---|---|---|
+/// | 没配（或一级都没走） | 没配 | `升级链与兜底人均未配置` |
+/// | 走完仍无人 | 没配 | `升级链已走完：<链路>；兜底人未配置` |
+/// | 没配 | 配了但不可用 | `兜底人「X」不可用（<原因>）` |
+/// | 走完仍无人 | 配了但不可用 | `升级链已走完：<链路>；兜底人「X」不可用（<原因>）` |
+pub fn dispatch_hint(escalation: Option<&Escalation>, fallback: Option<&Fallback>) -> String {
+    let escalation_text = escalation
+        .filter(|esc| !esc.applied && !esc.levels.is_empty())
+        .map(|esc| format!("升级链已走完：{}", esc.chain_text()));
+    let fallback_text = fallback.map(|fb| {
+        if fb.applied {
+            format!("兜底人「{}」也已不可用", fb.target)
+        } else {
+            format!(
+                "兜底人「{}」不可用（{}）",
+                fb.target,
+                if fb.reason.is_empty() {
+                    "未生效"
+                } else {
+                    fb.reason.as_str()
+                }
+            )
+        }
+    });
+    match (escalation_text, fallback_text) {
+        (None, None) => "升级链与兜底人均未配置".to_string(),
+        (Some(chain), None) => format!("{chain}；兜底人未配置"),
+        (None, Some(fb)) => fb,
+        (Some(chain), Some(fb)) => format!("{chain}；{fb}"),
+    }
+}
+
 /// `DEPT_LEADER`：指定部门的负责人。
 async fn load_dept_leaders(ex: &impl SqlExecutor, dept_ids: &[Uuid]) -> DbResult<Vec<Candidate>> {
     if dept_ids.is_empty() {
@@ -1787,6 +2182,8 @@ mod tests {
             empty_assignee: "SKIP".to_string(),
             self_approval: "SKIP".to_string(),
             allow_robot: false,
+            fallback_user_id: None,
+            fallback_role_id: None,
             timeout_hours: None,
             timeout_action: "REMIND".to_string(),
             remind_before_hours: None,
@@ -2525,6 +2922,8 @@ mod expression_tests {
             empty_assignee: "SKIP".to_string(),
             self_approval: "SKIP".to_string(),
             allow_robot: false,
+            fallback_user_id: None,
+            fallback_role_id: None,
             timeout_hours: None,
             timeout_action: "REMIND".to_string(),
             remind_before_hours: None,
@@ -2986,6 +3385,468 @@ mod escalation_db_tests {
             }
             other => panic!("期望 Invalid(65040)，实际 {other:?}"),
         }
+        teardown(&fx).await;
+    }
+}
+
+// ==================== 兜底人：纯逻辑单测（P3-03） ====================
+
+#[cfg(test)]
+mod fallback_tests {
+    use super::*;
+
+    fn snapshot_node(assignee_type: &str) -> SnapshotNode {
+        SnapshotNode {
+            key: "n1".to_string(),
+            name: "销售主管审批".to_string(),
+            node_type: "APPROVAL".to_string(),
+            assignee_type: Some(assignee_type.to_string()),
+            approval_mode: None,
+            approve_ratio: None,
+            reject_veto: false,
+            join_mode: "AND".to_string(),
+            fork_mode: "AND".to_string(),
+            form_var_key: None,
+            superior_levels: 1,
+            empty_assignee: "ERROR".to_string(),
+            self_approval: "SKIP".to_string(),
+            allow_robot: false,
+            fallback_user_id: None,
+            fallback_role_id: None,
+            timeout_hours: None,
+            timeout_action: "REMIND".to_string(),
+            remind_before_hours: None,
+            max_remind_times: 3,
+            cc_on_approved: false,
+            x: 0,
+            y: 0,
+            sort_order: 0,
+            config: Json::Object(Default::default()),
+            assignees: Vec::new(),
+        }
+    }
+
+    /// 报文必须能回答「降级链走到哪了」：两层都没配 / 只配了升级链 / 兜底人不可用 / 兜底人也被内控剔掉。
+    #[test]
+    fn dispatch_hint_names_every_missing_layer() {
+        // ① 两层都没配 —— 卡面验收 ④ 钉的就是这句话（前端按它提示「去哪儿配」）
+        assert_eq!(dispatch_hint(None, None), "升级链与兜底人均未配置");
+
+        // ①b 「角色没有上级」时 escalate 也返回 Exhausted，但一级都没走 = 链没配
+        let unconfigured = Escalation {
+            reason: ESCALATE_REASON_SKIP.to_string(),
+            from_role_code: "SALES_CLERK".to_string(),
+            from_role_name: "销售员".to_string(),
+            levels: Vec::new(),
+            applied: false,
+        };
+        assert_eq!(
+            dispatch_hint(Some(&unconfigured), None),
+            "升级链与兜底人均未配置",
+            "一级都没走 = 升级链没配，不能写成「升级链已走完」"
+        );
+
+        // ② 升级链走完仍无人 + 没配兜底
+        let escalation = Escalation {
+            reason: ESCALATE_REASON_SKIP.to_string(),
+            from_role_code: "SALES_CLERK".to_string(),
+            from_role_name: "销售员".to_string(),
+            levels: vec![EscalationLevel {
+                role_id: Uuid::from_u128(1),
+                role_code: "SALES_SUPERVISOR".to_string(),
+                role_name: "销售主管".to_string(),
+                member_rows: 1,
+                usable: 0,
+            }],
+            applied: false,
+        };
+        let text = dispatch_hint(Some(&escalation), None);
+        assert!(text.contains("升级链已走完"), "{text}");
+        assert!(text.contains("销售主管（0/1 人）"), "{text}");
+        assert!(text.contains("兜底人未配置"), "{text}");
+
+        // ③ 只配了兜底人但没派上
+        let unavailable = Fallback {
+            target: "张三".to_string(),
+            by_role: false,
+            applied: false,
+            reason: "已停用".to_string(),
+        };
+        let text = dispatch_hint(None, Some(&unavailable));
+        assert!(text.contains("兜底人「张三」不可用"), "{text}");
+        assert!(text.contains("已停用"), "{text}");
+
+        // ④ 兜底人派上了、但被引擎的内控 partition 又剔掉（配置错成制单人）
+        let applied = Fallback {
+            target: "李四".to_string(),
+            by_role: false,
+            applied: true,
+            reason: "兜底审批人接管".to_string(),
+        };
+        let text = dispatch_hint(Some(&escalation), Some(&applied));
+        assert!(text.contains("升级链已走完"), "{text}");
+        assert!(text.contains("兜底人「李四」也已不可用"), "{text}");
+    }
+
+    /// 快照里的两列是 `String`：空串 = 没配；非法 UUID 也要能解析成 `None`
+    /// （由 `apply_fallback` 据「原值非空」报 65042，不静默当成没配）。
+    #[test]
+    fn fallback_ids_parse_from_snapshot_strings() {
+        let mut spec = snapshot_node("ROLE");
+        assert_eq!(parse_fallback_ids(&spec), (None, None));
+
+        let user = Uuid::from_u128(42);
+        spec.fallback_user_id = Some(user.to_string());
+        assert_eq!(parse_fallback_ids(&spec), (Some(user), None));
+
+        let role = Uuid::from_u128(43);
+        spec.fallback_user_id = Some(String::new());
+        spec.fallback_role_id = Some(role.to_string());
+        assert_eq!(parse_fallback_ids(&spec), (None, Some(role)));
+
+        spec.fallback_user_id = Some("not-a-uuid".to_string());
+        spec.fallback_role_id = None;
+        assert_eq!(parse_fallback_ids(&spec), (None, None));
+        assert!(
+            spec.fallback_user_id.is_some(),
+            "原值仍在 —— 运行期据此报 65042 而不是当成没配"
+        );
+    }
+}
+
+// ==================== 兜底人：真库单测（P3-03） ====================
+//
+// 覆盖卡面验收 ①②③④ 的**运行期**语义（纯 `resolve`，不起 HTTP）：
+//   ① 升级链走完仍空 + 配 fallback_user → 该人收到待办且 assigned_by_rule=FALLBACK
+//   ② 兜底人 = 发起人 → 422（65018，报文说「内控不允许自审」）
+//   ③ 兜底角色 3 人 → 3 个审批人（ALL/ANY 由 P3-06 决定，本卡按现行为 = 全部落行）
+//   ④ 未配兜底 → 仍 65018 且报文含「升级链与兜底人均未配置」
+//   ⑤⑥ 兜底人不存在 / 已停用 → 65042（配错要吵）
+//
+// 与 `escalation_db_tests` 一样靠 `ERP_DB_URL` 开关：不设就静默 SKIP（CI 无库时不假绿）。
+#[cfg(test)]
+mod fallback_db_tests {
+    use super::*;
+    use crate::business::flow::graph::SnapshotAssignee;
+
+    async fn ensure_db() -> bool {
+        use tokio::sync::OnceCell;
+        static READY: OnceCell<bool> = OnceCell::const_new();
+        *READY
+            .get_or_init(|| async {
+                let Ok(url) = std::env::var("ERP_DB_URL") else {
+                    println!("SKIP: 未设置 ERP_DB_URL（不连真实数据库）");
+                    return false;
+                };
+                if try_db().is_some() {
+                    return true;
+                }
+                let mut config = DatabaseConfig::from_url(&url);
+                config.pool.max_lifetime = Some(std::time::Duration::ZERO);
+                config.pool.idle_timeout = Some(std::time::Duration::ZERO);
+                match Db::connect_with(&url, config).await {
+                    Ok(connection) => set_db(connection).is_ok(),
+                    Err(err) => {
+                        println!("SKIP: ERP_DB_URL 连接失败（{err}）");
+                        false
+                    }
+                }
+            })
+            .await
+    }
+
+    async fn exec(sql: &str) {
+        if let Err(err) = db().execute_with_params(sql, vec![]).await {
+            panic!("SQL 失败：{err}\nSQL: {sql}");
+        }
+    }
+
+    /// 一轮夹具（P303UT_* 前缀，结束即清理）：
+    /// - `maker_role`：**只有发起人**（SKIP 剔光）且**没有上级** → 升级链走完仍 0 人；
+    /// - `fb_role`：3 个在职成员（都不是发起人）；
+    /// - `stopped`：停用用户（兜底人配成他 = 65042）。
+    struct Fixture {
+        maker_role: Uuid,
+        fb_role: Uuid,
+        initiator: Uuid,
+        fb1: Uuid,
+        fb2: Uuid,
+        fb3: Uuid,
+        stopped: Uuid,
+    }
+
+    async fn setup(tag: &str) -> Fixture {
+        for sql in [
+            format!(
+                "DELETE FROM sys_user_role WHERE role_id IN (SELECT id FROM sys_role WHERE role_code LIKE 'P303UT\\_%\\_{tag}')"
+            ),
+            format!("DELETE FROM sys_user WHERE username LIKE 'p303ut\\_%\\_{tag}'"),
+            format!("DELETE FROM sys_role WHERE role_code LIKE 'P303UT\\_%\\_{tag}'"),
+        ] {
+            exec(&sql).await;
+        }
+        let maker_role = Uuid::now_v7();
+        let fb_role = Uuid::now_v7();
+        let initiator = Uuid::now_v7();
+        let fb1 = Uuid::now_v7();
+        let fb2 = Uuid::now_v7();
+        let fb3 = Uuid::now_v7();
+        let stopped = Uuid::now_v7();
+        exec(&format!(
+            "INSERT INTO sys_role (id, role_code, role_name, status, sort_order) VALUES \
+             ('{maker_role}'::uuid, 'P303UT_MAKER_{tag}', 'P3-03 夹具-发起人角色', 1, 910), \
+             ('{fb_role}'::uuid, 'P303UT_FB_{tag}', 'P3-03 夹具-兜底角色', 1, 911)"
+        ))
+        .await;
+        exec(&format!(
+            "INSERT INTO sys_user (id, username, password, real_name, status) VALUES \
+             ('{initiator}'::uuid, 'p303ut_init_{tag}', 'x', 'P3-03 发起人', 1), \
+             ('{fb1}'::uuid, 'p303ut_fb1_{tag}', 'x', 'P3-03 兜底甲', 1), \
+             ('{fb2}'::uuid, 'p303ut_fb2_{tag}', 'x', 'P3-03 兜底乙', 1), \
+             ('{fb3}'::uuid, 'p303ut_fb3_{tag}', 'x', 'P3-03 兜底丙', 1), \
+             ('{stopped}'::uuid, 'p303ut_stop_{tag}', 'x', 'P3-03 已停用', 0)"
+        ))
+        .await;
+        exec(&format!(
+            "INSERT INTO sys_user_role (user_id, role_id) VALUES \
+             ('{initiator}'::uuid, '{maker_role}'::uuid), \
+             ('{fb1}'::uuid, '{fb_role}'::uuid), \
+             ('{fb2}'::uuid, '{fb_role}'::uuid), \
+             ('{fb3}'::uuid, '{fb_role}'::uuid)"
+        ))
+        .await;
+        Fixture {
+            maker_role,
+            fb_role,
+            initiator,
+            fb1,
+            fb2,
+            fb3,
+            stopped,
+        }
+    }
+
+    async fn teardown(fx: &Fixture) {
+        for sql in [
+            format!(
+                "DELETE FROM sys_user_role WHERE user_id IN ('{0}'::uuid,'{1}'::uuid,'{2}'::uuid,'{3}'::uuid,'{4}'::uuid)",
+                fx.initiator, fx.fb1, fx.fb2, fx.fb3, fx.stopped
+            ),
+            format!(
+                "DELETE FROM sys_user WHERE id IN ('{0}'::uuid,'{1}'::uuid,'{2}'::uuid,'{3}'::uuid,'{4}'::uuid)",
+                fx.initiator, fx.fb1, fx.fb2, fx.fb3, fx.stopped
+            ),
+            format!(
+                "UPDATE sys_role SET escalation_role_id = NULL WHERE id IN ('{0}'::uuid,'{1}'::uuid)",
+                fx.maker_role, fx.fb_role
+            ),
+            format!(
+                "DELETE FROM sys_role WHERE id IN ('{0}'::uuid,'{1}'::uuid)",
+                fx.maker_role, fx.fb_role
+            ),
+        ] {
+            exec(&sql).await;
+        }
+    }
+
+    /// 节点：ROLE 来源 + 指定 maker 角色；`empty_assignee` 由用例决定。
+    fn node_with(
+        maker_role: Uuid,
+        empty_assignee: &str,
+        fallback_user: Option<Uuid>,
+        fallback_role: Option<Uuid>,
+    ) -> SnapshotNode {
+        SnapshotNode {
+            key: "n_fb".to_string(),
+            name: "销售主管审批".to_string(),
+            node_type: "APPROVAL".to_string(),
+            assignee_type: Some("ROLE".to_string()),
+            approval_mode: None,
+            approve_ratio: None,
+            reject_veto: false,
+            join_mode: "AND".to_string(),
+            fork_mode: "AND".to_string(),
+            form_var_key: None,
+            superior_levels: 1,
+            empty_assignee: empty_assignee.to_string(),
+            self_approval: "SKIP".to_string(),
+            allow_robot: false,
+            fallback_user_id: fallback_user.map(|id| id.to_string()),
+            fallback_role_id: fallback_role.map(|id| id.to_string()),
+            timeout_hours: None,
+            timeout_action: "REMIND".to_string(),
+            remind_before_hours: None,
+            max_remind_times: 3,
+            cc_on_approved: false,
+            x: 0,
+            y: 0,
+            sort_order: 0,
+            config: Json::Object(Default::default()),
+            assignees: vec![SnapshotAssignee {
+                assignee_type: "ROLE".to_string(),
+                ref_id: maker_role.to_string(),
+                sort_order: 0,
+            }],
+        }
+    }
+
+    fn ctx_of(initiator: Uuid) -> InstanceCtx {
+        InstanceCtx {
+            instance_id: Uuid::now_v7(),
+            initiator_id: initiator,
+            initiator_dept_id: None,
+            biz_type: "P303UT".to_string(),
+            biz_id: None,
+            form_data: serde_json::json!({}),
+        }
+    }
+
+    /// ① 升级链走完仍空（角色只有发起人、无上级）+ 配 fallback_user
+    ///    → 该人收到待办、`assigned_by_rule='FALLBACK'`。
+    #[tokio::test]
+    async fn fallback_user_takes_over_after_escalation_exhausted() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = setup("a").await;
+        let node = node_with(fx.maker_role, "ERROR", Some(fx.fb1), None);
+        let resolution = resolve(db(), &node, &ctx_of(fx.initiator), &EvalContext::default())
+            .await
+            .expect("resolve 不该出 DbError");
+        let finalized = resolution.finalized;
+        assert!(
+            finalized.error.is_none(),
+            "兜底人接管后不该再有错误：{:?}",
+            finalized.error.as_ref().map(|e| (&e.code, &e.msg))
+        );
+        assert_eq!(finalized.approvers.len(), 1, "兜底人 1 人");
+        assert_eq!(finalized.approvers[0].user_id, fx.fb1);
+        assert_eq!(
+            finalized.assigned_by_rule.as_deref(),
+            Some(ASSIGNED_BY_FALLBACK),
+            "派单规则必须是 FALLBACK（引擎照它写 biz_flow_task.assigned_by_rule）"
+        );
+        let fallback = finalized.fallback.as_ref().expect("兜底痕迹不能丢");
+        assert!(fallback.applied);
+        assert!(!fallback.by_role);
+        assert!(!finalized.auto_pass, "兜底成功 ≠ 自动通过");
+        // 升级链确实走过（起点只有发起人 → SKIP 剔光 → 无上级 → Exhausted）
+        let escalation = finalized.escalation.as_ref().expect("升级链痕迹");
+        assert!(!escalation.applied);
+        assert_eq!(escalation.reason, ESCALATE_REASON_SKIP);
+        teardown(&fx).await;
+    }
+
+    /// ② 兜底人 = 发起人 → 422 / 65018，报文写清「兜底人即发起人，内控不允许自审」。
+    #[tokio::test]
+    async fn fallback_user_equal_to_initiator_is_rejected() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = setup("b").await;
+        let node = node_with(fx.maker_role, "ERROR", Some(fx.initiator), None);
+        let resolution = resolve(db(), &node, &ctx_of(fx.initiator), &EvalContext::default())
+            .await
+            .expect("resolve 不该出 DbError");
+        let error = resolution.finalized.error.expect("自审兜底必须失败");
+        assert_eq!(error.code, error_code::FLOW_NO_ASSIGNEE);
+        assert_eq!(error.code, 65018);
+        assert!(error.msg.contains("内控不允许自审"), "报文：{}", error.msg);
+        assert!(error.msg.contains("兜底人即发起人"), "报文：{}", error.msg);
+        assert!(resolution.finalized.approvers.is_empty(), "不许放行");
+        teardown(&fx).await;
+    }
+
+    /// ③ 兜底角色 3 人 → 3 行待办（ALL/ANY 由 P3-06 决定，本卡按现行为全落行）。
+    #[tokio::test]
+    async fn fallback_role_expands_all_active_members() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = setup("c").await;
+        let node = node_with(fx.maker_role, "ERROR", None, Some(fx.fb_role));
+        let resolution = resolve(db(), &node, &ctx_of(fx.initiator), &EvalContext::default())
+            .await
+            .expect("resolve 不该出 DbError");
+        let finalized = resolution.finalized;
+        assert!(finalized.error.is_none(), "{:?}", finalized.error);
+        let mut ids: Vec<Uuid> = finalized.approvers.iter().map(|c| c.user_id).collect();
+        ids.sort();
+        let mut want = vec![fx.fb1, fx.fb2, fx.fb3];
+        want.sort();
+        assert_eq!(ids, want, "兜底角色 3 个在职成员必须全部落行");
+        assert_eq!(
+            finalized.assigned_by_rule.as_deref(),
+            Some(ASSIGNED_BY_FALLBACK)
+        );
+        assert!(
+            finalized
+                .fallback
+                .as_ref()
+                .is_some_and(|fb| fb.by_role && fb.applied)
+        );
+        teardown(&fx).await;
+    }
+
+    /// ④ 未配兜底 → 仍 422 / 65018，且报文点名「升级链与兜底人均未配置」。
+    #[tokio::test]
+    async fn without_fallback_still_65018_and_names_both_layers() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = setup("d").await;
+        let node = node_with(fx.maker_role, "ERROR", None, None);
+        let resolution = resolve(db(), &node, &ctx_of(fx.initiator), &EvalContext::default())
+            .await
+            .expect("resolve 不该出 DbError");
+        let error = resolution.finalized.error.expect("没人可派必须 422");
+        assert_eq!(error.code, 65018);
+        assert!(
+            error.msg.contains("升级链与兜底人均未配置"),
+            "报文必须点名两层都没配：{}",
+            error.msg
+        );
+        // 结构化诊断仍要带（前端按它弹「指派审批人」引导）
+        assert!(
+            error.data.is_some(),
+            "422 必须继续带 payload（no_assignee 结构化诊断）"
+        );
+        teardown(&fx).await;
+    }
+
+    /// ⑤ 兜底人 id 不存在 → 65042（配错要吵，不许静默当成「没配」）。
+    #[tokio::test]
+    async fn unknown_fallback_user_reports_65042() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = setup("e").await;
+        let ghost = Uuid::now_v7();
+        let node = node_with(fx.maker_role, "ERROR", Some(ghost), None);
+        let resolution = resolve(db(), &node, &ctx_of(fx.initiator), &EvalContext::default())
+            .await
+            .expect("resolve 不该出 DbError");
+        let error = resolution.finalized.error.expect("兜底人不存在必须报错");
+        assert_eq!(error.code, error_code::FLOW_FALLBACK_INVALID);
+        assert_eq!(error.code, 65042);
+        assert!(error.msg.contains("不存在"), "报文：{}", error.msg);
+        teardown(&fx).await;
+    }
+
+    /// ⑥ 兜底人已停用 → 65042（报文说清「已停用」，不是含糊的「没有审批人」）。
+    #[tokio::test]
+    async fn stopped_fallback_user_reports_65042() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = setup("f").await;
+        let node = node_with(fx.maker_role, "ERROR", Some(fx.stopped), None);
+        let resolution = resolve(db(), &node, &ctx_of(fx.initiator), &EvalContext::default())
+            .await
+            .expect("resolve 不该出 DbError");
+        let error = resolution.finalized.error.expect("兜底人停用必须报错");
+        assert_eq!(error.code, 65042);
+        assert!(error.msg.contains("已停用"), "报文：{}", error.msg);
         teardown(&fx).await;
     }
 }

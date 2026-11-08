@@ -25,6 +25,7 @@ use serde_json::Value;
 
 use nik::ApiError;
 use nik::prelude::chrono;
+use nik::uuid::Uuid;
 
 use crate::business::flow::expression;
 use crate::business::flow::graph::{
@@ -305,6 +306,14 @@ pub struct GraphNodeReq {
     /// 是否允许机器人审批。
     #[serde(default)]
     pub allow_robot: Option<bool>,
+    /// 兜底审批人（用户 id，P3-03）：升级链走完仍无人时由他接管。
+    ///
+    /// 与 `fallback_role_id` **二选一**（同时给 → 保存期 400，不等到库 CHECK 报英文）。
+    #[serde(default)]
+    pub fallback_user_id: Option<String>,
+    /// 兜底角色（角色 id，P3-03）：升级链走完仍无人时展开该角色成员。
+    #[serde(default)]
+    pub fallback_role_id: Option<String>,
     /// 汇聚模式。
     #[serde(default)]
     pub join_mode: Option<String>,
@@ -573,6 +582,12 @@ impl GraphSaveReq {
                 "REMIND",
             )?;
 
+            let (fallback_user_id, fallback_role_id) = parse_fallback(
+                &key,
+                raw.fallback_user_id.as_deref(),
+                raw.fallback_role_id.as_deref(),
+            )?;
+
             nodes.push(NodeSpec {
                 key,
                 name,
@@ -594,6 +609,8 @@ impl GraphSaveReq {
                 empty_assignee,
                 self_approval,
                 allow_robot: raw.allow_robot.unwrap_or(false),
+                fallback_user_id,
+                fallback_role_id,
                 timeout_hours: raw.timeout_hours,
                 timeout_action,
                 remind_before_hours: raw.remind_before_hours,
@@ -665,6 +682,44 @@ impl GraphSaveReq {
             .filter(|text| !text.is_empty())
             .map(|text| text.chars().take(MAX_CHANGE_NOTE_CHARS).collect())
     }
+}
+
+/// 保存期解析「兜底审批人 / 兜底角色」（P3-03）。
+///
+/// # 三条规则
+///
+/// 1. 空串 / 全空白 / 缺席 → `None`（前端把下拉清空时传的就是 `''`，与 `assignee_type` 同口径）；
+/// 2. 非空必须是合法 UUID → 否则 400 中文（`Uuid` 没有 serde 实现，DTO 一律字符串；
+///    不在这里 parse 就会在写库时炸成 500）；
+/// 3. **二选一**：同时给两个 → 400。DB 有 `ck_biz_flow_node_fallback_exclusive`，
+///    但让用户看到 `new row violates check constraint` 等于没做校验。
+///
+/// # 为什么校验放在保存期而不是只放发布期
+///
+/// 「同时配两个」不是图不完整，而是**配置本身自相矛盾**（与 RATIO 缺阈值同类）：
+/// 编辑器点确定时就该拒绝，不能「存得进去、发布才红」。
+fn parse_fallback(
+    node_key: &str,
+    user: Option<&str>,
+    role: Option<&str>,
+) -> Result<(Option<Uuid>, Option<Uuid>), String> {
+    fn one(raw: Option<&str>, label: &str, node_key: &str) -> Result<Option<Uuid>, String> {
+        match raw.map(str::trim).filter(|text| !text.is_empty()) {
+            None => Ok(None),
+            Some(text) => Uuid::parse_str(text)
+                .map(Some)
+                .map_err(|_| format!("节点 {node_key} 的{label} {text} 不是合法 id（应为 UUID）")),
+        }
+    }
+    let user_id = one(user, "兜底审批人", node_key)?;
+    let role_id = one(role, "兜底角色", node_key)?;
+    if user_id.is_some() && role_id.is_some() {
+        return Err(format!(
+            "节点 {node_key} 同时配置了「兜底审批人」与「兜底角色」——只能二选一\
+             （两个都配，运行时到底听谁的？要多人兜底就配角色）"
+        ));
+    }
+    Ok((user_id, role_id))
 }
 
 fn parse_gateway(raw: Option<&str>, label: &str, node_key: &str) -> Result<GatewayMode, String> {
@@ -1028,6 +1083,10 @@ pub struct GraphNodeRes {
     pub self_approval: String,
     /// 是否允许机器人。
     pub allow_robot: bool,
+    /// 兜底审批人（P3-03；未配置 → `null`）。
+    pub fallback_user_id: Option<String>,
+    /// 兜底角色（P3-03；未配置 → `null`）。
+    pub fallback_role_id: Option<String>,
     /// 汇聚模式。
     pub join_mode: String,
     /// 分叉模式。
@@ -1639,6 +1698,8 @@ pub struct TaskRes {
     pub escalate_reason: String,
     /// 升级**目标角色**名（P3-02；空串 = 未升级 / 角色已删）。
     pub escalated_to_role: String,
+    /// 派单规则（P3-03）：`ROLE` / `ESCALATED` / `FALLBACK` / `DELEGATED`（空串 = 默认直派）。
+    pub assigned_by_rule: String,
     /// 创建时间。
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// 完成时间。
@@ -1973,6 +2034,8 @@ mod tests {
             empty_assignee: None,
             self_approval: None,
             allow_robot: None,
+            fallback_user_id: None,
+            fallback_role_id: None,
             join_mode: None,
             fork_mode: None,
             timeout_hours: None,

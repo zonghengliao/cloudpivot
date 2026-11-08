@@ -36,6 +36,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use nik::uuid::Uuid;
+
 use crate::business::flow::expression;
 use crate::business::flow::node_config;
 use crate::business::notice::render;
@@ -364,6 +366,13 @@ pub struct NodeSpec {
     pub self_approval: String,
     /// 是否允许机器人审批（架构 D18：隐式来源默认过滤 ROBOT）。
     pub allow_robot: bool,
+    /// 兜底审批人（用户 id，P3-03）：升级链走完仍无人时由他接管。
+    ///
+    /// 与 [`Self::fallback_role_id`] **二选一**（DB 有 CHECK，发布期 R22 再挡一次）；
+    /// 两个都 `None` = 不兜底（与 P3-02 之后的行为逐字一致）。
+    pub fallback_user_id: Option<Uuid>,
+    /// 兜底角色（角色 id，P3-03）：升级链走完仍无人时展开该角色成员。
+    pub fallback_role_id: Option<Uuid>,
     /// 超时小时（`None` = 不超时）。
     pub timeout_hours: Option<i32>,
     /// 超时动作（`REMIND` / `AUTO_APPROVE` / `AUTO_REJECT` / `ESCALATE`，架构 D10）。
@@ -402,6 +411,8 @@ impl Default for NodeSpec {
             empty_assignee: "SKIP".to_string(),
             self_approval: "SKIP".to_string(),
             allow_robot: false,
+            fallback_user_id: None,
+            fallback_role_id: None,
             timeout_hours: None,
             timeout_action: "REMIND".to_string(),
             remind_before_hours: None,
@@ -1481,6 +1492,94 @@ impl FlowGraph {
         // 发布期静态扫描（不是运行期 422）：占位符写错是最高频的配置错误。
         issues.extend(self.template_issues(biz_type));
 
+        // ---------- R22（P3-03 / ARCH-8 场景 C）：节点兜底人配置纪律 ----------
+        issues.extend(self.fallback_issues());
+
+        issues
+    }
+
+    /// R22：节点兜底人配置纪律（P3-03）。
+    ///
+    /// 三条判据（**发布期**静态检查，全部 `65042`）：
+    ///
+    /// 1. `fallback_user_id` 与 `fallback_role_id` 同时配置 → 「到底听谁」的歧义。
+    ///    DB 有 `ck_biz_flow_node_fallback_exclusive` 挡着，这里提前一步给出人读文案
+    ///    （否则用户看到的是 `new row violates check constraint …` 这种库错误）；
+    /// 2. 兜底人与节点 `assignee_type=USER` 的指定人完全重合 → 无意义配置：
+    ///    主路就是他、兜底还是他，等于「没换人」（与卡面「不得等于同一人」一致）；
+    /// 3. 兜底配置放在**没有审批语义**的节点上（START / END / 网关 / 任务 / 通知）→ 静默
+    ///    忽略比报错更坏：用户以为配上了，实际上解析审批人的代码根本不会读这两列。
+    ///
+    /// # 为什么不校验「角色 / 用户是否存在」
+    ///
+    /// `validate_with` 是**纯函数**（没有 `SqlExecutor`，60 多条存量单测都直接调它）。
+    /// 存在性校验交给运行期 `assignee::apply_fallback` 的 `65042`（用户已删 / 已停用 /
+    /// 角色已删 / 角色 0 人），那里能一次说清「哪一列、为什么」。
+    /// 这里只做**格式**校验（UUID 解析在 `dto` 保存期已完成，快照里已是合法 UUID 字符串）。
+    pub fn fallback_issues(&self) -> Vec<Issue> {
+        let mut issues = Vec::new();
+        for node in &self.nodes {
+            let user = node.fallback_user_id.as_ref();
+            let role = node.fallback_role_id.as_ref();
+
+            // ① 二选一
+            if user.is_some() && role.is_some() {
+                issues.push(
+                    Issue::new(
+                        "R22",
+                        error_code::FLOW_FALLBACK_INVALID,
+                        format!(
+                            "节点 {}（{}）同时配置了「兜底审批人」与「兜底角色」——只能二选一\
+                             （两个都配，运行时到底听谁的？要多人兜底就配角色）",
+                            node.key, node.name
+                        ),
+                    )
+                    .with_nodes(vec![node.key.clone()]),
+                );
+                // 后面两条判据都基于「配置本身有意义」，这里已经报了，不再叠加
+                continue;
+            }
+
+            // ② 兜底人 == 指定审批人（USER 来源）
+            if let Some(fallback_user) = user
+                && node.assignee_type == Some(AssigneeKind::User)
+                && node.assignees.iter().any(|assignee| {
+                    assignee.kind.eq_ignore_ascii_case("USER")
+                        && assignee.ref_id == fallback_user.to_string()
+                })
+            {
+                issues.push(
+                    Issue::new(
+                        "R22",
+                        error_code::FLOW_FALLBACK_INVALID,
+                        format!(
+                            "节点 {}（{}）的「兜底审批人」与「指定审批人」是同一个人：\
+                             主路就是他、兜底还是他，等于没有兜底（请换一个非本人的人，或改配兜底角色）",
+                            node.key, node.name
+                        ),
+                    )
+                    .with_nodes(vec![node.key.clone()]),
+                );
+            }
+
+            // ③ 配在无审批语义的节点上
+            if (user.is_some() || role.is_some()) && !node.node_type.is_approval_class() {
+                issues.push(
+                    Issue::new(
+                        "R22",
+                        error_code::FLOW_FALLBACK_INVALID,
+                        format!(
+                            "节点 {}（{}）的类型是 {}，不允许配置兜底审批人（只有审批 / 会签 / 抄送节点\
+                             解析审批人，配置在其它类型上不会被读取）",
+                            node.key,
+                            node.name,
+                            node.node_type.as_str()
+                        ),
+                    )
+                    .with_nodes(vec![node.key.clone()]),
+                );
+            }
+        }
         issues
     }
 
@@ -2381,6 +2480,16 @@ pub struct SnapshotNode {
     pub self_approval: String,
     /// 是否允许机器人。
     pub allow_robot: bool,
+    /// 兜底审批人（用户 id，P3-03；`None` = 不兜底）。
+    ///
+    /// `skip_serializing_if` 是**必须**的：`graph_hash` 是快照 canonical JSON 的 sha256，
+    /// 未配兜底的图（存量全部流程）序列化结果必须与 P3-02 逐字节一致 —— 否则
+    /// 一次纯加字段的升级会把所有已发布流程的 hash 全改掉（版本比对 / 回归全部误报）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_user_id: Option<String>,
+    /// 兜底角色（角色 id，P3-03；`None` = 不兜底）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_role_id: Option<String>,
     /// 超时小时。
     pub timeout_hours: Option<i32>,
     /// 超时动作。
@@ -2482,6 +2591,8 @@ impl FlowGraph {
                     empty_assignee: node.empty_assignee.clone(),
                     self_approval: node.self_approval.clone(),
                     allow_robot: node.allow_robot,
+                    fallback_user_id: node.fallback_user_id.map(|id| id.to_string()),
+                    fallback_role_id: node.fallback_role_id.map(|id| id.to_string()),
                     timeout_hours: node.timeout_hours,
                     timeout_action: node.timeout_action.clone(),
                     remind_before_hours: node.remind_before_hours,
@@ -4309,5 +4420,153 @@ mod task_node_rule_tests {
             .find(|issue| issue.rule == "R21")
             .expect("必须报 R21");
         assert_eq!(hit.code, error_code::FLOW_NOTIFY_TEMPLATE_INVALID);
+    }
+
+    // ---------- R22：节点兜底人（P3-03） ----------
+
+    /// 造一张「START → 审批 → END」的最小图，审批节点由 `tweak` 改。
+    ///
+    /// 不复用别的测试模块的 `minimal()`（那是兄弟模块的私有函数）：
+    /// 这个骨架只需要「一个审批类节点 + 合法出度」，自建最省事也最不受别的模块改动影响。
+    fn approval_graph(tweak: impl FnOnce(&mut NodeSpec)) -> FlowGraph {
+        let mut approve = NodeSpec::new("n_approve", "主管审批", NodeType::Approval);
+        approve.assignee_type = Some(AssigneeKind::InitiatorSuperior);
+        tweak(&mut approve);
+        FlowGraph {
+            nodes: vec![
+                NodeSpec::new("n_start", "开始", NodeType::Start),
+                approve,
+                NodeSpec::new("n_end", "结束", NodeType::End),
+            ],
+            edges: vec![
+                EdgeSpec::new("e1", "n_start", "n_approve"),
+                EdgeSpec::new("e2", "n_approve", "n_end"),
+            ],
+        }
+    }
+
+    fn r22(issues: &[Issue]) -> Vec<&Issue> {
+        issues.iter().filter(|issue| issue.rule == "R22").collect()
+    }
+
+    /// R22 正例：只配兜底人 / 只配兜底角色 / 都不配 —— 都不该报。
+    #[test]
+    fn r22_accepts_exclusive_fallback_targets() {
+        let user = Uuid::from_u128(11);
+        let role = Uuid::from_u128(12);
+
+        let none = approval_graph(|_| {}).validate_with(None);
+        assert!(r22(&none).is_empty(), "不配兜底不该报 R22");
+
+        let by_user = approval_graph(|node| node.fallback_user_id = Some(user)).validate_with(None);
+        assert!(
+            r22(&by_user).is_empty(),
+            "只配兜底人应通过：{:?}",
+            r22(&by_user).iter().map(|i| &i.message).collect::<Vec<_>>()
+        );
+
+        let by_role = approval_graph(|node| node.fallback_role_id = Some(role)).validate_with(None);
+        assert!(r22(&by_role).is_empty(), "只配兜底角色应通过");
+    }
+
+    /// R22 反例 ①：两个都配 → `65042`（「到底听谁」的歧义；DB CHECK 也会挡，但库错误没人看得懂）。
+    #[test]
+    fn r22_rejects_both_targets() {
+        let graph = approval_graph(|node| {
+            node.fallback_user_id = Some(Uuid::from_u128(11));
+            node.fallback_role_id = Some(Uuid::from_u128(12));
+        });
+        let issues = graph.validate_with(None);
+        let hits = r22(&issues);
+        assert_eq!(hits.len(), 1, "只报一条");
+        assert_eq!(hits[0].code, error_code::FLOW_FALLBACK_INVALID);
+        assert_eq!(hits[0].code, 65042);
+        assert!(
+            hits[0].message.contains("只能二选一"),
+            "{}",
+            hits[0].message
+        );
+    }
+
+    /// R22 反例 ②：兜底人 == 节点 `assignee_type=USER` 的指定人 → `65042`（无意义配置）。
+    #[test]
+    fn r22_rejects_fallback_equal_to_designated_user() {
+        let same = Uuid::from_u128(21);
+        let graph = approval_graph(|node| {
+            node.assignee_type = Some(AssigneeKind::User);
+            node.assignees = vec![AssigneeRef {
+                kind: "USER".to_string(),
+                ref_id: same.to_string(),
+                sort_order: 0,
+            }];
+            node.fallback_user_id = Some(same);
+        });
+        let issues = graph.validate_with(None);
+        let hits = r22(&issues);
+        assert_eq!(hits.len(), 1, "{:?}", hits);
+        assert_eq!(hits[0].code, 65042);
+        assert!(
+            hits[0].message.contains("没有兜底"),
+            "报文要说清「等于没兜底」：{}",
+            hits[0].message
+        );
+
+        // 换一个人就不该报（兜底的意义就是「主路不行时换他」）
+        let graph = approval_graph(|node| {
+            node.assignee_type = Some(AssigneeKind::User);
+            node.assignees = vec![AssigneeRef {
+                kind: "USER".to_string(),
+                ref_id: same.to_string(),
+                sort_order: 0,
+            }];
+            node.fallback_user_id = Some(Uuid::from_u128(22));
+        });
+        assert!(r22(&graph.validate_with(None)).is_empty());
+    }
+
+    /// R22 反例 ③：兜底配置放在没有审批语义的节点上 → `65042`（静默忽略比报错更坏）。
+    #[test]
+    fn r22_rejects_fallback_on_non_approval_node() {
+        let graph = approval_graph(|node| {
+            node.node_type = NodeType::Condition;
+            node.assignee_type = None;
+            node.fallback_role_id = Some(Uuid::from_u128(31));
+        });
+        // 条件节点本身还有别的规则会红（R7 出度 ≥ 2 / R13 兜底分支），只挑 R22 断言
+        let issues = graph.validate_with(None);
+        let hits = r22(&issues);
+        assert_eq!(hits.len(), 1, "{:?}", hits);
+        assert_eq!(hits[0].code, 65042);
+        assert!(
+            hits[0].message.contains("不允许配置兜底审批人"),
+            "{}",
+            hits[0].message
+        );
+    }
+
+    /// 快照里未配兜底时不出现这两个键 —— 存量已发布流程的 `graph_hash` 一个字节都不能变
+    /// （否则一次「纯加字段」的升级会把所有版本的 hash 改掉，版本比对全部误报）。
+    #[test]
+    fn snapshot_omits_fallback_when_unset() {
+        let graph = approval_graph(|_| {});
+        let text = graph.snapshot_json();
+        assert!(
+            !text.contains("fallback_user_id"),
+            "未配兜底时不该出现在快照里"
+        );
+        assert!(!text.contains("fallback_role_id"));
+
+        let mut with_fallback = graph.clone();
+        let approve = with_fallback
+            .nodes
+            .iter_mut()
+            .find(|node| node.key == "n_approve")
+            .expect("审批节点");
+        approve.fallback_role_id = Some(Uuid::from_u128(77));
+        let text = with_fallback.snapshot_json();
+        assert!(text.contains("fallback_role_id"));
+        assert!(text.contains(&Uuid::from_u128(77).to_string()));
+        // 配了与没配必须是不同的 hash（否则「改了配置却不重新发布」会静默生效）
+        assert_ne!(with_fallback.graph_hash(), graph.graph_hash());
     }
 }

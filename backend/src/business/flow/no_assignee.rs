@@ -560,6 +560,8 @@ mod tests {
             empty_assignee: "ERROR".to_string(),
             self_approval: "SKIP".to_string(),
             allow_robot,
+            fallback_user_id: None,
+            fallback_role_id: None,
             timeout_hours: None,
             timeout_action: "REMIND".to_string(),
             remind_before_hours: None,

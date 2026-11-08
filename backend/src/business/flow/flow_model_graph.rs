@@ -123,6 +123,8 @@ pub async fn load_graph(version_id: Uuid) -> DbResult<FlowGraph> {
             empty_assignee: row.get_typed("empty_assignee")?,
             self_approval: row.get_typed("self_approval")?,
             allow_robot: row.get_typed("allow_robot")?,
+            fallback_user_id: row.get_typed("fallback_user_id")?,
+            fallback_role_id: row.get_typed("fallback_role_id")?,
             timeout_hours: row.get_typed("timeout_hours")?,
             timeout_action: row.get_typed("timeout_action")?,
             remind_before_hours: row.get_typed("remind_before_hours")?,
@@ -245,10 +247,11 @@ pub async fn replace_graph(ex: &Transaction, version_id: Uuid, graph: &FlowGraph
             "INSERT INTO biz_flow_node \
                  (id, version_id, node_key, node_name, node_type, assignee_type, superior_levels, \
                   form_var_key, approval_mode, approve_ratio, reject_veto, empty_assignee, \
-                  self_approval, allow_robot, join_mode, fork_mode, timeout_hours, timeout_action, \
+                  self_approval, allow_robot, fallback_user_id, fallback_role_id, \
+                  join_mode, fork_mode, timeout_hours, timeout_action, \
                   remind_before_hours, max_remind_times, cc_on_approved, \
                   position_x, position_y, sort_order, config) \
-             VALUES (?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?::text::numeric, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \
+             VALUES (?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?::text::numeric, ?, ?, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, \
                      ?, ?, ?, ?::jsonb)",
             vec![
                 Value::from(&id),
@@ -268,6 +271,8 @@ pub async fn replace_graph(ex: &Transaction, version_id: Uuid, graph: &FlowGraph
                 Value::Text(node.empty_assignee.clone()),
                 Value::Text(node.self_approval.clone()),
                 Value::from(node.allow_robot),
+                opt_uuid(node.fallback_user_id),
+                opt_uuid(node.fallback_role_id),
                 Value::Text(node.join_mode.as_str().to_string()),
                 Value::Text(node.fork_mode.as_str().to_string()),
                 opt_i32(node.timeout_hours),

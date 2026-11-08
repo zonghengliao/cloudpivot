@@ -217,6 +217,8 @@ fn node_res(node: &NodeSpec) -> dto::GraphNodeRes {
         empty_assignee: node.empty_assignee.clone(),
         self_approval: node.self_approval.clone(),
         allow_robot: node.allow_robot,
+        fallback_user_id: node.fallback_user_id.map(|id| id.to_string()),
+        fallback_role_id: node.fallback_role_id.map(|id| id.to_string()),
         join_mode: node.join_mode.as_str().to_string(),
         fork_mode: node.fork_mode.as_str().to_string(),
         timeout_hours: node.timeout_hours,
@@ -1224,6 +1226,7 @@ fn task_res(row: &model::TaskRow, ctx: &TaskCtx<'_>) -> dto::TaskRes {
         escalated_from_role: row.escalated_from_role.clone().unwrap_or_default(),
         escalate_reason: row.escalate_reason.clone().unwrap_or_default(),
         escalated_to_role: row.escalated_to_role.clone().unwrap_or_default(),
+        assigned_by_rule: row.assigned_by_rule.clone().unwrap_or_default(),
         created_at: row.created_at,
         completed_at: row.completed_at,
     }
@@ -2912,6 +2915,8 @@ async fn preview_snapshot_node(
         // 否则会出现「预演 1 人、真跑 0 人」的假绿（运行期 `task_node::spawn` 同样置 ALLOW）。
         self_approval: "ALLOW".to_string(),
         allow_robot: req.allow_robot.unwrap_or(false),
+        fallback_user_id: None,
+        fallback_role_id: None,
         timeout_hours: None,
         timeout_action: "REMIND".to_string(),
         remind_before_hours: None,
@@ -3356,6 +3361,7 @@ mod tests {
             completed_at: if status == "PENDING" { None } else { Some(now) },
             escalated_from_role: None,
             escalate_reason: None,
+            assigned_by_rule: None,
             escalated_to_role: None,
         }
     }

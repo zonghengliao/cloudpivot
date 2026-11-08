@@ -989,6 +989,8 @@ function buildPayload(): { nodes: FlowNodeReq[]; edges: FlowEdgeReq[] } {
       empty_assignee: node.empty_assignee,
       self_approval: node.self_approval,
       allow_robot: node.allow_robot,
+      fallback_user_id: node.fallback_user_id ?? null,
+      fallback_role_id: node.fallback_role_id ?? null,
       join_mode: node.join_mode,
       fork_mode: node.fork_mode,
       timeout_hours: node.timeout_hours,

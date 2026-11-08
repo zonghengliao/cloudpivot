@@ -403,6 +403,8 @@ async fn record_trace(instance: &InstanceRow, note: &SkipNote<'_>) -> DbResult<b
         assignee_rule_id: None,
         escalated_from_role: None,
         escalate_reason: None,
+        // 结算守卫的留痕行不是「派给谁审批」，与派单规则无关
+        assigned_by_rule: None,
     };
     db().transaction(move |tx| async move { flow_model::insert_task(&tx, &new).await })
         .await?;

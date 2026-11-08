@@ -1,0 +1,88 @@
+### r22 发布校验
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 4 tests
+test business::flow::graph::task_node_rule_tests::r22_accepts_exclusive_fallback_targets ... ok
+test business::flow::graph::task_node_rule_tests::r22_rejects_fallback_on_non_approval_node ... ok
+test business::flow::graph::task_node_rule_tests::r22_rejects_both_targets ... ok
+test business::flow::graph::task_node_rule_tests::r22_rejects_fallback_equal_to_designated_user ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 3411 filtered out; finished in 0.00s
+
+### 兜底纯逻辑
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 2 tests
+test business::flow::assignee::fallback_tests::fallback_ids_parse_from_snapshot_strings ... ok
+test business::flow::assignee::fallback_tests::dispatch_hint_names_every_missing_layer ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 3413 filtered out; finished in 0.00s
+
+### 兜底真库
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 6 tests
+test business::flow::assignee::fallback_db_tests::stopped_fallback_user_reports_65042 ... ok
+test business::flow::assignee::fallback_db_tests::fallback_user_equal_to_initiator_is_rejected ... ok
+test business::flow::assignee::fallback_db_tests::fallback_user_takes_over_after_escalation_exhausted ... ok
+test business::flow::assignee::fallback_db_tests::fallback_role_expands_all_active_members ... ok
+test business::flow::assignee::fallback_db_tests::unknown_fallback_user_reports_65042 ... ok
+test business::flow::assignee::fallback_db_tests::without_fallback_still_65018_and_names_both_layers ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 3409 filtered out; finished in 1.36s
+
+### 升级链回归（P3-02 不退化）
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 10 tests
+test business::flow::assignee::escalation_tests::escalated_from_role_is_truncated_to_column_width ... ok
+test business::flow::assignee::escalation_tests::escalation_cycle_is_detected ... ok
+test business::flow::assignee::escalation_tests::escalation_exhausted_chain_text_lists_every_level ... ok
+test business::flow::assignee::escalation_tests::escalation_hits_upper_role_with_two_members ... ok
+test business::flow::assignee::escalation_tests::escalation_level_without_member_keeps_walking ... ok
+test business::flow::assignee::escalation_tests::escalation_self_reference_is_a_cycle ... ok
+test business::flow::assignee::escalation_tests::next_frontier_dedups_and_keeps_order ... ok
+test business::flow::assignee::escalation_db_tests::escalate_reports_exhausted_with_chain ... ok
+test business::flow::assignee::escalation_db_tests::escalate_detects_cycle_with_65040 ... ok
+test business::flow::assignee::escalation_db_tests::escalate_skips_empty_level_and_filters_initiator ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 3405 filtered out; finished in 0.83s
+
+### 码表唯一性
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 1 test
+[码表] 65xxx 段 37 个码齐全且不重复（65001–65005 / 65010–65028 / 65030–65042）✓
+test shared::error_code::tests::flow_error_codes_are_stable ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3414 filtered out; finished in 0.00s
+
+### 保存期 DTO（graph 解析 / 兜底二选一）
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 16 tests
+test business::flow::dto::expression_tests::save_allows_prev_approver_draft_but_publish_rejects_it ... ok
+test business::flow::dto::expression_tests::save_rejects_expression_without_expression_65016 ... ok
+test business::flow::dto::expression_tests::save_rejects_invalid_expression_json_65016 ... ok
+test business::flow::dto::tests::biz_type_and_names_are_normalized ... ok
+test business::flow::dto::expression_tests::save_accepts_expression_assignee_type ... ok
+test business::flow::dto::tests::config_defaults_to_empty_object ... ok
+test business::flow::dto::tests::flow_code_is_normalized_to_lowercase ... ok
+test business::flow::dto::tests::graph_request_infers_assignee_type_from_assignees ... ok
+test business::flow::dto::tests::graph_request_maps_to_domain_graph ... ok
+test business::flow::dto::tests::graph_request_keeps_declared_assignee_type ... ok
+test business::flow::dto::tests::graph_request_normalizes_enums_case_insensitively ... ok
+test business::flow::dto::tests::graph_request_rejects_mixed_assignee_kinds ... ok
+test business::flow::dto::tests::keys_must_match_db_check ... ok
+test business::flow::dto::tests::graph_request_rejects_bad_shapes ... ok
+test business::flow::dto::expression_tests::save_does_not_require_expression_on_static_nodes ... ok
+test business::flow::dto::expression_tests::save_rejects_expression_over_limits_65016 ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 3399 filtered out; finished in 0.01s
+

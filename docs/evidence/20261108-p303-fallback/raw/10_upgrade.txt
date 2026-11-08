@@ -1,0 +1,55 @@
+================ P3-03 ① 迁移升级（cloudpivot_p303_upgrade ← template cloudpivot_p302_e2e / :18302）================
+--- 0) 前提：模板库确实停在 V0333
+template=cloudpivot_p302_e2e 已应用的最大版本 = V333
+  ✅ 模板库最大版本 = 333
+  ✅ 模板库上 biz_flow_node 尚无兜底列 = 0
+  ✅ 模板库上 biz_flow_task 尚无 assigned_by_rule = 0
+
+--- 1) 克隆出升级库（CREATE DATABASE … TEMPLATE）
+  ✅ 克隆后最大版本 = 333
+  ✅ 克隆后仍无兜底列 = 0
+env 键数 = 12（含 JWT / 主密钥 / admin 口令，仅从在跑实例的 /proc 抄）
+
+--- 2) 首次启动（应只应用 V0334）
+[2m2026-11-08T00:22:56.659080Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: relation "schema_migrations" already exists, skipping
+[2m2026-11-08T00:22:56.659536Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s4: SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() AND tablename = 'schema_migrations' AND indexname = 'idx_schema_migrations_version'
+[2m2026-11-08T00:22:56.662043Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s5: SELECT kind, name, version, checksum, applied_via, applied_seq, success FROM schema_migrations
+--   本迁移只做**第 ③ 层**：给节点配「兜底审批人 / 兜底角色」，在升级链之后接管。
+--   P3-04（委托）复用同一列，不再开第二次迁移加列。
+-- DELEGATED = 委托（P3-04 预留，本迁移先建列）
+[2m2026-11-08T00:22:56.811362Z[0m [34mDEBUG[0m [2mtokio_postgres::simple_query[0m[2m:[0m executing statement batch: INSERT INTO schema_migrations (kind, name, version, checksum, applied_via, applied_at, applied_seq, execution_ms, success, source) VALUES ('versioned', 'flow_node_fallback', '334', '49e897b6df40a3aa1831fd654e35d7a27f0edf08bfb79f77a7f14d0ad4ea5f85', 'executed', 1794097376, 267, 8, TRUE, 'migrations/business/V0334__flow_node_fallback.up.sql') ON CONFLICT (kind, name) DO UPDATE SET version = excluded.version, checksum = excluded.checksum, applied_via = excluded.applied_via, applied_at = excluded.applied_at, applied_seq = excluded.applied_seq, execution_ms = excluded.execution_ms, success = excluded.success, source = excluded.source;
+[2m2026-11-08T00:22:56.814153Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 1 个迁移
+首次启动 → 应用 1 个迁移
+  ✅ 首次启动应用的迁移数 = 1 个迁移
+  ✅ 升级库最大版本 = 334
+  ✅ V0334 已登记 = 1
+
+--- 3) 落库事实
+  ✅ biz_flow_node 兜底两列已建 = 2
+  ✅ biz_flow_task.assigned_by_rule 已建（varchar(20)） = 1
+  ✅ 二选一 CHECK 已建 = 1
+  ✅ assigned_by_rule 值域 CHECK 已建 = 1
+  ✅ 兜底人/兜底角色两个部分索引已建 = 2
+  ✅ 派单规则索引已建 = 1
+
+--- 4) 二选一约束真的挡住了「两个都配」
+  ✅ 同时配两个 → 被 CHECK 拒绝 含「ck_biz_flow_node_fallback_exclusive」
+  assigned_by_rule 值域由 CHECK 兜住（'WHATEVER' 会在真正插入时被拒，见单测/运行期断言）
+
+--- 5) 重启（应「应用 0 个迁移」）
+二次启动 → 应用 0 个迁移
+  ✅ 二次启动应用的迁移数 = 0 个迁移
+
+--- 6) down.sql 可回滚
+  ✅ down 后兜底两列已删 = 0
+  ✅ down 后 assigned_by_rule 已删 = 0
+  ✅ down 后约束已删 = 0
+  ✅ down 后索引已删 = 0
+  ✅ down 后版本记录仍在（迁移历史不回退，与其它卡同口径） = 1
+
+--- 7) up.sql 可重放（回滚后能再升上来）
+psql:/opt/cloudpivot/backend/migrations/business/V0334__flow_node_fallback.up.sql:103: NOTICE:  V0334：节点兜底人（fallback_user_id / fallback_role_id）+ 派单规则列（assigned_by_rule）已就绪
+  ✅ 重放后兜底两列回来了 = 2
+  ✅ 重放后 assigned_by_rule 回来了 = 1
+
+===== 结果：PASS=23 FAIL=0 =====

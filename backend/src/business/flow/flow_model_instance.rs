@@ -247,10 +247,10 @@ pub async fn insert_task(ex: &Transaction, new: &NewTask) -> DbResult<()> {
               assignee_name, assignee_source, assignee_source_ref, status, is_added_sign, \
               is_self_approval, is_auto, comment, attachments, transferred_from, due_at, \
               remind_count, created_at, completed_at, assignee_rule_id, \
-              escalated_from_role, escalate_reason) \
+              escalated_from_role, escalate_reason, assigned_by_rule) \
          VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?::uuid, ?, ?, ?, ?, ?, \
                  '[]'::jsonb, ?::uuid, ?, 0, now(), \
-                 CASE WHEN ? = 'PENDING' THEN NULL ELSE now() END, ?, ?, ?)",
+                 CASE WHEN ? = 'PENDING' THEN NULL ELSE now() END, ?, ?, ?, ?)",
         vec![
             Value::from(&new.id),
             Value::from(&new.instance_id),
@@ -273,6 +273,7 @@ pub async fn insert_task(ex: &Transaction, new: &NewTask) -> DbResult<()> {
             opt_text(new.assignee_rule_id.as_deref()),
             opt_text(new.escalated_from_role.as_deref()),
             opt_text(new.escalate_reason.as_deref()),
+            opt_text(new.assigned_by_rule.as_deref()),
         ],
     )
     .await?;

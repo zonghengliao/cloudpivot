@@ -543,6 +543,8 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
             // 与生产种子同口径：`ALLOW`（自审不拦发起，内控另算）
             self_approval: "ALLOW".to_string(),
             allow_robot: false,
+            fallback_user_id: None,
+            fallback_role_id: None,
             timeout_hours: None,
             timeout_action: "REMIND".to_string(),
             remind_before_hours: None,
@@ -581,6 +583,8 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
             empty_assignee: "SKIP".to_string(),
             self_approval: "SKIP".to_string(),
             allow_robot: false,
+            fallback_user_id: None,
+            fallback_role_id: None,
             timeout_hours: None,
             timeout_action: "REMIND".to_string(),
             remind_before_hours: None,

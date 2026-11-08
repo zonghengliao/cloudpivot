@@ -136,6 +136,37 @@
               @change="(value: unknown) => emitPatch({ self_approval: String(value ?? 'SKIP') })"
             />
           </t-form-item>
+
+          <!-- 兜底审批人（P3-03 / ARCH-8 场景 C）：升级链走完仍无人时由它接管 -->
+          <t-form-item v-if="!isTaskNode(node.type)" label="兜底审批人">
+            <div class="node-props__fallback">
+              <t-select
+                :value="fallbackMode"
+                :options="fallbackModeOptions"
+                @change="onFallbackModeChange"
+              />
+              <UserSelect
+                v-if="fallbackMode === 'USER'"
+                :model-value="node.fallback_user_id ?? null"
+                class="node-props__fallback-value"
+                @update:model-value="(value: string | null) => onFallbackUserChange(value)"
+              />
+              <t-select
+                v-else-if="fallbackMode === 'ROLE'"
+                :value="node.fallback_role_id ?? undefined"
+                :options="roleOptions"
+                :loading="roleLoading"
+                filterable
+                placeholder="选择兜底角色"
+                class="node-props__fallback-value"
+                @change="(value: unknown) => emitPatch({ fallback_role_id: String(value ?? '') || null })"
+              />
+              <p class="node-props__tip">
+                升级链走完仍无人时由它接手（要多人兜底就选「兜底角色」）。
+                兜底人同样要过停用 / 机器人 / 自审过滤 —— 兜底不是免审，配成发起人会被拒绝。
+              </p>
+            </div>
+          </t-form-item>
         </template>
 
         <!-- 会签 / 或签 -->
@@ -400,6 +431,25 @@ const approvalModeOptions = [
   { label: '任一人同意（或签）', value: 'ANY' },
 ];
 
+/**
+ * 兜底方式（P3-03）：`''` 不兜底 / `'USER'` 指定人 / `'ROLE'` 指定角色。
+ *
+ * 后端两列**二选一**（DB 有 CHECK、发布期 R22 再挡一次），所以编辑器只暴露一个模式下拉，
+ * 不给「两个都填」的机会 —— 那种配置只能换来一条 400/65042。
+ */
+const fallbackMode = computed(() => {
+  if (props.node?.fallback_user_id) return 'USER';
+  if (props.node?.fallback_role_id) return 'ROLE';
+  return '';
+});
+
+/** 兜底方式选项 */
+const fallbackModeOptions = [
+  { label: '不兜底', value: '' },
+  { label: '指定兜底人', value: 'USER' },
+  { label: '指定兜底角色（可多人）', value: 'ROLE' },
+];
+
 /** 网关模式 */
 const gatewayOptions = [
   { label: 'AND（全部）', value: 'AND' },
@@ -534,6 +584,28 @@ function onApprovalModeChange(value: unknown): void {
   emitPatch(patch);
 }
 
+/**
+ * 切换兜底方式（P3-03）：**二选一**，切走时把另一种清空。
+ *
+ * 不清空的后果是「两个都填」——后端保存期 400 / DB CHECK 报英文 / 发布期 R22 三处都会炸，
+ * 而用户只是换了个下拉。
+ */
+function onFallbackModeChange(value: unknown): void {
+  const mode = String(value ?? '');
+  if (mode === 'ROLE') {
+    void loadRoles();
+  }
+  emitPatch({
+    fallback_user_id: mode === 'USER' ? (props.node?.fallback_user_id ?? null) : null,
+    fallback_role_id: mode === 'ROLE' ? (props.node?.fallback_role_id ?? null) : null,
+  });
+}
+
+/** 选兜底人（`UserSelect` 清空时给 `null` → 后端落 NULL = 不兜底） */
+function onFallbackUserChange(value: string | null): void {
+  emitPatch({ fallback_user_id: value ?? null });
+}
+
 /** 改某一行的来源类型 */
 function onRowKindChange(index: number, value: unknown): void {
   const rows = [...(props.node?.assignees ?? [])];
@@ -656,6 +728,18 @@ function onDefaultEdgeChange(value: unknown): void {
   &__assignee-value {
     min-width: 0;
     flex: 1;
+  }
+
+  /* 兜底审批人（P3-03）：模式下拉 + 目标选择器上下排（两者是「二选一」的两段） */
+  &__fallback {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+  }
+
+  &__fallback-value {
+    width: 100%;
   }
 
   &__readonly-tip {

@@ -42,7 +42,8 @@ pub(super) const VERSION_FROM: &str = " FROM biz_flow_def_version v \
 pub(super) const NODE_COLUMNS: &str = "\
      n.id, n.version_id, n.node_key, n.node_name, n.node_type, n.assignee_type, \
      n.superior_levels, n.form_var_key, n.approval_mode, n.approve_ratio::float8 AS approve_ratio, \
-     n.reject_veto, n.empty_assignee, n.self_approval, n.allow_robot, n.join_mode, n.fork_mode, \
+     n.reject_veto, n.empty_assignee, n.self_approval, n.allow_robot, \
+     n.fallback_user_id, n.fallback_role_id, n.join_mode, n.fork_mode, \
      n.timeout_hours, n.timeout_action, n.remind_before_hours, n.max_remind_times, \
      n.cc_on_approved, n.position_x, n.position_y, n.sort_order, n.config::text AS config_text";
 
@@ -296,7 +297,7 @@ pub(super) const TASK_COLUMNS: &str = "\
      t.assignee_name, t.assignee_source, t.assignee_source_ref, t.status, t.is_added_sign, \
      t.is_self_approval, t.is_auto, t.comment, t.attachments::text AS attachments_text, \
      t.transferred_from, t.transferred_to, t.due_at, t.remind_count, t.created_at, t.completed_at, \
-     t.escalated_from_role, t.escalate_reason, \
+     t.escalated_from_role, t.escalate_reason, t.assigned_by_rule, \
      (SELECT r.role_name FROM sys_role r \
        WHERE r.id = t.assignee_source_ref AND t.escalate_reason IS NOT NULL) AS escalated_to_role";
 
@@ -559,6 +560,8 @@ pub struct TaskRow {
     pub escalated_from_role: Option<String>,
     /// 升级原因：`SKIP_SELF_APPROVAL`（自审剔光）/ `NO_MEMBER`（角色 0 成员）。
     pub escalate_reason: Option<String>,
+    /// 派单规则留痕（P3-03）：`ROLE` / `ESCALATED` / `FALLBACK` / `DELEGATED`；`None` = 默认直派。
+    pub assigned_by_rule: Option<String>,
     /// 升级**目标角色**的名字（P3-02 展示用：`assignee_source_ref` 指向的那个角色）。
     ///
     /// 由 `TASK_COLUMNS` 里的相关子查询算出（只有升级行才有值）；
@@ -600,6 +603,7 @@ impl TaskRow {
             completed_at: row.get_typed("completed_at")?,
             escalated_from_role: row.get_typed("escalated_from_role")?,
             escalate_reason: row.get_typed("escalate_reason")?,
+            assigned_by_rule: row.get_typed("assigned_by_rule")?,
             escalated_to_role: row.get_typed("escalated_to_role")?,
         })
     }
@@ -783,6 +787,8 @@ pub struct NewTask {
     pub escalated_from_role: Option<String>,
     /// 升级原因：`SKIP_SELF_APPROVAL` / `NO_MEMBER`（P3-02；`SKIPPED` 留痕行恒为 `None`）。
     pub escalate_reason: Option<String>,
+    /// 派单规则留痕（P3-03）：`ROLE` / `ESCALATED` / `FALLBACK` / `DELEGATED`；`None` = 默认直派。
+    pub assigned_by_rule: Option<String>,
 }
 
 /// 一次「按业务单据批量终止在跑审批单」的结果（T12）。

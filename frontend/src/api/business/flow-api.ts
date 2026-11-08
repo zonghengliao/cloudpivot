@@ -146,6 +146,10 @@ export interface FlowNode {
   self_approval: string;
   /** 是否允许机器人审批 */
   allow_robot: boolean;
+  /** 兜底审批人 id（P3-03；`null` = 不兜底；与 fallback_role_id 二选一） */
+  fallback_user_id: string | null;
+  /** 兜底角色 id（P3-03；`null` = 不兜底） */
+  fallback_role_id: string | null;
   /** 汇聚模式 */
   join_mode: string;
   /** 分叉模式 */
@@ -485,6 +489,10 @@ export interface FlowNodeReq {
   self_approval?: string;
   /** 是否允许机器人 */
   allow_robot?: boolean;
+  /** 兜底审批人 id（P3-03；`null` = 不兜底；与 fallback_role_id 二选一） */
+  fallback_user_id?: string | null;
+  /** 兜底角色 id（P3-03；`null` = 不兜底） */
+  fallback_role_id?: string | null;
   /** 汇聚模式 */
   join_mode?: string;
   /** 分叉模式 */
@@ -844,6 +852,12 @@ export interface FlowTaskItem {
   escalate_reason?: string;
   /** 升级**目标角色**名（P3-02；空 = 未升级 / 角色已删） */
   escalated_to_role?: string;
+  /**
+   * 派单规则留痕（P3-03）：`ROLE` / `ESCALATED` / `FALLBACK` / `DELEGATED`；空 = 默认直派。
+   *
+   * `FALLBACK` = 升级链走完仍无人，由节点兜底人接管。
+   */
+  assigned_by_rule?: string;
   /** 创建时间 */
   created_at: string;
   /** 完成时间 */
