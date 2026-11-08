@@ -101,6 +101,23 @@ ORDER_OK=$(api GET "/support/file/page?page=1&page_size=5" |
   jq -r '[.data.list[].created_at] | (. == (. | sort | reverse))')
 check_eq "true" "$ORDER_OK" "排序仍是 created_at DESC（join 未打乱）"
 
+# ---------- 4b. 数据范围片段注入位置（admin 是 ALL 范围，片段无参数：这里手工模拟 SELF 形态） ----------
+# `scope::paginate` 把片段（如 `AND f.uploaded_by = ?`）插在 {FILTER} 处。加了 JOIN 之后
+# 片段仍在 join 之后、业务过滤之前 —— 用同一条语句手工跑一遍，证明「join + 范围片段」的 SQL 合法且行数对。
+FRAG_COUNT=$(psql -h 127.0.0.1 -U "$NIK_DATABASE_USER" -d "$DB" -tAc \
+  "SELECT count(*) FROM (SELECT f.*, COALESCE(NULLIF(u.real_name, ''), u.username, '') AS uploader_name
+     FROM sys_file f LEFT JOIN sys_user u ON u.id = f.uploaded_by
+     WHERE f.deleted_at IS NULL AND f.uploaded_by = '$ADMIN_ID') AS _scope_count" | tr -d '\r')
+EXPECT_FRAG=$(sq "select count(*) from sys_file where deleted_at is null and uploaded_by = '$ADMIN_ID'")
+check_eq "$EXPECT_FRAG" "$FRAG_COUNT" "范围片段注入 join 之后：SELF 范围行数与库内一致（$EXPECT_FRAG 行）"
+FRAG_PAGE=$(psql -h 127.0.0.1 -U "$NIK_DATABASE_USER" -d "$DB" -tAc \
+  "SELECT f.id FROM sys_file f LEFT JOIN sys_user u ON u.id = f.uploaded_by
+     WHERE f.deleted_at IS NULL AND f.uploaded_by = '$ADMIN_ID'
+     ORDER BY f.created_at DESC LIMIT 5 OFFSET 0" | grep -c . || true)
+[ "$FRAG_PAGE" -gt 0 ] &&
+  ok "范围片段 + ORDER BY + LIMIT/OFFSET 数据页可执行（返回 $FRAG_PAGE 行）" ||
+  bad "范围片段 + 分页数据页失败"
+
 # ---------- 5. real_name 为空 → 回落 username ----------
 # 用 admin 自己造这一支（拷贝库里不一定有别的用户）：临时把 real_name 清空，
 # 期望 uploader_name 从「真名」变成 username，改回来后必须复原。

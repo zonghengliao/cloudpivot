@@ -47,11 +47,11 @@ pnpm build                                                    # EXIT=0
 
 ```bash
 bash /root/att03/10_prepare_145.sh    # pull + cargo build + 拷贝库 cloudpivot_att03 + 起 18229
-bash /root/att03/20_curl.sh           # 22 条断言
-# === 汇总：22 passed, 0 failed ===
+bash /root/att03/20_curl.sh           # 24 条断言
+# === 汇总：24 passed, 0 failed ===
 ```
 
-覆盖：上传响应 / 列表 / 详情的 `uploader_name` = `超级管理员`；列表 total == 库内未删行数（14）；
+覆盖：上传响应 / 列表 / 详情的 `uploader_name` = `超级管理员`；列表 total == 库内未删行数（15）；
 排序仍 `created_at DESC`；`real_name` 清空 → 回落 `admin`；`uploaded_by` 指向幽灵 UUID → 200 + 空串 +
 行仍在；`uploaded_by = NULL` → 200 + 空串；复原后回到真名；无 token → 401。原始输出：
 
@@ -68,8 +68,10 @@ admin id=01a17c3b-4f78-77c3-bbc5-1c1c2a412195 期望显示名=[超级管理员]
 [PASS] 列表 uploader_name 与 UUID 不同（不再把 ID 当名字）
 [PASS] 详情 HTTP 200
 [PASS] ② 详情 uploader_name = admin 显示名
-[PASS] join 未放大计数：API total == 库内未删行数（14）
+[PASS] join 未放大计数：API total == 库内未删行数（15）
 [PASS] 排序仍是 created_at DESC（join 未打乱）
+[PASS] 范围片段注入 join 之后：SELF 范围行数与库内一致（14 行）
+[PASS] 范围片段 + ORDER BY + LIMIT/OFFSET 数据页可执行（返回 5 行）
 [PASS] real_name 为空时回落 username（[admin]）
 [PASS] real_name 复原后 uploader_name 回到真名
 [PASS] ③ 指向不存在用户的 uploaded_by：详情仍是 200（不报错）
@@ -81,7 +83,7 @@ admin id=01a17c3b-4f78-77c3-bbc5-1c1c2a412195 期望显示名=[超级管理员]
 [PASS] uploaded_by=NULL：uploader_name 空串
 [PASS] 恢复后 uploader_name 回到 admin 显示名
 [PASS] 无 token 访问列表 → 401
-=== 汇总：22 passed, 0 failed ===
+=== 汇总：24 passed, 0 failed ===
 ```
 
 ### 2.4 真实浏览器 E2E（`39-file-uploader-name.spec.ts`，vite :5189 反代 145:18229）
