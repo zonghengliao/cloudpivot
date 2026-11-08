@@ -786,8 +786,60 @@ pub async fn contract_write_status(
     .await
 }
 
-/// 写状态 + 审批实例（R-P1-1：**审批三态的所有写入都走这一个函数**）。
+/// 终止类边的 `remark` 口径（ARCH-2 §2.1 V-18）。
 ///
+/// 规则原文：「终止必须给原因：`to='TERMINATED'` ⇒ `reason` 非空且 ≤ 200 字，
+/// **写入 `biz_status_log.reason` 与 `remark`**」。状态机只负责前者，后者由
+/// `contract_handler::contract_change_status` 在 CAS 成功后同事务补写。
+///
+/// 合并口径：
+/// * 原备注为空 → 直接落 `【终止】<reason>`；
+/// * 原备注已含同一段 → 原样返回（幂等：重放 / 二次写不会叠出两行）；
+/// * 原备注非空且不含 → **追加**一行，不覆盖 —— 签合同时写的备注是审计事实，
+///   不能因为「终止」就抹掉（反例：采购框架合同备注里记的付款条件）。
+pub fn termination_remark(existing: Option<&str>, reason: &str) -> String {
+    let marker = format!("【终止】{}", reason.trim());
+    match existing.map(str::trim).filter(|text| !text.is_empty()) {
+        None => marker,
+        Some(old) if old.contains(&marker) => old.to_string(),
+        Some(old) => format!("{old}\n{marker}"),
+    }
+}
+
+/// 读合同当前备注（终止边补写 `remark` 前的取数，与状态变更同事务）。
+pub async fn contract_remark_of(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<String>> {
+    let row = ex
+        .query_first_sql(
+            "SELECT remark FROM biz_contract WHERE id = ?::uuid AND deleted_at IS NULL".to_string(),
+            vec![Value::from(&id)],
+        )
+        .await?;
+    match row {
+        None => Ok(None),
+        Some(row) => Ok(row.get_typed("remark")?),
+    }
+}
+
+/// 写合同备注（**只给终止边用**：字段冻结规则下 handler 的 `PUT` 不会走到这条路径）。
+///
+/// 与状态变更同事务调用 —— 写失败整笔回滚，不留「状态已终止、备注没留原因」的半截单。
+/// 不做状态 CAS：调用点已经用 `contract_write_status` / `contract_apply_approval_transition`
+/// 做过 CAS 且 `affected > 0`，再加一层只会让并发语义变模糊。
+pub async fn contract_write_termination_remark(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    remark: &str,
+) -> DbResult<u64> {
+    ex.exec_sql(
+        "UPDATE biz_contract SET remark = ?, updated_at = now() \
+          WHERE id = ?::uuid AND deleted_at IS NULL"
+            .to_string(),
+        vec![Value::from(remark.to_string()), Value::from(&id)],
+    )
+    .await
+}
+
+/// 写状态 + 审批实例（R-P1-1：**审批三态的所有写入都走这一个函数**）。
 /// 语义按 `to` 分三种（与 [`crate::business::shared::state_machine::transition`] 的调用点一一对应）：
 ///
 /// | 迁移 | `instance_id` | 结果 |
@@ -1178,6 +1230,35 @@ mod tests {
                 .unwrap(),
             None,
             "供应商 id 不能当客户 id 用（CUSTOMER 分支查 biz_customer）"
+        );
+    }
+
+    /// ⑥ 终止原因 → `remark` 的合并口径（ARCH-2 V-18；纯逻辑，不连库）。
+    #[test]
+    fn termination_remark_merges_without_losing_old_text() {
+        // 原备注为空 → 只落原因
+        assert_eq!(
+            termination_remark(None, "客户要求提前终止"),
+            "【终止】客户要求提前终止"
+        );
+        assert_eq!(
+            termination_remark(Some("   "), "客户要求提前终止"),
+            "【终止】客户要求提前终止",
+            "纯空白备注视为空（否则会追加出两行空行）"
+        );
+        // 原备注非空 → 追加，不覆盖（签合同时写的备注是审计事实）
+        assert_eq!(
+            termination_remark(Some("付款条件：月结 30 天"), "供应商违约"),
+            "付款条件：月结 30 天\n【终止】供应商违约"
+        );
+        // 幂等：同一原因重复写不会叠行（重放 / 二次调用）
+        let once = termination_remark(Some("付款条件：月结 30 天"), "供应商违约");
+        assert_eq!(termination_remark(Some(&once), "供应商违约"), once);
+        // 原因首尾空格不影响判同
+        assert_eq!(
+            termination_remark(Some(&once), "  供应商违约  "),
+            once,
+            "reason trim 后判同，避免同一原因因空格叠成两行"
         );
     }
 }

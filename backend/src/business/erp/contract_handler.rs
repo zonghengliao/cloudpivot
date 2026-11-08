@@ -851,6 +851,26 @@ pub async fn contract_change_status(
             row.contract_no, row.status
         )));
     }
+    // ⑦-b 终止原因必须同时落 `remark`（ARCH-2 V-18）：状态机只写 `biz_status_log.reason`。
+    //     与状态变更**同事务** —— 写失败整笔回滚，不允许出现「状态已终止、备注没留原因」的半截单。
+    //     只在 reason 边（SIGNED→TERMINATED / ACTIVE→TERMINATED）上触发，其它边不动 remark。
+    if state_machine::CONTRACT_REASON_EDGES.contains(&(row.status.as_str(), target.as_str())) {
+        let reason_text = reason.as_deref().unwrap_or_default();
+        let existing = match contract_model::contract_remark_of(&tx, id).await {
+            Ok(value) => value,
+            Err(error) => {
+                let _ = tx.rollback().await;
+                return Err(utils::db_error(error, "读取合同备注"));
+            }
+        };
+        let merged = contract_model::termination_remark(existing.as_deref(), reason_text);
+        if let Err(error) =
+            contract_model::contract_write_termination_remark(&tx, id, &merged).await
+        {
+            let _ = tx.rollback().await;
+            return Err(write_error(error, "回写合同终止原因"));
+        }
+    }
     // ⑥ 联动（LNK-07）：生效 / 完成 / 终止 / 撤回（`PENDING_APPROVAL → DRAFT`）四条边
     //    都在这里收口 —— 只有**状态机过闸 + CAS 写成功**之后才触发，重复点第二次时
     //    上面的边判定已经把请求挡掉，联动不会跑第二遍。
