@@ -612,8 +612,16 @@ pub struct ReportRes {
     pub title: String,
     /// 费用发生日。
     pub expense_date: NaiveDate,
-    /// 会计期间。
+    /// 会计期间（**记账期间**：审批通过时按审批日所属月份重算并回写；未入账时是建单期间）。
     pub period_code: String,
+    /// 费用归属期间（`period_of(expense_date)`；**预算占用按这个期间归集**，E2E06-FIX-3 ②）。
+    ///
+    /// 与 [`Self::accounting_period_code`] 可能不同：跨期报销时（例如 2027-02 的费用在
+    /// 2026-11 审批）预算占用记费用期间、凭证记审批期间 —— 这是设计口径（ARCH-6 §4.5.4），
+    /// 两个值都回给前端，界面上必须同时显示，否则用户看不懂「为什么凭证在 11 月、占用在 2 月」。
+    pub expense_period_code: String,
+    /// 记账期间（凭证期间）；`None` = 尚未入账（没有计提凭证），前端显示「未记账」。
+    pub accounting_period_code: Option<String>,
     /// 不含税合计。
     pub total_amount: Decimal,
     /// 税额合计。

@@ -219,6 +219,27 @@ pub fn period_of(date: NaiveDate) -> String {
     date.format("%Y-%m").to_string()
 }
 
+/// **费用归属期间**：费用发生日所属月份（E2E06-FIX-3 ②）。
+///
+/// 预算占用按它归集（提交时 `biz_budget_usage.period_code` 取的就是建单时写入的
+/// `period_of(expense_date)`，见 `expense_handler` 建单路径），与
+/// [`accounting_period_code`] 的记账期间是**两个口径**。
+///
+/// 单独抽成函数而不是直接调 [`period_of`]，是为了让「哪个期间是费用期间、哪个是记账期间」
+/// 在代码里有一处唯一表述（报表 / 详情 / 测试都引用它，避免有人把两个期间调反）。
+pub fn expense_period_code(expense_date: NaiveDate) -> String {
+    period_of(expense_date)
+}
+
+/// **记账期间**（凭证期间）：入账后才存在（`biz_expense_report.period_code` 在审批通过时
+/// 被重算成审批日所属月份），未入账返回 `None`。
+///
+/// 传 `has_voucher` 而不是 `voucher_id`：调用方只需要「有没有计提凭证」这个事实，
+/// 函数本身不关心凭证 id（纯函数才好测）。
+pub fn accounting_period_code(has_voucher: bool, period_code: &str) -> Option<String> {
+    has_voucher.then(|| period_code.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -353,5 +374,42 @@ mod tests {
         assert_eq!(period_of(date(2026, 10, 31)), "2026-10");
         assert_eq!(period_of(date(2026, 11, 2)), "2026-11");
         assert_eq!(period_of(date(2026, 1, 1)), "2026-01");
+    }
+
+    /// ⑩ 两个期间是两个事实（E2E06-FIX-3 ②）：费用归属期间按费用发生日，
+    /// 记账期间按审批通过日、且入账后才存在。
+    ///
+    /// 现场算例：2027-02 的费用在 2026-11 审批 → 凭证记 2026-11、预算占用记 2027-02。
+    /// 这两个值必须能同时取到，界面才讲得清「为什么凭证在 11 月、占用在 2 月」。
+    #[test]
+    fn expense_and_accounting_periods_stay_separate() {
+        let expense_date = date(2027, 2, 18);
+        let approval_date = date(2026, 11, 9);
+
+        assert_eq!(expense_period_code(expense_date), "2027-02");
+        assert_eq!(period_of(approval_date), "2026-11");
+
+        // 未入账：有费用期间，没有记账期间
+        assert_eq!(accounting_period_code(false, &period_of(approval_date)), None);
+        // 已入账：记账期间 = 审批日所属月，**不是**费用期间
+        assert_eq!(
+            accounting_period_code(true, &period_of(approval_date)),
+            Some("2026-11".to_string())
+        );
+        assert_ne!(
+            expense_period_code(expense_date),
+            accounting_period_code(true, &period_of(approval_date)).unwrap_or_default()
+        );
+    }
+
+    /// ⑪ 同年同月的报销：两个期间相同（回填 / 明示不影响常规单据的表现）。
+    #[test]
+    fn same_period_when_approved_in_expense_month() {
+        let expense_date = date(2026, 11, 1);
+        let approval_date = date(2026, 11, 20);
+        assert_eq!(
+            expense_period_code(expense_date),
+            accounting_period_code(true, &period_of(approval_date)).unwrap_or_default()
+        );
     }
 }

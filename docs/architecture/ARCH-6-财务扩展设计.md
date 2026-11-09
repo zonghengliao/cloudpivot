@@ -1779,6 +1779,38 @@ flowchart LR
 
 **判据**：`voucher::period_of(审批通过日)`，`voucher.rs:312`；若该期间 `CLOSED` → **409 并提示「请先让财务反结账或联系财务延后审批」**，不自动挑下一个期间（挑期间 = 篡改会计归属）。
 
+#### 4.5.4.1 预算占用期间 ≠ 记账期间（E2E06-FIX-3 定稿）
+
+同一张报销单上同时存在**两个期间**，口径不同、都对，**不要试图把两者对齐**：
+
+| 期间 | 取值 | 谁按它算 | 落库位置 |
+|---|---|---|---|
+| **费用归属期间** | `period_of(expense_date)`（费用发生日所属月） | **预算占用**（额度闸、执行报表的「已用 / 可用」） | `biz_budget_usage.period_code`（提交时写，之后不变） |
+| **记账期间** | `period_of(审批通过日)` | **凭证**（分录进哪个会计期） | `biz_expense_report.period_code`（审批通过时被重算回写）+ `biz_voucher.period_code` |
+
+跨期算例（2027-02 的费用在 2026-11 审批）：
+
+```
+凭证      → 2026-11（审批日所属期间，可结账、可关账）
+预算占用  → 2027-02（费用发生在 2 月，额度就该按 2 月扣）
+```
+
+**为什么不能统一**：若占用也按审批期间，则「2 月的费用」会抢 11 月的额度，预算执行报表在 11 月虚高、
+在 2 月虚低，月度闸（`budget_guard::MonthGate`）也就失去意义；若凭证按费用期间，则遇到已结账月份
+直接 409（§4.5.4 上面的表已论证）。
+
+**因此界面上必须明示（已实现）**：
+
+* 报销详情页（`ExpenseDetailDrawer`）：并排显示「费用归属期间」与「记账期间」，两者不同时给一条
+  `expense-detail-period-mismatch` 提示，说明「预算占用按费用期间、凭证按审批期间」；
+* 预算执行报表（`budget/report.vue`）：表头下注脚「预算占用按费用发生期间归集；凭证按审批期间记账，
+  跨期时两者可能不同」；
+* 后端 `ReportDetailRes.report` 同时回 `expense_period_code` 与 `accounting_period_code`
+  （`expense_compute::expense_period_code / accounting_period_code` 是唯一取值处）。
+
+> 另注：FIX-5 之前落库的「未编预算却 `over_budget=1 / over_amount=全额`」占用行，由
+> `V0358__budget_over_flag_backfill` 一次性回填（行级快照留在 `biz_data_fix_backup`）。
+
 ### 4.5.5 与 `biz_voucher_rule` 的接法
 
 需要三条规则（第 1 期迁移种入）：

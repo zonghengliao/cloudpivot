@@ -73,8 +73,41 @@
         <div><span class="label">报销人</span><span class="value">{{ dash(report.reporter_name) }}</span></div>
         <div><span class="label">部门</span><span class="value">{{ dash(report.dept_name) }}</span></div>
         <div><span class="label">费用发生日</span><span class="value">{{ report.expense_date }}</span></div>
-        <div><span class="label">会计期间</span><span class="value">{{ report.period_code }}</span></div>
+        <div><span class="label">单据状态</span><span class="value">{{ report.status_label }}</span></div>
       </div>
+
+      <!--
+        E2E06-FIX-3 ②：两个期间是两个口径，必须同时显示（逻辑不变，只做明示）。
+        · 费用归属期间：费用发生日所属月 → 预算占用按它归集
+        · 记账期间：审批通过日所属月 → 凭证按它入账（ARCH-6 §4.5.4）
+        跨期报销时两者不同（2027-02 的费用在 2026-11 审批），不说明用户会以为哪边算错了。
+      -->
+      <div class="period-strip" data-testid="expense-detail-periods">
+        <div class="period-strip__cell">
+          <span class="period-strip__label">费用归属期间</span>
+          <span class="period-strip__value" data-testid="expense-detail-expense-period">
+            {{ report.expense_period_code }}
+          </span>
+          <span class="period-strip__hint">预算占用按此期间归集</span>
+        </div>
+        <div class="period-strip__cell">
+          <span class="period-strip__label">记账期间</span>
+          <span class="period-strip__value" data-testid="expense-detail-accounting-period">
+            {{ accountingPeriodText(report) }}
+          </span>
+          <span class="period-strip__hint">
+            {{ report.accounting_period_code ? '凭证按审批通过日所属期间记账' : '审批通过后按审批日所属期间入账' }}
+          </span>
+        </div>
+      </div>
+
+      <t-alert
+        v-if="periodMismatch"
+        theme="info"
+        class="detail__alert"
+        data-testid="expense-detail-period-mismatch"
+        :message="`跨期报销：费用归属 ${report.expense_period_code}、凭证记 ${report.accounting_period_code}。预算占用按费用期间、凭证按审批期间（ARCH-6 §4.5.4），两个期间不同是正常的。`"
+      />
 
       <div class="money-row">
         <div class="money-row__cell">
@@ -334,8 +367,10 @@ import {
 } from '@/views/business/erp/shared/approval-progress';
 import { dash, formatMoney, toNumber } from '@/views/business/erp/shared/money';
 import {
+  accountingPeriodText,
   budgetUsageRows,
   invoiceTypeText,
+  isPeriodMismatch,
   payMethodText,
   payStatusText,
   payStatusTheme,
@@ -367,6 +402,12 @@ const detail = ref<ExpenseDetail | null>(null);
 const approvalProgress = ref<ApprovalProgress>({ ...EMPTY_APPROVAL_PROGRESS });
 
 const report = computed(() => detail.value?.report ?? null);
+
+/**
+ * 两个期间是否「跨期错位」（E2E06-FIX-3 ②）。口径与 `expense-logic::isPeriodMismatch` 同一处，
+ * 这里只是把 `null` 报告兜住（详情未加载时不提示）。
+ */
+const periodMismatch = computed(() => (report.value ? isPeriodMismatch(report.value) : false));
 
 // ==================== 附件必传闸门（ATT-09） ====================
 
@@ -572,6 +613,42 @@ watch(
 
 .detail__grid .value {
   color: var(--td-text-color-primary);
+}
+
+/* E2E06-FIX-3 ②：两个期间并排（费用归属期间 / 记账期间），一眼看出是不是跨期 */
+.period-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin-top: 8px;
+}
+
+.period-strip__cell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 8px 10px;
+  border: 1px dashed var(--td-component-border);
+  border-radius: 6px;
+}
+
+.period-strip__label {
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+}
+
+.period-strip__value {
+  font-family: 'JetBrains Mono', Menlo, Consolas, monospace;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+}
+
+.period-strip__hint {
+  flex-basis: 100%;
+  color: var(--td-text-color-placeholder);
+  font-size: 12px;
 }
 
 .money-row {

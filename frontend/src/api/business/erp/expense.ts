@@ -254,8 +254,17 @@ export interface ExpenseReport {
   title: string;
   /** 费用发生日 */
   expense_date: string;
-  /** 会计期间 */
+  /** 会计期间（记账期间：审批通过时按审批日所属月份重算；未入账时是建单期间） */
   period_code: string;
+  /**
+   * 费用归属期间（`period_of(expense_date)`）—— **预算占用按这个期间归集**。
+   *
+   * 与 `accounting_period_code` 可能不同：跨期报销时预算占用记费用期间、凭证记审批期间
+   * （ARCH-6 §4.5.4），这是设计口径，两个值都要显示（E2E06-FIX-3 ②）。
+   */
+  expense_period_code: string;
+  /** 记账期间（凭证期间）；`null` = 尚未入账（没有计提凭证） */
+  accounting_period_code: string | null;
   /** 不含税合计 */
   total_amount: string;
   /** 税额合计 */

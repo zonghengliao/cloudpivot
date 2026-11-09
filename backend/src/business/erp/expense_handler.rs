@@ -580,6 +580,9 @@ async fn report_res(row: &ReportRow) -> ReportRes {
         title: row.title.clone(),
         expense_date: row.expense_date,
         period_code: row.period_code.clone(),
+        // E2E06-FIX-3 ②：两个期间都回给前端 —— 费用期间（预算占用口径）与记账期间（凭证口径）
+        expense_period_code: expense_compute::expense_period_code(row.expense_date),
+        accounting_period_code: expense_compute::accounting_period_code(row.voucher_id.is_some(), &row.period_code),
         total_amount: row.total_amount,
         total_tax: row.total_tax,
         total_with_tax: row.total_with_tax,

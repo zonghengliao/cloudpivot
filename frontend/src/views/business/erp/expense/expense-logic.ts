@@ -258,6 +258,29 @@ export function cancelReasonError(reason: string): string | null {
   return null;
 }
 
+// ==================== 期间口径（E2E06-FIX-3 ②） ====================
+
+/**
+ * 两个期间是否「跨期错位」。
+ *
+ * 费用归属期间（预算占用按它）与记账期间（凭证按它）**不同不是错**，是设计口径
+ * （ARCH-6 §4.5.4）。只有**已入账**（`accounting_period_code` 非空）时才可能跨期：
+ * 未入账时记账期间是 `null`（界面显示「未记账」），拿它去比会把每张草稿都标成跨期。
+ */
+export function isPeriodMismatch(
+  report: Pick<ExpenseReport, 'expense_period_code' | 'accounting_period_code'>,
+): boolean {
+  const accounting = report.accounting_period_code;
+  return !!accounting && accounting !== report.expense_period_code;
+}
+
+/** 记账期间的展示文案：未入账显示「未记账」（不要显示空白或 `null`）。 */
+export function accountingPeriodText(
+  report: Pick<ExpenseReport, 'accounting_period_code'>,
+): string {
+  return report.accounting_period_code || '未记账';
+}
+
 // ==================== 表单状态 ====================
 
 /** 一条明细的表单态（金额与税率都是**输入框里的字符串**）。 */

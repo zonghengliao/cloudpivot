@@ -119,6 +119,18 @@
         </template>
       </t-alert>
 
+      <!--
+        E2E06-FIX-3 ②：口径明示（逻辑不变）。用户会看到「报销凭证在 11 月、预算占用在 2 月」，
+        这里把两个口径写清楚，别让人以为哪边算错了（ARCH-6 §4.5.4）。
+      -->
+      <div class="period-note" data-testid="budget-report-period-note">
+        <span class="period-note__title">期间口径</span>
+        <span class="period-note__body">
+          预算占用按<b>费用发生期间</b>归集；凭证按<b>审批期间</b>（审批通过日所属月份）记账 ——
+          跨期报销时两者可能不同，本报表的「已用 / 可用」一律按费用发生期间统计。
+        </span>
+      </div>
+
       <t-table
         v-if="rows.length || loading"
         row-key="budget_id"
@@ -472,6 +484,36 @@ onMounted(() => {
 
 .list-alert {
   margin-bottom: 12px;
+}
+
+/* E2E06-FIX-3 ②：报表口径注脚（费用期间 vs 记账期间） */
+.period-note {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--td-brand-color);
+  background: var(--td-bg-color-container-hover);
+  border-radius: 4px;
+  line-height: 20px;
+}
+
+.period-note__title {
+  flex: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--td-brand-color);
+}
+
+.period-note__body {
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+}
+
+.period-note__body b {
+  color: var(--td-text-color-primary);
+  font-weight: 600;
 }
 
 .panel-head {
