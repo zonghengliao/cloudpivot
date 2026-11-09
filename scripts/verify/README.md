@@ -362,9 +362,11 @@ DB=cloudpivot_ftwice bash scripts/verify/erp_fixture_residue_check.sh
 # 连接参数取 NIK_DATABASE_*（或 PG*），库名可显式给
 bash scripts/verify/menu_invariants.sh cloudpivot_dev
 echo $?     # 0=全绿 ｜ 1=有违规（明细已打印）｜ 2=连库/查询失败
+# 注意：⑧ 在「找不到图标库」的机器上会打印 ⏭ 跳过并**仍然 rc=0**（细节见下面 ⑧ 一节）——
+# 跳过 ≠ 通过，结论行会写出「有跳过」，要严格校验的环境设 MENU_ICON_LIB_REQUIRED=1（缺库 rc=2）。
 ```
 
-7 条断言（任一不过 → 打印前 10 条明细 + exit 1）：
+8 条断言（任一不过 → 打印前 10 条明细 + exit 1）：
 
 | # | 断言 | 判据 |
 |---|---|---|
@@ -375,6 +377,7 @@ echo $?     # 0=全绿 ｜ 1=有违规（明细已打印）｜ 2=连库/查询�
 | ⑤ | 菜单总数 | 未软删总数 ∈ [400, 460]（`MENU_TOTAL_MIN`/`MENU_TOTAL_MAX` 可覆盖）。上限只在实测基数上留 ~8% 余量（420→460 于 2026-11-08，因 P2-01/02/03 三个采购闭环新增 13 条菜单，410→423）；它防的是批量误插/误删，不是功能增长闸门 |
 | ⑥ | `title` 长度 | `menu_type IN (1,2)`（侧栏真正显示的目录/页面两层）的 `title` 长度 ≤ 12 字（`MENU_TITLE_MAX` 可覆盖）。`title` 是侧栏显示名，写成功能说明（`即时 / 月末汇率维护 + 按月批量录入（ARCH-7 §15.6.3 ②）`，38 字）就换行/截断 |
 | ⑦ | 同父 sort 唯一 | 同一 `parent_id` 下 `menu_type=2` 的 `sort_order` 不得重复（重复 ⇒ 侧栏顺序依赖返回行序，刷新可能变一次）；`parent_id IS NULL` 的顶级页面算一组 |
+| ⑧ | `icon` 名合法 | `menu_type IN (1,2)` 且 `icon` 非空的记录，`icon` 必须是 **TDesign 图标库里真实存在的名字**（且只含小写字母/数字/连字符）。名字不存在时 `<t-icon :name>` 渲染空节点、侧栏那项**没有图标**（`icon` 非空所以组件里的 `folder`/`app` 兜底也不触发） |
 
 ### ⑥⑦ 的口径与已知边界（卡 MENU-FIX-2）
 
@@ -396,6 +399,78 @@ bash menu_invariants.sh menu_inv_teeth2
 ```
 
 顺带验证了另一条硬规矩：临时表没给 `cloudpivot` 授权时，14 次查询全 `permission denied`，脚本**rc=2 且明确说「基础设施问题，不是结构违规」** —— 没有把连库/权限故障降级成结构违规去骗迁移。
+
+### ⑧ 的口径与已知边界（卡 t_595098fe，2026-11-09）
+
+**为什么加这条**：`sys_menu.icon` 存的是 **TDesign 图标组件名**，名字不存在时
+`SideMenuItem.vue` 的 `<t-icon :name="item.icon" />` 渲染**空节点** —— 侧栏那一项就没有图标；
+而且 `icon` 是非空串，连组件里的兜底 `props.item.icon || (hasChildren ? 'folder' : 'app')` 也不会触发。
+这一类问题 DB 侧完全「合规」（除了这个断言没人查），只能靠人眼看出来，**已经复发两次**：
+
+1. `V0170` 把 `/business/erp/purchase-order` 的 `shopping-cart` 改成 `cart`；
+2. 生产(144) 那条同一逻辑菜单的 path 是 `/business/erp/purchase`（V0319 头注释记的 prod/dev 分叉），
+   **没被 V0170 覆盖** ⇒ 老大在生产上看到「采购订单没有图标」，`V0353` 才补上（卡 MENU-FIX-3）。
+
+**判据**：`menu_type IN (1,2)` 且 `icon` 非空的记录，`icon` 必须
+
+1. 只含 `^[a-z0-9][a-z0-9-]*$`（TDesign 名字的实际字符集；换行/空格/大写一律非法），**且**
+2. 能在图标库名字清单里找到同名项。
+
+第 1 条不是洁癖：icon 里若塞了换行，`'bill\nmoney'` 这种值在「一行一条」的差集里会被拆成
+`bill` + `money` 两行，而两段**各自都是合法名字** ⇒ 假绿。所以形状单独判，明细里用
+`\n` / `\t` 可见化打印（这一条由牙齿脚本的 S3b 场景守着）。
+
+**图标库从哪来**（`icon_lib_load`，先到先用）：
+
+| 序 | 来源 | 说明 |
+|---|---|---|
+| ① | `MENU_ICON_LIB=<路径>` | 显式指定：`tdesign-icons-vue-next/esm/components` 目录，或一行一个名字的文本清单，或 `esm/manifest.js`、`IconSelect/icons.ts`（自动识别三种格式） |
+| ② | `<repo>/frontend/node_modules/tdesign-icons-vue-next/esm/components` | **真实安装版本，最权威**（`components/*.js` 与 `manifest.js` 的 `stem` 实测一一对应，各 2356 个） |
+| ③ | `<repo>/frontend/src/components/IconSelect/icons.ts` | 仓库内清单（`ICON_NAMES`，2356 条，由已安装版本枚举生成）。只在 ① ② 都拿不到时兜底——升级依赖后它可能落后，那时新图标会被误报红，所以有 node_modules 就永远不用它 |
+
+**找不到图标库时**：打印 `⏭ 跳过（找不到图标库 — 试过：…）` + 「这是没校验，不是校验通过」，
+结论行改写成 `结果: 全绿 ✅，但**有跳过**：⑧icon名(无图标库)`，**rc 仍为 0**（prod 机 / CI /
+瘦容器不一定装过前端依赖，不能因此报红）。要「必须校验」的环境设 `MENU_ICON_LIB_REQUIRED=1`
+⇒ 缺库按基础设施问题 **rc=2**（本仓库对假绿敏感，别静默绿）。
+
+**一次 SQL + 一次列举 + 内存差集**：`select distinct icon, path …`（形状合法的部分）配
+`awk 'NR==FNR{ok[$1]=1;…}'` 做差集，**不每行 fork**（60 个 icon / 400+ 行菜单）。
+
+**现状基线（2026-11-09 实测）**：
+
+| 环境 | distinct icon | ⑧ 结果 |
+|---|---|---|
+| 145 dev `cloudpivot_dev`（432 行） | 60 | **0 ✅ rc=0**（8 条全绿） |
+| 144 prod `cloudpivot`（431 行，V0353 未发布） | 61 | **1 ❌ rc=1**：`shopping-cart /business/erp/purchase` —— 其余 7 条全绿，只有 ⑧ 抓到真问题 |
+| 本地 prod 形状副本（`cloudpivot_r2`，path 是 `/business/erp/purchase`） | — | 1 ❌ 同一行；证明闸门与 path 分叉无关 |
+| 老库 `cloudpivot_test_iso2` | — | 报 `invoice /business/erp/expense`（历史错名，已在新种子里改成 `bill`） |
+
+⚠ **144 会在下一次发布前一直 ⑧ 红**（`V0353` 需要发布才应用，发布卡见 t_881cfdfb）。
+`deploy_check_v5` 夜里跑到它会照实报 `【MENU-STRUCT】`，这是**正确行为**，别当成新事故。
+
+复现命令（只读，任何装了 pg 的机器）：
+
+```bash
+PGPASSWORD=... PGUSER=... bash scripts/verify/menu_invariants.sh <库>; echo $?    # ⑧ 有问题 ⇒ rc=1
+MENU_REPO_ROOT=/opt/cloudpivot bash /tmp/menu_invariants.sh <库>                   # 脚本被拷到仓库外时要指仓库根
+MENU_ICON_LIB=/path/to/esm/components bash scripts/verify/menu_invariants.sh <库>  # 指定图标库
+```
+
+**牙齿（注入 → 报警 → 复原）**，一条命令跑完 40 项自检：
+
+```bash
+# 只在一次性副本库上跑（脚本会写 icon，别指业务库/生产库）：
+createdb -O alun cloudpivot_icon8_xxx   # 或 su postgres -s /bin/sh -c 'createdb …'
+pg_dump -t public.sys_menu cloudpivot_dev | psql -d cloudpivot_icon8_xxx
+DB=cloudpivot_icon8_xxx PGPASSWORD=... PGUSER=... bash scripts/verify/icon_invariant_teeth.sh
+# ⇒ PASS=40 FAIL=0；证据（每场景原始输出）落在 $OUT，默认 mktemp 目录
+```
+
+覆盖的场景：S1 基线全绿 → S2 注入 `shopping-cart`（rc=1、打印坏名+path）→ S3 再注入
+`invoice`（两条都报）→ S3b `bill\nmoney`（形状非法，防假绿）→ S4 按原值复原（rc=0）→
+S5 无图标库（⏭ 跳过、rc=0、结论写明有跳过）→ S6 无图标库 + `MENU_ICON_LIB_REQUIRED=1`（rc=2）→
+S7 `MENU_ICON_LIB` 给残缺清单（rc=1，证明覆盖生效）→ S8 无 node_modules 但有 `icons.ts`（兜底全绿）→
+S9 `MENU_ICON_LIB` 指 `manifest.js`（解析出 2356 个名字）→ S10 收尾复核。
 
 **③ 的口径与卡面字面写法不同，这是故意的**：本仓库 ERP 各模块目录（`/business/erp/{finance,sales,warehouse,purchase}-mgmt`、`master-data`、`contract`）本身就是一级根，`/business` 通用底座并没有把它们挂在下面——按「必须找到 `path='/business'` 的祖先」的字面口径，既有基线就有 63 条"违规"，脚本会永远红。所以 ③ 判的是**「/business 子树不能挂到非 /business 命名空间的根上」**（例如误挂到 `/system`、`/project` 下），这才是 MENU-01 那类错位的回归面。
 

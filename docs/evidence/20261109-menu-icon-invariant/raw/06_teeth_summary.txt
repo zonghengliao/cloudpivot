@@ -1,0 +1,46 @@
+测试库: cloudpivot_icon8_093009   证据目录: /opt/cloudpivot/docs/evidence/20261109-menu-icon-invariant/raw/06_teeth
+复原基线: purchase-order/20000000-0000-0000-0000-000000000953=cart  expense/20000000-0000-0000-0000-000000001500=money
+
+══════ ⑧ 牙齿汇总 ══════
+PASS  S1 基线 rc（0）
+PASS  S1 ⑧ 打印 ✅（1）
+PASS  S1 打印了图标库来源（1）
+PASS  S1 没有跳过字样（0）
+PASS  S2 注入行数（1）
+PASS  S2 rc（1）
+PASS  S2 ⑧ 计数=1（1）
+PASS  S2 打印坏名 shopping-cart（1）
+PASS  S2 打印所在 path（1）
+PASS  S2 结论里点名 ⑧（1）
+PASS  S3 注入行数（2）
+PASS  S3 rc（1）
+PASS  S3 ⑧ 计数=2（1）
+PASS  S3 shopping-cart 的 path 打印（1）
+PASS  S3 invoice 的 path 打印（1）
+PASS  S3b 注入的是 10 字符带换行的 icon（10）
+PASS  S3b rc=1（换行的 icon 不能假绿）（1）
+PASS  S3b 报「含非法字符」（1）
+PASS  S3b 打印可见化的 \n（1）
+PASS  S4 复原按原值（purchase-order）（cart）
+PASS  S4 复原按原值（expense）（money）
+PASS  S4 复原后坏 icon 0 行（0）
+PASS  S4 rc（0）
+PASS  S4 ⑧ 回到 ✅（1）
+PASS  S5 缺库 rc=0（不报红）（0）
+PASS  S5 打印 ⏭ 跳过（1）
+PASS  S5 跳过原因带路径（1）
+PASS  S5 结论写明有跳过（不静默绿）（1）
+PASS  S6 缺库+required rc=2（2）
+PASS  S6 提示基础设施问题（1）
+PASS  S7 自定义清单 rc=1（1）
+PASS  S7 ⑧ 报红（1）
+PASS  S7 报出的坏名数 >50（1）
+PASS  S7 来源显示为清单文件（1）
+PASS  S8 用 icons.ts 兜底 rc=0（0）
+PASS  S8 来源是 icons.ts（1）
+PASS  S8 解析出 2356 个名字（1）
+PASS  S9 manifest.js rc=0（0）
+PASS  S9 解析出 2356 个名字（1）
+PASS  S10 收尾 rc=0（0）
+PASS=40 FAIL=0  证据: /opt/cloudpivot/docs/evidence/20261109-menu-icon-invariant/raw/06_teeth
+rc=0

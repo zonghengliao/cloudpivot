@@ -1,0 +1,12 @@
+═══ 菜单结构不变量 ═══
+库: cloudpivot_icon8_093009
+① 孤儿 parent:           0  ✅
+② /system/ 归属:         0  ✅
+③ /business/ 归属:       0  ✅
+    ↳ 例外表：4 条 path 豁免（/notice-center 根），失配 0（缺失/已合规）
+④ path 唯一性:           0  ✅
+⑤ 菜单总数:            427  ✅ (400-460)
+⑥ title 长度:            0  ✅ (≤12 字)
+⑦ 同父 sort 唯一:        0  ✅
+⛔ ⑧ 无法校验 icon 名（找不到图标库）：试过：/root/.hermes/profiles/test-enginner/cache/scratch/icon8_scratch.UtK7AZ/fakeroot.urO7ZF/frontend/node_modules/tdesign-icons-vue-next/esm/components,/root/.hermes/profiles/test-enginner/cache/scratch/icon8_scratch.UtK7AZ/fakeroot.urO7ZF/frontend/src/components/IconSelect/icons.ts
+   （MENU_ICON_LIB_REQUIRED=1 ⇒ 缺图标库按基础设施问题 rc=2，不降级成「跳过」）

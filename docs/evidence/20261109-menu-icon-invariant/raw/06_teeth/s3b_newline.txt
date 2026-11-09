@@ -1,0 +1,17 @@
+═══ 菜单结构不变量 ═══
+库: cloudpivot_icon8_093009
+① 孤儿 parent:           0  ✅
+② /system/ 归属:         0  ✅
+③ /business/ 归属:       0  ✅
+    ↳ 例外表：4 条 path 豁免（/notice-center 根），失配 0（缺失/已合规）
+④ path 唯一性:           0  ✅
+⑤ 菜单总数:            427  ✅ (400-460)
+⑥ title 长度:            0  ✅ (≤12 字)
+⑦ 同父 sort 唯一:        0  ✅
+⑧ icon 名合法:           2  ❌
+    ↳ 图标库里没有这些名字（侧栏会渲染成空白，因为 icon 非空所以 folder/app 兜底不触发）：
+       shopping-cart                /business/erp/purchase-order
+    ↳ icon 里含非法字符的行（TDesign 名字只允许小写字母/数字/连字符；换行与制表符都算非法）（前 10 条）：
+       20000000-0000-0000-0000-000000001500|费用报销|/business/erp/expense|bill\nmoney|10
+       图标库：/opt/cloudpivot/frontend/node_modules/tdesign-icons-vue-next/esm/components（目录枚举）
+结果: 1 条不变量不通过 ❌（⑧icon名不存在）

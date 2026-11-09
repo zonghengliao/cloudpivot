@@ -1,0 +1,47 @@
+# 144 生产：V0353 发布**之前**的只读捕获（第 ⑧ 条抓到线上真 bug）
+
+> **来源声明**：本文件是 test-enginner 在 2026-11-09 09:31 前后对 172.18.10.144（生产库 `cloudpivot`）
+> 跑 `menu_invariants.sh`（新版，⑧ 已加入）的**原文输出**，从会话记录复制的，不是事后编的。
+> 当时命令：
+>
+> ```bash
+> scp scripts/verify/menu_invariants.sh root@172.18.10.144:/tmp/menu_invariants_8.sh
+> ssh root@172.18.10.144 'set -a; . /etc/cloudpivot/cloudpivot.env; set +a;
+>   export PGOPTIONS="-c default_transaction_read_only=on";
+>   MENU_REPO_ROOT=/opt/cloudpivot bash /tmp/menu_invariants_8.sh; echo "rc=$?"'
+> ```
+>
+> 只读证据：`PGOPTIONS='-c default_transaction_read_only=on'`（任何写都会直接报错）。
+
+```
+DB=cloudpivot
+═══ 菜单结构不变量 ═══
+库: cloudpivot
+① 孤儿 parent:           0  ✅
+② /system/ 归属:         0  ✅
+③ /business/ 归属:       0  ✅
+    ↳ 例外表：4 条 path 豁免（/notice-center 根），失配 0（缺失/已合规）
+④ path 唯一性:           0  ✅
+⑤ 菜单总数:            431  ✅ (400-460)
+⑥ title 长度:            0  ✅ (≤12 字)
+⑦ 同父 sort 唯一:        0  ✅
+⑧ icon 名合法:           1  ❌
+    ↳ 图标库里没有这些名字（侧栏会渲染成空白，因为 icon 非空所以 folder/app 兜底不触发）：
+       shopping-cart                /business/erp/purchase
+       图标库：/opt/cloudpivot/frontend/node_modules/tdesign-icons-vue-next/esm/components（目录枚举）
+结果: 1 条不变量不通过 ❌（⑧icon名不存在）
+rc=1
+```
+
+## 事后核对（同一台机、同一库，只读）
+
+| 事实 | 值 |
+|---|---|
+| 改前 `/business/erp/purchase` 的 icon | `shopping-cart`（✗ 图标库里没有，侧栏空白——就是老大看到的「采购订单没有图标」） |
+| V0353 在该库生效时间 | `schema_migrations.applied_at = 1794188186` ⇒ **2026-11-09 09:36:26 CST**，`applied_via=imported`，`success=true`，`version=353`，`checksum=ea7e52ec…` |
+| 该行 `sys_menu.updated_at` | `09:36:26`（与迁移记录同一秒） |
+| 改后 icon | `cart`（✅） |
+| 改后复跑（`raw/03_144_prod.txt`） | 8/8 全绿，`rc=0` |
+
+⇒ 这条断言的**真实牙齿**：生产上那个官方事故，7 条老断言全绿、只有 ⑧ 报红并直接点出
+「坏名 + 所在 path」，且发布后自动转绿。

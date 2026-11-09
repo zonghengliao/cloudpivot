@@ -7,9 +7,9 @@
 #       dbname 省略时取 $NIK_DATABASE_NAME，再退回 cloudpivot_dev
 #   连接参数：PGHOST / PGPORT / PGUSER / PGPASSWORD，未设时回落 NIK_DATABASE_*（psql 惯例）
 #
-# 退出码：0 = 7 条断言全绿 ｜ 1 = 有违规（明细已打印）｜ 2 = 连库/查询失败（基础设施问题）
+# 退出码：0 = 8 条断言全绿 ｜ 1 = 有违规（明细已打印）｜ 2 = 连库/查询失败（基础设施问题）
 #
-# 7 条断言：
+# 8 条断言：
 #   ① 孤儿 parent     parent_id 指向不存在或已软删的记录
 #   ② /system/ 归属   path ~ '/system/%' 的页面/按钮（menu_type 2/3）必须挂在 system 目录下
 #   ③ /business/ 归属 path ~ '/business/%' 的节点沿 parent 链上溯到的**根**必须落在
@@ -45,6 +45,27 @@
 #                     （通用底座 menu_type=1 / 合同管理 menu_type=2 同为 75），已登记待评估，
 #                     不在这里判红 —— 判红会逼着为一条排序噪声改历史数据。
 #
+#   ⑧ icon 名合法     menu_type 1/2（侧栏真正渲染图标的两层）且 icon 非空的记录，icon 必须是
+#                     TDesign 图标库里**真实存在**的组件名。icon 存的是图标组件名，
+#                     名字不存在时 SideMenuItem.vue 的 <t-icon :name="item.icon" /> 渲染**空节点**，
+#                     侧栏那一项就是空白；而 icon 非空串时组件里的 folder/app 兜底也不会触发
+#                     （兜底只在 icon 为空时生效）。
+#                     已经复发两次：V0170 把 purchase-order 的 shopping-cart 改成 cart，
+#                     但生产(144)那条菜单的 path 是 /business/erp/purchase，没被覆盖 →
+#                     老大在生产上看到「采购订单没有图标」，V0353 才补上（卡 MENU-FIX-3）。
+#                     -- 图标库从哪来（按序，先到先用）：
+#                        1) $MENU_ICON_LIB 显式指定：目录（tdesign-icons 的 esm/components）
+#                           或文本文件（一行一个名字；也认 manifest.js 的 `stem: "x"` 格式）
+#                        2) <repo>/frontend/node_modules/tdesign-icons-vue-next/esm/components
+#                        3) <repo>/frontend/src/components/IconSelect/icons.ts（仓库内清单，
+#                           由已安装版本枚举生成；两层目录都给不了才用它，避免清单落后于依赖）
+#                     -- 找不到图标库时**跳过并明确打印原因**（⏭），既不静默绿也不报红：prod 机、
+#                        CI、瘦容器上不一定装过前端依赖。要「必须校验」的环境设
+#                        MENU_ICON_LIB_REQUIRED=1 → 缺库按基础设施问题 rc=2（不许假绿）。
+#                     -- 现状基线（2026-11-09 实测，60 个 distinct icon 全存在）：145 dev /
+#                        新库全绿；144 prod 当时只有 shopping-cart 不存在（V0353 已修）。
+#                        断言落地后应当是绿的，红就是真出现了新坏名。
+#
 # 为什么 ③ 不是「必须找到 path='/business' 的祖先」：本仓库 ERP 各模块目录
 # （/business/erp/{finance,sales,warehouse,purchase}-mgmt、master-data、contract）本身就是
 # 一级根（parent_id IS NULL），并没有把 /business 通用底座当父级；按字面口径既有基线就有
@@ -68,6 +89,14 @@
 #   bash scripts/verify/menu_invariants.sh <db>; echo rc=$?   # 期望 rc=1、⑦ 报 1 组
 #   复原：删掉那条 /tmp/dup、把 title 改回去（或干脆在副本库/临时库上做，见
 #         docs/evidence/20261108-menu-fix2/raw/12_invariants_teeth_build.sql 的造数写法）
+#
+# ⑧ 的牙（同样只在测试库做，做完立刻复原）：
+#   psql ... -c "update sys_menu set icon='shopping-cart' where path='/business/erp/purchase-order';"
+#   bash scripts/verify/menu_invariants.sh <db>; echo rc=$?   # 期望 rc=1、⑧ 报 1（打印坏名 + 所在 path）
+#   psql ... -c "update sys_menu set icon='cart' where path='/business/erp/purchase-order';"
+#   bash scripts/verify/menu_invariants.sh <db>; echo rc=$?   # 期望 rc=0
+#   # 缺图标库要跳过而不是假绿：mv frontend/node_modules /tmp/nm.bak → 期望 ⑧ 打印 ⏭ 跳过（rc=0），
+#   # 再 mv 回来；MENU_ICON_LIB_REQUIRED=1 时同样场景期望 rc=2。
 # =============================================================================
 set -uo pipefail
 
@@ -95,6 +124,15 @@ BIZ_EXTRA_ROOTS="${MENU_BIZ_EXTRA_ROOTS-}"
 #   「公告与消息」目录），4 条子菜单的 /business/* path 是 V0085/V0087/V0065 的历史既有值，
 #   改名要同步动前端路由/硬编码跳转/文档，零功能收益。理由与复核证据见 scripts/verify/README.md。
 BIZ_EXTRA_IDS="${MENU_BIZ_EXTRA_IDS-20000000-0000-0000-0000-000000000710,20000000-0000-0000-0000-000000000410,23000000-0000-0000-0000-000000000010,23000000-0000-0000-0000-000000000020}"
+
+# ⑧ 图标库位置（置空＝自动探测：先 frontend/node_modules 的 tdesign-icons，再仓库内
+#   src/components/IconSelect/icons.ts）。目录 / 文本清单一律支持；也可指到 manifest.js。
+MENU_ICON_LIB="${MENU_ICON_LIB-}"
+# ⑧ 缺图标库时是否算基础设施故障：默认 0＝跳过并打印原因（prod/CI/瘦容器没装前端依赖）；
+#   1＝rc=2（「必须校验」的场合用，杜绝假绿）。
+MENU_ICON_LIB_REQUIRED="${MENU_ICON_LIB_REQUIRED:-0}"
+# 仓库根：从脚本自身位置推（scripts/verify/ → ../../）。脚本被拷到仓库外时用 MENU_REPO_ROOT 覆盖。
+MENU_REPO_ROOT="${MENU_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 
 # ⚠ 必须钉死 locale（2026-11-08 假告警的根因，别再删）：
 #   本机 psql 是 Debian 的 pg_wrapper（`/usr/bin/psql -> ../share/postgresql-common/pg_wrapper`，Perl 实现）。
@@ -152,7 +190,12 @@ ID_NOT_IN=''
 #             主流程拿到空串会把「基础设施故障」误判成结构违规（rc=1）。失败写共享日志，
 #             结论前统一 `-s` 判定 → rc=2。
 SQL_ERR_LOG=$(mktemp "${TMPDIR:-/tmp}/menu_inv_err.XXXXXX") || { printf '⛔ mktemp 失败\n' >&2; exit 2; }
-trap 'rm -f "$SQL_ERR_LOG"' EXIT
+# ⑧ 用到的两个临时文件：图标名清单 / 库里出现的 (icon,path) 对。一次 SQL、一次目录列举，
+#   差集用 awk 在内存里做——**不许每行 fork 一个 ls**（60 个 icon × 400+ 行菜单）。
+ICON_NAMES_FILE=$(mktemp "${TMPDIR:-/tmp}/menu_icon_names.XXXXXX") || { printf '⛔ mktemp 失败\n' >&2; exit 2; }
+ICON_ROWS_FILE=$(mktemp "${TMPDIR:-/tmp}/menu_icon_rows.XXXXXX") || { printf '⛔ mktemp 失败\n' >&2; exit 2; }
+SKIP_NOTES=()
+trap 'rm -f "$SQL_ERR_LOG" "$ICON_NAMES_FILE" "$ICON_ROWS_FILE"' EXIT
 
 sql() {
   local out err rc
@@ -326,6 +369,119 @@ if [ "$N7" = "0" ]; then line '⑦ 同父 sort 唯一:     ' "$N7" 1; else
       order by n desc, sort_order limit 10"
 fi
 
+# ── ⑧ icon 名必须在 TDesign 图标库里存在（menu_type 1/2，防「空白图标」复发）──
+# 判据：库里 menu_type 1/2 且 icon 非空的记录，icon 必须能在图标库名字清单里找到同名项。
+# 名字清单从哪来（icon_lib_load，按序先到先用）：
+#   ① MENU_ICON_LIB 显式给（目录＝esm/components；文件＝一行一个名字 / manifest.js / icons.ts）
+#   ② <repo>/frontend/node_modules/tdesign-icons-vue-next/esm/components（真实安装版本，最权威）
+#   ③ <repo>/frontend/src/components/IconSelect/icons.ts（仓库内清单；只在没装依赖时才用，
+#      因为升级依赖后它可能落后，那时新图标会被误报红——有 node_modules 就永远不用它）
+# 一处 SQL 取 distinct (icon,path)，一次目录/文件列举得名字集，差集用 awk 在内存里做
+# （不每行 fork ls：60 个 icon / 400+ 行菜单）。icon 列里的空串与 NULL 不参与（组件对空值
+# 有 folder/app 兜底，见 SideMenuItem.vue 的 `props.item.icon || (hasChildren?'folder':'app')`）。
+icon_lib_load() {
+  local c
+  local -a cands=()
+  if [ -n "$MENU_ICON_LIB" ]; then
+    cands=("$MENU_ICON_LIB")
+  else
+    cands=("$MENU_REPO_ROOT/frontend/node_modules/tdesign-icons-vue-next/esm/components"
+           "$MENU_REPO_ROOT/frontend/src/components/IconSelect/icons.ts")
+  fi
+  for c in "${cands[@]}"; do
+    if [ -d "$c" ]; then
+      # 目录：取 *.js 的文件名（去扩展名）；*.js.map / *.d.ts 不算
+      find "$c" -maxdepth 1 -name '*.js' -printf '%f\n' 2>/dev/null \
+        | sed 's/\.js$//' | sort -u > "$ICON_NAMES_FILE"
+      if [ -s "$ICON_NAMES_FILE" ]; then ICON_LIB_SRC="$c（目录枚举）"; return 0; fi
+    elif [ -f "$c" ]; then
+      if grep -q 'stem: "' "$c" 2>/dev/null; then
+        grep -o 'stem: "[^"]*"' "$c" | sed 's/^stem: "//; s/"$//' | sort -u > "$ICON_NAMES_FILE"
+      elif grep -q '^[[:space:]]*"[^"]*"' "$c" 2>/dev/null; then
+        grep -o '^[[:space:]]*"[^"]*"' "$c" | sed 's/^[[:space:]]*"//; s/"$//' | sort -u > "$ICON_NAMES_FILE"
+      else
+        sed -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' "$c" | grep -v '^#' | grep -v '^$' | sort -u > "$ICON_NAMES_FILE"
+      fi
+      if [ -s "$ICON_NAMES_FILE" ]; then ICON_LIB_SRC="$c"; return 0; fi
+      ICON_LIB_ERR="$c 里没解析出图标名"
+      continue
+    fi
+  done
+  [ -n "${ICON_LIB_ERR:-}" ] || ICON_LIB_ERR="试过：$(IFS=,; echo "${cands[*]}")"
+  return 1
+}
+
+ICON_LIB_SRC=''
+ICON_LIB_ERR=''
+if icon_lib_load; then
+  ICON_LIB_N=$(grep -c . "$ICON_NAMES_FILE")
+  # 先按**字符形状**筛一遍：TDesign 的 icon stem 全部匹配 ^[a-z0-9][a-z0-9-]*$（实测 2356/2356）。
+  # 这一步不是洁癖：icon 里要是有换行/制表/空格，下面「一行一条」的差集会被拆成两行，而拆出来的
+  # 两段**可能各自都是合法名字**（'bill\nmoney' → 'bill' 和 'money' 都在库里）⇒ 假绿。形状单独判。
+  Q8_SHAPE="select count(*) from sys_menu
+             where deleted_at is null and menu_type in (1,2)
+               and icon is not null and btrim(icon) <> ''
+               and icon !~ '^[a-z0-9][a-z0-9-]*\$'"
+  N8_SHAPE=$(sql "$Q8_SHAPE"); N8_SHAPE=${N8_SHAPE:-x}
+  # 形状合法的再取 distinct（icon,path），一次 SQL；名字集一次列举；差集 awk 在内存里做
+  Q8="select distinct icon || E'\t' || coalesce(path,'<NULL:无 path>')
+        from sys_menu
+       where deleted_at is null and menu_type in (1,2)
+         and icon is not null and btrim(icon) <> ''
+         and icon ~ '^[a-z0-9][a-z0-9-]*\$'"
+  if sql "$Q8" > "$ICON_ROWS_FILE"; then
+    printf '\n' >> "$ICON_ROWS_FILE"        # sql() 不带行尾换行，补一个再数行
+    ICON_ROWS_N=$(grep -c . "$ICON_ROWS_FILE")
+    BAD8=$(awk -F'\t' 'NR==FNR { ok[$1]=1; next } $0 == "" { next } ($1 in ok) { next } { print }' \
+             "$ICON_NAMES_FILE" "$ICON_ROWS_FILE")
+    N8_LIST=$(printf '%s\n' "$BAD8" | grep -c . || true)
+    # 总数 = 名字不存在 + 字符形状非法（两者都算坏；形状那条可能带换行，所以不混进同一份差集）
+    case "$N8_SHAPE" in
+      ''|*[!0-9]*) N8_SHAPE_BAD=1; N8_SHAPE_N=0 ;;   # 查询失败/返回值非数字：下面 infra 兜底会 rc=2
+      *) if [ "$N8_SHAPE" -gt 0 ]; then N8_SHAPE_BAD=1; else N8_SHAPE_BAD=0; fi
+         N8_SHAPE_N=$N8_SHAPE ;;
+    esac
+    N8=$(( N8_LIST + N8_SHAPE_N ))
+    if [ "$N8" = "0" ]; then
+      line '⑧ icon 名合法:        ' "$N8" 1
+      printf '    ↳ 图标库：%s（%s 个名字）；库里 (icon,path) 去重后 %s 条，全部命中\n' \
+        "$ICON_LIB_SRC" "$ICON_LIB_N" "$ICON_ROWS_N"
+    else
+      line '⑧ icon 名合法:        ' "$N8" 0
+      FAILED=$((FAILED+1)); FAIL_NAMES+=('⑧icon名不存在')
+      if [ "$N8_LIST" != "0" ]; then
+        printf '    ↳ 图标库里没有这些名字（侧栏会渲染成空白，因为 icon 非空所以 folder/app 兜底不触发）：\n'
+        printf '%s\n' "$BAD8" | awk -F'\t' '{ printf "       %-28s %s\n", $1, $2 }' | head -10
+        [ "$N8_LIST" -gt 10 ] 2>/dev/null && printf '       …另有 %s 条未展开\n' "$((N8_LIST-10))"
+      fi
+      if [ "$N8_SHAPE_BAD" = "1" ]; then
+        detail 'icon 里含非法字符的行（TDesign 名字只允许小写字母/数字/连字符；换行与制表符都算非法）' \
+          "select id, name, coalesce(path,'<NULL:无 path>') as path,
+                  replace(replace(icon, chr(10), '\\n'), chr(9), '\\t') as icon_visible,
+                  length(icon) as len
+             from sys_menu
+            where deleted_at is null and menu_type in (1,2)
+              and icon is not null and btrim(icon) <> ''
+              and icon !~ '^[a-z0-9][a-z0-9-]*\$'
+            order by path limit 10"
+      fi
+      printf '       图标库：%s\n' "$ICON_LIB_SRC"
+    fi
+  else
+    line '⑧ icon 名合法:        ' 'x' 0
+    FAILED=$((FAILED+1)); FAIL_NAMES+=('⑧icon名不存在')
+  fi
+else
+  if [ "$MENU_ICON_LIB_REQUIRED" = "1" ]; then
+    printf '⛔ ⑧ 无法校验 icon 名（找不到图标库）：%s\n' "$ICON_LIB_ERR" >&2
+    printf '   （MENU_ICON_LIB_REQUIRED=1 ⇒ 缺图标库按基础设施问题 rc=2，不降级成「跳过」）\n' >&2
+    exit 2
+  fi
+  printf '⑧ icon 名合法:         ⏭  跳过（找不到图标库 — %s）\n' "$ICON_LIB_ERR"
+  printf '    ↳ 这是「没校验」，不是「校验通过」：设 MENU_ICON_LIB=<图标库目录> 或装好前端依赖后重跑\n'
+  SKIP_NOTES+=('⑧icon名(无图标库)')
+fi
+
 # ── 基础设施兜底：任何一条查询 psql 失败 ⇒ rc=2（绝不降级成「结构违规」去骗迁移）──
 if [ -s "$SQL_ERR_LOG" ]; then
   printf '⛔ 查询过程中 psql 失败 %s 次（基础设施问题，不是结构违规，别照着建迁移）：\n' \
@@ -336,7 +492,13 @@ fi
 
 # ── 结论 ────────────────────────────────────────────────────────────────────
 if [ "$FAILED" -eq 0 ]; then
-  printf '结果: 全绿 ✅\n'
+  if [ "${#SKIP_NOTES[@]}" -gt 0 ]; then
+    # 有跳过就不是「8 条全绿」，必须写出来（本仓库对「假绿」敏感：跳过 ≠ 通过）
+    printf '结果: 全绿 ✅，但**有跳过**：%s —— 跳过 = 没校验，不是通过\n' \
+      "$(IFS=,; echo "${SKIP_NOTES[*]}")"
+  else
+    printf '结果: 全绿 ✅\n'
+  fi
   exit 0
 fi
 printf '结果: %d 条不变量不通过 ❌（%s）\n' "$FAILED" "$(IFS=,; echo "${FAIL_NAMES[*]}")"
