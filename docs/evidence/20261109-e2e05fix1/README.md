@@ -67,6 +67,16 @@
 | `145_e2e_2031_fresh.log` | 145 真 token curl 首次跑：**PASS=57 FAIL=0**（覆盖 ①~⑤） |
 | `145_e2e_2031_rerun.log` | 同年度重跑（幂等）：**PASS=48 FAIL=0**（转移跳过、批次 EXISTS 复用，断言仍全绿） |
 
+## 其它门禁
+
+- **前端**：本卡没有前端改动（补提口径是后端行为，页面上部门名本来就从凭证/明细读），
+  仍按要求跑了 `pnpm typecheck`（**exit 0**）与 `pnpm build --outDir dist-e2e05fix1`
+  （产物含 `index.html`，构建成功；产物目录是临时目录，已验证后移出工作区，**没有动
+  `frontend/dist`**，避免影响别人的发布）。
+- **迁移**：本卡**没有新增/修改任何迁移**（`biz_fixed_asset_change` 的
+  `idx_biz_fa_chg_asset (asset_id, change_date DESC)` 就是本次查询要用的索引），
+  已应用的迁移一行没动。
+
 ## 145 部署（测试机，未碰 144 生产）
 
 ```
