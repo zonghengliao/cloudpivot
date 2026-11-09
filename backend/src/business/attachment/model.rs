@@ -670,7 +670,8 @@ pub struct DocAttachmentRow {
     pub uploaded_by: Option<Uuid>,
     /// 上传人姓名（`COALESCE(real_name, username, '')`）。
     pub uploader_name: String,
-    /// 显示用文件名（`original_name` 优先，回落对象键）。
+    /// 显示用文件名：**本次上传的文件名快照**（`biz_doc_attachment.file_name`）优先，
+    /// 历史行回落 `sys_file.original_name`，两者都空再回落对象键 basename（E2E07-FIX-3）。
     pub file_name: String,
     /// 字节数。
     pub file_size: i64,
@@ -684,9 +685,22 @@ pub struct DocAttachmentRow {
 
 /// 列表 / 详情要读的列（唯一来源，改列名只改这里）。
 ///
-/// **`original_name` 与 `file_name` 分开取原始值**：显示名由 [`display_name`] 算。
-/// 若直接 `COALESCE(original_name, file_name)`，存储路径（`2026/11/03/….png`）
+/// **`preferred_name` 与 `stored_name` 分开取原始值**：显示名由 [`display_name`] 算。
+/// 若直接 `COALESCE(preferred_name, stored_name)`，存储路径（`2026/11/03/….png`）
 /// 就会漏进前端当下载保存名（任务附件 E12 踩过同一个坑）。
+///
+/// # `preferred_name` 的两段回落（E2E07-FIX-3）
+///
+/// ```text
+///   ① a.file_name                本次上传的文件名快照 —— 优先
+///   ② f.original_name            sys_file 的名字 —— 只给 V0362 之前的历史行兜底
+///   ③ ''                         两者都没有 → 空串，[`display_name`] 退回对象键 basename
+/// ```
+///
+/// 为什么快照优先而不是 `sys_file` 优先：`sys_file` 按内容 hash **秒传复用**
+/// （同字节共用一条记录），它的 `original_name` 是「**首个**上传者的名字」。
+/// 用户 B 上传与别人同内容的扫描件，界面上就会显示别人的发票名 —— 审计隐患。
+/// 文件名是**这次上传**的属性，必须落在绑定行上。
 ///
 /// # `uploader_name` 的三段回落（AUD-01）
 ///
@@ -698,21 +712,25 @@ pub struct DocAttachmentRow {
 ///
 /// 为什么快照优先而不是现值优先：附件上传人是**审计属性**（AGENTS.md 约定 13）。
 /// 用户 3 月改名，6 月回看 1 月的合同扫描件，必须显示 3 月那时的名字。
-const COLUMNS: &str = "a.id, a.doc_type, a.doc_id, a.file_id, a.file_role, a.remark, \
+///
+/// 可见性 `pub(super)`：本模块的单测（`super::tests`）要拿它做**漂移守卫**
+/// （「文件名快照必须排在 `sys_file.original_name` 之前」只有看 SQL 才验得出来）。
+pub(super) const COLUMNS: &str = "a.id, a.doc_type, a.doc_id, a.file_id, a.file_role, a.remark, \
                        a.uploaded_by, \
                        COALESCE(NULLIF(a.uploader_name, ''), NULLIF(u.real_name, ''), u.username, '') AS uploader_name, \
-                       COALESCE(f.original_name, '') AS original_name, \
+                       COALESCE(NULLIF(a.file_name, ''), f.original_name, '') AS preferred_name, \
                        COALESCE(f.file_name, '') AS stored_name, \
                        COALESCE(f.file_size, 0) AS file_size, f.mime_type, a.sort_order, a.created_at";
 
-/// 显示用文件名：原始名优先，为空时退回对象键的 basename（不含日期目录）。
+/// 显示用文件名：首选名优先，为空时退回对象键的 basename（不含日期目录）。
 ///
 /// # 参数
 ///
-/// - `original`：`sys_file.original_name`；
+/// - `preferred`：**首选名**（`COALESCE(NULLIF(a.file_name,''), f.original_name, '')` ——
+///   本次上传的文件名快照优先，历史行回落到 `sys_file.original_name`）；
 /// - `stored`：`sys_file.file_name`（对象键，形如 `2026/11/03/<uuid>.png`）。
-pub fn display_name(original: Option<&str>, stored: &str) -> String {
-    if let Some(name) = original.map(str::trim).filter(|name| !name.is_empty()) {
+pub fn display_name(preferred: Option<&str>, stored: &str) -> String {
+    if let Some(name) = preferred.map(str::trim).filter(|name| !name.is_empty()) {
         return name.to_string();
     }
     stored.rsplit('/').next().unwrap_or(stored).to_string()
@@ -725,7 +743,7 @@ impl DocAttachmentRow {
     ///
     /// 列类型不匹配时返回 [`DbError`]（说明 SQL 与行结构漂移了）。
     fn from_row(row: &Row) -> DbResult<DocAttachmentRow> {
-        let original: Option<String> = row.get_typed("original_name")?;
+        let preferred: Option<String> = row.get_typed("preferred_name")?;
         let stored: String = row.get_typed("stored_name")?;
         Ok(DocAttachmentRow {
             id: row.get_typed("id")?,
@@ -736,7 +754,7 @@ impl DocAttachmentRow {
             remark: row.get_typed("remark")?,
             uploaded_by: row.get_typed("uploaded_by")?,
             uploader_name: row.get_typed("uploader_name")?,
-            file_name: display_name(original.as_deref(), &stored),
+            file_name: display_name(preferred.as_deref(), &stored),
             file_size: row.get_typed("file_size")?,
             mime_type: row.get_typed("mime_type")?,
             sort_order: row.get_typed("sort_order")?,
@@ -797,7 +815,27 @@ pub async fn count_by_file(file_id: &Uuid) -> DbResult<i64> {
     .await
 }
 
-/// 绑定一行，并**落库上传人姓名快照**（`biz_doc_attachment.uploader_name`，AUD-01）。
+/// 一次「绑定附件」的结果（E2E07-FIX-3）。
+///
+/// # 为什么要把 `file_name` 一起返回
+///
+/// `INSERT ... ON CONFLICT DO NOTHING` 的幂等分支会**沿用既有行**：同一张单据
+/// 重复上传同一份字节（内容 hash 相同 → 同一个 `file_id`）时，库里只有一行，
+/// 名字是**第一次**那次上传的。如果上传接口照着「本次提交的名字」回响应，
+/// 就会出现「上传返回 file2.pdf、列表显示 file1.pdf」——同一个请求两套口径。
+/// 所以回读这一列，响应 / 留痕 / 列表**三处同源**。
+#[derive(Debug, Clone)]
+pub struct BindingOutcome {
+    /// 绑定行主键（删除 / 下载用的 `{id}`）。
+    pub id: Uuid,
+    /// **库里这条绑定实际的文件名快照**（新行 = 本次传入的名字；幂等命中 = 既有行的名字）。
+    /// `None` 只可能出现在「既有行是 V0362 之前的历史行、且当时的名字没回填上」的情况，
+    /// 调用方用本次提交的名字兜底即可（与读路径的 `COALESCE` 同口径）。
+    pub file_name: Option<String>,
+}
+
+/// 绑定一行，并**落库上传人姓名快照**（`biz_doc_attachment.uploader_name`，AUD-01）
+/// 与**文件名快照**（`biz_doc_attachment.file_name`，E2E07-FIX-3）。
 ///
 /// # 参数
 ///
@@ -808,6 +846,10 @@ pub async fn count_by_file(file_id: &Uuid) -> DbResult<i64> {
 /// - `uploaded_by`：上传人 id（行级删除判据用它）；
 /// - `uploader_name`：上传人姓名快照（[`crate::business::shared::user_name::snapshot_name`]
 ///   的返回值）。**写进库后永不回改** —— 用户改名 / 销号后，历史附件仍显示当时的名字。
+/// - `file_name`：**本次上传**的文件名快照（multipart 的 filename，已由
+///   [`super::dto::normalize_file_name`] 归一）。同样写进库后永不回改 ——
+///   `sys_file` 是内容 hash 秒传复用的，它的 `original_name` 属于首个上传者，
+///   不能代表这一次上传叫什么名字。
 ///
 /// # 为什么姓名要单独传，不在 SQL 里 `JOIN sys_user` 现取
 ///
@@ -819,7 +861,7 @@ pub async fn count_by_file(file_id: &Uuid) -> DbResult<i64> {
 ///
 /// # 返回值
 ///
-/// 绑定行主键。
+/// [`BindingOutcome`]：绑定行主键 + **库里这条行实际的文件名快照**。
 ///
 /// # 排序序号的写法（ATT-03）
 ///
@@ -842,17 +884,18 @@ pub async fn insert_with_uploader(
     remark: Option<&str>,
     uploaded_by: Option<Uuid>,
     uploader_name: Option<&str>,
-) -> DbResult<Uuid> {
+    file_name: Option<&str>,
+) -> DbResult<BindingOutcome> {
     let rows = db()
         .find_with_params(
             "INSERT INTO biz_doc_attachment \
                  (id, doc_type, doc_id, file_id, file_role, remark, uploaded_by, uploader_name, \
-                  created_at, sort_order) \
-             VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?::uuid, ?, now(), \
+                  file_name, created_at, sort_order) \
+             VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?::uuid, ?, ?, now(), \
                      COALESCE((SELECT max(x.sort_order) + 1 FROM biz_doc_attachment x \
                                 WHERE x.doc_type = ? AND x.doc_id = ?::uuid AND x.deleted_at IS NULL), 0)) \
              ON CONFLICT (doc_type, doc_id, file_id) WHERE deleted_at IS NULL DO NOTHING \
-             RETURNING id",
+             RETURNING id, file_name",
             vec![
                 Value::from(&Uuid::now_v7()),
                 Value::Text(kind.as_str().to_string()),
@@ -862,6 +905,7 @@ pub async fn insert_with_uploader(
                 remark.map_or(Value::Null, |text| Value::Text(text.to_string())),
                 uploaded_by.map_or(Value::Null, |id| Value::from(&id)),
                 uploader_name.map_or(Value::Null, |text| Value::Text(text.to_string())),
+                file_name.map_or(Value::Null, |text| Value::Text(text.to_string())),
                 // 子查询的两个占位：与上面同一口径的 (doc_type, doc_id)
                 Value::Text(kind.as_str().to_string()),
                 Value::from(doc_id),
@@ -869,14 +913,19 @@ pub async fn insert_with_uploader(
         )
         .await?;
     if let Some(row) = rows.first() {
-        return row.get_typed("id");
+        return Ok(BindingOutcome {
+            id: row.get_typed("id")?,
+            file_name: row.get_typed("file_name")?,
+        });
     }
 
-    // 已绑定过（并发或重复上传同一份字节）：返回既有行主键，不报错。
-    // **不回写姓名**：既有行的上传人是谁，就保留谁的名字（重复上传同一份字节不算换人）。
+    // 已绑定过（并发或重复上传同一份字节）：返回既有行，不报错。
+    // **不回写姓名 / 文件名**：既有行的上传人与文件名代表**第一次**那次上传，
+    // 重复上传同一份字节不算换人、也不算改名。回读既有行的 `file_name`，
+    // 让调用方（响应体）与后续列表（回读同一列）给出**同一个**名字。
     let existing = db()
         .find_with_params(
-            "SELECT id FROM biz_doc_attachment \
+            "SELECT id, file_name FROM biz_doc_attachment \
               WHERE doc_type = ? AND doc_id = ?::uuid AND file_id = ?::uuid AND deleted_at IS NULL",
             vec![
                 Value::Text(kind.as_str().to_string()),
@@ -885,10 +934,13 @@ pub async fn insert_with_uploader(
             ],
         )
         .await?;
-    existing
+    let row = existing
         .first()
-        .ok_or_else(|| DbError::InvalidValue("附件绑定冲突且查不到既有行".to_string()))?
-        .get_typed("id")
+        .ok_or_else(|| DbError::InvalidValue("附件绑定冲突且查不到既有行".to_string()))?;
+    Ok(BindingOutcome {
+        id: row.get_typed("id")?,
+        file_name: row.get_typed("file_name")?,
+    })
 }
 
 /// 绑定一行（**不带姓名快照**）—— 只给测试夹具用。
@@ -900,7 +952,7 @@ pub async fn insert_with_uploader(
 /// 于是把它收成测试专用：夹具库里不一定有 `sys_user` 行，读路径会按
 /// `COALESCE(NULLIF(a.uploader_name,''), <实时 join>)` 回落到现值，断言不受影响。
 ///
-/// 实现在 [`insert_with_uploader`]（`uploader_name = None`）。
+/// 实现在 [`insert_with_uploader`]（`uploader_name = None` / `file_name = None`）。
 #[cfg(test)]
 pub async fn insert(
     kind: DocKind,
@@ -910,7 +962,9 @@ pub async fn insert(
     remark: Option<&str>,
     uploaded_by: Option<Uuid>,
 ) -> DbResult<Uuid> {
-    insert_with_uploader(kind, doc_id, file_id, role, remark, uploaded_by, None).await
+    insert_with_uploader(kind, doc_id, file_id, role, remark, uploaded_by, None, None)
+        .await
+        .map(|outcome| outcome.id)
 }
 
 /// 按单据列附件（未删）。

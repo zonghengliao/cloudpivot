@@ -37,6 +37,56 @@ pub const PERM_DELETE: &str = "business:attachment:delete";
 /// 备注列的字符上限（列是 `VARCHAR(255)`，留 55 字符余量给后续加工）。
 pub const REMARK_MAX_CHARS: usize = 200;
 
+/// 文件名快照列的字符上限（`biz_doc_attachment.file_name VARCHAR(255)`，E2E07-FIX-3）。
+pub const FILE_NAME_MAX_CHARS: usize = 255;
+
+/// 归一 multipart 里的 `filename` → **本次上传的文件名快照**（E2E07-FIX-3）。
+///
+/// # 规则（顺序即实现顺序）
+///
+/// 1. **只取最后一段路径**：浏览器只会给 basename，但客户端可以伪造
+///    `../../etc/passwd` 或 `C:\Users\x\a.pdf`。这个值会进列表、会回填进
+///    `Content-Disposition` 之类的地方，留着目录段只会制造歧义；
+/// 2. **去掉控制字符**（`\r` `\n` `\t` 之类）：防止有人借文件名做头注入 /
+///    在列表里伪造多行；
+/// 3. **去首尾空白**；空白结果 → 400（与 `read_multipart` 的「缺少文件名」同码）；
+/// 4. **≤ [`FILE_NAME_MAX_CHARS`] 字符**（按 `char` 数，不是字节：中文名一个字
+///    占 3 字节但列宽是 255 **字符**）。超长不静默截断 —— 截断会让用户拿到一个
+///    「差几个字」的名字去猜，直接 400 让他改名更诚实。
+///
+/// # 返回值
+///
+/// 归一后的文件名；调用方拿它**同时**去 `sys_file`（扩展名 → 策略）与
+/// `biz_doc_attachment.file_name`（快照），保证「策略校验的名字」与「看到的字」一致。
+///
+/// # 异常情况
+///
+/// 400 + `PARAM_INVALID`：空名 / 超长。
+pub fn normalize_file_name(raw: &str) -> std::result::Result<String, ApiError> {
+    // ① 最后一段路径（`/` 与 `\` 都算分隔符）
+    let base = raw.rsplit(['/', '\\']).next().unwrap_or(raw);
+    // ② 去掉控制字符 + ③ 去首尾空白
+    let cleaned: String = base.chars().filter(|ch| !ch.is_control()).collect();
+    let name = cleaned.trim();
+    if name.is_empty() {
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            "缺少文件名（multipart 的 filename）",
+        ));
+    }
+    // ④ 长度（按字符数）
+    let chars = name.chars().count();
+    if chars > FILE_NAME_MAX_CHARS {
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!("文件名过长（{chars} 字符，最多 {FILE_NAME_MAX_CHARS} 字符），请重命名后再上传"),
+        ));
+    }
+    Ok(name.to_string())
+}
+
 /// 单个附件的大小上限：**20 MB**（ATT-05 用户拍板）。
 ///
 /// 这是**业务口径**，比 storage 的 `attachment` 策略（100 MB）更严：单据附件是

@@ -1,0 +1,5 @@
+==> 已删除旧库：cp_fix3_fresh（RECREATE=1）
+==> 空库已建：cp_fix3_fresh（owner=alun）
+==> 迁移实例已启动 pid=2832029 端口=18097 日志=/tmp/setup_new_env_cp_fix3_fresh.log
+==> 实例已停止（迁移日志：1 条完成标记）
+==> schema_migrations: versioned 284/284 条 ｜ seed 11/11 条 ｜ 失败 0 条 ｜ 最大版本 V362

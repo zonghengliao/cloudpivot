@@ -759,3 +759,31 @@ echo $?    # 0=4 条全绿 ｜ 1=有违规（逐条点名）｜ 2=连不上库 /
 —— 合同提交 → 审批通过（SIGNED）→ `sys_notice` 落 1 条 `LNK:CONTRACT:SIGNED:<合同 id>`，
 收件人 = 制单人；重复审批被 409 挡住且通知不增；再终止（TERMINATED）→ 再落 1 条；
 合同名下 0 张凭证（`CONTRACT_EXCLUDED_ACTIONS` 有牙）。
+
+## 附件文件名快照（`e2e07_fix3_attachment_name_probe.sh`，卡 E2E07-FIX-3）
+
+```bash
+bash scripts/verify/e2e07_fix3_attachment_name_probe.sh    # 145，读 /etc/cloudpivot/cloudpivot-dev.env
+```
+
+**为什么要有这条探针**：`sys_file` 按内容 hash **秒传复用**（同字节共用一条记录），
+`original_name` 是「**首个**上传者的名字」。`biz_doc_attachment` 过去只存 `file_id`，
+列表一律读 `sys_file.original_name` —— 于是「B 上传的扫描件显示了 A 上传时的发票名」，
+审计会把材料认错。修法是给**绑定行**加文件名快照（迁移 `V0362`
+`biz_doc_attachment.file_name`），读路径
+`COALESCE(NULLIF(a.file_name,''), f.original_name, '')`（快照优先、历史行回落）。
+
+| # | 断言 | 判据 |
+|---|------|------|
+| ① | 迁移已应用 | `schema_migrations` 有 0362；列是 `varchar(255)`；**存量空值 0 行** |
+| ② | 真秒传 | 同一份字节以两个不同文件名传到两张单据：第二次 `duplicated=true`、`file_id` 相同 |
+| ③ | 各自显示自己的名字 | 两张单据的 `GET /business/attachment/list` 各自返回自己的 `file_name` |
+| ④ | 库内不变量 | 两条绑定 `count(distinct file_id)=1`、`count(distinct file_name)=2`；`sys_file` 该 hash 只有 1 行 |
+| ⑤ | 审计同源 | 第二次上传的 `operation_logs(DOC_ATTACHMENT_UPLOAD).detail.file_name` = 本次的名字 |
+| ⑥ | 回落口径 | 把某行 `file_name` 置空（模拟未回填的历史行）→ 列表回落到 `sys_file.original_name`；恢复后又是自己的名字 |
+| ⑦ | 超长 400 | 256 字符文件名 → `400 + 10001`，报文点明上限 255（不静默截断、不 500） |
+
+代码侧由两条单测兜住：`file_name_snapshot_is_read_before_sys_file_name`（**漂移守卫**：
+`COLUMNS` 里快照必须排在 `f.original_name` 之前 —— 顺序换回去时真库用例在没有秒传的夹具上
+依然全绿，只有这条会红）与 `migration_adds_and_backfills_file_name`（迁移少一句就红）。
+真库用例 `db_file_name_snapshot_survives_seconds_upload` 覆盖列表 / 单条 / 幂等 / 历史回落四段。

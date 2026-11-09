@@ -100,7 +100,7 @@ const UPLOAD_CATEGORY: &str = "attachment";
 /// # 异常情况
 ///
 /// - 400：字段缺失 / 类型非法 / 备注超长 / 附件数已达上限 / **文件超过 20 MB** /
-///   扩展名或 MIME 不被策略允许；
+///   文件名过长（> 255 字符）/ 扩展名或 MIME 不被策略允许；
 /// - 403：无 `business:attachment:upload`；或**缺该单据模块的读码**
 ///   （[`dto::doc_upload_forbidden`]，点名所需权限码）；
 /// - 404：单据不存在或已删除（**只有过了读码这一关才可能看到 404**）；
@@ -128,6 +128,11 @@ pub async fn upload(
     }
 
     let (fields, file) = read_multipart(multipart, server_limit).await?;
+    // E2E07-FIX-3：**本次上传的文件名快照**。归一（去目录段 / 控制字符 / 超长 400）
+    // 之后同时用于 ① storage 的扩展名白名单与对象键、② `biz_doc_attachment.file_name`。
+    // 秒传复用同一个 `sys_file` 时，这条快照保证每个附件各显其名
+    // （读不到 `sys_file.original_name` 那个「首个上传者的名字」）。
+    let submitted_name = dto::normalize_file_name(&file.name)?;
     // ATT-04：字段合法性（400）→ 单据读码（403）。两步都不查库，保证「无权用户拿任何
     // doc_id 都拿到同一份 403」，不给出「这个 id 存不存在」的任何信息。
     let meta = dto::preflight_upload(
@@ -185,9 +190,12 @@ pub async fn upload(
         .map_err(|error| utils::db_error(error, "查询可复用文件"))?
         .is_some();
 
-    let record = store_server_upload(UPLOAD_CATEGORY, &file.name, &file.mime, &file.bytes, operator).await?;
+    let record = store_server_upload(UPLOAD_CATEGORY, &submitted_name, &file.mime, &file.bytes, operator).await?;
 
-    let binding_id = model::insert_with_uploader(
+    // 绑定行带上**本次上传的文件名快照**。返回值里的 `file_name` 是**库里那条行**的值：
+    // 同一张单据重复上传同一份字节时命中幂等分支、沿用既有行的名字（不回写），
+    // 响应必须跟它走 —— 否则「上传返回 file2.pdf、列表显示 file1.pdf」。
+    let binding = model::insert_with_uploader(
         meta.doc_type,
         &meta.doc_id,
         &record.id,
@@ -195,13 +203,16 @@ pub async fn upload(
         meta.remark.as_deref(),
         operator,
         uploader_name.as_deref(),
+        Some(&submitted_name),
     )
     .await
     .map_err(|error| utils::db_error(error, "写入附件绑定"))?;
+    let binding_id = binding.id;
 
-    // 显示名口径与响应体同一份：秒传复用别人的记录时，`record.original_name` 是
-    // 首个上传者的名字；响应与留痕都用它，保证「界面看到的」= 「审计记下的」。
-    let file_name = record.original_name.clone().unwrap_or_else(|| file.name.clone());
+    // 显示名口径：**库里那条绑定行的文件名快照**（= 本次上传的名字；幂等命中时是既有行的）。
+    // 与列表 / 下载 / 删除留痕读的是同一列（`biz_doc_attachment.file_name`），
+    // 三处同源，不会出现「界面看到的」≠「审计记下的」。
+    let file_name = binding.file_name.unwrap_or_else(|| submitted_name.clone());
 
     // AUD-02：直写 `operation_logs`（不走日志总线）。总线是 500 ms 批量，未初始化
     // 的进程会丢事件 —— 145 上实测上传 8 次、`DOC_ATTACHMENT_UPLOAD` 一行没有。
@@ -217,7 +228,7 @@ pub async fn upload(
             file_id: record.id,
             file_role: meta.file_role,
             file_name: &file_name,
-            submitted_name: &file.name,
+            submitted_name: &submitted_name,
             file_size: record.file_size,
             storage_code: record.storage_code.as_deref(),
             duplicated,
@@ -272,11 +283,13 @@ pub(crate) struct UploadLogFacts<'a> {
     pub file_id: uuid::Uuid,
     /// 文件角色。
     pub file_role: model::FileRole,
-    /// 落库的显示名（`sys_file.original_name`，与列表 / 下载 / 删除留痕的
-    /// `file_name` 同一口径；秒传时是**首个**上传者的文件名）。
+    /// 落库的显示名（**库里那条绑定行的 `file_name` 快照**，与列表 / 下载 / 删除留痕的
+    /// `file_name` 同一口径。E2E07-FIX-3 之前读的是 `sys_file.original_name`，
+    /// 秒传时那会是**别人**的文件名）。
     pub file_name: &'a str,
-    /// 本次请求 multipart 里提交的文件名（秒传复用别人的记录时与 `file_name`
-    /// 不同 —— 这个差异本身有审计价值：说明本次没写对象）。
+    /// 本次请求 multipart 里提交的文件名。秒传复用时它与 `file_name` **相同**
+    /// （快照记的就是本次的名字）；只有在「同一张单据重复上传同一份字节、
+    /// 沿用既有行名字」时才可能不同 —— 这个差异本身有审计价值。
     pub submitted_name: &'a str,
     /// 字节数（`sys_file.file_size`）。
     pub file_size: i64,

@@ -409,6 +409,115 @@ fn display_name_never_leaks_object_key() {
     assert_eq!(model::display_name(None, ""), "");
 }
 
+// ---------- E2E07-FIX-3：文件名快照 ----------
+
+/// **漂移守卫**：读路径必须**先**取绑定行的文件名快照，再回落 `sys_file.original_name`。
+///
+/// 这条断言看的是 SQL 常量本身 —— 秒传复用（同内容共用一条 `sys_file`）时，
+/// 只要 `COALESCE` 的参数顺序被换成 `f.original_name` 优先，`db_*` 用例在**没有秒传**
+/// 的夹具上依然全绿，bug 会静默复活。所以顺序在这里钉死。
+#[test]
+fn file_name_snapshot_is_read_before_sys_file_name() {
+    let columns = super::model::COLUMNS;
+    let snapshot = columns
+        .find("NULLIF(a.file_name, '')")
+        .unwrap_or_else(|| panic!("读路径丢了文件名快照列：{columns}"));
+    let sys_file = columns
+        .find("f.original_name")
+        .unwrap_or_else(|| panic!("读路径丢了 sys_file 回落：{columns}"));
+    assert!(
+        snapshot < sys_file,
+        "快照必须在 sys_file 之前（否则秒传时又显示别人的文件名）：{columns}"
+    );
+    // 同一个 COALESCE 里：快照必须是**第一个**参数
+    // （`COALESCE(NULLIF(a.file_name,''), f.original_name, ...)`）
+    let before = columns[..snapshot].trim_end();
+    assert!(
+        before.ends_with("COALESCE("),
+        "快照必须是这个 COALESCE 的第一个参数（否则回落会盖掉它）：{columns}"
+    );
+}
+
+/// 迁移 V0362 必须做三件事：加列（幂等）、回填存量、自检空值。
+///
+/// 与 `permission_codes_match_migration` 同一个思路：**迁移与代码是两份东西**，
+/// 代码指望的列 / 回填口径在迁移里少一句，只有真库跑到那一步才会炸。
+#[test]
+fn migration_adds_and_backfills_file_name() {
+    let up = include_str!("../../../migrations/business/V0362__doc_attachment_file_name.up.sql");
+    assert!(
+        up.contains("ADD COLUMN IF NOT EXISTS file_name varchar(255)"),
+        "V0362 必须幂等地加 file_name varchar(255)"
+    );
+    assert!(
+        up.contains("NULLIF(a.file_name, '') IS NULL"),
+        "V0362 必须回填存量（且只碰空值，重复执行不覆盖已有快照）"
+    );
+    assert!(
+        up.contains("is_nullable = 'YES'"),
+        "V0362 自检要钉住「可空」（历史行要等回填）"
+    );
+    let down = include_str!("../../../migrations/business/V0362__doc_attachment_file_name.down.sql");
+    assert!(
+        down.contains("DROP COLUMN IF EXISTS file_name"),
+        "V0362 回滚必须幂等地删列"
+    );
+}
+
+/// 上传文件名归一（E2E07-FIX-3）：只取 basename、去控制字符、超长 400。
+#[test]
+fn normalize_file_name_strips_paths_and_controls() {
+    // 正常名：原样保留（含中文 / 空格）
+    assert_eq!(
+        dto::normalize_file_name("e2e07-contract-scan.pdf").expect("正常名"),
+        "e2e07-contract-scan.pdf"
+    );
+    assert_eq!(
+        dto::normalize_file_name("  合同 扫描件（第 1 页）.pdf  ").expect("去首尾空白"),
+        "合同 扫描件（第 1 页）.pdf"
+    );
+
+    // 目录段：只取最后一段（伪造路径不能进库、不能进列表）
+    assert_eq!(
+        dto::normalize_file_name("../../etc/passwd").expect("相对路径"),
+        "passwd"
+    );
+    assert_eq!(
+        dto::normalize_file_name("C:\\Users\\x\\drill-invoice.pdf").expect("Windows 路径"),
+        "drill-invoice.pdf"
+    );
+    assert_eq!(dto::normalize_file_name("/tmp/a/b/c.pdf").expect("绝对路径"), "c.pdf");
+
+    // 控制字符（头注入 / 伪造多行）：删掉而不是拒绝 —— 用户看到的仍是自己的文件名
+    assert_eq!(
+        dto::normalize_file_name("发票\r\nX-Injected: 1.pdf").expect("控制字符"),
+        "发票X-Injected: 1.pdf"
+    );
+
+    // 空 / 只有目录 / 只有控制字符 → 400（与 read_multipart 的「缺少文件名」同码同文案）
+    for bad in ["", "   ", "a/b/", "\r\n"] {
+        let error = dto::normalize_file_name(bad).expect_err(&format!("{bad:?} 应被拒"));
+        assert_eq!(error.status, 400, "{bad:?}");
+        assert!(error.msg.contains("文件名"), "{bad:?} → {}", error.msg);
+    }
+
+    // 长度按**字符**算：255 个汉字必须过（varchar(255) 是 255 字符，不是 255 字节）
+    let max_cn = "汉".repeat(dto::FILE_NAME_MAX_CHARS);
+    assert_eq!(
+        dto::normalize_file_name(&max_cn)
+            .expect("255 个汉字应通过")
+            .chars()
+            .count(),
+        dto::FILE_NAME_MAX_CHARS
+    );
+    // 256 个 → 400，报文明说上限（不静默截断）
+    let too_long = format!("{max_cn}x");
+    let error = dto::normalize_file_name(&too_long).expect_err("256 字符应被拒");
+    assert_eq!(error.status, 400);
+    assert!(error.msg.contains("255"), "{}", error.msg);
+    assert!(error.msg.contains("256"), "报文要带上实际长度：{}", error.msg);
+}
+
 /// 权限码清单必须与 `V0212` 迁移逐字一致（改一处忘另一处 → 这里先红）。
 #[test]
 fn permission_codes_match_migration() {
@@ -1228,9 +1337,11 @@ async fn db_uploader_name_is_snapshot_and_survives_rename() {
         None,
         Some(owner),
         Some("张三"),
+        None,
     )
     .await
-    .expect("绑定附件（带姓名快照）");
+    .expect("绑定附件（带姓名快照）")
+    .id;
 
     // ② 历史行：V0352 之前的行 / 夹具没有快照（只有 uploaded_by）
     let legacy = model::insert(
@@ -1281,6 +1392,149 @@ async fn db_uploader_name_is_snapshot_and_survives_rename() {
     .await;
 
     println!("[AUD-01] 单据附件上传人姓名快照（写入 / 改名 / 历史行回落）✓");
+}
+
+/// **E2E07-FIX-3**：文件名是**本次上传**的快照 ——
+/// 秒传复用同一个 `sys_file` 时，两条绑定各自显示自己的名字。
+///
+/// 复现原 bug 的最小场景（卡面）：
+///
+/// ```text
+///   A 上传 drill-invoice.pdf（内容 X）      → sys_file.original_name = drill-invoice.pdf
+///   B 上传 e2e07-contract-scan.pdf（同内容X）→ 复用同一条 sys_file
+///   B 的附件列表 → 旧实现显示 drill-invoice.pdf（别人的名字）
+/// ```
+///
+/// 断言口径：**同一个 `file_id`、两条绑定、两个不同的显示名**。
+#[tokio::test]
+async fn db_file_name_snapshot_survives_seconds_upload() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    let owner = uid(U_OWNER);
+    let other = uid(U_OTHER);
+
+    // ① A 上传（写入 sys_file 的名字是夹具的「合同扫描件.png」）
+    let first = model::insert_with_uploader(
+        DocKind::Contract,
+        &uid(DOC_CONTRACT),
+        &uid(FILE_A),
+        FileRole::ContractScan,
+        None,
+        Some(owner),
+        Some("附件上传人"),
+        Some("drill-invoice.pdf"),
+    )
+    .await
+    .expect("A 的绑定");
+    // ② B 上传同一份内容（秒传：同一个 file_id，不同单据），名字不同
+    let second = model::insert_with_uploader(
+        DocKind::PurchaseOrder,
+        &uid(DOC_PO),
+        &uid(FILE_A),
+        FileRole::Default,
+        None,
+        Some(other),
+        Some("附件旁观者"),
+        Some("e2e07-contract-scan.pdf"),
+    )
+    .await
+    .expect("B 的绑定（秒传复用）");
+
+    // ③ 两条绑定行、同一个 sys_file（这就是「秒传」）
+    assert_ne!(first.id, second.id, "秒传不是共用绑定行，是共用 sys_file");
+    assert_eq!(first.file_name.as_deref(), Some("drill-invoice.pdf"));
+    assert_eq!(second.file_name.as_deref(), Some("e2e07-contract-scan.pdf"));
+    let file_ids = db()
+        .find_with_params(
+            "SELECT file_id FROM biz_doc_attachment WHERE id IN (?::uuid, ?::uuid) \
+             ORDER BY file_id",
+            vec![Value::from(&first.id), Value::from(&second.id)],
+        )
+        .await
+        .expect("查 file_id");
+    assert_eq!(
+        file_ids.len(),
+        2,
+        "两条绑定都得在（否则下面的「同一 sys_file」断言没意义）"
+    );
+    let mut ids: Vec<String> = file_ids
+        .iter()
+        .map(|row| row.get_typed::<Uuid>("file_id").expect("file_id").to_string())
+        .collect();
+    ids.dedup();
+    assert_eq!(ids, vec![FILE_A.to_string()], "秒传：两条绑定共用同一个 sys_file");
+
+    // ④ 列表：各自显示**自己的**名字（不是 sys_file.original_name 的「合同扫描件.png」）
+    let contract = model::list_by_doc(DocKind::Contract, &uid(DOC_CONTRACT), model::ListOrder::TimeDesc)
+        .await
+        .expect("合同附件列表");
+    assert_eq!(contract.len(), 1);
+    assert_eq!(
+        contract[0].file_name, "drill-invoice.pdf",
+        "合同这侧显示 A 传的名字（绝不能是 sys_file 的名字）"
+    );
+    let po = model::list_by_doc(DocKind::PurchaseOrder, &uid(DOC_PO), model::ListOrder::TimeDesc)
+        .await
+        .expect("采购单附件列表");
+    assert_eq!(po.len(), 1);
+    assert_eq!(
+        po[0].file_name, "e2e07-contract-scan.pdf",
+        "秒传这侧必须显示 B 自己的名字（原 bug：显示 A 的 drill-invoice.pdf）"
+    );
+
+    // ⑤ 出参：DTO 直接带 file_name（前端 `DocAttachmentPanel` 读的就是它）
+    let claims = claims_of(U_OWNER, &["business:erp:purchase-order:list"]);
+    let item = dto::to_item(&po[0], &claims, true);
+    assert_eq!(item.file_name, "e2e07-contract-scan.pdf");
+    assert_eq!(item.file_id, FILE_A, "file_id 仍是复用后的那一条");
+
+    // ⑥ 单条读（下载 / 删除路径）同样读快照
+    let row = model::find_active(&second.id).await.expect("查单条").expect("应存在");
+    assert_eq!(row.file_name, "e2e07-contract-scan.pdf");
+
+    // ⑦ 幂等分支：同一张单据重复上传同一份字节 → 沿用既有行**与既有名字**，
+    //    响应（handler 用返回值）与列表因此同源，不会「上传返回 X、列表显示 Y」。
+    let again = model::insert_with_uploader(
+        DocKind::Contract,
+        &uid(DOC_CONTRACT),
+        &uid(FILE_A),
+        FileRole::ContractScan,
+        None,
+        Some(owner),
+        Some("附件上传人"),
+        Some("第二次上传-改个名.pdf"),
+    )
+    .await
+    .expect("重复上传（幂等）");
+    assert_eq!(again.id, first.id, "同一张单据 + 同一份文件 = 同一行");
+    assert_eq!(
+        again.file_name.as_deref(),
+        Some("drill-invoice.pdf"),
+        "幂等分支不回写文件名（等于第一次那次上传），响应必须跟库里一致"
+    );
+
+    // ⑧ 历史行（`file_name` 为 NULL，V0362 之前 / 夹具）回落到 sys_file.original_name
+    let legacy = model::insert(
+        DocKind::Payable,
+        &uid(DOC_PAYABLE),
+        &uid(FILE_B),
+        FileRole::Default,
+        None,
+        Some(owner),
+    )
+    .await
+    .expect("历史行（无文件名快照）");
+    let payable = model::list_by_doc(DocKind::Payable, &uid(DOC_PAYABLE), model::ListOrder::TimeDesc)
+        .await
+        .expect("应付单附件列表");
+    let legacy_row = payable.iter().find(|row| row.id == legacy).expect("历史行在列表里");
+    assert_eq!(
+        legacy_row.file_name, "签收单.pdf",
+        "没有快照的历史行回落 sys_file.original_name（界面不许空、不许 UUID）"
+    );
+
+    println!("[E2E07-FIX-3] 秒传复用下文件名各归其主（列表 / 单条 / 幂等 / 历史回落）✓");
 }
 
 /// 同一张单据重复绑定同一份文件 → 幂等（返回同一行，不撞部分唯一索引）。
