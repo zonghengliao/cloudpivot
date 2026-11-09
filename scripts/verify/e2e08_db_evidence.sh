@@ -37,7 +37,7 @@ PSQLQ -c "select 'SUP' pfx, count(*) filter (where supplier_code !~ '^SUP-[0-9]+
  union all select 'WH',  count(*) filter (where warehouse_code !~ '^WH-[0-9]+\$'), max(warehouse_code) from biz_warehouse where deleted_at is null
  union all select 'AC',  count(*) filter (where category_code !~ '^AC-[0-9]+\$'), max(category_code) from biz_asset_category where deleted_at is null
  union all select 'ET',  count(*) filter (where type_code !~ '^ET-[0-9]+\$'), max(type_code) from biz_expense_type where deleted_at is null" | tee -a "$OUT"
-W "  （bad_shape 含客户自有编码体系的历史行，非 0 不代表缺陷；本卡断言见 e2e08_master_a.sh ⑥）"
+W "  （bad_shape 非 0 是历史自有编码体系（如 SO6HT-CUST / W3C-M-L3）；本卡自己造的编码形态由 e2e08_master_a.sh ⑥ 断言）"
 W
 W "-- 5. 价格表：本卡物料的存活价格行与区间"
 PSQLQ -c "select 'agreed' k, customer_id::text, material_id::text, min_qty, price, effective_from, effective_to, status
@@ -102,7 +102,7 @@ PSQLQ -c "select 'E2E08(含软删物料)' scope, count(*) from biz_material m jo
  union all
  select 'ALL(存活物料)', count(*) from biz_material m join biz_warehouse w on w.id = m.default_warehouse_id
            where m.deleted_at is null and w.deleted_at is not null" | tee -a "$OUT"
-W "  （第一条 = 演练里「删仓库没拦有物料引用」留下的悬空指针，登记 P3；第二条是当前线上影响面）"
+W "  （第一条 = 已软删物料的默认仓指向已删仓库：物料已删不计入引用闸，属预期；第二条是当前线上影响面）"
 W
 W "-- 10. 编码策略参数（演练后应恢复 true）"
 PSQLQ -c "select config_key, config_value, status from sys_config where config_key = 'erp.master_data.allow_manual_code'" | tee -a "$OUT"

@@ -1,0 +1,526 @@
+TAP version 13
+# Subtest: validateSupplierForm：编码留空不再拦（后端自动取号），超长仍拦
+ok 1 - validateSupplierForm：编码留空不再拦（后端自动取号），超长仍拦
+  ---
+  duration_ms: 0.602296
+  type: 'test'
+  ...
+# Subtest: validateCustomerForm：编码留空不再拦（后端自动取号），超长仍拦
+ok 2 - validateCustomerForm：编码留空不再拦（后端自动取号），超长仍拦
+  ---
+  duration_ms: 0.30796
+  type: 'test'
+  ...
+# Subtest: 新建请求体：编码留空发 null（交给后端取号），填了只 trim
+ok 3 - 新建请求体：编码留空发 null（交给后端取号），填了只 trim
+  ---
+  duration_ms: 0.370086
+  type: 'test'
+  ...
+# Subtest: API：next-code 预览接口存在且路径写全 /api
+ok 4 - API：next-code 预览接口存在且路径写全 /api
+  ---
+  duration_ms: 1.232591
+  type: 'test'
+  ...
+# Subtest: 供应商页：编码栏旁有「生成编码」按钮，编辑态禁用，保存后回填编码
+ok 5 - 供应商页：编码栏旁有「生成编码」按钮，编辑态禁用，保存后回填编码
+  ---
+  duration_ms: 0.356085
+  type: 'test'
+  ...
+# Subtest: 客户页：编码栏旁有「生成编码」按钮，编辑态禁用，保存后回填编码
+ok 6 - 客户页：编码栏旁有「生成编码」按钮，编辑态禁用，保存后回填编码
+  ---
+  duration_ms: 0.264043
+  type: 'test'
+  ...
+# Subtest: 两页的编码输入框仍然是「编辑态只读」
+ok 7 - 两页的编码输入框仍然是「编辑态只读」
+  ---
+  duration_ms: 0.53967
+  type: 'test'
+  ...
+# Subtest: 物料·①validateMaterialForm：编码留空不拦（后端自动取号 MAT-0001），超长仍拦
+ok 8 - 物料·①validateMaterialForm：编码留空不拦（后端自动取号 MAT-0001），超长仍拦
+  ---
+  duration_ms: 0.709922
+  type: 'test'
+  ...
+# Subtest: 物料·②新建请求体：编码留空发 null（交给后端取号），填了只 trim
+ok 9 - 物料·②新建请求体：编码留空发 null（交给后端取号），填了只 trim
+  ---
+  duration_ms: 0.155501
+  type: 'test'
+  ...
+# Subtest: 物料·③API：fetchMaterialNextCode 存在且路径写全 /api
+ok 10 - 物料·③API：fetchMaterialNextCode 存在且路径写全 /api
+  ---
+  duration_ms: 0.991464
+  type: 'test'
+  ...
+# Subtest: 物料·④页面：编码栏旁有「生成编码」按钮，编辑态禁用，保存后回填编码
+ok 11 - 物料·④页面：编码栏旁有「生成编码」按钮，编辑态禁用，保存后回填编码
+  ---
+  duration_ms: 0.687546
+  type: 'test'
+  ...
+# Subtest: 仓库·①validateWarehouseForm：编码留空不拦（后端自动取号 WH-01，2 位），超长仍拦
+ok 12 - 仓库·①validateWarehouseForm：编码留空不拦（后端自动取号 WH-01，2 位），超长仍拦
+  ---
+  duration_ms: 0.888631
+  type: 'test'
+  ...
+# Subtest: 仓库·②新建请求体：编码留空发 null（交给后端取号），填了只 trim
+ok 13 - 仓库·②新建请求体：编码留空发 null（交给后端取号），填了只 trim
+  ---
+  duration_ms: 0.172834
+  type: 'test'
+  ...
+# Subtest: 仓库·③API：fetchWarehouseNextCode 存在且路径写全 /api
+ok 14 - 仓库·③API：fetchWarehouseNextCode 存在且路径写全 /api
+  ---
+  duration_ms: 0.89888
+  type: 'test'
+  ...
+# Subtest: 仓库·④弹窗：编码栏旁有「生成编码」按钮，编辑态禁用，保存后回填编码
+ok 15 - 仓库·④弹窗：编码栏旁有「生成编码」按钮，编辑态禁用，保存后回填编码
+  ---
+  duration_ms: 0.411336
+  type: 'test'
+  ...
+# Subtest: 资产分类·①validateCategoryForm：编码留空不拦（后端取号 AC-01），取号形态与超长都按字符集判
+ok 16 - 资产分类·①validateCategoryForm：编码留空不拦（后端取号 AC-01），取号形态与超长都按字符集判
+  ---
+  duration_ms: 8.57543
+  type: 'test'
+  ...
+# Subtest: 资产分类·②请求体：编码留空发 null（交给后端取号），填了转大写只 trim
+ok 17 - 资产分类·②请求体：编码留空发 null（交给后端取号），填了转大写只 trim
+  ---
+  duration_ms: 0.122168
+  type: 'test'
+  ...
+# Subtest: 资产分类·③API：fetchAssetCategoryNextCode 存在、路径写全 /api、契约复用 NextCodePreview
+ok 18 - 资产分类·③API：fetchAssetCategoryNextCode 存在、路径写全 /api、契约复用 NextCodePreview
+  ---
+  duration_ms: 0.28471
+  type: 'test'
+  ...
+# Subtest: 资产分类·④页面：编码栏旁有「生成编码」按钮，编辑态禁用，保存后回填后端编码
+ok 19 - 资产分类·④页面：编码栏旁有「生成编码」按钮，编辑态禁用，保存后回填后端编码
+  ---
+  duration_ms: 0.353461
+  type: 'test'
+  ...
+# Subtest: 费用类型·①validateTypeForm：编码留空不拦（后端取号 ET-01），取号形态与超长都按字符集判
+ok 20 - 费用类型·①validateTypeForm：编码留空不拦（后端取号 ET-01），取号形态与超长都按字符集判
+  ---
+  duration_ms: 0.205752
+  type: 'test'
+  ...
+# Subtest: 费用类型·②toTypePayload：编码留空发 null（交给后端取号），填了转大写只 trim
+ok 21 - 费用类型·②toTypePayload：编码留空发 null（交给后端取号），填了转大写只 trim
+  ---
+  duration_ms: 0.926548
+  type: 'test'
+  ...
+# Subtest: 费用类型·③API：fetchExpenseTypeNextCode 存在、路径写全 /api、契约复用 NextCodePreview
+ok 22 - 费用类型·③API：fetchExpenseTypeNextCode 存在、路径写全 /api、契约复用 NextCodePreview
+  ---
+  duration_ms: 0.185334
+  type: 'test'
+  ...
+# Subtest: 费用类型·④页面：编码栏旁有「生成编码」按钮，编辑态禁用，保存后回填后端编码
+ok 23 - 费用类型·④页面：编码栏旁有「生成编码」按钮，编辑态禁用，保存后回填后端编码
+  ---
+  duration_ms: 0.312502
+  type: 'test'
+  ...
+# Subtest: 兜底值是「允许」（参数缺失 / 接口挂了都不该锁死编码框）
+ok 24 - 兜底值是「允许」（参数缺失 / 接口挂了都不该锁死编码框）
+  ---
+  duration_ms: 0.611379
+  type: 'test'
+  ...
+# Subtest: manualCodeDisabled：编辑态或开关关闭都禁用，只有「新建 + 允许」才可填
+ok 25 - manualCodeDisabled：编辑态或开关关闭都禁用，只有「新建 + 允许」才可填
+  ---
+  duration_ms: 0.085125
+  type: 'test'
+  ...
+# Subtest: manualCodeHelp：开关关闭时给出「编码由系统自动生成」，打开时保留各页原文案
+ok 26 - manualCodeHelp：开关关闭时给出「编码由系统自动生成」，打开时保留各页原文案
+  ---
+  duration_ms: 0.126167
+  type: 'test'
+  ...
+# Subtest: API：code-policy 接口存在且路径写全（${BASE} 已含 /api）
+ok 27 - API：code-policy 接口存在且路径写全（${BASE} 已含 /api）
+  ---
+  duration_ms: 1.160257
+  type: 'test'
+  ...
+# Subtest: 策略加载：缓存 Promise + 失败 fail-open（catch 返回兜底值并清缓存）
+ok 28 - 策略加载：缓存 Promise + 失败 fail-open（catch 返回兜底值并清缓存）
+  ---
+  duration_ms: 0.268668
+  type: 'test'
+  ...
+# Subtest: 供应商表单：绑策略 → 编码框按策略禁用 → 生成编码按钮 v-if → 关闭态提示
+ok 29 - 供应商表单：绑策略 → 编码框按策略禁用 → 生成编码按钮 v-if → 关闭态提示
+  ---
+  duration_ms: 0.414044
+  type: 'test'
+  ...
+# Subtest: 客户表单：绑策略 → 编码框按策略禁用 → 生成编码按钮 v-if → 关闭态提示
+ok 30 - 客户表单：绑策略 → 编码框按策略禁用 → 生成编码按钮 v-if → 关闭态提示
+  ---
+  duration_ms: 0.194876
+  type: 'test'
+  ...
+# Subtest: 物料表单：绑策略 → 编码框按策略禁用 → 生成编码按钮 v-if → 关闭态提示
+ok 31 - 物料表单：绑策略 → 编码框按策略禁用 → 生成编码按钮 v-if → 关闭态提示
+  ---
+  duration_ms: 0.169376
+  type: 'test'
+  ...
+# Subtest: 仓库表单：绑策略 → 编码框按策略禁用 → 生成编码按钮 v-if → 关闭态提示
+ok 32 - 仓库表单：绑策略 → 编码框按策略禁用 → 生成编码按钮 v-if → 关闭态提示
+  ---
+  duration_ms: 0.386377
+  type: 'test'
+  ...
+# Subtest: 资产分类表单：绑策略 → 编码框按策略禁用 → 生成编码按钮 v-if → 关闭态提示
+ok 33 - 资产分类表单：绑策略 → 编码框按策略禁用 → 生成编码按钮 v-if → 关闭态提示
+  ---
+  duration_ms: 0.471544
+  type: 'test'
+  ...
+# Subtest: 费用类型表单：绑策略 → 编码框按策略禁用 → 生成编码按钮 v-if → 关闭态提示
+ok 34 - 费用类型表单：绑策略 → 编码框按策略禁用 → 生成编码按钮 v-if → 关闭态提示
+  ---
+  duration_ms: 0.23271
+  type: 'test'
+  ...
+# Subtest: CUSTOMER_COLUMNS 的 colKey 与后端 CustomerRes 逐字一致（不含 supplier_ 前缀）
+ok 35 - CUSTOMER_COLUMNS 的 colKey 与后端 CustomerRes 逐字一致（不含 supplier_ 前缀）
+  ---
+  duration_ms: 2.347056
+  type: 'test'
+  ...
+# Subtest: CUSTOMER_STATUS_OPTIONS 是字符串域 ACTIVE/FROZEN，不是 1/0
+ok 36 - CUSTOMER_STATUS_OPTIONS 是字符串域 ACTIVE/FROZEN，不是 1/0
+  ---
+  duration_ms: 0.108584
+  type: 'test'
+  ...
+# Subtest: buildCustomerQuery：空筛选只发 page/page_size（空串发出去会查出 0 行）
+ok 37 - buildCustomerQuery：空筛选只发 page/page_size（空串发出去会查出 0 行）
+  ---
+  duration_ms: 0.133626
+  type: 'test'
+  ...
+# Subtest: buildCustomerQuery：code / name 各自 trim 后独立下发，status 精确透传
+ok 38 - buildCustomerQuery：code / name 各自 trim 后独立下发，status 精确透传
+  ---
+  duration_ms: 0.18521
+  type: 'test'
+  ...
+# Subtest: isCustomerFiltered：任一条件有值即筛选态
+ok 39 - isCustomerFiltered：任一条件有值即筛选态
+  ---
+  duration_ms: 0.10025
+  type: 'test'
+  ...
+# Subtest: 状态文案 / 主题 / 切换目标
+ok 40 - 状态文案 / 主题 / 切换目标
+  ---
+  duration_ms: 0.108043
+  type: 'test'
+  ...
+# Subtest: formatCreditLimit：字符串裁尾零，0 说人话「不控额度」
+ok 41 - formatCreditLimit：字符串裁尾零，0 说人话「不控额度」
+  ---
+  duration_ms: 0.244544
+  type: 'test'
+  ...
+# Subtest: creditLimitText：数字 → 字符串定点（不走 toFixed，避免二进制误差）
+ok 42 - creditLimitText：数字 → 字符串定点（不走 toFixed，避免二进制误差）
+  ---
+  duration_ms: 0.103668
+  type: 'test'
+  ...
+# Subtest: contactLabel / textOr：空值统一显示 —
+ok 43 - contactLabel / textOr：空值统一显示 —
+  ---
+  duration_ms: 0.366002
+  type: 'test'
+  ...
+# Subtest: isCustomerListEmpty
+ok 44 - isCustomerListEmpty
+  ---
+  duration_ms: 0.365752
+  type: 'test'
+  ...
+# Subtest: validateCustomerForm：编码可留空（后端自动取号）+ 名称必填，超长与负额度都要拦
+ok 45 - validateCustomerForm：编码可留空（后端自动取号）+ 名称必填，超长与负额度都要拦
+  ---
+  duration_ms: 0.364961
+  type: 'test'
+  ...
+# Subtest: validateCustomerForm：编辑态不再校验编码（只读，改不了）；0 额度合法
+ok 46 - validateCustomerForm：编辑态不再校验编码（只读，改不了）；0 额度合法
+  ---
+  duration_ms: 0.101834
+  type: 'test'
+  ...
+# Subtest: buildCustomerCreatePayload：trim + 空串折 null + 额度转字符串定点 + 默认 ACTIVE
+ok 47 - buildCustomerCreatePayload：trim + 空串折 null + 额度转字符串定点 + 默认 ACTIVE
+  ---
+  duration_ms: 0.129084
+  type: 'test'
+  ...
+# Subtest: buildCustomerCreatePayload：新建默认 credit_days = 0（= 现结，不是 30）
+ok 48 - buildCustomerCreatePayload：新建默认 credit_days = 0（= 现结，不是 30）
+  ---
+  duration_ms: 0.071376
+  type: 'test'
+  ...
+# Subtest: formatCreditDays / isCashOnDelivery：0 说「现结」，> 0 显天数
+ok 49 - formatCreditDays / isCashOnDelivery：0 说「现结」，> 0 显天数
+  ---
+  duration_ms: 0.088084
+  type: 'test'
+  ...
+# Subtest: creditDaysError：负数文案逐字照后端 require_credit_days，非整数/i32 越界也先拦
+ok 50 - creditDaysError：负数文案逐字照后端 require_credit_days，非整数/i32 越界也先拦
+  ---
+  duration_ms: 0.07675
+  type: 'test'
+  ...
+# Subtest: creditDaysValue：兜底折成非负整数（脏值不漏给后端）
+ok 51 - creditDaysValue：兜底折成非负整数（脏值不漏给后端）
+  ---
+  duration_ms: 0.064167
+  type: 'test'
+  ...
+# Subtest: validateCustomerForm：账期负数挂到 formErrors.credit_days，0 合法
+ok 52 - validateCustomerForm：账期负数挂到 formErrors.credit_days，0 合法
+  ---
+  duration_ms: 0.083209
+  type: 'test'
+  ...
+# Subtest: buildCustomerUpdatePayload：账期按值比较（45→0 要发，0→0 不发）
+ok 53 - buildCustomerUpdatePayload：账期按值比较（45→0 要发，0→0 不发）
+  ---
+  duration_ms: 0.291169
+  type: 'test'
+  ...
+# Subtest: buildCustomerUpdatePayload：没改就发空对象（省一次 PUT 和一条假成功）
+ok 54 - buildCustomerUpdatePayload：没改就发空对象（省一次 PUT 和一条假成功）
+  ---
+  duration_ms: 0.093876
+  type: 'test'
+  ...
+# Subtest: buildCustomerUpdatePayload：只发改过的字段，其余缺席
+ok 55 - buildCustomerUpdatePayload：只发改过的字段，其余缺席
+  ---
+  duration_ms: 0.076042
+  type: 'test'
+  ...
+# Subtest: buildCustomerUpdatePayload：文本从有到无发空串（后端约定 "" = 清空）
+ok 56 - buildCustomerUpdatePayload：文本从有到无发空串（后端约定 "" = 清空）
+  ---
+  duration_ms: 0.078334
+  type: 'test'
+  ...
+# Subtest: buildCustomerUpdatePayload：额度与状态分开比较（0.0000 等于 0 不算改）
+ok 57 - buildCustomerUpdatePayload：额度与状态分开比较（0.0000 等于 0 不算改）
+  ---
+  duration_ms: 0.094834
+  type: 'test'
+  ...
+# Subtest: buildCustomerStatusPayload：列表上的冻结/解冻只带 status
+ok 58 - buildCustomerStatusPayload：列表上的冻结/解冻只带 status
+  ---
+  duration_ms: 0.075251
+  type: 'test'
+  ...
+# Subtest: customerFormFromRow：FROZEN 原样回填，null 文本折成空串（t-input 不吃 null）
+ok 59 - customerFormFromRow：FROZEN 原样回填，null 文本折成空串（t-input 不吃 null）
+  ---
+  duration_ms: 0.089917
+  type: 'test'
+  ...
+# Subtest: ① 计量单位表格列 = 后端 UnitRes 的真字段（不自造列）
+ok 60 - ① 计量单位表格列 = 后端 UnitRes 的真字段（不自造列）
+  ---
+  duration_ms: 1.551343
+  type: 'test'
+  ...
+# Subtest: ① 供应商表格列 = 后端 SupplierRes 的真字段（不是 code / name）
+ok 61 - ① 供应商表格列 = 后端 SupplierRes 的真字段（不是 code / name）
+  ---
+  duration_ms: 0.24871
+  type: 'test'
+  ...
+# Subtest: ② 状态映射：1 启用绿 tag，0 停用灰 tag，脏值不染绿
+ok 62 - ② 状态映射：1 启用绿 tag，0 停用灰 tag，脏值不染绿
+  ---
+  duration_ms: 0.109792
+  type: 'test'
+  ...
+# Subtest: ③ 空态：rows.length === 0 才空，null / [] / 有行
+ok 63 - ③ 空态：rows.length === 0 才空，null / [] / 有行
+  ---
+  duration_ms: 0.097084
+  type: 'test'
+  ...
+# Subtest: ④ 查询参数：空串不发，page/page_size 是服务端字段
+ok 64 - ④ 查询参数：空串不发，page/page_size 是服务端字段
+  ---
+  duration_ms: 0.266127
+  type: 'test'
+  ...
+# Subtest: ⑤ 折算单位：1 箱 = 12 个，基准单位恒等 1，基准下拉剔除自己
+ok 65 - ⑤ 折算单位：1 箱 = 12 个，基准单位恒等 1，基准下拉剔除自己
+  ---
+  duration_ms: 0.216044
+  type: 'test'
+  ...
+# Subtest: ⑤ 计量单位请求体：基础单位不发 base_unit_id，折算单位必须带 rate
+ok 66 - ⑤ 计量单位请求体：基础单位不发 base_unit_id，折算单位必须带 rate
+  ---
+  duration_ms: 0.183209
+  type: 'test'
+  ...
+# Subtest: ⑤ 编辑请求体：只发改过的字段；清空折算基准必须发 null（不是空串）
+ok 67 - ⑤ 编辑请求体：只发改过的字段；清空折算基准必须发 null（不是空串）
+  ---
+  duration_ms: 0.154293
+  type: 'test'
+  ...
+# Subtest: ⑥ 供应商表单回填与请求体：空串转 null，只发改过的字段
+ok 68 - ⑥ 供应商表单回填与请求体：空串转 null，只发改过的字段
+  ---
+  duration_ms: 0.588503
+  type: 'test'
+  ...
+# Subtest: ⑥ 供应商展示：账期 0 = 现结，额度裁尾零
+ok 69 - ⑥ 供应商展示：账期 0 = 现结，额度裁尾零
+  ---
+  duration_ms: 0.371002
+  type: 'test'
+  ...
+# Subtest: ⑦ ERP-S1：系统预置单位打「系统」标签且不给删，客户自建可删
+ok 70 - ⑦ ERP-S1：系统预置单位打「系统」标签且不给删，客户自建可删
+  ---
+  duration_ms: 0.179793
+  type: 'test'
+  ...
+# Subtest: ⑦ ERP-S1：小数位数进请求体（新建带上、编辑只发改过的）且校验 0–6
+ok 71 - ⑦ ERP-S1：小数位数进请求体（新建带上、编辑只发改过的）且校验 0–6
+  ---
+  duration_ms: 0.123001
+  type: 'test'
+  ...
+# Subtest: ⑧ DC-09：折算单位返回灰字、基础单位不显示
+ok 72 - ⑧ DC-09：折算单位返回灰字、基础单位不显示
+  ---
+  duration_ms: 0.078
+  type: 'test'
+  ...
+# Subtest: serial_required 显示：true → 「★是」，false → 「否」
+ok 73 - serial_required 显示：true → 「★是」，false → 「否」
+  ---
+  duration_ms: 0.737296
+  type: 'test'
+  ...
+# Subtest: 筛选参数：serial_required=true 带 true；all 时整键缺席（不是带 undefined / 空串）
+ok 74 - 筛选参数：serial_required=true 带 true；all 时整键缺席（不是带 undefined / 空串）
+  ---
+  duration_ms: 0.255252
+  type: 'test'
+  ...
+# Subtest: 筛选参数：keyword 先 trim，空串 / 全空格不发；分类空串不发
+ok 75 - 筛选参数：keyword 先 trim，空串 / 全空格不发；分类空串不发
+  ---
+  duration_ms: 0.800213
+  type: 'test'
+  ...
+# Subtest: 分页参数：page / page_size 正确（默认 1 / 10，非法值夹回合法值）
+ok 76 - 分页参数：page / page_size 正确（默认 1 / 10，非法值夹回合法值）
+  ---
+  duration_ms: 0.106418
+  type: 'test'
+  ...
+# Subtest: 页码夹紧：total=5 / size=10 时第 3 页回到第 1 页
+ok 77 - 页码夹紧：total=5 / size=10 时第 3 页回到第 1 页
+  ---
+  duration_ms: 0.199918
+  type: 'test'
+  ...
+# Subtest: 编辑请求体：无 material_code；serial_required 未改则缺席
+ok 78 - 编辑请求体：无 material_code；serial_required 未改则缺席
+  ---
+  duration_ms: 0.186626
+  type: 'test'
+  ...
+# Subtest: 新建请求体：serial_required / costing_method 显式带上（不靠后端缺省）+ 空规格为 null
+ok 79 - 新建请求体：serial_required / costing_method 显式带上（不靠后端缺省）+ 空规格为 null
+  ---
+  duration_ms: 0.181959
+  type: 'test'
+  ...
+# Subtest: 成本法：下拉只有 MOVING_AVG；历史值作为禁用项兜底；编辑请求体不带 costing_method
+ok 80 - 成本法：下拉只有 MOVING_AVG；历史值作为禁用项兜底；编辑请求体不带 costing_method
+  ---
+  duration_ms: 0.267043
+  type: 'test'
+  ...
+# Subtest: 表单校验：名称 / 单位必填，编码可留空但超长仍拦，编辑态不校验编码
+ok 81 - 表单校验：名称 / 单位必填，编码可留空但超长仍拦，编辑态不校验编码
+  ---
+  duration_ms: 0.359169
+  type: 'test'
+  ...
+# Subtest: 列表文案：单位译名、分类中文、状态
+ok 82 - 列表文案：单位译名、分类中文、状态
+  ---
+  duration_ms: 0.407336
+  type: 'test'
+  ...
+# Subtest: ① 3 层树展平：长度 = 节点总数，parent_id 仍指向上级真实节点
+ok 83 - ① 3 层树展平：长度 = 节点总数，parent_id 仍指向上级真实节点
+  ---
+  duration_ms: 1.262133
+  type: 'test'
+  ...
+# Subtest: ② 节点 key 生成：空 code 不产出 undefined，重复 code 也不撞 key
+ok 84 - ② 节点 key 生成：空 code 不产出 undefined，重复 code 也不撞 key
+  ---
+  duration_ms: 0.407545
+  type: 'test'
+  ...
+# Subtest: ③ is_leaf 判定：有 children 的为 false，无 children 的为 true
+ok 85 - ③ is_leaf 判定：有 children 的为 false，无 children 的为 true
+  ---
+  duration_ms: 0.114126
+  type: 'test'
+  ...
+# Subtest: ④ 点节点后 selectedWarehouseId 正确更新（含取消选中）
+ok 86 - ④ 点节点后 selectedWarehouseId 正确更新（含取消选中）
+  ---
+  duration_ms: 0.101417
+  type: 'test'
+  ...
+1..86
+# tests 86
+# suites 0
+# pass 86
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 560.095872

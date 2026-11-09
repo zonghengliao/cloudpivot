@@ -1,0 +1,73 @@
+===== E2E-08 主数据域 · DB 证据（2026-11-09 12:05:43 CST） =====
+
+-- 1. 取号器六条规则（纯流水 / 不计日期 / 永不重置）
+AC|AC|-|2|none|GLOBAL|29
+CUS|CUS|-|4|none|GLOBAL|28
+ET|ET|-|2|none|GLOBAL|22
+MAT|MAT|-|4|none|GLOBAL|23
+SUP|SUP|-|4|none|GLOBAL|36
+WH|WH|-|2|none|GLOBAL|23
+
+-- 2. 本卡演练行（E2E08 前缀）存活计数
+biz_customer|5
+biz_supplier|3
+biz_material|3
+biz_warehouse|2
+biz_asset_category|2
+biz_expense_type|2
+biz_unit|2
+
+-- 3. 编码唯一性（六类主数据，全库存活行）
+supplier|0
+customer|0
+material|0
+warehouse|0
+asset_category|0
+expense_type|0
+
+-- 4. 自动编码形态校验（六类当前最大号与位数；不符合 <前缀>-<数字> 的存活行应为 0）
+SUP|23|W1B-SUP-001
+CUS|20|SO6HT-CUST
+MAT|57|W3C-M-L3
+WH|38|WH-W3B-2
+AC|12|VEHICLE
+ET|12|WELFARE
+  （bad_shape 非 0 是历史自有编码体系（如 SO6HT-CUST / W3C-M-L3）；本卡自己造的编码形态由 e2e08_master_a.sh ⑥ 断言）
+
+-- 5. 价格表：本卡物料的存活价格行与区间
+
+-- 6. 阶梯价区间重叠检查（同物料/客户/类型/生效期，qty 区间相交且都 ACTIVE 的对数）
+0
+  （全库视角：下方为全库重叠对数，仅供观察，可能是他人历史数据）
+0
+
+-- 7. 一物一码：本卡物料 serial_required 与序列号行数（逐物料）
+e2e08-mat-lc|f|0
+E2E08-MAT-M1|f|0
+E2E08-P-M1|f|0
+-- 7c. 软删物料下的序列号是否保留（审计口径：软删不级联）
+E2E08-B-M1|t|3
+
+-- 7d. 价格行全量（含软删：演练实际建过哪些价、最后如何收口）
+agreed|120.0000|0.0000|INACTIVE|2027-01-01|2027-12-31|t
+tier-PROMO|80.0000|0.0000|ACTIVE|2027-06-01|2027-06-30|t
+tier-PROMO|70.0000|0.0000|INACTIVE|2026-01-01|2026-01-31|t
+tier-TIER|85.0000|0.0000|ACTIVE|2027-01-01|2027-12-31|t
+tier-TIER|90.0000|10.0000|ACTIVE|2027-01-01|2027-12-31|t
+tier-TIER|92.0000|5.0000|ACTIVE|2027-01-01|2027-12-31|t
+tier-TIER|95.0000|1.0000|ACTIVE|2027-01-01|2027-12-31|t
+-- 7b. 序列号状态分布（本卡物料）
+IN_STOCK|3
+
+-- 8. 附件上传人姓名快照（本卡单据）
+CUSTOMER|E2E08-AUD-C1|E2E08 审计员|t|E2E08 审计员（改名）
+
+-- 9. 悬空引用扫描：物料默认仓指向已软删仓库
+E2E08(含软删物料)|1
+ALL(存活物料)|0
+  （第一条 = 已软删物料的默认仓指向已删仓库：物料已删不计入引用闸，属预期；第二条是当前线上影响面）
+
+-- 10. 编码策略参数（演练后应恢复 true）
+erp.master_data.allow_manual_code|true|1
+
+===== 证据结束 =====
