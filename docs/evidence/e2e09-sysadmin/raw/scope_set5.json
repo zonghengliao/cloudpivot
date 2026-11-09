@@ -1,0 +1,1 @@
+{"code":0,"msg":"ok","data":{"role_id":"01a1be94-5061-70b5-81c5-3e47762d3ea2","data_scope":5,"data_scope_code":"CUSTOM","data_scope_label":"自定义部门","custom_dept_ids":["01a1be94-4ff9-76ee-a4a5-edc2fb35e953"],"custom_depts":[{"id":"01a1be94-4ff9-76ee-a4a5-edc2fb35e953","dept_code":"E2E09-D1","dept_name":"演练一部"}],"invalidated_users":3}}
