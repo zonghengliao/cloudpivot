@@ -271,13 +271,15 @@ async fn settle(instance_id: Uuid, verdict: SoVerdict) -> DbResult<Option<Uuid>>
         // 审批通过：实例 id 保留（审计）；驳回打回草稿：apply_status_with_instance 会清空
         let affected = model::apply_status_with_instance(
             &tx,
-            order_id,
-            STATUS_SUBMITTED,
-            to_status,
-            Some(&reason),
-            approver,
-            None,
-            now,
+            model::ApplyStatusWithInstanceInput {
+                id: order_id,
+                from: STATUS_SUBMITTED,
+                to: to_status,
+                reason: Some(&reason),
+                operator: approver,
+                approval_instance_id: None,
+                now,
+            },
         )
         .await
         .map_err(|error| {

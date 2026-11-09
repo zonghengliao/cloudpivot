@@ -1,0 +1,42 @@
+$ grep -rn "allow(clippy::too_many_arguments)" src/business/erp/
+src/business/erp/asset_model.rs:1299:#[allow(clippy::too_many_arguments)]
+src/business/erp/asset_model.rs:1334:#[allow(clippy::too_many_arguments)]
+src/business/erp/budget_guard.rs:683:#[allow(clippy::too_many_arguments)]
+src/business/erp/budget_model.rs:1001:#[allow(clippy::too_many_arguments)]
+src/business/erp/budget_model.rs:1042:#[allow(clippy::too_many_arguments)]
+src/business/erp/budget_model.rs:586:#[allow(clippy::too_many_arguments)]
+src/business/erp/cancel_cascade.rs:1078:#[allow(clippy::too_many_arguments)]
+src/business/erp/commission_model.rs:569:#[allow(clippy::too_many_arguments)]
+src/business/erp/commission_model.rs:659:#[allow(clippy::too_many_arguments)]
+src/business/erp/depreciation_linkage.rs:147:#[allow(clippy::too_many_arguments)]
+src/business/erp/expense_model.rs:951:#[allow(clippy::too_many_arguments)]
+src/business/erp/payable_payment.rs:1329:#[allow(clippy::too_many_arguments)]
+src/business/erp/payable_payment.rs:1427:#[allow(clippy::too_many_arguments)]
+src/business/erp/payable_payment.rs:973:#[allow(clippy::too_many_arguments)]
+src/business/erp/period.rs:762:#[allow(clippy::too_many_arguments)]
+src/business/erp/price_inquiry_model.rs:422:#[allow(clippy::too_many_arguments)]
+src/business/erp/purchase_handler.rs:1478:#[allow(clippy::too_many_arguments)]
+src/business/erp/purchase_model.rs:620:#[allow(clippy::too_many_arguments)]
+src/business/erp/receipt_refund.rs:2006:#[allow(clippy::too_many_arguments)]
+src/business/erp/receivable.rs:1053:#[allow(clippy::too_many_arguments)]
+src/business/erp/sales_order_model.rs:662:/// `#[allow(clippy::too_many_arguments)]`（阈值 7，散参数原本是 8）。
+src/business/erp/sales_order_model.rs:789:/// 挂哪个审批实例」，也不必在函数上挂 `#[allow(clippy::too_many_arguments)]`。
+src/business/erp/stockin_cancel.rs:242:#[allow(clippy::too_many_arguments)]
+src/business/erp/stockin_handler_post.rs:666:#[allow(clippy::too_many_arguments)]
+src/business/erp/stockin_write.rs:552:#[allow(clippy::too_many_arguments)]
+src/business/erp/stockout_model.rs:1005:#[allow(clippy::too_many_arguments)]
+src/business/erp/stockout_model.rs:910:#[allow(clippy::too_many_arguments)]
+src/business/erp/transfer_write.rs:269:#[allow(clippy::too_many_arguments)]
+src/business/erp/voucher_multi.rs:238:#[allow(clippy::too_many_arguments)]
+---
+命中数: 29
+
+$ grep -rn -B1 "fn apply_status_with_instance" src/business/erp/
+src/business/erp/stockin_write.rs-281-/// （否则 `ck_biz_si_pending_cancel` 当场 23514），只有发起审批那次才带值。
+src/business/erp/stockin_write.rs:282:pub async fn apply_status_with_instance(
+--
+src/business/erp/purchase_model.rs-673-/// `NULL`（不然驳回打回草稿之后还挂着旧实例，下一次提交的判断会被污染）。
+src/business/erp/purchase_model.rs:674:pub async fn apply_status_with_instance(
+--
+src/business/erp/sales_order_model.rs-822-/// 调用方必须先过 `state_machine::transition`（边表校验 + 写 `biz_status_log`）。
+src/business/erp/sales_order_model.rs:823:pub async fn apply_status_with_instance(

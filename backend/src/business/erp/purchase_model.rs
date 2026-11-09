@@ -628,25 +628,63 @@ pub async fn apply_status(
     now: DateTime<Utc>,
     outbox: &mut LinkageOutbox,
 ) -> DbResult<u64> {
-    apply_status_with_instance(ex, id, from, to, reason, operator, None, now, outbox).await
+    apply_status_with_instance(
+        ex,
+        ApplyStatusWithInstanceInput {
+            id,
+            from,
+            to,
+            reason,
+            operator,
+            approval_instance_id: None,
+            now,
+        },
+        outbox,
+    )
+    .await
+}
+
+/// [`apply_status_with_instance`] 的入参（`ex` 之外的 7 项；`outbox` 留在参数位）。
+///
+/// 同 `sales_order_model` / `stockin_write` 的同名入参：把散参数收成一块，调用点读起来
+/// 就是「哪张单、从哪个态到哪个态、谁、何时、挂哪个审批实例」。
+#[derive(Debug, Clone, Copy)]
+pub struct ApplyStatusWithInstanceInput<'a> {
+    /// 采购订单主键（`WHERE id = ?::uuid`）。
+    pub id: Uuid,
+    /// 期望的当前态（CAS：`WHERE status = ?`；与库中不符则 `affected = 0`）。
+    pub from: &'a str,
+    /// 目标态（`SUBMITTED` / `APPROVED` / `DRAFT` / `CLOSED` / `CANCELLED`）。
+    pub to: &'a str,
+    /// 驳回 / 取消原因（`DRAFT` / `CANCELLED` 追加进 `remark`）；`None`/空 = 不动 `remark`。
+    pub reason: Option<&'a str>,
+    /// 操作人（落 `update_by` / `approved_by` / `closed_by`；`None` = 系统 / 测试）。
+    pub operator: Option<Uuid>,
+    /// 本次审批实例 id：`SUBMITTED` 必填（`None` = 跳过审批路径，列置 `NULL`），
+    /// `DRAFT` 清空，其它目标态保留作审计。
+    pub approval_instance_id: Option<Uuid>,
+    /// 业务时间（落 `updated_at` 等时间列）。
+    pub now: DateTime<Utc>,
 }
 
 /// 同 [`apply_status`]，但能**同时**写 `approval_instance_id`（P-FLOW-3A 发起审批用）。
 ///
 /// 拆两个入口的理由与收货单同款：「写不写实例 id」是两件事 —— 普通流转必须保持
 /// `NULL`（不然驳回打回草稿之后还挂着旧实例，下一次提交的判断会被污染）。
-#[allow(clippy::too_many_arguments)]
 pub async fn apply_status_with_instance(
     ex: &impl SqlExecutor,
-    id: Uuid,
-    from: &str,
-    to: &str,
-    reason: Option<&str>,
-    operator: Option<Uuid>,
-    approval_instance_id: Option<Uuid>,
-    now: DateTime<Utc>,
+    input: ApplyStatusWithInstanceInput<'_>,
     outbox: &mut LinkageOutbox,
 ) -> DbResult<u64> {
+    let ApplyStatusWithInstanceInput {
+        id,
+        from,
+        to,
+        reason,
+        operator,
+        approval_instance_id,
+        now,
+    } = input;
     let operator_text = Value::Text(operator.map(|id| id.to_string()).unwrap_or_default());
     let reason_text = reason.unwrap_or_default().to_string();
     let (sql, params) = match to {

@@ -330,13 +330,15 @@ pub(super) async fn submit_post_tx(
     // ③ CAS 回写单据：状态 + 实例 id（两者同一笔 UPDATE，否则撞 ck_biz_si_pending_approval）
     let affected = stockin_model::apply_status_with_instance(
         tx,
-        row.id,
-        STATUS_DRAFT,
-        STATUS_PENDING_POST,
-        None,
-        operator.id,
-        Some(instance_id),
-        now,
+        stockin_model::ApplyStatusWithInstanceInput {
+            id: row.id,
+            from: STATUS_DRAFT,
+            to: STATUS_PENDING_POST,
+            reason: None,
+            operator: operator.id,
+            approval_instance_id: Some(instance_id),
+            now,
+        },
     )
     .await
     .map_err(|error| write_error(error, "收货单进入过账审批中"))?;

@@ -1486,13 +1486,15 @@ async fn start_approval_tx(
     // ③ CAS 回写单据：状态 + 实例 id（`WHERE status = 'DRAFT'` 双保险）
     let affected = model::apply_status_with_instance(
         tx,
-        row.id,
-        model::STATUS_DRAFT,
-        model::STATUS_SUBMITTED,
-        None,
-        operator,
-        Some(instance_id),
-        now,
+        model::ApplyStatusWithInstanceInput {
+            id: row.id,
+            from: model::STATUS_DRAFT,
+            to: model::STATUS_SUBMITTED,
+            reason: None,
+            operator,
+            approval_instance_id: Some(instance_id),
+            now,
+        },
     )
     .await
     .map_err(|error| write_error(error, "销售订单提交审批落库"))?;

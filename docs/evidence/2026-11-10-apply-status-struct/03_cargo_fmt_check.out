@@ -1,0 +1,2 @@
+# cargo fmt -- --check（全仓）
+RC=0

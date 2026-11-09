@@ -182,13 +182,15 @@ pub(super) async fn submit_cancel_tx(
     // ③ CAS 回写单据：状态 + 申请理由 + 实例 id（三者同一笔 UPDATE，否则撞 ck_biz_si_pending_cancel）
     let affected = stockin_model::apply_status_with_instance(
         tx,
-        row.id,
-        STATUS_POSTED,
-        STATUS_PENDING_CANCEL,
-        Some(reason),
-        operator.id,
-        Some(instance_id),
-        now,
+        stockin_model::ApplyStatusWithInstanceInput {
+            id: row.id,
+            from: STATUS_POSTED,
+            to: STATUS_PENDING_CANCEL,
+            reason: Some(reason),
+            operator: operator.id,
+            approval_instance_id: Some(instance_id),
+            now,
+        },
     )
     .await
     .map_err(|error| write_error(error, "收货单进入作废审批中"))?;

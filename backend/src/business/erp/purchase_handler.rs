@@ -1523,13 +1523,15 @@ async fn submit_po_tx(
     // ③ CAS 回写单据：状态 + 提交痕迹 + 实例 id
     let affected = purchase_model::apply_status_with_instance(
         tx,
-        row.id,
-        STATUS_DRAFT,
-        STATUS_SUBMITTED,
-        None,
-        operator.id,
-        Some(instance_id),
-        now,
+        purchase_model::ApplyStatusWithInstanceInput {
+            id: row.id,
+            from: STATUS_DRAFT,
+            to: STATUS_SUBMITTED,
+            reason: None,
+            operator: operator.id,
+            approval_instance_id: Some(instance_id),
+            now,
+        },
         linkage_outbox,
     )
     .await

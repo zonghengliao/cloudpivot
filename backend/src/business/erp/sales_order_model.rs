@@ -782,6 +782,29 @@ pub async fn apply_status(
     }
     Ok(affected)
 }
+
+/// [`apply_status_with_instance`] 的入参（`ex` 之外的 7 项）。
+///
+/// 把散参数收成一块：调用点读起来就是「哪张单、从哪个态到哪个态、谁、何时、
+/// 挂哪个审批实例」，也不必在函数上挂 `#[allow(clippy::too_many_arguments)]`。
+#[derive(Debug, Clone, Copy)]
+pub struct ApplyStatusWithInstanceInput<'a> {
+    /// 销售订单主键（`WHERE id = ?`）。
+    pub id: Uuid,
+    /// 期望的当前态（CAS：`WHERE status = ?`；与库中不符则 `affected = 0`）。
+    pub from: &'a str,
+    /// 目标态（`SUBMITTED` / `DRAFT` / 其它）。
+    pub to: &'a str,
+    /// 回草稿时的原因（追加进 `remark`）；`None` = 不动 `remark`。
+    pub reason: Option<&'a str>,
+    /// 操作人（落 `update_by`；`None` = 系统 / 测试）。
+    pub operator: Option<Uuid>,
+    /// 本次审批实例 id（`SUBMITTED` 写入、`DRAFT` 清空、其它保留作审计）。
+    pub approval_instance_id: Option<Uuid>,
+    /// 业务时间（落 `updated_at`）。
+    pub now: DateTime<Utc>,
+}
+
 /// 状态迁移落库（**带审批实例**；SO-06 审批流用）。
 ///
 /// 与 [`apply_status`] 的唯一差别：`approval_instance_id` 的写入/清空规则
@@ -797,17 +820,19 @@ pub async fn apply_status(
 /// 写进 `biz_status_log`，不再重复堆进备注。
 ///
 /// 调用方必须先过 `state_machine::transition`（边表校验 + 写 `biz_status_log`）。
-#[allow(clippy::too_many_arguments)]
 pub async fn apply_status_with_instance(
     ex: &impl SqlExecutor,
-    id: Uuid,
-    from: &str,
-    to: &str,
-    reason: Option<&str>,
-    operator: Option<Uuid>,
-    approval_instance_id: Option<Uuid>,
-    now: DateTime<Utc>,
+    input: ApplyStatusWithInstanceInput<'_>,
 ) -> DbResult<u64> {
+    let ApplyStatusWithInstanceInput {
+        id,
+        from,
+        to,
+        reason,
+        operator,
+        approval_instance_id,
+        now,
+    } = input;
     let operator_text = Value::Text(operator.map(|value| value.to_string()).unwrap_or_default());
     let instance_text = Value::Text(approval_instance_id.map(|value| value.to_string()).unwrap_or_default());
     let from_text = Value::Text(from.to_string());
