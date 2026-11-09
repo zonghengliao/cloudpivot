@@ -39,7 +39,7 @@
 | 文件 | 验的是什么 | 结论 |
 |---|---|---|
 | `00_summary.txt` | 本次实测的四个 ID + 命中行数 + 结论 | 全绿 |
-| `01_login_headers.txt` / `01_login_body.json` | 真实 admin 登录，请求带 `X-Request-Id: n4-gw-20261110034219-1524434` | HTTP 200，响应头**原样回传同一个值**，拿到 492 字符的真实 access_token |
+| `01_login_headers.txt` / `01_login_body.json` | 真实 admin 登录，请求带 `X-Request-Id: n4-gw-20261110034219-1524434` | HTTP 200，响应头**原样回传同一个值**，拿到 492 字符的真实 access_token（响应体里的令牌**已脱敏**，只留长度与结构） |
 | `02_headers_generated.txt` | 不带头访问 `/api/system/user/page`（带真实 token） | 响应头 `01a1c1d5-3aae-71fd-9a6b-3af824f19301`（UUID v7，**不是 `-`**） |
 | `03_grep_client_id.jsonl` | `grep n4-gw-…` 该请求的全部日志 | **17 行**：`nik_web::middleware::request_log`（访问日志，`fields.request_id` 已非 `-`）、`tokio_postgres::prepare/query`（SQL 11 条）、`cloudpivot::system::auth::handler`（业务）、本层收尾、span close |
 | `03_all_logs.jsonl` | 整个实例的全部日志（未过滤） | 无任何 `"request_id":"-"` |

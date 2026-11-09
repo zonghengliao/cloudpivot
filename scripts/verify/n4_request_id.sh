@@ -118,6 +118,29 @@ PY
 if [ -n "$TOKEN" ]; then ok "登录成功，拿到真实 access_token（${#TOKEN} 字符）"
 else bad "登录失败，响应：$(head -c 300 "${OUT}/01_login_body.json")"; fi
 
+# 令牌是凭据，**不入库**：证据文件只留结构 + 长度（取值已在上面取到，后续 curl 用它）。
+python3 - "${OUT}/01_login_body.json" <<'PY'
+import json, sys
+path = sys.argv[1]
+try:
+    raw = json.load(open(path, encoding="utf-8"))
+except Exception:
+    raise SystemExit
+data = raw.get("data") or {}
+masked = {
+    "_note": "登录响应体：令牌已脱敏（JWT 也是凭据，原值不入库）。仅用于证明真实登录成功。",
+    "code": raw.get("code"),
+    "msg": raw.get("msg"),
+    "data": {
+        "access_token": "<REDACTED>",
+        "refresh_token": "<REDACTED>",
+        "access_token_chars": len(data.get("access_token") or ""),
+        "other_fields": sorted(k for k in data if k not in ("access_token", "refresh_token")),
+    },
+}
+open(path, "w", encoding="utf-8").write(json.dumps(masked, ensure_ascii=False, indent=1) + "\n")
+PY
+
 # ---------------------------------------------------------------- ② 服务端生成
 echo "== ② 不带头 → 服务端生成"
 curl -sS -D "${OUT}/02_headers_generated.txt" -o /dev/null \
