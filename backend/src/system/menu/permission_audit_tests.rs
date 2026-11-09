@@ -19,6 +19,7 @@
 //! | N17 | 扫描器自检：人造的死码 / 裸路由必须被扫出来 | 扫描逻辑退化成永远绿 → 红 |
 //! | N18 | 例外台账必须是「活的」：登记为例外的码仍未被后端引用且在菜单里 | 例外过期没人删 → 红 |
 //! | N19 | 流程定义里每个 `APPROVAL`/`COUNTERSIGN` 节点的 `ROLE` 指派角色都必须有 `business:flow:approve` | 审批角色缺审批权限 → 节点永远点不动（全员 403）→ 红 |
+//! | N20 | ERP 单据核心权限码（`business:erp:*:{create,list,status}`）必须至少授予 1 个**非超管**角色 | 菜单有行、源码有注解，但 `sys_role_menu` 零行 → 除超管外全员 403，审批只能自批（职责分离失效）→ 红 |
 //!
 //! # 口径（与 `docs/dead-permissions-20261101.md` 逐字一致）
 //!
@@ -103,6 +104,13 @@ const NO_PERMISSION_ROUTES: &[(&str, &str)] = &[
     ),
     ("PUT /system/auth/preference", "② 自助：本人偏好 upsert"),
     ("GET /system/badge/counts", "② 自助：本人待办计数"),
+    (
+        "GET /business/erp/master-data/code-policy",
+        "② 自助：界面策略开关（是否允许手工指定主数据编码），只读不写业务数据；\
+         6 个主数据表单各有自己的 create/list 码，挂任一单码会让另一张表单拿不到开关状态。\
+         收紧能力在后端 guard_manual（写入路径照旧 400+66054）。CODE-08 落地时漏登记，\
+         E2E-FIX-3 补（N16 红转绿）",
+    ),
     (
         "GET /support/config/public",
         "① 匿名：只出 public.* 参数（登录页标题 / Logo）",
@@ -1053,4 +1061,107 @@ async fn n19_approval_node_role_assignees_have_approve_permission() {
     );
 
     println!("[N19] {assigned} 处 ROLE 指派的审批节点，全部持有 business:flow:approve ✓");
+}
+
+// ==================== N20 单据核心权限码零授予 ====================
+
+/// N20（卡 `t_c7038fa7` / E2E-FIX-3）：ERP 单据核心权限码必须至少授予 **1 个非超管角色**。
+///
+/// # 守的是什么（比 N14 更靠后的一环）
+///
+/// N14 守「菜单码在源码里有落地」（码不是死的），`perm_menu_gate.py` 守「注解码在
+/// `sys_menu` 里有承载」（码授得出去）。两者都能绿，而**授权一行都没有** —— 2026-11-09
+/// E2E-02 演练的现场就是这样：
+///
+/// ```text
+/// business:erp:sales-return:{create,list,status}  sys_menu 有行 ✔  源码有注解 ✔
+/// sys_role_menu 零行 ✘  ⇒ 除超管（*:*:* 短路）外全员 403
+///                       ⇒ 「审批」只能超管自批 ⇒ 职责分离形同虚设（内控红线）
+/// ```
+///
+/// 同一类还抓到 `receipt-refund:{list,detail,create,allocate,status}` 与 `unit:create`
+/// （V0295 / V0141 都是「只种菜单不授权」）。V0356 补齐，本用例是常驻防线。
+///
+/// # 口径
+///
+/// * 范围：`sys_menu.auth_code ~ '^business:erp:<资源>:(create|list|status)$'`，
+///   只认**种子行**（[`SEED_AT_RUN_START`]，并发夹具不算 —— 与 N14 同一套收窄，
+///   否则并行跑时 `business:erp:p2-…:create` 这类夹具会把用例打红）；
+/// * 授予：同一 `auth_code` 的**任一**菜单行（页面或按钮）被某角色持有即算 ——
+///   与线上鉴权一致（令牌装载的是 auth_code，不是 menu_id）；
+/// * **排除 SUPER_ADMIN**：超管持 `*:*:*`，授不授都短路放行，一行超管授权等于没授
+///   （卡面验收原话：「超管短路不算」）；
+/// * 基数下限 60：低于它是「连错库 / 迁移没跑」，不是「恰好没有核心码」——防假绿。
+#[tokio::test]
+async fn n20_erp_core_permission_codes_are_granted_to_non_super_role() {
+    if !ts::ensure_db().await {
+        return;
+    }
+
+    let sql = format!(
+        "WITH codes AS ( \
+             SELECT DISTINCT m.auth_code \
+               FROM sys_menu m \
+              WHERE m.deleted_at IS NULL \
+                AND m.auth_code ~ '^business:erp:[a-z0-9_-]+:(create|list|status)$' \
+                AND {SEED_AT_RUN_START} \
+         ) \
+         SELECT c.auth_code AS auth_code \
+           FROM codes c \
+          WHERE NOT EXISTS ( \
+                SELECT 1 \
+                  FROM sys_menu m \
+                  JOIN sys_role_menu rm ON rm.menu_id = m.id \
+                  JOIN sys_role r ON r.id = rm.role_id AND r.deleted_at IS NULL \
+                 WHERE m.auth_code = c.auth_code \
+                   AND m.deleted_at IS NULL \
+                   AND r.role_code <> 'SUPER_ADMIN') \
+          ORDER BY 1"
+    );
+    let rows = db()
+        .find_with_params(
+            &sql,
+            vec![Value::from(ts::run_epoch()), Value::from(ts::FIXTURE_PREFIX_REGEX)],
+        )
+        .await
+        .expect("查「ERP 核心码零授予」失败");
+
+    let missing: Vec<String> = rows
+        .iter()
+        .map(|r| r.get_typed::<String>("auth_code").unwrap_or_default())
+        .collect();
+
+    assert!(
+        missing.is_empty(),
+        "[N20] 以下 ERP 单据核心权限码**只授给了超管或谁都没授**（除超管外全员 403，\
+         其「审批」只能超管自批 → 职责分离失效）：\n{}\n\
+         修法：发迁移把码授给合适的业务角色（**建单与审批必须分属不同角色**），\
+         不要往白名单里塞；现场口径见 V0356 头注释。",
+        missing.join("\n")
+    );
+
+    // 反向自检：这条 SQL 得真能看见核心码，否则「永远绿」等于没有防线。
+    let total_sql = format!(
+        "SELECT count(DISTINCT auth_code) AS n FROM sys_menu \
+          WHERE deleted_at IS NULL \
+            AND auth_code ~ '^business:erp:[a-z0-9_-]+:(create|list|status)$' \
+            AND {SEED_AT_RUN_START}"
+    );
+    let total = db()
+        .scalar_with_params::<Option<i64>>(
+            &total_sql,
+            vec![Value::from(ts::run_epoch()), Value::from(ts::FIXTURE_PREFIX_REGEX)],
+        )
+        .await
+        .expect("统计 ERP 核心码总数失败");
+    assert!(
+        total.unwrap_or(0) >= 60,
+        "[N20] 只数到 {} 个 ERP 核心码（下限 60）—— 扫描口径失效或连错库，这条用例此时是假绿",
+        total.unwrap_or(0)
+    );
+
+    println!(
+        "[N20] {} 个 ERP 单据核心权限码全部至少授予了 1 个非超管角色 ✓",
+        total.unwrap_or(0)
+    );
 }

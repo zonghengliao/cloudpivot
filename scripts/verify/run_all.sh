@@ -147,6 +147,14 @@ if has invariants; then
     run_stage "⑤ 主链路必需边巡检（被禁用 → 功能断，只读不自动改回）" \
       "$OUT/invariants-flow-critical-$STAMP.log" \
       bash scripts/verify/flow_critical_edges.sh "${NIK_DATABASE_NAME:-cloudpivot_dev}"
+    # 【E2E-FIX-3】单据核心权限码零授予闸（只读）：`business:erp:*:{create,list,status}`
+    # 必须至少授予 1 个**非超管**角色（超管 `*:*:*` 短路不算授予）。零授予 ⇒ 除超管外
+    # 无人能用该单据，其「审批」只能超管自批（职责分离失效，内控红线）。
+    # 现场：2026-11-09 sales-return / receipt-refund / unit:create 共 7 个码零授予。
+    # rc=2（连不上库 / 核心码基数异常）也算 FAIL：不许假装绿。
+    run_stage "⑤ 单据核心权限码零授予（ERP 核心码必须授给非超管角色）" \
+      "$OUT/invariants-core-perm-grants-$STAMP.log" \
+      python3 scripts/verify/core_perm_grants.py
   fi
 fi
 
