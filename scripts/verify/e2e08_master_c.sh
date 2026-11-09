@@ -16,6 +16,18 @@ check "①客户建单 HTTP" "$HTTP" "200"; PC=$(data '.data.id')
 api p_mat POST /business/erp/material "$T_ADMIN" "{\"material_code\":\"E2E08-P-M1\",\"material_name\":\"E2E08 价格演练物料\",\"unit_id\":\"$UNIT_ID\",\"material_type\":\"RAW\",\"status\":1}"
 check "①物料建单 HTTP" "$HTTP" "200"; PM=$(data '.data.id')
 
+say
+say "=== ⑥-0b 客户编码建后不可改（E2E08-FIX-1 ②：与资产分类同口径） ==="
+api cus_chg PUT "/business/erp/customer/$PC" "$T_ADMIN" '{"code":"E2E08-P-C1-CHG"}'
+check "①PUT 带新编码被拒 HTTP" "$HTTP" "400"
+check "①业务码 10001" "$CODE" "10001"
+contains "①文案点名编码不可修改" "$(data '.msg')" "客户编码不可修改"
+check "①库里编码未被改动" "$(SQ "select code from biz_customer where id='$PC'")" "E2E08-P-C1"
+api cus_other PUT "/business/erp/customer/$PC" "$T_ADMIN" '{"code":"E2E08-P-C1","contact_phone":"010-12345678","credit_days":30}'
+check "②带原编码改其他字段 HTTP" "$HTTP" "200"
+check "②其他字段已生效" "$(data '.data.contact_phone')" "010-12345678"
+check "②编码仍是原值" "$(data '.data.code')" "E2E08-P-C1"
+
 resolve() { # resolve <name> <date> <qty>  → 输出 "price|source"
   api "rs_$1" GET "/business/erp/price/resolve?customer_id=$PC&material_id=$PM&qty=$3&date=$2" "$T_ADMIN"
   printf '%s|%s' "$(data '.data.price')" "$(data '.data.source')"
@@ -62,18 +74,25 @@ check "⑦非法 tier_type 被拒 HTTP" "$HTTP" "400"
 contains "⑦非法 tier_type 文案" "$(data '.msg')" "TIER"
 
 say
-say "=== ⑥-3 阶梯区间不重叠：产品口径探测（重叠档能否建单） ==="
+say "=== ⑥-3 阶梯区间不相交（E2E08-FIX-1 ①：配置层不许自相矛盾） ==="
 api st_overlap POST /business/erp/price/tier "$T_ADMIN" "{\"material_id\":\"$PM\",\"customer_id\":\"$PC\",\"tier_type\":\"TIER\",\"min_qty\":5,\"max_qty\":20,\"price\":92,\"effective_from\":\"2027-01-01\",\"effective_to\":\"2027-12-31\"}"
-if [ "$HTTP" = "200" ]; then
-  ok "⑧重叠区间（5-20 与 1-10 / 10-50）被接受（HTTP 200）→ 登记 P3：区间不重叠未拦截"
-  TOV=$(data '.data.id')
-  check "⑨重叠时取价确定性（qty=8 取 min_qty 最大的 92）" "$(resolve ov 2027-06-15 8)" "92.0000|TIER_CUSTOMER"
-  api st_overlap_del DELETE "/business/erp/price/tier/$TOV" "$T_ADMIN"
-  check "⑨清理重叠档 HTTP" "$HTTP" "200"
-  check "⑨清理后 qty=8 回到 95" "$(resolve ov2 2027-06-15 8)" "95.0000|TIER_CUSTOMER"
-else
-  ok "⑧重叠区间被拒（HTTP $HTTP）$(data '.msg' | head -c 100)"
-fi
+check "①重叠区间（5-20 与 1-10 / 10-50 相交）被拒 HTTP" "$HTTP" "409"
+check "①业务码 10003" "$CODE" "10003"
+contains "①文案点名已有区间 5~20" "$(data '.msg')" "5~20"
+contains "①文案点名本次区间 1~10" "$(data '.msg')" "1~10"
+contains "①文案点名生效期" "$(data '.msg')" "2027-01-01~2027-12-31"
+api st_free POST /business/erp/price/tier "$T_ADMIN" "{\"material_id\":\"$PM\",\"customer_id\":\"$PC\",\"tier_type\":\"TIER\",\"min_qty\":21,\"max_qty\":30,\"price\":88,\"effective_from\":\"2027-01-01\",\"effective_to\":\"2027-12-31\"}"
+check "②不重叠区间（21-30）建单 HTTP" "$HTTP" "200"; TFREE=$(data '.data.id')
+api st_free_del DELETE "/business/erp/price/tier/$TFREE" "$T_ADMIN"
+check "②清理 21-30 HTTP" "$HTTP" "200"
+api p_mat2 POST /business/erp/material "$T_ADMIN" "{\"material_code\":\"E2E08-P-M2\",\"material_name\":\"E2E08 价格演练物料二\",\"unit_id\":\"$UNIT_ID\",\"material_type\":\"RAW\",\"status\":1}"
+check "③第二物料建单 HTTP" "$HTTP" "200"; PM2=$(data '.data.id')
+api st_mat2 POST /business/erp/price/tier "$T_ADMIN" "{\"material_id\":\"$PM2\",\"customer_id\":\"$PC\",\"tier_type\":\"TIER\",\"min_qty\":5,\"max_qty\":20,\"price\":92,\"effective_from\":\"2027-01-01\",\"effective_to\":\"2027-12-31\"}"
+check "③不同物料的同区间不被误伤 HTTP" "$HTTP" "200"; TM2=$(data '.data.id')
+api st_mat2_del DELETE "/business/erp/price/tier/$TM2" "$T_ADMIN"
+check "③清理第二物料档 HTTP" "$HTTP" "200"
+api p_mat2_del DELETE "/business/erp/material/$PM2" "$T_ADMIN"
+check "③清理第二物料 HTTP" "$HTTP" "200"
 
 say
 say "=== ⑥-4 促销价：生效期 + 优先级高于阶梯 ==="

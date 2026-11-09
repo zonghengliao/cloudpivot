@@ -483,6 +483,89 @@ pub async fn tier_taken(
     Ok(count > 0)
 }
 
+// ==================== 档位区间相交（同一物料/客户/类型/生效期内区间必须不重叠） ====================
+
+/// 相交判定用的窄列（只有区间与生效期，**不 join 名称**：校验不需要展示）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct TierWindow {
+    /// 主键（409 文案里点名「已有哪一档」）。
+    pub id: Uuid,
+    /// 区间下界（含）。
+    pub min_qty: Decimal,
+    /// 区间上界（不含）；`None` = 无上限。
+    pub max_qty: Option<Decimal>,
+    /// 生效日（含）。
+    pub effective_from: NaiveDate,
+    /// 失效日（含）；`None` = 长期有效。
+    pub effective_to: Option<NaiveDate>,
+}
+
+impl TierWindow {
+    fn from_row(row: &Row) -> DbResult<Self> {
+        Ok(Self {
+            id: row.get_typed("id")?,
+            min_qty: row.get_typed("min_qty")?,
+            max_qty: row.get_typed("max_qty")?,
+            effective_from: row.get_typed("effective_from")?,
+            effective_to: row.get_typed("effective_to")?,
+        })
+    }
+}
+
+/// 同物料 + 客户（**`NULL` 视为同一个「通用档」**，与 `uk_biz_price_tier ... NULLS NOT DISTINCT`
+/// 同口径）+ 档位类型、**启用态**且未删的档位区间（`exclude` = 编辑时排除自己）。
+///
+/// 只取 `status = 'ACTIVE'`：停用档不参与取价，配置成重叠也不会让「哪档才算」有歧义；
+/// 反过来，把重叠的停用档**再启用**时会重新走一遍相交校验（[`crate::business::erp::price_admin_handler`]
+/// 的建 / 改两条路径都调用本函数）。
+///
+/// 生效期与数量区间的相交判定**不在 SQL 里**（SQL 里写一份、Rust 里写一份必有一份先腐化），
+/// 由纯函数 [`qty_ranges_overlap`] / [`periods_overlap`] 判定，于是边界可被 `cargo test --lib` 钉住。
+pub async fn tier_active_windows(
+    material_id: Uuid,
+    customer_id: Option<Uuid>,
+    tier_type: &str,
+    exclude: Option<Uuid>,
+) -> DbResult<Vec<TierWindow>> {
+    let mut sql = String::from(
+        "SELECT id, min_qty, max_qty, effective_from, effective_to \
+         FROM biz_price_tier \
+         WHERE deleted_at IS NULL AND status = 'ACTIVE' AND material_id = ?::uuid \
+           AND customer_id IS NOT DISTINCT FROM(NULLIF(?::text,'')::uuid) \
+           AND tier_type = ?",
+    );
+    let mut params = vec![
+        Value::from(&material_id),
+        uuid_text(customer_id),
+        Value::from(tier_type.to_string()),
+    ];
+    if let Some(id) = exclude {
+        sql.push_str(" AND id <> ?::uuid");
+        params.push(Value::from(&id));
+    }
+    sql.push_str(" ORDER BY min_qty ASC, effective_from ASC, id ASC");
+    let rows = db().query_sql(sql, params).await?;
+    rows.iter().map(TierWindow::from_row).collect()
+}
+
+/// 数量区间是否相交（**半开区间** `[min, max)`，`max = None` = 无上限）：
+/// `NOT (a.max <= b.min OR b.max <= a.min)`。
+///
+/// 与取价侧 `tier_covers`（`min_qty <= qty < max_qty`）同口径，所以 `1~10` 与 `10~50`
+/// **不算重叠**（qty = 10 只归第二档），而 `1~10` 与 `5~20` 重叠。
+pub fn qty_ranges_overlap(a_min: Decimal, a_max: Option<Decimal>, b_min: Decimal, b_max: Option<Decimal>) -> bool {
+    !(a_max.is_some_and(|a| a <= b_min) || b_max.is_some_and(|b| b <= a_min))
+}
+
+/// 生效期是否相交（**闭区间** `[from, to]`，`to = None` = 长期有效）：
+/// `NOT (a.to < b.from OR b.to < a.from)`。
+///
+/// 与取价侧 `date_covered`（`effective_from <= date <= effective_to`）同口径 ——
+/// 两端都含，所以 `…~2027-06-30` 与 `2027-06-30~…` 在 06-30 当天**相交**。
+pub fn periods_overlap(a_from: NaiveDate, a_to: Option<NaiveDate>, b_from: NaiveDate, b_to: Option<NaiveDate>) -> bool {
+    !(a_to.is_some_and(|a| a < b_from) || b_to.is_some_and(|b| b < a_from))
+}
+
 /// 物料是否存在（软删不算）。
 pub async fn material_exists(material_id: Uuid) -> DbResult<bool> {
     let count: i64 = db()

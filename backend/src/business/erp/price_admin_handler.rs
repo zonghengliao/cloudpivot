@@ -20,13 +20,19 @@
 //!   两者读同一批表、共享同一套域值常量（[`price_admin_model::STATUSES`] 等），
 //!   但**不共享 SQL**：维护侧要 joins 名称、要分页，取价侧只做窄列粗筛。
 //!
-//! # 四条入口校验（都在本文件，DDL 的 CHECK 只是兜底）
+//! # 五条入口校验（都在本文件，DDL 的 CHECK 只是兜底）
 //!
 //! 1. `price > 0`（`0` 元行是单据能力，价格表里出现 0 会让取价静默命中 0 元价）；
 //! 2. `min_qty >= 0`；档位 `max_qty` 为空或**严格大于** `min_qty`（右开区间，相等即空区间）；
 //! 3. 有效期 `effective_to >= effective_from`（两端都含，与取价侧 `date_covered` 同口径）；
 //! 4. 唯一键冲突先查一次给人话 **409**：
 //!    协议价 `(客户, 物料, 起订量, 生效日)`、档位 `(物料, 客户含 NULL, 类型, 起订量, 生效日)`。
+//! 5. **档位区间不相交**：同一 `material_id`、`customer_id`（`NULL` 与 `NULL` 视为同一「通用档」）、
+//!    `tier_type` 相等，且生效期相交、数量区间相交 → **409**（[`check_tier_overlap`]）。
+//!    判据与取价侧同口径：数量是半开区间 `[min_qty, max_qty)`、生效期是闭区间 `[from, to]`。
+//!    没有这条时 `5~20` 与 `1~10` 能同时 `ACTIVE`，取价虽确定（`min_qty` 大者优先）但
+//!    配置层自相矛盾，业务方无法自证「哪档才算」（E2E-08 演练发现 P3）。
+//!    只在两边都是 `ACTIVE` 时校验：停用档不参与取价，允许留重叠草稿，重新启用时才拦。
 //!
 //! # 不碰的东西
 //!
@@ -866,6 +872,7 @@ pub async fn create_tier(operator: Option<Uuid>, req: CreateTierReq) -> std::res
     {
         return Err(tier_duplicate(&write));
     }
+    check_tier_overlap(&write, None).await?;
     let id = Uuid::now_v7();
     model::tier_insert(id, &write, operator)
         .await
@@ -906,6 +913,7 @@ pub async fn update_tier(
     {
         return Err(tier_duplicate(&write));
     }
+    check_tier_overlap(&write, Some(id)).await?;
     let affected = model::tier_update(id, &write, operator)
         .await
         .map_err(|error| write_error(error, "编辑阶梯价"))?;
@@ -976,6 +984,77 @@ fn tier_duplicate(write: &TierWrite) -> ApiError {
         "同物料同档位（{}）上已有起订量 `{}`、生效日 `{}` 的档位价（同一组键只能一条）",
         write.tier_type, write.min_qty, write.effective_from
     ))
+}
+
+/// 档位区间不相交校验（**建 / 改共用**）。
+///
+/// 条件（四个维度全同 + 两个区间都相交才拒）：
+///
+/// | 维度 | 判据 |
+/// |------|------|
+/// | 物料 | `material_id` 相等 |
+/// | 客户 | `customer_id` 相等，**`NULL` 与 `NULL` 算相同**（同一个「通用档」） |
+/// | 档位类型 | `tier_type` 相等（`TIER` 与 `PROMO` 并存是合法的：促销可以盖在阶梯上） |
+/// | 生效期 | 闭区间相交（`to = NULL` = 长期有效） |
+/// | 数量 | 半开区间 `[min, max)` 相交（`max = NULL` = 无上限） |
+///
+/// 命中 → **409 + `10003`**，文案点名「已有哪档」与「本次哪档」。
+///
+/// 只对 `ACTIVE` 校验：停用档不参与取价，重叠的停用档不会让取价有歧义；
+/// 而「把停用档改回启用」走的是本函数（`update_tier` 同一条路径），所以那时会被拦下。
+///
+/// `exclude` = 编辑时排除自己（否则「只改价格、区间不动」会被自己判成重叠）。
+async fn check_tier_overlap(write: &TierWrite, exclude: Option<Uuid>) -> std::result::Result<(), ApiError> {
+    if write.status != model::STATUS_ACTIVE {
+        return Ok(());
+    }
+    let windows = model::tier_active_windows(write.material_id, write.customer_id, &write.tier_type, exclude)
+        .await
+        .map_err(|error| utils::db_error(error, "校验阶梯价区间是否重叠"))?;
+    if let Some(existing) = windows.iter().find(|window| {
+        model::qty_ranges_overlap(write.min_qty, write.max_qty, window.min_qty, window.max_qty)
+            && model::periods_overlap(
+                write.effective_from,
+                write.effective_to,
+                window.effective_from,
+                window.effective_to,
+            )
+    }) {
+        return Err(tier_overlap(write, existing));
+    }
+    Ok(())
+}
+
+/// 区间重叠的人话：点名「已有的哪档」与「本次哪档」，用户才知道该改哪一个。
+fn tier_overlap(write: &TierWrite, existing: &model::TierWindow) -> ApiError {
+    duplicate(format!(
+        "该物料/客户在生效期 {} 内已有区间 {} 的阶梯价（{}），与本次 {} 重叠：\
+         同一物料/客户/档位类型下数量区间不能相交 —— 要改区间请编辑原档（{}），或把生效期错开",
+        period_text(existing.effective_from, existing.effective_to),
+        qty_text(existing.min_qty, existing.max_qty),
+        write.tier_type,
+        qty_text(write.min_qty, write.max_qty),
+        existing.id,
+    ))
+}
+
+/// 数量区间文案：`5~20` / `20 以上`（上界为空 = 无上限）。
+///
+/// `normalize()` 去掉库里 `NUMERIC(18,4)` 带出来的尾零（否则文案是 `5.0000~20.0000`，
+/// 给业务方看没意义）。
+fn qty_text(min: Decimal, max: Option<Decimal>) -> String {
+    match max {
+        Some(max) => format!("{}~{}", min.normalize(), max.normalize()),
+        None => format!("{} 以上", min.normalize()),
+    }
+}
+
+/// 生效期文案：`2027-01-01~2027-12-31` / `2027-01-01 起长期`。
+fn period_text(from: NaiveDate, to: Option<NaiveDate>) -> String {
+    match to {
+        Some(to) => format!("{from}~{to}"),
+        None => format!("{from} 起长期"),
+    }
 }
 
 // ==================== HTTP 入口 ====================
@@ -1353,5 +1432,396 @@ mod tests {
         assert_eq!(err.status, 409);
         assert!(err.msg.contains("2026-11-01"), "{}", err.msg);
         assert!(err.msg.contains("起订量"), "{}", err.msg);
+    }
+
+    // ==================== 区间相交（E2E-08 ①）：纯函数边界 ====================
+
+    /// 数量区间 = **半开** `[min, max)`，`None` = 无上限（与取价 `tier_covers` 同口径）。
+    #[test]
+    fn qty_overlap_boundaries() {
+        // 1~10 与 5~20：重叠
+        assert!(model::qty_ranges_overlap(
+            dec("1"),
+            Some(dec("10")),
+            dec("5"),
+            Some(dec("20"))
+        ));
+        // 1~10 与 10~50：只贴边（qty = 10 归第二档）→ 不重叠
+        assert!(!model::qty_ranges_overlap(
+            dec("1"),
+            Some(dec("10")),
+            dec("10"),
+            Some(dec("50"))
+        ));
+        // 5~20 与 21~30：不重叠
+        assert!(!model::qty_ranges_overlap(
+            dec("5"),
+            Some(dec("20")),
+            dec("21"),
+            Some(dec("30"))
+        ));
+        // 上界为空 = 无上限：5~20 与 18~∞ 重叠；20~∞ 与 5~20 只贴边 → 不重叠
+        assert!(model::qty_ranges_overlap(dec("5"), Some(dec("20")), dec("18"), None));
+        assert!(!model::qty_ranges_overlap(dec("5"), Some(dec("20")), dec("20"), None));
+        // 两个都是无上限：必然重叠
+        assert!(model::qty_ranges_overlap(dec("0"), None, dec("100"), None));
+        // 完全相同
+        assert!(model::qty_ranges_overlap(
+            dec("5"),
+            Some(dec("20")),
+            dec("5"),
+            Some(dec("20"))
+        ));
+    }
+
+    /// 生效期 = **闭**区间 `[from, to]`，`None` = 长期有效（与取价 `date_covered` 同口径）。
+    #[test]
+    fn period_overlap_boundaries() {
+        let d = |text: &str| parse_date(text, "d").unwrap();
+        // 完全包含 / 相交
+        assert!(model::periods_overlap(
+            d("2027-01-01"),
+            Some(d("2027-12-31")),
+            d("2027-06-01"),
+            Some(d("2027-06-30"))
+        ));
+        // 端点相接（06-30 两档都有效）→ 重叠
+        assert!(model::periods_overlap(
+            d("2027-01-01"),
+            Some(d("2027-06-30")),
+            d("2027-06-30"),
+            Some(d("2027-12-31"))
+        ));
+        // 完全错开
+        assert!(!model::periods_overlap(
+            d("2027-01-01"),
+            Some(d("2027-12-31")),
+            d("2028-01-01"),
+            Some(d("2028-12-31"))
+        ));
+        // 一端长期有效（`to = None`）= 覆盖之后所有日期
+        assert!(model::periods_overlap(
+            d("2027-01-01"),
+            None,
+            d("2030-01-01"),
+            Some(d("2030-12-31"))
+        ));
+        // 长期有效档与「更早结束」的档不相交
+        assert!(!model::periods_overlap(
+            d("2027-01-01"),
+            None,
+            d("2026-01-01"),
+            Some(d("2026-12-31"))
+        ));
+        // 两端都长期有效 → 必然重叠
+        assert!(model::periods_overlap(d("2027-01-01"), None, d("2029-01-01"), None));
+    }
+
+    /// 409 文案必须点名「已有哪档 + 本次哪档 + 生效期」，否则用户不知道该改哪一个（卡面验收 ①）。
+    #[test]
+    fn tier_overlap_message_names_both_ranges() {
+        let mut req = CreateTierReq {
+            material_id: FX_MAT_A.to_string(),
+            customer_id: Some(FX_CUS.to_string()),
+            tier_type: Some("TIER".to_string()),
+            min_qty: dec("1"),
+            max_qty: Some(dec("10")),
+            price: dec("95"),
+            effective_from: Some("2027-01-01".to_string()),
+            effective_to: Some("2027-12-31".to_string()),
+            status: None,
+            remark: None,
+        };
+        let write = req.to_write().expect("请求应合法");
+        let existing = model::TierWindow {
+            id: Uuid::now_v7(),
+            min_qty: dec("5"),
+            max_qty: Some(dec("20")),
+            effective_from: parse_date("2027-01-01", "from").unwrap(),
+            effective_to: Some(parse_date("2027-12-31", "to").unwrap()),
+        };
+        let err = tier_overlap(&write, &existing);
+        assert_eq!(err.status, 409);
+        assert_eq!(err.code, error_code::RESOURCE_CONFLICT);
+        assert!(err.msg.contains("5~20"), "点名已有区间：{}", err.msg);
+        assert!(err.msg.contains("1~10"), "点名本次区间：{}", err.msg);
+        assert!(err.msg.contains("2027-01-01~2027-12-31"), "点名生效期：{}", err.msg);
+        assert!(err.msg.contains("重叠"), "{}", err.msg);
+
+        // 上界为空时的文案是「N 以上」，不能拼成 `30~` 这种看不懂的形状
+        req.min_qty = dec("30");
+        req.max_qty = None;
+        let write = req.to_write().expect("请求应合法");
+        assert!(qty_text(write.min_qty, write.max_qty).contains("30 以上"));
+    }
+
+    // ==================== 阶梯价区间不相交（E2E-08 ①）：真库 ====================
+    //
+    // 跑法（不设 `ERP_DB_URL` 会静默 SKIP，那是假绿）：
+    // ```bash
+    // ERP_DB_URL='postgres://alun:***@127.0.0.1:5432/<测试库>' \
+    //   cargo test --lib tier_overlap -- --test-threads=1
+    // ```
+
+    use crate::business::erp::voucher_query::tests::{DB_LOCK, ensure_db};
+
+    /// 真库夹具：单位（物料必填）。
+    const FX_UNIT: &str = "e2e80000-0000-4000-8000-000000000001";
+    /// 真库夹具：物料甲。
+    const FX_MAT_A: &str = "e2e80000-0000-4000-8000-000000000002";
+    /// 真库夹具：物料乙（「不同物料不误伤」用）。
+    const FX_MAT_B: &str = "e2e80000-0000-4000-8000-000000000003";
+    /// 真库夹具：客户。
+    const FX_CUS: &str = "e2e80000-0000-4000-8000-000000000004";
+    /// 夹具编码前缀（清场只按它删，不扫全表）。
+    const FX_PREFIX: &str = "E2E08T-";
+
+    async fn fx_exec(sql: &str) {
+        if let Err(err) = db().execute_with_params(sql, vec![]).await {
+            panic!("SQL 失败：{err}\nSQL: {sql}");
+        }
+    }
+
+    /// 清场（外键顺序：价格档 → 客户 / 物料 → 单位；`biz_price_tier` 对两者都是 `ON DELETE RESTRICT`）。
+    async fn tier_cleanup() {
+        fx_exec(&format!(
+            "DELETE FROM biz_price_tier WHERE material_id IN ('{FX_MAT_A}'::uuid, '{FX_MAT_B}'::uuid)"
+        ))
+        .await;
+        fx_exec(&format!("DELETE FROM biz_customer WHERE code LIKE '{FX_PREFIX}%'")).await;
+        fx_exec(&format!(
+            "DELETE FROM biz_material WHERE id IN ('{FX_MAT_A}'::uuid, '{FX_MAT_B}'::uuid)"
+        ))
+        .await;
+        fx_exec(&format!("DELETE FROM biz_unit WHERE id = '{FX_UNIT}'::uuid")).await;
+    }
+
+    /// 拿锁 + 连库 + 清场 + 建主数据（单位 / 两个物料 / 一个客户）。
+    async fn tier_setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
+        let guard = DB_LOCK.lock().await;
+        if !ensure_db().await {
+            return None;
+        }
+        tier_cleanup().await;
+        fx_exec(&format!(
+            "INSERT INTO biz_unit (id, unit_code, unit_name, is_base, rate, status) \
+             VALUES ('{FX_UNIT}'::uuid, 'E2E08T-U', 'E2E08 单位', 1, 1, 1)"
+        ))
+        .await;
+        fx_exec(&format!(
+            "INSERT INTO biz_material (id, material_code, material_name, unit_id, status) \
+             VALUES ('{FX_MAT_A}'::uuid, 'E2E08T-MA', 'E2E08 阶梯物料甲', '{FX_UNIT}'::uuid, 1), \
+                    ('{FX_MAT_B}'::uuid, 'E2E08T-MB', 'E2E08 阶梯物料乙', '{FX_UNIT}'::uuid, 1)"
+        ))
+        .await;
+        fx_exec(&format!(
+            "INSERT INTO biz_customer (id, code, name, status) \
+             VALUES ('{FX_CUS}'::uuid, 'E2E08T-C1', 'E2E08 阶梯客户', 'ACTIVE')"
+        ))
+        .await;
+        Some(guard)
+    }
+
+    /// 一个档位请求（默认 TIER / ACTIVE / 2027 全年 / 专属客户 `FX_CUS`）。
+    fn tier_req(material: &str, min: &str, max: Option<&str>) -> CreateTierReq {
+        CreateTierReq {
+            material_id: material.to_string(),
+            customer_id: Some(FX_CUS.to_string()),
+            tier_type: Some("TIER".to_string()),
+            min_qty: dec(min),
+            max_qty: max.map(dec),
+            price: dec("92"),
+            effective_from: Some("2027-01-01".to_string()),
+            effective_to: Some("2027-12-31".to_string()),
+            status: None,
+            remark: Some("E2E08 区间相交单测".to_string()),
+        }
+    }
+
+    /// 卡面验收 ①/②：5~20 之后建 1~10 → **409 且点名重叠区间**；21~30 / 20~50（贴边）→ 200。
+    #[tokio::test]
+    async fn tier_overlap_rejected_and_adjacent_allowed() {
+        let Some(_guard) = tier_setup().await else { return };
+        create_tier(None, tier_req(FX_MAT_A, "5", Some("20")))
+            .await
+            .expect("建 5~20 应成功");
+
+        let err = create_tier(None, tier_req(FX_MAT_A, "1", Some("10")))
+            .await
+            .expect_err("1~10 与 5~20 重叠，必须 409");
+        assert_eq!(err.status, 409);
+        assert_eq!(err.code, error_code::RESOURCE_CONFLICT);
+        assert!(err.msg.contains("5~20"), "点名已有区间：{}", err.msg);
+        assert!(err.msg.contains("1~10"), "点名本次区间：{}", err.msg);
+        assert!(err.msg.contains("2027-01-01~2027-12-31"), "点名生效期：{}", err.msg);
+        let alive: i64 = db()
+            .scalar_with_params(
+                "SELECT COUNT(*) FROM biz_price_tier WHERE material_id = ?::uuid AND deleted_at IS NULL",
+                vec![Value::from(Uuid::parse_str(FX_MAT_A).unwrap())],
+            )
+            .await
+            .expect("计数");
+        assert_eq!(alive, 1, "被拒的档不得落库");
+
+        // ② 不重叠（21~30）→ 200
+        create_tier(None, tier_req(FX_MAT_A, "21", Some("30")))
+            .await
+            .expect("21~30 不重叠应放行");
+        // 贴边（上界 = 已有档的下界，半开区间）→ 200
+        create_tier(None, tier_req(FX_MAT_A, "0", Some("5")))
+            .await
+            .expect("0~5 与 5~20 只贴边应放行");
+        // 上界为空（25 以上）与 21~30 相交 → 409，且文案点名 21~30
+        let err = create_tier(None, tier_req(FX_MAT_A, "25", None))
+            .await
+            .expect_err("25 以上与 21~30 重叠");
+        assert_eq!(err.status, 409);
+        assert!(err.msg.contains("21~30"), "{}", err.msg);
+        // 30 以上与 [21,30) 只贴边 → 放行（半开区间的另一半）
+        create_tier(None, tier_req(FX_MAT_A, "30", None))
+            .await
+            .expect("30 以上与 21~30 贴边应放行");
+
+        tier_cleanup().await;
+    }
+
+    /// 卡面验收 ③ + 其他维度：不同物料 / 通用档（customer = NULL）/ 不同生效期 / 不同类型都不误伤；
+    /// 但「通用档之间」`NULL` 与 `NULL` 视为同一客户，照样拦。
+    #[tokio::test]
+    async fn tier_overlap_scoped_to_material_customer_type_period() {
+        let Some(_guard) = tier_setup().await else { return };
+        create_tier(None, tier_req(FX_MAT_A, "5", Some("20")))
+            .await
+            .expect("基准档");
+
+        // ③ 不同物料、同区间同生效期 → 200
+        create_tier(None, tier_req(FX_MAT_B, "5", Some("20")))
+            .await
+            .expect("不同物料不得误伤");
+
+        // 同物料但通用档（customer = NULL）= 另一个客户维度 → 200
+        let mut general = tier_req(FX_MAT_A, "5", Some("20"));
+        general.customer_id = None;
+        create_tier(None, general)
+            .await
+            .expect("通用档与专属档不是同一个客户维度");
+
+        // 同物料同客户但生效期不交（2028 年）→ 200
+        let mut next_year = tier_req(FX_MAT_A, "5", Some("20"));
+        next_year.effective_from = Some("2028-01-01".to_string());
+        next_year.effective_to = Some("2028-12-31".to_string());
+        create_tier(None, next_year).await.expect("生效期错开应放行");
+
+        // 同物料同客户同生效期，但类型是 PROMO（促销盖在阶梯上）→ 200
+        let mut promo = tier_req(FX_MAT_A, "5", Some("20"));
+        promo.tier_type = Some("PROMO".to_string());
+        create_tier(None, promo).await.expect("PROMO 与 TIER 并存合法");
+
+        // 通用档之间再建一档重叠的 → 409（NULL 与 NULL 视为相同）
+        let mut general2 = tier_req(FX_MAT_A, "18", Some("30"));
+        general2.customer_id = None;
+        let err = create_tier(None, general2).await.expect_err("通用档之间同样不能重叠");
+        assert_eq!(err.status, 409);
+        assert!(err.msg.contains("5~20"), "{}", err.msg);
+
+        tier_cleanup().await;
+    }
+
+    /// 「改」也要拦：把 21~30 的下界改到 18（与 5~20 重叠）→ 409 且不落库；只改价格 → 200（排除自己）。
+    #[tokio::test]
+    async fn tier_update_cannot_create_overlap_and_excludes_self() {
+        let Some(_guard) = tier_setup().await else { return };
+        create_tier(None, tier_req(FX_MAT_A, "5", Some("20")))
+            .await
+            .expect("建 5~20");
+        let second = create_tier(None, tier_req(FX_MAT_A, "21", Some("30")))
+            .await
+            .expect("建 21~30");
+
+        // 只改价格：区间不动，排除自己后没有重叠 → 200
+        let res = update_tier(
+            None,
+            &second.id,
+            UpdateTierReq {
+                price: Some(dec("88")),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("只改价格不应被自己判成重叠");
+        assert_eq!(res.price, dec("88"));
+        assert_eq!(res.min_qty, dec("21"));
+
+        // 下界改到 18 → 与 5~20 重叠 → 409，且库里仍是 21
+        let err = update_tier(
+            None,
+            &second.id,
+            UpdateTierReq {
+                min_qty: Some(dec("18")),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect_err("改区间造成重叠必须 409");
+        assert_eq!(err.status, 409);
+        assert!(err.msg.contains("5~20"), "{}", err.msg);
+        let row = model::tier_find_by_id(Uuid::parse_str(&second.id).unwrap())
+            .await
+            .expect("回读")
+            .expect("行还在");
+        assert_eq!(row.min_qty, dec("21"), "被拒的编辑不得落库");
+
+        tier_cleanup().await;
+    }
+
+    /// 停用档不参与取价 ⇒ 允许重叠草稿；把它改回 `ACTIVE` 时才拦（信封的另一半）。
+    #[tokio::test]
+    async fn inactive_tier_may_overlap_but_reenable_is_blocked() {
+        let Some(_guard) = tier_setup().await else { return };
+        create_tier(None, tier_req(FX_MAT_A, "5", Some("20")))
+            .await
+            .expect("建 5~20");
+        let mut draft = tier_req(FX_MAT_A, "1", Some("10"));
+        draft.status = Some("INACTIVE".to_string());
+        let draft = create_tier(None, draft)
+            .await
+            .expect("停用档允许留重叠草稿（不参与取价）");
+
+        let err = update_tier(
+            None,
+            &draft.id,
+            UpdateTierReq {
+                status: Some("ACTIVE".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect_err("启用重叠档必须 409");
+        assert_eq!(err.status, 409);
+        assert!(err.msg.contains("5~20"), "{}", err.msg);
+
+        tier_cleanup().await;
+    }
+
+    /// 生效期端点相接（12-31）算重叠（闭区间）；错开一天（2028-01-01 起）就放行。
+    #[tokio::test]
+    async fn adjacent_periods_share_boundary_day() {
+        let Some(_guard) = tier_setup().await else { return };
+        create_tier(None, tier_req(FX_MAT_A, "5", Some("20")))
+            .await
+            .expect("建 2027 全年档");
+
+        let mut boundary = tier_req(FX_MAT_A, "6", Some("9"));
+        boundary.effective_from = Some("2027-12-31".to_string());
+        boundary.effective_to = Some("2028-06-30".to_string());
+        let err = create_tier(None, boundary).await.expect_err("端点相接属闭区间重叠");
+        assert_eq!(err.status, 409);
+
+        let mut later = tier_req(FX_MAT_A, "6", Some("9"));
+        later.effective_from = Some("2028-01-01".to_string());
+        later.effective_to = Some("2028-06-30".to_string());
+        create_tier(None, later).await.expect("错开一天应放行");
+
+        tier_cleanup().await;
     }
 }

@@ -28,6 +28,12 @@
 //! ③ **状态域 `ACTIVE` / `FROZEN`**：字符串域值，不是 1/0。`status` 是「正常 / 冻结」，
 //!    冻结只影响开新单，历史单据与引用不受影响（`contract_model.rs:31` 的 `status = 1`
 //!    是旧占位注释之误，客户分支写 `status = 'ACTIVE'`）。
+//! ④ **编码建后不可改**：编辑时传了非空且与现值不同的编码 → `400 + 10001`
+//!    「客户编码不可修改」（口径与资产分类 `asset_handler::asset_category_update` 一致）。
+//!    前端编辑态本就是只读，这条是接口侧兜底 —— 否则绕过界面直接 PUT 就能改，
+//!    历史单据 / 审计日志里按编码回溯时会串。
+//!    不传编码 = 不改；传原值 = 放行（前端整体提交表单的两种常见形态）；
+//!    传空串 / 纯空白仍按既有入参校验 400「code 不能为空」（编码是必填列，不存在「清空」）。
 //!
 //! # 数据权限
 //!
@@ -531,14 +537,21 @@ pub async fn update_customer(
         .await
         .map_err(|error| utils::db_error(error, "查询待编辑客户"))?
         .ok_or_else(not_found)?;
-    let write = merge_write(&current, req);
-    if write.code != current.code
-        && customer_model::customer_code_taken(&write.code, Some(id))
-            .await
-            .map_err(|error| utils::db_error(error, "校验客户编码唯一性"))?
-    {
-        return Err(code_conflict(&write.code));
+    // 编码**不可修改**（口径与资产分类 `asset_handler::asset_category_update` 一致）：
+    // 客户编码是历史单据、审计日志与对外对账的引用口径，改了会让老单据上的编码与新档案对不上。
+    // 前端编辑态本就把它做成只读，这里是接口侧兜底 —— 绕过界面直接 PUT 也必须被拒。
+    // 留空（没传 / 空串 / 纯空白）= 不改编码，不报错（前端整体提交表单时会带空值）。
+    if let Some(requested) = req.code.as_deref() {
+        let requested = normalize_code(requested);
+        if !requested.is_empty() && requested != current.code {
+            return Err(bad_request(format!(
+                "客户编码不可修改（当前 {} / 请求 {}）：编码是历史单据与审计的引用口径，\
+                 改了会让老单据上的客户编码与新档案对不上",
+                current.code, requested
+            )));
+        }
     }
+    let write = merge_write(&current, req);
     let affected = customer_model::customer_update(id, &write, operator)
         .await
         .map_err(|error| write_error(error, "编辑客户"))?;
@@ -1014,9 +1027,9 @@ mod tests {
         cleanup().await;
     }
 
-    /// 编辑：只改传了的字段；可选文本传空串 = 清空；编码撞别人 → 409。
+    /// 编辑：只改传了的字段；可选文本传空串 = 清空；**编码不可改（400）**。
     #[tokio::test]
-    async fn update_is_partial_and_checks_code_uniqueness() {
+    async fn update_is_partial_and_locks_code() {
         let Some(_guard) = setup().await else { return };
         let a = create_customer(None, req(&format!("{CODE_PREFIX}UP-0001"), "改名前"))
             .await
@@ -1042,6 +1055,7 @@ mod tests {
         assert_eq!(updated.status, "ACTIVE", "没传状态不应改动");
         assert_eq!(updated.remark, None, "空串应清空为 NULL");
 
+        // 改成别人的编码 / 改成任何新编码：一律 400「编码不可修改」，不再是 409 唯一键冲突
         let err = update_customer(
             None,
             &a.id,
@@ -1051,9 +1065,99 @@ mod tests {
             },
         )
         .await
-        .expect_err("改成别人的编码必须 409");
-        assert_eq!(err.code, error_code::ERP_CODE_CONFLICT);
-        assert_eq!(b.code, format!("{CODE_PREFIX}UP-0002"));
+        .expect_err("改成别人的编码必须 400");
+        assert_eq!(err.status, 400);
+        assert_eq!(err.code, error_code::PARAM_INVALID);
+        assert!(
+            err.msg.contains("客户编码不可修改"),
+            "文案必须点名不可修改：{}",
+            err.msg
+        );
+        assert_eq!(b.code, format!("{CODE_PREFIX}UP-0002"), "别人的编码不得被动过");
+
+        cleanup().await;
+    }
+
+    /// 编码锁定（E2E-08 ①）：非空 + 与现值不同 → 400；**与现值相同 / 不传 → 放行**，
+    /// 且其他字段照常可改（改编码被拒时不得顺带写坏别的列）。
+    #[tokio::test]
+    async fn customer_code_cannot_be_changed() {
+        let Some(_guard) = setup().await else { return };
+        let code = format!("{CODE_PREFIX}LOCK-0001");
+        let created = create_customer(None, req(&code, "编码锁定客户"))
+            .await
+            .expect("创建应成功");
+
+        // ① 换成新编码 → 400 + 10001，库里编码不变
+        let err = update_customer(
+            None,
+            &created.id,
+            UpdateCustomerReq {
+                code: Some(format!("{CODE_PREFIX}LOCK-CHG")),
+                name: Some("改名也算改了".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect_err("改编码必须被拒");
+        assert_eq!(err.status, 400);
+        assert_eq!(err.code, error_code::PARAM_INVALID);
+        assert!(err.msg.contains("客户编码不可修改"), "文案：{}", err.msg);
+        let detail = get_customer(&created.id).await.expect("详情");
+        assert_eq!(detail.code, code, "被拒后编码必须原样");
+        assert_eq!(
+            detail.name, "编码锁定客户",
+            "被拒的请求不得夹带改名（整体 400，什么都没写）"
+        );
+
+        // ② 传同一个编码（前端整体提交表单的形态）→ 放行，其他字段照改
+        let same = update_customer(
+            None,
+            &created.id,
+            UpdateCustomerReq {
+                code: Some(code.clone()),
+                name: Some("只改名字".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("传原编码不应报错");
+        assert_eq!(same.code, code);
+        assert_eq!(same.name, "只改名字");
+
+        // ③ 不传 code（前端「只改其他字段」的形态）= 不改编码；空串 / 纯空白走的是
+        //    既有入参校验（`validate` 对 `code` 用 require_text）→ 400「code 不能为空」，
+        //    不是本卡的锁（锁只管「换成另一个编码」）。
+        let untouched = update_customer(
+            None,
+            &created.id,
+            UpdateCustomerReq {
+                name: Some("再改名".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("不传编码应放行");
+        assert_eq!(untouched.code, code, "不传不得把编码改掉");
+        assert_eq!(untouched.name, "再改名");
+
+        for blank in [String::new(), "   ".to_string()] {
+            let err = update_customer(
+                None,
+                &created.id,
+                UpdateCustomerReq {
+                    code: Some(blank.clone()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect_err("空编码本来就是非法入参（400）");
+            assert_eq!(err.status, 400);
+            assert_eq!(err.code, error_code::PARAM_INVALID);
+            assert!(err.msg.contains("code"), "文案：{}", err.msg);
+            let detail = get_customer(&created.id).await.expect("详情");
+            assert_eq!(detail.code, code, "被拒后编码不得被清空（{blank:?}）");
+        }
 
         cleanup().await;
     }
