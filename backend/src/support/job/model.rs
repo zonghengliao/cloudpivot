@@ -8,6 +8,7 @@
 //! 框架快捷方法（`find_or_none` / `insert` / `update` / `delete` 等）的简单读写由
 //! `handler.rs` 直接执行。
 
+use nik::prelude::nik_plugin::scheduler::CronSchedule;
 use nik::prelude::*;
 
 use crate::business::shared::scope;
@@ -202,6 +203,47 @@ pub(crate) async fn update_job_status(
     )
     .await
     .map(|_| ())
+}
+
+/// 按 cron 表达式预排「下次执行时间」（`cron_expr = None` 表示清空）。
+///
+/// # 为什么接口层要写它
+///
+/// 框架调度器只在任务**真正跑过一次**之后由 `Scheduler::touch_job` 回填
+/// `next_run_at`；于是「新建任务 / 改 cron / 停用后再启用」这三条路径的
+/// `next_run_at` 会一直是空的，列表页「下次执行时间」列空白，
+/// 运维无法判断任务是否真的排上了（2026-11-09 E2E-13 实测复现）。
+/// 这里用与调度器**同一个** [`CronSchedule`] 预排期，保证页面口径与真实触发一致。
+///
+/// # 参数
+///
+/// - `id`：任务主键；
+/// - `cron_expr`：cron 表达式；`None` 表示停用，写入 NULL。
+///
+/// # 返回值
+///
+/// 写入后的下次执行时间（解析不出来时为 `None`，不报错——创建/更新路径已校验过 cron）。
+///
+/// # 异常情况
+///
+/// 数据库异常返回错误（调用方按「预测值写不进去不影响主流程」处理）。
+pub(crate) async fn refresh_next_run_at(
+    id: &uuid::Uuid,
+    cron_expr: Option<&str>,
+) -> std::result::Result<Option<chrono::DateTime<chrono::Utc>>, DbError> {
+    let next = cron_expr
+        .and_then(|expr| CronSchedule::parse(expr).ok())
+        .and_then(|schedule| schedule.next_after(chrono::Utc::now()));
+    let value = match next {
+        Some(at) => TypeMapper::to_value(&at),
+        None => Value::Null,
+    };
+    db().execute_with_params(
+        "UPDATE sys_job SET next_run_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        vec![value, Value::from(id)],
+    )
+    .await?;
+    Ok(next)
 }
 
 /// 分页查询定时任务。

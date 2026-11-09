@@ -113,6 +113,11 @@ pub async fn create(
     let job = build_model(&req, None, utils::current_user_uuid(&claims)).await?;
     let mut job = job;
     job.insert(db()).await.map_err(|e| utils::db_error(e, "新建定时任务"))?;
+    // 预排「下次执行时间」：调度器只在任务跑过一次后才回填，不预排则列表页该列一直空
+    match model::refresh_next_run_at(&job.id, (job.status.as_i16() == 1).then_some(job.cron_expr.as_str())).await {
+        Ok(next) => job.next_run_at = next,
+        Err(e) => tracing::warn!(error = %e, "预排定时任务的下次执行时间失败"),
+    }
     reload_scheduler().await;
     log::record_audit(
         &headers,
@@ -183,6 +188,11 @@ pub async fn update(
     job.last_run_at = existing.last_run_at;
     job.next_run_at = existing.next_run_at;
     job.update(db()).await.map_err(|e| utils::db_error(e, "更新定时任务"))?;
+    // cron / 状态可能变了：重算下次执行时间（停用则清空）
+    match model::refresh_next_run_at(&job.id, (job.status.as_i16() == 1).then_some(job.cron_expr.as_str())).await {
+        Ok(next) => job.next_run_at = next,
+        Err(e) => tracing::warn!(error = %e, "预排定时任务的下次执行时间失败"),
+    }
     reload_scheduler().await;
     log::record_audit(
         &headers,
@@ -313,6 +323,11 @@ pub async fn change_status(
     model::update_job_status(&id, status, utils::current_user_uuid(&claims))
         .await
         .map_err(|e| utils::db_error(e, "启停定时任务"))?;
+    // 启用 → 立刻按 cron 预排下次执行时间；停用 → 清空（否则界面留着过期时间）
+    let next_cron = (status.as_i16() == 1).then_some(existing.cron_expr.as_str());
+    if let Err(e) = model::refresh_next_run_at(&id, next_cron).await {
+        tracing::warn!(error = %e, "预排定时任务的下次执行时间失败");
+    }
     reload_scheduler().await;
     log::record_audit(
         &headers,
