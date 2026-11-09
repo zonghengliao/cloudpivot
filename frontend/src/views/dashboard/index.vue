@@ -212,6 +212,101 @@
               </div>
             </template>
           </t-card>
+
+          <!--
+            右栏第二张：工作任务（今天最多 10 条）。口径是「逾期优先，其次今日」——
+            逾期单本来也是今天要处理的，排最前才符合优先级直觉。
+            点条目跳任务列表并自动开详情抽屉（`/task/list?id=`，列表页 onMounted 认这个 query，
+            与通知里的旧链接 `/task/{id}` 同一套落地方式），不在首页再复制一份详情逻辑。
+            全员可见：看的是「我自己的任务」，后端已按 owner_id 收口。
+          -->
+          <t-card title="工作任务" :bordered="false" class="dashboard__card dashboard__tasks">
+            <template #actions>
+              <t-link theme="primary" hover="color" @click="goTo(TASK_PATH)">
+                全部
+                <t-icon name="chevron-right" />
+              </t-link>
+            </template>
+
+            <!-- 首屏骨架：5 行；二次刷新保留旧内容（与公告与消息卡同一口径） -->
+            <div v-if="tasksLoading && !tasksLoaded" class="dashboard__tasks-skeleton">
+              <div v-for="row in 5" :key="row" class="dashboard__tasks-skeleton-row" />
+            </div>
+
+            <template v-else>
+              <ul v-if="taskRows.length" class="dashboard__tasks-list">
+                <li v-for="row in taskRows" :key="row.id">
+                  <button
+                    type="button"
+                    class="dashboard__tasks-item"
+                    :class="{ 'dashboard__tasks-item--done': row.done }"
+                    @click="openTask(row.id)"
+                  >
+                    <span class="dashboard__tasks-state" :class="`dashboard__tasks-state--${row.state}`">
+                      <t-icon v-if="row.done" name="check" />
+                    </span>
+                    <span class="dashboard__tasks-main">
+                      <span class="dashboard__tasks-title" :title="row.title">{{ row.title }}</span>
+                      <span class="dashboard__tasks-meta">
+                        <span
+                          class="dashboard__tasks-due"
+                          :class="{ 'dashboard__tasks-due--overdue': row.overdue }"
+                        >
+                          {{ row.dueText }}
+                        </span>
+                        <t-tag
+                          v-if="row.priority"
+                          class="dashboard__tasks-tag"
+                          size="small"
+                          variant="light"
+                          :theme="row.priority.theme"
+                        >
+                          <span
+                            class="dashboard__tasks-tag-dot"
+                            :style="{ backgroundColor: row.priority.dotVar }"
+                          />
+                          {{ row.priority.name }}
+                        </t-tag>
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              </ul>
+
+              <div v-else class="dashboard__tasks-empty">
+                <t-icon name="task" />
+                <span>{{ tasksEmptyText }}</span>
+                <t-button
+                  v-if="!tasksDenied"
+                  size="small"
+                  variant="outline"
+                  theme="primary"
+                  @click="goTo(TASK_PATH)"
+                >
+                  去任务中心
+                </t-button>
+              </div>
+
+              <!--
+                底部统计取接口 counts 的**实际字段**（today / overdue / this_week）。
+                没有「已完成」这一项：`/business/task/my` 只回 TODO/DOING/REVIEW 三个未终态，
+                DONE 根本不在返回里，凭空写「已完成 M」只能是假的。
+              -->
+              <div v-if="taskCounts" class="dashboard__tasks-foot">
+                <span>今日 {{ taskCounts.today }} 项</span>
+                <span class="dashboard__tasks-foot-sep">·</span>
+                <span>逾期 {{ taskCounts.overdue }} 项</span>
+                <span class="dashboard__tasks-foot-sep">·</span>
+                <span>本周 {{ taskCounts.this_week }} 项</span>
+              </div>
+
+              <div v-if="tasksError" class="dashboard__tasks-error">
+                <t-icon name="error-circle" />
+                <span>{{ tasksError }}</span>
+                <t-link theme="primary" hover="color" @click="loadTasks()">重试</t-link>
+              </div>
+            </template>
+          </t-card>
         </t-col>
       </t-row>
     </t-loading>
@@ -314,6 +409,8 @@ import {
   type MyNoticeRes,
 } from '@/api/business/notice';
 import { fetchOverview, type OverviewRes } from '@/api/support/dashboard-api';
+import { listMyTasks, type MyTaskCounts, type TaskCard } from '@/api/business/task-api';
+import { PRIORITY_MAP, type PriorityMeta } from '@/constants/status-map';
 import { ApiError } from '@/api/request';
 import { useNoticeStore } from '@/stores/notice';
 import { useUserStore } from '@/stores/user';
@@ -372,6 +469,122 @@ const noticeStore = useNoticeStore();
  * 会让用户以为这 10 条里有 17 条没读。全量未读由顶栏铃铛负责，两处口径各司其职。
  */
 const feedUnread = computed(() => notices.value.filter((item) => !item.read_flag).length);
+
+// ---------- 工作任务卡（右栏，紧贴「公告与消息」下方） ----------
+
+/** 任务列表路由（`BusinessTaskList`；带 `?id=` 时由列表页自动开详情抽屉） */
+const TASK_PATH = '/task/list';
+/** 本卡最多几条（逾期 + 今日合并后的硬上限） */
+const TASK_LIMIT = 10;
+/** 值得在卡片上打标的优先级：P0/P1；P2/P3 不打标，避免 10 行全是标签 */
+const URGENT_PRIORITIES: string[] = ['P0', 'P1'];
+
+/** 待展示的任务（逾期优先 + 今日，合并后取前 10 条） */
+const taskItems = ref<TaskCard[]>([]);
+/** 分组条数：直接用接口 `counts` 的实际字段，不加工、不编造 */
+const taskCounts = ref<MyTaskCounts | null>(null);
+/** 卡片数据加载中标记 */
+const tasksLoading = ref(false);
+/** 是否已成功拉过一次（决定要不要显示骨架屏；刷新时不再闪骨架） */
+const tasksLoaded = ref(false);
+/** 卡片加载失败提示 */
+const tasksError = ref('');
+/** 当前账号没有 `business:task:read`（403）：卡片对全员可见，但没权限时不当作错误 */
+const tasksDenied = ref(false);
+
+/** 卡片上的一行（文案 / 状态 / 优先级在 computed 里算好，模板只取值） */
+interface TaskRow {
+  /** 任务主键（点击跳详情） */
+  id: string;
+  /** 标题（超长在样式里截断，hover 用原生 title 看全文） */
+  title: string;
+  /** 是否已完成（勾选 + 删除线） */
+  done: boolean;
+  /** 是否逾期（截止日 < 今天） */
+  overdue: boolean;
+  /** 时间文案：今天截止 / 逾期 N 天 / MM-DD 截止 */
+  dueText: string;
+  /** 状态样式键：todo / doing / review / done / cancelled */
+  state: string;
+  /** 紧急度标签（P0/P1 才有值；P2/P3 返回 null 不渲染） */
+  priority: PriorityMeta | null;
+}
+
+const taskRows = computed<TaskRow[]>(() =>
+  taskItems.value.map((item) => ({
+    id: item.id,
+    title: item.title,
+    done: isTaskDone(item.status),
+    overdue: isTaskOverdue(item),
+    dueText: taskDueText(item),
+    state: taskStateKey(item.status),
+    priority: urgentPriority(item.priority),
+  })),
+);
+
+/** 空态文案：没权限 ≠ 今天没任务，两句话不能混 */
+const tasksEmptyText = computed(() =>
+  tasksDenied.value ? '当前账号没有任务访问权限' : '今天没有待办任务',
+);
+
+/** 任务状态 → CSS 键（与 `@/constants/status-map` 的状态集合一致，未知状态按待办处理） */
+function taskStateKey(status: string): string {
+  switch ((status || '').toUpperCase()) {
+    case 'DOING':
+      return 'doing';
+    case 'REVIEW':
+      return 'review';
+    case 'DONE':
+      return 'done';
+    case 'CANCELLED':
+      return 'cancelled';
+    default:
+      return 'todo';
+  }
+}
+
+/** 是否已完成（已完成的行打勾 + 删除线 + 置灰） */
+function isTaskDone(status: string): boolean {
+  return (status || '').toUpperCase() === 'DONE';
+}
+
+/**
+ * 是否逾期：`due_date < 今天`（与后端 `MyBucket::Overdue` 同一口径）。
+ * 已完成 / 已取消的单子不再算逾期 —— 它们已经出局，标红只会制造假警报。
+ */
+function isTaskOverdue(item: TaskCard): boolean {
+  const status = (item.status || '').toUpperCase();
+  if (status === 'DONE' || status === 'CANCELLED') return false;
+  if (!item.due_date) return false;
+  const due = dayjs(item.due_date);
+  return due.isValid() && due.startOf('day').isBefore(dayjs().startOf('day'));
+}
+
+/**
+ * 截止文案。
+ *
+ * 后端任务的 `due_date` 只有**日期**（`YYYY-MM-DD`，没有时分），所以这里只能写
+ * 「今天截止 / 逾期 N 天」，不能像设计稿那样编一个「18:00」出来。
+ */
+function taskDueText(item: TaskCard): string {
+  if (!item.due_date) return '无截止日';
+  const due = dayjs(item.due_date);
+  if (!due.isValid()) return '无截止日';
+  const status = (item.status || '').toUpperCase();
+  if (status === 'DONE') return `已完成 · ${due.format('MM-DD')}`;
+  if (status === 'CANCELLED') return `已取消 · ${due.format('MM-DD')}`;
+  const days = dayjs().startOf('day').diff(due.startOf('day'), 'day');
+  if (days > 0) return `逾期 ${days} 天（${due.format('MM-DD')}）`;
+  if (days === 0) return '今天截止';
+  return `${due.format('MM-DD')} 截止`;
+}
+
+/** 紧急度标签：只认 P0/P1，颜色/文案全部来自 `PRIORITY_MAP`（不写死颜色） */
+function urgentPriority(priority: string): PriorityMeta | null {
+  const key = (priority || '').toUpperCase();
+  if (!URGENT_PRIORITIES.includes(key)) return null;
+  return PRIORITY_MAP[key as keyof typeof PRIORITY_MAP] ?? null;
+}
 
 /**
  * 首页只展示 8 个核心指标（后端共下发 12 个）。
@@ -686,6 +899,51 @@ async function loadFeed(): Promise<void> {
   feedLoading.value = false;
 }
 
+/**
+ * 拉「我的任务」：逾期优先、其次今日，合并后取前 10 条。
+ *
+ * 口径照卡面：逾期本身也属于「今天要处理的」，所以排最前。
+ * 只调这一个接口（`GET /business/task/my`），不新增任何接口。
+ */
+async function loadTasks(): Promise<void> {
+  tasksLoading.value = true;
+  tasksError.value = '';
+  try {
+    const res = await listMyTasks();
+    taskCounts.value = res.counts;
+    const seen = new Set<string>();
+    const merged: TaskCard[] = [];
+    for (const item of [...res.overdue, ...res.today]) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      merged.push(item);
+      if (merged.length >= TASK_LIMIT) break;
+    }
+    taskItems.value = merged;
+    tasksDenied.value = false;
+  } catch (error) {
+    taskItems.value = [];
+    taskCounts.value = null;
+    // 没有 `business:task:read` 的账号拿 403：卡片对全员可见，按「无权限」空态提示，不弹报错条
+    if (error instanceof ApiError && error.status === 403) {
+      tasksDenied.value = true;
+    } else {
+      tasksError.value = error instanceof ApiError ? error.message : '工作任务加载失败';
+    }
+  } finally {
+    tasksLoading.value = false;
+    tasksLoaded.value = true;
+  }
+}
+
+/**
+ * 打开任务详情：跳任务列表并带 `?id=` —— 列表页 `onMounted` 认这个 query 自动开详情抽屉，
+ * 与通知里旧链接 `/task/{id}` 的兼容落地是同一套，不在这里复制第二份详情逻辑。
+ */
+function openTask(id: string): void {
+  void router.push({ path: TASK_PATH, query: { id } });
+}
+
 /** 打开公告详情（点开即读，标已读幂等） */
 async function openAnnouncement(item: AnnouncementCard): Promise<void> {
   announcementDrawerVisible.value = true;
@@ -745,6 +1003,7 @@ async function downloadAttachment(file: AnnouncementAttachment): Promise<void> {
 onMounted(() => {
   void loadOverview();
   void loadFeed();
+  void loadTasks();
 });
 </script>
 
@@ -824,6 +1083,10 @@ onMounted(() => {
     // 右栏按自身内容高度排列：左栏（指标 + 快捷入口 + 两张图）通常更高，
     // 若跟着 stretch 拉伸，卡片底部会拖出一大片空白。
     align-self: flex-start;
+    // 右栏两张卡（公告与消息 / 工作任务）竖排，间距与 t-row gutter 一致
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
   }
 
   // 窄屏（<1200px）：右侧栏落到左栏下方通栏
@@ -1065,6 +1328,211 @@ onMounted(() => {
 
     &-foot-unread {
       color: var(--td-error-color);
+    }
+
+    &-error {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      margin-top: 8px;
+      padding: 6px 8px;
+      font-size: 12px;
+      color: var(--td-error-color);
+      background-color: var(--td-error-color-1);
+      border-radius: var(--td-radius-default);
+    }
+  }
+
+  // ---------- 工作任务卡（右栏，紧贴「公告与消息」下方） ----------
+  // 10 行 × 约 40px + 卡头/统计条 ≈ 470px，正好一屏；行数少时不设固定高度，随内容缩短。
+  &__tasks {
+    height: auto;
+
+    // 与公告与消息卡同一套内边距，右栏两张卡左右对齐
+    :deep(.t-card__body) {
+      padding: 6px 12px 12px;
+    }
+
+    &-skeleton {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 8px 4px;
+    }
+
+    &-skeleton-row {
+      height: 13px;
+      background: linear-gradient(
+        90deg,
+        var(--td-bg-color-container-hover) 25%,
+        var(--td-bg-color-secondarycontainer) 37%,
+        var(--td-bg-color-container-hover) 63%
+      );
+      background-size: 400% 100%;
+      border-radius: var(--td-radius-default);
+      animation: dashboard-feed-shimmer 1.4s ease infinite;
+
+      &:nth-child(2n) {
+        width: 72%;
+      }
+    }
+
+    &-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    // 整行可点：button 重置成文本行，键盘 Tab 也能到达
+    &-item {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      width: 100%;
+      padding: 6px;
+      font: inherit;
+      color: inherit;
+      text-align: left;
+      cursor: pointer;
+      background: none;
+      border: 0;
+      border-radius: var(--td-radius-default);
+      transition: background-color 0.15s ease;
+
+      &:hover {
+        background-color: var(--td-bg-color-container-hover);
+      }
+
+      &:focus-visible {
+        outline: 2px solid var(--td-brand-color);
+        outline-offset: -2px;
+      }
+    }
+
+    // 状态图标：待办空心圆 / 进行中实心主题色 / 待验收橙色空心 / 已完成勾选 / 已取消虚线灰
+    &-state {
+      display: inline-flex;
+      flex: none;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      width: 14px;
+      height: 14px;
+      margin-top: 3px;
+      font-size: 10px;
+      line-height: 1;
+      color: var(--td-text-color-white, #fff);
+      border: 1.5px solid var(--td-text-color-placeholder);
+      border-radius: 50%;
+
+      &--doing {
+        background-color: var(--td-brand-color);
+        border-color: var(--td-brand-color);
+      }
+
+      &--review {
+        border-color: var(--td-warning-color);
+      }
+
+      &--done {
+        background-color: var(--td-success-color);
+        border-color: var(--td-success-color);
+      }
+
+      &--cancelled {
+        border-style: dashed;
+        border-color: var(--td-text-color-disabled);
+      }
+    }
+
+    &-main {
+      display: flex;
+      flex: 1 1 auto;
+      flex-direction: column;
+      gap: 1px;
+      min-width: 0;
+    }
+
+    &-title {
+      overflow: hidden;
+      font-size: 13px;
+      line-height: 1.45;
+      color: var(--td-text-color-primary);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    &-meta {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      min-width: 0;
+      font-size: 12px;
+      line-height: 1.4;
+      color: var(--td-text-color-placeholder);
+      font-variant-numeric: tabular-nums;
+    }
+
+    &-due {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+
+      // 逾期标红：扫一眼就知道哪几条已经欠着
+      &--overdue {
+        font-weight: 600;
+        color: var(--td-error-color);
+      }
+    }
+
+    // 优先级标签推到行尾，与截止时间左右分栏
+    &-tag {
+      flex: none;
+      margin-left: auto;
+      font-variant-numeric: tabular-nums;
+    }
+
+    &-tag-dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      margin-right: 3px;
+      border-radius: 50%;
+      vertical-align: middle;
+    }
+
+    // 已完成：整行置灰 + 标题删除线（勾选图标由 state--done 提供）
+    &-item--done {
+      .dashboard__tasks-title {
+        color: var(--td-text-color-placeholder);
+        text-decoration: line-through;
+      }
+    }
+
+    &-empty {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: center;
+      padding: 22px 0 18px;
+      font-size: 12px;
+      color: var(--td-text-color-placeholder);
+    }
+
+    &-foot {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      margin-top: 8px;
+      padding: 8px 4px 0;
+      font-size: 12px;
+      color: var(--td-text-color-placeholder);
+      border-top: 1px solid var(--td-component-stroke);
+      font-variant-numeric: tabular-nums;
+    }
+
+    &-foot-sep {
+      color: var(--td-text-color-placeholder);
     }
 
     &-error {

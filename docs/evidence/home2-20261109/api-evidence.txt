@@ -1,0 +1,74 @@
+# HOME-2 接口证据（工作任务卡数据源 GET /business/task/my）
+生成时间：2026-11-09 21:06:59 CST
+
+## ① 本地隔离实例（真后端 127.0.0.1:18023 + 隔离库 cloudpivot_home1）
+### 1.1 登录 admin（token 打码）
+access_token = eyJ0eXAiOiJK...(len=461)
+
+### 1.2 GET /api/business/task/my（造数后：3 逾期 + 9 今日）
+{
+  "code": 0,
+  "counts": {
+    "overdue": 3,
+    "today": 9,
+    "this_week": 0,
+    "later": 0,
+    "no_due": 0
+  },
+  "total": 12,
+  "overdue_count": 3,
+  "today_count": 9,
+  "overdue_titles": [
+    "【HOME2】补签上周销售合同",
+    "【HOME2】处理报销单 EXP-20261109-0001",
+    "【HOME2】审核采购订单 PO-20261109-000003"
+  ],
+  "first_today": "【HOME2】复核工资表"
+}
+
+### 1.3 POST /api/business/task 造数回执（前 3 条 + 今日第 1 条）
+{
+  "code": 0,
+  "id": "01a1c06b-49ac-70d9-acbb-05253fa89902",
+  "task_no": "TSK-202611-000013"
+}
+DELETE 回执样例：
+{
+  "code": 0,
+  "deleted": true
+}
+
+### 1.4 PATCH 状态 → DOING（卡片「进行中」实心圆）
+today[0] = TSK-202611-000012 【HOME2】复核工资表 status=DOING
+
+## ② 145 真机（http://172.18.10.145，nginx 反代到真后端 / 真库 cloudpivot_dev）
+### 2.1 登录 admin（token 打码）
+access_token = eyJ0eXAiOiJK...(len=492)
+
+### 2.2 GET /api/business/task/my
+{
+  "code": 0,
+  "counts": {
+    "overdue": 2,
+    "today": 1,
+    "this_week": 1,
+    "later": 2,
+    "no_due": 0
+  },
+  "total": 6,
+  "overdue_titles": [
+    "帮助中心：用户侧文档检索",
+    "订单退款审批流程"
+  ],
+  "first_today": "商品列表页改版"
+}
+
+### 2.3 无 token 访问（401）
+GET /api/business/task/my 无 token → HTTP 401
+
+### 2.4 无该权限的账号（emp_drill，仅 EMPLOYEE 实际未授权）→ 403
+{"code":403,"msg":"无权限访问，需要权限: business:task:read"}
+
+## ③ 说明
+- 卡片只调 GET /business/task/my 一个接口，未新建任何后端接口。
+- 该接口只返回未终态（TODO/DOING/REVIEW）：DONE / CANCELLED 被后端排除，所以卡片底部统计取 counts 的实际字段（今日/逾期/本周），不虚构「已完成」。

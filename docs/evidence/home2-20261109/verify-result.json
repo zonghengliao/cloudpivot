@@ -1,0 +1,150 @@
+{
+  "base": "http://127.0.0.1:5302",
+  "check": {
+    "skeleton_rows_at_first_paint": 0,
+    "skeleton_rows": 5,
+    "aside_card_titles": [
+      "公告与消息",
+      "工作任务"
+    ],
+    "admin": {
+      "rowCount": 10,
+      "titles": [
+        "【HOME2】补签上周销售合同",
+        "【HOME2】处理报销单 EXP-20261109-0001",
+        "【HOME2】审核采购订单 PO-20261109-000003",
+        "【HOME2】复核工资表",
+        "【HOME2】整理下月采购需求",
+        "【HOME2】催收逾期发票（华东区客户，金额较大需逐张核对）",
+        "【HOME2】核对库存盘点差异",
+        "【HOME2】准备周会材料",
+        "【HOME2】审核月度报销明细 A",
+        "【HOME2】更新供应商档案"
+      ],
+      "dues": [
+        "逾期 3 天（11-06）",
+        "逾期 2 天（11-07）",
+        "逾期 1 天（11-08）",
+        "今天截止",
+        "今天截止",
+        "今天截止",
+        "今天截止",
+        "今天截止",
+        "今天截止",
+        "今天截止"
+      ],
+      "overdueRows": 3,
+      "overdueColors": [
+        "rgb(193, 123, 126)",
+        "rgb(193, 123, 126)",
+        "rgb(193, 123, 126)",
+        "rgb(121, 130, 144)",
+        "rgb(121, 130, 144)",
+        "rgb(121, 130, 144)",
+        "rgb(121, 130, 144)",
+        "rgb(121, 130, 144)",
+        "rgb(121, 130, 144)",
+        "rgb(121, 130, 144)"
+      ],
+      "normalDueColor": "rgb(121, 130, 144)",
+      "tagTexts": [
+        null,
+        "高",
+        "最高",
+        null,
+        null,
+        null,
+        "高",
+        null,
+        null,
+        null
+      ],
+      "doingRows": 1,
+      "doingBg": "rgb(87, 119, 172)",
+      "cardHeight": 609,
+      "asideWidth": 360,
+      "footText": "今日 9 项·逾期 3 项·本周 0 项",
+      "emptyVisible": false,
+      "longTitle": {
+        "text": "【HOME2】催收逾期发票（华东区客户，金额较大需逐张核对）",
+        "titleAttr": "【HOME2】催收逾期发票（华东区客户，金额较大需逐张核对）",
+        "truncated": true,
+        "scrollWidth": 370,
+        "clientWidth": 286,
+        "overflowingRows": 1
+      }
+    },
+    "navigation": {
+      "url": "/task/list?id=01a1c064-4123-774c-b43f-535681594787",
+      "clicked": "【HOME2】补签上周销售合同",
+      "drawerHeader": "任务详情 · TSK-202611-000003",
+      "drawerVisible": true
+    },
+    "skeleton_left_after_load": 0,
+    "empty": {
+      "text": "今天没有待办任务 去任务中心",
+      "buttonTexts": [
+        "去任务中心"
+      ],
+      "cardVisible": true,
+      "footText": "今日 0 项·逾期 0 项·本周 0 项",
+      "errorBar": false
+    },
+    "empty_button_nav": "/task/list",
+    "done_row": {
+      "title": "【样式验证】完成入库单核对（已办）",
+      "textDecoration": "line-through",
+      "titleColor": "rgb(121, 130, 144)",
+      "stateHasCheckIcon": true,
+      "stateBg": "rgb(111, 138, 184)",
+      "dueText": "已完成 · 11-09"
+    }
+  },
+  "api": [
+    {
+      "tag": "admin",
+      "status": 200,
+      "url": "/api/business/task/my"
+    },
+    {
+      "tag": "admin",
+      "status": 200,
+      "url": "/api/business/task/page?page=1&page_size=10&root_only=true"
+    },
+    {
+      "tag": "admin",
+      "status": 200,
+      "url": "/api/business/task/01a1c064-4123-774c-b43f-535681594787"
+    },
+    {
+      "tag": "admin",
+      "status": 200,
+      "url": "/api/business/task/01a1c064-4123-774c-b43f-535681594787/comments?page=1&page_size=20"
+    },
+    {
+      "tag": "admin",
+      "status": 200,
+      "url": "/api/business/task/01a1c064-4123-774c-b43f-535681594787/worklogs"
+    },
+    {
+      "tag": "admin",
+      "status": 200,
+      "url": "/api/business/task/01a1c064-4123-774c-b43f-535681594787/flow"
+    },
+    {
+      "tag": "admin",
+      "status": 200,
+      "url": "/api/business/task/01a1c064-4123-774c-b43f-535681594787/attachments"
+    },
+    {
+      "tag": "admin-skeleton",
+      "status": 200,
+      "url": "/api/business/task/my"
+    },
+    {
+      "tag": "h1viewer2",
+      "status": 200,
+      "url": "/api/business/task/my"
+    }
+  ]
+}
