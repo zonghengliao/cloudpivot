@@ -1,0 +1,47 @@
+# 145 部署记录（E2E04-FIX-2）
+
+- 机器：172.18.10.145，`/opt/cloudpivot`（bare 远端 `/opt/git/cloudpivot.git` 同机）
+- 命令：`bash /tmp/deploy145_fix2.sh`（ff → cargo build --bin cloudpivot → systemctl restart cloudpivot-test）
+- 本文件为该脚本 stdout 原文（第二段：含文案微调的最终部署，HEAD=`4aacd588`）。
+
+```text
+== before: 7a81aa0f test(erp): 关闭 PDF 退货单/报表 3 条断言过期 + 两条只在带库时暴露的既有红（t_5904f851）
+Updating 7a81aa0f..9d75c58c
+Fast-forward
+ backend/src/business/erp/period.rs | 383 ++++++++++++++++++++++++++++++++++---
+ 1 file changed, 360 insertions(+), 23 deletions(-)
+== after ff: 9d75c58c fix(erp): E2E04-FIX-2 反结账的后续期间判据收敛到同一会计年度
+== build
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 48s
+== binary: /opt/cloudpivot/backend/target/debug/cloudpivot 2026-11-09 18:36:50.064488174 +0800 738614224
+== 新文案计数（应 >0）：1
+== 旧文案计数（应为 0）：0
+== restart
+active
+health=200
+1
+```
+
+第二次部署（把 `2029 年 已年结` 的多余空格修掉，`9d75c58c → 4aacd588`）：
+
+```text
+1 file changed, 2 insertions(+), 2 deletions(-)
+== after ff: 4aacd588 style(erp): E2E04-FIX-2 跨年度挡路文案去掉 2029 年 与 已年结 之间的多余空格
+== build
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 41.02s
+== binary: /opt/cloudpivot/backend/target/debug/cloudpivot 2026-11-09 18:39:17.293323408 +0800 738646344
+== 新文案计数（应 >0）：1
+== 旧文案计数（应为 0）：0
+== restart
+active
+health=200
+1
+```
+
+## 口径说明
+
+- 「新文案计数」= `grep -ac '同年度挡路' target/debug/cloudpivot`（>0 说明二进制确实带本修复）；
+- 「旧文案计数」= `grep -ac '还处于' target/debug/cloudpivot`（0 说明旧的「后续期间 X 还处于已结账状态」文案已消失）；
+- 只看 build 耗时不算数（增量编译可能秒完成），两个 grep + 二进制 mtime 才是「真的换了二进制」的证据。

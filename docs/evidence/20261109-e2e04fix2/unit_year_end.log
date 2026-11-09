@@ -1,0 +1,48 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.36s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 41 tests
+test business::erp::year_end::item_tests::can_close_is_unaffected_by_items ... ok
+test business::erp::year_end::item_tests::empty_year_has_no_items_and_no_error ... ok
+test business::erp::year_end::item_tests::every_year_end_blocker_serializes_items_array ... ok
+test business::erp::year_end::item_tests::invariant_items_point_to_broken_vouchers_without_owner ... ok
+test business::erp::year_end::item_tests::items_list_every_blocking_doc_across_the_year ... ok
+test business::erp::year_end::item_tests::owner_is_null_when_no_role_holds_the_permission ... ok
+test business::erp::year_end::item_tests::unfinished_items_are_capped_at_fifty_across_twelve_months ... ok
+test business::erp::year_end::item_tests::year_and_period_invariant_items_agree ... ok
+test business::erp::year_end::tests::r4_01_period_not_closed_blocks ... ok
+test business::erp::year_end::tests::r4_02_unfinished_doc_blocks ... ok
+test business::erp::year_end::tests::r4_03_unbalanced_blocks ... ok
+test business::erp::year_end::tests::r4_04_next_year_not_opened_blocks ... ok
+test business::erp::year_end::tests::r4_05_all_checks_pass ... ok
+test business::erp::year_end::tests::r4_06_revenue_closing_to_current_profit ... ok
+test business::erp::year_end::tests::r4_07_expense_closing_to_current_profit ... ok
+test business::erp::year_end::tests::r4_08_profit_transferred_to_distribution ... ok
+test business::erp::year_end::tests::r4_09_next_year_opening_equals_year_end ... ok
+test business::erp::year_end::tests::r4_10_december_stays_closed ... ok
+test business::erp::year_end::tests::r4_11_reopen_rolls_everything_back ... ok
+test business::erp::year_end::tests::r4_12_reopen_blocked_by_next_year_vouchers ... ok
+test business::erp::year_end::tests::r4_13_reopen_requires_reason ... ok
+test business::erp::year_end::tests::r4_14_empty_year_skips_voucher ... ok
+test business::erp::year_end::tests::r4_15_loss_direction_in_closing_lines ... ok
+test business::erp::year_end::tests::r4_16_posting_to_non_leaf_account_is_rejected ... ok
+test business::erp::year_end::tests::r4_17_close_year_refuses_non_leaf_balance ... ok
+test business::erp::year_end_linkage::tests::notice_draft_carries_year_end_context ... ok
+test business::erp::year_end_linkage::tests::notice_idempotency_key_is_per_status_year_and_event ... ok
+test business::erp::year_end_linkage::tests::status_labels_come_from_spec ... ok
+test business::erp::year_end_linkage::tests::year_doc_id_is_stable_per_year ... ok
+test business::erp::year_end_linkage_tests::lnk11_close_triggers_one_notice_for_multi_voucher_year ... ok
+test business::erp::year_end_linkage_tests::lnk11_critical_action_failure_rolls_back_year_end ... ok
+test business::erp::year_end_linkage_tests::lnk11_excluded_voucher_actions_never_run ... ok
+test business::erp::year_end_linkage_tests::lnk11_reopen_triggers_notice_once ... ok
+test business::erp::year_end_linkage_tests::lnk11_repeat_close_is_blocked_and_does_not_notify ... ok
+test business::erp::year_end_linkage_tests::lnk11_rolled_back_tx_never_sends_notice ... ok
+test business::erp::year_end_remind::tests::pick_filters_by_kind_and_ids ... ok
+test business::erp::year_end_remind::tests::remind_dedupes_within_24_hours ... ok
+test business::erp::year_end_remind::tests::remind_handles_empty_and_invalid_requests ... ok
+test business::erp::year_end_remind::tests::remind_sends_to_owner_and_counts_are_consistent ... ok
+test business::erp::year_end_remind::tests::remind_skips_items_without_owner ... ok
+test business::erp::year_end_remind::tests::scope_is_year_shaped_and_permission_code_is_pinned ... ok
+
+test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 3921 filtered out; finished in 62.12s
+
