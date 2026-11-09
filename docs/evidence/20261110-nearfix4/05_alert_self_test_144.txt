@@ -1,0 +1,51 @@
+== ① health ==
+  [PASS] 200 + status=ok → OK
+  [PASS] 200 + status=degraded → ALERT
+  [PASS] 200 + 非 JSON → ALERT
+  [PASS] 000（连不上）→ ALERT
+  [PASS] 500 → ALERT
+== ② deps ==
+  [PASS] db/cache ok → OK
+  [PASS] cache 挂 → ALERT
+  [PASS] db 挂 → ALERT
+  [PASS] 连不上 → ALERT
+== ③ invariant ==
+  [PASS] OK/0/0/1h → OK
+  [PASS] FAIL+BLOCKER → ALERT
+  [PASS] FAIL 无 BLOCKER → ALERT
+  [PASS] ERROR → ALERT（没跑成不是通过）
+  [PASS] 过期 48h → ALERT
+  [PASS] 无记录 → INFO
+  [PASS] FAIL+BLOCKER 但结论早于最后一次迁移 → WARN（不判账已错）
+  [PASS] FAIL 无 BLOCKER + 迁移比结论晚 → WARN
+  [PASS] OK + 迁移比结论晚（结论仍新鲜）→ INFO
+  [PASS] OK + 迁移比结论晚 + 已 48h 没重跑 → ALERT（无人复核）
+  [PASS] 迁移不比结论晚（0）→ 旧口径：FAIL+BLOCKER → ALERT
+  [PASS] 第 5 段是垃圾 → 当未知，仍判账已错 → ALERT
+  [PASS] 第 5 段是负数（时钟回拨）→ 当未知 → ALERT
+== ④ disk ==
+  [PASS] 52% → OK
+  [PASS] 75% → WARN
+  [PASS] 84% → WARN
+  [PASS] 85% → ALERT
+  [PASS] 99% → ALERT
+== ⑤ secret_expiry ==
+  [PASS] 剩 400 天 → OK
+  [PASS] 剩 30 天 → OK（边界）
+  [PASS] 剩 29 天 → ALERT
+  [PASS] 已过期 3 天 → ALERT
+== ⑥ backlog ==
+  [PASS] 0 张 0s → OK
+  [PASS] 3 张等 60s → OK
+  [PASS] 1 张等 40 分钟 → ALERT
+  [PASS] 12 张 → ALERT
+  [PASS] 未知 -1/-1 → INFO
+== 去重（5 分钟窗口）==
+  [PASS] 首次应发、窗口内第二次应抑制
+  [PASS] 窗口过期后应再次发送
+== 派发：去重 + ALERT.log（端到端，sinks 关掉不建卡）==
+  [PASS] 首次派发：ALERT.log 写 1 条
+  [PASS] 5 分钟内第二次派发：被去重（仍 1 条）
+  [PASS] dry-run 不写 ALERT.log
+
+自检通过：41/41

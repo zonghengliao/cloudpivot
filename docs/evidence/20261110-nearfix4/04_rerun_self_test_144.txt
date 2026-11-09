@@ -1,0 +1,18 @@
+== 解析（与 runner::parse_report 同口径）==
+  [PASS] 末尾 JSON 段被正确解析（只吃 results）
+  [PASS] failures 只含 ok=false 的项
+  [PASS] 没有 JSON 段 → 报错
+  [PASS] results 为空 → 报错
+  [PASS] results 不是数组 → 报错
+== 迁移时间单位归一（秒 / 毫秒混用）==
+  [PASS] 秒值不变
+  [PASS] 毫秒值归一成秒（144 的 4 行手工记账）
+  [PASS] 边界：1e11 之下按秒
+  [PASS] 1e11 之上按毫秒
+== 新鲜度 ==
+  [PASS] 迁移比结论晚 → 正数
+  [PASS] 迁移不比结论晚 → 0
+  [PASS] 无迁移记录（0）→ 0
+  [PASS] SQL 归一（库内实测：毫秒行不该压过秒行）
+
+自检通过：13/13

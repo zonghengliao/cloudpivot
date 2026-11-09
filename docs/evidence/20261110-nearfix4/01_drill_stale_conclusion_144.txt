@@ -1,0 +1,67 @@
+
+### 0) 建演练库 cp_drill_inv4（schema 从生产库 -s 搬，数据全造）
+   ✅ drill_inv_schema.sql 导入完成：schema_migrations,sys_invariant_result
+
+### A) stale_fail —— 结论 17h 前 FAIL，之后落了一条无关迁移（本次误报的同形现场）
+结论: FAIL blockers=1 run_at=11-09 10:35 (17h 前)
+迁移: V0331__purchase_requisition applied_at=1794144902 → 11-08 21:35 (秒)
+迁移: V0156__remove_erp_top_menu applied_at=1794108902000 → 11-08 11:35 (毫秒记账)
+迁移: V0366__seed_fix_flow_is_system applied_at=1794245702 → 11-10 01:35 (秒)
+   [2026-11-10T03:35:02+08:00] 库连接就绪：cloudpivot@127.0.0.1:5432/cp_drill_inv4（env=/tmp/drill-inv.env）
+   [2026-11-10T03:35:02+08:00] === 告警巡检开始 host=172.18.10.144 base=http://127.0.0.1:9 检查=[invariant] dry_run=1 ===
+   [2026-11-10T03:35:02+08:00] invariant: 数据源 = sys_invariant_result（psql 只读）（FAIL|1|2|61200|54000）
+   [2026-11-10T03:35:02+08:00] invariant: WARN — 巡检结论早于最后一次迁移，待重跑（暂不判「账已错」）
+   [2026-11-10T03:35:02+08:00] === 巡检结束：1 项告警，开始派发 ===
+   [2026-11-10T03:35:02+08:00]   ↳ dry-run：本该建卡/发飞书（WARN 巡检结论早于最后一次迁移，待重跑（暂不判「账已错」））
+
+###    ↳ 判定行（level — title）
+   [2026-11-10T03:35:02+08:00] invariant: WARN — 巡检结论早于最后一次迁移，待重跑（暂不判「账已错」）
+
+### B) current_fail —— 同样的 FAIL 结论，但迁移都更早（含一条毫秒记账）
+结论: FAIL blockers=1 run_at=11-09 10:35 (17h 前)
+迁移: V0331__purchase_requisition applied_at=1794144902 → 11-08 21:35 (秒)
+迁移: V0156__remove_erp_top_menu applied_at=1794108902000 → 11-08 11:35 (毫秒记账)
+   [2026-11-10T03:35:02+08:00] 库连接就绪：cloudpivot@127.0.0.1:5432/cp_drill_inv4（env=/tmp/drill-inv.env）
+   [2026-11-10T03:35:02+08:00] === 告警巡检开始 host=172.18.10.144 base=http://127.0.0.1:9 检查=[invariant] dry_run=1 ===
+   [2026-11-10T03:35:02+08:00] invariant: 数据源 = sys_invariant_result（psql 只读）（FAIL|1|2|61200|0）
+   [2026-11-10T03:35:02+08:00] invariant: ALERT — 账务巡检有 1 个 BLOCKER（账已错）
+   [2026-11-10T03:35:02+08:00] === 巡检结束：1 项告警，开始派发 ===
+   [2026-11-10T03:35:02+08:00]   ↳ dry-run：本该建卡/发飞书（ALERT 账务巡检有 1 个 BLOCKER（账已错））
+
+###    ↳ 判定行（level — title）
+   [2026-11-10T03:35:02+08:00] invariant: ALERT — 账务巡检有 1 个 BLOCKER（账已错）
+
+### C) stale_ok —— 结论 3h 前 OK，之后落了迁移
+结论: OK blockers=0 run_at=11-10 00:35 (3h 前)
+迁移: V0331__purchase_requisition applied_at=1794144903 → 11-08 21:35 (秒)
+迁移: V0156__remove_erp_top_menu applied_at=1794108903000 → 11-08 11:35 (毫秒记账)
+迁移: V0366__seed_fix_flow_is_system applied_at=1794245703 → 11-10 01:35 (秒)
+   [2026-11-10T03:35:02+08:00] 库连接就绪：cloudpivot@127.0.0.1:5432/cp_drill_inv4（env=/tmp/drill-inv.env）
+   [2026-11-10T03:35:02+08:00] === 告警巡检开始 host=172.18.10.144 base=http://127.0.0.1:9 检查=[invariant] dry_run=1 ===
+   [2026-11-10T03:35:02+08:00] invariant: 数据源 = sys_invariant_result（psql 只读）（OK|0|0|10800|3600）
+   [2026-11-10T03:35:02+08:00] invariant: INFO — 巡检结论早于最后一次迁移（结论是 OK，但新迁移后的库没被复核过）（status=OK（10800s 前）；最后一次迁移比它晚 60 分钟 ⇒ 迁移动过的数据还没被巡检看过，建议重跑 scripts/ops/invariant_rerun.sh）
+   [2026-11-10T03:35:02+08:00] === 巡检结束：无告警（0 项）===
+
+###    ↳ 判定行（level — title）
+   [2026-11-10T03:35:02+08:00] invariant: INFO — 巡检结论早于最后一次迁移（结论是 OK，但新迁移后的库没被复核过）（status=OK（10800s 前）；最后一次迁移比它晚 60 分钟 ⇒ 迁移动过的数据还没被巡检看过，建议重跑 scripts/ops/invariant_rerun.sh）
+
+### D) stale_old —— 结论 40h 前 FAIL，之后落了迁移（>36h 真没人重跑）
+结论: FAIL blockers=1 run_at=11-08 11:35 (40h 前)
+迁移: V0331__purchase_requisition applied_at=1794144903 → 11-08 21:35 (秒)
+迁移: V0156__remove_erp_top_menu applied_at=1794108903000 → 11-08 11:35 (毫秒记账)
+迁移: V0366__seed_fix_flow_is_system applied_at=1794245703 → 11-10 01:35 (秒)
+   [2026-11-10T03:35:02+08:00] 库连接就绪：cloudpivot@127.0.0.1:5432/cp_drill_inv4（env=/tmp/drill-inv.env）
+   [2026-11-10T03:35:02+08:00] === 告警巡检开始 host=172.18.10.144 base=http://127.0.0.1:9 检查=[invariant] dry_run=1 ===
+   [2026-11-10T03:35:03+08:00] invariant: 数据源 = sys_invariant_result（psql 只读）（FAIL|1|2|144000|136800）
+   [2026-11-10T03:35:03+08:00] invariant: ALERT — 巡检结论早于最后一次迁移且已 40 小时未重跑（账务无人复核）
+   [2026-11-10T03:35:03+08:00] === 巡检结束：1 项告警，开始派发 ===
+   [2026-11-10T03:35:03+08:00]   ↳ dry-run：本该建卡/发飞书（ALERT 巡检结论早于最后一次迁移且已 40 小时未重跑（账务无人复核））
+
+###    ↳ 判定行（level — title）
+   [2026-11-10T03:35:03+08:00] invariant: ALERT — 巡检结论早于最后一次迁移且已 40 小时未重跑（账务无人复核）
+
+=== 演练库结构 / 现场（最后一轮 = stale_old）===
+FAIL|1|2|2026-11-08 11:35:02
+V0331__purchase_requisition|1794144903|s
+V0156__remove_erp_top_menu|1794108903000|ms
+V0366__seed_fix_flow_is_system|1794245703|s
