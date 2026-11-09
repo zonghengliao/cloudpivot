@@ -14,10 +14,12 @@
 # （443 个断言量级不需要，本脚本 ~40 条；PASS/FAIL 汇总在末尾）
 set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
+# 本卡的独立工作目录（**必须在 source 之前导出**：common 里是 `WORK=${WORK:-/tmp/e2e08}`，
+# 先导出才不会把 raw/断言日志写进别卡共用的 /tmp/e2e08）
+WORK=${WORK:-/tmp/e2e08fix1}
+export WORK
 . "$HERE/e2e08_master_common.sh"
 
-# 本卡的独立工作目录（别覆盖别的卡的 /tmp/e2e08）
-WORK=${WORK:-/tmp/e2e08fix1}
 RAW=$WORK/raw
 LOG=$WORK/asserts.log
 mkdir -p "$RAW"
@@ -229,5 +231,5 @@ summary
 say
 say "== 原始响应（$RAW） =="
 for f in t1 t2 t3 t4 t5 t6 t3_bad cus_chg cus_ok c5_sup c5_mat c5_wh c5_unit c5_et c5_ac; do
-  [ -f "$RAW/$f.json" ] && printf '%-10s %s\n' "$f" "$(jq -c '{code,msg,status:(.data.price // .data.code // empty)}' "$RAW/$f.json" 2>/dev/null | head -c 300)"
+  [ -f "$RAW/$f.json" ] && printf '%-10s %s\n' "$f" "$(jq -c '{code,msg,value:(.data.price // .data.code // .data.status // .data.contact_phone // "")}' "$RAW/$f.json" 2>/dev/null | head -c 300)"
 done
