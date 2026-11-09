@@ -38,15 +38,18 @@ say
 say "===== B2 折旧凭证 2028-01（借 5602.01 按部门汇总 / 贷 1602） ====="
 check "凭证来源类型" "$(SQ "select source_type from biz_voucher where id='$V01'")" "DEPRECIATION"
 check "凭证期间 / 日期" "$(SQ "select period||'|'||voucher_date from biz_voucher where id='$V01'")" "2028-01|2028-01-31"
-check "凭证明细 3 行（借按部门 2 行 + 贷 1 行）" "$(SQ "select count(*) from biz_voucher_entry where voucher_id='$V01'")" "3"
+check "凭证明细 2 行（借 1 行 + 贷 1 行）" "$(SQ "select count(*) from biz_voucher_entry where voucher_id='$V01'")" "2"
 chknum "借方 5602.01 合计 = 批次合计" "$(SQ "select coalesce(sum(debit_amount),0) from biz_voucher_entry where voucher_id='$V01' and account_code='5602.01'")" 7204.1667
 chknum "贷方 1602 = 批次合计" "$(SQ "select coalesce(sum(credit_amount),0) from biz_voucher_entry where voucher_id='$V01' and account_code='1602'")" 7204.1667
 check "凭证借贷平衡" "$(SQ "select (total_debit=total_credit) from biz_voucher where id='$V01'")" "t"
-# 补提口径：折旧 run 用「卡片当前部门」而不是「期间归属部门」—— A 已于 2028-02-01 转到采购部，
-# 事后补跑 2028-01 时费用记到采购部（见问题清单 Q3，P3）。这里先钉住真实行为。
-check "借方按部门拆 2 行（补提按当前部门）" "$(SQ "select count(*) from biz_voucher_entry where voucher_id='$V01' and debit_amount>0")" "2"
-chknum "借方 采购演练部（A）= 1900" "$(SQ "select debit_amount from biz_voucher_entry where voucher_id='$V01' and debit_amount>0 and aux_dept_id='$DEPT2'")" 1900
-chknum "借方 演练设备部（B+C+D）= 5304.1667" "$(SQ "select debit_amount from biz_voucher_entry where voucher_id='$V01' and debit_amount>0 and aux_dept_id='$DEPT1'")" 5304.1667
+# E2E05-FIX-1（卡 t_abb4bb0b）修好后的口径：补提历史期间按**期间归属部门**归集，不再用卡片当前部门。
+# A 已于 2028-02-01 转到采购部，但 2028-01 那一期它还在设备部 ⇒ 借方只剩「演练设备部」一行，
+# 金额 = 全部四台（A+B+C+D）。修前这里断言的是「采购演练部 1900 / 设备部 5304.1667」（bug 现场）。
+check "借方按部门只拆 1 行（补提按期间归属部门）" "$(SQ "select count(*) from biz_voucher_entry where voucher_id='$V01' and debit_amount>0")" "1"
+chknum "借方 演练设备部（A+B+C+D）= 7204.1667" "$(SQ "select debit_amount from biz_voucher_entry where voucher_id='$V01' and debit_amount>0 and aux_dept_id='$DEPT1'")" 7204.1667
+check "借方没有采购演练部的行（A 那一期还没转）" "$(SQ "select count(*) from biz_voucher_entry where voucher_id='$V01' and debit_amount>0 and aux_dept_id='$DEPT2'")" "0"
+check "A 明细的部门 = 演练设备部（期间归属部门，不是卡片当前部门）" \
+  "$(SQ "select dept_name from biz_depreciation where batch_id='$B01' and asset_no='$NO_A'")" "演练设备部"
 
 say
 say "===== B3 幂等：同期间二次计提 ====="
