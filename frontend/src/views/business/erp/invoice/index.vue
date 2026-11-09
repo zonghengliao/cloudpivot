@@ -297,6 +297,16 @@
           theme="info"
           message="选一张应收 → 客户 / 来源 / 金额自动带出；价税合计缺省 = 该应收的剩余可开票额度，可改小做分次开票。"
         />
+        <!--
+          E2E01-FIX-1（验收④）：新建态还没有单据 id，查不了 `/attachment/check`，但规则已确定
+          （`INVOICE` + `SUBMIT`，V0347：数电票 pdf/ofd/xml、纸质票 pdf/jpg/png）——
+          在建单这一步就说清楚，别等点「开票」才吃 400。保存草稿后会直接打开本单详情（附件面板在同一屏）。
+        -->
+        <t-alert
+          theme="warning"
+          data-testid="inv-create-attach-notice"
+          message="开票前必须上传发票影像：数电票（无税控代码）需 pdf/ofd/xml，纸质票需 pdf/jpg/png。建草稿后在详情「附件」上传，传完「开票」按钮才会亮。"
+        />
 
         <t-form label-align="top" class="form">
           <t-form-item label="应收单" required-mark>
@@ -1067,8 +1077,11 @@ async function submitCreate(): Promise<void> {
     createVisible.value = false;
 
     if (!createForm.issueNow) {
-      MessagePlugin.success(`${created.invoice_no} 已建草稿（DRAFT），核对后再点「开票」`);
+      // E2E01-FIX-1：草稿建完直接开详情 —— 附件面板与「开票」按钮在同一屏，
+      // 缺影像时红字 + 禁用立刻可见，不用回列表再点一次「详情」才发现。
+      MessagePlugin.success(`${created.invoice_no} 已建草稿（DRAFT）：先在「附件」上传发票影像，再点「开票」`);
       await loadInvoices(1);
+      await openDetail(created);
       return;
     }
 

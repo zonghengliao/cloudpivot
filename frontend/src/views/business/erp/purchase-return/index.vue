@@ -127,6 +127,20 @@
           @changed="refreshAttachGate()"
         />
 
+        <!--
+          E2E01-FIX-1（验收①）：草稿态一打开就把「提交前需上传附件」摆在最前面，
+          别让用户填完整张单、点提交才吃到 400。判据与红字都来自后端
+          `GET /attachment/check`（V0347 规则 `PURCHASE_RETURN` + `SUBMIT`）；
+          查询失败时 `resolved = false`，这里不画（同降级口径）。
+        -->
+        <t-alert
+          v-if="detail.purchase_return.status === 'DRAFT' && attachGate.resolved && !attachGate.canProceed"
+          theme="warning"
+          class="prt-detail-attach-notice"
+          data-testid="prt-detail-attach-notice"
+          :message="`提交前需上传附件：${attachGate.hint ?? '退货单或签收凭证（需 pdf/jpg/png 格式）'}。在下方「附件」上传后，按钮会自动恢复。`"
+        />
+
         <div class="prt-actions" data-testid="prt-detail-actions">
           <template v-if="detail.purchase_return.status === 'DRAFT'">
             <!-- 缺附件时按钮 disabled，外面套 tooltip（disabled 的 t-button 收不到 hover） -->
@@ -180,6 +194,18 @@
           <t-input v-model="form.remark" placeholder="可选" />
         </t-form-item>
       </t-form>
+
+      <!--
+        E2E01-FIX-1：新建态还没有 id，**不能**调 `/attachment/check`（无单据可查），
+        但规则（`PURCHASE_RETURN` + `SUBMIT`，V0347）此时已经确定 —— 提前说清楚，
+        别让用户填完整张单、点提交才吃到 400。保存后会直接打开本单详情（红字 + 上传入口）。
+      -->
+      <t-alert
+        theme="warning"
+        class="prt-create-notice"
+        data-testid="prt-create-attach-notice"
+        message="提交审批前必须上传附件（退货单或签收凭证，需 pdf/jpg/png）。保存草稿后在详情「附件」里上传，传完「提交审批」按钮才会变亮。"
+      />
 
       <template v-if="source">
         <t-alert theme="info" :message="`入库单 ${source.stock_in_no}：供应商 ${source.supplier_name || '-'}；单价与税率取原入库快照（不许改）`" />
@@ -481,16 +507,20 @@ async function saveCreate() {
   }
   saving.value = true;
   try {
-    await createPurchaseReturn({
+    const created = await createPurchaseReturn({
       stock_in_id: form.stock_in_id,
       return_date: form.return_date || undefined,
       reason: form.reason,
       remark: form.remark || undefined,
       items,
     });
-    MessagePlugin.success('退货单已保存（草稿），请提交审批');
     createVisible.value = false;
-    load(1);
+    await load(1);
+    // 验收①（E2E01-FIX-1）：保存后**直接落到本单详情** —— 附件红字与上传入口在一屏内，
+    // 不再只回列表让用户自己再点一次「详情」才发现缺附件。
+    detail.value = created;
+    detailVisible.value = true;
+    MessagePlugin.success('退货单已保存（草稿）：请先在「附件」上传退货单或签收凭证，再提交审批');
   } catch (error) {
     MessagePlugin.error(String(error));
   } finally {
@@ -681,5 +711,12 @@ onMounted(() => load(1));
 /* disabled 的 t-button 收不到 hover：tooltip 必须包一层普通元素才能对灰按钮生效 */
 .op-wrap {
   display: inline-flex;
+}
+/* E2E01-FIX-1：新建弹窗 / 详情抽屉里的「提交前需上传附件」提示（与表格留出间距） */
+.prt-create-notice {
+  margin-top: 8px;
+}
+.prt-detail-attach-notice {
+  margin: 16px 0 4px;
 }
 </style>

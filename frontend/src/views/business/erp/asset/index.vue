@@ -229,6 +229,15 @@
       @confirm="submitForm"
       @close="closeForm"
     >
+      <!--
+        E2E01-FIX-1：建卡后资产是 IDLE，**启用（入账）**才要求发票或验收单
+        （`FIXED_ASSET` + `ACTIVATE`，V0347）—— 建卡时就说清楚，别等点「启用」才吃 400。
+      -->
+      <t-alert
+        theme="warning"
+        data-testid="asset-create-attach-notice"
+        message="启用（入账）资产前必须上传发票或验收单（pdf/jpg/png）：建卡后在「资产详情 → 附件」上传，传完「确认启用」才会放行。"
+      />
       <div class="form-layout">
         <div class="form-layout__main">
           <t-form :data="form" label-width="110px" colon>
@@ -1226,6 +1235,11 @@ async function submitForm(): Promise<void> {
     formVisible.value = false;
     current.value = 1;
     await loadRows();
+    // E2E01-FIX-1：建卡后直接开详情并落在「附件」页签 —— 「启用（入账）」要求发票/验收单
+    // （`FIXED_ASSET` + `ACTIVATE`，V0347），上传入口与「确认启用」按钮在同一屏。
+    detailVisible.value = true;
+    detailTab.value = 'attachments';
+    await loadDetail(result.id);
   } catch (error) {
     MessagePlugin.error(errorText(error));
   } finally {

@@ -287,6 +287,15 @@
     >
       <div class="dialog-body">
         <t-alert theme="info" message="登记后为草稿（DRAFT）：先核销到该客户的未收应收，确认后才能过账生成凭证。" />
+        <!--
+          E2E01-FIX-1：新建态还没有单据 id，查不了 `/attachment/check`，但规则已确定
+          （`RECEIPT` + `SUBMIT`，V0347：银行回单必传）—— 提前说清，别等点「确认」才吃 400。
+        -->
+        <t-alert
+          theme="warning"
+          data-testid="rc-create-attach-notice"
+          message="确认收款前必须上传银行回单（pdf/jpg/png）：登记后在列表点开本单「详情 → 附件」上传，传完「确认」按钮才会变亮（核销面板不影响上传）。"
+        />
 
         <t-form label-align="top" class="form">
           <t-form-item label="客户" required-mark>

@@ -221,6 +221,16 @@
       @confirm="submitForm"
     >
       <div class="form-body">
+        <!--
+          E2E01-FIX-1：新建态没有单据 id（查不了 `/attachment/check`），但规则确定
+          （`SALES_RETURN` + `SUBMIT`，V0347：退货单或物流凭证必传）—— 提前提示，
+          保存后打开详情「附件」上传，传完「提交」按钮才会变亮。
+        -->
+        <t-alert
+          theme="warning"
+          data-testid="return-create-attach-notice"
+          message="提交前必须上传退货单或物流凭证（pdf/jpg/png）：创建后在详情「附件」上传，传完「提交」按钮才会变亮。"
+        />
         <t-form label-width="96px" class="form-head">
           <t-row :gutter="[16, 0]">
             <t-col :span="6">

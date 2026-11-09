@@ -227,6 +227,17 @@
       :footer="false"
       data-testid="expense-form-dialog"
     >
+      <!--
+        E2E01-FIX-1：新建报销单还没有 id（查不了 `/attachment/check`），但规则确定
+        （`EXPENSE_REPORT` + `SUBMIT`，V0347：发票影像或费用凭证必传）—— 先提示，
+        保存后在详情抽屉「附件」上传，传完「提交审批」按钮才会变亮。
+      -->
+      <t-alert
+        theme="warning"
+        class="form-alert"
+        data-testid="expense-create-attach-notice"
+        message="提交审批前必须上传发票影像或费用凭证（pdf/jpg/png/ofd）：保存后在详情「附件」上传，传完「提交审批」按钮才会变亮。"
+      />
       <t-form label-width="88px" :data="form" class="form">
         <t-row :gutter="[16, 8]">
           <t-col :span="12">
@@ -1005,6 +1016,10 @@ onMounted(async () => {
 }
 
 .list-alert {
+  margin-bottom: 12px;
+}
+/* E2E01-FIX-1：新建报销单弹窗里的「提交前必须上传附件」提示 */
+.form-alert {
   margin-bottom: 12px;
 }
 

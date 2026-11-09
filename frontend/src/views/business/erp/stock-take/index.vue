@@ -189,6 +189,18 @@
         </template>
       </t-alert>
 
+      <!--
+        E2E01-FIX-1：新建盘点单还没有 id（查不了 `/attachment/check`），但规则确定
+        （`STOCK_TAKE` + `CONFIRM`，V0347：盘点表或盈亏说明必传）—— 先提示，
+        建单后在详情「附件」上传，传完「提交审批」按钮才会变亮。
+      -->
+      <t-alert
+        theme="warning"
+        class="dlg-alert"
+        data-testid="stocktake-create-attach-notice"
+        message="提交审批前必须上传盘点表或盈亏说明（pdf/jpg/png）：建单后在详情「附件」上传，传完「提交审批」按钮才会变亮。"
+      />
+
       <t-form :data="form" label-width="96px" class="form">
         <t-row :gutter="16">
           <t-col :span="6">
