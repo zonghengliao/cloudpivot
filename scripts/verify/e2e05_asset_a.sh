@@ -5,7 +5,6 @@ source /opt/cloudpivot/scripts/verify/e2e05_asset_common.sh
 
 say "===== A0 登录 + 前置（部门 / 科目 / 期间） ====="
 login_admin
-login_gm
 DEPT1=$(SQ "select id from sys_dept where dept_name='演练设备部' and deleted_at is null limit 1")
 DEPT2=$(SQ "select id from sys_dept where dept_name='采购演练部' and deleted_at is null limit 1")
 U_ADMIN=$(SQ "select id from sys_user where username='admin'")

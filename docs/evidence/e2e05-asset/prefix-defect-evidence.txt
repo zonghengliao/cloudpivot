@@ -1,0 +1,23 @@
+修复前缺陷实测（2026-11-09 10:19，commit c11fb863 之前，145 cloudpivot-test）
+
+=== Q1：删卡不校验购入凭证 ===
+  · 删除未计提卡片 E：http=200 code=0
+  ❌ 删除已生成购入凭证的卡片被放行（200）：1601 总账与卡片台账将永久不符
+  ❌ E 卡片状态（200 则已软删） = DELETED
+  ❌ 1601 净额 vs 在册卡片原值（差额 = 被删卡片的购入凭证） = 500.0000（期望 0）
+
+  DB 复核：E 卡（原值 500，购入日 2028-06-01）的 FIXED_ASSET_ACQ 凭证仍为 POSTED，
+  卡片 deleted_at 非空 ⇒ 1601 借方多 500 而无对应在册资产。
+
+=== Q2：使用人变更整页 500 ===
+  ❌ 使用人变更 http = 500（期望 200）
+  raw/as_cus.json → {"code":10004,"msg":"服务器内部错误"}
+  服务端 SQL：SELECT COALESCE(NULLIF(nickname, ''), username) AS name FROM sys_user …
+           ERROR: column "nickname" does not exist（sys_user 实际列 real_name）
+
+修复后（commit c11fb863，10:22 重新构建重启）同一批断言的实测：
+  ✅ 删除已生成购入凭证的卡片被拦（http=409 code=10003）
+  ✅ E 卡片状态 = ACTIVE
+  ✅ 1601 净额 vs 在册卡片原值 = 0.0000
+  ✅ 使用人变更 http = 200
+  ✅ 使用人姓名快照 = 超级管理员

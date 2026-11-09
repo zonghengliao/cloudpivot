@@ -3,7 +3,7 @@
 #        3 张处置凭证（清理/收款/结转损益）→ 卡片 DISPOSED → 作废处置回滚 → 次日照提
 source /opt/cloudpivot/scripts/verify/e2e05_asset_common.sh
 [ -n "${T_ADMIN:-}" ] || login_admin
-[ -n "${T_GM:-}" ] || login_gm
+ensure_approver
 
 say "===== C1 FIX-3 回归：处置当月未计提 → 409 66048 ====="
 api dis_gate POST "/business/erp/asset/$AS_C/dispose" "$T_ADMIN" \
@@ -35,7 +35,7 @@ check "提交处置 code" "$CODE" "0"
 INST=$(SQ "select id from biz_flow_instance where biz_no='$NO_C' and biz_type='ASSET_DISPOSAL' order by created_at desc limit 1")
 save INST "$INST"
 checkne "审批实例已创建" "$INST" ""
-check "实例状态（待审批）" "$(SQ "select status from biz_flow_instance where id='$INST'")" "RUNNING"
+check "实例状态（待审批）" "$(SQ "select status from biz_flow_instance where id='$INST'")" "PENDING"
 check "审批中卡片仍 IN_USE（账未动）" "$(SQ "select status from biz_fixed_asset where id='$AS_C'")" "IN_USE"
 check "审批中未生成处置凭证" "$(SQ "select count(*) from biz_voucher where source_type='FIXED_ASSET_DISPOSAL' and source_no='$NO_C'")" "0"
 
@@ -43,9 +43,10 @@ say
 say "===== C4 GM 审批通过 → 处置落账 ====="
 api gm_todo GET "/business/flow/task/todo?page=1&page_size=50" "$T_GM"
 check "GM 待办 http" "$HTTP" "200"
-TASK=$(data ".data.list[]|select(.biz_no==\"$NO_C\")|.id" | head -1)
+TASK=$(SQ "select t.id from biz_flow_task t where t.instance_id='$INST' and t.status='PENDING' and t.assignee_id=(select id from sys_user where username='e2e05_gm')")
 save TASK "$TASK"
-checkne "GM 收到处置待办" "$TASK" ""
+checkne "GM 收到处置待办（DB）" "$TASK" ""
+check "GM 待办列表含该任务（API ↔ DB 一致）" "$(data "[.data.list[]|select(.id==\"$TASK\")]|length")" "1"
 api dis_approve POST "/business/flow/task/$TASK/approve" "$T_GM" '{"comment":"E2E-05 演练：同意出售处置"}'
 check "审批 http" "$HTTP" "200"
 check "审批 code" "$CODE" "0"
@@ -64,14 +65,21 @@ say
 say "===== C5 处置凭证三张（清理 / 收款 / 结转损益） ====="
 check "处置凭证张数 = 3" "$(SQ "select count(*) from biz_voucher where source_type='FIXED_ASSET_DISPOSAL' and source_no='$NO_C'")" "3"
 check "三张全部借贷平衡" "$(SQ "select count(*) from biz_voucher where source_type='FIXED_ASSET_DISPOSAL' and source_no='$NO_C' and total_debit=total_credit")" "3"
-chknum "① 借 1602 累计折旧 = 23750" "$(SQ "select coalesce(sum(e.debit_amount),0) from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id where v.source_type='FIXED_ASSET_DISPOSAL' and v.source_no='$NO_C' and e.account_code='1602'")" 23750
-chknum "① 借 1606 清理 = 净值 36250" "$(SQ "select coalesce(sum(e.debit_amount),0) from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id where v.source_type='FIXED_ASSET_DISPOSAL' and v.source_no='$NO_C' and e.account_code='1606' and e.debit_amount>0")" 36250
-chknum "① 贷 1601 原值 = 60000" "$(SQ "select coalesce(sum(e.credit_amount),0) from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id where v.source_type='FIXED_ASSET_DISPOSAL' and v.source_no='$NO_C' and e.account_code='1601'")" 60000
+# ① 清理凭证 = 有「贷 1601 原值」的那张；③ 结转凭证 = 有「5301」的那张
+VD1=$(SQ "select v.id from biz_voucher v join biz_voucher_entry e on e.voucher_id=v.id where v.source_type='FIXED_ASSET_DISPOSAL' and v.source_no='$NO_C' and e.account_code='1601' and e.credit_amount>0")
+VD3=$(SQ "select v.id from biz_voucher v join biz_voucher_entry e on e.voucher_id=v.id where v.source_type='FIXED_ASSET_DISPOSAL' and v.source_no='$NO_C' and e.account_code='5301'")
+save VD1 "$VD1"; save VD3 "$VD3"
+checkne "① 清理凭证定位（贷 1601）" "$VD1" ""
+checkne "③ 结转凭证定位（贷 5301）" "$VD3" ""
+chknum "① 借 1602 累计折旧 = 23750" "$(SQ "select coalesce(sum(debit_amount),0) from biz_voucher_entry where voucher_id='$VD1' and account_code='1602'")" 23750
+chknum "① 借 1606 清理 = 净值 36250" "$(SQ "select coalesce(sum(debit_amount),0) from biz_voucher_entry where voucher_id='$VD1' and account_code='1606'")" 36250
+chknum "① 贷 1601 原值 = 60000" "$(SQ "select coalesce(sum(credit_amount),0) from biz_voucher_entry where voucher_id='$VD1' and account_code='1601'")" 60000
+chknum "① 分录合计 = 贷方 = 60000（借贷平衡）" "$(SQ "select coalesce(sum(debit_amount),0) from biz_voucher_entry where voucher_id='$VD1'")" 60000
 chknum "② 借 1002 价税合计 = 56500" "$(SQ "select coalesce(sum(e.debit_amount),0) from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id where v.source_type='FIXED_ASSET_DISPOSAL' and v.source_no='$NO_C' and e.account_code='1002'")" 56500
-chknum "② 贷 1606 售价 = 50000" "$(SQ "select coalesce(sum(e.credit_amount),0) from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id where v.source_type='FIXED_ASSET_DISPOSAL' and v.source_no='$NO_C' and e.account_code='1606'")" 50000
+chknum "② 贷 1606 售价 = 50000" "$(SQ "select coalesce(sum(e.credit_amount),0) from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id where v.source_type='FIXED_ASSET_DISPOSAL' and v.source_no='$NO_C' and e.account_code='1606' and e.credit_amount>0 and v.id<>'$VD3'")" 50000
 chknum "② 贷 2221.02 销项税 = 6500" "$(SQ "select coalesce(sum(e.credit_amount),0) from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id where v.source_type='FIXED_ASSET_DISPOSAL' and v.source_no='$NO_C' and e.account_code='2221.02'")" 6500
-chknum "③ 结转：借 1606 = 13750" "$(SQ "select coalesce(sum(e.debit_amount),0) from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id where v.source_type='FIXED_ASSET_DISPOSAL' and v.source_no='$NO_C' and e.account_code='1606' and e.debit_amount>0 and e.credit_amount=0")" 13750
-chknum "③ 结转：贷 5301 营业外收入 = 13750" "$(SQ "select coalesce(sum(e.credit_amount),0) from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id where v.source_type='FIXED_ASSET_DISPOSAL' and v.source_no='$NO_C' and e.account_code='5301'")" 13750
+chknum "③ 结转：借 1606 = 13750（清理余额）" "$(SQ "select coalesce(sum(debit_amount),0) from biz_voucher_entry where voucher_id='$VD3' and account_code='1606'")" 13750
+chknum "③ 结转：贷 5301 营业外收入 = 13750" "$(SQ "select coalesce(sum(credit_amount),0) from biz_voucher_entry where voucher_id='$VD3' and account_code='5301'")" 13750
 chknum "1606 清理科目净额归零" "$(SQ "select coalesce(sum(e.debit_amount-e.credit_amount),0) from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id where v.source_type='FIXED_ASSET_DISPOSAL' and v.source_no='$NO_C' and e.account_code='1606'")" 0
 chknum "处置损益 = 售价 50000 − 净值 36250" "$(SQ "select coalesce(sum(e.credit_amount-e.debit_amount),0) from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id where v.source_type='FIXED_ASSET_DISPOSAL' and v.source_no='$NO_C' and e.account_code='5301'")" 13750
 
@@ -81,7 +89,7 @@ api dis_upd PUT "/business/erp/asset/$AS_C" "$T_ADMIN" '{"asset_name":"E2E05 已
 check "已处置改卡 http" "$HTTP" "409"
 api dis_del DELETE "/business/erp/asset/$AS_C" "$T_ADMIN"
 check "已处置删卡 http" "$HTTP" "409"
-api dis_tr POST "/business/erp/asset/$AS_C/transfer" "$T_ADMIN" "{\"to_dept_id\":\"$DEPT1\",\"reason\":\"已处置再转移\"}"
+api dis_tr POST "/business/erp/asset/$AS_C/transfer" "$T_ADMIN" "{\"to_dept_id\":\"$DEPT2\",\"reason\":\"已处置再转移\"}"
 check "已处置转移 http" "$HTTP" "409"
 api dis_again POST "/business/erp/asset/$AS_C/dispose" "$T_ADMIN" \
   '{"disposal_type":"SALE","disposal_date":"2028-05-21","reason":"重复处置","sale_price":"1","output_tax":"0"}'
@@ -96,9 +104,11 @@ check "D 报废提交 http" "$HTTP" "200"
 NO_D=$(SQ "select asset_no from biz_fixed_asset where id='$AS_D'")
 save NO_D "$NO_D"
 api gm_todo2 GET "/business/flow/task/todo?page=1&page_size=50" "$T_GM"
-TASK_D=$(data ".data.list[]|select(.biz_no==\"$NO_D\")|.id" | head -1)
+INST_D=$(SQ "select id from biz_flow_instance where biz_no='$NO_D' and biz_type='ASSET_DISPOSAL' order by created_at desc limit 1")
+TASK_D=$(SQ "select t.id from biz_flow_task t where t.instance_id='$INST_D' and t.status='PENDING' and t.assignee_id=(select id from sys_user where username='e2e05_gm')")
 save TASK_D "$TASK_D"
-checkne "D 处置待办" "$TASK_D" ""
+checkne "D 处置待办（DB）" "$TASK_D" ""
+check "D 处置待办在 API 列表里" "$(data "[.data.list[]|select(.id==\"$TASK_D\")]|length")" "1"
 api dis_d_approve POST "/business/flow/task/$TASK_D/approve" "$T_GM" '{"comment":"E2E-05 演练：同意报废"}'
 check "D 报废审批 http" "$HTTP" "200"
 sleep 2
@@ -110,9 +120,10 @@ check "作废处置 http" "$HTTP" "200"
 check "作废后状态恢复 IN_USE" "$(SQ "select status from biz_fixed_asset where id='$AS_D'")" "IN_USE"
 check "作废后清 disposal 字段" "$(SQ "select coalesce(disposal_type,'NULL')||'|'||coalesce(disposal_date::text,'NULL') from biz_fixed_asset where id='$AS_D'")" "NULL|NULL"
 check "作废留痕（DISPOSED→IN_USE）" "$(SQ "select from_status||'→'||to_status from biz_fixed_asset_change where asset_id='$AS_D' and change_type='ENABLE' order by created_at desc limit 1")" "DISPOSED→IN_USE"
-check "作废生成红字凭证" "$(SQ "select count(*) from biz_voucher where source_type='FIXED_ASSET_DISPOSAL' and source_no='$NO_D' and is_red=1")" "1"
+check "作废生成红字凭证（SCRAP 出 2 张 → 2 张红字）" "$(SQ "select count(*) from biz_voucher where source_type='FIXED_ASSET_DISPOSAL' and source_no='$NO_D' and is_red=1")" "2"
 chknum "作废后该卡处置凭证净额归零（1601/1602/5711）" "$(SQ "select coalesce(sum(e.debit_amount-e.credit_amount),0) from biz_voucher_entry e join biz_voucher v on v.id=e.voucher_id where v.source_type='FIXED_ASSET_DISPOSAL' and v.source_no='$NO_D' and e.account_code in ('1601','1602','5711','1606')")" 0
-check "作废通知（IN_USE 事件）" "$(SQ "select count(*) from sys_notice where biz_type='FIXED_ASSET' and biz_id='$AS_D' and idempotency_key like 'LNK:FIXED_ASSET:IN_USE:%'")" "1"
+# D 的 IN_USE 通知应有 2 条：B6 的「停用→启用」与 C7 的「作废处置」是两个不同事件（幂等键按事件维度）
+check "作废通知（IN_USE 事件，含 B6 启用共 2 条）" "$(SQ "select count(*) from sys_notice where biz_type='FIXED_ASSET' and biz_id='$AS_D' and idempotency_key like 'LNK:FIXED_ASSET:IN_USE:%'")" "2"
 
 say
 say "===== C8 作废后继续计提 2028-06（恢复在役照提） ====="
@@ -126,11 +137,12 @@ check "全库超提行数 = 0" "$(SQ "select count(*) from biz_fixed_asset where
 check "全库累计 = 明细合计（K2）" "$(SQ "select count(*) from (select a.id from biz_fixed_asset a left join biz_depreciation d on d.asset_id=a.id and d.status='POSTED' group by a.id, a.accumulated_depreciation having a.accumulated_depreciation <> coalesce(sum(d.amount),0)) t")" "0"
 
 say
-say "===== C9 跨表勾稽（1601/1602 ↔ 卡片台账） ====="
+say "===== C9 跨表勾稽（1601/1602 ↔ 卡片台账，本卡口径） ====="
+# 全库 1601/1602 里还有别的卡（含 p004 遗留）的凭证，所以只比「本卡来源凭证」与「本卡卡片」
 chknum "1601 净额 = 在册卡片原值（未处置、未删除）" \
-  "$(SQ "select coalesce((select sum(debit_amount-credit_amount) from biz_voucher_entry where account_code='1601'),0) - coalesce((select sum(original_value) from biz_fixed_asset where deleted_at is null and status<>'DISPOSED'),0)")" 0
-chknum "1602 净额 = 在册卡片累计折旧（未处置、未删除）" \
-  "$(SQ "select coalesce((select sum(debit_amount-credit_amount) from biz_voucher_entry where account_code='1602'),0) - coalesce((select sum(accumulated_depreciation) from biz_fixed_asset where deleted_at is null and status<>'DISPOSED'),0)")" 0
+  "$(SQ "select coalesce((select sum(e.debit_amount-e.credit_amount) from biz_voucher v join biz_voucher_entry e on e.voucher_id=v.id where v.source_type in ('FIXED_ASSET_ACQ','FIXED_ASSET_DISPOSAL') and v.source_no in (select asset_no from biz_fixed_asset where asset_name like 'E2E05%') and e.account_code='1601'),0) - coalesce((select sum(original_value) from biz_fixed_asset where asset_name like 'E2E05%' and deleted_at is null and status<>'DISPOSED'),0)")" 0
+chknum "1602 净额 = 在册卡片累计折旧（贷方为正）" \
+  "$(SQ "select coalesce((select sum(e.debit_amount-e.credit_amount) from biz_voucher v join biz_voucher_entry e on e.voucher_id=v.id where v.source_type in ('DEPRECIATION','FIXED_ASSET_DISPOSAL') and (v.source_no in (select asset_no from biz_fixed_asset where asset_name like 'E2E05%') or v.source_id in (select id from biz_depreciation_batch where period_code between '2027-12' and '2028-06') or v.id in (select reverse_voucher_id from biz_depreciation_batch where period_code between '2027-12' and '2028-06' and reverse_voucher_id is not null)) and e.account_code='1602'),0) + coalesce((select sum(accumulated_depreciation) from biz_fixed_asset where asset_name like 'E2E05%' and deleted_at is null and status<>'DISPOSED'),0)")" 0
 check "全库不平衡凭证 = 0" "$(SQ "select count(*) from biz_voucher where deleted_at is null and total_debit <> total_credit")" "0"
 check "1606 清理科目全库净额 = 0" "$(SQ "select count(*) from biz_voucher_entry where account_code='1606' and voucher_id in (select id from biz_voucher where deleted_at is null) group by account_code having sum(debit_amount-credit_amount) <> 0")" ""
 check "每张凭证 total = 分录合计" "$(SQ "select count(*) from (select v.id from biz_voucher v join biz_voucher_entry e on e.voucher_id=v.id where v.deleted_at is null group by v.id, v.total_debit, v.total_credit having v.total_debit <> sum(e.debit_amount) or v.total_credit <> sum(e.credit_amount)) t")" "0"

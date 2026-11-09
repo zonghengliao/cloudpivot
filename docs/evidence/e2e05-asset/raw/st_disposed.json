@@ -1,0 +1,1 @@
+{"code":10001,"msg":"处置不能走本接口：请调用 POST /business/erp/asset/{id}/dispose 提交处置审批 （处置要落凭证、要走审批，本接口只做「在役 ⇄ 闲置」）"}

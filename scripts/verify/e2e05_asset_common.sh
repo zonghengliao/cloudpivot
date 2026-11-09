@@ -74,6 +74,26 @@ login_gm() {
   say "  · gm_drill（GENERAL_MANAGER，处置审批人）登录成功（token 长度 ${#T_GM}）"
 }
 
+# 处置审批人：本卡自建 e2e05_gm（GENERAL_MANAGER）。
+# 不复用 gm_drill：2026-11-09 实测它在 sys_user_role 里已经没有任何角色（403 缺
+# business:flow:approve），说明演练账号的角色会被别的卡/清理动过 —— 自己保证前置。
+ensure_approver() {
+  local gm_role uid
+  gm_role=$(SQ "select id from sys_role where role_code='GENERAL_MANAGER' and deleted_at is null")
+  [ -n "$gm_role" ] || { bad "GENERAL_MANAGER 角色不存在"; return 1; }
+  uid=$(SQ "select id from sys_user where username='e2e05_gm'")
+  if [ -z "$uid" ]; then
+    api gm_create POST /system/user "$T_ADMIN" \
+      "{\"username\":\"e2e05_gm\",\"password\":\"Drill@123456\",\"real_name\":\"E2E05 总经理\",\"role_ids\":[\"$gm_role\"],\"status\":1,\"remark\":\"E2E-05 处置审批人\"}"
+    check "建审批人 e2e05_gm http" "$HTTP" "200"
+    check "建审批人 e2e05_gm code" "$CODE" "0"
+  fi
+  check "审批人持 GENERAL_MANAGER 角色" "$(SQ "select count(*) from sys_user_role ur join sys_role r on r.id=ur.role_id where ur.user_id=(select id from sys_user where username='e2e05_gm') and r.role_code='GENERAL_MANAGER'")" "1"
+  T_GM=$(login e2e05_gm 'Drill@123456' e2e05gm) || return 1
+  save T_GM "$T_GM"
+  say "  · e2e05_gm（GENERAL_MANAGER）登录成功（token 长度 ${#T_GM}）"
+}
+
 # 取科目 id：acc <code> → uuid
 acc() { SQ "select id from biz_account where account_code='$1' and deleted_at is null"; }
 

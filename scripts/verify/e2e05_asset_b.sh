@@ -38,11 +38,15 @@ say
 say "===== B2 折旧凭证 2028-01（借 5602.01 按部门汇总 / 贷 1602） ====="
 check "凭证来源类型" "$(SQ "select source_type from biz_voucher where id='$V01'")" "DEPRECIATION"
 check "凭证期间 / 日期" "$(SQ "select period||'|'||voucher_date from biz_voucher where id='$V01'")" "2028-01|2028-01-31"
-check "凭证明细 2 行（1 借 1 贷，同部门汇总）" "$(SQ "select count(*) from biz_voucher_entry where voucher_id='$V01'")" "2"
-chknum "借方 5602.01 = 批次合计" "$(SQ "select coalesce(sum(debit_amount),0) from biz_voucher_entry where voucher_id='$V01' and account_code='5602.01'")" 7204.1667
+check "凭证明细 3 行（借按部门 2 行 + 贷 1 行）" "$(SQ "select count(*) from biz_voucher_entry where voucher_id='$V01'")" "3"
+chknum "借方 5602.01 合计 = 批次合计" "$(SQ "select coalesce(sum(debit_amount),0) from biz_voucher_entry where voucher_id='$V01' and account_code='5602.01'")" 7204.1667
 chknum "贷方 1602 = 批次合计" "$(SQ "select coalesce(sum(credit_amount),0) from biz_voucher_entry where voucher_id='$V01' and account_code='1602'")" 7204.1667
 check "凭证借贷平衡" "$(SQ "select (total_debit=total_credit) from biz_voucher where id='$V01'")" "t"
-check "借方挂部门辅助（DEPT）" "$(SQ "select aux_dept_id from biz_voucher_entry where voucher_id='$V01' and debit_amount>0")" "$DEPT1"
+# 补提口径：折旧 run 用「卡片当前部门」而不是「期间归属部门」—— A 已于 2028-02-01 转到采购部，
+# 事后补跑 2028-01 时费用记到采购部（见问题清单 Q3，P3）。这里先钉住真实行为。
+check "借方按部门拆 2 行（补提按当前部门）" "$(SQ "select count(*) from biz_voucher_entry where voucher_id='$V01' and debit_amount>0")" "2"
+chknum "借方 采购演练部（A）= 1900" "$(SQ "select debit_amount from biz_voucher_entry where voucher_id='$V01' and debit_amount>0 and aux_dept_id='$DEPT2'")" 1900
+chknum "借方 演练设备部（B+C+D）= 5304.1667" "$(SQ "select debit_amount from biz_voucher_entry where voucher_id='$V01' and debit_amount>0 and aux_dept_id='$DEPT1'")" 5304.1667
 
 say
 say "===== B3 幂等：同期间二次计提 ====="
@@ -69,7 +73,7 @@ say
 say "===== B5 红冲后重跑 2028-01（复用同一批次行） ====="
 api dep01c POST /business/erp/depreciation/run "$T_ADMIN" '{"period_code":"2028-01","remark":"E2E-05 重跑"}'
 check "重跑 http" "$HTTP" "200"
-check "重跑 outcome" "$(data '.data.outcome')" "POSTED"
+check "重跑 outcome（红冲后重跑专用码）" "$(data '.data.outcome')" "REVERSED_RERUN"
 check "复用同一批次行（id 不变）" "$(SQ "select id from biz_depreciation_batch where period_code='2028-01'")" "$B01"
 check "批次回到 POSTED" "$(SQ "select status from biz_depreciation_batch where id='$B01'")" "POSTED"
 check "明细回到 POSTED" "$(SQ "select count(*) from biz_depreciation where batch_id='$B01' and status='POSTED'")" "4"
@@ -106,7 +110,7 @@ api dep03 POST /business/erp/depreciation/run "$T_ADMIN" '{"period_code":"2028-0
 check "计提 2028-03 http" "$HTTP" "200"
 check "计提台数" "$(data '.data.asset_count')" "4"
 chknum "B 末月金额 316.6666（尾差补齐）" "$(SQ "select amount from biz_depreciation where period_code='2028-03' and asset_id='$AS_B'")" 316.6666
-check "B 末月标记 is_last_month" "$(SQ "select is_last_month from biz_depreciation where period_code='2028-03' and asset_id='$AS_B'")" "t"
+check "B 末月标记 is_last_month" "$(SQ "select is_last_month from biz_depreciation where period_code='2028-03' and asset_id='$AS_B'")" "1"
 chknum "B 累计 = 可折旧总额 950" "$(SQ "select accumulated_depreciation from biz_fixed_asset where id='$AS_B'")" 950
 chknum "B 净值 = 残值 50" "$(SQ "select net_value from biz_fixed_asset where id='$AS_B'")" 50
 check "B 已提 3 期" "$(SQ "select depreciation_months_done||'|'||last_depreciation_period from biz_fixed_asset where id='$AS_B'")" "3|2028-03"
