@@ -597,7 +597,30 @@ fn receipt_status_in() -> String {
         .join(", ")
 }
 
-/// 订单口径 · 按范围对象汇总实际金额（含税）。
+/// 订单口径金额表达式：**本位币**含税金额（`CASE` 里的 `o` 是 `biz_sales_order` 别名）。
+///
+/// V0314 / SO-40 起订单有 `base_total_with_tax`（建单时按锁定汇率算出）。
+/// 目标达成率必须按**本位币**汇总：`total_with_tax` 是原币，多币种订单直接相加
+/// 会把 226 USD 当 226 CNY —— E2E-02 实测正是这个数（1582 CNY + 226 USD 报 1808，
+/// 真实本位币 3186.60，达成率虚高 76%）。
+///
+/// 本位币单的 `rate = 1`，两者相等；V0314 之前的老行 `base_*` 可能为 0，回落原币。
+pub fn base_amount_expr() -> &'static str {
+    "CASE WHEN o.base_total_with_tax > 0 THEN o.base_total_with_tax ELSE o.total_with_tax END"
+}
+
+/// 订单**明细行**的本位币含税金额表达式（`i` = 明细别名、`o` = 订单别名）。
+///
+/// 明细表没有 `base_*` 列（V0264 建表时没有多币种），按订单的「本位币 / 原币」比例
+/// 逐行折算。逐行 round 后合计与订单 `base_total_with_tax` 可能差几分（尾差），
+/// 这是有意的：物料口径是「分摊」，不是「必须与订单级完全相等」。
+pub fn base_line_amount_expr() -> &'static str {
+    "CASE WHEN o.total_with_tax > 0 AND o.base_total_with_tax > 0 \
+       THEN ROUND((i.amount + i.tax_amount) * o.base_total_with_tax / o.total_with_tax, 4) \
+       ELSE i.amount + i.tax_amount END"
+}
+
+/// 订单口径 · 按范围对象汇总实际金额（**本位币**含税）。
 ///
 /// - `SALESPERSON`：`biz_sales_order.salesperson_id`
 /// - `DEPT`：`salesperson_id → sys_user.dept_id`
@@ -608,16 +631,17 @@ pub async fn order_actual_by_object(
     to: NaiveDate,
 ) -> DbResult<Vec<(Uuid, Decimal)>> {
     let statuses = order_status_in();
+    let amount = base_amount_expr();
     let sql = match scope_type {
         SCOPE_SALESPERSON => format!(
-            "SELECT o.salesperson_id AS object_id, SUM(o.total_with_tax) AS amount \
+            "SELECT o.salesperson_id AS object_id, SUM({amount}) AS amount \
                FROM biz_sales_order o \
               WHERE o.deleted_at IS NULL AND o.salesperson_id IS NOT NULL \
                 AND o.status IN ({statuses}) AND o.order_date >= ?::date AND o.order_date < ?::date \
               GROUP BY o.salesperson_id"
         ),
         SCOPE_DEPT => format!(
-            "SELECT u.dept_id AS object_id, SUM(o.total_with_tax) AS amount \
+            "SELECT u.dept_id AS object_id, SUM({amount}) AS amount \
                FROM biz_sales_order o \
                JOIN sys_user u ON u.id = o.salesperson_id AND u.deleted_at IS NULL \
               WHERE o.deleted_at IS NULL AND u.dept_id IS NOT NULL \
@@ -625,12 +649,13 @@ pub async fn order_actual_by_object(
               GROUP BY u.dept_id"
         ),
         SCOPE_MATERIAL => format!(
-            "SELECT i.material_id AS object_id, SUM(i.amount + i.tax_amount) AS amount \
+            "SELECT i.material_id AS object_id, SUM({}) AS amount \
                FROM biz_sales_order o \
                JOIN biz_sales_order_item i ON i.so_id = o.id \
               WHERE o.deleted_at IS NULL \
                 AND o.status IN ({statuses}) AND o.order_date >= ?::date AND o.order_date < ?::date \
-              GROUP BY i.material_id"
+              GROUP BY i.material_id",
+            base_line_amount_expr()
         ),
         _ => return Ok(Vec::new()),
     };
@@ -648,13 +673,14 @@ pub async fn order_actual_by_object(
     Ok(out)
 }
 
-/// 订单口径 · 全公司实际金额（`scope_type=ALL`）。
+/// 订单口径 · 全公司实际金额（`scope_type=ALL`，本位币含税）。
 pub async fn order_actual_total(from: NaiveDate, to: NaiveDate) -> DbResult<Decimal> {
     let statuses = order_status_in();
+    let amount = base_amount_expr();
     let total: Option<Decimal> = db()
         .scalar_with_params(
             &format!(
-                "SELECT COALESCE(SUM(o.total_with_tax), 0) \
+                "SELECT COALESCE(SUM({amount}), 0) \
                    FROM biz_sales_order o \
                   WHERE o.deleted_at IS NULL AND o.status IN ({statuses}) \
                     AND o.order_date >= ?::date AND o.order_date < ?::date"
@@ -966,6 +992,23 @@ mod tests {
         assert_eq!(list, "'CONFIRMED', 'POSTED'");
         assert!(!list.contains("DRAFT"));
         assert!(!list.contains("VOID"));
+    }
+
+    // ---------- 订单口径必须按本位币（E2E-02 回归） ----------
+
+    #[test]
+    fn order_basis_uses_base_currency_not_original() {
+        // 目标达成率按本位币汇总：外币单的 total_with_tax 是原币，直接相加会虚高。
+        let expr = base_amount_expr();
+        assert!(expr.contains("base_total_with_tax"), "{expr}");
+        assert!(
+            expr.contains("ELSE o.total_with_tax"),
+            "老数据要回落原币：{expr}"
+        );
+        // 明细口径按订单比例折算，同样不能直接用原币行金额
+        let line = base_line_amount_expr();
+        assert!(line.contains("base_total_with_tax"), "{line}");
+        assert!(line.contains("i.amount + i.tax_amount"), "{line}");
     }
 
     // ---------- 写语句的参数绑定（回归：uuid 位必须带 ::uuid） ----------
