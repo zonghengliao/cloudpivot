@@ -37,6 +37,9 @@
   走的是同一个函数（`update_tier`），那时会被拦（用例 `inactive_tier_may_overlap_but_reenable_is_blocked`）。
 - 建（`create_tier`）与改（`update_tier`）**都拦**；改时 `exclude = Some(id)`，否则「只改价格、区间不动」
   会被自己判成重叠。
+- **并发窗口已知且接受**：校验在 INSERT 之前、非同一事务、无库级排他约束（做 EXCLUDE 需
+  `btree_gist` + range 列，会动表结构与既有唯一索引）。价格档位是低频人工维护的配置，
+  不做；已写进 `check_tier_overlap` 的文档注释。
 
 ## 2. ②的判据
 

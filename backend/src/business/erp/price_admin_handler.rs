@@ -1004,6 +1004,13 @@ fn tier_duplicate(write: &TierWrite) -> ApiError {
 /// 而「把停用档改回启用」走的是本函数（`update_tier` 同一条路径），所以那时会被拦下。
 ///
 /// `exclude` = 编辑时排除自己（否则「只改价格、区间不动」会被自己判成重叠）。
+///
+/// # 并发窗口（已知且接受）
+///
+/// 校验发生在 INSERT/UPDATE **之前**，不是同一个事务、也没有库级排他约束，所以两个并发请求
+/// 各自看到「无重叠」时仍可能都写成功。价格档位是低频人工维护的配置（不是单据流），
+/// 而要做成库级排他需要 `btree_gist` + 区间类型列（`numrange`/`daterange`）+ EXCLUDE 约束，
+/// 会动 `biz_price_tier` 的列结构与既有唯一索引，成本远大于收益 —— 本卡不做。
 async fn check_tier_overlap(write: &TierWrite, exclude: Option<Uuid>) -> std::result::Result<(), ApiError> {
     if write.status != model::STATUS_ACTIVE {
         return Ok(());
