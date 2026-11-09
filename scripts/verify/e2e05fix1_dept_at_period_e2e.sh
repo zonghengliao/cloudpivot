@@ -27,6 +27,19 @@ P1="$YEAR-01"
 P2="$YEAR-02"
 cat_of() { SQ "select id from biz_asset_category where category_code='$1' and deleted_at is null limit 1"; }
 asset_of() { SQ "select id from biz_fixed_asset where asset_name='$1' and deleted_at is null limit 1"; }
+# ---- 断言辅助：一律用「不变式」而不是绝对金额 ----
+# 说明：折旧批次是**全库按期间**的（run_batch 不区分夹具归属），145 共享库里可能还有别的
+# 演练资产（实测 2029-01 里有 E2E-05 演练遗留的 E2E05 设备A/D/E）。所以凭证行金额只能按
+# 「凭证行 = 该部门明细聚合」这类不变式断言；本卡的 A/B 用**逐资产明细**断言部门归属。
+V_DEBIT()    { SQ "select coalesce(sum(debit_amount),0) from biz_voucher_entry where voucher_id='$1' and debit_amount>0 and aux_dept_id='$2'"; }
+V_DEBIT_ALL(){ SQ "select coalesce(sum(debit_amount),0) from biz_voucher_entry where voucher_id='$1' and debit_amount>0"; }
+V_CREDIT()   { SQ "select coalesce(sum(credit_amount),0) from biz_voucher_entry where voucher_id='$1' and credit_amount>0"; }
+NO_DEPT()    { SQ "select count(*) from biz_voucher_entry where voucher_id='$1' and debit_amount>0 and aux_dept_id is null"; }
+D_SUM()      { SQ "select coalesce(sum(amount),0) from biz_depreciation where batch_id='$1' and dept_id='$2'"; }
+D_TOTAL()    { SQ "select coalesce(sum(amount),0) from biz_depreciation where batch_id='$1'"; }
+D_CNT()      { SQ "select count(*) from biz_depreciation where batch_id='$1'"; }
+D_AMT()      { SQ "select amount from biz_depreciation where batch_id='$1' and asset_id='$2'"; }
+D_DEPT()     { SQ "select dept_name from biz_depreciation where batch_id='$1' and asset_id='$2'"; }
 
 say "===== F0 登录 + 前置（部门 / 科目 / 期间 $P1~$P2） ====="
 login_admin
@@ -96,9 +109,14 @@ check "A 起提日 = 购入次月 1 日" "$(SQ "select start_depreciation_date f
 
 say
 say "===== F2 关键前置：A 在【补跑 $P1 之前】先转采购部（bug 现场） ====="
-api as_tr POST "/business/erp/asset/$AS_A/transfer" "$T_ADMIN" \
-  "{\"to_dept_id\":\"$DEPT2\",\"change_date\":\"$P2-01\",\"reason\":\"E2E05-FIX-1 验收：跨部门转移\"}"
-check "转账 http" "$HTTP" "200"
+CUR_DEPT=$(SQ "select use_dept_id from biz_fixed_asset where id='$AS_A'")
+if [ "$CUR_DEPT" != "$DEPT2" ]; then
+  api as_tr POST "/business/erp/asset/$AS_A/transfer" "$T_ADMIN" \
+    "{\"to_dept_id\":\"$DEPT2\",\"change_date\":\"$P2-01\",\"reason\":\"E2E05-FIX-1 验收：跨部门转移\"}"
+  check "转账 http" "$HTTP" "200"
+else
+  say "  · A 已在采购演练部（重复跑）：跳过转账，直接校验留痕"
+fi
 check "转移留痕（from=设备部 / to=采购部 / 日期=$P2-01）" \
   "$(SQ "select from_dept_name||'->'||to_dept_name||'|'||change_date from biz_fixed_asset_change where asset_id='$AS_A' and change_type='TRANSFER' order by created_at desc limit 1")" \
   "演练设备部->采购演练部|$P2-01"
@@ -115,35 +133,37 @@ if [ "$OUTCOME" = "EXISTS" ]; then
   say "  · 期间 $P1 已有批次（重复跑）：直接复用现有批次做断言"
 else
   check "计提 $P1 结果" "$OUTCOME" "POSTED"
-  check "计提台数（A + B）" "$(data '.data.asset_count')" "2"
-  chknum "批次合计 1900 + 950" "$(data '.data.total_amount')" 2850
 fi
 B01=$(SQ "select id from biz_depreciation_batch where period_code='$P1'")
-V01=$(SQ "select voucher_id from biz_depreciation_batch where period_code='$P1'")
+V01=$(SQ "select voucher_id from biz_depreciation_batch where id='$B01'")
 save B01 "$B01"; save V01 "$V01"
 checkne "批次 $P1" "$B01" ""
 check "批次状态 POSTED" "$(SQ "select status from biz_depreciation_batch where id='$B01'")" "POSTED"
+check "接口 asset_count = 批次明细行数" "$(data '.data.asset_count')" "$(D_CNT "$B01")"
 
-say "  -- ⑤ DEPT 辅助账（部门损益取数口径）--"
-api aux_d1_p1 GET "/business/erp/ledger/aux-balance?aux_type=DEPT&aux_id=$DEPT1&period_from=$P1&period_to=$P1" "$T_ADMIN"
-check "辅助账（设备部 $P1）http" "$HTTP" "200"
-chknum "辅助账 设备部 $P1 本期借方 = 1900（只有 A）" "$(data '.data.total_period_debit')" 1900
-api aux_d2_p1 GET "/business/erp/ledger/aux-balance?aux_type=DEPT&aux_id=$DEPT2&period_from=$P1&period_to=$P1" "$T_ADMIN"
-check "辅助账（采购部 $P1）http" "$HTTP" "200"
-chknum "辅助账 采购部 $P1 本期借方 = 950（只有 B）" "$(data '.data.total_period_debit')" 950
+say "  -- ② 逐资产明细：A 的部门必须是演练设备部（修前是卡片当前部门=采购演练部）--"
+check "A 明细的部门 = 演练设备部" "$(D_DEPT "$B01" "$AS_A")" "演练设备部"
+chknum "A 明细金额 1900" "$(D_AMT "$B01" "$AS_A")" 1900
+check "B 明细的部门 = 采购演练部（无转移资产不变）" "$(D_DEPT "$B01" "$AS_B")" "采购演练部"
 
-say "  -- 凭证借方按部门 --"
-check "借方 2 行（设备部 / 采购部各 1）" \
-  "$(SQ "select count(*) from biz_voucher_entry where voucher_id='$V01' and debit_amount>0")" "2"
-chknum "借方 演练设备部（A）= 1900" \
-  "$(SQ "select debit_amount from biz_voucher_entry where voucher_id='$V01' and debit_amount>0 and aux_dept_id='$DEPT1'")" 1900
-chknum "借方 采购演练部（B）= 950" \
-  "$(SQ "select debit_amount from biz_voucher_entry where voucher_id='$V01' and debit_amount>0 and aux_dept_id='$DEPT2'")" 950
+say "  -- ③ 凭证：部门行 = 该部门明细聚合（A 就在设备部那一行里）--"
+check "借方每行都挂部门（没有裸借方）" "$(NO_DEPT "$V01")" "0"
+chknum "借方 演练设备部行 = 设备部明细聚合" "$(V_DEBIT "$V01" "$DEPT1")" "$(D_SUM "$B01" "$DEPT1")"
+chknum "借方 采购演练部行 = 采购部明细聚合" "$(V_DEBIT "$V01" "$DEPT2")" "$(D_SUM "$B01" "$DEPT2")"
+chknum "借方合计 = 批次明细合计" "$(V_DEBIT_ALL "$V01")" "$(D_TOTAL "$B01")"
+chknum "贷方 1602 = 批次明细合计" "$(V_CREDIT "$V01")" "$(D_TOTAL "$B01")"
+chkle "借方 设备部行 ≥ A 的 1900（A 确实落在设备部）" 1900 "$(V_DEBIT "$V01" "$DEPT1")"
 check "凭证摘要点名期间与部门" \
   "$(SQ "select count(*) from biz_voucher_entry where voucher_id='$V01' and debit_amount>0 and summary like '$P1 折旧（演练设备部）'")" "1"
-check "A 明细的部门 = 演练设备部（不是卡片当前部门）" \
-  "$(SQ "select dept_name from biz_depreciation where batch_id='$B01' and asset_id='$AS_A'")" "演练设备部"
-chknum "A 明细金额 1900" "$(SQ "select amount from biz_depreciation where batch_id='$B01' and asset_id='$AS_A'")" 1900
+
+say "  -- ⑤ DEPT 辅助账（部门损益取数口径）按期间各归各位 --"
+api aux_d1_p1 GET "/business/erp/ledger/aux-balance?aux_type=DEPT&aux_id=$DEPT1&period_from=$P1&period_to=$P1" "$T_ADMIN"
+check "辅助账（设备部 $P1）http" "$HTTP" "200"
+chknum "辅助账 设备部 $P1 本期借方 = 设备部明细聚合" "$(data '.data.total_period_debit')" "$(D_SUM "$B01" "$DEPT1")"
+chkle "辅助账 设备部 $P1 ≥ A 的 1900" 1900 "$(data '.data.total_period_debit')"
+api aux_d2_p1 GET "/business/erp/ledger/aux-balance?aux_type=DEPT&aux_id=$DEPT2&period_from=$P1&period_to=$P1" "$T_ADMIN"
+check "辅助账（采购部 $P1）http" "$HTTP" "200"
+chknum "辅助账 采购部 $P1 本期借方 = 采购部明细聚合" "$(data '.data.total_period_debit')" "$(D_SUM "$B01" "$DEPT2")"
 
 say "  -- 同一结论经 REST 接口（批次详情）--"
 api dep_detail_p1 GET "/business/erp/depreciation/$B01" "$T_ADMIN"
@@ -163,27 +183,27 @@ else
   check "计提 $P2 结果" "$OUTCOME2" "POSTED"
 fi
 B02=$(SQ "select id from biz_depreciation_batch where period_code='$P2'")
-V02=$(SQ "select voucher_id from biz_depreciation_batch where period_code='$P2'")
+V02=$(SQ "select voucher_id from biz_depreciation_batch where id='$B02'")
 save B02 "$B02"; save V02 "$V02"
-check "借方 1 行（都归采购部）" \
-  "$(SQ "select count(*) from biz_voucher_entry where voucher_id='$V02' and debit_amount>0")" "1"
-chknum "借方 采购演练部（A + B）= 2850" \
-  "$(SQ "select debit_amount from biz_voucher_entry where voucher_id='$V02' and debit_amount>0 and aux_dept_id='$DEPT2'")" 2850
-check "借方没有演练设备部的行（A 已转走 / B 本来不在）" \
-  "$(SQ "select count(*) from biz_voucher_entry where voucher_id='$V02' and debit_amount>0 and aux_dept_id='$DEPT1'")" "0"
-check "A 明细的部门 = 采购演练部" \
-  "$(SQ "select dept_name from biz_depreciation where batch_id='$B02' and asset_id='$AS_A'")" "采购演练部"
-api aux_d1_p2 GET "/business/erp/ledger/aux-balance?aux_type=DEPT&aux_id=$DEPT1&period_from=$P2&period_to=$P2" "$T_ADMIN"
-check "辅助账（设备部 $P2）http" "$HTTP" "200"
-chknum "辅助账 设备部 $P2 本期借方 = 0" "$(data '.data.total_period_debit')" 0
+check "A 明细的部门 = 采购演练部（转过去了）" "$(D_DEPT "$B02" "$AS_A")" "采购演练部"
+chknum "A 明细金额 1900" "$(D_AMT "$B02" "$AS_A")" 1900
+check "A 这一期不再有设备部明细" \
+  "$(SQ "select count(*) from biz_depreciation where batch_id='$B02' and asset_id='$AS_A' and dept_id='$DEPT1'")" "0"
+check "借方每行都挂部门" "$(NO_DEPT "$V02")" "0"
+chknum "借方 采购演练部行 = 采购部明细聚合" "$(V_DEBIT "$V02" "$DEPT2")" "$(D_SUM "$B02" "$DEPT2")"
+chknum "借方 演练设备部行 = 设备部明细聚合" "$(V_DEBIT "$V02" "$DEPT1")" "$(D_SUM "$B02" "$DEPT1")"
+chkle "借方 采购部行 ≥ A+B 的 2850" 2850 "$(V_DEBIT "$V02" "$DEPT2")"
 api aux_d2_p2 GET "/business/erp/ledger/aux-balance?aux_type=DEPT&aux_id=$DEPT2&period_from=$P2&period_to=$P2" "$T_ADMIN"
-chknum "辅助账 采购部 $P2 本期借方 = 2850" "$(data '.data.total_period_debit')" 2850
+check "辅助账（采购部 $P2）http" "$HTTP" "200"
+chknum "辅助账 采购部 $P2 本期借方 = 采购部明细聚合" "$(data '.data.total_period_debit')" "$(D_SUM "$B02" "$DEPT2")"
+api aux_d1_p2 GET "/business/erp/ledger/aux-balance?aux_type=DEPT&aux_id=$DEPT1&period_from=$P2&period_to=$P2" "$T_ADMIN"
+chknum "辅助账 设备部 $P2 本期借方 = 设备部明细聚合" "$(data '.data.total_period_debit')" "$(D_SUM "$B02" "$DEPT1")"
 
 say "  -- ④ 无转移的资产（B）：两个月都是采购演练部 / 950 --"
-check "B 明细 $P1 部门" "$(SQ "select dept_name from biz_depreciation where batch_id='$B01' and asset_id='$AS_B'")" "采购演练部"
-chknum "B 明细 $P1 金额" "$(SQ "select amount from biz_depreciation where batch_id='$B01' and asset_id='$AS_B'")" 950
-check "B 明细 $P2 部门" "$(SQ "select dept_name from biz_depreciation where batch_id='$B02' and asset_id='$AS_B'")" "采购演练部"
-chknum "B 明细 $P2 金额" "$(SQ "select amount from biz_depreciation where batch_id='$B02' and asset_id='$AS_B'")" 950
+check "B 明细 $P1 部门" "$(D_DEPT "$B01" "$AS_B")" "采购演练部"
+chknum "B 明细 $P1 金额" "$(D_AMT "$B01" "$AS_B")" 950
+check "B 明细 $P2 部门" "$(D_DEPT "$B02" "$AS_B")" "采购演练部"
+chknum "B 明细 $P2 金额" "$(D_AMT "$B02" "$AS_B")" 950
 
 say
 say "== PASS=$PASS FAIL=$FAIL"
