@@ -1071,6 +1071,18 @@ pub const FLOW_SUBPROCESS_RECURSION: i32 = 65046;
 /// 本码是**运行期**才可能出现的失败（同一份配置昨天能发、今天因为角色被删发不出去）。
 pub const FLOW_SUBPROCESS_START_FAILED: i32 = 65047;
 
+/// 全员会签节点没有兜底（HTTP 422，E2E07-FIX-1 / 发布校验 R28）。
+///
+/// `approval_mode = ALL` 的节点推进条件是「所有候选人都签过」：候选人里只要有一个
+/// **永远签不了**（离职未摘角色 / 停用 / 口令是坏号 / 长期出差），节点就永远凑不齐票 ——
+/// 没有待办可点、没有报错、界面上也没有按钮，单据永久停在 `PENDING_APPROVAL`。
+/// E2E-06（预算）与 E2E-07（合同）各实测一次，最终都只能改库。
+///
+/// 发布期拦这个组合：`ALL` + `timeout_hours` 为空 + 未配兜底人（`fallback_user_id` /
+/// `fallback_role_id`）。**只有 `timeout_action` 不算**——`flow::timeout` 的扫描谓词是
+/// `timeout_hours IS NOT NULL`，没有小时数就永远不会被扫到。
+pub const FLOW_ALL_COUNTERSIGN_NO_GUARD: i32 = 65048;
+
 // ==================== 66xxx：ERP 主数据 / 仓储（批次 D · W1c） ====================
 //
 // 码段说明：64xxx 是云枢 × Hermes，65xxx 是审批流；ERP 接口层（W1c）新开 66xxx，
@@ -2003,6 +2015,7 @@ mod tests {
             (FLOW_SUBPROCESS_DEF_INVALID, 65045),
             (FLOW_SUBPROCESS_RECURSION, 65046),
             (FLOW_SUBPROCESS_START_FAILED, 65047),
+            (FLOW_ALL_COUNTERSIGN_NO_GUARD, 65048),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "65xxx 段码值不得改动");
@@ -2017,17 +2030,17 @@ mod tests {
         assert_eq!(unique.len(), codes.len(), "65xxx 段不得有重复码值");
         assert_eq!(
             unique.len(),
-            42,
-            "65xxx 段必须是 42 个码（架构 §10.3 的 22 个 + D2 追加的 5 个运行侧细分码 + P1-A2 的 65033 \
+            43,
+            "65xxx 段必须是 43 个码（架构 §10.3 的 22 个 + D2 追加的 5 个运行侧细分码 + P1-A2 的 65033 \
              + P-FLOW-1A 的 65034–65039 + P3-02 的 65040–65041 + P3-03 的 65042 + P3-04 的 65043 \
-             + P3-05 的 65044 + P3-08 的 65045–65047）"
+             + P3-05 的 65044 + P3-08 的 65045–65047 + E2E07-FIX-1 的 65048）"
         );
         assert!(
             codes.iter().all(|(code, _)| *code > 64014 && *code < 66000),
             "65xxx 段必须落在 64014 与 66000 之间（不侵占 AI 用户段）"
         );
         println!(
-            "[码表] 65xxx 段 {} 个码齐全且不重复（65001–65005 / 65010–65028 / 65030–65047）✓",
+            "[码表] 65xxx 段 {} 个码齐全且不重复（65001–65005 / 65010–65028 / 65030–65048）✓",
             codes.len()
         );
     }

@@ -1,0 +1,10 @@
+PASS | ① 快照自检 canonical(snapshot)==graph_hash | 实际=0 | 期望=0
+PASS | ② 合同审批当前版本号 | 实际=2 | 期望=2
+PASS | ② 合同 n_pm/n_pm_hi 都是 ANY 的节点数 | 实际=2 | 期望=2
+PASS | ③ 预算审批当前版本号（E2E06-FIX-1 之后 = 2，本次未再发版） | 实际=2 | 期望=2
+PASS | ③ 预算审批版本总数（= 2） | 实际=2 | 期望=2
+PASS | ③ 预算 n_dept = APPROVAL/INITIATOR_SUPERIOR/ANY 的节点数 | 实际=1 | 期望=1
+PASS | ④ COUNTERSIGN 节点仍是 ALL 的数量（= 全部会签节点） | 实际=6 | 期望=6
+PASS | ⑤ 本人演练残留的 PENDING 合同实例数 | 实际=0 | 期望=0
+---
+FAIL 行数=0

@@ -1,0 +1,14 @@
+===== ALL 会签节点清单（PUBLISHED 当前版本）=====
+  · budget_approve  n_fin_gm  财务经理+总经理会签（编制）  [COUNTERSIGN/ROLE]  timeout=48h/REMIND  fallback=-
+  · budget_approve  n_gm_fd  总经理+财务总监会签（调整）  [COUNTERSIGN/ROLE]  timeout=48h/REMIND  fallback=-
+  · expense  n_board  财务经理 + 总经理会签  [COUNTERSIGN/ROLE]  timeout=48h/REMIND  fallback=-
+  · payable_pay  n_board  财务总监+总经理会签  [COUNTERSIGN/ROLE]  timeout=48h/REMIND  fallback=-
+  · po_approve  n_board  采购经理+总经理会签  [COUNTERSIGN/ROLE]  timeout=48h/REMIND  fallback=-
+  · voucher_reverse  n_cs  财务经理+财务总监会签  [COUNTERSIGN/ROLE]  timeout=48h/REMIND  fallback=-
+===== 4 条不变量 =====
+① ALL 节点无兜底:         0  ✅  （每个 ALL 节点都有超时小时或兜底人）
+② 角色型审批误配 ALL:    0  ✅  （APPROVAL+ROLE+ALL = 0；跨角色会签请用 COUNTERSIGN）
+③ ALL 节点角色坏号:       0  ✅  （无软删 / 停用 / 授权过期 / 占位符口令）
+④ ALL 节点候选人为 0:     0  ✅  （每个 ALL 节点都至少有一个能签的人）
+结果: 4 条不变量全绿 ✅（库 cloudpivot_dev）
+rc=0

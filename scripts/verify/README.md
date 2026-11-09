@@ -669,3 +669,45 @@ RECREATE=1 bash scripts/setup_new_env.sh cloudpivot_fresh
 | `MENU_STRUCT_EQUIV=/dev/null`（关规则） | 露出原始 18 处 ⇒ rc=1 | 归一后 18 处，rc=1 |
 | 新库 vs 生产快照 `--strict` | 规则仍在生效 ⇒ rc=1 | `--strict：归一后虽一致，但原始差异 18 处`，rc=1 |
 | 规则文件路径不存在 | 不得静默放过 ⇒ rc=1 | 18 处差异，rc=1（规则文件不存在时该节不打印） |
+
+## 全员会签（ALL）节点的「永久卡死」不变量（`flow_countersign_invariants.sh`，卡 E2E07-FIX-1）
+
+```bash
+PGPASSWORD=... PGUSER=cloudpivot bash scripts/verify/flow_countersign_invariants.sh cloudpivot_dev
+echo $?    # 0=4 条全绿 ｜ 1=有违规 ｜ 2=连库/查询失败（基础设施问题，别当违规修）
+```
+
+**为什么要有这条闸门**：`approval_mode='ALL'` 的推进条件是「所有候选人都签过」。
+候选人里只要有一个**永远签不了**（离职未摘角色 / 停用 / 口令是占位符 `'x'`），
+节点就永远凑不齐票 —— 没有待办可点、没有报错、界面上也没有按钮，单据停在
+`PENDING_APPROVAL`，最后只能改库。E2E-06（预算 `n_dept`，`p3a_0002` 口令是占位符）与
+E2E-07（合同 `n_pm` / `n_pm_hi`，`p3a_0003` 同病）各实测一次。
+
+| # | 断言 | 判据 |
+|---|---|---|
+| ① | ALL 节点必须配兜底 | `timeout_hours > 0` 或 配了 `fallback_user_id` / `fallback_role_id`。**只填 `timeout_action`、不填 `timeout_hours` 也算违规**（`flow::timeout` 的扫描谓词是 `timeout_hours IS NOT NULL`） |
+| ② | 角色型审批不得写成全员会签 | `APPROVAL` + `ROLE` + `ALL` = 违规（`APPROVAL` 语义是「岗位任一人签字即可」；跨角色共识要建 `COUNTERSIGN`）。V0339 按「候选人数 ≥2 ⇒ ALL」冻结出的错配由迁移 V0359 全系统修正 |
+| ③ | ALL 节点的角色里不得有坏号 | 角色成员出现 软删 / 停用 / 授权过期 / 口令占位符（`'x'`/`''`/`CHANGE_ME` 或 `length < 20`）⇒ 违规 |
+| ④ | ALL 节点可用候选人不得为 0 | 为 0 时只能靠 `empty_assignee` 兜：`FALLBACK_ADMIN` = 退化成「全部超管会签」（同一条死锁换个角色重演），`SKIP` = 审批被静默跳过 |
+
+与发布校验 **R28**（`backend/src/business/flow/graph.rs::all_countersign_issues`，错误码 `65048`）
+同一口径：发布期挡**新图**，本脚本管**存量库**。①③④ 是发布期查不出来的（候选人是否可用是运行期数据）。
+
+**有牙齿的证明**（145 实测，见 `docs/evidence/e2e07-fix1/invariants_145_teeth.txt`）：
+把 `contract_approve.n_gm` 改成 ALL 并清空超时、把 `GENERAL_MANAGER` 成员 `p3a_0004` 口令改成 `'x'`
+→ ①②③ 同时报红（rc=1）并逐条点名；还原后 rc=0。
+
+**清理不可用账号**（本卡 ⑤，只摘角色授权、不动用户、不碰 SUPER_ADMIN、先留档再删）：
+
+```bash
+bash scripts/datafix/flow_broken_role_accounts.sh                # dry-run：列出停用/软删/口令占位符的角色授权
+bash scripts/datafix/flow_broken_role_accounts.sh --apply        # 先写 biz_data_fix_backup(fix_code=E2E07-FIX-1) 再摘除
+```
+
+还原（留档是整行 JSONB）：
+
+```sql
+insert into sys_user_role select id, user_id, role_id, expire_time, created_at
+  from jsonb_populate_record(null::sys_user_role, (select row_data from biz_data_fix_backup
+        where fix_code='E2E07-FIX-1' and table_name='sys_user_role' and row_id = '<授权行 id>'));
+```

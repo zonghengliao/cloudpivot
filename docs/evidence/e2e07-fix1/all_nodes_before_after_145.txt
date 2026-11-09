@@ -1,0 +1,112 @@
+Pager usage is off.
+===== A) 改前状态：V0359 发过版的流程取「上一版」，其余取当前版 =====
+    flow_code     | node_key  |  node_type  |   assignee_type    | approval_mode | timeout_h | timeout_action | fallback |            role_codes            
+------------------+-----------+-------------+--------------------+---------------+-----------+----------------+----------+----------------------------------
+ asset_disposal   | n_gm      | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -        | GENERAL_MANAGER
+ budget_approve   | n_dept    | APPROVAL    | INITIATOR_SUPERIOR | ANY           | 24        | REMIND         | -        | 
+ budget_approve   | n_fin     | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -        | FINANCE_MANAGER
+ budget_approve   | n_fin_adj | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -        | FINANCE_MANAGER
+ budget_approve   | n_fin_gm  | COUNTERSIGN | ROLE               | ALL           | 48        | REMIND         | -        | FINANCE_MANAGER,GENERAL_MANAGER
+ budget_approve   | n_gm      | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -        | GENERAL_MANAGER
+ budget_approve   | n_gm_fd   | COUNTERSIGN | ROLE               | ALL           | 48        | REMIND         | -        | FINANCE_DIRECTOR,GENERAL_MANAGER
+ contract_approve | n_gm      | APPROVAL    | ROLE               | ANY           | 48        | REMIND         | -        | GENERAL_MANAGER
+ contract_approve | n_pm      | APPROVAL    | ROLE               | ALL           | 24        | REMIND         | -        | PURCHASE_MANAGER
+ contract_approve | n_pm_hi   | APPROVAL    | ROLE               | ALL           | 24        | REMIND         | -        | PURCHASE_MANAGER
+ expense          | n_board   | COUNTERSIGN | ROLE               | ALL           | 48        | REMIND         | -        | FINANCE_MANAGER,GENERAL_MANAGER
+ expense          | n_fin     | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -        | FINANCE_MANAGER
+ expense          | n_sup     | APPROVAL    | INITIATOR_SUPERIOR | ANY           | 24        | REMIND         | -        | 
+ flow_edge_config | n_cfg     | APPROVAL    | ROLE               | ANY           | 48        | REMIND         | -        | FLOW_CONFIG_APPROVER
+ payable_cancel   | n_fm      | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -        | FINANCE_MANAGER
+ payable_pay      | n_board   | COUNTERSIGN | ROLE               | ALL           | 48        | REMIND         | -        | FINANCE_DIRECTOR,GENERAL_MANAGER
+ payable_pay      | n_dept    | APPROVAL    | ROLE               | ALL           | 24        | REMIND         | -        | DEPT_LEADER
+ payable_pay      | n_fin     | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -        | FINANCE_MANAGER
+ po_approve       | n_board   | COUNTERSIGN | ROLE               | ALL           | 48        | REMIND         | -        | GENERAL_MANAGER,PURCHASE_MANAGER
+ po_approve       | n_dept    | APPROVAL    | ROLE               | ALL           | 24        | REMIND         | -        | DEPT_LEADER
+ po_approve       | n_fin     | APPROVAL    | ROLE               | ANY           | 8         | REMIND         | -        | FINANCE_MANAGER
+ po_approve       | n_pm      | APPROVAL    | ROLE               | ALL           | 24        | REMIND         | -        | PURCHASE_MANAGER
+ pr_approve       | n_fin     | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -        | FINANCE_MANAGER
+ pr_approve       | n_pm      | APPROVAL    | ROLE               | ALL           | 24        | REMIND         | -        | PURCHASE_MANAGER
+ prt_approve      | n_fin     | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -        | FINANCE_MANAGER
+ prt_approve      | n_pm      | APPROVAL    | ROLE               | ALL           | 24        | REMIND         | -        | PURCHASE_MANAGER
+ receipt_refund   | n_finance | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -        | FINANCE_MANAGER
+ so_approve       | n_finance | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -        | FINANCE_MANAGER
+ so_approve       | n_gm      | APPROVAL    | ROLE               | ANY           | 48        | REMIND         | -        | GENERAL_MANAGER
+ so_approve       | n_sales   | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -        | SALES_SUPERVISOR
+ stock_in_cancel  | n_review  | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -        | WAREHOUSE_MANAGER
+ stock_in_post    | n_wh      | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -        | WAREHOUSE_MANAGER
+ stock_take_post  | n_fin     | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -        | WAREHOUSE_MANAGER
+ stock_take_post  | n_gm      | APPROVAL    | ROLE               | ANY           | 48        | REMIND         | -        | GENERAL_MANAGER
+ stock_take_post  | n_wh      | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -        | WAREHOUSE_MANAGER
+ stock_transfer   | n_approve | APPROVAL    | ROLE               | ANY           | 48        | REMIND         | -        | WAREHOUSE_MANAGER
+ task_accept      | n_creator | APPROVAL    | TASK_CREATOR       | ANY           | 48        | REMIND         | -        | 
+ voucher_reverse  | n_cs      | COUNTERSIGN | ROLE               | ALL           | 48        | REMIND         | -        | FINANCE_DIRECTOR,FINANCE_MANAGER
+ voucher_reverse  | n_fm      | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -        | FINANCE_MANAGER
+(39 rows)
+
+
+===== B) 改后现状：当前版本（is_current）=====
+    flow_code     | version_no | node_key  |  node_type  |   assignee_type    | approval_mode | timeout_h | timeout_action | fallback 
+------------------+------------+-----------+-------------+--------------------+---------------+-----------+----------------+----------
+ asset_disposal   |          1 | n_gm      | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -
+ budget_approve   |          2 | n_dept    | APPROVAL    | INITIATOR_SUPERIOR | ANY           | 24        | REMIND         | -
+ budget_approve   |          2 | n_fin     | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -
+ budget_approve   |          2 | n_fin_adj | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -
+ budget_approve   |          2 | n_fin_gm  | COUNTERSIGN | ROLE               | ALL           | 48        | REMIND         | -
+ budget_approve   |          2 | n_gm      | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -
+ budget_approve   |          2 | n_gm_fd   | COUNTERSIGN | ROLE               | ALL           | 48        | REMIND         | -
+ contract_approve |          2 | n_gm      | APPROVAL    | ROLE               | ANY           | 48        | REMIND         | -
+ contract_approve |          2 | n_pm      | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -
+ contract_approve |          2 | n_pm_hi   | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -
+ expense          |          1 | n_board   | COUNTERSIGN | ROLE               | ALL           | 48        | REMIND         | -
+ expense          |          1 | n_fin     | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -
+ expense          |          1 | n_sup     | APPROVAL    | INITIATOR_SUPERIOR | ANY           | 24        | REMIND         | -
+ flow_edge_config |          1 | n_cfg     | APPROVAL    | ROLE               | ANY           | 48        | REMIND         | -
+ payable_cancel   |          1 | n_fm      | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -
+ payable_pay      |          3 | n_board   | COUNTERSIGN | ROLE               | ALL           | 48        | REMIND         | -
+ payable_pay      |          3 | n_dept    | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -
+ payable_pay      |          3 | n_fin     | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -
+ po_approve       |          3 | n_board   | COUNTERSIGN | ROLE               | ALL           | 48        | REMIND         | -
+ po_approve       |          3 | n_dept    | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -
+ po_approve       |          3 | n_fin     | APPROVAL    | ROLE               | ANY           | 8         | REMIND         | -
+ po_approve       |          3 | n_pm      | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -
+ pr_approve       |          2 | n_fin     | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -
+ pr_approve       |          2 | n_pm      | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -
+ prt_approve      |          2 | n_fin     | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -
+ prt_approve      |          2 | n_pm      | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -
+ receipt_refund   |          1 | n_finance | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -
+ so_approve       |          1 | n_finance | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -
+ so_approve       |          1 | n_gm      | APPROVAL    | ROLE               | ANY           | 48        | REMIND         | -
+ so_approve       |          1 | n_sales   | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -
+ stock_in_cancel  |          2 | n_review  | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -
+ stock_in_post    |          1 | n_wh      | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -
+ stock_take_post  |          1 | n_fin     | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -
+ stock_take_post  |          1 | n_gm      | APPROVAL    | ROLE               | ANY           | 48        | REMIND         | -
+ stock_take_post  |          1 | n_wh      | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -
+ stock_transfer   |          2 | n_approve | APPROVAL    | ROLE               | ANY           | 48        | REMIND         | -
+ task_accept      |          1 | n_creator | APPROVAL    | TASK_CREATOR       | ANY           | 48        | REMIND         | -
+ voucher_reverse  |          1 | n_cs      | COUNTERSIGN | ROLE               | ALL           | 48        | REMIND         | -
+ voucher_reverse  |          1 | n_fm      | APPROVAL    | ROLE               | ANY           | 24        | REMIND         | -
+(39 rows)
+
+
+===== C) 版本矩阵（哪些流程被 V0359 发过新版）=====
+    flow_code     | version_no | version_status | is_current |    hash12    |                                                                       change_note                                                                       
+------------------+------------+----------------+------------+--------------+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ budget_approve   |          1 | ARCHIVED       | f          | 0bc6441c50ed | V0228 种子：预算审批（编制 / 调整双分支，50 万阈值）默认流程
+ budget_approve   |          2 | PUBLISHED      | t          | 769e611286ea | E2E06-FIX-1：部门主管节点由「全局 DEPT_LEADER 全员会签」改为「发起人所在部门负责人 + 或签」（部门维度对齐、一人同意即通过；其余节点 / 边 / 阈值不动）
+ contract_approve |          1 | ARCHIVED       | f          | b4a132c092fe | V0209 种子：合同审批（金额两档分流）默认流程
+ contract_approve |          2 | PUBLISHED      | t          | 54e67e57d3e0 | E2E07-FIX-1：2 个「角色型审批」节点由全员会签（ALL）改为或签（ANY）（APPROVAL 节点的业务语义是「岗位任一人签字即可」；跨角色会签节点 COUNTERSIGN 不动）
+ expense          |          1 | PUBLISHED      | t          | 1e5751c68311 | V0243 种子：费用报销审批（直属上级 + 金额三档分流）默认流程
+ payable_pay      |          1 | ARCHIVED       | f          | cedfebfd9a67 | V0175 种子：应付付款审批（金额三级分流）默认流程
+ payable_pay      |          2 | ARCHIVED       | f          | 7fe5c8ed6c1a | P0-FIX-2B-B 去 ADMIN 化：审批人来源由「全部超管」改为业务角色（不含其它语义改动）
+ payable_pay      |          3 | PUBLISHED      | t          | dd2179b11fa2 | E2E07-FIX-1：1 个「角色型审批」节点由全员会签（ALL）改为或签（ANY）（APPROVAL 节点的业务语义是「岗位任一人签字即可」；跨角色会签节点 COUNTERSIGN 不动）
+ po_approve       |          1 | ARCHIVED       | f          | c24506690da6 | V0182 种子：采购订单审批（金额三档分流）默认流程
+ po_approve       |          2 | ARCHIVED       | f          | 5a9b4ce0e8e7 | P2-2b：超信用额度加一道财务复核（前置串行，条件边 form.over_credit_limit eq true）
+ po_approve       |          3 | PUBLISHED      | t          | 27fab60c5d4a | E2E07-FIX-1：2 个「角色型审批」节点由全员会签（ALL）改为或签（ANY）（APPROVAL 节点的业务语义是「岗位任一人签字即可」；跨角色会签节点 COUNTERSIGN 不动）
+ pr_approve       |          1 | ARCHIVED       | f          | a5bb083cb623 | V0331 种子：采购申请审批（预算内采购经理 / 超预算加财务经理）默认流程
+ pr_approve       |          2 | PUBLISHED      | t          | 3d7ae24e7e6a | E2E07-FIX-1：1 个「角色型审批」节点由全员会签（ALL）改为或签（ANY）（APPROVAL 节点的业务语义是「岗位任一人签字即可」；跨角色会签节点 COUNTERSIGN 不动）
+ prt_approve      |          1 | ARCHIVED       | f          | 2f62aa5a3f60 | V0332 种子：采购退货审批（采购经理 → 财务经理 两级）默认流程
+ prt_approve      |          2 | PUBLISHED      | t          | 65f572afbfed | E2E07-FIX-1：1 个「角色型审批」节点由全员会签（ALL）改为或签（ANY）（APPROVAL 节点的业务语义是「岗位任一人签字即可」；跨角色会签节点 COUNTERSIGN 不动）
+ voucher_reverse  |          1 | PUBLISHED      | t          | e850911adce5 | V0191 种子：凭证红冲审批（≤ 1 万财务经理 / > 1 万双人会签）默认流程
+(16 rows)
+

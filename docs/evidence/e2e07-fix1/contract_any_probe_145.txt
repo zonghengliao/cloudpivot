@@ -1,0 +1,30 @@
+### 0) 登录
+  ✅ admin 登录
+  ✅ e2e01_appr（PURCHASE_MANAGER 成员）登录
+### 1) 流程版本与节点口径（V0359 之后的库内事实）
+  ✅ contract_approve 当前版本号（V0359 发布后 = 2） = 2
+  ✅ n_pm 的 approval_mode = ANY
+     （n_pm 的候选人数 = 3 —— 改造前这 N 个人必须全部签）
+### 2) 建单 + 提交审批（5 万 → 命中 n_pm）
+  ✅ 建单 HTTP/CODE = 200/c0
+  ✅ 提交审批 HTTP/CODE = 200/c0
+  ✅ 合同状态 = PENDING_APPROVAL
+### 3) 待办与快照（改造后的关键事实）
+  ✅ n_pm 生成的待办数（= 候选人数，引擎按人派单） = 3
+  ✅ 实例节点 n_pm 的快照 approval_mode = ANY
+  ✅ 实例状态 = PENDING
+### 4) 只批一张（e2e01_appr 那一票）
+  ✅ 单人审批 HTTP/CODE = 200/c0
+  ✅ 确实存在 3 条待办（改造前需要 3 个人都签才算过）
+### 5) 结果：不再卡死
+  ✅ 流程实例状态（一票即 APPROVED） = APPROVED
+  ✅ 合同状态（APPROVED → SIGNED） = SIGNED
+  ✅ n_pm 上剩余 PENDING 待办（应为 0） = 0
+     · n_pm 每张待办的最终状态：
+       e2e01_appr → APPROVED
+       e2e07_appr → CANCELLED
+       p3a_0003 → CANCELLED
+     · 合同 01a1bf2f-d49d-770e-8550-9db1fb42dfea（E2E07FIX1-ANY-11091522）留作演练证据，不删除
+
+== PASS=15 FAIL=0
+rc=0

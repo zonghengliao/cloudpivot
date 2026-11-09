@@ -1530,6 +1530,71 @@ impl FlowGraph {
         // ---------- R27（P3-08 / ARCH-5 §4.14）：SUBPROCESS 节点配置纪律 ----------
         issues.extend(self.subprocess_issues());
 
+        // ---------- R28（E2E07-FIX-1）：全员会签节点必须有超时 / 兜底 ----------
+        issues.extend(self.all_countersign_issues());
+
+        issues
+    }
+
+    /// R28：`approval_mode = ALL`（全员会签）节点必须有兜底，否则「一票永久缺席」= 单据永久卡死。
+    ///
+    /// # 为什么发布期必须管这件事
+    ///
+    /// `ALL` 的推进条件是「所有候选人都签过」。候选人只要有一个**永远签不了**
+    /// （离职未摘角色 / 停用 / 口令坏号 / 长期出差），节点就永远凑不齐票：
+    /// 没有待办可点、没有报错、界面上也没有任何按钮 —— 单据停在 `PENDING_APPROVAL`，
+    /// 最后只能改库（E2E-07 / E2E-06 两次实测都是这个形状）。
+    ///
+    /// # 判据（满足任一即通过）
+    ///
+    /// | 兜底方式 | 判据 | 生效机制 |
+    /// |---|---|---|
+    /// | 超时扫描 | `timeout_hours = Some(h)` 且 `h > 0` | `flow::timeout` 定时任务才捞得到它，按 `timeout_action` 催办 / 升级 / 自动通过 / 自动驳回 |
+    /// | 兜底人 | `fallback_user_id` 或 `fallback_role_id` 已配 | `assignee::resolve` 第 ⑤ 步（P3-03） |
+    ///
+    /// **只写了 `timeout_action` 但 `timeout_hours` 为空 = 等于没配**：扫描 SQL 的谓词是
+    /// `timeout_hours IS NOT NULL`，没有小时数就永远不会被扫到。这条正是本卡要堵的坑。
+    ///
+    /// # 为什么 `APPROVAL` 节点上的 `ALL` 也在管辖范围
+    ///
+    /// `APPROVAL` 的语义是「这道关由一个人签字即可」，多人共识必须显式建成 `COUNTERSIGN`。
+    /// 存量里的 `APPROVAL + ROLE + ALL` 基本是 V0339 按「候选人数 ≥ 2 ⇒ 冻结成 ALL」
+    /// 留下的错配（采购经理 / 部门主管被冻成「委员会」，全系统修正见迁移 V0359）。
+    /// 发布期这里不判「你该用 ANY」（客户可能真的想全员签），但**必须**给超时 / 兜底，
+    /// 所以两种诉求都能表达，而「永久卡死」这一种表达不出来。
+    ///
+    /// # 为什么不查库
+    ///
+    /// 候选人数、成员是否停用 / 口令是否可用都是**运行期数据**（今天可用不代表明天可用），
+    /// 发布期查库也查不出「下周离职」。这一层由
+    /// `scripts/verify/flow_countersign_invariants.sh` 在环境上定期兜。
+    pub fn all_countersign_issues(&self) -> Vec<Issue> {
+        let mut issues = Vec::new();
+        for node in &self.nodes {
+            if node.approval_mode != Some(ApprovalMode::All) {
+                continue;
+            }
+            let has_timeout = node.timeout_hours.is_some_and(|hours| hours > 0);
+            let has_fallback = node.fallback_user_id.is_some() || node.fallback_role_id.is_some();
+            if has_timeout || has_fallback {
+                continue;
+            }
+            issues.push(
+                Issue::new(
+                    "R28",
+                    error_code::FLOW_ALL_COUNTERSIGN_NO_GUARD,
+                    format!(
+                        "节点 {}（{}）是全员会签（approval_mode=ALL），但没有超时也没配兜底人：\
+                         任一审批人失效（离职 / 停用 / 口令坏号）就会永久卡在「等待全员签字」，\
+                         且没有待办可点。请二选一：① 填「超时小时」（如 48），超时后按 timeout_action \
+                         催办 / 升级 / 自动处理；② 配兜底审批人（fallback_user_id 或 fallback_role_id）。\
+                         若这个节点本来是「岗位任一人审批」，请把签名模式改成「或签（ANY）」",
+                        node.key, node.name
+                    ),
+                )
+                .with_nodes(vec![node.key.clone()]),
+            );
+        }
         issues
     }
 
@@ -4569,5 +4634,95 @@ mod task_node_rule_tests {
         assert!(text.contains(&Uuid::from_u128(77).to_string()));
         // 配了与没配必须是不同的 hash（否则「改了配置却不重新发布」会静默生效）
         assert_ne!(with_fallback.graph_hash(), graph.graph_hash());
+    }
+
+    // ---------- R28：全员会签节点必须有超时 / 兜底（E2E07-FIX-1） ----------
+
+    fn r28(issues: &[Issue]) -> Vec<&Issue> {
+        issues.iter().filter(|issue| issue.rule == "R28").collect()
+    }
+
+    /// R28 反例：`approval_mode = ALL` + 没有 `timeout_hours` + 没有兜底人 → `65048`。
+    ///
+    /// 这正是 E2E-07 现场的形状：合同审批的采购经理节点是全员会签，角色里有个历史夹具
+    /// 账号永远签不了，单据停在 PENDING_APPROVAL，界面上没有任何按钮。
+    #[test]
+    fn r28_rejects_all_mode_without_timeout_or_fallback() {
+        let graph = approval_graph(|node| {
+            node.approval_mode = Some(ApprovalMode::All);
+            // timeout_action 有值但 timeout_hours 为空 —— 扫描 SQL 捞不到，等于没配
+            node.timeout_action = "REMIND".to_string();
+            node.timeout_hours = None;
+        });
+        let issues = graph.validate_with(None);
+        let hits = r28(&issues);
+        assert_eq!(hits.len(), 1, "ALL 无兜底必须报一条：{:?}", hits);
+        assert_eq!(hits[0].code, error_code::FLOW_ALL_COUNTERSIGN_NO_GUARD);
+        assert_eq!(hits[0].code, 65048);
+        assert_eq!(hits[0].nodes, vec!["n_approve".to_string()]);
+        assert!(
+            hits[0].message.contains("全员会签"),
+            "报文要点明是全员会签：{}",
+            hits[0].message
+        );
+        assert!(
+            hits[0].message.contains("超时小时"),
+            "报文要给出可执行的出路：{}",
+            hits[0].message
+        );
+    }
+
+    /// R28 正例 ①：填了超时小时（>0）就通过 —— 定时任务能捞到它。
+    #[test]
+    fn r28_accepts_all_mode_with_positive_timeout() {
+        let graph = approval_graph(|node| {
+            node.approval_mode = Some(ApprovalMode::All);
+            node.timeout_hours = Some(48);
+        });
+        assert!(r28(&graph.validate_with(None)).is_empty());
+
+        // `timeout_hours = 0` 与负数都不算兜底（扫描谓词 `timeout_hours >= 1` 之后才生效）
+        for hours in [0, -1] {
+            let graph = approval_graph(|node| {
+                node.approval_mode = Some(ApprovalMode::All);
+                node.timeout_hours = Some(hours);
+            });
+            assert_eq!(
+                r28(&graph.validate_with(None)).len(),
+                1,
+                "timeout_hours={hours} 不该算兜底"
+            );
+        }
+    }
+
+    /// R28 正例 ②：配了兜底人（用户 / 角色）也通过 —— 全员里有人永久缺席时由他接管。
+    #[test]
+    fn r28_accepts_all_mode_with_fallback() {
+        for setup in [0_u8, 1] {
+            let graph = approval_graph(|node| {
+                node.approval_mode = Some(ApprovalMode::All);
+                if setup == 0 {
+                    node.fallback_user_id = Some(Uuid::from_u128(41));
+                } else {
+                    node.fallback_role_id = Some(Uuid::from_u128(42));
+                }
+            });
+            assert!(
+                r28(&graph.validate_with(None)).is_empty(),
+                "配了兜底（setup={setup}）应通过"
+            );
+        }
+    }
+
+    /// R28 边界：或签（ANY）/ 按比例（RATIO<1）没有「一票缺席就永久卡死」的问题，不该被牵连。
+    #[test]
+    fn r28_ignores_non_all_modes() {
+        for mode in [Some(ApprovalMode::Any), None] {
+            let graph = approval_graph(|node| {
+                node.approval_mode = mode;
+                node.timeout_hours = None;
+            });
+            assert!(r28(&graph.validate_with(None)).is_empty(), "mode={mode:?} 不该报 R28");
+        }
     }
 }

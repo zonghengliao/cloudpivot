@@ -1,0 +1,47 @@
+=== 造违规 ①：contract_approve.n_gm 改成 ALL 且清空超时 / 兜底 ===
+=== 造违规 ③：GENERAL_MANAGER 成员 p3a_0004 的口令改成占位符 'x' ===
+
+=== 跑不变量脚本（期望 rc=1，且 ① 与 ③ 都点名）===
+===== ALL 会签节点清单（PUBLISHED 当前版本）=====
+  · budget_approve  n_fin_gm  财务经理+总经理会签（编制）  [COUNTERSIGN/ROLE]  timeout=48h/REMIND  fallback=-
+  · budget_approve  n_gm_fd  总经理+财务总监会签（调整）  [COUNTERSIGN/ROLE]  timeout=48h/REMIND  fallback=-
+  · contract_approve  n_gm  总经理审批（≥ 10 万·第二级）  [APPROVAL/ROLE]  timeout=-h/REMIND  fallback=-
+  · expense  n_board  财务经理 + 总经理会签  [COUNTERSIGN/ROLE]  timeout=48h/REMIND  fallback=-
+  · payable_pay  n_board  财务总监+总经理会签  [COUNTERSIGN/ROLE]  timeout=48h/REMIND  fallback=-
+  · po_approve  n_board  采购经理+总经理会签  [COUNTERSIGN/ROLE]  timeout=48h/REMIND  fallback=-
+  · voucher_reverse  n_cs  财务经理+财务总监会签  [COUNTERSIGN/ROLE]  timeout=48h/REMIND  fallback=-
+===== 4 条不变量 =====
+① ALL 节点无兜底:         1  ❌
+    ↳ 报红节点（流程 / 节点 / 超时 / 兜底）（前 10 条）：
+       contract_approve / n_gm / timeout=NULL REMIND / fallback=NULL
+② 角色型审批误配 ALL:    1  ❌  （APPROVAL 的语义是「岗位任一人签字即可」）
+    ↳ 报红节点（前 10 条）：
+       contract_approve / n_gm（总经理审批（≥ 10 万·第二级））
+③ ALL 节点角色坏号:       6  ❌  （这些账号永远签不了 ⇒ 会签永远凑不齐）
+    ↳ 坏号明细（流程 / 节点 / 角色 / 账号 / 原因）（前 10 条）：
+       budget_approve / n_fin_gm / GENERAL_MANAGER / p3a_0004 / 口令占位符(len=1)
+       budget_approve / n_gm_fd / GENERAL_MANAGER / p3a_0004 / 口令占位符(len=1)
+       contract_approve / n_gm / GENERAL_MANAGER / p3a_0004 / 口令占位符(len=1)
+       expense / n_board / GENERAL_MANAGER / p3a_0004 / 口令占位符(len=1)
+       payable_pay / n_board / GENERAL_MANAGER / p3a_0004 / 口令占位符(len=1)
+       po_approve / n_board / GENERAL_MANAGER / p3a_0004 / 口令占位符(len=1)
+④ ALL 节点候选人为 0:     0  ✅  （每个 ALL 节点都至少有一个能签的人）
+结果: 3 条不变量不通过 ❌（①ALL无兜底,②角色型审批误配ALL,③ALL角色坏号）（库 cloudpivot_dev）
+rc=1
+  [还原] 节点 b9f8255f-f7aa-4a27-8547-2bc42ea28821 → approval_mode=ANY timeout_hours=48
+  [还原] 用户 d2a2000a-0000-4000-8000-000000000004 的 password 已恢复原值
+=== 还原后再跑一次（期望全绿）===
+===== ALL 会签节点清单（PUBLISHED 当前版本）=====
+  · budget_approve  n_fin_gm  财务经理+总经理会签（编制）  [COUNTERSIGN/ROLE]  timeout=48h/REMIND  fallback=-
+  · budget_approve  n_gm_fd  总经理+财务总监会签（调整）  [COUNTERSIGN/ROLE]  timeout=48h/REMIND  fallback=-
+  · expense  n_board  财务经理 + 总经理会签  [COUNTERSIGN/ROLE]  timeout=48h/REMIND  fallback=-
+  · payable_pay  n_board  财务总监+总经理会签  [COUNTERSIGN/ROLE]  timeout=48h/REMIND  fallback=-
+  · po_approve  n_board  采购经理+总经理会签  [COUNTERSIGN/ROLE]  timeout=48h/REMIND  fallback=-
+  · voucher_reverse  n_cs  财务经理+财务总监会签  [COUNTERSIGN/ROLE]  timeout=48h/REMIND  fallback=-
+===== 4 条不变量 =====
+① ALL 节点无兜底:         0  ✅  （每个 ALL 节点都有超时小时或兜底人）
+② 角色型审批误配 ALL:    0  ✅  （APPROVAL+ROLE+ALL = 0；跨角色会签请用 COUNTERSIGN）
+③ ALL 节点角色坏号:       0  ✅  （无软删 / 停用 / 授权过期 / 占位符口令）
+④ ALL 节点候选人为 0:     0  ✅  （每个 ALL 节点都至少有一个能签的人）
+结果: 4 条不变量全绿 ✅（库 cloudpivot_dev）
+rc=0

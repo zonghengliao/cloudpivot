@@ -1,0 +1,113 @@
+Pager usage is off.
+===== 1) 改前（归档版本里的原始行，逐字节未动）：APPROVAL + ROLE + ALL =====
+    flow_code     | version_no | version_status | node_key | node_type | assignee_type | approval_mode 
+------------------+------------+----------------+----------+-----------+---------------+---------------
+ contract_approve |          1 | ARCHIVED       | n_pm     | APPROVAL  | ROLE          | ALL
+ contract_approve |          1 | ARCHIVED       | n_pm_hi  | APPROVAL  | ROLE          | ALL
+ payable_pay      |          2 | ARCHIVED       | n_dept   | APPROVAL  | ROLE          | ALL
+ po_approve       |          1 | ARCHIVED       | n_dept   | APPROVAL  | ROLE          | ALL
+ po_approve       |          2 | ARCHIVED       | n_dept   | APPROVAL  | ROLE          | ALL
+ po_approve       |          1 | ARCHIVED       | n_pm     | APPROVAL  | ROLE          | ALL
+ po_approve       |          2 | ARCHIVED       | n_pm     | APPROVAL  | ROLE          | ALL
+ pr_approve       |          1 | ARCHIVED       | n_pm     | APPROVAL  | ROLE          | ALL
+ prt_approve      |          1 | ARCHIVED       | n_pm     | APPROVAL  | ROLE          | ALL
+(9 rows)
+
+===== 2) 改后（当前版本）：同批节点应为 ANY =====
+    flow_code     | version_no | node_key | node_type | assignee_type | approval_mode 
+------------------+------------+----------+-----------+---------------+---------------
+ contract_approve |          2 | n_pm     | APPROVAL  | ROLE          | ANY
+ contract_approve |          2 | n_pm_hi  | APPROVAL  | ROLE          | ANY
+ payable_pay      |          3 | n_dept   | APPROVAL  | ROLE          | ANY
+ po_approve       |          3 | n_dept   | APPROVAL  | ROLE          | ANY
+ po_approve       |          3 | n_pm     | APPROVAL  | ROLE          | ANY
+ pr_approve       |          2 | n_pm     | APPROVAL  | ROLE          | ANY
+ prt_approve      |          2 | n_pm     | APPROVAL  | ROLE          | ANY
+(7 rows)
+
+===== 3) 会签节点（COUNTERSIGN + ALL）必须原样保留 =====
+    flow_code    | version_no | node_key |  node_type  | approval_mode | timeout_hours | timeout_action | empty_assignee 
+-----------------+------------+----------+-------------+---------------+---------------+----------------+----------------
+ budget_approve  |          2 | n_fin_gm | COUNTERSIGN | ALL           |            48 | REMIND         | FALLBACK_ADMIN
+ budget_approve  |          2 | n_gm_fd  | COUNTERSIGN | ALL           |            48 | REMIND         | FALLBACK_ADMIN
+ expense         |          1 | n_board  | COUNTERSIGN | ALL           |            48 | REMIND         | FALLBACK_ADMIN
+ payable_pay     |          3 | n_board  | COUNTERSIGN | ALL           |            48 | REMIND         | FALLBACK_ADMIN
+ po_approve      |          3 | n_board  | COUNTERSIGN | ALL           |            48 | REMIND         | FALLBACK_ADMIN
+ voucher_reverse |          1 | n_cs     | COUNTERSIGN | ALL           |            48 | REMIND         | FALLBACK_ADMIN
+(6 rows)
+
+===== 4) 往返预演（同一事务内 down → up → 再 up，最后 ROLLBACK：库最终状态不变） =====
+BEGIN
+psql:/tmp/v0359_down.sql:62: NOTICE:  V0359 down：def=20000000-0000-4000-8000-000000000717 已回滚到 v2（旧版的 APPROVAL 节点恢复为全员会签）
+psql:/tmp/v0359_down.sql:62: NOTICE:  V0359 down：def=20000000-0000-4000-8000-0000000a0182 已回滚到 v2（旧版的 APPROVAL 节点恢复为全员会签）
+psql:/tmp/v0359_down.sql:62: NOTICE:  V0359 down：def=20000000-0000-4000-8000-0000000c0209 已回滚到 v1（旧版的 APPROVAL 节点恢复为全员会签）
+psql:/tmp/v0359_down.sql:62: NOTICE:  V0359 down：def=20000000-0000-4000-8000-0000000d0331 已回滚到 v1（旧版的 APPROVAL 节点恢复为全员会签）
+psql:/tmp/v0359_down.sql:62: NOTICE:  V0359 down：def=20000000-0000-4000-8000-0000000e0331 已回滚到 v1（旧版的 APPROVAL 节点恢复为全员会签）
+DO
+psql:/tmp/v0359_down.sql:62: NOTICE:  V0359 down 完成：删除 5 个本迁移发布的版本
+--- down 之后：应恢复旧版 current、本迁移版本 0 个、节点回到 ALL ---
+    flow_code     | version_no | is_current | fix_versions |     target_modes      
+------------------+------------+------------+--------------+-----------------------
+ contract_approve |          1 | t          |            0 | n_pm=ALL, n_pm_hi=ALL
+ payable_pay      |          2 | t          |            0 | n_dept=ALL
+ po_approve       |          2 | t          |            0 | n_dept=ALL, n_pm=ALL
+ pr_approve       |          1 | t          |            0 | n_pm=ALL
+ prt_approve      |          1 | t          |            0 | n_pm=ALL
+(5 rows)
+
+CREATE FUNCTION
+psql:/tmp/v0359_up.sql:99: NOTICE:  table "_fix_target" does not exist, skipping
+DROP TABLE
+CREATE TABLE
+INSERT 0 7
+psql:/tmp/v0359_up.sql:306: NOTICE:  V0359 contract_approve：v2 已发布（改 2 个节点 / hash=54e67e57d3e0406ca19785b484f8b07555034a3c470558c6524cbf6d65446480 / 节点 6 / 边 6 / 绑定 3 行；历史实例跑在旧版上 4 张，继续可用）
+psql:/tmp/v0359_up.sql:306: NOTICE:  V0359 payable_pay：v3 已发布（改 1 个节点 / hash=dd2179b11fa2ed5d6dbeb2181370ca4327698277ffcdd6a184ec74187b2baefe / 节点 7 / 边 8 / 绑定 4 行；历史实例跑在旧版上 3 张，继续可用）
+psql:/tmp/v0359_up.sql:306: NOTICE:  V0359 po_approve：v3 已发布（改 2 个节点 / hash=27fab60c5d4ae373fb4f5be7fe31e9ba17579baaf1b78638b3eb9d5da689fb41 / 节点 9 / 边 11 / 绑定 5 行；历史实例跑在旧版上 5 张，继续可用）
+psql:/tmp/v0359_up.sql:306: NOTICE:  V0359 pr_approve：v2 已发布（改 1 个节点 / hash=3d7ae24e7e6a835f2d9d5a6a4d3f92944a61dbeddab6c1e69c6f6a444a8abb57 / 节点 5 / 边 5 / 绑定 2 行；历史实例跑在旧版上 6 张，继续可用）
+DO
+psql:/tmp/v0359_up.sql:306: NOTICE:  V0359 prt_approve：v2 已发布（改 1 个节点 / hash=65f572afbfed4ff827abe530a3c4c244094168577d5c51fc697894f02f7430df / 节点 4 / 边 3 / 绑定 2 行；历史实例跑在旧版上 1 张，继续可用）
+psql:/tmp/v0359_up.sql:306: NOTICE:  V0359 完成：共修正 7 个「角色型审批被配成全员会签」节点
+psql:/tmp/v0359_up.sql:331: NOTICE:  V0359 收口自检通过：PUBLISHED 流程里 APPROVAL+ROLE+ALL = 0
+DO
+--- 再 up 之后：应回到 ANY，且 hash 与提交时一致 ---
+    flow_code     | version_no |      hash16      
+------------------+------------+------------------
+ contract_approve |          2 | 54e67e57d3e0406c
+ payable_pay      |          3 | dd2179b11fa2ed5d
+ po_approve       |          3 | 27fab60c5d4ae373
+ pr_approve       |          2 | 3d7ae24e7e6a835f
+ prt_approve      |          2 | 65f572afbfed4ff8
+(5 rows)
+
+--- 幂等：第三次 up 应 0 变更 ---
+CREATE FUNCTION
+DROP TABLE
+CREATE TABLE
+INSERT 0 7
+psql:/tmp/v0359_up.sql:306: NOTICE:  V0359 contract_approve.n_pm：当前 approval_mode = ANY（不是 ALL，已修正或客户改过），跳过该节点
+psql:/tmp/v0359_up.sql:306: NOTICE:  V0359 contract_approve.n_pm_hi：当前 approval_mode = ANY（不是 ALL，已修正或客户改过），跳过该节点
+psql:/tmp/v0359_up.sql:306: NOTICE:  V0359 contract_approve：没有需要改的节点（幂等 / 已是或签），跳过
+psql:/tmp/v0359_up.sql:306: NOTICE:  V0359 payable_pay.n_dept：当前 approval_mode = ANY（不是 ALL，已修正或客户改过），跳过该节点
+psql:/tmp/v0359_up.sql:306: NOTICE:  V0359 payable_pay：没有需要改的节点（幂等 / 已是或签），跳过
+psql:/tmp/v0359_up.sql:306: NOTICE:  V0359 po_approve.n_dept：当前 approval_mode = ANY（不是 ALL，已修正或客户改过），跳过该节点
+psql:/tmp/v0359_up.sql:306: NOTICE:  V0359 po_approve.n_pm：当前 approval_mode = ANY（不是 ALL，已修正或客户改过），跳过该节点
+psql:/tmp/v0359_up.sql:306: NOTICE:  V0359 po_approve：没有需要改的节点（幂等 / 已是或签），跳过
+DO
+DO
+psql:/tmp/v0359_up.sql:306: NOTICE:  V0359 pr_approve.n_pm：当前 approval_mode = ANY（不是 ALL，已修正或客户改过），跳过该节点
+psql:/tmp/v0359_up.sql:306: NOTICE:  V0359 pr_approve：没有需要改的节点（幂等 / 已是或签），跳过
+psql:/tmp/v0359_up.sql:306: NOTICE:  V0359 prt_approve.n_pm：当前 approval_mode = ANY（不是 ALL，已修正或客户改过），跳过该节点
+psql:/tmp/v0359_up.sql:306: NOTICE:  V0359 prt_approve：没有需要改的节点（幂等 / 已是或签），跳过
+psql:/tmp/v0359_up.sql:306: NOTICE:  V0359 完成：共修正 0 个「角色型审批被配成全员会签」节点
+psql:/tmp/v0359_up.sql:331: NOTICE:  V0359 收口自检通过：PUBLISHED 流程里 APPROVAL+ROLE+ALL = 0
+ROLLBACK
+===== 5) ROLLBACK 之后：确认库仍停留在改后状态（ANY / 版本号不变） =====
+    flow_code     | version_no | is_current | versions 
+------------------+------------+------------+----------
+ contract_approve |          2 | t          |        2
+ payable_pay      |          3 | t          |        3
+ po_approve       |          3 | t          |        3
+ pr_approve       |          2 | t          |        2
+ prt_approve      |          2 | t          |        2
+(5 rows)
+
