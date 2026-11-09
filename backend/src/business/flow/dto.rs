@@ -1557,6 +1557,14 @@ pub struct MyTaskQuery {
     /// 每页条数。
     #[serde(default)]
     pub page_size: Option<u64>,
+    /// 已办时间下界（RFC 3339，如 `2026-11-09T00:00:00+08:00`）。
+    ///
+    /// 只有「我的已办」（`/business/flow/task/done`）用它：首页工作台的
+    /// 「今日已办 N 项」需要**只数今天操作过的**，而 `total` 是全量历史。
+    /// 传了就在 SQL 上加 `completed_at >= since`（待办路径忽略它 ——
+    /// 待办还没有 `completed_at`）。非法格式 → `400 + 65005`，不静默当没传。
+    #[serde(default)]
+    pub since: Option<String>,
 }
 
 // ---------- 出参 ----------
@@ -1670,6 +1678,15 @@ pub struct TaskRes {
     pub instance_no: String,
     /// 单据标题（列表场景填）。
     pub title: String,
+    /// 审批业务类型（`biz_flow_instance.biz_type`，如 `PO_APPROVE` / `CONTRACT_APPROVE`）。
+    ///
+    /// HOME-5 工作台「待我审批」卡要按它把单据类型翻成中文、并把点击路由映射到
+    /// **业务详情页**（而不是一律跳审批单详情）。列表 SQL 已 JOIN 实例行，顺手带出。
+    pub biz_type: String,
+    /// 业务单据 id（空串 = 没有关联业务单据，如通用流程）。
+    pub biz_id: String,
+    /// 业务单据号（如 `PO-20261109-000003`；空串 = 无业务单号）。
+    pub biz_no: String,
     /// 流程名称（D5 缺口 2：待办卡片要显示「哪个流程」）。
     pub flow_name: String,
     /// 发起人姓名（D5 缺口 2；发起人已删 → 空串）。

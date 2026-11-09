@@ -797,6 +797,12 @@ export interface FlowTaskItem {
   instance_no: string;
   /** 单据标题（列表场景填） */
   title: string;
+  /** 审批业务类型（`biz_flow_instance.biz_type`，如 `PO_APPROVE`；空串 = 老后端没下发） */
+  biz_type?: string;
+  /** 业务单据 id（空串 = 无关联业务单据） */
+  biz_id?: string;
+  /** 业务单据号（如 `PO-20261109-000003`；空串 = 无业务单号） */
+  biz_no?: string;
   /** 流程名称（如「财务审批」） */
   flow_name: string;
   /** 发起人姓名（发起人已删 → 空串） */
@@ -1109,7 +1115,9 @@ export function listTodoTasks(query: { page?: number; page_size?: number } = {})
 }
 
 /** 我的已办（`GET /business/flow/task/done`，含被转办出去的，按处理时间倒序）。 */
-export function listDoneTasks(query: { page?: number; page_size?: number } = {}): Promise<PageData<FlowTaskItem>> {
+export function listDoneTasks(
+  query: { page?: number; page_size?: number; since?: string } = {},
+): Promise<PageData<FlowTaskItem>> {
   return get<PageData<FlowTaskItem>>('/api/business/flow/task/done', asParams(query));
 }
 

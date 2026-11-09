@@ -281,6 +281,12 @@ pub struct MyTaskRow {
     pub instance_no: String,
     /// 单据标题。
     pub title: String,
+    /// 审批业务类型（`biz_flow_instance.biz_type`；工作台卡片按它映射单据类型与跳转）。
+    pub biz_type: String,
+    /// 业务单据 id（`None` = 无关联业务单据）。
+    pub biz_id: Option<Uuid>,
+    /// 业务单据号（`None` = 无业务单号）。
+    pub biz_no: Option<String>,
     /// 流程名称。
     pub flow_name: String,
     /// 发起人姓名。
@@ -352,6 +358,7 @@ pub async fn page_my_tasks(
     page: u64,
     page_size: u64,
     live_only: bool,
+    completed_since: Option<chrono::DateTime<chrono::Utc>>,
 ) -> DbResult<MyTaskPage> {
     let status_list = statuses
         .iter()
@@ -369,24 +376,33 @@ pub async fn page_my_tasks(
     // 待办还 PENDING）不该出现在审批人的待办里 —— 那是一条点不动的孤儿（老板报的 TSK-149）。
     // 列表与计数用**同一个**谓词，否则会出现「显示 3 条、total 说 5 条」。
     let live_sql = if live_only { " AND i.status = 'PENDING'" } else { "" };
+    // 已办时间下界（首页工作台「今日已办」）：只加在「我的已办」上的可选谓词。
+    // 绑文本再 `::text::timestamptz` 是本仓既有写法（`self_approval.rs` / `notice/model.rs`），
+    // 直接把 `Value::Text` 交给 `?::timestamptz` 在驱动层不可靠。
+    let since_sql = if completed_since.is_some() {
+        " AND t.completed_at >= ?::text::timestamptz"
+    } else {
+        ""
+    };
     let where_sql = format!(
         " WHERE t.assignee_id = ?::uuid AND t.status IN ({status_list}) \
-           AND t.task_kind IN ({kind_list}){live_sql}"
+           AND t.task_kind IN ({kind_list}){live_sql}{since_sql}"
     );
+    let mut params = vec![Value::from(&user_id)];
+    if let Some(since) = completed_since {
+        params.push(Value::Text(since.to_rfc3339()));
+    }
     let count_sql = format!(
         "SELECT count(*) AS total FROM biz_flow_task t \
            JOIN biz_flow_instance i ON i.id = t.instance_id AND i.deleted_at IS NULL{where_sql}"
     );
-    let total: i64 = match db()
-        .find_with_params(&count_sql, vec![Value::from(&user_id)])
-        .await?
-        .first()
-    {
+    let total: i64 = match db().find_with_params(&count_sql, params.clone()).await?.first() {
         Some(row) => row.get_typed("total")?,
         None => 0,
     };
     let sql = format!(
         "SELECT {TASK_COLUMNS}, i.instance_no AS instance_no, i.title AS title, \
+                i.biz_type AS biz_type, i.biz_id AS biz_id, i.biz_no AS biz_no, \
                 i.flow_name AS flow_name, i.initiator_name AS initiator_name, \
                 i.status AS instance_status, i.form_data::text AS form_data_text, \
                 n.node_name AS node_name \
@@ -396,16 +412,9 @@ pub async fn page_my_tasks(
           ORDER BY {} LIMIT ? OFFSET ?",
         order.order_sql()
     );
-    let rows = db()
-        .find_with_params(
-            &sql,
-            vec![
-                Value::from(&user_id),
-                Value::from(page_size as i64),
-                Value::from(((page.saturating_sub(1)) * page_size) as i64),
-            ],
-        )
-        .await?;
+    params.push(Value::from(page_size as i64));
+    params.push(Value::from(((page.saturating_sub(1)) * page_size) as i64));
+    let rows = db().find_with_params(&sql, params).await?;
     let mut list = Vec::with_capacity(rows.len());
     for row in &rows {
         let form_text: Option<String> = row.get_typed("form_data_text")?;
@@ -413,6 +422,9 @@ pub async fn page_my_tasks(
             task: TaskRow::from_row(row)?,
             instance_no: row.get_typed("instance_no")?,
             title: row.get_typed("title")?,
+            biz_type: row.get_typed("biz_type")?,
+            biz_id: row.get_typed("biz_id")?,
+            biz_no: row.get_typed("biz_no")?,
             flow_name: row.get_typed("flow_name")?,
             initiator_name: row.get_typed("initiator_name")?,
             instance_status: row.get_typed("instance_status")?,

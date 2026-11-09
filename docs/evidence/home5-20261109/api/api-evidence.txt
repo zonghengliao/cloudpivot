@@ -1,0 +1,36 @@
+# HOME-5 待我审批 · 真实接口实测（真 token，取自我方登录会话）
+# 时间：2026-11-09T23:19:43+08:00
+# 实例：http://127.0.0.1:18097（profile=test，库 cloudpivot_home5_v4）
+# Authorization: Bearer eyJ0eXAi…6IBI
+
+$ GET http://127.0.0.1:18097/api/business/flow/task/todo?page=1&page_size=10
+<- HTTP 200  total=9  returned=9
+   首行字段（新增的 biz_* 与 form_data.amount 都在）：
+   {"biz_type": "EXPENSE", "biz_no": "EXP-20261109-0001", "biz_id": "8a90fb2c-48bc-423c-a7e9-de5d7fc7197a", "title": "费用报销 EXP-20261109-0001", "initiator_name": "张三（演示发起人）", "arrived_at": "2026-11-09T14:33:53.078794Z", "amount": 3200}
+
+$ GET /api/business/flow/task/done?page=1&page_size=1&since=2026-11-08T16:00:00.000Z
+<- HTTP 200  total=3   ← 今日已办（卡片底部 M）
+$ GET /api/business/flow/task/done?page=1&page_size=1
+<- HTTP 200  total=3   ← 全量已办（不传 since；两者必须不同才对）
+
+$ POST /api/business/flow/task/01a1c0e4-0ad8-7206-a894-471f1ee557e2/reject  {"comment":"太短"}
+<- HTTP 400  code=65005  msg=驳回意见至少 5 个字（当前 2 个）   ← 后端也要求 ≥ 5 字
+
+$ POST /api/business/flow/task/01a1c0e4-0af7-7437-bab9-7770577131c3/approve
+<- HTTP 200  {"code": 0, "msg": "ok", "data": {"instance_id": "01a1c0e4-0af1-7276-b96e-df940aec5044", "instance_status": "PENDING", "node_status": "APPROVED", "done": true, "idempotent": false, "next_nodes": [], "auto_passed_nodes": 0, "approver_count": 1, "approved_count": 1, "rejected_count": 0}}
+
+$ POST /api/business/flow/task/01a1c0e4-0b08-756b-ade2-bcb114053546/add-sign  {"user_ids":["01a1c0e4-081b-767e-a1c7-78c39fefd762"]}
+<- HTTP 200  {"code": 0, "msg": "ok", "data": {"instance_id": "01a1c0e4-0b00-7712-83f1-e2faac0d7bbe", "instance_status": "PENDING", "node_status": "ACTIVE", "done": true, "idempotent": false, "next_nodes": [], "auto_passed_nodes": 0, "approver_count": 2, "approved_count": 0, "rejected_count": 0}}
+
+$ GET /api/business/flow/task/todo?page=1&page_size=10
+<- HTTP 200  total=9（该单同意后还有下一节点 → 任务重新派回本人，总数可能不变；末节点则 -1，见 UI 验收 ④）
+$ GET /api/business/flow/task/done?page=1&page_size=1&since=2026-11-08T16:00:00.000Z
+<- HTTP 200  total=4（今日已办：刚同意的那张算今天）
+
+## since 过滤的对照组（把一张 5 天前就已办的任务留在库里，证明「今日」不是「全量」）
+$ GET /api/business/flow/task/done?page=1&page_size=1
+<- HTTP 200  total=4   ← 全量已办（含 5 天前那张）
+
+## 补：since 过滤对照（把一张 5 天前办结的任务留在库里，验「今日」≠「全量」）
+$ GET /api/business/flow/task/done?page=1&page_size=1&since=2026-11-08T16:00:00.000Z   → HTTP 200 total=3（今日）
+$ GET /api/business/flow/task/done?page=1&page_size=1                → HTTP 200 total=4（全量，含 5 天前那张）

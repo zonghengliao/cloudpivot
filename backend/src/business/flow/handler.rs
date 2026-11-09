@@ -72,6 +72,21 @@ fn field_invalid(message: impl Into<String>) -> ApiError {
     ApiError::new(400, error_code::FLOW_FIELD_INVALID, message)
 }
 
+/// 解析查询串里的时间下界（RFC 3339；也认 `YYYY-MM-DD HH:MM:SS` 这种更短的手写格式）。
+///
+/// 首页工作台的「今日已办」把本地零点的 ISO 串放在 `since` 上传上来。
+/// 解析失败必须报 400：静默当「没传」会让卡片把**全量历史已办**当成今日已办显示，
+/// 数字看着正常、口径全错，比直接报错难查得多。
+fn parse_since_field(raw: &str, label: &str) -> std::result::Result<chrono::DateTime<chrono::Utc>, ApiError> {
+    if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(raw.trim()) {
+        return Ok(parsed.with_timezone(&chrono::Utc));
+    }
+    if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(raw.trim(), "%Y-%m-%d %H:%M:%S") {
+        return Ok(naive.and_utc());
+    }
+    Err(field_invalid(format!("{label} 时间格式非法（需要 RFC 3339）")))
+}
+
 /// P-FLOW-1B · `on_complete=APPROVE` 的 `approve_biz_type` 存在性校验（**发布 / 校验共用**）。
 ///
 /// # 为什么不在 `graph::validate_with` 里
@@ -1148,6 +1163,12 @@ struct TaskCtx<'a> {
     instance_no: &'a str,
     /// 单据标题。
     title: &'a str,
+    /// 审批业务类型（`biz_flow_instance.biz_type`；抄送路径没有实例行 → 空串）。
+    biz_type: &'a str,
+    /// 业务单据 id（空串 = 无）。
+    biz_id: &'a str,
+    /// 业务单据号（空串 = 无）。
+    biz_no: &'a str,
     /// 流程名称。
     flow_name: &'a str,
     /// 发起人姓名。
@@ -1166,6 +1187,9 @@ fn task_res(row: &model::TaskRow, ctx: &TaskCtx<'_>) -> dto::TaskRes {
         instance_id: row.instance_id.to_string(),
         instance_no: ctx.instance_no.to_string(),
         title: ctx.title.to_string(),
+        biz_type: ctx.biz_type.to_string(),
+        biz_id: ctx.biz_id.to_string(),
+        biz_no: ctx.biz_no.to_string(),
         flow_name: ctx.flow_name.to_string(),
         initiator_name: ctx.initiator_name.to_string(),
         current_node_name: ctx.current_node_name.to_string(),
@@ -1579,9 +1603,14 @@ pub async fn instance_detail(
         .map(|node| (node.node_key.as_str(), node.node_name.as_str()))
         .collect::<std::collections::HashMap<&str, &str>>();
     let initiator_name = row.initiator_name.clone().unwrap_or_default();
+    let biz_id = row.biz_id.map(|id| id.to_string()).unwrap_or_default();
+    let biz_no = row.biz_no.clone().unwrap_or_default();
     let ctx_of = |node_key: &str| TaskCtx {
         instance_no: row.instance_no.as_str(),
         title: row.title.as_str(),
+        biz_type: row.biz_type.as_str(),
+        biz_id: biz_id.as_str(),
+        biz_no: biz_no.as_str(),
         flow_name: row.flow_name.as_str(),
         initiator_name: initiator_name.as_str(),
         current_node_name: node_names.get(node_key).copied().unwrap_or(""),
@@ -2192,11 +2221,16 @@ pub async fn batch_task(
 /// 待办 / 已办列表行 → 出参（展示字段由 `model::page_my_tasks` 的 JOIN 一次取齐，无 N+1）。
 fn my_task_res(row: &model::MyTaskRow) -> dto::TaskRes {
     let initiator_name = row.initiator_name.clone().unwrap_or_default();
+    let biz_id = row.biz_id.map(|id| id.to_string()).unwrap_or_default();
+    let biz_no = row.biz_no.clone().unwrap_or_default();
     task_res(
         &row.task,
         &TaskCtx {
             instance_no: &row.instance_no,
             title: &row.title,
+            biz_type: &row.biz_type,
+            biz_id: &biz_id,
+            biz_no: &biz_no,
             flow_name: &row.flow_name,
             initiator_name: &initiator_name,
             current_node_name: &row.node_name,
@@ -2214,6 +2248,11 @@ fn my_cc_res(row: &model::MyCcRow) -> dto::CcRes {
         &TaskCtx {
             instance_no: &row.instance_no,
             title: &row.title,
+            // 抄送出参（`CcRes`）没有业务类型 / 业务 id / 业务单号，`cc_res` 也不读它们 ——
+            // 给空串，不为了「填满结构体」去猜。
+            biz_type: "",
+            biz_id: "",
+            biz_no: "",
             flow_name: &row.flow_name,
             initiator_name: &initiator_name,
             current_node_name: &row.node_name,
@@ -2253,6 +2292,8 @@ pub async fn my_todo(
         page_size,
         // P11：待办只认实例还在跑的单子（历史脏数据不进审批人的列表）
         true,
+        // 待办还没有 `completed_at`，`since` 只对「我的已办」有意义
+        None,
     )
     .await
     .map_err(|error| utils::db_error(error, "查询我的待办"))?;
@@ -2283,6 +2324,12 @@ pub async fn my_done(
 ) -> ResResult<dto::TaskPageRes> {
     let me = me_of(&claims)?;
     let (page_no, page_size) = utils::normalize_page(query.page, query.page_size);
+    // 首页工作台的「今日已办」只数今天操作过的：`since` 传了就加 `completed_at >= since`。
+    // 非法时间 → 400，不静默忽略（静默忽略会让卡片显示全量历史，比报错更难发现）。
+    let since = match query.since.as_deref() {
+        Some(raw) if !raw.trim().is_empty() => Some(parse_since_field(raw, "since")?),
+        _ => None,
+    };
     let result = model::page_my_tasks(
         me,
         model::MY_DONE_STATUSES,
@@ -2292,6 +2339,7 @@ pub async fn my_done(
         page_size,
         // 已办是历史记录：实例结束与否都要显示（不受 P11 的「只看在跑」约束）
         false,
+        since,
     )
     .await
     .map_err(|error| utils::db_error(error, "查询我的已办"))?;
@@ -3531,6 +3579,9 @@ mod tests {
             task: task_row("PENDING"),
             instance_no: "FLW-202610-000001".to_string(),
             title: "报销申请".to_string(),
+            biz_type: "PO_APPROVE".to_string(),
+            biz_id: Some(Uuid::nil()),
+            biz_no: Some("PO-20261031-000003".to_string()),
             flow_name: "财务审批".to_string(),
             initiator_name: Some("王五".to_string()),
             instance_status: "PENDING".to_string(),
@@ -3548,6 +3599,11 @@ mod tests {
         assert_eq!(res.current_node_name, "财务会签");
         assert_eq!(res.instance_no, "FLW-202610-000001");
         assert_eq!(res.title, "报销申请");
+        // HOME-5：业务类型 / 业务 id / 业务单号随待办行下发 —— 工作台卡片靠它把
+        // 「单据类型 + 单号」显示出来、并把点击路由映射到业务详情页。
+        assert_eq!(res.biz_type, "PO_APPROVE");
+        assert_eq!(res.biz_id, Uuid::nil().to_string());
+        assert_eq!(res.biz_no, "PO-20261031-000003");
         assert_eq!(res.status, "PENDING");
         // P11：实例状态随行下发，前端才能挡住「实例已结束但待办还 PENDING」的孤儿行。
         assert_eq!(res.instance_status, "PENDING");
@@ -3565,6 +3621,10 @@ mod tests {
             task: task_row("APPROVED"),
             instance_no: "FLW-202610-000002".to_string(),
             title: "请假".to_string(),
+            // 通用流程（无关联业务单据）：三个业务字段都降级空串，前端据此走通用跳转。
+            biz_type: "OTHER".to_string(),
+            biz_id: None,
+            biz_no: None,
             flow_name: "假勤审批".to_string(),
             initiator_name: None,
             instance_status: "APPROVED".to_string(),
@@ -3577,7 +3637,22 @@ mod tests {
         assert_eq!(res.current_node_name, "主管审批");
         assert_eq!(res.instance_status, "APPROVED");
         assert_eq!(res.form_data, serde_json::json!({}));
+        assert_eq!(res.biz_type, "OTHER");
+        assert_eq!(res.biz_id, "", "无业务单据 → 空串（不是 null，前端不判 null）");
+        assert_eq!(res.biz_no, "");
         assert!(res.completed_at.is_some(), "已办行必有操作时间");
+    }
+
+    #[test]
+    fn parse_since_field_accepts_rfc3339_and_rejects_garbage() {
+        // 首页工作台「今日已办」：合法时间 → UTC；非法 → 400 + 65005，不静默当没传。
+        let parsed = parse_since_field("2026-11-09T00:00:00+08:00", "since").expect("应能解析");
+        assert_eq!(parsed.to_rfc3339(), "2026-11-08T16:00:00+00:00");
+        let naive = parse_since_field("2026-11-09 00:00:00", "since").expect("应能解析无时区格式");
+        assert_eq!(naive.to_rfc3339(), "2026-11-09T00:00:00+00:00");
+        let err = parse_since_field("昨天", "since").expect_err("垃圾输入必须报错");
+        assert_eq!(err.status, 400);
+        assert_eq!(err.code, error_code::FLOW_FIELD_INVALID);
     }
 
     #[test]

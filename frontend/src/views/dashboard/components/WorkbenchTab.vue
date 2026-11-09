@@ -113,11 +113,13 @@
           </t-card>
 
           <!--
-            ⬇⬇ HOME-5「待我审批」卡片的插入点（左栏，紧跟「工作任务」之后）⬇⬇
+            ⬇⬇ HOME-5「待我审批」卡片（左栏，紧跟「工作任务」之后）⬇⬇
             设计顺序：工作任务 → 待我审批 → 公告与消息 → 快捷入口。
-            「待我审批」每行三个按钮（同意 / 驳回 / 加签），需要宽栏，所以放在左栏 stack 里，
-            不要塞进右侧 360px 的「公告与消息」列。
+            卡片自身管理数据（待办 10 条 + 今日已办）与三个动作（同意 / 驳回 / 加签），
+            所以单独成组件，本容器不掺它的状态。
           -->
+          <ApprovalTodoCard />
+
           <!--
             ④ 快捷入口。
             列数 = min(5, 可用入口数)：5 个一行是这批入口的原始设计，但只有 4 个可用时
@@ -324,6 +326,7 @@ import { useRouter } from 'vue-router';
 import dayjs from 'dayjs';
 import { MessagePlugin } from 'tdesign-vue-next';
 import MarkdownViewer from '@/components/MarkdownViewer.vue';
+import ApprovalTodoCard from './ApprovalTodoCard.vue';
 import {
   downloadAnnouncementAttachment,
   getAnnouncementDetail,

@@ -1,0 +1,89 @@
+PASS  ① 工作台有「待我审批」卡
+PASS  ① 卡标题 = 待我审批 :: 待我审批
+PASS  ② 待办最多显示 10 条 :: rows=10
+PASS  ② 底部显示真实待办总数（11） :: 待办 11 项 · 今日已办 1 项
+PASS  ② 底部显示今日已办（1） :: 待办 11 项 · 今日已办 1 项
+  📸 /var/tmp/home5/ui/01-workbench-approval-card.png
+PASS  ③ 第一类行：单据类型 + 业务单号 :: 采购订单
+PO-20261109-000003
+张三（演示发起人）
+·
+30 分钟前
+·
+¥12,800
+同意
+驳回
+加签
+PASS  ③ 提交人取真实 initiator_name :: 采购订单
+PO-20261109-000003
+张三（演示发起人）
+·
+30 分钟前
+·
+¥12,800
+同意
+驳回
+加签
+PASS  ③ 相对时间（N 分钟前） :: 采购订单
+PO-20261109-000003
+张三（演示发起人）
+·
+30 分钟前
+·
+¥12,800
+同意
+驳回
+加签
+PASS  ③ 金额（¥12,800） :: 采购订单
+PO-20261109-000003
+张三（演示发起人）
+·
+30 分钟前
+·
+¥12,800
+同意
+驳回
+加签
+PASS  ③ 合同金额（¥150,000）也显示
+PASS  ③ 无金额单据不渲染 ¥0（报销单该行无金额） :: 无金额行 = 费用报销
+EXP-20261106-0004
+张三（演示发起人）
+·
+2026-11-01
+同意
+驳回
+加签
+PASS  ③ 无金额单据整行无 ¥ 占位
+PASS  ③ 超过 7 天显示日期（2026-11-01）
+PASS  ③ 小时 / 天 两种相对时间
+PASS  ⑦ 采购订单 → /business/erp/purchase-order?po_id= :: http://127.0.0.1:5403/business/erp/purchase-order?po_id=a78a9b6f-804a-4758-b87d-96e5ee274633
+  📸 /var/tmp/home5/ui/02-doc-jump-purchase-order.png
+PASS  ④ 同意弹确认框并回显目标单据
+  📸 /var/tmp/home5/ui/03-approve-dialog.png
+PASS  ④ 同意成功后 Toast「已同意」
+PASS  ④ 该条从列表移除
+PASS  ④ 统计同步：待办 10 / 今日已办 2 :: 待办 10 项 · 今日已办 2 项
+  📸 /var/tmp/home5/ui/04-after-approve.png
+PASS  ⑤ 驳回意见为空时「确认驳回」禁用
+PASS  ⑤ 意见 < 5 字仍禁用（3/5 字）
+PASS  ⑤ 意见 ≥ 5 字后按钮可用
+  📸 /var/tmp/home5/ui/05-reject-dialog-valid.png
+PASS  ⑤ 驳回成功 Toast「已驳回」
+PASS  ⑤ 驳回后该条消失
+PASS  ⑤ 统计同步：待办 9 / 今日已办 3 :: 待办 9 项 · 今日已办 3 项
+PASS  ⑥ 未选人时「确认加签」禁用
+  📸 /var/tmp/home5/ui/06-addsign-dialog.png
+PASS  ⑥ 加签成功 Toast :: 张三（演示发起人）（h5clerk）
+PASS  ⑥ 加签后该条保留（还要自己批）
+PASS  ⑥ 加签不改变待办总数 :: 待办 9 项 · 今日已办 3 项
+  📸 /var/tmp/home5/ui/07-after-actions.png
+PASS  ⑩ 超管首页 console error = 0
+PASS  ⑨ 非超管也能看到「待我审批」卡
+PASS  ⑧ 无待办时空态存在
+PASS  ⑧ 空态文案 = 没有待我审批的单据 :: 没有待我审批的单据
+PASS  ⑧ 空态统计为 0 :: 待办 0 项 · 今日已办 0 项
+  📸 /var/tmp/home5/ui/08-viewer-empty.png
+PASS  ⑨ 非超管首页无 401/403
+PASS  ⑨ 非超管 console error = 0
+
+===== 36 passed / 0 failed =====
