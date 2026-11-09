@@ -1,0 +1,60 @@
+===== 0) 二进制 mtime =====
+-rwxr-xr-x 2 root root 739620832 2026-11-09_21:26:31 /opt/cloudpivot/backend/target/debug/cloudpivot
+===== 1) 记录 cloudpivot_dev 既有连接 PID（用于把 SQL 计数限定到本实例）=====
+既有连接数=11
+===== 2) 只对**新连接**开 log_statement=all（跑完 RESET）=====
+log_statement=all (database=cloudpivot_dev, by superuser)
+show log_statement(@cloudpivot_dev) = all
+===== 3) 起隔离实例 :8038 =====
+health_ok=1 pid=1408859
+===== 4) 本实例的连接 PID =====
+本实例连接数=11
+===== 5) admin 首登改密闸（仅当为 true 时改；cloudpivot_dev 长期共享库）=====
+must_change_password(before)=f
+must_change_password(after)=f
+===== 6) 挑两条现有物料（一条有默认仓库 / 一条没有）=====
+M_WH=01a1b5c9-2ece-7391-9842-7bbfbef78589
+M_NOWH=b2b70001-0000-4000-8000-000000000011
+库内口径(WH)   =DEMO-M001 | unit=套 | wh=总仓（种子）
+库内口径(NOWH) =D7-M1 | unit=个 | wh=<null>
+===== 7) 登录拿 token =====
+token_len=492
+===== 8) ① 详情（有默认仓库） =====
+detail(有仓库) SQL条数=3
+detail(有仓库) 响应={"code":0,"msg":"ok","data":{"id":"01a1b5c9-2ece-7391-9842-7bbfbef78589","material_code":"DEMO-M001","material_name":"演练物料A","spec":"规格A","unit_id":"68725745-ee24-4d9d-8ede-8fd28e6068f0","unit_name":"套","material_type":"FINISHED","default_warehouse_id":"d1370001-0000-4000-8000-000000000001","warehouse_name":"总仓（种子）","safety_stock":"0.0000","costing_method":"MOVING_AVG","inventory_account_id":null,"tax_rate":"0.0000","standard_price":null,"status":1,"serial_required":false,"remark":null,"created_at":"2026-11-07T11:33:43.246518Z","updated_at":"2026-11-07T11:33:43.246518Z"}}
+===== 9) ② 详情（无默认仓库） =====
+detail(无仓库) SQL条数=3
+detail(无仓库) 响应={"code":0,"msg":"ok","data":{"id":"b2b70001-0000-4000-8000-000000000011","material_code":"D7-M1","material_name":"D7 螺栓","spec":null,"unit_id":"b2b70001-0000-4000-8000-000000000001","unit_name":"个","material_type":"RAW","default_warehouse_id":null,"warehouse_name":null,"safety_stock":"0.0000","costing_method":"MOVING_AVG","inventory_account_id":null,"tax_rate":"0.0000","standard_price":null,"status":1,"serial_required":false,"remark":null,"created_at":"2026-11-08T19:06:18.602451Z","updated_at":"2026-11-09T11:38:22.208368Z"}}
+===== 10) ③ 分页 page_size=1 vs 20（同筛选，SQL 条数应相等）=====
+page_size=1  SQL条数=4 行数=1
+page_size=20 SQL条数=4 行数=20
+page_size=20 响应={"code":0,"msg":"ok","data":{"list":[{"id":"b2b70001-0000-4000-8000-000000000011","material_code":"D7-M1","material_name":"D7 螺栓","spec":null,"unit_id":"b2b70001-0000-4000-8000-000000000001","unit_name":"个","material_type":"RAW","default_warehouse_id":null,"warehouse_name":null,"safety_stock":"0.0000","costing_method":"MOVING_AVG","inventory_account_id":null,"tax_rate":"0.0000","standard_price":null,"status":1,"serial_required":false,"remark":null,"created_at":"2026-11-08T19:06:18.602451Z","updated_at":"2026-11-09T11:38:22.208368Z"},{"id":"d2030100-0000-4000-8000-000000000011","material_code":"DC13-M1","material_name":"DC13 螺丝","spec":null,"unit_id":"d2030100-0000-4000-8000-000000000001","unit_name":"个","material_type":"RAW","default_warehouse_id":null,"warehouse_name":null,"safety_stock":"0.0000","costing_method":"MOVING_AVG","inventory_account_id":null,"tax_rate":"0.0000","
+===== 11) ④ 序列号批量生成：不带 unit_cost → 400 + 10001 =====
+batch(不带 unit_cost) HTTP=400 body={"code":10001,"msg":"unit_cost 必填：批量生成按「期初/其他入库」记账，必须录成本单价（不含税）"}
+===== 12) 断言 =====
+PASS ①详情 unit_id 非空
+PASS ①详情 unit_name 已返回（约定 13） :: '套'
+PASS ①详情 warehouse_name 已返回（约定 13） :: '总仓（种子）'
+PASS ①详情两个键都存在
+PASS ②详情(无仓库) unit_name 仍有 :: '个'
+PASS ②详情(无仓库) warehouse_name 键在且 null :: None
+PASS ②详情(无仓库) default_warehouse_id null
+PASS ③page_size=1 返回 1 行 :: 1
+PASS ③page_size=20 返回多行 :: 20
+PASS ③page_size=1 每行都有两个名字键
+PASS ③page_size=1 每行 unit_name 都有值
+PASS ③page_size=1 有默认仓库的行 warehouse_name 也有值
+PASS ③page_size=20 每行都有两个名字键
+PASS ③page_size=20 每行 unit_name 都有值
+PASS ③page_size=20 有默认仓库的行 warehouse_name 也有值
+PASS ④批量生成不带 unit_cost → 10001 :: 10001
+PASS ④报文点名 unit_cost 必填 :: unit_cost 必填：批量生成按「期初/其他入库」记账，必须录成本单价（不含税）
+OVERALL=PASS
+===== 13) SQL 条数对比（无 N+1 的判据）=====
+detail(有仓库)=3 detail(无仓库)=3 page1=4 page20=4
+PASS 分页 SQL 条数与行数无关（page_size=1 与 20 相等，且 <= 4 条/请求）
+NO_N1_OVERALL=PASS
+===== 14) 收工：杀实例 + RESET log_statement =====
+log_statement 已 RESET
+SRV_KILLED=1408859
+SERVER_ERRORS=0

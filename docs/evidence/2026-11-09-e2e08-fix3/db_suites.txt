@@ -1,0 +1,129 @@
+===== business::erp::model::tests =====
+    Finished `test` profile [unoptimized] target(s) in 0.54s
+     Running unittests src/lib.rs (/root/cp-fix3-target/debug/deps/cloudpivot-930b19506cfabac2)
+
+running 29 tests
+test business::erp::model::tests::account_row_maps_direction_and_leaf ... ok
+test business::erp::model::tests::decimal_12345_6789_roundtrips_without_loss ... ok
+test business::erp::model::tests::inventory_balance_consistency_rules ... ok
+test business::erp::model::tests::inventory_location_row_maps_qty_per_location ... ok
+test business::erp::model::tests::inventory_row_maps_avg_cost ... ok
+test business::erp::model::tests::inventory_two_level_ledger_is_consistent ... ok
+test business::erp::model::tests::inventory_txn_row_maps_direction_and_qty ... ok
+test business::erp::model::tests::list_pages_respect_filters ... ok
+test business::erp::model::tests::location_row_maps_warehouse_and_default ... ok
+test business::erp::model::tests::material_columns_named_matches_plain ... ok
+test business::erp::model::tests::material_named_pages_and_detail_carry_names ... ok
+test business::erp::model::tests::material_page_filters_and_pages ... ok
+test business::erp::model::tests::material_page_serial_required_filter_tracks_column_existence ... ok
+test business::erp::model::tests::material_row_maps_type_and_tax ... ok
+test business::erp::model::tests::material_select_named_is_single_roundtrip ... ok
+test business::erp::model::tests::normalize_page_clamps_bounds ... ok
+test business::erp::model::tests::path_prefix_upper_bounds_the_subtree ... ok
+test business::erp::model::tests::period_row_maps_code_and_status ... ok
+test business::erp::model::tests::purchase_order_item_page_keyword_matches_no_code_and_name ... ok
+test business::erp::model::tests::purchase_order_item_row_maps_qty_and_received ... ok
+test business::erp::model::tests::purchase_order_row_maps_amounts_and_currency ... ok
+test business::erp::model::tests::seq_row_maps_current_no_and_step ... ok
+test business::erp::model::tests::supplier_row_maps_credit_limit ... ok
+test business::erp::model::tests::unit_row_maps_key_field ... ok
+test business::erp::model::tests::warehouse_child_counts_and_children ... ok
+test business::erp::model::tests::warehouse_row_maps_level_and_path ... ok
+test business::erp::model::tests::warehouse_subtree_excludes_sibling_root ... ok
+test business::erp::model::tests::warehouse_tree_returns_three_levels_in_path_order ... ok
+test business::erp::model::tests::zz_teardown_purges_fixture_accounts ... ok
+
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 3961 filtered out; finished in 12.79s
+
+RC_business::erp::model::tests=0
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 3961 filtered out; finished in 12.79s
+===== business::erp::dto::tests =====
+    Finished `test` profile [unoptimized] target(s) in 0.11s
+     Running unittests src/lib.rs (/root/cp-fix3-target/debug/deps/cloudpivot-930b19506cfabac2)
+
+running 19 tests
+test business::erp::dto::tests::decimal_json_roundtrip_keeps_scale ... ok
+test business::erp::dto::tests::filters_have_sane_defaults ... ok
+test business::erp::dto::tests::material_res_carries_joined_names ... ok
+test business::erp::dto::tests::material_standard_price_json_is_three_state ... ok
+test business::erp::dto::tests::material_standard_price_must_be_positive ... ok
+test business::erp::dto::tests::material_types_cover_seven_categories ... ok
+test business::erp::dto::tests::purchase_order_item_amounts_are_consistent ... ok
+test business::erp::dto::tests::purchase_order_item_filter_keyword_is_optional ... ok
+test business::erp::dto::tests::unit_precision_bounds ... ok
+test business::erp::dto::tests::update_absent_means_unchanged ... ok
+test business::erp::dto::tests::validate_costing_method_only_moving_avg ... ok
+test business::erp::dto::tests::validate_period_bounds_and_code ... ok
+test business::erp::dto::tests::validate_rejects_blank_code ... ok
+test business::erp::dto::tests::validate_rejects_negative_qty ... ok
+test business::erp::dto::tests::validate_rejects_overlong_name ... ok
+test business::erp::dto::tests::validate_rejects_unknown_enum_values ... ok
+test business::erp::dto::tests::validate_txn_direction_and_qty ... ok
+test business::erp::dto::tests::validate_unit_base_consistency ... ok
+test business::erp::dto::tests::validate_warehouse_level_consistency ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 3971 filtered out; finished in 0.01s
+
+RC_business::erp::dto::tests=0
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 3971 filtered out; finished in 0.01s
+===== business::erp::handler::tests =====
+    Finished `test` profile [unoptimized] target(s) in 0.12s
+     Running unittests src/lib.rs (/root/cp-fix3-target/debug/deps/cloudpivot-930b19506cfabac2)
+
+running 51 tests
+test business::erp::handler::tests::deletes_are_soft ... ok
+test business::erp::handler::tests::duplicate_key_maps_to_conflict_code ... ok
+test business::erp::handler::tests::flags_map_to_smallint ... ok
+test business::erp::handler::tests::invalid_uuid_is_rejected ... ok
+test business::erp::handler::tests::location_create_and_list_by_warehouse ... ok
+test business::erp::handler::tests::location_default_is_exclusive ... ok
+test business::erp::handler::tests::material_auto_code_generated_when_blank ... ok
+test business::erp::handler::tests::material_auto_code_increments_consecutively ... ok
+test business::erp::handler::tests::material_duplicate_code_rejected_with_message ... ok
+test business::erp::handler::tests::material_manual_code_is_preserved ... ok
+test business::erp::handler::tests::material_preview_code_does_not_consume_sequence ... ok
+test business::erp::handler::tests::material_previewed_code_is_used_verbatim_on_create ... ok
+test business::erp::handler::tests::material_reference_search_and_soft_delete ... ok
+test business::erp::handler::tests::material_standard_price_feeds_price_resolve ... ok
+test business::erp::handler::tests::material_unit_must_be_base ... ok
+test business::erp::handler::tests::nullable_params_use_text_literal ... ok
+test business::erp::handler::tests::page_args_are_normalized ... ok
+test business::erp::handler::tests::permissions_are_complete_and_unique ... ok
+test business::erp::handler::tests::readonly_detail_returns_404 ... ok
+test business::erp::handler::tests::readonly_ledgers_are_pageable ... ok
+test business::erp::handler::tests::special_routes_are_distinct ... ok
+test business::erp::handler::tests::subtree_root_with_invisible_parent_is_promoted ... ok
+test business::erp::handler::tests::supplier_auto_code_generated_when_blank ... ok
+test business::erp::handler::tests::supplier_auto_code_increments_consecutively ... ok
+test business::erp::handler::tests::supplier_crud_cycle ... ok
+test business::erp::handler::tests::supplier_duplicate_code_rejected_with_message ... ok
+test business::erp::handler::tests::supplier_manual_code_is_preserved ... ok
+test business::erp::handler::tests::supplier_preview_code_does_not_consume_sequence ... ok
+test business::erp::handler::tests::supplier_previewed_code_is_used_verbatim_on_create ... ok
+test business::erp::handler::tests::system_unit_cannot_be_deleted_but_can_be_disabled ... ok
+test business::erp::handler::tests::unit_create_then_detail_and_page ... ok
+test business::erp::handler::tests::unit_create_without_code_is_400_with_human_message ... ok
+test business::erp::handler::tests::unit_duplicate_code_conflicts ... ok
+test business::erp::handler::tests::unit_next_code_is_explicit_400 ... ok
+test business::erp::handler::tests::unit_precision_round_trip_and_rejects_overflow ... ok
+test business::erp::handler::tests::unit_soft_delete_hides_row ... ok
+test business::erp::handler::tests::unit_update_applies_patch_semantics ... ok
+test business::erp::handler::tests::warehouse_auto_code_generated_when_blank ... ok
+test business::erp::handler::tests::warehouse_auto_code_increments_consecutively ... ok
+test business::erp::handler::tests::warehouse_create_root_builds_path ... ok
+test business::erp::handler::tests::warehouse_delete_guards_children ... ok
+test business::erp::handler::tests::warehouse_duplicate_code_rejected_with_message ... ok
+test business::erp::handler::tests::warehouse_level_is_derived_from_parent ... ok
+test business::erp::handler::tests::warehouse_manual_code_is_preserved ... ok
+test business::erp::handler::tests::warehouse_page_combines_keyword_and_page_size ... ok
+test business::erp::handler::tests::warehouse_path_is_materialized ... ok
+test business::erp::handler::tests::warehouse_preview_code_does_not_consume_sequence ... ok
+test business::erp::handler::tests::warehouse_previewed_code_is_used_verbatim_on_create ... ok
+test business::erp::handler::tests::warehouse_three_levels_and_limit ... ok
+test business::erp::handler::tests::warehouse_tree_assembles_three_levels ... ok
+test business::erp::handler::tests::warehouse_tree_returns_all_levels ... ok
+
+test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 3939 filtered out; finished in 14.65s
+
+RC_business::erp::handler::tests=0
+test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 3939 filtered out; finished in 14.65s

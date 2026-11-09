@@ -736,7 +736,9 @@ async fn material_named_pages_and_detail_carry_names() {
 
     // DTO 出口（`MaterialRes`）必须把名字带出去，而不是只躺在 model 层
     let res = MaterialRes::from(&detail);
-    assert_eq!(res.unit_id, uuid(M_RAW_ID).to_string());
+    // id 与名字成对：`unit_id` 是**单位** id（W1B-PCS），不是物料 id
+    assert_eq!(res.unit_id, detail.material.unit_id.to_string());
+    assert_eq!(res.unit_id, uuid(U_ID).to_string(), "unit_id 必须指向 W1B-PCS 单位");
     assert_eq!(res.unit_name.as_deref(), Some("个"));
     assert_eq!(res.warehouse_name.as_deref(), Some("W1B 库房"));
     let list: Vec<MaterialRes> = rows.iter().map(MaterialRes::from).collect();

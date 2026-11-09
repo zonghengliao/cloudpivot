@@ -1,0 +1,5 @@
+   Compiling nik-db v0.4.2 (/root/cp-fix3-2119/backend/vendor/nik-db)
+    Checking nik-web v0.4.2 (/root/cp-fix3-2119/backend/vendor/nik-web)
+    Checking nik v0.4.2 (/root/cp-fix3-2119/backend/vendor/nik)
+    Checking cloudpivot v0.1.0 (/root/cp-fix3-2119/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 43.20s
