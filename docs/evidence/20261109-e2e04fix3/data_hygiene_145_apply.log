@@ -1,0 +1,48 @@
+
+==============================================================
+
+E2E04-FIX-3 ③ 税率标度残留（tax_rate ∈ (0,1] 且 tax_rate_mode 为空）
+
+==============================================================
+残留行数：10
+W1B-M-001 | W1B 螺栓 | tax_rate=0.1300 | mode=<NULL> | created=2026-11-09
+W1B-M-002 | W1B 半成品 | tax_rate=0.1300 | mode=<NULL> | created=2026-11-09
+W1B-M-003 | W1B 成品 | tax_rate=0.1300 | mode=<NULL> | created=2026-11-09
+W2B-M-PLAIN | W2B 按数量物料 | tax_rate=0.1300 | mode=<NULL> | created=2026-11-09
+W2B-M-SN | W2B 一物一码物料 | tax_rate=0.1300 | mode=<NULL> | created=2026-11-09
+W2C1-M-PLAIN | W2C1 按数量物料 | tax_rate=0.1300 | mode=<NULL> | created=2026-11-09
+W2C1-M-SN | W2C1 一物一码物料 | tax_rate=0.1300 | mode=<NULL> | created=2026-11-09
+W2C2-M-PLAIN | W2C2 按数量物料 | tax_rate=0.1300 | mode=<NULL> | created=2026-11-09
+W2C2-M-RT | W2C2 反向巡检物料 | tax_rate=0.1300 | mode=<NULL> | created=2026-11-09
+W2C2-M-SN | W2C2 巡检一物一码物料 | tax_rate=0.1300 | mode=<NULL> | created=2026-11-09
+
+→ --fix：按 LEGACY 既有语义 ×100 并落 tax_rate_mode='PERCENT'
+W2B-M-SN → 13.0000/PERCENT
+W2B-M-PLAIN → 13.0000/PERCENT
+W2C1-M-SN → 13.0000/PERCENT
+W2C1-M-PLAIN → 13.0000/PERCENT
+W2C2-M-SN → 13.0000/PERCENT
+W2C2-M-RT → 13.0000/PERCENT
+W2C2-M-PLAIN → 13.0000/PERCENT
+W1B-M-001 → 13.0000/PERCENT
+W1B-M-002 → 13.0000/PERCENT
+W1B-M-003 → 13.0000/PERCENT
+残留行数（归一后）：0
+✓ ③ 税率标度残留 0 行
+  附：biz_invoice 同判据残留 = 0 行（本脚本不改发票：口径同 ③，若 >0 请先查来源）
+
+==============================================================
+
+E2E04-FIX-3 ④ 已记账（POSTED）却零分录的凭证
+
+==============================================================
+裸头凭证数：0
+
+→ --fix：按点名清单删（只删仍满足「POSTED 且零分录」的行，不级联到任何单据）
+  · P2C2-V-0001：当前不满足「POSTED 且零分录」（已删过 / 状态变了），跳过
+裸头凭证数（清理后）：0
+✓ ④ 已记账无分录凭证 0 行
+
+==============================================================
+结论：③④ 两项均 0 残留
+EXIT=0
