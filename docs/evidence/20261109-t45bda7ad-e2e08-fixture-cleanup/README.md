@@ -71,6 +71,9 @@
 
 ## 4. 验收：145 上连跑 3 次（真实 HTTP，非 mock）
 
+> 代码状态：145 工作树 `git log -1` = `8e16457b`（含本卡提交 `72444dc0`），
+> 清场脚本与提交逐字节一致（`git hash-object scripts/verify/e2e08_master_common.sh` = `b0bd230e…`）。
+
 命令：`bash scripts/verify/e2e08_reset.sh` → 三轮 `e2e08_master_b.sh` + `e2e08_cleanup.sh`（原始输出 `raw-145/after_3runs.txt`）
 
 | 轮次 | b 脚本断言 | 清场前 | 清场自检 | 清场后 |
