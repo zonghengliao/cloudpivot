@@ -1,0 +1,15 @@
+===== 44) 新建 → 冲减 → 确认 → 送审
+  RR-20261110-000003 (01a1c19c-98a9-7335-a7e8-fa3d1da4c863)
+{"code":0,"alloc":"100.0000"}
+{"code":0,"status":"CONFIRMED"}
+{"code":0,"approval_status":"PENDING","instance":"01a1c19c-98da-71e0-8fc0-cbf4e106adfa","no":"FLW-20261109-0CAC5CBA"}
+
+===== 45) 撤回（POST /business/flow/instance/{id}/withdraw）
+{"code":0,"msg":"ok"}
+
+===== 46) 撤回后的详情：实例 WITHDRAWN、单据仍是 CONFIRMED、账没动
+{"status":"CONFIRMED","status_label":"已确认","voucher_no":"","approval":{"instance_id":"01a1c19c-98da-71e0-8fc0-cbf4e106adfa","instance_no":"FLW-20261109-0CAC5CBA","status":"WITHDRAWN","pending_tasks":0}}
+  应收（应仍是已收 600，撤回不改账）: {"received":"500.0000","status":"PARTIAL"}
+
+===== 47) 撤回后可再送审（WITHDRAWN 不是 PENDING，前端 canSubmitApproval 会重新点亮）
+{"code":0,"approval_status":"PENDING","no":"FLW-20261109-56CC044E"}

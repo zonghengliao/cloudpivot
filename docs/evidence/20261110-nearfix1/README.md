@@ -111,6 +111,15 @@ $ SYS_DB_URL=…/nearfix2 cargo test --lib system::menu::tests::n08 -- --nocaptu
 38) 不给 method（可选列→NULL）建单：{"code":0,"no":"RR-20261110-000002","method":null,"method_label":"未指定"}
 39) 作废：原因 2 字 → 400；足字 → {"status":"CANCELLED"}；再作废 → {"code":10003,"msg":"…已经是「已作废」，没有状态变化"}
 40) 已过账再作废 → {"code":10003,"msg":"…不能从「已过账」变成「已作废」：合法去向是 （终态，没有去向）"}
+44) 撤回链路（前端「撤回」按钮）：
+    新建 RR-20261110-000003 → 冲减 100 → 确认 → 送审
+    {"approval_status":"PENDING","no":"FLW-20261109-0CAC5CBA"}
+    POST /business/flow/instance/{id}/withdraw → {"code":0,"msg":"ok"}
+    撤回后详情：{"status":"CONFIRMED","voucher_no":"","approval":{"status":"WITHDRAWN","pending_tasks":0}}
+    ⇒ 撤回只撤审批，**不推进单据状态、不生成凭证**；此前已做的冲减仍生效
+      （应收已收 600 → 500 是那张冲减 100 的结果，不是撤回来的）
+47) 撤回后再送审 → {"approval_status":"PENDING","no":"FLW-20261109-56CC044E"}
+    ⇒ 与前端 `canSubmitApproval`（`approval_status !== 'PENDING'` 才亮）口径一致
 ```
 
 前置链路（收款单侧，同一实例）：客户 → 手工挂账 1000 → 收款单 1000 → 核销到应收 →
@@ -118,7 +127,35 @@ $ SYS_DB_URL=…/nearfix2 cargo test --lib system::menu::tests::n08 -- --nocaptu
 `PZ-20261110-000001` → 应收 1000 / SETTLED。**退款单的「来源收款单」要求 POSTED**，
 所以这条前置链必须真跑一遍，不能跳过。
 
-### 4.4 静/动检查
+### 4.4 145（真实 dev 环境）落地情况
+
+```
+$ ssh 145 'cd /opt/cloudpivot && git pull --ff-only origin main'   → 5f8a1596
+$ ssh 145 'export PATH=/root/.cargo/bin:$PATH && cd backend && cargo build'
+Finished `dev` profile … in 1m 15s
+
+# 迁移直接落到 145 的真库 cloudpivot_dev（幂等脚本，up.sql 可重放）
+NOTICE:  V0368 §1 完成：收款退款单页已开（… 本次改 0 行 / §2 本次改 1 行）
+NOTICE:  V0368：ck_biz_doc_attachment_type 已放宽到 17 值
+NOTICE:  V0368 完成：收款退款单 / 取价查询两页已开，全库无空 path 页面菜单，附件类型 17 值
+
+$ ssh 145 'bash scripts/verify/menu_invariants.sh cloudpivot_dev'
+① 0 ✅ ② 0 ✅ ③ 0 ✅ ④ 0 ✅ ⑤ 433 ✅ ⑥ 0 ✅ ⑦ 0 ✅ ⑧ 0 ✅   结果: 全绿 ✅
+
+# 两个新路由在 145 的常驻实例上确实挂载（401=路由在但没带 token；不存在的路由给 404 做对照）
+/api/business/erp/receipt-refund/page                       → 401
+/api/business/erp/price/resolve?material_id=…&qty=1        → 401
+/api/business/erp/__no_such_route                           → 404
+```
+
+⚠ **145 的常驻进程还没重启**：`systemctl restart cloudpivot-test` 在本会话被危险命令闸门
+拦下（无人在场，不允许重启系统服务）。当前进程启动于 02:30:04，而新二进制是 02:39:44
+⇒ **库侧（菜单 / 附件 CHECK）已经生效，二进制侧（`source_receipt_no` 字段、
+`attachment::model::DocKind` 的 17 值解析）要等一次 `systemctl restart cloudpivot-test` 才生效**。
+在重启之前，145 上「退款凭据」上传仍会被旧进程按 16 值拒掉（99 的新二进制已验通，见 §4.3 第 35 项）。
+这一步留给有系统权限的人执行，一条命令。
+
+### 4.5 静/动检查
 
 ```
 backend:  cargo check --lib ✓   cargo clippy --lib -- -D warnings ✓   cargo fmt ✓
@@ -151,7 +188,8 @@ su - postgres -c "psql -c 'create database nearfix2 owner alun'"
 # 2) 起实例（三把密钥 + 初始 admin 口令都要给）
 source <本目录同源的 env2.sh>   # NIK_PROFILE=test / :8099 / nearfix2 / NIK_ADMIN_PASSWORD
 ./backend/target/debug/cloudpivot
-# 3) 依次跑 step1.sh → step2.sh → step3.sh → step4.sh → step5.sh
+# 3) 依次跑 step1.sh → step2.sh → step3.sh → step4.sh → step5.sh → step6.sh
+#    （step3 起 token 会 15 分钟过期，重跑前先重新登录刷新 token.txt）
 ```
 
 ⚠ `profile=dev` 会被缓存安全守卫拒绝启动（`[cache] type = "local"` 必须为 redis，
