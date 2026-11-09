@@ -1,0 +1,27 @@
+# 144 巡检：告警 → 恢复 的完整生命周期（cron 驱动）+ 顺带发现
+2026-11-10T03:25:25+08:00
+
+=== 1) 03:18 告警时看到的最近一次巡检（11-09 10:20 的 FAIL，1 个 BLOCKER）===
+run_at=2026-11-09 10:20:00+08 | SCHEDULED | FAIL | total=79 passed=77 failed=2 blockers=1 warns=1
+H6 明细：V0331__purchase_requisition.up.sql:239 / V0332__purchase_return.up.sql:269 预置流程种子漏写 is_system
+
+=== 2) 03:23:15 有人手动跑了一次巡检，结果已经 OK（80 项全过）===
+run_at|trigger_type|status|total|passed|failed|blockers|warns
+2026-11-10 03:23:15.062032+08|MANUAL|OK|80|80|0|0|0
+2026-11-09 10:20:00.002927+08|SCHEDULED|FAIL|79|77|2|1|1
+(2 rows)
+
+=== 3) 03:25 cron 到点：判 OK → 打 RECOVERED 并清掉去重状态（下次再犯立刻报）===
+[2026-11-10T03:23:18+08:00] RECOVERED host=144             check=invariant     OK | 告警解除
+--- 去重状态目录（已被清空 = 没有未恢复告警）---
+0
+--- 03:25 cron 日志尾部 ---
+[2026-11-10T03:25:01+08:00] secret_expiry: INFO — 没有可检查的证书（当前部署是 HTTP（nginx 无 ssl_certificate）；JWT/存储主密钥是对称密钥，无有效期，靠轮换流程管理）
+[2026-11-10T03:25:02+08:00] backlog: 数据源 = sys_import_task+sys_export_task（psql 只读）
+[2026-11-10T03:25:02+08:00] backlog: OK — 导入导出无积压
+[2026-11-10T03:25:02+08:00] === 巡检结束：无告警（0 项）===
+
+=== 4) 仍未解决的真问题：11-10 02:20 的定时巡检没有运行 ===
+02:00-02:40 窗口内 invariant 日志行数=0
+（cron 表达式 0 20 2 * * * 已排程，但那一刻既无运行日志也无落库行；
+  告警脚本的 36h 过期判据会在 11-11 早上把它报成「账务巡检已 XX 小时没跑」）

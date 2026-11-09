@@ -12,7 +12,7 @@
 | ② `curl /metrics` ≥ 20 个指标名 | ✅ **26** 个（采样器生效前 10 个） | `01_metrics_names_145.txt`、`02_metrics_gauges_145.txt` |
 | ③ `scripts/ops/alert_check.sh` 6 类检查都能跑 | ✅ `--self-test` **34/34**（144 与 145 各一遍） | `03_self_test_144_145.txt` |
 | ④ kanban 告警卡能建（实测造异常） | ✅ 真卡 `t_cfc10bad`（144 真实 BLOCKER）+ 演练卡 `t_6e586657`（造 /health 连不上，已归档） | `05_alert_real_144.txt`、`07_kanban_card_145_demo_dedup.txt` |
-| ⑤ `ALERT.log` 有记录 | ✅ 144 / 145 都有 | `08_ALERT_log_144_145.txt` |
+| ⑤ `ALERT.log` 有记录 | ✅ 144 / 145 都有，且含 **RECOVERED**（告警恢复也落日志） | `08_ALERT_log_144_145.txt`、`11_144_invariant_lifecycle.txt` |
 | ⑥ 去重生效（同异常 5 分钟内只 1 张卡） | ✅ 第二次实跑输出「去重窗口内已告警过，本次抑制」，ALERT.log 行数不变；`--self-test` 端到端用例 3 条 | `07_...txt`、`03_...txt` |
 | ⑦ cron 已装（144 + 145） | ✅ 两台 `*/5 * * * *`，**真跑过**（cron 最小环境实测） | `04_cron_144_145.txt`、`09_cron_runs.txt` |
 | ⑧ push | ✅ `de325030` → `58e48d11` 已推 origin/main | `git log` |
@@ -37,6 +37,11 @@
 - `08_ALERT_log_144_145.txt` —— 两台 `ALERT.log` 与去重状态文件。
 - `09_cron_runs.txt` —— cron 到点后的实际日志（证明 cron 的最小环境里脚本能跑：PATH 缺东西会立刻炸）。
 - `10_metrics_config.txt` —— 各 profile 的 `[metrics]` 段现状（144 prod/test、145 dev/test）。
+- `11_144_invariant_lifecycle.txt` —— **告警 → 恢复 的完整生命周期**（真数据）：
+  03:18 建卡时最近一次巡检是 11-09 10:20 的 FAIL（1 个 BLOCKER，H6 种子漏写 `is_system`）；
+  03:23:15 有人手动跑了一次巡检，80 项全过；03:25 前后 cron 判定 OK → `ALERT.log` 写
+  **RECOVERED** 并清掉去重状态（下次再犯立刻报）。同一份文件里还记了仍未解决的真问题：
+  11-10 02:20 的定时巡检没有运行（02:00–02:40 窗口内 0 条 invariant 日志）。
 
 ## 三、诚实说明（哪些行不要当真）
 
@@ -54,12 +59,14 @@
 5. 145 的 base 实例（8024，库 `cloudpivot_base`）**没有 `sys_invariant_result` 表**
    （该库没跑 V0235 巡检迁移），所以两项显示 `INFO 查不到`。这是如实上报，不是绿。
 
-## 四、顺带发现（不在本卡范围，已建卡/待跟进）
+## 四、顺带发现（不在本卡范围）
 
-- **144 生产巡检有 1 个 BLOCKER**：`sys_invariant_result` 2026-11-09 10:20 的 FAIL（H6，2 处种子漏写
-  `is_system`；H5 另有一条 WARN）→ 已由本次接入自动建卡 `t_cfc10bad`（assignee=laoliu）。
-- **144 的每日巡检 2026-11-10 02:20 没有落新行**（最近一行还停在 11-09 10:20，约 17 小时前）。
-  巡检任务「没跑」和「跑挂」都会被 `invariant` 的 36h 过期判据在明天早上抓到；
-  但根因（cron 没触发 / 脚本没跑成 / 落库失败）需要人看 `sys_job_log` 与后端日志。
+- **144 生产巡检在 11-09 10:20 有 1 个 BLOCKER**（H6：V0331/V0332 预置流程种子漏写 `is_system`；
+  H5 另有一条 WARN）→ 本次接入据此自动建卡 `t_cfc10bad`（assignee=laoliu）。
+  **但 11-10 03:23:15 的手动巡检已经 80/80 全过**，说明这条 BLOCKER 期间已被别人修掉；
+  cron 在 03:25 判定 OK 并写了 RECOVERED。卡里留了说明，别再去追一个已修的问题。
+- **仍未解决**：144 的每日巡检 `0 20 2 * * *` 在 11-10 02:20 **没有运行**（既无日志也无落库行；
+  11-09 的 02:20 同样缺失，唯一一条 SCHEDULED 行落在 10:20）。「没跑」和「跑挂」都会被
+  `invariant` 的 36h 过期判据在 11-11 早上抓出来，但根因（调度器 / 脚本 / 落库）要人看。
 - **99（本机）根盘 98%**：`alert_check.sh` 在 99 上跑会直接报磁盘 ALERT（阈值 85%）。
-  99 未装 cron，这条只是提醒——真满了 worker 会先炸（`disk_guard.sh` 阈值是 75%）。
+  99 未装 cron，这条只是提醒 —— 真满了 worker 会先炸（`disk_guard.sh` 阈值 75%）。
