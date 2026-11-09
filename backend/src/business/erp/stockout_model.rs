@@ -906,26 +906,63 @@ pub async fn deduct_location_qty(
     inventory_writer::deduct_location_qty(ex, location_row_id, qty, now).await
 }
 
+/// [`write_txn`] 的入参（`ex` 之外的 14 项）。
+///
+/// 一条出库流水（`OUT`）需要的全部事实：哪条明细 / 哪个仓 / 指向哪张单 / 业务类型 /
+/// 扣减前后的库存三值 / 计价 / 操作人 / 时间。
+#[derive(Debug, Clone, Copy)]
+pub struct StockOutTxnInput<'a> {
+    /// 出库明细行（提供 `material_id` / `line_no` / `qty`）。
+    pub item: &'a StockOutItemRow,
+    /// 仓库主键。
+    pub warehouse_id: Uuid,
+    /// 单据主键。
+    pub doc_id: Uuid,
+    /// 单据号（流水上留可读号）。
+    pub doc_no: &'a str,
+    /// 业务类型（`SALE_OUT` / `OTHER_OUT` / …，落 `biz_type`，作废闸按它认流水）。
+    pub biz_type: &'a str,
+    /// 扣减前的库存数量。
+    pub before_qty: Decimal,
+    /// 扣减前的库存金额。
+    pub before_amount: Decimal,
+    /// 扣减前的移动加权均价。
+    pub before_cost: Decimal,
+    /// 扣减后的库存数量。
+    pub after_qty: Decimal,
+    /// 扣减后的库存金额。
+    pub after_amount: Decimal,
+    /// 扣减后的移动加权均价。
+    pub after_cost: Decimal,
+    /// 本次出库的计价单价（落流水 `unit_cost`）。
+    pub unit_cost: Decimal,
+    /// 本次出库的成本金额（落流水 `amount`）。
+    pub amount: Decimal,
+    /// 操作人（落 `create_by`；`None` = 系统 / 测试）。
+    pub operator: Option<Uuid>,
+    /// 业务时间（落 `txn_date` / `created_at`）。
+    pub now: DateTime<Utc>,
+}
+
 /// 写一条出库流水（`txn_type='OUT'`，数量与金额恒正，方向看 `txn_type`）。
-#[allow(clippy::too_many_arguments)]
-pub async fn write_txn(
-    ex: &impl SqlExecutor,
-    item: &StockOutItemRow,
-    warehouse_id: Uuid,
-    doc_id: Uuid,
-    doc_no: &str,
-    biz_type: &str,
-    before_qty: Decimal,
-    before_amount: Decimal,
-    before_cost: Decimal,
-    after_qty: Decimal,
-    after_amount: Decimal,
-    after_cost: Decimal,
-    unit_cost: Decimal,
-    amount: Decimal,
-    operator: Option<Uuid>,
-    now: DateTime<Utc>,
-) -> DbResult<()> {
+pub async fn write_txn(ex: &impl SqlExecutor, input: StockOutTxnInput<'_>) -> DbResult<()> {
+    let StockOutTxnInput {
+        item,
+        warehouse_id,
+        doc_id,
+        doc_no,
+        biz_type,
+        before_qty,
+        before_amount,
+        before_cost,
+        after_qty,
+        after_amount,
+        after_cost,
+        unit_cost,
+        amount,
+        operator,
+        now,
+    } = input;
     // P2-5A：流水 SQL 收口到 [`inventory_writer::insert_txn`]。
     inventory_writer::insert_txn(
         ex,
@@ -998,26 +1035,57 @@ pub async fn restore_location_qty(
     inventory_writer::restore_location_qty(ex, material_id, warehouse_id, location_id, qty, now).await
 }
 
+/// [`write_cancel_txn`] 的入参（`ex` 之外的 12 项）。
+///
+/// 冲销流水不需要 `biz_type` / 计价（单价与金额取明细上的过账快照）：
+/// 方向、业务类型、成本都已被「作废」这一件事定死，调用方只负责给对 before/after。
+#[derive(Debug, Clone, Copy)]
+pub struct StockOutCancelTxnInput<'a> {
+    /// 出库明细行（提供 `material_id` / `line_no` / `qty` / 过账成本快照）。
+    pub item: &'a StockOutItemRow,
+    /// 仓库主键。
+    pub warehouse_id: Uuid,
+    /// 单据主键。
+    pub doc_id: Uuid,
+    /// 单据号（冲销流水摘要里带它）。
+    pub doc_no: &'a str,
+    /// 回加前的库存数量（作废前的账面）。
+    pub before_qty: Decimal,
+    /// 回加前的库存金额（作废前的账面）。
+    pub before_amount: Decimal,
+    /// 回加前的移动加权均价（作废前的账面）。
+    pub before_cost: Decimal,
+    /// 回加后的库存数量（回读的真实值）。
+    pub after_qty: Decimal,
+    /// 回加后的库存金额（回读的真实值）。
+    pub after_amount: Decimal,
+    /// 回加后的移动加权均价（回读的真实值）。
+    pub after_cost: Decimal,
+    /// 操作人（落 `create_by`；`None` = 系统 / 测试）。
+    pub operator: Option<Uuid>,
+    /// 业务时间（落 `txn_date` / `created_at`）。
+    pub now: DateTime<Utc>,
+}
+
 /// 写作废冲销流水（`txn_type='IN'` + `biz_type='STOCK_OUT_CANCEL'`）。
 ///
 /// 必须有这条：作废把数量加回账上，B4（流水累计 = 当前库存）靠它才平。
 /// 方向用 `IN`（`ck_biz_inv_txn_type` 只认 IN/OUT，且 `qty > 0` 禁负数）。
-#[allow(clippy::too_many_arguments)]
-pub async fn write_cancel_txn(
-    ex: &impl SqlExecutor,
-    item: &StockOutItemRow,
-    warehouse_id: Uuid,
-    doc_id: Uuid,
-    doc_no: &str,
-    before_qty: Decimal,
-    before_amount: Decimal,
-    before_cost: Decimal,
-    after_qty: Decimal,
-    after_amount: Decimal,
-    after_cost: Decimal,
-    operator: Option<Uuid>,
-    now: DateTime<Utc>,
-) -> DbResult<()> {
+pub async fn write_cancel_txn(ex: &impl SqlExecutor, input: StockOutCancelTxnInput<'_>) -> DbResult<()> {
+    let StockOutCancelTxnInput {
+        item,
+        warehouse_id,
+        doc_id,
+        doc_no,
+        before_qty,
+        before_amount,
+        before_cost,
+        after_qty,
+        after_amount,
+        after_cost,
+        operator,
+        now,
+    } = input;
     // P2-5A：流水 SQL 收口到 [`inventory_writer::insert_txn`]。
     let remark = format!("出库单作废冲销：{doc_no}");
     inventory_writer::insert_txn(

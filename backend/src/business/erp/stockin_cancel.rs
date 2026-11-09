@@ -239,7 +239,6 @@ pub async fn reverse_location_qty(
 /// 写一条**反向流水**：`txn_type='OUT'` + `biz_type='PURCHASE_IN_CANCEL'`。
 ///
 /// `before_*` / `after_*` 六个字段全部真填（审计要能从流水复原每一次冲减）。
-#[allow(clippy::too_many_arguments)]
 pub async fn write_cancel_txn(
     ex: &impl SqlExecutor,
     doc: &CancelDoc<'_>,

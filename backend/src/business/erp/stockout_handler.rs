@@ -702,21 +702,23 @@ async fn post_out_tx(
         // 流水（OUT，数量恒正；before/after 用回读的真实值）
         stock_out::write_txn(
             ex,
-            item,
-            header.warehouse_id,
-            id,
-            &header.out_no,
-            biz_type,
-            bucket.qty,
-            bucket.amount,
-            bucket.avg_cost,
-            applied.after_qty,
-            applied.after_amount,
-            applied.after_cost,
-            bucket.avg_cost,
-            applied.amount,
-            operator.id,
-            now,
+            stock_out::StockOutTxnInput {
+                item,
+                warehouse_id: header.warehouse_id,
+                doc_id: id,
+                doc_no: &header.out_no,
+                biz_type,
+                before_qty: bucket.qty,
+                before_amount: bucket.amount,
+                before_cost: bucket.avg_cost,
+                after_qty: applied.after_qty,
+                after_amount: applied.after_amount,
+                after_cost: applied.after_cost,
+                unit_cost: bucket.avg_cost,
+                amount: applied.amount,
+                operator: operator.id,
+                now,
+            },
         )
         .await
         .map_err(|error| write_error(error, "过账：写库存流水"))?;
@@ -1017,18 +1019,20 @@ async fn cancel_out_tx(
             .unwrap_or(before);
         stock_out::write_cancel_txn(
             ex,
-            item,
-            header.warehouse_id,
-            id,
-            &header.out_no,
-            before.qty,
-            before.amount,
-            before.avg_cost,
-            after.qty,
-            after.amount,
-            after.avg_cost,
-            operator.id,
-            now,
+            stock_out::StockOutCancelTxnInput {
+                item,
+                warehouse_id: header.warehouse_id,
+                doc_id: id,
+                doc_no: &header.out_no,
+                before_qty: before.qty,
+                before_amount: before.amount,
+                before_cost: before.avg_cost,
+                after_qty: after.qty,
+                after_amount: after.amount,
+                after_cost: after.avg_cost,
+                operator: operator.id,
+                now,
+            },
         )
         .await
         .map_err(|error| write_error(error, "作废：写冲销流水"))?;

@@ -1075,7 +1075,6 @@ fn step_failure(seq: u32, label: &str, error: ApiError) -> ApiError {
 }
 
 /// 采购单的联动作废（事务体）。
-#[allow(clippy::too_many_arguments)]
 pub(crate) async fn cascade_purchase_order_tx(
     tx: &Transaction,
     id: Uuid,

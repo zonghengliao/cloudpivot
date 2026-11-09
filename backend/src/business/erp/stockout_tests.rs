@@ -215,15 +215,17 @@ async fn seed_inbound(material_id: Uuid, warehouse_id: Uuid, qty: Decimal, unit_
         .expect("期初入库：库位账");
     crate::business::erp::stockin_model::write_txn(
         db(),
-        material_id,
-        warehouse_id,
-        1,
-        crate::business::erp::stockin_model::CostBasis::of(qty, amount),
-        &applied,
-        Uuid::now_v7(),
-        "SEED-IN",
-        None,
-        now,
+        crate::business::erp::stockin_model::StockInTxnInput {
+            material_id,
+            warehouse_id,
+            line_no: 1,
+            cost: crate::business::erp::stockin_model::CostBasis::of(qty, amount),
+            applied: &applied,
+            doc_id: Uuid::now_v7(),
+            doc_no: "SEED-IN",
+            operator: None,
+            now,
+        },
     )
     .await
     .expect("期初入库：流水");

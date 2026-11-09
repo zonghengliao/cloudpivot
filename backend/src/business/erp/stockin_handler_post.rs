@@ -422,15 +422,17 @@ pub async fn post_after_approval_with_reason(
         .map_err(|error| utils::db_error(error, "开启审批过账事务"))?;
     let outcome = post_in_tx(
         &tx,
-        id,
-        &row,
-        &ordered,
-        &serial_required,
-        &provided,
-        &op,
-        STATUS_PENDING_POST,
-        reason,
-        now,
+        PostInTxInput {
+            id,
+            header: &row,
+            ordered: &ordered,
+            serial_required: &serial_required,
+            provided: &provided,
+            operator: &op,
+            from_status: STATUS_PENDING_POST,
+            reason,
+            now,
+        },
         &mut linkage_outbox,
     )
     .await;
@@ -629,15 +631,17 @@ pub(super) async fn post_stock_in(
         .map_err(|error| utils::db_error(error, "开启过账事务"))?;
     let outcome = post_in_tx(
         &tx,
-        id,
-        header,
-        &ordered,
-        &serial_required,
-        &provided,
-        operator,
-        STATUS_DRAFT,
-        reason,
-        now,
+        PostInTxInput {
+            id,
+            header,
+            ordered: &ordered,
+            serial_required: &serial_required,
+            provided: &provided,
+            operator,
+            from_status: STATUS_DRAFT,
+            reason,
+            now,
+        },
         &mut linkage_outbox,
     )
     .await;
@@ -658,6 +662,32 @@ pub(super) async fn post_stock_in(
     }
 }
 
+/// [`post_in_tx`] 的入参（`ex` / `linkage_outbox` 之外的 9 项）。
+///
+/// 「过账一次」需要的全部事实：哪张单、哪批明细、要不要一物一码、已有的序列号、
+/// 谁在推、从哪个状态推、什么理由、什么时间。
+#[derive(Debug, Clone, Copy)]
+pub(super) struct PostInTxInput<'a> {
+    /// 收货入库单主键。
+    pub id: Uuid,
+    /// 锁好并校验过的单头（`in_no` / `warehouse_id` / `in_type` 都从这里取）。
+    pub header: &'a stockin_model::StockInRow,
+    /// 排好序的明细（按 `material_id` / `location_id` / `line_no` 升序，绝对锁顺序靠它）。
+    pub ordered: &'a [&'a stockin_model::StockInItemRow],
+    /// 明细物料是否强制一物一码（`material_id → 是否必填序列号`）。
+    pub serial_required: &'a HashMap<Uuid, bool>,
+    /// 调用方已提供的序列号（`line_no → 序列号列表`）。
+    pub provided: &'a HashMap<i32, Vec<String>>,
+    /// 操作人（状态机 / 变更日志 / 各表 `update_by` 都用它）。
+    pub operator: &'a state_machine::Operator,
+    /// 起始状态：`DRAFT` = 直接过账；`PENDING_POST` = 过账审批通过后执行。
+    pub from_status: &'a str,
+    /// 过账理由 / 审批意见（写进状态变更日志）。
+    pub reason: Option<&'a str>,
+    /// 业务时间（与变更日志 / 响应里的时间同源）。
+    pub now: DateTime<Utc>,
+}
+
 /// 过账事务体（抽出来便于「失败即回滚」的统一收口）。
 ///
 /// `from_status` 是**唯一**与入口相关的差别（P-FLOW-3A 加的）：
@@ -673,20 +703,22 @@ pub(super) async fn post_stock_in(
 /// 返回值是第 ⑧ 步「跨单据联动」的执行结果：`InTx` 动作已在事务里跑完，
 /// `deferred`（提交后动作，如发通知）必须由**调用方在 `commit` 之后**交给
 /// [`linkage::engine::run_deferred`]——那一步失败只记日志，不回滚已经落定的账。
-#[allow(clippy::too_many_arguments)]
 pub(super) async fn post_in_tx(
     ex: &impl SqlExecutor,
-    id: Uuid,
-    header: &stockin_model::StockInRow,
-    ordered: &[&stockin_model::StockInItemRow],
-    serial_required: &HashMap<Uuid, bool>,
-    provided: &HashMap<i32, Vec<String>>,
-    operator: &state_machine::Operator,
-    from_status: &str,
-    reason: Option<&str>,
-    now: DateTime<Utc>,
+    input: PostInTxInput<'_>,
     linkage_outbox: &mut crate::business::erp::purchase_model::LinkageOutbox,
 ) -> std::result::Result<linkage::LinkageRun, ApiError> {
+    let PostInTxInput {
+        id,
+        header,
+        ordered,
+        serial_required,
+        provided,
+        operator,
+        from_status,
+        reason,
+        now,
+    } = input;
     // ① 锁单头（并发重复过账在这里串行化）
     let locked = stockin_model::lock_stock_in(ex, id)
         .await
@@ -788,15 +820,17 @@ pub(super) async fn post_in_tx(
             .map_err(|error| write_error(error, "过账：库位账加法"))?;
         stockin_model::write_txn(
             ex,
-            item.material_id,
-            header.warehouse_id,
-            item.line_no,
-            cost,
-            &applied,
-            id,
-            &header.in_no,
-            operator.id,
-            now,
+            stockin_model::StockInTxnInput {
+                material_id: item.material_id,
+                warehouse_id: header.warehouse_id,
+                line_no: item.line_no,
+                cost,
+                applied: &applied,
+                doc_id: id,
+                doc_no: &header.in_no,
+                operator: operator.id,
+                now,
+            },
         )
         .await
         .map_err(|error| write_error(error, "过账：写库存流水"))?;

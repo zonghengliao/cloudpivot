@@ -569,20 +569,44 @@ pub async fn apply_location_qty(
     Ok(AppliedLocation { before_qty, after_qty })
 }
 
+/// [`write_txn`] 的入参（`ex` 之外的 9 项）。
+///
+/// 一条入库流水需要的事实：哪个物料 / 哪个仓 / 第几行 / 成本口径 / 回读快照 / 指向哪张单。
+#[derive(Debug, Clone, Copy)]
+pub struct StockInTxnInput<'a> {
+    /// 物料主键（流水按「物料 + 仓」落桶）。
+    pub material_id: Uuid,
+    /// 仓库主键。
+    pub warehouse_id: Uuid,
+    /// 单据行号（与明细 `line_no` 对齐）。
+    pub line_no: i32,
+    /// 本次入库的成本口径（数量 / 不含税金额 / 单价），见 [`CostBasis`]。
+    pub cost: CostBasis,
+    /// 成本账加法后的回读快照（`before` / `after` 直接落流水）。
+    pub applied: &'a AppliedInventory,
+    /// 单据主键。
+    pub doc_id: Uuid,
+    /// 单据号（流水上留可读号）。
+    pub doc_no: &'a str,
+    /// 操作人（落 `create_by`；`None` = 系统 / 测试）。
+    pub operator: Option<Uuid>,
+    /// 业务时间（落 `txn_date` / `created_at`）。
+    pub now: DateTime<Utc>,
+}
+
 /// 写一条 `IN` 流水（**只增不改**，`qty` 恒正、方向看 `txn_type`）。
-#[allow(clippy::too_many_arguments)]
-pub async fn write_txn(
-    ex: &impl SqlExecutor,
-    material_id: Uuid,
-    warehouse_id: Uuid,
-    line_no: i32,
-    cost: CostBasis,
-    applied: &AppliedInventory,
-    doc_id: Uuid,
-    doc_no: &str,
-    operator: Option<Uuid>,
-    now: DateTime<Utc>,
-) -> DbResult<()> {
+pub async fn write_txn(ex: &impl SqlExecutor, input: StockInTxnInput<'_>) -> DbResult<()> {
+    let StockInTxnInput {
+        material_id,
+        warehouse_id,
+        line_no,
+        cost,
+        applied,
+        doc_id,
+        doc_no,
+        operator,
+        now,
+    } = input;
     // P2-5A：流水 SQL 收口到 [`inventory_writer::insert_txn`]（22 列只写一份）。
     inventory_writer::insert_txn(
         ex,

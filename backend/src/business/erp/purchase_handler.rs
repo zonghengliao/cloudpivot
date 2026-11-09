@@ -1448,7 +1448,19 @@ async fn submit_po_approval(
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启采购审批事务"))?;
-    let outcome = submit_po_tx(&tx, row, operator, &start, credit, budget, now, &mut linkage_outbox).await;
+    let outcome = submit_po_tx(
+        &tx,
+        SubmitPoTxInput {
+            row,
+            operator,
+            start: &start,
+            credit,
+            budget,
+            now,
+        },
+        &mut linkage_outbox,
+    )
+    .await;
     let mut out = match outcome {
         Ok(out) => out,
         Err(error) => {
@@ -1487,18 +1499,40 @@ async fn submit_po_approval(
     Ok(())
 }
 
+/// [`submit_po_tx`] 的入参（`tx` / `linkage_outbox` 之外的 6 项）。
+///
+/// 一次「提交采购单进审批」需要的全部事实：哪张单、谁提的、起什么审批、
+/// 前置的信用与预算判定结果（表单快照要用）、什么时间。
+#[derive(Debug, Clone, Copy)]
+struct SubmitPoTxInput<'a> {
+    /// 采购订单行（已锁 / 已校验；`order_no` / `supplier_id` 等从它取）。
+    row: &'a PurchaseOrderRow,
+    /// 提交人（状态机 / 变更日志 / `submitted_by` 都用它）。
+    operator: &'a state_machine::Operator,
+    /// 审批引擎的启动请求（流程版本、表单数据、发起人都在里面）。
+    start: &'a engine::StartReq,
+    /// 信用判定结果（表单快照 `purchase_form_data` 要用）。
+    credit: &'a purchase_credit::CreditVerdict,
+    /// 预算判定结果（同上）。
+    budget: &'a budget_guard::PurchaseBudget,
+    /// 业务时间（与变更日志 / 响应里的时间同源）。
+    now: DateTime<Utc>,
+}
+
 /// [`submit_po_approval`] 的事务体：返回引擎动作结果（调用方提交后负责发锁外副作用）。
-#[allow(clippy::too_many_arguments)]
 async fn submit_po_tx(
     tx: &Transaction,
-    row: &PurchaseOrderRow,
-    operator: &state_machine::Operator,
-    start: &engine::StartReq,
-    credit: &purchase_credit::CreditVerdict,
-    budget: &budget_guard::PurchaseBudget,
-    now: DateTime<Utc>,
+    input: SubmitPoTxInput<'_>,
     linkage_outbox: &mut purchase_model::LinkageOutbox,
 ) -> std::result::Result<engine::ActionOut, ApiError> {
+    let SubmitPoTxInput {
+        row,
+        operator,
+        start,
+        credit,
+        budget,
+        now,
+    } = input;
     // ① 状态机唯一入口（边表 + 写 biz_status_log）
     state_machine::transition(
         tx,
