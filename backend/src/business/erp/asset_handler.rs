@@ -731,6 +731,21 @@ pub async fn asset_delete(
             row.asset_no, row.depreciation_months_done, row.accumulated_depreciation
         )));
     }
+    // **建卡即生成购入凭证**（`FIXED_ASSET_ACQ`，借 1601）：删卡片不会动那张凭证，
+    // 1601 余额与卡片台账从此永久差这笔原值，而且界面上没有任何入口能把它找回来。
+    // 所以「没计提到」不等于「能删」—— 有凭证就只能走处置，让账跟着凭证一起走。
+    if let Some(acq) =
+        crate::business::erp::voucher::find_voucher_by_source(db(), "FIXED_ASSET_ACQ", id)
+            .await
+            .map_err(|error| db_err(error, "查询购入凭证"))?
+    {
+        return Err(conflict(format!(
+            "资产 {} 已生成购入凭证 {}（借 1601 原值）：不能删。\
+             删了 1601 固定资产余额会永久多出这笔钱，且没有界面能冲回；\
+             建错请做处置（报废 / 盘亏）冲销",
+            row.asset_no, acq.voucher_no
+        )));
+    }
     if flow_model::biz_instance_running(asset_bridge::BIZ_TYPE, id)
         .await
         .map_err(|error| db_err(error, "查询在跑处置审批"))?
@@ -1516,7 +1531,7 @@ pub async fn dept_name_of(dept_id: Uuid) -> Result<String, ApiError> {
 async fn user_name_of(user_id: Uuid) -> Result<String, ApiError> {
     let rows = db()
         .find_with_params(
-            "SELECT COALESCE(NULLIF(nickname, ''), username) AS name FROM sys_user \
+            "SELECT COALESCE(NULLIF(real_name, ''), username) AS name FROM sys_user \
               WHERE id = ?::uuid AND deleted_at IS NULL",
             vec![Value::from(&user_id)],
         )
