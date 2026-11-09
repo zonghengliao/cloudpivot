@@ -1,0 +1,19 @@
+Pager usage is off.
+===== cloudpivot_dev_clean 现况 =====
+ mig_rows | ver | maxver | menus | users | vouchers | ar | inv | so 
+----------+-----+--------+-------+-------+----------+----+-----+----
+      297 | 286 |    366 |   433 |     1 |        0 |  0 |   0 |  0
+(1 row)
+
+===== 谁会连它（活动连接）=====
+       datname        |  usename   | state  | count |              max              
+----------------------+------------+--------+-------+-------------------------------
+ cloudpivot_dev       | cloudpivot | idle   |    10 | 2026-11-09 22:20:15.160997+08
+ cloudpivot_dev_clean | cloudpivot | active |     1 | 2026-11-09 22:56:58.484497+08
+(2 rows)
+
+===== 迁移版本缺口（dev 缺哪些）=====
+psql:/tmp/i5/04_devclean_state.sql:18: ERROR:  function dblink(unknown, unknown) does not exist
+LINE 1: SELECT 'dev' AS db, count(*) AS applied FROM dblink('dbname=...
+                                                     ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.

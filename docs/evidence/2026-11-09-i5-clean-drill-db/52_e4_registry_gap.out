@@ -1,0 +1,9 @@
+== e4_registry_gap.py @ 2026-11-09 23:17:37 CST ==
+registered: 23
+literal BIZ_TYPE_ consts: ['OPENING', 'PURCHASE_IN', 'PURCHASE_IN_CANCEL', 'SALES_RETURN_IN', 'SERIAL_IN', 'SERIAL_OUT', 'SERIAL_SCRAP', 'STOCK_TAKE_CANCEL', 'STOCK_TAKE_GAIN', 'STOCK_TAKE_LOSS', 'TRANSFER_IN', 'TRANSFER_OUT']
+MISSING: ['SALES_RETURN_IN']
+    SALES_RETURN_IN ['backend/src/business/erp/sales_return_posting.rs']
+TXN_BIZ_TYPE_VALUES: 22 declared 22
+domain - registered: []
+registered - domain: ['PURCHASE']
+literals not in domain: ['SALES_RETURN_IN']

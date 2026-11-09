@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# 在 145 上用 cloudpivot 账号跑一段 SQL 文件：run_sql.sh <db> <sqlfile>
+set -euo pipefail
+DB="$1"; SQL="$2"
+set -a
+# shellcheck disable=SC1091
+. /etc/cloudpivot/cloudpivot-dev.env
+set +a
+export PGPASSWORD="${NIK_DATABASE_PASSWORD}"
+export PGOPTIONS='-c statement_timeout=120000'
+psql -h 127.0.0.1 -p "${NIK_DATABASE_PORT:-5432}" -U "${NIK_DATABASE_USER:-cloudpivot}" -d "$DB" -v ON_ERROR_STOP=1 -f "$SQL"

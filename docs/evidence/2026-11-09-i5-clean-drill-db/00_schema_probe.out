@@ -1,0 +1,12 @@
+Pager usage is off.
+       table_name       |                                                                                                                                                              cols                                                                                                                                                               
+------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ biz_inventory          | id,material_id,warehouse_id,qty,locked_qty,avg_cost,amount,last_txn_at,created_at,updated_at,location_id
+ biz_inventory_location | id,material_id,warehouse_id,location_id,qty,locked_qty,last_txn_at,created_at,updated_at
+ biz_inventory_txn      | id,material_id,warehouse_id,txn_type,biz_type,doc_type,doc_id,doc_no,line_no,qty,unit_cost,amount,before_qty,before_amount,before_cost,after_qty,after_amount,after_cost,period_code,operator_id,remark,created_at
+ biz_receivable         | id,ar_no,customer_id,source_type,source_id,source_no,invoice_no,invoice_date,currency_code,amount,received_amount,unsettled_amount,credit_days,due_date,period_code,status,settled_at,voucher_id,remark,created_at,updated_at,create_by,update_by,deleted_at,exchange_rate,base_total_amount,base_total_tax,base_total_with_tax
+ biz_stock_out          | id,out_no,out_type,warehouse_id,out_date,status,total_qty,total_amount,voucher_id,reason,remark,posted_at,posted_by,cancelled_at,cancelled_by,cancel_reason,created_at,updated_at,create_by,update_by,deleted_at,source_type,source_id
+ biz_voucher            | id,voucher_word,voucher_no,period,voucher_date,voucher_type,source_type,source_id,source_no,summary,total_debit,total_credit,entry_count,status,is_red,reverse_of,reversed_by,posted_at,posted_by,remark,created_at,updated_at,create_by,update_by,deleted_at,pending_reverse_instance_id,reverse_reason,source_doc_no
+ biz_voucher_entry      | id,voucher_id,line_no,summary,account_id,account_code,account_name,debit_amount,credit_amount,aux_supplier_id,aux_material_id,aux_warehouse_id,aux_dept_id,aux_qty,aux_extra,created_at
+(7 rows)
+

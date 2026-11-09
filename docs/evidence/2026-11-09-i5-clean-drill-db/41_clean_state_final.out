@@ -1,0 +1,13 @@
+Pager usage is off.
+===== cloudpivot_dev_clean 终态 =====
+          db          | mig_rows | versioned | maxver | menus | users | inv | txn | serial | ar | so | vou | non_seed_material 
+----------------------+----------+-----------+--------+-------+-------+-----+-----+--------+----+----+-----+-------------------
+ cloudpivot_dev_clean |      298 |       287 |    367 |   433 |     1 |   0 |   0 |      0 |  0 |  0 |   0 |                 0
+(1 row)
+
+===== 超管与部门（N2）=====
+ username | dept_code | dept_name 
+----------+-----------+-----------
+ admin    | HQ        | 总部
+(1 row)
+
