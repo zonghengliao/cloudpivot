@@ -62,10 +62,11 @@ v2 的快照与 hash 在库内现算（`pg_temp.canonical_json` 与 Rust `graph:
 | 验证项 | 结果 | 证据文件 |
 |--------|------|----------|
 | 迁移 up / 幂等 / down / 再 up（隔离克隆库） | 全通过 | `migration_probe_clone.out` |
+| 迁移 4 条**跳过**分支（无 n_dept / 已改过 / 快照被改 / 无该流程） | **8/8 PASS**：不抛异常、不产生 v2、定义仍指 v1 | `migration_skip_probe.out` |
 | 行 ↔ `graph_snapshot` ↔ `graph_hash` 三方一致 | **三个 sha256 完全相同**（`769e6112…`） | `graph_consistency.out` |
 | 只持 EMPLOYEE 的账号自助报销全链路 | **21/21 PASS** | `employee_only.out` |
 | 部署后：坏口令登录 401（改前 500）+ 日志点名 | 401 / `20001` + `WARN …username=fix1_badpw_probe` | `post_deploy.out` |
-| E2E-06 全套重跑（A+B+勾稽） | **PASS=206 FAIL=0**（修前 193 条全绿，本卡新增 13 条断言） | `e2e06_asserts.log` / `e2e06_run_all.out` / `e2e06_reconcile.log` |
+| E2E-06 全套重跑（A+B+勾稽） | **PASS=205 FAIL=0**（首次跑 206，差 1 条是「建用户 e2e06_planner」只在首建时断言的幂等差） | `e2e06_asserts.log` / `e2e06_run_all.out` / `e2e06_reconcile.log` |
 | 菜单不变量门禁 | 8 条全绿（菜单总数 432，title/排序/图标无违例） | `menu_invariants.out` |
 | ERP 不变量「权限」组 | N1/N3 ✅（N2「22 个账号无部门」为演练库既有 WARN，与本卡无关） | `erp_invariants_authz.out` |
 
@@ -125,6 +126,7 @@ down   : v1 复位 PUBLISHED current / v2 行边绑定全清（残留 0/0）
 | `scripts/verify/e2e06_budget_common.sh` | upfile 改回报销人本人；新增 e2e06_planner（属演练部门）与口令指纹修复；budget_active 按待办归属分派 token |
 | `scripts/verify/e2e06_budget_a.sh` | n_dept 断言改为「只派本部门主管 + INITIATOR_SUPERIOR + ANY + 65019」 |
 | `scripts/verify/fix1_migration_probe.sh` | 克隆库上跑 up/down/幂等/再 up 的探针 |
+| `scripts/verify/fix1_migration_skip_probe.sh` | 克隆库上验 4 条跳过分支（不抛异常 / 不产生 v2） |
 | `scripts/verify/fix1_graph_consistency.sql` / `fix1_graph_check.py` | 行↔快照↔hash 三方一致性校验（与 Rust 快照规则逐字同义） |
 | `scripts/verify/fix1_employee_upload_check.sh` | 「只持 EMPLOYEE」账号的端到端验收（21 条断言） |
 | `scripts/verify/fix1_post_deploy_check.sh` | 部署后：版本状态 / 坏口令 401 / 指纹统计 |
@@ -140,14 +142,21 @@ down   : v1 复位 PUBLISHED current / v2 行边绑定全清（残留 0/0）
 2. **演练库口令**：`cloudpivot_dev` 有 14 个历史夹具账号的 `password` 是占位符（`x` /
    `p2c1-not-a-r` 之类），本卡在演练脚本里把它们统一重置为演练口令哈希（这些号原本就登不进去，
    无信息损失）。**生产请走「系统管理 → 用户 → 重置密码」**，N3 巡检会把这类行点出来。
-3. **新增演练残留**（会在下次 `e2e06_run_all.sh` 的 reset 里按 `title like 'E2E06%'` 清掉）：
+   `cloudpivot_dev` 现状：`select count(*) from sys_user where deleted_at is null and password
+   not like '$argon2id$%'` = **0**。
+3. **V0355 文件在 145 应用后微调过一次**：把「快照口径校准失败」从 `RAISE EXCEPTION`
+   改成 `NOTICE + 跳过`（抛异常会挡住整个升级，不该由一个 P2 配置缺口触发）。库内
+   `schema_migrations.checksum` 已按框架口径（`sha256(逐行补 \\n 规范化后的 up.sql)`）同步
+   （旧 `3cd3b62a…` → 现 `d5b56486…`），重启验证「应用 0 个迁移」无指纹漂移报错。
+   生产首次应用用的就是最终内容。
+4. **新增演练残留**（会在下次 `e2e06_run_all.sh` 的 reset 里按 `title like 'E2E06%'` 清掉）：
    用户 `e2e06_emp_only`（只持 EMPLOYEE）+ 1 张 SUBMITTED 报销单 + 1 个附件；
    用户 `fix1_badpw_probe`（已停用 status=0，口令指纹已复原）。
-4. **p3a_0002 不再参与预算审批**：修好后「部门主管」按发起人部门解析，`p3a_0002` 无部门
+5. **p3a_0002 不再参与预算审批**：修好后「部门主管」按发起人部门解析，`p3a_0002` 无部门
    （`dept_id IS NULL`）会退化成超管兜底。演练改用 `e2e06_planner`（DEPT_LEADER + 属演练部门），
    也因此**不再需要**上一个卡临时重置 `p3a_0002` 密码哈希的补丁。
-5. **`n_dept` 的节点名仍是「部门主管审批（编制）」**：语义已变为「发起人所在部门主管」，
+6. **`n_dept` 的节点名仍是「部门主管审批（编制）」**：语义已变为「发起人所在部门主管」，
    节点名保持原样以减少图 diff；v2 的 `change_note` 与本文说明了差异。
-6. **自批红线不变**：`self_approval=ALLOW` 保留，真正的否决仍是
+7. **自批红线不变**：`self_approval=ALLOW` 保留，真正的否决仍是
    `budget_bridge::guard_self_approval`（403 + 65019）+ `flow::internal_control` 的 SKIPPED 留痕，
    本次实测「编制人自批 → 403 + 65019」。

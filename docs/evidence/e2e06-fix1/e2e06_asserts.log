@@ -1,5 +1,4 @@
 PASS	部门主管指向 e2e06_mgr = e2e06_mgr
-PASS	建用户 e2e06_planner = 0
 PASS	预算编制人属演练部门 = E2E06-BDG
 PASS	报销人持有 EMPLOYEE（附件上传权限载体） = 1
 PASS	全库口令指纹均为 argon2id = 0
@@ -120,7 +119,7 @@ PASS	撤回 http = 200
 PASS	撤回后 DRAFT + 占用 RELEASED（带释放原因） = DRAFT|RELEASED|true
 PASS	重提 http = 200
 PASS	重提复用同一占用行（不新增行） = 1
-PASS	复用行 id 不变 + 状态回 OCCUPIED = 01a1be49-581f-71c1-8c50-0d40ad8a4cf6|OCCUPIED
+PASS	复用行 id 不变 + 状态回 OCCUPIED = 01a1be4e-b81b-727a-bb0e-3d2da0c1bf21|OCCUPIED
 PASS	报销人自批被内控拒绝 403 = 403
 PASS	ex1ap 审批 e2e06_mgr http = 200
 PASS	ex1ap 审批 e2e01_appr http = 200

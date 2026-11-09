@@ -1,0 +1,19 @@
+== A) 图里没有 n_dept 节点
+NOTICE:  database "cloudpivot_fix1_skip" does not exist, skipping
+     psql:/tmp/V0355.up.sql:291: NOTICE:  V0355 budget_approve：图里没有 n_dept 节点（客户改过图），跳过 —— 请在流程编辑器里「另存草稿 → 改节点 → 发布」
+  PASS A 无 n_dept：未产生 v2（版本数仍为 1）
+  PASS A 无 n_dept：定义仍指向 v1
+== B) n_dept 已是别的形状（模拟客户自己改过）
+     psql:/tmp/V0355.up.sql:291: NOTICE:  V0355 budget_approve：n_dept 当前形状是 APPROVAL / INITIATOR_SUPERIOR（不是 ROLE[DEPT_LEADER]），跳过
+  PASS B n_dept 已改：未产生 v2（版本数仍为 1）
+  PASS B n_dept 已改：定义仍指向 v1
+== C) 快照被直接改过（hash 对不上 → 无法安全现算 v2 hash）
+     psql:/tmp/V0355.up.sql:291: NOTICE:  V0355 budget_approve：跳过 —— canonical(v1 快照)=0bc6441c50edec131a444d30e1f15471491b435b9be9acecded459dbdee4c869 与库里的 graph_hash=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd 不一致（快照被改过 / 含本函数不支持的形状）。请在流程编辑器里另存草稿 → 改「部门主管」节点（审批人来源=发起人所在部门、或签）→ 发布
+  PASS C hash 不一致：未产生 v2（版本数仍为 1）
+  PASS C hash 不一致：定义仍指向 v1
+== D) 本库没有 budget_approve 流程
+     psql:/tmp/V0355.up.sql:291: NOTICE:  V0355 budget_approve：本库没有该流程（未接预算域 / 已软删），跳过
+  PASS D 无流程：未产生 v2（版本数仍为 1）
+  PASS D 无流程：定义仍指向 v1
+
+== 汇总：PASS=8 FAIL=0

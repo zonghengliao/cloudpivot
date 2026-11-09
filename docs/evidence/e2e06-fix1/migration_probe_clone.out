@@ -1,5 +1,5 @@
-== 0) 重建克隆库 cloudpivot_fix1_probe
-   克隆完成：18
+== 0) 重建克隆库 cloudpivot_fix1_probe（并退回「v1 是当前版本」的迁移前状态）
+   克隆完成：biz_flow_def=18，budget_approve 版本数=1
 
 == 1) 应用前状态
 v1 hash=0bc6441c50edec131a444d30e1f15471491b435b9be9acecded459dbdee4c869 ver=1
@@ -7,7 +7,7 @@ n_dept / ROLE / ALL
 
 == 2) 跑 up
 CREATE FUNCTION
-psql:/tmp/V0355.up.sql:279: NOTICE:  V0355 budget_approve：v2 已发布（hash=769e611286ea49422e0c3487d8f7acd0ae68a194e7fb776e9e41db1ebbb4c2ad / 节点 11 / 边 13 / 审批人绑定 7 行；历史实例跑在 v1 上 9 张，继续可用）
+psql:/tmp/V0355.up.sql:291: NOTICE:  V0355 budget_approve：v2 已发布（hash=769e611286ea49422e0c3487d8f7acd0ae68a194e7fb776e9e41db1ebbb4c2ad / 节点 11 / 边 13 / 审批人绑定 7 行；历史实例跑在 v1 上 9 张，继续可用）
 DO
    up rc=0
 
@@ -30,7 +30,7 @@ v2 nodes=11 edges=13 bind=7
 
 == 4) 幂等：再跑一次 up（应 0 变更、NOTICE 跳过）
 CREATE FUNCTION
-psql:/tmp/V0355.up.sql:279: NOTICE:  V0355 budget_approve：已有 version_no ≥ 2，跳过（绝不覆盖客户发布过的图）
+psql:/tmp/V0355.up.sql:291: NOTICE:  V0355 budget_approve：已有 version_no ≥ 2，跳过（绝不覆盖客户发布过的图）
 DO
 versions=2
 
@@ -43,6 +43,6 @@ v2 residue nodes=0 edges=0
 
 == 6) 回滚后再 up（证明可重复升降）
 CREATE FUNCTION
-psql:/tmp/V0355.up.sql:279: NOTICE:  V0355 budget_approve：v2 已发布（hash=769e611286ea49422e0c3487d8f7acd0ae68a194e7fb776e9e41db1ebbb4c2ad / 节点 11 / 边 13 / 审批人绑定 7 行；历史实例跑在 v1 上 9 张，继续可用）
+psql:/tmp/V0355.up.sql:291: NOTICE:  V0355 budget_approve：v2 已发布（hash=769e611286ea49422e0c3487d8f7acd0ae68a194e7fb776e9e41db1ebbb4c2ad / 节点 11 / 边 13 / 审批人绑定 7 行；历史实例跑在 v1 上 9 张，继续可用）
 DO
 after re-up current=v2
