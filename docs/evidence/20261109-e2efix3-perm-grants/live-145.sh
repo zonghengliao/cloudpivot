@@ -233,7 +233,7 @@ api b_clerk_material GET "/business/erp/material/page?page=1&page_size=1" "$T_SP
 say "    /material/page  http=$HTTP（SALES_CLERK 的角色矩阵里没有 material:list）"
 api b_clerk_warehouse GET "/business/erp/warehouse/page?page=1&page_size=1" "$T_SP"
 say "    /warehouse/page http=$HTTP（同样没有 warehouse:list）"
-say "    → 退货页前端 `Promise.allSettled` 会吞掉这两个 403：页面能开，但物料/仓库下拉为空、明细只显示 id。"
+say "    → 退货页前端 Promise.allSettled 会吞掉这两个 403：页面能开，但物料/仓库下拉为空、明细只显示 id。"
 
 say "  ---- 同类补齐：收款退款单（财务）+ 计量单位新增（采购）----"
 api b_fin_refund GET "/business/erp/receipt-refund/page?page=1&page_size=5" "$T_APP"
