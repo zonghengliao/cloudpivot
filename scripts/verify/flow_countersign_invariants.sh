@@ -61,6 +61,7 @@ PSQL=(psql -X -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$DB" -tA -q -v ON_ERROR
 
 FAILED=0
 FAIL_NAMES=()
+WARN_NOTES=()
 
 SQL_ERR_LOG=$(mktemp "${TMPDIR:-/tmp}/flow_cs_err.XXXXXX") || { printf '⛔ mktemp 失败\n' >&2; exit 2; }
 trap 'rm -f "$SQL_ERR_LOG"' EXIT
@@ -239,7 +240,16 @@ if [ -z "$N4" ]; then printf '⛔ ④ 查询失败\n' >&2; exit 2; fi
 if [ "$N4" = "0" ]; then
   line '④ ALL 节点候选人为 0:  ' 0 1 '  （每个 ALL 节点都至少有一个能签的人）'
 else
-  line '④ ALL 节点候选人为 0:  ' "$N4" 0 '  （只能靠 empty_assignee 兜：FALLBACK_ADMIN=超管会签、SKIP=静默跳过）'
+  # 刚建好的空库（角色还没配人）④ 必然命中：这不是配置错误，是「还没配人」。
+  # 用 FLOW_CS_ALLOW_EMPTY=1 把它降级成警告（rc 不受影响），但**逐条打印**出来 ——
+  # 跳过 ≠ 通过，这个仓库对「假绿」敏感。
+  if [ "${FLOW_CS_ALLOW_EMPTY:-0}" = "1" ]; then
+    line '④ ALL 节点候选人为 0:  ' "$N4" 1 "  ⚠ 已按 FLOW_CS_ALLOW_EMPTY=1 降级（空库/未配人）"
+    WARN_NOTES+=("④候选人为0($N4)")
+  else
+    line '④ ALL 节点候选人为 0:  ' "$N4" 0 '  （只能靠 empty_assignee 兜：FALLBACK_ADMIN=超管会签、SKIP=静默跳过）'
+    FAILED=$((FAILED+1)); FAIL_NAMES+=('④ALL候选人为0')
+  fi
   detail '报红节点' "
     select t.flow_code || ' / ' || t.node_key || ' / empty_assignee=' || t.empty_assignee
       from (
@@ -255,7 +265,6 @@ else
       ) t
      where t.usable = 0
      order by t.flow_code, t.node_key"
-  FAILED=$((FAILED+1)); FAIL_NAMES+=('④ALL候选人为0')
 fi
 
 # ── 基础设施兜底 ────────────────────────────────────────────────────────────
@@ -266,7 +275,12 @@ if [ -s "$SQL_ERR_LOG" ]; then
 fi
 
 if [ "$FAILED" -eq 0 ]; then
-  printf '结果: 4 条不变量全绿 ✅（库 %s）\n' "$DB"
+  if [ "${#WARN_NOTES[@]}" -gt 0 ]; then
+    printf '结果: 4 条不变量全绿 ✅，但**有降级警告**：%s —— 降级 ≠ 通过（库 %s）\n' \
+      "$(IFS=,; echo "${WARN_NOTES[*]}")" "$DB"
+  else
+    printf '结果: 4 条不变量全绿 ✅（库 %s）\n' "$DB"
+  fi
   exit 0
 fi
 printf '结果: %d 条不变量不通过 ❌（%s）（库 %s）\n' "$FAILED" "$(IFS=,; echo "${FAIL_NAMES[*]}")" "$DB"
