@@ -1,9 +1,9 @@
 # E2E08-FIX-2 证据：六类主数据口径统一（编码大小写 / unit_code 422 / 重复文案 / next-code）
 
 - 卡片：`t_fa322930`（E2E-08 演练 4 条 P4）
-- 代码提交：`e53a4937`（主改动，13 文件）+ `81169ccb`（④ 文案去嵌套括号，1 文件）
-- 分支：`origin/main` = `81169ccb`（`git ls-remote origin main` 复核，见 §6）
-- 验证机：145 演练机（`/opt/cloudpivot` 已 ff 到 `81169ccb`，debug 二进制 20:36 构建）
+- 代码提交：`e53a4937`（主改动，13 文件）+ `81169ccb`（④ 文案去嵌套括号）+ `9094bafc` / `e54106d4`（注释对齐）
+- 分支：`origin/main` = `e54106d4`（`git ls-remote origin main` 复核，见 §6）
+- 验证机：145 演练机（`/opt/cloudpivot` 已 ff 到 `e54106d4`，debug 二进制 20:53 构建）
 - 本地隔离库：99 的 `cloudpivot_e2e08fix2`（自建、迁移 295 条 + bootstrap 种 admin；跑完未删）
 
 ---
@@ -115,9 +115,10 @@ pub async fn unit_next_code(..) -> ResResult<serde_json::Value> { Err(unit_code_
 
 ## 6. 145 真 token 实测（`curl_145_pass.txt`，PASS=69 FAIL=0）
 
-跑法：145 上 `git merge --ff-only origin/main`（→ `81169ccb`）→ `cargo build`（debug，20:36）→
+跑法：145 上 `git merge --ff-only origin/main`（→ `e54106d4`）→ `cargo build`（debug，20:53）→
 **另起 8036 实例**（不重启 8033 的 dev 服务；dev 库，跑完 kill）→
 `BASE=http://127.0.0.1:8036/api bash scripts/verify/e2e08fix2_master_consistency.sh`。
+（`curl_145_pass.txt` 就是**最终 HEAD `e54106d4` 上复跑**的结果；8033 / 8034 两个 dev 服务全程未动，health 仍 200。）
 
 关键原文（`raw_*.json` 逐条留档）：
 
