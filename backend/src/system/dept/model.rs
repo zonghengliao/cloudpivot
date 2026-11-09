@@ -347,3 +347,68 @@ pub(crate) async fn invalidate_tree_cache() {
         }
     }
 }
+
+/// 把「当前没有部门」的账号按 `dept_code` 落位到该部门（幂等）。
+///
+/// # 为什么需要它（E2E-14 评审 N2）
+///
+/// `erp_invariants.py` 的 N2 要求「在用 HUMAN 账号必须有部门」：HUMAN 账号没有部门时，
+/// `principal::RESOLVE_SQL` 的 `subtree` / `DEPT` 分支解析不出部门，部门类角色会被
+/// `merge_scope_rows` **静默降级成「仅本人」** —— 列表里表现为「怎么都看不到」。
+///
+/// 内置超管 `admin` 由 `bootstrap::seed_super_admin` 在**启动期**建，迁移执行时库里
+/// 还没有这一行，所以「迁移里 UPDATE sys_user」永远命中 0 行（干净库实测就是这么红的）。
+/// 落位只能在启动期、账号存在之后做。
+///
+/// # 判据（三条，缺一不可）
+///
+/// - 只认 `dept_code`（与生产 / `scripts/datafix/org_landing` 同编码）：**没有这个部门
+///   的环境一行不动** —— 与 datafix「绝不猜、绝不造部门」同口径；
+/// - 只补 `dept_id IS NULL`：运维手工调整过的部门不覆盖（幂等，跑第二遍 0 行）；
+/// - 账号须未软删。
+///
+/// # 参数
+///
+/// - `usernames`：登录名清单（空清单直接返回空）。
+/// - `dept_code`：目标部门编码（如 `HQ`）。
+///
+/// # 返回值
+///
+/// 本次**真正落位**的登录名（空 = 无需处理，正是幂等的证据）。
+///
+/// # 异常情况
+///
+/// 数据库异常返回 [`DbError`]。
+pub(crate) async fn land_users_into_dept_by_code(
+    usernames: &[&str],
+    dept_code: &str,
+) -> std::result::Result<Vec<String>, DbError> {
+    if usernames.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows = db()
+        .query_sql(
+            "UPDATE sys_user u \
+                SET dept_id = (SELECT d.id FROM sys_dept d \
+                                WHERE d.dept_code = ? AND d.deleted_at IS NULL LIMIT 1), \
+                    updated_at = now() \
+              WHERE u.deleted_at IS NULL \
+                AND u.dept_id IS NULL \
+                AND u.username = ANY(?::text::text[]) \
+                AND EXISTS (SELECT 1 FROM sys_dept d \
+                             WHERE d.dept_code = ? AND d.deleted_at IS NULL) \
+             RETURNING u.username"
+                .to_string(),
+            vec![
+                Value::Text(dept_code.to_string()),
+                Value::Text(format!("{{{}}}", usernames.join(","))),
+                Value::Text(dept_code.to_string()),
+            ],
+        )
+        .await?;
+    let mut landed = Vec::with_capacity(rows.len());
+    for row in &rows {
+        landed.push(row.get_typed::<String>("username")?);
+    }
+    Ok(landed)
+}

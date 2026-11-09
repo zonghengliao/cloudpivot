@@ -769,3 +769,115 @@ async fn d11_invalid_status_rejected() {
     println!("[D11] 非法 status=7 → 400/{} ✓", error.code);
     cleanup(&prefix).await;
 }
+
+// ==================== D12 按 dept_code 落位（评审 N2） ====================
+
+/// 补充 D12：`land_users_into_dept_by_code` 只补「无部门」的账号。
+///
+/// 这条路径就是内置超管 `admin` 的落位（`bootstrap::seed_super_admin` 在启动期调它）：
+/// 干净库实测迁移执行时 `sys_user` 里还没有 admin 这一行，所以「迁移里 UPDATE 账号」
+/// 恒命中 0 行、N2 照样 WARN —— 落位只能在启动期、账号存在之后做。
+///
+/// 四条断言（对应 model 注释里的「判据」）：
+/// 1. 无部门的账号被落位；
+/// 2. 已有部门的账号**不被覆盖**（运维调整过的部门不许挪）；
+/// 3. 第二遍 0 行（幂等）；
+/// 4. 部门编码不存在时一行不动（不猜、不造部门）。
+#[tokio::test]
+async fn d12_land_users_by_dept_code_fills_null_only() {
+    if !ts::ensure_db().await {
+        return;
+    }
+    let tag = ts::uniq();
+    let prefix = format!("D12-{tag}");
+    let hq_code = format!("{prefix}-HQ");
+    let other_code = format!("{prefix}-OTHER");
+    let hq_id = uuid::Uuid::now_v7();
+    let other_id = uuid::Uuid::now_v7();
+
+    // 两个部门：落位目标（hq_code）/ 账号原本就挂着的部门（other_code）
+    for (id, code, name) in [
+        (&hq_id, &hq_code, "落位目标部门"),
+        (&other_id, &other_code, "原本的部门"),
+    ] {
+        ts::exec(
+            "INSERT INTO sys_dept (id, dept_code, dept_name, parent_id, dept_path, status, sort_order) \
+             VALUES (?, ?, ?, NULL, ?, 1, 900)",
+            vec![
+                Value::from(*id),
+                Value::from(code.clone()),
+                Value::from(name.to_string()),
+                Value::Text(format!("/{id}/")),
+            ],
+        )
+        .await;
+    }
+
+    // 两个账号：一个没有部门（要被补），一个已有部门（不许被动）
+    let null_user = format!("{prefix}-null");
+    let kept_user = format!("{prefix}-kept");
+    for (username, dept) in [(&null_user, None), (&kept_user, Some(other_id))] {
+        let dept_value = match dept {
+            Some(id) => Value::from(id),
+            None => Value::Null,
+        };
+        ts::exec(
+            "INSERT INTO sys_user (id, username, password, real_name, status, dept_id, user_type, \
+                                   token_version, must_change_password, login_fail_count, is_locked) \
+             VALUES (?, ?, ?, ?, 1, ?, 'HUMAN', 0, false, 0, false)",
+            vec![
+                Value::from(uuid::Uuid::now_v7()),
+                Value::from(username.clone()),
+                Value::from("$2b$12$abcdefghijklmnopqrstuv"),
+                Value::from(format!("{username} 夹具")),
+                dept_value,
+            ],
+        )
+        .await;
+    }
+
+    // ① 落位：只有「无部门」那个被写，已有部门的不动
+    let landed = model::land_users_into_dept_by_code(&[null_user.as_str(), kept_user.as_str()], &hq_code)
+        .await
+        .expect("落位失败");
+    assert_eq!(
+        landed,
+        vec![null_user.clone()],
+        "只有原本无部门的账号该被落位（已有部门的账号不许覆盖）"
+    );
+    let hq_text = hq_id.to_string();
+    let other_text = other_id.to_string();
+    let after_null = ts::scalar_text(
+        "SELECT dept_id::text AS v FROM sys_user WHERE username = ?",
+        vec![Value::from(null_user.clone())],
+    )
+    .await;
+    assert_eq!(after_null.as_deref(), Some(hq_text.as_str()), "无部门账号必须落到 HQ");
+    let after_kept = ts::scalar_text(
+        "SELECT dept_id::text AS v FROM sys_user WHERE username = ?",
+        vec![Value::from(kept_user.clone())],
+    )
+    .await;
+    assert_eq!(
+        after_kept.as_deref(),
+        Some(other_text.as_str()),
+        "已有部门的账号必须一字不改"
+    );
+
+    // ② 幂等：再跑一遍 0 行
+    let again = model::land_users_into_dept_by_code(&[null_user.as_str(), kept_user.as_str()], &hq_code)
+        .await
+        .expect("第二次落位失败");
+    assert!(again.is_empty(), "第二遍必须 0 行（幂等），实际 {again:?}");
+
+    // ③ 部门编码不存在 → 一行不动（不猜、不造部门）
+    let ghost = model::land_users_into_dept_by_code(&[null_user.as_str()], &format!("{prefix}-NOPE"))
+        .await
+        .expect("落位（不存在的编码）失败");
+    assert!(ghost.is_empty(), "编码不存在时不许落位，实际 {ghost:?}");
+
+    println!("[D12] dept_code 落位：只补 NULL、不覆盖、幂等、缺编码零变更 ✓");
+
+    cleanup_users(&prefix).await;
+    cleanup(&prefix).await;
+}

@@ -441,6 +441,27 @@ async fn seed_super_admin() {
         }
     };
 
+    // 超管落位到根部门（E2E-14 评审 N2）：账号是上面这一步刚建出来的，迁移执行时
+    // 库里还没有这一行，所以只能在这里补 —— 详见
+    // [`crate::system::dept::model::land_users_into_dept_by_code`]。
+    // 只认 `dept_code = HQ`（没有这个部门的环境一行不动），只补 `dept_id IS NULL`。
+    match crate::system::dept::model::land_users_into_dept_by_code(
+        &[constants::ADMIN_USERNAME],
+        constants::ROOT_DEPT_CODE,
+    )
+    .await
+    {
+        Ok(landed) if landed.is_empty() => {
+            tracing::debug!("超管部门落位：无需处理（已有部门，或本库没有 HQ 根部门）")
+        }
+        Ok(landed) => tracing::info!(
+            users = ?landed,
+            dept = constants::ROOT_DEPT_CODE,
+            "超管部门落位：admin 原先没有部门，已归入根部门"
+        ),
+        Err(e) => tracing::error!(error = %e, "超管部门落位失败（不影响启动，下次启动重试）"),
+    }
+
     // 内置超级管理员角色由种子迁移创建，此处只查询其主键用于绑定。
     let role = match SysRoleModel::find_first_by(db, "role_code", (constants::SUPER_ADMIN_ROLE_CODE,)).await {
         Ok(Some(role)) => role,

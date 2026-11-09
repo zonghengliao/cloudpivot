@@ -35,24 +35,25 @@
 --   同时带 `flow_code IN (…)` 作**双向守卫**（id 与编码都对上才动），顺带满足 H6 的
 --   静态补偿判据（「更晚的迁移里有 UPDATE biz_flow_def + 该 flow_code 字面量 + is_system = TRUE」）。
 --
--- # 三、顺带修 N2（全新库 `admin` 无部门，WARN）
+-- # 三、顺带修 N2（全新库 `admin` 无部门，WARN）—— 迁移只做一半
 --
 --   N2 的判据是「在用 HUMAN 账号必须有部门」。干净库上它红的根因不是 admin 特殊，
 --   而是**全新库根本没有组织树**（`sys_dept` 0 行）—— 部门由运维按环境用接口建
 --   （`docs/architecture/P0-FIX-2B-…` D-1、`scripts/datafix/org_landing` 的口径：
 --   「绝不猜、绝不造部门」）。所以这里只做**新装初始化**，不替客户编组织：
 --     · 仅当组织树**完全为空**时，才种一个根部门「总部」（`dept_code='HQ'`，与
---       生产 / datafix 脚本用的编码一致）；
---     · 已配好组织树的库（生产有 4 个部门、演练库有 drill 部门）**一行都不动**；
---     · `admin` 只按 `dept_code='HQ'` 落位，且只补 `dept_id IS NULL` —— 已有人
---       工调整过的部门不覆盖（幂等；与 `system/setup` 演示种子的「④ 只补 NULL」同口径）。
---   注意：演示组织种子（`NIK_SEED_DEMO_USERS=true`）在 bootstrap 阶段才跑，它也把
---   `admin` 算进补漏名单；本迁移先落位后，那里就只会补 NULL、不会再挪 admin。
+--       生产 / datafix 脚本用的编码一致）；已配好组织树的库（生产 4 个部门、
+--       演练库的 drill 部门）**一行都不动**；
+--     · `admin` 的落位**不在本迁移**：它由 `bootstrap::seed_super_admin` 在启动期建，
+--       迁移执行时库里还没有这一行（实测 UPDATE 命中 0 行），所以落位在启动期做
+--       （`system::dept::model::land_users_into_dept_by_code`，只认 `dept_code='HQ'`、
+--       只补 `dept_id IS NULL`，每次启动幂等重试）。
 --   超管本来就短路全部数据权限，落位不影响权限结果，图的是 N2 归零 + 新建单据能带部门。
 --
 -- # 四、幂等与回滚
 --
---   两条 UPDATE 都带 `IS DISTINCT FROM` / `dept_id IS NULL`：第二遍命中 0 行。
+--   ① 的 UPDATE 带 `IS DISTINCT FROM` 与固定的 id 集合：第二遍命中 0 行；
+--   ② 的 INSERT 带 `WHERE NOT EXISTS (任意未删部门)`：第二遍插入 0 行。
 --   回滚见 `V0366__seed_fix_flow_is_system_and_admin_dept.down.sql`
 --   （只回退本迁移自己种的那一行 HQ：按固定 UUID 删，绝不误删运维建的部门）。
 -- ============================================================================
@@ -96,31 +97,10 @@ SELECT '20000000-0000-4000-8000-0000000f0366'::uuid,
        1, 1, now(), now()
  WHERE NOT EXISTS (SELECT 1 FROM sys_dept WHERE deleted_at IS NULL);
 
--- ---------- ③ 内置超管落位到总部（只补 NULL）----------
-UPDATE sys_user
-   SET dept_id = (SELECT d.id FROM sys_dept d WHERE d.dept_code = 'HQ' AND d.deleted_at IS NULL LIMIT 1),
-       updated_at = now()
- WHERE username = 'admin'
-   AND dept_id IS NULL
-   AND deleted_at IS NULL
-   AND EXISTS (SELECT 1 FROM sys_dept d WHERE d.dept_code = 'HQ' AND d.deleted_at IS NULL);
-
--- 自检（N2 的库内落点）：组织树里既然有 HQ，admin 就不许再是「无部门」。
--- 没有 HQ 的库（不该由本迁移造部门的环境）跳过，不误伤。
-DO $$
-DECLARE
-    v_hq    uuid;
-    v_null  int;
-BEGIN
-    SELECT id INTO v_hq FROM sys_dept WHERE dept_code = 'HQ' AND deleted_at IS NULL LIMIT 1;
-    IF v_hq IS NULL THEN
-        RAISE NOTICE 'V0366 ②：本库没有 HQ 部门（组织树由运维按环境维护），跳过 admin 落位自检';
-        RETURN;
-    END IF;
-    SELECT count(*) INTO v_null
-      FROM sys_user
-     WHERE username = 'admin' AND deleted_at IS NULL AND dept_id IS NULL;
-    IF v_null > 0 THEN
-        RAISE EXCEPTION 'V0366 自检失败：HQ 部门已存在，但 admin 仍无部门（N2 会挂 WARN）';
-    END IF;
-END $$;
+-- ---------- ③ 内置超管落位：**不在迁移里做**（见下）----------
+--   `admin` 账号不是迁移建的，是 `bootstrap::seed_super_admin` 在**启动期**建的
+--   （`ensure_admin_user`）—— 干净库实测：本迁移执行时 `sys_user` 里还没有 admin
+--   这一行，"UPDATE sys_user … username = 'admin'" 命中 0 行，N2 照样红。
+--   所以落位放在启动期做：`system::dept::model::land_users_into_dept_by_code`
+--   （只认 `dept_code = HQ`、只补 `dept_id IS NULL`，启动时幂等重试）。
+--   本迁移只负责 ②「全新库补一个根部门」，与「账号相关的事归 bootstrap」的分工一致。

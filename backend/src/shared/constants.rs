@@ -129,6 +129,14 @@ pub const SUPER_ADMIN_ROLE_NAME: &str = "超级管理员";
 /// 内置管理员登录账号。
 pub const ADMIN_USERNAME: &str = "admin";
 
+/// 根部门编码（「总部」）。
+///
+/// 全新库由 `V0366` 种下一个 `dept_code = 'HQ'` 的根部门；启动期
+/// `system::dept::model::land_users_into_dept_by_code` 再把内置超管落位进去。
+/// 与生产库 / `scripts/datafix/org_landing`（按 `dept_code` 解析 uuid）同编码，
+/// 所以「有没有这个部门」是各环境自己的事实，代码只认编码、不造部门。
+pub const ROOT_DEPT_CODE: &str = "HQ";
+
 /// 管理员初始密码的注入环境变量名。
 ///
 /// 生产环境**必须**通过该环境变量注入初始口令：缺失时启动引导直接
