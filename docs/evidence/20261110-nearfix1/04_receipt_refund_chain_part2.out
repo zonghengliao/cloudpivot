@@ -1,0 +1,36 @@
+FINANCE_MANAGER role=20000000-0000-4000-8000-0000000f0005
+===== 28) 建财务经理账号 finance01 并授 FINANCE_MANAGER（内控「制单人 ≠ 审批人」）
+{"code":0,"msg":"ok","id":"01a1c191-0d44-76d8-adaf-6113a0e3885d","username":"finance01"}
+
+===== 29) finance01 登录
+finance token 长度 7480
+
+===== 30) admin 重新送审（上次 65018 = 派不出审批人；现在财务经理有了）
+{"code":0,"msg":"ok","status":"CONFIRMED","approval_status":"PENDING","approval_no":"FLW-20261109-A76E3E77","approval":{"instance_id":"01a1c191-0ff0-716c-b6fd-41ec87fb588f","instance_no":"FLW-20261109-A76E3E77","status":"PENDING","pending_tasks":1}}
+
+===== 31) finance01 的待办
+{"code":0,"total":1,"tasks":[{"id":"01a1c191-0ff9-766c-8aa5-7c38a74d1a46","node":"财务经理审批","status":"PENDING","biz_type":"RECEIPT_REFUND","biz_no":"RR-20261110-000001"}]}
+  approve task=01a1c191-0ff9-766c-8aa5-7c38a74d1a46
+{"code":0,"msg":"ok"}
+
+===== 32) 详情：审批通过 → 自动过账（POSTED + 退款凭证号）
+{"code":0,"no":"RR-20261110-000001","status":"POSTED","status_label":"已过账","voucher_no":"PZ-20261110-000002","voucher_id":"7c46b198-c95d-4759-97f9-04ac779e6649","approval":{"instance_id":"01a1c191-0ff0-716c-b6fd-41ec87fb588f","instance_no":"FLW-20261109-A76E3E77","status":"APPROVED","pending_tasks":0},"alloc":[{"ar_no":"AR-20261110-000001","amount":"400.0000","ar_received":"600.0000","ar_status":"PARTIAL"}]}
+
+===== 33) 应收最终态（退款 400 后：已收 600 / 未收 400 / PARTIAL）
+{"ar_no":"AR-20261110-000001","amount":"1000.0000","received":"600.0000","unsettled":"400.0000","status":"PARTIAL"}
+
+===== 34) 退款凭证分录（借 1122 应收 / 贷 1002 银行存款，各 400）
+{"voucher_no":"PZ-20261110-000002","source_type":"RECEIPT_REFUND","source_no":"RR-20261110-000001","status":"POSTED","total_debit":"400.0000","total_credit":"400.0000"}
+{"account":"1122","account_name":"应收账款","debit":"400.0000","credit":"0.0000","summary":"收款退款 RR-20261110-000001 客户 NEAR-FIX1 退款实测客户 恢复应收账款"}
+{"account":"1002","account_name":"银行存款","debit":"0.0000","credit":"400.0000","summary":"收款退款 RR-20261110-000001 客户 NEAR-FIX1 退款实测客户 银行付款"}
+
+===== 35) 退款凭据附件（doc_type=RECEIPT_REFUND —— V0368 放宽 CHECK 到 17 值 + attachment::model::DocKind 17）
+{"code":0,"msg":"ok","id":"01a1c191-1877-7274-adb8-05159159ccbf","file_name":"bank-receipt.pdf","file_role":"BANK_RECEIPT"}
+  list: {"code":0,"total":1,"items":[]}
+
+===== 36) 作废链路（DRAFT → CANCELLED；已过账的不能作废）
+{"code":10001,"msg":"请求体参数校验失败：Failed to parse the request body as JSON: customer_id: control character (\\u0000-\\u001F) found while parsing a string at line 2 column 0","id":null,"no":null,"status":null}
+  已过账的 01a1c18d-faa7-7201-b9ad-5c3226e969a6 再作废 → {"code":10003,"msg":"退款单 RR-20261110-000001 不能从「已过账」变成「已作废」：合法去向是 （终态，没有去向）"}
+
+===== 37) 列表最终态（含来源收款单号 / 审批状态）
+{"code":0,"total":1,"list":[{"refund_no":"RR-20261110-000001","source_receipt_no":"RC-20261110-000001","customer_name":"NEAR-FIX1 退款实测客户","amount":"400.0000","allocated_amount":"400.0000","status":"POSTED","approval_status":"APPROVED"}]}

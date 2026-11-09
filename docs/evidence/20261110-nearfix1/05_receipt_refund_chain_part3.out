@@ -1,0 +1,25 @@
+===== 38) 修复复验：不给 method（可选列 → NULL，不再撞 ck_biz_receipt_refund_method）
+{"code":0,"msg":"ok","no":"RR-20261110-000002","status":"DRAFT","method":null,"method_label":"未指定"}
+
+===== 39) 作废：原因 2 个字 → 400；足字 → CANCELLED
+  2 个字 → {"code":10001,"msg":"reason 至少 4 个字（说明为什么退款：退货 / 记错账 / 合同变更…），收到「取消」"}
+  足字   → {"code":0,"status":"CANCELLED","status_label":"已作废"}
+  再作废一次（终态不可再迁）→ {"code":10003,"msg":"退款单 RR-20261110-000002 已经是「已作废」，没有状态变化"}
+
+===== 40) 已过账退款单不能作废（POSTED 是终态）
+{"code":10003,"msg":"退款单 RR-20261110-000001 不能从「已过账」变成「已作废」：合法去向是 （终态，没有去向）"}
+
+===== 41) 退款凭据附件列表（分栏 + 上传人快照）
+{"code":0,"total":1,"roles":[{"code":"BANK_RECEIPT","label":"银行回单","count":1},{"code":"DEFAULT","label":"其他附件","count":0}],"items":[{"file_name":"bank-receipt.pdf","file_role":"BANK_RECEIPT","file_role_label":"银行回单","uploader_name":"超级管理员","file_size":193}]}
+
+===== 42) 列表最终态
+{"code":0,"total":2,"list":[{"refund_no":"RR-20261110-000002","source_receipt_no":null,"customer_name":"NEAR-FIX1 退款实测客户","amount":"50.0000","allocated_amount":"0.0000","status":"CANCELLED","status_label":"已作废","method_label":"未指定","approval_status":null},{"refund_no":"RR-20261110-000001","source_receipt_no":"RC-20261110-000001","customer_name":"NEAR-FIX1 退款实测客户","amount":"400.0000","allocated_amount":"400.0000","status":"POSTED","status_label":"已过账","method_label":"银行转账","approval_status":"APPROVED"}]}
+
+===== 43) 菜单 path 终态（库内，等价于卡面 ③⑤ 的检查 SQL）
+   title    |             path             |             component             | sort_order |  parent  | is_visible 
+------------+------------------------------+-----------------------------------+------------+----------+------------
+ 收款退款单 | /business/erp/receipt-refund | business/erp/receipt-refund/index |         55 | 销售管理 | t
+ 取价查询   | /business/erp/price          | business/erp/price/index          |         75 | 销售管理 | t
+(2 rows)
+
+空 path 页面菜单条数（期望 0）：0

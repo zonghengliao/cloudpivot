@@ -1,0 +1,54 @@
+===== 13) 空列表（GET /receipt-refund/page）
+{"code":0,"total":0,"page":1,"page_size":20}
+
+===== 14) 前端校验口径的两条负例（应当 400，不是 500）
+  退款原因只有 2 个字 → {"code":10001,"msg":"reason 至少 4 个字（说明为什么退款：退货 / 记错账 / 合同变更…），收到「退货」"}
+  退款金额 0 → {"code":10001,"msg":"amount 必须大于 0（零元 / 负数退款没有业务含义），收到 0"}
+  退款金额超过来源收款单（1000.01 > 1000）→ {"code":10001,"msg":"退款金额 1000.01 超过来源收款单 RC-20261110-000001 的收款金额 1000.0000"}
+
+===== 15) 新建退款单（来源收款单 RC-…0001，退款 400，原因 ≥4 字）
+{"code":0,"msg":"ok","id":"01a1c18d-faa7-7201-b9ad-5c3226e969a6","no":"RR-20261110-000001","status":"DRAFT","amount":"400.0000","alloc":"0.0000","src_no":"RC-20261110-000001","approval":null}
+
+===== 16) 列表复核：source_receipt_no 必须由后端 JOIN 带出（V0368 新列）
+{"refund_no":"RR-20261110-000001","source_receipt_id":"4ec78c86-5807-409c-8ca1-4ed95ce943e0","source_receipt_no":"RC-20261110-000001","customer_name":"NEAR-FIX1 退款实测客户","amount":"400.0000","status":"DRAFT","status_label":"草稿","approval_status":null,"unallocated_amount":"400.0000"}
+
+===== 17) 冲减（超可退 → 400；正常 400 → 200）
+  冲减 1000 但该应收只收过 1000（可退 1000，但本单金额 400）→ 合计超额 400 拦：{"code":10001,"msg":"冲减总额 401 超过退款金额 400.0000（退款单 RR-20261110-000001）：一张退款单只能退这么多钱，请减少冲减金额或分单"}
+  正常冲减 400 → {"code":0,"alloc":"400.0000","unalloc":"0.0000","allocs":[{"ar_no":"AR-20261110-000001","amount":"400.0000","ar_received":"600.0000","ar_status":"PARTIAL"}]}
+
+===== 18) 应收已收 1000 → 600（退款冲减生效），状态 SETTLED → PARTIAL
+{"ar_no":"AR-20261110-000001","received":"600.0000","unsettled":"400.0000","status":"PARTIAL"}
+
+===== 19) 未确认就过账（应当 409）、确认后再送审
+  DRAFT 直接过账 → {"code":10003,"msg":"退款单 RR-20261110-000001 不能从「草稿」变成「已过账」：合法去向是 「已确认」 / 「已作废」"}
+  确认（DRAFT → CONFIRMED）→ {"code":0,"status":"CONFIRMED"}
+  CONFIRMED 但未送审就过账（应 409 要求先有 APPROVED 实例）→ {"code":66044,"msg":"退款单 RR-20261110-000001 还没通过审批，不能过账：先调 POST /business/erp/receipt-refund/01a1c18d-faa7-7201-b9ad-5c3226e969a6/submit-approval 发起「收款退款审批」，审批通过后系统会**自动过账**（不需要再手工点一次）。若本环境没有已发布的 receipt_refund 流程：让管理员在「流程定义」里发布，或由持 business:erp:skip-approval 的账号在提交审批时写明理由（≥10 字）显式跳过"}
+
+===== 20) 提交审批（POST /{id}/submit-approval）
+{"code":65018,"status":null,"approval_status":null,"approval_no":null,"instance":null}
+
+===== 21) 审批人（admin 自审已由内控剔除？先看待办）
+{"code":0,"total":0,"tasks":[]}
+  ⚠ 没有待办（内控排除了制单人自身的审批人身份）
+
+===== 22) 详情复核（审批通过 → 自动过账 → POSTED + 退款凭证）
+{"code":0,"no":"RR-20261110-000001","status":"CONFIRMED","status_label":"已确认","voucher_no":"","approval":null,"allocations":[{"ar_no":"AR-20261110-000001","amount":"400.0000"}]}
+
+===== 23) 应收最终态（退款后应回 PARTIAL，已收 600）
+{"ar_no":"AR-20261110-000001","amount":"1000.0000","received":"600.0000","unsettled":"400.0000","status":"PARTIAL"}
+
+===== 24) 退款凭证分录（借 1122 应收 / 贷 1002 银行存款）
+  （没有凭证 id：单据未过账）
+
+===== 25) 退款凭据附件（doc_type=RECEIPT_REFUND —— V0368 把 CHECK 放宽到 17 值）
+{"code":10001,"msg":"单据类型 doc_type 非法：RECEIPT_REFUND（可选 CONTRACT / PURCHASE_ORDER / STOCK_IN / PAYABLE / PAYMENT / FIXED_ASSET / EXPENSE_REPORT / INVOICE / RECEIPT / STOCK_TAKE / PURCHASE_RETURN / SALES_RETURN / STOCK_TRANSFER / SUPPLIER / CUSTOMER / OPENING_BALANCE）","id":null,"name":null,"role":null}
+{"code":10001,"total":null,"items":[]}
+
+===== 26) 作废链路（再建一张 DRAFT → 作废；再验证 POSTED 不能作废）
+  新建 null（DRAFT）
+  作废原因 2 个字 → {"code":66006,"msg":"id 不是合法的 UUID：null"}
+  作废原因足字 → {"code":66006,"status":null,"status_label":null}
+  已过账的 RR-20261110-000001 再作废 → {"code":10003,"msg":"退款单 RR-20261110-000001 不能从「已确认」变成「已作废」：合法去向是 「已过账」"}
+
+===== 27) 列表最终态
+{"code":0,"total":1,"list":[{"refund_no":"RR-20261110-000001","source_receipt_no":"RC-20261110-000001","customer_name":"NEAR-FIX1 退款实测客户","amount":"400.0000","allocated_amount":"400.0000","status":"CONFIRMED","approval_status":null}]}

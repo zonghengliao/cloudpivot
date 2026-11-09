@@ -214,16 +214,20 @@ pub const COLUMNS: &str = "id, refund_no, customer_id, source_receipt_id, refund
 /// LEFT JOIN 带出），不进 `RefundRow` —— 详情路径另有 `latest_approval_of` 现查，
 /// 两边共用的行映射不该依赖「某一条 SQL 恰好有这列」（E2E-FIX-8 ②）。
 pub const LIST_COLUMNS: &str = "p.id, p.refund_no, p.customer_id, COALESCE(c.name, '') AS customer_name, \
-                                p.source_receipt_id, p.refund_date, p.amount, p.allocated_amount, \
+                                p.source_receipt_id, r.receipt_no AS source_receipt_no, \
+                                p.refund_date, p.amount, p.allocated_amount, \
                                 p.method, p.bank_account, p.status, p.voucher_id, p.reason, p.remark, \
                                 p.approval_instance_id, fi.instance_no AS approval_instance_no, \
                                 fi.status AS approval_status, \
                                 p.created_at, p.updated_at, p.create_by";
 
 /// 分页 FROM（客户左连：客户软删后历史退款单仍要能列出来；
+/// 来源收款单左连：列表要显示「退的是哪一笔收款」（AGENTS 约定 13：`*_id` 必须同时返回名字）；
 /// 审批实例左连：一个 JOIN 带出审批状态，避免前端逐行回查详情）。
 pub const LIST_FROM: &str = "FROM biz_receipt_refund p \
                              LEFT JOIN biz_customer c ON c.id = p.customer_id \
+                             LEFT JOIN biz_receipt r ON r.id = p.source_receipt_id \
+                                                    AND r.deleted_at IS NULL \
                              LEFT JOIN biz_flow_instance fi ON fi.id = p.approval_instance_id \
                                                           AND fi.deleted_at IS NULL";
 
@@ -232,6 +236,26 @@ pub const LIST_ORDER: &str = "ORDER BY p.created_at DESC, p.refund_no DESC";
 
 /// 分页的表目标（未参与数据权限，见模块文档 SCOPE-EXEMPT）。
 pub const LIST_TARGET: scope::ScopeTarget = scope::ScopeTarget::unscoped(TABLE);
+
+/// 登记退款的 INSERT 模板（`{TABLE}` / `{DRAFT}` 由 `create` 用 `replace` 填）。
+///
+/// # 为什么可选列必须走 `NULLIF(?::text,'')`
+///
+/// 绑定层把 `None` 交给 `Value::Text(String::new())`（空串），而
+/// `ck_biz_receipt_refund_method` 只允许 `NULL` 或四个白名单值 —— 空串两者都不是，
+/// 于是「不选退款方式」这个**合法**操作会撞 23514，并被 `write_error` 翻译成一句
+/// 完全对不上症状的话（「退款金额 > 0；退款原因 >= 4 字…」，用户照着改也改不好）。
+/// NEAR-FIX-1 实测抓到：`{"customer_id":…,"amount":50,"reason":"作废链路实测"}`
+/// 少给 `method` 就 400。所以 `method` / `bank_account` 与既有的
+/// `source_receipt_id` / `create_by` / `update_by` 一样，统统 `NULLIF(?::text,'')`。
+///
+/// 单测 `insert_template_turns_optional_text_into_null` 数 NULLIF 的个数钉住这一点。
+pub const INSERT_SQL_TEMPLATE: &str = "INSERT INTO {TABLE} (id, refund_no, customer_id, source_receipt_id, refund_date, \
+                                       amount, allocated_amount, method, bank_account, status, reason, \
+                                       remark, created_at, updated_at, create_by, update_by) \
+                     VALUES (?::uuid, ?, ?::uuid, NULLIF(?::text,'')::uuid, ?::text::date, ?::text::numeric, 0, \
+                             NULLIF(?::text,''), NULLIF(?::text,''), '{DRAFT}', ?, ?, ?, ?, \
+                             NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)";
 
 // ==================== 纯逻辑（校验 / 金额 / 状态） ====================
 
@@ -741,6 +765,8 @@ pub struct RefundListRow {
     pub row: RefundRow,
     /// 客户名称。
     pub customer_name: String,
+    /// 来源收款单号（`RC-…`；没选来源收款单 / 收款单已软删 → `None`）。
+    pub source_receipt_no: Option<String>,
     /// 审批单号（`FLW-…`；从未提交 / 实例被清理 → `None`）。
     pub approval_instance_no: Option<String>,
     /// 审批状态（`PENDING` / `APPROVED` / …；从未提交 → `None`）。
@@ -752,6 +778,7 @@ impl RefundListRow {
     pub fn into_res(self) -> RefundRes {
         RefundRes::from_row(&self.row, &self.customer_name)
             .with_approval_columns(self.approval_instance_no, self.approval_status)
+            .with_source_receipt_no(self.source_receipt_no)
     }
 }
 
@@ -793,6 +820,7 @@ pub async fn refund_page(q: &RefundFilter) -> DbResult<(Vec<RefundListRow>, i64)
             Ok(RefundListRow {
                 row: RefundRow::from_row(row)?,
                 customer_name: name,
+                source_receipt_no: row.get_typed("source_receipt_no")?,
                 approval_instance_no: row.get_typed("approval_instance_no")?,
                 approval_status: row.get_typed("approval_status")?,
             })
@@ -998,6 +1026,10 @@ pub struct RefundRes {
     pub customer_name: String,
     /// 来源收款单。
     pub source_receipt_id: Option<String>,
+    /// 来源收款单号（`RC-yyyyMMdd-000001`；没选来源收款单 / 收款单已软删 → `null`）。
+    ///
+    /// AGENTS 约定 13：DTO 里凡是 `*_id` 都要同时返回 `*_name` —— 界面上显示 UUID 是缺陷。
+    pub source_receipt_no: Option<String>,
     /// 退款日期。
     pub refund_date: String,
     /// 退款金额。
@@ -1046,6 +1078,9 @@ impl RefundRes {
             customer_id: row.customer_id.to_string(),
             customer_name: customer_name.to_string(),
             source_receipt_id: row.source_receipt_id.map(|id| id.to_string()),
+            // 默认空：列表由 JOIN 出来的列补（`with_source_receipt_no`），
+            // 详情由 `detail_with` 现查收款单号补 —— 共用行映射不依赖某条 SQL 恰好有这列
+            source_receipt_no: None,
             refund_date: row.refund_date.to_string(),
             amount: row.amount,
             allocated_amount: row.allocated_amount,
@@ -1097,6 +1132,16 @@ impl RefundRes {
                 self.approval_status_label = Some(approval_status_label(&brief.status).to_string());
             }
         }
+        self
+    }
+
+    /// 补来源收款单号（列表路径用 JOIN 出来的列；详情路径现查）。
+    ///
+    /// 单独一个方法而不是塞进 `from_row`：`RefundRow` 里没有这一列，
+    /// 让它进共用映射就要求「每条查 RefundRow 的 SQL 都带 join」—— 那是 E2E-FIX-8 ②
+    /// 已经踩过的坑（`column create_by not found in row` 的同类）。
+    pub fn with_source_receipt_no(mut self, receipt_no: Option<String>) -> Self {
+        self.source_receipt_no = receipt_no;
         self
     }
 }
@@ -1217,8 +1262,18 @@ pub async fn detail_with(ex: &impl SqlExecutor, id: Uuid) -> std::result::Result
     let approval = receipt_refund_bridge::latest_approval_of(ex, row.id)
         .await
         .map_err(|error| utils::db_error(error, "查询退款审批实例"))?;
+    // 来源收款单号：详情页要显示「退的是哪一笔收款」，只给 UUID 等于让人去查库
+    let source_receipt_no = match row.source_receipt_id {
+        Some(receipt_id) => find_receipt(ex, receipt_id)
+            .await
+            .map_err(|error| utils::db_error(error, "查询来源收款单"))?
+            .map(|brief| brief.receipt_no),
+        None => None,
+    };
     // 单头也带上审批三段（列表 / 详情字段集一致：前端一套渲染逻辑）
-    let header = RefundRes::from_row(&row, &name).with_approval_brief(approval.as_ref());
+    let header = RefundRes::from_row(&row, &name)
+        .with_approval_brief(approval.as_ref())
+        .with_source_receipt_no(source_receipt_no);
     Ok(RefundDetailRes {
         header,
         voucher_no,
@@ -1318,14 +1373,9 @@ pub async fn create(operator: Option<Uuid>, req: CreateRefundReq) -> std::result
             .map_err(|error| utils::db_error(error, "取退款单号"))?;
         let id = Uuid::now_v7();
         tx.exec_sql(
-            format!(
-                "INSERT INTO {TABLE} (id, refund_no, customer_id, source_receipt_id, refund_date, \
-                                     amount, allocated_amount, method, bank_account, status, reason, \
-                                     remark, created_at, updated_at, create_by, update_by) \
-                 VALUES (?::uuid, ?, ?::uuid, NULLIF(?::text,'')::uuid, ?::text::date, ?::text::numeric, 0, ?, ?, \
-                         '{STATUS_DRAFT}', ?, ?, ?, ?, NULLIF(?::text,'')::uuid, \
-                         NULLIF(?::text,'')::uuid)"
-            ),
+            INSERT_SQL_TEMPLATE
+                .replace("{TABLE}", TABLE)
+                .replace("{DRAFT}", STATUS_DRAFT),
             vec![
                 Value::from(&id),
                 Value::Text(refund_no.clone()),
@@ -2377,6 +2427,66 @@ mod tests {
             LIST_FROM.contains("biz_flow_instance"),
             "审批状态必须由 LIST_FROM 的 LEFT JOIN 带出：{LIST_FROM}"
         );
+    }
+
+    /// NEAR-FIX-1：「不选退款方式」必须能建单（可选文本列不许绑空串）。
+    ///
+    /// 实测抓到的 bug：`method` 原来绑的是 `Value::Text("")`，撞
+    /// `ck_biz_receipt_refund_method`（只允许 NULL 或 4 个白名单值），
+    /// 而 `write_error` 把它翻译成一句和症状无关的话（「退款金额 > 0；退款原因 >= 4 字…」）。
+    /// 5 个可选文本列（source_receipt_id / method / bank_account / create_by / update_by）
+    /// 必须全部走 `NULLIF(?::text,'')`；少一个就能让「不填这一项」变成 400。
+    #[test]
+    fn insert_template_turns_optional_text_into_null() {
+        let nullif = INSERT_SQL_TEMPLATE.matches("NULLIF(?::text,'')").count();
+        assert_eq!(
+            nullif, 5,
+            "INSERT 模板里应有 5 个 NULLIF(?::text,'')（source_receipt_id / method / bank_account / \
+             create_by / update_by），实际 {nullif}：{INSERT_SQL_TEMPLATE}"
+        );
+        // method 与 bank_account 两列是连续的裸占位 `?, ?` → 改成两个 NULLIF（相邻出现）
+        assert!(
+            INSERT_SQL_TEMPLATE.contains("NULLIF(?::text,''), NULLIF(?::text,'')"),
+            "method / bank_account 必须连续走 NULLIF：{INSERT_SQL_TEMPLATE}"
+        );
+
+        // 占位符必须能被替换成真实表名与草稿态（否则 create 会拿 `{{TABLE}}` 去查库）
+        let sql = INSERT_SQL_TEMPLATE
+            .replace("{TABLE}", TABLE)
+            .replace("{DRAFT}", STATUS_DRAFT);
+        assert!(sql.contains("INSERT INTO biz_receipt_refund"), "{sql}");
+        assert!(sql.contains("'DRAFT'"), "{sql}");
+        assert!(!sql.contains('{'), "模板占位符没替换干净：{sql}");
+    }
+
+    /// NEAR-FIX-1：来源收款单号（AGENTS 约定 13 —— `*_id` 必须同时给名字）。
+    ///
+    /// 反例（本卡修的）：列表只给 `source_receipt_id`，界面只能显示 UUID。
+    #[test]
+    fn source_receipt_no_is_exposed_beside_its_id() {
+        assert!(
+            LIST_COLUMNS.contains("source_receipt_no"),
+            "列表要带来源收款单号：{LIST_COLUMNS}"
+        );
+        assert!(
+            LIST_FROM.contains("biz_receipt"),
+            "来源收款单号必须由 LIST_FROM 的 LEFT JOIN 带出：{LIST_FROM}"
+        );
+        // LEFT JOIN 必须带软删条件，否则软删的收款单号会照样显示出来
+        assert!(
+            LIST_FROM.contains("r.deleted_at IS NULL"),
+            "来源收款单的 LEFT JOIN 必须排除软删：{LIST_FROM}"
+        );
+
+        // 未选来源收款单 → 字段是 None（不是空串，前端才好判 `v-if`）
+        let row = refund_row_for_test();
+        let plain = RefundRes::from_row(&row, "客户甲");
+        assert!(plain.source_receipt_no.is_none());
+        assert!(plain.source_receipt_id.is_none());
+
+        // 补上单号：id 与 no 同时可读
+        let filled = RefundRes::from_row(&row, "客户甲").with_source_receipt_no(Some("RC-20261109-000001".into()));
+        assert_eq!(filled.source_receipt_no.as_deref(), Some("RC-20261109-000001"));
     }
 
     /// 审批三段（E2E-FIX-8 ②）：列表 / 详情共用同一套中英文映射。

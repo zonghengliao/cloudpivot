@@ -767,6 +767,30 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '收款单', permission: 'business:erp:receipt:list' },
       },
       {
+        // ==================== ERP 收款退款单（NEAR-FIX-1 · 卡 t_67dcb9cb） ====================
+        // 菜单节点由 V0295 种下（id …2950，name「收款退款单」），当时 `path` / `component` /
+        // `is_visible` **故意留空**（「前端页面由后续前端卡落地后一条 UPDATE 补」），
+        // 那张前端卡一直没来 —— 于是成了「后端完整、前端整块缺失」的死菜单。
+        // V0368 把 path 补成 `/business/erp/receipt-refund` 并挂到「销售管理」下；
+        // `system::menu::tests::n08`（menu_type=2 的 path 必须能在本文件里解析）是真库硬门禁，
+        // 所以**路由与迁移必须同一次提交**，顺序不能反。
+        path: 'business/erp/receipt-refund',
+        name: 'BusinessErpReceiptRefund',
+        component: () => import('@/views/business/erp/receipt-refund/index.vue'),
+        meta: { title: '收款退款单', permission: 'business:erp:receipt-refund:list' },
+      },
+      {
+        // ==================== ERP 取价查询（NEAR-FIX-1 · 卡 t_67dcb9cb） ====================
+        // 菜单节点由 V0307 种下（id …3071，name「价格查询」，它是 `business:erp:price:resolve`
+        // 的**唯一承载行** —— `perm_menu_gate.py` 要求每个权限码都有承载行，删行会让
+        // 除超管外任何人都调不动取价接口）。V0307 头注释给了收尾语句，V0368 补
+        // path = `/business/erp/price` 并挂到「销售管理」下（客户价格之后）。
+        path: 'business/erp/price',
+        name: 'BusinessErpPrice',
+        component: () => import('@/views/business/erp/price/index.vue'),
+        meta: { title: '取价查询', permission: 'business:erp:price:resolve' },
+      },
+      {
         // ==================== ERP 销售发票（SO-21 前端 / 后端 SO-20） ====================
         // 菜单节点由 V0299 种下（id …2895，name「销售发票」），当时 `path` / `component` /
         // `is_visible` **故意留空**（「前端路由落地后一条 UPDATE 收尾」），由 V0300 补齐 →

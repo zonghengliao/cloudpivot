@@ -413,7 +413,7 @@ impl DocKind {
 /// 也能挂附件），但本常量与前端 `ATTACHMENT_DOC_TYPES` 当时仍是 7 值 —— 于是
 /// 「发票必须传发票影像」这条规则在界面上**无法被满足**（前端下拉里根本没有 INVOICE）。
 /// ATT-08 做前端必传校验时补齐：界面上能挂，才谈得上提前告诉用户缺什么。
-pub const ATTACHMENT_DOC_KINDS: [DocKind; 16] = [
+pub const ATTACHMENT_DOC_KINDS: [DocKind; 17] = [
     DocKind::Contract,
     DocKind::PurchaseOrder,
     DocKind::StockIn,
@@ -435,6 +435,10 @@ pub const ATTACHMENT_DOC_KINDS: [DocKind; 16] = [
     DocKind::Supplier,
     DocKind::Customer,
     DocKind::OpeningBalance,
+    // NEAR-FIX-1 / V0368：收款退款单的退款凭据（钱往外走，审计要求比收款更高）。
+    // 追加在末尾（不插中间）：顺序 = 前端 `ATTACHMENT_DOC_TYPES` 的顺序，
+    // 插中间会让既有注释里的「ATT-11 那 4 类在末尾」失效。
+    DocKind::ReceiptRefund,
 ];
 
 /// 能记业务提醒的对象（与 `ck_biz_reminder_log_doc_type` 逐字一致）。

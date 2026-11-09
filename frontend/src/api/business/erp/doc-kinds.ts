@@ -173,10 +173,12 @@ export type CancelDocType = keyof typeof DOC_KIND_ROUTES;
 // ATT-11：ATTACHMENT_DOC_TYPES 末尾加 4 类「建议传（不校验）」的对象：
 // 调拨单 / 供应商 / 客户 / 期初余额（V0350 把 DDL 的 CHECK 放宽到 16 值）。
 /**
- * 能挂业务附件的业务对象（`biz_doc_attachment.doc_type` 的 16 类）。
+ * 能挂业务附件的业务对象（`biz_doc_attachment.doc_type` 的 17 类）。
  *
  * 与后端 `doc_kind::ATTACHMENT_DOC_KINDS` + DDL 的 `ck_biz_doc_attachment_type`
  * 逐字一致（后端单测 `attachment_doc_types_match_rust` 会比对顺序与取值）。
+ * **词表里不要写注释**：那个单测是逐个 `'大写值'` 抓字面量的，中间夹一行中文注释
+ * 会被当成一个「取值」而判红（NEAR-FIX-1 实测踩过）。
  *
  * ATT-08 从 7 类补到 12 类：ATT-06 把 DDL 放宽到 12 值（发票 / 收款 / 盘点 /
  * 采购退货 / 销售退货 也能挂附件），但前端词表当时没跟上 —— 结果是「发票必须传
@@ -200,6 +202,7 @@ export const ATTACHMENT_DOC_TYPES = [
   'SUPPLIER',
   'CUSTOMER',
   'OPENING_BALANCE',
+  'RECEIPT_REFUND',
 ] as const;
 
 /** 能挂业务附件的业务对象（联合类型）。 */

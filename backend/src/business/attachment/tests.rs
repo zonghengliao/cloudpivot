@@ -90,11 +90,11 @@ fn claims_of(user: &str, permissions: &[&str]) -> TokenClaims {
 /// ATT-11 加调拨单 / 供应商 / 客户 / 期初余额）。
 #[test]
 fn doc_kinds_cover_five_distinct_tables() {
-    assert_eq!(DocKind::ALL.len(), 16);
+    assert_eq!(DocKind::ALL.len(), 17);
     let mut tables: Vec<&str> = DocKind::ALL.iter().map(|kind| kind.table()).collect();
     tables.sort_unstable();
     tables.dedup();
-    assert_eq!(tables.len(), 16, "十六类单据必须落在十六张不同的表上：{tables:?}");
+    assert_eq!(tables.len(), 17, "十七类单据必须落在十七张不同的表上：{tables:?}");
     for kind in DocKind::ALL {
         // 字面值与 DDL 的 ck_biz_doc_attachment_type 逐字一致
         assert_eq!(
@@ -556,7 +556,7 @@ fn doc_not_found_message_names_the_kind() {
 /// [`view_permissions_are_real_menu_codes`] 再兜一层（防哑弹）。
 #[test]
 fn view_permissions_map_to_erp_read_codes() {
-    let expected: [(DocKind, &[&str]); 16] = [
+    let expected: [(DocKind, &[&str]); 17] = [
         (DocKind::Contract, &["business:erp:contract:list"]),
         (DocKind::PurchaseOrder, &["business:erp:purchase-order:list"]),
         (
@@ -604,8 +604,13 @@ fn view_permissions_map_to_erp_read_codes() {
         (DocKind::Supplier, &["business:erp:supplier:list"]),
         (DocKind::Customer, &["business:erp:customer:list"]),
         (DocKind::OpeningBalance, &["business:erp:opening:read"]),
+        // NEAR-FIX-1 / V0368：退款单有自己的 GET 详情路由
+        (
+            DocKind::ReceiptRefund,
+            &["business:erp:receipt-refund:list", "business:erp:receipt-refund:detail"],
+        ),
     ];
-    assert_eq!(expected.len(), DocKind::ALL.len(), "十六类单据必须全覆盖");
+    assert_eq!(expected.len(), DocKind::ALL.len(), "十七类单据必须全覆盖");
     for (kind, codes) in expected {
         assert_eq!(kind.view_permissions(), codes, "{} 的模块读码漂移了", kind.label());
         for code in codes {

@@ -72,6 +72,8 @@ pub const DOC_SUPPLIER: &str = "SUPPLIER";
 pub const DOC_CUSTOMER: &str = "CUSTOMER";
 /// 单据类型：期初余额（ATT-11：期初依据；`doc_id` = 期初凭证 id）。
 pub const DOC_OPENING_BALANCE: &str = "OPENING_BALANCE";
+/// 单据类型：收款退款单（NEAR-FIX-1 / V0368：退款凭据 —— 银行付款回单 / 客户签收的退款确认）。
+pub const DOC_RECEIPT_REFUND: &str = "RECEIPT_REFUND";
 
 /// 文件角色：合同扫描件。
 pub const ROLE_CONTRACT_SCAN: &str = "CONTRACT_SCAN";
@@ -223,6 +225,8 @@ pub enum DocKind {
     /// （`biz_voucher.voucher_type='OPENING'`，V0189 的唯一索引兜死），
     /// 它才是「这份依据属于哪一期期初」的稳定锚点。
     OpeningBalance,
+    /// 收款退款单 → `biz_receipt_refund`（V0368：退款凭据；钱往外走，审计要求比收款更高）
+    ReceiptRefund,
 }
 
 impl DocKind {
@@ -231,7 +235,7 @@ impl DocKind {
     /// ATT-06 从 7 类扩到 12 类：新增 `INVOICE` / `RECEIPT` / `STOCK_TAKE` /
     /// `PURCHASE_RETURN` / `SALES_RETURN`，与 `V0347` 放宽后的
     /// `ck_biz_doc_attachment_type` 逐字对应。
-    pub const ALL: [DocKind; 16] = [
+    pub const ALL: [DocKind; 17] = [
         DocKind::Contract,
         DocKind::PurchaseOrder,
         DocKind::StockIn,
@@ -249,6 +253,8 @@ impl DocKind {
         DocKind::Supplier,
         DocKind::Customer,
         DocKind::OpeningBalance,
+        // NEAR-FIX-1 / V0368：退款凭据（V0368 把 CHECK 放宽到 17 值；追加在末尾与前端词表一致）
+        DocKind::ReceiptRefund,
     ];
 
     /// 解析单据类型（大小写不敏感、去空白）。
@@ -278,6 +284,7 @@ impl DocKind {
             DOC_SUPPLIER => Some(DocKind::Supplier),
             DOC_CUSTOMER => Some(DocKind::Customer),
             DOC_OPENING_BALANCE => Some(DocKind::OpeningBalance),
+            DOC_RECEIPT_REFUND => Some(DocKind::ReceiptRefund),
             _ => None,
         }
     }
@@ -301,6 +308,7 @@ impl DocKind {
             DocKind::Supplier => DOC_SUPPLIER,
             DocKind::Customer => DOC_CUSTOMER,
             DocKind::OpeningBalance => DOC_OPENING_BALANCE,
+            DocKind::ReceiptRefund => DOC_RECEIPT_REFUND,
         }
     }
 
@@ -323,6 +331,7 @@ impl DocKind {
             DocKind::Supplier => "供应商",
             DocKind::Customer => "客户",
             DocKind::OpeningBalance => "期初余额",
+            DocKind::ReceiptRefund => "收款退款单",
         }
     }
 
@@ -346,6 +355,7 @@ impl DocKind {
             DocKind::Customer => "biz_customer",
             // 期初余额没有单头表：锚点是期初凭证（`voucher_type = 'OPENING'`）
             DocKind::OpeningBalance => "biz_voucher",
+            DocKind::ReceiptRefund => "biz_receipt_refund",
         }
     }
 
@@ -380,6 +390,8 @@ impl DocKind {
                 "SELECT 1 FROM biz_voucher \
                   WHERE id = ?::uuid AND voucher_type = 'OPENING' AND deleted_at IS NULL"
             }
+            // V0368：退款单是标准软删单头表
+            DocKind::ReceiptRefund => "SELECT 1 FROM biz_receipt_refund WHERE id = ?::uuid AND deleted_at IS NULL",
         }
     }
 
@@ -432,6 +444,8 @@ impl DocKind {
             DocKind::Supplier => &["business:erp:supplier:list"],
             DocKind::Customer => &["business:erp:customer:list"],
             DocKind::OpeningBalance => &["business:erp:opening:read"],
+            // V0368：退款单有自己的 GET 详情路由（`GET /receipt-refund/{id}` 挂 `:detail`）
+            DocKind::ReceiptRefund => &["business:erp:receipt-refund:list", "business:erp:receipt-refund:detail"],
         }
     }
 }
@@ -563,6 +577,8 @@ impl FileRole {
             DocKind::OpeningBalance => &[OpeningEvidence, Default],
             DocKind::Supplier => &[BizLicense, BankAccountPermit, Qualification, Default],
             DocKind::Customer => &[BizLicense, CreditFile, Default],
+            // V0368：退款凭据 = 银行付款回单（与收款单同一组角色；退款确认书归「其他附件」）
+            DocKind::ReceiptRefund => &[BankReceipt, Default],
         }
     }
 

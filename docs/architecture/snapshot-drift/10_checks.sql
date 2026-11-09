@@ -543,6 +543,8 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('ATTACHMENT_DOC', 'SUPPLIER',        'biz_supplier',       'deleted_at', '营业执照 / 开户许可 / 资质证书（ATT-11）'),
     ('ATTACHMENT_DOC', 'CUSTOMER',        'biz_customer',       'deleted_at', '营业执照 / 信用资料（ATT-11）'),
     ('ATTACHMENT_DOC', 'OPENING_BALANCE', 'biz_voucher',        'deleted_at', '期初依据（ATT-11：doc_id = 期初凭证 id，voucher_type=OPENING）'),
+    -- NEAR-FIX-1 / V0368：退款凭据（17 值）。期初那条之后追加，与 ATTACHMENT_DOC_KINDS 的末尾顺序一致
+    ('ATTACHMENT_DOC', 'RECEIPT_REFUND',  'biz_receipt_refund', 'deleted_at', '退款凭据（V0368：银行回单 / 客户签收的退款确认）'),
     -- ⑦ 业务提醒台账：biz_reminder_log.doc_type + doc_id（P2-6b，取值域 = REMINDER_DOC_KINDS）
     ('REMINDER_DOC', 'PAYABLE',        'biz_payable',        'deleted_at', '应付到期提醒'),
     ('REMINDER_DOC', 'PURCHASE_ORDER', 'biz_purchase_order', 'deleted_at', '采购超期提醒'),
@@ -1183,6 +1185,17 @@ SELECT m.ref_domain, 'biz_doc_attachment', a.id, a.id::text, 'doc_id', m.ref_typ
   JOIN di.v_poly_ref_map m ON m.ref_domain = 'ATTACHMENT_DOC' AND m.ref_type = a.doc_type
   LEFT JOIN biz_voucher t ON t.id = a.doc_id AND t.voucher_type = 'OPENING'
  WHERE a.deleted_at IS NULL AND a.doc_type = 'OPENING_BALANCE' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+-- NEAR-FIX-1 / V0368：退款凭据（登记表已加 ATTACHMENT_DOC.RECEIPT_REFUND，这里必须有对应分支，
+-- 否则「登记了但不查」= DI-22 绿、DI-23 漏报，比不登记更糟 —— FIN-2 / ATT-06 同款坑）
+UNION ALL
+SELECT m.ref_domain, 'biz_doc_attachment', a.id, a.id::text, 'doc_id', m.ref_type, a.doc_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_doc_attachment a
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'ATTACHMENT_DOC' AND m.ref_type = a.doc_type
+  LEFT JOIN biz_receipt_refund t ON t.id = a.doc_id
+ WHERE a.deleted_at IS NULL AND a.doc_type = 'RECEIPT_REFUND' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
 -- ========== ⑦ 业务提醒台账（P2-6b） ==========
 --   `biz_reminder_log` 是幂等台账（只增不改）：单据被删是正常生命周期，
 --   所以这里只报 DANGLING，不加 MISSING_ID（`doc_id` 列 NOT NULL，缺 id 写不进来）。

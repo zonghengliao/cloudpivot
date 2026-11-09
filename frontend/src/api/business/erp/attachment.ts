@@ -106,6 +106,8 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
   SUPPLIER: DOC_KIND_LABELS.SUPPLIER,
   CUSTOMER: DOC_KIND_LABELS.CUSTOMER,
   OPENING_BALANCE: DOC_KIND_LABELS.OPENING_BALANCE,
+  // NEAR-FIX-1 / V0368：退款凭据
+  RECEIPT_REFUND: DOC_KIND_LABELS.RECEIPT_REFUND,
 };
 
 /**
@@ -442,4 +444,6 @@ export const DEFAULT_ROLE_BY_DOC: Record<DocType, FileRole> = {
   CUSTOMER: 'BIZ_LICENSE',
   /** ATT-11：期初依据（doc_id = 期初凭证 id）。 */
   OPENING_BALANCE: 'OPENING_EVIDENCE',
+  /** NEAR-FIX-1：退款凭据 = 银行付款回单（与收款单的银行回单同一角色）。 */
+  RECEIPT_REFUND: 'BANK_RECEIPT',
 };
