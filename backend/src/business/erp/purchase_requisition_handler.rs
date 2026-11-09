@@ -968,11 +968,25 @@ pub async fn to_purchase_order(
             total_with_tax,
         },
         requisition_nos: req_nos,
-        lines: merged
-            .iter()
-            .enumerate()
-            .map(|(index, line)| to_merged_res(index, line, &po_item_of_material))
-            .collect(),
+        lines: {
+            // 合并结果是纯函数产物（只有 material_id），响应契约里的物料编码/名称在这里回填
+            let mut materials: BTreeMap<Uuid, (String, String)> = BTreeMap::new();
+            for line in &merged {
+                if materials.contains_key(&line.material_id) {
+                    continue;
+                }
+                let pair = model::material_ref_of(db(), line.material_id)
+                    .await
+                    .map_err(|error| utils::db_error(error, "查询合并明细的物料编码"))?
+                    .unwrap_or_default();
+                materials.insert(line.material_id, pair);
+            }
+            merged
+                .iter()
+                .enumerate()
+                .map(|(index, line)| to_merged_res(index, line, &po_item_of_material, &materials))
+                .collect()
+        },
         merged_count: rows.len(),
     })
 }
@@ -1014,12 +1028,17 @@ fn to_merged_res(
     index: usize,
     line: &MergedLine,
     po_item_of_material: &BTreeMap<Uuid, Uuid>,
+    materials: &BTreeMap<Uuid, (String, String)>,
 ) -> MergedLineRes {
+    let (material_code, material_name) = materials
+        .get(&line.material_id)
+        .cloned()
+        .unwrap_or_default();
     MergedLineRes {
         line_no: i32::try_from(index + 1).unwrap_or(i32::MAX),
         material_id: line.material_id.to_string(),
-        material_code: String::new(),
-        material_name: String::new(),
+        material_code,
+        material_name,
         qty: line.qty,
         est_price: line.est_price,
         tax_rate: line.tax_rate,

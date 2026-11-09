@@ -871,6 +871,34 @@ pub async fn po_no_of(ex: &impl SqlExecutor, po_id: Uuid) -> DbResult<Option<Str
         .transpose()
 }
 
+/// 物料编码 / 名称（转单响应里回填 `material_code` / `material_name`；查不到给 `None`）。
+///
+/// 为什么要有这个函数：`to_purchase_order` 的合并结果来自**申请明细的纯函数合并**
+/// （`merge_by_material`），那一步只有 `material_id`。响应契约里 `material_code` /
+/// `material_name` 是必填字段，不回填就只能给空串 —— 前端「转单结果」页按这两列展示，
+/// 空串等于把「合并了哪些物料」藏起来，用户只能对着 UUID 猜。
+pub async fn material_ref_of(
+    ex: &impl SqlExecutor,
+    material_id: Uuid,
+) -> DbResult<Option<(String, String)>> {
+    // SCOPE-EXEMPT: 按主键取 1 行主数据（编码 + 名称），不分页、不裁剪。
+    let rows = ex
+        .query_sql(
+            "SELECT material_code, material_name FROM biz_material \
+             WHERE id = ?::uuid AND deleted_at IS NULL"
+                .to_string(),
+            vec![Value::from(&material_id)],
+        )
+        .await?;
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+    Ok(Some((
+        row.get_typed("material_code")?,
+        row.get_typed("material_name")?,
+    )))
+}
+
 // ==================== 小工具 ====================
 
 /// `Option<Uuid>` → `?::text` 参数（空串 = NULL）。
