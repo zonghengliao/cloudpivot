@@ -213,13 +213,19 @@ pub struct BusinessRes {
 /// 由前端渲染成灰色的「未安装」，**不是**故障，也不该让整页标红。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct HermesProbeRes {
-    /// `up`（端口可连）/ `not_installed`（连接被拒或超时）。
+    /// `up`（端口可连）/ `not_installed`（所有候选地址都连不上）。
+    ///
+    /// 注意：值保持 `up` 而不是 `ok` —— 前端（服务器状态页 / 首页健康卡）按 `up` 判定，
+    /// 与 `database.state` / `redis.state` 同一套取值。
     pub state: String,
     /// 探测地址（`127.0.0.1:8100` 形态，不含凭据）。
+    ///
+    /// `up` 时是**命中的那个**地址；`not_installed` 时是**所有试过的**候选地址（逗号分隔），
+    /// 便于在页面上直接看出「是没装，还是装在了别的端口」。
     pub address: String,
     /// 连接耗时（毫秒，保留 1 位小数）；失败时为 `None`。
     pub latency_ms: Option<f64>,
-    /// 一句话说明（失败原因已归一到「连接被拒绝 / 超时」两种，不含系统错误细节）。
+    /// 一句话说明（成功时带地址来源；失败时带每个地址的失败原因 + pid 反查诊断）。
     pub detail: String,
 }
 

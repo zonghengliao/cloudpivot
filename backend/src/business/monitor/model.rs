@@ -9,6 +9,7 @@
 //! | 磁盘 | `df -P -k /` | 不引入 `libc`，解析 POSIX 输出；失败降级为 0 |
 //! | 数据库 | 现有连接 | `current_database()` / `pg_database_size()` / `pg_stat_activity` / `version()` |
 //! | Redis | `INFO` | 使用与 `nik-cache` 同版本的 redis 客户端，连接失败降级为 `down` |
+//! | Hermes | `gateway.pid` + `ss -tlnp` | 端口由内核随机分配（Hermes 无可配端口），故反查 pid 的实际监听地址；`ss` 缺失退化到 `/proc/net/tcp` |
 //!
 //! 所有采集函数都**不返回错误**：单项失败只把该指标降级为 0 / `down`，接口整体保持 200。
 //! 解析与格式化逻辑拆成纯函数，便于单测覆盖除零、空输入等边界。
@@ -31,11 +32,27 @@ const CPU_SAMPLE_INTERVAL: Duration = Duration::from_millis(200);
 const DB_VERSION_MAX_CHARS: usize = 40;
 /// 统计「今日」时使用的时区（与 `support::dashboard::model` 的自然日口径一致）。
 const REPORT_TIME_ZONE: &str = "Asia/Shanghai";
-/// Hermes Agent 端口默认探测地址。
+/// Hermes Agent 兜底探测地址（**最后**一个候选）。
 ///
-/// 当前生产形态里 Agent 不在本机，所以这里探测失败是**正常状态**（前端显示「未安装」）。
-/// 可用环境变量 `CLOUDPIVOT_HERMES_PROBE_ADDR` 覆盖（例如 Agent 与云枢同机部署时改端口）。
+/// # 为什么不能把端口写死
+///
+/// `hermes gateway run` 的 HTTP 监听端口是**内核随机分配**的：
+/// Hermes 源码 `gateway/run_runtime.py` 调 `start_gateway_api(runner)`，该函数形参默认
+/// `host="127.0.0.1", port=0`，`config.yaml` 里既没有也没有读取任何 `gateway.port`
+/// （`hermes_cli/config_defaults.py` 的 `gateway` / `dashboard` 两段都无 port 键，
+/// `gateway run` 子命令也只有 `-v/-q/--replace/--force/--no-supervise`）。
+///
+/// 所以真实地址只能**反查**：[`HERMES_PID_FILE`] 拿 pid → [`listen_addrs_for_pid`] 查监听端口。
+/// 这个常量只在「pid 反查也失败」时兜底，用于兼容把 Agent 固定监听 8100 的部署。
 const HERMES_PROBE_ADDR_DEFAULT: &str = "127.0.0.1:8100";
+/// 显式覆盖探测地址的环境变量（优先级最高）。
+const HERMES_PROBE_ADDR_ENV: &str = "NIK_HERMES_PROBE_ADDR";
+/// 同一环境变量的旧名，保留兼容（历史环境文件里用过 `CLOUDPIVOT_` 前缀）。
+const HERMES_PROBE_ADDR_ENV_LEGACY: &str = "CLOUDPIVOT_HERMES_PROBE_ADDR";
+/// Hermes gateway 的 pid 文件（内容是 JSON：`{"pid": 1129759, "kind": "hermes-gateway", …}`）。
+const HERMES_PID_FILE: &str = "/root/.hermes/gateway.pid";
+/// pid 文件路径的覆盖变量（测试与「Agent 装在别的 HERMES_HOME」时用）。
+const HERMES_PID_FILE_ENV: &str = "NIK_HERMES_GATEWAY_PID_FILE";
 /// Hermes 探测超时：连接被防火墙丢弃时不至于把整页拖慢到秒级。
 const HERMES_PROBE_TIMEOUT: Duration = Duration::from_millis(300);
 
@@ -314,43 +331,402 @@ SELECT (SELECT COUNT(*) FROM sys_user WHERE deleted_at IS NULL)::bigint AS users
     }
 }
 
-/// 探测 Hermes Agent 端口（TCP 连接，300 ms 超时）。
+/// 探测 Hermes Agent（TCP 连接，[`HERMES_PROBE_TIMEOUT`] 超时）。
 ///
 /// # 语义
 ///
-/// - 连得上 → `state = up`（Agent 与本服务同机且已监听）；
-/// - 连不上 → `state = not_installed`（**正常状态**：当前部署形态里 Agent 在别的主机）。
+/// - 任一候选地址连得上 → `state = up`（Agent 与本服务同机且已监听）；
+/// - 全都不通 → `state = not_installed`（前端渲染成灰色「未安装」，**不是**故障）。
 ///
-/// 探测地址可用 `CLOUDPIVOT_HERMES_PROBE_ADDR` 覆盖。
+/// # 候选地址优先级
+///
+/// 1. 环境变量 [`HERMES_PROBE_ADDR_ENV`]（旧名 [`HERMES_PROBE_ADDR_ENV_LEGACY`] 兼容）；
+/// 2. `gateway.pid` → pid → 该进程实际的 TCP 监听端口（Hermes 端口随机，这是唯一可靠来源）；
+/// 3. [`HERMES_PROBE_ADDR_DEFAULT`] 兜底。
+///
+/// 失败时 `address` 回填**所有试过的地址**、`detail` 附带每个地址的失败原因与 pid 反查诊断，
+/// 让运维在页面上就能看出「是没装、还是装在了别的端口」。
 async fn probe_hermes() -> HermesProbeRes {
-    let address = std::env::var("CLOUDPIVOT_HERMES_PROBE_ADDR")
+    // pid 反查要 fork `ss`、扫 `/proc`：放阻塞线程池，别占 tokio worker。
+    let (candidates, pid_note) = tokio::task::spawn_blocking(hermes_candidates)
+        .await
+        .unwrap_or_else(|_| {
+            (
+                vec![ProbeAddr {
+                    addr: HERMES_PROBE_ADDR_DEFAULT.to_string(),
+                    origin: "默认地址".to_string(),
+                }],
+                "候选地址探测线程失败".to_string(),
+            )
+        });
+
+    let mut tried: Vec<String> = Vec::new();
+    let mut failures: Vec<String> = Vec::new();
+    for candidate in &candidates {
+        tried.push(candidate.addr.clone());
+        let started = Instant::now();
+        let outcome = tokio::time::timeout(HERMES_PROBE_TIMEOUT, tokio::net::TcpStream::connect(&candidate.addr)).await;
+        match outcome {
+            Ok(Ok(_stream)) => {
+                return HermesProbeRes {
+                    state: "up".to_string(),
+                    address: candidate.addr.clone(),
+                    latency_ms: Some(duration_ms(started.elapsed())),
+                    detail: format!("端口可连接（地址来源：{}）", candidate.origin),
+                };
+            }
+            Ok(Err(_)) => failures.push(format!("{}(连接被拒)", candidate.addr)),
+            Err(_) => failures.push(format!(
+                "{}(超时 {} ms)",
+                candidate.addr,
+                HERMES_PROBE_TIMEOUT.as_millis()
+            )),
+        }
+    }
+
+    let mut detail = format!("所有候选地址都不通：{}", failures.join(", "));
+    if !pid_note.is_empty() {
+        detail.push_str(&format!("；{pid_note}"));
+    }
+    HermesProbeRes {
+        state: "not_installed".to_string(),
+        address: tried.join(", "),
+        latency_ms: None,
+        detail,
+    }
+}
+
+// ==================== Hermes 地址反查 ====================
+
+/// 一个候选探测地址及其来源（来源会写进 `detail`，便于解释「为什么探这个地址」）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProbeAddr {
+    /// `host:port` 形态（IPv6 带方括号）。
+    addr: String,
+    /// 人类可读的来源说明。
+    origin: String,
+}
+
+/// 组装候选地址链，并返回 pid 反查的诊断信息（成功时为空串）。
+fn hermes_candidates() -> (Vec<ProbeAddr>, String) {
+    let lookup = hermes_pid_listen_addrs();
+    // ① 显式配置：新名优先，旧名只做兼容。
+    let env_addr = [HERMES_PROBE_ADDR_ENV, HERMES_PROBE_ADDR_ENV_LEGACY]
+        .into_iter()
+        .find_map(env_non_empty);
+    (build_candidates(env_addr, &lookup.addrs, &lookup.origin), lookup.diag)
+}
+
+/// 按优先级拼候选链（纯函数，便于单测）：显式配置 → pid 反查 → 默认兜底，保序去重。
+fn build_candidates(env_addr: Option<String>, pid_addrs: &[String], pid_origin: &str) -> Vec<ProbeAddr> {
+    let mut list: Vec<ProbeAddr> = Vec::new();
+
+    if let Some(addr) = env_addr {
+        list.push(ProbeAddr {
+            addr,
+            origin: format!("环境变量 {HERMES_PROBE_ADDR_ENV}"),
+        });
+    }
+    for addr in pid_addrs {
+        list.push(ProbeAddr {
+            addr: addr.clone(),
+            origin: pid_origin.to_string(),
+        });
+    }
+    list.push(ProbeAddr {
+        addr: HERMES_PROBE_ADDR_DEFAULT.to_string(),
+        origin: "默认地址".to_string(),
+    });
+
+    dedupe_probe_addrs(list)
+}
+
+/// pid 反查结果。
+#[derive(Debug, Default)]
+struct PidLookup {
+    /// 该进程监听的地址（回环优先）。
+    addrs: Vec<String>,
+    /// 成功时的来源说明（写进 `detail`）。
+    origin: String,
+    /// 失败原因（写进失败 `detail`；成功时为空）。
+    diag: String,
+}
+
+/// 读 `gateway.pid` → 校验进程存活 → 查该进程的 TCP 监听地址。
+fn hermes_pid_listen_addrs() -> PidLookup {
+    let path = env_non_empty(HERMES_PID_FILE_ENV).unwrap_or_else(|| HERMES_PID_FILE.to_string());
+    hermes_pid_listen_addrs_at(&path)
+}
+
+/// [`hermes_pid_listen_addrs`] 的实际实现（pid 文件路径显式传入，便于单测）。
+fn hermes_pid_listen_addrs_at(path: &str) -> PidLookup {
+    let mut lookup = PidLookup::default();
+    let raw = match std::fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(err) => {
+            lookup.diag = format!("pid 文件 {path} 读不到（{err}）");
+            return lookup;
+        }
+    };
+    let Some(pid) = parse_gateway_pid(&raw) else {
+        lookup.diag = format!("pid 文件 {path} 里没有可解析的 pid");
+        return lookup;
+    };
+    lookup.origin = format!("gateway.pid → pid {pid}");
+    if !std::path::Path::new(&format!("/proc/{pid}")).exists() {
+        lookup.diag = format!("gateway.pid 指向的进程 {pid} 已不存在（Agent 未启动）");
+        return lookup;
+    }
+
+    lookup.addrs = listen_addrs_for_pid(pid);
+    if lookup.addrs.is_empty() {
+        lookup.diag = format!("进程 {pid} 没有 TCP 监听端口（ss 与 /proc 都没查到）");
+    }
+    lookup
+}
+
+/// 取某进程的 TCP 监听地址（`host:port`，回环优先）。
+///
+/// 主路径用 `ss -tlnp`（输出可读、无需手工解析二进制结构）；`ss` 缺失或查不到时
+/// 退回 `/proc/<pid>/fd` 的 socket inode + `/proc/net/tcp{,6}`。
+#[cfg(target_os = "linux")]
+fn listen_addrs_for_pid(pid: u32) -> Vec<String> {
+    let addrs = ss_listen_addrs(pid);
+    if addrs.is_empty() {
+        return proc_listen_addrs(pid);
+    }
+    addrs
+}
+
+/// 非 Linux（Windows / macOS）：没有 `/proc` 也没有 `ss`，直接放弃 → 由调用方降级。
+#[cfg(not(target_os = "linux"))]
+fn listen_addrs_for_pid(_pid: u32) -> Vec<String> {
+    Vec::new()
+}
+
+/// 用 `ss -tlnp` 查 pid 的监听地址；`ss` 不在 PATH 时依次试常见绝对路径。
+#[cfg(target_os = "linux")]
+fn ss_listen_addrs(pid: u32) -> Vec<String> {
+    let needle = format!("pid={pid},");
+    for bin in ["ss", "/usr/bin/ss", "/bin/ss", "/sbin/ss"] {
+        let Ok(output) = std::process::Command::new(bin).arg("-tlnp").output() else {
+            continue;
+        };
+        if !output.status.success() {
+            continue;
+        }
+        // 第一个能跑通的 ss 就是权威结果：即便一条都没匹配也不必再试别的路径。
+        let text = String::from_utf8_lossy(&output.stdout);
+        let addrs: Vec<String> = text
+            .lines()
+            .filter(|line| line.contains(&needle))
+            .filter_map(parse_ss_local_addr)
+            .collect();
+        return dedupe_loopback_first(addrs);
+    }
+    Vec::new()
+}
+
+/// 没有 `ss` 时的兜底：`/proc/<pid>/fd` 的 socket inode + `/proc/net/tcp{,6}` 的 LISTEN 行。
+#[cfg(target_os = "linux")]
+fn proc_listen_addrs(pid: u32) -> Vec<String> {
+    let inodes = proc_socket_inodes(pid);
+    if inodes.is_empty() {
+        return Vec::new();
+    }
+    let mut addrs: Vec<String> = Vec::new();
+    for table in ["/proc/net/tcp", "/proc/net/tcp6"] {
+        let Ok(text) = std::fs::read_to_string(table) else {
+            continue;
+        };
+        addrs.extend(parse_proc_net_listen(&text, &inodes));
+    }
+    dedupe_loopback_first(addrs)
+}
+
+/// 收集进程持有的 socket inode 列表（`/proc/<pid>/fd/*` → `socket:[inode]`）。
+#[cfg(target_os = "linux")]
+fn proc_socket_inodes(pid: u32) -> Vec<u64> {
+    let Ok(entries) = std::fs::read_dir(format!("/proc/{pid}/fd")) else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(|entry| {
+            let path = entry.ok()?.path();
+            let target = std::fs::read_link(path).ok()?;
+            parse_socket_inode(&target.to_string_lossy())
+        })
+        .collect()
+}
+
+// ==================== Hermes 纯解析（含单测） ====================
+
+/// 从 `gateway.pid` 内容里取 pid。
+///
+/// 兼容两种写法：纯数字（`1129759\n`）与 JSON（`{"pid": 1129759, "kind": …}`）。
+/// 不引入 JSON 依赖：结构固定，解析不出来就返回 `None` 让调用方降级。
+pub fn parse_gateway_pid(raw: &str) -> Option<u32> {
+    let text = raw.trim();
+    if text.is_empty() {
+        return None;
+    }
+    if let Ok(pid) = text.parse::<u32>() {
+        return (pid > 0).then_some(pid);
+    }
+    let key = text.find("\"pid\"")?;
+    let digits: String = text[key + "\"pid\"".len()..]
+        .trim_start()
+        .strip_prefix(':')?
+        .trim_start()
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
+    let pid = digits.parse::<u32>().ok()?;
+    (pid > 0).then_some(pid)
+}
+
+/// 解析一行 `ss -tlnp` 的本地地址列。
+///
+/// 形如 `LISTEN 0 2048 127.0.0.1:49839 0.0.0.0:* users:(("hermes",pid=1129759,fd=7))`。
+///
+/// 通配绑定（`0.0.0.0:P` / `*:P` / `[::]:P`）统一折成 `127.0.0.1:P`：
+/// 探测的是**本机回环**，拿未指定地址去 `connect` 没有意义。IPv6 地址加方括号。
+pub fn parse_ss_local_addr(line: &str) -> Option<String> {
+    let field = line.split_whitespace().nth(3)?;
+    let (host, port) = field.rsplit_once(':')?;
+    let port: u16 = port.parse().ok()?;
+    if port == 0 {
+        return None;
+    }
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    let host = match host {
+        "*" | "0.0.0.0" | "::" => "127.0.0.1".to_string(),
+        other => other.to_string(),
+    };
+    Some(join_host_port(&host, port))
+}
+
+/// `/proc/net/tcp{,6}` 的地址列（`0100007F:4E2F`）→ `host:port`。
+///
+/// 该列是十六进制、且**每个 32 位字按主机序（小端）排列**：`0100007F` = 127.0.0.1。
+/// 未指定地址折成 `127.0.0.1`（同 [`parse_ss_local_addr`]），IPv4-mapped IPv6 折成 IPv4。
+pub fn decode_proc_addr(field: &str) -> Option<String> {
+    let (addr_hex, port_hex) = field.split_once(':')?;
+    let port = u16::from_str_radix(port_hex, 16).ok()?;
+    if port == 0 {
+        return None;
+    }
+    let host = match addr_hex.len() {
+        8 => std::net::Ipv4Addr::from(u32::from_str_radix(addr_hex, 16).ok()?.to_le_bytes()).to_string(),
+        32 => {
+            let mut bytes = [0_u8; 16];
+            for (index, chunk) in addr_hex.as_bytes().chunks(8).enumerate() {
+                let word = std::str::from_utf8(chunk).ok()?;
+                let raw = u32::from_str_radix(word, 16).ok()?.to_le_bytes();
+                bytes[index * 4..index * 4 + 4].copy_from_slice(&raw);
+            }
+            let addr = std::net::Ipv6Addr::from(bytes);
+            match addr.to_ipv4_mapped() {
+                Some(v4) => v4.to_string(),
+                None => addr.to_string(),
+            }
+        }
+        _ => return None,
+    };
+    let host = match host.as_str() {
+        "0.0.0.0" | "::" => "127.0.0.1".to_string(),
+        other => other.to_string(),
+    };
+    Some(join_host_port(&host, port))
+}
+
+/// 从 `/proc/net/tcp{,6}` 里挑出「状态 LISTEN 且 inode 命中」的行并解码。
+pub fn parse_proc_net_listen(text: &str, inodes: &[u64]) -> Vec<String> {
+    let mut addrs = Vec::new();
+    // 首行是表头（`sl local_address rem_address st …`）
+    for line in text.lines().skip(1) {
+        let cols: Vec<&str> = line.split_whitespace().collect();
+        // 0:sl 1:local 2:rem 3:st … 9:inode
+        if cols.len() < 10 || cols[3] != "0A" {
+            continue;
+        }
+        let Ok(inode) = cols[9].parse::<u64>() else {
+            continue;
+        };
+        if !inodes.contains(&inode) {
+            continue;
+        }
+        if let Some(addr) = decode_proc_addr(cols[1]) {
+            addrs.push(addr);
+        }
+    }
+    addrs
+}
+
+/// 从 `/proc/<pid>/fd/N` 的链接目标 `socket:[3144972]` 里取 inode。
+pub fn parse_socket_inode(link: &str) -> Option<u64> {
+    link.strip_prefix("socket:[")?.strip_suffix(']')?.parse().ok()
+}
+
+/// `host` + `port` 拼成可 `connect` 的形式（IPv6 加方括号）。
+fn join_host_port(host: &str, port: u16) -> String {
+    if host.contains(':') {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    }
+}
+
+/// 去重（保序），并把回环地址排前面。
+///
+/// 同一个进程可能同时监听 `0.0.0.0:P` 与 `127.0.0.1:P`（两个 socket，两个 inode）；
+/// 先试回环更符合「探测本机 Agent」的语义，也不会因为先试到不可连通的具体网卡地址而超时。
+pub fn dedupe_loopback_first(addrs: Vec<String>) -> Vec<String> {
+    let mut loopback: Vec<String> = Vec::new();
+    let mut others: Vec<String> = Vec::new();
+    for addr in addrs {
+        if loopback.contains(&addr) || others.contains(&addr) {
+            continue;
+        }
+        if is_loopback_addr(&addr) {
+            loopback.push(addr);
+        } else {
+            others.push(addr);
+        }
+    }
+    loopback.extend(others);
+    loopback
+}
+
+/// 候选地址链去重（保序，按 `addr` 判重）。
+fn dedupe_probe_addrs(addrs: Vec<ProbeAddr>) -> Vec<ProbeAddr> {
+    let mut out: Vec<ProbeAddr> = Vec::new();
+    for addr in addrs {
+        if out.iter().any(|kept| kept.addr == addr.addr) {
+            continue;
+        }
+        out.push(addr);
+    }
+    out
+}
+
+/// 是否是本机回环地址（`127.0.0.1` / `::1`）。
+fn is_loopback_addr(addr: &str) -> bool {
+    let host = addr
+        .rsplit_once(':')
+        .map(|(host, _)| host)
+        .unwrap_or(addr)
+        .trim_start_matches('[')
+        .trim_end_matches(']');
+    matches!(host, "127.0.0.1" | "::1")
+}
+
+/// 读环境变量并去掉首尾空白；未设置 / 空白一律当「没配」。
+fn env_non_empty(key: &str) -> Option<String> {
+    std::env::var(key)
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| HERMES_PROBE_ADDR_DEFAULT.to_string());
-
-    let started = Instant::now();
-    let outcome = tokio::time::timeout(HERMES_PROBE_TIMEOUT, tokio::net::TcpStream::connect(&address)).await;
-    match outcome {
-        Ok(Ok(_stream)) => HermesProbeRes {
-            state: "up".to_string(),
-            detail: "端口可连接".to_string(),
-            latency_ms: Some(duration_ms(started.elapsed())),
-            address,
-        },
-        Ok(Err(_)) => HermesProbeRes {
-            state: "not_installed".to_string(),
-            detail: format!("{address} 无服务监听（Agent 未部署在本机或未启动）"),
-            latency_ms: None,
-            address,
-        },
-        Err(_) => HermesProbeRes {
-            state: "not_installed".to_string(),
-            detail: format!("{address} 连接超时（{} ms）", HERMES_PROBE_TIMEOUT.as_millis()),
-            latency_ms: None,
-            address,
-        },
-    }
 }
 
 // ==================== 纯逻辑（含单测） ====================
@@ -859,5 +1235,254 @@ mod tests {
         assert_eq!(duration_ms(Duration::from_millis(12)), 12.0);
         assert_eq!(duration_ms(Duration::from_micros(1234)), 1.2);
         assert_eq!(duration_ms(Duration::from_nanos(0)), 0.0);
+    }
+
+    // ==================== Hermes 地址反查 ====================
+
+    #[test]
+    fn parse_gateway_pid_bare_and_json() {
+        // 纯数字（`cat gateway.pid` 的另一种写法）
+        assert_eq!(parse_gateway_pid("1129759\n"), Some(1_129_759));
+        // 144 上的真实内容
+        let json = r#"{"pid": 1129759, "kind": "hermes-gateway", "argv": ["/root/.hermes/hermes-agent/hermes", "gateway", "run"], "start_time": 19258481, "hermes_home": "/root/.hermes"}"#;
+        assert_eq!(parse_gateway_pid(json), Some(1_129_759));
+        // 紧凑 JSON + pid 不在第一位
+        assert_eq!(
+            parse_gateway_pid(r#"{"kind":"hermes-gateway","pid":4242,"start_time":1}"#),
+            Some(4242)
+        );
+        // 边界：空 / 垃圾 / pid 为 0 / 缺 pid 键
+        assert_eq!(parse_gateway_pid(""), None);
+        assert_eq!(parse_gateway_pid("   \n"), None);
+        assert_eq!(parse_gateway_pid("not-a-pid"), None);
+        assert_eq!(parse_gateway_pid("0"), None);
+        assert_eq!(parse_gateway_pid(r#"{"pid": 0}"#), None);
+        assert_eq!(parse_gateway_pid(r#"{"kind": "hermes-gateway"}"#), None);
+        assert_eq!(parse_gateway_pid(r#"{"pid": }"#), None);
+    }
+
+    #[test]
+    fn parse_ss_local_addr_variants() {
+        // 144 上的真实一行
+        let line = r#"LISTEN 0      2048       127.0.0.1:49839      0.0.0.0:*    users:(("hermes",pid=1129759,fd=7))"#;
+        assert_eq!(parse_ss_local_addr(line).as_deref(), Some("127.0.0.1:49839"));
+
+        // 通配绑定折成回环：拿未指定地址去 connect 没有意义
+        assert_eq!(
+            parse_ss_local_addr(r#"LISTEN 0 4096 0.0.0.0:8100 0.0.0.0:* users:(("x",pid=1,fd=3))"#).as_deref(),
+            Some("127.0.0.1:8100")
+        );
+        assert_eq!(
+            parse_ss_local_addr(r#"LISTEN 0 4096 *:8100 *:* users:(("x",pid=1,fd=3))"#).as_deref(),
+            Some("127.0.0.1:8100")
+        );
+        assert_eq!(
+            parse_ss_local_addr(r#"LISTEN 0 4096 [::]:8100 [::]:* users:(("x",pid=1,fd=3))"#).as_deref(),
+            Some("127.0.0.1:8100")
+        );
+        // IPv6 回环要带方括号，否则 TcpStream::connect 解析不了
+        assert_eq!(
+            parse_ss_local_addr(r#"LISTEN 0 4096 [::1]:8100 [::]:* users:(("x",pid=1,fd=3))"#).as_deref(),
+            Some("[::1]:8100")
+        );
+
+        // 边界：列数不足 / 端口非数字 / 端口 0
+        assert_eq!(parse_ss_local_addr("LISTEN 0 2048"), None);
+        assert_eq!(parse_ss_local_addr("LISTEN 0 2048 127.0.0.1:abc 0.0.0.0:*"), None);
+        assert_eq!(parse_ss_local_addr("LISTEN 0 2048 127.0.0.1:0 0.0.0.0:*"), None);
+        assert_eq!(parse_ss_local_addr(""), None);
+    }
+
+    #[test]
+    fn decode_proc_addr_v4_v6() {
+        // /proc/net/tcp 的地址列：十六进制 + 每个 32 位字小端
+        // 0100007F = 127.0.0.1；C35C -> 0xC35C = 50012
+        assert_eq!(decode_proc_addr("0100007F:C35C").as_deref(), Some("127.0.0.1:50012"));
+        // 未指定地址折成回环
+        assert_eq!(decode_proc_addr("00000000:1F90").as_deref(), Some("127.0.0.1:8080"));
+        // ::1（tcp6 里是 0:0:0:1，每字小端）
+        assert_eq!(
+            decode_proc_addr("00000000000000000000000001000000:C35C").as_deref(),
+            Some("[::1]:50012")
+        );
+        // 未指定 IPv6 → 回环
+        assert_eq!(
+            decode_proc_addr("00000000000000000000000000000000:1F90").as_deref(),
+            Some("127.0.0.1:8080")
+        );
+        // IPv4-mapped（::ffff:127.0.0.1）折成 IPv4
+        assert_eq!(
+            decode_proc_addr("0000000000000000FFFF00000100007F:C35C").as_deref(),
+            Some("127.0.0.1:50012")
+        );
+        // 边界：长度不对 / 端口 0 / 没有冒号 / 非十六进制
+        assert_eq!(decode_proc_addr("0100007F"), None);
+        assert_eq!(decode_proc_addr("0100007F:0"), None);
+        assert_eq!(decode_proc_addr("ZZZZZZZZ:1F90"), None);
+        assert_eq!(decode_proc_addr("0100007F:ZZZZ"), None);
+    }
+
+    #[test]
+    fn parse_socket_inode_and_proc_net_listen() {
+        assert_eq!(parse_socket_inode("socket:[3144972]"), Some(3_144_972));
+        assert_eq!(parse_socket_inode("/var/run/nginx.pid"), None);
+        assert_eq!(parse_socket_inode("socket:[abc]"), None);
+
+        let table = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n\
+                     0: 0100007F:C35C 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 3144972 1 0000000000000000 100 0 0 10 0\n\
+                     1: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 8888888 1 0000000000000000 100 0 0 10 0\n\
+                     2: 0100007F:C35C 0100007F:D4C0 01 00000000:00000000 00:00000000 00000000     0        0 7777777 1 0000000000000000 100 0 0 10 0\n";
+        // 只认「inode 命中 + LISTEN(0A)」：1 号是别人的 socket、2 号是 ESTABLISHED
+        assert_eq!(
+            parse_proc_net_listen(table, &[3_144_972]),
+            vec!["127.0.0.1:50012".to_string()]
+        );
+        // inode 没命中 → 空；空表 → 空
+        assert!(parse_proc_net_listen(table, &[1]).is_empty());
+        assert!(parse_proc_net_listen("", &[3_144_972]).is_empty());
+    }
+
+    #[test]
+    fn dedupe_loopback_first_prefers_loopback() {
+        // 同一进程既监听 0.0.0.0 又监听 127.0.0.1：回环排前
+        let addrs = vec![
+            "0.0.0.0:8100".to_string(),
+            "127.0.0.1:8100".to_string(),
+            "127.0.0.1:8100".to_string(),
+            "[::1]:8100".to_string(),
+        ];
+        assert_eq!(
+            dedupe_loopback_first(addrs),
+            vec![
+                "127.0.0.1:8100".to_string(),
+                "[::1]:8100".to_string(),
+                "0.0.0.0:8100".to_string()
+            ]
+        );
+        assert!(dedupe_loopback_first(Vec::new()).is_empty());
+    }
+
+    #[test]
+    fn build_candidates_orders_filters_and_appends_default() {
+        // ① 全空：只剩默认兜底
+        let only_default = build_candidates(None, &[], "");
+        assert_eq!(only_default.len(), 1);
+        assert_eq!(only_default[0].addr, HERMES_PROBE_ADDR_DEFAULT);
+        assert_eq!(only_default[0].origin, "默认地址");
+
+        // ② 只有 pid 反查结果：pid 在前、默认在尾
+        let pid_only = build_candidates(None, &["127.0.0.1:49839".to_string()], "gateway.pid → pid 1129759");
+        assert_eq!(
+            pid_only.iter().map(|c| c.addr.as_str()).collect::<Vec<_>>(),
+            vec!["127.0.0.1:49839", HERMES_PROBE_ADDR_DEFAULT]
+        );
+        assert_eq!(pid_only[0].origin, "gateway.pid → pid 1129759");
+
+        // ③ 显式配置最高优先级
+        let full = build_candidates(
+            Some("127.0.0.1:9000".to_string()),
+            &["127.0.0.1:49839".to_string()],
+            "gateway.pid → pid 1129759",
+        );
+        assert_eq!(
+            full.iter().map(|c| c.addr.as_str()).collect::<Vec<_>>(),
+            vec!["127.0.0.1:9000", "127.0.0.1:49839", HERMES_PROBE_ADDR_DEFAULT]
+        );
+        assert!(full[0].origin.contains(HERMES_PROBE_ADDR_ENV));
+
+        // ④ 重复地址只留第一个（来源也保留先出现的那条）
+        let deduped = build_candidates(
+            Some(HERMES_PROBE_ADDR_DEFAULT.to_string()),
+            &[HERMES_PROBE_ADDR_DEFAULT.to_string()],
+            "gateway.pid → pid 1129759",
+        );
+        assert_eq!(deduped.len(), 1);
+        assert!(deduped[0].origin.contains(HERMES_PROBE_ADDR_ENV));
+    }
+
+    #[test]
+    fn candidates_never_empty_and_deduped() {
+        // 不依赖真实环境的兜底不变量：无论本机有没有 Hermes，链都非空且无重复
+        // （env / pid 反查命中时可能把默认地址提前，故这里只断言「非空 + 无重复」）。
+        let (candidates, _note) = hermes_candidates();
+        assert!(!candidates.is_empty(), "候选链不能为空");
+        let mut seen: Vec<&str> = Vec::new();
+        for candidate in &candidates {
+            assert!(!candidate.addr.is_empty(), "候选地址不能是空串");
+            assert!(!candidate.origin.is_empty(), "候选地址必须有来源说明");
+            assert!(!seen.contains(&candidate.addr.as_str()), "候选地址不应重复");
+            seen.push(&candidate.addr);
+        }
+    }
+
+    /// 端到端验证 C 的兜底链路：内核随机端口（`port=0`，与 Hermes 一致）+ 真实 pid 文件
+    /// → 从 `ss`（或 `/proc`）反查出那个随机端口。
+    ///
+    /// 用本进程自己起监听来扮演 gateway：反查只看「pid → 监听端口」，
+    /// 与进程叫什么名字无关，因此这条路径对 Hermes 与测试进程完全一致。
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn pid_lookup_discovers_ephemeral_loopback_port() {
+        // port=0：让内核分配一个随机可用端口（Hermes gateway 就是这个形态）
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("应能绑定回环随机端口");
+        let port = listener.local_addr().expect("取监听地址").port();
+        assert_ne!(port, 0, "端口 0 表示内核没分配成功");
+
+        // 写一份与 144 上同结构的 pid 文件，内容指向本进程
+        let pid_file = std::env::temp_dir().join(format!("hermes-gateway-pid-test-{}.json", std::process::id()));
+        std::fs::write(
+            &pid_file,
+            format!(
+                r#"{{"pid": {}, "kind": "hermes-gateway", "argv": ["hermes", "gateway", "run"], "start_time": 1, "hermes_home": "/root/.hermes"}}"#,
+                std::process::id()
+            ),
+        )
+        .expect("写临时 pid 文件");
+
+        let lookup = hermes_pid_listen_addrs_at(&pid_file.to_string_lossy());
+        let _ = std::fs::remove_file(&pid_file);
+
+        assert!(lookup.diag.is_empty(), "pid 反查不该失败，实际诊断：{}", lookup.diag);
+        assert!(
+            lookup.origin.contains(&format!("pid {}", std::process::id())),
+            "来源说明应带进程号，实际：{}",
+            lookup.origin
+        );
+        let expected = format!("127.0.0.1:{port}");
+        assert!(
+            lookup.addrs.iter().any(|addr| addr == &expected),
+            "应反查到 {}，实际：{:?}",
+            expected,
+            lookup.addrs
+        );
+
+        // 探测链能连上（这一步就是 probe_hermes 命中的判据）
+        tokio::time::timeout(HERMES_PROBE_TIMEOUT, tokio::net::TcpStream::connect(&expected))
+            .await
+            .expect("连接不应超时")
+            .expect("应能连上刚起的监听");
+    }
+
+    /// 负向：pid 文件缺失 / 指向已退出进程 → 明确诊断，不 panic、不返回地址。
+    #[test]
+    fn pid_lookup_reports_diagnosis_when_unusable() {
+        let missing = std::env::temp_dir().join("hermes-gateway-pid-test-does-not-exist.json");
+        let lookup = hermes_pid_listen_addrs_at(&missing.to_string_lossy());
+        assert!(lookup.addrs.is_empty());
+        assert!(lookup.diag.contains("读不到"), "诊断应说明读不到：{}", lookup.diag);
+
+        // 指向一个几乎必然不存在的 pid（u32::MAX）
+        let gone = std::env::temp_dir().join(format!("hermes-gateway-pid-test-gone-{}.json", std::process::id()));
+        std::fs::write(&gone, format!(r#"{{"pid": {}}}"#, u32::MAX)).expect("写临时 pid 文件");
+        let lookup = hermes_pid_listen_addrs_at(&gone.to_string_lossy());
+        let _ = std::fs::remove_file(&gone);
+        assert!(lookup.addrs.is_empty());
+        assert!(
+            lookup.diag.contains("已不存在"),
+            "诊断应说明进程不在了：{}",
+            lookup.diag
+        );
     }
 }

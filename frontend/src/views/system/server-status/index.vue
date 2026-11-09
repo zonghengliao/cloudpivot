@@ -767,7 +767,14 @@ const healthRows = computed<HealthRow[]>(() => {
     stateText: !data ? '未知' : hermesUp ? '正常' : '未安装',
     latencyText: formatLatency(data?.hermes.latency_ms ?? null),
     checkedText: nowText,
-    detail: data?.hermes.detail ?? '未探测',
+    // 后端已把「命中的地址 / 试过的地址 + 失败原因」写进 detail：
+    // 成功时前置真实地址（Hermes 端口随机，运维要知道到底探到了哪个口），
+    // 失败时 detail 里就是 `所有候选地址都不通：a(连接被拒), b(超时)；pid 文件 …`
+    detail: data
+      ? hermesUp
+        ? `地址 ${data.hermes.address}${data.hermes.detail ? ` · ${data.hermes.detail}` : ''}`
+        : data.hermes.detail || `试过：${data.hermes.address}`
+      : '未探测',
   };
 
   const staticRow: HealthRow = {
