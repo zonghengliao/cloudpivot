@@ -1,0 +1,42 @@
+旧版 cleanup_own 行数：112，其中 biz_inventory_location 出现次数：0
+===== ① 跑前 =====
+  location_total=22 orphan_loc=0 serial_batch_vouchers=1 e2e08_mat=0 e2e08_wh=0
+===== ② 用旧版夹具跑 E2E-08(b)（真实 HTTP，批量生成 3 件）=====
+b_rc=0
+  ✅ ⑥一物一码物料批量生成 3 个序列号 HTTP = 200
+===== ③ 跑旧版 cleanup_own（42550f10 的文件）=====
+red_cleanup_rc=0
+  · 已清理本卡前缀（E2E08）的残留演练行
+===== ④ 旧版清场后（RED：应剩 1 行孤儿库位账 + 1 张无主批次凭证）=====
+  location_total=23 orphan_loc=1 serial_batch_vouchers=2 e2e08_mat=0 e2e08_wh=0
+01a1bf34-a6d1-75a8-aca0-b721aaf98850|01a1bf34-a645-70cc-aa85-428f658c11e1|01a1bf34-a5dc-7301-baeb-d2007e694780|3.0000|2026-11-09 15:27:41.262039+08
+===== ⑤ 用新版 assert_clean 检查这个状态（必须红：证明断言不是摆设）=====
+  ✅ 清场后 流水（本卡物料）= 0 行 = 0
+  ✅ 清场后 成本账（本卡物料）= 0 行 = 0
+  ✅ 清场后 库位账（本卡物料/仓库）= 0 行 = 0
+  ✅ 清场后 序列号（本卡物料）= 0 行 = 0
+  ✅ 清场后 批次凭证（本卡批次）= 0 张 = 0
+  ✅ 清场后 批次凭证分录 = 0 行 = 0
+  ✅ 清场后 凭证状态日志 = 0 行 = 0
+  ❌ 全库 孤儿库位账（material 不存在）= 0 行 = 1（期望 0）
+  ❌ 全库 孤儿库位账（warehouse 不存在）= 0 行 = 1（期望 0）
+  ✅ 全库 孤儿成本账 = 0 行 = 0
+  ✅ 全库 孤儿流水 = 0 行 = 0
+assert_clean_exit=1
+===== ⑥ P17 清掉这两类存量残留 =====
+psql:/opt/cloudpivot/scripts/datafix/p17/20_purge_orphan_batch.up.sql:23: NOTICE:  relation "datafix_p17_doomed" already exists, skipping
+── P17 待删行数（逐类）──
+ biz_inventory_location |    1
+ biz_status_log         |    1
+ biz_voucher            |    1
+ biz_voucher_entry      |    2
+  ② 状态日志删除： 1  行
+  ③ 凭证分录删除： 2  行
+  ④ 凭证删除： 1  张
+  ⑤ 孤儿库位账删除： 1  行
+== P17 步骤 2/2：验收 ==
+=== P17 验收 ===
+ orphan_location_rows | orphan_batch_vouchers | serial_batch_vouchers_alive | location_rows_total | cost_ledger_rows 
+psql:/opt/cloudpivot/scripts/datafix/p17/30_verify.up.sql:38: NOTICE:  P17 验收通过：孤儿库位账 0 / 孤儿批次凭证 0（存量 VOUCHER 状态日志孤儿 123 条，属别的卡，未在处理范围）
+===== ⑦ 清理后（GREEN）=====
+  location_total=22 orphan_loc=0 serial_batch_vouchers=1 e2e08_mat=0 e2e08_wh=0

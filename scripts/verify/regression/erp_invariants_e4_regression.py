@@ -180,6 +180,9 @@ def e4c_line(out):
 def cleanup():
     mat = f"select id from biz_material where material_code like '{PREFIX}%'"
     psql(f"delete from biz_inventory where material_id in ({mat})")
+    # 成本账先删（biz_inventory.location_id → biz_inventory_location.id），再删库位账。
+    # 漏删库位账 = 每跑一次留一行孤儿（t_45bda7ad 在 E2E-08 上的同类事故），别省这一步。
+    psql(f"delete from biz_inventory_location where material_id in ({mat})")
     psql(f"delete from biz_inventory_txn where doc_no like '{PREFIX}%' or material_id in ({mat})")
     psql("delete from biz_stock_in_item where stock_in_id in "
          f"(select id from biz_stock_in where in_no like '{PREFIX}%')")

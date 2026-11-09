@@ -1,0 +1,113 @@
+===== 0) 清场 + 记干净基线 =====
+reset_rc=0
+  · 清场自检（本次要删的 物料 0 个 / 仓库 0 个 / 批次 0 个）
+  ✅ 清场后 流水（本卡物料）= 0 行 = 0
+  ✅ 清场后 成本账（本卡物料）= 0 行 = 0
+  ✅ 清场后 库位账（本卡物料/仓库）= 0 行 = 0
+  ✅ 清场后 序列号（本卡物料）= 0 行 = 0
+  ✅ 清场后 批次凭证（本卡批次）= 0 张 = 0
+  ✅ 清场后 批次凭证分录 = 0 行 = 0
+  ✅ 清场后 凭证状态日志 = 0 行 = 0
+  ✅ 全库 孤儿库位账（material 不存在）= 0 行 = 0
+  ✅ 全库 孤儿库位账（warehouse 不存在）= 0 行 = 0
+  ✅ 全库 孤儿成本账 = 0 行 = 0
+  ✅ 全库 孤儿流水 = 0 行 = 0
+  · 本次运行前后库位账总数不变（22 行）
+  location_total=22 orphan_loc=0 orphan_cost=0 orphan_txn=0 e2e08_mat=0 e2e08_wh=0 serial_batch_vouchers=1 orphan_batch_vouchers=0
+
+===== 第 1 次：E2E-08(b) 真实 HTTP 演练 =====
+b_rc=0  71 条 PASS / 0 条 FAIL（脚本内断言）
+  ✅ ⑥一物一码物料批量生成 3 个序列号 HTTP = 200
+  · 跑完 cleanup 之前：
+  location_total=23 orphan_loc=0 orphan_cost=0 orphan_txn=0 e2e08_mat=1 e2e08_wh=2 serial_batch_vouchers=2 orphan_batch_vouchers=0
+  · 跑新版 cleanup：
+cleanup_rc=0
+  自检：PASS=93 FAIL=0
+  ✅ 清场后 流水（本卡物料）= 0 行 = 0
+  ✅ 清场后 成本账（本卡物料）= 0 行 = 0
+  ✅ 清场后 库位账（本卡物料/仓库）= 0 行 = 0
+  ✅ 清场后 序列号（本卡物料）= 0 行 = 0
+  ✅ 清场后 批次凭证（本卡批次）= 0 张 = 0
+  ✅ 清场后 批次凭证分录 = 0 行 = 0
+  ✅ 清场后 凭证状态日志 = 0 行 = 0
+  ✅ 全库 孤儿库位账（material 不存在）= 0 行 = 0
+  ✅ 全库 孤儿库位账（warehouse 不存在）= 0 行 = 0
+  ✅ 全库 孤儿成本账 = 0 行 = 0
+  ✅ 全库 孤儿流水 = 0 行 = 0
+  · 本次运行前后库位账总数不变（22 行）
+  · 跑完 cleanup 之后：
+  location_total=22 orphan_loc=0 orphan_cost=0 orphan_txn=0 e2e08_mat=0 e2e08_wh=0 serial_batch_vouchers=1 orphan_batch_vouchers=0
+
+===== 第 2 次：E2E-08(b) 真实 HTTP 演练 =====
+b_rc=0  71 条 PASS / 0 条 FAIL（脚本内断言）
+  ✅ ⑥一物一码物料批量生成 3 个序列号 HTTP = 200
+  · 跑完 cleanup 之前：
+  location_total=23 orphan_loc=0 orphan_cost=0 orphan_txn=0 e2e08_mat=1 e2e08_wh=2 serial_batch_vouchers=2 orphan_batch_vouchers=0
+  · 跑新版 cleanup：
+cleanup_rc=0
+  自检：PASS=175 FAIL=0
+  ✅ 清场后 流水（本卡物料）= 0 行 = 0
+  ✅ 清场后 成本账（本卡物料）= 0 行 = 0
+  ✅ 清场后 库位账（本卡物料/仓库）= 0 行 = 0
+  ✅ 清场后 序列号（本卡物料）= 0 行 = 0
+  ✅ 清场后 批次凭证（本卡批次）= 0 张 = 0
+  ✅ 清场后 批次凭证分录 = 0 行 = 0
+  ✅ 清场后 凭证状态日志 = 0 行 = 0
+  ✅ 全库 孤儿库位账（material 不存在）= 0 行 = 0
+  ✅ 全库 孤儿库位账（warehouse 不存在）= 0 行 = 0
+  ✅ 全库 孤儿成本账 = 0 行 = 0
+  ✅ 全库 孤儿流水 = 0 行 = 0
+  · 本次运行前后库位账总数不变（22 行）
+  · 跑完 cleanup 之后：
+  location_total=22 orphan_loc=0 orphan_cost=0 orphan_txn=0 e2e08_mat=0 e2e08_wh=0 serial_batch_vouchers=1 orphan_batch_vouchers=0
+
+===== 第 3 次：E2E-08(b) 真实 HTTP 演练 =====
+b_rc=0  71 条 PASS / 0 条 FAIL（脚本内断言）
+  ✅ ⑥一物一码物料批量生成 3 个序列号 HTTP = 200
+  · 跑完 cleanup 之前：
+  location_total=23 orphan_loc=0 orphan_cost=0 orphan_txn=0 e2e08_mat=1 e2e08_wh=2 serial_batch_vouchers=2 orphan_batch_vouchers=0
+  · 跑新版 cleanup：
+cleanup_rc=0
+  自检：PASS=257 FAIL=0
+  ✅ 清场后 流水（本卡物料）= 0 行 = 0
+  ✅ 清场后 成本账（本卡物料）= 0 行 = 0
+  ✅ 清场后 库位账（本卡物料/仓库）= 0 行 = 0
+  ✅ 清场后 序列号（本卡物料）= 0 行 = 0
+  ✅ 清场后 批次凭证（本卡批次）= 0 张 = 0
+  ✅ 清场后 批次凭证分录 = 0 行 = 0
+  ✅ 清场后 凭证状态日志 = 0 行 = 0
+  ✅ 全库 孤儿库位账（material 不存在）= 0 行 = 0
+  ✅ 全库 孤儿库位账（warehouse 不存在）= 0 行 = 0
+  ✅ 全库 孤儿成本账 = 0 行 = 0
+  ✅ 全库 孤儿流水 = 0 行 = 0
+  · 本次运行前后库位账总数不变（22 行）
+  · 跑完 cleanup 之后：
+  location_total=22 orphan_loc=0 orphan_cost=0 orphan_txn=0 e2e08_mat=0 e2e08_wh=0 serial_batch_vouchers=1 orphan_batch_vouchers=0
+
+===== 汇总 =====
+三轮累计 FAIL 行数 = 0
+  location_total=22 orphan_loc=0 orphan_cost=0 orphan_txn=0 e2e08_mat=0 e2e08_wh=0 serial_batch_vouchers=1 orphan_batch_vouchers=0
+===== 逐桶对账（e2e03_reconcile.sql ②）=====
+===== ②-1 逐桶成本账 vs 库位账：本卡物料差异行（期望 0 行）=====
+ material_code | warehouse_code | bucket | cost_qty | loc_qty | diff 
+---------------+----------------+--------+----------+---------+------
+(0 rows)
+
+===== ②-2 全库逐桶差异行数（历史遗留，前后必须不变）=====
+ diff_rows 
+-----------
+         0
+(1 row)
+
+===== ②-3 本卡物料的桶明细（人工核对）=====
+ material_code | warehouse_code |   bucket   | cost_qty | avg_cost  |  amount  | loc_ledger_qty 
+---------------+----------------+------------+----------+-----------+----------+----------------
+ E2E03-M1      | E2E03-WH-A     | E2E03-L01A |  92.0000 | 10.666666 | 981.3333 |        92.0000
+ E2E03-M1      | E2E03-WH-A     | E2E03-L02A |   5.0000 | 12.000000 |  60.0000 |         5.0000
+ E2E03-M1      | E2E03-WH-B     | E2E03-L01B |  50.0000 | 10.933334 | 546.6667 |        50.0000
+ E2E03-M2      | E2E03-WH-A     | E2E03-L01A |  20.0000 |  5.000000 | 100.0000 |        20.0000
+ E2E03-MS      | E2E03-WH-A     | E2E03-L01A |   3.0000 | 50.000000 | 150.0000 |         3.0000
+ E2E03-MS      | E2E03-WH-A     | (未分配)   |   2.0000 | 50.000000 | 100.0000 |               
+(6 rows)
+
+===== ③ 金额：库存表 amount vs 流水入-出累计（本卡物料，期望 0 差异）=====

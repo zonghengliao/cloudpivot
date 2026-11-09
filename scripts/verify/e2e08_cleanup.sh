@@ -4,6 +4,7 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/e2e08_master_common.sh"
 cleanup_own
+assert_clean
 echo "-- 清理后本卡存活行 --"
 SQ "select 'sup='||count(*) from biz_supplier where supplier_code ilike 'E2E08%' and deleted_at is null
  union all select 'cus='||count(*) from biz_customer where code ilike 'E2E08%' and deleted_at is null
@@ -16,3 +17,6 @@ SQ "select 'sup='||count(*) from biz_supplier where supplier_code ilike 'E2E08%'
  union all select 'agreed_rows='||count(*) from biz_customer_price where material_id in (select id from biz_material where material_code ilike 'E2E08%')
  union all select 'serial_rows='||count(*) from biz_material_serial where material_id in (select id from biz_material where material_code ilike 'E2E08%')
  union all select 'user='||count(*) from sys_user where username ilike 'e2e08%'"
+
+# 清场自检有 FAIL 就非 0 退出（演练收尾门禁）
+[ "${FAIL:-0}" -eq 0 ] || { echo "✗ 清场自检有 FAIL，见 /tmp/e2e08/asserts.log"; exit 1; }
