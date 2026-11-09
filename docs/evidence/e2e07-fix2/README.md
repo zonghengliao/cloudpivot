@@ -93,7 +93,7 @@ E2E-07 演练发现：`LNK-07` 把合同状态变更接进了联动引擎（`con
 | ③ 实测：合同签订 → 产生通知 | `contract_notice_145.txt`（真 token / 真 HTTP，PASS=20 FAIL=0） | 审批通过 → 合同 `SIGNED`，`sys_notice` 落 1 条 `LNK:CONTRACT:SIGNED:<id>`，收件人 = 制单人；重复审批 `idempotent=true` 且通知仍 1 条；终止 → 再落 1 条 `LNK:CONTRACT:TERMINATED:<id>`；合同名下 0 张凭证 |
 | ④ 其他零规则触发点的处置 | 迁移 V0360 头部表格 + 本文「修复①」表格 | 12 个全部补上（每个落在真实状态上）；未接线的 `SALES_RETURN` 等**不种**（配了永远不触发） |
 | ⑤ 不变量能发现「wired 但零规则」 | `invariants_teeth.txt`（一次性库逐条弄红→还原复绿） | 停用 CONTRACT 两条 → ① 点名 CONTRACT 报红；未接线触发点插规则 → ②③ 报红；状态改成 `PAID` → ③ 报红；占位 / 被禁动作 → ④ 报红；还原后 4 绿 |
-| ⑥ cargo test + push | 见卡内汇报 | 新增 15 条单测全绿；全量 `cargo test --lib` 见汇报的实测数字 |
+| ⑥ cargo test + push | 见下「测试与提交」 | 新增 15 条单测全绿；全量无库套件 3913 passed / 0 failed（13 条被过滤的 `currency_admin_handler` 属别的卡未提交 WIP）；真库联动 192 passed / 0 failed |
 
 迁移链与往返：
 
@@ -143,3 +143,21 @@ excluded_received_qty_action_is_not_executed_by_the_generic_engine` 原来断言
 是**另一张卡未提交**的 WIP，与已上 main 的 `V0360__linkage_rules_coverage` 撞号 ⇒ 在被测树上
 起实例直接 FATAL（迁移器要求 version 全局唯一）。已在看板留 `hotspot:` 记录，
 **需要那张卡改用 V0361+**（V0360 已被 145 应用，改名会破坏已应用迁移的指纹校验）。
+
+## 测试与提交
+
+| 套件 | 命令 | 结果 |
+|---|---|---|
+| 新增单测（15 条） | `cargo test --lib business::flow::linkage::tests_presets_coverage` | **15 passed / 0 failed** |
+| 全量（无库） | `cargo test --lib -- --test-threads=1 --skip currency_admin_handler` | **3913 passed / 0 failed**（跳过的 `currency_admin_handler` 属别的卡未提交的共享工作区改动，它在树上本来就是红的：`quote_query_accepts_aligned_param_names` 期望 `USD` 实得 `usd`） |
+| 真库联动 | `ERP_DB_URL=…/cloudpivot_copy_fix4 cargo test --lib linkage -- --test-threads=1` | **192 passed / 0 failed** |
+| 迁移链 | `bash scripts/verify/mig_replay_fresh.sh` | **282/282 通过** |
+| 不变量（145 / 全新库 / 一次性库） | `bash scripts/verify/linkage_rule_invariants.sh <db>` | 145 = 4 绿；全新库 = 4 绿；牙齿库 = 逐条红后还原 4 绿 |
+| 真机契约 | `bash scripts/verify/e2e07_fix2_contract_notice_probe.sh`（145） | **PASS=20 FAIL=0** |
+
+提交（`origin/main`）：
+
+* `0dad364d` fix(linkage)：V0360 迁移 + 不变量脚本 + 15 条漂移守卫单测 + 各模块夹具 `ON CONFLICT`
+* `33286431` docs(evidence)：真机证据 + 探针适配（幂等审批 / 终止需 reason）
+* `e38ad85e` test(linkage)：排除清单断言收敛到「被排除的动作」+ 真库用例证据
+* 145 部署：`git pull` → `cargo build` → 重启 `cloudpivot-test` → health 200 → V0360 自动应用
