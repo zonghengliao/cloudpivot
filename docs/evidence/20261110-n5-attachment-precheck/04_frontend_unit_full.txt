@@ -1,0 +1,17 @@
+# pnpm test:unit（全量前端单测）—— 精简摘要（原日志 7875 行，命令：cd frontend && pnpm test:unit）
+# tests 1310
+# suites 0
+# pass 1310
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4297.467792
+
+# 末尾 6 行原样
+# pass 1310
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4297.467792

@@ -32,7 +32,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -215,6 +215,23 @@ test('付款单：「执行付款」受「权限 ∪ 回单闸门」约束，红
   assert.ok(page.includes('@changed="refreshPaymentGates()"'), '上传后必须重查');
   // 降级口径与 use-attachment-gate 一致：查询失败不禁用按钮
   assert.ok(page.includes('degradedGate('), '查询失败必须降级（不禁用按钮）');
+  // N-5 验收④：付款记录在「登记付款」这一步还没有 id（提交动作内部才创建），
+  // 查不了 `/attachment/check`，所以必须在弹窗里先把规则说清楚。
+  assert.ok(
+    page.includes('data-testid="payable-pay-attach-notice"'),
+    '登记付款弹窗必须有「出款前必传银行回单」提示（新建态查不了接口，但要有提示）',
+  );
+  const payDialog = bodyOf(page, 'data-testid="payable-pay-dialog"', 1200);
+  assert.ok(
+    payDialog.includes('payable-pay-attach-notice'),
+    '提示必须落在登记付款弹窗内（不是详情页别处）',
+  );
+  assert.ok(payDialog.includes('银行回单'), '提示要点名缺什么：银行回单');
+  assert.ok(payDialog.includes('pdf/jpg/png'), '提示要写清格式白名单（与规则表 allow_exts 一致）');
+  assert.ok(
+    payDialog.includes('执行付款') && payDialog.includes('置灰'),
+    '提示要说清缺回单的后果（「执行付款」按钮置灰）',
+  );
 });
 
 // ==================== ⑦ 收货入库：没有规则，不许造闸门 ====================
@@ -313,6 +330,187 @@ test('8 个单据页都有附件区（含已有的报销），且新建态不显
       `${page} 的新建弹窗里不许出现附件面板（新建不强传）`,
     );
   }
+});
+
+// ==================== ⑫ N-5 验收④：8 个必传单据的「新建 / 登记」入口都有必传提示 ====================
+//
+// 新建态没有单据 id → 查不了 `/attachment/check`（也不该查）。但「规则已确定」这件事
+// 必须在新建这一步就说清楚，否则用户填完一堆字段、点了提交才吃 400 —— 评审原文
+// 「附件必传只在提交时拦，草稿无提示」正是这条。所以每页的**新建入口**（弹窗 / 抽屉）
+// 里都要有一条醒目的必传提示，且带稳定 testid（e2e 与人工复核都能定位）。
+
+test('N-5 ④：8 个必传单据的新建 / 登记入口都先说清「必传什么、什么格式」', () => {
+  /**
+   * 页面 → [新建入口提示的 testid, 期望主题]
+   *
+   * 主题差异是**有理由的**：7 个硬闸单据用 warning（缺了就提交不了）；
+   * 固定资产启用已按 E2E05-FIX-2 降级为「提示 + 允许 + 审计」（见本文件 ⑤），
+   * 所以建卡提示是 info —— 写成 warning 会让人以为缺附件就不能建卡/启用。
+   */
+  const notices: Array<[string, string, string]> = [
+    ['invoice/index.vue', 'inv-create-attach-notice', 'warning'],
+    ['receipt/index.vue', 'rc-create-attach-notice', 'warning'],
+    ['payable/index.vue', 'payable-pay-attach-notice', 'warning'],
+    ['expense/index.vue', 'expense-create-attach-notice', 'warning'],
+    ['asset/index.vue', 'asset-create-attach-notice', 'info'],
+    ['stock-take/index.vue', 'stocktake-create-attach-notice', 'warning'],
+    ['purchase-return/index.vue', 'prt-create-attach-notice', 'warning'],
+    ['sales-return/index.vue', 'return-create-attach-notice', 'warning'],
+  ];
+  assert.equal(notices.length, 8, '必传单据正好 8 个（V0347 种子）');
+  for (const [page, testid, theme] of notices) {
+    const source = readSource(`views/business/erp/${page}`);
+    const at = source.indexOf(`data-testid="${testid}"`);
+    assert.ok(at > 0, `${page} 的新建入口必须有必传提示（testid=${testid}，验收④）`);
+    // 提示所在的标签必须是一条 warning 级 t-alert / 提示块，且文案里说清「格式」
+    const tag = source.slice(source.lastIndexOf('<t-alert', at), source.indexOf('/>', at));
+    assert.ok(tag.length > 0, `${page} 的必传提示应当是一条 t-alert`);
+    assert.ok(
+      tag.includes(`theme="${theme}"`),
+      `${page} 的必传提示主题应为 ${theme}（缺了它用户就得等 400 才知道规则）`,
+    );
+    assert.ok(tag.includes('message='), `${page} 的必传提示必须带文案`);
+    assert.ok(
+      /pdf|ofd|jpg/.test(tag),
+      `${page} 的必传提示必须写清格式白名单（用户在新建时就该知道传什么）`,
+    );
+    assert.ok(
+      tag.includes('上传'),
+      `${page} 的必传提示必须说清「去哪传 / 传完会怎样」`,
+    );
+  }
+});
+
+// ==================== ⑬ 规则表的每一条都要有页面接线（配了规则没人接 = 静默失效） ====================
+
+test('N-5：V0347 种子里每个 (doc_type, required_at) 至少有一个页面接线', () => {
+  const migration = readFileSync(
+    resolve(HERE, '../../../backend/migrations/business/V0347__attachment_required_rules.up.sql'),
+    'utf8',
+  );
+  const start = migration.indexOf('-- §3');
+  const end = migration.indexOf('-- §4');
+  assert.ok(start > 0 && end > start, 'V0347 必须有 §3 种子段与 §4 自检段');
+  const seed = migration.slice(start, end);
+
+  const pairs = new Set<string>();
+  for (const match of seed.matchAll(
+    /\(\s*'[0-9a-f-]{36}'::uuid,\s*'([A-Z_]+)',\s*NULL,\s*'([A-Z]+)'/g,
+  )) {
+    pairs.add(`${match[1]}/${match[2]}`);
+  }
+  // 8 类单据（INVOICE 拆电子 / 纸质两条规则 → 去重后 8 对）
+  assert.deepEqual(
+    [...pairs].sort(),
+    [
+      'EXPENSE_REPORT/SUBMIT',
+      'FIXED_ASSET/ACTIVATE',
+      'INVOICE/SUBMIT',
+      'PAYMENT/ACTIVATE',
+      'PURCHASE_RETURN/SUBMIT',
+      'RECEIPT/SUBMIT',
+      'SALES_RETURN/SUBMIT',
+      'STOCK_TAKE/CONFIRM',
+    ],
+    'V0347 种子的 (doc_type, required_at) 必须正好是这 8 对',
+  );
+
+  // 全量扫描业务页面：某页同时出现 `'<DOC_TYPE>'` 与 `'<AT>'` 才算接线
+  const dir = join(SRC, 'views/business/erp');
+  const sources: Array<[string, string]> = [];
+  const walk = (current: string): void => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const full = join(current, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.name.endsWith('.vue')) {
+        sources.push([full.slice(dir.length + 1), readFileSync(full, 'utf8')]);
+      }
+    }
+  };
+  walk(dir);
+  assert.ok(sources.length > 20, `应当扫到二十多个业务页面，实际 ${sources.length}`);
+
+  for (const pair of pairs) {
+    const [docType, at] = pair.split('/');
+    const wired = sources.filter(
+      ([, text]) => text.includes(`'${docType}'`) && text.includes(`'${at}'`),
+    );
+    assert.ok(
+      wired.length > 0,
+      `规则 ${pair} 没有任何页面接线（查了也无处提示 / 按钮不会灰，等于静默失效）`,
+    );
+  }
+});
+
+// ==================== ⑭ 验收⑤：公共 composable 复用，不是 8 份重复代码 ====================
+//
+// 8 个单据页各自维护一份「查接口 → 拼红字 → 丢弃乱序响应 → 失败降级」的话，
+// 迟早出现「发票页传完变亮、报销页传完不变亮」这类分叉。所以闸门只能有一份实现
+// （`views/business/erp/shared/use-attachment-gate.ts`），页面只许 import。
+//
+// **唯一例外：应付页（PAYMENT）。** 一张应付单可以有多笔付款，每笔都要出自己的
+// 「缺回单」红字，单实例组合式函数只能盯一个 document id，所以那里用「按 id 缓存
+// 多份闸门」的表结构；但判定与文案仍走同一套纯函数（`gateFromCheck` /
+// `degradedGate`），不是第二套判据（见 payable/index.vue 的注释）。
+
+test('N-5 ⑤：8 个单据页复用同一个 composable，全仓只有一份闸门实现', () => {
+  const shared = 'views/business/erp/shared/use-attachment-gate.ts';
+  const impl = readSource(shared);
+  assert.ok(impl.includes('export function useAttachmentGate('), '组合式函数必须导出在 shared 里');
+  // 判定/降级/文案全部来自纯函数模块，组合式函数自己不算第二套判据
+  assert.ok(impl.includes("from './attachment-gate-pure'"), '判定必须复用 attachment-gate-pure');
+  for (const [name, source] of [
+    ['use-attachment-gate.ts', impl],
+    ['attachment-gate-pure.ts', readSource('views/business/erp/shared/attachment-gate-pure.ts')],
+    ['AttachmentGateHint.vue', readSource('views/business/erp/shared/AttachmentGateHint.vue')],
+  ] as Array<[string, string]>) {
+    assert.ok(
+      !source.includes('checkDocAttachments(') || name === 'use-attachment-gate.ts',
+      `${name} 不该自己再查一次接口（判据只留一处）`,
+    );
+  }
+
+  /** 必须复用组合式函数的 7 个页面（应付页按行多实例，单独在 ⑥ 钉） */
+  const pages = [
+    'invoice/index.vue',
+    'receipt/index.vue',
+    'expense/ExpenseDetailDrawer.vue',
+    'asset/index.vue',
+    'stock-take/index.vue',
+    'purchase-return/index.vue',
+    'sales-return/index.vue',
+  ];
+  for (const page of pages) {
+    const source = readSource(`views/business/erp/${page}`);
+    assert.ok(
+      source.includes("from '@/views/business/erp/shared/use-attachment-gate'"),
+      `${page} 必须 import 公共组合式函数（不许就地复制一份）`,
+    );
+    assert.ok(source.includes('useAttachmentGate({'), `${page} 必须真的调用它`);
+    assert.ok(
+      !/function\s+useAttachmentCheck/.test(source),
+      `${page} 不许自己再实现一份闸门（验收⑤）`,
+    );
+  }
+
+  // 全仓只允许一处 `export function useAttachmentGate` 定义
+  const dir = join(SRC, 'views/business/erp');
+  const hits: string[] = [];
+  const walk = (current: string): void => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const full = join(current, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (/\.(vue|ts)$/.test(entry.name)) {
+        if (readFileSync(full, 'utf8').includes('export function useAttachmentGate(')) {
+          hits.push(full.slice(dir.length + 1));
+        }
+      }
+    }
+  };
+  walk(dir);
+  assert.deepEqual(hits, ['shared/use-attachment-gate.ts'], `闸门实现必须只有一份，实际 ${hits.join(', ')}`);
 });
 
 // ==================== ⑪ ATT-11：建议传（不校验）的 6 个页面 ====================

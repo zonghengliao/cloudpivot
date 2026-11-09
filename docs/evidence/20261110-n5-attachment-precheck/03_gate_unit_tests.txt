@@ -1,0 +1,202 @@
+TAP version 13
+# Subtest: 报销详情：提交按钮受「权限 ∪ 闸门」约束，红字 + tooltip + 上传入口都在同一页
+ok 1 - 报销详情：提交按钮受「权限 ∪ 闸门」约束，红字 + tooltip + 上传入口都在同一页
+  ---
+  duration_ms: 0.884545
+  type: 'test'
+  ...
+# Subtest: 报销列表：行「提交」与「保存并提交」都先过闸门，缺附件不许打后端
+ok 2 - 报销列表：行「提交」与「保存并提交」都先过闸门，缺附件不许打后端
+  ---
+  duration_ms: 0.310418
+  type: 'test'
+  ...
+# Subtest: 采购退货：详情里的「提交审批」受权限 ∪ 闸门约束，带红字、tooltip 与上传入口
+ok 3 - 采购退货：详情里的「提交审批」受权限 ∪ 闸门约束，带红字、tooltip 与上传入口
+  ---
+  duration_ms: 0.200751
+  type: 'test'
+  ...
+# Subtest: 销售退货：详情「提交」受权限 ∪ 闸门约束，列表行提交先查闸门
+ok 4 - 销售退货：详情「提交」受权限 ∪ 闸门约束，列表行提交先查闸门
+  ---
+  duration_ms: 0.277668
+  type: 'test'
+  ...
+# Subtest: 盘点单：只有「提交审批」那条边受闸门约束，动作按后端 CONFIRM（不是 SUBMIT）
+ok 5 - 盘点单：只有「提交审批」那条边受闸门约束，动作按后端 CONFIRM（不是 SUBMIT）
+  ---
+  duration_ms: 0.310293
+  type: 'test'
+  ...
+# Subtest: 固定资产：启用不再被闸门置灰，缺附件给黄字 + 二次确认 + 审计留痕，附件挂详情页签
+ok 6 - 固定资产：启用不再被闸门置灰，缺附件给黄字 + 二次确认 + 审计留痕，附件挂详情页签
+  ---
+  duration_ms: 1.13688
+  type: 'test'
+  ...
+# Subtest: 付款单：「执行付款」受「权限 ∪ 回单闸门」约束，红字按付款行出，回单挂 PAYMENT
+ok 7 - 付款单：「执行付款」受「权限 ∪ 回单闸门」约束，红字按付款行出，回单挂 PAYMENT
+  ---
+  duration_ms: 0.362168
+  type: 'test'
+  ...
+# Subtest: 收货入库：规则表里没有 STOCK_IN 的必传规则 → 不许凭空加闸门
+ok 8 - 收货入库：规则表里没有 STOCK_IN 的必传规则 → 不许凭空加闸门
+  ---
+  duration_ms: 0.343835
+  type: 'test'
+  ...
+# Subtest: 词表一致：规则表种子的 8 类单据在页面上都有接线
+ok 9 - 词表一致：规则表种子的 8 类单据在页面上都有接线
+  ---
+  duration_ms: 0.451127
+  type: 'test'
+  ...
+# Subtest: 收款单：确认收款（DRAFT→CONFIRMED）受「权限 ∪ 银行回单闸门」约束
+ok 10 - 收款单：确认收款（DRAFT→CONFIRMED）受「权限 ∪ 银行回单闸门」约束
+  ---
+  duration_ms: 0.583669
+  type: 'test'
+  ...
+# Subtest: 8 个单据页都有附件区（含已有的报销），且新建态不显示（doc-id 只来自已加载的单据）
+ok 11 - 8 个单据页都有附件区（含已有的报销），且新建态不显示（doc-id 只来自已加载的单据）
+  ---
+  duration_ms: 1.897425
+  type: 'test'
+  ...
+# Subtest: N-5 ④：8 个必传单据的新建 / 登记入口都先说清「必传什么、什么格式」
+ok 12 - N-5 ④：8 个必传单据的新建 / 登记入口都先说清「必传什么、什么格式」
+  ---
+  duration_ms: 1.163338
+  type: 'test'
+  ...
+# Subtest: N-5：V0347 种子里每个 (doc_type, required_at) 至少有一个页面接线
+ok 13 - N-5：V0347 种子里每个 (doc_type, required_at) 至少有一个页面接线
+  ---
+  duration_ms: 14.772439
+  type: 'test'
+  ...
+# Subtest: N-5 ⑤：8 个单据页复用同一个 composable，全仓只有一份闸门实现
+ok 14 - N-5 ⑤：8 个单据页复用同一个 composable，全仓只有一份闸门实现
+  ---
+  duration_ms: 11.300007
+  type: 'test'
+  ...
+# Subtest: ATT-11：6 个建议传页面都挂对了 DocAttachmentPanel（doc_type / doc_id / 默认角色）
+ok 15 - ATT-11：6 个建议传页面都挂对了 DocAttachmentPanel（doc_type / doc_id / 默认角色）
+  ---
+  duration_ms: 1.078463
+  type: 'test'
+  ...
+# Subtest: ATT-11：客户页的附件区只在「编辑已保存客户」时出现（新建没有 doc id）
+ok 16 - ATT-11：客户页的附件区只在「编辑已保存客户」时出现（新建没有 doc id）
+  ---
+  duration_ms: 0.232751
+  type: 'test'
+  ...
+# Subtest: ATT-11：期初页把期初凭证号写进提示（用户要知道附件挂在哪一期）
+ok 17 - ATT-11：期初页把期初凭证号写进提示（用户要知道附件挂在哪一期）
+  ---
+  duration_ms: 0.120918
+  type: 'test'
+  ...
+# Subtest: ATT-11 / V0368：词表 17 类单据 / 14 个可上传角色（前后端由 Rust 单测再钉一遍）
+ok 18 - ATT-11 / V0368：词表 17 类单据 / 14 个可上传角色（前后端由 Rust 单测再钉一遍）
+  ---
+  duration_ms: 0.347335
+  type: 'test'
+  ...
+# Subtest: 闸门：can_proceed = true → 按钮可点、不画红字、不挂 tooltip（验收②）
+ok 19 - 闸门：can_proceed = true → 按钮可点、不画红字、不挂 tooltip（验收②）
+  ---
+  duration_ms: 0.670545
+  type: 'test'
+  ...
+# Subtest: 闸门：can_proceed = false → 禁用 + 红字原样用后端文案（验收①）
+ok 20 - 闸门：can_proceed = false → 禁用 + 红字原样用后端文案（验收①）
+  ---
+  duration_ms: 0.150209
+  type: 'test'
+  ...
+# Subtest: 闸门：格式不对时红字必须点名「格式不符，需要 pdf/ofd/xml」（验收③）
+ok 21 - 闸门：格式不对时红字必须点名「格式不符，需要 pdf/ofd/xml」（验收③）
+  ---
+  duration_ms: 0.096126
+  type: 'test'
+  ...
+# Subtest: 闸门：多条缺口 → 红字用「；」、tooltip 报文用换行
+ok 22 - 闸门：多条缺口 → 红字用「；」、tooltip 报文用换行
+  ---
+  duration_ms: 0.139167
+  type: 'test'
+  ...
+# Subtest: 闸门：后端没给 hint 时用 missing[].hint 兜底，绝不自己编格式说明
+ok 23 - 闸门：后端没给 hint 时用 missing[].hint 兜底，绝不自己编格式说明
+  ---
+  duration_ms: 0.09525
+  type: 'test'
+  ...
+# Subtest: 闸门：连 missing 都为空也不能「灰着没解释」
+ok 24 - 闸门：连 missing 都为空也不能「灰着没解释」
+  ---
+  duration_ms: 0.079584
+  type: 'test'
+  ...
+# Subtest: 降级：查询失败不禁用按钮、不画红字（403/404/500 都不该锁死提交）
+ok 25 - 降级：查询失败不禁用按钮、不画红字（403/404/500 都不该锁死提交）
+  ---
+  duration_ms: 0.153834
+  type: 'test'
+  ...
+# Subtest: 初始态：还没有单据 / 还在查 → 不禁用、不画红字
+ok 26 - 初始态：还没有单据 / 还在查 → 不禁用、不画红字
+  ---
+  duration_ms: 0.0765
+  type: 'test'
+  ...
+# Subtest: tooltip：权限优先于附件缺口，两者都没有时返回空串（不挂空 tooltip）
+ok 27 - tooltip：权限优先于附件缺口，两者都没有时返回空串（不挂空 tooltip）
+  ---
+  duration_ms: 0.40446
+  type: 'test'
+  ...
+# Subtest: 兜底拼接：空数组 → null（不产出空字符串）
+ok 28 - 兜底拼接：空数组 → null（不产出空字符串）
+  ---
+  duration_ms: 0.364793
+  type: 'test'
+  ...
+# Subtest: 接口契约：check 走 `/api` 前缀 + doc_type / doc_id / at 三参数
+ok 29 - 接口契约：check 走 `/api` 前缀 + doc_type / doc_id / at 三参数
+  ---
+  duration_ms: 0.261126
+  type: 'test'
+  ...
+# Subtest: 页面契约：详情页开票按钮受权限 + 闸门双重约束，并挂红字与 tooltip
+ok 30 - 页面契约：详情页开票按钮受权限 + 闸门双重约束，并挂红字与 tooltip
+  ---
+  duration_ms: 0.242667
+  type: 'test'
+  ...
+# Subtest: 页面契约：列表行「开票」先查闸门，缺附件就点名并打开详情
+ok 31 - 页面契约：列表行「开票」先查闸门，缺附件就点名并打开详情
+  ---
+  duration_ms: 0.209876
+  type: 'test'
+  ...
+# Subtest: 组件与组合式函数必须存在且被页面引用（漏 import 会运行期炸）
+ok 32 - 组件与组合式函数必须存在且被页面引用（漏 import 会运行期炸）
+  ---
+  duration_ms: 0.234667
+  type: 'test'
+  ...
+1..32
+# tests 32
+# suites 0
+# pass 32
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 153.269377

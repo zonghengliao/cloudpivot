@@ -1,0 +1,9 @@
+EXPENSE_REPORT|SUBMIT|pdf,jpg,png,ofd|-|发票影像或费用凭证
+FIXED_ASSET|ACTIVATE|pdf,jpg,png|-|发票或验收单
+INVOICE|SUBMIT|pdf,jpg,png|is_electronic IS FALSE|纸质发票扫描件
+INVOICE|SUBMIT|pdf,ofd,xml|is_electronic IS TRUE|发票影像
+PAYMENT|ACTIVATE|pdf,jpg,png|-|银行回单
+PURCHASE_RETURN|SUBMIT|pdf,jpg,png|-|退货单或签收凭证
+RECEIPT|SUBMIT|pdf,jpg,png|-|银行回单
+SALES_RETURN|SUBMIT|pdf,jpg,png|-|退货单或物流凭证
+STOCK_TAKE|CONFIRM|pdf,jpg,png|-|盘点表或盈亏说明

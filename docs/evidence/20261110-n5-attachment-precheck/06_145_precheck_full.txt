@@ -1,0 +1,74 @@
+==================== 0. 环境 ====================
+BASE=http://127.0.0.1:80  DB=cloudpivot_dev@127.0.0.1:5432
+health=200
+EXPENSE_REPORT|SUBMIT|pdf,jpg,png,ofd|-|发票影像或费用凭证
+FIXED_ASSET|ACTIVATE|pdf,jpg,png|-|发票或验收单
+INVOICE|SUBMIT|pdf,jpg,png|is_electronic IS FALSE|纸质发票扫描件
+INVOICE|SUBMIT|pdf,ofd,xml|is_electronic IS TRUE|发票影像
+PAYMENT|ACTIVATE|pdf,jpg,png|-|银行回单
+PURCHASE_RETURN|SUBMIT|pdf,jpg,png|-|退货单或签收凭证
+RECEIPT|SUBMIT|pdf,jpg,png|-|银行回单
+SALES_RETURN|SUBMIT|pdf,jpg,png|-|退货单或物流凭证
+STOCK_TAKE|CONFIRM|pdf,jpg,png|-|盘点表或盈亏说明
+  [PASS] 规则表启用中 9 条（8 类单据，INVOICE 拆两条）
+==================== 1. 登录（真 token） ====================
+登录成功：token 长度 492（不落盘）
+  [PASS] 登录拿到 access_token
+==================== 2. 取探针单据（每类一个） ====================
+EXPENSE_REPORT|SUBMIT|biz_expense_report|01a1b5fa-5101-71a8-b367-d7276d2d61e5
+FIXED_ASSET|ACTIVATE|biz_fixed_asset|01a1b5f3-854a-7122-b3e1-a260feb0557f
+INVOICE|SUBMIT|biz_invoice|0b256e29-5313-4133-830f-1833f0e086c5
+PAYMENT|ACTIVATE|biz_payment|6a365328-86f5-4d04-b5f4-a866b73b5f33
+PURCHASE_RETURN|SUBMIT|biz_purchase_return|01a1bdc8-4340-7408-85c4-95a859e7564e
+RECEIPT|SUBMIT|biz_receipt|80532de1-8723-497b-a621-701a0faa306a
+SALES_RETURN|SUBMIT|biz_sales_return|01a1bddb-fed9-747f-a22d-92a6d62c0632
+STOCK_TAKE|CONFIRM|biz_stock_take|01a1bdf5-f0fc-75be-8435-dd7a6e305036
+==================== 3. 8 类单据逐一调 /attachment/check ====================
+--- INVOICE / SUBMIT / 0b256e29-5313-4133-830f-1833f0e086c5 → HTTP 200
+{"code":0,"msg":"ok","data":{"doc_type":"INVOICE","doc_id":"0b256e29-5313-4133-830f-1833f0e086c5","at":"SUBMIT","at_label":"提交","can_proceed":true,"missing":[],"hint":null,"message":null}}
+  [PASS] INVOICE at_label=提交
+  [PASS] INVOICE 已有合规附件 → can_proceed=true（按钮应亮）
+--- RECEIPT / SUBMIT / 80532de1-8723-497b-a621-701a0faa306a → HTTP 200
+{"code":0,"msg":"ok","data":{"doc_type":"RECEIPT","doc_id":"80532de1-8723-497b-a621-701a0faa306a","at":"SUBMIT","at_label":"提交","can_proceed":false,"missing":[{"rule_id":"d3470001-0000-4000-8000-000000000003","role":null,"role_label":"银行回单","need":"pdf/jpg/png","have":0,"min":1,"total":0,"shortfall":1,"actual_exts":[],"hint":"缺少银行回单（需 pdf/jpg/png 格式）","message":"收款单必须上传银行回单（pdf/jpg/png）：至少要 1 个，当前 0 个（该单据共 0 个附件），还差 1 个"}],"hint":"缺少银行回单（需 pdf/jpg/png 格式）","message":"收款单必须上传银行回单（pdf/jpg/png）：至少要 1 个，当前 0 个（该单据共 0 个附件），还差 1 个"}}
+  [PASS] RECEIPT at_label=提交
+  [PASS] RECEIPT 缺附件 → can_proceed=false（1 条，need=pdf/jpg/png，红字「缺少银行回单（需 pdf/jpg/png 格式）」）
+--- PAYMENT / ACTIVATE / 6a365328-86f5-4d04-b5f4-a866b73b5f33 → HTTP 200
+{"code":0,"msg":"ok","data":{"doc_type":"PAYMENT","doc_id":"6a365328-86f5-4d04-b5f4-a866b73b5f33","at":"ACTIVATE","at_label":"生效","can_proceed":false,"missing":[{"rule_id":"d3470001-0000-4000-8000-000000000004","role":null,"role_label":"银行回单","need":"pdf/jpg/png","have":0,"min":1,"total":0,"shortfall":1,"actual_exts":[],"hint":"缺少银行回单（需 pdf/jpg/png 格式）","message":"付款单必须上传银行回单（pdf/jpg/png）：至少要 1 个，当前 0 个（该单据共 0 个附件），还差 1 个"}],"hint":"缺少银行回单（需 pdf/jpg/png 格式）","message":"付款单必须上传银行回单（pdf/jpg/png）：至少要 1 个，当前 0 个（该单据共 0 个附件），还差 1 个"}}
+  [PASS] PAYMENT at_label=生效
+  [PASS] PAYMENT 缺附件 → can_proceed=false（1 条，need=pdf/jpg/png，红字「缺少银行回单（需 pdf/jpg/png 格式）」）
+--- EXPENSE_REPORT / SUBMIT / 01a1b5fa-5101-71a8-b367-d7276d2d61e5 → HTTP 200
+{"code":0,"msg":"ok","data":{"doc_type":"EXPENSE_REPORT","doc_id":"01a1b5fa-5101-71a8-b367-d7276d2d61e5","at":"SUBMIT","at_label":"提交","can_proceed":false,"missing":[{"rule_id":"d3470001-0000-4000-8000-000000000005","role":null,"role_label":"发票影像或费用凭证","need":"pdf/jpg/png/ofd","have":0,"min":1,"total":0,"shortfall":1,"actual_exts":[],"hint":"缺少发票影像或费用凭证（需 pdf/jpg/png/ofd 格式）","message":"费用报销单必须上传发票影像或费用凭证（pdf/jpg/png/ofd）：至少要 1 个，当前 0 个（该单据共 0 个附件），还差 1 个"}],"hint":"缺少发票影像或费用凭证（需 pdf/jpg/png/ofd 格式）","message":"费用报销单必须上传发票影像或费用凭证（pdf/jpg/png/ofd）：至少要 1 个，当前 0 个（该单据共 0 个附件），还差 1 个"}}
+  [PASS] EXPENSE_REPORT at_label=提交
+  [PASS] EXPENSE_REPORT 缺附件 → can_proceed=false（1 条，need=pdf/jpg/png/ofd，红字「缺少发票影像或费用凭证（需 pdf/jpg/png/ofd 格式）」）
+--- FIXED_ASSET / ACTIVATE / 01a1b5f3-854a-7122-b3e1-a260feb0557f → HTTP 200
+{"code":0,"msg":"ok","data":{"doc_type":"FIXED_ASSET","doc_id":"01a1b5f3-854a-7122-b3e1-a260feb0557f","at":"ACTIVATE","at_label":"生效","can_proceed":false,"missing":[{"rule_id":"d3470001-0000-4000-8000-000000000006","role":null,"role_label":"发票或验收单","need":"pdf/jpg/png","have":0,"min":1,"total":0,"shortfall":1,"actual_exts":[],"hint":"缺少发票或验收单（需 pdf/jpg/png 格式）","message":"固定资产必须上传发票或验收单（pdf/jpg/png）：至少要 1 个，当前 0 个（该单据共 0 个附件），还差 1 个"}],"hint":"缺少发票或验收单（需 pdf/jpg/png 格式）","message":"固定资产必须上传发票或验收单（pdf/jpg/png）：至少要 1 个，当前 0 个（该单据共 0 个附件），还差 1 个"}}
+  [PASS] FIXED_ASSET at_label=生效
+  [PASS] FIXED_ASSET 缺附件 → can_proceed=false（1 条，need=pdf/jpg/png，红字「缺少发票或验收单（需 pdf/jpg/png 格式）」）
+--- STOCK_TAKE / CONFIRM / 01a1bdf5-f0fc-75be-8435-dd7a6e305036 → HTTP 200
+{"code":0,"msg":"ok","data":{"doc_type":"STOCK_TAKE","doc_id":"01a1bdf5-f0fc-75be-8435-dd7a6e305036","at":"CONFIRM","at_label":"确认","can_proceed":true,"missing":[],"hint":null,"message":null}}
+  [PASS] STOCK_TAKE at_label=确认
+  [PASS] STOCK_TAKE 已有合规附件 → can_proceed=true（按钮应亮）
+--- PURCHASE_RETURN / SUBMIT / 01a1bdc8-4340-7408-85c4-95a859e7564e → HTTP 200
+{"code":0,"msg":"ok","data":{"doc_type":"PURCHASE_RETURN","doc_id":"01a1bdc8-4340-7408-85c4-95a859e7564e","at":"SUBMIT","at_label":"提交","can_proceed":true,"missing":[],"hint":null,"message":null}}
+  [PASS] PURCHASE_RETURN at_label=提交
+  [PASS] PURCHASE_RETURN 已有合规附件 → can_proceed=true（按钮应亮）
+--- SALES_RETURN / SUBMIT / 01a1bddb-fed9-747f-a22d-92a6d62c0632 → HTTP 200
+{"code":0,"msg":"ok","data":{"doc_type":"SALES_RETURN","doc_id":"01a1bddb-fed9-747f-a22d-92a6d62c0632","at":"SUBMIT","at_label":"提交","can_proceed":true,"missing":[],"hint":null,"message":null}}
+  [PASS] SALES_RETURN at_label=提交
+  [PASS] SALES_RETURN 已有合规附件 → can_proceed=true（按钮应亮）
+==================== 4. need 与规则表 allow_exts 逐字一致 ====================
+  [PASS] RECEIPT/SUBMIT need=pdf/jpg/png rule=['jpg/pdf/png']
+  [PASS] PAYMENT/ACTIVATE need=pdf/jpg/png rule=['jpg/pdf/png']
+  [PASS] EXPENSE_REPORT/SUBMIT need=pdf/jpg/png/ofd rule=['jpg/ofd/pdf/png']
+  [PASS] FIXED_ASSET/ACTIVATE need=pdf/jpg/png rule=['jpg/pdf/png']
+  比对完成，不一致 0 条
+==================== 5. 边界：非法 at / 不存在单据 / 未登录 ====================
+非法 at → HTTP 400 {"code":10001,"msg":"触发动作 at 非法：CONFIRMED（可选 SUBMIT / CONFIRM / ACTIVATE）"}
+  [PASS] 非法 at 400（不静默回落成 SUBMIT）
+不存在单据 → HTTP 404 {"code":10002,"msg":"发票不存在或已删除，无法挂附件"}
+  [PASS] 单据不存在 404（前端据此降级放行，不锁死按钮）
+未登录 → HTTP 401
+  [PASS] 未登录 401
+
+证据目录：/tmp/n5-attachment-precheck
+RESULT: PASS

@@ -589,6 +589,18 @@
           <span class="mono">{{ payTarget.payable_no }}</span>
           <span class="muted">未付余额 {{ formatMoney(unpaidOf(payTarget)) }}</span>
         </div>
+        <!--
+          ATT-09 / N-5（验收④「新建态不调接口，但有提示」）：付款记录在这一步还没有 id
+          （提交动作内部才创建），所以查不了 `/attachment/check`；但规则确定
+          （`PAYMENT` + `ACTIVATE`，V0347 / 145 实测：银行回单 pdf/jpg/png 至少 1 个）。
+          配了「应付付款审批」流程时：审批通过后在详情「付款回单」面板上传，缺回单时
+          「执行付款」按钮置灰 + 红字；没配流程则提交即生效（回单事后再补传）。
+        -->
+        <t-alert
+          theme="warning"
+          data-testid="payable-pay-attach-notice"
+          message="出款前必须上传银行回单（pdf/jpg/png，至少 1 个）：审批通过后在详情「付款回单」面板上传，缺回单时「执行付款」按钮会置灰；未配付款审批流程时提交即生效，回单请事后补传。"
+        />
         <t-form label-align="top">
           <t-form-item label="本次付款金额（元）" required-mark>
             <t-input-number
