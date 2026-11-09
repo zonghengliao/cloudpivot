@@ -20,7 +20,7 @@
 | # | 决策 | 依据 |
 |---|---|---|
 | **D-1** | **运行位置**：L0/L1 留在开发机（99），由 git hook 机械强制；**L2 每日回归放 145 测试机**（03:10，用 145 上的 `cloudpivot_dev` + 每次重建的干净库 `cloudpivot_ci`）；**L3 发版前在 145 人工触发**。不引入 Gitea/Woodpecker（§4.1/§4.9） | 145 已跑着 30 分钟一次的 `test_deploy.sh`（实测周期 1 m 16 s–3 m 13 s），同机就有真库和 systemd 服务；99 上 `backend/target` 已 **109 G**、根盘只剩 **8.1 G**（97% used，实测），再压一套 CI 服务会挤爆 |
-| **D-2** | **四层门禁的实测耗时**：L0 3.1 s；L1 **2 min 05 s**（clippy 83.6 + 单测 2.1 + typecheck 39.5，实测）；L2 **≈15–20 min**（静态门禁合计 2 min 42 s + 真库全量单测 + 干净库重建 6.4 s + 13 域抽样）；L3 1–2 h（含 e2e 424 例） | 附录 A 逐项实测 |
+| **D-2** | **四层门禁的实测耗时**：L0 3.1 s；L1 **2 min 05 s**（clippy 83.6 + 单测 2.1 + typecheck 39.5，实测）；L2 **≈ max(L2-A 14–18 min, L2-B ≥40 min) = ≥40 min**（静态门禁合计 2 min 42 s + 干净库重建 6.4 s + 13 域抽样 / 真库全量单测两段并行；**超「<30 min」目标，处置见 §4.1**）；L3 1–2 h（含 e2e 424 例） | 附录 A 逐项实测 |
 | **D-3** | **单测必须带库才算数**：不带库 `cargo test --lib` 是 **4021 passed / 1.78 s 的假绿**（真库用例全部 print SKIP 后 return，libtest 记 passed）。L1 只跑「无库 + 受影响模块」，**L2 跑全量真库**（`--test-threads=1`，因为库里有改全局配置的用例） | 实测 2.1 s vs check.sh 注释自述「约 12 分钟」；`scripts/check.sh:60-110` 已写明同一条判据 |
 | **D-4** | **工具链必须钉死**：新增 `rust-toolchain.toml`（`1.94.1`）。当前 99 是 `rustc 1.94.1`，**145 / 144 都是 `1.99.1`** ⇒ 同一棵树在两台机器上 clippy 结论可以不同，「本机绿、CI 红」是必然 | 三台机实测 `--version`（附录 A-12） |
 | **D-5** | **结果落三张新表**：`sys_ci_run`（一次运行一行）/ `sys_ci_item`（一项一行）/ `sys_ci_baseline`（已知红台账）。**不挤进** `sys_invariant_result`（理由 3 条，§3.2） | 现有 `sys_invariant_result` 是「一次巡检一行」，粒度不同 |
@@ -324,7 +324,7 @@ CREATE INDEX idx_ci_baseline_active    ON sys_ci_baseline (expires_at) WHERE rev
 | **L0** | 提交前（`pre-commit` + 手动 `run_layer.sh L0`） | 99 开发机 | `cargo fmt -- --check`（**实测 3.10 s**）+ `cargo check`（**touch 后 12.6 s / 纯热 0.2 s**） | **≈ 16 s** | 拒绝提交（机械） | 控制台；不落库（太频繁） |
 | **L1** | push 前（`pre-push`） | 99 开发机 | ① `cargo clippy --all-targets -- -D warnings`（**实测 83.6 s**，含 crate 重编）② `cargo test --lib`（**实测 2.1 s / 4021 passed**，无库口径见 §4.3）③ `cd frontend && pnpm typecheck`（**实测 39.5 s**） | **热态合计 125.2 s ≈ 2 min 05 s**；**改代码后的真实成本 ≈ 175.6 s ≈ 2 min 56 s**（多了 test 二进制重编 50.4 s，实测 A-18）—— 仍达标（<3 min）但只剩 4 s 余量 | 拒绝 push；`SKIP_PREPUSH=1` 可绕但留痕（§4.6） | `sys_ci_run`（layer=L1, trigger=HOOK）+ item 3 行 |
 | **L2-A** | 每日 **03:10**（145，cron） | **145 测试机** | ① 干净库重建（**实测 6.43 s / 298 迁移**）② **21 道**静态+DB 检查（即 `check.sh` 全部，含 fmt/clippy/typecheck）+ `menu_invariants.sh`（8 条）+ `icon_invariant_teeth.sh` ③ `verify.py all`（HTTP 回归，**实测 34.5 s**）④ 13 域抽样（§4.4） | 静态部分实测合计 **2 min 42 s**（99 热 target）；145 上 clippy 无缓存，**待实测**（确认方式：145 跑一次 `cargo clippy --all-targets` 计时，见 §8.4 待确认 2）；+ 抽样 ≈ 10–15 min | 不阻断主干，**建卡 + 飞书**（§4.8） | `sys_ci_run`（host=145）+ 每项一行 |
-| **L2-B** | 每日 **03:40**（99，cron） | **99 开发机** | 真库全量单测：重建库 + `cargo test --lib --features test-hooks -- --test-threads=1 --nocapture`（`ERP_DB_URL`/`SYS_DB_URL`/`TASK_DB_URL` 三把都给） | **实测 ≈ 40 min**（见附录 A-15 的两轮实测与外推；全程 4014 例）—— 超「<30 min」目标，处置见下 | 建卡 + 飞书 | `sys_ci_run`（host=99）+ item 1 行（DBTEST） |
+| **L2-B** | 每日 **03:40**（99，cron） | **99 开发机** | 真库全量单测：重建库 + `cargo test --lib --features test-hooks -- --test-threads=1 --nocapture`（`ERP_DB_URL`/`SYS_DB_URL`/`TASK_DB_URL` 三把都给） | **实测 ≥ 40 min**（见附录 A-15 的两轮实测与外推；全程 4014 例）—— 超「<30 min」目标，处置见下 | 建卡 + 飞书 | `sys_ci_run`（host=99）+ item 1 行（DBTEST） |
 | **L3** | 发版前人工触发（`run_layer.sh L3`） | 145 | ① 全部 484 个可执行 verify 脚本 + 37 个 `.sql` 证据脚本 ② 前端 e2e 全量（**424 例 / 25 spec**，`workers:1`）③ k6 性能基线（有性能改动时） | 40–90 min（e2e 串行是主项，**待实测**，见 §8.4 待确认 3） | **阻断发版**（`deploy.sh` 拒跑） | `sys_ci_run`（layer=L3）+ 每项一行 |
 
 **为什么 L2 拆两段（关键决策）**：
@@ -345,7 +345,7 @@ CREATE INDEX idx_ci_baseline_active    ON sys_ci_baseline (expires_at) WHERE rev
 | 段 | 内容 | 实测/估算 | 结论 |
 |---|---|---|---|
 | L2-A（145） | 干净库 6.4 s + 静态门禁 ≈162 s + `verify.py all` 34.5 s + 抽样 10–15 min | **≈ 14–18 min** | 达标 |
-| L2-B（99） | 真库全量单测（4014 例，`--test-threads=1`） | **≈ 40 min**（实测速率 1.670 例/s，见附录 A-15） | **超出「<30 min」目标** |
+| L2-B（99） | 真库全量单测（4014 例，`--test-threads=1`） | **≥ 40 min**（两轮实测均未跑完：1995 例 / 1347 s，后段瞬时降到 0.37 例/s，见附录 A-15） | **超出「<30 min」目标** |
 
 原因不是脚本慢，是**库测试本身就是串行的**：它们改全局配置（流程定义 / 状态机边 / 期末结账），并行会互踩（`check.sh` 里已经为 `internal_control::db_tests` 单独 `--skip` 就是这个原因）。所以 `--test-threads=1` 不是保守，是必须。
 
@@ -824,7 +824,7 @@ P = 20（约 1/5）
 | 4 | 台账最长认领期 90 天是否够（季度结算类门禁可能更长） | **90 天**，到期重新登记（强制重新看一次） | 首次台账到期时观察是否频繁「续期」，频繁则调 180 天（要改 CHECK） |
 | 5 | `pre-receive` 兜底要不要做（远端强制的代价是「所有 push 都要过 clippy」） | **做，但只校验 `fmt` + 迁移号唯一**（不做 clippy，远端没 cargo 环境） | 批 4 先在 bare 上 `dry-run` 一周（只记录不拒） |
 | 6 | L2 抽样比例 P=20% 是否合适 | **P=20**（30 天覆盖 99.88%） | 上线 2 周后看 L2 平均耗时：若 >25 min 降到 10，若 <10 min 升到 30 |
-| 7 | 真库全量单测**完整一轮**的精确耗时（本卡只拿到 1760/4014 例 1054 s 的实测点与 1.670 例/s 的速率） | 按 **40 min** 做容量规划 | 在一个没人抢机器的时段跑 `time cargo test --lib --features test-hooks -- --test-threads=1 --nocapture` 一轮到底，把 `duration_ms` 回填 A-15；若与 40 min 偏差 >20%，重估 §4.1 的分片方案 |
+| 7 | 真库全量单测**完整一轮**的精确耗时（本卡两轮均被共享机器打断：1760/4014 例 1054 s、1995/4014 例 1347 s） | 按 **≥40 min** 做容量规划（40.1 min 是下界） | 空闲时段 `time cargo test --lib --features test-hooks -- --test-threads=1 --nocapture` 跑到底，把 `duration_ms` 回填 A-15；若实测 ≥60 min，直接转 §4.1 的第 2 档（分片并行） |
 
 ---
 
@@ -850,7 +850,7 @@ P = 20（约 1/5）
 | A-12 | 工具链版本 | `rustc --version` × 3 台 | — | 99=`1.94.1`，145=`1.99.1`，144=`1.99.1` | 附录 A 内联 |
 | A-13 | 菜单不变量 | `bash scripts/verify/menu_invariants.sh <db>` | 0 | **0.39 s** | `/tmp/gate_menu_invariants.log` |
 | A-14 | HTTP 回归 | `verify.py smoke` / `verify.py all` | 0 / **1** | **0.83 s** / **34.5 s**（163/8/2） | `/tmp/smoke.log` / `/tmp/verify_all.log` |
-| A-15 | **真库全量单测** | `cargo test --lib --features test-hooks -- --test-threads=1 --nocapture --skip business::flow::internal_control::db_tests` | 见下 | **实测两轮**：① 第一轮跑到 **1760/4014 例**、用时 **1054 s（17 m 34 s）**时被外部 SIGTERM 打断（**不是 OOM、不是用例失败**：`dmesg` 无 OOM 记录、失败清单 0 条、rc=101）② 第二轮从 01:37 起跑，01:55 已过 1919 例。按第一轮的实测速率 **1.670 例/s（100 例/min）**外推全量 **≈ 2404 s ≈ 40 min** | `/tmp/db_test_raw.log` |
+| A-15 | **真库全量单测** | `cargo test --lib --features test-hooks -- --test-threads=1 --nocapture --skip business::flow::internal_control::db_tests` | 见下 | **两轮实测（均在共享机器上被打断，未跑完）**：① 第一轮 **1760/4014 例 / 1054 s** 后收到外部 SIGTERM（`dmesg` 无 OOM、0 条用例失败、rc=101）② 第二轮 **1995/4014 例 / 1347 s**（1.48 例/s），后段瞬时速率降到 **0.37 例/s**（`erp::stockin_handler` 这类 fixture 重的模块）。按最好速率 1.67 例/s 外推 **2404 s = 40.1 min**，**这是下界**；真值更大 → L2-B 容量按 **≥40 min** 规划，要 <30 min 必须分片 | `/tmp/db_test_raw.log`、`06_db_test_partial.out` |
 | A-16 | L1 单测（无库） | `cargo test --lib` | 0 | **2.1 s**（**4021 passed**，1.78 s） | `/tmp/cg_test_lib.log` |
 | A-17 | L1 单测（无库、单线程） | `cargo test --lib -- --test-threads=1` | 0 | **6.2 s**（6.03 s） | `/tmp/cg_test_lib_st1.log` |
 | A-18 | L1 打包（仅编译） | `cargo test --lib --no-run`（touch 后） | 0 | **50.4 s** | `/tmp/incr_test__no_run_touch_.log` |

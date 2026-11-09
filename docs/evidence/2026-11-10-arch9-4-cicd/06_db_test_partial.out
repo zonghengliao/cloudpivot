@@ -1,0 +1,34 @@
+# ARCH-9-4 实测：真库全量单测（两轮，均未跑完 —— 共享机器上拿不到 40 分钟独占窗口）
+# 采集时间：2026-11-10 02:03 CST
+# 命令：cd /opt/cloudpivot/backend && ERP_DB_URL=SYS_DB_URL=TASK_DB_URL=postgres://alun:alun@127.0.0.1:5432/cloudpivot_arch9_ci4 \
+#       cargo test --lib --features test-hooks -- --test-threads=1 --nocapture \
+#       --skip business::flow::internal_control::db_tests
+
+== 轮次 1 ==
+rc=101  wall=1054s（2026-11-10 01:31:05）
+到 1760/4014 例时进程收到 **外部 SIGTERM**
+判据：dmesg 无 OOM 记录；失败清单 0 条；cargo 报 "signal: 15, SIGTERM"（不是用例挂，是外部信号）
+速率：1760 / 1054 = 1.670 例/s（100.2 例/min）
+
+== 轮次 2 ==
+起点 01:37:30 前后（含 1 次 crate 重编：他人改了源文件，cargo 重新编译过）
+到 2003/4014 例（wall ≈ 1400 s）时**由本人主动终止** —— 目的是腾出 target 构建锁，
+否则 pre-push 的 cargo clippy 会一直等锁（同一工作区多 worker 共用 target 目录）
+速率：2003 / 1400 ≈ 1.43 例/s
+后段瞬时速率（01:56→01:59，erp::stockin_handler 这类 fixture 重的模块）：66 例 / 180 s = **0.37 例/s**
+
+== 结论（容量规划用）==
+按最好速率 1.670 例/s 外推：4014 / 1.670 = 2404 s = **40.1 min**，且这是**下界**
+（后段模块越来越重，实测瞬时掉到 0.37 例/s）⇒ 设计文档里 L2-B 按 **≥40 min** 规划，
+要压进 30 min 必须做「按模块分片 × 独立库并行」（§4.1 三档处置的第 2 档）。
+
+== 进度位置（第二轮最后 5 行）==
+test business::erp::stockin_handler::stockin_handler_tests_posting::posting_rejects_non_base_unit_snapshot ... ok
+test business::erp::stockin_handler::stockin_handler_tests_posting::repeated_post_is_conflict ... ok
+test business::erp::stockin_handler::stockin_handler_tests_posting::rounding_dust_keeps_amount_authoritative ... ok
+test business::erp::stockin_handler::stockin_handler_tests_posting::second_receipt_moves_weighted_average ... ok
+test business::erp::stockin_handler::stockin_handler_tests_posting::serial_material_generates_serials_in_receipt_warehouse ...
+
+== 复跑（要拿到精确值就用这个）==
+独占时段：time cargo test --lib --features test-hooks -- --test-threads=1 --nocapture
+（internal_control::db_tests 按设计要求独占库，需在另一个空库上单独跑）
