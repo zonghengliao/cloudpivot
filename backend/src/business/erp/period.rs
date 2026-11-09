@@ -189,6 +189,79 @@ pub fn reopen_blocked_by_year_end(year_end_status: Option<&str>) -> bool {
     )
 }
 
+/// 反结账的「挡路项」——**同年度挡路**与**跨年度挡路**分开记（E2E04-FIX-2）。
+///
+/// # 为什么必须分开
+///
+/// 老实现用一条**全库无界**查询 `period_code > ? AND status='CLOSED'` 判「后续期间」，
+/// 语义上把「同一账套里更晚的月份」当成了「更晚的**会计年度**」：共享库/演练库上
+/// 只要任何年度留着一个更晚的已结账期间（E2E-04 实测是 2026-09，别的演练残留），
+/// 2022-11 就永远反结不了，重置脚本被迫「临时解封 2026-09 → 回撤 2022 → 再封回」。
+///
+/// 正确口径是两条**互不相同**的约束，处置建议也不一样：
+/// 1. **同年度挡路**：同一年度里晚于目标期间的月份已结账 ⇒ 必须拦。否则会出现
+///    「前一个月开着、后一个月封着」的窟窿，跨期调整没有落脚点。处置：从该年度最后
+///    封账的月份往回依次反结账。
+/// 2. **跨年度挡路**：更晚的年度已年结（`ACCOUNTING_YEAR=CLOSED`）⇒ 必须拦。
+///    年结凭证与下一年度期初（`biz_opening_balance(YYYY+1-01, source='YEAR_END')`）
+///    是按本年度期末结转的，回撤本年度会让「报表期初（历史累计）」与「年初期初台账
+///    （快照）」永久分裂。处置：先在「年结」页反年结更晚的年度。
+/// 3. 其它年度**只是月结封账**（没有年结）⇒ **不管**：它们不影响本年度的账。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReopenConflicts {
+    /// 同一会计年度内、编码晚于目标期间的已结账期间编码（升序，逐条列出）。
+    pub same_year_closed: Vec<String>,
+    /// 比目标期间所属年度更晚、且最新状态是 `ACCOUNTING_YEAR=CLOSED` 的年度（升序）。
+    pub later_year_ended: Vec<i16>,
+}
+
+impl ReopenConflicts {
+    /// 是否存在任何挡路项（有则禁止反结账）。
+    pub fn is_blocking(&self) -> bool {
+        !self.same_year_closed.is_empty() || !self.later_year_ended.is_empty()
+    }
+}
+
+/// 拼反结账 409 文案（**纯逻辑**，单测钉住「同年度 / 跨年度」两种挡路都点名）。
+///
+/// 返回 `None` = 没有被挡；`Some(msg)` = 直接可展示的冲突文案。
+pub fn reopen_conflict_message(period_code: &str, period_year: i16, conflicts: &ReopenConflicts) -> Option<String> {
+    if !conflicts.is_blocking() {
+        return None;
+    }
+    let mut parts: Vec<String> = Vec::new();
+    if !conflicts.same_year_closed.is_empty() {
+        let codes = conflicts.same_year_closed.join("、");
+        // 反结账只能从最后封账的月份往回撤 ⇒ 建议顺序是「晚 → 早」
+        let order = conflicts
+            .same_year_closed
+            .iter()
+            .rev()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join(" → ");
+        parts.push(format!(
+            "同年度挡路 —— {period_year} 年还有后续期间 {codes} 处于「已结账」：\
+             反结账必须从该年度最后封账的月份往回撤，否则会出现「前一个月开着、\
+             后一个月封着」的窟窿，请先按 {order} 的顺序反结账"
+        ));
+    }
+    if !conflicts.later_year_ended.is_empty() {
+        let years = conflicts
+            .later_year_ended
+            .iter()
+            .map(|year| format!("{year} 年"))
+            .collect::<Vec<_>>()
+            .join("、");
+        parts.push(format!(
+            "跨年度挡路 —— 更晚的会计年度 {years} 已年结：年结凭证与下一年度期初是按 \
+             {period_year} 年期末结转的，回撤 {period_code} 会让报表期初与年初期初台账\
+             对不上，请先在「年结」页反年结 {years} 再回来反结账"
+        ));
+    }
+    Some(format!("不能反结账 {period_code}：{}", parts.join("；")))
+}
+
 /// 试算平衡的容差（与 `scripts/verify/erp_invariants.py` 的 `TOL` 同为 0.0001）。
 ///
 /// 写成函数而不是 `const`：这个版本的 `Decimal::new` 不是 `const fn`。
@@ -1293,10 +1366,83 @@ pub async fn close_period(
 
 // ==================== ③ 反结账 ====================
 
+/// 同一年度内、编码晚于目标期间的**已结账**期间（升序，逐条列出）。
+///
+/// 判据收敛的关键：`period_year = <目标期间的年度>`。老查询没有这个条件，
+/// 于是「全库任何更晚的已结账期间」都算挡路（E2E04-FIX-2 的根因）。
+async fn later_closed_periods_in_year(ex: &impl SqlExecutor, row: &PeriodRow) -> Result<Vec<String>, ApiError> {
+    let rows = ex
+        .query_sql(
+            "SELECT period_code FROM biz_accounting_period \
+              WHERE period_year = ? AND period_code > ? AND status = ? \
+              ORDER BY period_code"
+                .to_string(),
+            vec![
+                Value::I16(row.period_year),
+                Value::Text(row.period_code.clone()),
+                Value::Text(STATUS_CLOSED.to_string()),
+            ],
+        )
+        .await
+        .map_err(|error| db_error(error, "查询同年度后续已结账期间"))?;
+    Ok(rows
+        .iter()
+        .map(|item| item.get_typed::<String>("period_code").unwrap_or_default())
+        .collect())
+}
+
+/// 比 `year` 更晚、且**最新**状态为 `ACCOUNTING_YEAR=CLOSED` 的年度（升序）。
+///
+/// 取每个年度的**最新一条**日志（`DISTINCT ON (entity_no) … ORDER BY created_at DESC`）：
+/// 反年结会写一条 `CLOSED → NOT_CLOSED`，只看「曾经 CLOSED 过」会误拦。
+/// 年度之间不保证连续（允许 2022 与 2025 有账、2023/2024 没有），所以判的是
+/// 「所有更晚的年度里有没有一个已年结」，不是只看 `year + 1`。
+async fn later_year_ended_after(ex: &impl SqlExecutor, year: i16) -> Result<Vec<i16>, ApiError> {
+    let rows = ex
+        .query_sql(
+            "SELECT latest.entity_no AS year_no FROM ( \
+                SELECT DISTINCT ON (entity_no) entity_no, to_status \
+                  FROM biz_status_log \
+                 WHERE entity_type = ? AND entity_no ~ '^[0-9]{4}$' \
+                 ORDER BY entity_no, created_at DESC, id DESC \
+             ) latest \
+             WHERE latest.to_status = ? AND latest.entity_no::int > ? \
+             ORDER BY latest.entity_no::int"
+                .to_string(),
+            vec![
+                Value::Text(state_machine::ENTITY_YEAR_END.to_string()),
+                Value::Text(crate::business::erp::year_end::STATUS_CLOSED.to_string()),
+                Value::I16(year),
+            ],
+        )
+        .await
+        .map_err(|error| db_error(error, "查询更晚年度的年结状态"))?;
+    Ok(rows
+        .iter()
+        .filter_map(|item| {
+            item.get_typed::<String>("year_no")
+                .ok()
+                .and_then(|raw| raw.trim().parse::<i16>().ok())
+        })
+        .collect())
+}
+
+/// 反结账前的全部挡路项（同年度后续已结账期间 + 更晚年度的年结状态）。
+async fn collect_reopen_conflicts(ex: &impl SqlExecutor, row: &PeriodRow) -> Result<ReopenConflicts, ApiError> {
+    Ok(ReopenConflicts {
+        same_year_closed: later_closed_periods_in_year(ex, row).await?,
+        later_year_ended: later_year_ended_after(ex, row.period_year).await?,
+    })
+}
+
 /// 反结账：`CLOSED → OPEN`，`closed_at / closed_by` 清空，原因进状态日志。
 ///
-/// 前置：状态必须是 `CLOSED`；原因 ≥ 10 字；**后续期间不能有已结账的**
-/// （否则会出现「1 月开着、2 月封着」的窟窿，跨期调整没有落脚点）。
+/// 前置：状态必须是 `CLOSED`；原因 ≥ 10 字；**同一会计年度内的后续期间不能有已结账的**
+/// （否则会出现「1 月开着、2 月封着」的窟窿，跨期调整没有落脚点）；**更晚的年度不能已年结**。
+///
+/// E2E04-FIX-2：`period_code > ?` 的老查询是**全库无界**的，别的年度留着一个已结账期间
+/// （演练残留 2026-09）就能把 2022 年任意月份锁死。判据收敛到「同一年度」+「更晚年度是否年结」，
+/// 见 [`ReopenConflicts`] 的文档注释。
 pub async fn reopen_period(
     id: Uuid,
     reason: Option<&str>,
@@ -1332,27 +1478,12 @@ pub async fn reopen_period(
         )));
     }
 
-    // 后续期间必须都还没结账（一次只能从最新封的月份往回撤）
-    let later = tx
-        .query_sql(
-            "SELECT period_code FROM biz_accounting_period \
-              WHERE period_code > ? AND status = 'CLOSED' \
-              ORDER BY period_code LIMIT 3"
-                .to_string(),
-            vec![Value::Text(row.period_code.clone())],
-        )
-        .await
-        .map_err(|error| db_error(error, "查询后续已结账期间"))?;
-    if !later.is_empty() {
-        let codes = later
-            .iter()
-            .map(|item| item.get_typed::<String>("period_code").unwrap_or_default())
-            .collect::<Vec<_>>()
-            .join(" / ");
-        return Err(conflict(format!(
-            "后续期间 {codes} 还处于「已结账」状态：反结账必须从最后一个封账的月份往回撤，\
-             否则会出现「前一个月开着、后一个月封着」的窟窿"
-        )));
+    // 后续期间必须都还没结账（一次只能从最新封的月份往回撤）。
+    // 判据**只收敛在同一会计年度内**：别的年度的封账状态与本年度无关（E2E04-FIX-2），
+    // 但更晚的年度若已年结必须拦（年结凭证引用本年度期末余额，回撤会口径分裂）。
+    let conflicts = collect_reopen_conflicts(&tx, &row).await?;
+    if let Some(message) = reopen_conflict_message(&row.period_code, row.period_year, &conflicts) {
+        return Err(conflict(message));
     }
 
     state_machine::transition(
@@ -1640,6 +1771,11 @@ mod tests {
 
     /// 清掉本模块造的所有夹具（按前缀收敛，**不碰 2026-xx 的生产期间**）。
     async fn cleanup() {
+        // 年结状态日志（E2E04-FIX-2 起反结账会看「更晚年度是否已年结」，夹具必须收干净，
+        // 否则一条 2032=CLOSED 的残留会让本模块所有 2031 反结账用例 409 假红）
+        sql("DELETE FROM biz_status_log WHERE entity_type = 'ACCOUNTING_YEAR' \
+             AND entity_no IN ('2031', '2032', '2033')")
+        .await;
         // 状态日志没有外键，必须按期间编码先删（期间行一删就查不到 id 了）
         sql("DELETE FROM biz_status_log WHERE entity_type = 'ACCOUNTING_PERIOD' \
              AND (entity_no LIKE '2031-%' OR entity_no LIKE '2032-%' OR entity_no LIKE '2033-%')")
@@ -1674,6 +1810,17 @@ mod tests {
         )
         .await
         .expect("统计期间")
+    }
+
+    /// 删掉本模块夹具写的年度状态日志（E2E04-FIX-2：反结账会看更晚年度是否已年结）。
+    ///
+    /// `setup()` 里已经清过一遍，但这几个用例是**在用例体内**种的，结尾再收一次，
+    /// 让「跑完之后库是干净的」而不是「下一个用例替它收」。
+    async fn cleanup_year_end_log(year: i16) {
+        sql(&format!(
+            "DELETE FROM biz_status_log WHERE entity_type = 'ACCOUNTING_YEAR' AND entity_no = '{year}'"
+        ))
+        .await;
     }
 
     /// 期间状态（按编码）。
@@ -2305,7 +2452,156 @@ mod tests {
             .expect_err("后续期间已结账必须 409");
         assert_eq!(err.status, 409, "{}", err.msg);
         assert!(err.msg.contains("2031-10"), "要点名后续期间：{}", err.msg);
+        // 文案必须区分「同年度挡路」并给出可执行的处置顺序（E2E04-FIX-2 ③）
+        assert!(err.msg.starts_with("不能反结账 2031-09"), "要点名目标期间：{}", err.msg);
+        assert!(err.msg.contains("同年度挡路"), "要标明同年度挡路：{}", err.msg);
+        assert!(
+            err.msg.contains("请先按 2031-10 的顺序反结账"),
+            "要给处置顺序：{}",
+            err.msg
+        );
+        assert!(!err.msg.contains("跨年度挡路"), "本场景没有年结挡路：{}", err.msg);
         assert_eq!(status_of("2031-09").await.as_deref(), Some(STATUS_CLOSED));
+    }
+
+    /// ⑬b 其他年度有更晚的已结账期间 → **不再影响**本年度反结账（E2E04-FIX-2 ②）。
+    ///
+    /// 这是 E2E-04 演练实际被卡死的形态：共享库上 2026-09 是 CLOSED（别的演练残留），
+    /// `POST /erp/period/2022-11/reopen` 被判「后续期间已结账」。老查询是
+    /// `period_code > ? AND status='CLOSED'`（全库无界），跨年度也被算成挡路。
+    #[tokio::test]
+    async fn p3_reopen_ignores_closed_periods_in_other_years() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let sep = open_period(2031, 9, None, operator()).await.expect("开账应成功");
+        close_period(uuid_of(&sep.id), None, operator())
+            .await
+            .expect("9 月结账");
+
+        // 另一个年度（2032）更晚的月份封账 —— 与 2031 的账无关，不许挡路
+        let other = open_period(2032, 5, None, operator()).await.expect("开账应成功");
+        close_period(uuid_of(&other.id), None, operator())
+            .await
+            .expect("2032-05 结账");
+
+        let reopened = reopen_period(
+            uuid_of(&sep.id),
+            Some("E2E04-FIX-2：别的年度的已结账期间不该挡 2031-09 的反结账"),
+            operator(),
+        )
+        .await
+        .expect("其它年度的已结账期间不得影响本年度反结账");
+        assert_eq!(reopened.status, STATUS_OPEN, "2031-09 应已回到 OPEN");
+        assert!(reopened.closed_at.is_none(), "closed_at 必须清空");
+        // 别的年度原样保留（不许顺手动别人的封账）
+        assert_eq!(status_of("2032-05").await.as_deref(), Some(STATUS_CLOSED));
+    }
+
+    /// ⑬c 更晚的年度已年结 → 拦，并提示先反年结（E2E04-FIX-2 ④「跨年度挡路」）。
+    ///
+    /// 不用真跑年结（那要 12 个月 + 试算平衡 + 下年开账），直接写 `ACCOUNTING_YEAR` 最新状态
+    /// —— 与 `year_end::load_state_in` 同源判据（`biz_status_log` 最新一行）。
+    #[tokio::test]
+    async fn p3_reopen_blocked_by_later_year_end() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let sep = open_period(2031, 9, None, operator()).await.expect("开账应成功");
+        close_period(uuid_of(&sep.id), None, operator())
+            .await
+            .expect("9 月结账");
+        // 2032 年已年结（2031 年度本身没年结 —— 否则会先撞另一道闸）
+        sql("INSERT INTO biz_status_log \
+                (entity_type, entity_id, entity_no, from_status, to_status, operator_name, reason) \
+             VALUES ('ACCOUNTING_YEAR', '00000000-0000-7000-8000-0000000003c2'::uuid, \
+                     '2032', 'NOT_CLOSED', 'CLOSED', 'p1-tester', 'E2E04-FIX-2 夹具：2032 已年结')")
+        .await;
+
+        let err = reopen_period(
+            uuid_of(&sep.id),
+            Some("E2E04-FIX-2：更晚年度已年结时必须拦住并提示先反年结"),
+            operator(),
+        )
+        .await
+        .expect_err("更晚年度已年结必须 409");
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert!(err.msg.contains("跨年度挡路"), "要标明跨年度挡路：{}", err.msg);
+        assert!(err.msg.contains("2032 年"), "要点名已年结的年度：{}", err.msg);
+        assert!(err.msg.contains("反年结"), "要提示先反年结：{}", err.msg);
+        assert!(!err.msg.contains("同年度挡路"), "本场景没有同年度挡路：{}", err.msg);
+        assert_eq!(status_of("2031-09").await.as_deref(), Some(STATUS_CLOSED));
+        cleanup_year_end_log(2032).await;
+    }
+
+    /// ⑬d 两种挡路同时存在 → 一次列全（同年度 + 跨年度分开给建议）。
+    #[tokio::test]
+    async fn p3_reopen_reports_same_year_and_cross_year_conflicts_together() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let sep = open_period(2031, 9, None, operator()).await.expect("开账应成功");
+        close_period(uuid_of(&sep.id), None, operator())
+            .await
+            .expect("9 月结账");
+        let oct = open_period(2031, 10, None, operator()).await.expect("开账应成功");
+        close_period(uuid_of(&oct.id), None, operator())
+            .await
+            .expect("10 月结账");
+        sql("INSERT INTO biz_status_log \
+                (entity_type, entity_id, entity_no, from_status, to_status, operator_name, reason) \
+             VALUES ('ACCOUNTING_YEAR', '00000000-0000-7000-8000-0000000003c3'::uuid, \
+                     '2032', 'NOT_CLOSED', 'CLOSED', 'p1-tester', 'E2E04-FIX-2 夹具：2032 已年结')")
+        .await;
+
+        let err = reopen_period(uuid_of(&sep.id), Some("两种挡路同时存在时文案要一次列全"), operator())
+            .await
+            .expect_err("两种挡路都必须报");
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert!(
+            err.msg.contains("同年度挡路") && err.msg.contains("2031-10"),
+            "{}",
+            err.msg
+        );
+        assert!(
+            err.msg.contains("跨年度挡路") && err.msg.contains("2032 年"),
+            "{}",
+            err.msg
+        );
+        cleanup_year_end_log(2032).await;
+    }
+
+    /// ⑬e 反年结后（`ACCOUNTING_YEAR` 最新一行是 NOT_CLOSED）不许被「曾经 CLOSED 过」误拦。
+    #[tokio::test]
+    async fn p3_reopen_allows_after_later_year_was_reopened() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let sep = open_period(2031, 9, None, operator()).await.expect("开账应成功");
+        close_period(uuid_of(&sep.id), None, operator())
+            .await
+            .expect("9 月结账");
+        // 先年结，再反年结 —— 最新状态必须是 NOT_CLOSED
+        sql("INSERT INTO biz_status_log \
+                (entity_type, entity_id, entity_no, from_status, to_status, operator_name, reason, created_at) \
+             VALUES ('ACCOUNTING_YEAR', '00000000-0000-7000-8000-0000000003c4'::uuid, \
+                     '2032', 'NOT_CLOSED', 'CLOSED', 'p1-tester', '夹具：先年结', now() - interval '1 hour')")
+        .await;
+        sql("INSERT INTO biz_status_log \
+                (entity_type, entity_id, entity_no, from_status, to_status, operator_name, reason) \
+             VALUES ('ACCOUNTING_YEAR', '00000000-0000-7000-8000-0000000003c4'::uuid, \
+                     '2032', 'CLOSED', 'NOT_CLOSED', 'p1-tester', '夹具：再反年结')")
+        .await;
+
+        let reopened = reopen_period(
+            uuid_of(&sep.id),
+            Some("E2E04-FIX-2：反年结后更晚年度不再挡路，应允许反结账"),
+            operator(),
+        )
+        .await
+        .expect("反年结之后不得再被误拦");
+        assert_eq!(reopened.status, STATUS_OPEN);
+        cleanup_year_end_log(2032).await;
     }
 
     /// ⑮ 手工凭证接口（`voucher_write::create_manual_voucher`）在已结账期间 → **400**。
@@ -2409,5 +2705,46 @@ mod tests {
         // 期间自己的 CLOSED 与年度 CLOSED 是两码事，别把期间状态串进来
         assert!(!reopen_blocked_by_year_end(Some(STATUS_OPEN)));
         assert!(!reopen_blocked_by_year_end(Some("NOT_OPENED")));
+    }
+
+    /// ⑰ 反结账冲突文案（E2E04-FIX-2 ③）：两种挡路分开说、各自的处置建议都要在。
+    #[test]
+    fn p3_reopen_conflict_message_distinguishes_two_kinds() {
+        // 没挡路 → 不生成文案
+        let none = ReopenConflicts::default();
+        assert!(!none.is_blocking());
+        assert!(reopen_conflict_message("2031-09", 2031, &none).is_none());
+
+        // 同年度挡路：点名期间 + 从晚到早的处置顺序
+        let same_year = ReopenConflicts {
+            same_year_closed: vec!["2031-10".to_string(), "2031-11".to_string()],
+            later_year_ended: Vec::new(),
+        };
+        let msg = reopen_conflict_message("2031-09", 2031, &same_year).expect("必须拦");
+        assert!(msg.starts_with("不能反结账 2031-09："), "{msg}");
+        assert!(msg.contains("同年度挡路"), "{msg}");
+        assert!(msg.contains("2031-10、2031-11"), "要点名全部挡路期间：{msg}");
+        assert!(msg.contains("2031-11 → 2031-10"), "处置顺序必须从晚到早：{msg}");
+        assert!(!msg.contains("跨年度挡路"), "没有年结挡路就不许提：{msg}");
+
+        // 跨年度挡路：点名年度 + 提示先反年结
+        let cross_year = ReopenConflicts {
+            same_year_closed: Vec::new(),
+            later_year_ended: vec![2032, 2033],
+        };
+        let msg = reopen_conflict_message("2031-09", 2031, &cross_year).expect("必须拦");
+        assert!(msg.contains("跨年度挡路"), "{msg}");
+        assert!(msg.contains("2032 年、2033 年"), "要点名全部已年结年度：{msg}");
+        assert!(msg.contains("反年结"), "要提示先反年结：{msg}");
+        assert!(!msg.contains("同年度挡路"), "{msg}");
+
+        // 两种同时存在 → 两段都出，用「；」拼接
+        let both = ReopenConflicts {
+            same_year_closed: vec!["2031-10".to_string()],
+            later_year_ended: vec![2032],
+        };
+        let msg = reopen_conflict_message("2031-09", 2031, &both).expect("必须拦");
+        assert!(msg.contains("同年度挡路") && msg.contains("跨年度挡路"), "{msg}");
+        assert_eq!(msg.matches("；").count(), 1, "两段之间只该有一个分隔符：{msg}");
     }
 }
