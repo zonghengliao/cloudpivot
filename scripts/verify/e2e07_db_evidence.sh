@@ -32,10 +32,10 @@ echo "===== 8) 联动/提醒通知（sys_notice）====="
 P -c "select n.biz_type,n.title,n.idempotency_key,n.receiver_count,n.status from sys_notice n where n.biz_id in (select id::text from biz_contract where contract_name like 'E2E07-%') order by n.created_at"
 
 echo "===== 9) 到期提醒台账（biz_reminder_log）====="
-P -c "select c.contract_no,r.remind_kind,r.stage,r.remind_date,r.receiver_count,r.sent_at from biz_reminder_log r join biz_contract c on c.id::text=r.doc_id where c.contract_name like 'E2E07-%'"
+P -c "select c.contract_no,r.remind_kind,r.stage,r.remind_date,r.receiver_count,r.sent_at from biz_reminder_log r join biz_contract c on c.id::text=r.doc_id::text where c.contract_name like 'E2E07-%'"
 
 echo "===== 10) 合同附件（biz_doc_attachment + sys_file）====="
-P -c "select c.contract_no,a.file_role,a.uploader_name,coalesce(f.name,'-'),a.created_at from biz_doc_attachment a join biz_contract c on c.id=a.doc_id left join sys_file f on f.id=a.file_id where c.contract_name like 'E2E07-%'"
+P -c "select c.contract_no,a.file_role,a.uploader_name,coalesce(f.original_name, f.file_name, '-'),a.created_at from biz_doc_attachment a join biz_contract c on c.id=a.doc_id left join sys_file f on f.id=a.file_id where c.contract_name like 'E2E07-%'"
 
 echo "===== 11) 临时联动规则已清理 ====="
 P -c "select count(*) from biz_flow_linkage_rule where name like 'E2E07 临时%'"

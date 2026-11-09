@@ -1,0 +1,217 @@
+### 0) 清理本卡旧演练数据（只删 E2E07-% 合同及其派生单据）
+ reset_ok |         0
+(1 row)
+
+### 1) 阶段 A
+### A0 登录与主档
+  · 主档：supplier=01a1b5d2-504f-72f7-92b2-00f884285a2c customer=d0260000-0000-4000-8000-000000000001 wh=d1370001-0000-4000-8000-000000000001 material=b2b70001-0000-4000-8000-000000000011
+  ✅ 审批人 e2e07_appr 已存在（复用）
+  ✅ e2e07_appr 角色数 = 2
+  ✅ 夹具修复：p3a_0003 口令哈希与 e2e01_appr 一致 = yes
+  ✅ p3a_0003 可登录（会签成员齐备） = yes
+### A1 四类合同建档（PURCHASE / SALES / SERVICE / LEASE）
+  · create C1_PURCHASE http=200 {"code":0,"msg":"ok"}
+  ✅ PURCHASE 建档 HTTP/CODE = 200/c0
+  ✅ PURCHASE 状态 = DRAFT
+  ✅ PURCHASE 乙方类型 = SUPPLIER
+  ✅ PURCHASE 合同号格式 HT-20261109-000049
+  ✅ PURCHASE 金额 = 120000.0000（期望 120000）
+  ✅ PURCHASE 乙方名称快照非空 = yes
+  · create C2_SALES http=200 {"code":0,"msg":"ok"}
+  ✅ SALES 建档 HTTP/CODE = 200/c0
+  ✅ SALES 乙方类型 = CUSTOMER
+  · create C3_SERVICE http=200 {"code":0,"msg":"ok"}
+  ✅ SERVICE 建档 HTTP/CODE（CTR-02-F1 四类全开） = 200/c0
+  ✅ SERVICE 乙方类型=SUPPLIER（服务商登记为供应商） = SUPPLIER
+  · create C4_LEASE http=200 {"code":0,"msg":"ok"}
+  ✅ LEASE 建档（审批人本人建单，供自审负例） = 200/c0
+  ✅ LEASE 到期日 = 今天+30（到期提醒 D-30 档） = 2026-12-09
+### A2 类型 / 乙方闸负例
+  ✅ 未来枚举 FRAMEWORK 被类型闸拦下 = 400/c10001
+  ✅ SERVICE 传 CUSTOMER 乙方被拒 = 400/c10001
+  ✅ SERVICE 乙方错误文案 含「SUPPLIER」
+  ✅ SALES 用供应商当乙方被拒（主档类型不匹配） = 400/c66021
+### A3 状态机负例（DRAFT 只能提交审批）
+  ✅ DRAFT→ACTIVE 被拒 = 409/c66015
+  ✅ CLOSED 不是合法状态（实现名 COMPLETED） = 400/c10001
+  ✅ DRAFT→SIGNED 被拒（必须先走审批） = 409/c66015
+  ✅ DRAFT→SIGNED 文案点明先提交审批 含「PENDING_APPROVAL」
+### A4 合同附件（CONTRACT_SCAN）
+  ✅ 合同附件上传 = 200
+  ✅ 合同附件上传 code = 0
+  ✅ biz_doc_attachment 落库 1 行 = 1
+  ✅ file_role=CONTRACT_SCAN = CONTRACT_SCAN
+  ✅ 附件列表接口条目数 = 1
+  ✅ 上传人姓名快照非空（AUD-01，不落 UUID） = yes
+  ✅ 上传人姓名不是裸 UUID = name
+### A5 合同变更（DRAFT 才可改）+ 变更留痕 sys_change_log
+  ✅ 草稿改单 HTTP/CODE = 200/c0
+  ✅ 改单响应金额 = 85000.0000（期望 85000）
+  ✅ 改单响应到期日 = 2027-12-31
+  ✅ DB biz_contract.amount = 85000.0000（期望 85000）
+  ✅ DB end_date = 2027-12-31
+  ✅ sys_change_log 留痕行数 = 1
+  ✅ 变更字段含 amount 含「amount」
+  ✅ 变更字段含 end_date 含「end_date」
+  ✅ 变更字段含 remark 含「remark」
+  ✅ 留痕记录了「谁改的」 = yes
+  ✅ diff 记录了改前值 80000 含「80000」
+  ✅ diff 记录了改后值 85000 含「85000」
+  ✅ 留痕有时间戳 = 1
+  ✅ 原值回传不写空日志（HTTP） = 200/c0
+  ✅ 原值回传后 sys_change_log 仍 1 行 = 1
+### A6 提交审批（DRAFT→PENDING_APPROVAL）
+  ✅ C1 提交审批 HTTP/CODE = 200/c0
+  ✅ C1 状态 = PENDING_APPROVAL
+  ✅ C1 回写审批实例 id = yes
+  ✅ C1 状态日志 DRAFT→PENDING 1 行 = 1
+  ✅ C1 审批待办通知 ≥1 条（按角色成员各一条） = yes
+  ✅ C1 流程实例 biz_type = CONTRACT_APPROVE
+  ✅ 重复提交被拒（幂等） = 409/c66015
+  ✅ C2 提交审批 = 200/c0
+  ✅ C2 提交后草稿改单被拒（审批中冻结） = 409/c66016
+  ✅ 审批中改单不写变更日志 = 1
+  ✅ C3 提交审批 = 200/c0
+  ✅ C4 由审批人本人提交 = 200/c0
+
+
+== PASS=58 FAIL=0
+### 2) 阶段 B
+### B0 临时联动规则（合同签订 → 通知制单人）——默认库里 CONTRACT 零规则，加一条才能观测 LNK-07
+  ✅ 临时联动规则已就绪（收口时删除） = 1
+### B1 C1（PURCHASE 12 万·两级审批）
+  ✅ C1 第一级待办 n_pm_hi（ALL 会签 3 人） = 3
+  ✅ 非会签人（admin 不是待办人）审批被拒 = 403
+  ✅ 会签 n_pm_hi / e2e01_appr = 200/c0
+  ✅ 会签 n_pm_hi / e2e07_appr = 200/c0
+  ✅ 会签 n_pm_hi / p3a_0003 = 200/c0
+  ✅ 会签节点 n_pm_hi 待办已清空 = 0
+  ✅ C1 一级会签后仍审批中 = PENDING_APPROVAL
+  ✅ C1 二级待办 n_gm 已生成（ANY 任一即可） = yes
+  ✅ C1 二级待办里能找到 e2e01_appr 那一票（ANY 由他签） = yes
+  ✅ C1 二级审批 HTTP/CODE = 200/c0
+  ✅ C1 审批通过 → SIGNED = SIGNED
+  ✅ C1 状态日志两条迁移 = 2
+  ✅ C1 SIGNED 联动通知 1 条（幂等键） = 1
+  ✅ 重放审批是幂等返回（不报错但无副作用） = 200/c0
+  ✅ 重放返回 idempotent=true = true
+  ✅ 重放返回 approved_count=0（没有多记一票） = 0
+  ✅ 重放后 SIGNED 联动通知仍 1 条 = 1
+  ✅ 已 SIGNED 再走路径②被状态机挡下 = 409/c66015
+  ✅ 路径②被挡后 SIGNED 联动通知仍 1 条 = 1
+  ✅ SIGNED 的合法去向 = ACTIVE,TERMINATED
+  ✅ C1 生效 → ACTIVE = 200/c0
+### B2 C2（SALES·单级会签；「两条审批路径只联动一次」专项）
+  ✅ C2 单级待办 n_pm（<10 万，ALL 会签 3 人） = 3
+  ✅ 路径②：handler 直接登记签订 = 200/c0
+  ✅ C2 状态 SIGNED = SIGNED
+  ✅ 登记签订后仍保留审批实例 id（审计，V0209） = kept
+  ✅ 详情可见审批单号 FLW-… = 1
+  ✅ C2 SIGNED 联动通知 1 条 = 1
+  ✅ C2 PENDING→SIGNED 状态日志 1 行 = 1
+  ✅ 会签 n_pm / e2e01_appr = 200/c0
+  ✅ 会签 n_pm / e2e07_appr = 200/c0
+  ✅ 会签 n_pm / p3a_0003 = 200/c0
+  ✅ 会签节点 n_pm 待办已清空 = 0
+  ✅ 路径①回调后 SIGNED 联动通知仍 1 条（不重复联动） = 1
+  ✅ 路径①回调后 SIGNED 状态日志仍 1 行 = 1
+  ✅ 回调后合同仍是 SIGNED（没有被二次推进） = SIGNED
+  ✅ C2 生效 → ACTIVE = 200/c0
+### B3 C3（SERVICE：履约「不适用」口径 + 归档）
+  ✅ 会签 n_pm / e2e01_appr = 200/c0
+  ✅ 会签 n_pm / e2e07_appr = 200/c0
+  ✅ 会签 n_pm / p3a_0003 = 200/c0
+  ✅ 会签节点 n_pm 待办已清空 = 0
+  ✅ C3 审批通过 → SIGNED = SIGNED
+  ✅ C3 状态 SIGNED = SIGNED
+  ✅ C3 履约口径 NOT_APPLICABLE（CTR-02-F1） = NOT_APPLICABLE
+  ✅ C3 已执行金额恒 0（不适用，不是未执行） = 0（期望 0）
+  ✅ C3 剩余额度 = 合同额 = 50000.0000（期望 50000）
+  ✅ C3 未关闭单据 0 = 0
+  ✅ SERVICE 合同不可挂采购单 = 400/c66014
+  ✅ C3 生效 = 200/c0
+  ✅ C3 归档 → COMPLETED = 200/c0
+  ✅ 归档后状态 = COMPLETED
+  ✅ 归档后无后续状态 = 
+### B4 C4（LEASE：自审内控 → 到期提醒 → 终止）
+  ✅ C4 制单人本人的待办被内控置 SKIPPED（不派给自己） = SKIPPED
+  ✅ 自审被拒（403） = 403
+  ✅ 自审错误码 = 65019
+  ✅ 自审拒绝文案点明制单与审批分离 含「制单与审批分离」
+  ✅ 会签 n_pm / e2e01_appr = 200/c0
+  ✅ 会签 n_pm / p3a_0003 = 200/c0
+  ✅ 会签节点 n_pm 待办已清空 = 0
+  ✅ C4 会签通过 → SIGNED = SIGNED
+  ✅ C4 生效 = 200/c0
+  ✅ LEASE 履约口径 NOT_APPLICABLE = NOT_APPLICABLE
+  ✅ LEASE 已执行金额 0（不适用） = 0（期望 0）
+### B5 到期提醒（D-30 档）
+  ✅ 到期提醒手动触发 HTTP/CODE = 200/c0
+  ✅ C4 提醒台账 1 行 = 1
+  ✅ 提醒档位 D-30 = D-30
+  ✅ C4 到期提醒通知已发 = 1
+  ✅ 提醒收件人非空 = yes
+  ✅ 二次触发 HTTP = 200
+  ✅ 二次触发 skipped_reminded ≥ 1 = true
+  ✅ C4 提醒台账仍 1 行（不重复） = 1
+  ✅ C4 提醒通知仍 1 条 = 1
+### B6 终止（原因必填 + 两处留痕）
+  ✅ 终止缺原因被拒 = 400/c10001
+  ✅ 终止成功 = 200/c0
+  ✅ C4 状态 TERMINATED = TERMINATED
+  ✅ 终止原因落 biz_status_log.reason 含「出租方提前收回场地（E2E07 演练 11091134）」
+  ✅ 终止原因落 biz_contract.remark（V-18） 含「出租方提前收回场地（E2E07 演练 11091134）」
+  ✅ 终止后无后续状态 = 
+  ✅ 已终止合同不可挂采购单 = 400/c66014
+### B7 履约跟踪：挂采购单 → 已执行金额 = 关联订单合计
+  ✅ 采购单1（3 万）建档 = 200/c0
+  ✅ 采购单1 供应商从合同乙方派生 = 01a1b5d2-504f-72f7-92b2-00f884285a2c
+  ✅ 采购单1 合同号快照 = HT-20261109-000049
+  ✅ 采购单1 含税金额 = 30000.0000（期望 30000）
+  ✅ 采购单2（2 万）建档 = 200/c0
+  ✅ 超合同额 0.01 被拦 = 409/c66019
+  ✅ 恰好等于剩余额度放行 = 200/c0
+  ✅ 已执行金额 = 关联采购单合计 = 120000.0000（期望 120000）
+  ✅ 剩余额度 = 0 = 0.0000（期望 0）
+  ✅ 未关闭单据数 = 3 = 3
+  ✅ DB 侧合计一致（SUM total_with_tax） = 120000.0000
+  ✅ 未关闭单据单号列表 3 个 = 3
+### B8 归档（ACTIVE→COMPLETED，不硬拦在途单据）+ 引用保护
+  ✅ C1 归档成功（在途采购单不阻塞） = 200/c0
+  ✅ 归档后状态 COMPLETED = COMPLETED
+  ✅ 归档后仍能看到在途单据数（履约信息不丢） = 3
+  ✅ 归档后不可再挂新单 = 400/c66014
+  ✅ 被订单引用不可删 = 409/c66018
+  ✅ 删除拒绝文案点名订单号 含「PO-20261109-000076」
+### B9 销售合同履约（C2）
+  ✅ 销售单挂销售合同 = 200/c0
+  ✅ 销售单金额 = 30000.0000（期望 30000）
+  ✅ C2 已执行金额 = 销售单合计 = 30000.0000（期望 30000）
+  ✅ C2 剩余额度 = 55000.0000（期望 55000）
+  ✅ C2 未关闭单据数 = 1
+  ✅ 销售单超合同额被拦 = 409/c66019
+  ✅ DB 侧销售单合计一致 = 30000.0000
+### B10 联动通知去重 / 合同不记账 收口
+  ✅ 本卡四张合同 SIGNED 联动通知各 1 条、无重复 = 0
+  ✅ 合同不产生凭证（本卡单据来源） = 0
+### B11 收口：删除本卡临时联动规则
+  ✅ 临时联动规则已删除（恢复环境） = 0
+
+
+== PASS=107 FAIL=0
+### 3) 勾稽
+  ✅ 勾稽项 = 0（期望 0）
+  ✅ 勾稽项 = 0（期望 0）
+  ✅ 勾稽项 = 0（期望 0）
+  ✅ 勾稽项 = 0（期望 0）
+  ✅ 勾稽项 = 0（期望 0）
+  ✅ 勾稽项 = 0（期望 0）
+  ✅ 勾稽项 = 0（期望 0）
+  ✅ 勾稽项 = 0（期望 0）
+  ✅ 勾稽项 = 0（期望 0）
+  ✅ 勾稽项 = 0（期望 0）
+  ✅ 勾稽项 = 0（期望 0）
+  ✅ 勾稽项 = 0（期望 0）
+  ✅ 勾稽项 = 0（期望 0）
+
+================ 汇总：PASS=178 FAIL=0（其中勾稽失败 0）================

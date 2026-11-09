@@ -1,0 +1,1 @@
+{"code":10001,"msg":"contract_type 必须是 PURCHASE / SALES / SERVICE / LEASE 之一（当前 `FRAMEWORK`）"}
