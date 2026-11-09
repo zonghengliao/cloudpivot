@@ -133,6 +133,19 @@ def sql_one(sql):
     return rows[0][0] if rows[0][0] != "" else None
 
 
+def sql_line(sql):
+    """整行（`a|b|c`）—— 多列夹具要用它，`sql_one` 只取第一列。
+
+    ⚠️ `psql -At -F'|'` 会省掉**最后一行**的尾部空字段（skill 里记过这个坑），
+    所以多列查询的最后一列要放一个恒非空的列，或只读前面几列。
+    """
+    rows = psql(sql)
+    if not rows:
+        return None
+    joined = "|".join(rows[0])
+    return joined if joined.strip("|") else None
+
+
 def check(name, condition, detail=""):
     global PASSED, FAILED
     if condition:
@@ -252,17 +265,17 @@ def set_sod(token, value, label):
 
 def master_data():
     step("0. 主数据（只读选取：5602.03 要求 DEPT / 1002 不要求维度 / 一个部门）")
-    dept_required = sql_one(
+    dept_required = sql_line(
         "SELECT id || '|' || account_code || '|' || account_name FROM biz_account "
         "WHERE deleted_at IS NULL AND status = 1 AND is_leaf = 1 "
         "AND aux_dimensions IS NOT NULL AND aux_dimensions LIKE '%DEPT%' "
         "ORDER BY account_code LIMIT 1")
-    plain = sql_one(
+    plain = sql_line(
         "SELECT id || '|' || account_code || '|' || account_name FROM biz_account "
         "WHERE deleted_at IS NULL AND status = 1 AND is_leaf = 1 "
         "AND aux_dimensions IS NULL AND account_code = '1002'")
-    dept = sql_one("SELECT id || '|' || dept_name FROM sys_dept WHERE deleted_at IS NULL "
-                   "AND status = 1 ORDER BY sort_order, created_at LIMIT 1")
+    dept = sql_line("SELECT id || '|' || dept_name FROM sys_dept WHERE deleted_at IS NULL "
+                    "AND status = 1 ORDER BY sort_order, created_at LIMIT 1")
     check("0.2 取到「要求部门辅助核算」的末级科目", bool(dept_required), dept_required or "—")
     check("0.2 取到「不要求维度」的末级科目（1002 银行存款）", bool(plain), plain or "—")
     check("0.2 取到一个启用部门", bool(dept), dept or "—")
