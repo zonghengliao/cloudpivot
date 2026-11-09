@@ -1,0 +1,17 @@
+Pager usage is off.
+=== ① 状态日志：动作码（建卡是状态流转 action=NULL；转移/使用人变更是业务动作） ===
+2026-11-09||IN_USE|NULL|建卡并生成购入凭证
+2026-11-09|IN_USE|IN_USE|TRANSFER|部门转移 演练设备部 → 演练设备二部：E2E05-FIX-3 验收：组织调整
+2026-11-09|IN_USE|IN_USE|CUSTODIAN|使用人变更 （空） → E2E05 总经理：E2E05-FIX-3 验收：离职交接
+=== ① 变动时间线（API GET /asset/{id}.changes 的数据源）：from=to，change_label 由 asset_dto 按 change_type 给出 ===
+TRANSFER|IN_USE|IN_USE|演练设备部|演练设备二部|||2030-01-20
+CUSTODIAN|IN_USE|IN_USE|演练设备二部|演练设备二部||E2E05 总经理|2030-01-21
+=== ② PUT 被拒后原值/分类一分没动 ===
+FA-20261109-000042|12000.0000|01a1c06c-e328-74bf-a1f6-cf6074455191|E2E05FIX3-evid1-A-改名
+=== ③ 作废处置写出的 ENABLE 留痕行：change_date = 原处置日 2030-01-15，第二条显式 2030-02-03 ===
+DISPOSAL|2030-01-15|IN_USE|DISPOSED|E2E05-FIX-3 验收：B 设备报废
+ENABLE|2030-01-15|DISPOSED|IN_USE|E2E05-FIX-3 验收：处置依据不成立，作废
+DISPOSAL|2030-01-25|IN_USE|DISPOSED|E2E05-FIX-3 验收：B 二次报废
+ENABLE|2030-02-03|DISPOSED|IN_USE|E2E05-FIX-3 验收：显式指定留痕日期
+=== ③ 对照：卡片上的 disposal_date（作废后已清空），与「今天」 ===
+FA-20261109-000043|IN_USE|2026-11-09|NULL
