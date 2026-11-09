@@ -65,6 +65,14 @@ echo "-- 三码授权行数（生产角色可能不带 ADMIN/FINANCE，SUPER_ADM
 $PSQL "select count(*) from sys_role_menu rm join sys_menu m on m.id=rm.menu_id where m.auth_code like 'business:erp:yearend:%'"
 
 echo "== 9) 只读冒烟（生产不做年结动作）=="
+# 登录口径：运维账号（CLOUDPIVOT_OPS_*），单次尝试、失败即停 —— 见 docs/运维规程-凭据与自查账号.md
+for C in "${OPS_CRED_LIB:-}" /root/ops_cred.sh "$(dirname "$0")/../ops/ops_cred.sh"; do
+  [ -n "$C" ] && [ -r "$C" ] && { . "$C"; break; }
+done
+if ! command -v ops_cred_load >/dev/null; then echo "缺 ops_cred.sh（scripts/ops/ops_cred.sh 或 /root/ops_cred.sh）"; exit 2; fi
+ops_cred_load "${OPS_ENV_FILE:-/etc/cloudpivot/cloudpivot.env}" || exit 2
+export OPS_USER_FOR_SMOKE="$OPS_CRED_USER"
+export OPS_PASS_FOR_SMOKE="$OPS_CRED_PASS"
 python3 - <<'PY'
 import json, os, urllib.request, urllib.error
 
@@ -85,8 +93,12 @@ def api(method, path, body=None, token=None):
         except Exception:
             return err.code, {"raw": raw}
 
-password = os.environ.get("NIK_ADMIN_PASSWORD") or "Admin@123456"
-status, payload = api("POST", "/api/system/auth/login", {"username": "admin", "password": password})
+username = os.environ.get("OPS_USER_FOR_SMOKE") or os.environ.get("CLOUDPIVOT_OPS_USER") or "admin"
+password = os.environ.get("OPS_PASS_FOR_SMOKE") or os.environ.get("CLOUDPIVOT_OPS_PASSWORD") or os.environ.get("NIK_ADMIN_PASSWORD") or ""
+if not password:
+    print("缺登录凭据（CLOUDPIVOT_OPS_PASSWORD）——单次尝试、不猜 admin 口令")
+    raise SystemExit(2)
+status, payload = api("POST", "/api/system/auth/login", {"username": username, "password": password})
 data = payload.get("data") or {}
 token = data.get("access_token")
 print(f"login: HTTP {status} token={'yes' if token else 'no'} must_change={data.get('must_change_password')}")

@@ -22,8 +22,10 @@
 import { chromium } from '/opt/cloudpivot/frontend/node_modules/@playwright/test/index.mjs';
 
 const BASE = process.env.E2E_BASE_URL || 'http://127.0.0.1';
-const USER = process.env.E2E_ADMIN_USER || 'admin';
-const PASSWORD = process.env.NIK_ADMIN_PASSWORD || process.env.E2E_ADMIN_PASSWORD || '';
+// 登录口径（卡 t_d4e92b99）：运维账号 CLOUDPIVOT_OPS_*，单次尝试
+const USER = process.env.E2E_ADMIN_USER || process.env.CLOUDPIVOT_OPS_USER || 'admin';
+const PASSWORD =
+  process.env.CLOUDPIVOT_OPS_PASSWORD || process.env.E2E_ADMIN_PASSWORD || process.env.NIK_ADMIN_PASSWORD || '';
 
 let PASS = 0;
 let FAIL = 0;
@@ -38,7 +40,7 @@ const bad = (msg) => {
 
 (async () => {
   if (!PASSWORD) {
-    console.error('缺管理员口令：E2E_ADMIN_PASSWORD 或 NIK_ADMIN_PASSWORD');
+    console.error('缺口令：CLOUDPIVOT_OPS_PASSWORD / E2E_ADMIN_PASSWORD');
     process.exit(2);
   }
 

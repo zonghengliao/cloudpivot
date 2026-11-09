@@ -47,11 +47,19 @@ def must(step, status, payload):
     return payload["data"]
 
 
-# ---------- 真实登录（生产 admin 口令来自 /etc/cloudpivot/cloudpivot.env） ----------
-status, payload = req(
-    "POST", "/system/auth/login", None, {"username": "admin", "password": env("ALUN_ADMIN_PASSWORD")}
+# ---------- 真实登录（生产运维账号口令来自 /etc/cloudpivot/cloudpivot.env） ----------
+# 口径见 docs/运维规程-凭据与自查账号.md（卡 t_d4e92b99）：只试一次，失败即停
+OPS_USER = env("CLOUDPIVOT_OPS_USER") or "admin"
+OPS_PASS = (
+    env("CLOUDPIVOT_OPS_PASSWORD")
+    or env("ALUN_ADMIN_PASSWORD")
 )
-data = must("admin 登录", status, payload)
+if not OPS_PASS:
+    sys.exit("缺 CLOUDPIVOT_OPS_PASSWORD（不要用 NIK_ADMIN_PASSWORD 猜 admin 口令）")
+status, payload = req(
+    "POST", "/system/auth/login", None, {"username": OPS_USER, "password": OPS_PASS}
+)
+data = must("%s 登录" % OPS_USER, status, payload)
 token = data["access_token"]
 print("真实登录成功：token 长度 %d" % len(token))
 

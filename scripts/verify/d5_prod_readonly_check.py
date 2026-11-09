@@ -15,7 +15,7 @@
 6. 全程 GET（不写库）：跑完再核一次应付单的 `paid_amount` 与凭证总数没变。
 
 ```bash
-set -a; . /etc/cloudpivot/cloudpivot.env; set +a     # 144 上跑，拿 NIK_ADMIN_PASSWORD / NIK_DATABASE_*
+set -a; . /etc/cloudpivot/cloudpivot.env; set +a     # 144 上跑，拿 CLOUDPIVOT_OPS_* / NIK_DATABASE_*
 python3 scripts/verify/d5_prod_readonly_check.py
 ```
 
@@ -32,13 +32,16 @@ import urllib.error
 import urllib.request
 
 BASE = os.environ.get("D5_PROD_BASE_URL", "http://127.0.0.1:8023")
-USER = os.environ.get("D5_PROD_USER", "admin")
-PASSWORDS = [
-    os.environ.get("D5_PROD_PASSWORD", ""),
-    os.environ.get("NIK_ADMIN_PASSWORD", ""),
-    "Admin@123456",
-]
-PASSWORDS = [p for p in PASSWORDS if p]
+# 登录口径（卡 t_d4e92b99）：运维账号 CLOUDPIVOT_OPS_*，**单次尝试**。
+# 曾经的「候选口令列表 + 逐个重试」是锁号放大器：每错一次 sys_user.login_fail_count +1，
+# 5 次就把账号锁 30 分钟（backend/src/shared/constants.rs）。
+USER = os.environ.get("D5_PROD_USER") or os.environ.get("CLOUDPIVOT_OPS_USER") or "admin"
+PASSWORD = (
+    os.environ.get("D5_PROD_PASSWORD")
+    or os.environ.get("CLOUDPIVOT_OPS_PASSWORD")
+    or os.environ.get("NIK_ADMIN_PASSWORD")
+    or ""
+)
 MAX_PAYABLES = int(os.environ.get("D5_PROD_MAX", "8"))
 
 PASSED: list[str] = []
@@ -90,22 +93,25 @@ def http(method: str, path: str, token: str | None = None) -> tuple[int, dict]:
 
 
 def login() -> str | None:
-    for password in PASSWORDS:
-        req = urllib.request.Request(
-            f"{BASE}/api/system/auth/login",
-            data=json.dumps({"username": USER, "password": password}).encode(),
-            method="POST",
-        )
-        req.add_header("Content-Type", "application/json")
-        try:
-            with urllib.request.urlopen(req, timeout=20) as resp:
-                body = json.loads(resp.read().decode())
-            token = (body.get("data") or {}).get("access_token")
-            if token:
-                return token
-        except urllib.error.HTTPError:
-            continue
-    return None
+    """单次尝试：口令不对就返回 None（不换候选重试 —— 重试会把账号顶到锁定）。"""
+    if not PASSWORD:
+        return None
+    req = urllib.request.Request(
+        f"{BASE}/api/system/auth/login",
+        data=json.dumps({"username": USER, "password": PASSWORD}).encode(),
+        method="POST",
+    )
+    req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            body = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as err:
+        print(f"  登录 HTTP {err.code}（账号 {USER}；401/403 不要重试，会锁号）")
+        return None
+    except Exception as exc:  # 连不上等
+        print(f"  登录异常：{exc}")
+        return None
+    return (body.get("data") or {}).get("access_token")
 
 
 def dec(text) -> float:
@@ -120,7 +126,7 @@ def main() -> int:
         return 2
     token = login()
     if not token:
-        print("SKIP: 登录失败（试过 D5_PROD_PASSWORD / NIK_ADMIN_PASSWORD / Admin@123456）")
+        print(f"SKIP: 登录失败（账号 {USER}；只试一次，未重试。核对 CLOUDPIVOT_OPS_USER/PASSWORD）")
         return 2
 
     # 基线：付款/凭证规模（跑完要一模一样，证明全程只读）

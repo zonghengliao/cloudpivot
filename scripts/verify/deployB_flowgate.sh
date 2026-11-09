@@ -28,7 +28,7 @@ echo "=== 恢复后：审批流健康自检（期望 healthy=8）==="
 node -e '
 const B=process.env.DEPLOYB_BASE_URL||"http://127.0.0.1";
 (async()=>{
- const l=await fetch(B+"/api/system/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:"admin",password:process.env.NIK_ADMIN_PASSWORD})});
+ const l=await fetch(B+"/api/system/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:process.env.CLOUDPIVOT_OPS_USER||"admin",password:process.env.CLOUDPIVOT_OPS_PASSWORD})});
  const lb=await l.json();
  const r=await fetch(B+"/api/business/erp/approval-flow/health",{headers:{Authorization:"Bearer "+lb.data.access_token}});
  const b=await r.json();

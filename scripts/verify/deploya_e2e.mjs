@@ -21,7 +21,8 @@ import { writeFileSync } from 'node:fs';
 
 const BASE = process.env.DEPLOYA_BASE_URL || 'http://127.0.0.1';
 const USER = process.env.DEPLOYA_USER || 'admin';
-const PASSWORDS = [process.env.NIK_ADMIN_PASSWORD, process.env.ALUN_ADMIN_PASSWORD, 'Admin@123456'].filter(Boolean);
+// 登录口径（卡 t_d4e92b99）：运维账号 CLOUDPIVOT_OPS_*，**单次尝试**（重试会把账号锁 30 分钟）
+const OPS_PASSWORD = process.env.CLOUDPIVOT_OPS_PASSWORD || process.env.ALUN_ADMIN_PASSWORD || '';
 const SHOT_DIR = process.env.DEPLOYA_SHOT_DIR || '/opt/cloudpivot/docs/evidence';
 const STAMP = new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
 const TAG = `DEPLOYA-${STAMP}`;
@@ -33,14 +34,14 @@ const bad = (m) => { FAIL++; failures.push(m); console.log(`[FAIL] ${m}`); };
 const info = (m) => console.log(`       ${m}`);
 
 async function login() {
-  for (const password of PASSWORDS) {
-    const res = await fetch(`${BASE}/api/system/auth/login`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: USER, password }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (body.code === 0 && body.data?.access_token) return body.data;
-  }
+  if (!OPS_PASSWORD) return null;
+  const res = await fetch(`${BASE}/api/system/auth/login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: USER, password: OPS_PASSWORD }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (body.code === 0 && body.data?.access_token) return body.data;
+  console.error(`       登录 HTTP ${res.status}（只试一次；401/403 不要重试）`);
   return null;
 }
 const apiGet = async (token, path) => {

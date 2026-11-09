@@ -21,12 +21,14 @@
 import { chromium } from '/opt/cloudpivot/frontend/node_modules/@playwright/test/index.mjs';
 
 const BASE = process.env.D5_PROD_BASE_URL || 'http://127.0.0.1';
-const USER = process.env.D5_PROD_USER || 'admin';
-const CANDIDATES = [
-  process.env.D5_PROD_PASSWORD,
-  process.env.NIK_ADMIN_PASSWORD,
-  'Admin@123456',
-].filter(Boolean);
+// 登录口径（卡 t_d4e92b99）：运维账号 CLOUDPIVOT_OPS_*，**单次尝试**。
+// 原来的「候选口令列表 + 逐个重试」是锁号放大器：每错一次 login_fail_count+1，5 次锁 30 分钟。
+const USER = process.env.D5_PROD_USER || process.env.CLOUDPIVOT_OPS_USER || 'admin';
+const PASSWORD =
+  process.env.D5_PROD_PASSWORD ||
+  process.env.CLOUDPIVOT_OPS_PASSWORD ||
+  process.env.NIK_ADMIN_PASSWORD ||
+  '';
 
 let PASS = 0;
 let FAIL = 0;
@@ -40,15 +42,15 @@ const bad = (msg) => {
 };
 
 async function login() {
-  for (const password of CANDIDATES) {
-    const res = await fetch(`${BASE}/api/system/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: USER, password }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (body.code === 0 && body.data?.access_token) return body.data;
-  }
+  if (!PASSWORD) return null;
+  const res = await fetch(`${BASE}/api/system/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: USER, password: PASSWORD }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (body.code === 0 && body.data?.access_token) return body.data;
+  console.error(`  登录 HTTP ${res.status}（账号 ${USER}；只试一次，401/403 不要重试）`);
   return null;
 }
 
@@ -65,7 +67,7 @@ const money = (text) => Number(String(text).replace(/[^\d.-]/g, ''));
 (async () => {
   const session = await login();
   if (!session) {
-    console.error('登录失败：口令候选都不对（D5_PROD_PASSWORD / NIK_ADMIN_PASSWORD / Admin@123456）');
+    console.error('登录失败：核对 CLOUDPIVOT_OPS_USER / CLOUDPIVOT_OPS_PASSWORD（只试一次，不重试）');
     process.exit(2);
   }
   const { access_token: accessToken, refresh_token: refreshToken } = session;

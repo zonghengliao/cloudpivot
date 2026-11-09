@@ -37,12 +37,13 @@ import urllib.error
 import urllib.request
 
 BASE = os.environ.get("ERP_E2E_BASE", "http://127.0.0.1:8023")
-ADMIN_USER = os.environ.get("ERP_E2E_ADMIN", "admin")
+# 登录口径（卡 t_d4e92b99）：运维账号 CLOUDPIVOT_OPS_*，单次尝试。
 # 生产口令只从环境取（`set -a; . /etc/cloudpivot/cloudpivot.env; set +a`），不写进仓库
+ADMIN_USER = os.environ.get("ERP_E2E_ADMIN") or os.environ.get("CLOUDPIVOT_OPS_USER") or "admin"
 ADMIN_PASS = (
-    os.environ.get("NIK_ADMIN_PASSWORD")
-    or os.environ.get("ALUN_ADMIN_PASSWORD")
-    or os.environ.get("ERP_E2E_PASSWORD")
+    os.environ.get("ERP_E2E_PASSWORD")
+    or os.environ.get("CLOUDPIVOT_OPS_PASSWORD")
+    or os.environ.get("NIK_ADMIN_PASSWORD")
     or ""
 )
 
@@ -168,7 +169,7 @@ def main():
     print("=" * 88)
 
     if not ADMIN_PASS:
-        print("缺管理员口令：先 `set -a; . /etc/cloudpivot/cloudpivot.env; set +a`（脚本只认 NIK_ADMIN_PASSWORD）")
+        print("缺口令：先 `set -a; . /etc/cloudpivot/cloudpivot.env; set +a`（认 CLOUDPIVOT_OPS_PASSWORD；NIK_ADMIN_PASSWORD 只是空库种子）")
         sys.exit(2)
 
     before = baseline()

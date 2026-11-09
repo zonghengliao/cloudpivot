@@ -3,13 +3,23 @@
 #   · 空 ids → 400（参数闸）
 #   · 不存在的 id → 200 + 1 条失败（逐条报告；不写任何单据）
 #   · 批量导出：ids 空且无筛选 → 400（不许全表导出，也不会建任务）
+#   ⚠ 现在登录用运维账号（CLOUDPIVOT_OPS_*，不是 SUPER_ADMIN），所以「导出」那条
+#     可能先撞权限闸 403（业务码 20002，缺 business:impexp:export:create）——
+#     403 = 该账号无此权限（预期内），400 = 参数闸生效；两者都不是 500，都没有写库。
+#     要验导出参数闸本身，需 SUPER_ADMIN 会话（人工注入 CLOUDPIVOT_ADMIN_PASSWORD）。卡 t_d4e92b99。
 set -uo pipefail
 set -a; . /etc/cloudpivot/cloudpivot.env; set +a
+# 登录口径：运维账号（CLOUDPIVOT_OPS_*），单次尝试、失败即停 —— 见 docs/运维规程-凭据与自查账号.md
+for C in "${OPS_CRED_LIB:-}" /root/ops_cred.sh "$(dirname "$0")/../ops/ops_cred.sh"; do
+  [ -n "$C" ] && [ -r "$C" ] && { . "$C"; break; }
+done
+command -v ops_cred_load >/dev/null || { echo "缺 ops_cred.sh（scripts/ops/ops_cred.sh 或 /root/ops_cred.sh）"; exit 2; }
+ops_cred_load "${OPS_ENV_FILE:-/etc/cloudpivot/cloudpivot.env}" || exit 2
 BASE=http://127.0.0.1:8023
 GHOST=d7e2e0ff-0000-4000-8000-00000000ffff
 
 LOGIN=$(curl -s -m 10 -X POST -H 'Content-Type: application/json' \
-  -d "{\"username\":\"admin\",\"password\":\"$NIK_ADMIN_PASSWORD\"}" "$BASE/api/system/auth/login")
+  -d "$(jq -nc --arg u "$OPS_CRED_USER" --arg p "$OPS_CRED_PASS" '{username:$u,password:$p}')" "$BASE/api/system/auth/login")
 TOKEN=$(printf '%s' "$LOGIN" | python3 -c 'import json,sys
 try:
     print(json.load(sys.stdin)["data"]["access_token"])

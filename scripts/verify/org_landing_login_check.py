@@ -49,9 +49,11 @@ def show(tag, st, body):
 
 print("== 生产真机（%s）==" % BASE)
 
-admin_pw = os.environ.get("NIK_ADMIN_PASSWORD", "")
+# 登录口径（卡 t_d4e92b99）：运维账号 CLOUDPIVOT_OPS_*，单次尝试
+admin_user = os.environ.get("CLOUDPIVOT_OPS_USER") or "admin"
+admin_pw = os.environ.get("CLOUDPIVOT_OPS_PASSWORD") or os.environ.get("NIK_ADMIN_PASSWORD", "")
 print("\n[1] admin 登录（env 种子口令，单次尝试）")
-st, body = call("POST", "/api/system/auth/login", {"username": "admin", "password": admin_pw})
+st, body = call("POST", "/api/system/auth/login", {"username": admin_user, "password": admin_pw})
 code = show("login", st, body)
 token = (body.get("data") or {}).get("access_token") if st == 200 else None
 if not token:

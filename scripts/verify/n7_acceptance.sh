@@ -28,8 +28,16 @@ if [ -f /etc/cloudpivot/cloudpivot-dev.env ]; then
 fi
 
 BASE="${N7_BASE_URL:-http://127.0.0.1:8033}"
+# 本脚本要建角色/改数据权限，**必须 SUPER_ADMIN**，所以不能用「运维自查账号」
+# （CLOUDPIVOT_OPS_*，通常是 GENERAL_MANAGER：建角色会 403）。
+# 口令解析顺序：N7_ADMIN_PASSWORD → CLOUDPIVOT_ADMIN_PASSWORD → NIK_ADMIN_PASSWORD（种子语义）。
+# 详见 docs/运维规程-凭据与自查账号.md（卡 t_d4e92b99）。
 ADMIN_USER="${N7_ADMIN_USER:-admin}"
-ADMIN_PASS="${N7_ADMIN_PASSWORD:-${NIK_ADMIN_PASSWORD:-}}"
+ADMIN_PASS="${N7_ADMIN_PASSWORD:-${CLOUDPIVOT_ADMIN_PASSWORD:-${NIK_ADMIN_PASSWORD:-}}}"
+if [ -z "${N7_ADMIN_PASSWORD:-}" ] && [ -z "${CLOUDPIVOT_ADMIN_PASSWORD:-}" ] && [ -n "${NIK_ADMIN_PASSWORD:-}" ]; then
+  echo "⚠ 口令来自 NIK_ADMIN_PASSWORD（种子变量）：只在「admin 口令确实等于种子」的 dev/test 库成立；" >&2
+  echo "  生产上会 401 并把 admin 顶到锁定（5 次 / 30 分钟）。生产禁止跑本脚本。" >&2
+fi
 DB_USER="${NIK_DATABASE_USER:-}"
 DB_PASS="${NIK_DATABASE_PASSWORD:-}"
 DB_NAME="${NIK_DATABASE_NAME:-}"
@@ -44,7 +52,7 @@ pass() { echo "  [PASS] $*"; }
 fail() { echo "  [FAIL] $*"; FAIL=$((FAIL + 1)); }
 
 if [ -z "$ADMIN_PASS" ]; then
-  echo "缺少 NIK_ADMIN_PASSWORD（先 source /etc/cloudpivot/cloudpivot-dev.env 或设 N7_ADMIN_PASSWORD）"
+  echo "缺少 admin 口令：先 source /etc/cloudpivot/cloudpivot-dev.env（dev/test）或设 N7_ADMIN_PASSWORD / CLOUDPIVOT_ADMIN_PASSWORD"
   exit 2
 fi
 

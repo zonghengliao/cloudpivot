@@ -17,6 +17,12 @@ BASE="http://127.0.0.1:8023/api"
 set -a
 . /etc/cloudpivot/cloudpivot.env
 set +a
+# 登录口径：运维账号（CLOUDPIVOT_OPS_*），单次尝试、失败即停 —— 见 docs/运维规程-凭据与自查账号.md
+for C in "${OPS_CRED_LIB:-}" /root/ops_cred.sh "$(dirname "$0")/../ops/ops_cred.sh"; do
+  [ -n "$C" ] && [ -r "$C" ] && { . "$C"; break; }
+done
+command -v ops_cred_load >/dev/null || { echo "缺 ops_cred.sh（scripts/ops/ops_cred.sh 或 /root/ops_cred.sh）"; exit 2; }
+ops_cred_load "${OPS_ENV_FILE:-/etc/cloudpivot/cloudpivot.env}" || exit 2
 PASS=0
 FAIL=0
 ok() { PASS=$((PASS + 1)); echo "[PASS] $*"; }
@@ -51,9 +57,9 @@ expect "非现金科目全部有分类（1012 按设计除外）" "0" \
 
 # ---------- 2. 登录 ----------
 TOKEN=$(curl -s -X POST "$BASE/system/auth/login" -H 'Content-Type: application/json' \
-    -d "{\"username\":\"admin\",\"password\":\"$NIK_ADMIN_PASSWORD\"}" \
+    -d "$(jq -nc --arg u "$OPS_CRED_USER" --arg p "$OPS_CRED_PASS" '{username:$u,password:$p}')" \
   | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("data",{}).get("access_token",""))' 2>/dev/null)
-[ ${#TOKEN} -gt 20 ] && ok "admin 登录（令牌 ${#TOKEN} 字节）" || { bad "登录失败"; exit 1; }
+[ ${#TOKEN} -gt 20 ] && ok "登录（$OPS_CRED_USER，令牌 ${#TOKEN} 字节）" || { bad "登录失败（$OPS_CRED_USER；401 别重试，会锁号）"; exit 1; }
 AUTH="Authorization: Bearer ${TOKEN}"
 
 # ---------- 3. 现金流量表（现有数据出表） ----------
@@ -118,12 +124,22 @@ print("<missing>")
 expect_num "资产负债表接口「货币资金」= 现金流量表勾稽值" "$BS_AMT" "$BS"
 
 # ---------- 5. 菜单树 ----------
+# `/system/menu/tree` 是**后台管理接口**（权限码 system:menu:*），运维自查账号
+# （CLOUDPIVOT_OPS_*，通常是 GENERAL_MANAGER）拿不到 403 —— 这不算回归，
+# 记 SKIP 并说明「要 SUPER_ADMIN 才能查」。卡 t_d4e92b99。
 MENU=$(curl -s -H "$AUTH" "$BASE/system/menu/tree")
-expect "菜单树 code" "0" "$(jq_get "$MENU" "code")"
-case "$MENU" in
-    *现金流量表*) ok "菜单树含「现金流量表」节点（侧边栏点得出来）" ;;
-    *) bad "菜单树里没有「现金流量表」" ;;
-esac
+MENU_CODE=$(jq_get "$MENU" "code")
+if [ "$MENU_CODE" = "403" ] || [ "$MENU_CODE" = "20002" ]; then
+    echo "[SKIP] 菜单树（运维账号 $OPS_CRED_USER 无 system:menu 权限，需 SUPER_ADMIN；用侧边栏/菜单接口另证）"
+elif [ "$MENU_CODE" = "0" ]; then
+    ok "菜单树 code（0）"
+    case "$MENU" in
+        *现金流量表*) ok "菜单树含「现金流量表」节点（侧边栏点得出来）" ;;
+        *) bad "菜单树里没有「现金流量表」" ;;
+    esac
+else
+    expect "菜单树 code" "0" "$MENU_CODE"
+fi
 
 # ---------- 6. 导出 ----------
 curl -s -H "$AUTH" "$BASE/business/erp/report/cash-flow/export?period=$PERIOD" \

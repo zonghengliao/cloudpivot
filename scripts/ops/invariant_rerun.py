@@ -21,10 +21,11 @@
 1. 默认：直接跑闸③ 同一个脚本 `scripts/verify/erp_invariants.py --json`，按
    `runner::parse_report` 的口径从 `results` 重算计数，再落一行 `trigger_type='MANUAL'`。
    **口径不放宽**：解析规则、计数规则、ERROR 行语义与 Rust runner 逐条对齐（见下）。
-2. `--http`（显式开启）：`POST /api/support/invariant/run`（需 admin 会话）→ 真
-   `run_and_store(Manual)`，与看板「立即执行」同一条路。**默认不开**：144 的 admin 口令
-   漂移（卡 t_c9c2cd5f），每试一次就给 admin 记一次登录失败（5 次锁 30 分钟，实测
-   2026-11-10 03:33~03:35 被自己的探测锁掉）—— 例行部署不该拿生产账号试口令。
+2. `--http`（显式开启）：`POST /api/support/invariant/run`（需**运维账号**会话，
+   `CLOUDPIVOT_OPS_USER/PASSWORD`，见 docs/运维规程-凭据与自查账号.md）→ 真
+   `run_and_store(Manual)`，与看板「立即执行」同一条路。**默认不开**：登录要真口令，
+   试错一次就给该账号记一次登录失败（5 次锁 30 分钟，实测 2026-11-10 03:33~03:35
+   把 admin 锁掉）—— 例行部署不该拿生产账号试口令。
 
 与 Rust runner 的对齐点（改任何一边都要同步另一边的自检）
 ==========================================================
@@ -40,13 +41,13 @@
     python3 scripts/ops/invariant_rerun.py                 # 结论比最后一次迁移旧才重跑（幂等）
     python3 scripts/ops/invariant_rerun.py --force         # 无条件重跑
     python3 scripts/ops/invariant_rerun.py --dry-run       # 只体检并打印计划，不跑不写
-    python3 scripts/ops/invariant_rerun.py --http          # 先试 HTTP（需 admin 口令正确，见下）
+    python3 scripts/ops/invariant_rerun.py --http          # 先试 HTTP（需运维账号口令正确，见下）
     python3 scripts/ops/invariant_rerun.py --self-test     # 自检（解析/计数/单位归一/新鲜度）
 
-默认走**脚本 + 落库**那条路，不碰 admin 登录。`--http` 才去试 `POST /api/support/invariant/run`：
-登录失败会给 admin 记一次失败（`sys_config` 的 `max_login_fail_count` 次即锁，
+默认走**脚本 + 落库**那条路，不碰登录。`--http` 才去试 `POST /api/support/invariant/run`：
+登录失败会给该账号记一次失败（`sys_config` 的 `max_login_fail_count` 次即锁，
 实测 2026-11-10 03:33~03:35 三次探测把 admin 锁了 30 分钟）——所以只有口令确认可用时才该开它。
-口令漂移的处置见卡 t_c9c2cd5f，别在这里反复试。
+口令漂移的处置见 docs/运维规程-凭据与自查账号.md，别在这里反复试。
 
 部署脚本里由 `scripts/deploy/deploy.sh` 第 [7/9] 步调用（非致命：失败只 WARN，不回滚发版）。
 
@@ -155,7 +156,12 @@ def load_env_file(path: str) -> dict:
                     continue
                 key, _, value = line.partition("=")
                 key = key.strip()
-                if key in DB_ENV_KEYS or key in ("NIK_ADMIN_USERNAME", "NIK_ADMIN_PASSWORD"):
+                if key in DB_ENV_KEYS or key in (
+                    "NIK_ADMIN_USERNAME", "NIK_ADMIN_PASSWORD",
+                    # 自查/验收登录口径（卡 t_d4e92b99）：运维账号，优先于 NIK_ADMIN_*
+                    "CLOUDPIVOT_OPS_USER", "CLOUDPIVOT_OPS_PASSWORD",
+                    "NIK_OPS_USER", "NIK_OPS_PASSWORD",
+                ):
                     loaded[key] = value.strip().strip('"').strip("'")
     except OSError:
         return {}
@@ -265,16 +271,33 @@ def insert_row(conf: dict, run_epoch: int, trigger: str, status: str, counts: di
 
 # ══════════════════════════ 路径 ①：HTTP（真 runner） ══════════════════════════
 def http_run_invariant(base_url: str, conf: dict) -> tuple[bool, dict | str]:
-    """走 `POST /api/support/invariant/run`（admin 会话）。失败返回原因，不抛异常。"""
+    """走 `POST /api/support/invariant/run`（**运维账号**会话）。失败返回原因，不抛异常。
+
+    登录口径（卡 t_d4e92b99）：`CLOUDPIVOT_OPS_USER` / `CLOUDPIVOT_OPS_PASSWORD` 优先；
+    回退 `NIK_OPS_*`；最后才回退 `NIK_ADMIN_*`（种子语义，仅 dev/test 库成立）。
+    登录**只试一次** —— 401 不重试：`sys_user.login_fail_count` 攒到 5 就把账号锁 30 分钟
+    （`backend/src/shared/constants.rs`），例行部署不该拿生产账号试口令。
+    """
     env_file = load_env_file(os.environ.get("NIK_ALERT_ENV_FILE", DEFAULT_ENV_FILE))
-    username = os.environ.get("NIK_ADMIN_USERNAME") or env_file.get("NIK_ADMIN_USERNAME") or "admin"
-    password = os.environ.get("NIK_ADMIN_PASSWORD") or env_file.get("NIK_ADMIN_PASSWORD")
+
+    def pick(*keys: str) -> str:
+        for key in keys:
+            value = os.environ.get(key) or env_file.get(key)
+            if value:
+                return value
+        return ""
+
+    username = pick("CLOUDPIVOT_OPS_USER", "NIK_OPS_USER", "NIK_ADMIN_USERNAME") or "admin"
+    password = pick("CLOUDPIVOT_OPS_PASSWORD", "NIK_OPS_PASSWORD", "NIK_ADMIN_PASSWORD")
     if not password:
-        return False, "没有 NIK_ADMIN_PASSWORD（env 文件里也没配）"
+        return False, (
+            "没有可用的登录凭据：env 文件需配 CLOUDPIVOT_OPS_USER/CLOUDPIVOT_OPS_PASSWORD"
+            "（见 docs/运维规程-凭据与自查账号.md）；不会去猜 admin 口令"
+        )
     try:
         token = _login(base_url, username, password)
     except _HttpFail as exc:
-        return False, f"admin 登录失败：{exc}"
+        return False, f"{username} 登录失败（不重试，避免锁号）：{exc}"
     try:
         payload = _post_json(f"{base_url}/api/support/invariant/run", {}, token)
     except _HttpFail as exc:
@@ -428,8 +451,8 @@ def main() -> int:
     parser.add_argument("--script", default=None, help="巡检脚本路径（默认 <repo>/scripts/verify/erp_invariants.py）")
     parser.add_argument("--force", action="store_true", help="无条件重跑（默认：结论不旧就跳过）")
     parser.add_argument("--http", action="store_true",
-                        help="先试 HTTP（POST /api/support/invariant/run，需 admin 口令可用）。"
-                             "默认不试：登录失败会给 admin 记一次失败，5 次即锁 30 分钟")
+                        help="先试 HTTP（POST /api/support/invariant/run，需运维账号口令可用：CLOUDPIVOT_OPS_*）。"
+                             "默认不试：登录失败会给该账号记一次失败，5 次即锁 30 分钟")
     parser.add_argument("--db-only", action="store_true", help="（已是默认，保留兼容）不试 HTTP")
     parser.add_argument("--http-only", action="store_true", help="只走 HTTP（隐含 --http），失败即退出（不落库兜底）")
     parser.add_argument("--dry-run", action="store_true", help="只体检并打印计划，不跑不写")

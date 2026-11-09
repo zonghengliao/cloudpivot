@@ -22,7 +22,8 @@ import { chromium } from '/opt/cloudpivot/frontend/node_modules/@playwright/test
 
 const BASE = process.env.DEPLOYB_BASE_URL || 'http://127.0.0.1';
 const USER = process.env.DEPLOYB_USER || 'admin';
-const PASSWORDS = [process.env.NIK_ADMIN_PASSWORD, process.env.ALUN_ADMIN_PASSWORD, 'Admin@123456'].filter(Boolean);
+// 登录口径（卡 t_d4e92b99）：运维账号 CLOUDPIVOT_OPS_*，**单次尝试**（重试会把账号锁 30 分钟）
+const OPS_PASSWORD = process.env.CLOUDPIVOT_OPS_PASSWORD || process.env.ALUN_ADMIN_PASSWORD || '';
 const SHOT_DIR = process.env.DEPLOYB_SHOT_DIR || '/opt/cloudpivot/docs/evidence';
 const STAMP = new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
 const TAG = `DEPLOYB-${STAMP}`;
@@ -47,14 +48,14 @@ const post = (p, b) => api('POST', p, b);
 const patch = (p, b) => api('PATCH', p, b);
 
 async function login() {
-  for (const password of PASSWORDS) {
-    const r = await fetch(`${BASE}/api/system/auth/login`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: USER, password }),
-    });
-    const b = await r.json().catch(() => ({}));
-    if (b.code === 0 && b.data?.access_token) return b.data;
-  }
+  if (!OPS_PASSWORD) return null;
+  const r = await fetch(`${BASE}/api/system/auth/login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: USER, password: OPS_PASSWORD }),
+  });
+  const b = await r.json().catch(() => ({}));
+  if (b.code === 0 && b.data?.access_token) return b.data;
+  console.error(`       登录 HTTP ${r.status}（只试一次；401/403 不要重试）`);
   return null;
 }
 

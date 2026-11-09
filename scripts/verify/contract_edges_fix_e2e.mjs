@@ -36,12 +36,13 @@ const { chromium } = createRequire(`${FE_DIR}/package.json`)('@playwright/test')
 const BASE = (process.env.DC_BASE ?? 'http://127.0.0.1').replace(/\/$/, '');
 const OUT =
   process.env.DC_OUT ?? `${REPO}/docs/evidence/20261103-contract-edges-fix/shots`;
-const USER = process.env.DC_USER ?? 'admin';
-const PASS = process.env.DC_PASS ?? '';
+// 登录口径（卡 t_d4e92b99）：运维账号 CLOUDPIVOT_OPS_*，单次尝试
+const USER = process.env.DC_USER ?? process.env.CLOUDPIVOT_OPS_USER ?? 'admin';
+const PASS = process.env.DC_PASS ?? process.env.CLOUDPIVOT_OPS_PASSWORD ?? '';
 const KEEP = (process.env.DC_KEEP ?? '0') === '1';
 
 if (!PASS) {
-  console.error('缺 DC_PASS（/etc/cloudpivot/cloudpivot.env 的 NIK_ADMIN_PASSWORD）');
+  console.error('缺口令：设 DC_PASS 或 CLOUDPIVOT_OPS_PASSWORD（/etc/cloudpivot/cloudpivot.env）');
   process.exit(2);
 }
 mkdirSync(OUT, { recursive: true });

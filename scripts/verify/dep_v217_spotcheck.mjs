@@ -25,7 +25,8 @@ const { chromium } = createRequire(`${FE_DIR}/package.json`)('@playwright/test')
 const BASE = process.env.SC_BASE ?? 'http://127.0.0.1';
 const OUT = process.env.SC_OUT ?? '/root/dep-v217-evidence';
 const USER = process.env.SC_USER ?? 'admin';
-const CANDIDATES = [process.env.SC_PASS, process.env.NIK_ADMIN_PASSWORD, 'Admin@123456'].filter(Boolean);
+// 登录口径（卡 t_d4e92b99）：运维账号 CLOUDPIVOT_OPS_*，**单次尝试**（候选重试会把账号锁 30 分钟）
+const CANDIDATES = [process.env.SC_PASS || process.env.CLOUDPIVOT_OPS_PASSWORD || ''].filter(Boolean);
 
 mkdirSync(OUT, { recursive: true });
 const results = [];

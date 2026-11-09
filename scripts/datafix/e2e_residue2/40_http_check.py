@@ -53,15 +53,18 @@ def call(path, token=None, method="GET", body=None):
         return e.code, json.loads(e.read().decode() or "{}")
 
 
-pwd = env_val("NIK_ADMIN_PASSWORD")
+# 登录口径（卡 t_d4e92b99）：运维账号 CLOUDPIVOT_OPS_*；NIK_ADMIN_PASSWORD 只是空库种子的
+# 兜底，且**只试一次** —— 401 就停，重试会把账号锁 30 分钟（5 次阈值）。
+pwd = env_val("CLOUDPIVOT_OPS_PASSWORD") or env_val("NIK_OPS_PASSWORD") or env_val("NIK_ADMIN_PASSWORD")
+user = env_val("CLOUDPIVOT_OPS_USER") or env_val("NIK_OPS_USER") or "admin"
 if not pwd:
-    print("FAIL: %s 里没有 NIK_ADMIN_PASSWORD" % ENV_FILE)
+    print("FAIL: %s 里没有 CLOUDPIVOT_OPS_PASSWORD（运维账号口令）" % ENV_FILE)
     sys.exit(1)
 
 st, res = call("/api/system/auth/login", method="POST",
-               body={"username": "admin", "password": pwd})
+               body={"username": user, "password": pwd})
 if st != 200 or res.get("code") not in (0, 200):
-    print("FAIL 登录:", st, res.get("code"), res.get("msg"))
+    print("FAIL 登录（账号 %s，只试一次，未重试）:" % user, st, res.get("code"), res.get("msg"))
     sys.exit(1)
 tok = res["data"]["access_token"]
 print("登录 = %s code = %s  base = %s" % (st, res.get("code"), BASE))

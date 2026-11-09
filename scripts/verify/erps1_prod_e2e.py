@@ -28,8 +28,14 @@ import urllib.error
 import urllib.request
 
 BASE = os.environ.get("BASE", "http://127.0.0.1:8023").rstrip("/")
-ADMIN_USER = os.environ.get("S1_ADMIN_USER", "admin")
-ADMIN_PASSWORD = os.environ.get("NIK_ADMIN_PASSWORD") or os.environ.get("ALUN_ADMIN_PASSWORD") or ""
+# 登录口径（卡 t_d4e92b99）：运维账号 CLOUDPIVOT_OPS_*，单次尝试
+ADMIN_USER = os.environ.get("S1_ADMIN_USER") or os.environ.get("CLOUDPIVOT_OPS_USER") or "admin"
+ADMIN_PASSWORD = (
+    os.environ.get("CLOUDPIVOT_OPS_PASSWORD")
+    or os.environ.get("NIK_ADMIN_PASSWORD")
+    or os.environ.get("ALUN_ADMIN_PASSWORD")
+    or ""
+)
 TAG = "S1-E2E"
 
 passed = 0
@@ -84,7 +90,7 @@ print(f"ERP-S1 真机验收：{BASE}")
 print("=" * 54)
 
 if not ADMIN_PASSWORD:
-    print("缺 NIK_ADMIN_PASSWORD（先 set -a; . /etc/cloudpivot/cloudpivot.env; set +a）")
+    print("缺口令 CLOUDPIVOT_OPS_PASSWORD（先 set -a; . /etc/cloudpivot/cloudpivot.env; set +a）")
     sys.exit(2)
 
 # ---------- 登录 ----------

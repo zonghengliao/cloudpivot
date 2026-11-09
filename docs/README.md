@@ -76,7 +76,10 @@
   老的纯 SVG 自绘画布保留为回退路径（`?canvas=native` / `VITE_FLOW_CANVAS=native`），见
   [architecture/流程画布-VueFlow迁移与清理计划.md](./architecture/流程画布-VueFlow迁移与清理计划.md)。
 - **端口**：后端 `8023`；前端 dev `5173`（Vite 代理 `/api`、`/health` → `:8023`）。
-- **默认账号**：`admin`（口令无缺省值，必须由 `NIK_ADMIN_PASSWORD` 注入，首次登录强制改密；`SUPER_ADMIN` 跳过全部权限校验）。
+- **默认账号**：`admin`（口令无缺省值，必须由 `NIK_ADMIN_PASSWORD` 注入 = **仅空库首启的种子**，首次登录强制改密；
+  账号已存在时 bootstrap 幂等、**不会**用 env 覆盖口令 —— 所以 env 里那个值通常**不是** `admin` 现用口令，
+  别拿它去登 admin；自查/验收脚本请用 `CLOUDPIVOT_OPS_USER/PASSWORD`，见
+  [运维规程-凭据与自查账号.md](./运维规程-凭据与自查账号.md)。`SUPER_ADMIN` 跳过全部权限校验）。
 
 ### 一条命令起环境
 ```bash

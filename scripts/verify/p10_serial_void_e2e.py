@@ -35,8 +35,13 @@ BASE = os.environ.get("P10_BASE", "http://127.0.0.1:8023")
 DB = os.environ.get("P10_DB", "cloudpivot")
 DBU = os.environ.get("P10_DB_USER", "cloudpivot")
 PW = os.environ["NIK_DATABASE_PASSWORD"]
-ADMIN_USER = os.environ.get("P10_ADMIN", "admin")
-ADMIN_PW = os.environ.get("P10_ADMIN_PW") or os.environ.get("NIK_ADMIN_PASSWORD", "")
+# 登录口径（卡 t_d4e92b99）：运维账号 CLOUDPIVOT_OPS_*，单次尝试
+ADMIN_USER = os.environ.get("P10_ADMIN") or os.environ.get("CLOUDPIVOT_OPS_USER") or "admin"
+ADMIN_PW = (
+    os.environ.get("P10_ADMIN_PW")
+    or os.environ.get("CLOUDPIVOT_OPS_PASSWORD")
+    or os.environ.get("NIK_ADMIN_PASSWORD", "")
+)
 
 UNIT = "e2a10001-0000-4000-8000-000000000001"
 SUPPLIER = "e2a10001-0000-4000-8000-000000000002"

@@ -18,7 +18,9 @@ import { chromium } from '/opt/cloudpivot/frontend/node_modules/@playwright/test
 
 const BASE = process.env.D3UI_BASE_URL || 'http://127.0.0.1';
 const USER = process.env.D3UI_USER || 'admin';
-const PW = process.env.NIK_ADMIN_PASSWORD || process.env.ALUN_ADMIN_PASSWORD || 'Admin@123456';
+// 登录口径（卡 t_d4e92b99）：运维账号 CLOUDPIVOT_OPS_*，单次尝试，不做候选重试
+const PW =
+  process.env.CLOUDPIVOT_OPS_PASSWORD || process.env.ALUN_ADMIN_PASSWORD || '';
 const SHOT_DIR = process.env.D3UI_SHOT_DIR || '/opt/cloudpivot/docs/evidence';
 const ENTITY = process.env.D3UI_ENTITY || 'STOCK_OUT';
 const REASON = 'D3-UI 真机验收：把「直接过账」这条可选边停用（提交审批，不直接落库）';

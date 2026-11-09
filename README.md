@@ -96,6 +96,10 @@ pnpm build                                 # 类型检查 + 生产构建（dist/
 - 用户名：`admin`
 - 密码：**无缺省值**。首次启动必须通过 `NIK_ADMIN_PASSWORD` 注入（未注入时：生产直接拒绝启动；
   开发 / 测试生成一次性随机口令打在启动日志里），首次登录被强制要求改密
+  - ⚠ `NIK_ADMIN_PASSWORD` 是**空库首启的种子**，不是 `admin` 现用口令：账号已存在时 bootstrap
+    幂等、不会覆盖口令。自查/验收脚本一律用 `CLOUDPIVOT_OPS_USER` / `CLOUDPIVOT_OPS_PASSWORD`
+    （见 [docs/运维规程-凭据与自查账号.md](./docs/运维规程-凭据与自查账号.md)），拿种子去登 admin
+    会 401 并把账号锁 30 分钟
 - 角色：`SUPER_ADMIN`（跳过全部权限校验）
 
 ## 文档与技能
