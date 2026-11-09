@@ -7,13 +7,23 @@ export PGPASSWORD="$NIK_DATABASE_PASSWORD"
 PSQL="psql -h 127.0.0.1 -U $NIK_DATABASE_USER -At -F| -P pager=off"
 CLONE=cloudpivot_fix1_probe
 
-echo "== 0) 重建克隆库 $CLONE"
+echo "== 0) 重建克隆库 $CLONE（并退回「v1 是当前版本」的迁移前状态）"
 $PSQL -d postgres -c "drop database if exists $CLONE" >/dev/null
 $PSQL -d postgres -c "create database $CLONE" >/dev/null
 pg_dump -h 127.0.0.1 -U "$NIK_DATABASE_USER" -d "$NIK_DATABASE_NAME" --no-owner --no-acl \
   --exclude-table=schema_migrations_att05_bak \
   | $PSQL -d "$CLONE" > /tmp/fix1_clone_load.log 2>&1 || { echo CLONE_LOAD_FAIL; tail -5 /tmp/fix1_clone_load.log; exit 1; }
-echo "   克隆完成：$( $PSQL -d "$CLONE" -c "select count(*) from biz_flow_def" )"
+# 源库（cloudpivot_dev）已经跑过 V0355 → 这里先删掉 v2，复现「迁移前」的状态，
+# 才能真实验证 up / 幂等 / down / 再 up（克隆库不关心历史实例完整性）。
+$PSQL -d "$CLONE" -c "
+  delete from biz_flow_node_assignee where node_id in (select id from biz_flow_node where version_id='20000000-0000-4000-8000-0000000c022b');
+  delete from biz_flow_edge where version_id='20000000-0000-4000-8000-0000000c022b';
+  delete from biz_flow_node where version_id='20000000-0000-4000-8000-0000000c022b';
+  update biz_flow_instance set version_id='20000000-0000-4000-8000-0000000c0229' where version_id='20000000-0000-4000-8000-0000000c022b';
+  delete from biz_flow_def_version where id='20000000-0000-4000-8000-0000000c022b';
+  update biz_flow_def_version set is_current=true, version_status='PUBLISHED' where id='20000000-0000-4000-8000-0000000c0229';
+  update biz_flow_def set current_version_id='20000000-0000-4000-8000-0000000c0229', current_version_no=1 where id='20000000-0000-4000-8000-0000000c0228';" >/dev/null
+echo "   克隆完成：biz_flow_def=$( $PSQL -d "$CLONE" -c "select count(*) from biz_flow_def" )，budget_approve 版本数=$( $PSQL -d "$CLONE" -c "select count(*) from biz_flow_def_version where def_id='20000000-0000-4000-8000-0000000c0228'" )"
 
 echo
 echo "== 1) 应用前状态"

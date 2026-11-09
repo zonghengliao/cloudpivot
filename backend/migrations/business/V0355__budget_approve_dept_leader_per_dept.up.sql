@@ -55,7 +55,10 @@
 -- # 四、幂等 / 跳过
 --   * 该流程已有 version_no ≥ 2 → 整段跳过（客户自己发过新版，绝不覆盖）；
 --   * 没有 n_dept 节点 / n_dept 不是 ROLE[DEPT_LEADER] → NOTICE 跳过（客户改过图）；
---   * 没有 budget_approve 流程 → NOTICE 跳过（纯净业务库未接预算域）。
+--   * 没有 budget_approve 流程 → NOTICE 跳过（纯净业务库未接预算域）；
+--   * canonical(v1 快照) 与库里 graph_hash 对不上（快照被直接改过 / 含本函数不支持的形状）
+--     → NOTICE 点名跳过，**不抛异常**（抛异常会挡住整个升级；缺口留给人按 NOTICE 的指引
+--       在流程编辑器里改，改完发 v2 后本迁移自然跳过）。
 --   重复执行 = 0 变更。
 --
 -- # 五、回滚
@@ -160,10 +163,19 @@ BEGIN
         RETURN;
     END IF;
 
-    -- 序列化口径自检：canonical(v1 快照) 的 sha256 必须等于 v1 的 graph_hash
-    IF encode(sha256(convert_to(pg_temp.canonical_json(c_snap), 'UTF8')), 'hex') IS DISTINCT FROM c_v1_hash THEN
-        RAISE EXCEPTION 'V0355 budget_approve 自检失败：canonical 序列化口径与 Rust graph_hash 不一致（v1 hash=%，实算=%）',
-            c_v1_hash, encode(sha256(convert_to(pg_temp.canonical_json(c_snap), 'UTF8')), 'hex');
+    -- 序列化口径校准：canonical(v1 快照) 的 sha256 必须等于 v1 的 graph_hash。
+    -- 对得上 ⇒ 本文件里的 canonical_json 与 Rust `graph::snapshot_json()` 逐字同义，
+    --          现算出来的 v2 hash 才可信（客户环境的 v1 快照与我仓种子不一致时也能安全升级）。
+    -- 对不上 ⇒ **不抛异常**（那会挡住整个升级），改成点名跳过 + 给人的出路：
+    --          在「流程管理 → 该流程 → 另存草稿 → 把部门主管节点改成『发起人所在部门』
+    --          审批人来源 + 或签 → 发布」后，再重启即无缺口（v2 存在则本迁移自动跳过）。
+    IF c_v1_hash IS NULL
+       OR encode(sha256(convert_to(pg_temp.canonical_json(c_snap), 'UTF8')), 'hex') IS DISTINCT FROM c_v1_hash
+    THEN
+        RAISE NOTICE 'V0355 budget_approve：跳过 —— canonical(v1 快照)=% 与库里的 graph_hash=% 不一致（快照被改过 / 含本函数不支持的形状）。请在流程编辑器里另存草稿 → 改「部门主管」节点（审批人来源=发起人所在部门、或签）→ 发布',
+            coalesce(encode(sha256(convert_to(pg_temp.canonical_json(c_snap), 'UTF8')), 'hex'), '<null>'),
+            coalesce(c_v1_hash, '<null>');
+        RETURN;
     END IF;
 
     -- 打补丁：只替换 n_dept 这个节点
