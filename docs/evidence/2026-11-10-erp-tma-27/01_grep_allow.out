@@ -1,0 +1,17 @@
+# grep -rn "allow(clippy::too_many_arguments)" src/business/erp/  (HEAD=b252db2e + 本卡改动，未提交)
+# --- 属性命中（期望 0）：
+# 属性命中行数: 0
+
+# --- 含 too_many_arguments 字样的全部行（doc 提及，均非 #[allow] 标记）：
+src/business/erp/stockin_cancel.rs:287:/// 参数直接收 `&SerialBatch`（而不是 8 个散参数）：clippy 的 `too_many_arguments`
+src/business/erp/stockin_cancel.rs:345:/// 一批序列号的落库入参（收进结构体：既避开 `clippy::too_many_arguments`，
+src/business/erp/transfer_settle.rs:192:/// 一条库存流水的全部字段（避免 `too_many_arguments`，也不用 `#[allow]`）。
+src/business/erp/transfer_settle.rs:881:/// 调入仓加库存的入参（8 个字段里 6 个是数据，收成结构体避免 `too_many_arguments`）。
+src/business/erp/voucher_write.rs:1032:/// 手工凭证事务的全部入参（结构体化，避开 `clippy::too_many_arguments`）。
+src/business/erp/payable_payment.rs:863:/// 付款事务的全部入参（结构体化，避开 `clippy::too_many_arguments`）。
+src/business/erp/payable_payment.rs:1061:/// 一次记账的全部入参（结构体化，避开 `clippy::too_many_arguments`）。
+src/business/erp/voucher.rs:1066:/// 分录构造参数（避免 `too_many_arguments`）。
+src/business/erp/voucher.rs:2519:/// 摊平会直接撞 clippy 的 `too_many_arguments`（-D warnings 下是硬错）。
+src/business/erp/voucher.rs:2709:/// `too_many_arguments`（`-D warnings` 下是硬错）。
+src/business/erp/stocktake_model.rs:295:/// 一条库存流水的写库参数（收进结构体：避开 `clippy::too_many_arguments`）。
+src/business/erp/inventory_writer.rs:92:/// 编译器不会拦。`clippy::too_many_arguments` 只是顺带被解决。

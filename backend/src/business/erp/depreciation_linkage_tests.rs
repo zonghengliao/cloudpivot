@@ -500,13 +500,15 @@ async fn lnk10_rolled_back_tx_never_sends_notice() {
     let tx = db().begin().await.expect("开事务");
     let change = depreciation_linkage::run_in_tx(
         &tx,
-        batch_id,
-        "DEP-LNK10-0001",
-        "2047-01",
-        asset_dto::DEP_POSTED,
-        300,
-        event,
-        Some(user),
+        depreciation_linkage::DepLinkageInput {
+            batch_id,
+            batch_no: "DEP-LNK10-0001",
+            period_code: "2047-01",
+            status: asset_dto::DEP_POSTED,
+            asset_count: 300,
+            event_ref: event,
+            operator: Some(user),
+        },
     )
     .await
     .expect("事务内跑联动");
@@ -538,13 +540,15 @@ async fn lnk10_rolled_back_tx_never_sends_notice() {
     let tx = db().begin().await.expect("开事务");
     let change = depreciation_linkage::run_in_tx(
         &tx,
-        batch_id,
-        "DEP-LNK10-0001",
-        "2047-01",
-        asset_dto::DEP_POSTED,
-        300,
-        event,
-        Some(user),
+        depreciation_linkage::DepLinkageInput {
+            batch_id,
+            batch_no: "DEP-LNK10-0001",
+            period_code: "2047-01",
+            status: asset_dto::DEP_POSTED,
+            asset_count: 300,
+            event_ref: event,
+            operator: Some(user),
+        },
     )
     .await
     .expect("事务内跑联动");

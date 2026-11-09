@@ -136,25 +136,45 @@ impl DepBatchStatusChange {
     }
 }
 
+/// [`run_in_tx`] 的入参（`ex` 之外的 7 项）：一次批次状态变更的完整输入。
+#[derive(Debug, Clone, Copy)]
+pub struct DepLinkageInput<'a> {
+    /// 折旧批次主键（联动上下文的业务单据 id）。
+    pub batch_id: Uuid,
+    /// 批次号（通知 / 任务文案里带它）。
+    pub batch_no: &'a str,
+    /// 计提期间编码（`YYYY-MM`）。
+    pub period_code: &'a str,
+    /// 变更后的目标状态（`POSTED` / `REVERSED` 等，规则匹配按它）。
+    pub status: &'a str,
+    /// 本次批次涉及的资产台数（报文里用）。
+    pub asset_count: i32,
+    /// 本次事件凭证 id（幂等键的一部分：同一笔过账重放只发一条通知）。
+    pub event_ref: Uuid,
+    /// 操作人（通知受众 / 上下文）。
+    pub operator: Option<Uuid>,
+}
+
 /// 事务内跑联动的 `Phase::InTx` 动作（排除「本次事务已经自己落账」的凭证动作）。
 ///
 /// 返回的 [`DepBatchStatusChange::run`] 里的 `deferred` 必须在调用方 `commit()` **之后**
 /// 交给 [`run_deferred_after_commit`]。关键动作失败 → `Err(ApiError)` → 调用方整笔回滚。
 ///
-/// 入参是「一次批次状态变更的完整输入」（批次身份 + 期间 + 目标态 + 台数 + 事件凭证 + 操作人）：
-/// 拆成一个个参数会让两个调用方各拼装一次，台数 / 事件凭证这类字段最容易拼错；
-// 与 `asset_model::batch_set_status` 同口径：这是「一次状态迁移」，不是可以随手加参数的函数。
-#[allow(clippy::too_many_arguments)]
+/// 入参 `input` 是「一次批次状态变更的完整输入」（见 [`DepLinkageInput`]）：
+/// 批次身份 + 期间 + 目标态 + 台数 + 事件凭证 + 操作人，一次给全，避免逐参数拼错。
 pub(crate) async fn run_in_tx(
     ex: &impl SqlExecutor,
-    batch_id: Uuid,
-    batch_no: &str,
-    period_code: &str,
-    status: &str,
-    asset_count: i32,
-    event_ref: Uuid,
-    operator: Option<Uuid>,
+    input: DepLinkageInput<'_>,
 ) -> std::result::Result<DepBatchStatusChange, ApiError> {
+    let DepLinkageInput {
+        batch_id,
+        batch_no,
+        period_code,
+        status,
+        asset_count,
+        event_ref,
+        operator,
+    } = input;
     let mut change = DepBatchStatusChange {
         batch_id,
         batch_no: batch_no.to_string(),

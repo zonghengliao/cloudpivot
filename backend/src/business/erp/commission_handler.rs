@@ -491,14 +491,16 @@ async fn settle_one(
             .map_err(|error| utils::db_error(error, "取佣金结算单号"))?;
         let id = model::insert_settlement(
             &tx,
-            &settlement_no,
-            salesperson_id,
-            period_code,
-            total_sales,
-            total_commission.round_dp(MONEY_DP),
-            remark,
-            operator,
-            now,
+            model::InsertSettlementInput {
+                settlement_no: &settlement_no,
+                salesperson_id,
+                period_code,
+                total_sales,
+                total_commission: total_commission.round_dp(MONEY_DP),
+                remark,
+                operator,
+                now,
+            },
         )
         .await
         .map_err(|error| utils::db_error(error, "写佣金结算单"))?;

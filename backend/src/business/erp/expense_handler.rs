@@ -981,14 +981,16 @@ pub async fn report_submit(
         let outcome = async {
             let affected = expense_model::report_mark_submitted(
                 &tx,
-                id,
-                instance_id,
-                budget.over(),
-                budget.missing_budget(),
-                budget.over_amount_opt(),
-                Some(budget.recorded_mode().as_str()),
-                operator,
-                Utc::now(),
+                expense_model::ReportMarkSubmittedInput {
+                    id,
+                    instance_id,
+                    over_budget: budget.over(),
+                    missing_budget: budget.missing_budget(),
+                    over_amount: budget.over_amount_opt(),
+                    budget_mode: Some(budget.recorded_mode().as_str()),
+                    operator,
+                    now: Utc::now(),
+                },
             )
             .await
             .map_err(|error| db_err(error, "标记报销单为审批中"))?;

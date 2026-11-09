@@ -1026,15 +1026,17 @@ pub async fn create_manual(
         .map_err(|error| utils::db_error(error, "开启应收挂账事务"))?;
     let result = create_manual_in_tx(
         &tx,
-        operator,
-        customer_id,
-        amount,
-        credit_days,
-        due_date,
-        period_explicit,
-        req,
-        invoice_date,
-        now,
+        CreateManualInTxInput {
+            operator,
+            customer_id,
+            amount,
+            credit_days,
+            due_date,
+            period_explicit,
+            req,
+            invoice_date,
+            now,
+        },
     )
     .await;
     match result {
@@ -1049,20 +1051,48 @@ pub async fn create_manual(
     }
 }
 
+/// [`create_manual_in_tx`] 的入参（`tx` 之外的 9 项）。
+///
+/// 不含 `Copy`：`req` 是自有请求体（`CreateReceivableReq` 无 `Copy`），本结构按值一次性消费；
+/// 也没有 `'a` —— 全部字段要么是值，要么是自有 `String`。
+#[derive(Debug, Clone)]
+struct CreateManualInTxInput {
+    /// 操作人（落 `create_by` / 凭证 `create_by`；`None` = 系统 / 测试）。
+    operator: Option<Uuid>,
+    /// 客户主键（必须存在且未冻结）。
+    customer_id: Uuid,
+    /// 挂账金额。
+    amount: Decimal,
+    /// 账期天数（`due_date` 未显式指定时按它推算）。
+    credit_days: i32,
+    /// 到期日（调用方已按 `due_date_explicit` / 账期算好）。
+    due_date: NaiveDate,
+    /// 显式指定的会计期间编码（`None` = 按挂账日解析）。
+    period_explicit: Option<String>,
+    /// 原始请求体（校验顺序沿用 handler 的那一套，明细 / 备注都从这里取）。
+    req: CreateReceivableReq,
+    /// 发票日期（可选，落 `invoice_date`）。
+    invoice_date: Option<NaiveDate>,
+    /// 业务时间（挂账日 / 期间解析 / 时间戳都以它为准）。
+    now: DateTime<Utc>,
+}
+
 /// 事务体内的挂账（`create_manual` 与真库单测共用，避免单测绕过校验顺序）。
-#[allow(clippy::too_many_arguments)]
 async fn create_manual_in_tx(
     tx: &Transaction,
-    operator: Option<Uuid>,
-    customer_id: Uuid,
-    amount: Decimal,
-    credit_days: i32,
-    due_date: NaiveDate,
-    period_explicit: Option<String>,
-    req: CreateReceivableReq,
-    invoice_date: Option<NaiveDate>,
-    now: DateTime<Utc>,
+    input: CreateManualInTxInput,
 ) -> std::result::Result<CreateReceivableRes, ApiError> {
+    let CreateManualInTxInput {
+        operator,
+        customer_id,
+        amount,
+        credit_days,
+        due_date,
+        period_explicit,
+        req,
+        invoice_date,
+        now,
+    } = input;
     let period_code = match period_explicit {
         Some(period) => period,
         None => voucher::period_of(tx, voucher::today_cst(now))

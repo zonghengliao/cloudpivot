@@ -565,19 +565,39 @@ pub async fn soft_delete(ex: &impl SqlExecutor, id: Uuid, operator: Option<Uuid>
     .await
 }
 
+/// [`insert_settlement`] 的入参（`ex` 之外的 8 项）。
+#[derive(Debug, Clone, Copy)]
+pub struct InsertSettlementInput<'a> {
+    /// 结算单号（由 [`next_settlement_no`] 生成，落 `settlement_no`）。
+    pub settlement_no: &'a str,
+    /// 业务员 id（结算主体，落 `salesperson_id`）。
+    pub salesperson_id: Uuid,
+    /// 计提期间编码（`YYYY-MM`）。
+    pub period_code: &'a str,
+    /// 期间销售基数（`ck_biz_cmset_total_sales` 要求非负：纯冲回期间记 0）。
+    pub total_sales: Decimal,
+    /// 期间佣金合计（可为负 = 冲回）。
+    pub total_commission: Decimal,
+    /// 备注（`None` = 落 `NULL`）。
+    pub remark: Option<&'a str>,
+    /// 操作人（落 `create_by` / `update_by`；`None` = 系统 / 测试）。
+    pub operator: Option<Uuid>,
+    /// 业务时间（落 `created_at` / `updated_at`）。
+    pub now: DateTime<Utc>,
+}
+
 /// 落一张结算单（DRAFT），返回 id。
-#[allow(clippy::too_many_arguments)]
-pub async fn insert_settlement(
-    ex: &impl SqlExecutor,
-    settlement_no: &str,
-    salesperson_id: Uuid,
-    period_code: &str,
-    total_sales: Decimal,
-    total_commission: Decimal,
-    remark: Option<&str>,
-    operator: Option<Uuid>,
-    now: DateTime<Utc>,
-) -> DbResult<Uuid> {
+pub async fn insert_settlement(ex: &impl SqlExecutor, input: InsertSettlementInput<'_>) -> DbResult<Uuid> {
+    let InsertSettlementInput {
+        settlement_no,
+        salesperson_id,
+        period_code,
+        total_sales,
+        total_commission,
+        remark,
+        operator,
+        now,
+    } = input;
     let id = Uuid::now_v7();
     ex.exec_sql(
         format!(

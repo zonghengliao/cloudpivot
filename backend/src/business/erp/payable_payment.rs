@@ -912,15 +912,17 @@ async fn pay_in_tx(
     // ① 付款记录（先落记录，凭证要指向它）—— 直付没有审批实例
     let (payment_id, payment_no) = insert_payment_row(
         tx,
-        &row,
-        amount,
-        pay_date,
-        pay_method,
-        remark,
-        operator,
-        now,
-        APPROVAL_NONE,
-        None,
+        InsertPaymentRowInput {
+            row: &row,
+            amount,
+            pay_date,
+            pay_method,
+            remark,
+            operator,
+            now,
+            approval_status: APPROVAL_NONE,
+            approval_instance_id: None,
+        },
     )
     .await?;
 
@@ -969,20 +971,45 @@ fn validate_payment_target(row: &PayableRow, amount: Decimal) -> std::result::Re
     Ok(())
 }
 
+/// [`insert_payment_row`] 的入参（`tx` 之外的 9 项）。
+#[derive(Debug, Clone, Copy)]
+struct InsertPaymentRowInput<'a> {
+    /// 已锁定并校验过的应付单行（供应商 / 币种等从它取）。
+    row: &'a PayableRow,
+    /// 本次付款金额。
+    amount: Decimal,
+    /// 付款日期（落 `pay_date`）。
+    pay_date: NaiveDate,
+    /// 付款方式（`None`/空 = 不填）。
+    pay_method: Option<&'a str>,
+    /// 备注（`None`/空 = 不填）。
+    remark: Option<&'a str>,
+    /// 操作人（落 `create_by`；直付必填，审批路径传申请人）。
+    operator: Option<Uuid>,
+    /// 业务时间（落 `created_at` / `updated_at`）。
+    now: DateTime<Utc>,
+    /// 付款记录初始审批态：`APPROVAL_NONE`（直付）/ `APPROVAL_PENDING`（走审批）。
+    approval_status: &'a str,
+    /// 审批实例 id：`APPROVAL_PENDING` 必填（库侧约束 `PENDING ⟹ 有实例`）。
+    approval_instance_id: Option<Uuid>,
+}
+
 /// 落一条付款记录（返回 `(id, 付款单号)`）。直付与审批发起共用。
-#[allow(clippy::too_many_arguments)]
 async fn insert_payment_row(
     tx: &Transaction,
-    row: &PayableRow,
-    amount: Decimal,
-    pay_date: NaiveDate,
-    pay_method: Option<&str>,
-    remark: Option<&str>,
-    operator: Option<Uuid>,
-    now: DateTime<Utc>,
-    approval_status: &str,
-    approval_instance_id: Option<Uuid>,
+    input: InsertPaymentRowInput<'_>,
 ) -> std::result::Result<(Uuid, String), ApiError> {
+    let InsertPaymentRowInput {
+        row,
+        amount,
+        pay_date,
+        pay_method,
+        remark,
+        operator,
+        now,
+        approval_status,
+        approval_instance_id,
+    } = input;
     let payment_no = voucher::next_doc_no(tx, &PAYMENT_SEQ, now)
         .await
         .map_err(|error| utils::db_error(error, "取付款单号"))?;
@@ -1326,7 +1353,6 @@ pub async fn submit_payment(
 }
 
 /// 发起付款审批（一个事务里：落 `PENDING` 付款记录 → `engine::start` → 双表回写引用）。
-#[allow(clippy::too_many_arguments)]
 async fn submit_for_approval(
     id: Uuid,
     req: &PayPayableReq,
@@ -1350,7 +1376,21 @@ async fn submit_for_approval(
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启付款审批事务"))?;
-    match submit_for_approval_tx(&tx, id, amount, pay_date, pay_method, remark, operator_id, flow, now).await {
+    match submit_for_approval_tx(
+        &tx,
+        SubmitForApprovalTxInput {
+            id,
+            amount,
+            pay_date,
+            pay_method,
+            remark,
+            operator: operator_id,
+            flow,
+            now,
+        },
+    )
+    .await
+    {
         Ok((payment_id, payment_no, instance_id)) => {
             tx.commit()
                 .await
@@ -1423,19 +1463,42 @@ async fn payment_form_data(
     form
 }
 
+/// [`submit_for_approval_tx`] 的入参（`tx` 之外的 8 项）。
+#[derive(Debug, Clone, Copy)]
+struct SubmitForApprovalTxInput<'a> {
+    /// 应付单主键（事务内再 `FOR UPDATE` 锁一次并复验）。
+    id: Uuid,
+    /// 本次付款金额。
+    amount: Decimal,
+    /// 付款日期（落 `pay_date`）。
+    pay_date: NaiveDate,
+    /// 付款方式（`None`/空 = 不填）。
+    pay_method: Option<&'a str>,
+    /// 备注（`None`/空 = 不填）。
+    remark: Option<&'a str>,
+    /// 申请人（必填；审批实例的发起人与此一致）。
+    operator: Uuid,
+    /// 付款审批流程快照（流程码 / 版本 / 定义 id）。
+    flow: &'a crate::business::erp::payable_bridge::PayFlow,
+    /// 业务时间（与变更日志 / 响应里的时间同源）。
+    now: DateTime<Utc>,
+}
+
 /// [`submit_for_approval`] 的事务体。
-#[allow(clippy::too_many_arguments)]
 async fn submit_for_approval_tx(
     tx: &Transaction,
-    id: Uuid,
-    amount: Decimal,
-    pay_date: NaiveDate,
-    pay_method: Option<&str>,
-    remark: Option<&str>,
-    operator: Uuid,
-    flow: &crate::business::erp::payable_bridge::PayFlow,
-    now: DateTime<Utc>,
+    input: SubmitForApprovalTxInput<'_>,
 ) -> std::result::Result<(Uuid, String, Uuid), ApiError> {
+    let SubmitForApprovalTxInput {
+        id,
+        amount,
+        pay_date,
+        pay_method,
+        remark,
+        operator,
+        flow,
+        now,
+    } = input;
     // ① 锁应付单 + 校验（P7 的两条校验一条都不能丢）
     let row = lock_payable(tx, id)
         .await
@@ -1455,15 +1518,17 @@ async fn submit_for_approval_tx(
     let instance_id = Uuid::now_v7();
     let (payment_id, payment_no) = insert_payment_row(
         tx,
-        &row,
-        amount,
-        pay_date,
-        pay_method,
-        remark,
-        Some(operator),
-        now,
-        APPROVAL_PENDING,
-        Some(instance_id),
+        InsertPaymentRowInput {
+            row: &row,
+            amount,
+            pay_date,
+            pay_method,
+            remark,
+            operator: Some(operator),
+            now,
+            approval_status: APPROVAL_PENDING,
+            approval_instance_id: Some(instance_id),
+        },
     )
     .await?;
 

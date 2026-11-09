@@ -738,15 +738,17 @@ mod db {
         let occupy = |amount: Decimal| {
             budget_guard::occupy(
                 db(),
-                &slot,
-                amount,
-                amount,
-                budget_guard::SOURCE_EXPENSE,
-                id,
-                "EXP-T-RESUBMIT",
-                &verdict,
-                &snapshot,
-                None,
+                budget_guard::OccupyInput {
+                    slot: &slot,
+                    amount,
+                    amount_net: amount,
+                    source_type: budget_guard::SOURCE_EXPENSE,
+                    source_id: id,
+                    source_no: "EXP-T-RESUBMIT",
+                    verdict: &verdict,
+                    snapshot: &snapshot,
+                    operator: None,
+                },
             )
         };
         // 第一次提交：库里没有同键行 → 必然插入新行。

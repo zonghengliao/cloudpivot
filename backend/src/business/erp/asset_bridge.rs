@@ -391,15 +391,17 @@ pub async fn post_disposal_vouchers(
         );
         let id = voucher_multi::post_explicit_lines(
             ex,
-            SOURCE_DISPOSAL,
-            Some(asset.id),
-            &asset.asset_no,
-            disposal_date,
-            &summary,
-            &spec.lines,
-            Some(spec.label),
-            None,
-            now,
+            voucher_multi::ExplicitVoucherInput {
+                source_type: SOURCE_DISPOSAL,
+                source_id: Some(asset.id),
+                source_no: &asset.asset_no,
+                voucher_date: disposal_date,
+                summary: &summary,
+                lines: &spec.lines,
+                remark: Some(spec.label),
+                operator: None,
+                now,
+            },
         )
         .await
         .map_err(|error| voucher_error(error, "生成处置凭证"))?;

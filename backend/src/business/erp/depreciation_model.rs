@@ -309,18 +309,31 @@ pub async fn run_batch(
             .await
             .map_err(|error| db_err(error, "取折旧批次号"))?;
         let id = Uuid::now_v7();
-        asset_model::batch_insert(db(), id, &batch_no, &period, 0, Decimal::ZERO, operator, remark)
-            .await
-            .map_err(|error| db_err(error, "写折旧批次"))?;
+        asset_model::batch_insert(
+            db(),
+            asset_model::DepBatchInsertInput {
+                id,
+                batch_no: &batch_no,
+                period_code: &period,
+                asset_count: 0,
+                total_amount: Decimal::ZERO,
+                operator,
+                remark,
+            },
+        )
+        .await
+        .map_err(|error| db_err(error, "写折旧批次"))?;
         asset_model::batch_set_status(
             db(),
-            id,
-            asset_dto::DEP_CALCULATED,
-            asset_dto::DEP_SKIPPED,
-            None,
-            None,
-            Some("本期无应提折旧（没有在役未提足的资产）"),
-            now,
+            asset_model::DepBatchStatusInput {
+                id,
+                from: asset_dto::DEP_CALCULATED,
+                to: asset_dto::DEP_SKIPPED,
+                voucher_id: None,
+                reverse_voucher_id: None,
+                skip_reason: Some("本期无应提折旧（没有在役未提足的资产）"),
+                now,
+            },
         )
         .await
         .map_err(|error| db_err(error, "标记批次跳过"))?;
@@ -361,13 +374,15 @@ pub async fn run_batch(
                     .map_err(|error| db_err(error, "清理上一轮明细"))?;
                 asset_model::batch_set_status(
                     &tx,
-                    batch.id,
-                    asset_dto::DEP_REVERSED,
-                    asset_dto::DEP_CALCULATED,
-                    None,
-                    None,
-                    None,
-                    now,
+                    asset_model::DepBatchStatusInput {
+                        id: batch.id,
+                        from: asset_dto::DEP_REVERSED,
+                        to: asset_dto::DEP_CALCULATED,
+                        voucher_id: None,
+                        reverse_voucher_id: None,
+                        skip_reason: None,
+                        now,
+                    },
                 )
                 .await
                 .map_err(|error| db_err(error, "批次回到已计算"))?;
@@ -389,13 +404,15 @@ pub async fn run_batch(
                 let id = Uuid::now_v7();
                 asset_model::batch_insert(
                     &tx,
-                    id,
-                    &batch_no,
-                    &period,
-                    i32::try_from(details.len()).unwrap_or(0),
-                    total,
-                    operator,
-                    remark,
+                    asset_model::DepBatchInsertInput {
+                        id,
+                        batch_no: &batch_no,
+                        period_code: &period,
+                        asset_count: i32::try_from(details.len()).unwrap_or(0),
+                        total_amount: total,
+                        operator,
+                        remark,
+                    },
                 )
                 .await
                 .map_err(|error| db_err(error, "写折旧批次"))?;
@@ -470,13 +487,15 @@ pub async fn run_batch(
         // 批次过账
         let affected = asset_model::batch_set_status(
             &tx,
-            batch_id,
-            asset_dto::DEP_CALCULATED,
-            asset_dto::DEP_POSTED,
-            Some(voucher_id),
-            None,
-            None,
-            now,
+            asset_model::DepBatchStatusInput {
+                id: batch_id,
+                from: asset_dto::DEP_CALCULATED,
+                to: asset_dto::DEP_POSTED,
+                voucher_id: Some(voucher_id),
+                reverse_voucher_id: None,
+                skip_reason: None,
+                now,
+            },
         )
         .await
         .map_err(|error| db_err(error, "批次置已过账"))?;
@@ -495,13 +514,15 @@ pub async fn run_batch(
         // `event_ref = voucher_id`：同一笔过账重放只发一条，红冲后重跑（新凭证）会再发一条。
         let change = depreciation_linkage::run_in_tx(
             &tx,
-            batch_id,
-            &batch_no,
-            &period,
-            asset_dto::DEP_POSTED,
-            i32::try_from(details.len()).unwrap_or(0),
-            voucher_id,
-            operator,
+            depreciation_linkage::DepLinkageInput {
+                batch_id,
+                batch_no: &batch_no,
+                period_code: &period,
+                status: asset_dto::DEP_POSTED,
+                asset_count: i32::try_from(details.len()).unwrap_or(0),
+                event_ref: voucher_id,
+                operator,
+            },
         )
         .await?;
         Ok::<(Uuid, Uuid, depreciation_linkage::DepBatchStatusChange), ApiError>((batch_id, voucher_id, change))
@@ -683,13 +704,15 @@ pub async fn reverse_batch(
         let last_red = reds.last().copied();
         let affected = asset_model::batch_set_status(
             &tx,
-            batch_id,
-            asset_dto::DEP_POSTED,
-            asset_dto::DEP_REVERSED,
-            None,
-            last_red,
-            None,
-            now,
+            asset_model::DepBatchStatusInput {
+                id: batch_id,
+                from: asset_dto::DEP_POSTED,
+                to: asset_dto::DEP_REVERSED,
+                voucher_id: None,
+                reverse_voucher_id: last_red,
+                skip_reason: None,
+                now,
+            },
         )
         .await
         .map_err(|error| db_err(error, "批次置已红冲"))?;
@@ -708,13 +731,15 @@ pub async fn reverse_batch(
         // `event_ref = 红字凭证 id`：同一笔红冲重放只发一条，重跑再红冲（新凭证）会再发一条。
         let change = depreciation_linkage::run_in_tx(
             &tx,
-            batch_id,
-            &batch.batch_no,
-            &batch.period_code,
-            asset_dto::DEP_REVERSED,
-            i32::try_from(details.len()).unwrap_or(0),
-            reds.last().copied().unwrap_or_else(Uuid::now_v7),
-            operator,
+            depreciation_linkage::DepLinkageInput {
+                batch_id,
+                batch_no: &batch.batch_no,
+                period_code: &batch.period_code,
+                status: asset_dto::DEP_REVERSED,
+                asset_count: i32::try_from(details.len()).unwrap_or(0),
+                event_ref: reds.last().copied().unwrap_or_else(Uuid::now_v7),
+                operator,
+            },
         )
         .await?;
         Ok::<depreciation_linkage::DepBatchStatusChange, ApiError>(change)

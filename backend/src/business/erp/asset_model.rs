@@ -1294,19 +1294,36 @@ pub async fn batch_page(q: &DepBatchFilter, page: u64, page_size: u64) -> DbResu
     Ok((rows, i64::try_from(result.total).unwrap_or(i64::MAX)))
 }
 
+/// [`batch_insert`] 的入参（`ex` 之外的 7 项）。
+#[derive(Debug, Clone, Copy)]
+pub struct DepBatchInsertInput<'a> {
+    /// 批次主键（调用方生成，明细 / 卡片回写都用它）。
+    pub id: Uuid,
+    /// 批次号（`next_batch_no` 生成）。
+    pub batch_no: &'a str,
+    /// 计提期间编码（`YYYY-MM`，与批次唯一键 `uk_biz_dep_batch_period` 相关）。
+    pub period_code: &'a str,
+    /// 本期计提资产台数（合法空跑时为 0）。
+    pub asset_count: i32,
+    /// 本期计提金额合计。
+    pub total_amount: Decimal,
+    /// 操作人（落 `run_by`；`None` = 系统 / 测试）。
+    pub operator: Option<Uuid>,
+    /// 备注（`None`/空 = 不填）。
+    pub remark: Option<&'a str>,
+}
+
 /// 插入批次（初始 `CALCULATED`；调用方随后要么 `POSTED` 要么 `SKIPPED`）。
-// 参数就是这一行的列：再包一层结构体只是把同一个列表换个地方写，反而更难对照 DDL。
-#[allow(clippy::too_many_arguments)]
-pub async fn batch_insert(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    batch_no: &str,
-    period_code: &str,
-    asset_count: i32,
-    total_amount: Decimal,
-    operator: Option<Uuid>,
-    remark: Option<&str>,
-) -> DbResult<()> {
+pub async fn batch_insert(ex: &impl SqlExecutor, input: DepBatchInsertInput<'_>) -> DbResult<()> {
+    let DepBatchInsertInput {
+        id,
+        batch_no,
+        period_code,
+        asset_count,
+        total_amount,
+        operator,
+        remark,
+    } = input;
     // SCOPE-EXEMPT: 主表写入。
     ex.exec_sql(
         format!(
@@ -1329,19 +1346,36 @@ pub async fn batch_insert(
     Ok(())
 }
 
+/// [`batch_set_status`] 的入参（`ex` 之外的 7 项）。
+#[derive(Debug, Clone, Copy)]
+pub struct DepBatchStatusInput<'a> {
+    /// 批次主键（`WHERE id = ?::uuid`）。
+    pub id: Uuid,
+    /// 期望的当前态（CAS：`WHERE status = ?`）。
+    pub from: &'a str,
+    /// 目标态（`CALCULATED` / `POSTED` / `SKIPPED` / `REVERSED`）。
+    pub to: &'a str,
+    /// 蓝字凭证 id（仅 `→ POSTED` 用）。
+    pub voucher_id: Option<Uuid>,
+    /// 红字凭证 id（仅 `→ REVERSED` 用）。
+    pub reverse_voucher_id: Option<Uuid>,
+    /// 跳过原因（仅 `→ SKIPPED` 用）。
+    pub skip_reason: Option<&'a str>,
+    /// 业务时间（`POSTED` / `REVERSED` 的时间戳由它给）。
+    pub now: DateTime<Utc>,
+}
+
 /// 更新批次状态（CAS 到 `from`）。
-// 同上：`from/to/voucher/reverse/skip/now` 是一次状态迁移的完整输入，拆开会让调用方拼装两次。
-#[allow(clippy::too_many_arguments)]
-pub async fn batch_set_status(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    from: &str,
-    to: &str,
-    voucher_id: Option<Uuid>,
-    reverse_voucher_id: Option<Uuid>,
-    skip_reason: Option<&str>,
-    now: DateTime<Utc>,
-) -> DbResult<u64> {
+pub async fn batch_set_status(ex: &impl SqlExecutor, input: DepBatchStatusInput<'_>) -> DbResult<u64> {
+    let DepBatchStatusInput {
+        id,
+        from,
+        to,
+        voucher_id,
+        reverse_voucher_id,
+        skip_reason,
+        now,
+    } = input;
     // SCOPE-EXEMPT: 主表写入。
     //
     // 时间戳由调用方给（不在 SQL 里写 `CASE WHEN ? = 'POSTED' THEN now()`）：

@@ -419,7 +419,6 @@ pub async fn upsert_quotes(
 // ==================== 写：定标 / 转单 ====================
 
 /// 定标：清旧标记 → 按行置位 → 写单头（同一事务）。
-#[allow(clippy::too_many_arguments)]
 pub async fn award(
     inquiry_id: Uuid,
     pairs: &[(Uuid, Uuid)],

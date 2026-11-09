@@ -877,15 +877,17 @@ pub async fn mapping_create(
     let id = Uuid::now_v7();
     budget_model::map_insert(
         db(),
-        id,
-        req.map_type.trim(),
-        ref_id,
-        req.ref_code.as_deref(),
-        account_id,
-        dept_id,
-        req.priority.unwrap_or(0),
-        req.remark.as_deref(),
-        operator_of(&claims),
+        budget_model::MapInsertInput {
+            id,
+            map_type: req.map_type.trim(),
+            ref_id,
+            ref_code: req.ref_code.as_deref(),
+            account_id,
+            dept_id,
+            priority: req.priority.unwrap_or(0),
+            remark: req.remark.as_deref(),
+            operator: operator_of(&claims),
+        },
     )
     .await
     .map_err(|error| match error {
@@ -917,15 +919,17 @@ pub async fn mapping_update(
     let dept_id = crate::business::erp::budget_dto::parse_optional_uuid(req.dept_id.as_deref(), "dept_id")?;
     let affected = budget_model::map_update(
         db(),
-        id,
-        req.map_type.trim(),
-        req.ref_code.as_deref(),
-        account_id,
-        dept_id,
-        req.priority.unwrap_or(0),
-        req.status.unwrap_or(1),
-        req.remark.as_deref(),
-        operator_of(&claims),
+        budget_model::MapUpdateInput {
+            id,
+            map_type: req.map_type.trim(),
+            ref_code: req.ref_code.as_deref(),
+            account_id,
+            dept_id,
+            priority: req.priority.unwrap_or(0),
+            status: req.status.unwrap_or(1),
+            remark: req.remark.as_deref(),
+            operator: operator_of(&claims),
+        },
     )
     .await
     .map_err(|error| match error {

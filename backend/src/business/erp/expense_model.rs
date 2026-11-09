@@ -944,22 +944,42 @@ pub async fn items_sum(ex: &impl SqlExecutor, report_id: Uuid) -> DbResult<(Deci
     }
 }
 
+/// [`report_mark_submitted`] 的入参（`ex` 之外的 8 项）。
+#[derive(Debug, Clone, Copy)]
+pub struct ReportMarkSubmittedInput<'a> {
+    /// 报销单主键（`WHERE id = ?::uuid`，且只允许 `status = 'DRAFT'`）。
+    pub id: Uuid,
+    /// 审批实例 id（提交时挂上，落 `approval_instance_id`）。
+    pub instance_id: Uuid,
+    /// 是否超预算（落 `over_budget`）。
+    pub over_budget: bool,
+    /// 是否没编预算（落 `missing_budget`；与 `over_amount` 一起冻结）。
+    pub missing_budget: bool,
+    /// 超支金额（仅 `over_budget` 时有值；没编预算时必须 `None`）。
+    pub over_amount: Option<Decimal>,
+    /// 预算管控模式快照（落 `budget_mode`）。
+    pub budget_mode: Option<&'a str>,
+    /// 提交人（落 `submitted_by` / `update_by`）。
+    pub operator: Uuid,
+    /// 提交时间（落 `submitted_at`，与变更日志同源）。
+    pub now: DateTime<Utc>,
+}
+
 /// 提交：置 `SUBMITTED` + 挂实例 + 冻结预算快照（**只允许从 DRAFT**）。
 ///
 /// FIX-5：`missing_budget` 与 `over_amount` 一起冻结 —— 没编预算的单据 `over_budget=0` /
 /// `missing_budget=1` / `over_amount=NULL`（「没编预算」不是「超了全款」）。
-#[allow(clippy::too_many_arguments)]
-pub async fn report_mark_submitted(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    instance_id: Uuid,
-    over_budget: bool,
-    missing_budget: bool,
-    over_amount: Option<Decimal>,
-    budget_mode: Option<&str>,
-    operator: Uuid,
-    now: DateTime<Utc>,
-) -> DbResult<u64> {
+pub async fn report_mark_submitted(ex: &impl SqlExecutor, input: ReportMarkSubmittedInput<'_>) -> DbResult<u64> {
+    let ReportMarkSubmittedInput {
+        id,
+        instance_id,
+        over_budget,
+        missing_budget,
+        over_amount,
+        budget_mode,
+        operator,
+        now,
+    } = input;
     // SCOPE-EXEMPT: 主表写入（状态 CAS 在 WHERE 里）。
     ex.exec_sql(
         format!(

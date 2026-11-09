@@ -992,24 +992,46 @@ pub async fn map_page(q: &BudgetFilter) -> DbResult<(Vec<MapRow>, i64)> {
     Ok((rows, i64::try_from(result.total).unwrap_or(i64::MAX)))
 }
 
+/// [`map_insert`] 的入参（`ex` 之外的 9 项）。
+#[derive(Debug, Clone, Copy)]
+pub struct MapInsertInput<'a> {
+    /// 映射行主键（调用方生成，便于直接回给前端）。
+    pub id: Uuid,
+    /// 映射类型（`MATERIAL` / `WAREHOUSE` / `MATERIAL_TYPE` / `DEFAULT`）。
+    pub map_type: &'a str,
+    /// 目标 id（`MATERIAL` / `WAREHOUSE` 用；`MATERIAL_TYPE` / `DEFAULT` 恒 `None`，落库前被归一化丢掉）。
+    pub ref_id: Option<Uuid>,
+    /// 目标编码（`MATERIAL_TYPE` 归一化成大写，与唯一索引 `upper(btrim(ref_code))` 同口径）。
+    pub ref_code: Option<&'a str>,
+    /// 预算科目 id（必填，解析命中的落点）。
+    pub account_id: Uuid,
+    /// 部门 id（`None` = 不限部门；部门进唯一键，可按部门覆盖同类型）。
+    pub dept_id: Option<Uuid>,
+    /// 优先级分值（越大越先命中：解析打分 `priority * 10 + 部门加成 * 5`）。
+    pub priority: i32,
+    /// 备注（`None`/空 = 不填）。
+    pub remark: Option<&'a str>,
+    /// 操作人（落 `create_by`）。
+    pub operator: Option<Uuid>,
+}
+
 /// 新建映射。
 ///
 /// 目标对先过 [`crate::business::erp::budget_dto::normalize_target`]：`MATERIAL_TYPE` /
 /// `DEFAULT` 的 `ref_id` 落库恒为 NULL（它们没有目标 id），`MATERIAL_TYPE` 的
 /// `ref_code` 归一化成大写（与唯一索引 `upper(btrim(ref_code))` 同口径）。
-#[allow(clippy::too_many_arguments)]
-pub async fn map_insert(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    map_type: &str,
-    ref_id: Option<Uuid>,
-    ref_code: Option<&str>,
-    account_id: Uuid,
-    dept_id: Option<Uuid>,
-    priority: i32,
-    remark: Option<&str>,
-    operator: Option<Uuid>,
-) -> DbResult<u64> {
+pub async fn map_insert(ex: &impl SqlExecutor, input: MapInsertInput<'_>) -> DbResult<u64> {
+    let MapInsertInput {
+        id,
+        map_type,
+        ref_id,
+        ref_code,
+        account_id,
+        dept_id,
+        priority,
+        remark,
+        operator,
+    } = input;
     let (ref_id, ref_code) = crate::business::erp::budget_dto::normalize_target(map_type, ref_id, ref_code);
     ex.exec_sql(
         "INSERT INTO biz_budget_subject_map (
@@ -1034,23 +1056,47 @@ pub async fn map_insert(
     .await
 }
 
+/// [`map_update`] 的入参（`ex` 之外的 9 项）。
+///
+/// 没有 `ref_id`：目标 id 不可改（换目标 = 删旧建新）。
+#[derive(Debug, Clone, Copy)]
+pub struct MapUpdateInput<'a> {
+    /// 映射行主键（`WHERE id = ?::uuid`）。
+    pub id: Uuid,
+    /// 映射类型（只用于归一化 `ref_code`：`MATERIAL_TYPE` 转大写，其余只去空白）。
+    pub map_type: &'a str,
+    /// 目标编码（归一化后落 `ref_code`）。
+    pub ref_code: Option<&'a str>,
+    /// 预算科目 id（改科目 = 改指向）。
+    pub account_id: Uuid,
+    /// 部门 id（`None` = 不限部门；改动也受唯一键约束）。
+    pub dept_id: Option<Uuid>,
+    /// 优先级分值（越大越先命中）。
+    pub priority: i32,
+    /// 启用状态（1 = 启用；预算科目解析只认 `status = 1`）。
+    pub status: i16,
+    /// 备注（`None`/空 = 清空）。
+    pub remark: Option<&'a str>,
+    /// 操作人（落 `update_by`）。
+    pub operator: Option<Uuid>,
+}
+
 /// 修改映射。
 ///
 /// `map_type` 只用于归一化 `ref_code`（`MATERIAL_TYPE` 转大写，其余只去空白）；
 /// 目标 id 不可改（换目标 = 删旧建新），所以这里没有 `ref_id` 参数。
-#[allow(clippy::too_many_arguments)]
-pub async fn map_update(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    map_type: &str,
-    ref_code: Option<&str>,
-    account_id: Uuid,
-    dept_id: Option<Uuid>,
-    priority: i32,
-    status: i16,
-    remark: Option<&str>,
-    operator: Option<Uuid>,
-) -> DbResult<u64> {
+pub async fn map_update(ex: &impl SqlExecutor, input: MapUpdateInput<'_>) -> DbResult<u64> {
+    let MapUpdateInput {
+        id,
+        map_type,
+        ref_code,
+        account_id,
+        dept_id,
+        priority,
+        status,
+        remark,
+        operator,
+    } = input;
     let (_, ref_code) = crate::business::erp::budget_dto::normalize_target(map_type, None, ref_code);
     ex.exec_sql(
         "UPDATE biz_budget_subject_map

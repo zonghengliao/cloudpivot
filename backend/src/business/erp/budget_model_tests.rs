@@ -470,15 +470,17 @@ mod db {
         ids.push(raw);
         map_insert(
             db(),
-            raw,
-            "MATERIAL_TYPE",
-            Some(Uuid::now_v7()),
-            Some(" raw "),
-            account,
-            dept,
-            0,
-            Some("单测 MATERIAL_TYPE"),
-            None,
+            MapInsertInput {
+                id: raw,
+                map_type: "MATERIAL_TYPE",
+                ref_id: Some(Uuid::now_v7()),
+                ref_code: Some(" raw "),
+                account_id: account,
+                dept_id: dept,
+                priority: 0,
+                remark: Some("单测 MATERIAL_TYPE"),
+                operator: None,
+            },
         )
         .await
         .expect("MATERIAL_TYPE 映射必须能落库（t_ce73ae26 修的就是这条）");
@@ -528,15 +530,17 @@ mod db {
         ids.push(dup);
         let err = map_insert(
             db(),
-            dup,
-            "MATERIAL_TYPE",
-            None,
-            Some("RAW"),
-            account,
-            dept,
-            0,
-            None,
-            None,
+            MapInsertInput {
+                id: dup,
+                map_type: "MATERIAL_TYPE",
+                ref_id: None,
+                ref_code: Some("RAW"),
+                account_id: account,
+                dept_id: dept,
+                priority: 0,
+                remark: None,
+                operator: None,
+            },
         )
         .await
         .expect_err("同目标同物料类型必须撞 uk_biz_bsm_target");
@@ -550,15 +554,17 @@ mod db {
         ids.push(semi);
         map_insert(
             db(),
-            semi,
-            "MATERIAL_TYPE",
-            None,
-            Some("SEMI"),
-            account,
-            dept,
-            0,
-            None,
-            None,
+            MapInsertInput {
+                id: semi,
+                map_type: "MATERIAL_TYPE",
+                ref_id: None,
+                ref_code: Some("SEMI"),
+                account_id: account,
+                dept_id: dept,
+                priority: 0,
+                remark: None,
+                operator: None,
+            },
         )
         .await
         .expect("同一目标下的另一种物料类型必须能落库（唯一性按 ref_code 而非 map_type）");
@@ -570,15 +576,17 @@ mod db {
         ids.push(covered);
         map_insert(
             db(),
-            covered,
-            "MATERIAL_TYPE",
-            None,
-            Some("RAW"),
-            account,
-            Some(dept2),
-            0,
-            None,
-            None,
+            MapInsertInput {
+                id: covered,
+                map_type: "MATERIAL_TYPE",
+                ref_id: None,
+                ref_code: Some("RAW"),
+                account_id: account,
+                dept_id: Some(dept2),
+                priority: 0,
+                remark: None,
+                operator: None,
+            },
         )
         .await
         .expect("另一个部门覆盖同一物料类型必须能落库（部门进唯一键）");
@@ -589,15 +597,17 @@ mod db {
         ids.push(again);
         map_insert(
             db(),
-            again,
-            "MATERIAL_TYPE",
-            None,
-            Some("RAW"),
-            account,
-            dept,
-            0,
-            None,
-            None,
+            MapInsertInput {
+                id: again,
+                map_type: "MATERIAL_TYPE",
+                ref_id: None,
+                ref_code: Some("RAW"),
+                account_id: account,
+                dept_id: dept,
+                priority: 0,
+                remark: None,
+                operator: None,
+            },
         )
         .await
         .expect("软删后同一目标应可重建（uk 仅覆盖 deleted_at IS NULL）");

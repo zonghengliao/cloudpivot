@@ -233,21 +233,45 @@ impl ExplicitLine {
     }
 }
 
+/// [`post_explicit_lines`] 的入参（`ex` 之外的 9 项）。
+///
+/// 一张「显式分录」凭证需要的完整标识 + 分录 + 操作人；字段语义逐项写在下面，
+/// 调用点不必再靠参数顺序记忆「第 5 个是日期还是摘要」。
+#[derive(Debug, Clone, Copy)]
+pub struct ExplicitVoucherInput<'a> {
+    /// 来源单据类型（`SOURCE_DISPOSAL` 等，落凭证 `source_type`）。
+    pub source_type: &'a str,
+    /// 来源单据主键（`None` = 无来源行的手工凭证）。
+    pub source_id: Option<Uuid>,
+    /// 来源单据号（摘要 / 报错文案都用它）。
+    pub source_no: &'a str,
+    /// 凭证日期（落 `voucher_date`）。
+    pub voucher_date: NaiveDate,
+    /// 凭证摘要（分录没写自己的摘要时用它兜底）。
+    pub summary: &'a str,
+    /// 显式分录（至少 2 行；每行只能一个方向）。
+    pub lines: &'a [ExplicitLine],
+    /// 凭证备注（`None` = 不填）。
+    pub remark: Option<&'a str>,
+    /// 操作人（落 `create_by`；`None` = 系统 / 测试）。
+    pub operator: Option<Uuid>,
+    /// 业务时间（落 `created_at`）。
+    pub now: DateTime<Utc>,
+}
+
 /// 落一张「显式分录」凭证（处置 / 结转用；同样共享 `post_voucher` 的全部收敛）。
-// 这十个参数就是一张凭证的完整标识 + 分录 + 操作人；拆成两个结构体只是换个地方堆字段。
-#[allow(clippy::too_many_arguments)]
-pub async fn post_explicit_lines(
-    ex: &impl SqlExecutor,
-    source_type: &str,
-    source_id: Option<Uuid>,
-    source_no: &str,
-    voucher_date: NaiveDate,
-    summary: &str,
-    lines: &[ExplicitLine],
-    remark: Option<&str>,
-    operator: Option<Uuid>,
-    now: DateTime<Utc>,
-) -> DbResult<Uuid> {
+pub async fn post_explicit_lines(ex: &impl SqlExecutor, input: ExplicitVoucherInput<'_>) -> DbResult<Uuid> {
+    let ExplicitVoucherInput {
+        source_type,
+        source_id,
+        source_no,
+        voucher_date,
+        summary,
+        lines,
+        remark,
+        operator,
+        now,
+    } = input;
     if lines.len() < 2 {
         return Err(DbError::InvalidValue(format!(
             "凭证生成失败：{source_no} 的分录只有 {} 行（至少要 2 行）",

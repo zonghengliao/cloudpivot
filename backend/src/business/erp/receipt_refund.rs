@@ -2003,7 +2003,6 @@ pub async fn submit_approval(
 }
 
 /// [`submit_approval`] 的「有流程」分支：发起审批实例（退款单状态**不变**，仍是 `CONFIRMED`）。
-#[allow(clippy::too_many_arguments)]
 async fn start_approval(
     row: &RefundRow,
     flow: &receipt_refund_bridge::RefundFlow,

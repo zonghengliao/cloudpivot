@@ -650,6 +650,29 @@ pub async fn check_slot(
     ))
 }
 
+/// [`occupy`] 的入参（`ex` 之外的 9 项）。
+#[derive(Debug, Clone, Copy)]
+pub struct OccupyInput<'a> {
+    /// 预算槽（部门 × 科目 × 期间口径），占用键就是它。
+    pub slot: &'a Slot,
+    /// 占用金额（含税）。
+    pub amount: Decimal,
+    /// 占用金额（不含税，超支判定用）。
+    pub amount_net: Decimal,
+    /// 占用来源类型（`SOURCE_PURCHASE` / `SOURCE_EXPENSE` / …，与 `source_id` 组成唯一键）。
+    pub source_type: &'a str,
+    /// 来源单据主键（唯一键的另一半）。
+    pub source_id: Uuid,
+    /// 来源单据号（可读，落 `source_no`）。
+    pub source_no: &'a str,
+    /// 判定结果（`over_budget` / `over_amount` 按提交时点快照落库）。
+    pub verdict: &'a BudgetVerdict,
+    /// 预算行快照（只取 `budget_id` 写审计列）。
+    pub snapshot: &'a SlotSnapshot,
+    /// 操作人（落 `create_by`；`None` = 系统 / 测试）。
+    pub operator: Option<Uuid>,
+}
+
 /// 写一条占用（`OCCUPIED`）。**与来源单据的状态流转同事务**（ARCH-6 §3.5.1 事务边界）。
 ///
 /// * `verdict` 的 `over_budget / over_amount` 作为**提交时点快照**落库（额度后来被调高，
@@ -680,19 +703,18 @@ pub async fn check_slot(
 /// 撞 `25P02`（这个码没有被映射成任何具体变体，落成 `DbError::Query`，文案就是
 /// `query failed: : db error`）→ 整个提交 500。**吞掉 23505 并不能救事务**，
 /// 所以正确做法是压根不产生冲突：有释放行就复用。
-#[allow(clippy::too_many_arguments)]
-pub async fn occupy(
-    ex: &impl SqlExecutor,
-    slot: &Slot,
-    amount: Decimal,
-    amount_net: Decimal,
-    source_type: &str,
-    source_id: Uuid,
-    source_no: &str,
-    verdict: &BudgetVerdict,
-    snapshot: &SlotSnapshot,
-    operator: Option<Uuid>,
-) -> DbResult<Option<Uuid>> {
+pub async fn occupy(ex: &impl SqlExecutor, input: OccupyInput<'_>) -> DbResult<Option<Uuid>> {
+    let OccupyInput {
+        slot,
+        amount,
+        amount_net,
+        source_type,
+        source_id,
+        source_no,
+        verdict,
+        snapshot,
+        operator,
+    } = input;
     let budget_id = snapshot.budget_id.map(|id| id.to_string()).unwrap_or_default();
     // ① 复用：同键的 RELEASED 行拉回 OCCUPIED（撤回 / 驳回后重新提交）。
     let revived = ex
@@ -1297,15 +1319,17 @@ pub async fn occupy_for_purchase(
     let snapshot = slot_snapshot(ex, slot).await?;
     occupy(
         ex,
-        slot,
-        order.total_with_tax,
-        order.total_amount,
-        SOURCE_PURCHASE,
-        order.id,
-        &order.order_no,
-        verdict,
-        &snapshot,
-        operator,
+        OccupyInput {
+            slot,
+            amount: order.total_with_tax,
+            amount_net: order.total_amount,
+            source_type: SOURCE_PURCHASE,
+            source_id: order.id,
+            source_no: &order.order_no,
+            verdict,
+            snapshot: &snapshot,
+            operator,
+        },
     )
     .await
 }
@@ -1661,15 +1685,17 @@ pub async fn occupy_for_expense(
         }
         let id = occupy(
             ex,
-            &check.slot,
-            check.amount,
-            check.amount_net,
-            SOURCE_EXPENSE,
-            source_id,
-            source_no,
-            &check.verdict,
-            &check.snapshot,
-            operator,
+            OccupyInput {
+                slot: &check.slot,
+                amount: check.amount,
+                amount_net: check.amount_net,
+                source_type: SOURCE_EXPENSE,
+                source_id,
+                source_no,
+                verdict: &check.verdict,
+                snapshot: &check.snapshot,
+                operator,
+            },
         )
         .await?;
         if id.is_some() {
