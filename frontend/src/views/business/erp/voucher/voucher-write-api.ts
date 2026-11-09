@@ -8,7 +8,7 @@
  *
  * 契约逐字对齐后端（`voucher_write.rs`）：
  *
- * * `POST /business/erp/voucher`              → `VoucherDetailRes`（手工凭证，直接 POSTED）
+ * * `POST /business/erp/voucher`              → `VoucherDetailRes`（手工凭证，落 **DRAFT**，见下方 `createVoucher`）
  * * `POST /business/erp/voucher/{id}/reverse` → `VoucherDetailRes`（**红字凭证**的详情，不是原凭证）
  */
 import { post } from '@/api/request';
@@ -137,9 +137,19 @@ export function withdrawReverseVoucher(id: string, reason?: string | null): Prom
 }
 
 /**
- * 手工新增凭证（分录手工录入，直接 `POSTED`）。
+ * 手工新增凭证（分录手工录入）。
  *
- * 后端校验：≥ 2 条分录、每条单边、借贷平衡（否则 400 并点名差额）、期间必须 `OPEN`（否则 409）。
+ * **状态流：落库即 `DRAFT`（草稿），不是 `POSTED`** —— P0-FIX-4A 的双人复核链要求
+ * 制单人一个人推不进总账，建完单还要走两步：
+ *
+ * 1. `POST /business/erp/voucher/{id}/audit` → `AUDITED`（制单人不能审自己的凭证）；
+ * 2. `POST /business/erp/voucher/{id}/post`  → `POSTED`（这时才进总账 / 报表）。
+ *
+ * 只建单、不审核记账 ⇒ 凭证停在草稿，余额与报表都不会变（别照老注释以为建完就入账）。
+ *
+ * 后端校验：≥ 2 条分录、每条单边、借贷平衡（否则 400 `10001` 并点名差额）；
+ * 分录科目必须存在且启用（否则 400 `66002`），声明了辅助核算的科目必须补齐维度；
+ * 期间必须 `OPEN` —— 已结账 / 未开启 / 不存在都是 **409 `10003`**（先反结账或先开账）。
  */
 export function createVoucher(body: CreateVoucherReq): Promise<VoucherDetailEx> {
   return post<VoucherDetailEx>(`${BASE}/voucher`, body);

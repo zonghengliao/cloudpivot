@@ -65,9 +65,14 @@
 //!
 //! | 动作 | 结果 |
 //! |------|------|
-//! | 在该期间生成凭证（自动 / 手工 / 付款） | **400**「会计期间 X 已结账，不能再生成凭证」—— 闸在 [`voucher::post_voucher`]（所有凭证写入口的唯一收口） |
-//! | 该期间的单据过账 | **400**（过账要生成凭证，撞上同一条闸，整笔事务回滚） |
-//! | 红冲到已结账期间 | **409**（`voucher::reverse_posted` 的既有闸，比 400 更严格：先拦在红冲前置校验） |
+//! | **手工凭证**记到已结账期间（`POST /erp/voucher`） | **409 + 10003**「会计期间 X 已结账，不能再生成凭证」—— 闸在 `voucher_write::manual_in_tx`（拼分录之前），与期初录入 / 红冲同口径（E2E04-FIX-3 ①） |
+//! | 在该期间生成**自动**凭证（收货 / 付款 / 计提 / 结转） | **400 + 10001** —— 闸在 [`voucher::post_voucher`]（自动凭证写入口的唯一收口），整笔事务回滚 |
+//! | 该期间的单据登记 / 过账（开票 / 收款 / 佣金…） | **400 + 10001**（[`ensure_period_writable`]；过账要生成凭证，撞上同一条闸） |
+//! | 红冲到已结账期间 | **409 + 10003**（`voucher::reverse_posted` 的既有闸，比自动凭证更早：先拦在红冲前置校验） |
+//!
+//! 400 / 409 的分界：**面向人的表单提交**（手工凭证）返 409，前端应当引导去反结账；
+//! **内部过账流水线**（自动凭证 / 单据过账）返 400，它们由流程回滚 + 单据状态承载错误，
+//! 改这一批要同时动 20 余处调用点与 e2e 断言，留作后续独立卡（本卡只统一手工凭证入口）。
 //!
 //! # 数据权限
 //!
@@ -2604,13 +2609,18 @@ mod tests {
         cleanup_year_end_log(2032).await;
     }
 
-    /// ⑮ 手工凭证接口（`voucher_write::create_manual_voucher`）在已结账期间 → **400**。
+    /// ⑮ 手工凭证接口（`voucher_write::create_manual_voucher`）在已结账期间 → **409 + 10003**。
     ///
-    /// ⑨ 证明的是 `post_voucher`（唯一落库收口）会挡；这条证明**手工凭证入口**
-    /// 在拼分录之前就给同一个 400 —— 生产真机验收第一轮正是在这里发现它返回了 409
-    /// （「手工凭证只能记到已开启期间」），与卡面要求的 400「期间已结账」不一致。
+    /// ⑨ 证明的是 `post_voucher`（自动凭证的落库收口）会挡；这条证明**手工凭证入口**
+    /// 在拼分录之前就给出**同一个语义的错误码**：`409 + RESOURCE_CONFLICT(10003)`，
+    /// 与期初录入 / 红冲到已结账期间一致（E2E04-FIX-3 ①）。
+    ///
+    /// 历史：ERP-P1 曾按当时的卡面口径把它写成 400 + 10001，与同类入口不一致 ——
+    /// 「期间已封账」是**状态**冲突，不是入参写错，400 会让前端去高亮表单字段。
+    ///
+    /// 反过来也钉住：反结账之后同一个请求必须成功，且落库是 **DRAFT**（不是 POSTED）。
     #[tokio::test]
-    async fn p1_manual_voucher_on_closed_period_is_bad_request() {
+    async fn p1_manual_voucher_on_closed_period_is_conflict() {
         use crate::business::erp::voucher_write::{CreateVoucherReq, ManualEntryReq, create_manual_voucher};
 
         let Some(_guard) = setup().await else {
@@ -2659,10 +2669,36 @@ mod tests {
         let err = create_manual_voucher(&req, Some(uid()))
             .await
             .expect_err("已结账期间不能记手工凭证");
-        assert_eq!(err.status, 400, "{} / {}", err.code, err.msg);
+        assert_eq!(err.status, 409, "{} / {}", err.code, err.msg);
+        assert_eq!(
+            err.code,
+            crate::shared::error_code::RESOURCE_CONFLICT,
+            "必须是 10003（状态冲突），不是 10001（参数错误）：{}",
+            err.msg
+        );
         assert!(err.msg.contains("已结账"), "{}", err.msg);
         assert!(err.msg.contains("2031-09"), "文案要点名期间：{}", err.msg);
         assert_eq!(voucher_count("2031-09").await, 0, "凭证一行都不该落库");
+
+        // 反结账之后同一个请求必须过 —— 证明本卡只改了错误码，没有把闸拆掉；
+        // 且落库是 DRAFT（P0-FIX-4A 的双人复核链），不是 POSTED。
+        reopen_period(
+            uuid_of(&opened.id),
+            Some("E2E04-FIX-3 ①：反结账后同一张手工凭证应能建单"),
+            operator(),
+        )
+        .await
+        .expect("反结账应成功");
+        let created = create_manual_voucher(&req, Some(uid()))
+            .await
+            .expect("反结账后手工凭证应能建单");
+        assert_eq!(
+            created.voucher.status, "DRAFT",
+            "手工凭证建单即 DRAFT，要 audit → post 两步才进总账"
+        );
+        assert_eq!(voucher_count("2031-09").await, 1, "建单后应恰好一张");
+        // 零残留：本用例造的期间 / 凭证 / 状态日志一并收掉（不留给下一个用例）。
+        cleanup().await;
     }
 
     // ---------- 纯逻辑（不连库） ----------
