@@ -102,7 +102,7 @@ function asParams<T extends object>(query: T): Record<string, unknown> {
 export interface AssetCategory {
   /** 主键 */
   id: string;
-  /** 分类编码（大写字母 / 数字 / 下划线，如 `ELEC`） */
+  /** 分类编码（字母 / 数字 / `-` `_` `.`，≤ 40；大小写按填写原样保存，如 `ELEC` / `elec`） */
   category_code: string;
   /** 分类名称（如「电子设备」） */
   category_name: string;
@@ -345,6 +345,14 @@ export interface AssetDetail {
   months_left: number;
   /** 剩余可提金额 */
   amount_left: string;
+  /**
+   * **本次操作的放行警告**（`undefined` / 缺省 = 无；E2E05-FIX-2 方案 B）。
+   *
+   * 只有「启用（`IDLE → IN_USE`）但缺发票 / 验收单」这一条路径会给值：
+   * 后端照常改状态（不再 400），但会写一条「无附件启用」审计，
+   * 并把同一句话放进这里 —— 前端据此弹 warning，**不是**错误。
+   */
+  warning?: string;
 }
 
 /** 建卡 / 变更接口回的主键与单号（`IdRes`）。 */
