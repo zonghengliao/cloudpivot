@@ -53,6 +53,12 @@ for _ in range(12):
         "(select 1 from biz_task c where c.parent_id=biz_task.id and c.deleted_at is null)"
     )
 STEPS += [
+    # 任务验收审批单（TASK_ACCEPT）：任务删完后清实例链 —— 否则实例的 initiator_id
+    # 仍引用本卡用户，删用户会被 biz_flow_instance_initiator_id_fkey 挡住
+    "delete from biz_flow_cc where instance_id in (select id from biz_flow_instance where title like '%E2E11%')",
+    "delete from biz_flow_task where instance_id in (select id from biz_flow_instance where title like '%E2E11%')",
+    "delete from biz_flow_instance_node where instance_id in (select id from biz_flow_instance where title like '%E2E11%')",
+    "delete from biz_flow_instance where title like '%E2E11%'",
     "delete from biz_project_member where project_id in (select id from biz_project where project_no like 'E2E11%')",
     "delete from biz_project where project_no like 'E2E11%'",
     # 用户 / 角色

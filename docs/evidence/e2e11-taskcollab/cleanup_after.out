@@ -1,0 +1,62 @@
+== 清理前 ==
+  task = 0
+  dep = 0
+  attachment = 0
+  template = 0
+  project = 0
+  announcement = 0
+  notice = 0
+  notice_tpl = 0
+  role = 0
+  user = 4
+
+== 执行 ==
+  delete from sys_notice_delivery where notice_id in (select id from sys_notice where titl... => DELETE 0
+  delete from sys_notice_receiver where notice_id in (select id from sys_notice where titl... => DELETE 0
+  delete from sys_notice where title like 'E2E11%' or biz_id in (select id::text from biz_... => DELETE 0
+  delete from sys_notice_template where template_code like 'E2E11%'... => DELETE 0
+  delete from sys_announcement_read where announcement_id in (select id from sys_announcem... => DELETE 0
+  delete from sys_announcement_attachment where announcement_id in (select id from sys_ann... => DELETE 0
+  delete from sys_announcement_scope where announcement_id in (select id from sys_announce... => DELETE 0
+  delete from sys_announcement where title like 'E2E11%'... => DELETE 0
+  delete from sys_file where original_name like 'e2e11-%' and category='announcement'... => DELETE 0
+  delete from biz_task_worklog where task_id in (select id from biz_task where title like ... => DELETE 0
+  delete from biz_task_comment where task_id in (select id from biz_task where title like ... => DELETE 0
+  delete from biz_task_member where task_id in (select id from biz_task where title like '... => DELETE 0
+  delete from biz_task_dependency where task_id in (select id from biz_task where title li... => DELETE 0
+  delete from biz_task_attachment where task_id in (select id from biz_task where title li... => DELETE 0
+  delete from biz_task_template where name like 'E2E11%'... => DELETE 0
+  delete from biz_task where title like 'E2E11%' and not exists (select 1 from biz_task c ... => DELETE 0
+  delete from biz_task where title like 'E2E11%' and not exists (select 1 from biz_task c ... => DELETE 0
+  delete from biz_task where title like 'E2E11%' and not exists (select 1 from biz_task c ... => DELETE 0
+  delete from biz_task where title like 'E2E11%' and not exists (select 1 from biz_task c ... => DELETE 0
+  delete from biz_task where title like 'E2E11%' and not exists (select 1 from biz_task c ... => DELETE 0
+  delete from biz_task where title like 'E2E11%' and not exists (select 1 from biz_task c ... => DELETE 0
+  delete from biz_task where title like 'E2E11%' and not exists (select 1 from biz_task c ... => DELETE 0
+  delete from biz_task where title like 'E2E11%' and not exists (select 1 from biz_task c ... => DELETE 0
+  delete from biz_task where title like 'E2E11%' and not exists (select 1 from biz_task c ... => DELETE 0
+  delete from biz_task where title like 'E2E11%' and not exists (select 1 from biz_task c ... => DELETE 0
+  delete from biz_task where title like 'E2E11%' and not exists (select 1 from biz_task c ... => DELETE 0
+  delete from biz_task where title like 'E2E11%' and not exists (select 1 from biz_task c ... => DELETE 0
+  delete from biz_flow_cc where instance_id in (select id from biz_flow_instance where tit... => DELETE 0
+  delete from biz_flow_task where instance_id in (select id from biz_flow_instance where t... => DELETE 25
+  delete from biz_flow_instance_node where instance_id in (select id from biz_flow_instanc... => DELETE 50
+  delete from biz_flow_instance where title like '%E2E11%'... => DELETE 19
+  delete from biz_project_member where project_id in (select id from biz_project where pro... => DELETE 0
+  delete from biz_project where project_no like 'E2E11%'... => DELETE 0
+  delete from sys_user_role where role_id in (select id from sys_role where role_code like... => DELETE 0
+  delete from sys_role_menu where role_id in (select id from sys_role where role_code like... => DELETE 0
+  delete from sys_role where role_code like 'E2E11%'... => DELETE 0
+  delete from sys_user where username like 'e2e11\_%'... => DELETE 4
+
+== 清理后 ==
+  task = 0
+  dep = 0
+  template = 0
+  project = 0
+  announcement = 0
+  notice = 0
+  role = 0
+  user = 0
+
+残留非零项 = 0

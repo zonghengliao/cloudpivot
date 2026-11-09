@@ -153,4 +153,11 @@ python3 e2e11_cleanup.py      # 收尾自清（残留应为 0）
 | `asserts.log` | 324 条断言原始日志（`PASS/FAIL\t场景\t说明`） |
 | `run_a.out` / `run_b.out` | 两段脚本完整 stdout（含每步 HTTP 状态与 DB 值） |
 | `db_evidence.out` | 20 组 DB 证据 + 9 组断言式勾稽输出 |
-| `raw/*.json` | 每步 API 原始响应（193 个，按步骤名索引，页面契约以此为准） |
+| `cleanup_after.out` | 收尾自清输出（残留全 0：task/dep/template/project/announcement/notice/role/user） |
+| `raw/*.json` | 每步 API 原始响应（190 个，按步骤名索引，页面契约以此为准） |
+
+## 清理口径（踩过的坑，后续卡复用）
+
+任务验收会生成 `TASK_ACCEPT` 审批实例，其 `initiator_id` 引用本卡用户 → **先删任务、再删 `biz_flow_instance` 链、最后才删用户**，否则 `biz_flow_instance_initiator_id_fkey` 会挡住 `delete from sys_user`（首次收尾残留 4 个用户，补了 4 条 `biz_flow_cc / biz_flow_task / biz_flow_instance_node / biz_flow_instance`（按 `title like '%E2E11%'`）后归零）。
+
+另：用 SQL 直改 `sys_role.data_scope` 的演练/运维动作必须配 `e2e11_flush_scope.py` 清 `perm:user_scope:*`，否则 300s 内数据范围仍是旧值（见问题清单 #4）。
