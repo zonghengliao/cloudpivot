@@ -1,5 +1,10 @@
 import axios, { AxiosError, type AxiosInstance, type AxiosRequestConfig } from 'axios';
 import { offerAssigneeFix } from '@/utils/flow-assignee-guard';
+import { newRequestId, resolveRequestId, withRequestId, REQUEST_ID_HEADER } from './request-id';
+
+// 请求 ID 的生成 / 解析 / 文案拼装都在 `./request-id`（纯逻辑，可被 Node 单测直接 import）；
+// 此处 re-export 保持既有调用点 `import { newRequestId } from '@/api/request'` 不变。
+export { REQUEST_ID_HEADER, newRequestId } from './request-id';
 
 /** 后端统一响应体（对应 Rust 侧 `Res<T>`） */
 export interface ApiResult<T = unknown> {
@@ -52,6 +57,19 @@ type RetriableConfig = AxiosRequestConfig & { /** 是否已经因 401 重放过 
  * 业务异常：后端返回了 `code !== 0` 的统一响应体，或 HTTP 层请求失败。
  *
  * 调用方通过 `instanceof ApiError` 区分「业务失败」与「代码缺陷」。
+ *
+ * # requestId（N-4）
+ *
+ * `requestId` 是**该次请求**的服务端 ID，与 `journald` 日志里 `request{request_id=…}`、
+ * 响应头 `X-Request-Id`、`operation_logs.request_id` 是同一个值。用户报障时凭它一条命令
+ * 就能还原整条链路：
+ *
+ * ```bash
+ * journalctl -u cloudpivot-base --since -1h | grep <requestId>
+ * ```
+ *
+ * 为了让仓内 175 处既有的 `showError(err.message)` 不用逐个改就带上它，构造时会把
+ * ID 追加到 `message` 末尾（`…（请求 ID：xxx）`）。需要纯文案时读 `requestId` 字段。
  */
 export class ApiError extends Error {
   /** 业务状态码；网络层失败时为 0 */
@@ -73,13 +91,17 @@ export class ApiError extends Error {
    * 前端就崩）。没有载荷的错误码（绝大多数）此字段为 `undefined`。
    */
   readonly data?: unknown;
+  /** 本次请求的服务端 `request_id`（用于 grep 日志还原链路；无请求上下文时为 `undefined`） */
+  readonly requestId?: string;
 
-  constructor(code: number, message: string, status?: number, data?: unknown) {
-    super(message);
+  constructor(code: number, message: string, status?: number, data?: unknown, requestId?: string) {
+    // 追加而非替换：既有 175 处 `showError(err.message)` 一个都不用改就能带上 ID
+    super(withRequestId(message, requestId));
     this.name = 'ApiError';
     this.code = code;
     this.status = status;
     this.data = data;
+    this.requestId = requestId;
   }
 }
 
@@ -88,11 +110,16 @@ const service: AxiosInstance = axios.create({
   timeout: 15000,
 });
 
-// 请求拦截：注入 Bearer Token，避免每个调用点重复处理鉴权头
+// 请求拦截：注入 Bearer Token + 每个请求一个 X-Request-Id
+// （后端会原样采信并写进日志 / 响应头，两侧因此能用同一个 ID 排查同一次请求）
 service.interceptors.request.use((config) => {
   const token = localStorage.getItem(TOKEN_KEY);
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+  // 已经显式指定过（例如重放时保留原 ID）就不覆盖
+  if (!config.headers[REQUEST_ID_HEADER]) {
+    config.headers[REQUEST_ID_HEADER] = newRequestId();
   }
   return config;
 });
@@ -189,6 +216,8 @@ function redirectToLogin(): void {
 function toApiError(error: AxiosError<ApiResult>): ApiError {
   const body = error.response?.data;
   const status = error.response?.status;
+  // 后端回传的 x-request-id 优先；网络层失败时退回我们自己发出去的那个
+  const requestId = resolveRequestId(error.response?.headers, error.config?.headers?.[REQUEST_ID_HEADER]);
   // 后端在 401/403/500 等错误路径上也返回统一响应体，优先采用其 msg
   if (body && typeof body === 'object' && typeof body.msg === 'string' && body.msg) {
     if (status === 401) {
@@ -200,19 +229,20 @@ function toApiError(error: AxiosError<ApiResult>): ApiError {
       status,
       // 65018 这类错误带结构化载荷（见 ApiError.data 的注释）；其它错误为 undefined
       (body as { data?: unknown }).data,
+      requestId,
     );
   }
   if (status === 401) {
     clearTokens();
-    return new ApiError(-1, '登录状态已失效，请重新登录', status);
+    return new ApiError(-1, '登录状态已失效，请重新登录', status, undefined, requestId);
   }
   if (status === 403) {
-    return new ApiError(-1, '权限不足', status);
+    return new ApiError(-1, '权限不足', status, undefined, requestId);
   }
   if (error.code === 'ECONNABORTED') {
-    return new ApiError(-1, '请求超时，请稍后重试');
+    return new ApiError(-1, '请求超时，请稍后重试', undefined, undefined, requestId);
   }
-  return new ApiError(-1, error.message || '网络异常，请检查服务是否可用');
+  return new ApiError(-1, error.message || '网络异常，请检查服务是否可用', undefined, undefined, requestId);
 }
 
 /** 清除本地令牌（登出或令牌失效时调用） */
@@ -239,11 +269,16 @@ export function saveTokens(accessToken: string, refreshToken?: string): void {
 async function request<T>(config: AxiosRequestConfig): Promise<T> {
   const response = await service.request<ApiResult<T>>(config);
   const body = response.data;
+  // HTTP 200 但业务码非 0 时也要带上 request_id（后端此时也会把 ID 放进响应头）
+  const requestId = resolveRequestId(
+    response.headers,
+    (response.config.headers as Record<string, unknown> | undefined)?.[REQUEST_ID_HEADER],
+  );
   if (body === null || typeof body !== 'object' || typeof body.code !== 'number') {
-    throw new ApiError(-1, '响应体格式不符合统一响应规范');
+    throw new ApiError(-1, '响应体格式不符合统一响应规范', response.status, undefined, requestId);
   }
   if (body.code !== 0) {
-    throw new ApiError(body.code, body.msg, response.status, (body as { data?: unknown }).data);
+    throw new ApiError(body.code, body.msg, response.status, (body as { data?: unknown }).data, requestId);
   }
   return body.data;
 }

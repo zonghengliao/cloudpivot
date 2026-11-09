@@ -52,8 +52,8 @@ pub mod utils;
 /// 5. [`App::plugin`] 注册自定义插件：启动守卫（[`shared::startup_guard::AuthSecretGuardPlugin`]，
 ///    用框架权威配置再校验一次，认证已开启而密钥为空 / 过短时在此中止启动）、日志总线
 ///    （[`support::log::plugin::LogPlugin`]）与调度器（[`task::scheduler`]）；
-/// 6. [`App::layer_from_fn`] 注入操作日志中间件（链**外**层：覆盖整站，含 401 / 403 / 429
-///    与 404 兜底）；
+/// 6. [`App::layer_from_fn`] 注入链外层中间件（覆盖整站，含 401 / 403 / 429 与 404 兜底）：
+///    任务级令牌、操作日志，最后是最外层的**请求上下文**（`request_id` span + 请求/响应头）；
 /// 7. [`App::scan`] 收集宏声明的路由；
 /// 8. [`App::start`] 初始化数据库/缓存等资源、启动插件并监听 `[server].listen`。
 ///
@@ -116,6 +116,12 @@ pub async fn run() -> Result<()> {
         // 本层只处理 `Authorization: Bearer cpai_…`，人类 JWT 请求原样放行（零影响）。
         .layer_from_fn(|router| router.layer(axum::middleware::from_fn(middleware::task_token::guard)))
         .layer_from_fn(middleware::operation_log::layer)
+        // 请求上下文（N-4）：必须注册在**最后** ⇒ 位于链最外层。
+        // 理由：`router_extensions` 按注册顺序逐个 `layer()` 包裹，后注册者更靠外。
+        // 在最外层它才能：
+        //   ① 先于框架 `RequestLog` 把规范化 `x-request-id` 写进请求头（否则访问日志恒为 `-`）；
+        //   ② 用 `request` span 覆盖**整条**链路（框架中间件 + 认证 + handler + SQL + 下游）。
+        .layer_from_fn(middleware::request_context::layer)
         .scan()
         .start()
         .await

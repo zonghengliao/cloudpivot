@@ -15,6 +15,7 @@
 //! | 中间件 | 职责 | 挂载方式 |
 //! |--------|------|----------|
 //! | [`operation_log`] | 记录写操作（方法 / 路径 / 操作人 / 耗时 / 结果）到 `operation_logs` | `layer_from_fn`（链外层） |
+//! | [`request_context`] | `request_id` 贯穿：开 `request` span + 注入请求头 + 回写响应头 | `layer_from_fn`（最外层） |
 //! | [`session_guard`] | 会话守卫：令牌版本比对 + 首登强制改密 | `route_layer`（链内层） |
 //! | [`auth_guard`] | 吊销复检：黑名单查询失败即拒绝（fail-closed） | `route_layer`（链内层） |
 //! | [`task_token`] | 任务级短期令牌（白名单 + task_id 绑定） | `layer_from_fn`（最外层） |
@@ -22,6 +23,7 @@
 
 pub mod auth_guard;
 pub mod operation_log;
+pub mod request_context;
 pub mod session_guard;
 pub mod task_token;
 
