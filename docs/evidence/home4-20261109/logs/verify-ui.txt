@@ -1,0 +1,65 @@
+
+== 超管：首页默认 Tab ==
+PASS  超管页有两个 Tab :: ["系统信息","工作台"]
+PASS  默认 Tab = 工作台 :: 工作台
+PASS  工作台问候语条可见
+PASS  问候语格式「xx好，姓名」 :: 晚上好，超级管理员
+  副标题：今天是 2026年11月09日 · 今天 1 项任务 · 逾期 1 项 · 本周 0 项
+PASS  工作台：工作任务卡可见
+PASS  工作台：公告与消息卡可见
+PASS  工作台：快捷入口区块存在
+PASS  工作任务卡有真实条目 :: 2 行
+PASS  公告与消息卡有真实条目 :: 4 行
+PASS  默认工作台不渲染健康摘要（懒加载）
+PASS  默认工作台不渲染系统概况卡
+PASS  默认工作台不渲染趋势图
+PASS  首屏未请求 /support/dashboard/overview（懒加载）
+PASS  首屏未请求 /monitor/server-status（懒加载）
+  📸 /var/tmp/home4/ui/01-admin-workbench.png
+
+== 超管：切到「系统信息」==
+PASS  健康摘要 4 个指标 :: 4
+PASS  健康摘要数值已渲染 :: ["95.0%","33.6%","91.0%","1/3"]
+  健康摘要：["95.0%","33.6%","91.0%","1/3"] / ["4 逻辑核心","5.1 GB / 15.1 GB","230.0 GB / 252.8 GB","Redis 不可用 · Hermes Agent 未安装"]
+PASS  系统概况 8 张指标卡 :: 8
+  系统概况：["用户总数","在线用户","今日登录","登录失败率","近 7 天操作日志","角色总数","菜单总数","定时任务"]
+PASS  系统概况含今日登录等运维口径
+PASS  两条趋势图卡位 :: 2
+PASS  ECharts 画布已渲染 :: 2 个 canvas
+PASS  健康摘要右上角有「查看详情」 :: 查看详情
+  📸 /var/tmp/home4/ui/02-admin-system-info.png
+
+== 超管：健康摘要「查看详情」跳转 ==
+PASS  「查看详情」跳到服务器状态页 :: /system/server-status
+  📸 /var/tmp/home4/ui/03-server-status-from-health.png
+
+== 超管：Tab 来回切换不重复请求 ==
+PASS  首次切到系统信息：概览接口只请求 1 次 :: 1 → 2
+PASS  首次切到系统信息：服务器状态接口只请求 1 次 :: 2 → 3
+PASS  再切回系统信息：概览接口不再请求（组件常驻） :: 2 → 2
+PASS  再切回系统信息：服务器状态接口不再请求 :: 3 → 3
+PASS  超管 Tab2 工作台四块齐全
+  📸 /var/tmp/home4/ui/04-admin-workbench-1360.png
+  📸 /var/tmp/home4/ui/05-admin-workbench-960.png
+PASS  超管控制台 0 error
+
+== 非超管：首页形态 ==
+PASS  非超管没有任何 Tab :: 0
+PASS  非超管：问候语条可见
+PASS  非超管：工作任务卡可见
+PASS  非超管：公告与消息卡可见
+PASS  非超管：快捷入口区块存在
+PASS  非超管：页面无任何趋势图（ECharts canvas 0）
+PASS  非超管：无健康摘要
+PASS  非超管：无系统概况
+PASS  非超管未请求 /support/dashboard/overview
+PASS  非超管未请求 /monitor/server-status
+PASS  非超管无 403/401 响应 :: []
+PASS  超管 Tab2 与非超管首页结构一致（同一组件渲染同一批卡片） :: {"banner":true,"tasks":true,"feed":true,"entries":true}
+PASS  非超管：快捷入口有可用条目（业务动线入口）
+PASS  两处卡片标题序列一致 :: ["t-card__title","t-card__title","t-card__title"]
+  📸 /var/tmp/home4/ui/06-viewer-workbench.png
+  📸 /var/tmp/home4/ui/07-viewer-960.png
+PASS  非超管控制台 0 error
+
+===== 汇总：43 passed / 0 failed =====

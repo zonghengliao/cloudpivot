@@ -1,0 +1,1 @@
+{"code":0,"msg":"ok","data":{"id":"01a1c0b2-41bc-763a-94c8-455c87286e74","username":"admin","real_name":"超级管理员","email":null,"mobile":null,"dept_id":null,"roles":["SUPER_ADMIN"],"permissions":["*:*:*"],"must_change_password":false}}

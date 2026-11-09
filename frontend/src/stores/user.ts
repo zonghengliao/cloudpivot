@@ -16,6 +16,15 @@ import { clearLoginUnreadShown } from '@/utils/login-unread';
 /** 超级管理员通配权限码 */
 const SUPER_PERMISSION = '*:*:*';
 
+/**
+ * 超级管理员角色编码（与后端 `constants::SUPER_ADMIN_ROLE_CODE` 逐字一致）。
+ *
+ * 判定口径照后端 `system::auth::model::is_super_admin`：角色码列表里含它即为超管，
+ * 后端据此短路全部权限校验并下发 `*:*:*`。前端不能自创第二套判定，
+ * 否则「首页显示系统信息但接口 403」这类错位会从这个缺口长出来。
+ */
+const SUPER_ADMIN_ROLE_CODE = 'SUPER_ADMIN';
+
 /** 参与导航渲染的菜单类型：目录与菜单（按钮类型仅作为权限点） */
 const NAV_MENU_TYPES: number[] = [1, 2];
 
@@ -58,6 +67,13 @@ export const useUserStore = defineStore('user', () => {
   const permissions = computed<string[]>(() => userInfo.value?.permissions ?? []);
   /** 角色编码列表 */
   const roles = computed<string[]>(() => userInfo.value?.roles ?? []);
+  /**
+   * 是否超级管理员（首页「系统信息」Tab 与服务器状态入口的开关）。
+   *
+   * 只认后端下发的角色码，与 `system::auth::model::is_super_admin` 同口径；
+   * 不用 `hasPermission('*:*:*')`——那是权限层的推论，角色层才是语义源头。
+   */
+  const isSuperAdmin = computed<boolean>(() => roles.value.includes(SUPER_ADMIN_ROLE_CODE));
   /** 顶栏展示名称，优先真实姓名 */
   const displayName = computed<string>(() => userInfo.value?.real_name || userInfo.value?.username || '');
   /** 侧边栏菜单树（已按可见性与权限过滤） */
@@ -138,6 +154,7 @@ export const useUserStore = defineStore('user', () => {
     mustChangePassword,
     permissions,
     roles,
+    isSuperAdmin,
     displayName,
     navMenus,
     hasPermission,

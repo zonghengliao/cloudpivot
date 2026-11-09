@@ -1,0 +1,192 @@
+{
+  "admin": {
+    "greeting": "晚上好，超级管理员",
+    "subtitle": "今天是 2026年11月09日 · 今天 1 项任务 · 逾期 1 项 · 本周 0 项",
+    "taskRows": 2,
+    "feedRows": 4,
+    "initialRequests": [
+      "/src/api/request.ts",
+      "/src/api/system/preference-api.ts",
+      "/src/api/system/auth-api.ts",
+      "/api/system/auth/login",
+      "/api/system/auth/me",
+      "/api/system/auth/menus",
+      "/api/system/auth/preference",
+      "/src/api/business/notice/index.ts",
+      "/src/api/system/user-api.ts",
+      "/src/api/system/setup-api.ts",
+      "/src/api/business/task-api.ts",
+      "/src/api/business/flow-api.ts",
+      "/src/api/business/announcement-api.ts",
+      "/src/api/badge.ts",
+      "/src/api/support/dashboard-api.ts",
+      "/src/api/business/monitor-api.ts",
+      "/api/business/notice/stream",
+      "/api/business/task/my",
+      "/api/business/announcement/visible?page=1&page_size=5",
+      "/api/business/notice/mine?page=1&page_size=10",
+      "/api/business/notice/unread-count",
+      "/api/business/notice/unread-count",
+      "/api/system/badge/counts",
+      "/api/business/notice/unread-count",
+      "/api/business/announcement/unread-count",
+      "/api/business/task/page?page=1&page_size=1&status=TODO&owner_id=01a1c0b2-41bc-763a-94c8-455c87286e74",
+      "/api/business/flow/task/todo?page=1&page_size=1",
+      "/api/system/setup/check",
+      "/api/system/user/page?page=1&page_size=200&status=1"
+    ],
+    "health": {
+      "values": [
+        "95.0%",
+        "33.6%",
+        "91.0%",
+        "1/3"
+      ],
+      "foots": [
+        "4 逻辑核心",
+        "5.1 GB / 15.1 GB",
+        "230.0 GB / 252.8 GB",
+        "Redis 不可用 · Hermes Agent 未安装"
+      ]
+    }
+  },
+  "viewer": {
+    "requests": [
+      "/src/api/system/preference-api.ts",
+      "/src/api/request.ts",
+      "/src/api/system/auth-api.ts",
+      "/api/system/auth/login",
+      "/api/system/auth/me",
+      "/api/system/auth/menus",
+      "/api/system/auth/preference",
+      "/src/api/business/notice/index.ts",
+      "/src/api/business/task-api.ts",
+      "/src/api/business/flow-api.ts",
+      "/src/api/business/announcement-api.ts",
+      "/src/api/system/user-api.ts",
+      "/src/api/system/setup-api.ts",
+      "/src/api/badge.ts",
+      "/src/api/support/dashboard-api.ts",
+      "/src/api/business/monitor-api.ts",
+      "/api/business/notice/stream",
+      "/api/business/task/my",
+      "/api/business/announcement/visible?page=1&page_size=5",
+      "/api/business/notice/mine?page=1&page_size=10",
+      "/api/business/notice/unread-count",
+      "/api/business/notice/unread-count",
+      "/api/system/badge/counts",
+      "/api/business/notice/unread-count",
+      "/api/business/announcement/unread-count",
+      "/api/business/task/page?page=1&page_size=1&status=TODO&owner_id=01a1c0b2-d213-748f-99ed-9e1ca0d80f12",
+      "/api/business/flow/task/todo?page=1&page_size=1"
+    ],
+    "forbidden": []
+  },
+  "lazy": {
+    "overview": [
+      1,
+      2,
+      2
+    ],
+    "serverStatus": [
+      2,
+      3,
+      3
+    ]
+  },
+  "structure": {
+    "adminWorkbench": {
+      "rootClass": "wb",
+      "cards": [
+        "t-card__title",
+        "t-card__title",
+        "t-card__title"
+      ],
+      "blocks": {
+        "banner": true,
+        "tasks": true,
+        "feed": true,
+        "entries": true
+      },
+      "trendChart": false
+    },
+    "viewerWorkbench": {
+      "rootClass": "wb",
+      "cards": [
+        "t-card__title",
+        "t-card__title",
+        "t-card__title"
+      ],
+      "blocks": {
+        "banner": true,
+        "tasks": true,
+        "feed": true,
+        "entries": true
+      }
+    }
+  },
+  "console": {
+    "admin": [],
+    "viewer": []
+  },
+  "screenshots": [
+    "/var/tmp/home4/ui/01-admin-workbench.png",
+    "/var/tmp/home4/ui/02-admin-system-info.png",
+    "/var/tmp/home4/ui/03-server-status-from-health.png",
+    "/var/tmp/home4/ui/04-admin-workbench-1360.png",
+    "/var/tmp/home4/ui/05-admin-workbench-960.png",
+    "/var/tmp/home4/ui/06-viewer-workbench.png",
+    "/var/tmp/home4/ui/07-viewer-960.png"
+  ],
+  "pass": [
+    "超管页有两个 Tab",
+    "默认 Tab = 工作台",
+    "工作台问候语条可见",
+    "问候语格式「xx好，姓名」",
+    "工作台：工作任务卡可见",
+    "工作台：公告与消息卡可见",
+    "工作台：快捷入口区块存在",
+    "工作任务卡有真实条目",
+    "公告与消息卡有真实条目",
+    "默认工作台不渲染健康摘要（懒加载）",
+    "默认工作台不渲染系统概况卡",
+    "默认工作台不渲染趋势图",
+    "首屏未请求 /support/dashboard/overview（懒加载）",
+    "首屏未请求 /monitor/server-status（懒加载）",
+    "健康摘要 4 个指标",
+    "健康摘要数值已渲染",
+    "系统概况 8 张指标卡",
+    "系统概况含今日登录等运维口径",
+    "两条趋势图卡位",
+    "ECharts 画布已渲染",
+    "健康摘要右上角有「查看详情」",
+    "「查看详情」跳到服务器状态页",
+    "首次切到系统信息：概览接口只请求 1 次",
+    "首次切到系统信息：服务器状态接口只请求 1 次",
+    "再切回系统信息：概览接口不再请求（组件常驻）",
+    "再切回系统信息：服务器状态接口不再请求",
+    "超管 Tab2 工作台四块齐全",
+    "超管控制台 0 error",
+    "非超管没有任何 Tab",
+    "非超管：问候语条可见",
+    "非超管：工作任务卡可见",
+    "非超管：公告与消息卡可见",
+    "非超管：快捷入口区块存在",
+    "非超管：页面无任何趋势图（ECharts canvas 0）",
+    "非超管：无健康摘要",
+    "非超管：无系统概况",
+    "非超管未请求 /support/dashboard/overview",
+    "非超管未请求 /monitor/server-status",
+    "非超管无 403/401 响应",
+    "超管 Tab2 与非超管首页结构一致（同一组件渲染同一批卡片）",
+    "非超管：快捷入口有可用条目（业务动线入口）",
+    "两处卡片标题序列一致",
+    "非超管控制台 0 error"
+  ],
+  "fail": [],
+  "summary": {
+    "pass": 43,
+    "fail": 0,
+    "failed": []
+  }
+}
