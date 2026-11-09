@@ -1,0 +1,61 @@
+=== A) 脏行应为 0 ===
+ dirty_usage 
+-------------
+           0
+(1 row)
+
+ dirty_report 
+--------------
+            0
+(1 row)
+
+=== B) 真超支（有 budget_id）必须原样保留 ===
+      source_no      | period_code | over_budget | over_amount |              budget_id               |  status  
+---------------------+-------------+-------------+-------------+--------------------------------------+----------
+ EXP-20261107-000012 | 2026-11     |           1 | 2500.0000   | 01a1b604-51d8-74ab-987b-b2dd6315e930 | CONSUMED
+ EXP-20261109-000062 | 2027-02     |           1 | 500.0000    | 01a1bf08-d98e-73a1-b1f2-f07fc7c1b78e | CONSUMED
+(2 rows)
+
+=== C) 回填后的原脏行（应为 over=0 / over_amount=NULL） ===
+      source_no      |  status  | over_budget | coalesce 
+---------------------+----------+-------------+----------
+ EXP-20261107-000002 | CONSUMED |           0 | NULL
+ EXP-20261107-000003 | CONSUMED |           0 | NULL
+ EXP-20261107-000004 | RELEASED |           0 | NULL
+ EXP-20261107-000013 | OCCUPIED |           0 | NULL
+ EXP-20261107-000014 | OCCUPIED |           0 | NULL
+(5 rows)
+
+=== D) 单据头（over=0 / over_amount NULL / missing_budget=1） ===
+      report_no      |  status   | over_budget | coalesce | missing_budget 
+---------------------+-----------+-------------+----------+----------------
+ EXP-20261107-000002 | PAID      |           0 | NULL     |              1
+ EXP-20261107-000003 | APPROVED  |           0 | NULL     |              1
+ EXP-20261107-000004 | CANCELLED |           0 | NULL     |              1
+ EXP-20261107-000013 | SUBMITTED |           0 | NULL     |              1
+ EXP-20261107-000014 | SUBMITTED |           0 | NULL     |              1
+(5 rows)
+
+=== E) 留档表（改前原值） ===
+     table_name     |      coalesce       | bak_over | bak_over_amount 
+--------------------+---------------------+----------+-----------------
+ biz_budget_usage   | EXP-20261107-000002 | 1        | 3500.0000
+ biz_budget_usage   | EXP-20261107-000003 | 1        | 2000.0000
+ biz_budget_usage   | EXP-20261107-000004 | 1        | 3000.0000
+ biz_budget_usage   | EXP-20261107-000013 | 1        | 500.0000
+ biz_budget_usage   | EXP-20261107-000014 | 1        | 800.0000
+ biz_expense_report | EXP-20261107-000002 | 1        | 3500.0000
+ biz_expense_report | EXP-20261107-000003 | 1        | 2000.0000
+ biz_expense_report | EXP-20261107-000004 | 1        | 3000.0000
+ biz_expense_report | EXP-20261107-000013 | 1        | 500.0000
+ biz_expense_report | EXP-20261107-000014 | 1        | 800.0000
+(10 rows)
+
+=== F) 跨期单据（两个期间） ===
+      report_no      |  status   | expense_period | accounting_period 
+---------------------+-----------+----------------+-------------------
+ EXP-20261109-000062 | APPROVED  | 2027-02        | 2026-11
+ EXP-20261109-000060 | CANCELLED | 2027-02        | 2026-11
+ EXP-20261109-000059 | PAID      | 2027-02        | 2026-11
+(3 rows)
+

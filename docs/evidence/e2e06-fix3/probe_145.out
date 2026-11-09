@@ -1,0 +1,33 @@
+== E2E06-FIX-3 历史占用行回填 + 期间口径明示 ==
+  · admin（SUPER_ADMIN）登录成功
+
+① 回填：未编预算的占用行不得再标超支
+  ✅ 脏占用行（over=1 且 budget_id IS NULL） = 0
+  ✅ 真超支占用行仍在（有 budget_id，over=1）：2 行
+  ✅ 回填前原值已留档：10 行（biz_data_fix_backup / fix_code=E2E06-FIX-3）
+  ✅ 留档行原值 over_budget=1（抓错行 = 0） = 0
+
+② 报销详情：费用归属期间 vs 记账期间
+  ✅ 详情接口 http = 200
+  ✅ 详情 expense_period_code（= 费用发生日所属月） = 2027-02
+  ✅ 详情 accounting_period_code（= 凭证期间） = 2026-11
+  ✅ 跨期单据两个期间必须不同 = 2027-02（≠ 2026-11）
+  ✅ 占用期间 = 费用归属期间 = 2027-02
+  · 样本 EXP-20261109-000062：费用 2027-02 / 记账 2026-11 / 占用 2027-02
+  ✅ 未入账单 http = 200
+  ✅ 未入账单 accounting_period_code 必须为 null = null
+  ✅ 未入账单 expense_period_code 仍有值 = true
+
+③ 历史脏单（回填前 over=1 / 无预算）在详情里改为「未编制预算」
+  ✅ 历史脏单 http = 200
+  ✅ 历史脏单 over_budget=false = false
+  ✅ 历史脏单 over_amount=null = null
+  ✅ 历史脏单 missing_budget=true = true
+  ✅ 历史脏单占用行无超支标记 = 0
+  · 样本 EXP-20261107-000002
+
+④ 预算执行报表接口回归
+  ✅ 报表 http = 200
+  ✅ 报表 code = 0
+
+== PASS=19 FAIL=0

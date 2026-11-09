@@ -93,7 +93,8 @@ select '月度占用↔单据金额',
           select uu.period_code, sum(uu.amount) s from u uu where uu.status in ('OCCUPIED','CONSUMED') group by 1) t), '-'
 union all
 -- 8) 预算未生效的槽不得有「超支标记」的占用（未生效 = 不控制；占用行本身照写但不许标超支）
---    只查本卡数据：2026-11 的 DRILL_* 老行是 FIX-5 之前的遗留（见问题清单 P4）
+--    （2026-11 的 DRILL_* 老行曾因 FIX-5 之前的口径误标超支，已由 E2E06-FIX-3 的
+--      V0358__budget_over_flag_backfill 一次性回填，这里不再需要豁免）
 select '未生效预算却标了超支（本卡数据）',
        (select count(*)::text from biz_budget_usage x join biz_budget b
                 on b.dept_id = x.dept_id and b.account_id = x.account_id and b.fiscal_year = x.fiscal_year
