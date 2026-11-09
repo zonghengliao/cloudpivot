@@ -1,0 +1,15 @@
+
+running 1 test
+test business::erp::stocktake_tests::lnk04_excluded_inventory_actions_do_not_double_write ... 
+thread 'business::erp::stocktake_tests::lnk04_excluded_inventory_actions_do_not_double_write' (3119673) panicked at src/business/erp/stocktake_tests.rs:1395:5:
+排除清单里的动作不许产生任何执行记录，实际：[]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    business::erp::stocktake_tests::lnk04_excluded_inventory_actions_do_not_double_write
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3961 filtered out; finished in 4.69s
+

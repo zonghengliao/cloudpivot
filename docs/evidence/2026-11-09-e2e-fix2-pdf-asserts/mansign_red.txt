@@ -1,0 +1,18 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 1 test
+test business::erp::contract_handler::tests::manual_sign_from_pending_keeps_approval_instance ... 
+thread 'business::erp::contract_handler::tests::manual_sign_from_pending_keeps_approval_instance' (3066393) panicked at src/business/erp/contract_handler.rs:2235:10:
+造审批中前置: Query { sql: "UPDATE biz_contract SET status = 'PENDING_APPROVAL', approval_instance_id = $1::uuid WHERE id = $2::uuid", source: Error { kind: ToSql(0), cause: Some("cannot bind parameter to column type uuid") } }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    business::erp::contract_handler::tests::manual_sign_from_pending_keeps_approval_instance
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3949 filtered out; finished in 0.64s
+
+error: test failed, to rerun pass `--lib`

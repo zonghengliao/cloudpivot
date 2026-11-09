@@ -1,0 +1,44 @@
+diff --git a/backend/src/business/erp/contract_handler.rs b/backend/src/business/erp/contract_handler.rs
+index f178f110..b0eab61d 100644
+--- a/backend/src/business/erp/contract_handler.rs
++++ b/backend/src/business/erp/contract_handler.rs
+@@ -2229,7 +2229,7 @@ mod tests {
+         db().execute_with_params(
+             "UPDATE biz_contract SET status = 'PENDING_APPROVAL', approval_instance_id = ?::uuid \
+                   WHERE id = ?::uuid",
+-            vec![Value::from(instance.to_string()), Value::from(&id)],
++            vec![Value::from(&instance), Value::from(&id)],
+         )
+         .await
+         .expect("造审批中前置");
+diff --git a/backend/src/business/erp/stocktake_tests.rs b/backend/src/business/erp/stocktake_tests.rs
+index 684692e9..4822bbb7 100644
+--- a/backend/src/business/erp/stocktake_tests.rs
++++ b/backend/src/business/erp/stocktake_tests.rs
+@@ -1392,14 +1392,19 @@ async fn lnk04_excluded_inventory_actions_do_not_double_write() {
+     let excluded = linkage::engine::run_excluding(db(), &ctx, spec::STOCKTAKE_EXCLUDED_ACTIONS)
+         .await
+         .expect("排除清单下引擎必须正常返回");
++    // 预置规则（V0360 补齐的 wired 触发点）会在同一个触发点上产生**提交后**动作
++    // （`SEND_NOTICE` 之类），所以这里只能断言「**被排除的**动作没有执行记录」，
++    // 不能要求整个 run 为空。同款口径见 payable_linkage_db_tests / purchase_linkage_db_tests。
++    let stray: Vec<&str> = excluded
++        .runs
++        .iter()
++        .map(|item| item.action_code.as_str())
++        .chain(excluded.deferred.iter().map(|rule| rule.action_code.as_str()))
++        .filter(|code| spec::STOCKTAKE_EXCLUDED_ACTIONS.contains(code))
++        .collect();
+     assert!(
+-        excluded.runs.is_empty() && excluded.deferred.is_empty(),
+-        "排除清单里的动作不许产生任何执行记录，实际：{:?}",
+-        excluded
+-            .runs
+-            .iter()
+-            .map(|item| (&item.action_code, item.outcome.label()))
+-            .collect::<Vec<_>>()
++        stray.is_empty(),
++        "排除清单里的动作不许产生任何执行记录，实际：{stray:?}"
+     );
+     match linkage::engine::run_excluding(db(), &ctx, &[]).await {
+         Ok(run) => assert!(

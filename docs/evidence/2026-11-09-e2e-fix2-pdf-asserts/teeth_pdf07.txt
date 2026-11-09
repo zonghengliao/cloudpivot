@@ -1,0 +1,44 @@
+########## 库 = cloudpivot_test_pdf07（被别的卡夹具污染的共享库：2026-03/08/09/10/11 各有历史凭证）
+########## 修复前版本（d9d25d83^：夹具期 2026-11/上期 2026-10）→ 应红 ##########
+1156:        let snapshot = report::snapshot_or_error("2026-11")
+1197:        // 本期有货币资金（1001），期初（2026-10 无凭证）必须是 `-` 而不是 0.00
+1207:        let snapshot = income_statement::snapshot_or_error("2026-11")
+1239:        let snapshot = cash_flow::snapshot_or_error("2026-11")
+   Compiling cloudpivot v0.1.0 (/root/pdfassert-v2/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 58s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 1 test
+test business::erp::report_pdf::tests::pdf07_real_three_reports_agree_on_shape ... FAILED
+
+failures:
+
+---- business::erp::report_pdf::tests::pdf07_real_three_reports_agree_on_shape stdout ----
+
+thread 'business::erp::report_pdf::tests::pdf07_real_three_reports_agree_on_shape' (3042044) panicked at src/business/erp/report_pdf.rs:1204:9:
+assertion `left == right` failed: 上期无凭证 → 期初列必须印「-」
+  left: "700.00"
+ right: "-"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    business::erp::report_pdf::tests::pdf07_real_three_reports_agree_on_shape
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3949 filtered out; finished in 0.44s
+
+error: test failed, to rerun pass `--lib`
+########## 还原 HEAD（夹具移到 2001-02 + 收尾 purge）→ 同一污染库上应绿 ##########
+   Compiling cloudpivot v0.1.0 (/root/pdfassert-v2/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 05s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 1 test
+test business::erp::report_pdf::tests::pdf07_real_three_reports_agree_on_shape ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3949 filtered out; finished in 0.59s
+
+--- 污染库 cloudpivot_test_pdf07 的历史凭证（按期间）---
+2026-09  1
+2026-10  4
+2026-11  6

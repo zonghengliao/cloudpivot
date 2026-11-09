@@ -2229,7 +2229,7 @@ mod tests {
         db().execute_with_params(
             "UPDATE biz_contract SET status = 'PENDING_APPROVAL', approval_instance_id = ?::uuid \
                   WHERE id = ?::uuid",
-            vec![Value::from(instance.to_string()), Value::from(&id)],
+            vec![Value::from(&instance), Value::from(&id)],
         )
         .await
         .expect("造审批中前置");

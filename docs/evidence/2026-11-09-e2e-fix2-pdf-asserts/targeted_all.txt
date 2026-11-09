@@ -1,0 +1,54 @@
+   Compiling nik-db v0.4.2 (/root/pdfassert-v2/backend/vendor/nik-db)
+   Compiling nik-web v0.4.2 (/root/pdfassert-v2/backend/vendor/nik-web)
+   Compiling nik v0.4.2 (/root/pdfassert-v2/backend/vendor/nik)
+   Compiling cloudpivot v0.1.0 (/root/pdfassert-v2/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 35s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 43 tests
+test business::erp::contract_handler::tests::manual_sign_from_pending_keeps_approval_instance ... ok
+test business::erp::report_pdf::tests::align_sides_pushes_totals_to_the_same_row ... ok
+test business::erp::report_pdf::tests::blank_and_zero_amounts_are_dash ... ok
+test business::erp::report_pdf::tests::cell_of_applies_level_and_deduction_classes ... ok
+test business::erp::report_pdf::tests::kind_parse_accepts_three_types_and_rejects_others ... ok
+test business::erp::report_pdf::tests::money_is_thousands_with_two_decimals ... ok
+test business::erp::report_pdf::tests::other_section_only_when_nonempty ... ok
+test business::erp::report_pdf::tests::pdf07_real_missing_period_is_400_66010 ... ok
+test business::erp::report_pdf::tests::pdf07_real_report_items_seeded_for_all_three ... ok
+test business::erp::report_pdf::tests::pdf07_real_three_reports_agree_on_shape ... ok
+test business::erp::report_pdf::tests::period_status_labels ... ok
+test business::erp::return_pdf::db_tests::export_rejects_bad_uuid_before_query ... ok
+test business::erp::return_pdf::db_tests::export_writes_operation_log_rows ... ok
+test business::erp::return_pdf::db_tests::purchase_return_context_has_source_numbers_and_reason ... ok
+test business::erp::return_pdf::db_tests::sales_return_context_has_source_numbers_and_reason ... ok
+test business::erp::return_pdf::db_tests::soft_deleted_returns_are_not_found ... ok
+test business::erp::return_pdf::tests::context_total_reads_with_tax_total ... ok
+test business::erp::return_pdf::tests::kind_metadata_is_complete ... ok
+test business::erp::return_pdf::tests::missing_master_data_degrades_gracefully ... ok
+test business::erp::return_pdf::tests::purchase_items_have_all_amount_columns ... ok
+test business::erp::return_pdf::tests::sales_items_mark_whole_warehouse_and_serials ... ok
+test business::erp::stocktake_tests::cancel_after_post_rolls_back_and_reds_voucher ... ok
+test business::erp::stocktake_tests::diff_totals_are_gain_plus_loss ... ok
+test business::erp::stocktake_tests::full_take_snapshots_book_qty ... ok
+test business::erp::stocktake_tests::gain_books_inbound_direction ... ok
+test business::erp::stocktake_tests::illegal_transitions_are_rejected ... ok
+test business::erp::stocktake_tests::large_diff_takes_two_approval_levels ... ok
+test business::erp::stocktake_tests::lnk04_cancel_after_post_triggers_linkage_notice ... ok
+test business::erp::stocktake_tests::lnk04_cancel_draft_triggers_linkage_notice ... ok
+test business::erp::stocktake_tests::lnk04_excluded_inventory_actions_do_not_double_write ... ok
+test business::erp::stocktake_tests::lnk04_post_triggers_linkage_notice ... ok
+test business::erp::stocktake_tests::lnk04_repeat_post_does_not_trigger_twice ... ok
+test business::erp::stocktake_tests::loss_posts_three_books_and_voucher ... ok
+test business::erp::stocktake_tests::negative_stock_is_blocked ... ok
+test business::erp::stocktake_tests::no_diff_posts_without_any_entry ... ok
+test business::erp::stocktake_tests::partial_scope_only_includes_requested_material ... ok
+test business::erp::stocktake_tests::payload_validation ... ok
+test business::erp::stocktake_tests::post_requires_approved_instance ... ok
+test business::erp::stocktake_tests::reject_returns_to_draft ... ok
+test business::erp::stocktake_tests::scope_validation_rejects_bad_requests ... ok
+test business::erp::stocktake_tests::status_and_edges_are_consistent ... ok
+test business::erp::stocktake_tests::withdraw_and_delete_terminate_running_approval ... ok
+test business::erp::stocktake_tests::zz_teardown_purges_stocktake_fixtures ... ok
+
+test result: ok. 43 passed; 0 failed; 0 ignored; 0 measured; 3907 filtered out; finished in 83.44s
+

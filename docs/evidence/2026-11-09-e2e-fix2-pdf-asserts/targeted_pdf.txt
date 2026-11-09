@@ -1,0 +1,27 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.56s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 20 tests
+test business::erp::report_pdf::tests::align_sides_pushes_totals_to_the_same_row ... ok
+test business::erp::report_pdf::tests::blank_and_zero_amounts_are_dash ... ok
+test business::erp::report_pdf::tests::cell_of_applies_level_and_deduction_classes ... ok
+test business::erp::report_pdf::tests::kind_parse_accepts_three_types_and_rejects_others ... ok
+test business::erp::report_pdf::tests::money_is_thousands_with_two_decimals ... ok
+test business::erp::report_pdf::tests::other_section_only_when_nonempty ... ok
+test business::erp::report_pdf::tests::pdf07_real_missing_period_is_400_66010 ... ok
+test business::erp::report_pdf::tests::pdf07_real_report_items_seeded_for_all_three ... ok
+test business::erp::report_pdf::tests::pdf07_real_three_reports_agree_on_shape ... ok
+test business::erp::report_pdf::tests::period_status_labels ... ok
+test business::erp::return_pdf::db_tests::export_rejects_bad_uuid_before_query ... ok
+test business::erp::return_pdf::db_tests::export_writes_operation_log_rows ... ok
+test business::erp::return_pdf::db_tests::purchase_return_context_has_source_numbers_and_reason ... ok
+test business::erp::return_pdf::db_tests::sales_return_context_has_source_numbers_and_reason ... ok
+test business::erp::return_pdf::db_tests::soft_deleted_returns_are_not_found ... ok
+test business::erp::return_pdf::tests::context_total_reads_with_tax_total ... ok
+test business::erp::return_pdf::tests::kind_metadata_is_complete ... ok
+test business::erp::return_pdf::tests::missing_master_data_degrades_gracefully ... ok
+test business::erp::return_pdf::tests::purchase_items_have_all_amount_columns ... ok
+test business::erp::return_pdf::tests::sales_items_mark_whole_warehouse_and_serials ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 3930 filtered out; finished in 20.09s
+
