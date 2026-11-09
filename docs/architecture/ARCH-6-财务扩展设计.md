@@ -1249,8 +1249,9 @@ impl BudgetVerdict {
 | 已执行 | `SUM(usage.amount) WHERE status='CONSUMED'` |
 | 可用 | 额度 − 占用 − 执行 |
 | 执行率 | (占用 + 执行) / 额度 |
-| 超支标记 | 任一月份 `可用 < 0` → 标红 + 超支额 |
-| 生效标记 | `effective_from` + `effective`（`effective_from <= 本月月末`）；未生效行仍列出但标「未生效」，与 §3.5.5 的控制口径一致 |
+| 超支标记 | 年度 `可用 < 0` → 年度超支；**本月**（本年度最紧张的那个月）`月度已用 > 月度额度` → 本月超支，主列月度优先显示（月度闸才是提交侧实际控制的闸门） |
+| 生效标记 | `effective_from` + `effective`（**`effective_from <= 该行 fiscal_year 的期末`**，年度粒度）；未生效行仍列出但标「未生效」。**不吃「本月月末」/「今天」**：报表按 `fiscal_year` 查，用今天做时点会出现「2027 年的预算未生效、但 2027-02 的单据已被它控制」的自相矛盾（E2E06-FIX-2 修的口径 bug）。控制侧仍按单据期间月末逐月判（§3.5.5） |
+| 月度口径（行级） | `month_period / month_limit / month_used / month_available / month_over / month_over_amount`，与提交侧月度闸**同一个函数**（`budget_guard::MonthGate`）；取值规则：有超支月取超得最多的，否则取可用最小的 |
 
 ### 3.8.2 预算 vs 实际（对账表）
 

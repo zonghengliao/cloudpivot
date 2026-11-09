@@ -1,0 +1,52 @@
+TAP version 13
+# Subtest: 年度没超但本月超 → 主列报「本月超 500.00」（月度优先）
+ok 1 - 年度没超但本月超 → 主列报「本月超 500.00」（月度优先）
+  ---
+  duration_ms: 0.692292
+  type: 'test'
+  ...
+# Subtest: 年度和月度都超 → 仍只显示月度那条（同一行不给两个红标）
+ok 2 - 年度和月度都超 → 仍只显示月度那条（同一行不给两个红标）
+  ---
+  duration_ms: 0.134842
+  type: 'test'
+  ...
+# Subtest: 只有年度超 → 报「年度超」
+ok 3 - 只有年度超 → 报「年度超」
+  ---
+  duration_ms: 0.094048
+  type: 'test'
+  ...
+# Subtest: 未生效（effective=false）→ 黄色「未生效」，且提示说的是年度期末口径
+ok 4 - 未生效（effective=false）→ 黄色「未生效」，且提示说的是年度期末口径
+  ---
+  duration_ms: 0.108506
+  type: 'test'
+  ...
+# Subtest: 都在额度内 → 中性「正常」
+ok 5 - 都在额度内 → 中性「正常」
+  ---
+  duration_ms: 0.090297
+  type: 'test'
+  ...
+# Subtest: 没有月度分解（month_period=null）→ 不报超支，主列「正常」
+ok 6 - 没有月度分解（month_period=null）→ 不报超支，主列「正常」
+  ---
+  duration_ms: 0.077171
+  type: 'test'
+  ...
+# Subtest: 汇总卡片：年度超支与本月超支分开数（同一个月超的槽两边都算）
+ok 7 - 汇总卡片：年度超支与本月超支分开数（同一个月超的槽两边都算）
+  ---
+  duration_ms: 0.223388
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 122.879633

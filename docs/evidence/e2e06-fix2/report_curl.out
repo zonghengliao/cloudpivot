@@ -1,0 +1,16 @@
+== 145 部署实况
+2d027284 test(e2e06): FIX-2 证据汇总脚本（curl 实测 + 巡检 + 全量演练输出）
+active
+health=200
+
+== curl 实测：GET /business/erp/budget/report?fiscal_year=2027（真实 token，已抹）
+{"code":0,"rows":[{"fiscal_year":2027,"dept_name":"E2E06 预算演练部","account_code":"5602.02","total_amount":"150000.0000","used":"3180.0000","available":"146820.0000","over":false,"effective":true,"effective_from":"2026-12-01","month_period":"2027-02","month_limit":"12500.0000","month_used":"3180.0000","month_available":"9320.0000","month_over":false,"month_over_amount":null},{"fiscal_year":2027,"dept_name":"E2E06 预算演练部","account_code":"5602.05","total_amount":"12000.0000","used":"1500.0000","available":"10500.0000","over":false,"effective":true,"effective_from":"2026-12-01","month_period":"2027-02","month_limit":"1000.0000","month_used":"1500.0000","month_available":"-500.0000","month_over":true,"month_over_amount":"500.0000"}]}
+
+== curl 实测：GET /business/erp/budget/report?fiscal_year=2023（年度早于生效日）
+{"code":0,"rows":[{"fiscal_year":2023,"account_code":"5602.02","over":false,"available":"60000.0000","effective":false,"effective_from":"2026-12-01","month_period":"2023-01","month_over":false,"month_available":"5000.0000"}]}
+
+== 提交侧同源证据：biz_budget_usage 冻结的 over_amount（5602.05 / FY2027）
+EXP-20261109-000062|2027-02|1500.0000|1|500.0000
+
+== 报表分月明细（5602.05 / FY2027，2027-02 该月已超）
+{"month_period":"2027-02","month_over":true,"month_over_amount":"500.0000","months":[{"period_code":"2027-02","amount":"1000.0000","used":"1500.0000","available":"-500.0000"}]}
