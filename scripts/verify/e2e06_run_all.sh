@@ -18,6 +18,8 @@ echo "### 1) 阶段 A"
 bash "$DIR/e2e06_budget_a.sh"
 echo "### 2) 阶段 B"
 bash "$DIR/e2e06_budget_b.sh"
+echo "### 2b) E2E06-FIX-2 执行报表口径（月度 + effective 时点）"
+bash "$DIR/e2e06_fix2_report_probe.sh"
 
 echo "### 3) 勾稽"
 REC=/tmp/e2e06/reconcile.log

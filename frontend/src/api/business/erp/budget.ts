@@ -19,7 +19,8 @@
  * | 编制/调整 | `change_type` ∈ `ORIGINAL` / `ADJUST` | 同上 |
  * | 月度分解 | `periods[]` 的 `period_code` / `period_month` / `amount` / `used` / `available` | `PeriodRes` |
  * | 占用记录 | `usages[]` 的 `source_no` / `over_budget` / `over_amount` | `UsageRes` |
- * | 执行报表 | `occupied` / `consumed` / `used` / `available` / `exec_ratio` / `over` | `ReportRes` |
+ * | 执行报表 | `occupied` / `consumed` / `used` / `available` / `exec_ratio` / `over`（年度） | `ReportRes` |
+ * | 报表月度口径 | `month_period` / `month_limit` / `month_used` / `month_available` / `month_over` / `month_over_amount` | `ReportRes`（与提交侧月度闸同源） |
  * | 映射 | `map_type` / `ref_id` / `ref_code` / `account_*` / `dept_id` / `priority` | `MappingRes` |
  *
  * # 四个容易踩的点
@@ -232,12 +233,24 @@ export interface BudgetReportRow {
   available: string;
   /** 执行率（百分比两位小数的 Decimal 字符串，如 `"85.25"`） */
   exec_ratio: string;
-  /** 是否超支（后端算好，前端不重算） */
+  /** 是否超支（**年度口径**；后端算好，前端不重算） */
   over: boolean;
   /** 生效起始日（`effective_from`，null = 历史数据没有生效日） */
   effective_from: string | null;
-  /** 报表时点是否已生效（`effective_from <= 本月月末`，与控制同口径） */
+  /** 报表时点是否已生效（`effective_from <= 该行 fiscal_year 的期末`；**年度粒度**，不是「今天」） */
   effective: boolean;
+  /** 月度口径所在期间（`yyyy-MM`）：本年度最紧张的那个月；无分解 = null */
+  month_period: string | null;
+  /** 该期间月度额度 */
+  month_limit: string | null;
+  /** 该期间月度已用 */
+  month_used: string | null;
+  /** 该期间月度可用（**负数 = 本月已超支**） */
+  month_available: string | null;
+  /** 本年度是否有月份已超支（与提交侧月度闸同源，后端算好） */
+  month_over: boolean;
+  /** 本月超支额（未超 = null，不是 0） */
+  month_over_amount: string | null;
   /** 分月明细 */
   months: BudgetReportMonth[];
 }

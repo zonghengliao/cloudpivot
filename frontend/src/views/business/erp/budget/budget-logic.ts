@@ -43,7 +43,7 @@ import type {
   CreateBudgetReq,
   UpdateBudgetReq,
 } from '@/api/business/erp/budget';
-import { formatCents, toCents, toNumber } from '@/views/business/erp/shared/money';
+import { formatCents, formatMoney, toCents, toNumber } from '@/views/business/erp/shared/money';
 
 // ==================== 权限码（`sys_menu.auth_code`，V0227 种了 8 个） ====================
 
@@ -686,6 +686,52 @@ export function isMonthOver(month: { available: string | number }): boolean {
   return toCents(month.available) < 0;
 }
 
+// ==================== 报表：年度 vs 月度两个口径（E2E06-FIX-2） ====================
+
+/** 报表主列（「预算」列）的徽标 */
+export interface ReportBadge {
+  /** 文案：`本月超 500.00` / `年度超` / `未生效` / `正常` */
+  text: string;
+  theme: BudgetTagTheme;
+  /** 悬停说明（说清是哪个口径，避免财务把月度当年度） */
+  hint: string;
+}
+
+/**
+ * 报表主列的徽标：**月度优先**。
+ *
+ * 为什么月度优先：**月度闸才是提交侧实际控制的闸门**（超了就 409 / 标超支），
+ * 年度没超、本月超了这种单在业务上是「已经出事了」，主列必须先说它。
+ * 两个都超时也只显示月度那条 —— 同一行两个红标只会让人不知道该看哪个。
+ */
+export function reportBadge(row: BudgetReportRow): ReportBadge {
+  if (row.month_over) {
+    const amount = row.month_over_amount ? formatMoney(row.month_over_amount) : '—';
+    return {
+      text: `本月超 ${amount}`,
+      theme: 'danger',
+      hint: `${row.month_period ?? ''} 月度已用 ${formatMoney(row.month_used)} / 额度 ${formatMoney(
+        row.month_limit,
+      )}，超 ${amount}（提交侧月度闸同口径）`,
+    };
+  }
+  if (row.over) {
+    return {
+      text: '年度超',
+      theme: 'danger',
+      hint: `年度可用 ${formatMoney(row.available)}（月度未超）`,
+    };
+  }
+  if (row.effective === false) {
+    return {
+      text: '未生效',
+      theme: 'warning',
+      hint: `生效起始日 ${row.effective_from ?? '—'}：晚于 ${row.fiscal_year} 年度期末，这一年用不上`,
+    };
+  }
+  return { text: '正常', theme: 'default', hint: '年度与月度都在额度内' };
+}
+
 /** 执行率文本：后端给的是百分比（`"85.25"`），补 `%`；空值是 `—` */
 export function ratioText(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === '') {
@@ -710,8 +756,10 @@ export interface ReportSummary {
   availableCents: number;
   /** 全公司执行率（%） */
   ratio: number;
-  /** 超支槽数 */
+  /** 年度超支槽数 */
   overCount: number;
+  /** **本月**超支槽数（与提交侧月度闸同口径；含年度也超的） */
+  monthOverCount: number;
 }
 
 /**
@@ -729,6 +777,7 @@ export function summarizeReport(rows: ReadonlyArray<BudgetReportRow>): ReportSum
   let consumedCents = 0;
   let availableCents = 0;
   let overCount = 0;
+  let monthOverCount = 0;
   for (const row of rows) {
     totalCents += toCents(row.total_amount);
     occupiedCents += toCents(row.occupied);
@@ -737,10 +786,23 @@ export function summarizeReport(rows: ReadonlyArray<BudgetReportRow>): ReportSum
     if (row.over) {
       overCount += 1;
     }
+    if (row.month_over) {
+      monthOverCount += 1;
+    }
   }
   const usedCents = occupiedCents + consumedCents;
   const ratio = totalCents === 0 ? 0 : Math.round((usedCents / totalCents) * 10000) / 100;
-  return { count: rows.length, totalCents, occupiedCents, consumedCents, usedCents, availableCents, ratio, overCount };
+  return {
+    count: rows.length,
+    totalCents,
+    occupiedCents,
+    consumedCents,
+    usedCents,
+    availableCents,
+    ratio,
+    overCount,
+    monthOverCount,
+  };
 }
 
 /** 报表行 → 可展开的分月明细（`t-table` 的 `expanded-row` 用） */

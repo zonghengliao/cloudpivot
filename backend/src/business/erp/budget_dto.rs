@@ -528,6 +528,15 @@ impl From<&crate::business::erp::budget_guard::BudgetWarning> for BudgetWarningR
 }
 
 /// 执行报表行。
+///
+/// # 两个口径（E2E06-FIX-2）
+///
+/// * **年度**：`total_amount / occupied / consumed / used / available / over` —— 整年的额度与执行；
+/// * **月度**：`month_over / month_over_amount / month_available`（+ `month_period` 等定位列）——
+///   本年度最紧张的那个月，**与提交侧的月度闸同一个公式**（`budget_guard::MonthGate`）。
+///
+/// 报表主列要能一眼看出「年度没超但本月超了」，否则财务只能展开分月明细才发现，
+/// 而提交侧早就 409 / 标超支了（口径分叉）。
 #[derive(Debug, Clone, Serialize)]
 pub struct ReportRes {
     /// 预算版本 id。
@@ -560,8 +569,22 @@ pub struct ReportRes {
     pub over: bool,
     /// 生效起始日（`effective_from`，NULL = 历史数据没有生效日）。
     pub effective_from: Option<chrono::NaiveDate>,
-    /// 报表时点是否已生效（`effective_from <= 本月月末`；与控制的期间月末口径一致）。
+    /// 报表时点是否已生效：`effective_from <= 该行 fiscal_year 的期末`。
+    ///
+    /// 时点是**年度**粒度（按年度看的报表），不是「今天」也不是「本月月末」。
     pub effective: bool,
+    /// 月度口径所在期间（`yyyy-MM`）：本年度**最紧张的那个月**（超支优先，其次可用最小）；无分解 = null。
+    pub month_period: Option<String>,
+    /// 该期间月度额度。
+    pub month_limit: Option<Decimal>,
+    /// 该期间月度已用。
+    pub month_used: Option<Decimal>,
+    /// 该期间月度可用（**负数 = 本月已超支**）。
+    pub month_available: Option<Decimal>,
+    /// 本年度是否有月份已超支（与提交侧月度闸同源：`budget_guard::MonthGate::over`）。
+    pub month_over: bool,
+    /// 本月超支额（未超 = null，不是 0）。
+    pub month_over_amount: Option<Decimal>,
     /// 分月：期间 / 额度 / 已用。
     pub months: Vec<MonthRes>,
 }
@@ -600,6 +623,12 @@ impl From<&ReportRow> for ReportRes {
             over: available < Decimal::ZERO,
             effective_from: row.effective_from,
             effective: row.effective,
+            month_period: row.month.period_code.clone(),
+            month_limit: row.month.limit,
+            month_used: row.month.used,
+            month_available: row.month.available,
+            month_over: row.month.over,
+            month_over_amount: row.month.over_amount,
             months: row
                 .months
                 .iter()

@@ -417,6 +417,121 @@ fn invalid_period_has_no_end_text() {
     assert_eq!(slot.period_end_text(), None);
 }
 
+// ==================== E2E06-FIX-2：月度闸公共公式 + 报表时点 ====================
+
+/// ㉓ 月度闸公式（全系统唯一）：`over` / `over_amount` / `available` / 截零可用。
+/// 报表的 `month_over / month_over_amount / month_available` 与提交侧的月度缺口都调它。
+#[test]
+fn month_gate_is_the_single_monthly_formula() {
+    let under = MonthGate::of(dec("1000"), dec("999"));
+    assert_eq!(under.available(), dec("1"));
+    assert_eq!(under.available_clamped(), dec("1"));
+    assert!(!under.over());
+    assert_eq!(under.over_amount(), None);
+
+    // 边界：用满不算超（与年度闸「M = 可用 不算超」一致）
+    let equal = MonthGate::of(dec("1000"), dec("1000"));
+    assert!(!equal.over(), "已用 == 额度 不算超");
+    assert_eq!(equal.over_amount(), None);
+    assert_eq!(equal.available(), Decimal::ZERO);
+
+    // WARN 槽场景：月额度 1000，报了 1500
+    let over = MonthGate::of(dec("1000"), dec("1500"));
+    assert!(over.over());
+    assert_eq!(over.over_amount(), Some(dec("500")), "超支额 = 已用 − 额度");
+    assert_eq!(over.available(), dec("-500"), "带符号可用（报表展示这个）");
+    assert_eq!(
+        over.available_clamped(),
+        Decimal::ZERO,
+        "提交侧算缺口用截零值：不能把历史超支再算一次进本次缺口"
+    );
+}
+
+/// ㉔ 提交侧（`BudgetVerdict::evaluate`）的月度缺口与 `MonthGate` 同源：
+/// 逐一行遍 (额度, 已用, 本次) 组合，`month_gap == max(0, 本次 − 截零可用)`；
+/// 且 `MonthGate::over` 为真时（本次 > 0）提交侧必定判超支。
+#[test]
+fn verdict_month_gap_comes_from_month_gate() {
+    for (limit, used) in [
+        ("1000", "0"),
+        ("1000", "600"),
+        ("1000", "1000"),
+        ("1000", "1500"),
+        ("0", "0"),
+        ("0", "300"),
+    ] {
+        let gate = MonthGate::of(dec(limit), dec(used));
+        for this in ["1", "100", "1000", "5000"] {
+            let v = BudgetVerdict::evaluate(
+                ControlMode::Warn,
+                Some(Uuid::now_v7()),
+                dec("100000"),
+                Decimal::ZERO,
+                gate.limit,
+                gate.used,
+                dec(this),
+            );
+            let expected = (dec(this) - gate.available_clamped()).max(Decimal::ZERO);
+            assert_eq!(
+                v.month_gap, expected,
+                "月度缺口必须 = max(0, 本次 − MonthGate 截零可用)（limit={limit} used={used} this={this}）"
+            );
+            assert_eq!(v.month_available(), gate.available_clamped(), "month_available 同源");
+            if gate.over() {
+                assert!(v.over, "月度闸已超 → 提交侧必须判超支（limit={limit} used={used}）");
+            }
+        }
+    }
+}
+
+/// ㉕ 会计年度期末 = 该年 12-31（预算按自然年编制）；越界年份（库内 CHECK 2000..=2100）
+/// 一律 `None`，与 `Slot::new` 的窗口一致。
+#[test]
+fn fiscal_year_end_is_december_31() {
+    assert_eq!(fiscal_year_end(2027), Some(date("2027-12-31")));
+    assert_eq!(fiscal_year_end(2024), Some(date("2024-12-31")));
+    // 窗口边界（含端点）
+    assert_eq!(fiscal_year_end(FISCAL_YEAR_MIN), Some(date("2000-12-31")));
+    assert_eq!(fiscal_year_end(FISCAL_YEAR_MAX), Some(date("2100-12-31")));
+    // 越界不 panic，也不给出一个「像真的一样」的日期
+    assert_eq!(fiscal_year_end(0), None);
+    assert_eq!(fiscal_year_end(-1), None);
+    assert_eq!(fiscal_year_end(FISCAL_YEAR_MIN - 1), None);
+    assert_eq!(fiscal_year_end(FISCAL_YEAR_MAX + 1), None);
+}
+
+/// ㉖ **报表 `effective` 的口径钉子**（卡面验收 ③④）：
+/// 判定时点是「该预算所属年度的期末」，不是「今天」。
+#[test]
+fn report_effective_is_judged_at_fiscal_year_end() {
+    // ③ FY2027 预算、审批通过次月生效 2026-12-01 → 报表 fiscal_year=2027 时 effective=true
+    //    （修复前用「本月月末 2026-11-30」→ 显示未生效，与 2027-02 已被控制自相矛盾）
+    assert!(
+        effective_in_year(Some(date("2026-12-01")), 2027),
+        "2026-12-01 ≤ 2027-12-31 → FY2027 这份预算在这一年算数"
+    );
+    // ④ FY2027 预算、effective_from 2028-06-01 → 报表 fiscal_year=2027 时 effective=false
+    assert!(
+        !effective_in_year(Some(date("2028-06-01")), 2027),
+        "2028-06-01 > 2027-12-31 → 这一年根本用不上"
+    );
+    // 期末当天生效算生效（`<=` 不是 `<`）
+    assert!(effective_in_year(Some(date("2027-12-31")), 2027));
+    // 历史数据没有生效日 → 视为已生效（与 slot_snapshot 的 NULL 放行同口径）
+    assert!(effective_in_year(None, 2027));
+    // 年初生效当然算
+    assert!(effective_in_year(Some(date("2027-01-01")), 2027));
+    // 上一年年末生效也算（12 月批、次年 1 月生效）
+    assert!(effective_in_year(Some(date("2026-12-01")), 2027));
+    // 与期间月末口径的差别只在粒度：同一份预算对 2026-11 不生效、对 2027 整年生效
+    let nov_end = period_end_of("2026-11").expect("月末");
+    assert!(date("2026-12-01") > nov_end, "控制侧：11 月的单据不被它管");
+    assert!(
+        effective_in_year(Some(date("2026-12-01")), 2027),
+        "报表侧：FY2027 这一年算数"
+    );
+}
+
 // ==================== FIX-2：记账口径（budget_mode 取槽级最严） ====================
 
 fn slot_check(dept: Uuid, account: Uuid, mode: ControlMode, amount: &str) -> ExpenseSlotCheck {

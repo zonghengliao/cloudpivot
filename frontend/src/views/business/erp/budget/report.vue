@@ -2,8 +2,11 @@
   预算执行报表页（FIN-1-FE / ARCH-6 §3.5）。
 
   口径全部来自后端 `ReportRes`（前端不重算）：
-  - `occupied`（占用中，采购单已提交未入库）/ `consumed`（已执行）/ `available`（可为负 = 超支）；
-  - `exec_ratio` 是后端算好的百分比字符串，`over` 是后端判超支 —— 页面只展示，不二次判断。
+  - **年度**：`occupied`（占用中，采购单已提交未入库）/ `consumed`（已执行）/
+    `available`（可为负 = 超支）/ `over` —— 整年的账；
+  - **月度**：`month_over` / `month_over_amount` / `month_available`（+ `month_period` 定位到哪一月）
+    —— 本年度**最紧张的那个月**，与提交侧 `budget_guard::MonthGate` 同源（E2E06-FIX-2）；
+  - `exec_ratio` 是后端算好的百分比字符串，`effective` 是后端按「该行年度期末」判的（不是「今天」）。
 
   合计行由 `summarizeReport` 用**整数分**累加（后端逐槽返回、没有合计行；
   12 个槽各带 4 位小数时浮点累加会留下 0.0000000001 的尾巴）。
@@ -44,8 +47,8 @@
       <div class="stat-card">
         <span class="stat-card__label">全公司执行率</span>
         <span class="stat-card__value">{{ summary.ratio.toFixed(2) }}%</span>
-        <span class="stat-card__sub" :class="{ 'stat-card__sub--bad': summary.overCount > 0 }">
-          超支槽 {{ summary.overCount }} 个
+        <span class="stat-card__sub" :class="{ 'stat-card__sub--bad': summary.overCount > 0 || summary.monthOverCount > 0 }">
+          年度超支 {{ summary.overCount }} 个<template v-if="summary.monthOverCount"> · 本月超 {{ summary.monthOverCount }} 个</template>
         </span>
       </div>
     </div>
@@ -163,24 +166,37 @@
               :percentage="Math.min(100, Math.max(0, toNumber(row.exec_ratio)))"
               :label="false"
               :theme="'line'"
-              :status="row.over ? 'error' : undefined"
+              :status="row.over || row.month_over ? 'error' : undefined"
               size="small"
             />
-            <span class="ratio-cell__text" :class="{ 'ratio-cell__text--bad': row.over }">
+            <span class="ratio-cell__text" :class="{ 'ratio-cell__text--bad': row.over || row.month_over }">
               {{ ratioText(row.exec_ratio) }}
             </span>
           </div>
         </template>
+        <!-- 「本月」列：后端给的是本年度**最紧张的那个月**（超支优先，其次可用最小） -->
+        <template #month="{ row }">
+          <div v-if="row.month_period" class="month-cell" :data-testid="`budget-report-month-${row.budget_id}`">
+            <span class="money" :class="{ 'money--bad': row.month_over }">
+              {{ formatMoney(row.month_available) }}
+            </span>
+            <span class="name-cell__sub">
+              {{ row.month_period }}
+              <template v-if="row.month_over">· 超 {{ formatMoney(row.month_over_amount) }}</template>
+            </span>
+          </div>
+          <span v-else class="muted">—</span>
+        </template>
         <template #over="{ row }">
-          <t-tag v-if="row.over" size="small" variant="light" theme="danger">超支</t-tag>
           <t-tag
-            v-else-if="row.effective === false"
             size="small"
             variant="light"
-            theme="warning"
-            :title="`生效起始日 ${row.effective_from ?? '—'}：本月单据不受这份额度控制`"
-          >未生效</t-tag>
-          <span v-else class="muted">正常</span>
+            :theme="badge(row).theme"
+            :title="badge(row).hint"
+            :data-testid="`budget-report-badge-${row.budget_id}`"
+          >
+            {{ badge(row).text }}
+          </t-tag>
         </template>
         <template #expandedRow="{ row }">
           <div class="month-expand" :data-testid="`budget-report-months-${row.budget_id}`">
@@ -226,9 +242,11 @@ import { formatCents, formatMoney, toNumber } from '@/views/business/erp/shared/
 import {
   fiscalYearOptions,
   ratioText,
+  reportBadge,
   reportEmptyText,
   reportMonths,
   summarizeReport,
+  type ReportBadge,
 } from './budget-logic';
 
 const rows = ref<BudgetReportRow[]>([]);
@@ -281,8 +299,9 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'consumed', title: '已执行', width: 102, align: 'right' },
   { colKey: 'used', title: '已用合计', width: 110, align: 'right' },
   { colKey: 'available', title: '可用', width: 110, align: 'right' },
+  { colKey: 'month', title: '本月', width: 132, align: 'right' },
   { colKey: 'exec_ratio', title: '执行率', width: 128 },
-  { colKey: 'over', title: '预算', width: 70 },
+  { colKey: 'over', title: '预算', width: 104 },
 ];
 
 const monthColumns: PrimaryTableCol[] = [
@@ -295,6 +314,16 @@ const monthColumns: PrimaryTableCol[] = [
 /** 可用为负 = 超支（后端也算好了 `over`，这里只用于给数字上色） */
 function isNegative(value: string | number): boolean {
   return toNumber(value) < 0;
+}
+
+/**
+ * 「预算」列的徽标（月度优先）。
+ *
+ * 口径全部来自后端（`month_over` / `over` / `effective`），这里只决定**怎么显示**：
+ * 月度闸才是提交侧实际控制的闸门，所以月度超支优先于年度超支显示。
+ */
+function badge(row: BudgetReportRow): ReportBadge {
+  return reportBadge(row);
 }
 
 function handleExpandChange(keys: Array<string | number>): void {
@@ -504,6 +533,13 @@ onMounted(() => {
 
 .muted {
   color: var(--td-text-color-placeholder);
+}
+
+.month-cell {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.35;
+  align-items: flex-end;
 }
 
 .ratio-cell {

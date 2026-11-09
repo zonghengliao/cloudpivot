@@ -28,6 +28,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::budget_dto::BudgetFilter;
+use crate::business::erp::budget_guard::MonthGate;
 use crate::business::erp::voucher::{self, SeqSpec};
 use crate::business::shared::scope;
 
@@ -662,10 +663,92 @@ pub struct ReportRow {
     pub consumed: Decimal,
     /// 生效起始日（`effective_from`；NULL = 历史数据没有生效日）。
     pub effective_from: Option<NaiveDate>,
-    /// 报表时点是否已生效（`effective_from <= 本月月末`，与控制的期间月末口径一致）。
+    /// 报表时点是否已生效：`effective_from <= 该行 fiscal_year 的期末`（[`effective_in_year`]）。
+    ///
+    /// **不是「今天」**：报表按年度看，问的是「这份预算在这一年算不算数」。
+    /// 用今天做时点会出现「FY2027 行显示未生效、但 2027-02 的单据已被它控制」的自相矛盾
+    /// （E2E-06 ②）。
     pub effective: bool,
     /// 当前月在审 / 已用的分月明细（`period_code → (额度, 已用)`）。
     pub months: Vec<(String, Decimal, Decimal)>,
+    /// 月度口径汇总：本年度**最紧张的那个月**（[`month_summary`]）。
+    pub month: MonthSummary,
+}
+
+/// 报表行上的**月度口径**（E2E06-FIX-2 ①）：从 12 个分解月里挑出最能说明问题的那一个。
+///
+/// * `over = true` → 本年度**确实有月份已超支**，`period_code / over_amount` 指的是超得最多的那个月；
+/// * `over = false` → 本年度没有月份超支，`period_code / available` 指的是**最紧**（可用最小）的那个月。
+///
+/// 为什么不是「今天这个月」：报表按 `fiscal_year` 查询，而查询的年度常常不是当前年度
+/// （编下一年的预算 / 复盘上一年）。2026-11 打开 FY2027 的报表，问的显然是「2027 年哪个月超了」，
+/// 拿「本月（2026-11）」会答非所问 —— 而且 2026-11 根本不在这一年的分解里。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MonthSummary {
+    /// 该月的期间码（`yyyy-MM`）；无月度分解 = `None`。
+    pub period_code: Option<String>,
+    /// 该月额度。
+    pub limit: Option<Decimal>,
+    /// 该月已用。
+    pub used: Option<Decimal>,
+    /// 该月可用（**带符号**，负数 = 该月超支）。
+    pub available: Option<Decimal>,
+    /// 本年度是否有月份已超支。
+    pub over: bool,
+    /// 超支额（未超 = `None`，不是 0）。
+    pub over_amount: Option<Decimal>,
+}
+
+impl MonthSummary {
+    /// 该月的月度闸（没有分解行 → `None`）。
+    pub fn gate(&self) -> Option<MonthGate> {
+        Some(MonthGate::of(self.limit?, self.used?))
+    }
+}
+
+/// 月度口径汇总（**纯函数**，不碰库；报表与单测共用）。
+///
+/// 挑月规则：
+/// 1. 有超支月份 → 取**超得最多**的那个（并列取期间早的，保证结果稳定）；
+/// 2. 全都没超 → 取**可用最小**的那个（最紧的月份；并列同样取期间早的）；
+/// 3. 没有分解行 → 全是 `None`、`over = false`（报表不能因为「没分解」就报超支）。
+///
+/// 每个月的 `over / over_amount / available` 一律走 [`MonthGate`] —— 与提交侧的月度闸
+/// **同一个公式**，不允许在这里另写一套（卡面红线）。
+pub fn month_summary(months: &[(String, Decimal, Decimal)]) -> MonthSummary {
+    let mut worst_over: Option<(&(String, Decimal, Decimal), MonthGate)> = None;
+    let mut tightest: Option<(&(String, Decimal, Decimal), MonthGate)> = None;
+    for month in months {
+        let (_, limit, used) = month;
+        let gate = MonthGate::of(*limit, *used);
+        if gate.over() {
+            let better = match worst_over {
+                None => true,
+                Some((_, current)) => gate.over_amount() > current.over_amount(),
+            };
+            if better {
+                worst_over = Some((month, gate));
+            }
+        }
+        let tighter = match tightest {
+            None => true,
+            Some((_, current)) => gate.available() < current.available(),
+        };
+        if tighter {
+            tightest = Some((month, gate));
+        }
+    }
+    match worst_over.or(tightest) {
+        None => MonthSummary::default(),
+        Some((month, gate)) => MonthSummary {
+            period_code: Some(month.0.clone()),
+            limit: Some(gate.limit),
+            used: Some(gate.used),
+            available: Some(gate.available()),
+            over: gate.over(),
+            over_amount: gate.over_amount(),
+        },
+    }
 }
 
 impl ReportRow {
@@ -717,9 +800,6 @@ pub async fn report(q: &BudgetFilter) -> DbResult<Vec<ReportRow>> {
     // SCOPE-EXEMPT: 只读报表，行集已在 SQL 里按 ACTIVE + 显式筛选收敛；
     // 报表是给财务的横向视图（跨部门对比），按部门再裁一次会让「全公司执行率」失真。
     let rows = db().query_sql(sql, params).await?;
-    // 报表时点 = 本月月末（与 budget_guard 的期间月末口径一致：`effective_from <= 期间月末`）
-    let now_period = Utc::now().format("%Y-%m").to_string();
-    let period_end = crate::business::erp::budget_guard::period_end_of(&now_period);
     let mut out = Vec::with_capacity(rows.len());
     for row in rows.iter() {
         let budget_id: Uuid = row.get_typed("id")?;
@@ -729,12 +809,12 @@ pub async fn report(q: &BudgetFilter) -> DbResult<Vec<ReportRow>> {
         let total_amount = parse_amount(&row.get_typed::<String>("total_amount")?);
         let effective_from: Option<NaiveDate> = row.get_typed("effective_from")?;
         // 未到生效日的行照样出现在报表里（财务要看得到「已经批了但还没开始管」的预算），
-        // 但打上 effective = false，避免「报表说有钱、提交却说超了」的分叉。
-        let effective = match (effective_from, period_end) {
-            (None, _) => true,
-            (Some(_), None) => true,
-            (Some(from), Some(end)) => from <= end,
-        };
+        // 但打上 effective = false。
+        //
+        // 时点 = **该行 fiscal_year 的期末**（不是「今天」）：报表按年度看，问的是
+        // 「这份预算在这一年算不算数」。用今天做时点会让 2026-11 的查询把 FY2027 的预算
+        // 标成「未生效」，而 2027-02 的单据其实早就被它管着了（E2E-06 ② 的口径 bug）。
+        let effective = crate::business::erp::budget_guard::effective_in_year(effective_from, fiscal_year);
         // 已用（年度）
         let usage = db()
             .query_sql(
@@ -772,6 +852,7 @@ pub async fn report(q: &BudgetFilter) -> DbResult<Vec<ReportRow>> {
             consumed,
             effective_from,
             effective,
+            month: month_summary(&months),
             months,
         });
     }

@@ -24,6 +24,7 @@ fn report_row(total: &str, occupied: &str, consumed: &str) -> ReportRow {
         effective_from: None,
         effective: true,
         months: vec![],
+        month: MonthSummary::default(),
     }
 }
 
@@ -46,6 +47,135 @@ fn exec_ratio_guards_zero_limit() {
     let row = report_row("0", "0", "0");
     assert_eq!(row.exec_ratio(), Decimal::ZERO);
     assert_eq!(row.available(), Decimal::ZERO);
+}
+
+// ==================== E2E06-FIX-2：报表的月度口径（`month_summary`，纯函数） ====================
+
+fn month_line(period: &str, limit: &str, used: &str) -> (String, Decimal, Decimal) {
+    (period.to_string(), dec(limit), dec(used))
+}
+
+/// ⑤ WARN 槽场景（卡面验收 ①）：月额度 1000，2027-02 报 1500
+/// → `month_over=true / month_over_amount=500 / month_available=-500`。
+#[test]
+fn month_summary_picks_the_over_month() {
+    let months = vec![
+        month_line("2027-01", "1000", "0"),
+        month_line("2027-02", "1000", "1500"),
+        month_line("2027-03", "1000", "300"),
+    ];
+    let summary = month_summary(&months);
+    assert_eq!(summary.period_code.as_deref(), Some("2027-02"));
+    assert!(summary.over, "2027-02 已用 1500 > 额度 1000，必须报本月超支");
+    assert_eq!(summary.over_amount, Some(dec("500")), "超支额 = 1500 − 1000");
+    assert_eq!(summary.available, Some(dec("-500")), "本月可用保留负数");
+    assert_eq!((summary.limit, summary.used), (Some(dec("1000")), Some(dec("1500"))));
+}
+
+/// ⑥ 年度没超、月度超（卡面验收 ②）：年度可用 10500 > 0，但本月已超 500。
+/// 这是「主列看不出来」的那个 bug 的钉子：两个口径必须同时给出且结论不同。
+#[test]
+fn month_summary_shows_month_over_while_year_is_fine() {
+    let months = vec![
+        month_line("2027-01", "1000", "0"),
+        month_line("2027-02", "1000", "1500"),
+    ];
+    let summary = month_summary(&months);
+    let mut row = report_row("12000", "0", "1500");
+    row.fiscal_year = 2027;
+    row.months = months;
+    row.month = summary;
+    assert!(
+        row.available() > Decimal::ZERO,
+        "年度可用 = 12000 − 1500 = 10500（没超）"
+    );
+    assert!(
+        !(row.available() < Decimal::ZERO),
+        "年度 over = false（保持年度口径：DTO 里就是 available < 0）"
+    );
+    assert!(row.month.over, "月度 over = true（主列要能看出来）");
+    assert_eq!(row.month.over_amount, Some(dec("500")));
+}
+
+/// ⑦ 多个月都超 → 取超得最多的那个（不是第一个、也不是最后一个）。
+#[test]
+fn month_summary_picks_worst_over_month() {
+    let months = vec![
+        month_line("2027-05", "1000", "1200"),
+        month_line("2027-08", "1000", "1900"),
+        month_line("2027-11", "1000", "1600"),
+    ];
+    let summary = month_summary(&months);
+    assert_eq!(summary.period_code.as_deref(), Some("2027-08"));
+    assert_eq!(summary.over_amount, Some(dec("900")));
+}
+
+/// ⑧ 一个月都没超 → 报最紧的那个月（可用最小），且 `over_amount = None`（不是 0）。
+#[test]
+fn month_summary_without_over_reports_tightest_month() {
+    let months = vec![
+        month_line("2027-01", "1000", "100"),
+        month_line("2027-02", "1000", "1000"),
+        month_line("2027-03", "1000", "400"),
+    ];
+    let summary = month_summary(&months);
+    assert_eq!(
+        summary.period_code.as_deref(),
+        Some("2027-02"),
+        "用满不算超，但可用最小"
+    );
+    assert!(!summary.over);
+    assert_eq!(summary.over_amount, None);
+    assert_eq!(summary.available, Some(Decimal::ZERO));
+}
+
+/// ⑨ 没有月度分解行 → 全 None、不报超支（「没分解」不等于「超支」）。
+#[test]
+fn month_summary_without_breakdown_is_empty() {
+    let summary = month_summary(&[]);
+    assert_eq!(summary, MonthSummary::default());
+    assert!(!summary.over);
+    assert_eq!(summary.available, None);
+    assert_eq!(summary.period_code, None);
+}
+
+/// ⑩ 月度超支判定与提交侧月度闸**同一个函数**（卡面验收 ⑤）：
+/// 报表用的 `MonthGate::over` 与 `BudgetVerdict::evaluate` 算出的月度缺口必须同向 ——
+/// 只要 gate 说「已超」，提交侧就一定判超支（本次金额 > 0）。
+#[test]
+fn month_summary_agrees_with_guard_month_gate() {
+    use crate::business::erp::budget_guard::{BudgetVerdict, ControlMode, MonthGate};
+    let cases = [
+        ("1000", "999"),
+        ("1000", "1000"),
+        ("1000", "1001"),
+        ("1000", "1500"),
+        ("0", "1"),
+        ("1000", "0"),
+    ];
+    for (limit, used) in cases {
+        let gate = MonthGate::of(dec(limit), dec(used));
+        let summary = month_summary(&[month_line("2027-02", limit, used)]);
+        assert_eq!(summary.over, gate.over(), "报表月度 over 必须等于 MonthGate::over");
+        assert_eq!(summary.over_amount, gate.over_amount());
+        assert_eq!(summary.available, Some(gate.available()));
+
+        // 提交侧的月度缺口用的是截零后的可用：必须与 gate.available_clamped() 一致
+        let verdict = BudgetVerdict::evaluate(
+            ControlMode::Warn,
+            Some(Uuid::now_v7()),
+            dec("100000"),
+            Decimal::ZERO,
+            gate.limit,
+            gate.used,
+            dec("100"),
+        );
+        let expected_gap = (dec("100") - gate.available_clamped()).max(Decimal::ZERO);
+        assert_eq!(verdict.month_gap, expected_gap, "月度缺口公式必须与 MonthGate 同源");
+        if gate.over() {
+            assert!(verdict.over, "月度闸说已超 → 提交侧必须判超支（{limit}/{used}）");
+        }
+    }
 }
 
 /// ③ 状态常量与 DDL / 状态机一致（防三处漂移）。

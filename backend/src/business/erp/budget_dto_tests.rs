@@ -276,3 +276,56 @@ fn usage_res_keeps_row_source_type() {
     // 未知来源原样回显，不吞
     assert_eq!(source_type_label("MANUAL_ADJUST"), "MANUAL_ADJUST");
 }
+
+/// ⑬ **出参口径（E2E06-FIX-2）**：`ReportRes` 必须同时带年度与月度两套口径 ——
+/// 年度 `over=false / available=10500`，月度 `month_over=true / month_over_amount=500`。
+/// 只给年度那一套就是这次要修的 bug（财务从主列看不出本月已超）。
+#[test]
+fn report_res_carries_both_year_and_month_view() {
+    let months = vec![
+        ("2027-01".to_string(), dec("1000"), dec("0")),
+        ("2027-02".to_string(), dec("1000"), dec("1500")),
+    ];
+    let row = crate::business::erp::budget_model::ReportRow {
+        budget_id: Uuid::now_v7(),
+        fiscal_year: 2027,
+        dept_id: Uuid::now_v7(),
+        dept_name: "E2E06 预算演练部".to_string(),
+        account_id: Uuid::now_v7(),
+        account_code: "5602.05".to_string(),
+        account_name: "管理费用-通讯费".to_string(),
+        total_amount: dec("12000"),
+        occupied: Decimal::ZERO,
+        consumed: dec("1500"),
+        effective_from: Some(chrono::NaiveDate::from_ymd_opt(2026, 12, 1).expect("日期")),
+        effective: crate::business::erp::budget_guard::effective_in_year(
+            chrono::NaiveDate::from_ymd_opt(2026, 12, 1),
+            2027,
+        ),
+        month: crate::business::erp::budget_model::month_summary(&months),
+        months,
+    };
+    let res = ReportRes::from(&row);
+
+    // 年度口径：没超（保持原语义）
+    assert_eq!(res.available, dec("10500"));
+    assert!(!res.over, "年度 over 必须仍是年度口径");
+    // 月度口径：本月已超 500（主列要看得到）
+    assert!(res.month_over, "month_over 必须为 true");
+    assert_eq!(res.month_over_amount, Some(dec("500")));
+    assert_eq!(res.month_available, Some(dec("-500")));
+    assert_eq!(res.month_period.as_deref(), Some("2027-02"));
+    assert_eq!(
+        (res.month_limit, res.month_used),
+        (Some(dec("1000")), Some(dec("1500")))
+    );
+    // 报表时点 = 该年度期末 → FY2027 的这份预算「这一年算数」
+    assert!(
+        res.effective,
+        "FY2027 预算（effective_from=2026-12-01）在 2027 年度必须 effective=true"
+    );
+    assert_eq!(
+        res.effective_from,
+        Some(chrono::NaiveDate::from_ymd_opt(2026, 12, 1).expect("日期"))
+    );
+}

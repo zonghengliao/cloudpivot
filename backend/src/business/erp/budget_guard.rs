@@ -35,6 +35,11 @@
 //! 同口径必须一起改，否则报表和控制分叉（ARCH-6 §3.8.1）：[`active_control_mode`]、
 //! [`slot_snapshot`]、`budget_model::report`（报表标注 `effective` / `effective_from`）。
 //!
+//! **报表时点不同（E2E06-FIX-2）**：报表是「按年度看」的视图 —— 问的是「这份预算在这一年
+//! 算不算数」，所以 `effective` 用该年度**期末**判定（[`effective_in_year`] /
+//! [`fiscal_year_end`]），不是「今天」。控制侧仍按单据期间月末逐月判。
+//! 月度口径（报表主列的「本月」）由 [`MonthGate`] 统一提供，**与提交侧同一个公式**。
+//!
 //! # 「预算没生效」只提示、不拦（[`pending_budgets`] / [`pending_warnings`]）
 //!
 //! DRAFT / SUBMITTED / ACTIVE-未到生效日 的预算**不参与控制**（口径不变），
@@ -199,6 +204,11 @@ impl ModeSource {
     }
 }
 
+/// 允许的会计年度窗口（与库内 `ck_biz_budget_year` CHECK 逐字一致：2000..=2100）。
+pub const FISCAL_YEAR_MIN: i16 = 2000;
+/// 允许的会计年度窗口上界（见 [`FISCAL_YEAR_MIN`]）。
+pub const FISCAL_YEAR_MAX: i16 = 2100;
+
 /// 一个预算「槽」= 部门 × 预算科目 × 年度（D5：usage 绑槽不绑版本）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Slot {
@@ -217,7 +227,7 @@ impl Slot {
     pub fn new(dept_id: Uuid, account_id: Uuid, period_code: &str) -> Option<Self> {
         let year: i16 = period_code.get(0..4)?.parse().ok()?;
         let month: u32 = period_code.get(5..7)?.parse().ok()?;
-        if !(2000..=2100).contains(&year) || !(1..=12).contains(&month) {
+        if !(FISCAL_YEAR_MIN..=FISCAL_YEAR_MAX).contains(&year) || !(1..=12).contains(&month) {
             return None;
         }
         Some(Self {
@@ -257,6 +267,98 @@ pub fn period_end_of(period_code: &str) -> Option<NaiveDate> {
     }
     let (next_year, next_month) = if month == 12 { (year + 1, 1) } else { (year, month + 1) };
     NaiveDate::from_ymd_opt(next_year, next_month, 1)?.pred_opt()
+}
+
+/// 会计年度的**期末日期**（`fiscal_year` 的 12-31）。
+///
+/// 预算按自然年编制（`validate_periods`：12 行分解、期间码 `{fiscal_year}-{月}`），
+/// 所以「这一年的期末」= 该年 12-31。
+///
+/// 年份窗口与库内 CHECK（`ck_biz_budget_year: fiscal_year BETWEEN 2000 AND 2100`）和
+/// [`Slot::new`] 保持一致：越界一律 `None`（调用方按「不参与判定」处理，绝不 panic）。
+///
+/// 用途：**执行报表的 `effective` 时点**。报表是按年度看的视图，问的是「这份预算在
+/// 这一年算不算数」，所以拿该年度期末做时点，而不是「今天」——
+/// 否则 2026-11 查 FY2027 的报表会出现「2027 年的预算还没生效，但 2027-02 的单据
+/// 早被它管着」这种自相矛盾（E2E-06 发现的口径 bug）。
+pub fn fiscal_year_end(fiscal_year: i16) -> Option<NaiveDate> {
+    if !(FISCAL_YEAR_MIN..=FISCAL_YEAR_MAX).contains(&fiscal_year) {
+        return None;
+    }
+    NaiveDate::from_ymd_opt(i32::from(fiscal_year), 12, 31)
+}
+
+/// 报表口径的生效判定：`effective_from <= 该会计年度期末`。
+///
+/// * `effective_from = None` → `true`（选项 A 之前落库的历史 ACTIVE 行没有生效日，
+///   本来就该算生效，与 [`slot_snapshot`] 的 `effective_from IS NULL` 放行同口径）；
+/// * `Some(from)` → `from <= fiscal_year_end(fiscal_year)`；
+/// * 年份非法（构造不出期末）→ `true`（宁可显示「已生效」，也不因为一个坏年份把整行
+///   标成未生效 —— 报表是展示，不是控制）。
+///
+/// 与提交侧的差别只在**时点**：控制按「单据期间月末」逐月判（[`period_end_of`]），
+/// 报表按「该年度期末」整年判。两者判同一件事（`effective_from` 是否已到），
+/// 只是粒不同 —— 月度粒度由 [`MonthGate`] 的月度闸体现。
+pub fn effective_in_year(effective_from: Option<NaiveDate>, fiscal_year: i16) -> bool {
+    match (effective_from, fiscal_year_end(fiscal_year)) {
+        (None, _) | (_, None) => true,
+        (Some(from), Some(end)) => from <= end,
+    }
+}
+
+/// 月度闸的现状（**纯数据**）：月额度 / 月已用 → 月可用 / 是否已超 / 超了多少。
+///
+/// # 为什么单独抽出来（E2E06-FIX-2 的核心）
+///
+/// 这是全系统**唯一的月度闸公式**：提交侧（[`BudgetVerdict::evaluate`]）与执行报表
+/// （`budget_model::report` → `month_summary`）都调它。此前报表只有年度口径，
+/// 「本月已超 500」只藏在 `months[]` 明细里，主列一片「正常」，
+/// 与提交侧月度闸的分叉必然被用户撞见（ARCH-6 §3.8.1）。
+/// 抽成一个函数之后，改口径只用改这里。
+///
+/// 口径与年度闸同构：
+/// ```text
+/// 月可用 = 月额度 − 月已用            -- 带符号，报表直接展示（负数 = 超支）
+/// 已超   = 月已用 > 月额度            -- 相等不算超（边界同年度闸）
+/// 超支额 = 月已用 − 月额度
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MonthGate {
+    /// 月度额度（无分解行 = 0）。
+    pub limit: Decimal,
+    /// 月度已用（`OCCUPIED + CONSUMED`，同期间）。
+    pub used: Decimal,
+}
+
+impl MonthGate {
+    /// 构造。
+    pub fn of(limit: Decimal, used: Decimal) -> Self {
+        Self { limit, used }
+    }
+
+    /// 月可用（**带符号**：负数 = 本月已超支多少）。
+    pub fn available(&self) -> Decimal {
+        self.limit - self.used
+    }
+
+    /// 月可用（**截零**）：提交侧算缺口用它。
+    ///
+    /// 为什么不直接用带符号的那个：缺口 = `本次 − 可用`，月已超时带符号的「可用」是负数，
+    /// 减一个负数会把**历史超支**再算进本次缺口一次（`1000 − 1500 = −500`，
+    /// 本次 100 → 缺口 600，其实本次只超 100）。截零后缺口 = `本次 − 0`，与旧实现逐位一致。
+    pub fn available_clamped(&self) -> Decimal {
+        self.available().max(Decimal::ZERO)
+    }
+
+    /// 本月**是否已超**（`已用 > 额度`；相等不算超 —— 与年度闸 `M = 可用` 的边界一致）。
+    pub fn over(&self) -> bool {
+        self.used > self.limit
+    }
+
+    /// 本月超支额（`None` = 没超，不是「超了 0」）。
+    pub fn over_amount(&self) -> Option<Decimal> {
+        self.over().then(|| self.used - self.limit)
+    }
 }
 
 /// 判定结果（**纯数据，不碰库**，六个数全给，便于日志与单测）。
@@ -303,7 +405,10 @@ impl BudgetVerdict {
         this_amount: Decimal,
     ) -> Self {
         let year_avail = (year_limit - year_used).max(Decimal::ZERO);
-        let month_avail = (month_limit - month_used).max(Decimal::ZERO);
+        // 月度闸走**公共公式** [`MonthGate`]：报表的 `month_over / month_available`
+        // 调的是同一个方法，口径不可能分叉（E2E06-FIX-2）。
+        let month_gate = MonthGate::of(month_limit, month_used);
+        let month_avail = month_gate.available_clamped();
         let year_gap = (this_amount - year_avail).max(Decimal::ZERO);
         let month_gap = (this_amount - month_avail).max(Decimal::ZERO);
         // 没有本期生效的 ACTIVE 预算 = 未编制（与额度 / 已用无关）
@@ -345,9 +450,9 @@ impl BudgetVerdict {
         (self.year_limit - self.year_used).max(Decimal::ZERO)
     }
 
-    /// 月可用。
+    /// 月可用（额度 − 已用，负数截零）。走公共公式 [`MonthGate`]。
     pub fn month_available(&self) -> Decimal {
-        (self.month_limit - self.month_used).max(Decimal::ZERO)
+        MonthGate::of(self.month_limit, self.month_used).available_clamped()
     }
 
     /// 是否应该阻断（`BLOCK` 且「超支」或「未编制预算」）。

@@ -193,11 +193,17 @@ say "  · 5602.02 行：$(printf '%s' "$ROW_A" | jq -c '{total_amount,occupied,c
 USED_DB=$(SQ "select coalesce(sum(amount),0)::text from biz_budget_usage where dept_id='$DEPT_ID'::uuid and account_id='$ACC_TRAVEL'::uuid and fiscal_year=2027 and status in ('OCCUPIED','CONSUMED') and deleted_at is null")
 chknum "报表已用 = 库内占用合计" "$(printf '%s' "$ROW_A" | jq -r '.used')" "$USED_DB"
 chknum "报表可用 = 额度 − 已用" "$(printf '%s' "$ROW_A" | jq -r '.available')" "$(awk -v t=150000 -v u="$USED_DB" 'BEGIN{printf "%.4f", t-u}')"
-check "报表 effective=false（effective_from=2026-12-01 > 本月期末 2026-11-30，报表时点口径）" "$(printf '%s' "$ROW_A" | jq -r '.effective')" "false"
+check "报表 effective=true（effective_from=2026-12-01 ≤ FY2027 期末 2027-12-31；修复前按本月月末判成 false）" "$(printf '%s' "$ROW_A" | jq -r '.effective')" "true"
 check "报表 effective_from = 2026-12-01" "$(printf '%s' "$ROW_A" | jq -r '.effective_from')" "2026-12-01"
 check "报表 over=false（年度未超支）" "$(printf '%s' "$ROW_A" | jq -r '.over')" "false"
 ROW_W=$(printf '%s' "$BODY" | jq -c '[.data[]|select(.budget_id=="'"$BG_W"'")][0]')
 check "WARN 槽报表 over=false（报表 over 是年度口径）" "$(printf '%s' "$ROW_W" | jq -r '.over')" "false"
+# E2E06-FIX-2：同一行的**月度口径**（此前只藏在 months[] 里，主列看不出来）
+check "WARN 槽 month_over=true（本月已超，与提交侧月度闸同源）" "$(printf '%s' "$ROW_W" | jq -r '.month_over')" "true"
+chknum "WARN 槽 month_over_amount = 500" "$(printf '%s' "$ROW_W" | jq -r '.month_over_amount')" "500"
+chknum "WARN 槽 month_available = −500" "$(printf '%s' "$ROW_W" | jq -r '.month_available')" "-500"
+check "WARN 槽 month_period = 2027-02" "$(printf '%s' "$ROW_W" | jq -r '.month_period')" "2027-02"
+check "5602.02 槽 month_over=false（月度没超，不许误报）" "$(printf '%s' "$ROW_A" | jq -r '.month_over')" "false"
 chknum "WARN 槽 2027-02 月度可用 = 1000−1500 = −500（月度超支在分月里）" \
   "$(printf '%s' "$ROW_W" | jq -r '[.months[]|select(.period_code=="2027-02")][0].available')" "-500"
 chknum "WARN 槽年度可用 = 12000−1500" "$(printf '%s' "$ROW_W" | jq -r '.available')" "10500"
