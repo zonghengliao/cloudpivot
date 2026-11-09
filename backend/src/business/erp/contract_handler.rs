@@ -855,9 +855,18 @@ pub async fn contract_change_status(
     // ⑦ 带 CAS 的写状态
     //    * 从 `PENDING_APPROVAL` 回位（撤回 / 人工驳回）→ 连实例一起清空，
     //      否则合同挂在「草稿 + 旧实例」上，下次提交会撞 `uk_biz_flow_instance_biz_active`；
+    //    * `PENDING_APPROVAL → SIGNED`（审批中心之外的登记签订）→ **保留**原实例 id 作审计，
+    //      与 V0209 迁移注释（「审批通过后 SIGNED 保留实例 id 作审计」）和
+    //      `contract_apply_approval_transition` 的语义表一致；早期实现这里一律传 None，
+    //      会把合同与审批单的关联抹掉（详情再也显示不出 FLW 单号）；
     //    * 其余边（`SIGNED→ACTIVE` 等）只写状态，`approval_instance_id` 保留作审计。
     let write = if row.status == contract_model::STATUS_PENDING_APPROVAL {
-        contract_model::contract_apply_approval_transition(&tx, id, &row.status, &target, operator, None).await
+        let keep_instance = if target == contract_model::STATUS_SIGNED {
+            row.approval_instance_id
+        } else {
+            None
+        };
+        contract_model::contract_apply_approval_transition(&tx, id, &row.status, &target, operator, keep_instance).await
     } else {
         contract_model::contract_write_status(&tx, id, &row.status, &target, operator).await
     };
@@ -2163,6 +2172,52 @@ mod tests {
             .await
             .expect("查状态日志");
         assert_eq!(logged, 1, "一次流转要有一条日志（谁在什么时候改的）");
+    }
+
+    /// **CTR-02 回归**：`PENDING_APPROVAL → SIGNED`（审批中心之外的「登记签订」）
+    /// 必须**保留**审批实例 id 作审计 —— V0209 迁移注释与
+    /// `contract_apply_approval_transition` 语义表都这么写；早期实现这里一律传 `None`，
+    /// 把合同与审批单的关联抹掉（详情 / 列表再也显示不出 FLW 单号）。
+    #[tokio::test]
+    async fn manual_sign_from_pending_keeps_approval_instance() {
+        let Some(_guard) = setup().await else { return };
+        let (id, _name) = create_ok("MANSIGN").await;
+        // 前置：审批中 + 挂实例（弱引用，无 FK，随机 uuid 即可）
+        let instance = Uuid::now_v7();
+        db().execute_with_params(
+            "UPDATE biz_contract SET status = 'PENDING_APPROVAL', approval_instance_id = ?::uuid \
+                  WHERE id = ?::uuid",
+            vec![Value::from(instance.to_string()), Value::from(&id)],
+        )
+        .await
+        .expect("造审批中前置");
+
+        let signed = data(
+            contract_change_status(
+                Extension(AuthClaims(claims())),
+                Path(id.to_string()),
+                Json(ContractStatusReq {
+                    target_status: Some("SIGNED".to_string()),
+                    ..Default::default()
+                }),
+            )
+            .await
+            .expect("PENDING_APPROVAL→SIGNED"),
+        );
+        assert_eq!(signed.base.status, "SIGNED");
+        assert_eq!(
+            signed.base.approval_instance_id.as_deref(),
+            Some(instance.to_string().as_str()),
+            "登记签订后审批实例 id 必须保留（审计 / 详情显示 FLW 单号）"
+        );
+        let stored: Option<String> = db()
+            .scalar_with_params(
+                "SELECT approval_instance_id::text FROM biz_contract WHERE id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .expect("查库确认");
+        assert_eq!(stored.as_deref(), Some(instance.to_string().as_str()), "DB 层也要保留");
     }
 
     /// 验收第 9 条：非法边 → 409 + 66015（卡面写 400 + 66014，已按 A1 的码表更正）。
