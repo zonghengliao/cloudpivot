@@ -1,0 +1,20 @@
+    Blocking waiting for file lock on artifact directory
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 21s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 10 tests
+test business::erp::contract_approval_tests::draft_cannot_be_signed_or_activated_without_approval ... ok
+test business::erp::contract_approval_tests::large_amount_requires_two_levels_in_sequence ... ok
+test business::erp::contract_approval_tests::manual_sign_from_pending_terminates_running_instance ... ok
+test business::erp::contract_approval_tests::manual_withdraw_cancels_running_instance ... ok
+test business::erp::contract_approval_tests::reject_returns_contract_to_draft_and_clears_instance ... ok
+test business::erp::contract_approval_tests::small_amount_single_level_approval_signs_contract ... ok
+test business::erp::contract_approval_tests::submit_moves_draft_to_pending_and_attaches_instance ... ok
+test business::erp::contract_approval_tests::submit_without_dates_returns_400 ... ok
+test business::erp::contract_approval_tests::submit_without_published_flow_returns_409 ... ok
+test business::erp::contract_approval_tests::zz_teardown_purges_fixtures ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 3940 filtered out; finished in 19.94s
+
+RC1=0

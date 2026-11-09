@@ -1,0 +1,40 @@
+### 探针合同（按时间）
+contract_no|contract_name|status|inst
+HT-20261109-000001|E2E07FIX4-SIGN-1109173703|DRAFT|-
+HT-20261109-000002|E2E07FIX4-SIGN-1109173725|COMPLETED|01a1bfab-7206-76d7-93ba-4f7ebe24b7c7
+HT-20261109-000003|E2E07FIX4-SIGN-1109173735|COMPLETED|01a1bfab-97a2-738c-a5f5-b39a91f0f3ff
+(3 rows)
+
+### 路径② 那张合同的审批实例（status=CANCELLED，result_comment 写明原因，ended_at 非空）
+instance_no|biz_type|status|ended|result_comment
+FLW-20261109-89B94BAA|CONTRACT_APPROVE|CANCELLED|t|审批中心外登记签订：审批实例已终止（待办一并取消）
+(1 row)
+
+### 该实例的待办（全部 CANCELLED，completed_at 全非空）
+status|n|all_completed|sample_comment
+CANCELLED|1|t|审批中心外登记签订：审批实例已终止（待办一并取消）
+(1 row)
+
+### 该实例的节点（无 ACTIVE/PENDING）
+status|n
+APPROVED|2
+CANCELLED|1
+(2 rows)
+
+### 状态日志（PENDING_APPROVAL→SIGNED 的 reason = 审批中心外登记签订…）
+from_status|to_status|reason|created_at
+ACTIVE|COMPLETED||2026-11-09 17:37:36.690952+08
+SIGNED|ACTIVE||2026-11-09 17:37:36.611051+08
+PENDING_APPROVAL|SIGNED|审批中心外登记签订：审批实例已终止（待办一并取消）|2026-11-09 17:37:36.297179+08
+DRAFT|PENDING_APPROVAL|提交审批|2026-11-09 17:37:36.174664+08
+ACTIVE|COMPLETED||2026-11-09 17:37:27.087141+08
+SIGNED|ACTIVE||2026-11-09 17:37:26.996479+08
+PENDING_APPROVAL|SIGNED|审批中心外登记签订：审批实例已终止（待办一并取消）|2026-11-09 17:37:26.678386+08
+DRAFT|PENDING_APPROVAL|提交审批|2026-11-09 17:37:26.549763+08
+(8 rows)
+
+### ④ 归档那张：合同已 COMPLETED，名下仍有在途采购单（E4 不硬拦）
+contract_no|contract_status|open_orders
+HT-20261109-000002|COMPLETED|1
+HT-20261109-000003|COMPLETED|1
+(2 rows)

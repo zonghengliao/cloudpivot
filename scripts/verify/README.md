@@ -787,3 +787,33 @@ bash scripts/verify/e2e07_fix3_attachment_name_probe.sh    # 145，读 /etc/clou
 `COLUMNS` 里快照必须排在 `f.original_name` 之前 —— 顺序换回去时真库用例在没有秒传的夹具上
 依然全绿，只有这条会红）与 `migration_adds_and_backfills_file_name`（迁移少一句就红）。
 真库用例 `db_file_name_snapshot_survives_seconds_upload` 覆盖列表 / 单条 / 幂等 / 历史回落四段。
+
+## 合同路径②「登记签订」+ 归档前提示（`e2e07_fix4_probe.sh`，卡 E2E07-FIX-4）
+
+```bash
+# 145：先起隔离实例（全新库 cp_fix4_e2e + 8034，迁移链路自检）
+bash scripts/verify/e2e07_fix4_setup_145.sh
+# 再跑探针（真 token / 真 HTTP / 真库，33 条断言）
+DB=cp_fix4_e2e BASE=http://127.0.0.1:8034/api bash scripts/verify/e2e07_fix4_probe.sh
+```
+
+**为什么要有这条探针**：`PENDING_APPROVAL → SIGNED`（审批中心之外的「登记签订」）过去只翻
+合同状态，审批实例仍 `PENDING`、待办仍挂在审批人处 —— 会签没走完就出现「已签 + 待办未清」，
+只剩「把剩余会签签完」一条出口（签完会把一张已签合同再判一次 `APPROVED`），没有审批权的人
+只能找工程师改库。现在同事务终止实例（`engine::terminate_instance`）。
+
+| # | 断言 | 判据 |
+|---|------|------|
+| ① | 合同落 `SIGNED` | `PATCH /status {target_status:SIGNED}` → `200/c0` |
+| ② | 实例被终止 | `biz_flow_instance.status=CANCELLED`、`ended_at` 非空、`result_comment` 含「审批中心外登记签订」 |
+| ③ | 待办清零但留痕 | `PENDING` 0 条；原 PENDING 条数 → 全 `CANCELLED` |
+| ④ | 节点收口 | 无 `ACTIVE/PENDING` 节点 |
+| ⑤ | 状态日志留痕 | `biz_status_log(PENDING_APPROVAL→SIGNED).reason` 含「审批实例已终止」 |
+| ⑥ | 重复签订被挡 | 再 `PATCH SIGNED` → `409`，合同状态不变 |
+| ⑦ | 归档字面量 | `target_status=CLOSED` → `400 + 10001`（合同没有 CLOSED） |
+| ⑧ | E4 不硬拦 | 挂 1 张在途采购单仍 `ACTIVE → COMPLETED` `200`，详情 `open_order_count=1`（前端提示数据源） |
+
+环境坑（脚本里已处理）：全新库种子账号 `must_change_password=true`，服务端缓存键带前缀
+（实测 `cloudpivot:uv:<id>`），改库后要按 pattern 删键否则 `403 首登未改密`；全新库只有
+`admin`，审批节点按角色展开时采购经理为空 → 提交 `422 + 65018`，探针自建 `fix4_appr`
+（`PURCHASE_MANAGER`）。

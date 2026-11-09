@@ -54,6 +54,23 @@ login() { # login <用户名> <口令>
 
 RUN=$(date +%m%d%H%M%S)
 say "### 0) 登录（真 token）"
+# 全新库的种子账号 `must_change_password=true`：先解锁并关掉首登改密（隔离探针库，不动别人的库）。
+# 服务端把该标记缓存在 Redis `uv:{user_id}`（TTL 60s，见 middleware/session_guard.rs），
+# 所以改库之后必须把缓存键删掉（等价于服务端写点自己的失效动作），否则仍会 403「首登未改密」。
+SQ "update sys_user set must_change_password=false, is_locked=false, login_fail_count=0 where username='admin'" >/dev/null
+ADMIN_UID=$(SQ "select id from sys_user where username='admin' and deleted_at is null")
+# 缓存键带配置前缀（实测 `cloudpivot:uv:<id>`），所以按 pattern 找而不是拼固定前缀
+REDIS_HOSTPORT=$(printf '%s' "${NIK_REDIS_URL:-redis://127.0.0.1:6379}" | sed -e 's#^redis://##' -e 's#/.*$##')
+RCLI=(redis-cli -h "${REDIS_HOSTPORT%%:*}" -p "${REDIS_HOSTPORT##*:}")
+[ -n "${NIK_REDIS_PASSWORD:-}" ] && RCLI+=(-a "$NIK_REDIS_PASSWORD" --no-auth-warning)
+if command -v redis-cli >/dev/null 2>&1; then
+  for k in $("${RCLI[@]}" --scan --pattern "*uv:$ADMIN_UID" 2>/dev/null); do
+    "${RCLI[@]}" DEL "$k" >/dev/null 2>&1
+  done
+else
+  say "  …无 redis-cli，等缓存 TTL 过期（65s）"
+  sleep 65
+fi
 T_ADMIN=$(login admin "$NIK_ADMIN_PASSWORD")
 [ -n "$T_ADMIN" ] && ok "admin 登录" || { bad "admin 登录失败"; exit 1; }
 ADMIN_ID=$(SQ "select id from sys_user where username='admin' and deleted_at is null")
@@ -61,6 +78,21 @@ SUP_ID=$(SQ "select id from biz_supplier where deleted_at is null and status=1 o
 WH_ID=$(SQ "select id from biz_warehouse where deleted_at is null order by warehouse_code limit 1")
 MAT_ID=$(SQ "select id from biz_material where deleted_at is null order by material_code limit 1")
 [ -n "$SUP_ID" ] && ok "供应商夹具 $SUP_ID" || { bad "库里没有可用供应商"; exit 1; }
+
+say "### 0-b) 审批人夹具（全新库只有 admin：审批节点按角色展开，采购经理不能为空）"
+PM_ROLE=$(SQ "select id from sys_role where role_code='PURCHASE_MANAGER' and deleted_at is null")
+APPR_ID=$(SQ "select id from sys_user where username='fix4_appr' and deleted_at is null")
+if [ -z "$APPR_ID" ]; then
+  api mkuser POST /system/user "$T_ADMIN" \
+    "{\"username\":\"fix4_appr\",\"password\":\"Fix4@Appr123\",\"real_name\":\"FIX4 审批人\",\"role_ids\":[\"$PM_ROLE\"]}"
+  check "建审批人夹具（PURCHASE_MANAGER）" "$HTTP/c$CODE" "200/c0"
+  APPR_ID=$(SQ "select id from sys_user where username='fix4_appr' and deleted_at is null")
+else
+  ok "审批人夹具已存在（$APPR_ID）"
+fi
+[ -n "$APPR_ID" ] || { bad "审批人夹具缺失：待办会展开不出人（65018）"; exit 1; }
+check "审批人角色绑定" \
+  "$(SQ "select count(*) from sys_user_role ur join sys_role r on r.id=ur.role_id where ur.user_id='$APPR_ID' and r.role_code='PURCHASE_MANAGER'")" "1"
 
 # ---------------------------------------------------------------- ① 路径②
 say "### 1) 建合同 + 提交审批（起真实例 + 真待办）"

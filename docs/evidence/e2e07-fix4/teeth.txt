@@ -1,0 +1,36 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+warning: variable does not need to be mutable
+   --> src/business/erp/contract_handler.rs:814:9
+    |
+814 |     let mut terminated: Option<crate::business::flow::engine::ActionOut> = None;
+    |         ----^^^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `cloudpivot` (lib test) generated 1 warning (run `cargo fix --lib -p cloudpivot --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 03s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 1 test
+test business::erp::contract_approval_tests::manual_sign_from_pending_terminates_running_instance ... FAILED
+
+failures:
+
+---- business::erp::contract_approval_tests::manual_sign_from_pending_terminates_running_instance stdout ----
+
+thread 'business::erp::contract_approval_tests::manual_sign_from_pending_terminates_running_instance' (2973500) panicked at src/business/erp/contract_approval_tests.rs:785:5:
+assertion `left == right` failed: 登记签订必须终止在跑的实例（否则「已签 + 待办未清」）
+  left: Some("PENDING")
+ right: Some("CANCELLED")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    business::erp::contract_approval_tests::manual_sign_from_pending_terminates_running_instance
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3949 filtered out; finished in 2.22s
+
+error: test failed, to rerun pass `--lib`
+RC=101

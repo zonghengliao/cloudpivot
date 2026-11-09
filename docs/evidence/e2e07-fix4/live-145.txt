@@ -1,0 +1,42 @@
+### 0) 登录（真 token）
+  ✅ admin 登录
+  ✅ 供应商夹具 d1370005-0000-4000-8000-000000000001
+### 0-b) 审批人夹具（全新库只有 admin：审批节点按角色展开，采购经理不能为空）
+  ✅ 审批人夹具已存在（01a1bfab-7099-7318-ba4b-6451e8c7a202）
+  ✅ 审批人角色绑定 = 1
+### 1) 建合同 + 提交审批（起真实例 + 真待办）
+  ✅ 建单 HTTP/CODE = 200/c0
+  ✅ 提交审批 HTTP/CODE = 200/c0
+  ✅ 合同状态（提交后） = PENDING_APPROVAL
+  ✅ 合同挂上实例 01a1bfab-97a2-738c-a5f5-b39a91f0f3ff
+  ✅ 实例上有 1 条 PENDING 待办（会签/审批真挂着）
+  ✅ 实例状态（提交后） = PENDING
+### 2) 路径② 登记签订：PATCH {target_status:SIGNED}
+  ✅ 登记签订 HTTP/CODE = 200/c0
+  ✅ 合同状态（签订后） = SIGNED
+  ✅ 合同仍指向原实例（审计） = 01a1bfab-97a2-738c-a5f5-b39a91f0f3ff
+  ✅ ① 审批实例状态 = CANCELLED
+  ✅ ① 实例 ended_at 已写 = 1
+  ✅ ① 实例 result_comment 含「审批中心外登记签订」
+  ✅ ① 待办 PENDING（应为 0） = 0
+  ✅ ① 待办 CANCELLED（应=原条数） = 1
+  ✅ ① 实例节点未收口数（应为 0） = 0
+  ✅ ① 状态日志 reason 含「审批实例已终止」
+### 3) 已签再签（幂等闸）：应 409，且不重复终止
+  ✅ 重复登记签订 HTTP = 409
+  ✅ 合同状态没被改回 = SIGNED
+### 4) ② 归档字面量：CLOSED 不存在（应 400 + 10001）
+  ✅ CLOSED HTTP/CODE = 400/c10001
+  ✅ CLOSED 业务码 = 10001
+  ✅ 合同状态没被改 = SIGNED
+### 5) ④ 归档不硬拦（E4）：挂 1 张在途采购单 → SIGNED/ACTIVE → COMPLETED 仍 200
+  ✅ 生效 HTTP/CODE = 200/c0
+  ✅ 在途采购单已建（contract_id=01a1bfab-978c-76a5-85f3-5f374ba4c294）
+  ✅ 详情 HTTP/CODE = 200/c0
+  ✅ ④ 详情 open_order_count（前端提示数据源） = 1
+  ✅ ④ 详情 open_order_nos 点名 = 1
+  ✅ ④ 库内未关闭单据数（与接口同口径） = 1
+  ✅ ④ 归档（COMPLETED）HTTP/CODE = 200/c0
+  ✅ ④ 合同状态 = COMPLETED
+
+================ 结果：PASS=33 FAIL=0 ================

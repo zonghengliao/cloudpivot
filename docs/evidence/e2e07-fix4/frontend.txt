@@ -1,0 +1,19 @@
+# 前端：typecheck / build / 单测（erp-contract）
+
+## pnpm typecheck
+RC=0
+
+## pnpm build（含 typecheck）
+dist//opt/cloudpivot/frontend/assets/echarts-CuV_skF0.js.gz                                                1002.89kb / gzip: 331.52kb
+dist//opt/cloudpivot/frontend/assets/pdf.worker.min-yatZIOMy.mjs.gz                                        1343.59kb / gzip: 393.48kb
+dist//opt/cloudpivot/frontend/assets/tdesign-Cj2uTWY5.js.gz                                                7995.70kb / gzip: 772.69kb
+
+
+RC=0
+
+## 前端单测（tests/unit/erp-contract.test.ts，含新增 ⑱）
+# tests 15
+# pass 15
+# fail 0
+
+## 后端单测摘录（unit_contract_db.txt）
