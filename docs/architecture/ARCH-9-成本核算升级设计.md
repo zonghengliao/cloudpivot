@@ -515,7 +515,7 @@ CREATE TABLE IF NOT EXISTS biz_cost_period (
     CONSTRAINT ck_biz_cost_period_cancel CHECK (status <> 'CANCELLED' OR cancel_reason IS NOT NULL)
 );
 -- ★ 唯一键排除 REVERSED/CANCELLED：红冲/作废行留在表里（审计），但不再占位 ——
---   否则红冲后永远无法重新结算该期间（死单）。真库已实测两种情形（§9 附录 A 断言⑦）。
+--   否则红冲后永远无法重新结算该期间（死单）。真库已实测两种情形（附录 A 断言⑦）。
 CREATE UNIQUE INDEX uk_biz_cost_period
     ON biz_cost_period (org_id, period_code)
     WHERE deleted_at IS NULL AND status NOT IN ('REVERSED','CANCELLED');
