@@ -1,0 +1,58 @@
+==== 0. 隔离库 + 隔离实例（env 文件 /etc/cloudpivot/cloudpivot-dev.env）
+  pid=1200270 迁移次数=1 health=200
+  库指纹 schema_migrations(max|count)=355 288
+  主链路白名单 biz_flow_critical_edge=25 行
+  ✅ V0354 已随迁移种入 25 条主链路边
+==== 1. 登录（全新库 admin 带 must_change_password → 先改密）
+  改密 http=200 code=0 msg=密码已修改
+  ✅ admin 已登录（改密后）
+==== 2. GET 边配置：主链路边要能自报家门（critical / critical_impact）
+  DRAFT→POSTED = true|销售出库无法直接过账
+  ✅ DRAFT→POSTED 标了 critical=true
+  ✅ critical_impact=销售出库无法直接过账
+==== 3. ① 禁用 DRAFT→POSTED（不传 confirm_critical）→ 期望 400 + 点名业务后果
+  http=400 code=10001 msg=这是主链路必需边（STOCK_OUT DRAFT→POSTED），禁用它会让销售出库无法直接过账。确认要禁用请传 confirm_critical=true（一般不需要禁用主链路边，请先确认是不是点错了对象）
+  ✅ 不确认 → 400（拒绝禁用）
+  ✅ 报文点名「主链路必需边」
+  ✅ 报文点名业务后果「销售出库无法直接过账」
+  ✅ 报文给出继续操作的办法（confirm_critical=true）
+  ✅ 被挡下的请求没留下禁用配置行
+==== 4. ② 带 confirm_critical=true → 期望 200（送审或直接生效）
+  http=200 applied=false instance_no=FLW-20261109-B6357A1B msg=STOCK_OUT DRAFT→POSTED 禁用：已提交审批 FLW-20261109-B6357A1B，审批通过后才会生效（驳回或撤回则配置不变）
+  ✅ 确认后禁用请求被接受（http=200）
+  ✅ 落点明确：applied=false / 审批单=FLW-20261109-B6357A1B（有已发布流程 → 送审）
+==== 5. ⑤ 造一张真出库单（DRAFT），再按 E2E-02 事故现场把 DRAFT→POSTED 关掉
+  warehouse=d1370001-0000-4000-8000-000000000001 material=d1370003-0000-4000-8000-000000000001
+  http=200 out_no=OUT-20261109-000001 id=01a1be8f-8475-75da-8304-6f8072ab9914
+  ✅ 出库单建单成功：OUT-20261109-000001
+  已禁用边：STOCK_OUT DRAFT→POSTED enabled=false
+  http=409 code=10003 msg=销售出库无法直接过账：该操作已被系统配置禁用，请联系系统管理员
+  ✅ 边被禁用 → 409（拦住了）
+  ✅ 报错是业务语言「销售出库无法直接过账」
+  ✅ 报错给出下一步（联系系统管理员）
+  ✅ 用户侧报文不含内部单号（OUT-20261109-000001 只进 internal_detail）
+  ✅ 用户侧报文不含状态名（DRAFT / PENDING_POST）
+  ✅ 后端日志里有内部细节（OUT-20261109-000001 / 流转 / 可选去向），运维可追
+==== 6. ③ 巡检脚本：主链路边被禁用 → rc=1 并点名
+    ==> 库：cp_e2efix1（cloudpivot@127.0.0.1:5432）
+        主链路白名单：25 条（真相在 backend/src/business/shared/state_machine.rs::CRITICAL_EDGES）
+    
+    ✗ 主链路边被禁用（功能会断）：
+      · STOCK_OUT DRAFT→POSTED 被禁用 → 销售出库无法直接过账
+    
+      处置：确认不是误操作后恢复（**本脚本不会自动改回**）：
+        UPDATE biz_flow_state_edge SET enabled = true, updated_at = now()
+         WHERE entity = 'STOCK_OUT' AND from_status = 'DRAFT' AND to_status = 'POSTED' AND deleted_at IS NULL;
+    
+      为什么不能自动改回：禁用可能是人工加严（临时关掉免审直过），自动改回会推翻人的决定。
+  ✅ 巡检 rc=1（发现主链路边被禁用）
+  ✅ 巡检点名了被禁用的边 + 业务后果
+==== 7. ④ 恢复 enabled=true → 巡检 rc=0
+    ==> 库：cp_e2efix1（cloudpivot@127.0.0.1:5432）
+        主链路白名单：25 条（真相在 backend/src/business/shared/state_machine.rs::CRITICAL_EDGES）
+    ✓ 主链路边全部可用（25 条白名单，0 条被禁用）
+  ✅ 恢复后巡检 rc=0（绿）
+==== 8. 收尾（还原现场，杀实例）
+  残留：0 条禁用边（本库为隔离库，不清理业务单据：OUT-20261109-000001）
+
+==== 结果：PASS=21 FAIL=0

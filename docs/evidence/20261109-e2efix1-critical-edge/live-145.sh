@@ -197,8 +197,8 @@ case "$MSG" in
   *) ok "用户侧报文不含内部单号（$OUT_NO 只进 internal_detail）" ;;
 esac
 case "$MSG" in
-  *DRAFT*|*PENDING_POST*) bad "用户侧报文仍带状态机术语：$MSG" ;;
-  *) ok "用户侧报文不含状态名（DRAFT / PENDING_POST）" ;;
+  *DRAFT*|*POSTED*) bad "用户侧报文仍带状态机术语：$MSG" ;;
+  *) ok "用户侧报文不含状态名（DRAFT / POSTED）" ;;
 esac
 if grep -q "internal_detail" "$LOG" || grep -q "$OUT_NO" "$LOG"; then
   ok "后端日志里有内部细节（$OUT_NO / 流转 / 可选去向），运维可追"
