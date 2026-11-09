@@ -1,0 +1,27 @@
+# 99 全新空库（mig_replay_fix2b）跑完整条迁移链后，biz_flow_linkage_rule 的预置规则
+# 迁移链：282/282 通过（其中 V0360 是本卡新增）；采集时间：2026-11-09T15:44:23+08:00
+#
+## 存活规则（trigger_entity|trigger_status|action_code|seq|name）
+ACCOUNTING_PERIOD|CLOSED|SEND_NOTICE|10|会计期间结账 → 通知操作人
+ACCOUNTING_YEAR|CLOSED|SEND_NOTICE|10|会计年度结转 → 通知操作人
+CONTRACT|SIGNED|SEND_NOTICE|10|合同签订 → 通知制单人
+CONTRACT|TERMINATED|SEND_NOTICE|20|合同终止 → 通知制单人
+DEPRECIATION|POSTED|SEND_NOTICE|10|折旧过账 → 通知制单人
+EXPENSE_REPORT|PAID|SEND_NOTICE|10|报销付清 → 通知制单人
+FIXED_ASSET|DISPOSED|SEND_NOTICE|10|资产处置 → 通知制单人
+FIXED_ASSET|IDLE|SEND_NOTICE|10|资产停用 → 通知制单人
+FIXED_ASSET|IN_USE|SEND_NOTICE|10|资产启用 / 作废处置 → 通知制单人
+FLOW_INSTANCE|APPROVED|SEND_NOTICE|10|审批通过 → 通知发起人
+FLOW_INSTANCE|REJECTED|SEND_NOTICE|10|审批驳回 → 通知发起人
+PAYABLE|SETTLED|SEND_NOTICE|10|应付结清 → 通知制单人
+PURCHASE_ORDER|RECEIVED|SEND_NOTICE|10|采购订单全部收货 → 通知制单人
+PURCHASE_RETURN|CONFIRMED|SEND_NOTICE|10|采购退货确认 → 通知制单人
+STOCK_IN|POSTED|GENERATE_VOUCHER|10|收货过账 → 生成凭证（联动接管）
+STOCK_IN|POSTED|SEND_NOTICE|20|收货过账 → 通知制单人
+STOCK_OUT|POSTED|SEND_NOTICE|10|出库过账 → 通知制单人
+STOCK_TAKE|POSTED|SEND_NOTICE|10|盘点过账 → 通知制单人
+STOCK_TRANSFER|DONE|SEND_NOTICE|10|调拨完成 → 通知制单人
+TASK|DOING|SEND_NOTICE|10|任务开工 → 通知负责人与创建人
+VOUCHER|POSTED|SEND_NOTICE|10|凭证记账 → 通知制单人
+
+## V0360 down → up 往返（down 后 7 条存活，不变量 ① 报 12 个缺口；up 后 21 条复活）

@@ -233,7 +233,10 @@ async fn add_rule(status: &str, action: &str, params: &str) {
         "INSERT INTO biz_flow_linkage_rule \
             (id, name, trigger_entity, trigger_status, action_code, action_params, seq) \
          VALUES (gen_random_uuid(), 'LNK11-{status}-{action}-{nanos}', 'ACCOUNTING_YEAR', \
-                 '{status}', '{action}', '{params}'::jsonb, 10)"
+                 '{status}', '{action}', '{params}'::jsonb, 10) \
+         ON CONFLICT (trigger_entity, trigger_status, action_code) DO UPDATE \
+            SET name = EXCLUDED.name, action_params = EXCLUDED.action_params, \
+                enabled = TRUE, deleted_at = NULL"
     ))
     .await;
 }

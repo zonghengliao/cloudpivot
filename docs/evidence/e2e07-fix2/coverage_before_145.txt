@@ -1,0 +1,20 @@
+# 145（cloudpivot_dev）迁移到 V0359 时的联动规则覆盖（V0360 应用之前）
+# 采集时间：2026-11-09T15:44:19+08:00  库：cloudpivot_dev  已应用迁移 294 条（V0360 未应用）
+#
+ACCOUNTING_PERIOD | rules=0 | enabled=0
+ACCOUNTING_YEAR | rules=0 | enabled=0
+CONTRACT | rules=0 | enabled=0
+DEPRECIATION | rules=0 | enabled=0
+EXPENSE_REPORT | rules=0 | enabled=0
+FLOW_INSTANCE | rules=1 | enabled=0
+PAYABLE | rules=0 | enabled=0
+PURCHASE_ORDER | rules=0 | enabled=0
+SALES_RETURN | rules=0 | enabled=0
+STOCK_OUT | rules=0 | enabled=0
+STOCK_TAKE | rules=0 | enabled=0
+STOCK_TRANSFER | rules=0 | enabled=0
+TASK | rules=0 | enabled=0
+VOUCHER | rules=0 | enabled=0
+PURCHASE_RETURN | rules=1 | enabled=1
+STOCK_IN | rules=2 | enabled=2
+FIXED_ASSET | rules=3 | enabled=3

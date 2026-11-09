@@ -347,12 +347,18 @@ async fn status_of(contract_id: Uuid) -> String {
 }
 
 /// 插一条 `CONTRACT/<status>` 上的规则（绕过 API 写库：与「管理员在配置页配好」等价）。
+///
+/// `ON CONFLICT … DO UPDATE`：预置规则（V0360 的 `CONTRACT/SIGNED`、`CONTRACT/TERMINATED`）
+/// 可能已经占了同一个键，夹具必须能接管并在收场时复原，不能撞唯一约束。
 async fn add_rule(status: &str, action: &str, params: &str) {
     exec(&format!(
         "INSERT INTO biz_flow_linkage_rule \
             (id, name, trigger_entity, trigger_status, action_code, action_params, seq) \
          VALUES (gen_random_uuid(), 'LNK07-{status}-{action}-{}', 'CONTRACT', '{status}', \
-                 '{action}', '{params}'::jsonb, 10)",
+                 '{action}', '{params}'::jsonb, 10) \
+         ON CONFLICT (trigger_entity, trigger_status, action_code) DO UPDATE \
+            SET name = EXCLUDED.name, action_params = EXCLUDED.action_params, \
+                enabled = TRUE, deleted_at = NULL",
         uniq()
     ))
     .await;

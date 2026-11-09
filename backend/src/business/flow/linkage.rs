@@ -63,6 +63,9 @@ mod tests;
 mod tests_presets;
 
 #[cfg(test)]
+mod tests_presets_coverage;
+
+#[cfg(test)]
 mod tests_wiring;
 
 pub use engine::{LinkageContext, LinkageRun, NoticeRoute, Outcome, RuleRun, ShadowCompare};

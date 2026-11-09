@@ -716,3 +716,46 @@ insert into sys_user_role select id, user_id, role_id, expire_time, created_at
   from jsonb_populate_record(null::sys_user_role, (select row_data from biz_data_fix_backup
         where fix_code='E2E07-FIX-1' and table_name='sys_user_role' and row_id = '<授权行 id>'));
 ```
+
+## 联动规则的「接线≠有规则」不变量（`linkage_rule_invariants.sh`，卡 E2E07-FIX-2）
+
+```bash
+bash scripts/verify/linkage_rule_invariants.sh                     # 读 /etc/cloudpivot/cloudpivot-dev.env
+bash scripts/verify/linkage_rule_invariants.sh cloudpivot_dev      # 指定库
+echo $?    # 0=4 条全绿 ｜ 1=有违规（逐条点名）｜ 2=连不上库 / 表不存在（基础设施问题，别当违规修）
+```
+
+**为什么要有这条闸门**：`biz_flow_linkage_rule` 是「单据状态变了以后还要做什么」的唯一载体。
+`spec::TRIGGER_SPECS` 里 `wired = true` 只说明「代码在那个状态变更点真的调了引擎」，
+**不**说明「配好了规则」——两者缺一，管理员看到的「已接线」就是一句空话：
+
+- 接线了但**零 enabled 规则** ⇒ 引擎每次都被调用、每次都读到 0 条规则 ⇒ 一条通知都不发，
+  而且没有任何报错（E2E-07 的 `CONTRACT`、FIX-3 的 `FIXED_ASSET`、TST-01 的 `PURCHASE_RETURN` 都是这个病）；
+- 规则挂在**未接线**触发点 / 状态写错 / 动作是占位或被结构性禁止 ⇒ 同样「配了不跑」。
+
+| # | 断言 | 判据 |
+|---|---|---|
+| ① | 每个 wired 触发点至少 1 条 enabled 规则 | 16 个 wired 触发点逐个查 `enabled AND deleted_at IS NULL`，为 0 即点名（「接线了但能力不存在」） |
+| ② | enabled 规则必须挂在已接线触发点 | `trigger_entity` 不在 wired 清单里 ⇒ 违规（未接线实体见 `spec::TRIGGER_EXEMPT`：SO / SHIPMENT / RECEIVABLE / RECEIPT / INVOICE / SALES_RETURN / RECEIPT_REFUND / BUDGET） |
+| ③ | `(触发点, 状态)` 必须是真实状态 | 与 `spec::TRIGGER_SPECS[].status_labels` 逐字对拍（状态改名 / 手抖 / 迁移漏改 ⇒ 规则永远等不到触发） |
+| ④ | 动作必须已接管、且不是结构性被禁 | 占位动作（`implemented = false`）配得上但执行时 `Skipped`；合同出凭证 / 凭证生凭证 / 审批实例落账 = 配置期就该 400 的脏行，运行时一律被排除 |
+
+脚本里写死三张表（`WIRED_TRIGGERS` / `STATUS_TABLE` / `IMPLEMENTED_ACTIONS` / `FORBIDDEN_PAIRS`），
+与代码同口径由单测 `linkage::tests_presets_coverage::invariants_script_*` **双向**钉住
+（表过期 ⇒ 单测红，不会静默放行）。
+
+**① 的落地**：迁移 `V0254` / `V0323` / `V0351` / `V0360` 是预置规则的落地点；
+`V0360` 把 12 个「接线了但零规则」的触发点一次补齐（`CONTRACT×2` / `STOCK_OUT` /
+`STOCK_TRANSFER` / `PURCHASE_ORDER` / `PAYABLE` / `VOUCHER` / `ACCOUNTING_PERIOD` /
+`ACCOUNTING_YEAR` / `STOCK_TAKE` / `DEPRECIATION` / `EXPENSE_REPORT` / `TASK` / `FLOW_INSTANCE×2`），
+「以后新接一个触发点忘了种规则」由单测 `every_wired_trigger_has_a_preset` 在代码侧先红。
+
+**有牙齿的证明**（一次性库 `mig_replay_*` 实测，见 `docs/evidence/e2e07-fix2/invariants_teeth.txt`）：
+停用 CONTRACT 两条规则 → ① 点名 CONTRACT 报红；在 `SALES_RETURN`（未接线）插规则 → ②③ 报红；
+把 `ACCOUNTING_PERIOD` 的状态改成 `PAID` → ③ 报红；插 `STOCK_OUT/POSTED/WRITE_INVENTORY`（占位）
+与 `CONTRACT/SIGNED/GENERATE_VOUCHER`（结构性被禁）→ ④ 报红；还原后 4 绿。
+
+**契约实测**（145 真 token / 真 HTTP）：`bash scripts/verify/e2e07_fix2_contract_notice_probe.sh`
+—— 合同提交 → 审批通过（SIGNED）→ `sys_notice` 落 1 条 `LNK:CONTRACT:SIGNED:<合同 id>`，
+收件人 = 制单人；重复审批被 409 挡住且通知不增；再终止（TERMINATED）→ 再落 1 条；
+合同名下 0 张凭证（`CONTRACT_EXCLUDED_ACTIONS` 有牙）。

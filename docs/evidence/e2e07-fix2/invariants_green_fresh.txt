@@ -1,0 +1,24 @@
+== 联动规则不变量（库 mig_replay_fix2b）==
+  -- 触发点规则覆盖 --
+     ACCOUNTING_PERIOD | rules=1 | enabled=1
+     ACCOUNTING_YEAR | rules=1 | enabled=1
+     DEPRECIATION | rules=1 | enabled=1
+     EXPENSE_REPORT | rules=1 | enabled=1
+     PAYABLE | rules=1 | enabled=1
+     PURCHASE_ORDER | rules=1 | enabled=1
+     PURCHASE_RETURN | rules=1 | enabled=1
+     STOCK_OUT | rules=1 | enabled=1
+     STOCK_TAKE | rules=1 | enabled=1
+     STOCK_TRANSFER | rules=1 | enabled=1
+     TASK | rules=1 | enabled=1
+     VOUCHER | rules=1 | enabled=1
+     CONTRACT | rules=2 | enabled=2
+     FLOW_INSTANCE | rules=2 | enabled=2
+     STOCK_IN | rules=2 | enabled=2
+     FIXED_ASSET | rules=3 | enabled=3
+  ✅ ① 每个 wired 触发点都有 ≥1 条 enabled 规则
+  ✅ ② enabled 规则全部挂在已接线的触发点上
+  ✅ ③ enabled 规则的状态全部是该触发点的真实状态
+  ✅ ④ enabled 规则的动作全部已接管、且不是结构性被禁的
+
+== PASS=4 FAIL=0

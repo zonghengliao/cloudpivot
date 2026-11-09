@@ -298,10 +298,28 @@ pub struct TriggerSpec {
 
 /// 触发点接线表（顺序与 [`TRIGGERS`] 一致）。
 ///
-/// 当前 **12/15 已接线**（`STOCK_IN` · `STOCK_OUT` · `STOCK_TRANSFER` · `PURCHASE_ORDER` ·
-/// `PAYABLE` · `VOUCHER` · `ACCOUNTING_PERIOD` · `CONTRACT` · `STOCK_TAKE` · `EXPENSE_REPORT` ·
-/// `FIXED_ASSET` · `TASK`），3 个未接线；
-/// 逐条原因见 `docs/architecture/P1-FIX-5C-联动触发点接线清单.md`。
+/// 当前 **16/16 已接线**（`STOCK_IN` · `STOCK_OUT` · `STOCK_TRANSFER` · `PURCHASE_ORDER` ·
+/// `PAYABLE` · `VOUCHER` · `ACCOUNTING_PERIOD` · `ACCOUNTING_YEAR` · `CONTRACT` ·
+/// `STOCK_TAKE` · `FIXED_ASSET` · `DEPRECIATION` · `EXPENSE_REPORT` · `PURCHASE_RETURN` ·
+/// `TASK` · `FLOW_INSTANCE`）；逐条原因见 `docs/architecture/P1-FIX-5C-联动触发点接线清单.md`。
+///
+/// # 接线 ≠ 有规则（`wired` 的另一半，E2E-07 · FIX-2）
+///
+/// `wired = true` 只说明「代码在这个状态变更点调了引擎」，**不**说明「配好了规则」。
+/// 两者缺一，管理员看到的「已接线」就是一句空话：
+///
+/// - 接线了但**零 enabled 规则** ⇒ 引擎每次都被调用、每次都读到 0 条规则 ⇒ 一条通知都不发
+///   （E2E-07 的 `CONTRACT`、FIX-3 的 `FIXED_ASSET`、TST-01 的 `PURCHASE_RETURN` 都是这个病）；
+/// - 所以每个 wired 触发点必须至少有一条落在它**真实状态**上的预置规则。
+///
+/// 两道闸兜住「以后新接一个触发点却忘了种规则」：
+///
+/// 1. 代码侧：`tests_presets_coverage::every_wired_trigger_has_a_preset`（把本表与全部预置
+///    迁移原文对拍，新 wired 触发点没有预置 → 红）；
+/// 2. 库侧：`scripts/verify/linkage_rule_invariants.sh`（wired 但零 enabled 规则 / 规则挂在
+///    未接线触发点 / 状态写错 / 动作占位或被结构性禁止 → rc=1 并逐条点名）。
+///
+/// 预置规则的落地点是迁移 `V0254` / `V0323` / `V0351` / `V0360`。
 pub const TRIGGER_SPECS: &[TriggerSpec] = &[
     TriggerSpec {
         entity: state_machine::ENTITY_STOCK_IN,

@@ -141,7 +141,11 @@ impl Fixture {
                 db().execute_with_params(
                     "INSERT INTO biz_flow_linkage_rule \
                          (id, name, trigger_entity, trigger_status, action_code, action_params) \
-                     VALUES (?::uuid, ?, ?, ?, ?, ?::jsonb)",
+                     VALUES (?::uuid, ?, ?, ?, ?, ?::jsonb) \
+                     ON CONFLICT (trigger_entity, trigger_status, action_code) DO UPDATE \
+                        SET id = EXCLUDED.id, name = EXCLUDED.name, \
+                            action_params = EXCLUDED.action_params, \
+                            enabled = TRUE, deleted_at = NULL",
                     vec![
                         Value::from(&rule_id),
                         Value::Text(format!("LNK12-{trigger_status}-{action_code}")),
