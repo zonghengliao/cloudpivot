@@ -474,7 +474,8 @@ else
   tail -6 "$INV_LOG" | sed 's/^/    /'
   INV_SUMMARY="$(grep -m1 '^INVARIANT_RERUN ' "$INV_LOG" || true)"
   case "$INV_RC" in
-    0) ok "巡检结论已追上事实：${INV_SUMMARY:-（结论不旧，无需重跑）}" ;;
+    0) INV_SUMMARY="${INV_SUMMARY:-结论不旧，无需重跑}"
+       ok "巡检结论已追上事实：${INV_SUMMARY}" ;;
     3) bad "巡检跑了但结论是 ERROR（脚本没跑成，已落 ERROR 行）—— 账务没被复核，详见 $INV_LOG"
        DID_INVARIANT_FAIL=1 ;;
     4) bad "结论仍早于最后一次迁移（期间又落了迁移？）—— 告警会继续报「结论过期待重跑」，详见 $INV_LOG"
