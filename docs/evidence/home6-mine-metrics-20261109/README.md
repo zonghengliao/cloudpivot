@@ -60,7 +60,7 @@ overview 一个字段都没动（实测 key 仍是 `user_total … op_log_week`�
 | ⑤ 非超管也能看到（自己的数据） | ✅ | `h5viewer`：待办 0 / 本周 0 / 今日任务 1 / 逾期 0（`ui/05-viewer-metrics.png`）；admin 数字不变 → 身份口径隔离成立 |
 | ⑥ 超管「系统信息」仍是系统级指标 | ✅ | `/support/dashboard/overview` key 集合未变（`user_total … op_log_week`）；工作台正文不含「系统概况 / 角色总数」 |
 | ⑦ 空数据显示 0、不报错 | ✅ | `h5viewer` 待办/本周/逾期均为 0，卡片照常渲染、无错误条；仅接口失败时出窄提示 + 重试（不把故障伪装成 0） |
-| ⑧ cargo test + build + push | ✅ | `logs/cargo-test-dashboard.txt`（4 passed）、`logs/cargo-test-task.txt`（240 passed）、`logs/typecheck.txt` rc=0、`logs/build.txt` rc=0、`logs/palettes.txt`（330 条色阶 0 失败） |
+| ⑧ cargo test + build + push | ✅ | `logs/cargo-test-dashboard.txt`（4 passed）、`logs/cargo-test-task.txt`（240 passed）、**`logs/cargo-test-full.txt`（全量 4021 passed / 0 failed）**、`logs/typecheck.txt` rc=0、`logs/build.txt` rc=0、`logs/palettes.txt`（330 条色阶 0 失败） |
 
 补充断言（同一次运行内）：控制台 0 error；`/api` 意外 4xx/5xx = 0（排除全站既有的
 `/business/notice/stream` 401，那是 `EventSource ?token=` 通道的已知缺陷）。
