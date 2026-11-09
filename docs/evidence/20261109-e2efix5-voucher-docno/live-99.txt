@@ -1,0 +1,106 @@
+==== 0. 隔离库 + 隔离实例（本机兜底（无 /etc/cloudpivot/cloudpivot.env，DB 账号 alun））
+  pid=2600168 bin=/opt/cloudpivot/backend/target/debug/cloudpivot health=200
+  库指纹：迁移 290 条 / 最新 357
+  ✅ V0357 已应用（source_doc_no 列） = 1
+  ✅ V0357 索引在 = 1
+==== 1. admin 登录（全新库首登带 must_change_password）
+  改密 http=200 msg=密码已修改
+  ✅ admin 已登录
+==== 2. 前置主数据（审批人 / 仓库+库位 / 单位 / 物料 / 供应商 / 客户）
+  部门 01a1beee-8245-7472-9624-886bc0f4019f
+  审批人 01a1beee-8256-7578-aede-1c4308adbf82
+  ✅ 审批人已登录
+  仓库 01a1beee-84db-75d1-97a5-89b162d3dfad / 库位 01a1beee-84e9-76e8-8f88-12636775ddbf
+  物料 01a1beee-8508-702b-aeb7-d39d5fb9dab5
+  供应商 01a1beee-8519-711e-93aa-5409e2ced9d5
+  客户 01a1beee-852a-74e1-ba80-d33764b42987（E2E5 北京云枢示例客户）
+  ✅ 主数据就绪
+==== 3. 可用库存：无源入库 200@4（价税合计 800 < 1000 → 免审自动过账）
+  入库单 01a1beee-853e-738f-8564-04122b67d124 状态=DRAFT http=200
+  ✅ 库存 200 = 200.0000
+==== 4. 销售订单 10×100（税 13%）→ 提交审批 → 换人批 → APPROVED
+  订单 SO-20261109-000001 id=01a1beee-85d7-74d7-b905-a2a15dce90c7 金额=1000.0000 税=130.0000 价税=1130.0000
+  ✅ 审批通过节点 [销售主管审批]
+  ✅ 订单状态 = APPROVED
+==== 5. 发货单 → PENDING_POST → POSTED（扣库存 + 成本凭证 + 挂应收）
+  发货单 01a1beee-869b-738d-9dbc-e2b124c89804
+  → PENDING_POST http=200 {"code":0,"msg":"ok"}
+  → POSTED http=200 {"code":0,"msg":"ok"}
+  ✅ 发货单 POSTED = POSTED
+  出库单 01a1beee-86c9-7059-a5fc-0f8977d87eeb / 应收 dbdbb508-fc5b-421f-bdb2-244e9e15c2ce 金额=1130.0000
+  ✅ 应收挂出 1130 = 1130.0000
+==== 6. 开票（ISSUED）→ 收入凭证摘要取客户名称（验收 ①·开票路径）
+  发票 IV-20261109-000001 id=1977f535-d812-4ed3-9ec8-b768d503cf06
+  附件 http=200 {"code":0,"msg":"ok"}
+  → ISSUED http=200 {"code":0,"msg":"ok"}
+  收入凭证摘要：开票 IV-20261109-000001 客户 E2E5 北京云枢示例客户
+  ✅ 开票凭证摘要含客户名称「E2E5 北京云枢示例客户」
+  ✅ 摘要里没有 UUID
+  ✅ 开票凭证 source_doc_no = 发票号（源单即业务单） = IV-20261109-000001
+==== 7. ★ 销售退货过账（验收 ②③）
+  可退明细 1 行
+  退货单 SR-20261109-000001 id=01a1beee-882e-759a-8dd7-8ffea4fbe8c0 金额=200.0000 税=26.0000 价税=226.0000
+  ✅ 退货金额 2×100 / 税 26 / 价税 226 = 200.0000/26.0000/226.0000
+  退货单附件 http=200 {"code":0,"msg":"ok"}
+  → SUBMITTED http=200 {"code":0,"msg":"ok"}
+  → APPROVED http=200 {"code":0,"msg":"ok"}
+  → PENDING_POST http=200 {"code":0,"msg":"ok"}
+  → POSTED http=200 {"code":0,"msg":"ok"}
+  ✅ 退货单 POSTED = POSTED
+  -- ② 两张凭证的 source_doc_no 都必须是退货单号
+  凭证清单:
+    PZ-20261109-000004 | STOCK_IN | source_no=IN-20261109-000002 | source_doc_no=SR-20261109-000001 | 销售退货 SR-20261109-000001 客户 E2E5 北京云枢示例客户 成本冲减
+    PZ-20261109-000005 | INVOICE | source_no=IV-20261109-000002 | source_doc_no=SR-20261109-000001 | 销售退货 SR-20261109-000001 客户 E2E5 北京云枢示例客户 收入冲减
+  ✅ 按 source_doc_no 命中凭证张数 = 2
+  ✅ 来源类型是入库 + 红字发票两张 = INVOICE,STOCK_IN
+  ✅ 两张凭证的 source_no 仍是子单据号（≠ 退货单号） = 2
+  ✅ 成本冲减凭证摘要含客户名称 = 1
+  ✅ 收入冲减凭证摘要含客户名称 = 1
+  ✅ 两张凭证摘要都不含 UUID = 0
+  摘要样例：销售退货 SR-20261109-000001 客户 E2E5 北京云枢示例客户 成本冲减 ‖ 销售退货 SR-20261109-000001 客户 E2E5 北京云枢示例客户 收入冲减
+  -- ③ 按退货单号查凭证：API 两条查询面
+  精确筛 http=200 total=2
+  ✅ API 精确筛 total = 2
+  ✅ API 精确筛返回行的 source_doc_no = SR-20261109-000001
+  关键词 http=200 total=2
+  ✅ 关键词（voucher_no 也匹配 source_doc_no）total = 2
+==== 8. 收款单 POSTED → 收款凭证摘要取客户名称（验收 ①·收款路径）
+  收款单 RC-20261109-000001 id=08d47081-6443-4a91-a4b8-bd6f4d19c473
+  核销 http=200 {"code":0,"msg":"ok"}
+  收款单附件 http=200 {"code":0,"msg":"ok"}
+  → CONFIRMED http=200 {"code":0,"msg":"ok"}
+  → POSTED http=200 {"code":0,"msg":"ok"}
+  收款凭证摘要：收款 RC-20261109-000001 客户 E2E5 北京云枢示例客户
+  ✅ 收款凭证已生成（RC-20261109-000001）
+  ✅ 收款凭证摘要含客户名称（不是 UUID）
+  ✅ 收款摘要无 UUID
+  ✅ 收款凭证 source_doc_no = 收款单号 = RC-20261109-000001
+==== 9. 收款退款单 POSTED → 退款凭证摘要取客户名称（验收 ①·退款路径）
+  退款单 RR-20261109-000001 id=01a1beee-8aa4-764e-a3ee-982c8eb58361 http=200
+  冲减 http=200 {"code":0,"msg":"ok"}
+  → CONFIRMED http=200 {"code":0,"msg":"ok"}
+  提交审批 http=200 {"code":0,"msg":"ok"}
+  ✅ 审批通过节点 [财务经理审批]
+  退款单状态=POSTED
+  退款凭证摘要：收款退款 RR-20261109-000001 客户 E2E5 北京云枢示例客户
+  ✅ 退款凭证摘要含客户名称
+  ✅ 退款凭证 source_doc_no = 退款单号 = RR-20261109-000001
+==== 10. ④ 存量数据回填（摘要 UUID → 名称 / source_doc_no = 单据号）+ 迁移可重放
+  ✅ 回填前：摘要里有 UUID = 1
+  重放迁移（第 1 次）exit=0
+    psql:/opt/cloudpivot/backend/migrations/business/V0357__voucher_source_doc_no.up.sql:71: NOTICE:  relation "idx_biz_voucher_source_doc_no" already exists, skipping psql:/opt/cloudpivot/backend/migrations/business/V0357__voucher_source_doc_no.up.sql:193: NOTICE:  V0357 完成：biz_voucher.source_doc_no varchar(64) + 索引就绪，存量 source_doc_no 与摘要名称已回填 
+  ✅ 回填后：摘要换成客户名称 = 收款 RC-LEGACY-0001 客户 E2E5 北京云枢示例客户
+  ✅ 回填后：分录摘要也换成名称 = 收款 RC-LEGACY-0001 客户 E2E5 北京云枢示例客户 银行收款
+  ✅ 回填后：source_doc_no 回落成 source_no = RC-LEGACY-0001
+  重放迁移（第 2 次）exit=0（幂等：不覆盖、不重复、不报错）
+  ✅ 二次重放后仍是名称（不二次替换） = 收款 RC-LEGACY-0001 客户 E2E5 北京云枢示例客户
+  ✅ 二次重放后 source_doc_no 不变 = RC-LEGACY-0001
+==== 11. 全库扫描：凭证 / 分录摘要里不许有 UUID
+  ✅ biz_voucher 摘要含 UUID 的行数 = 0
+  ✅ biz_voucher_entry 摘要含 UUID 的行数 = 0
+  ✅ 有来源单号的 AUTO 凭证 source_doc_no 均非空 = 0
+
+== 收尾：停实例（库 cp_e2efix5 保留取证）
+  ✅ 实例已停
+
+== PASS=40 FAIL=0

@@ -242,6 +242,7 @@ async fn make_voucher(
             source_type: "MANUAL",
             source_id: None,
             source_no: Some(source_no),
+            source_doc_no: None,
             voucher_date: date(voucher_date),
             summary: format!("{source_no} 辅助核算夹具"),
             lines,

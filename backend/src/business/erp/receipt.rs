@@ -77,6 +77,7 @@ use crate::business::attachment::model::DocKind as AttachDocKind;
 use crate::business::attachment::rule::{self as attach_rule, RequiredAt as AttachAt};
 use crate::business::erp::credit;
 use crate::business::erp::currency;
+use crate::business::erp::form_snapshot;
 use crate::business::erp::model::normalize_page;
 use crate::business::erp::period;
 use crate::business::erp::receivable::{self, ReceivableRow};
@@ -1596,7 +1597,16 @@ async fn post_receipt_voucher(
     let receivable_account = voucher::account_required(tx, CREDIT_CODE, "收款凭证的贷方科目 1122 应收账款")
         .await
         .map_err(|error| write_error(error, "解析收款凭证贷方科目"))?;
-    let summary = format!("收款 {} 客户 {}", receipt.receipt_no, receipt.customer_id);
+    // 摘要在账面上是给人看的（AGENTS.md 约定 13）：客户取**名称**，不写 UUID。
+    // 主数据被物理删了退化成「客户已删除(短 id)」，绝不回落整段 36 位 UUID（E2E-FIX-5 ①）。
+    let customer = voucher::party_label(
+        form_snapshot::customer_name(tx, receipt.customer_id)
+            .await
+            .map_err(|error| write_error(error, "读收款单客户名称"))?,
+        "客户",
+        receipt.customer_id,
+    );
+    let summary = format!("收款 {} 客户 {}", receipt.receipt_no, customer);
     let lines = vec![
         EntryLine {
             line_no: 1,
@@ -1629,6 +1639,7 @@ async fn post_receipt_voucher(
             source_type: SOURCE_RECEIPT,
             source_id: Some(receipt.id),
             source_no: Some(receipt.receipt_no.as_str()),
+            source_doc_no: None,
             voucher_date: receipt.receipt_date,
             summary,
             lines,

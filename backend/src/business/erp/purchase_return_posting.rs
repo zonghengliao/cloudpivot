@@ -47,6 +47,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::business::erp::form_snapshot;
 use crate::business::erp::inventory_writer::{self, TxnRecord};
 use crate::business::erp::period;
 use crate::business::erp::purchase_return_dto::{self as dto, PayableAfter, STATUS_CONFIRMED};
@@ -79,9 +80,9 @@ pub fn stock_out_reason(return_no: &str) -> String {
     format!("采购退货 {return_no}")
 }
 
-/// 凭证摘要。
-pub fn voucher_summary(return_no: &str, in_no: &str) -> String {
-    format!("采购退货 {return_no}（原入库单 {in_no}）冲减应付与存货")
+/// 凭证摘要（供应商取**名称**：摘要里不许出现 UUID，AGENTS.md 约定 13）。
+pub fn voucher_summary(return_no: &str, in_no: &str, supplier: &str) -> String {
+    format!("采购退货 {return_no} 供应商 {supplier}（原入库单 {in_no}）冲减应付与存货")
 }
 
 /// 期间码（`yyyy-MM`）。
@@ -649,7 +650,15 @@ async fn write_voucher(
             format!("采购退货凭证构造失败：借贷不平衡（借 {debit} / 贷 {credit}）—— 这是代码缺陷，请报障"),
         ));
     }
-    let summary = voucher_summary(&row.return_no, &row.stock_in_no);
+    // 摘要取供应商**名称**（AGENTS.md 约定 13 / E2E-FIX-5 ①）：账面上写 UUID 财务看不懂也搜不到。
+    let supplier = voucher::party_label(
+        form_snapshot::supplier_name(ex, row.supplier_id)
+            .await
+            .map_err(|error| utils::db_error(error, "读退货单供应商名称"))?,
+        "供应商",
+        row.supplier_id,
+    );
+    let summary = voucher_summary(&row.return_no, &row.stock_in_no, &supplier);
     let voucher_id = voucher::post_voucher(
         ex,
         &PostVoucher {
@@ -659,6 +668,9 @@ async fn write_voucher(
             source_type: voucher::SOURCE_STOCK_OUT,
             source_id: Some(stock_out_id),
             source_no: Some(stock_out_no),
+            // 业务单据号 = **退货单号**（出库单号只是记账依据），否则按 PR-… 查凭证 0 行
+            // （E2E-FIX-5 ② / V0357）。
+            source_doc_no: Some(row.return_no.as_str()),
             voucher_date: row.return_date,
             summary: summary.clone(),
             lines,

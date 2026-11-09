@@ -48,6 +48,15 @@
           data-testid="voucher-filter-no"
           @enter="handleSearch"
         />
+        <!-- E2E-FIX-5 ②：按业务单号查（退货单号 SR-… 一次查出该单的两张凭证） -->
+        <t-input
+          v-model="filter.source_doc_no"
+          class="tool-row__no"
+          placeholder="业务单号（如退货单 SR-…，精确）"
+          clearable
+          data-testid="voucher-filter-doc-no"
+          @enter="handleSearch"
+        />
         <t-button theme="primary" data-testid="btn-voucher-search" @click="handleSearch">查询</t-button>
         <t-button variant="outline" data-testid="btn-voucher-reset" @click="handleReset">重置</t-button>
       </div>
@@ -158,6 +167,13 @@
 
         <template #source_type="{ row }">
           <span class="muted">{{ sourceTypeLabel(row.source_type) }}</span>
+        </template>
+
+        <!-- E2E-FIX-5 ②：业务单据号（退货单号 / 收款单号…；空则显示 -） -->
+        <template #source_doc_no="{ row }">
+          <span class="mono muted" :data-testid="`voucher-doc-no-${row.voucher_no}`">
+            {{ dash(row.source_doc_no) }}
+          </span>
         </template>
 
         <template #entry_count="{ row }">
@@ -278,6 +294,16 @@
             </t-tag>
             <t-tag size="small" variant="outline" theme="default">
               来源：{{ sourceTypeLabel(detail.source_type) }}
+            </t-tag>
+            <!-- E2E-FIX-5 ②：业务单据号（退货凭证这里才是退货单号） -->
+            <t-tag
+              v-if="detail.source_doc_no"
+              size="small"
+              variant="outline"
+              theme="default"
+              data-testid="voucher-detail-doc-no"
+            >
+              业务单号：{{ detail.source_doc_no }}
             </t-tag>
           </div>
           <div class="drawer-head__side">
@@ -794,6 +820,8 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'period', title: '期间', width: 100 },
   { colKey: 'summary', title: '摘要', minWidth: 180, ellipsis: true },
   { colKey: 'source_type', title: '来源', width: 130 },
+  // E2E-FIX-5 ②：业务单据号（退货单号落在这里；一张业务单 → 多张凭证的查询键）
+  { colKey: 'source_doc_no', title: '业务单号', width: 170, ellipsis: true },
   { colKey: 'entry_count', title: '分录', width: 80, align: 'right' },
   { colKey: 'total_debit', title: '借方', width: 130, align: 'right' },
   { colKey: 'total_credit', title: '贷方', width: 130, align: 'right' },

@@ -242,6 +242,7 @@ async fn seed_inbound(material_id: Uuid, warehouse_id: Uuid, qty: Decimal, unit_
             source_type: voucher::SOURCE_SERIAL_BATCH,
             source_id: Some(Uuid::now_v7()),
             source_no: Some("SEED-IN"),
+            source_doc_no: None,
             voucher_date: voucher::today_cst(now),
             summary: "DC13 期初入库".to_string(),
             lines: vec![

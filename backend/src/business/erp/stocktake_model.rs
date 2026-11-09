@@ -1234,6 +1234,7 @@ pub async fn create_voucher(
             source_type: voucher::SOURCE_STOCK_TAKE,
             source_id: Some(take.id),
             source_no: Some(take.take_no.as_str()),
+            source_doc_no: None,
             voucher_date: take.take_date,
             summary,
             lines,

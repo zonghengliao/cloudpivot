@@ -496,6 +496,7 @@ pub async fn revalue_period(
             source_type: SOURCE_FX_REVALUATION,
             source_id: None,
             source_no: Some(period_code),
+            source_doc_no: None,
             voucher_date: close_date,
             summary,
             lines: lines_entry,

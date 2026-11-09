@@ -128,6 +128,14 @@ pub async fn supplier_name(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<S
     .await
 }
 
+/// 客户显示名（`None` = 查不到该 id）。
+///
+/// 与 [`supplier_name`] 同口径（**不过滤 `deleted_at`**、`None` 由调用方决定怎么呈现）。
+/// 凭证摘要取名称（E2E-FIX-5 ①）走它：摘要里写 UUID 违反 AGENTS.md 约定 13。
+pub async fn customer_name(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<String>> {
+    one_text(ex, "SELECT name FROM biz_customer WHERE id = ?::uuid", id, "name").await
+}
+
 /// 仓库显示名（`None` = 查不到该 id）。
 pub async fn warehouse_name(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<String>> {
     one_text(

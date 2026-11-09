@@ -1,0 +1,92 @@
+# E2E-FIX-5 验证记录（t_6e6b43a1）
+# 生成时间：2026-11-09 14:14:50 CST
+# 主机：ubuntu-svr（99 工作机）｜ 隔离库：cp_e2efix5 / cp_e2efix5_t3 ｜ 隔离端口：18322 / 18324
+
+## §1 编译（cargo check --all-targets）
+$ cd backend && cargo check --all-targets
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 41.45s   ← exit 0，零新增告警
+
+## §2 新增单测（纯逻辑 + 真库）
+$ ERP_DB_URL=postgres://alun:***@127.0.0.1:5432/cp_e2efix5 cargo test --lib -- --exact business::erp::voucher::tests::party_label_never_emits_full_uuid
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 49s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+running 1 test
+test business::erp::voucher::tests::party_label_never_emits_full_uuid ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3881 filtered out; finished in 0.00s
+
+$ ERP_DB_URL=… cargo test --lib -- --exact business::erp::voucher::tests::source_doc_no_records_business_doc_and_is_queryable
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.62s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+running 1 test
+test business::erp::voucher::tests::source_doc_no_records_business_doc_and_is_queryable ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3881 filtered out; finished in 2.58s
+（2.58s 说明真连库跑，不是未设 ERP_DB_URL 的 SKIP 假绿）
+
+## §3 凭证域全量（串行 --test-threads=1，隔离库 cp_e2efix5_t3 / :18324）
+$ ERP_DB_URL=… cargo test --lib business::erp::voucher -- --test-threads=1
+boot health=200 pid=2583217
+test result: ok. 80 passed; 0 failed; 0 ignored; 0 measured; 3802 filtered out; finished in 85.01s
+exit=0
+单测逐条 ok 行数：80
+
+注：并行（默认 test-threads）跑同一 filter 会出现 2 条红——
+test business::erp::voucher_linkage_tests::lnk06_excluded_generate_voucher_never_runs ... FAILED
+test business::erp::voucher_linkage_tests::lnk06_reverse_triggers_posted_for_red_voucher ... FAILED
+assertion `left == right` failed: 同状态上的 SEND_NOTICE 规则必须照常进 deferred（证明引擎确实读到了规则，而不是「一条都没找到」把 0 条当成排除生效）
+SQL 失败：unique constraint violated (constraint `uk_flow_linkage_rule`)
+test result: FAILED. 78 passed; 2 failed; 0 ignored; 0 measured; 3802 filtered out; finished in 76.04s
+  原因是 voucher_linkage_tests 6 条用例共用 uk_flow_linkage_rule（全表唯一），模块文档已写明「必须串行」；
+  串行复跑 80/80 全绿（见上）。
+
+## §4 其它受影响模块（真库，隔离库 cp_e2efix5_t）
+  （`business::erp::voucher` 的并行红见 §3 说明，串行复跑 80/80 全绿；本段只列其余 6 个模块）
+  ########## business::erp::sales_return
+  test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 3849 filtered out; finished in 0.00s
+  exit=0 for business::erp::sales_return
+  ########## business::erp::purchase_return
+  test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 3865 filtered out; finished in 0.00s
+  exit=0 for business::erp::purchase_return
+  ########## business::erp::receipt
+  test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 3851 filtered out; finished in 6.95s
+  exit=0 for business::erp::receipt
+  ########## business::erp::invoice
+  test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 3865 filtered out; finished in 0.00s
+  exit=0 for business::erp::invoice
+  ########## business::erp::payable_payment
+  test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 3844 filtered out; finished in 27.73s
+  exit=0 for business::erp::payable_payment
+  ########## business::erp::form_snapshot
+  test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 3877 filtered out; finished in 3.47s
+  exit=0 for business::erp::form_snapshot
+
+## §5 前端
+$ cd frontend && pnpm typecheck
+exit 0（vue-tsc --noEmit 无输出）
+$ node --test tests/unit/erp-payable-voucher-ledger.test.ts
+tests 9 / pass 9 / fail 0（含新增 source_doc_no 参数断言）
+$ pnpm build
+dist//opt/cloudpivot/frontend/assets/tdesign-Cj2uTWY5.js.gz                                                7995.70kb / gzip: 772.69kb
+
+
+
+## §6 真实 HTTP 演练（隔离库 cp_e2efix5 / :18322 / debug 二进制）
+$ bash docs/evidence/20261109-e2efix5-voucher-docno/live-99.sh
+  pid=2600168 bin=/opt/cloudpivot/backend/target/debug/cloudpivot health=200
+== PASS=40 FAIL=0
+完整输出见 live-99.txt（106 行），报文见 raw/*.json。
+
+## §7 迁移重放（V0357 幂等 + 存量回填）
+  ✅ 回填前：摘要里有 UUID = 1
+  重放迁移（第 1 次）exit=0
+  ✅ 回填后：摘要换成客户名称 = 收款 RC-LEGACY-0001 客户 E2E5 北京云枢示例客户
+  ✅ 回填后：分录摘要也换成名称 = 收款 RC-LEGACY-0001 客户 E2E5 北京云枢示例客户 银行收款
+  ✅ 回填后：source_doc_no 回落成 source_no = RC-LEGACY-0001
+  重放迁移（第 2 次）exit=0（幂等：不覆盖、不重复、不报错）
+  ✅ 二次重放后仍是名称（不二次替换） = 收款 RC-LEGACY-0001 客户 E2E5 北京云枢示例客户
+  ✅ 二次重放后 source_doc_no 不变 = RC-LEGACY-0001
+
+## §8 全库扫描（摘要里不许有实体 UUID）
+  ✅ biz_voucher 摘要含 UUID 的行数 = 0
+  ✅ biz_voucher_entry 摘要含 UUID 的行数 = 0
+  ✅ 有来源单号的 AUTO 凭证 source_doc_no 均非空 = 0

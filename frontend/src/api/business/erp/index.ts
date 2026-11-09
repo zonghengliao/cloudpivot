@@ -2203,8 +2203,15 @@ export interface VoucherRow {
   source_type: string;
   /** 来源单据 id */
   source_id: string | null;
-  /** 来源单据号 */
+  /** 来源单据号（记账依据 / 子单据号） */
   source_no: string | null;
+  /**
+   * 业务单据号（`biz_voucher.source_doc_no`）。
+   *
+   * 退货凭证这里是**退货单号**（`source_no` 则是入库单 / 红字发票号）：
+   * 「一张业务单 → 多张凭证」的查询键，绝大多数单据两列同值。
+   */
+  source_doc_no: string | null;
   /** 摘要 */
   summary: string;
   /** 借方合计 */
@@ -2292,6 +2299,8 @@ export function fetchVoucherPage(query: {
   status?: VoucherStatus | '';
   voucher_type?: VoucherType | '';
   source_type?: string;
+  /** 业务单据号（**精确**）：退货单号等「一张业务单 → 多张凭证」的查询键 */
+  source_doc_no?: string;
   voucher_no?: string;
   page?: number;
   page_size?: number;

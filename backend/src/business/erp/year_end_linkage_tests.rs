@@ -130,6 +130,7 @@ async fn post_at(date: NaiveDate, source_no: &str, lines: &[(&str, &str, &str)])
             source_type: voucher::SOURCE_MANUAL,
             source_id: None,
             source_no: Some(source_no),
+            source_doc_no: None,
             voucher_date: date,
             summary: format!("LNK11 夹具 {source_no}"),
             lines: entries,

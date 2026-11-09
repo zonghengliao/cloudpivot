@@ -107,6 +107,7 @@ use serde::{Deserialize, Serialize};
 use crate::business::attachment::model::DocKind as AttachDocKind;
 use crate::business::attachment::rule::{self as attach_rule, RequiredAt as AttachAt};
 use crate::business::erp::currency;
+use crate::business::erp::form_snapshot;
 use crate::business::erp::model::normalize_page;
 use crate::business::erp::period;
 use crate::business::erp::receivable::{self, ReceivableRow};
@@ -1729,7 +1730,15 @@ async fn post_invoice_voucher(
     operator: Option<Uuid>,
     now: DateTime<Utc>,
 ) -> std::result::Result<Option<Uuid>, ApiError> {
-    let summary = format!("开票 {} 客户 {}", invoice.invoice_no, invoice.customer_id);
+    // 摘要取客户**名称**（AGENTS.md 约定 13 / E2E-FIX-5 ①）：账面上写 UUID 财务看不懂也搜不到。
+    let customer = voucher::party_label(
+        form_snapshot::customer_name(tx, invoice.customer_id)
+            .await
+            .map_err(|error| write_error(error, "读发票客户名称"))?,
+        "客户",
+        invoice.customer_id,
+    );
+    let summary = format!("开票 {} 客户 {}", invoice.invoice_no, customer);
     voucher::create_for_sales_revenue(
         tx,
         &voucher::SalesRevenueVoucher {

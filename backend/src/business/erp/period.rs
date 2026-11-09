@@ -1806,6 +1806,7 @@ mod tests {
                 source_type: voucher::SOURCE_MANUAL,
                 source_id: None,
                 source_no: Some("P1 单测凭证"),
+                source_doc_no: None,
                 voucher_date: date,
                 summary: "P1 单测凭证".to_string(),
                 lines,

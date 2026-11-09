@@ -84,7 +84,7 @@ pub const VOUCHER_TYPES: [&str; 2] = ["AUTO", "MANUAL"];
 /// 才能画出「红冲审批中」徽标 —— 多一次往返，而且**没有 `business:flow:instance:read` 的账号
 /// 压根看不到徽标**（数据可见性会过滤掉那些实例行），是可见性缺陷而不是性能问题。
 pub const HEADER_COLUMNS: &str = "id, voucher_word, voucher_no, period, voucher_date, voucher_type, \
-     source_type, source_id, source_no, summary, total_debit, total_credit, entry_count, status, \
+     source_type, source_id, source_no, source_doc_no, summary, total_debit, total_credit, entry_count, status, \
      is_red, reverse_of, reversed_by, posted_at, posted_by, remark, \
      pending_reverse_instance_id, reverse_reason, created_at, updated_at, \
      (SELECT r.voucher_no FROM biz_voucher r WHERE r.id = biz_voucher.reverse_of) AS reverse_of_no, \
@@ -114,6 +114,8 @@ pub struct VoucherFilter {
     pub voucher_type: Option<String>,
     /// 来源单据类型（`STOCK_IN` / `MANUAL` …，精确）。
     pub source_type: Option<String>,
+    /// 业务单据号（**精确**，E2E-FIX-5 ②）：退货凭证按退货单号查就走这里。
+    pub source_doc_no: Option<String>,
     /// 凭证号（**模糊**，`%x%`）。
     pub voucher_no: Option<String>,
     /// 页码。
@@ -134,6 +136,8 @@ pub struct VoucherPageQuery {
     pub voucher_type: Option<String>,
     /// 来源单据类型。
     pub source_type: Option<String>,
+    /// 业务单据号（精确，E2E-FIX-5 ②）。
+    pub source_doc_no: Option<String>,
     /// 凭证号（模糊）。
     pub voucher_no: Option<String>,
     /// 页码。
@@ -150,6 +154,7 @@ impl VoucherPageQuery {
             status: blank_to_none(self.status.as_deref()),
             voucher_type: blank_to_none(self.voucher_type.as_deref()),
             source_type: blank_to_none(self.source_type.as_deref()),
+            source_doc_no: blank_to_none(self.source_doc_no.as_deref()),
             voucher_no: blank_to_none(self.voucher_no.as_deref()),
             page: self.page,
             page_size: self.page_size,
@@ -230,6 +235,12 @@ pub struct VoucherRow {
     pub source_id: Option<Uuid>,
     /// 来源单据号。
     pub source_no: Option<String>,
+    /// 业务单据号（`biz_voucher.source_doc_no`，E2E-FIX-5 ②）：**退货单号落在这里**。
+    ///
+    /// 与 `source_no` 的差别只在「一张业务单据 → 多张子单据 → 多张凭证」的退货场景：
+    /// 退货凭证的 `source_no` 是入库单 / 红字发票号（记账依据），本列是退货单号。
+    /// 「按业务单号查凭证」永远查这一列（绝大多数单据两列同值）。
+    pub source_doc_no: Option<String>,
     /// 摘要。
     pub summary: String,
     /// 借方合计。
@@ -279,6 +290,7 @@ impl VoucherRow {
             source_type: row.get_typed("source_type")?,
             source_id: row.get_typed("source_id")?,
             source_no: row.get_typed("source_no")?,
+            source_doc_no: row.get_typed("source_doc_no")?,
             summary: row.get_typed("summary")?,
             total_debit: row.get_typed("total_debit")?,
             total_credit: row.get_typed("total_credit")?,
@@ -378,8 +390,10 @@ pub struct VoucherRes {
     pub source_type: String,
     /// 来源单据 id。
     pub source_id: Option<String>,
-    /// 来源单据号。
+    /// 来源单据号（记账依据 / 子单据号）。
     pub source_no: Option<String>,
+    /// 业务单据号（E2E-FIX-5 ②）：退货凭证这里是**退货单号**，按业务单号查凭证用这一列。
+    pub source_doc_no: Option<String>,
     /// 摘要。
     pub summary: String,
     /// 借方合计。
@@ -434,6 +448,7 @@ impl VoucherRes {
             source_type: row.source_type.clone(),
             source_id: row.source_id.map(|id| id.to_string()),
             source_no: row.source_no.clone(),
+            source_doc_no: row.source_doc_no.clone(),
             summary: row.summary.clone(),
             total_debit: row.total_debit,
             total_credit: row.total_credit,
@@ -567,8 +582,15 @@ pub async fn voucher_page(q: &VoucherFilter) -> DbResult<(Vec<VoucherRow>, i64)>
         sql.push_str(" AND source_type = ?");
         params.push(Value::from(source_type));
     }
+    // 业务单据号（精确）：退货凭证按退货单号查凭证的唯一入口（E2E-FIX-5 ②）。
+    if let Some(source_doc_no) = q.source_doc_no.as_deref() {
+        sql.push_str(" AND source_doc_no = ?");
+        params.push(Value::from(source_doc_no));
+    }
     if let Some(pattern) = utils::like_pattern(q.voucher_no.as_deref()) {
-        sql.push_str(" AND (voucher_no LIKE ? OR source_no LIKE ?)");
+        // 用户粘一个单号进来，不论它是凭证号、来源单号还是业务单号，都应该能搜到。
+        sql.push_str(" AND (voucher_no LIKE ? OR source_no LIKE ? OR source_doc_no LIKE ?)");
+        params.push(Value::from(pattern.clone()));
         params.push(Value::from(pattern.clone()));
         params.push(Value::from(pattern));
     }
@@ -858,6 +880,7 @@ pub(crate) mod tests {
             status: status.map(str::to_string),
             voucher_type: None,
             source_type: source_type.map(str::to_string),
+            source_doc_no: None,
             voucher_no: Some(FIXTURE_PREFIX.to_string()),
             page: 1,
             page_size: 50,
@@ -1025,6 +1048,7 @@ pub(crate) mod tests {
             source_type: "STOCK_IN".to_string(),
             source_id: None,
             source_no: None,
+            source_doc_no: None,
             summary: "P-FLOW-3B 补漏用例".to_string(),
             total_debit: Decimal::from(800),
             total_credit: Decimal::from(800),

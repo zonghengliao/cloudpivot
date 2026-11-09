@@ -1,0 +1,1 @@
+{"code": 0, "msg": "ok", "data": {"access_token": "<redacted>", "refresh_token": "<redacted>", "token_type": "Bearer", "expires_in": 900, "user": {"id": "01a1beee-8256-7578-aede-1c4308adbf82", "username": "e2efix5_appr", "real_name": "E2E5 演练审批人"}, "must_change_password": false}}

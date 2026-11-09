@@ -904,6 +904,7 @@ async fn write_commission_voucher(
             source_type: crate::business::shared::doc_kind::VoucherSourceType::Commission.as_str(),
             source_id: Some(row.id),
             source_no: Some(row.settlement_no.as_str()),
+            source_doc_no: None,
             voucher_date: date,
             summary,
             lines,

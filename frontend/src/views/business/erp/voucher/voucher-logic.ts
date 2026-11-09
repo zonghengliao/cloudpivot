@@ -244,13 +244,22 @@ export interface VoucherFilterState {
   voucher_type: VoucherType | '';
   /** 来源单据类型（`''` = 全部） */
   source_type: string;
+  /** 业务单据号（精确；退货单号等「一张业务单 → 多张凭证」的查询键） */
+  source_doc_no: string;
   /** 凭证号（后端模糊 `LIKE %x%`） */
   voucher_no: string;
 }
 
 /** 空筛选 */
 export function emptyVoucherFilter(): VoucherFilterState {
-  return { period: '', status: '', voucher_type: '', source_type: '', voucher_no: '' };
+  return {
+    period: '',
+    status: '',
+    voucher_type: '',
+    source_type: '',
+    source_doc_no: '',
+    voucher_no: '',
+  };
 }
 
 /**
@@ -278,6 +287,11 @@ export function buildVoucherQuery(
   if (filter.source_type) {
     query.source_type = filter.source_type;
   }
+  // 业务单据号（精确）：后端 `AND source_doc_no = ?`，退货单号 → 两张凭证
+  const docNo = filter.source_doc_no.trim();
+  if (docNo) {
+    query.source_doc_no = docNo;
+  }
   const no = filter.voucher_no.trim();
   if (no) {
     query.voucher_no = no;
@@ -292,6 +306,7 @@ export function isVoucherFiltered(filter: VoucherFilterState): boolean {
       filter.status ||
       filter.voucher_type ||
       filter.source_type ||
+      filter.source_doc_no.trim() ||
       filter.voucher_no.trim(),
   );
 }

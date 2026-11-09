@@ -2025,7 +2025,12 @@ async fn post_refund_voucher(
     let bank = voucher::account_required(tx, CREDIT_CODE, "退款凭证的贷方科目 1002 银行存款")
         .await
         .map_err(|error| write_error(error, "解析退款凭证贷方科目"))?;
-    let summary = format!("收款退款 {} 客户 {}", refund.refund_no, refund.customer_id);
+    // 摘要取客户**名称**（AGENTS.md 约定 13 / E2E-FIX-5 ①）：账面上写 UUID 财务看不懂也搜不到。
+    let name = customer_name(tx, refund.customer_id)
+        .await
+        .map_err(|error| write_error(error, "读退款单客户名称"))?;
+    let customer = voucher::party_label(Some(name), "客户", refund.customer_id);
+    let summary = format!("收款退款 {} 客户 {}", refund.refund_no, customer);
     let lines = vec![
         EntryLine {
             line_no: 1,
@@ -2060,6 +2065,7 @@ async fn post_refund_voucher(
             source_type: SOURCE_RECEIPT_REFUND,
             source_id: Some(refund.id),
             source_no: Some(refund.refund_no.as_str()),
+            source_doc_no: None,
             voucher_date: refund.refund_date,
             summary,
             lines,

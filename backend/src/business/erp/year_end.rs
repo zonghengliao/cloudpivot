@@ -1301,6 +1301,7 @@ pub async fn close_year(
                 source_type: voucher::SOURCE_TYPE_YEAR_END,
                 source_id: None,
                 source_no: Some(&source_no),
+                source_doc_no: None,
                 voucher_date: end,
                 summary: format!("{year} 年度损益结转"),
                 lines,
@@ -1847,6 +1848,7 @@ mod tests {
                 source_type: voucher::SOURCE_MANUAL,
                 source_id: None,
                 source_no: Some(source_no),
+                source_doc_no: None,
                 voucher_date: date,
                 summary: format!("R4 夹具 {source_no}"),
                 lines: entries,
@@ -2435,6 +2437,7 @@ mod tests {
                 source_type: voucher::SOURCE_MANUAL,
                 source_id: None,
                 source_no: Some("R4-NONLEAF-1"),
+                source_doc_no: None,
                 voucher_date: NaiveDate::from_ymd_opt(2021, 5, 5).expect("日期"),
                 summary: "R4 父科目记账（应被拒）".to_string(),
                 lines: vec![

@@ -305,6 +305,7 @@ async fn posted_voucher(amount: &str, creator: &str) -> Uuid {
             source_type: voucher::SOURCE_MANUAL,
             source_id: None,
             source_no: Some("P3B-凭证"),
+            source_doc_no: None,
             voucher_date: date,
             summary: "P3B 红冲审批测试凭证".to_string(),
             lines,

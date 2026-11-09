@@ -68,6 +68,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::credit;
+use crate::business::erp::form_snapshot;
 use crate::business::erp::inventory_writer::{self, TxnRecord};
 use crate::business::erp::invoice;
 use crate::business::erp::period;
@@ -116,14 +117,25 @@ pub fn stock_in_reason(return_no: &str) -> String {
     format!("销售退货 {return_no}")
 }
 
-/// 成本冲减凭证摘要。
-pub fn cost_voucher_summary(return_no: &str) -> String {
-    format!("销售退货 {return_no} 成本冲减")
+/// 成本冲减凭证摘要（客户取**名称**：摘要里不许出现 UUID，AGENTS.md 约定 13）。
+pub fn cost_voucher_summary(return_no: &str, customer: &str) -> String {
+    format!("销售退货 {return_no} 客户 {customer} 成本冲减")
 }
 
 /// 收入冲减凭证摘要（红字发票场景）。
-pub fn revenue_voucher_summary(return_no: &str) -> String {
-    format!("销售退货 {return_no} 收入冲减")
+pub fn revenue_voucher_summary(return_no: &str, customer: &str) -> String {
+    format!("销售退货 {return_no} 客户 {customer} 收入冲减")
+}
+
+/// 退货单客户的显示名（凭证摘要用；主数据被物理删 → `客户已删除(短 id)`）。
+async fn customer_label(
+    ex: &impl SqlExecutor,
+    customer_id: Uuid,
+) -> std::result::Result<String, ApiError> {
+    let name = form_snapshot::customer_name(ex, customer_id)
+        .await
+        .map_err(|error| utils::db_error(error, "读退货单客户名称"))?;
+    Ok(voucher::party_label(name, "客户", customer_id))
 }
 
 /// 应收冲减备注（写进 `biz_receivable.remark` 的追加行，审计靠它）。
@@ -687,7 +699,8 @@ async fn write_cost_voucher(
     let cogs = voucher::account_required(ex, ACCOUNT_MAIN_COST, "主营业务成本")
         .await
         .map_err(|error| utils::db_error(error, "取主营业务成本科目 6401"))?;
-    let summary = cost_voucher_summary(&row.return_no);
+    let customer = customer_label(ex, row.customer_id).await?;
+    let summary = cost_voucher_summary(&row.return_no, &customer);
 
     let mut entries: Vec<EntryLine> = Vec::with_capacity(per_material.len() * 2);
     for (material_id, amount, line_from, line_to) in &per_material {
@@ -732,6 +745,9 @@ async fn write_cost_voucher(
             source_type: voucher::SOURCE_STOCK_IN,
             source_id: Some(in_id),
             source_no: Some(in_no),
+            // 业务单据号 = **退货单号**（不是入库单号）：两张凭证都要能按 SR-… 查到，
+            // 见 E2E-FIX-5 ② / V0357。
+            source_doc_no: Some(row.return_no.as_str()),
             voucher_date: row.return_date,
             summary: summary.clone(),
             lines: entries,
@@ -786,7 +802,8 @@ async fn write_revenue_voucher(
     let revenue_account = voucher::account_required(ex, ACCOUNT_REVENUE, "主营业务收入")
         .await
         .map_err(|error| utils::db_error(error, "取主营业务收入科目 5001"))?;
-    let summary = revenue_voucher_summary(&row.return_no);
+    let customer = customer_label(ex, row.customer_id).await?;
+    let summary = revenue_voucher_summary(&row.return_no, &customer);
     let mut entries = vec![
         // 借：主营业务收入（红冲）
         EntryLine {
@@ -839,6 +856,8 @@ async fn write_revenue_voucher(
             source_type: voucher::SOURCE_INVOICE,
             source_id: Some(invoice_id),
             source_no: Some(invoice_no),
+            // 同上：业务单据号 = 退货单号（红字发票号只是记账依据）。
+            source_doc_no: Some(row.return_no.as_str()),
             voucher_date: row.return_date,
             summary: summary.clone(),
             lines: entries,
@@ -1447,13 +1466,22 @@ mod tests {
         Decimal::from_str(text).expect("定点可解析")
     }
 
-    /// ① 入库单事由 / 凭证摘要 / 应收备注都要能反查退货单号（对账靠它）。
+    /// ① 入库单事由 / 凭证摘要 / 应收备注都要能反查退货单号（对账靠它），
+    /// 摘要里的客户**必须是名称**（E2E-FIX-5 ①：不许出现 UUID）。
     #[test]
     fn labels_carry_return_no() {
         assert_eq!(stock_in_reason("SR-20261107-000001"), "销售退货 SR-20261107-000001");
-        assert!(cost_voucher_summary("SR-1").contains("SR-1"));
-        assert!(cost_voucher_summary("SR-1").contains("成本冲减"));
-        assert!(revenue_voucher_summary("SR-1").contains("收入冲减"));
+        assert!(cost_voucher_summary("SR-1", "北京云枢").contains("SR-1"));
+        assert!(cost_voucher_summary("SR-1", "北京云枢").contains("成本冲减"));
+        assert_eq!(
+            cost_voucher_summary("SR-1", "北京云枢"),
+            "销售退货 SR-1 客户 北京云枢 成本冲减"
+        );
+        assert!(revenue_voucher_summary("SR-1", "北京云枢").contains("收入冲减"));
+        assert_eq!(
+            revenue_voucher_summary("SR-1", "北京云枢"),
+            "销售退货 SR-1 客户 北京云枢 收入冲减"
+        );
         let note = receivable_note("SR-1", dec("113"));
         assert!(note.contains("SR-1"), "{note}");
         assert!(note.contains("113"), "{note}");

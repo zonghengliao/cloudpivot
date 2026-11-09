@@ -1,0 +1,3 @@
+psql:/opt/cloudpivot/backend/migrations/business/V0357__voucher_source_doc_no.up.sql:60: NOTICE:  column "source_doc_no" of relation "biz_voucher" already exists, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0357__voucher_source_doc_no.up.sql:71: NOTICE:  relation "idx_biz_voucher_source_doc_no" already exists, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0357__voucher_source_doc_no.up.sql:193: NOTICE:  V0357 完成：biz_voucher.source_doc_no varchar(64) + 索引就绪，存量 source_doc_no 与摘要名称已回填

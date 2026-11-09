@@ -808,6 +808,7 @@ async fn regenerate_voucher_in(
             source_type: SOURCE_TYPE_OPENING,
             source_id: None,
             source_no: Some(&voucher_no),
+            source_doc_no: None,
             voucher_date,
             summary: SUMMARY_OPENING.to_string(),
             lines,
@@ -2840,6 +2841,7 @@ mod tests {
                 source_type: "MANUAL",
                 source_id: None,
                 source_no: Some("R5-PERIOD-2034-11"),
+                source_doc_no: None,
                 voucher_date: NaiveDate::from_ymd_opt(2034, 11, 15).expect("日期"),
                 summary: "R5 夹具：本期收回货款".to_string(),
                 lines: vec![

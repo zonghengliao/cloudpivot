@@ -1111,7 +1111,15 @@ async fn settle_payment_in_tx(
     let bank_account = voucher::account_required(tx, PAY_CREDIT_CODE, "付款凭证的贷方科目 1002 银行存款")
         .await
         .map_err(|error| write_error(error, "解析付款凭证贷方科目"))?;
-    let summary = format!("付款 {payment_no} 应付单 {}", row.payable_no);
+    // 摘要取供应商**名称**（AGENTS.md 约定 13 / E2E-FIX-5 ①）：账面上写 UUID 财务看不懂也搜不到。
+    let supplier = voucher::party_label(
+        form_snapshot::supplier_name(tx, row.supplier_id)
+            .await
+            .map_err(|error| write_error(error, "读应付单供应商名称"))?,
+        "供应商",
+        row.supplier_id,
+    );
+    let summary = format!("付款 {payment_no} 供应商 {supplier} 应付单 {}", row.payable_no);
     // 部门辅助核算（DC-11 的「部门从哪来」）：付款凭证的部门 = **付款申请人**的部门。
     // 申请人 = `biz_payment.create_by` = 本函数的 `operator`（直付与审批路径都由同一人落库），
     // 部门取 `sys_user.dept_id` 的**当前值**并写进凭证（快照语义，与 `biz_task.dept_id` 同口径）。
@@ -1161,6 +1169,7 @@ async fn settle_payment_in_tx(
             source_type: voucher::SOURCE_PAYMENT,
             source_id: Some(payment_id),
             source_no: Some(payment_no),
+            source_doc_no: None,
             voucher_date: pay_date,
             summary,
             lines,
@@ -3474,6 +3483,7 @@ mod tests {
                 source_type: "STOCK_IN",
                 source_id: None,
                 source_no: Some("P7PAY-IN-0001"),
+                source_doc_no: None,
                 voucher_date: voucher::today_cst(Utc::now()),
                 summary: "P7 采购入库 价税合计 226".to_string(),
                 lines: vec![

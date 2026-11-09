@@ -1224,7 +1224,7 @@ pub fn totals_of(lines: &[EntryLine]) -> (Decimal, Decimal) {
 
 /// `biz_voucher` 列清单。
 pub const VOUCHER_COLUMNS: &str = "id, voucher_word, voucher_no, period, voucher_date, \
-     voucher_type, source_type, source_id, source_no, summary, total_debit, total_credit, \
+     voucher_type, source_type, source_id, source_no, source_doc_no, summary, total_debit, total_credit, \
      entry_count, status, is_red, reverse_of, reversed_by, posted_at, posted_by, remark, \
      pending_reverse_instance_id, reverse_reason, \
      created_at, updated_at, create_by, update_by, deleted_at";
@@ -1250,6 +1250,9 @@ pub struct VoucherRow {
     pub source_id: Option<Uuid>,
     /// 来源单号。
     pub source_no: Option<String>,
+    /// 业务单据号（`source_doc_no`）：红冲凭证**原样继承**原凭证的这一列，
+    /// 否则「按退货单号查凭证」会漏掉红冲它的那张。
+    pub source_doc_no: Option<String>,
     /// 摘要。
     pub summary: String,
     /// 借方合计。
@@ -1294,6 +1297,7 @@ impl VoucherRow {
             source_type: row.get_typed("source_type")?,
             source_id: row.get_typed("source_id")?,
             source_no: row.get_typed("source_no")?,
+            source_doc_no: row.get_typed("source_doc_no")?,
             summary: row.get_typed("summary")?,
             total_debit: row.get_typed("total_debit")?,
             total_credit: row.get_typed("total_credit")?,
@@ -1639,6 +1643,7 @@ pub async fn create_by_rule(
             source_type: &ctx.source_type,
             source_id: Some(ctx.source_id),
             source_no: Some(&ctx.source_no),
+            source_doc_no: None,
             voucher_date: ctx.voucher_date,
             summary: ctx.summary.clone(),
             lines,
@@ -1873,6 +1878,21 @@ pub async fn replace_entries(ex: &impl SqlExecutor, voucher_id: Uuid, lines: &[E
     write_entries(ex, voucher_id, lines).await
 }
 
+/// 凭证摘要里的**实体显示名**（AGENTS.md 约定 13：摘要里不许出现 UUID）。
+///
+/// 名称查到就用名称；主数据已被物理删除 / 名字是空白 → 退化成
+/// `客户已删除(01a1bdda)`（只留 8 位短 id 方便工程定位，**绝不写整段 36 位 UUID**：
+/// 摘要会呈现给财务和审计，UUID 在那里既读不懂也搜不到）。
+pub fn party_label(name: Option<String>, kind: &str, id: Uuid) -> String {
+    match name.map(|text| text.trim().to_string()).filter(|text| !text.is_empty()) {
+        Some(name) => name,
+        None => {
+            let short: String = id.to_string().chars().take(8).collect();
+            format!("{kind}已删除({short})")
+        }
+    }
+}
+
 /// 落一张凭证的全部入参（自动 / 手工 / 红字**共用同一个写入口**）。
 #[derive(Debug, Clone)]
 pub struct PostVoucher<'a> {
@@ -1884,6 +1904,17 @@ pub struct PostVoucher<'a> {
     pub source_id: Option<Uuid>,
     /// 来源单号（手工凭证为 `None`）。
     pub source_no: Option<&'a str>,
+    /// **业务单据号**（`biz_voucher.source_doc_no`，E2E-FIX-5 ②）。
+    ///
+    /// 语义与 [`Self::source_no`] 不同：
+    /// * `source_no` = 「`source_id` 那张单的单号」= **记账依据 / 子单据**；
+    /// * `source_doc_no` = 「人对外的业务单号」= 用户拿来查凭证的那个号。
+    ///
+    /// 大多数单据两者相同（收款单的 source_no 就是收款单号），传 `None` 即可 ——
+    /// 落库时按 `COALESCE(source_doc_no, source_no)` 兜底。只有「一张业务单据派生多张
+    /// 子单据 → 多张凭证」的**退货**场景才需要显式传（两张凭证的 source_no 分别是入库单号 /
+    /// 红字发票号，但 source_doc_no 都必须是退货单号，否则按退货单号查凭证 0 行）。
+    pub source_doc_no: Option<&'a str>,
     /// 凭证日期。
     pub voucher_date: NaiveDate,
     /// 凭证摘要。
@@ -2003,16 +2034,21 @@ pub async fn post_voucher(
         Value::Null
     };
 
+    // 业务单据号（E2E-FIX-5 ②）：显式给的优先（退货过账传退货单号），否则等同来源单号。
+    // 两者相同的单据占绝大多数 —— 单独一列是为了「按业务单号查凭证」这条查询面永远可用。
+    let source_doc_no = req.source_doc_no.or(req.source_no);
+
     // SCOPE-EXEMPT: 凭证台账无归属列（见模块文档）。
     let inserted = ex
         .query_first_sql(
             format!(
                 "INSERT INTO {TABLE} \
                     (voucher_word, voucher_no, period, voucher_date, voucher_type, source_type, \
-                     source_id, source_no, summary, total_debit, total_credit, entry_count, \
+                     source_id, source_no, source_doc_no, summary, total_debit, total_credit, entry_count, \
                      status, is_red, reverse_of, posted_at, posted_by, remark, \
                      created_at, updated_at, create_by, update_by) \
-                 VALUES (?, ?, ?, NULLIF(?::text,'')::date, ?, ?, NULLIF(?::text,'')::uuid, ?, ?, \
+                 VALUES (?, ?, ?, NULLIF(?::text,'')::date, ?, ?, NULLIF(?::text,'')::uuid, ?, \
+                         NULLIF(?::text,''), ?, \
                          NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, ?, ?, ?, \
                          NULLIF(?::text,'')::uuid, ?::timestamptz, NULLIF(?::text,'')::uuid, NULLIF(?::text,''), \
                          ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid) \
@@ -2027,6 +2063,7 @@ pub async fn post_voucher(
                 Value::Text(req.source_type.to_string()),
                 Value::Text(req.source_id.map(|v| v.to_string()).unwrap_or_default()),
                 Value::Text(req.source_no.unwrap_or_default().to_string()),
+                Value::Text(source_doc_no.unwrap_or_default().to_string()),
                 Value::Text(req.summary.clone()),
                 Value::Text(debit.to_string()),
                 Value::Text(credit.to_string()),
@@ -2160,6 +2197,8 @@ pub async fn reverse_posted(
             source_type: &original.source_type,
             source_id: original.source_id,
             source_no: original.source_no.as_deref(),
+            // 红字凭证继承原凭证的业务单据号：红冲一张退货凭证后，按退货单号仍能查到两张。
+            source_doc_no: original.source_doc_no.as_deref(),
             voucher_date: input.voucher_date,
             summary,
             lines,
@@ -2426,6 +2465,7 @@ pub async fn create_for_serial_movement(
             source_type,
             source_id: Some(doc_id),
             source_no: Some(doc_no),
+            source_doc_no: None,
             voucher_date: today_cst(now),
             summary,
             lines,
@@ -2624,6 +2664,7 @@ pub async fn create_for_stock_out(
             source_type: SOURCE_STOCK_OUT,
             source_id: Some(req.doc_id),
             source_no: Some(req.doc_no),
+            source_doc_no: None,
             voucher_date: req.voucher_date,
             summary: req.summary.clone(),
             lines,
@@ -3000,6 +3041,7 @@ pub async fn create_for_sales_revenue(
             source_type: SOURCE_INVOICE,
             source_id: Some(req.invoice_id),
             source_no: Some(req.invoice_no),
+            source_doc_no: None,
             voucher_date: req.voucher_date,
             summary: req.summary.clone(),
             lines,
@@ -3234,6 +3276,14 @@ mod tests {
             format!("UPDATE biz_material SET inventory_account_id = NULL WHERE id = '{MATERIAL_B}'::uuid"),
             "DELETE FROM biz_voucher WHERE source_no LIKE 'BROKEN-%' OR voucher_no LIKE '__P2C1%'"
                 .to_string(),
+            // E2E-FIX-5 ②：`source_doc_no` 用例自己造的两张凭证（业务单据号 / 子单据号前缀）
+            "DELETE FROM biz_status_log WHERE entity_type = 'VOUCHER' AND entity_id IN \
+             (SELECT id FROM biz_voucher WHERE source_no LIKE 'P2C1-DOCNO%')"
+                .to_string(),
+            "DELETE FROM biz_voucher_entry WHERE voucher_id IN \
+             (SELECT id FROM biz_voucher WHERE source_no LIKE 'P2C1-DOCNO%')"
+                .to_string(),
+            "DELETE FROM biz_voucher WHERE source_no LIKE 'P2C1-DOCNO%'".to_string(),
         ];
         for sql in cleanups {
             exec(&sql).await;
@@ -5035,5 +5085,151 @@ mod tests {
             Some(material_line.material_id),
             "辅助核算的物料维度不受影响"
         );
+    }
+
+    // ---------- E2E-FIX-5：摘要名称 + 业务单据号 ----------
+
+    /// ① 摘要里的实体显示名：有名字用名字，没有**只留 8 位短 id**，绝不写 36 位 UUID。
+    #[test]
+    fn party_label_never_emits_full_uuid() {
+        let id = uid("01a1bdda-4947-4000-8000-000000000001");
+        assert_eq!(
+            party_label(Some("北京云枢科技".to_string()), "客户", id),
+            "北京云枢科技"
+        );
+        // 空白名字等同「没名字」（主数据名字被清空 / 空串）
+        assert_eq!(
+            party_label(Some("   ".to_string()), "客户", id),
+            "客户已删除(01a1bdda)"
+        );
+        assert_eq!(party_label(None, "供应商", id), "供应商已删除(01a1bdda)");
+        let fallback = party_label(None, "客户", id);
+        assert!(
+            !fallback.contains("01a1bdda-4947"),
+            "退化文案不许带整段 UUID，实际：{fallback}"
+        );
+        assert_eq!(fallback.chars().filter(char::is_ascii_hexdigit).count(), 8);
+    }
+
+    /// 造一张两行的自动凭证（借 1405 / 贷 6401），返回凭证 id。
+    ///
+    /// `source_no` = 记账依据单据号；`source_doc_no` = 业务单据号（退货单号）。
+    async fn post_probe_voucher(source_no: &str, source_doc_no: Option<&str>) -> Uuid {
+        let inventory = account_required(db(), DEFAULT_INVENTORY_CODE, "库存商品")
+            .await
+            .expect("取 1405");
+        let cogs = account_required(db(), ACCOUNT_MAIN_COST, "主营业务成本")
+            .await
+            .expect("取 6401");
+        let lines = vec![
+            EntryLine {
+                line_no: 1,
+                summary: format!("{source_no} 借方"),
+                account: inventory,
+                debit: dec("10"),
+                credit: Decimal::ZERO,
+                aux_supplier_id: None,
+                aux_material_id: None,
+                aux_warehouse_id: None,
+                aux_dept_id: None,
+            },
+            EntryLine {
+                line_no: 2,
+                summary: format!("{source_no} 贷方"),
+                account: cogs,
+                debit: Decimal::ZERO,
+                credit: dec("10"),
+                aux_supplier_id: None,
+                aux_material_id: None,
+                aux_warehouse_id: None,
+                aux_dept_id: None,
+            },
+        ];
+        post_voucher(
+            db(),
+            &PostVoucher {
+                voucher_type: VOUCHER_TYPE_AUTO,
+                source_type: SOURCE_STOCK_IN,
+                source_id: None,
+                source_no: Some(source_no),
+                source_doc_no,
+                voucher_date: Utc::now().date_naive(),
+                summary: format!("P2C1-DOCNO {source_no}"),
+                lines,
+                remark: None,
+                red_of: None,
+                status: STATUS_POSTED,
+            },
+            None,
+            Utc::now(),
+        )
+        .await
+        .unwrap_or_else(|err| panic!("落凭证失败：{err}"))
+    }
+
+    /// ② 业务单据号（E2E-FIX-5 ② / V0357）：
+    /// · 不传 → 落库时等同来源单号（既有单据的兼容口径）；
+    /// · 传了 → 原样落库（退货过账：两张凭证的 source_no 是子单据号，业务单号都是退货单号）；
+    /// · 按业务单号**能查到凭证**（精确筛 + 关键词 LIKE 两条查询面都通）。
+    #[tokio::test]
+    async fn source_doc_no_records_business_doc_and_is_queryable() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        use crate::business::erp::voucher_query::{self, VoucherFilter};
+
+        // ① 不传 → 与来源单号同值（收货 / 收款 / 开票等「业务单据 = 记账依据」的通用口径）
+        let plain = post_probe_voucher("P2C1-DOCNO-IN1", None).await;
+        let row = find_voucher(db(), plain).await.expect("查凭证").expect("凭证必须存在");
+        assert_eq!(
+            row.source_doc_no.as_deref(),
+            Some("P2C1-DOCNO-IN1"),
+            "不传 source_doc_no 时必须回落成 source_no"
+        );
+
+        // ② 退货过账的形状：一张退货单 → 两张凭证（入库单号 / 红字发票号各一张）
+        let business_no = "SR-P2C1-DOCNO-000001";
+        let cost_voucher = post_probe_voucher("P2C1-DOCNO-IN2", Some(business_no)).await;
+        let revenue_voucher = post_probe_voucher("P2C1-DOCNO-IV2", Some(business_no)).await;
+        for id in [cost_voucher, revenue_voucher] {
+            let row = find_voucher(db(), id).await.expect("查凭证").expect("凭证必须存在");
+            assert_eq!(
+                row.source_doc_no.as_deref(),
+                Some(business_no),
+                "退货凭证的业务单据号必须是退货单号"
+            );
+            assert_ne!(
+                row.source_doc_no, row.source_no,
+                "退货场景两条链必须分流：source_no 是子单据号"
+            );
+        }
+
+        // ③ 按业务单号查凭证：精确筛选命中且**恰好两张**
+        let filter = VoucherFilter {
+            source_doc_no: Some(business_no.to_string()),
+            ..VoucherFilter::default()
+        };
+        let (rows, total) = voucher_query::voucher_page(&filter).await.expect("按业务单号分页");
+        assert_eq!(rows.len(), 2, "一张退货单的两张凭证都要查得到");
+        assert_eq!(total, 2);
+        assert!(
+            rows.iter()
+                .all(|row| row.source_doc_no.as_deref() == Some(business_no)),
+            "返回行的业务单据号必须都是退货单号"
+        );
+        let mut source_nos: Vec<String> =
+            rows.iter().filter_map(|row| row.source_no.clone()).collect();
+        source_nos.sort();
+        assert_eq!(source_nos, vec!["P2C1-DOCNO-IN2", "P2C1-DOCNO-IV2"]);
+
+        // ④ 关键词（前端搜索框只传 voucher_no）也能按业务单号命中
+        let by_keyword = VoucherFilter {
+            voucher_no: Some(business_no.to_string()),
+            ..VoucherFilter::default()
+        };
+        let (rows, _) = voucher_query::voucher_page(&by_keyword).await.expect("关键词分页");
+        assert_eq!(rows.len(), 2, "关键词要同时匹配 source_doc_no");
+
+        println!("[E2E-FIX-5 ②] source_doc_no 落库 + 按业务单号查凭证（精确 / 关键词）✓");
     }
 }

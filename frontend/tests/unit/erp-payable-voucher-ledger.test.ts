@@ -33,6 +33,7 @@ import {
   buildVoucherQuery,
   emptyVoucherFilter,
   isBalanced,
+  isVoucherFiltered,
   rowBalanced,
   sourceTypeLabel,
   sumEntries,
@@ -316,6 +317,12 @@ test('④ 查询参数：空串一律不发，科目/期间缺失时在界面上
     buildVoucherQuery({ ...emptyVoucherFilter(), period: ' 2026-10 ', status: 'POSTED' }, 1, 20),
     { page: 1, page_size: 20, period: '2026-10', status: 'POSTED' },
   );
+  // E2E-FIX-5 ②：业务单号（退货单号）走 source_doc_no，前后空白要 trim 掉
+  assert.deepEqual(
+    buildVoucherQuery({ ...emptyVoucherFilter(), source_doc_no: ' SR-20261109-000001 ' }, 1, 20),
+    { page: 1, page_size: 20, source_doc_no: 'SR-20261109-000001' },
+  );
+  assert.equal(isVoucherFiltered({ ...emptyVoucherFilter(), source_doc_no: 'SR-1' }), true);
 
   // 总账：没选科目 → null（后端 account_id/account_code 二选一必填，发了必然 400）
   assert.equal(buildLedgerQuery(emptyLedgerFilter(), 1), null);
