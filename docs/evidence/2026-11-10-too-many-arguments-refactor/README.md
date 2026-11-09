@@ -19,7 +19,7 @@
 - 测试夹具 `flow::self_approval::tests::add_task` 的 `#[allow]` **按要求保留**（拆 struct 只会
   让 20+ 处调用点更难读）。
 
-## 调用方同步改掉（共 15 处）
+## 调用方同步改掉（共 18 处调用点：`update_order` 4 / `insert_with_uploader` 6 / `page_my_tasks` 8）
 
 `backend/src/business/erp/sales_order_handler.rs`、`sales_order_model.rs`（3 处单测）、
 `backend/src/business/attachment/handler.rs`、`attachment/model.rs`（`insert` 夹具）、
