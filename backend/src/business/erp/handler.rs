@@ -721,6 +721,24 @@ pub async fn warehouse_delete(
             format!("仓库还有 {locations} 个库位，请先删除库位"),
         ));
     }
+    // 有物料把该仓库设为默认仓 → 409。
+    // 不加这道闸的后果（E2E-08 实测）：删完仓库 200，物料的 `default_warehouse_id` 仍指向这行，
+    // 入库单默认带出的仓库是一行已软删的记录 —— 页面上看是空白，逻辑上是个悬空指针，
+    // 只能靠工程师改库恢复（违反「不许留死单」）。与计量单位「还有 N 个物料在用」同口径。
+    let referenced: i64 = db()
+        .scalar_with_params(
+            "SELECT COUNT(*) FROM biz_material WHERE default_warehouse_id = ?::uuid AND deleted_at IS NULL",
+            vec![Value::from(&id)],
+        )
+        .await
+        .map_err(|error| utils::db_error(error, "统计引用该仓库的物料"))?;
+    if referenced > 0 {
+        return Err(ApiError::new(
+            409,
+            error_code::RESOURCE_CONFLICT,
+            format!("还有 {referenced} 个物料把该仓库设为默认仓，请先调整这些物料的默认仓，或改为停用该仓库"),
+        ));
+    }
     let tx = db()
         .begin()
         .await
