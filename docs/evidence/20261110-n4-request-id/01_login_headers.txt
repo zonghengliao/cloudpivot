@@ -1,0 +1,14 @@
+HTTP/1.1 200 OK
+content-type: application/json; charset=utf-8
+vary: accept-encoding
+vary: origin
+x-request-id: n4-gw-20261110034219-1524434
+access-control-allow-credentials: true
+x-content-type-options: nosniff
+x-frame-options: DENY
+strict-transport-security: max-age=31536000; includeSubDomains
+content-security-policy: default-src 'self'
+referrer-policy: strict-origin-when-cross-origin
+content-length: 1222
+date: Mon, 09 Nov 2026 19:42:19 GMT
+

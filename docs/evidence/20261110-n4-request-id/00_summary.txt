@@ -1,0 +1,7 @@
+# N-4 验收实测（2026-11-10T03:42:20+08:00 @ ubuntu-svr）
+实例: n4-verify @ http://127.0.0.1:8036（profile=dev, log=json, redis db 4）
+客户端自带 ID: n4-gw-20261110034219-1524434 → 响应头 n4-gw-20261110034219-1524434
+服务端生成 ID: 01a1c1d5-3aae-71fd-9a6b-3af824f19301
+脏头替换后 ID: 01a1c1d5-3abe-7236-b2be-6b1caf003d69
+grep 命中行数: 17（distinct request_id: 1）
+结果: 全绿

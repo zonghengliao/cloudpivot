@@ -1,0 +1,8 @@
+# tests 1307
+# pass 1307
+# fail 0
+--- pnpm build ---
+dist//opt/cloudpivot/frontend/assets/pdf.worker.min-yatZIOMy.mjs.gz                                        1343.59kb / gzip: 393.48kb
+dist//opt/cloudpivot/frontend/assets/tdesign-C98KYtao.js.gz                                                7995.70kb / gzip: 772.70kb
+
+

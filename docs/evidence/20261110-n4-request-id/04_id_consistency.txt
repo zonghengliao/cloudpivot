@@ -1,0 +1,16 @@
+# grep 到的 17 行里 request_id 的取值分布（应只有 1 种）
+     28 "request_id":"n4-gw-20261110034219-1524434"
+
+# 全量日志里出现过的 request_id 种数
+4
+
+# 全量日志里 "request_id":"-" 的行数（应为 0）
+0
+
+# 该请求日志里出现过的 target（谁在写日志）
+      2 "target":"cloudpivot::middleware::request_context"
+      2 "target":"cloudpivot::system::auth::handler"
+      1 "target":"nik_web::middleware::permission_check"
+      1 "target":"nik_web::middleware::request_log"
+      4 "target":"tokio_postgres::prepare"
+      7 "target":"tokio_postgres::query"

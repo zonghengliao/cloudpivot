@@ -27,7 +27,7 @@ ENVFILE="${ENVFILE:-/etc/cloudpivot/cloudpivot-dev.env}"
 PORT="${PORT:-8036}"
 UNIT="${UNIT:-n4-verify}"
 BASE="http://127.0.0.1:${PORT}"
-OUT="${OUT:-${REPO_ROOT}/docs/evidence/20261110-nearfix4}"
+OUT="${OUT:-${REPO_ROOT}/docs/evidence/20261110-n4-request-id}"
 BIN="${BIN:-${REPO_ROOT}/backend/target/debug/cloudpivot}"
 KEEP="${KEEP:-0}"
 
