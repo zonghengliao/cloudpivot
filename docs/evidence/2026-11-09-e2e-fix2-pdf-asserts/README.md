@@ -133,7 +133,17 @@ business::erp::stocktake_tests + contract_handler::manual_sign + 上面两个 �
 
 ## 五、全量 lib（带真库、单线程）
 
-见 `full_suite.txt`（由本目录 README 同批次提交）。跑法同页首表格。
+```
+test result: ok. 3950 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1993.93s
+```
+
+* 被测树 = `origin/main` 的 `2859a50e` + 本卡两处修复（期间的 main 增量 `b6553202` / `a2c52cad` 只有 ARCH-10 文档，代码零差异）；
+* 库 = `cloudpivot_test_pdf07v2`，**建库后第一条命令就是这次全量**（没被别的用例污染过）；
+* 卡面 3 条 + §二 的 2 条全部在这一轮里 `ok`；
+* 原始日志：`full_suite.txt`（含每条用例的 `... ok`，未用 `tail` 截断）。
+
+对照：**同一棵树在修复前**跑全量（`full_suite_before_latent_fixes.txt`）是
+`2044 passed / 2 failed` —— 那 2 条就是 §二 的两条，证明它们不是「跑两次就没了」的抖动。
 
 ## 六、给流程的两条提醒
 
