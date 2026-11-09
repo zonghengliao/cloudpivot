@@ -1,0 +1,50 @@
+PASS	部门（演练设备部） = 01a1b5f3-474c-74cb-b7bd-f0c8ecc260eb（≠ ）
+PASS	科目 1601/1602/5602.01 齐备 = 363636（≠ 108）
+PASS	开账 2032-01 http = 200
+PASS	验收期间 2032-01 已开 = 1
+PASS	建分类 http = 200
+PASS	建分类 code = 0
+PASS	分类 E2E5F2_60 = 01a1c06c-e328-74bf-a1f6-cf6074455191（≠ ）
+PASS	建卡 mk_noatt http = 200
+PASS	建卡 mk_noatt code = 0
+PASS	资产 A 主键 = 01a1c06c-e33e-7692-817b-6bb5d66b7d82（≠ ）
+PASS	① 建卡不传附件：附件数 0 = 0
+PASS	① 建卡不传附件：状态 IN_USE（建卡即入役） = IN_USE
+PASS	① 建卡不传附件：不写「无附件启用」审计 = 0
+PASS	③ check http = 200
+PASS	③ 无附件时 can_proceed=false = false
+PASS	③ 缺口 hint 非空（前端据此弹确认框） = 缺少发票或验收单（需 pdf/jpg/png 格式）（≠ ）
+PASS	停用 http = 200
+PASS	停用后状态 = IDLE
+PASS	停用不写「无附件启用」审计 = 0
+PASS	② 无附件启用 http（改造前是 400） = 200
+PASS	② 无附件启用 code = 0
+PASS	② 响应带 warning = 本次启用未上传发票或验收单，已记审计（操作日志：ERP_ASSET_ENABLE_NO_ATTACH）；建议尽快在「资产详情 → 附件」补传（≠ ）
+PASS	② warning 点名缺什么：本次启用未上传发票或验收单，已记审计（操作日志：ERP_ASSET_ENABLE_NO_ATTACH）；建议尽快在「资产详情 → 附件」补传
+PASS	② warning 带审计操作码 ERP_ASSET_ENABLE_NO_ATTACH
+PASS	② 状态真的回到 IN_USE = IN_USE
+PASS	② 审计恰好 1 行 = 1
+PASS	② 审计资产编号 = FA-20261109-000035
+PASS	② 审计原因 = E2E05-FIX-2 验收：发票未到，先恢复使用
+PASS	② 审计 attachments_satisfied=false = false
+PASS	② 留痕有 ENABLE 行 = 1
+PASS	上传附件 fix2 http = 200
+PASS	上传附件 fix2 code = 0
+PASS	附件落库（FIXED_ASSET / INVOICE_SCAN） = 1
+PASS	附件落库（FIXED_ASSET） = 1
+PASS	③b 有附件时 can_proceed=true = true
+PASS	④ 二次停用 http = 200
+PASS	④ 有附件启用 http = 200
+PASS	④ 有附件启用 code = 0
+PASS	④ 无 warning（附件齐备不提示） = 
+PASS	④ 状态 IN_USE = IN_USE
+PASS	④ 「无附件启用」审计仍是 1 行（有附件启用不记） = 1
+PASS	建卡 mk_att http = 200
+PASS	建卡 mk_att code = 0
+PASS	资产 B 主键 = 01a1c06c-e59e-75bc-ba8b-02726e765285（≠ ）
+PASS	上传附件 fix2b http = 200
+PASS	上传附件 fix2b code = 0
+PASS	附件落库（FIXED_ASSET / INVOICE_SCAN） = 1
+PASS	⑤ 建卡后附件落库 = 1
+PASS	⑤ 建卡带附件：状态 IN_USE = IN_USE
+PASS	⑤ 建卡带附件：can_proceed=true = true

@@ -1,0 +1,9 @@
+=== 审计行（UI 触发的那次无附件启用）===
+ERP_ASSET_ENABLE_NO_ATTACH|admin|biz_fixed_asset|FA-20261109-000037|E2E05-FIX-2 UI 验收：发票未到，先恢复使用|false|200
+=== 卡片状态 ===
+FA-20261109-000037|IN_USE|0.0000
+=== 附件数（应为 0：说明这次启用确实是在无附件下完成的）===
+0
+=== 变动留痕 ===
+IDLE|IN_USE|IDLE|E2E05-FIX-2 UI 验收：造一张无附件的闲置资产
+ENABLE|IDLE|IN_USE|E2E05-FIX-2 UI 验收：发票未到，先恢复使用

@@ -1,0 +1,77 @@
+HOST=ubuntu-svr IP=172.18.10.145
+CLONE_HEAD=a03226d3
+config-dev.toml 由 example 复制
+health_ok=1 (pid=1402562 port=8037)
+被测二进制路径（maps 命中新克隆的行数）=3
+===== 跑验收脚本（库 cloudpivot_dev，来自 dev env）=====
+===== F0 登录 + 前置（部门 / 科目 / 期间 2032-01 / 分类）=====
+  · admin 登录成功（token 长度 492）
+  ✅ 部门（演练设备部） = 01a1b5f3-474c-74cb-b7bd-f0c8ecc260eb（≠ ）
+  ✅ 科目 1601/1602/5602.01 齐备 = 363636（≠ 108）
+  ✅ 开账 2032-01 http = 200
+  ✅ 验收期间 2032-01 已开 = 1
+  ✅ 建分类 http = 200
+  ✅ 建分类 code = 0
+  ✅ 分类 E2E5F2_60 = 01a1c06c-e328-74bf-a1f6-cf6074455191（≠ ）
+
+===== ① 建卡不传附件 → 正常建成（口径不变）=====
+  ✅ 建卡 mk_noatt http = 200
+  ✅ 建卡 mk_noatt code = 0
+  ✅ 资产 A 主键 = 01a1c06c-e33e-7692-817b-6bb5d66b7d82（≠ ）
+  ✅ ① 建卡不传附件：附件数 0 = 0
+  ✅ ① 建卡不传附件：状态 IN_USE（建卡即入役） = IN_USE
+  ✅ ① 建卡不传附件：不写「无附件启用」审计 = 0
+
+===== ③ 前端预检（attachment/check）：无附件 → can_proceed=false =====
+  ✅ ③ check http = 200
+  ✅ ③ 无附件时 can_proceed=false = false
+  ✅ ③ 缺口 hint 非空（前端据此弹确认框） = 缺少发票或验收单（需 pdf/jpg/png 格式）（≠ ）
+
+===== ② 停用 → 无附件启用 → 允许 + warning + 审计 =====
+  ✅ 停用 http = 200
+  ✅ 停用后状态 = IDLE
+  ✅ 停用不写「无附件启用」审计 = 0
+  ✅ ② 无附件启用 http（改造前是 400） = 200
+  ✅ ② 无附件启用 code = 0
+  ✅ ② 响应带 warning = 本次启用未上传发票或验收单，已记审计（操作日志：ERP_ASSET_ENABLE_NO_ATTACH）；建议尽快在「资产详情 → 附件」补传（≠ ）
+  ✅ ② warning 点名缺什么：本次启用未上传发票或验收单，已记审计（操作日志：ERP_ASSET_ENABLE_NO_ATTACH）；建议尽快在「资产详情 → 附件」补传
+  ✅ ② warning 带审计操作码 ERP_ASSET_ENABLE_NO_ATTACH
+  ✅ ② 状态真的回到 IN_USE = IN_USE
+  ✅ ② 审计恰好 1 行 = 1
+  ✅ ② 审计资产编号 = FA-20261109-000035
+  ✅ ② 审计原因 = E2E05-FIX-2 验收：发票未到，先恢复使用
+  ✅ ② 审计 attachments_satisfied=false = false
+  ✅ ② 留痕有 ENABLE 行 = 1
+
+===== ③b 补传附件后：预检 can_proceed=true =====
+  ✅ 上传附件 fix2 http = 200
+  ✅ 上传附件 fix2 code = 0
+  ✅ 附件落库（FIXED_ASSET / INVOICE_SCAN） = 1
+  ✅ 附件落库（FIXED_ASSET） = 1
+  ✅ ③b 有附件时 can_proceed=true = true
+
+===== ④ 有附件启用 → 正常（无 warning、无审计）=====
+  ✅ ④ 二次停用 http = 200
+  ✅ ④ 有附件启用 http = 200
+  ✅ ④ 有附件启用 code = 0
+  ✅ ④ 无 warning（附件齐备不提示） = 
+  ✅ ④ 状态 IN_USE = IN_USE
+  ✅ ④ 「无附件启用」审计仍是 1 行（有附件启用不记） = 1
+
+===== ⑤ 建卡带附件 → 正常 =====
+  ✅ 建卡 mk_att http = 200
+  ✅ 建卡 mk_att code = 0
+  ✅ 资产 B 主键 = 01a1c06c-e59e-75bc-ba8b-02726e765285（≠ ）
+  ✅ 上传附件 fix2b http = 200
+  ✅ 上传附件 fix2b code = 0
+  ✅ 附件落库（FIXED_ASSET / INVOICE_SCAN） = 1
+  ✅ ⑤ 建卡后附件落库 = 1
+  ✅ ⑤ 建卡带附件：状态 IN_USE = IN_USE
+  ✅ ⑤ 建卡带附件：can_proceed=true = true
+
+===== 汇总 =====
+夹具：A=FA-20261109-000035（无附件启用 ×1 + 有附件启用 ×1） B（建卡带附件）RUN_TAG=11092108
+
+== PASS=50 FAIL=0
+===== 收工 =====
+SCRIPT_RC=0
