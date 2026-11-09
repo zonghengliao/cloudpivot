@@ -1,0 +1,14 @@
+{
+  "code": 0,
+  "msg": "ok",
+  "data": {
+    "id": "01a1bebf-1c44-7410-a6c0-b6730a7c0e26",
+    "file_id": "01a1bebf-1c44-7410-a6c0-b672415ecb23",
+    "file_name": "E2E12-签收单.png",
+    "file_size": 133,
+    "file_role": "SIGN_RECEIPT",
+    "doc_type": "PURCHASE_ORDER",
+    "doc_id": "01a1bebf-1c0f-7512-8175-a42a5c93f19d",
+    "duplicated": false
+  }
+}

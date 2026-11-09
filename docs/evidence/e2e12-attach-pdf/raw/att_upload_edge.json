@@ -1,0 +1,14 @@
+{
+  "code": 0,
+  "msg": "ok",
+  "data": {
+    "id": "01a1bebf-2464-76ec-a010-8530ba01a3dc",
+    "file_id": "01a1bebf-2463-70e9-b1a8-a233f43b0b8a",
+    "file_name": "E2E12-边界20M.pdf",
+    "file_size": 20971520,
+    "file_role": "DEFAULT",
+    "doc_type": "PURCHASE_ORDER",
+    "doc_id": "01a1bebf-1c0f-7512-8175-a42a5c93f19d",
+    "duplicated": false
+  }
+}

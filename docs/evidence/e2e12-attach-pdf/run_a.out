@@ -1,0 +1,154 @@
+
+### S0 · 环境自检（admin 登录 / PDF 渲染服务 / 规则表）
+  ✅ admin 登录拿到 access_token
+  ✅ PDF 渲染服务 /health = 200｜实际=200 期望=200
+  ✅ Chromium 版本可读｜Chrome/157.0.8103.38
+  ✅ 并发上限已下发｜3
+  ✅ 规则管理列表 = 200｜实际=200 期望=200
+  ✅ 规则 ≥ 9 条（7 单据 + 发票两分支）｜实际=9
+  ✅ 覆盖的单据类型 ≥ 8｜EXPENSE_REPORT,FIXED_ASSET,INVOICE,PAYMENT,PURCHASE_RETURN,RECEIPT,SALES_RETURN,STOCK_TAKE
+
+### S1 · 建锚点采购订单（30 行明细 → PDF 跨页）
+  ✅ 建采购订单 = 200｜实际=200 期望=200
+  ✅ 拿到采购订单 id｜01a1bebf-1c0f-7512-8175-a42a5c93f19d
+  ✅ 单号形态 PO-yyyyMMdd-NNNNNN｜PO-20261109-000083
+  ✅ 响应带价税合计｜16864.6200
+  ✅ DB：明细 30 行落库｜实际=30 期望=30
+
+### S2 · 附件上传：4 类文件 / 秒传 / 扩展名闸 / 20MB 双端闸
+  ✅ 上传 PDF = 200｜实际=200 期望=200
+  ✅ PDF 绑定 file_role｜实际=CONTRACT_SCAN 期望=CONTRACT_SCAN
+  ✅ PDF 字节数回显｜实际=888 期望=888
+  ✅ 首次上传不命中秒传｜实际=False 期望=False
+  ✅ file_name 回显
+  ✅ 上传图片 = 200｜实际=200 期望=200
+  ✅ 图片绑定角色｜实际=SIGN_RECEIPT 期望=SIGN_RECEIPT
+  ✅ 上传 Office(docx) = 200｜实际=200 期望=200
+  ✅ docx 角色｜实际=SUPPLEMENT 期望=SUPPLEMENT
+  ✅ 上传压缩包(zip) = 200｜实际=200 期望=200
+  ✅ 重复字节上传 = 200｜实际=200 期望=200
+  ✅ 命中内容秒传 duplicated=true｜实际=True 期望=True
+  ✅ 秒传复用同一 sys_file｜实际=01a1bebf-1c3d-702f-a1d0-57eda81aeeb2 期望=01a1bebf-1c3d-702f-a1d0-57eda81aeeb2
+  ✅ 秒传不新增绑定行（幂等）｜实际=01a1bebf-1c3e-7790-a720-fc048dd7baea 期望=01a1bebf-1c3e-7790-a720-fc048dd7baea
+  ✅ 秒传响应回显请求角色（P4-1：与库内首行角色不一致）｜实际=ACCEPTANCE 期望=ACCEPTANCE
+  ✅ 库内绑定角色仍是首行 CONTRACT_SCAN｜实际=CONTRACT_SCAN 期望=CONTRACT_SCAN
+  ✅ 上传 .exe 被拒 = 400｜实际=400 期望=400
+  ✅ 拒绝文案点名可执行黑名单｜禁止上传可执行/脚本文件 .exe：该类型在硬禁止黑名单内，任何分类都不放行
+  ✅ 21MB 超限 = 400｜实际=400 期望=400
+  ✅ 超限业务码 = 10001｜实际=10001 期望=10001
+  ✅ 超限文案非空｜文件超过 20MB，请压缩或分卷上传
+  ✅ 正好 20MiB 放行 = 200｜实际=200 期望=200
+  ✅ 边界文件字节数｜实际=20971520 期望=20971520
+  ✅ 非法 doc_type = 400｜实际=400 期望=400
+  ✅ 非法 file_role = 400｜实际=400 期望=400
+  ✅ 单据不存在 = 404｜实际=404 期望=404
+  ✅ DB：该单附件 5 行（4 类 + 20M 边界；秒传幂等不新增）｜实际=5 期望=5
+
+### S3 · 附件列表：字段完整 / 排序口径 / 角色分栏
+  ✅ 列表 = 200｜实际=200 期望=200
+  ✅ 列表回显 doc_type｜实际=PURCHASE_ORDER 期望=PURCHASE_ORDER
+  ✅ 条目数 = 5｜实际=5 期望=5
+  ✅ 列表字段齐全：id
+  ✅ 列表字段齐全：file_id
+  ✅ 列表字段齐全：file_role
+  ✅ 列表字段齐全：file_role_label
+  ✅ 列表字段齐全：file_name
+  ✅ 列表字段齐全：file_size
+  ✅ 列表字段齐全：mime_type
+  ✅ 列表字段齐全：sort_order
+  ✅ 列表字段齐全：uploaded_by
+  ✅ 列表字段齐全：uploader_name
+  ✅ 列表字段齐全：created_at
+  ✅ 列表字段齐全：can_delete
+  ✅ uploader_name 是姓名不是 UUID｜超级管理员
+  ✅ 默认排序口径 = time｜实际=time 期望=time
+  ✅ max_count 下发｜50
+  ✅ 角色分栏清单下发（含空分组）｜None,None,None,None,None,None
+  ✅ 分栏含 code+label+count
+  ✅ 空分组也在清单里（前端显示『暂无，点击上传』）
+  ✅ 时间倒序（首条最新）｜实际=True 期望=True
+  ✅ True｜['E2E12-签收单.png']
+  ✅ 重排 = 200｜实际=200 期望=200
+  ✅ 重排回读口径 = manual｜实际=manual 期望=manual
+  ✅ 重排后顺序 = 入参顺序｜实际=['01a1bebf-1c3e-7790-a720-fc048dd7baea', '01a1bebf-1c44-7410-a6c0-b6730a7c0e26', '01a1bebf-1c4b-7501-aced-3d8bcf176df8', '01a1bebf-1c50-76f4-96cf-299edbb47d5a', '01a1bebf-2464-76ec-a010-8530ba01a3dc'] 期望=['01a1bebf-1c3e-7790-a720-fc048dd7baea', '01a1bebf-1c44-7410-a6c0-b6730a7c0e26', '01a1bebf-1c4b-7501-aced-3d8bcf176df8', '01a1bebf-1c50-76f4-96cf-299edbb47d5a', '01a1bebf-2464-76ec-a010-8530ba01a3dc']
+  ✅ 重排后 sort_order 从 0 开始｜实际=[0, 1, 2, 3, 4] 期望=[0, 1, 2, 3, 4]
+  ✅ sort=manual 读回同一顺序｜实际=['01a1bebf-1c3e-7790-a720-fc048dd7baea', '01a1bebf-1c44-7410-a6c0-b6730a7c0e26', '01a1bebf-1c4b-7501-aced-3d8bcf176df8', '01a1bebf-1c50-76f4-96cf-299edbb47d5a', '01a1bebf-2464-76ec-a010-8530ba01a3dc'] 期望=['01a1bebf-1c3e-7790-a720-fc048dd7baea', '01a1bebf-1c44-7410-a6c0-b6730a7c0e26', '01a1bebf-1c4b-7501-aced-3d8bcf176df8', '01a1bebf-1c50-76f4-96cf-299edbb47d5a', '01a1bebf-2464-76ec-a010-8530ba01a3dc']
+  ✅ 重排重复 id = 400｜实际=400 期望=400
+  ✅ 重排缺行 = 400｜实际=400 期望=400
+
+### S4 · 附件下载 / 预览（Content-Type / nosniff / 字节一致 / 留痕）
+  ✅ 下载 pdf = 200｜实际=200 期望=200
+  ✅ pdf Content-Type｜实际=application/pdf 期望=application/pdf
+  ✅ pdf 字节与上传一致｜实际=True 期望=True
+  ✅ pdf X-Content-Type-Options｜实际=nosniff 期望=nosniff
+  ✅ pdf 有 Content-Disposition｜attachment; filename="E2E12-_____.pdf"; filename*=UTF-8''E2E12-%E5%90%88%E5%90%8C%E6%89%AB
+  ✅ pdf 文件名走 RFC5987 filename*｜attachment; filename="E2E12-_____.pdf"; filename*=UTF-8''E2E
+  ✅ pdf 中文名可解出｜attachment; filename="E2E12-_____.pdf"; filename*=UTF-8''E2E12-合同扫描件.p
+  ✅ pdf 落盘取证｜/tmp/e2e12/raw/dl_pdf.bin
+  ✅ 下载 png = 200｜实际=200 期望=200
+  ✅ png Content-Type｜实际=image/png 期望=image/png
+  ✅ png 字节与上传一致｜实际=True 期望=True
+  ✅ png X-Content-Type-Options｜实际=nosniff 期望=nosniff
+  ✅ png 有 Content-Disposition｜attachment; filename="E2E12-___.png"; filename*=UTF-8''E2E12-%E7%AD%BE%E6%94%B6%E5%8D%95.p
+  ✅ png 文件名走 RFC5987 filename*｜attachment; filename="E2E12-___.png"; filename*=UTF-8''E2E12
+  ✅ png 中文名可解出｜attachment; filename="E2E12-___.png"; filename*=UTF-8''E2E12-签收单.png
+  ✅ png 落盘取证｜/tmp/e2e12/raw/dl_png.bin
+  ✅ 下载 docx = 200｜实际=200 期望=200
+  ✅ docx 字节与上传一致｜实际=True 期望=True
+  ✅ docx X-Content-Type-Options｜实际=nosniff 期望=nosniff
+  ✅ docx 有 Content-Disposition｜attachment; filename="E2E12-____.docx"; filename*=UTF-8''E2E12-%E8%A1%A5%E5%85%85%E5%8D%8F
+  ✅ docx 文件名走 RFC5987 filename*｜attachment; filename="E2E12-____.docx"; filename*=UTF-8''E2E
+  ✅ docx 中文名可解出｜attachment; filename="E2E12-____.docx"; filename*=UTF-8''E2E12-补充协议.do
+  ✅ docx 落盘取证｜/tmp/e2e12/raw/dl_docx.bin
+  ✅ 下载 zip = 200｜实际=200 期望=200
+  ✅ zip 字节与上传一致｜实际=True 期望=True
+  ✅ zip X-Content-Type-Options｜实际=nosniff 期望=nosniff
+  ✅ zip 有 Content-Disposition｜attachment; filename="E2E12-__.zip"; filename*=UTF-8''E2E12-%E6%89%93%E5%8C%85.zip
+  ✅ zip 文件名走 RFC5987 filename*｜attachment; filename="E2E12-__.zip"; filename*=UTF-8''E2E12-
+  ✅ zip 中文名可解出｜attachment; filename="E2E12-__.zip"; filename*=UTF-8''E2E12-打包.zip
+  ✅ zip 落盘取证｜/tmp/e2e12/raw/dl_zip.bin
+  ✅ 下载内容是真 PDF（%PDF- 头）
+  ✅ 下载留痕 operation_logs 有 DOC_ATTACHMENT_DOWNLOAD｜2
+  ✅ 留痕 detail 含 doc_type
+  ✅ 留痕 detail 含 doc_id
+  ✅ 留痕 detail 含 file_id
+  ✅ 留痕 detail 含 file_name
+  ✅ 留痕 detail 含 file_size
+  ✅ 留痕 doc_type 正确
+
+### S5 · 权限：越权下载 403 / 幽灵 id 同文案 / 合同可读非一刀切
+  ✅ 建角色 E2E12_ATT｜01a1bebf-24de-74f8-8894-30a5040afc2c
+  ✅ 授权 3 个权限码｜实际=3 期望=3
+  ✅ 建用户 e2e12_att｜01a1bebf-253c-7249-bba5-d9a2a823c021
+  ✅ e2e12_att 登录成功
+  ✅ 无权模块读码 → 下载 403｜实际=403 期望=403
+  ✅ 403 文案点名单据类型｜含「采购单」
+  ✅ 幽灵 id → 404（不是 403）｜实际=404 期望=404
+  ✅ 403 / 404 文案不同（存在性在权限之前，已留档）
+  ✅ 无权向该单上传 → 403｜实际=403 期望=403
+  ✅ 上传 403 文案点名单据｜含「采购单」
+  ✅ 取到一张合同用于对照｜01a1be5f-3890-71bc-b6f9-2742d20f6db4
+  ✅ 合同上传 = 200（有读码）｜实际=200 期望=200
+  ✅ 合同附件下载 = 200（非一刀切）｜实际=200 期望=200
+  ✅ 合同附件字节是真 PDF
+  ✅ 缺 business:attachment:list → 路由 403｜实际=403 期望=403
+  ✅ 路由 403 点名权限码｜含「business:attachment:list」
+
+### S6 · 删除：软删绑定行 / 列表消失 / 上传人自删 / 物理文件不误删
+  ✅ 删除 = 200｜实际=200 期望=200
+  ✅ deleted=true｜实际=True 期望=True
+  ✅ 独占文件随之软删 file_deleted｜实际=True 期望=True
+  ✅ DB：绑定行软删（行仍在，可审计）｜实际=true 期望=true
+  ✅ 列表已不含已删附件
+  ✅ 重复删除 = 404｜实际=404 期望=404
+  ✅ 上传人删自己（无 delete 码）= 200｜实际=200 期望=200
+  ✅ 删别人附件（无读码）= 403｜实际=403 期望=403
+
+=== A 段断言：PASS=0 FAIL=0 ===
+  S0: 7 绿 / 0 红
+  S1: 5 绿 / 0 红
+  S2: 27 绿 / 0 红
+  S3: 30 绿 / 0 红
+  S4: 38 绿 / 0 红
+  S5: 16 绿 / 0 红
+  S6: 8 绿 / 0 红

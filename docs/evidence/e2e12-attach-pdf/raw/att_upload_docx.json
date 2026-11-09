@@ -1,0 +1,14 @@
+{
+  "code": 0,
+  "msg": "ok",
+  "data": {
+    "id": "01a1bebf-1c4b-7501-aced-3d8bcf176df8",
+    "file_id": "01a1bebf-1c4a-778c-849d-2b3961927246",
+    "file_name": "E2E12-补充协议.docx",
+    "file_size": 903,
+    "file_role": "SUPPLEMENT",
+    "doc_type": "PURCHASE_ORDER",
+    "doc_id": "01a1bebf-1c0f-7512-8175-a42a5c93f19d",
+    "duplicated": false
+  }
+}

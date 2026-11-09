@@ -1,0 +1,14 @@
+{
+  "code": 0,
+  "msg": "ok",
+  "data": {
+    "id": "01a1bebf-1c3e-7790-a720-fc048dd7baea",
+    "file_id": "01a1bebf-1c3d-702f-a1d0-57eda81aeeb2",
+    "file_name": "E2E12-合同扫描件.pdf",
+    "file_size": 888,
+    "file_role": "CONTRACT_SCAN",
+    "doc_type": "PURCHASE_ORDER",
+    "doc_id": "01a1bebf-1c0f-7512-8175-a42a5c93f19d",
+    "duplicated": false
+  }
+}

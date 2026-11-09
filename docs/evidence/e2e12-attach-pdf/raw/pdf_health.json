@@ -1,0 +1,1 @@
+{"code":0,"msg":"ok","data":{"cdp_url":"http://127.0.0.1:9222","browser":"Chrome/157.0.8103.38","protocol_version":"1.3","max_concurrency":3,"active":0,"idle_connections":1,"rendered_total":15,"failed_total":0,"last_render_ms":154,"last_document_bytes":136683,"timeout_ms":20000}}

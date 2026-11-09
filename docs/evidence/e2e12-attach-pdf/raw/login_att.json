@@ -1,0 +1,16 @@
+{
+  "code": 0,
+  "msg": "ok",
+  "data": {
+    "access_token": "<redacted>",
+    "refresh_token": "<redacted>",
+    "token_type": "Bearer",
+    "expires_in": 900,
+    "user": {
+      "id": "01a1bebf-253c-7249-bba5-d9a2a823c021",
+      "username": "e2e12_att",
+      "real_name": "E2E12 附件专员"
+    },
+    "must_change_password": false
+  }
+}

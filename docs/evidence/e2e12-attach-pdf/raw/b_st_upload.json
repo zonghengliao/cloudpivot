@@ -1,0 +1,14 @@
+{
+  "code": 0,
+  "msg": "ok",
+  "data": {
+    "id": "01a1bebf-2e5e-774a-8617-19cbb506fdef",
+    "file_id": "01a1bebf-2e5d-7220-9add-f93af9954b3b",
+    "file_name": "E2E12-盘点表.pdf",
+    "file_size": 594,
+    "file_role": "DEFAULT",
+    "doc_type": "STOCK_TAKE",
+    "doc_id": "01a1bebf-2e38-76f1-a1af-21f1b67847fc",
+    "duplicated": false
+  }
+}

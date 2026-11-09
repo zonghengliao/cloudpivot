@@ -1,0 +1,39 @@
+=== 1. 本卡锚点采购单与附件 ===
+PO=PO-20261109-000083 状态=DRAFT 行数=30 附件=5
+=== 2. 附件分栏（file_role 分布）+ uploader_name 快照 ===
+CONTRACT_SCAN|1|0
+DEFAULT|2|0
+SIGN_RECEIPT|1|0
+SUPPLEMENT|1|0
+=== 3. 勾稽：绑定行 ↔ sys_file（悬空 / 大小一致 / 名字一致） ===
+dangling_binding=0
+size_mismatch=0
+=== 4. 勾稽：软删附件不得出现在列表（deleted_at 与物理文件回收状态） ===
+soft_deleted_binding=1 其文件仍活=0
+=== 5. 留痕：上传 / 下载 / 删除 三类操作码计数 ===
+DOC_ATTACHMENT_DELETE=8
+DOC_ATTACHMENT_DOWNLOAD=24
+DOC_ATTACHMENT_UPLOAD=46
+=== 6. PDF 导出留痕（12 类单据/报表 → 操作码聚合） ===
+EXPORT_CONTRACT_PDF=2 目标表=biz_contract
+EXPORT_FLOW_INSTANCE_PDF=2 目标表=biz_flow_instance
+EXPORT_PURCHASE_ORDER_PDF=4 目标表=biz_purchase_order
+EXPORT_PURCHASE_RETURN_PDF=2 目标表=biz_purchase_return
+EXPORT_REPORT_PDF=6 目标表=biz_report
+EXPORT_SALES_ORDER_PDF=2 目标表=biz_sales_order
+EXPORT_SALES_RETURN_PDF=2 目标表=biz_sales_return
+EXPORT_STOCK_IN_PDF=2 目标表=biz_stock_in
+EXPORT_STOCK_OUT_PDF=2 目标表=biz_stock_out
+EXPORT_STOCK_TAKE_PDF=2 目标表=biz_stock_take
+EXPORT_STOCK_TRANSFER_PDF=2 目标表=biz_stock_transfer
+EXPORT_TASK_PDF=2 目标表=biz_task
+=== 7. 导出审计行字段完整性（username / created_at 非空） ===
+rows=30 有username=30 有created_at=30
+=== 8. 必传闸门：自有盘点单状态与附件 ===
+ST=ST-20261109-000024 状态=PENDING_POST 附件=1
+=== 9. 规则表：启用状态与条件（发票两分支） ===
+INVOICE|SUBMIT|true|is_electronic IS FALSE
+INVOICE|SUBMIT|true|is_electronic IS TRUE
+STOCK_TAKE|CONFIRM|true|-
+=== 10. 本卡残留（收尾前应为非 0，收尾后为 0） ===
+po=1 st=1 att=8 file=8 role=3 user=3 rule=1

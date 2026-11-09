@@ -1,0 +1,16 @@
+{
+  "code": 0,
+  "msg": "ok",
+  "data": {
+    "access_token": "<redacted>",
+    "refresh_token": "<redacted>",
+    "token_type": "Bearer",
+    "expires_in": 900,
+    "user": {
+      "id": "01a1bebf-39ed-774b-8366-566591801801",
+      "username": "e2e12_pdf",
+      "real_name": "E2E12 PDF 用户"
+    },
+    "must_change_password": false
+  }
+}

@@ -1,0 +1,1 @@
+{"code":30001,"msg":"只能删除自己上传的附件，或持有 business:attachment:delete 权限"}

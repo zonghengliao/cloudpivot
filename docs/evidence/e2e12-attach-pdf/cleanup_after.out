@@ -1,0 +1,15 @@
+DELETE 8
+DELETE 0
+DELETE 0
+DELETE 8
+DELETE 30
+DELETE 1
+DELETE 1
+DELETE 1
+DELETE 1
+DELETE 3
+DELETE 5
+DELETE 3
+DELETE 3
+=== 收尾后残留校验（全部应为 0） ===
+po=0 st=0 att=0 file=0 role=0 user=0 rule=0 po_item=0

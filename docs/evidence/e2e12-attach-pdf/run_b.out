@@ -1,0 +1,268 @@
+  ✅ admin 登录
+
+### S7 · 规则管理：列表 / 选项 / 新建 / 修改 / 启停 / 软删 / 越权 / 注入拦截
+  ✅ 规则列表 = 200｜实际=200 期望=200
+  ✅ 规则 ≥9 条｜9
+  ✅ options 覆盖单据类型｜16
+  ✅ options 至少下发两组枚举｜doc_types,required_ats,file_roles
+  ✅ 新建规则 = 200｜实际=200 期望=200
+  ✅ 拿到规则 id｜01a1bebf-2bc4-747f-9046-63e77adaaedb
+  ✅ 修改规则 = 200｜实际=200 期望=200
+  ✅ DB 里 remark 已更新｜含「已改」
+  ✅ 规则生效后 check = 200｜实际=200 期望=200
+  ✅ 停用规则 = 200｜实际=200 期望=200
+  ✅ 停用后 check 立即放行（无缓存）｜实际=True 期望=True
+  ✅ 停用后缺口清零
+  ✅ 重新启用 = 200｜实际=200 期望=200
+  ✅ 重启后 missing 回来（与停用前一致）｜实际=True 期望=True
+  ✅ 非法 doc_type = 400｜实际=400 期望=400
+  ✅ condition_sql 注入 = 400｜实际=400 期望=400
+  ✅ 注入被点名拒绝｜含「condition」
+  ✅ 非法 required_at = 400｜实际=400 期望=400
+  ✅ 非超管访问规则管理 = 403｜实际=403
+  ✅ 非超管建规则 = 403｜实际=403
+  ✅ 删除规则 = 200｜实际=200 期望=200
+  ✅ DB：软删留痕｜实际=true 期望=true
+  ✅ 列表已不含已删规则
+
+### S8 · 必传闸门：8 条规则 × check + 真实动作 400 + 补附件放行
+  ✅ INVOICE/SUBMIT check = 200｜实际=200 期望=200
+  ✅ INVOICE 无附件 → 不允许提交｜实际=False 期望=False
+  ✅ INVOICE 缺口清单非空｜1
+  ✅ INVOICE 缺口带扩展名白名单｜pdf/ofd/xml
+  ✅ INVOICE 缺口带人话名｜缺少发票影像（需 pdf/ofd/xml 格式）
+  ✅ INVOICE 有红字 + 长报文｜缺少发票影像（需 pdf/ofd/xml 格式）
+  ✅ INVOICE 红字点名所需附件｜含「发票」
+  ✅ RECEIPT/SUBMIT check = 200｜实际=200 期望=200
+  ✅ RECEIPT 无附件 → 不允许提交｜实际=False 期望=False
+  ✅ RECEIPT 缺口清单非空｜1
+  ✅ RECEIPT 缺口带扩展名白名单｜pdf/jpg/png
+  ✅ RECEIPT 缺口带人话名｜缺少银行回单（需 pdf/jpg/png 格式）
+  ✅ RECEIPT 有红字 + 长报文｜缺少银行回单（需 pdf/jpg/png 格式）
+  ✅ RECEIPT 红字点名所需附件｜含「银行回单」
+  ✅ EXPENSE_REPORT/SUBMIT check = 200｜实际=200 期望=200
+  ✅ EXPENSE_REPORT 无附件 → 不允许提交｜实际=False 期望=False
+  ✅ EXPENSE_REPORT 缺口清单非空｜1
+  ✅ EXPENSE_REPORT 缺口带扩展名白名单｜pdf/jpg/png/ofd
+  ✅ EXPENSE_REPORT 缺口带人话名｜缺少发票影像或费用凭证（需 pdf/jpg/png/ofd 格式）
+  ✅ EXPENSE_REPORT 有红字 + 长报文｜缺少发票影像或费用凭证（需 pdf/jpg/png/ofd 格式）
+  ✅ EXPENSE_REPORT 红字点名所需附件｜含「费用凭证」
+  ✅ FIXED_ASSET/ACTIVATE check = 200｜实际=200 期望=200
+  ✅ FIXED_ASSET 无附件 → 不允许提交｜实际=False 期望=False
+  ✅ FIXED_ASSET 缺口清单非空｜1
+  ✅ FIXED_ASSET 缺口带扩展名白名单｜pdf/jpg/png
+  ✅ FIXED_ASSET 缺口带人话名｜缺少发票或验收单（需 pdf/jpg/png 格式）
+  ✅ FIXED_ASSET 有红字 + 长报文｜缺少发票或验收单（需 pdf/jpg/png 格式）
+  ✅ FIXED_ASSET 红字点名所需附件｜含「验收单」
+  ✅ STOCK_TAKE/CONFIRM check = 200｜实际=200 期望=200
+  ✅ STOCK_TAKE 无附件 → 不允许提交｜实际=False 期望=False
+  ✅ STOCK_TAKE 缺口清单非空｜1
+  ✅ STOCK_TAKE 缺口带扩展名白名单｜pdf/jpg/png
+  ✅ STOCK_TAKE 缺口带人话名｜缺少盘点表或盈亏说明（需 pdf/jpg/png 格式）
+  ✅ STOCK_TAKE 有红字 + 长报文｜缺少盘点表或盈亏说明（需 pdf/jpg/png 格式）
+  ✅ STOCK_TAKE 红字点名所需附件｜含「盘点」
+  ✅ PURCHASE_RETURN/SUBMIT check = 200｜实际=200 期望=200
+  ✅ PURCHASE_RETURN 无附件 → 不允许提交｜实际=False 期望=False
+  ✅ PURCHASE_RETURN 缺口清单非空｜1
+  ✅ PURCHASE_RETURN 缺口带扩展名白名单｜pdf/jpg/png
+  ✅ PURCHASE_RETURN 缺口带人话名｜缺少退货单或签收凭证（需 pdf/jpg/png 格式）
+  ✅ PURCHASE_RETURN 有红字 + 长报文｜缺少退货单或签收凭证（需 pdf/jpg/png 格式）
+  ✅ PURCHASE_RETURN 红字点名所需附件｜含「退货」
+  ✅ SALES_RETURN 库内无「零附件」单据（该规则存在性由 DB 断言兜底）｜skip
+  ✅ PAYMENT/ACTIVATE check = 200｜实际=200 期望=200
+  ✅ PAYMENT 无附件 → 不允许提交｜实际=False 期望=False
+  ✅ PAYMENT 缺口清单非空｜1
+  ✅ PAYMENT 缺口带扩展名白名单｜pdf/jpg/png
+  ✅ PAYMENT 缺口带人话名｜缺少银行回单（需 pdf/jpg/png 格式）
+  ✅ PAYMENT 有红字 + 长报文｜缺少银行回单（需 pdf/jpg/png 格式）
+  ✅ PAYMENT 红字点名所需附件｜含「银行回单」
+  ✅ 至少 6 类单据验到负例｜实际=7/8
+  ✅ 电子票分支白名单 = pdf,ofd,xml｜含「ofd」
+  ✅ 库内暂无纸质票样本（分支规则在表里以 is_electronic IS FALSE 存在）｜skip
+  ✅ DB：纸质票分支规则存在｜实际=1 期望=1
+  ✅ 建盘点单 = 200｜实际=200 期望=200
+  ✅ 拿到盘点单 id｜01a1bebf-2e38-76f1-a1af-21f1b67847fc
+  ✅ 无附件提交盘点 = 400｜实际=400 期望=400
+  ✅ 400 文案点名盘点表｜含「盘点」
+  ✅ DB：状态未变（仍在 DRAFT）｜实际=DRAFT 期望=DRAFT
+  ✅ 补上传盘点表 = 200｜实际=200 期望=200
+  ✅ 补附件后 check 放行｜实际=True 期望=True
+  ✅ 补附件后提交通过（非 400）｜实际=True 期望=True
+    ↳ 提交结果： 200 ok
+
+### S9 · PDF 导出：订单/合同/出入库/调拨/盘点/退货/审批/任务/三大报表
+  ✅ purchase-order 导出 = 200｜实际=200 期望=200
+  ✅ purchase-order Content-Type｜实际=application/pdf 期望=application/pdf
+  ✅ purchase-order 以 %PDF- 开头｜%PDF-1.4
+  ✅ purchase-order 文件名走 RFC5987｜attachment; filename="____-PO-20261109-000083.pdf"; filename
+  ✅ purchase-order 字节数合理｜136729
+  ✅ purchase-order 页数 ≥ 2｜2
+  ✅ purchase-order 字体已嵌入（中文不乱码的前提）｜AAAAAA+NotoSansSC-Bold               CID TrueType      Identity-H       yes yes yes      4  0 | BAAA
+  ✅ purchase-order 有文本层（不是纯图片）｜1523
+  ✅ purchase-order 文本层含中文
+  ✅ purchase-order 标题=采购订单｜含「采购订单」
+  ✅ purchase-order 单号｜含「PO-20261109-000083」
+  ✅ purchase-order 表头：物料｜含「物料」
+  ✅ purchase-order 表头：数量｜含「数量」
+  ✅ purchase-order 金额大写｜含「大写」
+  ✅ purchase-order 签字栏｜含「制单」
+  ✅ purchase-order 页脚页码｜含「共」
+  ✅ 跨页表头重复（第 2 页仍印列名）｜#物料编码物料名称规格单位数量单价金额备注21DC13-M2DC13垫片个2231.11684.42E2E12明细2122D7-M1D7螺栓个2332.1173
+  ✅ 金额大写是汉字数字｜壹万陆仟捌佰陆拾肆元陆角贰分
+  ✅ 首页 PNG 已出（视觉取证）｜/tmp/e2e12/raw/purchase-order-p1-1.png
+  ✅ sales-order 导出 = 200｜实际=200 期望=200
+  ✅ sales-order Content-Type｜实际=application/pdf 期望=application/pdf
+  ✅ sales-order 以 %PDF- 开头｜%PDF-1.4
+  ✅ sales-order 文件名走 RFC5987｜attachment; filename="____-SO-20261109-000029.pdf"; filename
+  ✅ sales-order 字节数合理｜52019
+  ✅ sales-order 页数 ≥ 1｜1
+  ✅ sales-order 字体已嵌入（中文不乱码的前提）｜AAAAAA+NotoSansSC-Bold               CID TrueType      Identity-H       yes yes yes      4  0 | BAAA
+  ✅ sales-order 有文本层（不是纯图片）｜393
+  ✅ sales-order 文本层含中文
+  ✅ sales-order 标题=销售订单｜含「销售订单」
+  ✅ sales-order 客户｜含「客户」
+  ✅ contract 导出 = 200｜实际=200 期望=200
+  ✅ contract Content-Type｜实际=application/pdf 期望=application/pdf
+  ✅ contract 以 %PDF- 开头｜%PDF-1.4
+  ✅ contract 文件名走 RFC5987｜attachment; filename="__-HT-20261109-000052.pdf"; filename*=
+  ✅ contract 字节数合理｜67720
+  ✅ contract 页数 ≥ 1｜1
+  ✅ contract 字体已嵌入（中文不乱码的前提）｜AAAAAA+NotoSansSC-Bold               CID TrueType      Identity-H       yes yes yes      5  0 | BAAA
+  ✅ contract 有文本层（不是纯图片）｜570
+  ✅ contract 文本层含中文
+  ✅ contract 标题=合同｜含「合同」
+  ✅ contract 签字｜含「签」
+  ✅ stock-in 导出 = 200｜实际=200 期望=200
+  ✅ stock-in Content-Type｜实际=application/pdf 期望=application/pdf
+  ✅ stock-in 以 %PDF- 开头｜%PDF-1.4
+  ✅ stock-in 文件名走 RFC5987｜attachment; filename="_____-IN-20261109-000256.pdf"; filenam
+  ✅ stock-in 字节数合理｜57071
+  ✅ stock-in 页数 ≥ 1｜1
+  ✅ stock-in 字体已嵌入（中文不乱码的前提）｜AAAAAA+NotoSansSC-Bold               CID TrueType      Identity-H       yes yes yes      4  0 | BAAA
+  ✅ stock-in 有文本层（不是纯图片）｜443
+  ✅ stock-in 文本层含中文
+  ✅ stock-in 标题=入库单｜含「入库单」
+  ✅ stock-in 仓库｜含「仓库」
+  ✅ stock-out 导出 = 200｜实际=200 期望=200
+  ✅ stock-out Content-Type｜实际=application/pdf 期望=application/pdf
+  ✅ stock-out 以 %PDF- 开头｜%PDF-1.4
+  ✅ stock-out 文件名走 RFC5987｜attachment; filename="___-OUT-20261109-000033.pdf"; filename
+  ✅ stock-out 字节数合理｜55376
+  ✅ stock-out 页数 ≥ 1｜1
+  ✅ stock-out 字体已嵌入（中文不乱码的前提）｜AAAAAA+NotoSansSC-Bold               CID TrueType      Identity-H       yes yes yes      4  0 | BAAA
+  ✅ stock-out 有文本层（不是纯图片）｜428
+  ✅ stock-out 文本层含中文
+  ✅ stock-out 标题=出库单｜含「出库单」
+  ✅ stock-transfer 导出 = 200｜实际=200 期望=200
+  ✅ stock-transfer Content-Type｜实际=application/pdf 期望=application/pdf
+  ✅ stock-transfer 以 %PDF- 开头｜%PDF-1.4
+  ✅ stock-transfer 文件名走 RFC5987｜attachment; filename="___-TK-20261109-000070.pdf"; filename*
+  ✅ stock-transfer 字节数合理｜65584
+  ✅ stock-transfer 页数 ≥ 1｜1
+  ✅ stock-transfer 字体已嵌入（中文不乱码的前提）｜AAAAAA+NotoSansSC-Bold               CID TrueType      Identity-H       yes yes yes      5  0 | BAAA
+  ✅ stock-transfer 有文本层（不是纯图片）｜557
+  ✅ stock-transfer 文本层含中文
+  ✅ stock-transfer 标题=调拨单｜含「调拨」
+  ✅ stock-take 导出 = 200｜实际=200 期望=200
+  ✅ stock-take Content-Type｜实际=application/pdf 期望=application/pdf
+  ✅ stock-take 以 %PDF- 开头｜%PDF-1.4
+  ✅ stock-take 文件名走 RFC5987｜attachment; filename="___-ST-20261109-000021.pdf"; filename*
+  ✅ stock-take 字节数合理｜74161
+  ✅ stock-take 页数 ≥ 1｜1
+  ✅ stock-take 字体已嵌入（中文不乱码的前提）｜AAAAAA+NotoSansSC-Bold               CID TrueType      Identity-H       yes yes yes      4  0 | BAAA
+  ✅ stock-take 有文本层（不是纯图片）｜701
+  ✅ stock-take 文本层含中文
+  ✅ stock-take 标题=盘点｜含「盘点」
+  ✅ stock-take 实盘列｜含「实盘」
+  ✅ stock-take 差异列｜含「差异」
+  ✅ purchase-return 导出 = 200｜实际=200 期望=200
+  ✅ purchase-return Content-Type｜实际=application/pdf 期望=application/pdf
+  ✅ purchase-return 以 %PDF- 开头｜%PDF-1.4
+  ✅ purchase-return 文件名走 RFC5987｜attachment; filename="_____-PRT-20261109-000005.pdf"; filena
+  ✅ purchase-return 字节数合理｜60590
+  ✅ purchase-return 页数 ≥ 1｜1
+  ✅ purchase-return 字体已嵌入（中文不乱码的前提）｜AAAAAA+NotoSansSC-Bold               CID TrueType      Identity-H       yes yes yes      5  0 | BAAA
+  ✅ purchase-return 有文本层（不是纯图片）｜497
+  ✅ purchase-return 文本层含中文
+  ✅ purchase-return 标题=退货｜含「退货」
+  ✅ sales-return 导出 = 200｜实际=200 期望=200
+  ✅ sales-return Content-Type｜实际=application/pdf 期望=application/pdf
+  ✅ sales-return 以 %PDF- 开头｜%PDF-1.4
+  ✅ sales-return 文件名走 RFC5987｜attachment; filename="_____-SR-20261109-000002.pdf"; filenam
+  ✅ sales-return 字节数合理｜60179
+  ✅ sales-return 页数 ≥ 1｜1
+  ✅ sales-return 字体已嵌入（中文不乱码的前提）｜AAAAAA+NotoSansSC-Bold               CID TrueType      Identity-H       yes yes yes      5  0 | BAAA
+  ✅ sales-return 有文本层（不是纯图片）｜498
+  ✅ sales-return 文本层含中文
+  ✅ sales-return 标题=退货｜含「退货」
+  ✅ approval 导出 = 200｜实际=200 期望=200
+  ✅ approval Content-Type｜实际=application/pdf 期望=application/pdf
+  ✅ approval 以 %PDF- 开头｜%PDF-1.4
+  ✅ approval 文件名走 RFC5987｜attachment; filename="___-FLW-20261109-E4DC74B6.pdf"; filena
+  ✅ approval 字节数合理｜69644
+  ✅ approval 页数 ≥ 1｜1
+  ✅ approval 字体已嵌入（中文不乱码的前提）｜AAAAAA+NotoSansSC-Bold               CID TrueType      Identity-H       yes yes yes      5  0 | BAAA
+  ✅ approval 有文本层（不是纯图片）｜712
+  ✅ approval 文本层含中文
+  ✅ approval 标题=审批｜含「审批」
+  ✅ approval 轨迹｜含「审批」
+  ✅ approval 签字｜含「签」
+  ✅ task 导出 = 200｜实际=200 期望=200
+  ✅ task Content-Type｜实际=application/pdf 期望=application/pdf
+  ✅ task 以 %PDF- 开头｜%PDF-1.4
+  ✅ task 文件名走 RFC5987｜attachment; filename="___-TSK-202610-000201.pdf"; filename*=
+  ✅ task 字节数合理｜59336
+  ✅ task 页数 ≥ 1｜1
+  ✅ task 字体已嵌入（中文不乱码的前提）｜AAAAAA+NotoSansSC-Bold               CID TrueType      Identity-H       yes yes yes      5  0 | BAAA
+  ✅ task 有文本层（不是纯图片）｜426
+  ✅ task 文本层含中文
+  ✅ task 标题=任务｜含「任务」
+  ✅ task 签字｜含「签」
+  ✅ report-balance-sheet 导出 = 200｜实际=200 期望=200
+  ✅ report-balance-sheet Content-Type｜实际=application/pdf 期望=application/pdf
+  ✅ report-balance-sheet 以 %PDF- 开头｜%PDF-1.4
+  ✅ report-balance-sheet 文件名走 RFC5987｜attachment; filename="_____-BALANCE_SHEET-2026-11.pdf"; file
+  ✅ report-balance-sheet 字节数合理｜93082
+  ✅ report-balance-sheet 页数 ≥ 1｜1
+  ✅ report-balance-sheet 字体已嵌入（中文不乱码的前提）｜AAAAAA+NotoSansSC-Bold               CID TrueType      Identity-H       yes yes yes      5  0 | BAAA
+  ✅ report-balance-sheet 有文本层（不是纯图片）｜890
+  ✅ report-balance-sheet 文本层含中文
+  ✅ report-balance-sheet 标题｜含「资产负债表」
+  ✅ report-income-statement 导出 = 200｜实际=200 期望=200
+  ✅ report-income-statement Content-Type｜实际=application/pdf 期望=application/pdf
+  ✅ report-income-statement 以 %PDF- 开头｜%PDF-1.4
+  ✅ report-income-statement 文件名走 RFC5987｜attachment; filename="___-INCOME_STATEMENT-2026-11.pdf"; fil
+  ✅ report-income-statement 字节数合理｜60156
+  ✅ report-income-statement 页数 ≥ 1｜1
+  ✅ report-income-statement 字体已嵌入（中文不乱码的前提）｜AAAAAA+NotoSansSC-Bold               CID TrueType      Identity-H       yes yes yes      5  0 | BAAA
+  ✅ report-income-statement 有文本层（不是纯图片）｜583
+  ✅ report-income-statement 文本层含中文
+  ✅ report-income-statement 标题｜含「利润表」
+  ✅ report-cash-flow 导出 = 200｜实际=200 期望=200
+  ✅ report-cash-flow Content-Type｜实际=application/pdf 期望=application/pdf
+  ✅ report-cash-flow 以 %PDF- 开头｜%PDF-1.4
+  ✅ report-cash-flow 文件名走 RFC5987｜attachment; filename="_____-CASH_FLOW-2026-11.pdf"; filename
+  ✅ report-cash-flow 字节数合理｜99912
+  ✅ report-cash-flow 页数 ≥ 1｜2
+  ✅ report-cash-flow 字体已嵌入（中文不乱码的前提）｜AAAAAA+NotoSansSC-Bold               CID TrueType      Identity-H       yes yes yes      5  0 | BAAA
+  ✅ report-cash-flow 有文本层（不是纯图片）｜1261
+  ✅ report-cash-flow 文本层含中文
+  ✅ report-cash-flow 标题｜含「现金流量表」
+
+### S10 · PDF 权限（无码 403 / 有码 200）+ 导出审计留痕
+  ✅ e2e12_pdf 登录
+  ✅ 有采购单读码 → 单据 PDF 200｜实际=200 期望=200
+  ✅ 权限内导出确为 PDF
+  ✅ 无 report:export → 报表 PDF 403｜实际=403 期望=403
+  ✅ 403 文案点名权限码｜含「business:erp:report:export」
+  ✅ 无合同读码 → 合同 PDF 403｜实际=403 期望=403
+  ✅ 导出审计行 ≥8 条（近 30 分钟）｜30
+    审计操作码： EXPORT_CONTRACT_PDF=2  EXPORT_FLOW_INSTANCE_PDF=2  EXPORT_PURCHASE_ORDER_PDF=4  EXPORT_PURCHASE_RETURN_PDF=2  EXPORT_REPORT_PDF=6  EXPORT_SALES_ORDER_PDF=2  EXPORT_SALES_RETURN_PDF=2  EXPORT_STOCK_IN_PDF=2  EXPORT_STOCK_OUT_PDF=2  EXPORT_STOCK_TAKE_PDF=2  EXPORT_STOCK_TRANSFER_PDF=2  EXPORT_TASK_PDF=2
+  ✅ 采购单导出有专属操作码｜EXPORT_CONTRACT_PDF=2
+EXPORT_FLOW_INSTANCE_PDF=2
+EXPORT_PURCHASE_ORDER_PDF=4
+EXPORT_PURCHASE_RETURN_PDF=2
+EXPORT_REPORT_
+  ✅ 审计行含 username/target_type/target_id｜e2e12_pdf|biz_purchase_order|01a1bebf-1c0f-7512-8175-a42a5c93f19d
+
+=== B 段完成（见 asserts.log） ===
