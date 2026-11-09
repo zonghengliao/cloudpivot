@@ -1,0 +1,138 @@
+A 超管卡片： {
+ "cardHeader": "公告与消息 公告全部 /消息全部",
+ "annCount": 5,
+ "msgCount": 10,
+ "annTitles": [
+  "【HOME1】系统升级公告（V1.2）",
+  "【HOME1】值班安排通知 第6条",
+  "【HOME1】值班安排通知 第5条",
+  "【HOME1】值班安排通知 第4条",
+  "【HOME1】值班安排通知 第3条"
+ ],
+ "msgTitles": [
+  "【HOME1】系统升级公告（V1.2）",
+  "【HOME1】消息第12条：采购订单审核提醒",
+  "【HOME1】消息第11条：采购订单审核提醒",
+  "【HOME1】消息第10条：采购订单审核提醒",
+  "【HOME1】消息第9条：采购订单审核提醒",
+  "【HOME1】消息第8条：采购订单审核提醒",
+  "【HOME1】消息第7条：采购订单审核提醒",
+  "【HOME1】消息第6条：采购订单审核提醒",
+  "【HOME1】消息第5条：采购订单审核提醒",
+  "【HOME1】消息第4条：采购订单审核提醒"
+ ],
+ "annTimes": [
+  "2026-11-09 20:43",
+  "2026-11-09 20:37",
+  "2026-11-09 20:37",
+  "2026-11-09 20:37",
+  "2026-11-09 20:37"
+ ],
+ "unreadDots": 10,
+ "unreadRows": 10,
+ "footer": "公告 5 条·消息 10 条（未读 10）",
+ "asideWidth": 360,
+ "asideAlign": "flex-start",
+ "cardHeight": 608,
+ "skeletonNow": false,
+ "actions": "公告全部 /消息全部",
+ "hasMetrics": 8,
+ "hasQuick": true,
+ "bodyText": false
+}
+A 请求： [
+ {
+  "status": 200,
+  "url": "/api/business/notice/stream"
+ },
+ {
+  "status": 200,
+  "url": "/api/business/notice/unread-count"
+ },
+ {
+  "status": 200,
+  "url": "/api/business/announcement/visible?page=1&page_size=5"
+ },
+ {
+  "status": 200,
+  "url": "/api/business/notice/unread-count"
+ },
+ {
+  "status": 200,
+  "url": "/api/business/notice/mine?page=1&page_size=10"
+ }
+]
+A 公告抽屉： {
+ "clicked": "【HOME1】系统升级公告（V1.2）",
+ "title": "【HOME1】系统升级公告（V1.2）",
+ "meta": "重要AN2026110954FA61发布人：超级管理员2026-11-09 20:43:49",
+ "requests": [
+  {
+   "status": 200,
+   "url": "/api/business/announcement/01a1c056-1614-7627-814f-8ea0a854fa61"
+  },
+  {
+   "status": 200,
+   "url": "/api/business/announcement/01a1c056-1614-7627-814f-8ea0a854fa61/read"
+  }
+ ]
+}
+A 消息抽屉： {
+ "title": "【HOME1】消息第12条：采购订单审核提醒",
+ "body": "这是第12条消息正文，用于首页消息区验收。",
+ "beforeUnread": 10,
+ "afterUnread": 9,
+ "footerAfter": "公告 5 条·消息 10 条（未读 9）",
+ "requests": [
+  {
+   "status": 200,
+   "url": "/api/business/notice/read/2b7798e9-0a48-4f78-bc87-b722eedc608b"
+  }
+ ]
+}
+A 入口跳转： {"annUrl":"/announcement","msgUrl":"/business/notice/message"}
+B 非超管： {
+ "cardVisible": true,
+ "cardHeader": "公告与消息 公告全部 /消息全部",
+ "annCount": 5,
+ "msgEmpty": "暂无消息",
+ "footer": "公告 5 条·消息 0 条"
+}
+B 请求： [
+ {
+  "status": 200,
+  "url": "/api/business/notice/stream"
+ },
+ {
+  "status": 200,
+  "url": "/api/business/announcement/visible?page=1&page_size=5"
+ },
+ {
+  "status": 200,
+  "url": "/api/business/notice/mine?page=1&page_size=10"
+ },
+ {
+  "status": 200,
+  "url": "/api/business/notice/unread-count"
+ },
+ {
+  "status": 200,
+  "url": "/api/business/notice/unread-count"
+ }
+]
+C 骨架/空态： {
+ "skeleton": {
+  "rows": 12,
+  "visible": true
+ },
+ "emptyState": {
+  "texts": [
+   "暂无公告",
+   "暂无消息"
+  ],
+  "footer": "公告 0 条·消息 0 条",
+  "skeletonGone": true
+ }
+}
+
+结果已写 verify-result.json

@@ -124,119 +124,254 @@
         </t-col>
 
         <!--
-          右栏：固定 360px。
-          服务器状态卡仅对超级管理员渲染：非超管时 v-if 为 false，DOM 里不会出现该卡片，
-          也不会发起 /api/business/monitor/server-status 请求（后端对非超管返回 403）。
+          右栏：固定 360px，整块只放「公告与消息」卡 —— 所有人可见（公告 / 消息本身就是全员数据），
+          不再按角色收口。上区 5 条公告、下区 10 条消息；点条目在本页抽屉里读详情（不跳走，
+          回到首页时状态不丢）。未读红点取接收行自己的 read_flag，点开即标已读并同步 notice store，
+          这样顶栏铃铛的角标不会和卡里的红点对不上。
         -->
         <t-col class="dashboard__aside">
-          <t-row :gutter="[16, 16]">
-            <t-col v-if="isSuperAdmin" class="dashboard__full-col">
-              <t-card title="服务器状态" :bordered="false" class="dashboard__card">
-                <template #actions>
-                  <t-button variant="text" :loading="isStatusLoading" @click="loadServerStatus">
-                    刷新
-                  </t-button>
-                </template>
+          <t-card title="公告与消息" :bordered="false" class="dashboard__card dashboard__feed">
+            <template #actions>
+              <div class="dashboard__feed-actions">
+                <t-link theme="primary" hover="color" @click="goTo(ANNOUNCEMENT_PATH)">
+                  公告全部
+                </t-link>
+                <span class="dashboard__feed-actions-sep">/</span>
+                <t-link theme="primary" hover="color" @click="goTo(MESSAGE_PATH)">消息全部</t-link>
+              </div>
+            </template>
 
-                <t-alert v-if="statusError" theme="error" :message="statusError" />
-                <template v-else>
-                  <!-- 服务自检信息：沿用免鉴权 /health，保证采集接口异常时仍可判活 -->
-                  <t-descriptions :column="1" size="small">
-                    <t-descriptions-item label="服务状态">
-                      <t-tag :theme="isHealthy ? 'success' : 'danger'" variant="light">
-                        {{ health?.status ?? '-' }}
-                      </t-tag>
-                    </t-descriptions-item>
-                    <t-descriptions-item label="应用名称">{{ health?.app ?? '-' }}</t-descriptions-item>
-                    <t-descriptions-item label="运行 profile">{{ health?.profile ?? '-' }}</t-descriptions-item>
-                    <t-descriptions-item label="服务端时间">{{ formattedTime }}</t-descriptions-item>
-                  </t-descriptions>
+            <!-- 首屏骨架：首次加载不白屏；二次刷新保留旧内容（不闪骨架） -->
+            <div v-if="feedLoading && !feedLoaded" class="dashboard__feed-skeleton">
+              <div v-for="row in 12" :key="row" class="dashboard__feed-skeleton-row" />
+            </div>
 
-                  <!-- CPU / 内存 / 磁盘：进度条 + 容量文本 -->
-                  <div class="dashboard__usage-list">
-                    <div v-for="item in usageItems" :key="item.key" class="dashboard__usage">
-                      <div class="dashboard__usage-head">
-                        <span class="dashboard__usage-label">{{ item.label }}</span>
-                        <span class="dashboard__usage-value">{{ item.value }}</span>
-                      </div>
-                      <t-progress
-                        :percentage="item.percent"
-                        :label="false"
-                        :status="item.status"
-                        size="small"
-                      />
-                      <div class="dashboard__usage-sub">{{ item.sub }}</div>
-                    </div>
-                  </div>
+            <template v-else>
+              <!-- 上半区：公告 5 条 -->
+              <section class="dashboard__feed-section">
+                <div class="dashboard__feed-head">
+                  <t-icon class="dashboard__feed-head-icon dashboard__feed-head-icon--ann" name="notification" />
+                  <span class="dashboard__feed-head-title">公告</span>
+                  <span class="dashboard__feed-head-count">共 {{ announcementTotal }} 条</span>
+                </div>
+                <ul v-if="announcements.length" class="dashboard__feed-list">
+                  <li v-for="item in announcements" :key="item.id">
+                    <button type="button" class="dashboard__feed-item" @click="openAnnouncement(item)">
+                      <span class="dashboard__feed-item-title" :title="item.title">{{ item.title }}</span>
+                      <span class="dashboard__feed-item-time">{{ formatFeedTime(item.publish_at) }}</span>
+                    </button>
+                  </li>
+                </ul>
+                <div v-else class="dashboard__feed-empty">
+                  <t-icon name="notification" />
+                  <span>暂无公告</span>
+                </div>
+              </section>
 
-                  <!-- 数据库 / Redis：只展示聚合数值，不含连接串与密码 -->
-                  <t-descriptions :column="1" size="small">
-                    <t-descriptions-item label="数据库">
-                      <t-tag :theme="databaseStateTheme" variant="light">{{ databaseStateText }}</t-tag>
-                      <span class="dashboard__usage-hint">{{ serverStatus?.database.name || '-' }}</span>
-                    </t-descriptions-item>
-                    <t-descriptions-item label="数据库大小">
-                      {{ serverStatus?.database.size_text || '-' }}
-                    </t-descriptions-item>
-                    <t-descriptions-item label="数据库连接">
-                      {{ serverStatus ? `${serverStatus.database.connections} 个` : '-' }}
-                    </t-descriptions-item>
-                    <t-descriptions-item label="Redis">
-                      <t-tag :theme="redisStateTheme" variant="light">{{ redisStateText }}</t-tag>
-                      <span class="dashboard__usage-hint">{{ serverStatus?.redis.used_memory_text || '-' }}</span>
-                    </t-descriptions-item>
-                    <t-descriptions-item label="Redis 客户端">
-                      {{ serverStatus ? `${serverStatus.redis.connected_clients} 个` : '-' }}
-                    </t-descriptions-item>
-                    <t-descriptions-item label="Redis 运行">
-                      {{ redisUptimeText }}
-                    </t-descriptions-item>
-                  </t-descriptions>
+              <!-- 下半区：消息 10 条（未读带红点） -->
+              <section class="dashboard__feed-section dashboard__feed-section--notice">
+                <div class="dashboard__feed-head">
+                  <t-icon class="dashboard__feed-head-icon dashboard__feed-head-icon--msg" name="chat" />
+                  <span class="dashboard__feed-head-title">消息</span>
+                  <span class="dashboard__feed-head-count">共 {{ noticeTotal }} 条</span>
+                </div>
+                <ul v-if="notices.length" class="dashboard__feed-list">
+                  <li v-for="item in notices" :key="item.receiver_id">
+                    <button
+                      type="button"
+                      class="dashboard__feed-item"
+                      :class="{ 'dashboard__feed-item--unread': !item.read_flag }"
+                      @click="openNotice(item)"
+                    >
+                      <span class="dashboard__feed-item-title" :title="item.title">
+                        <span v-if="!item.read_flag" class="dashboard__feed-dot" aria-label="未读" />
+                        {{ item.title }}
+                      </span>
+                      <span class="dashboard__feed-item-time">{{ formatFeedTime(item.created_at) }}</span>
+                    </button>
+                  </li>
+                </ul>
+                <div v-else class="dashboard__feed-empty">
+                  <t-icon name="chat" />
+                  <span>暂无消息</span>
+                </div>
+              </section>
 
-                  <div class="dashboard__status-foot">更新于 {{ statusUpdatedAt || '-' }}</div>
-                </template>
-              </t-card>
-            </t-col>
-          </t-row>
+              <!-- 底部统计条：条数按「本卡展示的」算（公告 ≤5 / 消息 ≤10），与顶部「共 N 条」区分 -->
+              <div class="dashboard__feed-foot">
+                <span>公告 {{ announcements.length }} 条</span>
+                <span class="dashboard__feed-foot-sep">·</span>
+                <span>消息 {{ notices.length }} 条</span>
+                <span v-if="feedUnread > 0" class="dashboard__feed-foot-unread">（未读 {{ feedUnread }}）</span>
+              </div>
+
+              <div v-if="feedError" class="dashboard__feed-error">
+                <t-icon name="error-circle" />
+                <span>{{ feedError }}</span>
+                <t-link theme="primary" hover="color" @click="loadFeed()">重试</t-link>
+              </div>
+            </template>
+          </t-card>
         </t-col>
       </t-row>
     </t-loading>
+
+    <!--
+      详情抽屉：首页只做「扫一眼」，点开读全文不跳页 —— 读完关掉还在首页，
+      不会丢掉「刚登录想看什么」的上下文。公告与消息各一个，互不干扰。
+    -->
+    <t-drawer
+      v-model:visible="announcementDrawerVisible"
+      header="公告详情"
+      size="560px"
+      :footer="false"
+      destroy-on-close
+    >
+      <t-loading :loading="announcementDetailLoading" size="small">
+        <template v-if="announcementDetail">
+          <h3 class="dashboard__detail-title">
+            <t-icon v-if="announcementDetail.is_top" class="dashboard__detail-pin" name="arrow-up" />
+            {{ announcementDetail.title }}
+          </h3>
+          <div class="dashboard__detail-meta">
+            <t-tag size="small" variant="light" :theme="levelTheme(announcementDetail.level)">
+              {{ levelLabel(announcementDetail.level) }}
+            </t-tag>
+            <span>{{ announcementDetail.ann_no }}</span>
+            <span>发布人：{{ announcementDetail.publisher_name || '系统' }}</span>
+            <span>{{ formatDateTime(announcementDetail.publish_at) }}</span>
+          </div>
+          <MarkdownViewer
+            :html="announcementDetail.content_html"
+            :show-toc="false"
+            empty-text="公告正文为空"
+          />
+          <div v-if="announcementDetail.attachments.length" class="dashboard__detail-files">
+            <div class="dashboard__detail-files-title">
+              附件（{{ announcementDetail.attachments.length }}）
+            </div>
+            <button
+              v-for="file in announcementDetail.attachments"
+              :key="file.id"
+              type="button"
+              class="dashboard__detail-file"
+              @click="downloadAttachment(file)"
+            >
+              <t-icon name="file" />
+              <span class="dashboard__detail-file-name" :title="file.file_name">{{ file.file_name }}</span>
+              <span class="dashboard__detail-file-size">{{ formatFileSize(file.file_size) }}</span>
+            </button>
+          </div>
+        </template>
+        <div v-else-if="!announcementDetailLoading" class="dashboard__feed-empty">
+          <t-icon name="notification" />
+          <span>公告内容加载失败</span>
+        </div>
+      </t-loading>
+    </t-drawer>
+
+    <t-drawer v-model:visible="noticeDrawerVisible" header="消息详情" size="480px" :footer="false">
+      <template v-if="activeNotice">
+        <h3 class="dashboard__detail-title">{{ activeNotice.title }}</h3>
+        <div class="dashboard__detail-meta">
+          <t-tag size="small" variant="light" :theme="levelTheme(activeNotice.level)">
+            {{ levelLabel(activeNotice.level) }}
+          </t-tag>
+          <span>{{ noticeTypeLabel(activeNotice.notice_type) }}</span>
+          <span>{{ formatDateTime(activeNotice.created_at) }}</span>
+          <span v-if="activeNotice.read_flag" class="dashboard__detail-read">已读</span>
+        </div>
+        <div class="dashboard__detail-body" v-html="renderNoticeContent(activeNotice)" />
+        <div v-if="activeNotice.link_url" class="dashboard__detail-link">
+          <t-link theme="primary" @click="openNoticeLink(activeNotice.link_url)">查看详情 →</t-link>
+        </div>
+      </template>
+    </t-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import dayjs from 'dayjs';
 import type { EChartsCoreOption } from 'echarts';
+import { MessagePlugin } from 'tdesign-vue-next';
 import EChart from '@/components/EChart.vue';
-import { fetchHealth, type HealthRes } from '@/api/health';
-import { fetchServerStatus, type ServerStatusRes } from '@/api/business/monitor-api';
+import MarkdownViewer from '@/components/MarkdownViewer.vue';
+import {
+  downloadAnnouncementAttachment,
+  getAnnouncementDetail,
+  markAnnouncementRead,
+  pageVisibleAnnouncements,
+  type AnnouncementAttachment,
+  type AnnouncementCard,
+  type AnnouncementDetail,
+} from '@/api/business/announcement-api';
+import {
+  fetchUnreadCount,
+  markNoticeRead,
+  pageMyNotices,
+  type MyNoticeRes,
+} from '@/api/business/notice';
 import { fetchOverview, type OverviewRes } from '@/api/support/dashboard-api';
 import { ApiError } from '@/api/request';
+import { useNoticeStore } from '@/stores/notice';
 import { useUserStore } from '@/stores/user';
+import { formatDateTime, formatFileSize } from '@/utils/format';
+import { saveBlob } from '@/utils/download';
 
 /** 工作台概览数据，加载中或未加载时为 null */
 const overview = ref<OverviewRes | null>(null);
-/** 健康检查数据 */
-const health = ref<HealthRes | null>(null);
 /** 概览加载中标记 */
 const isLoading = ref(false);
-/** 健康检查加载中标记 */
-const isHealthLoading = ref(false);
 /** 概览加载失败提示（不阻断页面渲染，图表降级为空图） */
 const overviewError = ref('');
-/** 健康检查失败提示 */
-const healthError = ref('');
 
-/** 服务器状态数据（仅超级管理员加载，未加载时为 null） */
-const serverStatus = ref<ServerStatusRes | null>(null);
-/** 服务器状态加载中标记 */
-const isStatusLoading = ref(false);
-/** 服务器状态加载失败提示 */
-const statusError = ref('');
-/** 服务器状态最近一次刷新时间（HH:mm:ss） */
-const statusUpdatedAt = ref('');
+// ---------- 公告与消息卡（右栏） ----------
+
+/** 公告中心路由（与 `router/index.ts` 的 `AnnouncementCenter` 逐字一致） */
+const ANNOUNCEMENT_PATH = '/announcement';
+/** 消息中心路由（`BusinessNoticeMessage`，菜单隐藏，从铃铛进） */
+const MESSAGE_PATH = '/business/notice/message';
+/** 首页公告区最多几条 */
+const ANNOUNCEMENT_LIMIT = 5;
+/** 首页消息区最多几条 */
+const NOTICE_LIMIT = 10;
+
+/** 公告列表（最多 5 条） */
+const announcements = ref<AnnouncementCard[]>([]);
+/** 公告总数（分页接口返回的 total，不是本页条数） */
+const announcementTotal = ref(0);
+/** 消息列表（最多 10 条） */
+const notices = ref<MyNoticeRes[]>([]);
+/** 消息总数 */
+const noticeTotal = ref(0);
+/** 卡片数据加载中标记 */
+const feedLoading = ref(false);
+/** 是否已成功拉过一次（决定要不要显示骨架屏；刷新时不再闪骨架） */
+const feedLoaded = ref(false);
+/** 卡片加载失败提示 */
+const feedError = ref('');
+
+/** 公告详情抽屉显隐 */
+const announcementDrawerVisible = ref(false);
+/** 公告详情加载中 */
+const announcementDetailLoading = ref(false);
+/** 公告详情 */
+const announcementDetail = ref<AnnouncementDetail | null>(null);
+/** 消息详情抽屉显隐 */
+const noticeDrawerVisible = ref(false);
+/** 当前打开的消息（列表行本身就带正文，无需再请求详情） */
+const activeNotice = ref<MyNoticeRes | null>(null);
+
+const noticeStore = useNoticeStore();
+/**
+ * 底部统计条的「未读」= 本卡展示的这 10 条里还没读的条数。
+ *
+ * 不直接用 store 的全量未读（可能有几十条没出现在卡里）：写成「消息 10 条（未读 17）」
+ * 会让用户以为这 10 条里有 17 条没读。全量未读由顶栏铃铛负责，两处口径各司其职。
+ */
+const feedUnread = computed(() => notices.value.filter((item) => !item.read_flag).length);
 
 /**
  * 首页只展示 8 个核心指标（后端共下发 12 个）。
@@ -299,7 +434,6 @@ const QUICK_ENTRIES: QuickEntry[] = [
 const router = useRouter();
 const userStore = useUserStore();
 
-const isHealthy = computed(() => health.value?.status === 'ok');
 const today = dayjs().format('YYYY年MM月DD日');
 
 /** 按时段生成问候语 */
@@ -311,10 +445,6 @@ const greeting = computed(() => {
   if (hour < 18) return '下午好';
   return '晚上好';
 });
-
-const formattedTime = computed(() =>
-  health.value ? dayjs(health.value.time).format('YYYY-MM-DD HH:mm:ss') : '-',
-);
 
 /** 趋势窗口天数：概览未就绪时按后端默认 14 天占位 */
 const trendDays = computed(() => overview.value?.trend_days ?? 14);
@@ -452,190 +582,184 @@ async function loadOverview(): Promise<void> {
   }
 }
 
-/** 调用后端 /health，验证 Vite 代理、CORS 与统一响应体是否打通 */
-async function loadHealth(): Promise<void> {
-  isHealthLoading.value = true;
-  healthError.value = '';
-  try {
-    health.value = await fetchHealth();
-  } catch (error) {
-    health.value = null;
-    healthError.value = error instanceof ApiError ? error.message : '未知错误';
-  } finally {
-    isHealthLoading.value = false;
+// ---------- 公告与消息卡：加载与交互 ----------
+
+/** 列表时间只到分钟（`2026-11-09 10:23`）：秒级精度在卡片里只是噪声 */
+function formatFeedTime(value?: string | null): string {
+  if (!value) return '-';
+  const parsed = dayjs(value);
+  return parsed.isValid() ? parsed.format('YYYY-MM-DD HH:mm') : '-';
+}
+
+/** 级别 → 中文（公告与消息共用一张映射表，未登记的级别原样显示） */
+function levelLabel(level: string): string {
+  const map: Record<string, string> = {
+    NORMAL: '普通',
+    IMPORTANT: '重要',
+    URGENT: '紧急',
+    INFO: '通知',
+    SUCCESS: '成功',
+    WARN: '警告',
+    ERROR: '错误',
+  };
+  return map[(level || '').toUpperCase()] || level || '普通';
+}
+
+/** 级别 → 语义色（状态色语义固定，不跟配色方案走） */
+function levelTheme(level: string): 'primary' | 'success' | 'warning' | 'danger' {
+  const key = (level || '').toUpperCase();
+  if (key === 'URGENT' || key === 'ERROR') return 'danger';
+  if (key === 'IMPORTANT' || key === 'WARN') return 'warning';
+  if (key === 'SUCCESS') return 'success';
+  return 'primary';
+}
+
+/** 消息类型 → 中文 */
+function noticeTypeLabel(type: string): string {
+  const map: Record<string, string> = {
+    SYSTEM: '系统消息',
+    TODO: '待办',
+    ALERT: '告警',
+    WORKFLOW: '审批',
+    CIRCULAR: '公告',
+  };
+  return map[(type || '').toUpperCase()] || type || '消息';
+}
+
+/** 消息正文：TEXT 先转义再折行，HTML 原样（后端渲染时已转义变量），与消息中心同一口径 */
+function renderNoticeContent(item: MyNoticeRes): string {
+  const raw = item.content || '';
+  if ((item.content_format || 'TEXT').toUpperCase() === 'HTML') {
+    return raw;
   }
+  return raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br />');
 }
 
 /**
- * 是否超级管理员。
+ * 拉卡片数据：公告 5 条、消息 10 条、未读数三路并发。
  *
- * 服务器状态（CPU / 内存 / 磁盘 / DB / Redis）只对超管开放：后端用
- * `business:monitor:server-status` 权限码（只授予 SUPER_ADMIN）硬校验，
- * 前端据此决定是否渲染整卡、是否发起请求。
- * 这里按**角色编码**判定而不是 `hasPermission`：超管持有 `*:*:*` 通配码，
- * 若将来把该权限点授予普通角色，`hasPermission` 会放行，与「仅超管可见」相悖。
+ * 用 `allSettled` 而不是 `all`：任意一路失败只让对应半区显示空态，
+ * 另一区照常可用 —— 首页不该因为「未读数接口抽风」整块变空。
  */
-const isSuperAdmin = computed(() => userStore.roles.includes('SUPER_ADMIN'));
+async function loadFeed(): Promise<void> {
+  feedLoading.value = true;
+  feedError.value = '';
+  const [annRes, noticeRes, unreadRes] = await Promise.allSettled([
+    pageVisibleAnnouncements({ page: 1, page_size: ANNOUNCEMENT_LIMIT }),
+    pageMyNotices({ page: 1, page_size: NOTICE_LIMIT }),
+    fetchUnreadCount(),
+  ]);
 
-/** CPU / 内存 / 磁盘三条进度条的数据源 */
-interface UsageItem {
-  /** 稳定 key，用于 v-for */
-  key: string;
-  /** 指标名 */
-  label: string;
-  /** 百分比（0-100） */
-  percent: number;
-  /** 主数值文本 */
-  value: string;
-  /** 次要说明文本 */
-  sub: string;
-  /** 进度条状态色：低负载 success / 中负载 warning / 高负载 error */
-  status: 'success' | 'warning' | 'error';
-}
-
-/** 进度条状态色：≥85% 红、≥70% 橙、其余绿 */
-function usageStatus(percent: number): 'success' | 'warning' | 'error' {
-  if (percent >= 85) return 'error';
-  if (percent >= 70) return 'warning';
-  return 'success';
-}
-
-/** 百分比文本：空值显示 `-`，其余保留 1 位小数 */
-function percentText(percent?: number): string {
-  return typeof percent === 'number' && Number.isFinite(percent) ? `${percent.toFixed(1)}%` : '-';
-}
-
-/** 三条用量进度条（未采集到时全部显示 `-`，不报错） */
-const usageItems = computed<UsageItem[]>(() => {
-  const status = serverStatus.value;
-  if (!status) {
-    return [
-      { key: 'cpu', label: 'CPU 占用', percent: 0, value: '-', sub: '-', status: 'success' },
-      { key: 'memory', label: '内存占用', percent: 0, value: '-', sub: '-', status: 'success' },
-      { key: 'disk', label: '磁盘占用', percent: 0, value: '-', sub: '-', status: 'success' },
-    ];
+  if (annRes.status === 'fulfilled') {
+    // 接口已按发布时间倒序，这里再截一刀兜底「最多 5 条」的硬约束
+    announcements.value = annRes.value.list.slice(0, ANNOUNCEMENT_LIMIT);
+    announcementTotal.value = annRes.value.total;
+  } else {
+    announcements.value = [];
+    announcementTotal.value = 0;
   }
-  return [
-    {
-      key: 'cpu',
-      label: 'CPU 占用',
-      percent: status.cpu.percent,
-      value: percentText(status.cpu.percent),
-      sub: `${status.cpu.cores} 核逻辑核心`,
-      status: usageStatus(status.cpu.percent),
-    },
-    {
-      key: 'memory',
-      label: '内存占用',
-      percent: status.memory.percent,
-      value: percentText(status.memory.percent),
-      sub: `${status.memory.used_text || '-'} / ${status.memory.total_text || '-'}`,
-      status: usageStatus(status.memory.percent),
-    },
-    {
-      key: 'disk',
-      label: '磁盘占用',
-      percent: status.disk.percent,
-      value: percentText(status.disk.percent),
-      sub: `${status.disk.used_text || '-'} / ${status.disk.total_text || '-'}`,
-      status: usageStatus(status.disk.percent),
-    },
-  ];
-});
 
-/** 数据库连通状态 -> TDesign 标签主题 */
-const databaseStateTheme = computed(() =>
-  serverStatus.value?.database.state === 'up' ? 'success' : 'danger',
-);
-/** 数据库连通状态 -> 展示文本 */
-const databaseStateText = computed(() =>
-  serverStatus.value?.database.state === 'up' ? '正常' : '异常',
-);
-/** Redis 连通状态 -> TDesign 标签主题 */
-const redisStateTheme = computed(() =>
-  serverStatus.value?.redis.state === 'up' ? 'success' : 'danger',
-);
-/** Redis 连通状态 -> 展示文本 */
-const redisStateText = computed(() => (serverStatus.value?.redis.state === 'up' ? '正常' : '异常'));
+  if (noticeRes.status === 'fulfilled') {
+    notices.value = noticeRes.value.list.slice(0, NOTICE_LIMIT);
+    noticeTotal.value = noticeRes.value.total;
+  } else {
+    notices.value = [];
+    noticeTotal.value = 0;
+  }
 
-/** Redis 运行时长：秒 -> 「X 天 Y 小时」/「Y 小时 Z 分」/「Z 分」 */
-function formatUptime(seconds?: number): string {
-  if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) return '-';
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  if (days > 0) return `${days} 天 ${hours} 小时`;
-  if (hours > 0) return `${hours} 小时 ${minutes} 分`;
-  return `${minutes} 分`;
+  if (unreadRes.status === 'fulfilled') {
+    noticeStore.setUnreadCount(unreadRes.value.unread_count);
+  }
+
+  // 两区都失败才值得打扰用户；单区失败由空态文案说明，不弹错误条
+  const failed = [annRes, noticeRes].filter((res) => res.status === 'rejected');
+  if (failed.length === 2) {
+    const reason = (failed[0] as PromiseRejectedResult).reason;
+    feedError.value = reason instanceof ApiError ? reason.message : '公告与消息加载失败';
+  }
+
+  feedLoaded.value = true;
+  feedLoading.value = false;
 }
 
-const redisUptimeText = computed(() => formatUptime(serverStatus.value?.redis.uptime_seconds));
-
-/** 拉取服务器状态；非超管直接跳过（不发必然 403 的请求） */
-async function loadServerStatus(): Promise<void> {
-  if (!isSuperAdmin.value) return;
-  isStatusLoading.value = true;
-  statusError.value = '';
+/** 打开公告详情（点开即读，标已读幂等） */
+async function openAnnouncement(item: AnnouncementCard): Promise<void> {
+  announcementDrawerVisible.value = true;
+  announcementDetail.value = null;
+  announcementDetailLoading.value = true;
   try {
-    serverStatus.value = await fetchServerStatus();
-    statusUpdatedAt.value = dayjs().format('HH:mm:ss');
-  } catch (error) {
-    serverStatus.value = null;
-    statusError.value = error instanceof ApiError ? error.message : '服务器状态加载失败';
-  } finally {
-    isStatusLoading.value = false;
-  }
-}
-
-/** 轮询间隔：20s，兼顾实时性与后端 CPU 采样开销 */
-const STATUS_POLL_INTERVAL = 20000;
-/** 轮询句柄：页面不可见时暂停（切回来立即补一次） */
-let statusTimer: ReturnType<typeof setInterval> | null = null;
-
-/** 停止轮询（幂等） */
-function stopStatusPolling(): void {
-  if (statusTimer !== null) {
-    clearInterval(statusTimer);
-    statusTimer = null;
-  }
-}
-
-/** 启动轮询：仅超管启用 */
-function startStatusPolling(): void {
-  stopStatusPolling();
-  if (!isSuperAdmin.value) return;
-  statusTimer = setInterval(() => {
-    if (document.visibilityState === 'visible') {
-      void loadServerStatus();
+    const detail = await getAnnouncementDetail(item.id);
+    announcementDetail.value = detail;
+    if (!detail.read) {
+      try {
+        await markAnnouncementRead(detail.id);
+        detail.read = true;
+        item.read = true;
+      } catch (error) {
+        // 标已读失败不影响阅读，但要让用户知道红点没消
+        void MessagePlugin.warning(error instanceof ApiError ? error.message : '标记已读失败');
+      }
     }
-  }, STATUS_POLL_INTERVAL);
+  } catch (error) {
+    void MessagePlugin.error(error instanceof ApiError ? error.message : '公告详情加载失败');
+  } finally {
+    announcementDetailLoading.value = false;
+  }
 }
 
-/** 标签页重新可见时补一次刷新，避免长时间停留在旧数值上 */
-function handleVisibilityChange(): void {
-  if (document.visibilityState === 'visible') {
-    void loadServerStatus();
+/** 打开消息详情：列表行本身带正文，直接展示；未读则顺手标已读并同步角标 */
+async function openNotice(item: MyNoticeRes): Promise<void> {
+  activeNotice.value = item;
+  noticeDrawerVisible.value = true;
+  if (item.read_flag) return;
+  try {
+    await markNoticeRead(item.receiver_id);
+    item.read_flag = true;
+    item.read_at = new Date().toISOString();
+    // 顶栏角标与本卡共用 store，改一处即可
+    noticeStore.setUnreadCount(noticeStore.unreadCount - 1);
+  } catch (error) {
+    void MessagePlugin.error(error instanceof ApiError ? error.message : '标记已读失败');
+  }
+}
+
+/** 消息里的跳转地址：新窗口打开，不打断首页上下文 */
+function openNoticeLink(url: string): void {
+  window.open(url, '_blank', 'noopener');
+}
+
+/** 下载公告附件（代理接口要鉴权头，先取 blob 再保存） */
+async function downloadAttachment(file: AnnouncementAttachment): Promise<void> {
+  try {
+    const blob = await downloadAnnouncementAttachment(file.download_url);
+    saveBlob(blob, file.file_name);
+  } catch (error) {
+    void MessagePlugin.error(error instanceof ApiError ? error.message : '附件下载失败');
   }
 }
 
 onMounted(() => {
   void loadOverview();
-  void loadHealth();
-  // 服务器状态仅超管可见：非超管既不请求也不轮询，DOM 中也不会出现该卡片
-  if (isSuperAdmin.value) {
-    void loadServerStatus();
-    startStatusPolling();
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-  }
-});
-
-onUnmounted(() => {
-  stopStatusPolling();
-  document.removeEventListener('visibilitychange', handleVisibilityChange);
+  void loadFeed();
 });
 </script>
 
 <style scoped lang="less">
+// 骨架屏流光：@keyframes 必须放顶层，嵌在选择器里 LESS 不会提升
+@keyframes dashboard-feed-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+
+  to {
+    background-position: 0 0;
+  }
+}
+
 .dashboard {
   &__banner {
     display: flex;
@@ -697,6 +821,9 @@ onUnmounted(() => {
     flex: 0 0 360px;
     width: 360px;
     min-width: 0;
+    // 右栏按自身内容高度排列：左栏（指标 + 快捷入口 + 两张图）通常更高，
+    // 若跟着 stretch 拉伸，卡片底部会拖出一大片空白。
+    align-self: flex-start;
   }
 
   // 窄屏（<1200px）：右侧栏落到左栏下方通栏
@@ -748,56 +875,308 @@ onUnmounted(() => {
     height: 100%;
   }
 
-  // ---------- 服务器状态卡（右栏，仅超管） ----------
-  &__usage-list {
+  // ---------- 公告与消息卡（右栏，全员可见） ----------
+  // 高度由内容撑开：5 条公告 + 10 条消息 ≈ 560px，正好占满右栏首屏。
+  // 卡片自身不设固定高度 —— 数据少时短、多时到上限截断，不会留死白。
+  &__feed {
+    height: auto;
+
+    // t-card 默认内边距 24px；条目行自身已有 5px 留白，收紧到 6px 12px 12px
+    :deep(.t-card__body) {
+      padding: 6px 12px 12px;
+    }
+
+    // 头部右上角两个入口：公告全部 / 消息全部
+    &-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+    }
+
+    &-actions-sep {
+      color: var(--td-text-color-placeholder);
+    }
+
+    // 首屏骨架：12 行灰条，避免「先白屏再跳内容」
+    &-skeleton {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 8px 4px;
+    }
+
+    &-skeleton-row {
+      height: 13px;
+      background: linear-gradient(
+        90deg,
+        var(--td-bg-color-container-hover) 25%,
+        var(--td-bg-color-secondarycontainer) 37%,
+        var(--td-bg-color-container-hover) 63%
+      );
+      background-size: 400% 100%;
+      border-radius: var(--td-radius-default);
+      animation: dashboard-feed-shimmer 1.4s ease infinite;
+
+      &:nth-child(2n) {
+        width: 72%;
+      }
+
+      &:nth-child(3n) {
+        width: 86%;
+      }
+    }
+
+    // 上下两区：公告区与消息区之间用细线分隔
+    // 行高按「15 行 + 2 个区头 + 统计条」压到 ~600px（5+10 条正好一屏，不多留白）
+    &-section {
+      padding: 6px 0 2px;
+
+      & + & {
+        border-top: 1px solid var(--td-component-stroke);
+      }
+    }
+
+    &-head {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 4px 2px;
+    }
+
+    &-head-icon {
+      font-size: 15px;
+
+      &--ann {
+        color: var(--td-brand-color);
+      }
+
+      &--msg {
+        color: var(--td-warning-color);
+      }
+    }
+
+    &-head-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--td-text-color-primary);
+    }
+
+    &-head-count {
+      margin-left: auto;
+      font-size: 12px;
+      color: var(--td-text-color-placeholder);
+      font-variant-numeric: tabular-nums;
+    }
+
+    &-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    // 整行可点：button 重置成文本行，键盘 Tab 也能到达（focus-visible 保留焦点环）
+    &-item {
+      display: flex;
+      gap: 10px;
+      align-items: baseline;
+      width: 100%;
+      padding: 3px 6px;
+      font: inherit;
+      color: inherit;
+      text-align: left;
+      cursor: pointer;
+      background: none;
+      border: 0;
+      border-radius: var(--td-radius-default);
+      transition: background-color 0.15s ease;
+
+      &:hover {
+        background-color: var(--td-bg-color-container-hover);
+      }
+
+      &:focus-visible {
+        outline: 2px solid var(--td-brand-color);
+        outline-offset: -2px;
+      }
+
+      // 未读：标题加深加粗 + 前置红点，扫一眼就能区分
+      &--unread {
+        .dashboard__feed-item-title {
+          font-weight: 600;
+          color: var(--td-text-color-primary);
+        }
+      }
+    }
+
+    &-item-title {
+      display: flex;
+      flex: 1 1 auto;
+      gap: 6px;
+      align-items: center;
+      min-width: 0;
+      overflow: hidden;
+      font-size: 13px;
+      color: var(--td-text-color-secondary);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    &-item-time {
+      flex: none;
+      font-size: 12px;
+      color: var(--td-text-color-placeholder);
+      font-variant-numeric: tabular-nums;
+    }
+
+    &-dot {
+      flex: none;
+      width: 6px;
+      height: 6px;
+      background-color: var(--td-error-color);
+      border-radius: 50%;
+    }
+
+    &-empty {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      align-items: center;
+      padding: 18px 0;
+      font-size: 12px;
+      color: var(--td-text-color-placeholder);
+    }
+
+    &-foot {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      margin-top: 8px;
+      padding: 8px 4px 0;
+      font-size: 12px;
+      color: var(--td-text-color-placeholder);
+      border-top: 1px solid var(--td-component-stroke);
+      font-variant-numeric: tabular-nums;
+    }
+
+    &-foot-sep {
+      color: var(--td-text-color-placeholder);
+    }
+
+    &-foot-unread {
+      color: var(--td-error-color);
+    }
+
+    &-error {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      margin-top: 8px;
+      padding: 6px 8px;
+      font-size: 12px;
+      color: var(--td-error-color);
+      background-color: var(--td-error-color-1);
+      border-radius: var(--td-radius-default);
+    }
+  }
+
+  // ---------- 公告 / 消息详情抽屉 ----------
+  &__detail-title {
     display: flex;
-    flex-direction: column;
-    gap: 12px;
-    margin: 12px 0 4px;
-  }
-
-  &__usage {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-width: 0;
-  }
-
-  &__usage-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 8px;
-    font-size: 13px;
-  }
-
-  &__usage-label {
-    color: var(--td-text-color-secondary);
-  }
-
-  &__usage-value {
+    gap: 6px;
+    align-items: center;
+    margin: 0 0 10px;
+    font-size: 17px;
     font-weight: 600;
+    line-height: 1.4;
     color: var(--td-text-color-primary);
   }
 
-  &__usage-sub {
-    font-size: 12px;
-    color: var(--td-text-color-placeholder);
+  &__detail-pin {
+    flex: none;
+    color: var(--td-brand-color);
   }
 
-  &__usage-hint {
-    margin-left: 8px;
+  &__detail-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    padding-bottom: 12px;
+    margin-bottom: 14px;
     font-size: 12px;
+    color: var(--td-text-color-placeholder);
+    border-bottom: 1px solid var(--td-component-stroke);
+  }
+
+  &__detail-read {
+    color: var(--td-success-color);
+  }
+
+  &__detail-body {
+    font-size: 14px;
+    line-height: 1.75;
+    color: var(--td-text-color-primary);
+    word-break: break-word;
+
+    :deep(img) {
+      max-width: 100%;
+    }
+  }
+
+  &__detail-link {
+    margin-top: 16px;
+    font-size: 13px;
+  }
+
+  &__detail-files {
+    margin-top: 20px;
+    padding-top: 12px;
+    border-top: 1px solid var(--td-component-stroke);
+  }
+
+  &__detail-files-title {
+    margin-bottom: 8px;
+    font-size: 13px;
     color: var(--td-text-color-secondary);
   }
 
-  &__status-foot {
-    margin-top: 8px;
-    font-size: 12px;
-    text-align: right;
-    color: var(--td-text-color-placeholder);
+  &__detail-file {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    width: 100%;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    font: inherit;
+    color: var(--td-text-color-primary);
+    text-align: left;
+    cursor: pointer;
+    background-color: var(--td-bg-color-container-hover);
+    border: 0;
+    border-radius: var(--td-radius-default);
+    transition: background-color 0.15s ease;
+
+    &:hover {
+      background-color: var(--td-bg-color-secondarycontainer);
+    }
   }
 
+  &__detail-file-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__detail-file-size {
+    flex: none;
+    font-size: 12px;
+    color: var(--td-text-color-placeholder);
+    font-variant-numeric: tabular-nums;
+  }
 
   // ---------- 指标卡片 ----------
   &__metric-col {

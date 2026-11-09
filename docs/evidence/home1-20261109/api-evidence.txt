@@ -1,0 +1,55 @@
+# HOME-1 接口证据（本地隔离实例 127.0.0.1:18023，真后端 + 隔离库 cloudpivot_home1）
+生成时间：2026-11-09 20:45:44 CST
+
+## ① 超管：公告前 5 条（page_size=5）
+{
+  "code": 0,
+  "total": 7,
+  "rows": 5,
+  "titles": [
+    "【HOME1】系统升级公告（V1.2）",
+    "【HOME1】值班安排通知 第6条",
+    "【HOME1】值班安排通知 第5条",
+    "【HOME1】值班安排通知 第4条",
+    "【HOME1】值班安排通知 第3条"
+  ]
+}
+
+## ② 超管：我的消息前 10 条（page_size=10）
+{
+  "code": 0,
+  "total": 19,
+  "rows": 10,
+  "unread_in_page": 9,
+  "first3": [
+    {
+      "title": "【HOME1】系统升级公告（V1.2）",
+      "read_flag": false
+    },
+    {
+      "title": "【HOME1】消息第12条：采购订单审核提醒",
+      "read_flag": true
+    },
+    {
+      "title": "【HOME1】消息第11条：采购订单审核提醒",
+      "read_flag": false
+    }
+  ]
+}
+
+## ③ 超管：未读数
+{"code":0,"msg":"ok","data":{"unread_count":18}}
+
+## ④ 非超管 h1viewer2（DEPT_LEADER）：公告可见、消息为空（真机空态来源）
+me:
+{"code":0,"username":"h1viewer2","roles":["DEPT_LEADER"]}
+announcements:
+{"code":0,"total":7,"rows":5}
+notices:
+{"code":0,"total":0,"rows":0}
+
+## ⑤ 单条已读（幂等：连续两次都返回 code=0，不报错）
+{"code":0,"msg":"ok"}
+{"code":0,"msg":"ok"}
+详情 read 字段：
+{"code":0,"title":"【HOME1】系统升级公告（V1.2）","read":true}

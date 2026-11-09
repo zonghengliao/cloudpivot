@@ -1,0 +1,2 @@
+✓ built in 52.79s
+assets/index-CK6xbzhf.js
