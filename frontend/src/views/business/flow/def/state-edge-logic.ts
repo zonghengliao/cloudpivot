@@ -62,6 +62,14 @@ export interface EdgeRowView {
   mandatoryText: string;
   /** 硬约束边的 tag 主题 */
   mandatoryTheme: 'primary' | 'default';
+  /** 「主链路」/ `—`（【E2E-FIX-1】禁用它 = 业务功能断） */
+  criticalText: string;
+  /** 主链路边 tag 主题（命中 = 红色告警色） */
+  criticalTheme: 'danger' | 'default';
+  /** 是否主链路必需边（后端 `CRITICAL_EDGES` 命中） */
+  critical: boolean;
+  /** 主链路必需边的业务后果（后端下发；`critical = false` 时 `null`） */
+  criticalImpact: string | null;
   /** 必须填原因 / 不要求原因 */
   reasonText: string;
   /** 权限码（`—` 表示不追加） */
@@ -116,6 +124,10 @@ export function mergeBaseEdges(view: EntityStateEdges): StateEdge[] {
       auth_code: config?.auth_code ?? null,
       configured: Boolean(config),
       enabled: config ? config.enabled : Boolean(effectiveOf(base.from, base.to)),
+      // 主链路边标记来自**代码里的真相**（`base_edges` 带 `critical`），与「有没有配置行」无关：
+      // 巡检要能看见「边还没被配置过」的那一半，所以这里不做任何合并推导。
+      critical: base.critical,
+      critical_impact: base.critical_impact,
     };
   });
 }
@@ -129,6 +141,10 @@ export function edgeRowView(entity: string, edge: StateEdge): EdgeRowView {
     label: edge.label,
     mandatoryText: edge.mandatory ? '硬约束' : '可选',
     mandatoryTheme: edge.mandatory ? 'primary' : 'default',
+    criticalText: edge.critical ? '主链路' : '—',
+    criticalTheme: edge.critical ? 'danger' : 'default',
+    critical: edge.critical,
+    criticalImpact: edge.critical_impact,
     reasonText: edge.requires_reason ? '必须填原因' : '不要求原因',
     authCodeText: edge.auth_code ?? '—',
     configuredText: edge.configured ? '已配置' : '默认',
@@ -165,16 +181,35 @@ export function changeReasonError(reason: string): string | null {
 }
 
 /**
+ * 这次提交是不是「禁用主链路必需边」（【E2E-FIX-1】）？
+ *
+ * 命中时前端必须：① 弹红色警告 + 要求勾选「我确认要禁用主链路必需边」；
+ * ② 请求体带 `confirm_critical = true`（否则后端 400 并点名业务后果）。
+ * 判据与后端 `upsert_edge_config` 完全一致：`enabled = false` **且** `critical = true`。
+ */
+export function needsCriticalConfirm(edge: StateEdge, form: Pick<EdgeChangeForm, 'enabled'>): boolean {
+  return !form.enabled && edge.critical;
+}
+
+/**
  * 拼 `PUT /business/flow/state-edge` 的请求体。
  *
  * - `confirm` 恒为 `true`（用户点「提交审批」这一下就是二次确认；后端缺了直接 400）；
  * - `label` / `auth_code` 空串归一成 `null`（后端 `Option<String>`，空串会被当成「把文案改成空」）；
- * - `requires_reason` 对 BASE 要求原因的边**强制 true**（只能加不能减，前端先挡一层）。
+ * - `requires_reason` 对 BASE 要求原因的边**强制 true**（只能加不能减，前端先挡一层）；
+ * - `confirm_critical` 只在「禁用主链路边」且用户已勾确认时传 `true`（其余情况不传，
+ *   免得把「确认过」这个事实写进审批单 —— 复核人看到的应该是「这条边本来就要确认」）。
  */
-export function buildChangeReq(entity: string, edge: StateEdge, form: EdgeChangeForm): StateEdgeChangeReq {
+export function buildChangeReq(
+  entity: string,
+  edge: StateEdge,
+  form: EdgeChangeForm,
+  criticalConfirmed = false,
+): StateEdgeChangeReq {
   const label = form.label.trim();
   const authCode = form.auth_code.trim();
   const reason = form.reason.trim();
+  const disablingCritical = needsCriticalConfirm(edge, form);
   return {
     entity,
     from_status: edge.from,
@@ -184,6 +219,7 @@ export function buildChangeReq(entity: string, edge: StateEdge, form: EdgeChange
     label: label ? label : null,
     auth_code: authCode ? authCode : null,
     confirm: true,
+    confirm_critical: disablingCritical ? criticalConfirmed : undefined,
     reason: reason ? reason : null,
   };
 }
@@ -201,7 +237,22 @@ export function changeSummary(edge: StateEdge, form: EdgeChangeForm): string {
   if (form.auth_code.trim()) {
     parts.push(`追加权限码 ${form.auth_code.trim()}`);
   }
-  return `${parts.join(' · ')}`.trim();
+  const summary = `${parts.join(' · ')}`.trim();
+  // 禁用主链路边时把业务后果拼进摘要：这份摘要会进审批单，复核人必须看见「关掉会断什么」
+  if (needsCriticalConfirm(edge, form)) {
+    return `${summary}（⚠ 主链路必需边：${criticalImpactText(edge)}）`;
+  }
+  return summary;
+}
+
+/**
+ * 主链路必需边的业务后果（给用户看的一句话）。
+ *
+ * 文案一律用后端下发的 `critical_impact`；老后端 / 字段缺失时才退化成一句通用话，
+ * **不要**在前端写死「销售出库无法过账」这类映射（那是第二份状态机）。
+ */
+export function criticalImpactText(edge: StateEdge): string {
+  return edge.critical_impact && edge.critical_impact.trim() ? edge.critical_impact : '关掉它会让业务功能断';
 }
 
 /** 在跑审批单的一行文案（entity 维度展示用） */

@@ -79,6 +79,9 @@ fn form_data_round_trips_both_actions() {
         label: Some("直接过账（停用）".to_string()),
         auth_code: Some("business:erp:stock-out:status".to_string()),
         confirm: true,
+        // 【E2E-FIX-1】这条边是主链路必需边：确认位必须一起往返，否则审批通过回调重放时
+        // 会被内核再挡一次 400（「审批过了配置没生效」）。
+        confirm_critical: true,
     });
     let data = upsert.to_form_data(Some("客户要求必须走审批"));
     assert_eq!(data["action"], "UPSERT");
@@ -100,6 +103,10 @@ fn form_data_round_trips_both_actions() {
             assert!(
                 patch.confirm,
                 "回调里一律 confirm=true（审批通过本身就是二次确认）"
+            );
+            assert!(
+                patch.confirm_critical,
+                "【E2E-FIX-1】confirm_critical 丢了 → 回调重放禁用主链路边会被内核 400"
             );
         }
         other => panic!("动作还原错了：{other:?}"),
@@ -178,6 +185,7 @@ fn summary_spells_out_the_change() {
         label: Some(" 停用 ".to_string()),
         auth_code: None,
         confirm: true,
+        confirm_critical: false,
     });
     let summary = change.summary();
     assert!(summary.contains("STOCK_OUT"), "要点名单据类型：{summary}");
@@ -561,6 +569,10 @@ fn disable_stock_out_post() -> EdgeUpsertReq {
         label: None,
         auth_code: None,
         confirm: true,
+        // 【E2E-FIX-1】STOCK_OUT DRAFT→POSTED 是主链路必需边：不带这个确认位，
+        // handler 会先被内核 400 挡下（那是另一条用例专门验的行为），
+        // 这里验的是「送审 → 审批 → 落边」，所以按管理员显式确认带上 true。
+        confirm_critical: true,
         reason: Some("D3 单测：必须走审批再过账".to_string()),
         skip: crate::business::erp::approval_gate::SkipApprovalReq::default(),
     }
@@ -678,6 +690,66 @@ async fn list_view_reports_base_config_and_effective() {
     .await
     .expect_err("未知实体必须 400");
     assert_eq!(error.status, 400);
+}
+
+/// 【E2E-FIX-1】禁用主链路必需边（`STOCK_OUT DRAFT→POSTED`）：不传 `confirm_critical`
+/// → 400 点名业务后果，且**不留审批单、配置一分没动**；带上确认才送审。
+///
+/// 这条用例守的是 2026-11-09 E2E-02 演练的真实坑：那条边被悄悄关掉 → 发货过账 409 →
+/// 整条销售链断在发货，而关它的人根本没意识到自己在关主链路。
+#[tokio::test]
+async fn critical_edge_disable_needs_confirmation() {
+    if !ensure_db().await {
+        return;
+    }
+    let _guard = DB_LOCK.lock().await;
+    prepare().await;
+    let claims = super_claims().await;
+
+    let mut req = disable_stock_out_post();
+    req.confirm_critical = false; // 模拟「没勾那个红色警告弹窗」
+    let err = edge_admin::upsert_state_edge(Extension(AuthClaims(claims.clone())), Json(req))
+        .await
+        .expect_err("禁用主链路边不确认 → 必须 400");
+    assert_eq!(err.status, 400, "报文：{}", err.msg);
+    for needle in [
+        "主链路必需边",
+        "销售出库无法直接过账",
+        "confirm_critical",
+    ] {
+        assert!(
+            err.msg.contains(needle),
+            "报文必须包含「{needle}」（要点名业务后果 + 告诉调用方怎么继续）：{}",
+            err.msg
+        );
+    }
+    // 被挡下的请求不许留审批单，配置也不许动
+    let instances: i64 = db()
+        .scalar_sql(
+            "SELECT count(*) AS v FROM biz_flow_instance WHERE biz_type = 'FLOW_EDGE_CFG'"
+                .to_string(),
+            vec![],
+        )
+        .await
+        .expect("数审批单");
+    assert_eq!(instances, 0, "被挡下的请求不许留下审批单：{instances}");
+    assert!(
+        stock_out_allows_direct_post().await,
+        "被挡下 = 配置一分没动（DRAFT→POSTED 仍然可用）"
+    );
+
+    // 带了确认 → 照常送审（确认位只放开「禁用主链路边」这一件事，不放宽其他校验）
+    let res = edge_admin::upsert_state_edge(
+        Extension(AuthClaims(claims)),
+        Json(disable_stock_out_post()),
+    )
+    .await
+    .unwrap_or_else(|err| panic!("确认后应能送审：{} {}", err.code, err.msg));
+    assert!(
+        !res.data.expect("响应必须带 data").applied,
+        "有已发布流程 → 送审，不直接生效"
+    );
+    purge().await;
 }
 
 /// ⑨ **核心路径**：提交 → 审批通过 → 才生效（提交后配置一分没动）。
@@ -923,6 +995,8 @@ async fn delete_config_also_goes_through_approval() {
             label: None,
             auth_code: None,
             confirm: true,
+            // SUBMITTED→CLOSED 不是主链路必需边，不需要第三次确认
+            confirm_critical: false,
         },
     )
     .await
@@ -1022,6 +1096,8 @@ async fn list_view_marks_configured_edges() {
             label: Some("作废红冲（必须写原因）".to_string()),
             auth_code: None,
             confirm: true,
+            // 启用不需要确认（只有禁用主链路边才要）
+            confirm_critical: false,
         },
     )
     .await
@@ -1246,6 +1322,9 @@ fn disable_edge(entity: &str, from: &str, to: &str) -> EdgeUpsertReq {
         label: None,
         auth_code: None,
         confirm: true,
+        // 【E2E-FIX-1】调用方包含 `STOCK_OUT DRAFT→POSTED`（主链路必需边），
+        // 这里代表「管理员已勾选确认」；否则 handler 直接 400，「批量 = 单条」根本跑不到审批。
+        confirm_critical: true,
         reason: Some("P1-FIX-4 单测：批量审批也必须落边".to_string()),
         skip: crate::business::erp::approval_gate::SkipApprovalReq::default(),
     }

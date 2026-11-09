@@ -110,6 +110,12 @@ pub struct EdgeUpsertReq {
     /// 二次确认（必须 `true`）。
     #[serde(default)]
     pub confirm: bool,
+    /// 禁用「主链路必需边」的确认（【E2E-FIX-1】）。
+    ///
+    /// 只有 `enabled = false` **且** 这条边在 `state_machine::CRITICAL_EDGES` 里时才有意义：
+    /// 不传 → 内核 400 并点名「禁用它会让销售出库无法直接过账」。其余情况传了也不放宽任何校验。
+    #[serde(default)]
+    pub confirm_critical: bool,
     /// 变更理由（写进审批单标题 / 审计留痕；建议填）。
     #[serde(default)]
     pub reason: Option<String>,
@@ -131,6 +137,8 @@ impl EdgeUpsertReq {
             auth_code: self.auth_code.clone(),
             // 内核会校验它；透传原值，避免「本层偷偷补 true」把二次确认变成摆设
             confirm: self.confirm,
+            // 同上：主链路边的禁用确认也只透传，不在本层兜底
+            confirm_critical: self.confirm_critical,
         }
     }
 }
@@ -197,11 +205,22 @@ pub struct EdgeRes {
     pub configured: bool,
     /// 配置是否启用（无边配置时恒 `true`）。
     pub enabled: bool,
+    /// 是否主链路必需边（【E2E-FIX-1】`state_machine::CRITICAL_EDGES` 命中）。
+    ///
+    /// 前端据此在「禁用」时弹红色警告，并要求勾选「我确认要禁用主链路必需边」；
+    /// 后端的最后一道闸是 `EdgeUpsertReq.confirm_critical`（不传 → 400）。
+    pub critical: bool,
+    /// 主链路必需边的业务后果（`critical = false` 时为 `None`）。
+    ///
+    /// 例：`销售出库无法直接过账`。文案由代码里的 `CRITICAL_EDGES` 提供，
+    /// 前端直接展示，**不要**在前端维护第二份映射。
+    pub critical_impact: Option<String>,
 }
 
 impl EdgeRes {
     /// 由合并后的有效边构造（`edges` 里出现的都是启用中的边）。
-    fn of_effective(edge: &Edge, configured: bool) -> Self {
+    fn of_effective(entity: Entity, edge: &Edge, configured: bool) -> Self {
+        let critical = state_machine::critical_edge(entity, edge.from, edge.to);
         Self {
             from: edge.from.to_string(),
             to: edge.to.to_string(),
@@ -211,11 +230,14 @@ impl EdgeRes {
             auth_code: edge.auth_code.clone(),
             configured,
             enabled: true,
+            critical: critical.is_some(),
+            critical_impact: critical.map(|item| item.impact.to_string()),
         }
     }
 
     /// 由 BASE 边构造（**代码里的真相**，配置删不掉）。
-    fn of_base(edge: &BaseEdge) -> Self {
+    fn of_base(entity: Entity, edge: &BaseEdge) -> Self {
+        let critical = state_machine::critical_edge(entity, edge.from, edge.to);
         Self {
             from: edge.from.to_string(),
             to: edge.to.to_string(),
@@ -225,6 +247,8 @@ impl EdgeRes {
             auth_code: None,
             configured: false,
             enabled: true,
+            critical: critical.is_some(),
+            critical_impact: critical.map(|item| item.impact.to_string()),
         }
     }
 }
@@ -421,13 +445,17 @@ async fn entity_view(
             let configured = rows
                 .iter()
                 .any(|row| row.from == edge.from && row.to == edge.to);
-            EdgeRes::of_effective(edge, configured)
+            EdgeRes::of_effective(entity, edge, configured)
         })
         .collect();
     EntityEdgesRes {
         entity: entity.as_str().to_string(),
         entity_label: entity.label().to_string(),
-        base_edges: entity.base_edges().iter().map(EdgeRes::of_base).collect(),
+        base_edges: entity
+            .base_edges()
+            .iter()
+            .map(|edge| EdgeRes::of_base(entity, edge))
+            .collect(),
         configs: rows,
         effective_edges,
         pending_changes: pending
@@ -685,6 +713,10 @@ impl EdgeChange {
                 "reason": reason.map(str::trim).filter(|text| !text.is_empty()),
                 // 二次确认在提交时已校验过一次；回调里重新置 true（内核要求，且审批通过本身就是二次确认）
                 "confirm": true,
+                // 主链路边的禁用确认同理：提交时校验过，审批通过本身就是「复核人同意了这条业务后果」。
+                // 这里必须**照原样带上**，否则回调重放补丁时会被内核再挡一次（400），
+                // 表现就是「审批通过了但配置没生效」——那是本卡要消灭的那类死单。
+                "confirm_critical": patch.confirm_critical,
             }),
             EdgeChange::Delete { entity, from, to } => json!({
                 "action": ACTION_DELETE,
@@ -726,6 +758,11 @@ impl EdgeChange {
                 label: text("label"),
                 auth_code: text("auth_code"),
                 confirm: true,
+                // 主链路边禁用的确认必须**从 form_data 还原**：提交时校验过，审批通过就是复核人
+                // 认了这个业务后果；这里若仍按 false 重放，内核会再挡一次 400 →
+                // 「审批通过了配置却没生效」。缺字段的老单（本卡上线前提交的）按 false 处理，
+                // 那种单本来也不可能禁用 critical 边（当时内核还没有这道闸）。
+                confirm_critical: flag("confirm_critical"),
             })),
             Some(ACTION_DELETE) => Some(EdgeChange::Delete { entity, from, to }),
             _ => None,

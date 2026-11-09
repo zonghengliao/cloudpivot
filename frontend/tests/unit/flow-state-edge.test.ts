@@ -21,13 +21,22 @@ import {
   changeReasonError,
   changeResultText,
   changeSummary,
+  criticalImpactText,
   edgeRowView,
   mergeBaseEdges,
+  needsCriticalConfirm,
   pendingChangeText,
 } from '@/views/business/flow/def/state-edge-logic';
 
 /** 造一条 BASE 边（形状 = `EdgeRes::of_base`：configured 恒 false、enabled 恒 true） */
-function baseEdge(from: string, to: string, label: string, mandatory: boolean, requiresReason = false): StateEdge {
+function baseEdge(
+  from: string,
+  to: string,
+  label: string,
+  mandatory: boolean,
+  requiresReason = false,
+  criticalImpact: string | null = null,
+): StateEdge {
   return {
     from,
     to,
@@ -37,16 +46,19 @@ function baseEdge(from: string, to: string, label: string, mandatory: boolean, r
     auth_code: null,
     configured: false,
     enabled: true,
+    critical: criticalImpact !== null,
+    critical_impact: criticalImpact,
   };
 }
 
 /** STOCK_OUT 的 6 条 BASE 边（顺序 / 文案 / mandatory 抄 2026-11-03 真机 GET 的响应） */
 function stockOutBaseEdges(): StateEdge[] {
   return [
-    baseEdge('DRAFT', 'PENDING_POST', '提交待过账', true),
-    baseEdge('PENDING_POST', 'POSTED', '过账', true),
+    baseEdge('DRAFT', 'PENDING_POST', '提交待过账', true, false, '销售出库无法提交过账审批'),
+    baseEdge('PENDING_POST', 'POSTED', '过账', true, false, '销售出库无法过账'),
     baseEdge('PENDING_POST', 'DRAFT', '撤回', true),
-    baseEdge('DRAFT', 'POSTED', '直接过账', false),
+    // 【E2E-FIX-1】这条边就是 E2E-02 演练被关掉、把整条销售链断在发货的那一条
+    baseEdge('DRAFT', 'POSTED', '直接过账', false, false, '销售出库无法直接过账'),
     baseEdge('DRAFT', 'CANCELLED', '草稿作废', true),
     baseEdge('POSTED', 'CANCELLED', '已过账作废', true, true),
   ];
@@ -213,6 +225,75 @@ test('buildChangeReq：BASE 要求原因的边，即使表单传 false 也必须
     reason: '复核一下',
   });
   assert.equal(req.requires_reason, true);
+});
+
+test('【E2E-FIX-1】needsCriticalConfirm：只有「禁用 + 主链路必需边」才要确认', () => {
+  const rows = mergeBaseEdges(entityView());
+  const criticalEdge = rows.find((edge) => edge.from === 'DRAFT' && edge.to === 'POSTED');
+  const plainEdge = rows.find((edge) => edge.from === 'DRAFT' && edge.to === 'CANCELLED');
+  assert.ok(criticalEdge && plainEdge);
+  assert.equal(criticalEdge.critical, true);
+  assert.equal(criticalEdge.critical_impact, '销售出库无法直接过账');
+
+  // 禁用主链路边 → 要确认
+  assert.equal(needsCriticalConfirm(criticalEdge, { enabled: false }), true);
+  // 启用 / 只是改文案 → 不要确认
+  assert.equal(needsCriticalConfirm(criticalEdge, { enabled: true }), false);
+  // 非主链路边禁用 → 不要确认（本来就能关）
+  assert.equal(needsCriticalConfirm(plainEdge, { enabled: false }), false);
+});
+
+test('【E2E-FIX-1】buildChangeReq：禁用主链路边必须带 confirm_critical', () => {
+  const rows = mergeBaseEdges(entityView());
+  const criticalEdge = rows.find((edge) => edge.from === 'DRAFT' && edge.to === 'POSTED');
+  const plainEdge = rows.find((edge) => edge.from === 'DRAFT' && edge.to === 'CANCELLED');
+  assert.ok(criticalEdge && plainEdge);
+  const form = { enabled: false, requires_reason: false, label: '', auth_code: '', reason: '演练需要' };
+
+  // ① 没勾确认 → 仍然提交，但 confirm_critical = false（后端 400，点名业务后果）
+  assert.equal(buildChangeReq('STOCK_OUT', criticalEdge, form).confirm_critical, false);
+  // ② 勾了确认 → true（后端才放行）
+  assert.equal(buildChangeReq('STOCK_OUT', criticalEdge, form, true).confirm_critical, true);
+  // ③ 重新启用主链路边 → 不带这个字段（确认过了也不许写进审批单，免得误导复核人）
+  const enabling = { ...form, enabled: true };
+  assert.equal(buildChangeReq('STOCK_OUT', criticalEdge, enabling, true).confirm_critical, undefined);
+  // ④ 非主链路边 → 不带
+  assert.equal(buildChangeReq('STOCK_OUT', plainEdge, form, true).confirm_critical, undefined);
+});
+
+test('【E2E-FIX-1】edgeRowView / changeSummary：主链路边有红标，禁用时摘要点名业务后果', () => {
+  const rows = mergeBaseEdges(entityView()).map((edge) => edgeRowView('STOCK_OUT', edge));
+  const criticalRow = rows.find((row) => row.from === 'DRAFT' && row.to === 'POSTED');
+  const plainRow = rows.find((row) => row.from === 'DRAFT' && row.to === 'CANCELLED');
+  assert.ok(criticalRow && plainRow);
+  assert.equal(criticalRow.criticalText, '主链路');
+  assert.equal(criticalRow.criticalTheme, 'danger');
+  assert.equal(criticalRow.criticalImpact, '销售出库无法直接过账');
+  assert.equal(plainRow.criticalText, '—');
+  assert.equal(plainRow.criticalTheme, 'default');
+
+  const disabling = changeSummary(criticalRow.edge, {
+    enabled: false,
+    requires_reason: false,
+    label: '',
+    auth_code: '',
+    reason: 'x',
+  });
+  assert.match(disabling, /主链路必需边/);
+  assert.match(disabling, /销售出库无法直接过账/);
+
+  // 启用时不带警告（改配置不等于断链）
+  const enabling = changeSummary(criticalRow.edge, {
+    enabled: true,
+    requires_reason: false,
+    label: '',
+    auth_code: '',
+    reason: 'x',
+  });
+  assert.doesNotMatch(enabling, /主链路必需边/);
+
+  // 字段缺失（老后端）时退化成通用话，绝不渲染成 "undefined"
+  assert.equal(criticalImpactText({ ...criticalRow.edge, critical_impact: null }), '关掉它会让业务功能断');
 });
 
 test('changeReasonError：理由不能空、不能太短', () => {

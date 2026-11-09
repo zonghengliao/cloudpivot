@@ -56,6 +56,19 @@ export interface StateEdge {
   configured: boolean;
   /** 配置是否启用（无边配置时恒 `true`） */
   enabled: boolean;
+  /**
+   * 是否「主链路必需边」（【E2E-FIX-1】后端 `state_machine::CRITICAL_EDGES` 命中）。
+   *
+   * 命中时：禁用它必须先勾「我确认要禁用主链路必需边」，请求体还要带
+   * `confirm_critical = true`；否则后端 400 并点名业务后果。
+   */
+  critical: boolean;
+  /**
+   * 主链路必需边的业务后果（`critical = false` 时为 `null`），例：`销售出库无法直接过账`。
+   *
+   * 文案由后端 `CRITICAL_EDGES` 提供，前端**不要**再维护第二份映射；直接插进警告弹窗。
+   */
+  critical_impact: string | null;
 }
 
 /** 一行存活配置（`ConfigRowRes`，`biz_flow_state_edge` 的原样投影） */
@@ -163,6 +176,13 @@ export interface StateEdgeChangeReq {
   auth_code: string | null;
   /** 二次确认（**必须** `true`） */
   confirm: true;
+  /**
+   * 禁用「主链路必需边」的确认（【E2E-FIX-1】）。
+   *
+   * 只有 `enabled = false` 且 `critical = true` 时后端才要求它；不传 → 400 并点名业务后果。
+   * 前端在弹窗里勾「我确认要禁用主链路必需边」后才置 `true`。
+   */
+  confirm_critical?: boolean;
   /** 变更理由（写进审批单标题 / 审计留痕） */
   reason: string | null;
 }

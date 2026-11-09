@@ -1465,6 +1465,215 @@ pub const STOCK_TAKE_BASE: [BaseEdge; 6] = [
     BaseEdge::mandatory("POSTED", "CANCELLED", "已过账作废", true),
 ];
 
+// ==================== 主链路「必需边」（关掉它 = 功能断，不是加严） ====================
+//
+// 【E2E-FIX-1】2026-11-09 E2E-02 演练实际踩到：`biz_flow_state_edge` 里
+// `STOCK_OUT DRAFT→POSTED` 被置成 `enabled = false`（属主不明），发货过账当场 409
+// 「流转已被状态机配置禁用」——**整条销售链断在发货**，而界面上没有任何入口能看出
+// 「这条边被关了」。标记 + 二次确认 + 巡检，都是为了防止同一个坑再踩一次。
+//
+// 这张表回答一个问题：**关掉这条边，是不是有业务功能直接做不了？**
+//   · `impact` 是给用户看的业务后果（流转被拦时的错误文案 / 前端红字 / 巡检报警共用一句话，
+//     句式固定为「让{impact}」与「{impact}：…」，所以写成「销售出库无法过账」这种从句）；
+//   · 标进来的边，`upsert_edge_config` 要求 `confirm_critical = true` 才允许禁用；
+//   · `scripts/verify/flow_critical_edges.sh` 只读巡检：任何一条 critical 边
+//     `enabled = false` 就报警（**不自动改回**，避免把人工加严的合法动作覆盖掉）。
+//
+// # 与 `mandatory` 的分工（两张表都在代码里，谁是真相一目了然）
+//
+//   `mandatory = true`  → 配置层**根本禁不掉**（400；绕过 API 直接写库则忽略 + WARN）。
+//                          主链 / 审批落地 / 撤销回位 / 红冲都在这一档。
+//   `critical  = true`  → 可以禁，但必须**显式二次确认**，且巡检长期盯着。
+//                          目前只有 optional 边是「真的能被关掉」的主链捷径
+//                          （`STOCK_OUT DRAFT→POSTED` 发货免审直过、
+//                           `STOCK_IN DRAFT→POSTED` 收货免审直过）；其余标进来的边是
+//                          「将来若放开成 optional 也不许悄悄关」的保护。
+//
+// # 巡检表 `biz_flow_critical_edge`（V0354）与这张表的关系
+//
+//   巡检脚本是 bash + psql，读不到 Rust 常量，所以 V0354 把同一份清单种进
+//   `biz_flow_critical_edge`（entity / from_status / to_status / impact）。
+//   两边不许漂移：真库单测 `critical_edges_match_db_table` 逐行比对，漏一条 / 多一条直接红。
+//   **改这张表必须同步加一条新迁移**（不能改已应用的 V0354）。
+
+/// 一条「主链路必需边」：禁用它会让某个业务功能直接不可用。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CriticalEdge {
+    /// 实体类型。
+    pub entity: Entity,
+    /// 变更前状态。
+    pub from: &'static str,
+    /// 变更后状态。
+    pub to: &'static str,
+    /// 业务后果（给用户看的句子，例：`销售出库无法过账`）。
+    pub impact: &'static str,
+}
+
+impl CriticalEdge {
+    /// 构造（全部 const，编译期就能查重）。
+    const fn new(
+        entity: Entity,
+        from: &'static str,
+        to: &'static str,
+        impact: &'static str,
+    ) -> Self {
+        Self {
+            entity,
+            from,
+            to,
+            impact,
+        }
+    }
+}
+
+/// 全部主链路必需边（顺序 = 业务链顺序：销售出库 → 采购收货 → 采购订单 → 销售订单 →
+/// 发货 → 调拨 → 盘点 → 凭证）。
+///
+/// 卡面写的 `STOCK_TRANSFER DRAFT → DONE` 在 BASE_EDGES 里**不存在**（调拨必须走
+/// `DRAFT→PENDING→APPROVED→IN_TRANSIT→DONE`），这里按真实边表补成四段。
+pub const CRITICAL_EDGES: &[CriticalEdge] = &[
+    // 销售出库（E2E-02 断链的那一条就是它）
+    CriticalEdge::new(
+        Entity::StockOut,
+        "DRAFT",
+        "PENDING_POST",
+        "销售出库无法提交过账审批",
+    ),
+    CriticalEdge::new(
+        Entity::StockOut,
+        "PENDING_POST",
+        "POSTED",
+        "销售出库无法过账",
+    ),
+    CriticalEdge::new(Entity::StockOut, "DRAFT", "POSTED", "销售出库无法直接过账"),
+    // 采购收货
+    CriticalEdge::new(
+        Entity::StockIn,
+        "DRAFT",
+        "PENDING_POST",
+        "采购收货无法提交过账审批",
+    ),
+    CriticalEdge::new(
+        Entity::StockIn,
+        "PENDING_POST",
+        "POSTED",
+        "采购收货无法过账",
+    ),
+    CriticalEdge::new(Entity::StockIn, "DRAFT", "POSTED", "采购收货无法直接过账"),
+    // 采购订单
+    CriticalEdge::new(
+        Entity::PurchaseOrder,
+        "DRAFT",
+        "SUBMITTED",
+        "采购订单无法提交审批",
+    ),
+    CriticalEdge::new(
+        Entity::PurchaseOrder,
+        "SUBMITTED",
+        "APPROVED",
+        "采购订单无法审批通过（后续收货全部卡住）",
+    ),
+    CriticalEdge::new(
+        Entity::PurchaseOrder,
+        "APPROVED",
+        "PARTIAL_RECEIVED",
+        "采购订单无法继续收货",
+    ),
+    CriticalEdge::new(
+        Entity::PurchaseOrder,
+        "APPROVED",
+        "RECEIVED",
+        "采购订单无法收货完成",
+    ),
+    // 销售订单
+    CriticalEdge::new(
+        Entity::SaleOrder,
+        "DRAFT",
+        "SUBMITTED",
+        "销售订单无法提交审批",
+    ),
+    CriticalEdge::new(
+        Entity::SaleOrder,
+        "SUBMITTED",
+        "APPROVED",
+        "销售订单无法审批通过（后续发货全部卡住）",
+    ),
+    CriticalEdge::new(
+        Entity::SaleOrder,
+        "APPROVED",
+        "PARTIAL_OUT",
+        "销售订单无法部分出库",
+    ),
+    CriticalEdge::new(
+        Entity::SaleOrder,
+        "APPROVED",
+        "OUTBOUND",
+        "销售订单无法出库完成",
+    ),
+    CriticalEdge::new(
+        Entity::SaleOrder,
+        "PARTIAL_OUT",
+        "OUTBOUND",
+        "销售订单无法出库完成",
+    ),
+    // 发货单
+    CriticalEdge::new(
+        Entity::Shipment,
+        "DRAFT",
+        "PENDING_POST",
+        "发货单无法提交待过账",
+    ),
+    CriticalEdge::new(Entity::Shipment, "PENDING_POST", "POSTED", "发货单无法过账"),
+    // 库存调拨
+    CriticalEdge::new(Entity::Transfer, "DRAFT", "PENDING", "库存调拨无法提交审批"),
+    CriticalEdge::new(
+        Entity::Transfer,
+        "PENDING",
+        "APPROVED",
+        "库存调拨无法审批通过",
+    ),
+    CriticalEdge::new(
+        Entity::Transfer,
+        "APPROVED",
+        "IN_TRANSIT",
+        "库存调拨无法发货",
+    ),
+    CriticalEdge::new(
+        Entity::Transfer,
+        "IN_TRANSIT",
+        "DONE",
+        "库存调拨无法收货完成",
+    ),
+    // 盘点
+    CriticalEdge::new(
+        Entity::StockTake,
+        "DRAFT",
+        "PENDING_POST",
+        "盘点单无法提交审批",
+    ),
+    CriticalEdge::new(
+        Entity::StockTake,
+        "PENDING_POST",
+        "POSTED",
+        "盘点单无法过账",
+    ),
+    // 凭证（记账链）
+    CriticalEdge::new(Entity::Voucher, "DRAFT", "AUDITED", "凭证无法审核"),
+    CriticalEdge::new(
+        Entity::Voucher,
+        "AUDITED",
+        "POSTED",
+        "凭证无法记账（总账与报表一条不进）",
+    ),
+];
+
+/// 这条边是不是主链路必需边（`None` = 不是）。
+pub fn critical_edge(entity: Entity, from: &str, to: &str) -> Option<&'static CriticalEdge> {
+    CRITICAL_EDGES
+        .iter()
+        .find(|item| item.entity == entity && item.from == from && item.to == to)
+}
+
 /// 单据类型注册表。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Entity {
@@ -2139,6 +2348,10 @@ fn warn_edge_throttled(scope: &str, detail: &str) {
 ///
 /// `confirm` 是**二次确认**：改状态机配置 = 改流程规则，必须显式传 `true`
 /// （UI 上就是那个「我确认要改流程规则」的勾选框），否则 400。
+///
+/// `confirm_critical` 是**禁用主链路边时的第三次确认**（【E2E-FIX-1】）：
+/// 只有当 `enabled = false` 且这条边在 [`CRITICAL_EDGES`] 里时才需要传 `true`，
+/// 否则 400 并点名「禁用它会让{impact}」。别的组合传了也没用（不做任何放宽）。
 #[derive(Debug, Clone)]
 pub struct EdgeConfigPatch {
     /// 实体类型（`STOCK_IN` / `PURCHASE_ORDER` / …）。
@@ -2157,6 +2370,8 @@ pub struct EdgeConfigPatch {
     pub auth_code: Option<String>,
     /// 二次确认（必须 true）。
     pub confirm: bool,
+    /// 禁用「主链路必需边」的确认（`enabled = false` 且 `critical_edge(...)` 命中时才需要）。
+    pub confirm_critical: bool,
 }
 
 impl EdgeConfigPatch {
@@ -2171,7 +2386,14 @@ impl EdgeConfigPatch {
             label: None,
             auth_code: None,
             confirm: true,
+            confirm_critical: false,
         }
+    }
+
+    /// 链式：标记「我已确认这是主链路必需边，仍要禁用」（只影响禁用的那一次校验）。
+    pub fn with_confirm_critical(mut self, confirm: bool) -> Self {
+        self.confirm_critical = confirm;
+        self
     }
 }
 
@@ -2370,6 +2592,26 @@ pub async fn upsert_edge_config(
             format!(
                 "{} 的 {from}→{to} 在代码里就要求填原因，配置不能把它放宽（只许加严）",
                 entity.as_str()
+            ),
+        ));
+    }
+    // 【E2E-FIX-1】主链路必需边：禁用要**第三次确认**（`confirm` 只是「我要改配置」，
+    // 这里问的是「你知道关掉它会让哪个功能直接做不了吗」）。
+    // 2026-11-09 E2E-02 演练：`STOCK_OUT DRAFT→POSTED` 被悄悄关掉 → 发货过账 409 → 整条销售链断，
+    // 而改配置的人根本没意识到自己在关主链路。报文必须**点名业务后果**，不能只说「这是一条边」。
+    if !patch.enabled
+        && let Some(critical) = critical_edge(entity, from, to)
+        && !patch.confirm_critical
+    {
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!(
+                "这是主链路必需边（{} {from}→{to}），禁用它会让{}。\
+                 确认要禁用请传 confirm_critical=true（一般不需要禁用主链路边，\
+                 请先确认是不是点错了对象）",
+                entity.as_str(),
+                critical.impact
             ),
         ));
     }
@@ -2909,25 +3151,33 @@ pub async fn transition(
     let resolution = edge_resolution(ex, entity).await;
     log_edge_warnings(entity, &resolution.warnings);
     let Some(edge) = resolution.get(from, to) else {
-        let message = if entity.can_transition(from, to) {
-            format!(
-                "{} {} 的流转「{from} → {to}」已被状态机配置禁用（biz_flow_state_edge）：\
-                 这条边在代码里合法，但管理员把它关掉了。当前允许的去向是 {}",
-                entity.label(),
-                no,
-                match resolution.next_statuses(from).is_empty() {
-                    true => "（无）".to_string(),
-                    false => resolution
-                        .next_statuses(from)
-                        .iter()
-                        .map(|status| format!("「{status}」"))
-                        .collect::<Vec<_>>()
-                        .join(" / "),
-                }
-            )
-        } else {
-            rejection_message_for(entity, from, to, &resolution.next_statuses(from))
-        };
+        // 【E2E-FIX-1】配置层禁用的边：给用户看的是**业务语言**，不是内部单号 + 状态名。
+        // 「出库单 OUT-20261109-000031 的流转 DRAFT → POSTED 已被状态机配置禁用」这种报文
+        // 摆在销售用户面前等于没说 —— 单号是内部单号，状态名是状态机术语，他能做的只有一件事：
+        // 找系统管理员。单号 / 状态 / 当前可选去向一律只进 `internal_detail`（只写日志）。
+        if entity.can_transition(from, to) {
+            let impact = match critical_edge(entity, from, to) {
+                Some(critical) => critical.impact.to_string(),
+                None => match entity.base_edge(from, to) {
+                    Some(base) => format!("{}无法{}", entity.label(), base.meta.default_label),
+                    None => format!("{}无法继续这一步操作", entity.label()),
+                },
+            };
+            let mut error = ApiError::new(
+                409,
+                error_code::RESOURCE_CONFLICT,
+                format!("{impact}：该操作已被系统配置禁用，请联系系统管理员"),
+            );
+            // `internal_detail` 只写日志、不返回前端（内部单号 / 状态名 / 可选去向都在这里）
+            error.internal_detail = Some(format!(
+                "{entity_type} {no} 的流转 {from} → {to} 被 biz_flow_state_edge 禁用（关键边={}）；\
+                 当前允许去向：{:?}",
+                critical_edge(entity, from, to).is_some(),
+                resolution.next_statuses(from)
+            ));
+            return Err(error);
+        }
+        let message = rejection_message_for(entity, from, to, &resolution.next_statuses(from));
         return Err(ApiError::new(409, error_code::RESOURCE_CONFLICT, message));
     };
 
@@ -4232,19 +4482,45 @@ mod tests {
         let _ = tx.rollback().await;
     }
 
-    /// ⓫ 禁用 optional 边后，**真走这条边** → 409「已被状态机配置禁用」；删配置后恢复。
+    /// ⓫ 禁用 optional 边后，**真走这条边** → 409（业务语言，不暴露内部单号）；删配置后恢复。
+    ///
+    /// 【E2E-FIX-1】同时钉住三件事：
+    /// - 禁用主链路边必须先过 `confirm_critical`（不传 → 400 并点名业务后果）；
+    /// - 用户侧 `msg` 只有业务语言（内部单号 / 状态名只在 `internal_detail`，只进日志）；
+    /// - 删掉配置后这条边必须恢复可用（主链不能永久断）。
     #[tokio::test]
     async fn disabled_edge_is_rejected_then_restored_after_delete() {
         let Some((_guard, tx)) = d1_tx().await else {
             return;
         };
         let no = format!("{PREFIX}D1A");
+        // ① 不传 confirm_critical → 400（主链路边禁用要第三次确认）
         let mut patch = d1_patch(ENTITY_STOCK_IN, "DRAFT", "POSTED");
+        patch.enabled = false;
+        let err = upsert_edge_config(&tx, &d1_super_claims(), &patch)
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert!(err.msg.contains("主链路必需边"), "{}", err.msg);
+        assert!(
+            err.msg.contains("采购收货无法直接过账"),
+            "报文要点名业务后果：{}",
+            err.msg
+        );
+        assert!(
+            err.msg.contains("confirm_critical=true"),
+            "报文要告诉调用方怎么继续：{}",
+            err.msg
+        );
+
+        // ② 传了 confirm_critical 才允许禁用
+        let mut patch = d1_patch(ENTITY_STOCK_IN, "DRAFT", "POSTED").with_confirm_critical(true);
         patch.enabled = false;
         upsert_edge_config(&tx, &d1_super_claims(), &patch)
             .await
-            .expect("禁用可选边应成功");
+            .expect("确认后禁用可选边应成功");
 
+        // ③ 真走这条边 → 409，报文是业务语言
         let err = transition(
             &tx,
             ENTITY_STOCK_IN,
@@ -4261,12 +4537,36 @@ mod tests {
         .unwrap_err();
         assert_eq!(err.status, 409, "{}", err.msg);
         assert!(
-            err.msg.contains("已被状态机配置禁用"),
-            "文案要说清是配置禁的，不是代码里没有：{}",
+            err.msg.contains("采购收货无法直接过账"),
+            "文案要说清业务后果：{}",
             err.msg
         );
+        assert!(
+            err.msg.contains("已被系统配置禁用") && err.msg.contains("请联系系统管理员"),
+            "文案要给出下一步（找管理员）：{}",
+            err.msg
+        );
+        assert!(
+            !err.msg.contains(&no),
+            "用户侧报文不许暴露内部单号：{}",
+            err.msg
+        );
+        assert!(
+            !err.msg.contains("DRAFT") && !err.msg.contains("POSTED"),
+            "用户侧报文不许出现状态机状态名：{}",
+            err.msg
+        );
+        let detail = err
+            .internal_detail
+            .as_deref()
+            .expect("内部单号 / 流转 / 可选去向必须留在 internal_detail（只进日志）");
+        assert!(detail.contains(&no), "internal_detail 要带单号：{detail}");
+        assert!(
+            detail.contains("DRAFT") && detail.contains("POSTED"),
+            "internal_detail 要带状态流转：{detail}"
+        );
 
-        // 删配置 → 回到 BASE 行为
+        // ④ 删配置 → 回到 BASE 行为
         assert!(
             delete_edge_config(&tx, &d1_super_claims(), ENTITY_STOCK_IN, "DRAFT", "POSTED")
                 .await
@@ -4287,6 +4587,162 @@ mod tests {
         .await
         .expect("删掉配置后这条边必须恢复可用");
         let _ = tx.rollback().await;
+    }
+
+    /// 【E2E-FIX-1】`biz_flow_critical_edge`（V0354 种进库的巡检白名单）与代码里的
+    /// [`CRITICAL_EDGES`] **逐行一致**：漏一条 → 巡检看不见 → 主链被关也不报警；
+    /// 多一条 → 巡检对一条不存在的边报警。两边漂移一律红。
+    #[tokio::test]
+    async fn critical_edges_match_db_table() {
+        let Some((_guard, tx)) = d1_tx().await else {
+            return;
+        };
+        // 表不存在 = V0354 没跑（老库）：明确 SKIP 而不是假装通过
+        let exists = tx
+            .scalar_sql::<i64>(
+                "SELECT count(*) FROM information_schema.tables \
+                  WHERE table_schema = 'public' AND table_name = 'biz_flow_critical_edge'"
+                    .to_string(),
+                vec![],
+            )
+            .await
+            .unwrap_or(0);
+        if exists == 0 {
+            println!("SKIP: biz_flow_critical_edge 不存在（该库还没跑 V0354）");
+            let _ = tx.rollback().await;
+            return;
+        }
+        let rows = tx
+            .query_sql(
+                "SELECT entity, from_status, to_status, impact FROM biz_flow_critical_edge".to_string(),
+                vec![],
+            )
+            .await
+            .expect("读 biz_flow_critical_edge");
+        let mut db: Vec<(String, String, String, String)> = rows
+            .iter()
+            .map(|row| {
+                (
+                    row.get_typed::<String>("entity").unwrap_or_default(),
+                    row.get_typed::<String>("from_status").unwrap_or_default(),
+                    row.get_typed::<String>("to_status").unwrap_or_default(),
+                    row.get_typed::<String>("impact").unwrap_or_default(),
+                )
+            })
+            .collect();
+        db.sort();
+        let mut code: Vec<(String, String, String, String)> = CRITICAL_EDGES
+            .iter()
+            .map(|edge| {
+                (
+                    edge.entity.as_str().to_string(),
+                    edge.from.to_string(),
+                    edge.to.to_string(),
+                    edge.impact.to_string(),
+                )
+            })
+            .collect();
+        code.sort();
+        assert_eq!(
+            db, code,
+            "biz_flow_critical_edge 与代码里的 CRITICAL_EDGES 不一致：\
+             改清单必须同步加一条新迁移（不能改已应用的 V0354）"
+        );
+        println!(
+            "[E2E-FIX-1 证据] biz_flow_critical_edge {} 行，与 CRITICAL_EDGES 逐行一致",
+            db.len()
+        );
+        let _ = tx.rollback().await;
+    }
+
+    /// 【E2E-FIX-1】主链路清单本身的自洽性（**不连库**）：
+    /// 每一条都必须是 `BASE_EDGES` 里真实存在的边（写错状态名 = 标记永远不生效，
+    /// 却会让巡检对一条不存在的边报警，两头都骗）。
+    #[test]
+    fn critical_edges_are_real_base_edges() {
+        for critical in CRITICAL_EDGES {
+            let entity = critical.entity;
+            assert!(
+                entity.base_edge(critical.from, critical.to).is_some(),
+                "{} {}→{} 不在 BASE_EDGES 里（状态名写错了？）",
+                entity.as_str(),
+                critical.from,
+                critical.to
+            );
+            assert!(
+                !critical.impact.trim().is_empty(),
+                "{} {}→{} 缺 impact：错误文案与巡检报警都要用它",
+                entity.as_str(),
+                critical.from,
+                critical.to
+            );
+            // impact 会拼进「让{impact}」「{impact}：」两种句式，句尾带句号会读成断句
+            assert!(
+                !critical.impact.ends_with('。') && !critical.impact.ends_with('，'),
+                "impact 不要带句尾标点（会被拼进句子中间）：{}",
+                critical.impact
+            );
+        }
+        // E2E-02 实际踩到的那一条必须在清单里（回归钉死）
+        assert!(
+            critical_edge(Entity::StockOut, "DRAFT", "POSTED").is_some(),
+            "STOCK_OUT DRAFT→POSTED 被关掉会让整条销售链断在发货，必须标记"
+        );
+        // 卡面点名的主链边一条不落
+        for (entity, from, to) in [
+            (Entity::StockOut, "DRAFT", "PENDING_POST"),
+            (Entity::StockIn, "DRAFT", "PENDING_POST"),
+            (Entity::StockIn, "PENDING_POST", "POSTED"),
+            (Entity::PurchaseOrder, "DRAFT", "SUBMITTED"),
+            (Entity::PurchaseOrder, "SUBMITTED", "APPROVED"),
+            (Entity::SaleOrder, "DRAFT", "SUBMITTED"),
+            (Entity::SaleOrder, "SUBMITTED", "APPROVED"),
+            (Entity::Transfer, "DRAFT", "PENDING"),
+            (Entity::Transfer, "IN_TRANSIT", "DONE"),
+            (Entity::StockTake, "DRAFT", "PENDING_POST"),
+        ] {
+            assert!(
+                critical_edge(entity, from, to).is_some(),
+                "{} {from}→{to} 是主链路边，必须在 CRITICAL_EDGES 里",
+                entity.as_str()
+            );
+        }
+    }
+
+    /// 「一条边只能标一次」+ 查询口径（`None` = 不是主链路边）。
+    #[test]
+    fn critical_edges_are_unique_and_lookup_is_exact() {
+        let mut seen = std::collections::HashSet::new();
+        for critical in CRITICAL_EDGES {
+            assert!(
+                seen.insert((critical.entity.as_str(), critical.from, critical.to, critical.impact)),
+                "CRITICAL_EDGES 有重复行：{} {}→{}（impact 也要一致）",
+                critical.entity.as_str(),
+                critical.from,
+                critical.to
+            );
+        }
+        assert!(
+            critical_edge(Entity::StockOut, "POSTED", "CANCELLED").is_none(),
+            "作废边不是主链功能边，不该被标 critical"
+        );
+        assert!(
+            critical_edge(Entity::StockOut, "DRAFT", "CANCELLED").is_none(),
+            "草稿作废不是主链功能边"
+        );
+    }
+
+    /// 禁用主链路边必须二次确认这件事，**纯函数层面**也要钉住（不靠真库）：
+    /// `confirm_critical` 是独立字段，不能被 `confirm` / `allow()` 顺手置真。
+    #[test]
+    fn confirm_critical_is_independent_of_confirm() {
+        let patch = EdgeConfigPatch::allow("STOCK_OUT", "DRAFT", "POSTED");
+        assert!(patch.confirm, "allow() 的 confirm 恒 true");
+        assert!(
+            !patch.confirm_critical,
+            "allow() 不能顺手把「禁用主链路边」的确认置真 —— 那等于没有确认"
+        );
+        assert!(patch.with_confirm_critical(true).confirm_critical);
     }
 
     /// ⓬ 有人绕过 API 直接写库禁用 mandatory 边 → 运行时忽略 + WARN，边照旧可用。

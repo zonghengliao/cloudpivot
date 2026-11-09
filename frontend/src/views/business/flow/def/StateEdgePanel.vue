@@ -60,6 +60,12 @@
             {{ row.mandatoryText }}
           </t-tag>
         </template>
+        <template #critical="{ row }">
+          <t-tag v-if="row.critical" size="small" theme="danger" variant="light" data-testid="state-edge-critical">
+            主链路
+          </t-tag>
+          <span v-else class="muted">—</span>
+        </template>
         <template #reason="{ row }">
           <t-tag v-if="row.reasonText === '必须填原因'" size="small" variant="light" theme="warning">必须填原因</t-tag>
           <span v-else class="muted">不要求原因</span>
@@ -134,7 +140,27 @@
         <span class="mono">{{ target.edge.from }} → {{ target.edge.to }}</span>
         <span class="ce__label">{{ target.edge.label }}</span>
         <t-tag size="small" variant="light" :theme="target.mandatoryTheme">{{ target.mandatoryText }}</t-tag>
+        <t-tag v-if="target.critical" size="small" theme="danger" variant="light">主链路</t-tag>
       </div>
+
+      <!-- 【E2E-FIX-1】禁用主链路必需边：红色警告 + 强制勾选（后端还有 confirm_critical 硬门） -->
+      <template v-if="showCriticalWarning">
+        <t-alert
+          theme="error"
+          :title="`禁用主链路必需边：${criticalImpactText(target.edge)}`"
+          data-testid="state-edge-critical-warning"
+        >
+          <template #message>
+            这是全公司业务链上的必需边，关掉之后
+            <strong>{{ criticalImpactText(target.edge) }}</strong>，且运行时不报「配置问题」只报「找管理员」——
+            业务用户当场就卡住，只能等系统管理员改配置。
+            如果只是想临时加严流程，请改为<strong>启用</strong>并调整审批设置，不要禁用这条边。
+          </template>
+        </t-alert>
+        <t-checkbox v-model="criticalConfirmed" data-testid="state-edge-critical-confirm">
+          我确认要禁用主链路必需边
+        </t-checkbox>
+      </template>
 
       <template v-if="dialogMode === 'UPSERT'">
         <t-form label-align="top">
@@ -223,8 +249,10 @@ import {
   changeReasonError,
   changeResultText,
   changeSummary,
+  criticalImpactText,
   edgeRowView,
   mergeBaseEdges,
+  needsCriticalConfirm,
   pendingChangeText,
   type EdgeChangeForm,
   type EdgeRowView,
@@ -281,6 +309,7 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'to', title: '到', width: 140 },
   { colKey: 'label', title: '文案', width: 120 },
   { colKey: 'mandatory', title: '约束', width: 90 },
+  { colKey: 'critical', title: '主链路', width: 80 },
   { colKey: 'reason', title: '原因', width: 120 },
   { colKey: 'auth_code', title: '追加权限码', width: 170 },
   { colKey: 'configured', title: '当前配置', width: 90 },
@@ -333,11 +362,36 @@ const changeForm = ref<EdgeChangeForm>({ enabled: true, requires_reason: false, 
 /** 提交中 */
 const submitting = ref(false);
 
+/**
+ * 【E2E-FIX-1】「我确认要禁用主链路必需边」的勾选。
+ *
+ * 只在「禁用 + 主链路必需边」时出现；没勾就提交 → 前端先挡，后端还会再挡一次（400）。
+ * 每次打开弹窗都重置成未勾，避免上一次的确认被顺手复用。
+ */
+const criticalConfirmed = ref(false);
+
+/** 当前弹窗是不是「禁用主链路边」（决定红字警告 / 强制勾选是否出现） */
+const showCriticalWarning = computed(
+  () => Boolean(target.value) && needsCriticalConfirm(target.value!.edge, changeForm.value),
+);
+
+// 重新打开「启用」时把确认勾选清掉：否则「关→勾→开→再关」能复用上一次的确认，
+// 等于让人在不看警告的情况下第二次关掉主链路边。
+watch(
+  () => changeForm.value.enabled,
+  (enabled) => {
+    if (enabled) {
+      criticalConfirmed.value = false;
+    }
+  },
+);
+
 /** 打开「变更」 */
 function openChange(row: EdgeRowView): void {
   target.value = row;
   dialogMode.value = 'UPSERT';
   changeForm.value = changeFormOf(row.edge);
+  criticalConfirmed.value = false;
   dialogVisible.value = true;
 }
 
@@ -346,6 +400,7 @@ function openDelete(row: EdgeRowView): void {
   target.value = row;
   dialogMode.value = 'DELETE';
   changeForm.value = { enabled: true, requires_reason: row.edge.requires_reason, label: '', auth_code: '', reason: '' };
+  criticalConfirmed.value = false;
   dialogVisible.value = true;
 }
 
@@ -361,6 +416,12 @@ async function submitChange(): Promise<void> {
     MessagePlugin.warning(reasonError);
     return;
   }
+  // 【E2E-FIX-1】禁用主链路必需边：没勾确认不许提交（后端也有硬门，这里先挡一层，
+  // 免得用户填完理由才吃 400）。
+  if (dialogMode.value === 'UPSERT' && showCriticalWarning.value && !criticalConfirmed.value) {
+    MessagePlugin.warning(`请先勾选「我确认要禁用主链路必需边」（${criticalImpactText(row.edge)}）`);
+    return;
+  }
   submitting.value = true;
   try {
     const result =
@@ -373,7 +434,7 @@ async function submitChange(): Promise<void> {
             confirm: true,
             reason: changeForm.value.reason.trim(),
           })
-        : await changeStateEdge(buildChangeReq(view.entity, row.edge, changeForm.value));
+        : await changeStateEdge(buildChangeReq(view.entity, row.edge, changeForm.value, criticalConfirmed.value));
     dialogVisible.value = false;
     MessagePlugin.success(changeResultText(result));
     await load();

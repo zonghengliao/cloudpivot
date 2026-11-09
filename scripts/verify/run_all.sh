@@ -140,6 +140,13 @@ if has invariants; then
   else
     run_stage "⑤ ERP 不变量审计（条数以 erp_invariants.py 的 check() 为准）" \
       "$OUT/invariants-$STAMP.log" python3 scripts/verify/erp_invariants.py
+    # 【E2E-FIX-1】主链路必需边巡检（只读）：`biz_flow_critical_edge` 里任何一条边
+    # 在 `biz_flow_state_edge` 被 `enabled = false` → FAIL（功能会断）。
+    # rc=4（白名单表不存在 = V0354 未部署）也算 FAIL：不许假装绿。
+    # **本 stage 不会自动改回 enabled**（禁用可能是人工加严），只报警。
+    run_stage "⑤ 主链路必需边巡检（被禁用 → 功能断，只读不自动改回）" \
+      "$OUT/invariants-flow-critical-$STAMP.log" \
+      bash scripts/verify/flow_critical_edges.sh "${NIK_DATABASE_NAME:-cloudpivot_dev}"
   fi
 fi
 
