@@ -29,13 +29,16 @@
 //!    它们决定已计提折旧的口径，改了会让「累计 = Σ明细」永久失真。
 
 use axum::Json;
-use axum::extract::{Extension, Path, Query};
+use axum::extract::{ConnectInfo, Extension, Path, Query};
+use axum::http::HeaderMap;
 use nik::prelude::chrono::Utc;
 use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
-// 标准库 `Result`（prelude 的 `Result<T>` 只有 1 个泛型参数，装不下 `ApiError`）。
+
 use nik::uuid::Uuid;
 use serde_json::json;
+use std::net::SocketAddr;
+// 标准库 `Result`（prelude 的 `Result<T>` 只有 1 个泛型参数，装不下 `ApiError`）。
 use std::result::Result;
 
 use crate::business::attachment::model::DocKind as AttachDocKind;
@@ -406,6 +409,9 @@ pub async fn detail_of(id: Uuid) -> Result<AssetDetailRes, ApiError> {
     Ok(AssetDetailRes {
         months_left,
         amount_left: row.depreciable_base - row.accumulated_depreciation,
+        // 放行警告只属于「启用」这一次动作（见 `AssetDetailRes::warning`）：
+        // 详情读取本身没有「本次操作」，一律 `None`（序列化时字段直接省略）。
+        warning: None,
         next_statuses: state_machine::Entity::FixedAsset
             .next_statuses(&row.status)
             .into_iter()
@@ -1247,9 +1253,27 @@ pub async fn asset_dispose_cancel(
 /// ② 锁卡（`FOR UPDATE`，并发两次只有一个进来）→ ③ 同态 / 可停用判定（409 66046）→
 /// ④ 状态机（唯一状态写入口，写 `biz_status_log`）→ ⑤ CAS 回写（0 行 = 有别的写入路径，
 /// 必须报错不能静默）→ ⑥ 变动留痕（部门 / 使用人四组全 `None`）→ ⑦ 事务内跑联动 →
-/// ⑧ commit → ⑨ 提交后跑通知 → ⑩ 返回详情。
+/// ⑧ commit → ⑨ 提交后跑通知 + 无附件启用的审计 → ⑩ 返回详情。
 ///
 /// **不做期间结账校验**：不落凭证 ⇒ 与 `biz_accounting_period` 无关（别照抄处置那段）。
+///
+/// # 启用时的附件口径（E2E05-FIX-2 方案 B：**提示 + 允许 + 审计**，不是硬闸）
+///
+/// 规则 `FIXED_ASSET` + `ACTIVATE`（`.sql` 注释里的「发票或验收单」，V0347）**只在
+/// 启用这里出现过**：建卡直接落 `IN_USE`、不查附件，所以老卡（或「发票未到先建卡」）
+/// 一旦停用、再启用就会撞上这条规则。改造前这里是 `ensure_attachments(..)?` 硬拦 →
+/// **无附件的资产永远启用不了，界面也没有可点的按钮**（E2E-05 演练实测 400）。
+///
+/// 现在的口径：
+///
+/// - **有附件** → 与改造前完全一致（`warning = None`）；
+/// - **无附件** → **照常启用**，但 ① 响应带 `warning`；② 直写一条
+///   [`OP_ENABLE_WITHOUT_ATTACHMENT`] 审计；③ 打 `tracing::warn!`。
+/// - **规则求值失败（读库异常）** → 同样放行（不能用一次数据库抖动把资产锁死），
+///   但警告与审计都写明「未校验」，绝不静默当成「附件齐备」。
+///
+/// 理由：资产已经存在（停用只是既有状态），「发票没到」不该成为它无法在役的死路；
+/// 但放行必须留痕，所以审计与警告**同一次响应**一起给。
 #[nik::permission(
     path = "/business/erp/asset/{id}/status",
     method = "POST",
@@ -1257,6 +1281,8 @@ pub async fn asset_dispose_cancel(
 )]
 #[nik::post("/business/erp/asset/{id}/status")]
 pub async fn asset_status_change(
+    headers: HeaderMap,
+    ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
     Json(req): Json<StatusChangeReq>,
@@ -1265,11 +1291,36 @@ pub async fn asset_status_change(
     let operator = operator_of(&claims);
     let spec = asset_dto::validate_status_change(&req, voucher_today())?;
     let operator_name = operator_name_of(&claims);
-    // ATT-06：启用（IDLE → IN_USE）即资产的「入账 / 生效」动作 —— 发票或验收单必传。
-    // 建卡（asset_create）本身就把状态置为 `IN_USE` 并生成购入凭证，所以「新建可无」仍然成立。
-    if spec.target_status == asset_dto::STATUS_IN_USE {
-        attach_rule::ensure_attachments(AttachDocKind::FixedAsset, id, AttachAt::Activate).await?;
-    }
+    // E2E05-FIX-2：启用不再硬拦（见函数文档「启用时的附件口径」）。
+    let enable_warning = if spec.target_status == asset_dto::STATUS_IN_USE {
+        match attach_rule::check_attachments(AttachDocKind::FixedAsset, id, AttachAt::Activate).await {
+            // 附件齐备 ⇒ `None`（正常启用，无警告）
+            Ok(violations) => activate_attachment_warning(&violations),
+            // 规则读不出来时**不能**把「不知道」说成「附件齐备」，也不能卡死启用：
+            // 放行 + 明确的「未校验」警告（审计里同样写明）。
+            Err(error) => {
+                let detail = match error {
+                    attach_rule::AttachRuleError::Db(detail) => detail,
+                    attach_rule::AttachRuleError::Violation(violations) => violations
+                        .iter()
+                        .map(attach_rule::RuleViolation::message)
+                        .collect::<Vec<_>>()
+                        .join("；"),
+                };
+                tracing::warn!(
+                    %id,
+                    error = %detail,
+                    "启用前附件必传规则求值失败：按方案 B 放行（本次启用未校验附件，记审计）"
+                );
+                Some(format!(
+                    "附件必传规则校验失败（{detail}）：本次启用未校验附件，已记审计 \
+                     （操作日志：{OP_ENABLE_WITHOUT_ATTACHMENT}）"
+                ))
+            }
+        }
+    } else {
+        None
+    };
     let tx = db()
         .begin()
         .await
@@ -1377,17 +1428,243 @@ pub async fn asset_status_change(
                 .map_err(|error| db_err(error, "提交停用 / 启用事务"))?;
             // 铁律：通知 / 建任务只能在事务提交**之后**发（提交失败 = 状态没改）
             asset_linkage::run_deferred_after_commit(change).await;
+            let mut detail = detail_of(id).await?;
+            // ⑨ 无附件启用：状态已经改成功了，审计是**旁路**（写库失败只 warn，
+            //    不能反过来让接口报错 —— 否则用户看到 500 但状态其实已经变了）。
+            if let Some(warning) = enable_warning.as_deref() {
+                tracing::warn!(
+                    %id,
+                    asset_no = %detail.asset.asset_no,
+                    "资产启用未满足附件要求（已记审计）"
+                );
+                let entry = EnableWithoutAttachmentLog {
+                    user_id: operator,
+                    username: claims.username.as_deref(),
+                    asset_id: id,
+                    asset_no: &detail.asset.asset_no,
+                    reason: &spec.reason,
+                    warning,
+                    client_ip: utils::client_ip(&headers, Some(&connect_info)),
+                    user_agent: utils::user_agent(&headers),
+                    request_id: utils::request_id(&headers),
+                    request_path: "/api/business/erp/asset/{id}/status",
+                    status_code: 200,
+                };
+                if let Err(error) = write_enable_without_attachment_log(&entry).await {
+                    tracing::warn!(
+                        %id,
+                        error = %error,
+                        "无附件启用的审计写库失败（启用已完成，不因此报错）"
+                    );
+                }
+            }
+            detail.warning = enable_warning;
             tracing::info!(
                 %id,
                 status = spec.target_status,
                 "资产状态变更完成（停用 / 启用：不落凭证、折旧照提）"
             );
-            Ok(Res::ok(detail_of(id).await?))
+            Ok(Res::ok(detail))
         }
         Err(error) => {
             let _ = tx.rollback().await;
             Err(error)
         }
+    }
+}
+
+// ==================== 启用时的附件口径（E2E05-FIX-2 方案 B） ====================
+
+/// 「无附件启用」审计的操作码（`operation_logs.operation`）。
+///
+/// 与 `DOC_ATTACHMENT_*`（附件模块）同一命名族：日志页按它筛「哪些资产是无票启用的」。
+pub const OP_ENABLE_WITHOUT_ATTACHMENT: &str = "ERP_ASSET_ENABLE_NO_ATTACH";
+
+/// 一条「无附件启用」审计（`operation_logs` 的一行）。
+#[derive(Debug, Clone)]
+pub struct EnableWithoutAttachmentLog<'a> {
+    /// 操作人（来自 `AuthClaims`，**不**取自请求参数）。
+    pub user_id: Option<Uuid>,
+    /// 操作人账号。
+    pub username: Option<&'a str>,
+    /// 资产主键。
+    pub asset_id: Uuid,
+    /// 资产编号。
+    pub asset_no: &'a str,
+    /// 启用的原因（内控留痕，用户必填的那段）。
+    pub reason: &'a str,
+    /// 本次响应里给出的警告原文（审计与界面**同一句话**，方便对账）。
+    pub warning: &'a str,
+    /// 客户端 IP。
+    pub client_ip: Option<std::net::IpAddr>,
+    /// User-Agent。
+    pub user_agent: Option<String>,
+    /// 请求追踪 id（与响应头 / 全局日志同值）。
+    pub request_id: String,
+    /// 请求路径（宏里的路径不含 `/api` 前缀，这里写全，日志页可直接点）。
+    pub request_path: &'a str,
+    /// HTTP 状态码（放行 = 200）。
+    pub status_code: i32,
+}
+
+/// 启用时缺必传附件的**放行警告**（`None` = 附件齐备，无警告）。
+///
+/// # 为什么是纯函数
+///
+/// 文案必须与「缺口清单」同源（`RuleViolation::requirement_name()` 从 `remark` 反解，
+/// 改规则 remark 就改文案），且要能穷举单测：空 / 一条 / 多条都要拼对。
+pub fn activate_attachment_warning(violations: &[attach_rule::RuleViolation]) -> Option<String> {
+    if violations.is_empty() {
+        return None;
+    }
+    let names = violations
+        .iter()
+        .map(attach_rule::RuleViolation::requirement_name)
+        .collect::<Vec<_>>()
+        .join("、");
+    Some(format!(
+        "本次启用未上传{names}，已记审计（操作日志：{OP_ENABLE_WITHOUT_ATTACHMENT}）；\
+         建议尽快在「资产详情 → 附件」补传"
+    ))
+}
+
+/// 写一条「无附件启用」审计（`operation_logs`）。
+///
+/// # 为什么直写而不是投递日志总线
+///
+/// 与附件模块的上传 / 删除留痕同一条理由（AUD-02 实测）：总线是 500 ms 批量，
+/// 未初始化的进程里会丢事件；而「这张资产是在没有发票的情况下被启用的」正是
+/// 审计要回答的问题。多一次毫秒级往返换「响应返回时这行已在库里」。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]（由调用方决定阻断还是只记日志；启用成功后只记日志）。
+pub async fn write_enable_without_attachment_log(entry: &EnableWithoutAttachmentLog<'_>) -> DbResult<()> {
+    db().execute_with_params(
+        "INSERT INTO operation_logs \
+             (id, request_id, user_id, username, operation, target_type, target_id, detail, \
+              ip, user_agent, duration_ms, request_path, request_method, status_code, created_at) \
+         VALUES (?::uuid, ?, ?::uuid, ?, ?, 'biz_fixed_asset', ?, ?::jsonb, \
+                 ?::text::inet, ?, NULL, ?, 'POST', ?::text::int4, now())",
+        vec![
+            Value::from(&Uuid::now_v7()),
+            Value::Text(entry.request_id.clone()),
+            entry.user_id.as_ref().map(Value::from).unwrap_or(Value::Null),
+            entry
+                .username
+                .map(|name| Value::Text(name.to_string()))
+                .unwrap_or(Value::Null),
+            Value::Text(OP_ENABLE_WITHOUT_ATTACHMENT.to_string()),
+            Value::Text(entry.asset_id.to_string()),
+            Value::Json(
+                json!({
+                    "asset_id": entry.asset_id.to_string(),
+                    "asset_no": entry.asset_no,
+                    "reason": entry.reason,
+                    "warning": entry.warning,
+                    // 审计判据：这条是「无附件启用」而不是普通启用
+                    "attachments_satisfied": false,
+                })
+                .to_string(),
+            ),
+            entry
+                .client_ip
+                .map(|ip| Value::Text(ip.to_string()))
+                .unwrap_or(Value::Null),
+            entry
+                .user_agent
+                .as_ref()
+                .map(|text| Value::Text(text.clone()))
+                .unwrap_or(Value::Null),
+            Value::Text(entry.request_path.to_string()),
+            Value::Text(entry.status_code.to_string()),
+        ],
+    )
+    .await?;
+    Ok(())
+}
+
+// ==================== 启用附件口径的单测（E2E05-FIX-2） ====================
+
+#[cfg(test)]
+mod enable_warning_tests {
+    //! 「无附件启用」放行警告的**纯逻辑**单测（不连库，`cargo test --lib` 直接跑）。
+    //!
+    //! 只钉三件事：附件齐备 → 无警告；缺一条 → 点名那一条并带上审计操作码；
+    //! 缺多条 → 逐条点名、顿号连接。需求名从 `RuleViolation::requirement_name`
+    //! 反解，所以这里用**真实规则文案的形态**构造，钉住「改 remark 文案就漂」。
+    //!
+    //! ```bash
+    //! cargo test --lib business::erp::asset_handler::enable_warning_tests
+    //! ```
+
+    use super::*;
+
+    /// 一条「缺 1 个」的违例（形态与 `rule::evaluate` 产出的完全一致）。
+    fn violation(requirement: &str) -> attach_rule::RuleViolation {
+        attach_rule::RuleViolation {
+            rule_id: Uuid::now_v7(),
+            requirement: requirement.to_string(),
+            file_role: Some("INVOICE_SCAN".to_string()),
+            allowed_exts: vec!["pdf".to_string(), "jpg".to_string(), "png".to_string()],
+            min_count: 1,
+            max_count: None,
+            matched: 0,
+            total: 0,
+            actual_exts: Vec::new(),
+        }
+    }
+
+    /// 附件齐备（没有违例）⇒ 不放警告：前端不该弹「无附件启用」。
+    #[test]
+    fn no_violation_has_no_warning() {
+        assert!(
+            activate_attachment_warning(&[]).is_none(),
+            "无违例时必须是 None（有 warning 前端就会弹确认框，正常启用变成噪音）"
+        );
+    }
+
+    /// 缺一条 ⇒ 警告点名需求名 + 审计操作码（人话里能对上日志页的筛选码）。
+    #[test]
+    fn single_violation_names_requirement_and_audit_code() {
+        let warning =
+            activate_attachment_warning(&[violation("固定资产必须上传发票或验收单（pdf/jpg/png）：至少要 1 个")])
+                .expect("缺附件必须有警告");
+
+        assert!(
+            warning.contains("发票或验收单"),
+            "警告必须点名缺什么（与后端 400 同源）：{warning}"
+        );
+        assert!(
+            warning.contains(OP_ENABLE_WITHOUT_ATTACHMENT),
+            "警告必须带审计操作码，用户才能在操作日志里查到：{warning}"
+        );
+        assert!(warning.contains("已记审计"), "警告必须说明已记审计：{warning}");
+        assert!(
+            !warning.contains("固定资产必须上传"),
+            "单据名前缀不该进警告（这里是资产详情页）：{warning}"
+        );
+        assert!(
+            !warning.contains("（pdf/jpg/png）"),
+            "格式括号不该进警告（那是规则明细，界面另有附件面板）：{warning}"
+        );
+    }
+
+    /// 缺两条 ⇒ 两条都点名，顿号连接（不能只报第一条）。
+    #[test]
+    fn multiple_violations_all_named() {
+        let warning = activate_attachment_warning(&[
+            violation("固定资产必须上传发票或验收单（pdf/jpg/png）：至少要 1 个"),
+            violation("固定资产必须上传资产照片（jpg/png）：至少要 1 个"),
+        ])
+        .expect("缺附件必须有警告");
+
+        assert!(
+            warning.contains("发票或验收单、资产照片"),
+            "多条缺口必须逐条点名、顿号连接：{warning}"
+        );
+        let code_hits = warning.matches(OP_ENABLE_WITHOUT_ATTACHMENT).count();
+        assert_eq!(code_hits, 1, "审计操作码只出现一次（别每条缺口都拼一遍）：{warning}");
     }
 }
 

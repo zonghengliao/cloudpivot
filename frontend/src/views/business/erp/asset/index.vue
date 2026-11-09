@@ -230,13 +230,14 @@
       @close="closeForm"
     >
       <!--
-        E2E01-FIX-1：建卡后资产是 IDLE，**启用（入账）**才要求发票或验收单
-        （`FIXED_ASSET` + `ACTIVATE`，V0347）—— 建卡时就说清楚，别等点「启用」才吃 400。
+        E2E01-FIX-1 → E2E05-FIX-2：建卡后资产是 IDLE，「启用（入账）」时查附件
+        （`FIXED_ASSET` + `ACTIVATE`，V0347）。**不再是硬闸**：缺附件也能启用，
+        但会被记一条「无附件启用」审计（见「启用资产」弹窗里的黄字与确认框）。
       -->
       <t-alert
-        theme="warning"
+        theme="info"
         data-testid="asset-create-attach-notice"
-        message="启用（入账）资产前必须上传发票或验收单（pdf/jpg/png）：建卡后在「资产详情 → 附件」上传，传完「确认启用」才会放行。"
+        message="建议建卡后在「资产详情 → 附件」上传发票或验收单（pdf/jpg/png）：启用（入账）时系统会查这两个附件，缺了仍可启用，但会记一条「无附件启用」审计。"
       />
       <div class="form-layout">
         <div class="form-layout__main">
@@ -577,12 +578,13 @@
             </t-tab-panel>
 
             <!--
-              ATT-09：附件页签 —— 「启用（入账）」前必须有发票或验收单
-              （规则 `FIXED_ASSET` + `ACTIVATE`）。没有上传入口，必传规则永远无法满足。
+              ATT-09 → E2E05-FIX-2：附件页签 —— 启用（入账）时会查发票 / 验收单
+              （规则 `FIXED_ASSET` + `ACTIVATE`）。**不是硬闸**：缺了也能启用，
+              但会落一条「无附件启用」审计；这里仍然是唯一的补传入口。
             -->
             <t-tab-panel value="attachments" label="附件">
               <p class="muted attach-rule">
-                启用（入账）前必须上传发票或验收单（pdf / jpg / png）；停用不受此约束。
+                启用（入账）时会查发票或验收单（pdf / jpg / png）：缺了仍可启用，但会记一条「无附件启用」审计；停用不受此约束。
               </p>
               <DocAttachmentPanel
                 :doc-type="DOC_KIND.FIXED_ASSET"
@@ -750,7 +752,6 @@
         content: statusChangeKind === 'IDLE' ? '确认停用' : '确认启用',
         loading: submitting,
         theme: statusChangeKind === 'IDLE' ? 'warning' : 'primary',
-        disabled: statusChangeKind === 'IN_USE' && !assetGate.canProceed,
       }"
       data-testid="asset-status-dialog"
       @confirm="submitStatusChange"
@@ -766,15 +767,21 @@
         message="启用后资产回到「在役」，继续按月计提折旧。"
       />
       <!--
-        ATT-09：启用 = 资产的「入账 / 生效」动作，发票或验收单必传
-        （规则 `FIXED_ASSET` + `ACTIVATE`，后端 `asset_status_change` 同一条闸门）。
-        缺附件时「确认启用」置灰并在这里点名缺什么；上传入口在「资产详情 → 附件」页签。
+        E2E05-FIX-2 方案 B：附件**不再是硬闸**。
+        改造前这里把「确认启用」置灰 → 「发票未到先建卡、停用后再启用」的资产永远启用不了
+        （E2E-05 演练实测 400，界面上也没有可点的按钮）。现在的口径：
+        缺附件照样能启用，但 ① 弹窗里先说清楚会被记审计；② 点「确认启用」再弹一次确认框；
+        ③ 后端把同一句话写进操作日志（`ERP_ASSET_ENABLE_NO_ATTACH`）并回在 `warning` 里。
+        缺口文案仍完全来自后端 `GET /attachment/check`（`assetGate.hint`），前端不拼句子。
       -->
-      <AttachmentGateHint
-        v-if="statusChangeKind === 'IN_USE'"
-        class="status-gate-hint"
-        :hint="assetGate.hint"
-        testid="asset-enable-gate-hint"
+      <t-alert
+        v-if="statusChangeKind === 'IN_USE' && !assetGate.canProceed"
+        theme="warning"
+        data-testid="asset-enable-gate-hint"
+        :message="
+          `${assetGate.hint ?? '未上传发票 / 验收单'}：本次启用仍会成功，但会记一条审计` +
+          '（操作日志 ERP_ASSET_ENABLE_NO_ATTACH），建议尽快补传。'
+        "
       />
       <t-link
         v-if="statusChangeKind === 'IN_USE' && !assetGate.canProceed && statusChangeTarget"
@@ -818,7 +825,6 @@ import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-n
 import { fetchStockInPage, fetchSupplierOptions, type StockInRow, type Supplier } from '@/api/business/erp';
 import { DEFAULT_ROLE_BY_DOC, type DocType } from '@/api/business/erp/attachment';
 import { DOC_KIND } from '@/api/business/erp/doc-kinds';
-import AttachmentGateHint from '@/views/business/erp/shared/AttachmentGateHint.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
 import { useAttachmentGate } from '@/views/business/erp/shared/use-attachment-gate';
 import {
@@ -1481,14 +1487,20 @@ const statusChangeForm = reactive({ reason: '', change_date: '' });
 const statusChangeError = ref('');
 const statusChangeTarget = ref<AssetRow | null>(null);
 
-// ==================== 附件必传闸门（ATT-09） ====================
+// ==================== 附件必传闸门（ATT-09 → E2E05-FIX-2 降级为「提示」） ====================
 
 /**
- * 启用（`IDLE → IN_USE`）= 资产的「入账 / 生效」动作，此时发票或验收单必传
- * （规则 `FIXED_ASSET` + `ACTIVATE`，后端 `asset_status_change` 里同一条闸门）。
+ * 启用（`IDLE → IN_USE`）= 资产的「入账 / 生效」动作，此时系统会查发票或验收单
+ * （规则 `FIXED_ASSET` + `ACTIVATE`）。
+ *
+ * **E2E05-FIX-2 方案 B：这个闸门在本页只用来「提前告知」，不再禁用按钮。**
+ * 改造前 `canProceed = false` ⇒ 「确认启用」置灰 + 提交前 `return`，而建卡不查附件
+ * ⇒ 「发票未到先建卡」的资产停用一次就永远启用不回来（E2E-05 演练实测 400）。
+ * 现在的流程：缺附件 → 弹窗黄字（点名缺什么）+ 点「确认启用」时的二次确认框 →
+ * 确认后照常提交，后端写「无附件启用」审计并在响应 `warning` 里回同一句话。
  *
  * 只在**启用**弹窗里查（停用与附件无关）：弹窗打开时把 `docId` 指向目标资产，
- * 关闭 / 切成停用就置 `null`（组合式函数回到初始态，不发请求、不禁用、不画红字）。
+ * 关闭 / 切成停用就置 `null`（组合式函数回到初始态，不发请求、不提示）。
  */
 const assetGateDocType = ref<DocType>('FIXED_ASSET');
 const assetGateDocId = computed(() =>
@@ -1532,17 +1544,62 @@ async function submitStatusChange(): Promise<void> {
     return;
   }
   const idling = statusChangeKind.value === 'IDLE';
-  // ATT-09：启用前必须有发票或验收单（弹窗按钮已置灰，这里再兜一次底）
-  if (!idling && !assetGate.value.canProceed) {
-    statusChangeError.value =
-      assetGate.value.hint ?? '还缺必传附件：请先在「资产详情 → 附件」上传发票或验收单';
-    return;
-  }
   const reasonError = requireReasonError(statusChangeForm.reason, idling ? '停用原因' : '启用原因');
   if (reasonError) {
     statusChangeError.value = reasonError;
     return;
   }
+  // E2E05-FIX-2 方案 B：缺附件**不再拦**（旧代码这里 `return` + 按钮置灰 ⇒ 无附件的
+  // 资产永远启用不了）。改成「确认后再做」：确认框说清会被记审计，确认即放行。
+  if (!idling && !assetGate.value.canProceed) {
+    confirmEnableWithoutAttachment(target);
+    return;
+  }
+  await doSubmitStatusChange();
+}
+
+/**
+ * 「无附件启用」的二次确认（E2E05-FIX-2 方案 B）。
+ *
+ * 为什么还要弹：附件规则没被取消，只是从「硬拦」降级成「留痕放行」。用户点「确认启用」
+ * 时再明确一次「这次会被记审计」，比只在弹窗里放一行黄字更难忽略；而真正的留痕在后端
+ * （`operation_logs.operation = ERP_ASSET_ENABLE_NO_ATTACH`），不依赖这次点击。
+ *
+ * 取消 = 什么都不做（弹窗保持打开，用户可以先去上传附件）。
+ */
+function confirmEnableWithoutAttachment(row: AssetRow): void {
+  const target = statusChangeTarget.value;
+  if (!target) {
+    return;
+  }
+  const missing = assetGate.value.hint ?? '未上传发票 / 验收单';
+  const dialog = DialogPlugin.confirm({
+    header: '未上传发票 / 验收单',
+    theme: 'warning',
+    body:
+      `${missing}。\n\n` +
+      `继续启用「${row.asset_no} ${row.asset_name}」不会失败，但系统会记一条「无附件启用」审计` +
+      `（操作日志 ERP_ASSET_ENABLE_NO_ATTACH），可在「系统监控 → 操作日志」查到。\n\n确认继续？`,
+    confirmBtn: '无附件启用',
+    cancelBtn: '先去上传',
+    onConfirm: async () => {
+      dialog.hide();
+      await doSubmitStatusChange();
+    },
+    onCancel: () => {
+      // 取消 = 留在启用的路径上（这里不打开详情，用户可能只是想先补传）
+      dialog.hide();
+    },
+  });
+}
+
+/** 真正落库：停用 / 启用都走这里（`warning` 只可能出现在启用 + 缺附件时）。 */
+async function doSubmitStatusChange(): Promise<void> {
+  const target = statusChangeTarget.value;
+  if (!target) {
+    return;
+  }
+  const idling = statusChangeKind.value === 'IDLE';
   submitting.value = true;
   try {
     const res = await changeAssetStatus(target.id, {
@@ -1552,9 +1609,14 @@ async function submitStatusChange(): Promise<void> {
     });
     statusChangeVisible.value = false;
     detail.value = res;
-    MessagePlugin.success(
-      idling ? '已停用：资产转为「闲置」（折旧照提）' : '已启用：资产恢复「在役」',
-    );
+    if (res.warning) {
+      // 后端回的是**放行警告**（状态已经改成功）—— 用 warning 而不是 success/error
+      MessagePlugin.warning({ content: res.warning, duration: 8000 });
+    } else {
+      MessagePlugin.success(
+        idling ? '已停用：资产转为「闲置」（折旧照提）' : '已启用：资产恢复「在役」',
+      );
+    }
     await loadRows();
   } catch (error) {
     MessagePlugin.error(errorText(error));

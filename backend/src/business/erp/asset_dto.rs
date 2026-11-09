@@ -1043,6 +1043,13 @@ pub struct AssetDetailRes {
     pub months_left: i32,
     /// 剩余可提金额。
     pub amount_left: Decimal,
+    /// **本次操作的放行警告**（`None` = 无；E2E05-FIX-2 方案 B）。
+    ///
+    /// 只有「启用（`IDLE → IN_USE`）但缺发票 / 验收单」这一条路径会给值：
+    /// 卡片状态照常改成在役，但审计里落一条「无附件启用」，
+    /// 前端据此弹一条 warning（不是错误，操作已经成功）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 /// 建卡 / 变更后的实体 id。

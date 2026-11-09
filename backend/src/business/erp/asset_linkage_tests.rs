@@ -22,7 +22,8 @@
 //! | # | 用例 | 覆盖 |
 //! |---|---|---|
 //! | 1 | `st02_idle_triggers_once` | 停用（`IN_USE → IDLE`）真的触发 `FIXED_ASSET/IDLE` 规则：状态 + 状态日志 1 行 + 变动留痕 1 行（dept/user 全 NULL）+ 通知 1 条 |
-//! | 2 | `st02_enable_triggers_once` | 启用（`IDLE → IN_USE`）触发 `FIXED_ASSET/IN_USE` 规则：change_type=ENABLE + 通知 1 条 |
+//! | 2 | `st02_enable_triggers_once` | 启用（`IDLE → IN_USE`）触发 `FIXED_ASSET/IN_USE` 规则：change_type=ENABLE + 通知 1 条；**有附件**时无 warning、不写审计 |
+//! | 2b | `st02_enable_without_attachment_is_allowed_and_audited` | **无附件启用允许**（E2E05-FIX-2 方案 B）：Ok + `warning` 点名缺口与审计码 + `operation_logs` **恰好 1 行**「无附件启用」（含资产编号 / 原因） |
 //! | 3 | `st02_repeat_idle_conflicts` | 重复停用 → **409 / 66046**，通知 / 变动 / 状态日志**全部不变** |
 //! | 4 | `st02_excluded_actions_not_run` | `IDLE` 上配 `GENERATE_VOUCHER`：停用后**凭证 0 张**，同状态 `SEND_NOTICE` 照发（证明排除清单有牙，不是规则没命中） |
 //! | 5 | `st02_reversible_edges_notify_twice` | 停用 → 启用 → **再停用** = 通知 **3** 条（事件维度幂等键生效） |
@@ -104,6 +105,14 @@ fn in_uuids(ids: &[Uuid]) -> String {
         .join(", ")
 }
 
+/// 文本列（`character varying`）用的字面量列表。
+///
+/// `operation_logs.target_id` 是 **varchar**（不是 uuid），拿 `'{id}'::uuid` 去比会
+/// `operator does not exist: character varying = uuid`（E2E05-FIX-2 实测：清场直接 panic）。
+fn in_texts(ids: &[Uuid]) -> String {
+    ids.iter().map(|id| format!("'{id}'")).collect::<Vec<_>>().join(", ")
+}
+
 /// 清场：本卡的联动规则 / 通知 + 按 id 集合删卡片侧的一切。
 ///
 /// 顺序：通知 → 凭证（分录随 CASCADE）→ 变动留痕 → 状态日志 → 审批实例 → 卡片。
@@ -125,6 +134,19 @@ async fn purge() {
     .await;
     if !assets.is_empty() {
         let list = in_uuids(&assets);
+        // E2E05-FIX-2：无附件启用会直写 operation_logs（target_id = 资产主键），
+        // 附件夹具落在 biz_doc_attachment（doc_id = 资产主键）—— 两者都没外键指向卡片，
+        // 必须按本卡的卡片 id 集合先清，否则「跑过测试的库」比「刚迁移的库」多行。
+        exec(&format!(
+            "DELETE FROM operation_logs WHERE target_id IN ({}) AND operation = '{}'",
+            in_texts(&assets),
+            super::asset_handler::OP_ENABLE_WITHOUT_ATTACHMENT
+        ))
+        .await;
+        exec(&format!(
+            "DELETE FROM biz_doc_attachment WHERE doc_type = 'FIXED_ASSET' AND doc_id IN ({list})"
+        ))
+        .await;
         exec(&format!(
             "DELETE FROM biz_voucher WHERE source_type = '{}' AND source_id IN ({list})",
             asset_bridge::SOURCE_DISPOSAL
@@ -740,7 +762,22 @@ async fn status_change(
         )
         .await;
     }
+    status_change_raw(user, asset_id, target_status, reason).await
+}
+
+/// 直接走真实 handler 的停用 / 启用（**不**自动补附件夹具）。
+///
+/// E2E05-FIX-2：启用不再硬拦附件，「无票启用」需要能真的走通并拿到 warning，
+/// 所以把「补夹具」从调用路径里拆出来，由用例自己决定传不传附件。
+async fn status_change_raw(
+    user: Uuid,
+    asset_id: Uuid,
+    target_status: &str,
+    reason: &str,
+) -> std::result::Result<AssetDetailRes, ApiError> {
     let res = asset_status_change(
+        axum::http::HeaderMap::new(),
+        axum::extract::ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], 0))),
         Extension(AuthClaims(claims_of(user))),
         Path(asset_id.to_string()),
         Json(StatusChangeReq {
@@ -751,6 +788,34 @@ async fn status_change(
     )
     .await?;
     Ok(res.data.expect("停用 / 启用必须返回资产详情"))
+}
+
+/// 本用例造过的 `operation_logs`（按 target_id 精确取，绝不扫全库）。
+async fn enable_audit_of(asset_id: Uuid) -> Vec<(String, String, String)> {
+    let rows = db()
+        .query_sql(
+            "SELECT operation, COALESCE(detail->>'asset_no', '') AS asset_no, \
+                    COALESCE(detail->>'reason', '') AS reason \
+               FROM operation_logs \
+              WHERE target_id = ? AND operation = ? \
+              ORDER BY created_at, id"
+                .to_string(),
+            vec![
+                Value::Text(asset_id.to_string()),
+                Value::Text(super::asset_handler::OP_ENABLE_WITHOUT_ATTACHMENT.to_string()),
+            ],
+        )
+        .await
+        .expect("查无附件启用审计");
+    rows.iter()
+        .map(|row| {
+            (
+                row.get_typed::<String>("operation").expect("operation"),
+                row.get_typed::<String>("asset_no").expect("asset_no"),
+                row.get_typed::<String>("reason").expect("reason"),
+            )
+        })
+        .collect()
 }
 
 /// 资产的状态日志（按写入顺序的 `(from, to)`）。
@@ -916,9 +981,20 @@ async fn st02_enable_triggers_once() {
         "停用不许触发 IN_USE 的规则（触发点按**变更后**的状态匹配）"
     );
 
-    status_change(user, asset_id, asset_dto::STATUS_IN_USE, "恢复使用")
+    let detail = status_change(user, asset_id, asset_dto::STATUS_IN_USE, "恢复使用")
         .await
         .unwrap_or_else(|err| panic!("启用失败：{} {}", err.code, err.msg));
+    // E2E05-FIX-2：附件齐备的启用与改造前完全一致 —— 没有放行警告，也不写「无附件启用」审计。
+    assert!(
+        detail.warning.is_none(),
+        "有附件启用不该带 warning：{:?}",
+        detail.warning
+    );
+    assert_eq!(
+        enable_audit_of(asset_id).await.len(),
+        0,
+        "有附件启用不该写「无附件启用」审计"
+    );
     assert_eq!(
         status_of(asset_id).await.as_deref(),
         Some(asset_dto::STATUS_IN_USE),
@@ -938,6 +1014,78 @@ async fn st02_enable_triggers_once() {
         "FIXED_ASSET/IN_USE 上配的 SEND_NOTICE 必须由「启用」触发一次"
     );
     assert_eq!(vouchers_of(asset_id).await, 0, "启用也不落凭证");
+    purge().await;
+}
+
+/// ②-b 启用（**无附件**）：方案 B —— **允许**启用，但带 `warning` 并写一条「无附件启用」审计。
+///
+/// E2E-05 演练踩到的死路：建卡不查附件（发票可能后到），停用后再启用却撞上
+/// `FIXED_ASSET/ACTIVATE` 硬闸 → 资产永远回不了在役，界面上也没有可点的按钮。
+/// 本用例钉住改造后的口径：**放行 + 留痕**，且审计与响应里的警告同源（能对账）。
+#[tokio::test]
+async fn st02_enable_without_attachment_is_allowed_and_audited() {
+    let Some((_guard, user)) = setup().await else {
+        return;
+    };
+    let (asset_id, asset_no) = make_asset_named(user, ST02_ASSET_PREFIX, "ST02 无附件启用夹具").await;
+    let reason = "发票未到，先恢复使用";
+    // 停用与附件无关（闸门只在启用上）
+    status_change(user, asset_id, asset_dto::STATUS_IDLE, "先停用，便于验证无附件启用")
+        .await
+        .unwrap_or_else(|err| panic!("前置停用失败：{} {}", err.code, err.msg));
+    assert_eq!(enable_audit_of(asset_id).await.len(), 0, "停用不该写「无附件启用」审计");
+
+    // 关键：**不**挂任何附件，直接启用 —— 必须是 Ok（改造前这里是 400）
+    let detail = status_change_raw(user, asset_id, asset_dto::STATUS_IN_USE, reason)
+        .await
+        .unwrap_or_else(|err| {
+            panic!(
+                "无附件启用必须被允许（方案 B：不能把既有资产锁死），实际 {} {}",
+                err.code, err.msg
+            )
+        });
+
+    // ① 响应带 warning，点名缺什么 + 审计操作码（前端据此弹「已被记录」）
+    let warning = detail
+        .warning
+        .as_deref()
+        .expect("无附件启用必须带 warning（否则用户不知道这次启用被记了审计）");
+    assert!(
+        warning.contains("发票或验收单"),
+        "warning 必须点名缺什么（与后端 400 文案同源）：{warning}"
+    );
+    assert!(
+        warning.contains(super::asset_handler::OP_ENABLE_WITHOUT_ATTACHMENT),
+        "warning 必须带审计操作码，用户才能在操作日志里查到：{warning}"
+    );
+    assert!(warning.contains("已记审计"), "warning 必须说明已记审计：{warning}");
+
+    // ② 状态真的改了（放行不是「看着成功」）
+    assert_eq!(
+        detail.asset.status,
+        asset_dto::STATUS_IN_USE,
+        "无附件启用后接口返回的状态必须是在役"
+    );
+    assert_eq!(
+        status_of(asset_id).await.as_deref(),
+        Some(asset_dto::STATUS_IN_USE),
+        "无附件启用后卡片必须真的回到在役"
+    );
+    let changes = changes_of(asset_id).await;
+    assert_eq!(changes.len(), 2, "停用 + 启用 = 两行留痕：{asset_no}");
+    assert_eq!(
+        changes[1].change_type,
+        asset_dto::CHANGE_ENABLE,
+        "无附件启用同样要留痕（审计之外还有业务时间线）"
+    );
+
+    // ③ 审计落了**恰好一行**，且字段与响应同源（资产编号 / 原因 / 操作码）
+    let audits = enable_audit_of(asset_id).await;
+    assert_eq!(audits.len(), 1, "无附件启用必须写且只写一条审计：{audits:?}");
+    assert_eq!(audits[0].0, super::asset_handler::OP_ENABLE_WITHOUT_ATTACHMENT);
+    assert_eq!(audits[0].1, asset_no, "审计里的资产编号必须与卡片一致");
+    assert_eq!(audits[0].2, reason, "审计必须带启用原因（内控留痕）");
+
     purge().await;
 }
 
