@@ -100,7 +100,8 @@ err()  { printf '[%s] ERROR %s\n' "$(STAMP)" "$*" >&2; }
 die()  { err "$*"; exit 2; }
 
 usage() {
-  sed -n '2,70p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  # 别写死行号（头部注释一长就会把代码打出来）：打到 `set -uo pipefail` 前一行，去掉 # 前缀
+  sed -n '2,/^set -uo pipefail/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
