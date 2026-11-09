@@ -25,6 +25,12 @@ source /opt/cloudpivot/scripts/verify/e2e05_asset_common.sh
 YEAR=${YEAR:-2029}
 P1="$YEAR-01"
 P2="$YEAR-02"
+# 夹具按年度分套：资产名带年份、购入日取「上一年 12-10」（起提日 = $P1-01）。
+# 这样同一个 YEAR 反复跑是幂等的（同一台资产、同一个批次），换 YEAR 才是另一套夹具。
+PREV_YEAR=$((YEAR - 1))
+PURCHASE_DATE="$PREV_YEAR-12-10"
+NAME_A="E2E05FIX1-$YEAR A 台"
+NAME_B="E2E05FIX1-$YEAR B 台（无转移）"
 cat_of() { SQ "select id from biz_asset_category where category_code='$1' and deleted_at is null limit 1"; }
 asset_of() { SQ "select id from biz_fixed_asset where asset_name='$1' and deleted_at is null limit 1"; }
 # ---- 断言辅助：一律用「不变式」而不是绝对金额 ----
@@ -89,15 +95,15 @@ mkasset() { # mkasset <tag> <asset_name> <dept> <original_value> → 结果写�
   id=$(asset_of "$name")
   if [ -z "$id" ]; then
     api "mk_asset_$tag" POST /business/erp/asset "$T_ADMIN" \
-      "{\"asset_name\":\"$name\",\"category_id\":\"$CAT\",\"use_dept_id\":\"$dept\",\"original_value\":\"$value\",\"tax_amount\":\"0\",\"purchase_date\":\"2028-12-10\",\"remark\":\"E2E05-FIX-1 验收\"}"
+      "{\"asset_name\":\"$name\",\"category_id\":\"$CAT\",\"use_dept_id\":\"$dept\",\"original_value\":\"$value\",\"tax_amount\":\"0\",\"purchase_date\":\"$PURCHASE_DATE\",\"remark\":\"E2E05-FIX-1 验收（$YEAR 年度夹具）\"}"
     check "建卡 $name http" "$HTTP" "200"
     check "建卡 $name code" "$CODE" "0"
     id=$(data '.data.id')
   fi
   MK_ID=$id
 }
-mkasset a "E2E05FIX1 A 台" "$DEPT1" 120000; AS_A=$MK_ID
-mkasset b "E2E05FIX1 B 台（无转移）" "$DEPT2" 60000; AS_B=$MK_ID
+mkasset a "$NAME_A" "$DEPT1" 120000; AS_A=$MK_ID
+mkasset b "$NAME_B" "$DEPT2" 60000; AS_B=$MK_ID
 checkne "资产 A" "$AS_A" ""
 checkne "资产 B" "$AS_B" ""
 save AS_A "$AS_A"; save AS_B "$AS_B"

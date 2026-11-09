@@ -74,7 +74,7 @@ POST /business/erp/period/batch-open {"from":"2027-12","to":"2028-06"}   # creat
 |---|---|---|---|---|---|
 | Q1 | **删卡不校验购入凭证**：建卡必出 `FIXED_ASSET_ACQ`（借 1601）凭证，但 `DELETE /asset/{id}` 只拦「已计提 / 已处置 / 有在跑审批」，「未计提」的卡直接软删，凭证原样留着 | **P2（已修）** | 建卡（原值 500，购入日 2028-06-01）→ `DELETE /asset/{id}` → 200；随后 `Σ1601 − Σ在册卡片原值 = 500.00` | 1601 固定资产余额永久多出这笔原值，界面上没有任何入口能冲回（卡片已软删、凭证只能靠手工红冲审批），账实不符且不可自愈 | 删除前查蓝字购入凭证，存在则 409 并指路「走处置」——已按此修（见修复记录） |
 | Q2 | **使用人变更 / 建卡带使用人整页 500**：`user_name_of` 查询 `COALESCE(NULLIF(nickname,''), username)`，而 `sys_user` 实际只有 `real_name`（无 `nickname` 列） | **P2（已修）** | `POST /asset/{id}/custodian {"to_user_id":"<admin>","reason":"..."}` → **500 / code=10004「服务器内部错误」**；建卡带 `custodian_id` 同样 500 | 卡片页「使用人变更」按钮 100% 不可用（用户侧只能看到服务器内部错误） | 列名改 `real_name`——已修（见修复记录） |
-| Q3 | **补提历史期间的折旧费用按「卡片当前部门」归集**，不按期间归属部门：`run_batch` 用卡片当下的 `use_dept_id` 汇总借方 | P3 | A 于 2028-02-01 从设备部转到采购部 → 事后补跑 2028-01 → 2028-01 凭证借方 1 900 记 **采购部**（应为设备部）；实测 2028-01 借方差额 1 900 与 2028-02 相同 | 跨部门转移后补提，费用按部门归集失真（`5602.01` 的 DEPT 辅助核算/部门损益报表偏）；按月准时计提时不触发 | 折旧汇总时按 `biz_fixed_asset_change`（TRANSFER，`change_date ≤ period_end`）还原该期间部门，或给卡片存「期间-部门」快照；建议 >2 文件改动，另开卡 |
+| Q3 | **补提历史期间的折旧费用按「卡片当前部门」归集**，不按期间归属部门：`run_batch` 用卡片当下的 `use_dept_id` 汇总借方 | **P3（已修：`t_abb4bb0b` E2E05-FIX-1）** | A 于 2028-02-01 从设备部转到采购部 → 事后补跑 2028-01 → 2028-01 凭证借方 1 900 记 **采购部**（应为设备部）；实测 2028-01 借方差额 1 900 与 2028-02 相同 | 跨部门转移后补提，费用按部门归集失真（`5602.01` 的 DEPT 辅助核算/部门损益报表偏）；按月准时计提时不触发 | **已按建议修**：`run_batch` 按 `biz_fixed_asset_change` 的 TRANSFER 留痕还原期末归属部门（期末含前最后一次转移取转入部门 / 期末后第一次转移取转出部门 / 无转移用卡片当前部门），聚合键同时改成 (科目, 部门 id)。证据：`docs/evidence/20261109-e2e05fix1/`；`e2e05_asset_b.sh` 的 2028-01 断言已翻到修复后口径（借 1 行 / 设备部 7204.1667） |
 | Q4 | **启用（IDLE→IN_USE）要附件，建卡（IN_USE）不要**：同一个 `DocKind::FixedAsset` 的 ACTIVATE 规则只在状态边生效 | P3（设计待确认） | 停用 A → `POST /status {"target_status":"IN_USE"}` → **400「固定资产必须上传发票或验收单(pdf/jpg/png)：至少要 1 个」**；补传 `INVOICE_SCAN` 后 200 | 业务上合理（建卡时发票可能未到），但**停用后想再启用而没有附件就是死路**，且提示只在提交时出现（前端按钮看不出前置） | 产品口径二选一：① 建卡也强制附件；② 启用降级为提示 + 允许「无附件启用（记审计）」；至少要在「启用」按钮上预检（`GET /attachment/check`） |
 | Q5 | 部门转移 / 使用人变更会在 `biz_status_log` 写一条 `from=to=IN_USE` 的日志 | P4 | 转移后 `GET /asset/{id}` 时间线出现「IN_USE → IN_USE」 | 详情页状态时间线看起来像脏数据（实际是业务动作留痕） | 日志加 `action` 字段（TRANSFER/CUSTODIAN）或前端按 reason 前缀分组显示 |
 | Q6 | `PUT /asset/{id}` 对 `original_value` / `category_id` **静默忽略**（DTO 未声明 + serde 默认忽略未知字段） | P4 | 改卡请求体带 `"original_value":"999999"` → 200，DB 仍 120 000 | 接口使用者/二开容易误判「金额已改」；核对靠 DB 才能发现 | DTO 加 `#[serde(deny_unknown_fields)]`，或显式返回「金额/分类不可改」的 400 |
@@ -105,6 +105,25 @@ POST /business/erp/period/batch-open {"from":"2027-12","to":"2028-06"}   # creat
 
 检查：`cargo check --lib` 通过；`rustfmt +1.94.1 --edition 2024 --check` 无 diff；
 `cargo test --lib business::erp::asset` → **61 passed, 0 failed**；145 重新构建 + 重启后 health 200。
+
+## 修复记录 · Q3（卡 `t_abb4bb0b` E2E05-FIX-1，commit `6337443f`）
+
+`backend/src/business/erp/{asset_model,depreciation_model}.rs` + 新真库用例
+`depreciation_dept_tests.rs`（3 文件，另加 1 行 `mod.rs` 注册）
+
+1. **期间归属部门还原**（新增 `asset_model::dept_at_period_hint`）：按
+   `biz_fixed_asset_change` 的 TRANSFER 留痕**两次批量** `DISTINCT ON` 取两端点 ——
+   期末（含）前最后一次转移的**转入**部门、期末之后第一次转移的**转出**部门；
+   都没有则用卡片当前部门（无转移资产行为不变）。
+2. **汇总改造**：`run_batch` ③′ 步逐台 `resolve` 出「期末那天属于谁」再进 `compute_detail`；
+   同时把 `aggregate_debits` 的聚合键从 `(科目, 部门名)` 改成 `(科目, 部门 id)`。
+3. 实测（145 真 token curl，期间 `2031-01/02` 为验收独占、夹具按年度分套）：
+   修后 2031-01 借方 1900 落**演练设备部**、2031-02 落**采购演练部**，
+   DEPT 辅助账与批次详情接口同值 → `PASS=57 FAIL=0`（`docs/evidence/20261109-e2e05fix1/145_e2e_2031_fresh.log`）。
+4. **本演练脚本的断言已翻到修复后口径**：`e2e05_asset_b.sh` 的 2028-01 段原样钉的是 bug 现场
+   （「借方 采购演练部 1900 / 设备部 5304.1667」），现改为「借 1 行 / 设备部 7204.1667 /
+   采购部 0 行 / A 明细部门 = 演练设备部」；2028-02（A 已转）保持原样。
+   重跑整段演练前请先跑 `e2e05_run_all.sh`（内含 reset），否则 2028-01 批次已存在会走幂等闸。
 
 ## 复跑方式
 
