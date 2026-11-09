@@ -20,7 +20,7 @@
 | ⑤ | 已完成有删除线/勾选 | 样式分支已验：`line-through` + 灰色 `rgb(121,130,144)` + 白色勾选图标（`✓`）+ 时间文案「已完成 · 11-09」（`shot-done-row-real.png`）。**注意**：`/business/task/my` 后端只回未终态，DONE 不在其中，所以这一条用**拦截层构造一条 DONE** 验证渲染分支 |
 | ⑥ | 底部统计正确 | 卡片底部 `今日 9 项 · 逾期 3 项 · 本周 0 项`，与接口 `counts` 逐字段一致（`{overdue:3,today:9,this_week:0}`） |
 | ⑦ | 空态友好 | 非超管 `h1viewer2`（DEPT_LEADER，`/task/my` 真返回 `total=0`）真机显示「今天没有待办任务」+「去任务中心」；点按钮跳 `/task/list`，无错误条（`shot-empty-viewer.png`） |
-| ⑧ | typecheck + build + push | `typecheck.txt` exit 0；`build-pnpm.log` `✓ built in 50.33s`（pnpm build 全链路 exit 0）；`palettes.txt` 22 套配色全过；commit / push 见卡内汇报 |
+| ⑧ | typecheck + build + push | `typecheck.txt` exit 0；`build-pnpm.txt` `✓ built in 50.33s`（pnpm build 全链路 exit 0）；`palettes.txt` 22 套配色全过；commit / push 见卡内汇报 |
 
 ## 布局与细节
 
@@ -49,7 +49,7 @@
 - `shot-task-detail-from-card.png` — 点任务后的列表 + 详情抽屉
 - `shot-empty-viewer.png` — 非超管真机空态
 - `shot-skeleton.png` — 加载骨架
-- `typecheck.txt` / `build-pnpm.log` / `palettes.txt` — 门禁
+- `typecheck.txt` / `build-pnpm.txt` / `palettes.txt` — 门禁（`*.log` 被 .gitignore 忽略，构建日志以 .txt 留档）
 - `seed-tasks.sh` / `verify.mjs` / `inspect.mjs` / `serve.mjs` / `make-evidence.sh` — 造数 + 断言 + 静态服务脚本（可复跑）
 
 ## 复跑方式（隔离环境）

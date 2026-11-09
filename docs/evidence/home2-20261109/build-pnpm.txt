@@ -1,0 +1,448 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @cloudpivot/web@0.1.0 build /opt/cloudpivot/frontend
+> pnpm typecheck && node --max-old-space-size=4096 ./node_modules/vite/bin/vite.js build --outDir /root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm
+
+
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+
+vite v6.3.7 building for production...
+
+(!) outDir /root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm is not inside project root and will not be emptied.
+Use --emptyOutDir to override.
+
+transforming...
+✓ 5423 modules transformed.
+rendering chunks...
+computing gzip size...
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/index.html                                                                   1.42 kB │ gzip:   0.85 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/pdf.worker.min-yatZIOMy.mjs                                       1,375.84 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/EChart-CBtkWo53.css                                                   0.04 kB │ gzip:   0.06 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/UserSelect-B436yNgK.css                                               0.04 kB │ gzip:   0.06 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/FlowPreview-BJEsUxNM.css                                              0.08 kB │ gzip:   0.10 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/AttachmentGateHint-UubNpf1i.css                                       0.11 kB │ gzip:   0.12 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/FileUploader-DF7156XO.css                                             0.11 kB │ gzip:   0.09 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/LocationFormDialog-BJjNC4eh.css                                       0.12 kB │ gzip:   0.12 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/StatusBadge-DpuFYDXn.css                                              0.14 kB │ gzip:   0.13 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BWLRblPI.css                                                    0.32 kB │ gzip:   0.20 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BxSGll6g.css                                                    0.32 kB │ gzip:   0.20 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DOzH_Ctm.css                                                    0.36 kB │ gzip:   0.21 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BjkeXFqu.css                                                    0.39 kB │ gzip:   0.23 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/useListFilterMemory-B38iKhZ1.css                                      0.41 kB │ gzip:   0.24 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/useFormMemory-CccH-JK1.css                                            0.42 kB │ gzip:   0.23 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-WKfJvwxu.css                                                    0.46 kB │ gzip:   0.24 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/ImportEntryButton-CeFid309.css                                        0.47 kB │ gzip:   0.21 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-D6GuI0lP.css                                                    0.52 kB │ gzip:   0.29 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CTopka9g.css                                                    0.53 kB │ gzip:   0.24 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-EtDaQsAN.css                                                    0.53 kB │ gzip:   0.24 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CsTIpoct.css                                                    0.53 kB │ gzip:   0.24 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/DocActionBar-B_gX95Q5.css                                             0.56 kB │ gzip:   0.31 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/ImportFieldTable-B-e6skG9.css                                         0.59 kB │ gzip:   0.23 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/change-password-2S89RJek.css                                          0.66 kB │ gzip:   0.34 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/NewDot-C9AF_qqb.css                                                   0.69 kB │ gzip:   0.30 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BuaoiFYi.css                                                    0.70 kB │ gzip:   0.32 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-B-Qvtgrz.css                                                    0.92 kB │ gzip:   0.35 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/profile-D3DHjSzr.css                                                  0.92 kB │ gzip:   0.35 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-Cccbdz2W.css                                                    1.05 kB │ gzip:   0.33 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DyoxQY3_.css                                                    1.06 kB │ gzip:   0.34 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CAcWR76i.css                                                    1.09 kB │ gzip:   0.38 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-iw9FVi8r.css                                                    1.27 kB │ gzip:   0.48 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/mapping-CyP57r_M.css                                                  1.27 kB │ gzip:   0.41 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/BlockerCheckPanel-DJVhF51Z.css                                        1.27 kB │ gzip:   0.43 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/useBatchSelection-BXGq_U-x.css                                        1.28 kB │ gzip:   0.47 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CtR9hyAj.css                                                    1.30 kB │ gzip:   0.45 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CheUli4Y.css                                                    1.36 kB │ gzip:   0.43 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DPWqBCK5.css                                                    1.50 kB │ gzip:   0.49 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-weju-CYK.css                                                    1.53 kB │ gzip:   0.51 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DFgHLbMq.css                                                    1.62 kB │ gzip:   0.48 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/templates-BdlNSVtc.css                                                1.63 kB │ gzip:   0.49 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-baRwzEZS.css                                                    1.65 kB │ gzip:   0.49 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-C-x-T80C.css                                                    1.69 kB │ gzip:   0.50 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-weUNbvYM.css                                                    1.75 kB │ gzip:   0.52 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CFLpBYGS.css                                                    1.80 kB │ gzip:   0.50 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CNIJhrSq.css                                                    1.84 kB │ gzip:   0.54 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DKcU--YR.css                                                    1.90 kB │ gzip:   0.53 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CxLEn83o.css                                                    1.95 kB │ gzip:   0.61 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DgfHR8yJ.css                                                    1.99 kB │ gzip:   0.58 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-D0Qi1U_h.css                                                    1.99 kB │ gzip:   0.59 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-D_H9YS6o.css                                                    2.07 kB │ gzip:   0.55 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CaGNAkN0.css                                                    2.12 kB │ gzip:   0.59 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-2t3ABFK2.css                                                    2.21 kB │ gzip:   0.61 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DGB911bL.css                                                    2.28 kB │ gzip:   0.66 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-B_lDAqG4.css                                                    2.29 kB │ gzip:   0.62 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DyVk0XHv.css                                                    2.31 kB │ gzip:   0.69 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CASOqFfS.css                                                    2.39 kB │ gzip:   0.63 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CuRrukq2.css                                                    2.42 kB │ gzip:   0.67 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DV94ApLY.css                                                    2.44 kB │ gzip:   0.72 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-B1L27D3e.css                                                    2.47 kB │ gzip:   0.73 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CD0121rl.css                                                    2.49 kB │ gzip:   0.66 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DF6fVECV.css                                                    2.50 kB │ gzip:   0.60 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BaWUsukH.css                                                    2.55 kB │ gzip:   0.78 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CU11wAOz.css                                                    2.70 kB │ gzip:   0.79 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-B0XaN-Ju.css                                                    2.71 kB │ gzip:   0.65 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-exFWv_aC.css                                                    2.71 kB │ gzip:   0.74 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BqKvsihJ.css                                                    2.75 kB │ gzip:   0.71 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-1LTj7WLg.css                                                    2.79 kB │ gzip:   0.75 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-Di-rr5h5.css                                                    2.79 kB │ gzip:   0.80 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CwikjLBc.css                                                    2.81 kB │ gzip:   0.75 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BbpKHosk.css                                                    2.82 kB │ gzip:   0.68 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BdZQIiV3.css                                                    2.83 kB │ gzip:   0.79 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CdPrRIYR.css                                                    2.88 kB │ gzip:   0.76 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-5H3_eVQz.css                                                    2.88 kB │ gzip:   0.82 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/DataScopePanel-B9dCO80c.css                                           2.89 kB │ gzip:   0.66 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DCucuROh.css                                                    2.90 kB │ gzip:   0.73 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CGUAP-1e.css                                                    2.91 kB │ gzip:   0.73 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CyAHO8QP.css                                                    2.92 kB │ gzip:   0.82 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-rjrdi_CJ.css                                                    2.95 kB │ gzip:   0.74 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-KB8ru_BJ.css                                                    3.04 kB │ gzip:   0.81 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/DocAttachmentPanel-xP1yw8fT.css                                       3.06 kB │ gzip:   0.76 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/AttachmentPreview-37iJJeO0.css                                        3.09 kB │ gzip:   0.86 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-C_w-uRwS.css                                                    3.17 kB │ gzip:   0.83 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BAhJ0s6S.css                                                    3.28 kB │ gzip:   0.79 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BePwt-w7.css                                                    3.30 kB │ gzip:   0.91 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CoN1bvoG.css                                                    3.32 kB │ gzip:   0.80 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/report-CC3dIskG.css                                                   3.40 kB │ gzip:   0.84 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-D02doTMb.css                                                    3.45 kB │ gzip:   0.83 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-Dj_B-AQa.css                                                    3.48 kB │ gzip:   0.96 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BYkUQAIY.css                                                    3.48 kB │ gzip:   0.75 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-D3aauvuz.css                                                    3.50 kB │ gzip:   0.82 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/ExpenseDetailDrawer-D1S5KUFU.css                                      3.58 kB │ gzip:   0.86 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-B30R91c9.css                                                    3.68 kB │ gzip:   0.90 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-ZBZ-h_Bd.css                                                    3.71 kB │ gzip:   0.87 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CHFcwoEe.css                                                    3.72 kB │ gzip:   0.95 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DbDbUtF4.css                                                    3.84 kB │ gzip:   0.89 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DM9bgobx.css                                                    3.96 kB │ gzip:   0.96 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-B8vgVy5k.css                                                    4.09 kB │ gzip:   0.99 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DWwN9XIp.css                                                    4.19 kB │ gzip:   0.86 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/FlowProgress-aW3pj4zA.css                                             4.37 kB │ gzip:   0.97 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/gantt-CKLUNzcX.css                                                    4.44 kB │ gzip:   1.13 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-B-C_MfBQ.css                                                    4.54 kB │ gzip:   0.98 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-D8efUByo.css                                                    4.56 kB │ gzip:   1.04 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DxHPnDVR.css                                                    4.64 kB │ gzip:   1.00 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/MarkdownViewer-GqN7gBIX.css                                           4.68 kB │ gzip:   1.18 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-3YbqCQTy.css                                                    4.71 kB │ gzip:   0.98 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DX7inzVf.css                                                    4.81 kB │ gzip:   1.14 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CNydaeIt.css                                                    4.84 kB │ gzip:   1.08 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-X756Rytv.css                                                    4.96 kB │ gzip:   1.07 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-gx70CnAu.css                                                    5.09 kB │ gzip:   1.15 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-B9Umjr56.css                                                    5.17 kB │ gzip:   1.17 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CYY9X-pb.css                                                    5.45 kB │ gzip:   1.23 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/detail-BJrNXWfn.css                                                   5.54 kB │ gzip:   1.18 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-7M5SLSI7.css                                                    5.54 kB │ gzip:   1.20 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DP1HkC1q.css                                                    5.79 kB │ gzip:   1.28 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BZb2XGLS.css                                                    5.97 kB │ gzip:   1.25 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CSkYYhZK.css                                                    5.99 kB │ gzip:   1.32 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/preference-D7zVN2R4.css                                               6.52 kB │ gzip:   1.33 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DYb2nomJ.css                                                    6.62 kB │ gzip:   1.45 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-0mQABu3D.css                                                    6.98 kB │ gzip:   1.43 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BdAPX2vC.css                                                    7.98 kB │ gzip:   1.99 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-D4Z1xuYt.css                                                    9.35 kB │ gzip:   1.97 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/FlowCanvasSwitch-D9peVJPi.css                                         9.70 kB │ gzip:   2.07 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-D4UUnzgv.css                                                   13.22 kB │ gzip:   2.63 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CcLuGE2O.css                                                   13.40 kB │ gzip:   2.35 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/detail-DEJphDoX.css                                                  13.90 kB │ gzip:   2.60 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/FlowCanvasVueFlow-CrGYbw5N.css                                       16.59 kB │ gzip:   3.22 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/BasicLayout-CFQgOy_m.css                                             17.83 kB │ gzip:   3.46 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/edit-CPquczlU.css                                                    22.84 kB │ gzip:   3.67 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/tdesign-E5ATeBiM.css                                                448.31 kB │ gzip:  51.33 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/logo-CxXS7KxG.js                                                      0.04 kB │ gzip:   0.06 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/_plugin-vue_export-helper-DlAUqK2U.js                                 0.09 kB │ gzip:   0.10 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/download-DSxzK7DZ.js                                                  0.30 kB │ gzip:   0.24 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/menu-api-B0RORWrt.js                                                  0.35 kB │ gzip:   0.19 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/dept-api-CCvi1Q1d.js                                                  0.35 kB │ gzip:   0.19 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/code-policy-CiDbygI9.js                                               0.35 kB │ gzip:   0.32 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/format-zfBPXVee.js                                                    0.36 kB │ gzip:   0.28 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/flow-business-items-CgSPWtc-.js                                       0.36 kB │ gzip:   0.27 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/master-code-D_asyAK6.js                                               0.41 kB │ gzip:   0.34 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/AttachmentGateHint-GWHt59Sl.js                                        0.46 kB │ gzip:   0.33 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/shipment-D3A7KgtI.js                                                  0.47 kB │ gzip:   0.27 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/changelog-api-DvF_XrUU.js                                             0.50 kB │ gzip:   0.31 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/dict-CH-SRUq2.js                                                      0.53 kB │ gzip:   0.33 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/role-api-n2iHED5V.js                                                  0.60 kB │ gzip:   0.24 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/file-api-CV-FOokZ.js                                                  0.64 kB │ gzip:   0.41 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/NewDot-DBpozz80.js                                                    0.64 kB │ gzip:   0.44 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/user-api-BY6DLmWn.js                                                  0.65 kB │ gzip:   0.26 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/DocActionBar-m8jBDCHi.js                                              0.65 kB │ gzip:   0.44 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/customer-price-BMI8pUHN.js                                            0.65 kB │ gzip:   0.31 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/commission-B3sdTKu4.js                                                0.68 kB │ gzip:   0.31 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/project-api-Djv7RknB.js                                               0.71 kB │ gzip:   0.32 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/FlowPreview-BWXAYGnO.js                                               0.74 kB │ gzip:   0.47 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/use-attachment-gate-D3RZBn_N.js                                       0.74 kB │ gzip:   0.54 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/dict-api-D9tnzdD8.js                                                  0.74 kB │ gzip:   0.25 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-Cqom69fn.js                                                     0.77 kB │ gzip:   0.54 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DRUmD1qa.js                                                     0.78 kB │ gzip:   0.55 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/StatusBadge-BE7xEwHx.js                                               0.80 kB │ gzip:   0.51 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-C-PVf85p.js                                                     0.81 kB │ gzip:   0.56 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/memory-core-DucR4N1R.js                                               0.86 kB │ gzip:   0.44 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-D9CFnwd3.js                                                     0.86 kB │ gzip:   0.30 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/money-CDNCU0TU.js                                                     0.90 kB │ gzip:   0.51 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/attachment-gate-pure-z_aAHgKv.js                                      1.01 kB │ gzip:   0.47 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/budget-BaMoeSQ8.js                                                    1.05 kB │ gzip:   0.50 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/DeptTreeSelect.vue_vue_type_script_setup_true_lang-ClBY6nCg.js        1.07 kB │ gzip:   0.66 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/help-api-BV3zJmHN.js                                                  1.12 kB │ gzip:   0.40 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/FileUploader-D_SYj_pe.js                                              1.13 kB │ gzip:   0.73 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/approval-progress-D0G-Q4J2.js                                         1.16 kB │ gzip:   0.54 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/approval-flow-oUX1e84k.js                                             1.20 kB │ gzip:   0.64 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/currency-CV2mFjf2.js                                                  1.22 kB │ gzip:   0.56 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/badge-DZV654PL.js                                                     1.35 kB │ gzip:   0.73 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/announcement-api-CjPxgqqh.js                                          1.36 kB │ gzip:   0.50 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/useFormMemory-Tr62NHmI.js                                             1.45 kB │ gzip:   0.86 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/UserSelect-B1Cuc5OI.js                                                1.58 kB │ gzip:   0.90 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DBSMT8Gr.js                                                     1.69 kB │ gzip:   0.63 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-D_ewudVH.js                                                     1.92 kB │ gzip:   0.92 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/EChart-D_BJymVH.js                                                    1.99 kB │ gzip:   1.07 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/markdown-lite-BxX3OUvU.js                                             2.13 kB │ gzip:   1.02 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/ImportFieldTable-BVk9mnBq.js                                          2.44 kB │ gzip:   1.16 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/flow-api-B8PtYS4V.js                                                  2.69 kB │ gzip:   0.73 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/DocPdfButton.vue_vue_type_script_setup_true_lang-CVcQUjx8.js          2.89 kB │ gzip:   1.58 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/change-password-DLbcC2-t.js                                           3.03 kB │ gzip:   1.45 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/task-api-DK3HEykc.js                                                  3.06 kB │ gzip:   1.07 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/useListFilterMemory-foesMCUL.js                                       3.14 kB │ gzip:   1.67 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/doc-kinds-iy9uYC_Z.js                                                 3.37 kB │ gzip:   1.40 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-12Rz5gJv.js                                                     3.39 kB │ gzip:   1.64 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/ImportEntryButton-vPYx4oot.js                                         3.51 kB │ gzip:   1.85 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/permissions-BQWGDruk.js                                               4.25 kB │ gzip:   1.05 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/status-map-Cck9Kk2k.js                                                4.32 kB │ gzip:   1.06 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-E6EwZILd.js                                                     4.49 kB │ gzip:   2.11 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/material-query-P6qmF0xs.js                                            4.61 kB │ gzip:   1.96 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/flow-error-codes-KUjSAnWS.js                                          4.64 kB │ gzip:   2.37 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/FlowProgress-DVZuDj3x.js                                              4.86 kB │ gzip:   2.05 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BVNrziUI.js                                                     5.71 kB │ gzip:   2.43 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CVaHqgm6.js                                                     6.21 kB │ gzip:   2.90 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/notice-C9FCLqkn.js                                                    6.41 kB │ gzip:   2.86 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CeWHA6Vq.js                                                     6.92 kB │ gzip:   3.09 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/profile-CQE9sLDA.js                                                   7.09 kB │ gzip:   2.69 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/dayjs.min-bvDjtKdQ.js                                                 7.16 kB │ gzip:   3.12 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-dBrx_krX.js                                                     7.18 kB │ gzip:   3.01 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-Cf98bA0F.js                                                     7.40 kB │ gzip:   3.07 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-6Qusu_1C.js                                                     7.54 kB │ gzip:   3.24 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/MarkdownViewer-Dv_69rJk.js                                            7.85 kB │ gzip:   3.58 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/BlockerCheckPanel-CMn3AX7C.js                                         7.98 kB │ gzip:   3.37 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DTFqw2Eq.js                                                     8.30 kB │ gzip:   3.46 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-fXOQq91o.js                                                     8.55 kB │ gzip:   3.73 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DbsfW02N.js                                                     8.56 kB │ gzip:   3.58 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BPn0obZ1.js                                                     8.59 kB │ gzip:   3.46 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-waXs9_SA.js                                                     8.69 kB │ gzip:   3.28 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DI55QYPF.js                                                     8.75 kB │ gzip:   2.14 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-D5NbCUNQ.js                                                     8.93 kB │ gzip:   3.79 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BtH0bJ9D.js                                                     9.17 kB │ gzip:   3.80 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CIiXAI8n.js                                                     9.19 kB │ gzip:   3.28 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/use-flow-master-names-Dd7d-pGS.js                                     9.26 kB │ gzip:   3.88 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/LocationFormDialog-CX7oaGVa.js                                        9.85 kB │ gzip:   3.88 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/expense-logic-BWFrS0Bf.js                                            10.01 kB │ gzip:   3.73 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BkEX8u1v.js                                                    10.05 kB │ gzip:   3.81 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/preference-Bw25QUDl.js                                               10.37 kB │ gzip:   4.39 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CHBSSri7.js                                                    10.54 kB │ gzip:   4.34 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/report-DLBKVswj.js                                                   10.64 kB │ gzip:   4.01 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BkcqKYVp.js                                                    10.65 kB │ gzip:   4.00 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-B6FT-sS9.js                                                    10.81 kB │ gzip:   4.29 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/DataScopePanel-gSYJELTU.js                                           10.86 kB │ gzip:   4.12 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/useBatchSelection-yYopfb2O.js                                        10.92 kB │ gzip:   4.44 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/budget-logic-CaX7LDBD.js                                             10.93 kB │ gzip:   4.45 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-IdvVEssS.js                                                    11.07 kB │ gzip:   4.31 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-9hRWq9Gv.js                                                    11.26 kB │ gzip:   4.51 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BzJeQMFu.js                                                    11.56 kB │ gzip:   3.91 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-VGYdS_NG.js                                                    11.67 kB │ gzip:   4.54 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-yw-v0cQE.js                                                    11.71 kB │ gzip:   4.57 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-nFr2C2ur.js                                                    11.73 kB │ gzip:   4.39 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/asset-logic-C71yjtWA.js                                              11.91 kB │ gzip:   5.00 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-Ds1XeIrO.js                                                    11.91 kB │ gzip:   4.41 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/mapping-DS1NJVb5.js                                                  11.95 kB │ gzip:   4.40 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-D8fG6Slf.js                                                    12.02 kB │ gzip:   3.89 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DpIH03il.js                                                    12.03 kB │ gzip:   4.09 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CPuicUsg.js                                                    12.13 kB │ gzip:   4.53 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CfmAJRzv.js                                                    12.67 kB │ gzip:   4.61 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/AttachmentPreview-DsmuU0yS.js                                        12.81 kB │ gzip:   4.93 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BMZlrlzw.js                                                    12.83 kB │ gzip:   4.67 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-C05zA0mz.js                                                    13.00 kB │ gzip:   4.91 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BBnzGrdE.js                                                    13.21 kB │ gzip:   4.17 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DOYPji3M.js                                                    13.23 kB │ gzip:   5.28 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/templates-DL1tTOCH.js                                                13.30 kB │ gzip:   4.91 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CmR285Pe.js                                                    13.90 kB │ gzip:   5.02 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-O5mI-p5f.js                                                    13.91 kB │ gzip:   4.67 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CdxIJPE1.js                                                    13.95 kB │ gzip:   5.47 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-MXkSDUd5.js                                                    13.97 kB │ gzip:   4.91 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BZ1ZTEvh.js                                                    13.99 kB │ gzip:   5.31 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/ExpenseDetailDrawer-By52g1CO.js                                      14.45 kB │ gzip:   5.24 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/graph-B_bumTgP.js                                                    14.88 kB │ gzip:   5.83 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CPGtvHAR.js                                                    15.07 kB │ gzip:   5.34 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-C4qcUOFv.js                                                    15.16 kB │ gzip:   5.49 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-0-Tlz_rk.js                                                    15.69 kB │ gzip:   5.83 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BhnKxUZH.js                                                    15.75 kB │ gzip:   5.98 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/DocAttachmentPanel-Bv2IQ2KU.js                                       15.97 kB │ gzip:   6.30 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-hYQvzdE9.js                                                    16.04 kB │ gzip:   5.85 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BE_zp8Sv.js                                                    16.49 kB │ gzip:   6.19 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-COo2IEfy.js                                                    17.37 kB │ gzip:   6.48 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BKFTQKrJ.js                                                    17.94 kB │ gzip:   6.49 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BJeZSoqh.js                                                    18.07 kB │ gzip:   6.43 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-OCesHeBW.js                                                    18.13 kB │ gzip:   6.30 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-C7WSS5k4.js                                                    18.18 kB │ gzip:   6.67 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DaesLBnJ.js                                                    18.22 kB │ gzip:   6.44 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CRXWB_XT.js                                                    18.32 kB │ gzip:   6.66 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CDFz35A0.js                                                    18.81 kB │ gzip:   7.08 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-Cp3tPlKB.js                                                    19.32 kB │ gzip:   7.10 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BHoXIXAi.js                                                    19.34 kB │ gzip:   6.57 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-Cfrsik7b.js                                                    19.73 kB │ gzip:   6.99 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CmbQ3VW8.js                                                    20.24 kB │ gzip:   6.92 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-uRmaVBXi.js                                                    20.35 kB │ gzip:   7.30 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CdQ59kZ_.js                                                    21.18 kB │ gzip:   7.05 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-B0afD-QL.js                                                    22.05 kB │ gzip:   7.51 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CAwlzRe1.js                                                    22.26 kB │ gzip:   7.13 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-B_eeAN4f.js                                                    22.63 kB │ gzip:   8.31 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/gantt-HHxHceLN.js                                                    23.16 kB │ gzip:   8.55 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DH8R-YLg.js                                                    23.55 kB │ gzip:   7.89 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/detail-BY7o7EoK.js                                                   23.87 kB │ gzip:   8.33 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-JGGkmYF6.js                                                    24.40 kB │ gzip:   8.31 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BoEv8hVm.js                                                    24.91 kB │ gzip:   8.07 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/FlowCanvasSwitch.vue_vue_type_script_setup_true_lang-DdBvY6Qh.js     25.13 kB │ gzip:   9.02 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DCLrWw6Q.js                                                    25.72 kB │ gzip:   7.07 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-WWidDagz.js                                                    27.26 kB │ gzip:   8.08 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-Dn6wfpre.js                                                    27.89 kB │ gzip:   9.15 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-Do60VhMz.js                                                    27.93 kB │ gzip:   9.30 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BghR4WN0.js                                                    28.00 kB │ gzip:   9.59 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/BasicLayout-Cm3jC2zl.js                                              28.86 kB │ gzip:  10.61 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DBHcXYVD.js                                                    32.05 kB │ gzip:   9.71 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DbwSClhE.js                                                    32.51 kB │ gzip:  10.07 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BLdvIPYG.js                                                    33.68 kB │ gzip:  10.93 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CGyPerp9.js                                                    33.70 kB │ gzip:  11.07 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-u_JPpaJm.js                                                    34.89 kB │ gzip:  11.40 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BLP2MzCA.js                                                    34.90 kB │ gzip:  11.67 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BVV05_C8.js                                                    35.79 kB │ gzip:  12.25 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DrytAi1_.js                                                    36.17 kB │ gzip:  11.49 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DSkOvbFL.js                                                    36.57 kB │ gzip:  12.06 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-DrXwtcpO.js                                                    38.57 kB │ gzip:  11.43 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CdVAcAk_.js                                                    39.41 kB │ gzip:  12.92 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-ILiwPkb1.js                                                    41.53 kB │ gzip:  15.47 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-enrOGLIb.js                                                    41.96 kB │ gzip:  13.62 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CiSENhxi.js                                                    43.44 kB │ gzip:  14.13 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-GsHaRTm5.js                                                    52.07 kB │ gzip:  16.27 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-6yegHkTp.js                                                    52.92 kB │ gzip:  13.16 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-CmLU6bhL.js                                                    53.45 kB │ gzip:  17.45 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/detail-D_-qS8d_.js                                                   54.87 kB │ gzip:  18.75 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-BtPCOJNz.js                                                    56.29 kB │ gzip:  17.97 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/index-Dmo3fF3Q.js                                                   131.46 kB │ gzip:  47.86 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/edit-CN3RPxlo.js                                                    204.60 kB │ gzip:  69.16 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/FlowCanvasVueFlow-DRbaapCg.js                                       231.47 kB │ gzip:  76.81 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/pdf-CcZYcL52.js                                                     365.12 kB │ gzip: 107.61 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/echarts-CuV_skF0.js                                               1,026.96 kB │ gzip: 340.14 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/home2/dist-pnpm/assets/tdesign-BNnR5MH2.js                                               8,187.60 kB │ gzip: 794.27 kB
+
+(!) Some chunks are larger than 1500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 50.33s
+
+✨ [vite-plugin-compression]:algorithm=gzip - compressed file successfully: 
+dist-pnpm/assets/DataScopePanel-gSYJELTU.js.gz                                         10.60kb / gzip: 4.01kb
+dist-pnpm/assets/BasicLayout-CFQgOy_m.css.gz                                           17.41kb / gzip: 3.36kb
+dist-pnpm/assets/ExpenseDetailDrawer-By52g1CO.js.gz                                    14.11kb / gzip: 5.11kb
+dist-pnpm/assets/DocAttachmentPanel-Bv2IQ2KU.js.gz                                     15.59kb / gzip: 6.14kb
+dist-pnpm/assets/AttachmentPreview-DsmuU0yS.js.gz                                      12.51kb / gzip: 4.81kb
+dist-pnpm/assets/FlowCanvasVueFlow-CrGYbw5N.css.gz                                     16.20kb / gzip: 3.11kb
+dist-pnpm/assets/FlowCanvasSwitch.vue_vue_type_script_setup_true_lang-DdBvY6Qh.js.gz   24.54kb / gzip: 8.81kb
+dist-pnpm/assets/asset-logic-C71yjtWA.js.gz                                            11.63kb / gzip: 4.88kb
+dist-pnpm/assets/budget-logic-CaX7LDBD.js.gz                                           10.67kb / gzip: 4.35kb
+dist-pnpm/assets/detail-DEJphDoX.css.gz                                                13.57kb / gzip: 2.53kb
+dist-pnpm/assets/detail-BY7o7EoK.js.gz                                                 23.31kb / gzip: 8.12kb
+dist-pnpm/assets/edit-CPquczlU.css.gz                                                  22.31kb / gzip: 3.56kb
+dist-pnpm/assets/graph-B_bumTgP.js.gz                                                  14.53kb / gzip: 5.69kb
+dist-pnpm/assets/index-0-Tlz_rk.js.gz                                                  15.32kb / gzip: 5.68kb
+dist-pnpm/assets/index-B0afD-QL.js.gz                                                  21.53kb / gzip: 7.32kb
+dist-pnpm/assets/index-B6FT-sS9.js.gz                                                  10.55kb / gzip: 4.18kb
+dist-pnpm/assets/index-9hRWq9Gv.js.gz                                                  11.00kb / gzip: 4.41kb
+dist-pnpm/assets/index-BBnzGrdE.js.gz                                                  12.90kb / gzip: 4.07kb
+dist-pnpm/assets/index-BE_zp8Sv.js.gz                                                  16.11kb / gzip: 6.04kb
+dist-pnpm/assets/index-BJeZSoqh.js.gz                                                  17.65kb / gzip: 6.27kb
+dist-pnpm/assets/index-BLP2MzCA.js.gz                                                  34.08kb / gzip: 11.38kb
+dist-pnpm/assets/index-BLdvIPYG.js.gz                                                  32.89kb / gzip: 10.64kb
+dist-pnpm/assets/index-BKFTQKrJ.js.gz                                                  17.52kb / gzip: 6.33kb
+dist-pnpm/assets/index-BMZlrlzw.js.gz                                                  12.53kb / gzip: 4.55kb
+dist-pnpm/assets/index-BZ1ZTEvh.js.gz                                                  13.66kb / gzip: 5.18kb
+dist-pnpm/assets/index-BVV05_C8.js.gz                                                  34.95kb / gzip: 11.94kb
+dist-pnpm/assets/index-6yegHkTp.js.gz                                                  51.68kb / gzip: 12.85kb
+dist-pnpm/assets/gantt-HHxHceLN.js.gz                                                  22.62kb / gzip: 8.35kb
+dist-pnpm/assets/index-BkcqKYVp.js.gz                                                  10.40kb / gzip: 3.90kb
+dist-pnpm/assets/index-BhnKxUZH.js.gz                                                  15.38kb / gzip: 5.84kb
+dist-pnpm/assets/index-BoEv8hVm.js.gz                                                  24.33kb / gzip: 7.87kb
+dist-pnpm/assets/index-BzJeQMFu.js.gz                                                  11.29kb / gzip: 3.81kb
+dist-pnpm/assets/index-BghR4WN0.js.gz                                                  27.35kb / gzip: 9.35kb
+dist-pnpm/assets/index-C4qcUOFv.js.gz                                                  14.80kb / gzip: 5.35kb
+dist-pnpm/assets/index-C05zA0mz.js.gz                                                  12.70kb / gzip: 4.79kb
+dist-pnpm/assets/index-C7WSS5k4.js.gz                                                  17.75kb / gzip: 6.51kb
+dist-pnpm/assets/index-CAwlzRe1.js.gz                                                  21.73kb / gzip: 6.96kb
+dist-pnpm/assets/index-CHBSSri7.js.gz                                                  10.29kb / gzip: 4.24kb
+dist-pnpm/assets/index-CDFz35A0.js.gz                                                  18.37kb / gzip: 6.90kb
+dist-pnpm/assets/index-COo2IEfy.js.gz                                                  16.96kb / gzip: 6.32kb
+dist-pnpm/assets/index-CPuicUsg.js.gz                                                  11.85kb / gzip: 4.42kb
+dist-pnpm/assets/index-CGyPerp9.js.gz                                                  32.91kb / gzip: 10.80kb
+dist-pnpm/assets/index-CPGtvHAR.js.gz                                                  14.71kb / gzip: 5.21kb
+dist-pnpm/assets/index-CRXWB_XT.js.gz                                                  17.89kb / gzip: 6.50kb
+dist-pnpm/assets/index-CcLuGE2O.css.gz                                                 13.09kb / gzip: 2.27kb
+dist-pnpm/assets/index-CdxIJPE1.js.gz                                                  13.62kb / gzip: 5.34kb
+dist-pnpm/assets/index-CdVAcAk_.js.gz                                                  38.48kb / gzip: 12.59kb
+dist-pnpm/assets/index-CdQ59kZ_.js.gz                                                  20.68kb / gzip: 6.87kb
+dist-pnpm/assets/index-Cfrsik7b.js.gz                                                  19.27kb / gzip: 6.82kb
+dist-pnpm/assets/index-CmR285Pe.js.gz                                                  13.58kb / gzip: 4.90kb
+dist-pnpm/assets/index-CiSENhxi.js.gz                                                  42.42kb / gzip: 13.78kb
+dist-pnpm/assets/index-B_eeAN4f.js.gz                                                  22.10kb / gzip: 8.11kb
+dist-pnpm/assets/index-BHoXIXAi.js.gz                                                  18.89kb / gzip: 6.40kb
+dist-pnpm/assets/index-D4UUnzgv.css.gz                                                 12.91kb / gzip: 2.56kb
+dist-pnpm/assets/index-D8fG6Slf.js.gz                                                  11.73kb / gzip: 3.80kb
+dist-pnpm/assets/index-DBHcXYVD.js.gz                                                  31.30kb / gzip: 9.45kb
+dist-pnpm/assets/BasicLayout-Cm3jC2zl.js.gz                                            28.18kb / gzip: 10.34kb
+dist-pnpm/assets/index-CfmAJRzv.js.gz                                                  12.37kb / gzip: 4.50kb
+dist-pnpm/assets/index-DH8R-YLg.js.gz                                                  23.00kb / gzip: 7.70kb
+dist-pnpm/assets/index-DSkOvbFL.js.gz                                                  35.71kb / gzip: 11.75kb
+dist-pnpm/assets/index-DbwSClhE.js.gz                                                  31.74kb / gzip: 9.82kb
+dist-pnpm/assets/index-DCLrWw6Q.js.gz                                                  25.12kb / gzip: 6.90kb
+dist-pnpm/assets/index-Dn6wfpre.js.gz                                                  27.24kb / gzip: 8.91kb
+dist-pnpm/assets/index-Do60VhMz.js.gz                                                  27.28kb / gzip: 9.07kb
+dist-pnpm/assets/index-DaesLBnJ.js.gz                                                  17.79kb / gzip: 6.29kb
+dist-pnpm/assets/index-Ds1XeIrO.js.gz                                                  11.63kb / gzip: 4.30kb
+dist-pnpm/assets/index-DrXwtcpO.js.gz                                                  37.67kb / gzip: 11.16kb
+dist-pnpm/assets/index-IdvVEssS.js.gz                                                  10.81kb / gzip: 4.21kb
+dist-pnpm/assets/index-DrytAi1_.js.gz                                                  35.32kb / gzip: 11.18kb
+dist-pnpm/assets/index-O5mI-p5f.js.gz                                                  13.58kb / gzip: 4.56kb
+dist-pnpm/assets/index-MXkSDUd5.js.gz                                                  13.64kb / gzip: 4.79kb
+dist-pnpm/assets/index-CmbQ3VW8.js.gz                                                  19.76kb / gzip: 6.74kb
+dist-pnpm/assets/index-WWidDagz.js.gz                                                  26.62kb / gzip: 7.88kb
+dist-pnpm/assets/index-ILiwPkb1.js.gz                                                  40.55kb / gzip: 15.10kb
+dist-pnpm/assets/index-GsHaRTm5.js.gz                                                  50.85kb / gzip: 15.86kb
+dist-pnpm/assets/index-OCesHeBW.js.gz                                                  17.71kb / gzip: 6.14kb
+dist-pnpm/assets/index-nFr2C2ur.js.gz                                                  11.46kb / gzip: 4.28kb
+dist-pnpm/assets/index-DpIH03il.js.gz                                                  11.75kb / gzip: 3.99kb
+dist-pnpm/assets/index-hYQvzdE9.js.gz                                                  15.66kb / gzip: 5.71kb
+dist-pnpm/assets/index-yw-v0cQE.js.gz                                                  11.44kb / gzip: 4.46kb
+dist-pnpm/assets/index-uRmaVBXi.js.gz                                                  19.87kb / gzip: 7.11kb
+dist-pnpm/assets/mapping-DS1NJVb5.js.gz                                                11.67kb / gzip: 4.30kb
+dist-pnpm/assets/index-u_JPpaJm.js.gz                                                  34.07kb / gzip: 11.11kb
+dist-pnpm/assets/preference-Bw25QUDl.js.gz                                             10.13kb / gzip: 4.28kb
+dist-pnpm/assets/report-DLBKVswj.js.gz                                                 10.39kb / gzip: 3.91kb
+dist-pnpm/assets/templates-DL1tTOCH.js.gz                                              12.98kb / gzip: 4.79kb
+dist-pnpm/assets/index-VGYdS_NG.js.gz                                                  11.40kb / gzip: 4.42kb
+dist-pnpm/assets/index-Cp3tPlKB.js.gz                                                  18.86kb / gzip: 6.93kb
+dist-pnpm/assets/useBatchSelection-yYopfb2O.js.gz                                      10.66kb / gzip: 4.33kb
+dist-pnpm/demo/flow-poc/demo-logicflow.html.gz                                         11.90kb / gzip: 4.97kb
+dist-pnpm/assets/index-enrOGLIb.js.gz                                                  40.97kb / gzip: 13.26kb
+dist-pnpm/demo/flow-poc/demo-vue-flow.html.gz                                          10.15kb / gzip: 4.24kb
+dist-pnpm/assets/index-DOYPji3M.js.gz                                                  12.92kb / gzip: 5.15kb
+dist-pnpm/demo/flow-poc/index.html.gz                                                  15.89kb / gzip: 5.76kb
+dist-pnpm/assets/detail-D_-qS8d_.js.gz                                                 53.58kb / gzip: 18.27kb
+dist-pnpm/assets/index-JGGkmYF6.js.gz                                                  23.83kb / gzip: 8.10kb
+dist-pnpm/assets/index-BtPCOJNz.js.gz                                                  54.97kb / gzip: 17.50kb
+dist-pnpm/assets/index-CmLU6bhL.js.gz                                                  52.20kb / gzip: 17.01kb
+dist-pnpm/demo/flow-poc/demo-native.html.gz                                            12.47kb / gzip: 4.84kb
+dist-pnpm/assets/index-Dmo3fF3Q.js.gz                                                  128.38kb / gzip: 46.62kb
+dist-pnpm/assets/FlowCanvasVueFlow-DRbaapCg.js.gz                                      226.05kb / gzip: 74.88kb
+dist-pnpm/assets/edit-CN3RPxlo.js.gz                                                   199.80kb / gzip: 67.39kb
+dist-pnpm/assets/tdesign-E5ATeBiM.css.gz                                               437.80kb / gzip: 49.58kb
+dist-pnpm/assets/pdf-CcZYcL52.js.gz                                                    356.56kb / gzip: 104.75kb
+dist-pnpm/demo/flow-poc/vendor/logicflow.bundle.js.gz                                  384.37kb / gzip: 98.77kb
+dist-pnpm/demo/flow-poc/vendor/vue-flow.bundle.js.gz                                   283.84kb / gzip: 100.30kb
+dist-pnpm/assets/echarts-CuV_skF0.js.gz                                                1002.89kb / gzip: 331.52kb
+dist-pnpm/assets/pdf.worker.min-yatZIOMy.mjs.gz                                        1343.59kb / gzip: 393.48kb
+dist-pnpm/assets/tdesign-BNnR5MH2.js.gz                                                7995.70kb / gzip: 772.70kb
+
+
