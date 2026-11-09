@@ -33,7 +33,8 @@
 | `raw/n8_perf_1000.csv` | 1 千行规模，14 个接口 × 3 次计时（中位见文档 §2） |
 | `raw/n8_perf_10000.csv` | 1 万行规模 |
 | `raw/n8_perf_100000.csv` | 10 万行规模（**V0369 索引之前**） |
-| `raw/n8_perf_100000_indexed.csv` | 10 万行规模（**V0369 索引之后**） |
+| `raw/n8_perf_100000_indexed.csv` | 10 万行规模（**V0369 索引之后**，第二轮复测 = 文档 §3.1 的数字） |
+| `raw/measure_100k_stdout.txt` | `measure.sh` 在 10 万行的完整输出：14 个接口每项 `http=200/200/200`（真 token 实测留证） |
 | `raw/explain_100k_before_index.txt` | 14 条被测 SQL 的 `EXPLAIN (ANALYZE, BUFFERS)`，加索引前（含 3 处 `Seq Scan biz_task` / 全表聚合计划） |
 | `raw/explain_100k_after_index.txt` | 同上，加索引后（任务列表变 `Index Scan using idx_biz_task_list_order`） |
 | `raw/k6/*.json` | 5 个 k6 脚本的 `--summary-export`（退出码全 0） |

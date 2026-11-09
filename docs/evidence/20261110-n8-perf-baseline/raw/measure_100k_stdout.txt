@@ -1,0 +1,35 @@
+scale=100000 base=http://127.0.0.1:18099 period=2026-11 rounds=3
+[1/3] 列表类
+  task_page_1  median=42.4ms  http=200/200/200  bytes=12541
+  task_page_100  median=43.0ms  http=200/200/200  bytes=12550
+  task_page_1000  median=96.3ms  http=200/200/200  bytes=12543
+  voucher_page_1  median=7.6ms  http=200/200/200  bytes=17207
+  voucher_page_100  median=8.6ms  http=200/200/200  bytes=13457
+  voucher_page_1000  median=23.3ms  http=200/200/200  bytes=13461
+  voucher_page_period  median=4.6ms  http=200/200/200  bytes=14004
+  voucher_detail  median=3.1ms  http=200/200/200  bytes=1919
+  inv_txn_page_1  median=8.8ms  http=200/200/200  bytes=14026
+  inv_txn_page_100  median=8.4ms  http=200/200/200  bytes=14046
+  oplog_page_1  median=7.7ms  http=200/200/200  bytes=7493
+  oplog_page_1000  median=11.2ms  http=200/200/200  bytes=8393
+[2/3] 聚合类（全表）
+  trial_balance  median=68.7ms  http=200/200/200  bytes=21295
+  balance_sheet  median=182.6ms  http=200/200/200  bytes=11911
+[3/3] 登录（argon2 开销，POST）
+  （PERF_SKIP_LOGIN=1，跳过登录计时：数据量不影响 argon2 开销）
+== 结果写入 /tmp/n8_perf_100000_indexed.csv ==
+scale,endpoint,http,bytes,t1,t2,t3,median_ms
+100000,task_page_1,200/200/200,12541,0.042423,0.041927,0.043367,42.4
+100000,task_page_100,200/200/200,12550,0.042965,0.042785,0.043048,43.0
+100000,task_page_1000,200/200/200,12543,0.096307,0.099250,0.094630,96.3
+100000,voucher_page_1,200/200/200,17207,0.007735,0.007557,0.007554,7.6
+100000,voucher_page_100,200/200/200,13457,0.008642,0.008475,0.009598,8.6
+100000,voucher_page_1000,200/200/200,13461,0.023302,0.023770,0.022844,23.3
+100000,voucher_page_period,200/200/200,14004,0.004598,0.004505,0.005094,4.6
+100000,voucher_detail,200/200/200,1919,0.003312,0.003113,0.003125,3.1
+100000,inv_txn_page_1,200/200/200,14026,0.008512,0.008753,0.008765,8.8
+100000,inv_txn_page_100,200/200/200,14046,0.008468,0.008400,0.008379,8.4
+100000,oplog_page_1,200/200/200,7493,0.007666,0.007952,0.007638,7.7
+100000,oplog_page_1000,200/200/200,8393,0.013301,0.011164,0.010642,11.2
+100000,trial_balance,200/200/200,21295,0.071944,0.068178,0.068719,68.7
+100000,balance_sheet,200/200/200,11911,0.181959,0.183097,0.182554,182.6
