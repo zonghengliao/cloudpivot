@@ -201,6 +201,17 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/system/mutex/index.vue'),
         meta: { title: '角色互斥', permission: 'system:role-mutex:list' },
       },
+      {
+        // ==================== 服务器状态（HOME-3） ====================
+        // path / component 与 `sys_menu`（V0363）逐字一致：侧栏链接来自后端菜单，
+        // 路由不存在 = 点菜单进 404（真库档门禁 `system::menu::tests::n08` 会当场红）。
+        // 权限码只授 SUPER_ADMIN：非超管在守卫里被送去 /result/403，
+        // 且页面所有接口在后端也是 403（不靠前端隐藏当防线）。
+        path: 'system/server-status',
+        name: 'SystemServerStatus',
+        component: () => import('@/views/system/server-status/index.vue'),
+        meta: { title: '服务器状态', permission: 'system:server-status:view' },
+      },
       // ==================== 通用底座 · 批次 C（公告 / 帮助 / 变更日志） ====================
       // path 与 `sys_menu.path` 逐字一致，否则侧栏点了进 404：
       //   公告中心 V0087 → `/announcement`；公告管理 V0085 → `/business/announcement`；

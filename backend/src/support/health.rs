@@ -136,6 +136,34 @@ pub struct HealthDepsRes {
 /// 手工构造 JSON 响应（不走 `Res` 统一包装）：LB / 抓取端只看状态码与字段，
 /// 包一层 `code/data` 反而多一层解包。
 pub async fn health_deps() -> Response {
+    let body = probe_deps().await;
+    let status = if body.status == "ok" {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    let payload = serde_json::to_string(&body).unwrap_or_else(|_| {
+        r#"{"status":"degraded","db":{"ok":false},"cache":{"ok":false},"auth":{"revocation_source":"db","cache_degraded":true}}"#
+            .to_string()
+    });
+    (
+        status,
+        [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
+        Body::from(payload),
+    )
+        .into_response()
+}
+
+/// 探测数据库与缓存（**纯探测**，不构造响应）。
+///
+/// 抽出来是为了让 `/health/deps` 与「诊断包」共用**同一份**判定逻辑：
+/// 诊断包里的 `health.json` 必须是真实探测结果，而不是另写一遍 SQL
+/// （两份实现迟早在口径上分叉，届时「诊断包说健康、页面说不健康」无法解释）。
+///
+/// # 返回值
+///
+/// [`HealthDepsRes`]：`status = "ok"` 表示全健康，`"degraded"` 表示任一依赖不健康。
+pub async fn probe_deps() -> HealthDepsRes {
     let started = Instant::now();
     let db_status = match db().find_with_params("SELECT 1 AS ok", vec![]).await {
         Ok(_) => DepStatus::up(started.elapsed().as_secs_f64()),
@@ -168,7 +196,7 @@ pub async fn health_deps() -> Response {
         metrics::gauge!("cloudpivot_token_blacklist_rows").set(rows as f64);
     }
 
-    let body = HealthDepsRes {
+    HealthDepsRes {
         status: if healthy { "ok" } else { "degraded" },
         db: db_status,
         cache: cache_status,
@@ -176,23 +204,7 @@ pub async fn health_deps() -> Response {
             revocation_source: "db",
             cache_degraded: !cache_ok,
         },
-    };
-
-    let status = if healthy {
-        StatusCode::OK
-    } else {
-        StatusCode::SERVICE_UNAVAILABLE
-    };
-    let payload = serde_json::to_string(&body).unwrap_or_else(|_| {
-        r#"{"status":"degraded","db":{"ok":false},"cache":{"ok":false},"auth":{"revocation_source":"db","cache_degraded":true}}"#
-            .to_string()
-    });
-    (
-        status,
-        [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
-        Body::from(payload),
-    )
-        .into_response()
+    }
 }
 
 #[cfg(test)]

@@ -1,0 +1,11 @@
+   Compiling cloudpivot v0.1.0 (/var/tmp/home3-wt/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 42.31s
+     Running unittests src/lib.rs (/var/tmp/home3-target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 1 test
+测试C 已连接验证库（cloudpivot_test）
+[N10] 346 个权限注解全部有菜单承载 ✓
+test system::menu::tests::n10_annotated_permissions_have_menu_code ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4004 filtered out; finished in 0.45s
+

@@ -33,7 +33,9 @@ INSERT INTO sys_role_menu (role_id, menu_id, created_at)
 SELECT r.id, m.id, CURRENT_TIMESTAMP
 FROM sys_role r
 CROSS JOIN (VALUES ('10000000-0000-0000-0000-000000000050'::uuid),
-                   ('10000000-0000-0000-0000-000000000051'::uuid)) AS m(id)
+                   ('10000000-0000-0000-0000-000000000051'::uuid),
+                   -- 服务器状态（HOME-3）：诊断包含配置 / 环境变量 / 日志，只授超管
+                   ('10000000-0000-0000-0000-000000000090'::uuid)) AS m(id)
 WHERE r.role_code = 'SUPER_ADMIN'
 ON CONFLICT DO NOTHING;
 

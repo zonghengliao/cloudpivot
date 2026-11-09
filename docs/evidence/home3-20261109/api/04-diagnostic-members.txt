@@ -1,0 +1,12 @@
+Archive:  /var/tmp/home3-evidence/api/04-diagnostic.zip
+  Length      Date    Time    Name
+---------  ---------- -----   ----
+      854  1980-01-01 00:00   info.json
+      390  1980-01-01 00:00   health.json
+     1844  1980-01-01 00:00   server-status.json
+    25514  1980-01-01 00:00   metrics.txt
+    13726  1980-01-01 00:00   config-redacted.txt
+    20680  1980-01-01 00:00   migrations.txt
+    47996  1980-01-01 00:00   logs-tail.txt
+---------                     -------
+   111004                     7 files

@@ -15,9 +15,11 @@
 
 use nik::prelude::*;
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use crate::business::monitor::dto::{CpuRes, DatabaseRes, RedisRes, ServerStatusRes, UsageRes};
+use crate::business::monitor::dto::{
+    AppRes, BusinessRes, CpuRes, DatabaseRes, HermesProbeRes, HostRes, RedisRes, ServerStatusRes, UsageRes,
+};
 
 /// `/proc/stat` 路径。
 const PROC_STAT: &str = "/proc/stat";
@@ -27,6 +29,15 @@ const PROC_MEMINFO: &str = "/proc/meminfo";
 const CPU_SAMPLE_INTERVAL: Duration = Duration::from_millis(200);
 /// 数据库版本号下发时的最大字符数（`version()` 全文含编译参数，太长且无展示价值）。
 const DB_VERSION_MAX_CHARS: usize = 40;
+/// 统计「今日」时使用的时区（与 `support::dashboard::model` 的自然日口径一致）。
+const REPORT_TIME_ZONE: &str = "Asia/Shanghai";
+/// Hermes Agent 端口默认探测地址。
+///
+/// 当前生产形态里 Agent 不在本机，所以这里探测失败是**正常状态**（前端显示「未安装」）。
+/// 可用环境变量 `CLOUDPIVOT_HERMES_PROBE_ADDR` 覆盖（例如 Agent 与云枢同机部署时改端口）。
+const HERMES_PROBE_ADDR_DEFAULT: &str = "127.0.0.1:8100";
+/// Hermes 探测超时：连接被防火墙丢弃时不至于把整页拖慢到秒级。
+const HERMES_PROBE_TIMEOUT: Duration = Duration::from_millis(300);
 
 // ==================== 采集入口 ====================
 
@@ -44,6 +55,10 @@ pub async fn collect() -> ServerStatusRes {
         database: collect_database().await,
         redis: collect_redis().await,
         collected_at: chrono::Utc::now().to_rfc3339(),
+        host: collect_host().await,
+        app: collect_app(),
+        business: collect_business().await,
+        hermes: probe_hermes().await,
     }
 }
 
@@ -106,9 +121,11 @@ async fn collect_database() -> DatabaseRes {
         SELECT current_database()                                             AS db_name,
                pg_database_size(current_database())::bigint                    AS db_size,
                (SELECT COUNT(*) FROM pg_stat_activity)::bigint                 AS db_conns,
-               version()                                                       AS db_version
+               version()                                                       AS db_version,
+               current_setting('server_version')                               AS server_version
     "#;
 
+    let started = Instant::now();
     let row = match db().find_first(SQL).await {
         Ok(Some(row)) => row,
         Ok(None) | Err(_) => {
@@ -118,8 +135,15 @@ async fn collect_database() -> DatabaseRes {
             };
         }
     };
+    let latency_ms = duration_ms(started.elapsed());
 
     let size_bytes = row.get_typed::<i64>("db_size").unwrap_or_default().max(0) as u64;
+    // 迁移条数单独一条 SQL：`schema_migrations` 由迁移器自建，任何异常都只让这一格为 0，
+    // 绝不能因为它把整个数据库状态判成 down（老库/只读副本上这张表可能存在但无权限）。
+    let migrations = db()
+        .scalar::<i64>("SELECT COUNT(*)::bigint FROM schema_migrations WHERE success")
+        .await
+        .unwrap_or(0);
     DatabaseRes {
         state: "up".to_string(),
         name: row.get_typed::<String>("db_name").unwrap_or_default(),
@@ -130,17 +154,30 @@ async fn collect_database() -> DatabaseRes {
             &row.get_typed::<String>("db_version").unwrap_or_default(),
             DB_VERSION_MAX_CHARS,
         ),
+        server_version: row
+            .get_typed::<String>("server_version")
+            .unwrap_or_default()
+            // `current_setting('server_version')` 在 Ubuntu 包上是 `18.6 (Ubuntu 18.6-0ubuntu0.26.04.1)`：
+            // 环境信息卡只要「18.6」这一段（完整串在 `version` 里），故取第一个空白前的部分。
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_string(),
+        latency_ms: Some(latency_ms),
+        migrations,
     }
 }
 
 /// 采集 Redis 状态（`INFO`）；连接或命令失败返回 `state = "down"`。
 async fn collect_redis() -> RedisRes {
+    let started = Instant::now();
     let Some(info) = fetch_redis_info(&cfg().redis.url).await else {
         return RedisRes {
             state: "down".to_string(),
             ..RedisRes::default()
         };
     };
+    let latency_ms = duration_ms(started.elapsed());
     let parsed = parse_redis_info(&info);
     RedisRes {
         state: "up".to_string(),
@@ -151,6 +188,7 @@ async fn collect_redis() -> RedisRes {
         uptime_seconds: parsed.uptime_seconds,
         keyspace_hits: parsed.keyspace_hits,
         keyspace_misses: parsed.keyspace_misses,
+        latency_ms: Some(latency_ms),
     }
 }
 
@@ -164,7 +202,275 @@ async fn fetch_redis_info(url: &str) -> Option<String> {
     redis::cmd("INFO").query_async::<String>(&mut conn).await.ok()
 }
 
+// ==================== 主机 / 进程 / 业务量 ====================
+
+/// 采集主机信息（hostname / 发行版 / 内核 / CPU 型号 / 负载 / 开机时间）。
+///
+/// 任何一项读不到都用空串 / 0 兜底，**不返回错误**：这台机器上 `/proc` 一定在，
+/// 但容器里可能读不到 `/etc/os-release`，那也只该让那一格显示 `-`。
+async fn collect_host() -> HostRes {
+    let os_release = tokio::fs::read_to_string("/etc/os-release").await.unwrap_or_default();
+    let cpuinfo = tokio::fs::read_to_string("/proc/cpuinfo").await.unwrap_or_default();
+    let loadavg = tokio::fs::read_to_string("/proc/loadavg").await.unwrap_or_default();
+    let uptime = tokio::fs::read_to_string("/proc/uptime").await.unwrap_or_default();
+    let kernel = tokio::fs::read_to_string("/proc/sys/kernel/osrelease")
+        .await
+        .unwrap_or_default();
+    let hostname_file = tokio::fs::read_to_string("/etc/hostname").await.unwrap_or_default();
+
+    let hostname = if hostname_file.trim().is_empty() {
+        std::env::var("HOSTNAME").unwrap_or_default()
+    } else {
+        hostname_file.trim().to_string()
+    };
+    let boot_epoch = read_boot_epoch();
+    let (load1, load5, load15) = parse_loadavg(&loadavg);
+    let cpu = parse_cpuinfo(&cpuinfo);
+
+    HostRes {
+        hostname,
+        os_name: parse_os_release(&os_release),
+        kernel: kernel.trim().to_string(),
+        arch: std::env::consts::ARCH.to_string(),
+        cpu_model: cpu.model,
+        cpu_mhz: cpu.mhz,
+        load1,
+        load5,
+        load15,
+        uptime_seconds: parse_uptime(&uptime),
+        boot_time: boot_epoch
+            .and_then(|secs| chrono::DateTime::<chrono::Utc>::from_timestamp(secs, 0))
+            .map(|dt| dt.to_rfc3339())
+            .unwrap_or_default(),
+    }
+}
+
+/// 采集后端进程信息（版本 / commit / profile / 启动时间 / 运行时长）。
+///
+/// 启动时间取自 `/proc/self/stat` 的 `starttime` + `/proc/stat` 的 `btime`，
+/// 而不是「进程内第一次访问的时间」—— 后者会把「服务已经跑了 3 天」显示成「刚刚启动」。
+fn collect_app() -> AppRes {
+    let started_epoch = process_start_epoch();
+    let now = chrono::Utc::now();
+    let uptime_seconds = started_epoch.map_or(0, |secs| (now.timestamp() - secs).max(0));
+    AppRes {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        commit: option_env!("CLOUDPIVOT_GIT_COMMIT").unwrap_or("unknown").to_string(),
+        rust_version: option_env!("CLOUDPIVOT_RUSTC_VERSION").unwrap_or("unknown").to_string(),
+        profile: cfg().profile.clone(),
+        started_at: started_epoch
+            .and_then(|secs| chrono::DateTime::<chrono::Utc>::from_timestamp(secs, 0))
+            .map(|dt| dt.to_rfc3339())
+            .unwrap_or_else(|| now.to_rfc3339()),
+        uptime_seconds,
+        pid: std::process::id(),
+    }
+}
+
+/// 采集业务量（用户总数 / 在线会话 / 今日登录 / 今日操作）。
+///
+/// # 为什么不返回错误
+///
+/// 这是运维页面上的一块「概览」，数据库抖动时应该显示 `-` 而不是让整页 500：
+/// 用户在服务器状态页最需要看到的信息恰恰是「数据库挂了」，此时把页面打成错误页
+/// 等于隐藏了最关键的那条信息。因此任何一项查询失败都只让该项为 0。
+async fn collect_business() -> BusinessRes {
+    let sql = format!(
+        r#"
+WITH scope AS (
+    SELECT (date_trunc('day', now() AT TIME ZONE '{tz}'))::timestamptz AS day_start,
+           ((date_trunc('day', now() AT TIME ZONE '{tz}')) + interval '1 day')::timestamptz AS day_end
+)
+SELECT (SELECT COUNT(*) FROM sys_user WHERE deleted_at IS NULL)::bigint AS users_total,
+       (SELECT COUNT(*) FROM auth_logs a, scope
+         WHERE a.auth_type = 'LOGIN'
+           AND a.created_at >= scope.day_start AND a.created_at < scope.day_end)::bigint AS login_today,
+       (SELECT COUNT(*) FROM operation_logs o, scope
+         WHERE o.created_at >= scope.day_start AND o.created_at < scope.day_end)::bigint AS op_log_today
+"#,
+        tz = REPORT_TIME_ZONE
+    );
+
+    let (users_total, login_today, op_log_today) = match db().find_first(&sql).await {
+        Ok(Some(row)) => (
+            row.get_typed::<i64>("users_total").unwrap_or_default(),
+            row.get_typed::<i64>("login_today").unwrap_or_default(),
+            row.get_typed::<i64>("op_log_today").unwrap_or_default(),
+        ),
+        _ => (0, 0, 0),
+    };
+
+    // 在线会话来自缓存（登录 / 刷新时登记，登出不落库）；缓存未启用时按 0 处理。
+    let online_users = crate::support::online::model::OnlineSessionModel::list_all()
+        .await
+        .map(|list| list.len() as i64)
+        .unwrap_or(0);
+
+    BusinessRes {
+        users_total,
+        online_users,
+        login_today,
+        op_log_today,
+    }
+}
+
+/// 探测 Hermes Agent 端口（TCP 连接，300 ms 超时）。
+///
+/// # 语义
+///
+/// - 连得上 → `state = up`（Agent 与本服务同机且已监听）；
+/// - 连不上 → `state = not_installed`（**正常状态**：当前部署形态里 Agent 在别的主机）。
+///
+/// 探测地址可用 `CLOUDPIVOT_HERMES_PROBE_ADDR` 覆盖。
+async fn probe_hermes() -> HermesProbeRes {
+    let address = std::env::var("CLOUDPIVOT_HERMES_PROBE_ADDR")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| HERMES_PROBE_ADDR_DEFAULT.to_string());
+
+    let started = Instant::now();
+    let outcome = tokio::time::timeout(HERMES_PROBE_TIMEOUT, tokio::net::TcpStream::connect(&address)).await;
+    match outcome {
+        Ok(Ok(_stream)) => HermesProbeRes {
+            state: "up".to_string(),
+            detail: "端口可连接".to_string(),
+            latency_ms: Some(duration_ms(started.elapsed())),
+            address,
+        },
+        Ok(Err(_)) => HermesProbeRes {
+            state: "not_installed".to_string(),
+            detail: format!("{address} 无服务监听（Agent 未部署在本机或未启动）"),
+            latency_ms: None,
+            address,
+        },
+        Err(_) => HermesProbeRes {
+            state: "not_installed".to_string(),
+            detail: format!("{address} 连接超时（{} ms）", HERMES_PROBE_TIMEOUT.as_millis()),
+            latency_ms: None,
+            address,
+        },
+    }
+}
+
 // ==================== 纯逻辑（含单测） ====================
+
+/// 纳秒级耗时转毫秒（保留 1 位小数）。
+fn duration_ms(elapsed: Duration) -> f64 {
+    round1(elapsed.as_secs_f64() * 1000.0)
+}
+
+/// 读取系统开机时间戳（`/proc/stat` 的 `btime <epoch>`）。
+fn read_boot_epoch() -> Option<i64> {
+    let text = std::fs::read_to_string(PROC_STAT).ok()?;
+    parse_btime(&text)
+}
+
+/// 解析 `/proc/stat` 的 `btime` 行。
+pub fn parse_btime(text: &str) -> Option<i64> {
+    text.lines()
+        .find(|line| line.starts_with("btime "))
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|value| value.parse::<i64>().ok())
+}
+
+/// 当前进程的启动时间戳（Unix 秒）。
+///
+/// `/proc/self/stat` 的第 22 个字段 `starttime` 是**自开机起的时间片数**
+/// （单位 USER_HZ，内核固定为 100），加上 `btime` 就是绝对时间。
+///
+/// # 为什么不用 `SystemTime::now()` 缓存一个「首次调用时间」
+///
+/// 那样得到的只是「第一次访问本页的时间」，服务重启后并不重置、服务长期运行后
+/// 又会显示成「刚刚启动」，与用户要看的「服务运行时长」正好相反。
+fn process_start_epoch() -> Option<i64> {
+    let stat = std::fs::read_to_string("/proc/self/stat").ok()?;
+    let ticks = parse_proc_start_ticks(&stat)?;
+    let boot = read_boot_epoch()?;
+    Some(boot + ticks / 100)
+}
+
+/// 从 `/proc/<pid>/stat` 文本解析 `starttime`（第 22 个字段，单位 jiffies）。
+///
+/// 进程名可能包含空格与括号（如 `(my app)`），因此必须从**最后一个 `)` 之后**
+/// 开始数字段，不能简单 `split_whitespace`。
+pub fn parse_proc_start_ticks(stat: &str) -> Option<i64> {
+    let close = stat.rfind(')')?;
+    let rest = stat.get(close + 1..)?.trim_start();
+    // 解构后第 1 个字段是 state（总第 3 个字段），故 starttime 的偏移是 22 - 3 = 19。
+    rest.split_whitespace().nth(19)?.parse::<i64>().ok()
+}
+
+/// 解析 `/etc/os-release` 的 `PRETTY_NAME`（去掉包裹的引号）。
+pub fn parse_os_release(text: &str) -> String {
+    for line in text.lines() {
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        if key.trim() != "PRETTY_NAME" {
+            continue;
+        }
+        return value.trim().trim_matches('"').trim_matches('\'').to_string();
+    }
+    String::new()
+}
+
+/// `/proc/cpuinfo` 中要下发的那两列。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CpuInfo {
+    /// CPU 型号（x86 的 `model name`；ARM 的 `Hardware` / `Model`）。
+    pub model: String,
+    /// 主频 MHz（取第一个 `cpu MHz`；ARM 上通常没有，为 0）。
+    pub mhz: u32,
+}
+
+/// 解析 `/proc/cpuinfo`。
+///
+/// 型号优先 `model name`（x86），退回 `Hardware` / `Model`（ARM / 树莓派）。
+/// 主频按第一行的 `cpu MHz` 四舍五入到整数；缺失时为 0（前端只显示核心数）。
+pub fn parse_cpuinfo(text: &str) -> CpuInfo {
+    let mut info = CpuInfo::default();
+    for line in text.lines() {
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let value = value.trim();
+        match key.trim() {
+            "model name" if info.model.is_empty() => info.model = value.to_string(),
+            "Hardware" | "Model" if info.model.is_empty() => info.model = value.to_string(),
+            "cpu MHz" if info.mhz == 0 => {
+                info.mhz = value.parse::<f64>().map(|mhz| mhz.round() as u32).unwrap_or(0);
+            }
+            _ => {}
+        }
+    }
+    info
+}
+
+/// 解析 `/proc/loadavg` 的前三个数（1 / 5 / 15 分钟平均负载）。
+///
+/// 字段缺失或非数字时该位置为 0.0，不报错。
+pub fn parse_loadavg(text: &str) -> (f64, f64, f64) {
+    let values: Vec<f64> = text
+        .split_whitespace()
+        .take(3)
+        .map(|field| field.parse::<f64>().unwrap_or(0.0))
+        .collect();
+    (
+        values.first().copied().unwrap_or(0.0),
+        values.get(1).copied().unwrap_or(0.0),
+        values.get(2).copied().unwrap_or(0.0),
+    )
+}
+
+/// 解析 `/proc/uptime` 的第一个数（秒，截断为整数）。
+pub fn parse_uptime(text: &str) -> i64 {
+    text.split_whitespace()
+        .next()
+        .and_then(|value| value.parse::<f64>().ok())
+        .map(|secs| secs.max(0.0) as i64)
+        .unwrap_or(0)
+}
 
 /// `/proc/stat` 首行的一条 CPU 时间片快照（单位：jiffies）。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -476,5 +782,82 @@ mod tests {
         assert_eq!(truncate_chars("PostgreSQL 17.0", 11), "PostgreSQL ");
         assert_eq!(truncate_chars("数据库版本很长", 3), "数据库");
         assert_eq!(truncate_chars("short", 40), "short");
+    }
+
+    // ==================== 主机 / 进程解析 ====================
+
+    #[test]
+    fn parse_btime_and_proc_start_ticks() {
+        let stat = "cpu  1 2 3 4\nbtime 1700000000\nprocesses 1234\n";
+        assert_eq!(parse_btime(stat), Some(1_700_000_000));
+        assert_eq!(parse_btime("cpu 1 2 3\n"), None);
+
+        // 进程名里带空格与括号：必须从最后一个 ')' 之后数字段，
+        // 否则 `(my app)` 的右括号会被当成起点，整行错位 1 段以上。
+        // 构造一行真正的 stat：pid (comm) state ppid ... starttime 在第 22 个字段。
+        let mut fields: Vec<String> = vec!["R".into(), "1".into()];
+        // 解构后下标 0 = 第 3 个字段（state），故 starttime（第 22 个）落在下标 19：
+        // 下标 2..=18 共 17 个占位，下标 19 才是 starttime。
+        for _ in 0..17 {
+            fields.push("0".into());
+        }
+        fields.push("12345".into()); // starttime（第 22 个字段）
+        assert_eq!(fields.len(), 20, "占位数量必须让 starttime 落在下标 19");
+        let line = format!("4242 (my app) {}", fields.join(" "));
+        assert_eq!(parse_proc_start_ticks(&line), Some(12345));
+
+        // 字段不足 / 非数字 → None，不 panic
+        assert_eq!(parse_proc_start_ticks("4242 (x) R"), None);
+        assert_eq!(
+            parse_proc_start_ticks("4242 (x) R 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 abc"),
+            None
+        );
+    }
+
+    #[test]
+    fn parse_os_release_strips_quotes() {
+        let text = "NAME=\"Ubuntu\"\nPRETTY_NAME=\"Ubuntu 24.04.3 LTS\"\nID=ubuntu\n";
+        assert_eq!(parse_os_release(text), "Ubuntu 24.04.3 LTS");
+        // 单引号同样去掉；缺失返回空串（不是错误）
+        assert_eq!(parse_os_release("PRETTY_NAME='Debian 12'\n"), "Debian 12");
+        assert_eq!(parse_os_release("ID=debian\n"), "");
+    }
+
+    #[test]
+    fn parse_cpuinfo_x86_and_arm() {
+        let x86 = "processor\t: 0\nmodel name\t: Intel(R) Xeon(R) CPU E5-2680 v4 @ 2.40GHz\ncpu MHz\t\t: 2397.123\n\nprocessor\t: 1\nmodel name\t: Intel(R) Xeon(R) CPU E5-2680 v4 @ 2.40GHz\ncpu MHz\t\t: 2400.000\n";
+        let info = parse_cpuinfo(x86);
+        assert!(info.model.contains("Xeon"));
+        // 取第一行主频并四舍五入，不取最后一核
+        assert_eq!(info.mhz, 2397);
+
+        // ARM：没有 model name / cpu MHz，退回 Hardware，主频为 0
+        let arm = "processor\t: 0\nBogoMIPS\t: 48.00\nHardware\t: BCM2835\n";
+        let info = parse_cpuinfo(arm);
+        assert_eq!(info.model, "BCM2835");
+        assert_eq!(info.mhz, 0);
+
+        // 空输入 → 全默认
+        assert_eq!(parse_cpuinfo(""), CpuInfo::default());
+    }
+
+    #[test]
+    fn parse_loadavg_and_uptime() {
+        assert_eq!(parse_loadavg("0.52 0.58 0.59 1/512 12345\n"), (0.52, 0.58, 0.59));
+        // 缺字段 / 非数字：对应位置为 0，不 panic
+        assert_eq!(parse_loadavg("1.5"), (1.5, 0.0, 0.0));
+        assert_eq!(parse_loadavg(""), (0.0, 0.0, 0.0));
+
+        assert_eq!(parse_uptime("12345.67 98765.43\n"), 12345);
+        assert_eq!(parse_uptime(""), 0);
+        // 负数（理论上不存在）按 0 处理
+        assert_eq!(parse_uptime("-1.0 0.0\n"), 0);
+    }
+
+    #[test]
+    fn duration_ms_rounds_to_one_decimal() {
+        assert_eq!(duration_ms(Duration::from_millis(12)), 12.0);
+        assert_eq!(duration_ms(Duration::from_micros(1234)), 1.2);
+        assert_eq!(duration_ms(Duration::from_nanos(0)), 0.0);
     }
 }

@@ -1,0 +1,37 @@
+   Compiling cloudpivot v0.1.0 (/var/tmp/home3-wt/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 53s
+     Running unittests src/lib.rs (/var/tmp/home3-target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 28 tests
+test business::monitor::diagnostic::tests::prometheus_fallback_has_core_series ... ok
+test business::monitor::diagnostic::tests::listen_port_parses_both_forms ... ok
+test business::monitor::diagnostic::tests::read_tail_reports_missing_file_without_panic ... ok
+test business::monitor::diagnostic::tests::read_tail_keeps_last_lines_and_drops_partial_head ... ok
+test business::monitor::diagnostic::tests::redact_leaves_comments_readable ... ok
+test business::monitor::diagnostic::tests::redact_masks_bare_secrets_and_keeps_chinese ... ok
+test business::monitor::diagnostic::tests::redact_masks_env_style_assignments ... ok
+test business::monitor::dto::tests::ensure_super_admin_accepts_role_or_wildcard ... ok
+test business::monitor::diagnostic::tests::redact_masks_url_credentials_and_bearer ... ok
+test business::monitor::diagnostic::tests::redact_masks_toml_and_json_forms ... ok
+test business::monitor::dto::tests::ensure_super_admin_rejects_plain_permission_holder ... ok
+test business::monitor::handler::tests::diagnostic_permission_code_matches_seed ... ok
+test business::monitor::model::tests::duration_ms_rounds_to_one_decimal ... ok
+test business::monitor::model::tests::format_bytes_and_usage_boundaries ... ok
+test business::monitor::model::tests::parse_btime_and_proc_start_ticks ... ok
+test business::monitor::model::tests::parse_cpuinfo_x86_and_arm ... ok
+test business::monitor::model::tests::cpu_percent_normal_and_zero_delta ... ok
+test business::monitor::diagnostic::tests::zip_entries_round_trips_all_expected_members ... ok
+test business::monitor::dto::tests::server_status_res_serializes_new_blocks ... ok
+test business::monitor::model::tests::parse_loadavg_and_uptime ... ok
+test business::monitor::model::tests::parse_meminfo_fallback_and_missing ... ok
+test business::monitor::model::tests::parse_os_release_strips_quotes ... ok
+test business::monitor::model::tests::parse_df_normal_and_invalid ... ok
+test business::monitor::model::tests::parse_meminfo_normal ... ok
+test business::monitor::model::tests::parse_proc_stat_invalid ... ok
+test business::monitor::model::tests::truncate_chars_keeps_multibyte_boundary ... ok
+test business::monitor::model::tests::parse_proc_stat_normal ... ok
+test business::monitor::model::tests::parse_redis_info_normal_and_empty ... ok
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 3977 filtered out; finished in 0.02s
+
+EXIT=0

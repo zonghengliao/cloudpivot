@@ -1,0 +1,3 @@
+   Compiling cloudpivot v0.1.0 (/var/tmp/home3-wt/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 49s
+BUILD_EXIT=0

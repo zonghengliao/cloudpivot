@@ -1,0 +1,11 @@
+   Compiling cloudpivot v0.1.0 (/var/tmp/home3-wt/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 43.27s
+     Running unittests src/lib.rs (/var/tmp/home3-target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 1 test
+测试C 已连接验证库（cloudpivot_test）
+[N08] 116 条菜单路径全部能在前端路由里解析 ✓
+test system::menu::tests::n08_menu_paths_all_resolve_in_frontend_router ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4004 filtered out; finished in 0.21s
+

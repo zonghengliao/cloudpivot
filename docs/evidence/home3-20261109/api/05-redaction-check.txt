@@ -1,0 +1,26 @@
+# 打码实测：包内 7 个文件逐个 grep 真实密钥 / 新口令（0 = 未泄漏）
+# 被搜索的明文：NIK_MIDDLEWARE_AUTH_JWT_SECRET(64 hex)、CLOUDPIVOT_STORAGE_MASTER_KEY(64 hex)、admin 新口令 Home3@2026Pass
+config-redacted.txt  jwt=0  storage_key=0  admin_pass=0
+health.json  jwt=0  storage_key=0  admin_pass=0
+info.json  jwt=0  storage_key=0  admin_pass=0
+logs-tail.txt  jwt=0  storage_key=0  admin_pass=0
+metrics.txt  jwt=0  storage_key=0  admin_pass=0
+migrations.txt  jwt=0  storage_key=0  admin_pass=0
+server-status.json  jwt=0  storage_key=0  admin_pass=0
+
+# 40 位以上十六进制串（兜底规则命中后应为 0）：
+0 个文件
+
+# config-redacted.txt 的打码行样例：
+## 进程环境变量（按键名排序；敏感值已打码）
+A2A_TRUSTED_PEERS=ip:127.0.0.1,ip:172.18.10.99
+AI_AGENT=hermes-agent
+ARK_API_KEY=***REDACTED***
+CARGO_BUILD_JOBS=1
+CLOUDPIVOT_DIAG_LOG=/var/tmp/home3-run/server.log
+CLOUDPIVOT_STORAGE_MASTER_KEY=***REDACTED***
+DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/0/bus
+DEBUGINFOD_URLS=https://debuginfod.ubuntu.com 
+DISCORD_HISTORY_BACKFILL=true
+DISCORD_HISTORY_BACKFILL_LIMIT=50
+DISCORD_REACTIONS=true

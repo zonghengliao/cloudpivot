@@ -123,8 +123,16 @@ redis = { version = "1.7", features = ["tokio-comp", "connection-manager"] }
 # 数据权限（批次 B · B3，报批 §5.3「Cargo.toml 加 regex」）：
 # 列级脱敏的自定义正则类型（B6）与范围自检接口的标识符校验需要编译正则；
 # `regex 1.13.1` **本就在依赖树中**（nik-utils 的依赖，见 Cargo.lock），
-# 这里只是把既有的间接依赖显式化，不引入任何新 crate、不改版本。
+# 这里只是把既有的间接依赖显式化，不引入新 crate、不改版本。
 regex = "1"
+
+# 诊断包（服务器状态页「下载诊断包」）：多文件归档需要真正的 zip 容器。
+# 版本与 features 与本 crate 原有 **dev-dependencies** 里的声明完全一致
+# （`rust_xlsxwriter` 已依赖 zip 8.6，Cargo.lock 里只有一份），
+# 这里从 dev-dependencies 提升到 dependencies —— **不引入新 crate、不改版本**。
+# 业务上只用于 `business/monitor/diagnostic.rs`（诊断包组装与单测回读）；
+# xlsx 读写仍然一律走 nik-utils（那条约束不变）。
+zip = { version = "8.3", default-features = false, features = ["deflate"] }
 
 # Markdown 渲染（批次 C · C0，报批 §5.4.1 B-1，本批**唯一新增的非 nik 依赖**）：
 # D4 选定「Markdown 源 + 服务端渲染」，而仓库此前**没有任何**渲染器
@@ -174,11 +182,9 @@ path = "examples/c7_rollback_probe.rs"
 required-features = ["test-hooks"]
 
 # ======================================================================
-# 单测专用：回读 xlsx 的 zip 容器（断言 dataValidation XML 节点）
+# 单测专用（当前为空）
 #
-# **不是新依赖**：`rust_xlsxwriter` 已经依赖 `zip` 8.6（Cargo.lock 里只有一份），
-# 版本与 features 与它声明的完全一致（`deflate`），这里只是把已有的间接依赖
-# 显式化给单测用。业务代码**不要**直接用 `zip`：xlsx 读写一律走 nik-utils。
+# 原来这里只有 `zip`（读回 xlsx 容器断言 dataValidation XML 节点）。诊断包
+# （`business/monitor/diagnostic.rs`）在**生产代码**里也要写 zip，故已提升到
+# `[dependencies]`（同一版本 8.3 / 同一 feature deflate，Cargo.lock 里仍只有一份）。
 # ======================================================================
-[dev-dependencies]
-zip = { version = "8.3", default-features = false, features = ["deflate"] }

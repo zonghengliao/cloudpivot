@@ -76,6 +76,21 @@ FROM (VALUES
     ('10000000-0000-0000-0000-000000000021'::uuid, 'system:dept:delete', 3, 'system:dept:delete',
      NULL, '10000000-0000-0000-0000-000000000018'::uuid, NULL, 30, 1, NULL, '删除部门', FALSE, 'system'),
 
+    -- ---------- 系统管理 / 服务器状态（HOME-3） ----------
+    -- 只读运维页：CPU / 内存 / 磁盘 / 运行时长四张指标卡 + 24h 趋势 + 服务健康清单 +
+    -- 环境信息 + 诊断包下载。页面数据走既有 `business/monitor/server-status`，
+    -- 诊断包走 `GET /system/server-status/diagnostic`；两者同一个权限码（见下）。
+    --
+    -- 为什么权限码只授超管：诊断包含配置 / 环境变量 / 日志（均已打码），属排障用高敏材料。
+    -- 授权行写在 `S__role_data.sql`（sys_role_menu 对角色与菜单都有外键，
+    -- 而 seed 按文件名升序执行：menu_data → role_data，角色行此时才存在）。
+    --
+    -- sort = 90：系统管理下现有 10/20/30/40，90 是空位且是最后（同父 sort 必须唯一，
+    -- 由 scripts/verify/menu_invariants.sh ⑦ 兜底）。
+    ('10000000-0000-0000-0000-000000000090'::uuid, 'system:server-status', 2, 'system:server-status:view',
+     '/system/server-status', '10000000-0000-0000-0000-000000000001'::uuid, 'system/server-status/index',
+     90, 1, 'server', '服务器状态', TRUE, 'system'),
+
     -- ---------- 支撑功能目录 ----------
     ('10000000-0000-0000-0000-000000000022'::uuid, 'support', 1, '', '/support', NULL::uuid,
      'Layout', 20, 1, 'app', '支撑功能', TRUE, 'support'),

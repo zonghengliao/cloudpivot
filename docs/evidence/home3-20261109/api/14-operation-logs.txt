@@ -1,0 +1,5 @@
+ username |            operation            |     target_type      |                 target_id                 | status_code 
+----------+---------------------------------+----------------------+-------------------------------------------+-------------
+ admin    | SYSTEM_SERVER_STATUS_DIAGNOSTIC | system_server_status | cloudpivot-diagnostic-20261109-134807.zip |         200
+(1 row)
+

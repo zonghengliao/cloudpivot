@@ -1,0 +1,1 @@
+]},{"id":"10000000-0000-0000-0000-000000000090","name":"system:server-status","menu_type":2,"auth_code":"system:server-status:view","path":"/system/server-status","parent_id":"10000000-0000-0000-0000-000000000001","component":"system/server-status/index","sort_order":90,"status":1
