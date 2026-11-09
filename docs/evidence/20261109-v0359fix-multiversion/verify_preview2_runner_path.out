@@ -1,0 +1,146 @@
+Pager usage is off.
+CREATE FUNCTION
+=== ① 版本列表（全部流程，按 flow_code/version_no） ===
+    flow_code     | version_no | version_status | is_current | current_version_no | def_points_here | approval_role_all | countersign_all 
+------------------+------------+----------------+------------+--------------------+-----------------+-------------------+-----------------
+ asset_disposal   |          1 | ARCHIVED       | f          |                  2 | f               |                 1 |               0
+ asset_disposal   |          2 | PUBLISHED      | t          |                  2 | t               |                 0 |               0
+ budget_approve   |          1 | ARCHIVED       | f          |                  3 | f               |                 2 |               2
+ budget_approve   |          2 | ARCHIVED       | f          |                  3 | f               |                 1 |               2
+ budget_approve   |          3 | PUBLISHED      | t          |                  3 | t               |                 0 |               2
+ contract_approve |          1 | ARCHIVED       | f          |                  2 | f               |                 3 |               0
+ contract_approve |          2 | PUBLISHED      | t          |                  2 | t               |                 0 |               0
+ expense          |          1 | PUBLISHED      | t          |                  1 | t               |                 0 |               1
+ flow_edge_config |          1 | PUBLISHED      | t          |                  1 | t               |                 0 |               0
+ payable_cancel   |          1 | PUBLISHED      | t          |                  1 | t               |                 0 |               0
+ payable_cancel   |          2 | DRAFT          | f          |                  1 | f               |                 0 |               0
+ payable_pay      |          1 | ARCHIVED       | f          |                  3 | f               |                 0 |               1
+ payable_pay      |          2 | ARCHIVED       | f          |                  3 | f               |                 1 |               1
+ payable_pay      |          3 | PUBLISHED      | t          |                  3 | t               |                 0 |               1
+ po_approve       |          1 | ARCHIVED       | f          |                  5 | f               |                 2 |               1
+ po_approve       |          2 | ARCHIVED       | f          |                  5 | f               |                 2 |               1
+ po_approve       |          3 | DRAFT          | f          |                  5 | f               |                 2 |               1
+ po_approve       |          4 | DRAFT          | f          |                  5 | f               |                 2 |               1
+ po_approve       |          5 | PUBLISHED      | t          |                  5 | t               |                 0 |               1
+ pr_approve       |          1 | ARCHIVED       | f          |                  2 | f               |                 1 |               0
+ pr_approve       |          2 | PUBLISHED      | t          |                  2 | t               |                 0 |               0
+ prt_approve      |          1 | ARCHIVED       | f          |                  2 | f               |                 1 |               0
+ prt_approve      |          2 | PUBLISHED      | t          |                  2 | t               |                 0 |               0
+ receipt_refund   |          1 | PUBLISHED      | t          |                  1 | t               |                 0 |               0
+ so_approve       |          1 | ARCHIVED       | f          |                  2 | f               |                 1 |               0
+ so_approve       |          2 | PUBLISHED      | t          |                  2 | t               |                 0 |               0
+ stock_in_cancel  |          1 | ARCHIVED       | f          |                  3 | f               |                 0 |               0
+ stock_in_cancel  |          2 | ARCHIVED       | f          |                  3 | f               |                 1 |               0
+ stock_in_cancel  |          3 | PUBLISHED      | t          |                  3 | t               |                 0 |               0
+ stock_in_post    |          1 | ARCHIVED       | f          |                  2 | f               |                 1 |               0
+ stock_in_post    |          2 | PUBLISHED      | t          |                  2 | t               |                 0 |               0
+ stock_take_post  |          1 | ARCHIVED       | f          |                  3 | f               |                 3 |               0
+ stock_take_post  |          2 | DRAFT          | f          |                  3 | f               |                 3 |               0
+ stock_take_post  |          3 | PUBLISHED      | t          |                  3 | t               |                 0 |               0
+ stock_transfer   |          1 | ARCHIVED       | f          |                  3 | f               |                 0 |               0
+ stock_transfer   |          2 | ARCHIVED       | f          |                  3 | f               |                 1 |               0
+ stock_transfer   |          3 | PUBLISHED      | t          |                  3 | t               |                 0 |               0
+ task_accept      |          1 | PUBLISHED      | t          |                  1 | t               |                 0 |               0
+ voucher_reverse  |          1 | PUBLISHED      | t          |                  1 | t               |                 0 |               1
+(39 rows)
+
+=== ② is_current 唯一性（每个流程必须恰好 1 行） ===
+ flows_with_wrong_current 
+--------------------------
+                        0
+(1 row)
+
+=== ③ po_approve 节点 approval_mode 前后对比（旧版 v2 vs 新版 v5） ===
+ node_key |  node_type  | assignee_type | approval_mode | version_no | is_current 
+----------+-------------+---------------+---------------+------------+------------
+ n_board  | COUNTERSIGN | ROLE          | ALL           |          2 | f
+ n_board  | COUNTERSIGN | ROLE          | ALL           |          5 | t
+ n_dept   | APPROVAL    | ROLE          | ALL           |          2 | f
+ n_dept   | APPROVAL    | ROLE          | ANY           |          5 | t
+ n_fin    | APPROVAL    | ROLE          | ANY           |          2 | f
+ n_fin    | APPROVAL    | ROLE          | ANY           |          5 | t
+ n_pm     | APPROVAL    | ROLE          | ALL           |          2 | f
+ n_pm     | APPROVAL    | ROLE          | ANY           |          5 | t
+(8 rows)
+
+=== ④ COUNTERSIGN 节点（必须一字不动） ===
+    flow_code    | version_no | node_key | approval_mode | is_current 
+-----------------+------------+----------+---------------+------------
+ budget_approve  |          1 | n_fin_gm | ALL           | f
+ budget_approve  |          1 | n_gm_fd  | ALL           | f
+ budget_approve  |          2 | n_fin_gm | ALL           | f
+ budget_approve  |          2 | n_gm_fd  | ALL           | f
+ budget_approve  |          3 | n_fin_gm | ALL           | t
+ budget_approve  |          3 | n_gm_fd  | ALL           | t
+ expense         |          1 | n_board  | ALL           | t
+ payable_pay     |          1 | n_board  | ALL           | f
+ payable_pay     |          2 | n_board  | ALL           | f
+ payable_pay     |          3 | n_board  | ALL           | t
+ po_approve      |          1 | n_board  | ALL           | f
+ po_approve      |          2 | n_board  | ALL           | f
+ po_approve      |          3 | n_board  | ALL           | f
+ po_approve      |          4 | n_board  | ALL           | f
+ po_approve      |          5 | n_board  | ALL           | t
+ voucher_reverse |          1 | n_cs     | ALL           | t
+(16 rows)
+
+=== ⑤ 目标节点：旧版仍 ALL / 新版变 ANY（同 node_key 对比，取 po_approve / contract_approve / payable_pay） ===
+    flow_code     | node_key | new_mode | prev_published_mode 
+------------------+----------+----------+---------------------
+ contract_approve | n_gm     | ANY      | ALL
+ contract_approve | n_pm     | ANY      | ALL
+ contract_approve | n_pm_hi  | ANY      | ALL
+ payable_pay      | n_dept   | ANY      | ALL
+ payable_pay      | n_fin    | ANY      | ANY
+ po_approve       | n_dept   | ANY      | ALL
+ po_approve       | n_fin    | ANY      | ANY
+ po_approve       | n_pm     | ANY      | ALL
+ pr_approve       | n_fin    | ANY      | ANY
+ pr_approve       | n_pm     | ANY      | ALL
+ prt_approve      | n_fin    | ANY      | ANY
+ prt_approve      | n_pm     | ANY      | ALL
+(12 rows)
+
+=== ⑥ 收口：PUBLISHED 当前版本里 APPROVAL+ROLE+ALL 数量（必须 0） ===
+ bad 
+-----
+   0
+(1 row)
+
+=== ⑦ DRAFT 版本未被改动（po_approve v3/v4 / stock_take_post v2） ===
+    flow_code    | version_no | version_status | is_current | draft_all 
+-----------------+------------+----------------+------------+-----------
+ po_approve      |          3 | DRAFT          | f          |         2
+ po_approve      |          4 | DRAFT          | f          |         2
+ stock_take_post |          2 | DRAFT          | f          |         3
+(3 rows)
+
+=== ⑧ 新版图完整性：节点/边/绑定数 与 node_count/edge_count 声明一致 ===
+    flow_code     | version_no | node_count | nodes_actual | edge_count | edges_actual | binds 
+------------------+------------+------------+--------------+------------+--------------+-------
+ asset_disposal   |          2 |          3 |            3 |          2 |            2 |     1
+ budget_approve   |          3 |         11 |           11 |         13 |           13 |     7
+ contract_approve |          2 |          6 |            6 |          6 |            6 |     3
+ expense          |          1 |          7 |            7 |          8 |            8 |     3
+ flow_edge_config |          1 |          3 |            3 |          2 |            2 |     1
+ payable_cancel   |          1 |          3 |            3 |          2 |            2 |     1
+ payable_pay      |          3 |          7 |            7 |          8 |            8 |     4
+ po_approve       |          5 |          9 |            9 |         11 |           11 |     5
+ pr_approve       |          2 |          5 |            5 |          5 |            5 |     2
+ prt_approve      |          2 |          4 |            4 |          3 |            3 |     2
+ receipt_refund   |          1 |          3 |            3 |          2 |            2 |     1
+ so_approve       |          2 |          7 |            7 |          8 |            8 |     3
+ stock_in_cancel  |          3 |          3 |            3 |          2 |            2 |     1
+ stock_in_post    |          2 |          5 |            5 |          5 |            5 |     1
+ stock_take_post  |          3 |          6 |            6 |          6 |            6 |     3
+ stock_transfer   |          3 |          3 |            3 |          2 |            2 |     1
+ task_accept      |          1 |          3 |            3 |          2 |            2 |     0
+ voucher_reverse  |          1 |          5 |            5 |          5 |            5 |     3
+(18 rows)
+
+=== ⑨ 全部版本快照 hash 自洽（mismatched 应为 0） ===
+ total | null_snapshot | mismatched 
+-------+---------------+------------
+    39 |             4 |          0
+(1 row)
+

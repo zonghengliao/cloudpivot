@@ -1,0 +1,5 @@
+CREATE FUNCTION
+psql:/tmp/V0367__flow_all_role_approval_to_any_multiversion.up.sql:362: NOTICE:  V0367 完成：0 个流程需要处理（PUBLISHED 当前版本里已无 APPROVAL+ROLE+ALL 节点）—— 幂等
+DO
+psql:/tmp/V0367__flow_all_role_approval_to_any_multiversion.up.sql:387: NOTICE:  V0367 收口自检通过：PUBLISHED 当前版本里 APPROVAL+ROLE+ALL = 0
+DO

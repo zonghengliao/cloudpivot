@@ -1,0 +1,11 @@
+[2m2026-11-09T14:58:08.491861Z[0m [32m INFO[0m [2mnik_db::factory[0m[2m:[0m database connection established [3mdb_type[0m[2m=[0mpostgres [3murl[0m[2m=[0mpostgres://cloudpivot:***@127.0.0.1:5432/cloudpivot_preview3?sslmode=prefer
+[2m2026-11-09T14:58:08.492538Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库连接成功
+[2m2026-11-09T14:58:08.539028Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: relation "schema_migrations" already exists, skipping
+[2m2026-11-09T14:58:08.684023Z[0m [33m WARN[0m [2mnik_db::migrate[0m[2m:[0m 待应用迁移的版本低于已应用最大值（乱序补迁）；确认无误后可设 out_of_order = true 消除告警 [3mmigration[0m[2m=[0mflow_all_role_approval_to_any [3mversion[0m[2m=[0m359 [3mlatest_applied[0m[2m=[0m362
+[2m2026-11-09T14:58:08.689553Z[0m [32m INFO[0m [2mnik_db::migrate[0m[2m:[0m 可重复迁移内容已变化，重新执行 [3mmigration[0m[2m=[0mmenu_data [3mkind[0m[2m=[0mseed
+[2m2026-11-09T14:58:08.689743Z[0m [32m INFO[0m [2mnik_db::migrate[0m[2m:[0m 可重复迁移内容已变化，重新执行 [3mmigration[0m[2m=[0mrole_data [3mkind[0m[2m=[0mseed
+[2m2026-11-09T14:58:08.693801Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: table "_fix_target" does not exist, skipping
+[2m2026-11-09T14:58:08.706519Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0359 contract_approve：v2 已发布（改 2 个节点 / hash=b514d1803a7a4ae562502e227d34b8fa86b4085631da71b978c11d7ff6752016 / 节点 6 / 边 6 / 绑定 3 行；历史实例跑在旧版上 0 张，继续可用）
+[2m2026-11-09T14:58:08.712672Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0359 payable_pay：v3 已发布（改 1 个节点 / hash=dd2179b11fa2ed5d6dbeb2181370ca4327698277ffcdd6a184ec74187b2baefe / 节点 7 / 边 8 / 绑定 4 行；历史实例跑在旧版上 0 张，继续可用）
+[2m2026-11-09T14:58:08.718405Z[0m [31mERROR[0m [2mnik_web::app[0m[2m:[0m 数据库迁移失败: unique constraint violated (constraint `uk_biz_flow_def_version`)
+FATAL: 服务启动失败: 配置错误: 数据库迁移失败: unique constraint violated (constraint `uk_biz_flow_def_version`)

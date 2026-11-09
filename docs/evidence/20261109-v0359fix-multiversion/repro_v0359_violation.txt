@@ -1,0 +1,65 @@
+======================================================================
+复现环境：145 上从 144 生产备份（cloudpivot-20261109-221715.dump）恢复的 cloudpivot_preview3
+生产库状态：295 条迁移，V0359 被手工跳过（manual-skip-deploy-incident），V0359 从未真跑
+======================================================================
+
+--- ① 复现前的版本分布（po_approve 有 v1..v4，其中 v3/v4 是 DRAFT） ---
+    flow_code     | version_no | version_status | is_current | current_version_no 
+------------------+------------+----------------+------------+--------------------
+ contract_approve |          1 | PUBLISHED      | t          |                  1
+ payable_pay      |          1 | ARCHIVED       | f          |                  2
+ payable_pay      |          2 | PUBLISHED      | t          |                  2
+ po_approve       |          1 | ARCHIVED       | f          |                  2
+ po_approve       |          2 | PUBLISHED      | t          |                  2
+ po_approve       |          3 | DRAFT          | f          |                  2
+ po_approve       |          4 | DRAFT          | f          |                  2
+(7 rows)
+
+--- ② 当前版本里 APPROVAL+ROLE+ALL 的节点（V0359 要改的目标） ---
+    flow_code     | version_no | node_key | approval_mode 
+------------------+------------+----------+---------------
+ contract_approve |          1 | n_gm     | ALL
+ contract_approve |          1 | n_pm     | ALL
+ contract_approve |          1 | n_pm_hi  | ALL
+ payable_pay      |          2 | n_dept   | ALL
+ po_approve       |          2 | n_dept   | ALL
+ po_approve       |          2 | n_pm     | ALL
+(6 rows)
+
+
+--- ③ 跑 V0359（单事务，与迁移器同口径：失败即整体回滚） ---
+CREATE FUNCTION
+psql:/tmp/V0359.up.sql:99: NOTICE:  table "_fix_target" does not exist, skipping
+DROP TABLE
+CREATE TABLE
+INSERT 0 7
+psql:/tmp/V0359.up.sql:306: NOTICE:  V0359 contract_approve：v2 已发布（改 2 个节点 / hash=b514d1803a7a4ae562502e227d34b8fa86b4085631da71b978c11d7ff6752016 / 节点 6 / 边 6 / 绑定 3 行；历史实例跑在旧版上 0 张，继续可用）
+psql:/tmp/V0359.up.sql:306: NOTICE:  V0359 payable_pay：v3 已发布（改 1 个节点 / hash=dd2179b11fa2ed5d6dbeb2181370ca4327698277ffcdd6a184ec74187b2baefe / 节点 7 / 边 8 / 绑定 4 行；历史实例跑在旧版上 0 张，继续可用）
+psql:/tmp/V0359.up.sql:306: ERROR:  duplicate key value violates unique constraint "uk_biz_flow_def_version"
+DETAIL:  Key (def_id, version_no)=(20000000-0000-4000-8000-0000000a0182, 3) already exists.
+CONTEXT:  SQL statement "INSERT INTO biz_flow_def_version
+            (id, def_id, version_no, version_status, is_current, graph_hash, graph_snapshot,
+             node_count, edge_count, change_note, published_at, published_by, created_at, updated_at)
+        VALUES
+            (c_v2, c_def, c_v1_no + 1, 'PUBLISHED', TRUE, c_new_hash, c_new_snap,
+             (SELECT count(*) FROM jsonb_array_elements(c_new_snap -> 'nodes')),
+             (SELECT count(*) FROM jsonb_array_elements(c_new_snap -> 'edges')),
+             'E2E07-FIX-1：' || v_patched || ' 个「角色型审批」节点由全员会签（ALL）改为或签（ANY）'
+             || '（APPROVAL 节点的业务语义是「岗位任一人签字即可」；跨角色会签节点 COUNTERSIGN 不动）',
+             now(), NULL, now(), now())"
+PL/pgSQL function inline_code_block line 101 at SQL statement
+psql_exit=3
+
+--- ④ 回滚后复核：一条也没改（事务整体回滚） ---
+    flow_code     | version_no | version_status | is_current 
+------------------+------------+----------------+------------
+ contract_approve |          1 | PUBLISHED      | t
+ payable_pay      |          1 | ARCHIVED       | f
+ payable_pay      |          2 | PUBLISHED      | t
+ po_approve       |          1 | ARCHIVED       | f
+ po_approve       |          2 | PUBLISHED      | t
+ po_approve       |          3 | DRAFT          | f
+ po_approve       |          4 | DRAFT          | f
+(7 rows)
+
+bad_nodes_after_rollback=17

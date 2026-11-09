@@ -1,0 +1,153 @@
+[2m2026-11-09T14:51:42.740737Z[0m [32m INFO[0m [2mnik_db::factory[0m[2m:[0m database connection established [3mdb_type[0m[2m=[0mpostgres [3murl[0m[2m=[0mpostgres://cloudpivot:***@127.0.0.1:5432/cloudpivot_preview2?sslmode=prefer
+[2m2026-11-09T14:51:42.741384Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库连接成功
+[2m2026-11-09T14:51:42.788641Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: relation "schema_migrations" already exists, skipping
+[2m2026-11-09T14:51:42.940834Z[0m [32m INFO[0m [2mnik_db::migrate[0m[2m:[0m 可重复迁移内容已变化，重新执行 [3mmigration[0m[2m=[0mmenu_data [3mkind[0m[2m=[0mseed
+[2m2026-11-09T14:51:42.941078Z[0m [32m INFO[0m [2mnik_db::migrate[0m[2m:[0m 可重复迁移内容已变化，重新执行 [3mmigration[0m[2m=[0mrole_data [3mkind[0m[2m=[0mseed
+[2m2026-11-09T14:51:42.945507Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0365 OK：biz_status_log.action 已就位（character varying(32)），NULL = 状态流转
+[2m2026-11-09T14:51:42.957191Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0367 asset_disposal：v2 已发布（改 1 个节点 [n_gm] / hash=a852eff1425af81864ce53f45e97f3c0cf29f1845db28935a6d4dd7b3fa7dfc8 / 节点 3 / 边 2 / 绑定 1 行；历史实例跑在旧版 v1 上 0 张，继续可用）
+[2m2026-11-09T14:51:42.964888Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0367 budget_approve：v3 已发布（改 1 个节点 [n_gm] / hash=769e611286ea49422e0c3487d8f7acd0ae68a194e7fb776e9e41db1ebbb4c2ad / 节点 11 / 边 13 / 绑定 7 行；历史实例跑在旧版 v2 上 0 张，继续可用）
+[2m2026-11-09T14:51:42.969049Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0367 contract_approve：v2 已发布（改 3 个节点 [n_gm,n_pm,n_pm_hi] / hash=54e67e57d3e0406ca19785b484f8b07555034a3c470558c6524cbf6d65446480 / 节点 6 / 边 6 / 绑定 3 行；历史实例跑在旧版 v1 上 0 张，继续可用）
+[2m2026-11-09T14:51:42.974526Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0367 payable_pay：v3 已发布（改 1 个节点 [n_dept] / hash=dd2179b11fa2ed5d6dbeb2181370ca4327698277ffcdd6a184ec74187b2baefe / 节点 7 / 边 8 / 绑定 4 行；历史实例跑在旧版 v2 上 0 张，继续可用）
+[2m2026-11-09T14:51:42.981125Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0367 po_approve：v5 已发布（改 2 个节点 [n_dept,n_pm] / hash=27fab60c5d4ae373fb4f5be7fe31e9ba17579baaf1b78638b3eb9d5da689fb41 / 节点 9 / 边 11 / 绑定 5 行；历史实例跑在旧版 v2 上 0 张，继续可用）
+[2m2026-11-09T14:51:42.985507Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0367 pr_approve：v2 已发布（改 1 个节点 [n_pm] / hash=3d7ae24e7e6a835f2d9d5a6a4d3f92944a61dbeddab6c1e69c6f6a444a8abb57 / 节点 5 / 边 5 / 绑定 2 行；历史实例跑在旧版 v1 上 0 张，继续可用）
+[2m2026-11-09T14:51:42.988120Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0367 prt_approve：v2 已发布（改 1 个节点 [n_pm] / hash=65f572afbfed4ff827abe530a3c4c244094168577d5c51fc697894f02f7430df / 节点 4 / 边 3 / 绑定 2 行；历史实例跑在旧版 v1 上 0 张，继续可用）
+[2m2026-11-09T14:51:42.992908Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0367 so_approve：v2 已发布（改 1 个节点 [n_gm] / hash=c0dcf6ef804fa45e2060c67e9eab4c4390dd91ee6b7a3e6c6571ba82af62714b / 节点 7 / 边 8 / 绑定 3 行；历史实例跑在旧版 v1 上 0 张，继续可用）
+[2m2026-11-09T14:51:42.994952Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0367 stock_in_cancel：v3 已发布（改 1 个节点 [n_review] / hash=3cfa415153c4f9cc502c7ff563b3f863b61fd64468e7d0d4da9f6b3efb0ed625 / 节点 3 / 边 2 / 绑定 1 行；历史实例跑在旧版 v2 上 0 张，继续可用）
+[2m2026-11-09T14:51:42.998692Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0367 stock_in_post：v2 已发布（改 1 个节点 [n_wh] / hash=4e3df73ead768e91e729674e6793f0cd9d8a3da079c7a5f05c665f3046100f93 / 节点 5 / 边 5 / 绑定 1 行；历史实例跑在旧版 v1 上 0 张，继续可用）
+[2m2026-11-09T14:51:43.002447Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0367 stock_take_post：v3 已发布（改 3 个节点 [n_fin,n_gm,n_wh] / hash=77416a0e7d4fc726401326e5871c1db5c7afef7471fd40c72a26260a17295cd5 / 节点 6 / 边 6 / 绑定 3 行；历史实例跑在旧版 v1 上 0 张，继续可用）
+[2m2026-11-09T14:51:43.004537Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0367 stock_transfer：v3 已发布（改 1 个节点 [n_approve] / hash=0ed0a27606240c0484f4af4d720c71c2db02d13c0f970915dda5d3037d934ee4 / 节点 3 / 边 2 / 绑定 1 行；历史实例跑在旧版 v2 上 0 张，继续可用）
+[2m2026-11-09T14:51:43.004566Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0367 完成：共处理 12 个流程 / 17 个「角色型审批被配成全员会签」节点
+[2m2026-11-09T14:51:43.005072Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0367 收口自检通过：PUBLISHED 当前版本里 APPROVAL+ROLE+ALL = 0
+[2m2026-11-09T14:51:43.011681Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 5 个迁移
+[2m2026-11-09T14:51:43.011746Z[0m [32m INFO[0m [2mnik_cache[0m[2m:[0m 使用 Redis 缓存 url=redis://127.0.0.1:6379/6 app=cloudpivot
+[2m2026-11-09T14:51:43.013827Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 上传目录就绪 path=uploads max_size_mb=128
+[2m2026-11-09T14:51:43.013842Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 下载目录就绪 path=downloads
+[2m2026-11-09T14:51:43.013854Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 执行 1 个自定义启动钩子（按注册顺序）
+[2m2026-11-09T14:51:43.013891Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 启动引导完成 [3mapp[0m[2m=[0mcloudpivot [3mprofile[0m[2m=[0mdev [3mdb_driver[0m[2m=[0mpostgres
+[2m2026-11-09T14:51:43.014291Z[0m [32m INFO[0m [2mcloudpivot::business::impexp::worker[0m[2m:[0m 已注册内置定时任务（导入导出 worker） [3mtask[0m[2m=[0m"impexp_export_worker" [3mcron[0m[2m=[0m"*/5 * * * * *"
+[2m2026-11-09T14:51:43.014307Z[0m [32m INFO[0m [2mcloudpivot::business::impexp::cleanup[0m[2m:[0m 已注册内置定时任务（导入导出清理） [3mtask[0m[2m=[0m"impexp_task_cleanup" [3mcron[0m[2m=[0m"0 40 4 * * *"
+[2m2026-11-09T14:51:43.014351Z[0m [32m INFO[0m [2mcloudpivot::task[0m[2m:[0m 变更日志分区运维任务已注册（C6 真实现） [3minvoke_target[0m[2m=[0m"changelog_partition_maintain" [3mcron[0m[2m=[0m"0 20 1 1 * *"
+[2m2026-11-09T14:51:43.014378Z[0m [32m INFO[0m [2mcloudpivot::business::task::hermes_sync[0m[2m:[0m AI 任务状态同步任务已注册（T5b） [3mtask[0m[2m=[0m"task_hermes_sync" [3mcron[0m[2m=[0m"*/30 * * * * *"
+[2m2026-11-09T14:51:43.014402Z[0m [32m INFO[0m [2mcloudpivot::business::erp::transfer_overdue[0m[2m:[0m 在途调拨超期扫描任务已注册 [3minvoke_target[0m[2m=[0m"transfer_overdue_scan" [3mcron[0m[2m=[0m"0 5 * * * *"
+[2m2026-11-09T14:51:43.014424Z[0m [32m INFO[0m [2mcloudpivot::business::erp::reminder[0m[2m:[0m 业务提醒任务已注册 [3minvoke_target[0m[2m=[0m"erp_payable_due_scan" [3mcron[0m[2m=[0m"0 10 7 * * *"
+[2m2026-11-09T14:51:43.014435Z[0m [32m INFO[0m [2mcloudpivot::business::erp::reminder[0m[2m:[0m 业务提醒任务已注册 [3minvoke_target[0m[2m=[0m"erp_po_overdue_scan" [3mcron[0m[2m=[0m"0 20 7 * * *"
+[2m2026-11-09T14:51:43.014442Z[0m [32m INFO[0m [2mcloudpivot::business::erp::reminder[0m[2m:[0m 业务提醒任务已注册 [3minvoke_target[0m[2m=[0m"erp_contract_expire_scan" [3mcron[0m[2m=[0m"0 30 7 * * *"
+[2m2026-11-09T14:51:43.014449Z[0m [32m INFO[0m [2mcloudpivot::business::erp::reminder[0m[2m:[0m 业务提醒任务已注册 [3minvoke_target[0m[2m=[0m"erp_low_stock_scan" [3mcron[0m[2m=[0m"0 40 7 * * *"
+[2m2026-11-09T14:51:43.014479Z[0m [32m INFO[0m [2mcloudpivot::business::erp::depreciation_model[0m[2m:[0m 折旧计提任务已注册 [3minvoke_target[0m[2m=[0m"erp_depreciation_run" [3mcron[0m[2m=[0m"0 30 1 1 * *"
+[2m2026-11-09T14:51:43.014514Z[0m [32m INFO[0m [2mcloudpivot::business::erp::credit[0m[2m:[0m 客户信用额度兜底重算任务已注册 [3minvoke_target[0m[2m=[0m"erp_credit_recompute" [3mcron[0m[2m=[0m"0 10 2 * * *"
+[2m2026-11-09T14:51:43.014542Z[0m [32m INFO[0m [2mcloudpivot::business::task::recurring[0m[2m:[0m 周期任务生成任务已注册（E11） [3minvoke_target[0m[2m=[0m"business_task_recurring" [3mcron[0m[2m=[0m"0 */5 * * * *"
+[2m2026-11-09T14:51:43.014561Z[0m [32m INFO[0m [2mcloudpivot::task[0m[2m:[0m 账务不变量巡检任务已注册（P2-7） [3minvoke_target[0m[2m=[0m"invariant_audit" [3mcron[0m[2m=[0m"0 20 2 * * *"
+[2m2026-11-09T14:51:43.015811Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m SSE 鉴权自检通过：EventSource 可用 ?token= 订阅实时通知 [3mendpoint[0m[2m=[0m/api/business/notice/stream [3mwhitelist[0m[2m=[0m["/api/business/notice/stream"]
+[2m2026-11-09T14:51:43.043297Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 管理员账号已存在，跳过创建 [3musername[0m[2m=[0m"admin"
+[2m2026-11-09T14:51:43.043794Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 clean_auth_log [20 3 * * *] 已排程
+[2m2026-11-09T14:51:43.043865Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 help_version_cleanup [0 40 2 * * *] 已排程
+[2m2026-11-09T14:51:43.043890Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 clean_audit_log [10 3 * * *] 已排程
+[2m2026-11-09T14:51:43.043927Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 clean_security_log [30 3 * * *] 已排程
+[2m2026-11-09T14:51:43.043993Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 notice_scheduled_dispatch [*/30 * * * * *] 已排程
+[2m2026-11-09T14:51:43.044004Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 impexp_export_worker [*/5 * * * * *] 已排程
+[2m2026-11-09T14:51:43.044049Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_low_stock_scan [0 40 7 * * *] 已排程
+[2m2026-11-09T14:51:43.044069Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 payable_payment_reconcile [7-59/10 * * * *] 已排程
+[2m2026-11-09T14:51:43.044089Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 announcement_auto_expire [0 5 0 * * *] 已排程
+[2m2026-11-09T14:51:43.044117Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_depreciation_run [0 30 1 1 * *] 已排程
+[2m2026-11-09T14:51:43.044167Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 notice_expire_cleanup [0 50 4 * * *] 已排程
+[2m2026-11-09T14:51:43.044199Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_po_overdue_scan [0 20 7 * * *] 已排程
+[2m2026-11-09T14:51:43.044247Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 clean_password_log [40 3 * * *] 已排程
+[2m2026-11-09T14:51:43.044264Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 notice_sse_channel_sweep [0 */5 * * * *] 已排程
+[2m2026-11-09T14:51:43.044279Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 announcement_dispatch_retry [0 */10 * * * *] 已排程
+[2m2026-11-09T14:51:43.044308Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 invariant_audit [0 20 2 * * *] 已排程
+[2m2026-11-09T14:51:43.044330Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 changelog_partition_maintain [0 20 1 1 * *] 已排程
+[2m2026-11-09T14:51:43.044379Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 token_blacklist_cleanup [0 50 3 * * *] 已排程
+[2m2026-11-09T14:51:43.044417Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 announcement_top_expire [0 10 0 * * *] 已排程
+[2m2026-11-09T14:51:43.044454Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 flow_graph_selfcheck [0 30 3 * * *] 已排程
+[2m2026-11-09T14:51:43.044490Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 storage_object_cleanup [0 30 4 * * *] 已排程
+[2m2026-11-09T14:51:43.044508Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 task_hermes_sync [*/30 * * * * *] 已排程
+[2m2026-11-09T14:51:43.044518Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 voucher_reverse_reconcile [5-59/10 * * * *] 已排程
+[2m2026-11-09T14:51:43.044562Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 impexp_task_cleanup [0 40 4 * * *] 已排程
+[2m2026-11-09T14:51:43.044584Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_credit_recompute [0 10 2 * * *] 已排程
+[2m2026-11-09T14:51:43.044594Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 business_task_recurring [0 */5 * * * *] 已排程
+[2m2026-11-09T14:51:43.044633Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_contract_expire_scan [0 30 7 * * *] 已排程
+[2m2026-11-09T14:51:43.044649Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 clean_operation_log [0 3 * * *] 已排程
+[2m2026-11-09T14:51:43.044674Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_payable_due_scan [0 10 7 * * *] 已排程
+[2m2026-11-09T14:51:43.044688Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 flow_timeout_scan [0 */10 * * * *] 已排程
+[2m2026-11-09T14:51:43.044696Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 stockin_cancel_reconcile [3-59/10 * * * *] 已排程
+[2m2026-11-09T14:51:43.044713Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 transfer_overdue_scan [0 5 * * * *] 已排程
+[2m2026-11-09T14:51:43.044726Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 payable_cancel_reconcile [9-59/10 * * * *] 已排程
+[2m2026-11-09T14:51:43.044734Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务插件: 33 个任务已启动
+[2m2026-11-09T14:51:43.125766Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 运行时参数快照已装载 [3mparams[0m[2m=[0m25
+[2m2026-11-09T14:51:43.127859Z[0m [32m INFO[0m [2mcloudpivot::business::shared::guard[0m[2m:[0m 数据权限自检通过：12 张登记表的部门列/归属列均存在，SUPER_ADMIN 角色存在
+[2m2026-11-09T14:51:43.128458Z[0m [32m INFO[0m [2mcloudpivot::support::dict::model[0m[2m:[0m 字典缓存预热完成 [3mdict_code[0m[2m=[0m"menu_type" [3mcount[0m[2m=[0m3
+[2m2026-11-09T14:51:43.128530Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 孤儿任务依赖自检通过：0 条
+[2m2026-11-09T14:51:43.129407Z[0m [32m INFO[0m [2mcloudpivot::support::dict::model[0m[2m:[0m 字典缓存预热完成 [3mdict_code[0m[2m=[0m"user_status" [3mcount[0m[2m=[0m2
+[2m2026-11-09T14:51:43.129588Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 会计期间保底：当年 12 期已齐，无需补建
+[2m2026-11-09T14:51:43.129783Z[0m [32m INFO[0m [2mcloudpivot::shared::startup_guard[0m[2m:[0m AI 员工安全红线巡检：当前没有 ROBOT profile，跳过
+[2m2026-11-09T14:51:43.129794Z[0m [32m INFO[0m [2mcloudpivot::shared::startup_guard[0m[2m:[0m AI 用户不变式自检通过：ROBOT 账号与 sys_ai_agent 一一对应
+[2m2026-11-09T14:51:43.130400Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 测试残留自检通过：biz_flow_def / biz_flow_instance 均 0 行 E2E_*, D2_SMOKE
+[2m2026-11-09T14:51:43.130516Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 管理员角色绑定已存在，跳过创建 [3musername[0m[2m=[0m"admin"
+[2m2026-11-09T14:51:43.130556Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 演示账号种子未开启（生产默认），跳过 [3menv[0m[2m=[0m"NIK_SEED_DEMO_USERS"
+[2m2026-11-09T14:51:43.130579Z[0m [32m INFO[0m [2mcloudpivot::support::dict::model[0m[2m:[0m 字典缓存预热完成 [3mdict_code[0m[2m=[0m"config_type" [3mcount[0m[2m=[0m4
+[2m2026-11-09T14:51:43.131371Z[0m [32m INFO[0m [2mcloudpivot::support::dict::model[0m[2m:[0m 字典缓存预热完成 [3mdict_code[0m[2m=[0m"job_status" [3mcount[0m[2m=[0m2
+[2m2026-11-09T14:51:43.132376Z[0m [32m INFO[0m [2mcloudpivot::support::dict::model[0m[2m:[0m 字典缓存预热完成 [3mdict_code[0m[2m=[0m"config_category" [3mcount[0m[2m=[0m4
+[2m2026-11-09T14:51:43.134909Z[0m [32m INFO[0m [2mcloudpivot::support::dict::model[0m[2m:[0m 字典缓存预热完成 [3mdict_code[0m[2m=[0m"log_auth_type" [3mcount[0m[2m=[0m3
+[2m2026-11-09T14:51:43.136731Z[0m [32m INFO[0m [2mcloudpivot::support::dict::model[0m[2m:[0m 字典缓存预热完成 [3mdict_code[0m[2m=[0m"log_operation" [3mcount[0m[2m=[0m37
+[2m2026-11-09T14:51:43.136921Z[0m [32m INFO[0m [2mcloudpivot::support::dict::model[0m[2m:[0m 字典缓存预热完成 [3mdict_code[0m[2m=[0m"log_target_type" [3mcount[0m[2m=[0m12
+[2m2026-11-09T14:51:43.138093Z[0m [32m INFO[0m [2mcloudpivot::support::dict::model[0m[2m:[0m 字典缓存预热完成 [3mdict_code[0m[2m=[0m"log_security_event" [3mcount[0m[2m=[0m3
+[2m2026-11-09T14:51:43.138112Z[0m [32m INFO[0m [2mcloudpivot::support::dict::model[0m[2m:[0m 字典缓存预热完成 [3mdict_code[0m[2m=[0m"log_password_change_type" [3mcount[0m[2m=[0m3
+[2m2026-11-09T14:51:43.138181Z[0m [32m INFO[0m [2mnik_core::plugin[0m[2m:[0m 启动插件: startup-auth-secret-guard
+[2m2026-11-09T14:51:43.138206Z[0m [32m INFO[0m [2mcloudpivot::shared::startup_guard[0m[2m:[0m 启动守卫通过：认证密钥长度满足下限 [3mprofile[0m[2m=[0mdev [3mjwt_secret_len[0m[2m=[0m64
+[2m2026-11-09T14:51:43.138229Z[0m [32m INFO[0m [2mcloudpivot::shared::startup_guard[0m[2m:[0m 启动守卫通过：缓存后端满足吊销耐久性要求 [3mprofile[0m[2m=[0mdev [3mcache_type[0m[2m=[0mredis
+[2m2026-11-09T14:51:43.138247Z[0m [32m INFO[0m [2mcloudpivot::shared::startup_guard[0m[2m:[0m 启动守卫通过：存储主密钥长度满足要求 [3mprofile[0m[2m=[0mdev [3mstorage_master_key_len[0m[2m=[0m64
+[2m2026-11-09T14:51:43.138254Z[0m [32m INFO[0m [2mnik_core::plugin[0m[2m:[0m 启动插件: x-log-bus
+[2m2026-11-09T14:51:43.138386Z[0m [32m INFO[0m [2mnik_core::plugin[0m[2m:[0m 启动插件: x-scheduler
+[2m2026-11-09T14:51:43.138401Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 插件启动完成 [3melapsed_ms[0m[2m=[0m0
+[2m2026-11-09T14:51:43.149421Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 应用链内层 3 个（仅匹配路由，位于内置链之内，可读身份）
+[2m2026-11-09T14:51:43.150776Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 请求体上限就绪 max_request_bytes=167772160（由 [upload].max_size_mb=128 + multipart 余量推导）
+[2m2026-11-09T14:51:43.336997Z[0m [33m WARN[0m [2mnik_web::app[0m[2m:[0m 检测到 646 条 #[permission] 规则，但 [middleware.permission] enabled = false；已按安全默认挂载权限校验层（如需豁免请移除对应的宏注解）
+[2m2026-11-09T14:51:43.337032Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 检测到 646 条 #[permission] 规则 + 0 条配置规则 → 已启用权限校验层
+[2m2026-11-09T14:51:43.337534Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 查询参数令牌白名单 endpoints=["/api/business/notice/stream"]（仅 EventSource 类端点；令牌不落日志）
+[2m2026-11-09T14:51:43.349474Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 应用 Router 扩展 2 个（均位于内置链之外，内部按注册顺序，先注册者更靠内层）
+[2m2026-11-09T14:51:43.350136Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m Router 构建分段耗时（累计毫秒） [3minto_axum_ms[0m[2m=[0m10 [3mroute_layers_ms[0m[2m=[0m11 [3mmiddleware_chain_ms[0m[2m=[0m211 [3mmetrics_endpoint_ms[0m[2m=[0m211 [3mstatic_files_ms[0m[2m=[0m211 [3mrouter_extensions_ms[0m[2m=[0m211
+[2m2026-11-09T14:51:43.350175Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m cloudpivot 启动 -> http://127.0.0.1:18097
+[2m2026-11-09T14:51:43.350183Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m   profile=dev, request_id=true log=true cors=true compression=true rate_limit=false jwt_auth=true idempotency=false nonce=false static_files=false not_found=true
+[2m2026-11-09T14:51:43.350205Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m cloudpivot 启动完成, 耗时 667ms
+[2m2026-11-09T14:51:43.692928Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 收到 SIGTERM 信号，优雅退出中...
+[2m2026-11-09T14:51:43.693003Z[0m [32m INFO[0m [2mcloudpivot::business::notice::sse_hub[0m[2m:[0m SSE 频道关停：已通知所有订阅端结束流（浏览器会自动重连到新进程） [3mreceivers[0m[2m=[0m0
+[2m2026-11-09T14:51:43.693018Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 关停钩子执行完成 [3mhook_index[0m[2m=[0m0 [3melapsed_ms[0m[2m=[0m0
+[2m2026-11-09T14:51:43.697212Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 连接排空完成 [3melapsed_ms[0m[2m=[0m4
+[2m2026-11-09T14:51:43.697255Z[0m [32m INFO[0m [2mnik_core::plugin[0m[2m:[0m 停止插件: x-scheduler
+[2m2026-11-09T14:51:43.697341Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_credit_recompute 调度循环已停止
+[2m2026-11-09T14:51:43.697357Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_contract_expire_scan 调度循环已停止
+[2m2026-11-09T14:51:43.697359Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 impexp_export_worker 调度循环已停止
+[2m2026-11-09T14:51:43.697366Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 help_version_cleanup 调度循环已停止
+[2m2026-11-09T14:51:43.697374Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 payable_payment_reconcile 调度循环已停止
+[2m2026-11-09T14:51:43.697376Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 notice_expire_cleanup 调度循环已停止
+[2m2026-11-09T14:51:43.697381Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_depreciation_run 调度循环已停止
+[2m2026-11-09T14:51:43.697385Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_po_overdue_scan 调度循环已停止
+[2m2026-11-09T14:51:43.697389Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 token_blacklist_cleanup 调度循环已停止
+[2m2026-11-09T14:51:43.697388Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 transfer_overdue_scan 调度循环已停止
+[2m2026-11-09T14:51:43.697393Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 clean_password_log 调度循环已停止
+[2m2026-11-09T14:51:43.697397Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 notice_sse_channel_sweep 调度循环已停止
+[2m2026-11-09T14:51:43.697401Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 task_hermes_sync 调度循环已停止
+[2m2026-11-09T14:51:43.697403Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 voucher_reverse_reconcile 调度循环已停止
+[2m2026-11-09T14:51:43.697404Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 clean_operation_log 调度循环已停止
+[2m2026-11-09T14:51:43.697409Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 changelog_partition_maintain 调度循环已停止
+[2m2026-11-09T14:51:43.697412Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 payable_cancel_reconcile 调度循环已停止
+[2m2026-11-09T14:51:43.697412Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_payable_due_scan 调度循环已停止
+[2m2026-11-09T14:51:43.697438Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_low_stock_scan 调度循环已停止
+[2m2026-11-09T14:51:43.697447Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 clean_auth_log 调度循环已停止
+[2m2026-11-09T14:51:43.697455Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 business_task_recurring 调度循环已停止
+[2m2026-11-09T14:51:43.697459Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 clean_security_log 调度循环已停止
+[2m2026-11-09T14:51:43.697466Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 announcement_dispatch_retry 调度循环已停止
+[2m2026-11-09T14:51:43.697467Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 invariant_audit 调度循环已停止
+[2m2026-11-09T14:51:43.697417Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 stockin_cancel_reconcile 调度循环已停止
+[2m2026-11-09T14:51:43.697473Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 notice_scheduled_dispatch 调度循环已停止
+[2m2026-11-09T14:51:43.697474Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 announcement_top_expire 调度循环已停止
+[2m2026-11-09T14:51:43.697466Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 flow_graph_selfcheck 调度循环已停止
+[2m2026-11-09T14:51:43.697486Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 storage_object_cleanup 调度循环已停止
+[2m2026-11-09T14:51:43.697481Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 flow_timeout_scan 调度循环已停止
+[2m2026-11-09T14:51:43.697505Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 clean_audit_log 调度循环已停止
+[2m2026-11-09T14:51:43.697508Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 announcement_auto_expire 调度循环已停止
+[2m2026-11-09T14:51:43.697484Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 impexp_task_cleanup 调度循环已停止
+[2m2026-11-09T14:51:43.697545Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务插件: 已停止
+[2m2026-11-09T14:51:43.697554Z[0m [32m INFO[0m [2mnik_core::plugin[0m[2m:[0m 停止插件: x-log-bus
+[2m2026-11-09T14:51:43.697646Z[0m [32m INFO[0m [2mnik_core::plugin[0m[2m:[0m 停止插件: startup-auth-secret-guard
+[2m2026-11-09T14:51:43.697661Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 插件已全部停止，关停完成 [3melapsed_ms[0m[2m=[0m4
