@@ -1,0 +1,61 @@
+{
+  "request": {
+    "material_id": "e2f60001-0000-4000-8000-000000000011",
+    "warehouse_id": "e2f60001-0000-4000-8000-000000000001",
+    "count": 2,
+    "unit_cost": 10,
+    "location_dict_id": "e2f60001-0000-4000-8000-000000000003"
+  },
+  "status": 200,
+  "response": {
+    "code": 0,
+    "msg": "ok",
+    "data": {
+      "count": 2,
+      "period_key": "20261109",
+      "serial_nos": [
+        "SN-20261109-010528",
+        "SN-20261109-010529"
+      ],
+      "list": [
+        {
+          "id": "01a1bf1f-b058-7088-9b93-52908ffa02a7",
+          "serial_no": "SN-20261109-010528",
+          "material_id": "e2f60001-0000-4000-8000-000000000011",
+          "warehouse_id": "e2f60001-0000-4000-8000-000000000001",
+          "location_id": "01a1bf1f-b058-7088-9b93-528f4bdea269",
+          "batch_no": null,
+          "status": "IN_STOCK",
+          "inbound_at": "2026-11-09T07:04:47.446550Z",
+          "outbound_at": null,
+          "source_type": null,
+          "source_id": null,
+          "created_at": "2026-11-09T07:04:47.446550Z",
+          "updated_at": "2026-11-09T07:04:47.446550Z"
+        },
+        {
+          "id": "01a1bf1f-b058-7088-9b93-529102e42437",
+          "serial_no": "SN-20261109-010529",
+          "material_id": "e2f60001-0000-4000-8000-000000000011",
+          "warehouse_id": "e2f60001-0000-4000-8000-000000000001",
+          "location_id": "01a1bf1f-b058-7088-9b93-528f4bdea269",
+          "batch_no": null,
+          "status": "IN_STOCK",
+          "inbound_at": "2026-11-09T07:04:47.446550Z",
+          "outbound_at": null,
+          "source_type": null,
+          "source_id": null,
+          "created_at": "2026-11-09T07:04:47.446550Z",
+          "updated_at": "2026-11-09T07:04:47.446550Z"
+        }
+      ],
+      "unit_cost": "10.000000",
+      "amount": "20.0000",
+      "inventory": {
+        "qty": "2.0000",
+        "amount": "20.0000",
+        "avg_cost": "10.000000"
+      }
+    }
+  }
+}

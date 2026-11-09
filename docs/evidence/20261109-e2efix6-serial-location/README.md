@@ -67,11 +67,16 @@ pnpm build      → ✓ built in 51.59s
 
 ### 4.4 真实 HTTP 演练
 
-- `live-99.txt`：99 隔离实例 `127.0.0.1:18420` / 库 `cp_e2efix6`（空库首启，全量迁移 + 种子）→ **PASS=48 FAIL=0**
+- `live-99.txt`：99 隔离实例 `127.0.0.1:18420` / 库 `cp_e2efix6`（空库首启，全量迁移 + 种子）→ **PASS=49 FAIL=0**
 - `live-145.txt`：145 测试机隔离实例（私有 worktree `/root/e2efix6-wt` + 私有 target `/root/e2efix6-target`，
-  库 `cp_e2efix6`，端口 18420）同脚本同断言 → **PASS=48 FAIL=0**
+  库 `cp_e2efix6`，端口 18420）同脚本同断言 → **PASS=49 FAIL=0**
 - `raw-99/`、`raw-145/`：两台机每一步的原始请求体 + 响应体
   （`batch_*.json` / `inventory_location_page_*.json` / `scan_*.json` / `inventory_audit.json` / `p15_*.json`）
+
+> **演练抓出来的一个真 bug（已修）**：P15 合并脚本第一版只清了**成本账**的未分配桶，
+> 没清**库位账**的未分配行 ⇒ 合并后成本账 0 / 库位账 2，B1b 逐桶对账错位。
+> 修法是第 ⑥ 步把库位账的未分配行一并清零，并在演练里加了一条
+> 「合并后 B1b 逐桶 0 差异」的断言（就是这条断言把它抓出来的）。
 
 > 145 上踩到的一个坑（记下来省下一个人 20 分钟）：`config/config-test.toml` 是**本机未跟踪文件**，
 > 干净的 worktree 里没有它 ⇒ `[middleware.auth] enabled = false` 生效、`jwt_auth=false`，

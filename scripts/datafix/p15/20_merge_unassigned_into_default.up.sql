@@ -115,7 +115,18 @@ BEGIN
                updated_at  = now()
          WHERE id = ledger_row_id;
 
-        -- ⑥ 未分配桶清零（保留行）
+        -- ⑥ 库位账的「未分配」行同样清零（**必须做**：只清成本账会把 B1b 逐桶对账打红 ——
+        --    成本账 0 / 库位账 2 的错位，实测就是这么来的）
+        UPDATE biz_inventory_location
+           SET qty        = 0,
+               last_txn_at = now(),
+               updated_at  = now()
+         WHERE material_id  = rec.material_id
+           AND warehouse_id = rec.warehouse_id
+           AND location_id IS NULL
+           AND id <> ledger_row_id;
+
+        -- ⑦ 成本账的未分配桶清零（保留行）
         UPDATE biz_inventory
            SET qty      = 0,
                amount   = 0,

@@ -577,6 +577,12 @@ mod tests {
                  'b2b00002-0000-4000-8000-00000000000a', 7.0000, 0.0000, 20.000000, 140.0000)
          ON CONFLICT (material_id, warehouse_id, COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid)) DO UPDATE
             SET qty = 7.0000, avg_cost = 20.000000, amount = 140.0000",
+        // 库位账也要有对应的一行（未分配桶 7 件），否则夹具本身就违反 B1b 逐桶对账
+        // （成本账 7 / 库位账 0 —— 巡检会在「别的卡跑全量」时把这条算到别人头上）
+        "INSERT INTO biz_inventory_location (material_id, warehouse_id, location_id, qty)
+         VALUES ('b2b00004-0000-4000-8000-00000000000b',
+                 'b2b00002-0000-4000-8000-00000000000a', NULL, 7.0000)
+         ON CONFLICT (material_id, warehouse_id, location_id) DO UPDATE SET qty = 7.0000",
         // ---- ADR-20261031 起「批量生成 = 两本账 + 凭证」：每个用例都要从「干净且两本账自洽」的
         //      状态出发，否则上一个用例留下的序列号 / 成本账 / 库位账会让不变式①的断言漂数。
         //      顺序：先删号（序列号对库位行有硬外键）→ 再删成本账 → 最后把库位账清零。

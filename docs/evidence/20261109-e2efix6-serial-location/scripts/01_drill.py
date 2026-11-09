@@ -428,6 +428,26 @@ def main():
                                      where material_id='{MAT}'::uuid and warehouse_id='{W1}'::uuid
                                        and location_id is null and (qty <> 0 or amount <> 0)""") or 0)
     check_eq("合并后 W1 的未分配桶已清零", 0, left_default_wh)
+    # B1b 逐桶（合并后）：成本账「未分配」0 ⇄ 库位账「未分配」0 必须同时成立，
+    # 只清一边就是错位（这条断言是第一次跑 145 时抓出来的：库位账未分配行还留着 qty=2）
+    drift = psql(f"""
+        with cost as (select i.material_id, i.warehouse_id,
+                             coalesce(il.location_id::text,'(未分配)') as bucket, sum(i.qty) as q
+                        from biz_inventory i
+                        left join biz_inventory_location il on il.id = i.location_id
+                       where i.material_id = '{MAT}'::uuid
+                       group by 1,2,3),
+             loc as (select material_id, warehouse_id,
+                            coalesce(location_id::text,'(未分配)') as bucket, sum(qty) as q
+                       from biz_inventory_location
+                      where material_id = '{MAT}'::uuid
+                      group by 1,2,3)
+        select coalesce(c.bucket,l.bucket), coalesce(c.q,0)::text, coalesce(l.q,0)::text
+          from cost c full outer join loc l
+            on c.material_id=l.material_id and c.warehouse_id=l.warehouse_id and c.bucket=l.bucket
+         where abs(coalesce(c.q,0)-coalesce(l.q,0)) > 0.0001
+    """)
+    check_eq("合并后 B1b 逐桶 0 差异（成本账与库位账两边都清零）", 0, len(drift))
     check_true("报告里仍列出「无默认库位仓」的未分配桶（有意跳过，不是漏合并）",
                "WH-E2F6-NODEF" in out, "报告输出含 WH-E2F6-NODEF")
 
