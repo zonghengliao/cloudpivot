@@ -1,0 +1,19 @@
+Pager usage is off.
+===== ① 未登记的 biz_type 流水（dev 现状） =====
+    biz_type     | doc_type | txn_type |                doc_id                |       doc_no       |  qty   
+-----------------+----------+----------+--------------------------------------+--------------------+--------
+ SALES_RETURN_IN | STOCK_IN | IN       | 01a1bddc-5b91-73d5-ba26-ead2d85d7c83 | IN-20261109-000243 | 2.0000
+(1 row)
+
+===== ② 该批流水是否已在 E4 的 DOC 轴上被 biz_stock_in 解释 =====
+    biz_type     |     txn_doc_no     |       in_no        | stock_in_status | in_type | source_type  | stock_in_alive | item_qty 
+-----------------+--------------------+--------------------+-----------------+---------+--------------+----------------+----------
+ SALES_RETURN_IN | IN-20261109-000243 | IN-20261109-000243 | POSTED          | RETURN  | SALES_RETURN | t              |   2.0000
+(1 row)
+
+===== ③ E4 posted CTE 口径是否含退货入库单（不过滤 in_type） =====
+ posted_stock_in_rows | posted_return_rows 
+----------------------+--------------------
+                   15 |                  1
+(1 row)
+

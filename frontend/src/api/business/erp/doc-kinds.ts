@@ -299,6 +299,7 @@ export const TXN_BIZ_TYPES = [
   'STOCK_TAKE_GAIN',
   'STOCK_TAKE_LOSS',
   'STOCK_TAKE_CANCEL',
+  'SALES_RETURN_IN',
 ] as const;
 
 /** 库存流水业务动作（联合类型）。 */
@@ -328,6 +329,7 @@ export const TXN_BIZ_TYPE_LABELS: Readonly<Record<TxnBizType, string>> = {
   STOCK_TAKE_GAIN: '盘点盘盈',
   STOCK_TAKE_LOSS: '盘点盘亏',
   STOCK_TAKE_CANCEL: '盘点作废回补',
+  SALES_RETURN_IN: '销售退货入库',
 };
 
 // ==================== ④ 流水来源单据 ====================

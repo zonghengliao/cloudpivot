@@ -1,0 +1,14 @@
+========================================================================================
+修前状态（HEAD 的三份真相文件）
+========================================================================================
+[旧闸①] 扫描模块 = 手写清单 9 个；清单里的常量 = ['OPENING', 'PURCHASE_IN', 'PURCHASE_IN_CANCEL', 'SERIAL_IN', 'SERIAL_OUT', 'SERIAL_SCRAP', 'STOCK_TAKE_CANCEL', 'STOCK_TAKE_GAIN', 'STOCK_TAKE_LOSS', 'TRANSFER_IN', 'TRANSFER_OUT']
+[旧闸①] 未登记的 biz_type = []   → ★ 判绿（漏了真缺口）
+
+[新闸①] 探测到写入点模块 10 个（含 ['sales_return_posting.rs']）
+[新闸①] 写入点字面量 11 个：['OPENING', 'PURCHASE_IN_CANCEL', 'SALES_RETURN_IN', 'SERIAL_IN', 'SERIAL_OUT', 'SERIAL_SCRAP', 'STOCK_TAKE_CANCEL', 'STOCK_TAKE_GAIN', 'STOCK_TAKE_LOSS', 'TRANSFER_IN', 'TRANSFER_OUT']
+[新闸①] L1 写入点 ⊆ 词表  未通过 = ['SALES_RETURN_IN']
+[新闸①] L2 写入点 ⊆ 登记表 未通过 = ['SALES_RETURN_IN']
+[新闸①] L3 词表 ⊆ 登记表   未通过 = []
+
+说明：L3（词表 ⊆ 登记表）在修前是空的 —— 这正是旧闸的盲区：写入点用了词表里根本没有的值，枚举侧与登记表侧同时缺这一个值，只比这两侧永远看不出来。
+结论：✅ 旧闸漏掉的真缺口，新闸用「写入点」这一侧在 L1/L2 点名 → 以后不会再漏

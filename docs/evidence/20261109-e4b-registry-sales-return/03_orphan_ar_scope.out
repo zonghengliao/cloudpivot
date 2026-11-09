@@ -1,0 +1,21 @@
+Pager usage is off.
+===== 口径对比：孤儿应收（UNION 口径 vs 带 source_type vs 带 deleted_at） =====
+                                  口径                                  | 行数 
+------------------------------------------------------------------------+------
+ ① 卡面口径（不加 source_type、含软删行）                               |   21
+ ② 只加 source_type=SALES_OUT（仍含软删行）                             |    5
+ ③ 巡检口径（source_type=SALES_OUT + 应收未删 + 出库单未删）            |    0
+ ④ 巡检现状（source_type=SALES_OUT + 应收未删 + 出库单不看 deleted_at） |    0
+(4 rows)
+
+===== ① 口径里被误算的行（按 source_type 分组） =====
+ source_type |      source_no      | 行数 
+-------------+---------------------+------
+ MANUAL      | MANUAL              |   16
+ SALES_OUT   | OUT-20261109-000007 |    1
+ SALES_OUT   | OUT-20261109-000008 |    1
+ SALES_OUT   | OUT-20261109-000009 |    1
+ SALES_OUT   | OUT-20261109-000010 |    1
+ SALES_OUT   | OUT-20261109-000011 |    1
+(6 rows)
+

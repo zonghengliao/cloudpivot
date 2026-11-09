@@ -665,6 +665,14 @@ impl FlowBizType {
 ///   三态是盘点业务的事实（盘盈 / 盘亏 / 作废回补方向与正向相反），
 ///   与 `ADJUST_*` 不是同义词 —— 收敛成两个值会让「这张流水是哪张盘点单造成的」
 ///   与「方向」两件事挤在一个字段里。
+///
+/// # 销售退货入库（`SALES_RETURN_IN`）
+///
+/// 销售退货单过账（`sales_return_posting.rs`）**自带**一个业务动作，不复用 `PURCHASE_IN`：
+/// 退货入库单（`biz_stock_in.in_type='RETURN'` / `source_type='SALES_RETURN'`）没有供应商、
+/// 没有应付、没有进项税，记成采购入库会让「库存流水 → 采购入库」的追溯给出假答案。
+/// 落库形态：`doc_type='STOCK_IN'`、`doc_id` = 退货入库单 `biz_stock_in.id`、
+/// `doc_kind()=StockIn` ⇒ E4 判据里按**单据轴**（`DOC`）解释，不能再按净额重复计入。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum TxnBizType {
     /// 采购入库（收货过账）。
@@ -711,11 +719,13 @@ pub enum TxnBizType {
     StockTakeLoss,
     /// 盘点作废回补（已过账盘点单作废，方向与正向相反）。
     StockTakeCancel,
+    /// 销售退货入库（销售退货单过账；`doc_type='STOCK_IN'`，`doc_id` = 退货入库单）。
+    SalesReturnIn,
 }
 
 impl TxnBizType {
     /// 全部动账类型（顺序 = 声明顺序）。
-    pub const ALL: [TxnBizType; 22] = [
+    pub const ALL: [TxnBizType; 23] = [
         TxnBizType::PurchaseIn,
         TxnBizType::PurchaseInCancel,
         TxnBizType::PurchaseReturn,
@@ -738,6 +748,7 @@ impl TxnBizType {
         TxnBizType::StockTakeGain,
         TxnBizType::StockTakeLoss,
         TxnBizType::StockTakeCancel,
+        TxnBizType::SalesReturnIn,
     ];
 
     /// 落库值（大写下划线）。**唯一拼写**。
@@ -765,6 +776,7 @@ impl TxnBizType {
             TxnBizType::StockTakeGain => "STOCK_TAKE_GAIN",
             TxnBizType::StockTakeLoss => "STOCK_TAKE_LOSS",
             TxnBizType::StockTakeCancel => "STOCK_TAKE_CANCEL",
+            TxnBizType::SalesReturnIn => "SALES_RETURN_IN",
         }
     }
 
@@ -793,6 +805,7 @@ impl TxnBizType {
             TxnBizType::StockTakeGain => "盘点盘盈",
             TxnBizType::StockTakeLoss => "盘点盘亏",
             TxnBizType::StockTakeCancel => "盘点作废回补",
+            TxnBizType::SalesReturnIn => "销售退货入库",
         }
     }
 
@@ -806,7 +819,8 @@ impl TxnBizType {
             | TxnBizType::ProduceCancel
             | TxnBizType::SerialIn
             | TxnBizType::SerialOut
-            | TxnBizType::SerialScrap => DocKind::StockIn,
+            | TxnBizType::SerialScrap
+            | TxnBizType::SalesReturnIn => DocKind::StockIn,
             TxnBizType::SaleOut
             | TxnBizType::IssueOut
             | TxnBizType::ScrapOut
@@ -1343,7 +1357,7 @@ const FLOW_BIZ_TYPE_VALUES: [&str; 16] = [
     "RECEIPT_REFUND",
 ];
 
-const TXN_BIZ_TYPE_VALUES: [&str; 22] = [
+const TXN_BIZ_TYPE_VALUES: [&str; 23] = [
     "PURCHASE_IN",
     "PURCHASE_IN_CANCEL",
     "PURCHASE_RETURN",
@@ -1366,6 +1380,7 @@ const TXN_BIZ_TYPE_VALUES: [&str; 22] = [
     "STOCK_TAKE_GAIN",
     "STOCK_TAKE_LOSS",
     "STOCK_TAKE_CANCEL",
+    "SALES_RETURN_IN",
 ];
 
 const TXN_DOC_TYPE_VALUES: [&str; 8] = [
@@ -1458,8 +1473,13 @@ const EXPENSE_PAYMENT_STATUS_VALUES: [&str; 2] = ["PAID", "CANCELLED"];
 ///
 /// 所以域是两轴的并集（去重），不是「随便放宽」：任何既不在 txn 轴、也不在
 /// voucher-source 轴上的值仍然是 FAIL。
+///
+/// **唯一的排除项**：`SALES_RETURN_IN`（txn 轴有、这里没有）—— 销售退货的凭证由
+/// `sales_return_posting.rs` 直接生成（红字入库凭证 + 收入冲减凭证），**不查**
+/// `biz_voucher_rule`；把它放进规则域等于允许写一条永远匹配不到的规则。
+/// 若将来改成走规则表，两处一起改。
 const VOUCHER_RULE_BIZ_TYPE_VALUES: [&str; 34] = [
-    // txn 轴（22）
+    // txn 轴（23 项里的 22 个；`SALES_RETURN_IN` 不进规则域，理由见上）
     "PURCHASE_IN",
     "PURCHASE_IN_CANCEL",
     "PURCHASE_RETURN",

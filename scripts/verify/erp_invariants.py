@@ -44,7 +44,7 @@ RESULT = []
 #  既误伤 check.sh 闸③，又把真正的「作废没退库存」淹掉）。
 #
 # 取值域来源（代码里改 biz_type 必须同步这张表；漏登记由两道闸兜住）：
-#   ① `backend/src/business/shared/doc_kind.rs::TxnBizType::ALL`（22 个，唯一拼写；含盘点三态）
+#   ① `backend/src/business/shared/doc_kind.rs::TxnBizType::ALL`（23 个，唯一拼写；含盘点三态 + 销售退货入库）
 #   ② `backend/src/business/erp/stocktake_model.rs`
 #      （STOCK_TAKE_GAIN / STOCK_TAKE_LOSS / STOCK_TAKE_CANCEL 的写入常量 —— 盘点轴。
 #       这三个曾**只**以常量形式存在、词表里没有（已知漂移），t_6a667db8 已补进 ① 的
@@ -58,6 +58,11 @@ RESULT = []
 #   'DOC'    —— 由 `biz_stock_in` **单据轴**解释：过账写 PURCHASE_IN（stockin_write.rs:551），
 #               作废写 PURCHASE_IN_CANCEL（stockin_cancel.rs:270），单据 status 一翻
 #               `posted` 汇总与流水同步涨落 ⇒ **不能再进 other_moves，否则重复扣减**；
+#               `SALES_RETURN_IN` 同属这根轴：销售退货过账自己写这个值
+#               （sales_return_posting.rs:629，`doc_type='STOCK_IN'`、`doc_id` = 退货入库单
+#               `biz_stock_in.id`），而 E4 的 posted CTE 只按 `status='POSTED'` 汇总、
+#               **不过滤 `in_type`** ⇒ 退货那批数量已由单据轴计入。登记成 'NET' 会让
+#               E4 多算一遍、静默放宽判据（dev 实测：2 件退货就能让「库存 ≤ 单据」多出 2 件余量）；
 #   'NET'    —— 其它一切动账（期初 / 盘点三态 / 调拨 / 序列号 / 各类出库 / 出库作废 …），
 #               按 txn_type 正负号计入 other_moves；
 #   'LEGACY' —— 现行代码**不产**、但历史库/夹具里确实存在的旧值（如 biz_type='PURCHASE' +
@@ -69,6 +74,9 @@ RESULT = []
 E4_BIZ_TYPE_AXIS = {
     "PURCHASE_IN": "DOC",
     "PURCHASE_IN_CANCEL": "DOC",
+    # 销售退货入库：写入点 sales_return_posting.rs（doc_type='STOCK_IN'，doc_id=退货入库单）；
+    # 退货入库单本身就是 POSTED 的 biz_stock_in ⇒ 归 DOC 轴（理由见上方注释）。
+    "SALES_RETURN_IN": "DOC",
     "OPENING": "NET",
     "STOCK_TAKE_GAIN": "NET",
     "STOCK_TAKE_LOSS": "NET",
@@ -2304,6 +2312,12 @@ def group_s():
     # 是库层 CHECK，挂不上）。含税金额按同一公式复算：
     #   Σ round(发货数量 × 订单行单价 × (1 + 税率/100), 4) —— taxed_amount_of 口径。
     # 反向也查：来源是 SALES_OUT 的应收必须挂在真实出库单上（防孤儿应收）。
+    #   ⚠️ 口径不许省 `source_type='SALES_OUT'`（I-5 踩过，t_9c938b6b）：手工挂账的应收
+    #   `source_type='MANUAL'` 的 `source_id` 是服务端生成的**占位 UUID**（`source_no='MANUAL'`），
+    #   它天然对不上任何 `biz_stock_out`。只写「source_id 非空 + 查不到出库单」会把全部
+    #   MANUAL 应收算成孤儿（dev 实测 21 行 vs 真孤儿 5 行，差的 16 行全是 MANUAL）。
+    #   另：判「出库单存在」要连 `deleted_at IS NULL` 一起看（软删的出库单 = 孤儿），
+    #   与 `scripts/ops/acceptance_gate.sh` 第 ② 条同口径。
     if table_exists("biz_stock_out") and table_exists("biz_receivable"):
         s6a = q(f"""
             with out_scope as (
@@ -2340,7 +2354,8 @@ def group_s():
               from biz_receivable r
              where r.deleted_at is null
                and r.source_type = 'SALES_OUT'
-               and not exists (select 1 from biz_stock_out o where o.id = r.source_id)
+               and not exists (select 1 from biz_stock_out o
+                                where o.id = r.source_id and o.deleted_at is null)
              order by r.ar_no
         """)
         n_out = one("""select count(*) from biz_stock_out
