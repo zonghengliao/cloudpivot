@@ -446,6 +446,18 @@
                 <span>{{ row.account_name }}</span>
               </span>
             </template>
+            <template #aux="{ row }">
+              <span v-if="!entryAuxTags(row).length" class="muted">—</span>
+              <t-tag
+                v-for="tag in entryAuxTags(row)"
+                :key="tag.dim"
+                size="small"
+                variant="light"
+                :data-testid="`voucher-entry-aux-${tag.dim.toLowerCase()}-${row.line_no}`"
+              >
+                {{ tag.text }}
+              </t-tag>
+            </template>
             <template #debit_amount="{ row }">
               <span class="money" :data-testid="`voucher-entry-debit-${row.line_no}`">
                 {{ toCents(row.debit_amount) === 0 ? '' : formatMoney(row.debit_amount) }}
@@ -633,7 +645,24 @@
               filterable
               placeholder="选科目（末级）"
               :data-testid="`voucher-create-account-${row.key}`"
+              @change="clearRowAux(row)"
             />
+          </template>
+          <template #aux="{ row }">
+            <div v-if="auxDimsOfRow(row).length" class="aux-cell">
+              <t-select
+                v-for="dim in auxDimsOfRow(row)"
+                :key="dim"
+                v-model="row[AUX_DIM_FIELDS[dim]]"
+                :options="auxOptions[dim]"
+                :placeholder="`选${AUX_DIM_LABELS[dim]}（必填）`"
+                filterable
+                clearable
+                size="small"
+                :data-testid="`voucher-create-aux-${dim.toLowerCase()}-${row.key}`"
+              />
+            </div>
+            <span v-else class="muted">—</span>
           </template>
           <template #debit="{ row }">
             <t-input-number
@@ -691,6 +720,8 @@
         <p class="form-tip">
           手工凭证保存为<strong>草稿</strong>（status = DRAFT）：别人审核（AUDITED）后才记账（POSTED）、才进总账；
           期间必须是「已开启」，借贷不平衡时保存按钮不可用（后端同样会 400 并点名差额）。
+          科目挂了辅助核算（如 5602.x / 5601 / 5603 / 5711 要求部门）时，必须在分录里选对应维度，
+          否则保存会被拒绝（这些维度就是部门辅助账的取数来源）。
         </p>
         <t-alert v-if="createError" theme="error" :message="createError" data-testid="voucher-create-error" />
       </div>
@@ -738,17 +769,22 @@ import ListMemoryBar from '@/components/ListMemoryBar.vue';
 import { useListFilterMemory } from '@/composables/useListFilterMemory';
 import {
   fetchAccountOptions,
+  fetchMaterialPage,
+  fetchSupplierOptions,
   fetchVoucherDetail,
   fetchVoucherPage,
+  fetchWarehousePage,
   type AccountRow,
   type VoucherEntryLine,
   type VoucherRow,
 } from '@/api/business/erp';
+import { getDeptTree, type DeptNode } from '@/api/system/dept-api';
 import {
   createVoucher,
   submitReverseVoucher,
   withdrawReverseVoucher,
   type CreateVoucherReq,
+  type ManualVoucherEntryReq,
   type VoucherDetailEx,
   type VoucherRowEx,
 } from './voucher-write-api';
@@ -835,6 +871,7 @@ const entryColumns: PrimaryTableCol[] = [
   { colKey: 'line_no', title: '行', width: 56, align: 'center' },
   { colKey: 'summary', title: '摘要', minWidth: 140, ellipsis: true },
   { colKey: 'account', title: '科目', minWidth: 200 },
+  { colKey: 'aux', title: '辅助核算', minWidth: 150 },
   { colKey: 'debit_amount', title: '借方', width: 130, align: 'right' },
   { colKey: 'credit_amount', title: '贷方', width: 130, align: 'right' },
 ];
@@ -1453,13 +1490,177 @@ interface EditorRow {
   debit: number;
   credit: number;
   summary: string;
+  /** 辅助核算：部门（`sys_dept.id`；空串 = 没选） */
+  aux_dept_id: string;
+  /** 辅助核算：供应商（`biz_supplier.id`） */
+  aux_supplier_id: string;
+  /** 辅助核算：物料（`biz_material.id`） */
+  aux_material_id: string;
+  /** 辅助核算：仓库（`biz_warehouse.id`） */
+  aux_warehouse_id: string;
 }
 
 let editorSeq = 0;
 
 function newEditorRow(): EditorRow {
   editorSeq += 1;
-  return { key: editorSeq, account_id: '', debit: 0, credit: 0, summary: '' };
+  return {
+    key: editorSeq,
+    account_id: '',
+    debit: 0,
+    credit: 0,
+    summary: '',
+    aux_dept_id: '',
+    aux_supplier_id: '',
+    aux_material_id: '',
+    aux_warehouse_id: '',
+  };
+}
+
+/**
+ * 辅助核算维度：与后端 `biz_account.aux_dimensions` 的四个码、`biz_voucher_entry` 的四个
+ * `aux_*` 列一一对应（E2E04-FIX-1）。**没有**「项目 / 人员」维度 —— 后端只有这四个。
+ */
+type AuxDim = 'DEPT' | 'SUPPLIER' | 'MATERIAL' | 'WAREHOUSE';
+
+/** 维度 → 中文名（提示文案用） */
+const AUX_DIM_LABELS: Record<AuxDim, string> = {
+  DEPT: '部门',
+  SUPPLIER: '供应商',
+  MATERIAL: '物料',
+  WAREHOUSE: '仓库',
+};
+
+/** 维度 → 分录行上的字段名（与后端入参字段逐字一致） */
+const AUX_DIM_FIELDS: Record<AuxDim, 'aux_dept_id' | 'aux_supplier_id' | 'aux_material_id' | 'aux_warehouse_id'> = {
+  DEPT: 'aux_dept_id',
+  SUPPLIER: 'aux_supplier_id',
+  MATERIAL: 'aux_material_id',
+  WAREHOUSE: 'aux_warehouse_id',
+};
+
+const AUX_DIMS: AuxDim[] = ['DEPT', 'SUPPLIER', 'MATERIAL', 'WAREHOUSE'];
+
+/** 科目声明的维度（逗号分隔、大小写不敏感；认不出的维度忽略 —— 与后端同一口径）。 */
+function auxDimsOfAccount(accountId: string): AuxDim[] {
+  const raw = accounts.value.find((item) => item.id === accountId)?.aux_dimensions ?? '';
+  return raw
+    .split(',')
+    .map((token) => token.trim().toUpperCase())
+    .filter((token): token is AuxDim => (AUX_DIMS as string[]).includes(token));
+}
+
+/** 一行分录要显示的维度（科目没选 = 空；选了才有）。 */
+function auxDimsOfRow(row: EditorRow): AuxDim[] {
+  return auxDimsOfAccount(row.account_id);
+}
+
+/** 下拉候选（按需加载：只请求「真的有科目在用」的维度）。 */
+const auxOptions = reactive<Record<AuxDim, Array<{ label: string; value: string }>>>({
+  DEPT: [],
+  SUPPLIER: [],
+  MATERIAL: [],
+  WAREHOUSE: [],
+});
+let auxOptionsLoading: Promise<void> | null = null;
+
+/** 部门树拍平成下拉（缩进表示层级）。 */
+function flattenDepts(nodes: DeptNode[], depth = 0, out: Array<{ label: string; value: string }> = []): Array<{ label: string; value: string }> {
+  for (const node of nodes) {
+    out.push({ label: `${'　'.repeat(depth)}${node.dept_name}`, value: node.id });
+    if (node.children?.length) {
+      flattenDepts(node.children, depth + 1, out);
+    }
+  }
+  return out;
+}
+
+async function loadAuxOptions(dim: AuxDim): Promise<Array<{ label: string; value: string }>> {
+  if (dim === 'DEPT') {
+    return flattenDepts(await getDeptTree());
+  }
+  if (dim === 'SUPPLIER') {
+    return (await fetchSupplierOptions()).map((item) => ({
+      label: `${item.supplier_code} ${item.supplier_name}`,
+      value: item.id,
+    }));
+  }
+  if (dim === 'MATERIAL') {
+    const page = await fetchMaterialPage({ page: 1, page_size: 500, status: 1 });
+    return (page.list ?? []).map((item) => ({
+      label: `${item.material_code} ${item.material_name}`,
+      value: item.id,
+    }));
+  }
+  const page = await fetchWarehousePage({ page: 1, page_size: 500, status: 1 });
+  return (page.list ?? []).map((item) => ({
+    label: `${item.warehouse_code} ${item.warehouse_name}`,
+    value: item.id,
+  }));
+}
+
+/**
+ * 打开建凭证弹窗时加载辅助核算候选。
+ *
+ * 只加载「有科目声明了」的维度：库里目前只有费用类科目挂了 `DEPT`，就只请求部门树；
+ * 没有任何科目挂维度时**一个请求都不发**（不为用不到的维度付网络开销）。
+ * 加载失败不阻断建单：下拉为空，后端仍会按「科目要求维度」给 400 明确提示。
+ */
+async function ensureAuxOptions(): Promise<void> {
+  if (auxOptionsLoading) {
+    return auxOptionsLoading;
+  }
+  const needed = new Set<AuxDim>();
+  for (const account of accounts.value) {
+    for (const dim of auxDimsOfAccount(account.id)) {
+      needed.add(dim);
+    }
+  }
+  if (needed.size === 0) {
+    return;
+  }
+  auxOptionsLoading = Promise.all(
+    [...needed].map(async (dim) => {
+      try {
+        auxOptions[dim] = await loadAuxOptions(dim);
+      } catch {
+        auxOptions[dim] = [];
+      }
+    }),
+  ).then(() => undefined);
+  return auxOptionsLoading;
+}
+
+/** 换科目 → 清掉上一科目残留的辅助核算（部门不该跟着科目漂） */
+function clearRowAux(row: EditorRow): void {
+  row.aux_dept_id = '';
+  row.aux_supplier_id = '';
+  row.aux_material_id = '';
+  row.aux_warehouse_id = '';
+}
+
+/**
+ * 分录上的辅助核算标签（详情展示用）。
+ *
+ * 名称优先（部门树 / 供应商 / 物料 / 仓库下拉里能找到就以它为准），找不到就显示 **8 位短 id**：
+ * 完整 UUID 对财务和审计既读不懂也搜不到（AGENTS.md 约定 13）。
+ */
+function entryAuxTags(line: VoucherEntryLine): Array<{ dim: AuxDim; text: string }> {
+  const values: Array<[AuxDim, string | null]> = [
+    ['DEPT', line.aux_dept_id],
+    ['SUPPLIER', line.aux_supplier_id],
+    ['MATERIAL', line.aux_material_id],
+    ['WAREHOUSE', line.aux_warehouse_id],
+  ];
+  const out: Array<{ dim: AuxDim; text: string }> = [];
+  for (const [dim, value] of values) {
+    if (!value) {
+      continue;
+    }
+    const name = auxOptions[dim].find((item) => item.value === value)?.label;
+    out.push({ dim, text: `${AUX_DIM_LABELS[dim]}：${name ?? value.slice(0, 8)}` });
+  }
+  return out;
 }
 
 const createVisible = ref(false);
@@ -1481,6 +1682,7 @@ const accountOptions = computed(() =>
 
 const editorColumns: PrimaryTableCol[] = [
   { colKey: 'account_id', title: '科目', minWidth: 240 },
+  { colKey: 'aux', title: '辅助核算', minWidth: 190 },
   { colKey: 'debit', title: '借方金额', width: 150 },
   { colKey: 'credit', title: '贷方金额', width: 150 },
   { colKey: 'summary', title: '分录摘要', minWidth: 180 },
@@ -1516,6 +1718,8 @@ async function openCreate(): Promise<void> {
   if (accounts.value.length === 0) {
     accounts.value = await fetchAccountOptions().catch(() => [] as AccountRow[]);
   }
+  // 辅助核算下拉：只加载有科目声明的维度（E2E04-FIX-1），失败不阻断建单
+  await ensureAuxOptions();
 }
 
 function addEntry(): void {
@@ -1548,6 +1752,20 @@ async function submitCreate(): Promise<void> {
     createError.value = `第 ${missing + 1} 行还没选科目`;
     return;
   }
+  // 辅助核算必填校验（E2E04-FIX-1）：科目声明了维度却没选 → 前端先拦，
+  // 文案与后端 400 同口径（后端仍会校验，前端只是提前一步）。
+  for (const [index, row] of createForm.entries.entries()) {
+    const missingDims = auxDimsOfRow(row).filter((dim) => !row[AUX_DIM_FIELDS[dim]]);
+    if (missingDims.length === 0) {
+      continue;
+    }
+    const account = accounts.value.find((item) => item.id === row.account_id);
+    const labels = missingDims.map((dim) => AUX_DIM_LABELS[dim]).join('、');
+    createError.value =
+      `第 ${index + 1} 行：科目 ${account?.account_code ?? ''}（${account?.account_name ?? ''}）` +
+      `要求${labels}辅助核算，请选择${labels}`;
+    return;
+  }
   const dateText = createForm.voucher_date.trim();
   if (dateText && !/^\d{4}-\d{2}-\d{2}$/.test(dateText)) {
     createError.value = '凭证日期必须是 YYYY-MM-DD（或留空 = 今天）';
@@ -1557,12 +1775,22 @@ async function submitCreate(): Promise<void> {
   const body: CreateVoucherReq = {
     voucher_date: dateText || null,
     summary,
-    entries: createForm.entries.map((row) => ({
-      account_id: row.account_id,
-      debit: (toCents(row.debit) / 100).toFixed(4),
-      credit: (toCents(row.credit) / 100).toFixed(4),
-      summary: row.summary.trim() || null,
-    })),
+    entries: createForm.entries.map((row) => {
+      const entry: ManualVoucherEntryReq = {
+        account_id: row.account_id,
+        debit: (toCents(row.debit) / 100).toFixed(4),
+        credit: (toCents(row.credit) / 100).toFixed(4),
+        summary: row.summary.trim() || null,
+      };
+      // 只提交「该科目真的要求」的维度（不要求维度的科目多挂一个维度只会污染辅助账）
+      for (const dim of auxDimsOfRow(row)) {
+        const value = row[AUX_DIM_FIELDS[dim]];
+        if (value) {
+          entry[AUX_DIM_FIELDS[dim]] = value;
+        }
+      }
+      return entry;
+    }),
     remark: null,
   };
 
@@ -1954,6 +2182,13 @@ onMounted(() => {
 
 .entry-editor {
   margin-top: 4px;
+}
+
+/* 辅助核算：一行分录可能挂多个维度（部门 / 供应商 …），竖排免得把列撑爆 */
+.aux-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .editor-foot {

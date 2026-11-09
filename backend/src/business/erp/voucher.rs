@@ -525,6 +525,28 @@ pub async fn account_by_id(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<A
     load_account_by_id(ex, id).await
 }
 
+/// 科目声明的辅助核算维度（`biz_account.aux_dimensions`，逗号分隔，如 `DEPT` / `SUPPLIER,MATERIAL`）。
+///
+/// `None` = 该科目不挂辅助核算（不需要任何 `aux_*`）。
+/// 只给**手工凭证**的提交校验用：自动凭证的维度由各业务路径自己决定（付款挂部门、入库挂物料），
+/// 不按科目声明卡（`docs/ERP-辅助核算口径.md` §2）。
+pub async fn account_aux_dimensions(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<String>> {
+    // SCOPE-EXEMPT: biz_account 是会计科目主数据（全局），没有归属列。
+    let row = ex
+        .query_first_sql(
+            "SELECT aux_dimensions FROM biz_account \
+              WHERE id = ?::uuid AND status = 1 AND deleted_at IS NULL"
+                .to_string(),
+            vec![Value::from(&id)],
+        )
+        .await?;
+    match row {
+        Some(row) => row.get_typed::<Option<String>>("aux_dimensions"),
+        // 科目不存在 / 已停用：由调用方的 `account_by_id` 出 400，这里不重复报
+        None => Ok(None),
+    }
+}
+
 /// 分录里落在**非末级**科目上的科目编码（去重、编码升序；空 = 全部可记账）。
 ///
 /// 与 [`post_voucher`] 的闸配套，理由见模块文档「记账科目口径」。按**编码**批查一次

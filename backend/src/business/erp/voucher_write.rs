@@ -83,7 +83,7 @@ use crate::utils;
 // ==================== 入参 ====================
 
 /// 手工凭证的一条分录。
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct ManualEntryReq {
     /// 科目 id（`biz_account.id`）。
     pub account_id: Option<String>,
@@ -93,7 +93,58 @@ pub struct ManualEntryReq {
     pub credit: Option<Decimal>,
     /// 分录摘要（留空则继承单头摘要）。
     pub summary: Option<String>,
+    /// 辅助核算：部门（`sys_dept.id`）。
+    ///
+    /// 科目 `aux_dimensions` 含 `DEPT` 时**必填**（E2E04-FIX-1）：5601 / 5602.x / 5603 /
+    /// 5711 / 2241.01 这些费用类科目声明了部门维度，不填这条分录就落不进部门辅助账
+    /// （`GET /ledger/aux-balance?aux_type=DEPT` 永远查不到），只能靠改库补。
+    /// 不要求该维度的科目传了也不报错（多挂一个维度不会算错账）。
+    pub aux_dept_id: Option<String>,
+    /// 辅助核算：供应商（`biz_supplier.id`）。科目维度含 `SUPPLIER` 时必填。
+    pub aux_supplier_id: Option<String>,
+    /// 辅助核算：物料（`biz_material.id`）。科目维度含 `MATERIAL` 时必填。
+    pub aux_material_id: Option<String>,
+    /// 辅助核算：仓库（`biz_warehouse.id`）。科目维度含 `WAREHOUSE` 时必填。
+    pub aux_warehouse_id: Option<String>,
 }
+
+/// 一个辅助核算维度：`biz_account.aux_dimensions` 里的码、中文名、以及从分录取值的函数。
+///
+/// 四个维度与 `biz_voucher_entry` 的四个 `aux_*` 列一一对应
+/// （`docs/ERP-辅助核算口径.md` §2）；新增维度必须同时加列、加 `ledger::aux_column`、
+/// 加 `write_entries` 的 INSERT —— 只加这里会静默丢掉。
+struct AuxDimension {
+    /// 维度码（与 `ledger::AUX_*` 同一份字面量）。
+    code: &'static str,
+    /// 中文名（错误提示里给用户看）。
+    label: &'static str,
+    /// 从一条分录里取该维度的值（`None` = 没填）。
+    value_of: fn(&RawLine) -> Option<&str>,
+}
+
+/// 支持的四个辅助核算维度。顺序 = 错误提示里的先后顺序。
+const AUX_DIMENSIONS: [AuxDimension; 4] = [
+    AuxDimension {
+        code: crate::business::erp::ledger::AUX_DEPT,
+        label: "部门",
+        value_of: |line| line.aux_dept_id.as_deref(),
+    },
+    AuxDimension {
+        code: crate::business::erp::ledger::AUX_SUPPLIER,
+        label: "供应商",
+        value_of: |line| line.aux_supplier_id.as_deref(),
+    },
+    AuxDimension {
+        code: crate::business::erp::ledger::AUX_MATERIAL,
+        label: "物料",
+        value_of: |line| line.aux_material_id.as_deref(),
+    },
+    AuxDimension {
+        code: crate::business::erp::ledger::AUX_WAREHOUSE,
+        label: "仓库",
+        value_of: |line| line.aux_warehouse_id.as_deref(),
+    },
+];
 
 /// 手工新增凭证入参。
 #[derive(Debug, Clone, Deserialize)]
@@ -231,6 +282,12 @@ fn parse_uuid(raw: &str, field: &str) -> std::result::Result<Uuid, ApiError> {
 /// 操作人。
 fn operator_of(claims: &TokenClaims) -> Option<Uuid> {
     utils::current_user_uuid(claims)
+}
+
+/// 解析一条分录的辅助核算 id：没填 → `None`；填了必须是合法 UUID（否则 400 并点名字段）。
+fn parse_aux_id(raw: Option<&String>, index: usize, field: &str) -> std::result::Result<Option<Uuid>, ApiError> {
+    raw.map(|text| parse_uuid(text, &format!("entries[{index}].{field}")))
+        .transpose()
 }
 
 // ==================== ① 红冲 ====================
@@ -796,6 +853,21 @@ struct RawLine {
     summary: String,
     /// 科目 id。
     account_id: String,
+    /// 辅助核算：部门 id（原始字符串，落库前才 `parse_uuid`）。
+    aux_dept_id: Option<String>,
+    /// 辅助核算：供应商 id。
+    aux_supplier_id: Option<String>,
+    /// 辅助核算：物料 id。
+    aux_material_id: Option<String>,
+    /// 辅助核算：仓库 id。
+    aux_warehouse_id: Option<String>,
+}
+
+/// 去掉首尾空白、把空串当「没填」（前端清空下拉时发 `""`）。
+fn aux_text(raw: Option<&String>) -> Option<String> {
+    raw.map(|text| text.trim())
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
 }
 
 /// 纯逻辑校验：单边 / 非负 / ≥2 条 / 借贷平衡。返回分录与借方合计。
@@ -852,6 +924,10 @@ fn check_entries(
             credit,
             summary: line_summary,
             account_id: account_id.to_string(),
+            aux_dept_id: aux_text(entry.aux_dept_id.as_ref()),
+            aux_supplier_id: aux_text(entry.aux_supplier_id.as_ref()),
+            aux_material_id: aux_text(entry.aux_material_id.as_ref()),
+            aux_warehouse_id: aux_text(entry.aux_warehouse_id.as_ref()),
         });
     }
 
@@ -867,6 +943,88 @@ fn check_entries(
         return Err(bad_request("借贷合计不能为 0"));
     }
     Ok((lines, debit_total))
+}
+
+/// 科目声明的辅助核算维度（`biz_account.aux_dimensions` 解析成维度表条目）。
+///
+/// 口径（与 `ledger` 读取口径一致）：
+/// * 逗号分隔、大小写不敏感、忽略空白（库里是 `DEPT` / `SUPPLIER,MATERIAL`）；
+/// * **认不出的维度忽略 + WARN**：科目配了本系统不支持的维度（历史数据 / 未来维度）时，
+///   不能因此把一笔正常凭证拦住 —— 但也别静默，`warn` 里点名科目，方便有人去修数据。
+fn required_aux_dimensions(account_code: &str, raw: Option<&str>) -> Vec<&'static AuxDimension> {
+    let Some(raw) = raw else {
+        return Vec::new();
+    };
+    let mut out: Vec<&'static AuxDimension> = Vec::new();
+    for token in raw.split(',') {
+        let code = token.trim();
+        if code.is_empty() {
+            continue;
+        }
+        match AUX_DIMENSIONS.iter().find(|dim| dim.code.eq_ignore_ascii_case(code)) {
+            Some(dim) => {
+                if !out.iter().any(|seen| seen.code == dim.code) {
+                    out.push(dim);
+                }
+            }
+            None => tracing::warn!(
+                account_code,
+                dimension = code,
+                "科目声明了本系统不支持的辅助核算维度：已忽略（不影响记账，但该维度的辅助账不会覆盖这个科目）"
+            ),
+        }
+    }
+    out
+}
+
+/// 校验一条分录补齐了科目要求的全部辅助核算维度（E2E04-FIX-1）。
+///
+/// **只校验「新增 / 修改」的手工凭证**：错误提示点名科目编码与维度中文名，
+/// 例如 `entries[0] 科目 5602.03（管理费用—办公费）要求部门辅助核算，请选择部门`。
+/// 存量历史凭证不受影响 —— 校验只在写入路径上跑，从不扫描既有分录。
+fn check_aux_dimensions(
+    index: usize,
+    account: &AccountRef,
+    dimensions: Option<&str>,
+    line: &RawLine,
+) -> std::result::Result<(), ApiError> {
+    let required = required_aux_dimensions(&account.code, dimensions);
+    if required.is_empty() {
+        return Ok(());
+    }
+    let missing: Vec<&'static str> = required
+        .iter()
+        .filter(|dim| (dim.value_of)(line).is_none())
+        .map(|dim| dim.label)
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    // 多个维度同时缺: 文案一次说清（逐个报会让人改一轮再撞一轮）
+    let labels = missing.join("、");
+    let fields = required
+        .iter()
+        .filter(|dim| (dim.value_of)(line).is_none())
+        .map(|dim| aux_field_name(dim.code))
+        .collect::<Vec<_>>()
+        .join(" / ");
+    Err(bad_request(format!(
+        "entries[{index}] 科目 {code}（{name}）要求{labels}辅助核算，请选择{labels}（{fields}）",
+        code = account.code,
+        name = account.name,
+        labels = labels,
+        fields = fields
+    )))
+}
+
+/// 维度码 → 入参字段名（给错误提示指路，调用方不用翻文档）。
+fn aux_field_name(code: &str) -> &'static str {
+    match code {
+        crate::business::erp::ledger::AUX_DEPT => "aux_dept_id",
+        crate::business::erp::ledger::AUX_SUPPLIER => "aux_supplier_id",
+        crate::business::erp::ledger::AUX_MATERIAL => "aux_material_id",
+        _ => "aux_warehouse_id",
+    }
 }
 
 /// 手工凭证事务的全部入参（结构体化，避开 `clippy::too_many_arguments`）。
@@ -947,16 +1105,22 @@ async fn manual_in_tx(
                     format!("entries[{index}].account_id 科目不存在 / 已停用 / 已删除（{account_id}）"),
                 )
             })?;
+        // 辅助核算（E2E04-FIX-1）：科目声明了维度就必须补齐，否则这条分录落不进辅助账。
+        // 只卡写入路径 —— 存量历史凭证的 aux_* 仍可以是 NULL（不会被回溯校验）。
+        let dimensions = voucher::account_aux_dimensions(tx, account_id)
+            .await
+            .map_err(|error| utils::db_error(error, "查询科目辅助核算维度"))?;
+        check_aux_dimensions(index, &account, dimensions.as_deref(), line)?;
         lines.push(EntryLine {
             line_no: i32::try_from(index + 1).unwrap_or(0),
             summary: line.summary.clone(),
             account,
             debit: line.debit,
             credit: line.credit,
-            aux_supplier_id: None,
-            aux_material_id: None,
-            aux_warehouse_id: None,
-            aux_dept_id: None,
+            aux_supplier_id: parse_aux_id(line.aux_supplier_id.as_ref(), index, "aux_supplier_id")?,
+            aux_material_id: parse_aux_id(line.aux_material_id.as_ref(), index, "aux_material_id")?,
+            aux_warehouse_id: parse_aux_id(line.aux_warehouse_id.as_ref(), index, "aux_warehouse_id")?,
+            aux_dept_id: parse_aux_id(line.aux_dept_id.as_ref(), index, "aux_dept_id")?,
         });
     }
 
@@ -1813,6 +1977,9 @@ mod tests {
                  (SELECT id FROM biz_voucher WHERE {P7V_WHERE})"
             ),
             format!("DELETE FROM biz_voucher WHERE {P7V_WHERE}"),
+            // E2E04-FIX-1 夹具：辅助核算科目 + 部门（凭证已在上面的语句里清掉）
+            format!("DELETE FROM biz_account WHERE id = '{AUX_ACCOUNT}'::uuid"),
+            format!("DELETE FROM sys_dept WHERE id = '{AUX_DEPT}'::uuid"),
         ] {
             exec(&sql).await;
         }
@@ -1866,6 +2033,7 @@ mod tests {
             debit: Some(dec(debit)),
             credit: Some(dec(credit)),
             summary: Some(summary.to_string()),
+            ..Default::default()
         }
     }
 
@@ -2716,6 +2884,307 @@ mod tests {
         assert!(check_self_audit(true, Some(CREATOR), None, "PZ-1").is_ok());
         // 管理员显式关掉内控开关 → 放行（一人财务岗的既有出口）
         assert!(check_self_audit(false, Some(CREATOR), Some(CREATOR), "PZ-1").is_ok());
+    }
+
+    // ==================== E2E04-FIX-1：手工凭证辅助核算（aux_*） ====================
+
+    /// 本组夹具科目：声明了 `DEPT` 维度（等价于库里的 5602.03）。
+    const AUX_ACCOUNT: Uuid = Uuid::from_u128(0x4a00_0000_0000_0000_0000_0000_0000_00a1);
+    /// 本组夹具部门（`sys_dept.id`，辅助账要能取到名字）。
+    const AUX_DEPT: Uuid = Uuid::from_u128(0x4a00_0000_0000_0000_0000_0000_0000_00d1);
+
+    /// 建/重建辅助核算夹具（幂等：先删后插；科目自带 `aux_dimensions = 'DEPT'`）。
+    async fn seed_aux_fixtures() {
+        exec(&format!("DELETE FROM biz_account WHERE id = '{AUX_ACCOUNT}'::uuid")).await;
+        exec(&format!("DELETE FROM sys_dept WHERE id = '{AUX_DEPT}'::uuid")).await;
+        exec(&format!(
+            "INSERT INTO sys_dept (id, dept_code, dept_name, status) \
+             VALUES ('{AUX_DEPT}'::uuid, 'E2E04D', 'E2E04 部门', 1)"
+        ))
+        .await;
+        exec(&format!(
+            "INSERT INTO biz_account (id, account_code, account_name, parent_id, level, \
+                                     account_category, balance_direction, is_leaf, aux_dimensions, status) \
+             VALUES ('{AUX_ACCOUNT}'::uuid, 'E2E04A', 'E2E04 部门费用', NULL, 1, \
+                     'PROFIT_LOSS', 'DEBIT', 1, 'DEPT', 1)"
+        ))
+        .await;
+    }
+
+    /// 纯逻辑用的科目快照（编码 / 名称与卡面文案一致）。
+    fn aux_account_ref() -> AccountRef {
+        AccountRef {
+            id: AUX_ACCOUNT,
+            code: "5602.03".to_string(),
+            name: "管理费用—办公费".to_string(),
+        }
+    }
+
+    /// 纯逻辑用的一条分录（只有部门维度可选）。
+    fn aux_line(dept: Option<&str>) -> RawLine {
+        RawLine {
+            debit: dec("100"),
+            credit: Decimal::ZERO,
+            summary: "E2E04 分录".to_string(),
+            account_id: AUX_ACCOUNT.to_string(),
+            aux_dept_id: dept.map(str::to_string),
+            aux_supplier_id: None,
+            aux_material_id: None,
+            aux_warehouse_id: None,
+        }
+    }
+
+    /// 维度解析：逗号分隔、大小写不敏感、忽略空白 / 空段 / 重复，认不出的维度忽略。
+    #[test]
+    fn aux_dimensions_parse_is_lenient_but_bounded() {
+        let codes = |raw: Option<&str>| {
+            required_aux_dimensions("5602.03", raw)
+                .iter()
+                .map(|dim| dim.code)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            codes(Some(" dept , SUPPLIER ")),
+            vec![ledger::AUX_DEPT, ledger::AUX_SUPPLIER]
+        );
+        assert_eq!(
+            codes(Some("MATERIAL,WAREHOUSE")),
+            vec![ledger::AUX_MATERIAL, ledger::AUX_WAREHOUSE]
+        );
+        assert!(codes(None).is_empty());
+        assert!(codes(Some("  ")).is_empty());
+        // 重复只算一次（否则错误提示里会出现「部门、部门」）
+        assert_eq!(codes(Some("DEPT,DEPT")), vec![ledger::AUX_DEPT]);
+        // 认不出的维度忽略：不能因为科目配置了未来维度就把正常凭证拦住
+        assert_eq!(codes(Some("PROJECT,DEPT")), vec![ledger::AUX_DEPT]);
+    }
+
+    /// 缺维度 → 400，文案点名「科目编码 + 维度中文名 + 入参字段」；补齐就放行。
+    #[test]
+    fn aux_missing_is_400_with_account_code_and_field() {
+        let account = aux_account_ref();
+        let err = check_aux_dimensions(0, &account, Some("DEPT"), &aux_line(None))
+            .expect_err("科目要求部门辅助核算，没填必须 400");
+        assert_eq!(err.status, 400);
+        assert!(err.msg.contains("5602.03"), "要点名科目编码：{}", err.msg);
+        assert!(
+            err.msg.contains("要求部门辅助核算，请选择部门"),
+            "要告诉用户缺什么：{}",
+            err.msg
+        );
+        assert!(err.msg.contains("aux_dept_id"), "要告诉前端补哪个字段：{}", err.msg);
+        assert!(err.msg.contains("entries[0]"), "要点名第几行：{}", err.msg);
+
+        // 补齐 → 放行
+        assert!(check_aux_dimensions(0, &account, Some("DEPT"), &aux_line(Some(&AUX_DEPT.to_string()))).is_ok());
+        // 不要求维度的科目（aux_dimensions 为空）：有没有 aux 都不管
+        assert!(check_aux_dimensions(0, &account, None, &aux_line(None)).is_ok());
+    }
+
+    /// ① 科目要求 DEPT、分录没填部门 → 400 + 明确提示，且**不落库**。
+    #[tokio::test]
+    async fn e2e04_manual_voucher_without_required_dept_is_rejected() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        seed_aux_fixtures().await;
+        let bank = account_id("1002").await;
+        let req = CreateVoucherReq {
+            voucher_date: None,
+            summary: Some("E2E04 部门费用（缺维度）".to_string()),
+            entries: Some(vec![
+                ManualEntryReq {
+                    account_id: Some(AUX_ACCOUNT.to_string()),
+                    debit: Some(dec("100")),
+                    summary: Some("借 部门费用".to_string()),
+                    ..Default::default()
+                },
+                ManualEntryReq {
+                    account_id: Some(bank),
+                    credit: Some(dec("100")),
+                    summary: Some("贷 银行存款".to_string()),
+                    ..Default::default()
+                },
+            ]),
+            remark: None,
+        };
+        let err = create_manual_voucher(&req, Some(CREATOR))
+            .await
+            .expect_err("科目要求部门辅助核算，不选部门必须被拒");
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert!(err.msg.contains("E2E04A"), "{}", err.msg);
+        assert!(err.msg.contains("要求部门辅助核算，请选择部门"), "{}", err.msg);
+        // 失败不留半张单：本模块的 MANUAL 凭证一张都不该新增
+        let left: i64 = db()
+            .scalar_with_params::<Option<i64>>("SELECT count(*) FROM biz_voucher WHERE voucher_type = 'MANUAL'", vec![])
+            .await
+            .expect("数残留")
+            .unwrap_or(0);
+        assert_eq!(left, 0, "校验失败后不许留草稿");
+    }
+
+    /// ②③ 选了部门 → 保存成功、分录 `aux_dept_id` 有值；审核 + 记账后辅助账能看到这笔。
+    #[tokio::test]
+    async fn e2e04_manual_voucher_with_dept_lands_and_shows_in_aux_balance() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        seed_aux_fixtures().await;
+        let bank = account_id("1002").await;
+        let req = CreateVoucherReq {
+            voucher_date: None,
+            summary: Some("E2E04 部门费用（带部门）".to_string()),
+            entries: Some(vec![
+                ManualEntryReq {
+                    account_id: Some(AUX_ACCOUNT.to_string()),
+                    debit: Some(dec("100")),
+                    summary: Some("借 部门费用".to_string()),
+                    aux_dept_id: Some(AUX_DEPT.to_string()),
+                    ..Default::default()
+                },
+                ManualEntryReq {
+                    account_id: Some(bank),
+                    credit: Some(dec("100")),
+                    summary: Some("贷 银行存款".to_string()),
+                    ..Default::default()
+                },
+            ]),
+            remark: None,
+        };
+        let created = create_manual_voucher(&req, Some(CREATOR))
+            .await
+            .unwrap_or_else(|err| panic!("带部门的凭证必须能存：{} {}", err.code, err.msg));
+        let dept_line = created
+            .entries
+            .iter()
+            .find(|line| line.account_code == "E2E04A")
+            .expect("借方分录要落库");
+        assert_eq!(
+            dept_line.aux_dept_id.as_deref(),
+            Some(AUX_DEPT.to_string().as_str()),
+            "分录要落 aux_dept_id（这就是 E2E-04 报的 113 笔未挂维度的来源）"
+        );
+
+        // DRAFT 不进辅助账（辅助账只算 POSTED）：审核 + 记账后再查
+        let id = Uuid::parse_str(&created.voucher.id).expect("凭证 id");
+        audit_voucher(id, Some("E2E04 复核"), Some(AUDITOR))
+            .await
+            .expect("审核");
+        post_audited_voucher(id, Some(AUDITOR)).await.expect("记账");
+
+        let res = ledger::aux_balance(&ledger::AuxBalanceQuery {
+            aux_type: Some("DEPT".to_string()),
+            aux_id: Some(AUX_DEPT.to_string()),
+            period_from: None,
+            period_to: None,
+        })
+        .await
+        .expect("查辅助账");
+        let row = res
+            .rows
+            .iter()
+            .find(|row| row.account_code == "E2E04A")
+            .unwrap_or_else(|| panic!("辅助账要能看到这笔（rows={}）", res.rows.len()));
+        assert_eq!(row.period_debit, dec("100"), "辅助账本期借方 = 100");
+        assert_eq!(
+            row.aux_name.as_deref(),
+            Some("E2E04 部门"),
+            "辅助项名称按 sys_dept 取（不能显示 UUID）"
+        );
+    }
+
+    /// ④ 不要求维度的科目（1002 / 1405 / 2202）不需要 aux，正常保存。
+    #[tokio::test]
+    async fn e2e04_manual_voucher_without_dimension_account_needs_no_aux() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let inventory = account_id("1405").await;
+        let payable_account = account_id("2202").await;
+        let req = CreateVoucherReq {
+            voucher_date: None,
+            summary: Some("E2E04 无维度科目".to_string()),
+            entries: Some(vec![
+                entry(&inventory, "50", "0", "借 存货"),
+                entry(&payable_account, "0", "50", "贷 应付"),
+            ]),
+            remark: None,
+        };
+        let created = create_manual_voucher(&req, Some(CREATOR))
+            .await
+            .expect("不挂维度的科目不该要 aux");
+        assert!(
+            created.entries.iter().all(|line| line.aux_dept_id.is_none()),
+            "没传 aux 就不该凭空长出维度"
+        );
+    }
+
+    /// ⑤ 存量历史凭证不受影响：库里 aux 全 NULL 的草稿不会被任何校验回溯拦截
+    ///    （这里直接改出「本不存在」的形态：清掉新单的 aux 再读，读取路径不报错）。
+    #[tokio::test]
+    async fn e2e04_legacy_voucher_with_null_aux_is_not_blocked() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        seed_aux_fixtures().await;
+        let draft = new_draft_voucher().await;
+        let id = Uuid::parse_str(&draft.voucher.id).expect("凭证 id");
+        // 模拟存量：把分录的 aux_* 全抹成 NULL（历史凭证就是这么落的）
+        exec(&format!(
+            "UPDATE biz_voucher_entry SET aux_dept_id = NULL, aux_supplier_id = NULL, \
+                    aux_material_id = NULL, aux_warehouse_id = NULL WHERE voucher_id = '{id}'::uuid"
+        ))
+        .await;
+        let detail = crate::business::erp::voucher_query::voucher_detail(id)
+            .await
+            .expect("存量凭证读取不许被辅助核算校验拦住");
+        assert!(detail.entries.iter().all(|line| line.aux_dept_id.is_none()));
+        // 审核 / 记账同样不受影响（校验只在「新增 / 修改」路径上）
+        audit_voucher(id, Some("E2E04 存量复核"), Some(AUDITOR))
+            .await
+            .expect("存量凭证照常审核");
+    }
+
+    /// 辅助核算 id 不是 UUID → 400 并点名字段（不是 500，也不是静默存成 NULL）。
+    #[tokio::test]
+    async fn e2e04_aux_id_must_be_uuid() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        seed_aux_fixtures().await;
+        let bank = account_id("1002").await;
+        let req = CreateVoucherReq {
+            voucher_date: None,
+            summary: Some("E2E04 非法部门 id".to_string()),
+            entries: Some(vec![
+                ManualEntryReq {
+                    account_id: Some(AUX_ACCOUNT.to_string()),
+                    debit: Some(dec("10")),
+                    aux_dept_id: Some("not-a-uuid".to_string()),
+                    ..Default::default()
+                },
+                ManualEntryReq {
+                    account_id: Some(bank),
+                    credit: Some(dec("10")),
+                    ..Default::default()
+                },
+            ]),
+            remark: None,
+        };
+        let err = create_manual_voucher(&req, Some(CREATOR))
+            .await
+            .expect_err("非法部门 id 必须 400");
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert!(
+            err.msg.contains("entries[0].aux_dept_id"),
+            "要点名是哪个字段：{}",
+            err.msg
+        );
     }
 
     // ---------- 收尾清场：模块级 teardown（`zz_` 排在本模块最后） ----------

@@ -156,6 +156,7 @@ fn entry(account_id: &str, debit: &str, credit: &str) -> ManualEntryReq {
         debit: Some(dec(debit)),
         credit: Some(dec(credit)),
         summary: Some(format!("{TAG} 分录")),
+        ..Default::default()
     }
 }
 

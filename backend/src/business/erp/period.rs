@@ -2348,12 +2348,14 @@ mod tests {
                     debit: Some(dec("10")),
                     credit: None,
                     summary: None,
+                    ..Default::default()
                 },
                 ManualEntryReq {
                     account_id: Some(ids[1].clone()),
                     debit: None,
                     credit: Some(dec("10")),
                     summary: None,
+                    ..Default::default()
                 },
             ]),
             remark: None,

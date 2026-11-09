@@ -80,6 +80,20 @@ export interface ManualVoucherEntryReq {
   credit?: string;
   /** 分录摘要（留空继承单头摘要） */
   summary?: string | null;
+  /**
+   * 辅助核算：部门 id（`sys_dept.id`）。
+   *
+   * 科目 `aux_dimensions` 含 `DEPT` 时**后端必填**（E2E04-FIX-1）：5601 / 5602.x / 5603 /
+   * 5711 / 2241.01 这些费用类科目要按部门核算，不填这条分录的 `aux_dept_id` 会是 NULL，
+   * 部门辅助账（`GET /ledger/aux-balance?aux_type=DEPT`）就查不到它。不要求该维度的科目传了也不报错。
+   */
+  aux_dept_id?: string | null;
+  /** 辅助核算：供应商 id（`biz_supplier.id`）；科目维度含 `SUPPLIER` 时必填 */
+  aux_supplier_id?: string | null;
+  /** 辅助核算：物料 id（`biz_material.id`）；科目维度含 `MATERIAL` 时必填 */
+  aux_material_id?: string | null;
+  /** 辅助核算：仓库 id（`biz_warehouse.id`）；科目维度含 `WAREHOUSE` 时必填 */
+  aux_warehouse_id?: string | null;
 }
 
 /** 手工新增凭证入参。 */
