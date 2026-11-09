@@ -10,7 +10,7 @@
  * | 卡面草图 | 真字段 | 出处 |
  * |---|---|---|
  * | 分类 `category_id` | `material_type` ∈ `RAW/SEMI/FINISHED/SERVICE` | `dto::MATERIAL_TYPES`；`handler.rs` 没有 `/erp/category` 路由 |
- * | 单位 `unit_name` | `unit_id` + `/erp/unit/page` 本地译名 | `MaterialRes` 只有 id |
+ * | 单位 `unit_name` | `unit_id` + `unit_name`（约定 13，后端 join 取名；本地 `/erp/unit/page` 字典兜底） | `MaterialRes::unit_name` |
  * | 是否启用 `is_active` | `status` = 1 / 0 | `MaterialRes::status: i16` |
  * | `serial_required` | `serial_required: bool` | V0138 列；W2b 补进接口 |
  */
@@ -233,6 +233,25 @@ export function unitNameOf(unitId: string | null | undefined, units: ReadonlyArr
   }
   const hit = units.find((unit) => unit.id === unitId);
   return hit ? hit.unit_name : '—';
+}
+
+/**
+ * 物料行的单位显示名（**约定 13**：`unit_id` 必须配 `*_name`）。
+ *
+ * 优先用后端 join 出来的 `unit_name`（E2E08-FIX-3：`MaterialRes` 已 LEFT JOIN
+ * `biz_unit`，一页 N 行也只有一条数据页 SQL）；后端没给（老实例 / 单位被软删后
+ * 尚未重启）才退回本地 `units` 字典译名 —— 字典是兜底，不是唯一来源，
+ * 所以列表页**不再依赖**「必须先把单位字典拉完才能显示单位列」。
+ */
+export function materialUnitLabel(
+  row: Pick<MaterialRow, 'unit_id' | 'unit_name'>,
+  units: ReadonlyArray<UnitRow>,
+): string {
+  const joined = row.unit_name?.trim();
+  if (joined) {
+    return joined;
+  }
+  return unitNameOf(row.unit_id, units);
 }
 
 /** 单位下拉项（`单位名（编码）`，编码在仓库里唯一、肉眼好核对） */

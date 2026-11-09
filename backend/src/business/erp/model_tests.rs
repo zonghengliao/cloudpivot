@@ -629,6 +629,125 @@ async fn material_page_serial_required_filter_tracks_column_existence() {
     }
 }
 
+// ---------- ③b 物料 join 取名（约定 13：`*_id` 必须配 `*_name`） ----------
+
+/// 纯逻辑：带前缀的列清单必须与 [`MATERIAL_COLUMNS`] **逐字段、同序**。
+///
+/// 两份常量只差 `m.` 前缀；漏改一份（或改了顺序）就会让 [`MaterialNamedRow::from_row`]
+/// 按列名取到别的东西 —— 编译期发现不了，只能靠这条断言。
+#[test]
+fn material_columns_named_matches_plain() {
+    fn normalize(sql: &str) -> String {
+        sql.replace("m.", " ").split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+    assert_eq!(
+        normalize(MATERIAL_COLUMNS_NAMED),
+        normalize(MATERIAL_COLUMNS),
+        "MATERIAL_COLUMNS_NAMED 必须等于 MATERIAL_COLUMNS 加 `m.` 前缀（逐字段同序）"
+    );
+}
+
+/// 纯逻辑：取名查询必须是**一条** SQL —— 两个 LEFT JOIN 都走被关联表主键。
+///
+/// 约定 13 的防 N+1 口径落在这里：一页 N 行只发一次数据页查询（`page_of` 另加一条
+/// `COUNT`，与 N 无关）；若改成「先查物料再逐行查单位 / 仓库」，本用例的
+/// `SELECT` 计数与 join 断言就会红。
+#[test]
+fn material_select_named_is_single_roundtrip() {
+    let sql = material_select_named();
+    assert_eq!(
+        sql.matches("SELECT").count(),
+        1,
+        "取名查询不能套子查询 / 多段 SQL：{sql}"
+    );
+    assert_eq!(
+        sql.matches("LEFT JOIN").count(),
+        2,
+        "单位 + 仓库各一个 LEFT JOIN：{sql}"
+    );
+    assert!(
+        sql.contains("LEFT JOIN biz_unit u ON u.id = m.unit_id"),
+        "单位必须按主键 join（biz_unit.id 是 PK）：{sql}"
+    );
+    assert!(
+        sql.contains("LEFT JOIN biz_warehouse w ON w.id = m.default_warehouse_id"),
+        "仓库必须按主键 join（biz_warehouse.id 是 PK）：{sql}"
+    );
+    assert!(
+        sql.contains("u.unit_name AS unit_name"),
+        "必须真的把单位名选出来：{sql}"
+    );
+    assert!(
+        sql.contains("w.warehouse_name AS warehouse_name"),
+        "必须真的把仓库名选出来：{sql}"
+    );
+    // join 之后 `status` / `deleted_at` 在 biz_unit / biz_warehouse 上也有同名列 ⇒ 排序必须带别名
+    assert!(
+        MATERIAL_ORDER_NAMED.starts_with("ORDER BY m."),
+        "join 版本的排序必须带表别名（否则 column reference is ambiguous）：{MATERIAL_ORDER_NAMED}"
+    );
+}
+
+/// 真库：分页与详情都带回 `unit_name` / `warehouse_name`，且 DTO 出口逐条带上。
+#[tokio::test]
+async fn material_named_pages_and_detail_carry_names() {
+    use crate::business::erp::dto::MaterialRes;
+
+    let _db = match setup().await {
+        Some(guard) => guard,
+        None => return,
+    };
+    let (rows, total) = material_page_named(&MaterialFilter {
+        keyword: Some("W1B-M-".to_string()),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    assert_eq!(total, 3, "W1B- 前缀共 3 个物料");
+    assert_eq!(rows.len(), 3, "一页 3 行仍然只有一条数据页 SQL（防 N+1）");
+
+    let by_code = |code: &str| {
+        rows.iter()
+            .find(|row| row.material.material_code == code)
+            .unwrap_or_else(|| panic!("缺少物料 {code}"))
+    };
+    let raw = by_code("W1B-M-001");
+    assert_eq!(raw.unit_name.as_deref(), Some("个"), "unit_id 必须配 unit_name");
+    assert_eq!(
+        raw.warehouse_name.as_deref(),
+        Some("W1B 库房"),
+        "default_warehouse_id 必须配 warehouse_name"
+    );
+    let semi = by_code("W1B-M-002");
+    assert_eq!(semi.unit_name.as_deref(), Some("个"));
+    assert_eq!(semi.warehouse_name, None, "没设默认仓库 ⇒ 名称同为 None（不瞎编）");
+    assert_eq!(
+        by_code("W1B-M-003").unit_name.as_deref(),
+        Some("箱"),
+        "折算单位也要译名"
+    );
+
+    let detail = material_find_by_id_named(uuid(M_RAW_ID))
+        .await
+        .unwrap()
+        .expect("详情必须取到 W1B-M-001");
+    assert_eq!(detail.unit_name.as_deref(), Some("个"));
+    assert_eq!(detail.warehouse_name.as_deref(), Some("W1B 库房"));
+
+    // DTO 出口（`MaterialRes`）必须把名字带出去，而不是只躺在 model 层
+    let res = MaterialRes::from(&detail);
+    assert_eq!(res.unit_id, uuid(M_RAW_ID).to_string());
+    assert_eq!(res.unit_name.as_deref(), Some("个"));
+    assert_eq!(res.warehouse_name.as_deref(), Some("W1B 库房"));
+    let list: Vec<MaterialRes> = rows.iter().map(MaterialRes::from).collect();
+    assert!(list.iter().all(|row| row.unit_name.is_some()), "列表每行都要有单位名");
+    assert_eq!(
+        list.iter().filter(|row| row.warehouse_name.is_some()).count(),
+        1,
+        "只有 W1B-M-001 设了默认仓库"
+    );
+}
+
 // ---------- ④ 库存两级账 ----------
 
 #[tokio::test]

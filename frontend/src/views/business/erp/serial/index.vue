@@ -357,8 +357,9 @@
             data-testid="batch-unit-cost"
           />
           <template #help>
-            <span class="dlg-help">
-              不含税单价，必填（> 0，最多 6 位小数）：系统按「件数 × 单价」记入库存金额并生成凭证
+            <span class="dlg-help" data-testid="batch-unit-cost-hint">
+              批量生成按「期初 / 其他入库」记账（没有采购单可挂），<b>必须录不含税成本单价</b>：
+              系统按「件数 × 单价」记入库存金额并生成凭证（须 &gt; 0，最多 6 位小数）
             </span>
           </template>
         </t-form-item>

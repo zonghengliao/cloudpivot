@@ -95,7 +95,8 @@
         </template>
 
         <template #unit_id="{ row }">
-          {{ unitNameOf(row.unit_id, units) }}
+          <!-- 约定 13：优先用后端 join 的 unit_name，本地单位字典只是兜底（不再必须先拉字典） -->
+          {{ materialUnitLabel(row, units) }}
         </template>
 
         <template #status="{ row }">
@@ -309,8 +310,8 @@ import {
   materialFormFromRow,
   materialStatusLabel,
   materialTypeLabel,
+  materialUnitLabel,
   serialRequiredLabel,
-  unitNameOf,
   unitOptions,
   validateMaterialForm,
   type MaterialFieldErrors,

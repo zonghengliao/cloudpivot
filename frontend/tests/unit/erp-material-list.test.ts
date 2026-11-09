@@ -36,6 +36,7 @@ import {
   materialTypeLabel,
   serialFilterFlag,
   serialRequiredLabel,
+  materialUnitLabel,
   unitNameOf,
   unitOptions,
   validateMaterialForm,
@@ -273,6 +274,18 @@ test('列表文案：单位译名、分类中文、状态', () => {
   assert.equal(unitNameOf('u-pcs', UNITS), '个');
   assert.equal(unitNameOf('u-missing', UNITS), '—');
   assert.equal(unitNameOf(null, UNITS), '—');
+
+  // 约定 13（E2E08-FIX-3）：后端 `MaterialRes` 已 join 出 unit_name ⇒ 优先用它，
+  // 本地单位字典只作兜底（字典没拉完 / 单位被软删也不会掉成「—」）
+  assert.equal(materialUnitLabel({ unit_id: 'u-unknown', unit_name: '台' }, UNITS), '台');
+  assert.equal(materialUnitLabel({ unit_id: 'u-unknown', unit_name: '  台  ' }, UNITS), '台');
+  // 后端没给名字（null / undefined / 空白串）⇒ 退回字典译名
+  assert.equal(materialUnitLabel({ unit_id: 'u-pcs', unit_name: null }, UNITS), '个');
+  assert.equal(materialUnitLabel({ unit_id: 'u-pcs' }, UNITS), '个');
+  assert.equal(materialUnitLabel({ unit_id: 'u-pcs', unit_name: '   ' }, UNITS), '个');
+  // 两边都没有 ⇒ 与 unitNameOf 同口径的占位符，不吐空串
+  assert.equal(materialUnitLabel({ unit_id: 'u-missing', unit_name: null }, UNITS), '—');
+  assert.equal(materialUnitLabel({ unit_id: null, unit_name: null }, UNITS), '—');
 
   const options = unitOptions(UNITS);
   assert.deepEqual(options[0], { label: '个（PCS）', value: 'u-pcs' });

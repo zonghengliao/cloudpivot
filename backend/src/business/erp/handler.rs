@@ -1018,7 +1018,7 @@ pub async fn location_delete(
 pub async fn material_page(Query(filter): Query<MaterialFilter>) -> ResResult<PageData<Vec<MaterialRes>>> {
     let page = filter.page;
     let page_size = filter.page_size;
-    let (rows, total) = model::material_page(&filter)
+    let (rows, total) = model::material_page_named(&filter)
         .await
         .map_err(|error| utils::db_error(error, "分页查询物料"))?;
     let list = rows.iter().map(MaterialRes::from).collect();
@@ -1043,7 +1043,7 @@ pub async fn material_list(Query(query): Query<MaterialListQuery>) -> ResResult<
         page: 1,
         page_size: MATERIAL_LIST_LIMIT,
     };
-    let (rows, _) = model::material_page(&filter)
+    let (rows, _) = model::material_page_named(&filter)
         .await
         .map_err(|error| utils::db_error(error, "搜索物料"))?;
     Ok(Res::ok(rows.iter().map(MaterialRes::from).collect()))
@@ -1058,7 +1058,7 @@ pub async fn material_list(Query(query): Query<MaterialListQuery>) -> ResResult<
 #[nik::get("/business/erp/material/{id}")]
 pub async fn material_detail(Path(id): Path<String>) -> ResResult<MaterialRes> {
     let id = parse_uuid(&id, "id")?;
-    let row = model::material_find_by_id(id)
+    let row = model::material_find_by_id_named(id)
         .await
         .map_err(|error| utils::db_error(error, "查询物料详情"))?
         .ok_or_else(|| not_found("物料"))?;
@@ -1260,7 +1260,7 @@ pub async fn create_material(
     tx.commit()
         .await
         .map_err(|error| utils::db_error(error, "提交新建物料事务"))?;
-    let row = model::material_find_by_id(id)
+    let row = model::material_find_by_id_named(id)
         .await
         .map_err(|error| utils::db_error(error, "回读新建物料"))?
         .ok_or_else(|| not_found("物料"))?;
@@ -1421,7 +1421,7 @@ pub async fn material_update(
     )
     .await
     .map_err(|error| write_error(error, "编辑物料"))?;
-    let row = model::material_find_by_id(id)
+    let row = model::material_find_by_id_named(id)
         .await
         .map_err(|error| utils::db_error(error, "回读物料"))?
         .ok_or_else(|| not_found("物料"))?;

@@ -353,7 +353,8 @@ export type MaterialType =
  * | 卡面草稿 | 真字段 | 说明 |
  * |---|---|---|
  * | `category_id` / `category_name` | —— | 不存在，见 `MaterialType` 注释 |
- * | `unit_name` | `unit_id` | 出参只有 id；名称由 `/erp/unit/page` 本地映射 |
+ * | `unit_name` | `unit_id` + `unit_name` | 后端 `MaterialRes` 已 join 取名（约定 13）；本页仍保留 `/erp/unit/page` 本地映射作兜底 |
+ * | `warehouse_name` | `default_warehouse_id` + `warehouse_name` | 同上（约定 13，后端 LEFT JOIN `biz_warehouse`） |
  * | `is_active` | `status` | `i16`：1 启用 / 0 停用（**不是**布尔） |
  * | `external_sn` | —— | 列在表里（V0138）但 `MaterialRes` 没吐，前端拿不到 |
  *
@@ -371,10 +372,14 @@ export interface MaterialRow {
   spec: string | null;
   /** 基础计量单位 id */
   unit_id: string;
+  /** 基础计量单位名称（后端 join 取名，约定 13；单位被软删时也为 `null`） */
+  unit_name?: string | null;
   /** 物料类型（= 页面上的「分类」） */
   material_type: MaterialType;
   /** 默认仓库 */
   default_warehouse_id: string | null;
+  /** 默认仓库名称（后端 join 取名，约定 13；没设默认仓库时为 `null`） */
+  warehouse_name?: string | null;
   /** 安全库存 */
   safety_stock: string | number;
   /** 计价方式 */

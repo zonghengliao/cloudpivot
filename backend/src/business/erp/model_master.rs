@@ -503,6 +503,30 @@ pub const SERIAL_COLUMN: &str = "serial_required";
 pub const SERIAL_COLUMN_MISSING: &str = "biz_material.serial_required 列尚未创建（属 V0138 一物一码/序列号管理）。\
      该筛选条件在 V0138 落地后自动生效；当前请改用 material_type / status / keyword 筛选。";
 
+/// `biz_material` 列清单（**带 `m.` 前缀**，供 LEFT JOIN 取名用）。
+///
+/// 与 [`MATERIAL_COLUMNS`] 逐字段同序 —— 两份都改才不出错，单测
+/// `material_columns_named_matches_plain` 用「去掉 `m.` 前缀后逐字相同」钉住。
+pub const MATERIAL_COLUMNS_NAMED: &str = "m.id, m.material_code, m.material_name, m.spec, m.unit_id, \
+     m.material_type, m.default_warehouse_id, m.safety_stock, m.costing_method, m.inventory_account_id, \
+     m.tax_rate, m.standard_price, m.status, m.serial_required, m.remark, m.created_at, m.updated_at, \
+     m.create_by, m.update_by, m.deleted_at";
+
+/// 物料 + 关联取名的基础查询（`SELECT … FROM … LEFT JOIN …`，`WHERE` 由调用方拼）。
+///
+/// 两个 join 都走被关联表的主键（`biz_unit.id` / `biz_warehouse.id` 是 PK），
+/// 所以分页取数**仍是单条 SQL**，成本与页大小无关（约定 13 的防 N+1 口径）。
+/// 不按 `deleted_at` 过滤被关联表：物料指向的单位 / 仓库即使已软删，名称也照样给出来
+/// （否则界面会从「箱」变成空白，等于丢信息）。
+pub fn material_select_named() -> String {
+    format!(
+        "SELECT {MATERIAL_COLUMNS_NAMED}, u.unit_name AS unit_name, w.warehouse_name AS warehouse_name \
+         FROM biz_material m \
+         LEFT JOIN biz_unit u ON u.id = m.unit_id \
+         LEFT JOIN biz_warehouse w ON w.id = m.default_warehouse_id"
+    )
+}
+
 /// 物料 SKU 行。
 #[derive(Debug, Clone)]
 pub struct MaterialRow {
@@ -582,11 +606,40 @@ impl MaterialRow {
     }
 }
 
+/// 物料行 + 关联取名（约定 13：`*_id` 必须同时返回 `*_name`）。
+///
+/// 由 [`material_select_named`] 的 LEFT JOIN 一次取回：
+/// 一页 N 行**仍然只有一条数据页 SQL**（不是每行回查一次单位 / 仓库）。
+#[derive(Debug, Clone)]
+pub struct MaterialNamedRow {
+    /// 物料主数据行（列与 [`MaterialRow`] 完全一致）。
+    pub material: MaterialRow,
+    /// 基础单位名称（`biz_unit.unit_name`；单位被软删也照样给）。
+    pub unit_name: Option<String>,
+    /// 默认仓库名称（`biz_warehouse.warehouse_name`；物料没设默认仓库时为 `None`）。
+    pub warehouse_name: Option<String>,
+}
+
+impl MaterialNamedRow {
+    /// 由查询行构造（列名 `id…` / `unit_name` / `warehouse_name`）。
+    pub fn from_row(row: &Row) -> DbResult<Self> {
+        Ok(Self {
+            material: MaterialRow::from_row(row)?,
+            unit_name: row.get_typed("unit_name")?,
+            warehouse_name: row.get_typed("warehouse_name")?,
+        })
+    }
+}
+
 /// `biz_material` 的分页锚点。
 pub const MATERIAL_TARGET: scope::ScopeTarget = scope::ScopeTarget::unscoped("biz_material");
 
 /// 物料列表排序：编码升序（`uk_biz_material_code` 可当索引序用）。
 pub const MATERIAL_ORDER: &str = "ORDER BY material_code ASC";
+
+/// 物料列表排序（**带表别名**，join 版本用：`material_code` 只有 `biz_material` 有，
+/// 但统一前缀可避免以后加了同名列的表就变 ambiguous）。
+pub const MATERIAL_ORDER_NAMED: &str = "ORDER BY m.material_code ASC";
 
 /// 按主键取物料。
 pub async fn material_find_by_id(id: Uuid) -> DbResult<Option<MaterialRow>> {
@@ -617,7 +670,12 @@ pub async fn material_has_serial_column() -> DbResult<bool> {
     Ok(count > 0)
 }
 
-/// 物料 SKU 分页（关键词 / 类型 / 启用位 / 单位 / 默认仓库 / 一物一码）。
+/// 物料筛选条件的**唯一拼装点**（两个消费方共用，避免「只改一边」）。
+///
+/// - `prefix` 是列前缀：不带 join 的查询传 `""`，[`material_select_named`] 传 `"m."`
+///   （`status` / `deleted_at` 在 `biz_unit` / `biz_warehouse` 上也有同名列，join 后
+///   不加前缀会 `column reference "status" is ambiguous`）。
+/// - 返回的片段以 `" WHERE …"` 开头，可直接拼在 `FROM …` 之后。
 ///
 /// # 一物一码筛选（卡面要求，但列属 V0138）
 ///
@@ -625,29 +683,31 @@ pub async fn material_has_serial_column() -> DbResult<bool> {
 /// 不存在 → `Err(DbError::InvalidValue(SERIAL_COLUMN_MISSING))`（**显式报错，不静默忽略**：
 /// 静默忽略会返回「全部物料」，等于骗调用方「筛过了」）；
 /// 存在 → 追加 `AND serial_required = ?`，V0138 落地后本函数无需改动。
-pub async fn material_page(q: &MaterialFilter) -> DbResult<(Vec<MaterialRow>, i64)> {
-    let mut sql = format!("SELECT {MATERIAL_COLUMNS} FROM biz_material WHERE deleted_at IS NULL");
+async fn material_where(prefix: &str, q: &MaterialFilter) -> DbResult<(String, Vec<Value>)> {
+    let mut sql = format!(" WHERE {prefix}deleted_at IS NULL");
     let mut params: Vec<Value> = Vec::new();
     if let Some(pattern) = utils::like_pattern(q.keyword.as_deref()) {
-        sql.push_str(" AND (material_code LIKE ? OR material_name LIKE ? OR spec LIKE ?)");
+        sql.push_str(&format!(
+            " AND ({prefix}material_code LIKE ? OR {prefix}material_name LIKE ? OR {prefix}spec LIKE ?)"
+        ));
         params.push(Value::from(pattern.clone()));
         params.push(Value::from(pattern.clone()));
         params.push(Value::from(pattern));
     }
     if let Some(material_type) = q.material_type.as_deref() {
-        sql.push_str(" AND material_type = ?");
+        sql.push_str(&format!(" AND {prefix}material_type = ?"));
         params.push(Value::from(material_type));
     }
     if let Some(unit_id) = q.unit_id.as_deref() {
-        sql.push_str(" AND unit_id = ?");
+        sql.push_str(&format!(" AND {prefix}unit_id = ?"));
         params.push(Value::from(parse_id(unit_id)?));
     }
     if let Some(default_warehouse_id) = q.default_warehouse_id.as_deref() {
-        sql.push_str(" AND default_warehouse_id = ?");
+        sql.push_str(&format!(" AND {prefix}default_warehouse_id = ?"));
         params.push(Value::from(parse_id(default_warehouse_id)?));
     }
     if let Some(status) = q.status {
-        sql.push_str(" AND status = ?");
+        sql.push_str(&format!(" AND {prefix}status = ?"));
         params.push(TypeMapper::to_value(&status));
     }
     if let Some(serial_required) = q.serial_required {
@@ -656,9 +716,19 @@ pub async fn material_page(q: &MaterialFilter) -> DbResult<(Vec<MaterialRow>, i6
         }
         // 列是 **BOOLEAN**（V0138 定稿）：这里必须绑 bool，绑 0/1 会让 PG 报
         // `operator does not exist: boolean = smallint`（与 V0137 §5.9 那个地雷同源）。
-        sql.push_str(" AND serial_required = ?");
+        sql.push_str(&format!(" AND {prefix}serial_required = ?"));
         params.push(Value::from(serial_required));
     }
+    Ok((sql, params))
+}
+
+/// 物料 SKU 分页（关键词 / 类型 / 启用位 / 单位 / 默认仓库 / 一物一码）。
+///
+/// 只取 `biz_material` 本表列（不带单位 / 仓库名称）。**对外接口一律走
+/// [`material_page_named`]** —— 本函数留给只关心主表列的内部路径与单测。
+pub async fn material_page(q: &MaterialFilter) -> DbResult<(Vec<MaterialRow>, i64)> {
+    let (where_sql, params) = material_where("", q).await?;
+    let sql = format!("SELECT {MATERIAL_COLUMNS} FROM biz_material{where_sql}");
     page_of(
         MATERIAL_TARGET,
         sql,
@@ -669,6 +739,35 @@ pub async fn material_page(q: &MaterialFilter) -> DbResult<(Vec<MaterialRow>, i6
         MaterialRow::from_row,
     )
     .await
+}
+
+/// 物料 SKU 分页 + **关联取名**（约定 13：`unit_id` / `default_warehouse_id` 必须配名字）。
+///
+/// # 防 N+1
+///
+/// 单位名 / 仓库名都在**同一条数据页 SQL** 里 `LEFT JOIN` 出来（join 键都是被关联表的
+/// 主键），所以一页 1 行和 200 行查询次数一样：`count` 一条 + 数据页一条。
+/// 筛条件与 [`material_page`] 共用 [`material_where`]（口径不可能漂）。
+pub async fn material_page_named(q: &MaterialFilter) -> DbResult<(Vec<MaterialNamedRow>, i64)> {
+    let (where_sql, params) = material_where("m.", q).await?;
+    let sql = material_select_named() + &where_sql;
+    page_of(
+        MATERIAL_TARGET,
+        sql,
+        params,
+        MATERIAL_ORDER_NAMED,
+        q.page,
+        q.page_size,
+        MaterialNamedRow::from_row,
+    )
+    .await
+}
+
+/// 按主键取物料 + **关联取名**（详情 / 建单回读 / 改单回读的唯一入口）。
+pub async fn material_find_by_id_named(id: Uuid) -> DbResult<Option<MaterialNamedRow>> {
+    let sql = material_select_named() + " WHERE m.id = ? AND m.deleted_at IS NULL";
+    let rows = db().find_with_params(&sql, vec![Value::from(id)]).await?;
+    rows.first().map(MaterialNamedRow::from_row).transpose()
 }
 
 // ==================== ⑤ biz_supplier 供应商 ====================

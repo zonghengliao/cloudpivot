@@ -173,6 +173,45 @@ COALESCE((SELECT SUM(si.qty) FROM biz_stock_in s
 
 ---
 
+## 10. 序列号批量生成：`unit_cost` **必填**（不带 → 400 + 10001）
+
+```text
+POST /api/business/erp/serial/batch-generate     权限码 business:erp:serial:generate
+  body: {"material_id":"<UUID>", "count":3, "unit_cost":"12.34",
+         "warehouse_id":"<UUID>", "location_dict_id":"<UUID>", "batch_no":"B001"}
+
+❌ 不带 unit_cost（或 null / "" ）→ 400 + 10001
+   「unit_cost 必填：批量生成按「期初/其他入库」记账，必须录成本单价（不含税）」
+```
+
+- **为什么必填**：批量生成自 `docs/adr-20261031-erp-serial-batch-generate-semantics.md` 起
+  等于**无来源入库（期初 / 其他入库）**，没有采购单可挂 —— 成本只能由操作人录。
+  不录就会在成本账留下 `qty > 0 / avg_cost = 0` 的行（巡检 **C3** 必红），
+  所以后端**不设默认 0**（缺省 0 等于把缺陷原样保留）。
+- 单价口径：**不含税**、`> 0`、最多 6 位小数、`< 1e11`；四舍五入口径与
+  `stockin_model::unit_price` 一致（`MidpointAwayFromZero`，与 PG `ROUND(numeric,6)` 同源）。
+  收到的值先 6 位舍入再校验，所以 `0.0000001` 会报「收到 0」。
+
+| 场景 | HTTP / code | 报文 |
+|---|---|---|
+| 没传 | 400 / 10001 | `unit_cost 必填：批量生成按「期初/其他入库」记账，必须录成本单价（不含税）` |
+| 非数字 | 400 / 10001 | `unit_cost 不是合法数字：「abc」` |
+| `≤ 0` | 400 / 10001 | `unit_cost 必须 > 0（收到 0）：零成本入库会在成本账留下 qty>0/avg_cost=0 的行（巡检 C3），系统拒收` |
+| `≥ 1e11` | 400 / 10001 | `unit_cost 超出可记账范围（须 < 100000000000）：100000000000` |
+
+- 另外两个容易踩的入参：
+  - `count` 只能是 **1..=1000**（`0` 或超上限 → 400 + 10001）；
+  - `location_id`（历史口径：库位**账行** id）与 `location_dict_id`（库位**字典** id）
+    **只能给一个**，同时给 → 400；两个都不给 ⇒ 按该仓库默认库位记账
+    （仓库没有默认库位才落「未分配」桶，与收货口径相同）。
+  - `source_type` 只收 `PURCHASE / TRANSFER / PRODUCE / RETURN`。
+- 出参：`count / period_key / serial_nos / list / unit_cost / amount / inventory`；
+  `unit_cost`（6 位）、`amount`（4 位，**取自 `apply_cost` 的 `RETURNING amount` 真实增量，
+  不是前端算的 N × 单价**）、`inventory.{qty,amount,avg_cost}` 都是 **字符串** Decimal。
+- 出处：`backend/src/business/erp/serial_dto.rs::BatchGenerateReq::parse_unit_cost`
+  （报文逐字）、`serial_handler.rs::serial_batch_generate`（路由 + 权限码）；
+  前端对应实现 `frontend/src/views/business/erp/serial/serial-logic.ts`（同一份报文透出）。
+
 ## 附录 A：无源入库单的 `in_type` = `SOURCELESS`（FIX-7 已修）
 
 ```text

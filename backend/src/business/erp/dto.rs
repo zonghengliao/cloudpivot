@@ -42,8 +42,8 @@ use nik::uuid::Uuid;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::business::erp::model::{
-    AccountRow, DEFAULT_PAGE_SIZE, InventoryLocationRow, InventoryRow, InventoryTxnRow, LocationRow, MaterialRow,
-    PeriodRow, PurchaseOrderItemRow, PurchaseOrderRow, SeqRow, SupplierRow, UnitRow, WarehouseRow,
+    AccountRow, DEFAULT_PAGE_SIZE, InventoryLocationRow, InventoryRow, InventoryTxnRow, LocationRow, MaterialNamedRow,
+    MaterialRow, PeriodRow, PurchaseOrderItemRow, PurchaseOrderRow, SeqRow, SupplierRow, UnitRow, WarehouseRow,
 };
 use crate::business::erp::tax_rate as tax_rate_mod;
 use crate::shared::error_code;
@@ -1270,10 +1270,14 @@ pub struct MaterialRes {
     pub spec: Option<String>,
     /// 基础单位。
     pub unit_id: String,
+    /// 基础单位名称（**约定 13**：`unit_id` 必须配 `unit_name`；左连接实时取名）。
+    pub unit_name: Option<String>,
     /// 类型。
     pub material_type: String,
     /// 默认仓库。
     pub default_warehouse_id: Option<String>,
+    /// 默认仓库名称（**约定 13**；物料没设默认仓库时同为 `null`）。
+    pub warehouse_name: Option<String>,
     /// 安全库存。
     pub safety_stock: Decimal,
     /// 计价方式。
@@ -1304,8 +1308,12 @@ impl From<&MaterialRow> for MaterialRes {
             material_name: row.material_name.clone(),
             spec: row.spec.clone(),
             unit_id: row.unit_id.to_string(),
+            // 名称要 join 才有：**对外接口一律用 `MaterialRes::from(&MaterialNamedRow)`**。
+            // 本转换只服务「只关心主表列」的内部路径 / 单测，名称落 `null`（不瞎编）。
+            unit_name: None,
             material_type: row.material_type.clone(),
             default_warehouse_id: row.default_warehouse_id.map(|id| id.to_string()),
+            warehouse_name: None,
             safety_stock: row.safety_stock,
             costing_method: row.costing_method.clone(),
             inventory_account_id: row.inventory_account_id.map(|id| id.to_string()),
@@ -1317,6 +1325,16 @@ impl From<&MaterialRow> for MaterialRes {
             created_at: row.created_at,
             updated_at: row.updated_at,
         }
+    }
+}
+
+impl From<&MaterialNamedRow> for MaterialRes {
+    /// 带名字的转换（约定 13）：`unit_name` / `warehouse_name` 来自同一条 SQL 的 LEFT JOIN。
+    fn from(row: &MaterialNamedRow) -> Self {
+        let mut res = Self::from(&row.material);
+        res.unit_name = row.unit_name.clone();
+        res.warehouse_name = row.warehouse_name.clone();
+        res
     }
 }
 
@@ -3431,7 +3449,11 @@ mod tests {
         req.unit_code = Some("   ".to_string());
         let err = req.validate().expect_err("空编码必须被拒");
         assert_eq!(err.code, error_code::PARAM_INVALID);
-        assert_eq!(err.msg, UNIT_CODE_REQUIRED, "文案要人话（点名单位编码必填）：{}", err.msg);
+        assert_eq!(
+            err.msg, UNIT_CODE_REQUIRED,
+            "文案要人话（点名单位编码必填）：{}",
+            err.msg
+        );
 
         // E2E08-FIX-2 ②：**缺席**（不是空串）也要 400 + 10001 + 人话，不能落到框架的 422。
         req.unit_code = None;
@@ -3733,6 +3755,86 @@ mod tests {
         // 数字字面量同样能反序列化（前端不一定按字符串传）
         let from_number: Decimal = serde_json::from_str("12345.6789").expect("数字反序列化");
         assert_eq!(from_number, dec("12345.6789"));
+    }
+
+    /// **约定 13**（E2E08-FIX-3）：`MaterialRes` 必须把 `*_id` 对应的名字一起吐出去。
+    ///
+    /// 三个断言各管一件事：
+    /// 1. `MaterialRow`（不带 join）⇒ 名字为 `None`，**不瞎编**；
+    /// 2. `MaterialNamedRow`（LEFT JOIN 取名）⇒ 名字透传；
+    /// 3. JSON 里两个键**始终存在**（值为 `null` 时也是 `null`，不是缺席）——
+    ///    前端 `unit_name?: string | null` 才敢按「缺席=老后端」判兜底。
+    #[test]
+    fn material_res_carries_joined_names() {
+        fn row_of(default_warehouse_id: Option<Uuid>) -> MaterialRow {
+            MaterialRow {
+                id: Uuid::now_v7(),
+                material_code: "M-1".to_string(),
+                material_name: "螺栓".to_string(),
+                spec: Some("M8".to_string()),
+                unit_id: Uuid::now_v7(),
+                material_type: "RAW".to_string(),
+                default_warehouse_id,
+                safety_stock: dec("10.5000"),
+                costing_method: "MOVING_AVG".to_string(),
+                inventory_account_id: None,
+                tax_rate: dec("0.1300"),
+                standard_price: None,
+                status: 1,
+                serial_required: false,
+                remark: None,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                create_by: None,
+                update_by: None,
+                deleted_at: None,
+            }
+        }
+
+        let warehouse_id = Uuid::now_v7();
+        let row = row_of(Some(warehouse_id));
+
+        // ① 只关心主表列的路径：名字为 None（join 才能取名）
+        let plain = MaterialRes::from(&row);
+        assert_eq!(plain.unit_name, None);
+        assert_eq!(plain.warehouse_name, None);
+
+        // ② LEFT JOIN 取名后：id 与 name 成对出现
+        let named = MaterialNamedRow {
+            material: row,
+            unit_name: Some("个".to_string()),
+            warehouse_name: Some("W1B 库房".to_string()),
+        };
+        let res = MaterialRes::from(&named);
+        assert_eq!(res.unit_id, named.material.unit_id.to_string());
+        assert_eq!(res.unit_name.as_deref(), Some("个"));
+        assert_eq!(
+            res.default_warehouse_id.as_deref(),
+            Some(warehouse_id.to_string().as_str())
+        );
+        assert_eq!(res.warehouse_name.as_deref(), Some("W1B 库房"));
+
+        // ③ 出参 JSON：两个键始终在（前端按 `unit_name?: string | null` 消费）
+        let json = serde_json::to_value(&res).expect("序列化");
+        assert_eq!(json["unit_name"], serde_json::Value::String("个".to_string()));
+        assert_eq!(
+            json["warehouse_name"],
+            serde_json::Value::String("W1B 库房".to_string())
+        );
+
+        // 没设默认仓库 ⇒ 键仍在，值为 null（不是整个键消失）
+        let no_wh = MaterialRes::from(&MaterialNamedRow {
+            material: row_of(None),
+            unit_name: Some("个".to_string()),
+            warehouse_name: None,
+        });
+        assert_eq!(no_wh.warehouse_name, None);
+        let json_no_wh = serde_json::to_value(&no_wh).expect("序列化");
+        assert!(
+            json_no_wh.get("warehouse_name").is_some(),
+            "warehouse_name 键必须存在（值为 null），否则前端分不清「没设仓库」和「老后端没这字段」"
+        );
+        assert!(json_no_wh["warehouse_name"].is_null());
     }
 
     /// 编辑语义：字段缺席 ≠ 清空（`Option<Option<T>>`）。
