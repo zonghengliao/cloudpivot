@@ -95,6 +95,11 @@ pub const SYS_ROLE: ResourceSpec = ResourceSpec {
         "status",
         // C6 追加：数据范围是提权面（B3），改它必须留字段级凭证
         "data_scope",
+        // E2E-09 追加：`escalation_role_id` 是**审批降级链**的配置（P3-02 / ARCH-8）。
+        // 不在白名单里时，「把 X 角色的上级改成 Y」这种内控配置变更会因 diff 为空被
+        // `RecordOutcome::Skipped` 整条丢掉 —— 审计页看不到，出事后只能翻库对比。
+        // 它与 `data_scope` 同属「改了会被追问」的字段，必须留痕。
+        "escalation_role_id",
         "sort_order",
         "remark",
     ],
@@ -690,6 +695,27 @@ mod tests {
             doc.to_json_string().unwrap(),
             r#"{"v":1,"mode":"WHITELIST","fields":{},"meta":{"table":"sys_user","pk":"u-1","action":"UPDATE"}}"#
         );
+    }
+
+    /// E2E-09 回归：**上级角色（审批降级链）变更必须进 diff**。
+    ///
+    /// `escalation_role_id` 曾经不在 `SYS_ROLE.fields` 里，于是「把角色 A 的上级改成 B」
+    /// 这种配置变更的 diff 恒为空 → `record()` 判定 `Skipped` → 变更日志整条丢失。
+    /// 审批降级链是内控面（谁有权接管审批），改它却查不到，属于审计断链。
+    #[test]
+    fn role_escalation_change_is_recorded() {
+        let policy = Policy::builtin_only("sys_role");
+        let doc = build(
+            &SYS_ROLE,
+            &policy,
+            Action::Update,
+            "r-1",
+            Some(&json!({"role_code": "R", "escalation_role_id": null})),
+            Some(&json!({"role_code": "R", "escalation_role_id": "role-b"})),
+        );
+        assert!(!doc.is_empty(), "上级角色变更不得被判定为「无变化」");
+        assert_eq!(doc.changed_fields(), vec!["escalation_role_id".to_string()]);
+        assert_eq!(doc.fields["escalation_role_id"].a, json!("role-b"));
     }
 
     /// 阈值边界：2048 字符不摘要、2049 字符摘要；登记为大字段的列无论多短都摘要。
