@@ -1,0 +1,11 @@
+== backup dir: /opt/cloudpivot/evidence/p16-20261109-151525
+total 200
+-rw-r--r-- 1 root root  44525 Nov  9 15:15 doomed_rows.tsv
+-rw-r--r-- 1 root root 159601 Nov  9 15:15 p16_tables.sql
+
+== 首轮删除行数（按表，来自 doomed_rows.tsv）
+     12 biz_inventory
+     13 biz_inventory_location
+      6 biz_inventory_location(孤儿)
+     34 biz_inventory_txn
+      7 biz_material_serial

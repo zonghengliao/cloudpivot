@@ -108,15 +108,23 @@ SELECT count(*) AS bad_rows FROM biz_inventory_txn
  WHERE (txn_type='IN'  AND after_qty - before_qty <> qty)
     OR (txn_type='OUT' AND before_qty - after_qty <> qty);
 
-\echo '===== ⑤ 一物一码不变式：qty == count(IN_STOCK)（全库，期望 0 行）====='
-SELECT m.material_code, w.warehouse_code, i.qty, s.cnt
-  FROM biz_inventory i
-  JOIN biz_material m ON m.id=i.material_id AND m.serial_required
-  JOIN biz_warehouse w ON w.id=i.warehouse_id
+\echo '===== ⑤ 一物一码不变式：Σqty == count(IN_STOCK)（全库，期望 0 行）====='
+-- 口径（E2E-FIX-7 修正）：序列号表只有 (物料, 仓库)，没有库位维度，所以这条**必须按
+-- (物料, 仓库) 聚合**再比 —— 与 erp_invariants.py C5、inventory_audit.rs 的 AUDIT_CTE
+-- 同口径。旧版逐条成本账行比 count(IN_STOCK)，一旦该物料同仓有两个桶（批量生成/收货
+-- 落在不同桶，见 E2E-FIX-6）就必然各报一条，属于假红（实测 E2E03-MS 被误报 2 行）。
+SELECT m.material_code, w.warehouse_code, book.qty, s.cnt
+  FROM (SELECT i.material_id, i.warehouse_id, SUM(i.qty) AS qty
+          FROM biz_inventory i
+          JOIN biz_material m ON m.id=i.material_id AND m.serial_required
+         GROUP BY 1,2) book
+  JOIN biz_material m ON m.id = book.material_id
+  JOIN biz_warehouse w ON w.id = book.warehouse_id
   JOIN LATERAL (SELECT count(*)::numeric(20,4) AS cnt FROM biz_material_serial s2
-                 WHERE s2.material_id=i.material_id AND s2.warehouse_id=i.warehouse_id
+                 WHERE s2.material_id = book.material_id
+                   AND s2.warehouse_id = book.warehouse_id
                    AND s2.status='IN_STOCK' AND s2.deleted_at IS NULL) s ON true
- WHERE i.qty <> s.cnt;
+ WHERE book.qty <> s.cnt;
 
 \echo '===== ⑥ FIX-4：期初桶必须真实存在于成本账（0 行 = 合规）====='
 SELECT oi.period_code, m.material_code, oi.qty, oi.location_row_id

@@ -1,0 +1,115 @@
+== P16 步骤 1/3：建/刷新目标清单 ==
+psql:/opt/cloudpivot/scripts/datafix/p16/05_target.up.sql:32: NOTICE:  relation "datafix_p16_target" already exists, skipping
+== P16 目标清单（class A）==
+ material_code | warehouse_code | inv_rows | loc_rows | txn_rows | serial_rows |    状态     
+---------------+----------------+----------+----------+----------+-------------+-------------
+ P1F2-M1       | P1F2-WH        |        0 |        0 |        0 |           0 | 11-09 15:15
+ P2C1-M1       | P2C1-WH        |        0 |        0 |        0 |           0 | 11-09 15:15
+ P2C1-M2       | P2C1-WH        |        0 |        0 |        0 |           0 | 11-09 15:15
+ SO14-M1       | SO14-WH        |        0 |        0 |        0 |           0 | 11-09 15:15
+ W1B-M-001     | WH-W1B-LEAF    |        0 |        0 |        0 |           0 | 11-09 15:15
+ W2B-M-SN      | WH-W2B-1       |        0 |        0 |        0 |           0 | 11-09 15:15
+ W2C1-M-PLAIN  | WH-W2C1        |        0 |        0 |        0 |           0 | 11-09 15:15
+ W2C2-M-PLAIN  | W2C2-WH-A      |        0 |        0 |        0 |           0 | 11-09 15:15
+ W2C2-M-RT     | W2C2-WH-B      |        0 |        0 |        0 |           0 | 11-09 15:15
+ W2C2-M-SN     | W2C2-WH-A      |        0 |        0 |        0 |           0 | 11-09 15:15
+ W3B-M-PLAIN   | WH-W3B-1       |        0 |        0 |        0 |           0 | 11-09 15:15
+ W3B-M-PLAIN   | WH-W3B-2       |        0 |        0 |        0 |           0 | 11-09 15:15
+ W3B-M-SN      | WH-W3B-1       |        0 |        0 |        0 |           0 | 11-09 15:15
+(13 rows)
+
+== P16 即将删除的行数（按表）==
+ tbl | count 
+-----+-------
+(0 rows)
+
+
+== P16 步骤 2/3：清理夹具残留（G1/G2/G3 三闸不过即整单回滚）==
+BEGIN
+DO
+DO
+DO
+== P16 清理前：目标组待删行数 ==
+ 成本账 | 库位账 | 流水 | 序列号 
+--------+--------+------+--------
+      0 |      0 |    0 |      0
+(1 row)
+
+UPDATE 0
+  ① 序列号解除库位行引用： 0  行
+UPDATE 0
+  ② 调拨明细 from_location_id 解引用： 0  行
+UPDATE 0
+  ② 调拨明细 to_location_id 解引用： 0  行
+DELETE 0
+  ③ 序列号： 0  行
+DELETE 0
+  ④ 流水： 0  行
+DELETE 0
+  ⑤ 成本账： 0  行
+DELETE 0
+  ⑥ 库位账（目标组）： 0  行
+DELETE 0
+  ⑥ 库位账（孤儿行）： 0  行
+UPDATE 13
+psql:/opt/cloudpivot/scripts/datafix/p16/20_purge_fixture_residue.up.sql:185: NOTICE:  P16 自检通过：全部目标组的 成本账/库位账/流水/序列号 均为 0 行
+DO
+== P16 清理后：目标组行数（应全 0）==
+ material_code | warehouse_code | inv_rows | loc_rows | txn_rows | serial_rows |  处理时间   
+---------------+----------------+----------+----------+----------+-------------+-------------
+ P1F2-M1       | P1F2-WH        |        0 |        0 |        0 |           0 | 11-09 15:15
+ P2C1-M1       | P2C1-WH        |        0 |        0 |        0 |           0 | 11-09 15:15
+ P2C1-M2       | P2C1-WH        |        0 |        0 |        0 |           0 | 11-09 15:15
+ SO14-M1       | SO14-WH        |        0 |        0 |        0 |           0 | 11-09 15:15
+ W1B-M-001     | WH-W1B-LEAF    |        0 |        0 |        0 |           0 | 11-09 15:15
+ W2B-M-SN      | WH-W2B-1       |        0 |        0 |        0 |           0 | 11-09 15:15
+ W2C1-M-PLAIN  | WH-W2C1        |        0 |        0 |        0 |           0 | 11-09 15:15
+ W2C2-M-PLAIN  | W2C2-WH-A      |        0 |        0 |        0 |           0 | 11-09 15:15
+ W2C2-M-RT     | W2C2-WH-B      |        0 |        0 |        0 |           0 | 11-09 15:15
+ W2C2-M-SN     | W2C2-WH-A      |        0 |        0 |        0 |           0 | 11-09 15:15
+ W3B-M-PLAIN   | WH-W3B-1       |        0 |        0 |        0 |           0 | 11-09 15:15
+ W3B-M-PLAIN   | WH-W3B-2       |        0 |        0 |        0 |           0 | 11-09 15:15
+ W3B-M-SN      | WH-W3B-1       |        0 |        0 |        0 |           0 | 11-09 15:15
+(13 rows)
+
+COMMIT
+
+== P16 步骤 3/3：补录差额流水（class C）+ 验收 ==
+BEGIN
+psql:/opt/cloudpivot/scripts/datafix/p16/30_restore_missing_txn.up.sql:84: NOTICE:  P16/30 跳过：补录流水 f17c0001-0000-4000-8000-000000000001 已存在（幂等）
+DO
+psql:/opt/cloudpivot/scripts/datafix/p16/30_restore_missing_txn.up.sql:104: NOTICE:  P16/30 自检通过：DEMO-INV01/WH-DVA 账面 92.0000 件 / 1020.0000 元 = 流水合计
+DO
+COMMIT
+
+
+===== 验收 ① 库存 vs 流水（按 物料×仓库）=====
+ diff_rows | qty_diff | amt_diff 
+-----------+----------+----------
+         0 |        0 |        0
+
+
+===== 验收 ② 逐桶对账（成本账 vs 库位账，按桶键 FULL JOIN）=====
+ diff_rows 
+-----------
+         0
+
+
+===== 验收 ③ 一物一码（按 物料×仓库 聚合）=====
+ diff_rows 
+-----------
+         0
+
+
+===== 验收 ④ 流水自洽 / ⑤ 孤儿库位账 / ⑥ 过账单据无流水 / ⑦ 负库存 =====
+                项                | 违例 
+----------------------------------+------
+ 流水自洽(after-before=±qty)      |    0
+ 孤儿库位账（物料或仓库已不存在） |    0
+ 已过账单据无流水                 |    0
+ 负库存                           |    0
+
+
+===== 收口判定 =====
+psql:/opt/cloudpivot/scripts/datafix/p16/40_verify.up.sql:165: NOTICE:  E2E-FIX-7 验收通过：库存vs流水 0 行 / 逐桶 0 行 / 一物一码 0 行 / 流水自洽 0 行 / 孤儿 0 行 / 过账无流水 0 单 / 负库存 0 行
+DO
