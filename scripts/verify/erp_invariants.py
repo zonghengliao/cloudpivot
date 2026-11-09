@@ -1981,6 +1981,42 @@ def group_n():
                 and u.deleted_at is null and u.dept_id is null
               order by u.status desc, u.username""")
 
+    # ---- N3：口令指纹必须是 Argon2 PHC 串（t_1fafa2ae）----
+    #
+    # 为什么这算「不变量」而不是数据洁癖：
+    #   * `sys_user.password` 只该由 `Crypto::hash_password` 写入，形如 `$argon2id$v=19$...`；
+    #     手工 SQL / 夹具脚本种成占位符（实测共享库有 1 字节的 'x'）时，登录校验直接 Err，
+    #     改造前报 500「服务器内部错误」（现在按 401 凭证错误处理，见 auth/handler.rs）；
+    #   * 更阴的是它**不报错地拖死审批**：这类账号仍算「在用成员」，被种进某个审批角色后，
+    #     角色会签（approval_mode=ALL）永远凑不齐票（E2E-06 实测：预算审批 n_dept 会签死锁，
+    #     预算永远 DRAFT→SUBMIT→批不完，整套额度控制失效）。
+    #   * 处置：系统管理 → 用户 → 重置密码（或 DELETE 掉无主的夹具号）。
+    bad_pw = q("""
+        select u.username,
+               u.status::text,
+               coalesce(nullif(u.user_type, ''), '-'),
+               left(u.password, 12)
+          from sys_user u
+         where u.deleted_at is null
+           and u.password not like '$argon2id$%'
+         order by u.username""")
+    total_pw = int(one("select count(*) from sys_user where deleted_at is null") or 0)
+    lines3 = []
+    if bad_pw:
+        lines3.append(
+            f"{len(bad_pw)}/{total_pw} 个未删账号的 password 不是 argon2 PHC 串"
+            "（登录必然失败；若被种进审批角色，会签节点永久凑不齐票）："
+            + "、".join(f"{r[0]}(status={r[1]}, 前缀={r[3]})" for r in bad_pw))
+        lines3.append("处置：系统管理 → 用户 → 重置密码；无主夹具号直接停用 / 软删。")
+    else:
+        lines3.append(f"{total_pw} 个未删账号的口令指纹全部是 argon2 PHC 串。")
+    check("N3 口令指纹必须是 argon2id（非 argon2 行 = 登录必然失败 + 会签死锁隐患）",
+          "权限", "WARN", not bad_pw, "\n".join(lines3),
+          """select u.username as 账号, u.status::text as 状态, left(u.password, 12) as 指纹前缀
+               from sys_user u
+              where u.deleted_at is null and u.password not like '$argon2id$%'
+              order by u.username""")
+
 
 def group_o():
     """E2E 夹具标记不变量 O1（【P0-FIX-3】）。

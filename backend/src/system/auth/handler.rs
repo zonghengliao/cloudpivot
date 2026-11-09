@@ -183,10 +183,24 @@ pub async fn login(
         ));
     }
 
-    let password_ok = Crypto::verify_password(&req.password, &user.password).map_err(|e| {
-        tracing::error!(error = %e, user_id = %user.id, "密码校验失败");
-        ApiError::new(500, error_code::INTERNAL_ERROR, "服务器内部错误")
-    })?;
+    // 口令校验：`verify_password` 的 Err **不是**服务器故障 —— 它只会因为「库里存的不是
+    // 可解析的 argon2 PHC 串」发生（历史遗留 / 手工 SQL 种的占位符，例如 1 字节的 'x'）。
+    // 这类账号本来就没有可用口令，按「凭证错误」走（401 + 登录失败留痕），
+    // 不能报 500：① 前端会把 500 当成系统故障去报障；② 它逃过 `login_fail_count` /
+    // 安全日志，运维看不出是谁的号坏了。真正的脏数据由告警日志点名 + 巡检兜底
+    // （`scripts/verify/erp_invariants.py` 的 N3）。
+    let password_ok = match Crypto::verify_password(&req.password, &user.password) {
+        Ok(ok) => ok,
+        Err(error) => {
+            tracing::warn!(
+                error = %error,
+                user_id = %user.id,
+                username = %user.username,
+                "口令指纹不可解析（sys_user.password 不是 argon2 PHC 串）→ 按凭证错误处理；请管理员重置该账号口令"
+            );
+            false
+        }
+    };
 
     timer.mark("verify_password");
 
@@ -764,10 +778,20 @@ pub async fn change_password(
         .map_err(|e| utils::db_error(e, "查询当前用户"))?
         .ok_or_else(|| ApiError::new(401, error_code::USER_NOT_FOUND, "用户不存在"))?;
 
-    let password_ok = Crypto::verify_password(&req.old_password, &user.password).map_err(|e| {
-        tracing::error!(error = %e, user_id = %user_id, "原密码校验失败");
-        ApiError::new(500, error_code::INTERNAL_ERROR, "服务器内部错误")
-    })?;
+    // 同 login：`verify_password` 的 Err 只可能是「库里存的不是 argon2 PHC 串」，
+    // 属于脏数据而不是服务器故障 —— 按「原密码错误」（401 + 失败留痕）处理。
+    let password_ok = match Crypto::verify_password(&req.old_password, &user.password) {
+        Ok(ok) => ok,
+        Err(error) => {
+            tracing::warn!(
+                error = %error,
+                user_id = %user_id,
+                username = %user.username,
+                "口令指纹不可解析（sys_user.password 不是 argon2 PHC 串）→ 改密请求按原密码错误处理"
+            );
+            false
+        }
+    };
     if !password_ok {
         log::record_password_change(
             &headers,

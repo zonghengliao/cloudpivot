@@ -87,17 +87,26 @@ check "撤回 http" "$HTTP" "200"
 check "撤回后占用释放" \
   "$(SQ "select status from biz_budget_usage where source_type='EXPENSE_REPORT' and source_id='$EXP_D'::uuid")" "RELEASED"
 
-# ---- ②-3 提交审批 → 会签 → ACTIVE ----
+# ---- ②-3 提交审批 → 部门主管（或签）→ 财务经理 → ACTIVE ----
 api bg_submit POST "/business/erp/budget/$BG_A/submit" "$T_P3A" '{}'
 check "预算提交 http" "$HTTP" "200"
 check "提交后状态" "$(SQ "select status from biz_budget where id='$BG_A'::uuid")" "SUBMITTED"
-NDEPT_ALL=$(tasks_of BUDGET_APPROVE "$BG_A" PENDING | grep -c 'n_dept')
-check "n_dept 会签待办只剩 1 条（编制人被内控排除）" "$NDEPT_ALL" "1"
-check "编制人 p3a_0002 落 SKIPPED 留痕" \
-  "$(SQ "select count(*) from biz_flow_task t join biz_flow_instance i on i.id=t.instance_id join sys_user u on u.id=t.assignee_id where i.biz_id='$BG_A'::uuid and u.username='p3a_0002' and t.status='SKIPPED'")" "1"
+
+# 卡面验收②：A 部门的预算，n_dept **只**派给 A 部门主管一人（修好前是全体 DEPT_LEADER 会签）
+NDEPT_ROW=$(tasks_of BUDGET_APPROVE "$BG_A" PENDING | grep '|n_dept|' || true)
+check "n_dept 恰有 1 条待办（不再全员会签）" "$(printf '%s\n' "$NDEPT_ROW" | grep -c .)" "1"
+check "n_dept 待办归属本部门主管 e2e06_mgr" \
+  "$(printf '%s' "$NDEPT_ROW" | awk -F'|' '{print $3}')" "e2e06_mgr"
+check "其他 DEPT_LEADER 成员没有被派到 n_dept（部门维度不再错配）" \
+  "$(SQ "select count(*) from biz_flow_task t join biz_flow_instance i on i.id=t.instance_id join sys_user u on u.id=t.assignee_id join sys_user_role ur on ur.user_id=u.id join sys_role r on r.id=ur.role_id where i.biz_id='$BG_A'::uuid and t.node_key='n_dept' and r.role_code='DEPT_LEADER' and u.username<>'e2e06_mgr'")" "0"
+check "n_dept 审批人来源=INITIATOR_SUPERIOR（发起人所在部门）" \
+  "$(SQ "select n.assignee_type from biz_flow_node n join biz_flow_def_version v on v.id=n.version_id join biz_flow_def d on d.id=v.def_id where d.flow_code='budget_approve' and v.is_current and n.node_key='n_dept'")" "INITIATOR_SUPERIOR"
+check "n_dept 审批模式=ANY（或签，一人同意即通过）" \
+  "$(SQ "select n.approval_mode from biz_flow_node n join biz_flow_def_version v on v.id=n.version_id join biz_flow_def d on d.id=v.def_id where d.flow_code='budget_approve' and v.is_current and n.node_key='n_dept'")" "ANY"
 
 api bg_self POST "/business/flow/task/$(tasks_of BUDGET_APPROVE "$BG_A" PENDING | head -1 | cut -d'|' -f1)/approve" "$T_P3A" '{"comment":"编制人自批"}'
 check "编制人自批被内控拒绝 $HTTP" "$HTTP" "403"
+check "编制人自批被内控拒绝 code=65019" "$CODE" "65019"
 
 budget_active "$BG_A" bgA
 check "预算实例终态" \

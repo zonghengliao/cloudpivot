@@ -33,7 +33,7 @@
 --   · 幂等靠 `ON CONFLICT (role_code) WHERE deleted_at IS NULL` + `NOT EXISTS`，
 --     重放 = 0 行插入。
 --
--- ── 授权范围（11 行菜单：2 个目录闭包 + 3 个页面 + 6 个按钮）─────────────
+-- ── 授权范围（13 行菜单：2 个目录闭包 + 3 个页面 + 8 个按钮）─────────────
 --   财务管理(目录 e02) ⇐ 祖先闭包，缺了非超管侧边栏整棵子树被静默丢掉（V0258 第五节）
 --   ├─ 费用报销(目录 1500)
 --   │  ├─ 我的报销(页 1501)         business:erp:expense:list        进页面 / 看自己的单
@@ -44,10 +44,26 @@
 --   │  │  └─ 详情                    business:erp:expense:detail
 --   │  └─ 费用类型(页 1503)         business:erp:expense-type:list   建单下拉取数（只读页）
 --  审批流(目录 0860) → 审批中心(页 0862)  business:flow:instance:read   详情抽屉看审批进度
+--  单据附件（V0212 的 3 个隐藏按钮，无独立页面）
+--   ├─ business:attachment:upload    上传自己单据的发票影像 / 费用凭证   ← t_1fafa2ae 补
+--   └─ business:attachment:list      看 / 下载自己单据的附件（含提交前的附件闸 check）
 --
 --   **不授**：expense:pay（付款）/ expense:cancel（红冲作废）/ expense-type:create|update|delete
 --   —— 员工的边界是不碰钱、不碰账：付款与作废是 FINANCE_MANAGER 的事，多授一行就等于
 --   「让员工自己给自己付钱」。
+--   **也不授** `business:attachment:delete`（删除**他人**上传的附件）：行级规则是
+--   「上传人可删自己的」，上传人本人那一条由 handler 放行，不需要这个升权码。
+--
+-- ── 为什么要补 attachment:upload / list（t_1fafa2ae · E2E-06 实测）────────
+--   `biz_attachment_rule` 里 `EXPENSE_REPORT / required_at=SUBMIT / min_count=1`：提交报销
+--   必须已有 ≥1 个发票影像。而这两条权限此前只授给 6 个管理岗（V0212 / V0258 / V0267），
+--   员工调 `POST /business/attachment/upload` 一律 403 ⇒ **自助报销断在第一步**，
+--   只能找财务代传发票才是「一条能跑通的流程」。补上之后：
+--     · upload：员工自己传发票（单据读码仍把门，看不见的单传不进去 —— ATT-04）；
+--     · list  ：详情抽屉的附件面板 / 提交前的 `/attachment/check` 闸都要它
+--               （写接口挂 upload，读接口挂 list；只给 upload 会出现「传得上去看不见」）。
+--   两者都**不越过单据可见性**：附件可见性 = 单据可见性（ATT-02），员工只看得见
+--   自己部门能读的单据（本角色 data_scope=4）。
 --
 --   `sys_role.data_scope = 4`（仅本人）：报销单列表按 `dept_id` 做行级范围
 --   （`expense_model::REPORT_TARGET` 只声明了部门列、没有归属人列），于是「仅本人」在
@@ -69,7 +85,7 @@ VALUES
      now(), now())
 ON CONFLICT (role_code) WHERE deleted_at IS NULL DO NOTHING;
 
--- ---------- ② 授权（11 行，含祖先目录闭包）----------
+-- ---------- ② 授权（13 行，含祖先目录闭包）----------
 INSERT INTO sys_role_menu (role_id, menu_id, created_at)
 SELECT r.id, m.id, CURRENT_TIMESTAMP
   FROM sys_role r
@@ -87,7 +103,10 @@ SELECT r.id, m.id, CURRENT_TIMESTAMP
         ('20000000-0000-0000-0000-000000001512'::uuid),  -- business:erp:expense:update
         ('20000000-0000-0000-0000-000000001513'::uuid),  -- business:erp:expense:delete
         ('20000000-0000-0000-0000-000000001514'::uuid),  -- business:erp:expense:submit  ← 本卡核心
-        ('20000000-0000-0000-0000-000000001516'::uuid)   -- business:erp:expense:detail
+        ('20000000-0000-0000-0000-000000001516'::uuid),  -- business:erp:expense:detail
+        -- 单据附件（隐藏按钮，挂在「通用底座」根上，不影响侧边栏）
+        ('20000000-0000-0000-0000-000000001221'::uuid),  -- business:attachment:upload  ← t_1fafa2ae
+        ('20000000-0000-0000-0000-000000001222'::uuid)   -- business:attachment:list    ← t_1fafa2ae
      ) AS m(id)
  WHERE r.role_code = 'EMPLOYEE'
    AND r.deleted_at IS NULL
@@ -106,7 +125,8 @@ DECLARE
                      'business:erp:expense:list', 'business:erp:expense:create',
                      'business:erp:expense:update', 'business:erp:expense:delete',
                      'business:erp:expense:submit', 'business:erp:expense:detail',
-                     'business:erp:expense-type:list', 'business:flow:instance:read'];
+                     'business:erp:expense-type:list', 'business:flow:instance:read',
+                     'business:attachment:upload', 'business:attachment:list'];
     v_want_menus uuid[] := ARRAY[
                      '20000000-0000-0000-0000-000000000e02'::uuid,
                      '20000000-0000-0000-0000-000000001500'::uuid,
@@ -118,7 +138,9 @@ DECLARE
                      '20000000-0000-0000-0000-000000001512'::uuid,
                      '20000000-0000-0000-0000-000000001513'::uuid,
                      '20000000-0000-0000-0000-000000001514'::uuid,
-                     '20000000-0000-0000-0000-000000001516'::uuid];
+                     '20000000-0000-0000-0000-000000001516'::uuid,
+                     '20000000-0000-0000-0000-000000001221'::uuid,
+                     '20000000-0000-0000-0000-000000001222'::uuid];
     v_n          int;
     v_str        text;
 BEGIN
@@ -132,7 +154,7 @@ BEGIN
         RAISE EXCEPTION 'S__employee_self_service_permissions 自检失败：EMPLOYEE 的 data_scope = %（期望 4 仅本人）', v_scope;
     END IF;
 
-    -- 3.2 8 个权限码必须都有菜单行承载（否则授了也用不上 / 授权行写给了空气）
+    -- 3.2 10 个权限码必须都有菜单行承载（否则授了也用不上 / 授权行写给了空气）
     SELECT string_agg(want, ', ') INTO v_str
       FROM unnest(v_codes) AS want
      WHERE NOT EXISTS (SELECT 1 FROM sys_menu m WHERE m.auth_code = want AND m.deleted_at IS NULL);
@@ -140,7 +162,7 @@ BEGIN
         RAISE EXCEPTION 'S__employee_self_service_permissions 自检失败：以下权限码在 sys_menu 里没有承载 → %', v_str;
     END IF;
 
-    -- 3.3 11 行菜单全部真持有（空跑 = 报警，不静默）
+    -- 3.3 13 行菜单全部真持有（空跑 = 报警，不静默）
     SELECT count(*) INTO v_n
       FROM sys_role_menu rm
      WHERE rm.role_id = v_role_id AND rm.menu_id = ANY (v_want_menus);
@@ -149,7 +171,7 @@ BEGIN
           FROM unnest(v_want_menus) AS want
          WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu rm
                             WHERE rm.role_id = v_role_id AND rm.menu_id = want);
-        RAISE EXCEPTION 'S__employee_self_service_permissions 自检失败：EMPLOYEE 只持有 %/11 行授权，缺 → %',
+        RAISE EXCEPTION 'S__employee_self_service_permissions 自检失败：EMPLOYEE 只持有 %/13 行授权，缺 → %',
             v_n, v_str;
     END IF;
 
@@ -167,17 +189,20 @@ BEGIN
         RAISE EXCEPTION 'S__employee_self_service_permissions 自检失败：孤儿按钮（父页未授权）→ %', v_str;
     END IF;
 
-    -- 3.5 反向：不许把「碰钱 / 碰账」的码捎带进来（多授一行 = 员工能自己付款）
+    -- 3.5 反向：不许把「碰钱 / 碰账 / 删他人附件」的码捎带进来
+    --     （多授一行 = 员工能自己付款 / 能删别人的凭证影像）
     SELECT string_agg(m.auth_code, ', ') INTO v_str
       FROM sys_role_menu rm
       JOIN sys_menu m ON m.id = rm.menu_id AND m.deleted_at IS NULL
      WHERE rm.role_id = v_role_id
        AND m.auth_code IN ('business:erp:expense:pay', 'business:erp:expense:cancel',
                            'business:erp:expense-type:create', 'business:erp:expense-type:update',
-                           'business:erp:expense-type:delete');
+                           'business:erp:expense-type:delete',
+                           -- 附件「删他人上传的」是升权码；上传人删自己的由 handler 行级放行
+                           'business:attachment:delete');
     IF v_str IS NOT NULL THEN
         RAISE EXCEPTION 'S__employee_self_service_permissions 自检失败：EMPLOYEE 被过度授权（越权码）→ %', v_str;
     END IF;
 
-    RAISE NOTICE 'S__employee_self_service_permissions 自检通过：EMPLOYEE 持有 11 行菜单 / 8 个权限码（含 expense:submit），data_scope=4';
+    RAISE NOTICE 'S__employee_self_service_permissions 自检通过：EMPLOYEE 持有 13 行菜单 / 10 个权限码（含 expense:submit 与 attachment:upload/list），data_scope=4';
 END $$;

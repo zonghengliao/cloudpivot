@@ -69,20 +69,25 @@ login_rest() {
   say "  · e2e06_clerk（DRILL_CLERK，报销人）登录成功"
   T_MGR=$(login e2e06_mgr 'Drill@123456' mgr) || exit 1; save T_MGR "$T_MGR"
   say "  · e2e06_mgr（FINANCE_MANAGER，部门主管=直属上级）登录成功"
-  T_P3A=$(login p3a_0002 'E2e01@Appr123' p3a) || exit 1; save T_P3A "$T_P3A"
-  say "  · p3a_0002（DEPT_LEADER，预算编制人）登录成功"
+  # 预算编制人：必须是**被编预算那个部门**的成员 —— 修好 n_dept（t_1fafa2ae）之后，
+  # 「部门主管」按**发起人所在部门**的 leader_id 解析，编制人不在部门里就解析不出人
+  # （会退化成超管兜底）。这里用专门的 e2e06_planner（DEPT_LEADER + E2E06-BDG）。
+  T_P3A=$(login e2e06_planner 'Drill@123456' planner) || exit 1; save T_P3A "$T_P3A"
+  say "  · e2e06_planner（DEPT_LEADER，预算编制人，属 E2E06-BDG）登录成功"
 }
 
 acc() { SQ "select id from biz_account where account_code='$1' and deleted_at is null"; }
 
 # 上传附件（multipart）。规则表 biz_attachment_rule: EXPENSE_REPORT 在 SUBMIT 阶段要求 ≥1 个（file_role 不限）
 upfile() { # upfile <tag> <doc_type> <doc_id> <file_role> <local_path>
-  # 用 admin 上传：DRILL_CLERK 没有 business:attachment:upload 权限（403），
-  # 而附件只是「提交前的单据材料」，不代表审批人意见。
+  # 用**报销人本人**（e2e06_clerk，DRILL_CLERK + EMPLOYEE 身份角色）上传。
+  # t_1fafa2ae 起 EMPLOYEE 持有 business:attachment:upload / list（种子
+  # S__employee_self_service_permissions.sql），所以「员工自己传发票 → 提交报销」
+  # 这条自助链路可以按真实角色跑；此前这里用 admin 代传，正好把 403 缺口盖住了。
   local name=$1 dt=$2 did=$3 role=$4 path=$5 out="$RAW/$1.json"
   HTTP=$(curl -s -m 60 -o "$out" -w '%{http_code}' -X POST "$BASE/business/attachment/upload" \
-    --oauth2-bearer "$T_ADMIN" -F "doc_type=$dt" -F "doc_id=$did" \
-    -F "file_role=$role" -F "remark=E2E-06 演练附件" -F "file=@$path")
+    --oauth2-bearer "$T_CLERK" -F "doc_type=$dt" -F "doc_id=$did" \
+    -F "file_role=$role" -F "remark=E2E-06 演练附件（报销人本人上传）" -F "file=@$path")
   BODY=$(cat "$out" 2>/dev/null)
   CODE=$(printf '%s' "$BODY" | jq -r '.code // empty' 2>/dev/null)
 }
@@ -130,17 +135,52 @@ ensure_fixtures() {
   check "部门主管指向 e2e06_mgr" \
     "$(SQ "select u.username from sys_dept d join sys_user u on u.id=d.leader_id where d.id='$dept_id'::uuid")" "e2e06_mgr"
 
-  # 已知缺陷修复（如实记录）：p3a_0002 的 password 列是占位符 'x'（非 argon2），登录 500；
-  # 它被种进全局 DEPT_LEADER 角色，而预算审批「部门主管」节点是会签（approval_mode=ALL）
-  # → 预算永远批不完。本卡把它重置成与 e2e01_appr 相同哈希，演练结束后保留（原值 'x' 无法登录）。
-  local ph len
-  ph=$(SQ "select password from sys_user where username='p3a_0002'")
-  len=${#ph}
-  if [ "$len" -lt 20 ]; then
-    SQ "update sys_user set password=(select password from sys_user where username='e2e01_appr') where username='p3a_0002'" >/dev/null
-    FIX_P3A=1; save FIX_P3A 1
-    say "  · 夹具修复：p3a_0002 密码哈希是 ${len} 字符占位符（登录 500）→ 重置为 e2e01_appr 的哈希"
+  # ---- 预算编制人（e2e06_planner）：DEPT_LEADER + **属于 E2E06-BDG** ----
+  # 为什么必须新开一个号而不是复用 p3a_0002：
+  #   修好 budget_approve 的 n_dept 之后（t_1fafa2ae / V0355），部门主管按**发起人所在部门**
+  #   解析。p3a_0002 在库里没有部门（dept_id IS NULL）→ 解析 0 人 → 落 FALLBACK_ADMIN，
+  #   演练就会变成「超管批预算」，测不到「A 部门预算只派 A 部门主管」。而且 DEPT_LEADER
+  #   的 data_scope=3，把它硬塞进演练部门会连带改掉别的卡对它的可见性预期。
+  local role_leader got
+  role_leader=$(SQ "select id from sys_role where role_code='DEPT_LEADER' and deleted_at is null")
+  if [ -z "$(SQ "select id from sys_user where username='e2e06_planner'")" ]; then
+    api fx_planner POST /system/user "$T_ADMIN" \
+      "{\"username\":\"e2e06_planner\",\"password\":\"Drill@123456\",\"real_name\":\"E2E06 预算编制人\",\"dept_id\":\"$dept_id\",\"status\":1,\"role_ids\":[\"$role_leader\"],\"remark\":\"E2E-06 预算编制人（属演练部门）\"}"
+    check "建用户 e2e06_planner" "$CODE" "0"
   fi
+  got=$(SQ "select coalesce(d.dept_code,'-') from sys_user u left join sys_dept d on d.id=u.dept_id where u.username='e2e06_planner'")
+  check "预算编制人属演练部门" "$got" "E2E06-BDG"
+
+  # ---- 报销人挂 EMPLOYEE 身份角色（附件上传权限的载体）----
+  # 种子只给 EMPLOYEE 授 attachment:upload/list（管理岗 6 个角色本来就有）。
+  # DRILL_CLERK 是「只报销、不带审批」的演练岗位，两个角色叠加 = 真实的「员工 + 岗位」。
+  # 用 SQL 直接落绑定（等价于后台「用户 → 角色」勾选；幂等）。
+  if [ -n "$(SQ "select id from sys_role where role_code='EMPLOYEE' and deleted_at is null")" ]; then
+    SQ "insert into sys_user_role (id, user_id, role_id)
+          select gen_random_uuid(), u.id, r.id
+            from sys_user u, sys_role r
+           where u.username='e2e06_clerk' and r.role_code='EMPLOYEE' and r.deleted_at is null
+             and not exists (select 1 from sys_user_role x where x.user_id=u.id and x.role_id=r.id)" >/dev/null
+    got=$(SQ "select count(*) from sys_user u join sys_user_role ur on ur.user_id=u.id join sys_role r on r.id=ur.role_id where u.username='e2e06_clerk' and r.role_code='EMPLOYEE'")
+    check "报销人持有 EMPLOYEE（附件上传权限载体）" "$got" "1"
+  fi
+
+  # ---- 口令指纹修复（卡面验收：sys_user.password 必须都是 argon2 PHC 串）----
+  # 共享库里有一批历史夹具账号的 password 是占位符（实测 1 字节 'x'）：
+  #   · 登录校验直接 Err —— 改造前报 500，现已按 401 处理（auth/handler.rs）；
+  #   · 它们被种在审批角色里时会让**会签节点永远凑不齐票**（本卡的根因之一）。
+  # 演练库统一把这类行重置成演练口令的哈希（这些号原本就登不进去，无信息损失）；
+  # 生产请走「系统管理 → 用户 → 重置密码」，不要跑这条脚本。
+  local badpw appr_hash
+  badpw=$(SQ "select count(*) from sys_user where deleted_at is null and password not like '\$argon2id\$%'")
+  if [ "${badpw:-0}" != "0" ]; then
+    appr_hash=$(SQ "select u.password from sys_user u where u.username='e2e01_appr'")
+    SQ "update sys_user set password='$appr_hash' where deleted_at is null and password not like '\$argon2id\$%'" >/dev/null
+    FIX_PW=$badpw; save FIX_PW "$badpw"
+    say "  · 夹具修复：$badpw 个账号的 password 不是 argon2 指纹（登录必然失败）→ 统一重置为演练口令哈希"
+  fi
+  got=$(SQ "select count(*) from sys_user where deleted_at is null and password not like '\$argon2id\$%'")
+  check "全库口令指纹均为 argon2id" "$got" "0"
 }
 
 # 演练期间 2027-01..2027-06（FY2027，避开 2026 业务年 / 2022 年结年 / 2027-12~2028-06 资产段）
@@ -178,19 +218,27 @@ approve_tasks_of() { # approve_tasks_of <tag> <biz_type> <biz_id> <token> <comme
 }
 
 budget_active() { # budget_active <budget_id> <tag>：把预算从 SUBMITTED 批到 ACTIVE
-  # 只批 e2e01_appr 名下的待办：会签 n_dept 里编制人已被内控排除；n_fin 是 ANY（或签），
-  # 同角色其他成员（e2e02_appr / e2e04_fin）名下也会各有一条 —— 那是别人的待办，不能代批，
-  # 也不影响节点：任一人同意即通过，兄弟待办随后 CANCELLED。
-  local bid=$1 tag=$2 tried=0 row tid
-  while [ "$tried" -lt 6 ]; do
+  # t_1fafa2ae 之后 n_dept 是「发起人所在部门主管 + 或签」，所以：
+  #   n_dept  → 派给 e2e06_mgr（演练部门负责人），用 T_MGR 批；
+  #   n_fin* / n_gm* → 角色（FINANCE_MANAGER / GENERAL_MANAGER / …）候选可能多人，
+  #                    只批 e2e01_appr 名下那条（或签：一人同意即通过，兄弟待办随后 CANCELLED）；
+  #   兜底：万一是 FALLBACK_ADMIN 出来的待办（部门没负责人 / 编制人被内控排除），用 T_ADMIN 批。
+  # 别人的待办一律跳过 —— 代批等于伪造审批意见。
+  local bid=$1 tag=$2 tried=0 row tid user
+  while [ "$tried" -lt 8 ]; do
     local pending
-    pending=$(tasks_of BUDGET_APPROVE "$bid" PENDING | grep '|e2e01_appr$' || true)
+    pending=$(tasks_of BUDGET_APPROVE "$bid" PENDING)
     [ -z "$pending" ] && break
     while read -r row; do
       [ -z "$row" ] && continue
-      tid=${row%%|*}
-      api "${tag}_$tried" POST "/business/flow/task/$tid/approve" "$T_APPR" '{"comment":"预算审批通过（E2E-06）"}'
-      check "$tag 审批待办 http" "$HTTP" "200"
+      tid=${row%%|*}; user=$(printf '%s' "$row" | awk -F'|' '{print $3}')
+      case "$user" in
+        e2e06_mgr)  api "${tag}_dept_$tried" POST "/business/flow/task/$tid/approve" "$T_MGR"  '{"comment":"部门主管同意（E2E-06）"}' ;;
+        e2e01_appr) api "${tag}_fin_$tried"  POST "/business/flow/task/$tid/approve" "$T_APPR" '{"comment":"预算审批通过（E2E-06）"}' ;;
+        admin)      api "${tag}_adm_$tried"  POST "/business/flow/task/$tid/approve" "$T_ADMIN" '{"comment":"兜底超管同意（E2E-06）"}' ;;
+        *) say "  · 跳过非本卡账号的待办（$user，或签兄弟待办，节点由已批的那票推进）"; continue ;;
+      esac
+      check "$tag 审批 $user http" "$HTTP" "200"
     done < <(printf '%s\n' "$pending")
     tried=$((tried+1))
   done
