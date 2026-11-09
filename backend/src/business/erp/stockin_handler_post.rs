@@ -167,7 +167,10 @@ pub(super) async fn submit_post_approval(
         )));
     }
     // 序列号在提交时就校验一遍（数量与号码必须对齐），失败别送去给审批人批
-    let _ = request_serials(req, &items)?;
+    // ★ E2E-03：校验结果必须**带过审批边界** —— 过账发生在审批回调里（`post_after_approval`），
+    //   那条路径没有 HTTP 请求体。冻结进 `form_data.serials` 是唯一不改表结构的活路：
+    //   否则一物一码收货的「供应商自带码」会被静默丢弃并重新取号（用户扫的码全丢）。
+    let provided = request_serials(req, &items)?;
     let Some(operator_id) = operator.id else {
         return Err(ApiError::new(
             401,
@@ -195,6 +198,18 @@ pub(super) async fn submit_post_approval(
         .chars()
         .take(200)
         .collect::<String>();
+    let mut form_data = stock_in_form_data(row).await;
+    // E2E-03：把本单的「自定义序列号」冻进审批快照，供 `post_after_approval` 取回。
+    // 键 `serials: [{line_no, serial_ids}]`；未填序列号时不写该键（自动取号口径不变）。
+    if !provided.is_empty() {
+        let array: Vec<serde_json::Value> = provided
+            .iter()
+            .map(|(line_no, ids)| serde_json::json!({ "line_no": line_no, "serial_ids": ids }))
+            .collect();
+        if let Some(object) = form_data.as_object_mut() {
+            object.insert("serials".to_string(), serde_json::Value::Array(array));
+        }
+    }
     let start = engine::StartReq {
         instance_id,
         def_id: flow.def_id,
@@ -209,7 +224,7 @@ pub(super) async fn submit_post_approval(
         initiator_id: operator_id,
         initiator_name: Some(initiator_name),
         initiator_dept_id,
-        form_data: stock_in_form_data(row).await,
+        form_data,
     };
 
     let now = Utc::now();
@@ -394,7 +409,12 @@ pub async fn post_after_approval_with_reason(
         &format!("收货入库单 {}", row.in_no),
     )
     .await?;
-    let (items, serial_required, provided) = posting_inputs(id, None).await?;
+    let (items, serial_required, mut provided) = posting_inputs(id, None).await?;
+    // ★ E2E-03：审批回调路径没有请求体 —— 自定义序列号从提交时冻结的审批快照里取回。
+    //   取不到（老单据 / 本来就没填）就保持空表，走「自动取号」老口径。
+    if provided.is_empty() {
+        provided = approval_serials(row.approval_instance_id).await;
+    }
     // ★ DC-09 补口：审批通过这条过账入口同样按明细快照的 unit_id 复检（与直接过账同一把尺子）
     guard_posting_units(&items).await?;
     let mut ordered: Vec<&stockin_model::StockInItemRow> = items.iter().collect();
@@ -1033,6 +1053,60 @@ async fn run_stockin_deferred_linkage(
             "收货过账：提交后的联动动作执行结果"
         );
     }
+}
+
+/// 从**审批快照**取回提交过账时冻结的自定义序列号（`form_data.serials`）。
+///
+/// 为什么需要：过账发生在审批回调（[`post_after_approval`]）里，那条路径没有 HTTP 请求体，
+/// 而明细表没有存序列号的列（红线：不改 V0137–V0145）。提交时把校验过的映射冻进
+/// `biz_flow_instance.form_data` 是唯一不改表结构的活路。
+///
+/// 取不到就返回空表 = 走「自动取号」老口径（老单据 / 本来就没填码），不报错、不阻断过账。
+pub(super) async fn approval_serials(instance_id: Option<Uuid>) -> HashMap<i32, Vec<String>> {
+    let Some(instance_id) = instance_id else {
+        return HashMap::new();
+    };
+    let instance = match flow_model::find_instance(instance_id).await {
+        Ok(Some(instance)) => instance,
+        Ok(None) => return HashMap::new(),
+        Err(error) => {
+            tracing::warn!(
+                %instance_id,
+                %error,
+                "读审批快照取序列号失败：按「自动取号」继续过账"
+            );
+            return HashMap::new();
+        }
+    };
+    serials_of_form(&instance.form_data)
+}
+
+/// `form_data.serials = [{line_no, serial_ids}]` → `line_no → 号码`（不合法条目直接跳过）。
+fn serials_of_form(form: &serde_json::Value) -> HashMap<i32, Vec<String>> {
+    let mut map: HashMap<i32, Vec<String>> = HashMap::new();
+    let Some(entries) = form.get("serials").and_then(|value| value.as_array()) else {
+        return map;
+    };
+    for entry in entries {
+        let Some(line_no) = entry.get("line_no").and_then(|value| value.as_i64()) else {
+            continue;
+        };
+        let Some(ids) = entry.get("serial_ids").and_then(|value| value.as_array()) else {
+            continue;
+        };
+        let cleaned: Vec<String> = ids
+            .iter()
+            .filter_map(|value| value.as_str())
+            .map(|text| text.trim().to_string())
+            .filter(|text| !text.is_empty())
+            .collect();
+        if !cleaned.is_empty()
+            && let Ok(line_no) = i32::try_from(line_no)
+        {
+            map.insert(line_no, cleaned);
+        }
+    }
+    map
 }
 
 /// 校验 PATCH body 里的序列号（`line_no → 号码`），并把数量与明细 qty 对齐（卡面 ⑩）。
