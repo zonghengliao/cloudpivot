@@ -306,6 +306,9 @@ def build_flow(admin, users):
         {"key": "n_cs", "name": "三人会签", "type": "COUNTERSIGN", "x": 200, "y": 0,
          "assignee_type": "USER", "approval_mode": "ALL", "reject_veto": True,
          "self_approval": "ALLOW",
+         # R28（65048）要求 ALL 必须带超时或兜底：这里给 48h「只催办」（REMIND），
+         # 催办不会替人签字 —— 所以「2 人离职」照样永远批不完，正是本卡要收的场景。
+         "timeout_hours": 48, "timeout_action": "REMIND",
          "assignees": [{"type": "USER", "ref_id": users["a"]},
                        {"type": "USER", "ref_id": users["b"]},
                        {"type": "USER", "ref_id": users["c"]}]},
