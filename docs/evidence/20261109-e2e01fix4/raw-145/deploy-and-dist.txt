@@ -1,0 +1,40 @@
+# 145 部署与产物证据（E2E01-FIX-4 出参三段式口径）
+
+采集时间: 2026-11-09 17:19:46 CST
+
+## 1. 后端：pull + build + 重启
+HEAD: bf1a4340 feat(erp): E2E01-FIX-4 单据出参三段式口径（header/items/meta）+ 兼容层
+二进制 mtime: 2026-11-09 17:15:27.301722830 +0800
+服务状态: active
+health: 200
+
+## 2. 前端：dist 已换（旧留 dist-prev-*）
+frontend/dist
+frontend/dist-prev-145156
+frontend/dist-prev-150717
+frontend/dist-prev-165400
+frontend/dist-prev-171925
+frontend/dist.old-td
+入口 chunk（dist/index.html）: assets/index-CAu74by0.js
+入口 chunk（nginx :80 实测）: assets/index-CAu74by0.js
+
+## 3. 三个页面改用新字段（构建产物里属性名不压缩）
+header.inquiry_no → index-GPD15N7o.js 
+header.po_no → index-g8SnJS8w.js 
+header.order_no → index-DWZxkofH.js 
+
+## 4. 三个页面不再读旧字段
+head.inquiry_no → (无命中)
+purchase_order.po_no → (无命中)
+.order.order_no → 命中 index-CFhG3ZtV.js 
+  说明：仓库里剩下读 *.order.* 的是「收货页读 PendingReceiveRes.order」（GET /purchase-order/{id}/pending-items，
+  该结构仍在 docs/编码规范.md §1.12 的待迁移清单里），采购订单页已改读 header。
+  源码级复核：grep -rn 'detail\.order\b' frontend/src → 0 处（见下）
+  源码 grep 结果：
+    （0 处）
+
+## 5. 契约（新旧字段同值）
+见 raw-145/e2e01fix4_run_8033.log：
+  · ①.2 / ②.1  询价单：header 与 head 同时存在且深度相等
+  · ②.4 / ②.6 / ②.7  采购申请转单：header==purchase_order、items==lines
+  · ③.2 / ③.4  采购订单提交审批：header==order
