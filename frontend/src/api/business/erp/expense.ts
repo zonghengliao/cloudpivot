@@ -117,7 +117,8 @@ export interface ExpenseTypePayload {
    *
    * **留空（`null` / `''` / 纯空白）⇒ 后端自动取号 `ET-01` 形态**（CODE-04：`biz_seq` 的
    * ET 号段，纯流水 2 位、不计日期、永不重置，第 100 个起 `ET-100`）；
-   * 有值则原样保留（转大写，`TRAVEL` / `ADMIN-FEE` 这类编码都能对接）。
+   * 有值则**原样保留**（大小写不改，`TRAVEL` / `TRAVEL-FEE` / `travel-fee` 这类编码都能对接；
+   * 与其余五类主数据同一口径，E2E08-FIX-2 ①）。
    *
    * 修改（PUT）时后端不动编码列（编码是历史报销单的科目快照口径），传 `null` 无害。
    */

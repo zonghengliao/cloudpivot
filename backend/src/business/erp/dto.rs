@@ -233,11 +233,27 @@ where
 
 // ==================== ① 计量单位 ====================
 
+/// 计量单位编码缺失 / 纯空白时的统一文案（`validate` 与 handler 共用，避免两处走岔）。
+///
+/// 六类主数据里只有单位**不自动取号**，所以「没填」不是「交给取号器」而是错误。
+pub const UNIT_CODE_REQUIRED: &str = "计量单位编码必填（单位不自动取号）";
+
+/// 计量单位编码长度上限（与 `biz_unit.unit_code VARCHAR(20)` 同口径）。
+pub const UNIT_CODE_MAX_LEN: usize = 20;
+
 /// 新建计量单位。
+///
+/// # 为什么 `unit_code` 是 `Option<String>` 而不是 `String`（E2E08-FIX-2 ②）
+///
+/// 编码对单位**仍然是必填**（单位不做自动取号：`PCS` / `KG` / `M` 是行业标准码，
+/// 替用户编 `U-01` 没人看得懂）。声明成 `Option` 是为了把「没填」从**框架反序列化的
+/// 422「必填字段缺失」**抢回业务层，由 handler 返回 `400 + 10001 + 人话文案`——
+/// 与其余五类主数据的入参护栏同一出口，前端按错误码分支时才拿得到文案。
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateUnitReq {
-    /// 单位编码（`VARCHAR(20)`，未删除内唯一）。
-    pub unit_code: String,
+    /// 单位编码（`VARCHAR(20)`，未删除内唯一）。**必填**，缺失 / 空串 ⇒ `400 + 10001`。
+    #[serde(default)]
+    pub unit_code: Option<String>,
     /// 单位名称（`VARCHAR(50)`）。
     pub unit_name: String,
     /// 是否基础单位（缺省 `true`）。
@@ -267,9 +283,27 @@ pub struct CreateUnitReq {
 }
 
 impl CreateUnitReq {
+    /// 归一化后的单位编码（去首尾空白）。
+    ///
+    /// 没填 / 纯空白 ⇒ `400 + 10001 + 人话`（**不是**框架的 422 必填字段缺失）：
+    /// 六类主数据里只有单位不自动取号，所以「没填」必须显式告诉用户要自己填。
+    pub fn unit_code_required(&self) -> std::result::Result<&str, ApiError> {
+        self.unit_code
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .ok_or_else(|| bad_request(UNIT_CODE_REQUIRED.to_string()))
+    }
+
     /// 校验（`400 + 10001`）。
     pub fn validate(&self) -> std::result::Result<(), ApiError> {
-        require_text(&self.unit_code, "unit_code", 20)?;
+        let unit_code = self.unit_code_required()?;
+        if unit_code.chars().count() > UNIT_CODE_MAX_LEN {
+            return Err(bad_request(format!(
+                "unit_code 最长 {UNIT_CODE_MAX_LEN} 个字符（当前 {} 个）",
+                unit_code.chars().count()
+            )));
+        }
         require_text(&self.unit_name, "unit_name", 50)?;
         require_flag(self.status, "status")?;
         check_optional_text(self.remark.as_deref(), "remark", 2000)?;
@@ -3378,7 +3412,7 @@ mod tests {
 
     fn unit_req() -> CreateUnitReq {
         CreateUnitReq {
-            unit_code: "PCS".to_string(),
+            unit_code: Some("PCS".to_string()),
             unit_name: "个".to_string(),
             is_base: true,
             base_unit_id: None,
@@ -3394,10 +3428,21 @@ mod tests {
     #[test]
     fn validate_rejects_blank_code() {
         let mut req = unit_req();
-        req.unit_code = "   ".to_string();
+        req.unit_code = Some("   ".to_string());
         let err = req.validate().expect_err("空编码必须被拒");
         assert_eq!(err.code, error_code::PARAM_INVALID);
-        assert!(err.msg.contains("unit_code"), "文案要点名字段：{}", err.msg);
+        assert_eq!(err.msg, UNIT_CODE_REQUIRED, "文案要人话（点名单位编码必填）：{}", err.msg);
+
+        // E2E08-FIX-2 ②：**缺席**（不是空串）也要 400 + 10001 + 人话，不能落到框架的 422。
+        req.unit_code = None;
+        let err = req.validate().expect_err("编码缺席必须被拒");
+        assert_eq!(err.status, 400, "必须是业务 400，不是框架反序列化的 422");
+        assert_eq!(err.code, error_code::PARAM_INVALID);
+        assert!(err.msg.contains(UNIT_CODE_REQUIRED), "文案要人话：{}", err.msg);
+        assert_eq!(
+            req.unit_code_required().expect_err("缺席必须报错").code,
+            error_code::PARAM_INVALID
+        );
 
         // CODE-03：物料编码**留空不再拒绝**（留空 = 后端自动取号 `MAT-0001` 形态）；
         // 只有格式不合法的才拒（含空格/中文标点等字符集外的输入）。

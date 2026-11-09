@@ -26,6 +26,7 @@
 //! | GET | `/business/erp/supplier/next-code` | 供应商编码预览（**只读不占号**，CODE-05「生成编码」按钮用） |
 //! | GET | `/business/erp/material/next-code` | 物料编码预览（**只读不占号**，CODE-06「生成编码」按钮用，`MAT-0001`） |
 //! | GET | `/business/erp/warehouse/next-code` | 仓库编码预览（**只读不占号**，CODE-06「生成编码」按钮用，`WH-01`） |
+//! | GET | `/business/erp/unit/next-code` | **显式 400**：计量单位不自动取号（E2E08-FIX-2 ④，避免被 `/unit/{id}` 吃掉后误判成路由丢失） |
 //!
 //! ## ③ 只读台账（8 张，列表 + 详情）
 //!
@@ -72,6 +73,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::business::erp::code_policy;
+use crate::business::erp::dto;
 use crate::business::erp::dto::{
     AccountFilter, AccountRes, CreateLocationReq, CreateMaterialReq, CreateSupplierReq, CreateUnitReq,
     CreateWarehouseReq, InventoryFilter, InventoryLocationFilter, InventoryLocationRes, InventoryRes,
@@ -595,13 +597,24 @@ pub async fn create_warehouse(
     Ok(WarehouseRes::from(&row))
 }
 
-/// 仓库编码重复（409 + `66001`）：文案与供应商 / 客户 / 物料同一套口径（已软删的编码可复用）。
-fn warehouse_code_conflict(code: &str) -> ApiError {
+/// 主数据编码重复的**唯一文案出口**（`409 + 66001`；E2E08-FIX-2 ③ 统一口径）。
+///
+/// `kind` 是实体名（`供应商` / `客户` / `物料` / `仓库` / `资产分类` / `费用类型` / `计量单位`），
+/// 拼出来就是「`{kind}编码 `X` 已存在（已软删的编码可以复用）`」——六类共用一句话术，
+/// 差别只在 `kind`。**点名具体编码**是刻意的：用户要知道撞了哪一条，而不是只看到裸约束名。
+///
+/// 已软删的编码可以复用：与六张主数据表的「未删除内唯一」索引口径一致。
+pub(crate) fn code_conflict(kind: &str, code: &str) -> ApiError {
     ApiError::new(
         409,
         error_code::ERP_CODE_CONFLICT,
-        format!("仓库编码 `{code}` 已存在（已软删的编码可以复用）"),
+        format!("{kind}编码 `{code}` 已存在（已软删的编码可以复用）"),
     )
+}
+
+/// 仓库编码重复（409 + `66001`）：走六类共用的 [`code_conflict`]。
+fn warehouse_code_conflict(code: &str) -> ApiError {
+    code_conflict("仓库", code)
 }
 
 /// 仓库写路径的 DB 错误收口：唯一索引冲突翻成**带编码**的 409，其余走 [`write_error`]。
@@ -1255,13 +1268,9 @@ pub async fn create_material(
     Ok(MaterialRes::from(&row))
 }
 
-/// 物料编码重复（409 + `66001`）：文案与供应商 / 客户 / 仓库同一套口径（已软删的编码可复用）。
+/// 物料编码重复（409 + `66001`）：走六类共用的 [`code_conflict`]。
 fn material_code_conflict(code: &str) -> ApiError {
-    ApiError::new(
-        409,
-        error_code::ERP_CODE_CONFLICT,
-        format!("物料编码 `{code}` 已存在（已软删的编码可以复用）"),
-    )
+    code_conflict("物料", code)
 }
 
 /// 物料写路径的 DB 错误收口：唯一索引冲突翻成**带编码**的 409，其余走 [`write_error`]。
@@ -1481,6 +1490,72 @@ pub async fn unit_detail(Path(id): Path<String>) -> ResResult<UnitRes> {
     Ok(Res::ok(UnitRes::from(&row)))
 }
 
+/// 计量单位「取号」端点 —— **显式返回 400**（E2E08-FIX-2 ④，方案 A）。
+///
+/// # 为什么要有这条路由（而不是什么都不做）
+///
+/// 六类主数据里其余五类都有 `GET /{实体}/next-code`；单位**不自动取号**
+/// （`PCS` / `KG` / `M` 是行业标准码，替用户编 `U-01` 没人看得懂，见 [`seq`] 文件头）。
+/// 没有这条路由时，`GET /business/erp/unit/next-code` 会被 `/unit/{id}` 吃掉，
+/// 返回 `400 + 66006「id 不是 UUID」`——对接方按「路由丢失」排查，排查半天才发现是「本就不提供」。
+///
+/// 所以这里注册一条**显式**路由，把结论写在响应里：`400 + 10001 + 人话`。
+/// 选静态路由不会和 `/unit/{id}` 冲突：axum（matchit）静态段优先于参数段。
+#[nik::permission(
+    path = "/business/erp/unit/next-code",
+    method = "GET",
+    permission = "business:erp:unit:create"
+)]
+#[nik::get("/business/erp/unit/next-code")]
+pub async fn unit_next_code(Extension(AuthClaims(_claims)): Extension<AuthClaims>) -> ResResult<serde_json::Value> {
+    Err(unit_code_not_auto())
+}
+
+/// 「计量单位不提供自动取号」的统一错误（`400 + 10001`）。
+///
+/// 与 [`dto::UNIT_CODE_REQUIRED`] 是**一对**：一个说「建单必须自己填编码」，
+/// 一个说「别指望这里能取号」，两条文案合起来才是完整的单位编码口径。
+pub fn unit_code_not_auto() -> ApiError {
+    ApiError::new(
+        400,
+        error_code::PARAM_INVALID,
+        format!(
+            "计量单位不提供自动取号：请在新建时手工填写 unit_code（{}）。\
+             其余五类主数据（供应商 / 客户 / 物料 / 仓库 / 资产分类 / 费用类型）才有 next-code 端点",
+            dto::UNIT_CODE_REQUIRED
+        ),
+    )
+}
+
+/// 计量单位编码是否已被占用（`未删除内唯一`，与 `uk_biz_unit_code` 同口径）。
+async fn unit_code_taken(code: &str) -> std::result::Result<bool, ApiError> {
+    let rows = db()
+        .find_with_params(
+            "SELECT 1 AS hit FROM biz_unit WHERE unit_code = ? AND deleted_at IS NULL",
+            vec![Value::from(code)],
+        )
+        .await
+        .map_err(|error| utils::db_error(error, "校验计量单位编码唯一性"))?;
+    Ok(!rows.is_empty())
+}
+
+/// 计量单位编码重复（409 + `66001`）：走六类共用的 [`code_conflict`]。
+fn unit_code_conflict(code: &str) -> ApiError {
+    code_conflict("计量单位", code)
+}
+
+/// 计量单位写路径的 DB 错误收口：唯一索引冲突翻成**带编码**的 409，其余走 [`write_error`]。
+///
+/// 预检（[`unit_code_taken`]）与 INSERT 之间的并发窗口由这一层兜底：并发建同一个编码时
+/// 后到的那个拿到 DB 的 `23505`，仍然翻译成同一句「计量单位编码 `X` 已存在」，
+/// 而不是裸约束名。
+fn unit_write_error(err: DbError, code: &str) -> ApiError {
+    match &err {
+        DbError::UniqueViolation { .. } => unit_code_conflict(code),
+        _ => write_error(err, "新建计量单位"),
+    }
+}
+
 /// 新建计量单位。
 #[nik::permission(
     path = "/business/erp/unit",
@@ -1493,6 +1568,14 @@ pub async fn unit_create(
     Json(req): Json<CreateUnitReq>,
 ) -> ResResult<UnitRes> {
     req.validate()?;
+    // ② 编码必填但不自动取号：缺失 / 纯空白 ⇒ 400 + 10001 + 人话（不是框架反序列化的 422）。
+    //    与其余五类「留空 = 自动取号」是**相反**的语义，所以文案必须说清「单位不自动取号」。
+    let unit_code = req.unit_code_required()?.to_string();
+    // ③ 建单前预检（与供应商 / 物料 / 仓库 / 分类 / 费用类型同一口径）：
+    //    撞码直接 409 + 点名编码，不等 DB 唯一索引把裸约束名抛给用户。
+    if unit_code_taken(&unit_code).await? {
+        return Err(unit_code_conflict(&unit_code));
+    }
     let base_unit_id = match req.base_unit_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some(raw) => {
             let base_id = parse_uuid(raw, "base_unit_id")?;
@@ -1515,7 +1598,7 @@ pub async fn unit_create(
                      false, ?, now(), now(), NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)",
         vec![
             Value::from(&id),
-            Value::from(req.unit_code.trim().to_string()),
+            Value::from(unit_code.clone()),
             Value::from(req.unit_name.trim().to_string()),
             Value::I16(flag_to_i16(req.is_base)),
             uuid_text(base_unit_id),
@@ -1531,7 +1614,7 @@ pub async fn unit_create(
         ],
     )
     .await
-    .map_err(|error| write_error(error, "新建计量单位"))?;
+    .map_err(|error| unit_write_error(error, &unit_code))?;
     let row = model::unit_find_by_id(id)
         .await
         .map_err(|error| utils::db_error(error, "回读新建计量单位"))?
@@ -1910,13 +1993,9 @@ pub(crate) async fn create_supplier_with_policy(
     Ok(SupplierRes::from(&row))
 }
 
-/// 供应商编码重复（409 + `66001`）：文案与客户 / 物料同一套口径（已软删的编码可复用）。
+/// 供应商编码重复（409 + `66001`）：走六类共用的 [`code_conflict`]。
 fn supplier_code_conflict(code: &str) -> ApiError {
-    ApiError::new(
-        409,
-        error_code::ERP_CODE_CONFLICT,
-        format!("供应商编码 `{code}` 已存在（已软删的编码可以复用）"),
-    )
+    code_conflict("供应商", code)
 }
 
 /// 供应商写路径的 DB 错误收口：唯一索引冲突翻成**带编码**的 409，其余走 [`write_error`]。
@@ -2626,19 +2705,32 @@ mod tests {
         }
     }
 
-    /// ⑪ 三个特殊查询的路由路径互不冲突，且都在 `/business/erp/` 下。
+    /// ⑪ 特殊查询的路由路径互不冲突，且都在 `/business/erp/` 下。
+    ///
+    /// E2E08-FIX-2 ④：单位的 `next-code` 是**显式注册**的静态路由（返回 400「不提供取号」），
+    /// 必须与 `/unit/{id}` 并存 —— axum（matchit）静态段优先于参数段，所以静态路由能命中，
+    /// 不会被当成一个「id 不是 UUID」的请求。这条用例钉住「路径本身不重复」。
     #[test]
     fn special_routes_are_distinct() {
         let routes = [
             "/business/erp/warehouse/tree",
             "/business/erp/location/list",
             "/business/erp/material/list",
+            "/business/erp/supplier/next-code",
+            "/business/erp/material/next-code",
+            "/business/erp/warehouse/next-code",
+            "/business/erp/unit/next-code",
         ];
         let unique: std::collections::BTreeSet<_> = routes.iter().collect();
         assert_eq!(unique.len(), routes.len(), "特殊查询路径不得重复");
         assert!(
             routes.iter().all(|route| route.starts_with("/business/erp/")),
             "路径前缀统一"
+        );
+        // `/unit/next-code` 与 `/unit/{id}` 是两条不同的路由：前者是字面量，后者带参数占位
+        assert!(
+            !routes.iter().any(|route| route.contains("{id}")),
+            "静态路由列表里不许出现参数占位（否则就不是「静态优先」了）"
         );
         // 下拉上限必须落在分页归一化的合法区间内；用运行时比较，别写成常量断言
         // （`clippy::assertions_on_constants` 在 `-D warnings` 下会直接红）
@@ -2744,7 +2836,7 @@ mod tests {
         let Some(_guard) = setup().await else { return };
         let unit_code = code("U");
         let req = CreateUnitReq {
-            unit_code: unit_code.clone(),
+            unit_code: Some(unit_code.clone()),
             unit_name: "W1C 个".to_string(),
             is_base: true,
             base_unit_id: None,
@@ -2780,13 +2872,14 @@ mod tests {
         hard_delete("biz_unit", id).await;
     }
 
-    /// ⑬ 单位：重复编码 → `409 + 66001`。
+    /// ⑬ 单位：重复编码 → `409 + 66001`，**文案点名编码**（E2E08-FIX-2 ③：
+    /// 原来是裸 DB 口径「编码已存在（唯一约束 uk_biz_unit_code）」，用户不知道撞了哪条）。
     #[tokio::test]
     async fn unit_duplicate_code_conflicts() {
         let Some(_guard) = setup().await else { return };
         let unit_code = code("UDUP");
         let build = || CreateUnitReq {
-            unit_code: unit_code.clone(),
+            unit_code: Some(unit_code.clone()),
             unit_name: "W1C 重复".to_string(),
             is_base: true,
             base_unit_id: None,
@@ -2807,7 +2900,100 @@ mod tests {
             .expect_err("重复编码必须失败");
         assert_eq!(error.status, 409);
         assert_eq!(error.code, error_code::ERP_CODE_CONFLICT);
+        assert_eq!(
+            error.msg,
+            format!("计量单位编码 `{unit_code}` 已存在（已软删的编码可以复用）"),
+            "文案必须与其余五类逐字同口径，且点名具体编码"
+        );
+        // 预检（SELECT）先拦：不把裸约束名 `uk_biz_unit_code` 抛给用户
+        assert!(
+            !error.msg.contains("uk_biz_unit_code"),
+            "不许出现裸 DB 口径：{}",
+            error.msg
+        );
+
+        // 预检放过但 DB 唯一索引兜住（并发窗口）：本用例直接打 `unit_write_error` 验翻译
+        let concurrent = unit_write_error(
+            DbError::UniqueViolation {
+                column: None,
+                constraint: Some("uk_biz_unit_code".to_string()),
+                source: None,
+            },
+            &unit_code,
+        );
+        assert_eq!(concurrent.status, 409);
+        assert_eq!(concurrent.code, error_code::ERP_CODE_CONFLICT);
+        assert!(
+            concurrent.msg.contains(&unit_code),
+            "并发兜底也要点名编码：{}",
+            concurrent.msg
+        );
+
         hard_delete("biz_unit", id).await;
+    }
+
+    /// ⑬-b 单位：**没传 unit_code** ⇒ `400 + 10001 + 人话`，不是框架反序列化的 422
+    /// （E2E08-FIX-2 ②；其余五类此时走「自动取号」，单位不取号所以必须报错）。
+    ///
+    /// 不需要真库：`validate` 在碰 DB 之前就返回。
+    #[tokio::test]
+    async fn unit_create_without_code_is_400_with_human_message() {
+        for missing in [None, Some(String::new()), Some("   ".to_string())] {
+            let req = CreateUnitReq {
+                unit_code: missing.clone(),
+                unit_name: "E2E08F2 无编码单位".to_string(),
+                is_base: true,
+                base_unit_id: None,
+                rate: None,
+                status: 1,
+                sort_order: 0,
+                remark: None,
+                precision: None,
+            };
+            let error = unit_create(Extension(AuthClaims(claims())), Json(req))
+                .await
+                .expect_err("缺编码必须被拒");
+            assert_eq!(
+                error.status, 400,
+                "必须是业务 400（422 会让前端按错误码分支拿不到人话）"
+            );
+            assert_eq!(error.code, error_code::PARAM_INVALID);
+            assert_eq!(
+                error.msg, "计量单位编码必填（单位不自动取号）",
+                "文案要人话且点明「不自动取号」（入参 {missing:?}）"
+            );
+        }
+
+        // 反序列化层：JSON 里根本没有 unit_code 也不能 422
+        let body = r#"{"unit_name":"E2E08F2 直接反序列化"}"#;
+        let req: CreateUnitReq = serde_json::from_str(body).expect("缺 unit_code 必须能反序列化");
+        assert!(req.unit_code.is_none(), "缺席 → None（不是 422）");
+        assert_eq!(
+            req.unit_code_required().expect_err("缺席必须报错").msg,
+            "计量单位编码必填（单位不自动取号）"
+        );
+    }
+
+    /// ⑬-c 单位：`GET /unit/next-code` 返回**明确的** 400（E2E08-FIX-2 ④）。
+    #[tokio::test]
+    async fn unit_next_code_is_explicit_400() {
+        let error = unit_next_code(Extension(AuthClaims(claims())))
+            .await
+            .expect_err("单位不提供取号，必须报错");
+        assert_eq!(error.status, 400);
+        assert_eq!(error.code, error_code::PARAM_INVALID);
+        assert!(
+            error.msg.contains("计量单位不提供自动取号"),
+            "文案要点明结论：{}",
+            error.msg
+        );
+        assert!(
+            error.msg.contains("unit_code"),
+            "文案要给出下一步（手工填 unit_code）：{}",
+            error.msg
+        );
+        // 关键：不再是「被 /unit/{id} 吃掉」那句（66006 = id 不是 UUID）
+        assert_ne!(error.code, error_code::ERP_FILTER_INVALID, "不许退化成路由错");
     }
 
     /// ⑭ 单位：编辑名称 + 折算率；转成基础单位后 rate 归 1。
@@ -2815,7 +3001,7 @@ mod tests {
     async fn unit_update_applies_patch_semantics() {
         let Some(_guard) = setup().await else { return };
         let base_req = CreateUnitReq {
-            unit_code: code("UBASE"),
+            unit_code: Some(code("UBASE")),
             unit_name: "W1C 基础".to_string(),
             is_base: true,
             base_unit_id: None,
@@ -2833,7 +3019,7 @@ mod tests {
         let base_id = Uuid::parse_str(&base.id).unwrap();
 
         let box_req = CreateUnitReq {
-            unit_code: code("UBOX"),
+            unit_code: Some(code("UBOX")),
             unit_name: "W1C 箱".to_string(),
             is_base: false,
             base_unit_id: Some(base_id.to_string()),
@@ -2880,7 +3066,7 @@ mod tests {
         let Some(_guard) = setup().await else { return };
         let unit_code = code("UDEL");
         let req = CreateUnitReq {
-            unit_code: unit_code.clone(),
+            unit_code: Some(unit_code.clone()),
             unit_name: "W1C 待删".to_string(),
             is_base: true,
             base_unit_id: None,
@@ -2938,7 +3124,7 @@ mod tests {
             unit_create(
                 Extension(AuthClaims(claims())),
                 Json(CreateUnitReq {
-                    unit_code: code("USYS"),
+                    unit_code: Some(code("USYS")),
                     unit_name: "W1C 预置".to_string(),
                     is_base: true,
                     base_unit_id: None,
@@ -3000,7 +3186,7 @@ mod tests {
     async fn unit_precision_round_trip_and_rejects_overflow() {
         let Some(_guard) = setup().await else { return };
         let req = CreateUnitReq {
-            unit_code: code("UPREC"),
+            unit_code: Some(code("UPREC")),
             unit_name: "W1C 精度".to_string(),
             is_base: true,
             base_unit_id: None,
@@ -3038,7 +3224,7 @@ mod tests {
         let error = unit_create(
             Extension(AuthClaims(claims())),
             Json(CreateUnitReq {
-                unit_code: code("UBADP"),
+                unit_code: Some(code("UBADP")),
                 unit_name: "W1C 越界".to_string(),
                 is_base: true,
                 base_unit_id: None,
@@ -3429,7 +3615,7 @@ mod tests {
             unit_create(
                 Extension(AuthClaims(claims())),
                 Json(CreateUnitReq {
-                    unit_code: code("MU"),
+                    unit_code: Some(code("MU")),
                     unit_name: "W1C 物料单位".to_string(),
                     is_base: true,
                     base_unit_id: None,
@@ -3565,7 +3751,7 @@ mod tests {
             unit_create(
                 Extension(AuthClaims(claims())),
                 Json(CreateUnitReq {
-                    unit_code: code("UBASE"),
+                    unit_code: Some(code("UBASE")),
                     unit_name: "W1C 个".to_string(),
                     is_base: true,
                     base_unit_id: None,
@@ -3584,7 +3770,7 @@ mod tests {
             unit_create(
                 Extension(AuthClaims(claims())),
                 Json(CreateUnitReq {
-                    unit_code: code("UBOX"),
+                    unit_code: Some(code("UBOX")),
                     unit_name: "W1C 箱".to_string(),
                     is_base: false,
                     base_unit_id: Some(base_id.to_string()),
@@ -3772,7 +3958,7 @@ mod tests {
             unit_create(
                 Extension(AuthClaims(claims())),
                 Json(CreateUnitReq {
-                    unit_code: code("SPU"),
+                    unit_code: Some(code("SPU")),
                     unit_name: "E2E4 标准价单位".to_string(),
                     is_base: true,
                     base_unit_id: None,
@@ -4319,7 +4505,7 @@ mod tests {
             unit_create(
                 Extension(AuthClaims(claims())),
                 Json(CreateUnitReq {
-                    unit_code: code(&format!("U{tag}")),
+                    unit_code: Some(code(&format!("U{tag}"))),
                     unit_name: format!("W1C 单位 {tag}"),
                     is_base: true,
                     base_unit_id: None,

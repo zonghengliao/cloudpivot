@@ -227,7 +227,7 @@ pub async fn type_next_code(Extension(AuthClaims(_claims)): Extension<AuthClaims
 /// | 入参 `type_code` | 行为 |
 /// |---|---|
 /// | `null` / `""` / 纯空白 | 自动取号：`ET-01` 形态（`biz_seq` 的 ET 号段，**纯流水 2 位**、不计日期、永不重置）；撞号自动顺延 |
-/// | 有值 | **原样保留**（转大写；`TRAVEL` / `ADMIN-FEE` 都能对接），只校验长度 ≤ 40 + 字符集 |
+/// | 有值 | **原样保留**（大小写不改；`TRAVEL` / `ADMIN-FEE` / `travel-fee` 都能对接），只校验长度 ≤ 40 + 字符集 |
 ///
 /// 位数由 `biz_seq.pad_width` 决定（ET = 2）：`ET-01` … `ET-99`，第 100 个起自然变成 `ET-100`。
 ///
@@ -279,13 +279,9 @@ pub async fn create_expense_type(operator: Option<Uuid>, req: TypeReq) -> Result
     Ok(type_res(&row))
 }
 
-/// 费用类型编码重复（409 + `66001`）：文案与其它主数据同一套口径（已软删的编码可复用）。
+/// 费用类型编码重复（409 + `66001`）：走六类共用的 [`code_conflict`]（E2E08-FIX-2 ③ 统一文案）。
 fn type_code_conflict(code: &str) -> ApiError {
-    ApiError::new(
-        409,
-        error_code::ERP_CODE_CONFLICT,
-        format!("费用类型编码 `{code}` 已存在（已软删的编码可以复用）"),
-    )
+    super::handler::code_conflict("费用类型", code)
 }
 
 /// 费用类型写路径的 DB 错误收口：唯一索引冲突翻成**带编码**的 409，其余走 [`db_err`]。
@@ -1668,20 +1664,19 @@ mod tests {
         };
         let account = debit_leaf_account().await;
         let before = et_current_no().await;
-        let manual = format!("ADMIN-FEE-{}", &Uuid::now_v7().simple().to_string()[..6]);
+        let manual = format!("admin-fee-{}", &Uuid::now_v7().simple().to_string()[..6]);
         let created = create_expense_type(None, type_req(Some(&manual), "CODE04 手工类型", &account))
             .await
             .expect("手工编码应通过");
         assert_eq!(
-            created.type_code,
-            manual.to_ascii_uppercase(),
-            "手工编码必须原样保留（只转大写）"
+            created.type_code, manual,
+            "手工编码大小写原样保留（E2E08-FIX-2 ①：六类统一不改大小写）"
         );
         assert!(!is_auto_et_code(&created.type_code), "手工编码不该被改写成交号形态");
         assert_eq!(
             type_row(&created.id).await.type_code,
-            manual.to_ascii_uppercase(),
-            "手工编码真落库"
+            manual,
+            "手工编码真落库（小写也照存）"
         );
         assert_eq!(et_current_no().await, before, "手工编码不消耗号段（取号器不该被调用）");
 
@@ -1751,11 +1746,7 @@ mod tests {
             .expect_err("重复编码必须被拒");
         assert_eq!(err.status, 409, "重复编码是冲突，不是参数错");
         assert_eq!(err.code, error_code::ERP_CODE_CONFLICT);
-        assert!(
-            err.msg.contains(&manual.to_ascii_uppercase()),
-            "文案必须点名具体编码：{}",
-            err.msg
-        );
+        assert!(err.msg.contains(&manual), "文案必须点名具体编码：{}", err.msg);
 
         drop_type(&created.id).await;
     }

@@ -380,7 +380,7 @@ function openEdit(row: AssetCategory): void {
 
 function toPayload(): AssetCategoryPayload {
   return {
-    // 留空发 null：后端据此自动取号（AC-01 形态）；填了原样保留（转大写）。
+    // 留空发 null：后端据此自动取号（AC-01 形态）；填了原样保留（**大小写不改**，六类同一口径）。
     category_code: toMasterCodeInput(form.category_code),
     category_name: form.category_name.trim(),
     useful_life_months: Number(form.useful_life_months ?? 0),

@@ -169,7 +169,7 @@ pub struct TypeReq {
     ///
     /// **卡 CODE-04**：留空（`null` / `""` / 纯空白）⇒ 新建时后端取号 **`ET-01` 形态**
     /// （`biz_seq` 的 ET 号段：纯流水 2 位、不计日期、永不重置；撞号自动顺延，
-    /// 超过 2 位按实际位数输出，如 `ET-100`）；有值 ⇒ 原样保留（转大写），
+    /// 超过 2 位按实际位数输出，如 `ET-100`）；有值 ⇒ **原样保留**（不转大写），
     /// 只校验 ≤ 40 + 字符集（字母 / 数字 / `-` `_` `.`），不强制 `ET-xx` 形态。
     pub type_code: Option<String>,
     /// 名称。
@@ -224,15 +224,16 @@ pub struct TypeSpec {
 pub fn validate_type(req: &TypeReq, creating: bool) -> Result<TypeSpec, ApiError> {
     // 编码（卡 CODE-04）：
     // * 留空（`null` / `""` / 纯空白）⇒ 空串，新建时由 handler 取号（`ET-01` 形态）；
-    // * 有值 ⇒ 原样保留（转大写），只校验长度 ≤ 40 + 字符集（字母 / 数字 / `-` `_` `.`），
+    // * 有值 ⇒ **原样保留**（不转大写，与 SUP/CUS/MAT/WH/AC 同一口径），
+    //   只校验长度 ≤ 40 + 字符集（字母 / 数字 / `-` `_` `.`），
     //   **不强制 `ET-xx` 形态**（企业已有编码体系要能对接）。
     let type_code = crate::business::erp::seq::resolve_manual_code(
         req.type_code.as_deref(),
         crate::business::erp::seq::MAX_MANUAL_CODE_LEN,
     )
     .map_err(|reason| invalid(format!("费用类型编码不合法：{reason}")))?
-    // 统一大写：存量编码（TRAVEL / MEAL …）与取号器的 ET-01 都是大写。
-    .map(|text| text.to_ascii_uppercase())
+    // 大小写原样保留（E2E08-FIX-2 ①）：六类主数据统一「用户填什么就存什么」。
+    // 取号器产出的 ET-01 本来是大写，不受影响。
     .unwrap_or_default();
     let type_name = match creating {
         true => required(req.type_name.as_ref(), "费用类型名称", 120)?,
@@ -938,7 +939,7 @@ mod tests {
         let mut ok = req.clone();
         ok.amount_limit = Some(dec("5000"));
         let spec = validate_type(&ok, true).expect("合法类型");
-        assert_eq!(spec.type_code, "TRAVEL", "编码归一成大写");
+        assert_eq!(spec.type_code, "travel", "编码大小写原样保留（E2E08-FIX-2 ①）");
     }
 
     /// ⑨ CODE-04：编码留空 = 后端取号（`ET-01` 形态），手工编码保留（含企业自有形态）。
@@ -965,13 +966,13 @@ mod tests {
         }
 
         // 取号器产出的形态（ET-01）与手工自有编码（如 ADMIN-FEE）都要能通过
-        for manual in ["ET-01", "ADMIN-FEE", "FY_2026.01"] {
+        for manual in ["ET-01", "ADMIN-FEE", "FY_2026.01", "travel-fee"] {
             let mut req = base.clone();
             req.type_code = Some(manual.to_string());
             assert_eq!(
                 validate_type(&req, true).expect("合法手工编码").type_code,
-                manual.to_ascii_uppercase(),
-                "手工编码原样保留（转大写）"
+                manual,
+                "手工编码大小写原样保留（E2E08-FIX-2 ①）"
             );
         }
 

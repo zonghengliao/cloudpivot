@@ -165,13 +165,9 @@ fn not_found() -> ApiError {
     ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "客户不存在或已删除".to_string())
 }
 
-/// 编码重复（409 + `66001`）：文案与供应商 / 物料同一套口径（已软删的编码可复用）。
+/// 编码重复（409 + `66001`）：走六类共用的 [`super::handler::code_conflict`]（E2E08-FIX-2 ③）。
 fn code_conflict(code: &str) -> ApiError {
-    ApiError::new(
-        409,
-        error_code::ERP_CODE_CONFLICT,
-        format!("客户编码 `{code}` 已存在（已软删的编码可以复用）"),
-    )
+    super::handler::code_conflict("客户", code)
 }
 
 /// 写路径的数据库错误收口。

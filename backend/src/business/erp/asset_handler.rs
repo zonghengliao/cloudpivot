@@ -156,7 +156,7 @@ pub async fn asset_category_next_code(
 /// | 入参 `category_code` | 行为 |
 /// |---|---|
 /// | `null` / `""` / 纯空白 | 自动取号：`AC-01` 形态（`biz_seq` 的 AC 号段，**纯流水 2 位**、不计日期、永不重置）；撞号自动顺延 |
-/// | 有值 | **原样保留**（转大写；`CAT-BUILDING` / `AC-01` 都能对接），只校验长度 ≤ 40 + 字符集 |
+/// | 有值 | **原样保留**（大小写不改，与供应商 / 客户 / 物料 / 仓库 / 费用类型同一口径；`CAT-BUILDING` / `AC-01` 都能对接），只校验长度 ≤ 40 + 字符集 |
 ///
 /// 位数由 `biz_seq.pad_width` 决定（AC = 2）：`AC-01` … `AC-99`，第 100 个起自然变成
 /// `AC-100`（[`seq::format_master_code`] 只补零不截断，避免 2 位号段被腰斩成重号）。
@@ -212,13 +212,9 @@ pub async fn create_asset_category(operator: Option<Uuid>, req: CategoryReq) -> 
     Ok(CategoryRes::from(&row))
 }
 
-/// 分类编码重复（409 + `66001`）：文案与其它主数据同一套口径（已软删的编码可复用）。
+/// 分类编码重复（409 + `66001`）：走六类共用的 [`code_conflict`]（E2E08-FIX-2 ③ 统一文案）。
 fn category_code_conflict(code: &str) -> ApiError {
-    ApiError::new(
-        409,
-        error_code::ERP_CODE_CONFLICT,
-        format!("分类编码 `{code}` 已存在（已软删的编码可以复用）"),
-    )
+    super::handler::code_conflict("分类", code)
 }
 
 /// 分类写路径的 DB 错误收口：唯一索引冲突翻成**带编码**的 409，其余走 [`db_err`]。
@@ -1607,18 +1603,17 @@ mod tests {
             return;
         };
         let before = ac_current_no().await;
-        let manual = format!("CAT-BUILDING-{}", &Uuid::now_v7().simple().to_string()[..6]);
+        let manual = format!("cat-building-{}", &Uuid::now_v7().simple().to_string()[..6]);
         let created = create_asset_category(None, category_req(Some(&manual), "CODE04 手工分类"))
             .await
             .expect("手工编码应通过");
         assert_eq!(
-            created.category_code,
-            manual.to_ascii_uppercase(),
-            "手工编码必须原样保留（只转大写）"
+            created.category_code, manual,
+            "手工编码大小写原样保留（E2E08-FIX-2 ①：六类统一不改大小写）"
         );
         assert!(!is_auto_ac_code(&created.category_code), "手工编码不该被改写成交号形态");
         let row = category_row(&created.id).await;
-        assert_eq!(row.category_code, manual.to_ascii_uppercase(), "手工编码真落库");
+        assert_eq!(row.category_code, manual, "手工编码真落库（小写也照存）");
         assert_eq!(ac_current_no().await, before, "手工编码不消耗号段（取号器不该被调用）");
 
         // 预览接口口径：peek 不消耗号，拿到的号可以直接当手工编码保存
@@ -1685,11 +1680,7 @@ mod tests {
             .expect_err("重复编码必须被拒");
         assert_eq!(err.status, 409, "重复编码是冲突，不是参数错");
         assert_eq!(err.code, error_code::ERP_CODE_CONFLICT);
-        assert!(
-            err.msg.contains(&manual.to_ascii_uppercase()),
-            "文案必须点名具体编码：{}",
-            err.msg
-        );
+        assert!(err.msg.contains(&manual), "文案必须点名具体编码：{}", err.msg);
 
         drop_category(&created.id).await;
     }

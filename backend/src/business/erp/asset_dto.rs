@@ -166,7 +166,7 @@ pub struct CategoryFilter {
 /// 新建 / 修改分类。
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct CategoryReq {
-    /// 编码（大写字母 / 数字 / 下划线）。
+    /// 编码（字母 / 数字 / `-` `_` `.`，≤ 40；大小写原样保留，留空 = 自动取号）。
     pub category_code: Option<String>,
     /// 名称。
     pub category_name: Option<String>,
@@ -221,7 +221,8 @@ pub struct CategorySpec {
 ///
 /// * **留空**（`null` / `""` / 纯空白）⇒ `CategorySpec.category_code` 返回**空串**，
 ///   由 handler 用 `erp::seq::next_master_code_free(&tx, "AC")` 生成 `AC-01` 形态的编码；
-/// * **有值** ⇒ 原样保留（转大写），只校验长度 ≤ 40 + 字符集（字母 / 数字 / `-` `_` `.`），
+/// * **有值** ⇒ **原样保留**（不转大写，与 SUP/CUS/MAT/WH 四类同一口径），
+///   只校验长度 ≤ 40 + 字符集（字母 / 数字 / `-` `_` `.`），
 ///   **不强制 `AC-xx` 形态**（企业已有编码体系如 `CAT-BUILDING` 要能对接）。
 ///
 /// 两条目的区别只在调用方怎么用这个空串：新建时取号，修改时「不改编码」。
@@ -231,9 +232,9 @@ pub fn validate_category(req: &CategoryReq) -> Result<CategorySpec, ApiError> {
         crate::business::erp::seq::MAX_MANUAL_CODE_LEN,
     )
     .map_err(|reason| invalid(format!("分类编码不合法：{reason}")))?
-    // 编码统一大写：库里的存量编码（ELEC / FURNITURE / VEHICLE …）与取号器的 AC-01 都是大写，
-    // 免得「elec」与「ELEC」变成两个看起来相同的分类。
-    .map(|text| text.to_ascii_uppercase())
+    // 大小写**原样保留**（E2E08-FIX-2 ①）：六类主数据统一「用户填什么就存什么」。
+    // 企业自有编码有的系统区分大小写，替用户改大小写等于改他的编码；取号器产出的
+    // `AC-01` 本来是大写，不受影响。
     .unwrap_or_default();
     let name = req
         .category_name
@@ -1452,7 +1453,7 @@ mod tests {
         assert_eq!(monthly, dec!(1583.3333));
     }
 
-    /// ⑧ 分类校验：年限越界 / 残值率越界 / 编码非大写。
+    /// ⑧ 分类校验：年限越界 / 残值率越界 / 编码字符集 / 大小写原样保留。
     #[test]
     fn category_validation() {
         let ok = CategoryReq {
@@ -1502,8 +1503,8 @@ mod tests {
         legacy.category_code = Some("cat-building".to_string());
         assert_eq!(
             validate_category(&legacy).expect("企业自有编码合法").category_code,
-            "CAT-BUILDING",
-            "手工编码统一大写（与存量 ELEC/VEHICLE 同口径）"
+            "cat-building",
+            "大小写原样保留（六类主数据统一口径，E2E08-FIX-2 ①）"
         );
     }
 
