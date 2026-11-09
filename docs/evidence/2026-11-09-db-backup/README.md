@@ -38,6 +38,8 @@ dump 生成：cloudpivot-20261109-220753.dump（1509164 字节，耗时 1s）
 
 `.meta` 内容见 `prod_144.meta`（DB 模板同目录；prod dump 本体**不进 git**，sha256 记在 `prod_144.dump.sha256`）。
 
+保留策略不误伤手工备份（144 实测）：脚本跑了 4 次后，`/root/db-backup` 里 4 份 `cloudpivot-<ts>.dump` 归脚本管，而 5 份历史手工备份（`predeploy-*`、`prod-before-deploy-*`、`prod-before-cleanup-*`）**一份没被删** —— 删除只匹配 `<db>-<YYYYmmdd-HHMMSS>.dump` 命名规则。
+
 ## ② 145 测试备份（实测）
 
 ```
