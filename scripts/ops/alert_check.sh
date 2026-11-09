@@ -577,15 +577,18 @@ dispatch() {
   for item in "${FOUND[@]:-}"; do
     [ -n "$item" ] || continue
     IFS='|' read -r key level title detail <<<"$item"
-    if [ "$DRY_RUN" -eq 0 ] && ! should_fire "$key"; then
-      log "  ↳ ${key}: 去重窗口内已告警过（<${DEDUP_SECONDS}s），本次抑制"
-      continue
+    if [ "$DRY_RUN" -eq 0 ]; then
+      # should_fire：0 = 窗口内已告警过（抑制），1 = 应当发送 → 因此 0 才是「该抑制」
+      if should_fire "$key"; then
+        log "  ↳ ${key}: 去重窗口内已告警过（<${DEDUP_SECONDS}s），本次抑制"
+        continue
+      fi
     fi
-    write_log_line "$level" "$key" "$title" "$detail"
     if [ "$DRY_RUN" -eq 1 ]; then
       log "  ↳ dry-run：本该建卡/发飞书（${level} ${title}）"
       continue
     fi
+    write_log_line "$level" "$key" "$title" "$detail"
     sink_kanban "$key" "$level" "$title" "$detail"
     sink_feishu "$key" "$level" "$title" "$detail"
   done
@@ -661,6 +664,27 @@ self_test() {
   expect "窗口过期后应再次发送" ok "$r"
   STATE_DIR="$saved_state"; DEDUP_SECONDS="${NIK_ALERT_DEDUP_SECONDS:-300}"
   rm -rf "$tmp_state"
+
+  echo "== 派发：去重 + ALERT.log（端到端，sinks 关掉不建卡）=="
+  local tmpdir saved_log saved_state2 saved_kanban saved_feishu saved_dry n1 n2 n3
+  tmpdir="$(mktemp -d)"
+  saved_log="$ALERT_LOG"; saved_state2="$STATE_DIR"; saved_kanban="$KANBAN_MODE"
+  saved_feishu="$FEISHU_MODE"; saved_dry="$DRY_RUN"
+  ALERT_LOG="$tmpdir/ALERT.log"; STATE_DIR="$tmpdir/state"; mkdir -p "$STATE_DIR"
+  KANBAN_MODE=off; FEISHU_MODE=off; DRY_RUN=0; DEDUP_SECONDS=300; FORCE=0
+  FOUND=("demokey|ALERT|演示告警|详情")
+  dispatch >/dev/null 2>&1
+  n1="$(grep -c demokey "$ALERT_LOG" 2>/dev/null)"; n1="${n1:-0}"
+  dispatch >/dev/null 2>&1
+  n2="$(grep -c demokey "$ALERT_LOG" 2>/dev/null)"; n2="${n2:-0}"
+  expect "首次派发：ALERT.log 写 1 条" 1 "$n1"
+  expect "5 分钟内第二次派发：被去重（仍 1 条）" 1 "$n2"
+  DRY_RUN=1; FOUND=("demokey2|ALERT|演示告警2|详情"); dispatch >/dev/null 2>&1
+  n3="$(grep -c demokey2 "$ALERT_LOG" 2>/dev/null)"; n3="${n3:-0}"
+  expect "dry-run 不写 ALERT.log" 0 "$n3"
+  ALERT_LOG="$saved_log"; STATE_DIR="$saved_state2"; KANBAN_MODE="$saved_kanban"
+  FEISHU_MODE="$saved_feishu"; DRY_RUN="$saved_dry"; FOUND=()
+  rm -rf "$tmpdir"
 
   echo
   if [ "$fail" -eq 0 ]; then
