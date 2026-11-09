@@ -454,7 +454,7 @@ def main():
     # ---------- 通知 ----------
     time.sleep(2)
     receivers = sql_one(
-        "SELECT count(DISTINCT r.receiver_id) FROM sys_notice n "
+        "SELECT count(DISTINCT r.user_id) FROM sys_notice n "
         "JOIN sys_notice_receiver r ON r.notice_id = n.id "
         f"WHERE n.biz_id = '{instance_id}' AND n.biz_type = 'flow'")
     check("6.9 通知已发（收件人 ≥ 2：发起人 + 已审批过的人）",
@@ -554,6 +554,29 @@ def main():
         if uid:
             psql(f"DELETE FROM sys_user_role WHERE user_id = '{uid}'::uuid")
             psql(f"DELETE FROM sys_user WHERE id = '{uid}'::uuid")
+
+    # 自愈：把**历次失败运行**留下的 term3_* 夹具一起收干（前缀是本脚本专属，不碰别人的数据）
+    prefix = "term3\\_cs\\_%"
+    psql("DELETE FROM sys_notice_receiver WHERE notice_id IN (SELECT n.id FROM sys_notice n "
+         f"JOIN biz_flow_instance i ON i.id::text = n.biz_id WHERE i.flow_code LIKE '{prefix}')")
+    psql("DELETE FROM sys_notice WHERE biz_id IN (SELECT id::text FROM biz_flow_instance "
+         f"WHERE flow_code LIKE '{prefix}')")
+    psql("DELETE FROM operation_logs WHERE target_id IN (SELECT id::text FROM biz_flow_instance "
+         f"WHERE flow_code LIKE '{prefix}')")
+    psql(f"DELETE FROM biz_flow_instance WHERE flow_code LIKE '{prefix}'")
+    psql("DELETE FROM biz_flow_node_assignee WHERE node_id IN (SELECT n.id FROM biz_flow_node n "
+         "JOIN biz_flow_def_version v ON v.id = n.version_id JOIN biz_flow_def d ON d.id = v.def_id "
+         f"WHERE d.flow_code LIKE '{prefix}')")
+    psql("DELETE FROM biz_flow_edge WHERE version_id IN (SELECT v.id FROM biz_flow_def_version v "
+         f"JOIN biz_flow_def d ON d.id = v.def_id WHERE d.flow_code LIKE '{prefix}')")
+    psql("DELETE FROM biz_flow_node WHERE version_id IN (SELECT v.id FROM biz_flow_def_version v "
+         f"JOIN biz_flow_def d ON d.id = v.def_id WHERE d.flow_code LIKE '{prefix}')")
+    psql("DELETE FROM biz_flow_def_version WHERE def_id IN "
+         f"(SELECT id FROM biz_flow_def WHERE flow_code LIKE '{prefix}')")
+    psql(f"DELETE FROM biz_flow_def WHERE flow_code LIKE '{prefix}'")
+    psql("DELETE FROM sys_user_role WHERE user_id IN "
+         "(SELECT id FROM sys_user WHERE username LIKE 'term3\\_%')")
+    psql("DELETE FROM sys_user WHERE username LIKE 'term3\\_%'")
 
     residual = sql_one("SELECT count(*) FROM biz_flow_instance "
                        f"WHERE title = 'T3 会签缺人 {SUFFIX}'")
