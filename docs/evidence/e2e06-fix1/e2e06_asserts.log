@@ -1,0 +1,206 @@
+PASS	部门主管指向 e2e06_mgr = e2e06_mgr
+PASS	建用户 e2e06_planner = 0
+PASS	预算编制人属演练部门 = E2E06-BDG
+PASS	报销人持有 EMPLOYEE（附件上传权限载体） = 1
+PASS	全库口令指纹均为 argon2id = 0
+PASS	演练期间齐备（6 期）
+PASS	费用类型列表 http = 200
+PASS	费用类型列表 code = 0
+PASS	建费用类型 http = 200
+PASS	建费用类型 code = 0
+PASS	类型落库（科目/可抵扣/受预算） = 5602.02|1|1|1
+PASS	重复编码 409 = 409
+PASS	改费用类型 http = 200
+PASS	改动落库（名称/上限/发票号非必填） = E2E06 差旅费（改名）|5000.0000|0
+PASS	非末级科目被拒 400 = 400
+PASS	建预算（草稿）http = 200
+PASS	建预算 code = 0
+PASS	草稿状态 = DRAFT
+PASS	月度分解 12 行 = 12
+PASS	12 月合计=年度额度 = 120000.0000
+PASS	单号形态 BDG- = BDG-
+PASS	草稿无 effective_from（边距：DRAFT 不参与控制） = NULL
+PASS	建报销单（DRAFT 期）http = 200
+PASS	建单回包无预算告警字段也 200 = 0
+PASS	上传发票影像 draft http = 200
+PASS	上传发票影像 draft code = 0
+PASS	附件落库（EXPENSE_REPORT / INVOICE_SCAN） = 1
+PASS	DRAFT 预算下提交 http = 200
+PASS	DRAFT 预算不阻断（不是 409） = 0
+PASS	占用行 over_budget=0（未生效预算不算超支） = OCCUPIED/0/NULL
+PASS	详情带回「预算未生效」提示 = BUDGET_NOT_EFFECTIVE
+PASS	提示里的预算状态是 DRAFT = DRAFT
+PASS	撤回 http = 200
+PASS	撤回后占用释放 = RELEASED
+PASS	预算提交 http = 200
+PASS	提交后状态 = SUBMITTED
+PASS	n_dept 恰有 1 条待办（不再全员会签） = 1
+PASS	n_dept 待办归属本部门主管 e2e06_mgr = e2e06_mgr
+PASS	其他 DEPT_LEADER 成员没有被派到 n_dept（部门维度不再错配） = 0
+PASS	n_dept 审批人来源=INITIATOR_SUPERIOR（发起人所在部门） = INITIATOR_SUPERIOR
+PASS	n_dept 审批模式=ANY（或签，一人同意即通过） = ANY
+PASS	编制人自批被内控拒绝 403 = 403
+PASS	编制人自批被内控拒绝 code=65019 = 65019
+PASS	bgA 审批 e2e06_mgr http = 200
+PASS	bgA 审批 e2e01_appr http = 200
+PASS	bgA 审批 e2e06_mgr http = 200
+PASS	预算实例终态 = APPROVED
+PASS	预算状态 ACTIVE = ACTIVE
+PASS	effective_from = 审批次月 1 日 = 2026-12-01
+PASS	预算表零凭证（审批不落账） = 0
+PASS	建 BLOCK 预算 http = 200
+PASS	槽级策略落库 BLOCK = BLOCK
+PASS	BLOCK 预算提交 http = 200
+PASS	bgB 审批 e2e06_mgr http = 200
+PASS	bgB 审批 e2e01_appr http = 200
+PASS	bgB 审批 e2e06_mgr http = 200
+PASS	BLOCK 预算 ACTIVE = ACTIVE
+PASS	建 FY2023 预算 http = 200
+PASS	bgE 审批 e2e06_mgr http = 200
+PASS	bgE 审批 e2e01_appr http = 200
+PASS	bgE 审批 e2e06_mgr http = 200
+PASS	FY2023 预算 ACTIVE = ACTIVE
+PASS	FY2023 生效日 = 审批次月 1 日（> 2023 期间月末） = 2026-12-01
+PASS	建单（2023-11）http = 200
+PASS	上传发票影像 eff http = 200
+PASS	上传发票影像 eff code = 0
+PASS	附件落库（EXPENSE_REPORT / INVOICE_SCAN） = 1
+PASS	提交（生效日前）http = 200
+PASS	未到生效日 → missing_budget=true 且不标超支 = 1|0|NULL
+PASS	提示状态 ACTIVE + 「已生效（未到生效日）」 = ACTIVE|已生效（未到生效日）
+PASS	撤回（生效日前单）http = 200
+PASS	调整（新增版本）http = 200
+PASS	调整返回新版本号 2 = 2
+PASS	调整后旧版仍 ACTIVE（新版还没批） = ACTIVE
+PASS	bgA2 审批 e2e01_appr http = 200
+PASS	bgA2 审批 e2e06_mgr http = 200
+PASS	bgA2 审批 e2e01_appr http = 200
+PASS	新版 ACTIVE = ACTIVE
+PASS	旧版退位 SUPERSEDED = SUPERSEDED
+PASS	同槽 ACTIVE 唯一（库级兜底） = 1
+PASS	ACTIVE 额度改不动（只剩新版 15 万） = 150000.0000
+PASS	未编预算科目建单 http = 200
+PASS	上传发票影像 nobg http = 200
+PASS	上传发票影像 nobg code = 0
+PASS	附件落库（EXPENSE_REPORT / INVOICE_SCAN） = 1
+PASS	未编预算提交 http = 200
+PASS	未编预算不误判超支（over_budget=0 / over_amount NULL） = 0|NULL
+PASS	missing_budget=true（只打「未编制」标记） = 1
+PASS	占用行仍写（WARN 模式占用 + 不标超支） = OCCUPIED/0/NULL
+PASS	撤回未编预算单 http = 200
+PASS	建映射 http = 200
+PASS	建映射 code = 0
+PASS	映射落库（MATERIAL→5602.06） = MATERIAL|E2E04-MAT|5602.06
+PASS	映射分页 http = 200
+PASS	按类型筛选命中（status 参数当 map_type 用） = 1
+PASS	改映射 http = 200
+PASS	优先级落库 5 = 5
+PASS	MATERIAL 缺目标 id 被拒 400 = 400
+PASS	建单 http = 200
+PASS	单号形态 EXP- = EXP-
+PASS	价税/税额/不含税 = 3180/180/3000 = 3180.0000|180.0000|3000.0000
+PASS	状态 DRAFT + 未付款 = DRAFT|UNPAID
+PASS	明细科目快照 5602.02 = 5602.02
+PASS	缺附件提交 400 = 400
+PASS	报文点名缺附件 = 1
+PASS	上传发票影像 exp1 http = 200
+PASS	上传发票影像 exp1 code = 0
+PASS	附件落库（EXPENSE_REPORT / INVOICE_SCAN） = 1
+PASS	提交 http = 200
+PASS	单据 SUBMITTED = SUBMITTED
+PASS	占用落库（OCCUPIED / 3180 / 不超支 / 期间 2027-02） = OCCUPIED|3180.0000|0|2027-02
+PASS	单据预算策略快照 WARN = WARN
+PASS	预算详情 http = 200
+PASS	usages[] 里出现本单（source_no） = 1
+PASS	usages[] 行 状态/金额/超支标记 = OCCUPIED|3180.0000|false|EXPENSE_REPORT
+PASS	预算年度已用 = 3180 = 3180.0000
+PASS	月度分解 2027-02 已用 = 3180 = 3180.0000
+PASS	月度分解 2027-02 可用 = 12500−3180 = 9320.0000
+PASS	撤回 http = 200
+PASS	撤回后 DRAFT + 占用 RELEASED（带释放原因） = DRAFT|RELEASED|true
+PASS	重提 http = 200
+PASS	重提复用同一占用行（不新增行） = 1
+PASS	复用行 id 不变 + 状态回 OCCUPIED = 01a1be49-581f-71c1-8c50-0d40ad8a4cf6|OCCUPIED
+PASS	报销人自批被内控拒绝 403 = 403
+PASS	ex1ap 审批 e2e06_mgr http = 200
+PASS	ex1ap 审批 e2e01_appr http = 200
+PASS	ex1ap 审批 e2e06_mgr http = 200
+PASS	实例 APPROVED = APPROVED
+PASS	单据 APPROVED + 计提凭证 + 入账期间 2026-11 = APPROVED|true|2026-11
+PASS	计提凭证分录（借5602.02 3000 + 借2221.01 180 / 贷2241.01 3180） = 5602.02:3000.0000/0.0000,2221.01:180.0000/0.0000,2241.01:0.0000/3180.0000
+PASS	凭证借贷平衡 = t
+PASS	占用转 CONSUMED + 绑凭证 = CONSUMED|true
+PASS	待付款分页 http = 200
+PASS	待付款列表含本单 = 1
+PASS	部分付款 http = 200
+PASS	付款进度 PARTIAL / 已付 1000 / 未付 2180 = PARTIAL|1000.0000|2180.0000
+PASS	付款凭证（借2241.01 1000 / 贷1002 1000） = 2241.01:1000.0000/0.0000,1002:0.0000/1000.0000
+PASS	付清 http = 200
+PASS	付清后 PAID / 未付 0 = PAID|0.0000
+PASS	超额付款被拒 409 = 409
+PASS	建单（作废用）http = 200
+PASS	上传发票影像 exp2 http = 200
+PASS	上传发票影像 exp2 code = 0
+PASS	附件落库（EXPENSE_REPORT / INVOICE_SCAN） = 1
+PASS	提交（作废用）http = 200
+PASS	ex2ap 审批 e2e06_mgr http = 200
+PASS	作废前已入账 = APPROVED|true
+PASS	作废原因过短被拒 400 = 400
+PASS	作废 http = 200
+PASS	单据 CANCELLED = CANCELLED
+PASS	红冲凭证 is_red=1 且指向原凭证 = 1
+PASS	占用释放（RELEASED） = RELEASED
+PASS	作废后 2241.01 对本单净额归零（计提+红冲） = 0.0000（期望 0）
+PASS	建单（BLOCK）http = 200
+PASS	上传发票影像 exp3 http = 200
+PASS	上传发票影像 exp3 code = 0
+PASS	附件落库（EXPENSE_REPORT / INVOICE_SCAN） = 1
+PASS	BLOCK 超支提交 409 = 409
+PASS	报文含科目编码 5602.09 = 1
+PASS	报文含「月度已用/预算/本次/超支」四项数字 = 1
+PASS	报文点名阻断策略来自槽级 = 1
+PASS	被拦后单据仍 DRAFT = DRAFT
+PASS	被拦后不留占用行（事务回滚） = 0
+PASS	被拦后不留审批实例 = 0
+PASS	建 WARN 槽预算 http = 200
+PASS	bgW 审批 e2e06_mgr http = 200
+PASS	bgW 审批 e2e01_appr http = 200
+PASS	bgW 审批 e2e06_mgr http = 200
+PASS	WARN 槽 ACTIVE = ACTIVE
+PASS	建单（WARN）http = 200
+PASS	上传发票影像 exp4 http = 200
+PASS	上传发票影像 exp4 code = 0
+PASS	附件落库（EXPENSE_REPORT / INVOICE_SCAN） = 1
+PASS	WARN 超支仍可提交 200 = 200
+PASS	单据标超支 over_budget=1 / over_amount=500（月缺口） = 1|500.0000
+PASS	占用行同步标超支 = 1|500.0000
+PASS	ex4ap 审批 e2e06_mgr http = 200
+PASS	ex4ap 审批 e2e01_appr http = 200
+PASS	ex4ap 审批 e2e06_mgr http = 200
+PASS	WARN 单照常入账（审批通过后可执行） = APPROVED
+PASS	执行报表 http = 200
+PASS	报表 code = 0
+PASS	报表已用 = 库内占用合计 = 3180.0000（期望 3180.0000）
+PASS	报表可用 = 额度 − 已用 = 146820.0000（期望 146820.0000）
+PASS	报表 effective=false（effective_from=2026-12-01 > 本月期末 2026-11-30，报表时点口径） = false
+PASS	报表 effective_from = 2026-12-01 = 2026-12-01
+PASS	报表 over=false（年度未超支） = false
+PASS	WARN 槽报表 over=false（报表 over 是年度口径） = false
+PASS	WARN 槽 2027-02 月度可用 = 1000−1500 = −500（月度超支在分月里） = -500.0000（期望 -500）
+PASS	WARN 槽年度可用 = 12000−1500 = 10500.0000（期望 10500）
+PASS	WARN 槽执行率 = 1500/12000×100 = 12.50（期望 12.50）
+PASS	BLOCK 槽无占用（被拦的单没写占用）已用=0 = 0（期望 0）
+PASS	报表不含旧版 SUPERSEDED（BG_A v1） = 0
+PASS	勾稽 报销单↔占用金额 = 0
+PASS	勾稽 已审批单↔计提凭证(2241.01 贷方=价税合计) = 0
+PASS	勾稽 计提凭证不平张数 = 0
+PASS	勾稽 凭证表头↔分录合计(借方) = 0
+PASS	勾稽 凭证表头↔分录合计(贷方) = 0
+PASS	勾稽 已付金额↔付款凭证 = 0
+PASS	勾稽 CONSUMED 占用未绑凭证 = 0
+PASS	勾稽 RELEASED 占用无释放原因 = 0
+PASS	勾稽 占用金额≠0 = 0
+PASS	勾稽 同槽 ACTIVE >1 行 = 0
+PASS	勾稽 年度额度≠12月合计 = 0
+PASS	勾稽 执行报表 used↔占用合计 = 0
+PASS	勾稽 未生效预算却标了超支（本卡数据） = 0

@@ -1,0 +1,32 @@
+== 1) 造一个**只持 EMPLOYEE** 的账号
+  · 已存在，复用
+  PASS 该账号角色数（应为 1，且是 EMPLOYEE） = 1|EMPLOYEE
+== 2) 登录（口令校验 + 拿到 claims 里的权限）
+  PASS EMPLOYEE 专用账号登录成功
+== 3) 建一张报销单（草稿）
+  PASS 建报销单 http = 200
+  PASS 建报销单 code = 0
+== 4) 提交前的附件闸（clerk 视角 = /attachment/check，要 attachment:list）
+  PASS 查附件闸 http = 200
+  PASS 查附件闸 code = 0
+  PASS 闸判定（缺发票 → 不放行） = false
+== 5) 本人上传发票影像（此前 403）
+  PASS 本人上传附件 http（曾经 403） = 200
+  PASS 本人上传附件 code = 0
+  PASS 附件落库 = 1
+  PASS 上传人姓名快照（不是 UUID） = E2E06 纯员工
+== 6) 附件列表 / 下载（attachment:list + 单据读码）
+  PASS 附件列表 http = 200
+  PASS 附件列表条数 = 1
+  PASS 闸复查（有发票 → 放行） = true
+== 7) 提交报销（此前被 400「必须上传发票影像」挡住）
+  PASS 提交 http = 200
+  PASS 提交 code = 0
+  PASS 单据状态 = SUBMITTED
+  PASS 审批实例已起（直属上级 = e2e06_mgr） = e2e06_mgr
+== 8) 越权面检查：EMPLOYEE 不该有 attachment:delete / expense:pay
+  PASS EMPLOYEE 权限里没有 attachment:delete = 0
+  PASS EMPLOYEE 权限里没有 expense:pay = 0
+  PASS 本人调付款接口被拒 http = 403
+
+== 汇总：PASS=21 FAIL=0

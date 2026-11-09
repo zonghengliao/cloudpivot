@@ -1,0 +1,6 @@
+stored graph_hash      = 769e611286ea49422e0c3487d8f7acd0ae68a194e7fb776e9e41db1ebbb4c2ad
+sha256(行重建快照)      = 769e611286ea49422e0c3487d8f7acd0ae68a194e7fb776e9e41db1ebbb4c2ad
+sha256(库里快照)        = 769e611286ea49422e0c3487d8f7acd0ae68a194e7fb776e9e41db1ebbb4c2ad
+n_dept: assignee_type=INITIATOR_SUPERIOR approval_mode=ANY superior_levels=1 assignees=[]
+节点 11 / 边 13
+RESULT: PASS 行↔快照↔hash 三者一致

@@ -1,0 +1,32 @@
+============================================================================================
+云枢 ERP 不变量审计套件
+库: cloudpivot_dev   容差: 0.0001
+============================================================================================
+
+============================================================================================
+N. 数据权限（有 dept_id 的受控表必须真的有部门级授权，否则行级权限空转）
+============================================================================================
+  ✅ [权限] N1 有 dept_id 的受控表必须有部门级授权
+  ⚠️ [权限] N2 在用 HUMAN 账号必须有部门归属
+        在用 HUMAN 账号（status=1/未锁/未删）里 22 个没有部门：admin(status=1)、d5.operator(status=1)、d7_batch(status=1)、demo_lead(status=1)、e2e04_fin(status=1)、e2e05_gm(status=1)、monitor_viewer(status=1)、p16_keeper(status=1)、p16_reviewer(status=1)、p2c1_keeper(status=1)、p2c1_reviewer(status=1)、p3a_0001(status=1)、p3a_0002(status=1)、p3a_0003(status=1)、p3a_0004(status=1)、p3a_wh_mgr(status=1)、rr14_ap_creator(status=1)、sales_sup(status=1)、so06_maker(status=1)、testuadmin(status=1)、w3b_applicant(status=1)、w3b_approver(status=1)
+        后果：这些账号的部门类角色会被静默降级成「仅本人」（S10/S11），列表少数据但不报错。
+        处置：bash scripts/datafix/org_landing/apply.sh（按 dept_code 落位；身份未确认的账号（henry.liao）等 C 卡定了再落）。
+        宽松口径（含 status=0 停用号，便于与决策文档的「9 个在用账号」对账）：admin(status=1)、d5.operator(status=1)、d7_batch(status=1)、demo_lead(status=1)、e2e04_fin(status=1)、e2e05_gm(status=1)、fix1_badpw_probe(status=0)、monitor_viewer(status=1)、p16_keeper(status=1)、p16_reviewer(status=1)、p2c1_keeper(status=1)、p2c1_reviewer(status=1)、p3a_0001(status=1)、p3a_0002(status=1)、p3a_0003(status=1)、p3a_0004(status=1)、p3a_wh_mgr(status=1)、rr14_ap_creator(status=1)、sales_sup(status=1)、so06_maker(status=1)、testuadmin(status=1)、w3b_applicant(status=1)、w3b_approver(status=1)
+        ↳ 定位（23 条）：
+          admin | 1 | false | HUMAN | 2026-10-27
+          d5.operator | 1 | false | HUMAN | 2026-11-09
+          d7_batch | 1 | false | HUMAN | 2026-11-09
+          demo_lead | 1 | false | HUMAN | 2026-11-07
+          e2e04_fin | 1 | false | HUMAN | 2026-11-09
+          e2e05_gm | 1 | false | HUMAN | 2026-11-09
+          monitor_viewer | 1 | false | HUMAN | 2026-10-27
+          p16_keeper | 1 | false | HUMAN | 2026-11-09
+          ... 还有 15 条
+  ✅ [权限] N3 口令指纹必须是 argon2id（非 argon2 行 = 登录必然失败 + 会签死锁隐患）
+
+============================================================================================
+结果：2/3 通过   🚨 BLOCKER 0   ⚠️ WARN 1
+============================================================================================
+
+⚠️ 需要人看：
+  · [权限] N2 在用 HUMAN 账号必须有部门归属  —  在用 HUMAN 账号（status=1/未锁/未删）里 22 个没有部门：admin(status=1)、d5.operator(status=1)、d7_batch(status=1)、demo_

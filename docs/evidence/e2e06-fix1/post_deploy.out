@@ -1,0 +1,19 @@
+== 1) 迁移与流程版本
+V0355 已应用=true 于 2026-11-09 11:09:35+08
+v1 ARCHIVED current=false hash=0bc6441c50edec131a444d30e1f15471491b435b9be9acecded459dbdee4c869
+v2 PUBLISHED current=true hash=769e611286ea49422e0c3487d8f7acd0ae68a194e7fb776e9e41db1ebbb4c2ad
+n_dept → INITIATOR_SUPERIOR / ANY / superior_levels=1 / 审批人行=0
+
+== 2) 坏口令指纹：登录 401（改造前 500「服务器内部错误」）
+   探针账号初始指纹前缀：$argon2id$v=
+   写坏后指纹：x（非 argon2）
+   登录 http=401  body={"code":20001,"msg":"用户名或密码错误"}
+   期望：401 + 20001（用户名或密码错误），而不是 500 + 10004
+   ---- 服务日志里的点名告警（journalctl 最近 3 分钟）：
+     Nov 09 11:13:45 ubuntu-svr cloudpivot-test[1135019]: 2026-11-09T03:13:45.215793Z  WARN cloudpivot::system::auth::handler: 口令指纹不可解析（sys_user.password 不是 argon2 PHC 串）→ 按凭证错误处理；请管理员重置该账号口令 error=Unknown hash format user_id=01a1be4c-2999-733d-9849-a829c394fbfe username=fix1_badpw_probe
+     Nov 09 11:14:00 ubuntu-svr cloudpivot-test[1135019]: 2026-11-09T03:14:00.300980Z  WARN cloudpivot::system::auth::handler: 口令指纹不可解析（sys_user.password 不是 argon2 PHC 串）→ 按凭证错误处理；请管理员重置该账号口令 error=Unknown hash format user_id=01a1be4c-2999-733d-9849-a829c394fbfe username=fix1_badpw_probe
+   ---- 复位探针（恢复口令指纹 + 停用，避免留一个可登录的号）
+   复位后指纹前缀：$argon2id$v=，status=0
+
+== 3) 当前库口令指纹统计
+非 argon2 行数=0
