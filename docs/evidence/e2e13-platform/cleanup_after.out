@@ -1,0 +1,34 @@
+DELETE 1
+COMMIT
+
+===== 清理后残留（全 0 才算干净）
+import_task|0
+import_error|0
+export_task|0
+dict_item|0
+dict_type|0
+biz_unit|0
+sys_config|0
+sys_job|0
+sys_job_log|0
+storage_config|0
+storage_file|0
+help_doc|0
+help_category|0
+sys_file|0
+sys_user|0
+sys_role|0
+
+（按设计保留：operation_logs / audit_logs 的本次操作留痕、sys_invariant_result 的巡检历史）
+=== sizes
+456K	/tmp/e2e13f_a
+584K	/tmp/e2e13f_b
+s7_export_big.xlsx
+s1_template.xlsx
+s6_sync.xlsx
+s7_export.xlsx
+s3_errors.xlsx
+s2_alias.xlsx
+s0_columns.json
+s2_task_page.json
+348K	/tmp/e2e13f_a/raw

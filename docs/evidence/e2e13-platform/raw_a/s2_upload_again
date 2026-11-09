@@ -1,0 +1,1 @@
+{"code":0,"msg":"ok","data":{"task_id":"01a1bed3-b9ae-727b-812f-42c01d2a602d","task_no":"IMP20261109-602D","status":"VALIDATED","report":{"total":5,"valid":5,"error":0,"skipped_example":0,"skipped_blank":0,"warnings":[],"errors":[],"truncated":false,"fk_sql_statements":1,"elapsed_ms":1}}}

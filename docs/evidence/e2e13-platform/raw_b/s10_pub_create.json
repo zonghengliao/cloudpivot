@@ -1,0 +1,1 @@
+{"code":0,"msg":"ok","data":{"id":"01a1bed3-feba-700c-a660-979f48d16244","config_key":"public.e2e13.demo","config_value":"p1","config_type":"STRING","description":"E2E13 公共参数","category":"e2e13","sort_order":998,"config_level":1,"is_modifiable":true,"is_encrypted":false,"is_restart":false,"status":1,"ref_value":"","select_value":"","created_at":"2026-11-09T05:42:06.778738Z"}}

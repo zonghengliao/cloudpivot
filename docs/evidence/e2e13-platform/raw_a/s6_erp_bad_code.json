@@ -1,0 +1,1 @@
+{"code":10001,"msg":"状态码「NOT_A_CODE」不是「erp.stock_in」的合法取值，只允许：DRAFT / POSTED / CANCELLED / PENDING_POST / PENDING_CANCEL（不区分大小写）"}

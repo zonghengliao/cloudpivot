@@ -1,0 +1,1 @@
+{"code":10001,"msg":"导出定义「erp.stock_in」不支持 status=1 过滤；它的状态是文本码，请改用 status_code=…（合法码：DRAFT / POSTED / CANCELLED / PENDING_POST / PENDING_CANCEL）"}

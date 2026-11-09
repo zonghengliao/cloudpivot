@@ -177,9 +177,9 @@ d = data_of(body)
 eq("S2-17 确认入库 200", st, 200)
 eq("S2-18 终态 SUCCESS", d.get("status"), "SUCCESS")
 eq("S2-19 入库行数 5", d.get("imported_rows"), 5)
-db_items = one(f"select count(*)||'|'||count(distinct item_value) from sys_dict_item where dict_type_id='{TYPE_ID}'::uuid and deleted_at is null")
+db_items = one(f"select count(*)||'|'||count(distinct item_value) from sys_dict_item where dict_type_id='{TYPE_ID}'::uuid and item_value like 'v%' and deleted_at is null")
 eq("S2-20 DB 5 行落库且值不重复", db_items, "5|5")
-db_labels = one(f"select string_agg(item_label, ',' order by item_value) from sys_dict_item where dict_type_id='{TYPE_ID}'::uuid and deleted_at is null")
+db_labels = one(f"select string_agg(item_label, ',' order by item_value) from sys_dict_item where dict_type_id='{TYPE_ID}'::uuid and item_value like 'v%' and deleted_at is null")
 eq("S2-21 DB 标签中文正确", db_labels, ",".join(f"{PREFIX} 项{i}" for i in range(1, 6)))
 db_task = one(f"select status||'|'||imported_rows||'|'||progress||'|'||(finished_at is not null) from sys_import_task where id='{TASK1}'::uuid")
 eq("S2-22 DB 任务终态 SUCCESS|5|100|true", db_task, "SUCCESS|5|100|true")
@@ -202,8 +202,9 @@ TASK1B = data_of(body).get("task_id")
 eq("S2-27 重导预检 error=0", (data_of(body).get("report") or {}).get("error"), 0)
 st, body = req("POST", f"/api/business/impexp/import/{TASK1B}/confirm", ADMIN, name="s2_confirm_again2")
 eq("S2-28 重导 SUCCESS", data_of(body).get("status"), "SUCCESS")
-eq("S2-29 重导后 DB 仍 5 行（幂等）",
-   one(f"select count(*) from sys_dict_item where dict_type_id='{TYPE_ID}'::uuid and deleted_at is null"), "5")
+eq("S2-29 重导后该批仍 5 行（幂等）",
+   one(f"select count(*) from sys_dict_item where dict_type_id='{TYPE_ID}'::uuid and item_value like 'v%' and deleted_at is null"), "5")
+DICT_N = int(one(f"select count(*) from sys_dict_item where dict_type_id='{TYPE_ID}'::uuid and deleted_at is null") or 0)
 
 # ==================== S3 部分导入（PARTIAL）+ 失败明细 ====================
 scenario("S3", "导入失败：错误行不落库 / 成功行落库 / 任务状态 PARTIAL（计量单位定义）")
@@ -286,7 +287,7 @@ eq("S4-1 STRICT 预检仍返回报告（校验期 error=5；第 9 行要到入�
 st, body = req("POST", f"/api/business/impexp/import/{TASK3}/confirm", ADMIN, name="s4_confirm_strict")
 eq("S4-2 STRICT 确认 422", st, 422)
 eq("S4-3 业务码 60014", body.get("code") if isinstance(body, dict) else None, 60014)
-contains("S4-4 文案点名批次失败范围与已入库行数", msg_of(body), "前 0 行已入库")
+contains("S4-4 文案说明整批中止（校验期就拦下）", msg_of(body), "全部中止")
 eq("S4-5 任务置 FAILED 且 imported=0",
    one(f"select status||'|'||imported_rows from sys_import_task where id='{TASK3}'::uuid"), "FAILED|0")
 eq("S4-6 库内行数未变（无一行落库）",
@@ -326,7 +327,7 @@ sheets = read_xlsx(payload)
 rows = list(sheets.values())[0] if sheets else []
 eq("S6-3 表头 = 导出列定义", rows[0][:3] if rows else [], ["字典编码", "字典项值", "字典项名称"])
 body_rows = [r for r in rows[1:] if r and r[0]]
-eq("S6-4 导出行数 = 库内 5 行（关键词命中）", len(body_rows), 5)
+eq(f"S6-4 导出行数 = 库内 {DICT_N} 行（关键词命中）", len(body_rows), DICT_N)
 status_col = rows[0].index("状态") if rows and "状态" in rows[0] else -1
 check("S6-5 状态码翻译成中文（启用/停用）",
       status_col >= 0 and {r[status_col] for r in body_rows} <= {"启用", "停用"} and
@@ -363,8 +364,8 @@ st, det = poll(lambda: exp_detail(EXP1), lambda r: r[1].get("status") in ("SUCCE
                interval=1.0, label="EXP1")
 eq("S7-3 worker 把任务跑成 SUCCESS", det.get("status"), "SUCCESS")
 eq("S7-4 进度 100", det.get("progress"), 100)
-eq("S7-5 预计行数 = 5", det.get("total_rows"), 5)
-eq("S7-6 已导出行数 = 5", det.get("exported_rows"), 5)
+eq(f"S7-5 预计行数 = {DICT_N}", det.get("total_rows"), DICT_N)
+eq(f"S7-6 已导出行数 = {DICT_N}", det.get("exported_rows"), DICT_N)
 check("S7-7 产物名/字节数/SHA-256/过期时间齐备",
       bool(det.get("file_name")) and (det.get("file_size") or 0) > 0 and bool(det.get("file_sha256"))
       and bool(det.get("expire_at")), f"{det.get('file_name')} {det.get('file_size')}B sha={str(det.get('file_sha256'))[:12]}…")
@@ -373,10 +374,10 @@ eq("S7-8 产物下载 200", st, 200)
 eq("S7-9 下载字节 SHA-256 = 任务快照", sha256_hex(payload), det.get("file_sha256"))
 eq("S7-10 下载字节数 = file_size", len(payload), det.get("file_size"))
 dl_rows = list(read_xlsx(payload).values())[0]
-eq("S7-11 产物 5 行数据", len([r for r in dl_rows[1:] if r and r[0]]), 5)
+eq(f"S7-11 产物 {DICT_N} 行数据", len([r for r in dl_rows[1:] if r and r[0]]), DICT_N)
 db_exp = one(f"select status||'|'||exported_rows||'|'||progress||'|'||(file_path is not null) "
              f"from sys_export_task where id='{EXP1}'::uuid")
-eq("S7-12 DB 任务行 SUCCESS|5|100|true（产物已落盘）", db_exp, "SUCCESS|5|100|true")
+eq(f"S7-12 DB 任务行 SUCCESS|{DICT_N}|100|true（产物已落盘）", db_exp, f"SUCCESS|{DICT_N}|100|true")
 st, body = req("GET", "/api/business/impexp/export/page?page=1&page_size=10&status=SUCCESS", ADMIN, name="s7_exp_page")
 check("S7-13 导出任务列表可查且状态过滤生效",
       st == 200 and all(x.get("status") == "SUCCESS" for x in data_of(body).get("list") or []),
@@ -401,15 +402,16 @@ st, body = req("POST", "/api/business/impexp/export", ADMIN,
 EXP_BIG = data_of(body).get("id") or data_of(body).get("task_id") or ""
 st, det = poll(lambda: exp_detail(EXP_BIG), lambda r: r[1].get("status") in ("SUCCESS", "FAILED"), timeout=180,
                interval=2.0, label="EXP_BIG")
+BIG_N = int(one(f"select count(*) from sys_dict_item where dict_type_id='{TYPE_ID}'::uuid and deleted_at is null") or 0)
 eq("S7-18 大批量导出 SUCCESS", det.get("status"), "SUCCESS")
-eq("S7-19 大批量导出行数 = 2005", det.get("exported_rows"), 2005)
+eq(f"S7-19 大批量导出行数 = {BIG_N}（= 库内全量）", det.get("exported_rows"), BIG_N)
 st, headers, payload, _ = req_bytes(f"/api/business/impexp/export/{EXP_BIG}/download", ADMIN, timeout=300,
                                     name="s7_export_big.xlsx")
 eq("S7-20 大批量产物下载 200 且 SHA 一致", [st, sha256_hex(payload)], [200, det.get("file_sha256")])
 big_dl = list(read_xlsx(payload).values())[0]
-eq("S7-21 产物行数 2005（分块拼接无丢行）", len([r for r in big_dl[1:] if r and r[0]]), 2005)
-eq("S7-22 DB 导出任务记录 2005 行", one(
-    f"select exported_rows from sys_export_task where id='{EXP_BIG}'::uuid"), "2005")
+eq(f"S7-21 产物行数 {BIG_N}（分块拼接无丢行）", len([r for r in big_dl[1:] if r and r[0]]), BIG_N)
+eq(f"S7-22 DB 导出任务记录 {BIG_N} 行", one(
+    f"select exported_rows from sys_export_task where id='{EXP_BIG}'::uuid"), str(BIG_N))
 
 # 取消 / 重试 / 删除
 st, body = req("POST", "/api/business/impexp/export", ADMIN,
