@@ -1,0 +1,21 @@
+== E2E-14 大数据取证：10000 行字典项 ==
+  dict_type: HTTP 200 id=01a1beed-d926-7705-a7ea-6409d2eb2aee
+  生成 xlsx                              63 ms
+  xlsx 大小                            0.31 MB
+  上传+预检（解析 1 万行）                      537 ms
+  HTTP 200 status=VALIDATED total=10000 valid=10000 error=0
+  确认入库（1 万行事务）                        804 ms
+  HTTP 200 status=SUCCESS imported_rows=10000
+  同步导出 1 万行 xlsx                      869 ms
+  HTTP 200 content-type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet bytes=0.34 MB
+  导出 xlsx 行数（含表头）= 10001
+  字典项第1页(50)                           31 ms
+    HTTP 200 total=10000 rows=50
+  字典项第100页(50)                         30 ms
+    HTTP 200 total=10000 rows=50
+  字典项第200页(50)                         30 ms
+    HTTP 200 total=10000 rows=50
+  全量同步导出（应超限）                           6 ms
+    HTTP 409 ctype=application/json; charset=utf-8 body={"code":60015,"msg":"数据量较大（10080 行），超过同步导出上限 10000 行，将转为后台导出（异步导出随 A4 提供）"}
+
+SUMMARY precheck=537ms confirm=804ms export_sync=869ms rows=10000

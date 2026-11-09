@@ -1,0 +1,58 @@
+   Compiling cloudpivot v0.1.0 (/root/e2e14-review-src/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 48s
+     Running unittests src/lib.rs (/root/e2e14-target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 15 tests
+test system::authz_tests::o04_warehouse_cannot_read_finance_report ... ok
+test system::authz_tests::o01_readonly_cannot_create_user ... ok
+test system::authz_tests::o03_readonly_cannot_create_stock_in ... ok
+test system::authz_tests::o02_readonly_cannot_delete_role ... ok
+test system::authz_tests::o08_token_version_invalidation ... ok
+test system::authz_tests::o09_forged_claims_do_not_grant_db_side_privileges ... ok
+test system::authz_tests::o10_privilege_cap_blocks_cross_user_escalation ... ok
+test system::authz_tests::o11_cross_dept_write_rejected ... ok
+test system::authz_tests::o05_finance_cannot_see_other_dept_rows ... ok
+test system::authz_tests::o07_public_route_whitelist_is_closed ... ok
+test system::authz_tests::o06_employee_cannot_read_flow_definition ... ok
+test system::authz_tests::o15_wildcard_claims_must_be_backed_by_db_role ... ok
+test system::authz_tests::o13_every_write_route_requires_permission ... ok
+test system::authz_tests::o12_super_admin_passes_every_route ... ok
+test system::authz_tests::o14_permission_code_format ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 3865 filtered out; finished in 0.80s
+
+== NEXT ==
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.75s
+     Running unittests src/lib.rs (/root/e2e14-target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 26 tests
+test shared::startup_guard::tests::accepts_hex64_secret ... ok
+test shared::startup_guard::tests::cache_backend_requires_redis_for_prod_and_dev ... ok
+test shared::startup_guard::tests::accepts_secret_exactly_at_min_len ... ok
+test shared::startup_guard::tests::error_message_carries_remediation_hint ... ok
+test shared::startup_guard::tests::cache_backend_rejects_local_for_prod_and_dev ... ok
+test shared::startup_guard::tests::preflight_rejects_short_env_secret ... ok
+test shared::startup_guard::tests::orphan_dependency_warning_only_fires_when_positive ... ok
+test shared::startup_guard::tests::preflight_rejects_when_auth_enabled_without_env_secret ... ok
+test shared::startup_guard::tests::preflight_skips_when_undeterminable ... ok
+test shared::startup_guard::tests::preflight_accepts_valid_env_secret ... ok
+test shared::startup_guard::tests::preflight_skips_when_auth_disabled ... ok
+test shared::startup_guard::tests::rejects_empty_secret ... ok
+test shared::startup_guard::tests::rejects_short_secret ... ok
+test shared::startup_guard::tests::rejects_whitespace_only_secret ... ok
+test shared::startup_guard::tests::skips_check_when_auth_disabled ... ok
+test shared::startup_guard::tests::startup_violation_delegates_message ... ok
+test shared::startup_guard::tests::storage_master_key_accepts_hex64 ... ok
+test shared::startup_guard::tests::storage_master_key_invalid_rejected ... ok
+test shared::startup_guard::tests::storage_master_key_missing_blocks_startup ... ok
+test shared::startup_guard::tests::test_residue_clean_is_silent ... ok
+test shared::startup_guard::tests::test_residue_partial_counts_still_warn ... ok
+test shared::startup_guard::tests::test_residue_warning_names_both_counts ... ok
+test shared::startup_guard::tests::toml_scan_is_section_scoped ... ok
+test shared::startup_guard::tests::toml_scan_returns_none_when_absent ... ok
+test shared::startup_guard::tests::merge_semantics_or_base_and_profile ... ok
+test shared::startup_guard::tests::toml_scan_takes_last_value_in_section ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 3854 filtered out; finished in 0.00s
+
+== DONE ==

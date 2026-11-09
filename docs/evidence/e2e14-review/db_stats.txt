@@ -1,0 +1,11 @@
+tables|154
+menu_total|432
+menu_dirs|15
+menu_pages|96
+menu_buttons|321
+menu_page_empty_path|2
+vouchers|173
+voucher_entries|408
+operation_logs|8158
+audit_logs|1748
+inv_runs|10

@@ -1,0 +1,9 @@
+db=cloudpivot_fresh total=80 passed=78 blockers=1 warns=1
+FAIL [BLOCKER] 审批 | H6 预置流程种子的 INSERT 必须显式写 is_system（或由后续迁移补偿）
+     2 处漏写 is_system（客户可改身份露出、模板列表里静默消失）：V0331__purchase_requisition.up.sql:239 flow_code=pr_approve；V0332__purchase_return.up.sql:269 flow_code=prt_approve → 种子里显式写 is_system=TRUE；已经应用的迁移不许改，请新开一条迁移按 flow_code 补标（照 V0220 / V0233 的写法）
+FAIL [WARN] 权限 | N2 在用 HUMAN 账号必须有部门归属
+     在用 HUMAN 账号（status=1/未锁/未删）里 1 个没有部门：admin(status=1)
+后果：这些账号的部门类角色会被静默降级成「仅本人」（S10/S11），列表少数据但不报错。
+处置：bash scripts/datafix/org_landing/apply.sh（按 dept_code 落位；身份未确认的账号（henry.liao）等 C 卡定了再落）。
+宽松口径（含 status=0 停用号，便于与决策文档的「9 个在用账号」对账）：admin(status=1)
+INFO(跳过) = 5

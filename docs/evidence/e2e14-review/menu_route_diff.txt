@@ -1,0 +1,22 @@
+menu 页面行数 96 | router path 去重数 109
+
+A. 菜单有 path 但 router 无（0）：
+
+B. 菜单 path 为空（2 条：页面无 URL、菜单点不动）
+
+C. router 有、菜单无（15）：
+   /
+   /:pathMatch(.*)*
+   /change-password
+   /flow/def/:id/edit
+   /flow/instance/:id
+   /flow/templates
+   /help/manage
+   /login
+   /result/403
+   /result/404
+   /result/500
+   /system/change-log/detail/:id
+   /task
+   /task/:id
+   /user/profile

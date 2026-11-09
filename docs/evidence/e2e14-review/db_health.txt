@@ -1,0 +1,6 @@
+neg_inventory|0
+voucher_unbalanced|0
+stuck_pending_post_3d|0
+stuck_pending_approval_3d|0
+flow_pending_3d|0
+orphan_ar_sales_out|5

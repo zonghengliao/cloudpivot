@@ -103,7 +103,12 @@ fn collect(dir: &std::path::Path, perms: &mut Vec<PermRoute>, publics: &mut Vec<
             .map(|p| p.display().to_string())
             .unwrap_or_else(|_| path.display().to_string());
 
-        // ① 权限注解块：`#[nik::permission(` … `)]`，块内是 `key = "value"` 列表
+        // ① 权限注解：`#[nik::permission(…)]`，括号内是 `key = "value"` 列表。
+        //
+        // **两种写法都必须扫到**（E2E-14 评审发现：早先只认多行块，89 处单行写法
+        // `#[nik::permission(path = "…", method = "…", permission = "…")]` 全被漏掉，
+        // 于是 `o13_every_write_route_requires_permission` 对这些路由静默空跑，
+        // `o02_readonly_cannot_delete_role` 连 `DELETE /system/role/{id}` 都找不到）。
         let mut in_block = false;
         let mut block_path: Option<String> = None;
         let mut block_method: Option<String> = None;
@@ -112,6 +117,20 @@ fn collect(dir: &std::path::Path, perms: &mut Vec<PermRoute>, publics: &mut Vec<
             let trimmed = line.trim();
             // 注释行里的示例（`/// #[nik::permission(...)]`）不算真路由
             if trimmed.starts_with("//") {
+                continue;
+            }
+            // 单行形态：整条注解（含 `)]`）都在本行内 → 直接解析并收口
+            if trimmed.starts_with("#[nik::permission(") && trimmed.ends_with(")]") {
+                let (path, method, perm) = parse_permission_keys(trimmed);
+                if let (Some(path), Some(method), Some(perm)) = (path, method, perm) {
+                    perms.push(PermRoute {
+                        path,
+                        method: method.to_uppercase(),
+                        permission: perm,
+                        file: file.clone(),
+                    });
+                }
+                in_block = false;
                 continue;
             }
             if trimmed.starts_with("#[nik::permission(") {
@@ -161,6 +180,30 @@ fn collect(dir: &std::path::Path, perms: &mut Vec<PermRoute>, publics: &mut Vec<
             }
         }
     }
+}
+
+/// 从一条注解文本里抠出 `path` / `method` / `permission` 三个键的值。
+///
+/// 单行与多行共用一个解析器：`key = "value"` 的出现顺序不固定，值里可能含 `{id}`。
+fn parse_permission_keys(text: &str) -> (Option<String>, Option<String>, Option<String>) {
+    let mut path = None;
+    let mut method = None;
+    let mut permission = None;
+    for key in ["path", "method", "permission"] {
+        let prefix = format!("{key} = \"");
+        if let Some(start) = text.find(&prefix) {
+            let rest = &text[start + prefix.len()..];
+            if let Some(end) = rest.find('"') {
+                let value = rest[..end].to_string();
+                match key {
+                    "path" => path = Some(value),
+                    "method" => method = Some(value),
+                    _ => permission = Some(value),
+                }
+            }
+        }
+    }
+    (path, method, permission)
 }
 
 /// 只读角色：只有各模块的 `:list` / `:detail` 读权限。
