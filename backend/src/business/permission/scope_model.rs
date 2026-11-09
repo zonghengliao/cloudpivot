@@ -22,7 +22,7 @@
 //!
 //! `sys_role.data_scope` 与 `sys_role_dept` 必须**同成败**：否则会出现「范围已是 5
 //! 但集合是上一轮的」这种既非旧也非新的中间态，且缓存失效逻辑无法判断该信谁。
-//! 因此 [`save_role_scope`] 整段在一个事务里。
+//! 因此 [`save_role_scope_in`] 整段由**调用方的事务**包住（N-7 ① 之后日志也在这个事务里）。
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -743,6 +743,8 @@ pub async fn find_user_roles(user_id: &Uuid) -> DbResult<Vec<RoleScope>> {
 ///
 /// # 参数
 ///
+/// - `ex`：**业务事务的执行器**（N-7 ①：变更日志要与这次写同事务，所以由调用方开事务；
+///   传 `db()` 会开第二个事务，日志就可能「业务回滚了、日志留下了」或反过来）；
 /// - `role_id`：角色 ID（调用方已确认存在且未软删）；
 /// - `kind`：新的数据范围；
 /// - `custom`：`None` = 不动集合；`Some(ids)` = 覆盖为 `ids`（空 Vec 表示清空）；
@@ -755,7 +757,8 @@ pub async fn find_user_roles(user_id: &Uuid) -> DbResult<Vec<RoleScope>> {
 /// # 异常情况
 ///
 /// 角色在事务期间被软删 → `Ok(0)`（调用方据此报 404）；SQL 失败 → [`DbError`]。
-pub async fn save_role_scope(
+pub async fn save_role_scope_in(
+    ex: &impl SqlExecutor,
     role_id: &Uuid,
     kind: ScopeKind,
     custom: Option<&[Uuid]>,
@@ -766,38 +769,37 @@ pub async fn save_role_scope(
     let kind_value = kind.as_i16();
     let custom_owned: Option<Vec<Uuid>> = custom.map(|ids| ids.to_vec());
 
-    db().transaction(|tx| async move {
-        let affected = tx
-            .execute_with_params(
-                "UPDATE sys_role SET data_scope = ?, updated_at = CURRENT_TIMESTAMP, update_by = ? \
-                 WHERE id = ? AND deleted_at IS NULL",
-                vec![Value::I16(kind_value), Value::from(operator), Value::from(role_id)],
-            )
-            .await?;
-        if affected == 0 {
-            // 角色在事务期间被软删：不写集合，让调用方报 404（不留半条授权）
-            return Ok(0);
-        }
-        let Some(ids) = custom_owned else {
-            return Ok(affected);
-        };
-        tx.execute_with_params(
-            "DELETE FROM sys_role_dept WHERE role_id = ?",
-            vec![Value::from(role_id)],
+    let affected = ex
+        .exec_sql(
+            "UPDATE sys_role SET data_scope = ?, updated_at = CURRENT_TIMESTAMP, update_by = ? \
+             WHERE id = ? AND deleted_at IS NULL"
+                .to_string(),
+            vec![Value::I16(kind_value), Value::from(operator), Value::from(role_id)],
         )
         .await?;
-        for dept_id in ids {
-            // `ON CONFLICT DO NOTHING` 兜底并发重复提交（唯一键 (role_id, dept_id)）
-            tx.execute_with_params(
-                "INSERT INTO sys_role_dept (role_id, dept_id, create_by) VALUES (?, ?, ?) \
-                 ON CONFLICT (role_id, dept_id) DO NOTHING",
-                vec![Value::from(role_id), Value::from(dept_id), Value::from(operator)],
-            )
-            .await?;
-        }
-        Ok(affected)
-    })
-    .await
+    if affected == 0 {
+        // 角色在事务期间被软删：不写集合，让调用方报 404（不留半条授权）
+        return Ok(0);
+    }
+    let Some(ids) = custom_owned else {
+        return Ok(affected);
+    };
+    ex.exec_sql(
+        "DELETE FROM sys_role_dept WHERE role_id = ?".to_string(),
+        vec![Value::from(role_id)],
+    )
+    .await?;
+    for dept_id in ids {
+        // `ON CONFLICT DO NOTHING` 兜底并发重复提交（唯一键 (role_id, dept_id)）
+        ex.exec_sql(
+            "INSERT INTO sys_role_dept (role_id, dept_id, create_by) VALUES (?, ?, ?) \
+             ON CONFLICT (role_id, dept_id) DO NOTHING"
+                .to_string(),
+            vec![Value::from(role_id), Value::from(dept_id), Value::from(operator)],
+        )
+        .await?;
+    }
+    Ok(affected)
 }
 
 // ==================== 内部辅助 ====================

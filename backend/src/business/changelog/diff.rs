@@ -95,6 +95,13 @@ pub const SYS_ROLE: ResourceSpec = ResourceSpec {
         "status",
         // C6 追加：数据范围是提权面（B3），改它必须留字段级凭证
         "data_scope",
+        // N-7 ① 追加：`data_scope=5`（自定义部门）时真正决定「能看哪些部门」的是
+        // `sys_role_dept` 的行集合。它**不是 `sys_role` 的物理列**，是
+        // `PUT /business/permission/scope/role/{id}` 物化出来的排序后字符串数组
+        // （见 `permission::scope_handler::scope_snapshot`）。不登记在这里的后果很具体：
+        // 管理员只改自定义部门、不动 `data_scope` 时，diff 会被判成「无变化」
+        // 整条丢弃 —— 审计页看不到任何记录，而这恰恰是内控最关心的一次授权变更。
+        "custom_dept_ids",
         // E2E-09 追加：`escalation_role_id` 是**审批降级链**的配置（P3-02 / ARCH-8）。
         // 不在白名单里时，「把 X 角色的上级改成 Y」这种内控配置变更会因 diff 为空被
         // `RecordOutcome::Skipped` 整条丢掉 —— 审计页看不到，出事后只能翻库对比。

@@ -60,6 +60,7 @@
 
 pub mod assignee;
 pub mod batch;
+pub mod config_check;
 pub mod delegate;
 pub mod delegate_handler;
 pub mod dto;

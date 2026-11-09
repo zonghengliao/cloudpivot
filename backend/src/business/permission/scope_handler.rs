@@ -30,9 +30,13 @@
 //! `delete_pattern`（键里带用户 ID，模式匹配会误删别人的键）。
 
 use axum::Json;
+use axum::extract::ConnectInfo;
+use axum::http::HeaderMap;
 use nik::prelude::*;
 use nik::uuid::Uuid;
+use std::net::SocketAddr;
 
+use crate::business::changelog::{self, Action, ChangeTarget, DiffInput};
 use crate::business::permission::dto::{
     DeptTreeRes, RoleScopeRes, SelfCheckRes, SetRoleScopeReq, SetRoleScopeRes, UncoveredTablesRes,
 };
@@ -43,7 +47,38 @@ use crate::business::shared::scope::{SCOPED_TABLES, ScopeKind, filter_for};
 use crate::shared::ai_actor;
 use crate::shared::constants;
 use crate::shared::error_code;
+use crate::support::log;
 use crate::utils;
+
+/// 数据权限配置的审计快照（N-7 ①）。
+///
+/// # 为什么两个字段放在一张快照里
+///
+/// 「改数据权限」在用户心里是**一件事**，落库却是两处：`sys_role.data_scope` +
+/// `sys_role_dept`（自定义部门集合）。审计页若分成两条，就会读成「两次变更」；
+/// 合成一条 `sys_role` 的 `UPDATE` 才能回答「谁在什么时候把「本部门」改成「全部」、
+/// 顺带把自定义部门清成了哪几个」。
+///
+/// `custom_dept_ids` **不是物理列**（值是 `sys_role_dept` 的物化集合，已排序），
+/// 这也是它为什么必须写进 `diff::SYS_ROLE` 的白名单：不登记就会被 diff 引擎按
+/// 「未登记字段」整条丢掉，而这一列恰恰是内控最关心的那半边。
+///
+/// # 参数
+///
+/// - `data_scope`：范围下标 1..5；
+/// - `dept_ids`：该角色当前的自定义部门集合（任意顺序，函数内排序）。
+///
+/// # 返回值
+///
+/// `{ "data_scope": 3, "custom_dept_ids": ["…","…"] }`（排序后，便于逐字节比对）。
+pub(crate) fn scope_snapshot(data_scope: i16, dept_ids: &[Uuid]) -> serde_json::Value {
+    let mut ids: Vec<String> = dept_ids.iter().map(ToString::to_string).collect();
+    ids.sort();
+    serde_json::json!({
+        "data_scope": data_scope,
+        "custom_dept_ids": ids,
+    })
+}
 
 // ==================== 查角色范围配置 ====================
 
@@ -113,6 +148,8 @@ pub async fn role_scope_detail(Path(role_id): Path<String>) -> ResResult<RoleSco
 #[nik::put("/business/permission/scope/role/{role_id}")]
 pub async fn role_scope_update(
     Path(role_id): Path<String>,
+    headers: HeaderMap,
+    ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Json(req): Json<SetRoleScopeReq>,
 ) -> ResResult<SetRoleScopeRes> {
@@ -131,6 +168,14 @@ pub async fn role_scope_update(
         return Err(error);
     }
     let role = require_role(&role_id).await?;
+
+    // N-7 ①（内控红线）：改之前先把**旧配置**取出来。审计要回答的是
+    // 「谁在什么时候把「本部门」改成「全部」」——没有旧值，这条问题永远答不了。
+    let before_custom = scope_model::find_custom_depts(&role_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询角色现有的自定义部门"))?;
+    let before_ids: Vec<Uuid> = before_custom.iter().map(|row| row.id).collect();
+    let before_snapshot = scope_snapshot(role.data_scope, &before_ids);
 
     // ① 取值与集合校验（纯逻辑，61001）
     let kind = ScopeKind::from_i16(req.data_scope)?;
@@ -202,8 +247,41 @@ pub async fn role_scope_update(
         ));
     }
 
-    // ⑦ 落库（同一事务）+ 缓存失效
-    let affected = scope_model::save_role_scope(&role_id, kind, custom.as_deref(), &operator_id)
+    // ⑦ 落库（同一事务：范围 + 集合 + 变更日志）+ 缓存失效
+    //
+    // N-7 ①：日志与业务同事务（D11 铁律）。save_role_scope_in 只吃执行器、不开事务，
+    // 日志写不进去 → 整笔回滚（不留「改了权限但没凭证」）。
+    let after_ids: Vec<Uuid> = match custom.as_deref() {
+        // 覆盖集合：新集合就是请求里的那几个
+        Some(ids) => ids.to_vec(),
+        // 不动集合（`custom_dept_ids` 未传）：集合保持原样，审计里两侧同值（不记该字段）
+        None => before_ids.clone(),
+    };
+    let after_snapshot = scope_snapshot(kind.as_i16(), &after_ids);
+    // 审计上下文（请求 ID / IP / 操作人）用现成的 `RequestCtx`：它拥有自己的字符串，
+    // 因而能被 `transaction` 的闭包借用（直接借 `claims` 活不到闭包里）。
+    let audit_ctx = changelog::RequestCtx::from_request(&claims, &headers, Some(&connect_info));
+    let tx_role_id = role_id;
+    let tx_custom: Option<Vec<Uuid>> = custom.clone();
+    let tx_before = before_snapshot.clone();
+    let tx_after = after_snapshot.clone();
+    let affected = db()
+        .transaction(|tx| async move {
+            let affected =
+                scope_model::save_role_scope_in(&tx, &tx_role_id, kind, tx_custom.as_deref(), &operator_id).await?;
+            if affected == 0 {
+                // 角色在事务期间被软删：不写日志（什么都没改，记一条就是假凭证）
+                return Ok(0);
+            }
+            changelog::record_in(
+                &tx,
+                &audit_ctx.ctx(),
+                ChangeTarget::of("sys_role", tx_role_id.to_string(), Action::Update, "修改数据权限"),
+                DiffInput::update(&tx_before, &tx_after),
+            )
+            .await?;
+            Ok(affected)
+        })
         .await
         .map_err(|error| utils::db_error(error, "保存数据范围"))?;
     if affected == 0 {
@@ -228,7 +306,22 @@ pub async fn role_scope_update(
         custom_depts = custom_rows.len(),
         invalidated_users = holders.len(),
         operator = %operator_id,
-        "数据范围配置已更新（含持有者缓存失效）"
+        "数据范围配置已更新（含持有者缓存失效 + 变更日志）"
+    );
+    // N-7 ①：`audit_logs` 侧再落一条**前后快照**（operation_logs 只有请求流水，
+    // 没有 before/after 列；审计页读的是 audit_logs）。与 sys_change_log 的分工：
+    // 变更日志回答「哪个字段从什么改成什么」，审计日志回答「这次权限变更事件本身」。
+    log::record_audit(
+        &headers,
+        &connect_info,
+        log::audit_input(
+            &claims,
+            "DATA_SCOPE_UPDATE",
+            "Role",
+            role_id.to_string(),
+            Some(before_snapshot),
+            Some(after_snapshot),
+        ),
     );
     Ok(Res::ok(SetRoleScopeRes {
         role_id: role_id.to_string(),

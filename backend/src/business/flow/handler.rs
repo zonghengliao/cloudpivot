@@ -45,7 +45,7 @@ use nik::uuid::Uuid;
 use crate::business::flow::graph::{self, AssigneeKind, EdgeSpec, FlowGraph, Issue, NodeSpec, NodeType};
 use crate::business::flow::task_bridge;
 use crate::business::flow::{
-    assignee, dto, instance_linkage, model, node_config, self_approval, task_node, template_vars,
+    assignee, config_check, dto, instance_linkage, model, node_config, self_approval, task_node, template_vars,
 };
 use crate::business::notice::dto::ContentFormat;
 use crate::business::notice::render;
@@ -621,6 +621,12 @@ pub async fn publish(
             .await
             .map_err(|error| utils::db_error(error, "校验子流程定义"))?,
     );
+    // N-7 ②：发布前的**全流程预演** —— 兜底人 / 兜底角色 / 升级链 / 每个节点的可枚举审批人
+    // 必须现在就能解析。发布是把这版图冻结成快照给所有新单用，此刻配错等于每张新单都会踩。
+    let lookup = config_check::load(db(), &graph)
+        .await
+        .map_err(|error| utils::db_error(error, "校验审批人可解析性"))?;
+    issues.extend(config_check::issues(&graph, &lookup, config_check::Phase::Publish));
     if !issues.is_empty() {
         return Err(validation_error(&issues));
     }
@@ -895,16 +901,33 @@ pub async fn save_graph(
     // 结构错交给库的话用户拿到的是 500「服务器内部错误」（没有一句中文原因）。
     // 发布期还有 R16 做双保险（并额外拒 `PREV_APPROVER` → `65033`，D-E8）。
     dto::validate_expression_nodes(&graph)?;
+    // N-7 ②：兜底人 / 兜底角色 / 角色升级链是**最后一道保险**，配错了等于没有保险。
+    // 它必须当场拦住（400 + 点名节点），而不是等有人发起、走到该节点才 422 65042/65040。
+    // 普通节点的指定审批人**不在保存期拦**：编辑器是边改边存的，允许先落半成品；
+    // 这些进 `warnings`（见下），发布期才阻断（`Phase::Publish` 的全流程预演）。
+    let lookup = config_check::load(db(), &graph)
+        .await
+        .map_err(|error| utils::db_error(error, "校验节点兜底人与升级链"))?;
+    let blocking = config_check::issues(&graph, &lookup, config_check::Phase::Save);
+    if !blocking.is_empty() {
+        return Err(validation_error(&blocking));
+    }
     let change_note = req.normalized_change_note();
     let node_count = graph.nodes.len() as i64;
     let edge_count = graph.edges.len() as i64;
 
-    // 保存期只提示、不阻断（架构 §10.4.3）
-    let warnings: Vec<String> = graph
+    // 保存期只提示、不阻断（架构 §10.4.3）；预演类问题（R32）也进提示，
+    // 让编辑者保存时就看到「这个审批人已经没了」，不必等到发布被拒。
+    let mut warnings: Vec<String> = graph
         .validate()
         .iter()
         .map(|issue| format!("[{}] {}", issue.rule, issue.message))
         .collect();
+    warnings.extend(
+        config_check::issues(&graph, &lookup, config_check::Phase::Publish)
+            .iter()
+            .map(|issue| format!("[{}] {}", issue.rule, issue.message)),
+    );
 
     let note_for_write = change_note.clone();
     db().transaction(|tx| async move {
@@ -967,6 +990,12 @@ pub async fn validate(Path(vid): Path<String>) -> ResResult<dto::ValidateRes> {
     // P-FLOW-1B：`on_complete=APPROVE` 的 `approve_biz_type` 必须指向已发布的默认流程。
     // 纯函数的 `validate_with` 查不了库，这条放在这里（发布 / 只校验两个入口共用）。
     issues.extend(approve_biz_type_issues(&graph).await?);
+    // N-7 ②：只校验 = 一次「全流程预演」，与 publish 用同一份判据（Phase::Publish），
+    // 这样编辑器点「校验」看到的就是发布时会拦的全部问题。
+    let lookup = config_check::load(db(), &graph)
+        .await
+        .map_err(|error| utils::db_error(error, "校验审批人可解析性"))?;
+    issues.extend(config_check::issues(&graph, &lookup, config_check::Phase::Publish));
     Ok(Res::ok(dto::ValidateRes {
         version_id: version_id.to_string(),
         version_no: version.version_no,

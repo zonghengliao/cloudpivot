@@ -376,3 +376,70 @@ async fn a12_core_tables_are_wired() {
     assert!(dept_wiring.no_paginate, "部门树不分页，必须标记 no_paginate");
     println!("[A12] sys_user / sys_dept 均已接线且锚点完备 ✓");
 }
+
+// ==================== N-7 ①：数据权限变更留痕（before / after） ====================
+
+/// N-7 ①：**只改自定义部门集合**（`data_scope` 不变）也必须留痕。
+///
+/// 这条守的是评审点「数据权限配置变更零留痕」的最隐蔽分支：管理员把 `data_scope`
+/// 从「自定义」改成「自定义」、只增减部门 —— 如果 `custom_dept_ids` 不在 diff 白名单里，
+/// `diff::build` 会判「无变化」→ `record()` 返回 `Skipped` → 整条日志丢掉。
+/// 结果就是「谁把 A 部门加进了这个角色」永远查不到，而它恰恰是提权。
+#[test]
+fn n7_scope_diff_records_dept_set_only_change() {
+    use crate::business::changelog::dto::Action;
+    use crate::business::changelog::{diff, mask::Policy};
+
+    let dept_a = uuid::Uuid::from_u128(0x71_0001);
+    let dept_b = uuid::Uuid::from_u128(0x71_0002);
+    let spec = diff::spec("sys_role").expect("sys_role 必须已登记白名单");
+    let policy = Policy::builtin_only("sys_role");
+    let before = super::scope_handler::scope_snapshot(5, &[dept_a]);
+    let after = super::scope_handler::scope_snapshot(5, &[dept_a, dept_b]);
+
+    let doc = diff::build(spec, &policy, Action::Update, "role-1", Some(&before), Some(&after));
+    assert!(
+        !doc.is_empty(),
+        "只改自定义部门集合必须产生日志（否则这条授权变更零留痕）"
+    );
+    assert_eq!(doc.changed_fields(), vec!["custom_dept_ids".to_string()]);
+    let text = doc.to_json_string().expect("序列化");
+    assert!(text.contains(&dept_b.to_string()), "{text}");
+    // 铁律 1：`data_scope` 没变就不记
+    assert!(!text.contains("\"data_scope\""), "未变字段不得进 diff：{text}");
+    // 铁律 2：`{b,a}` 成对
+    assert!(text.contains("\"b\"") && text.contains("\"a\""), "{text}");
+    println!("[N-7 ①] 仅改自定义部门集合 → diff 记 custom_dept_ids（b/a 成对）✓");
+}
+
+/// N-7 ①：`data_scope` 变了（「本部门」→「全部」）→ diff 记 `data_scope` 的 before/after。
+#[test]
+fn n7_scope_diff_records_data_scope_change() {
+    use crate::business::changelog::dto::Action;
+    use crate::business::changelog::{diff, mask::Policy};
+
+    let spec = diff::spec("sys_role").expect("sys_role 必须已登记白名单");
+    let policy = Policy::builtin_only("sys_role");
+    // 3 = 本部门，1 = 全部（评审原文的「把本部门改成全部」）
+    let before = super::scope_handler::scope_snapshot(3, &[]);
+    let after = super::scope_handler::scope_snapshot(1, &[]);
+    let doc = diff::build(spec, &policy, Action::Update, "role-1", Some(&before), Some(&after));
+
+    assert_eq!(doc.changed_fields(), vec!["data_scope".to_string()]);
+    let pair = doc.fields.get("data_scope").expect("必须记 data_scope");
+    assert_eq!(pair.b, serde_json::json!(3));
+    assert_eq!(pair.a, serde_json::json!(1));
+    println!("[N-7 ①] 「本部门(3)」→「全部(1)」→ diff 记 data_scope {{b:3,a:1}} ✓");
+}
+
+/// N-7 ①：快照里的部门集合必须**排序**（否则同一集合的两次提交会因顺序不同而多出一条假日志）。
+#[test]
+fn n7_scope_snapshot_is_order_insensitive() {
+    let a = uuid::Uuid::from_u128(0x72_0001);
+    let b = uuid::Uuid::from_u128(0x72_0002);
+    assert_eq!(
+        super::scope_handler::scope_snapshot(5, &[b, a]),
+        super::scope_handler::scope_snapshot(5, &[a, b])
+    );
+    println!("[N-7 ①] 快照对部门顺序不敏感（同一集合恒同一份 JSON）✓");
+}
