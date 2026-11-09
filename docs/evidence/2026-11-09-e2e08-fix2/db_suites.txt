@@ -1,0 +1,317 @@
+===== business::erp::handler::tests =====
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.56s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 51 tests
+test business::erp::handler::tests::deletes_are_soft ... ok
+test business::erp::handler::tests::duplicate_key_maps_to_conflict_code ... ok
+test business::erp::handler::tests::flags_map_to_smallint ... ok
+test business::erp::handler::tests::invalid_uuid_is_rejected ... ok
+test business::erp::handler::tests::location_create_and_list_by_warehouse ... ok
+test business::erp::handler::tests::location_default_is_exclusive ... ok
+test business::erp::handler::tests::material_auto_code_generated_when_blank ... ok
+test business::erp::handler::tests::material_auto_code_increments_consecutively ... ok
+test business::erp::handler::tests::material_duplicate_code_rejected_with_message ... ok
+test business::erp::handler::tests::material_manual_code_is_preserved ... ok
+test business::erp::handler::tests::material_preview_code_does_not_consume_sequence ... ok
+test business::erp::handler::tests::material_previewed_code_is_used_verbatim_on_create ... ok
+test business::erp::handler::tests::material_reference_search_and_soft_delete ... ok
+test business::erp::handler::tests::material_standard_price_feeds_price_resolve ... ok
+test business::erp::handler::tests::material_unit_must_be_base ... ok
+test business::erp::handler::tests::nullable_params_use_text_literal ... ok
+test business::erp::handler::tests::page_args_are_normalized ... ok
+test business::erp::handler::tests::permissions_are_complete_and_unique ... ok
+test business::erp::handler::tests::readonly_detail_returns_404 ... ok
+test business::erp::handler::tests::readonly_ledgers_are_pageable ... ok
+test business::erp::handler::tests::special_routes_are_distinct ... ok
+test business::erp::handler::tests::subtree_root_with_invisible_parent_is_promoted ... ok
+test business::erp::handler::tests::supplier_auto_code_generated_when_blank ... ok
+test business::erp::handler::tests::supplier_auto_code_increments_consecutively ... ok
+test business::erp::handler::tests::supplier_crud_cycle ... ok
+test business::erp::handler::tests::supplier_duplicate_code_rejected_with_message ... ok
+test business::erp::handler::tests::supplier_manual_code_is_preserved ... ok
+test business::erp::handler::tests::supplier_preview_code_does_not_consume_sequence ... ok
+test business::erp::handler::tests::supplier_previewed_code_is_used_verbatim_on_create ... ok
+test business::erp::handler::tests::system_unit_cannot_be_deleted_but_can_be_disabled ... ok
+test business::erp::handler::tests::unit_create_then_detail_and_page ... ok
+test business::erp::handler::tests::unit_create_without_code_is_400_with_human_message ... ok
+test business::erp::handler::tests::unit_duplicate_code_conflicts ... ok
+test business::erp::handler::tests::unit_next_code_is_explicit_400 ... ok
+test business::erp::handler::tests::unit_precision_round_trip_and_rejects_overflow ... ok
+test business::erp::handler::tests::unit_soft_delete_hides_row ... ok
+test business::erp::handler::tests::unit_update_applies_patch_semantics ... ok
+test business::erp::handler::tests::warehouse_auto_code_generated_when_blank ... ok
+test business::erp::handler::tests::warehouse_auto_code_increments_consecutively ... ok
+test business::erp::handler::tests::warehouse_create_root_builds_path ... ok
+test business::erp::handler::tests::warehouse_delete_guards_children ... ok
+test business::erp::handler::tests::warehouse_duplicate_code_rejected_with_message ... ok
+test business::erp::handler::tests::warehouse_level_is_derived_from_parent ... ok
+test business::erp::handler::tests::warehouse_manual_code_is_preserved ... ok
+test business::erp::handler::tests::warehouse_page_combines_keyword_and_page_size ... ok
+test business::erp::handler::tests::warehouse_path_is_materialized ... ok
+test business::erp::handler::tests::warehouse_preview_code_does_not_consume_sequence ... ok
+test business::erp::handler::tests::warehouse_previewed_code_is_used_verbatim_on_create ... ok
+test business::erp::handler::tests::warehouse_three_levels_and_limit ... ok
+test business::erp::handler::tests::warehouse_tree_assembles_three_levels ... ok
+test business::erp::handler::tests::warehouse_tree_returns_all_levels ... ok
+
+test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 3931 filtered out; finished in 20.70s
+
+EXIT_business::erp::handler::tests=0
+test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 3931 filtered out; finished in 20.70s
+===== business::erp::dto =====
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+error[E0425]: cannot find value `OP_ENABLE_WITHOUT_ATTACHMENT` in this scope
+    --> src/business/erp/asset_handler.rs:1317:29
+     |
+1317 |                      （操作日志：{OP_ENABLE_WITHOUT_ATTACHMENT}）"
+     |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `activate_attachment_warning` in this scope
+    --> src/business/erp/asset_handler.rs:1298:31
+     |
+1298 |             Ok(violations) => activate_attachment_warning(&violations),
+     |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0061]: this function takes 5 arguments but 3 arguments were supplied
+    --> src/business/erp/asset_linkage_tests.rs:743:15
+     |
+ 743 |       let res = asset_status_change(
+     |                 ^^^^^^^^^^^^^^^^^^^
+ 744 | /         Extension(AuthClaims(claims_of(user))),
+ 745 | |         Path(asset_id.to_string()),
+     | |__________________________________- two arguments of type `axum::http::HeaderMap` and `axum::extract::ConnectInfo<std::net::SocketAddr>` are missing
+     |
+note: function defined here
+    --> src/business/erp/asset_handler.rs:1283:14
+     |
+1283 | pub async fn asset_status_change(
+     |              ^^^^^^^^^^^^^^^^^^^
+1284 |     headers: HeaderMap,
+     |     ------------------
+1285 |     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
+     |     --------------------------------------------------
+help: provide the arguments
+     |
+ 743 |     let res = asset_status_change(
+ 744 ~         /* axum::http::HeaderMap */,
+ 745 +         /* axum::extract::ConnectInfo<std::net::SocketAddr> */,
+ 746 ~         Extension(AuthClaims(claims_of(user))),
+     |
+
+Some errors have detailed explanations: E0061, E0425.
+For more information about an error, try `rustc --explain E0061`.
+error: could not compile `cloudpivot` (lib test) due to 3 previous errors
+EXIT_business::erp::dto=101
+test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 3931 filtered out; finished in 20.70s
+===== business::erp::seq =====
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+error[E0061]: this function takes 5 arguments but 3 arguments were supplied
+    --> src/business/erp/asset_linkage_tests.rs:743:15
+     |
+ 743 |       let res = asset_status_change(
+     |                 ^^^^^^^^^^^^^^^^^^^
+ 744 | /         Extension(AuthClaims(claims_of(user))),
+ 745 | |         Path(asset_id.to_string()),
+     | |__________________________________- two arguments of type `axum::http::HeaderMap` and `axum::extract::ConnectInfo<std::net::SocketAddr>` are missing
+     |
+note: function defined here
+    --> src/business/erp/asset_handler.rs:1283:14
+     |
+1283 | pub async fn asset_status_change(
+     |              ^^^^^^^^^^^^^^^^^^^
+1284 |     headers: HeaderMap,
+     |     ------------------
+1285 |     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
+     |     --------------------------------------------------
+help: provide the arguments
+     |
+ 743 |     let res = asset_status_change(
+ 744 ~         /* axum::http::HeaderMap */,
+ 745 +         /* axum::extract::ConnectInfo<std::net::SocketAddr> */,
+ 746 ~         Extension(AuthClaims(claims_of(user))),
+     |
+
+For more information about this error, try `rustc --explain E0061`.
+error: could not compile `cloudpivot` (lib test) due to 1 previous error
+EXIT_business::erp::seq=101
+test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 3931 filtered out; finished in 20.70s
+===== business::erp::asset =====
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+warning: function `enable_audit_of` is never used
+   --> src/business/erp/asset_linkage_tests.rs:772:10
+    |
+772 | async fn enable_audit_of(asset_id: Uuid) -> Vec<(String, String, String)> {
+    |          ^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `cloudpivot` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 16s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 61 tests
+test business::erp::asset_bridge::tests::disposal_period_follows_date ... ok
+test business::erp::asset_bridge::tests::edges_match_registry ... ok
+test business::erp::asset_bridge::tests::form_data_parses_both_amount_shapes ... ok
+test business::erp::asset_bridge::tests::only_approved_executes ... ok
+test business::erp::asset_compute::tests::disposal_kind_domain_is_three_values ... ok
+test business::erp::asset_compute::tests::disposed_in_month_30_still_depreciates ... ok
+test business::erp::asset_compute::tests::exact_division_has_no_tail ... ok
+test business::erp::asset_compute::tests::gate_blocks_when_detail_reversed ... ok
+test business::erp::asset_compute::tests::gate_blocks_when_disposal_month_has_no_detail ... ok
+test business::erp::asset_compute::tests::gate_passes_when_disposal_month_detail_posted ... ok
+test business::erp::asset_compute::tests::gate_skips_asset_bought_and_disposed_in_same_month ... ok
+test business::erp::asset_compute::tests::gate_skips_fully_depreciated_asset ... ok
+test business::erp::asset_compute::tests::loss_vouchers_go_through_pending_account ... ok
+test business::erp::asset_compute::tests::period_helpers ... ok
+test business::erp::asset_compute::tests::sale_gain_goes_to_other_income ... ok
+test business::erp::asset_compute::tests::sale_vouchers_balance_and_clear_1606 ... ok
+test business::erp::asset_compute::tests::scrap_vouchers_move_net_value_to_loss ... ok
+test business::erp::asset_compute::tests::start_date_is_next_month_first_day ... ok
+test business::erp::asset_compute::tests::stops_when_fully_depreciated ... ok
+test business::erp::asset_compute::tests::straight_line_matches_design_example ... ok
+test business::erp::asset_dto::tests::category_validation ... ok
+test business::erp::asset_dto::tests::create_ok_defaults ... ok
+test business::erp::asset_dto::tests::create_rejects_non_positive_amount ... ok
+test business::erp::asset_dto::tests::create_rejects_tax_not_less_than_original ... ok
+test business::erp::asset_dto::tests::create_requires_mandatory_fields ... ok
+test business::erp::asset_dto::tests::derive_amounts_matches_design ... ok
+test business::erp::asset_dto::tests::dispose_validation ... ok
+test business::erp::asset_dto::tests::from_stock_is_forced_by_source ... ok
+test business::erp::asset_dto::tests::page_normalization ... ok
+test business::erp::asset_dto::tests::source_reference_consistency ... ok
+test business::erp::asset_dto::tests::status_change_validation ... ok
+test business::erp::asset_dto::tests::transfer_and_custodian_validation ... ok
+test business::erp::asset_handler::tests::category_auto_code_generated_when_blank ... ok
+test business::erp::asset_handler::tests::category_auto_code_increments ... ok
+test business::erp::asset_handler::tests::category_duplicate_code_conflicts ... ok
+test business::erp::asset_handler::tests::category_manual_code_is_kept ... ok
+test business::erp::asset_linkage::tests::disposal_dep_gate_is_wired_into_dispose_handler ... ok
+test business::erp::asset_linkage::tests::fixed_asset_trigger_is_wired_so_presets_can_fire ... ok
+test business::erp::asset_linkage::tests::migration_seeds_every_preset_row ... ok
+test business::erp::asset_linkage::tests::notice_draft_carries_asset_context ... ok
+test business::erp::asset_linkage::tests::notice_idempotency_key_is_per_event_and_asset ... ok
+test business::erp::asset_linkage::tests::preset_down_removes_the_same_keys ... ok
+test business::erp::asset_linkage::tests::preset_params_are_takeover_and_valid ... ok
+test business::erp::asset_linkage::tests::presets_are_idempotent_without_overwriting_manual_rules ... ok
+test business::erp::asset_linkage::tests::presets_cover_every_fixed_asset_status ... ok
+test business::erp::asset_linkage::tests::status_labels_match_asset_dto ... ok
+test business::erp::asset_linkage_tests::lnk09_cancel_disposal_triggers_restore_notice ... ok
+test business::erp::asset_linkage_tests::lnk09_disposal_triggers_disposed_notice ... ok
+test business::erp::asset_linkage_tests::lnk09_excluded_voucher_actions_never_run ... ok
+test business::erp::asset_linkage_tests::lnk09_repeat_disposal_does_not_trigger_twice ... ok
+test business::erp::asset_linkage_tests::lnk09_rolled_back_tx_never_sends_notice ... ok
+test business::erp::asset_linkage_tests::st02_dispose_restore_dispose_notifies_twice ... ok
+test business::erp::asset_linkage_tests::st02_enable_triggers_once ... ok
+test business::erp::asset_linkage_tests::st02_excluded_actions_not_run ... ok
+test business::erp::asset_linkage_tests::st02_idle_triggers_once ... ok
+test business::erp::asset_linkage_tests::st02_repeat_idle_conflicts ... ok
+test business::erp::asset_linkage_tests::st02_reversible_edges_notify_twice ... ok
+test business::erp::asset_model::asset_model_tests::db::change_rows_are_append_only ... ok
+test business::erp::asset_model::asset_model_tests::db::insert_asset_computes_derived_amounts ... ok
+test business::erp::asset_model::asset_model_tests::db::source_can_only_be_converted_once ... ok
+test business::erp::asset_model::asset_model_tests::db::status_cas_is_atomic ... ok
+
+test result: ok. 61 passed; 0 failed; 0 ignored; 0 measured; 3921 filtered out; finished in 34.25s
+
+EXIT_business::erp::asset=0
+test result: ok. 61 passed; 0 failed; 0 ignored; 0 measured; 3921 filtered out; finished in 34.25s
+===== business::erp::expense =====
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 56s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 57 tests
+test business::erp::expense_bridge::tests::edges_match_registry ... ok
+test business::erp::expense_bridge::tests::only_approved_books ... ok
+test business::erp::expense_bridge::tests::only_negative_terminal_reverts ... ok
+test business::erp::expense_bridge::tests::paid_status_mapping ... ok
+test business::erp::expense_bridge::tests::period_closed_maps_to_409 ... ok
+test business::erp::expense_compute::tests::debit_lines_aggregate_by_account ... ok
+test business::erp::expense_compute::tests::debit_lines_drop_zero_amounts ... ok
+test business::erp::expense_compute::tests::design_example_6600_splits_exactly ... ok
+test business::erp::expense_compute::tests::expense_and_accounting_periods_stay_separate ... ok
+test business::erp::expense_compute::tests::pay_status_three_values ... ok
+test business::erp::expense_compute::tests::period_follows_date ... ok
+test business::erp::expense_compute::tests::rounding_never_breaks_identity ... ok
+test business::erp::expense_compute::tests::same_period_when_approved_in_expense_month ... ok
+test business::erp::expense_compute::tests::summary_rejects_empty_items ... ok
+test business::erp::expense_compute::tests::tier_boundaries_go_to_stricter_side ... ok
+test business::erp::expense_compute::tests::zero_rate_keeps_amount_equal_with_tax ... ok
+test business::erp::expense_dto::tests::cancel_reason_needs_ten_chars ... ok
+test business::erp::expense_dto::tests::empty_items_rejected ... ok
+test business::erp::expense_dto::tests::invoice_type_domain_enforced ... ok
+test business::erp::expense_dto::tests::negative_amount_rejected ... ok
+test business::erp::expense_dto::tests::pay_amount_and_method_validated ... ok
+test business::erp::expense_dto::tests::tax_rate_out_of_range_rejected ... ok
+test business::erp::expense_dto::tests::type_amount_limit_non_negative ... ok
+test business::erp::expense_dto::tests::type_code_blank_means_auto_and_manual_is_kept ... ok
+test business::erp::expense_dto::tests::valid_report_passes ... ok
+test business::erp::expense_handler::tests::type_auto_code_generated_when_blank ... ok
+test business::erp::expense_handler::tests::type_auto_code_increments ... ok
+test business::erp::expense_handler::tests::type_duplicate_code_conflicts ... ok
+test business::erp::expense_handler::tests::type_manual_code_is_kept ... ok
+test business::erp::expense_linkage_tests::lnk05_approve_triggers_linkage_notice_and_single_voucher ... ok
+test business::erp::expense_linkage_tests::lnk05_cancel_triggers_linkage_notice ... ok
+test business::erp::expense_linkage_tests::lnk05_pay_triggers_only_on_full_payment ... ok
+test business::erp::expense_linkage_tests::lnk05_reject_reverts_to_draft_and_triggers ... ok
+test business::erp::expense_linkage_tests::lnk05_repeat_submit_and_pay_do_not_trigger_twice ... ok
+test business::erp::expense_linkage_tests::lnk05_submit_triggers_linkage_notice ... ok
+test business::erp::expense_model::expense_model_tests::db::apply_full_payment ... ok
+test business::erp::expense_model::expense_model_tests::db::apply_partial_payment ... ok
+test business::erp::expense_model::expense_model_tests::db::approval_voucher_is_balanced_with_tax_line ... ok
+test business::erp::expense_model::expense_model_tests::db::budget_check_and_occupy ... ok
+test business::erp::expense_model::expense_model_tests::db::business_params_always_follow_the_filter_marker ... ok
+test business::erp::expense_model::expense_model_tests::db::check_totals_detects_mismatch ... ok
+test business::erp::expense_model::expense_model_tests::db::header_and_items_are_consistent ... ok
+test business::erp::expense_model::expense_model_tests::db::header_tax_sum_constraint ... ok
+test business::erp::expense_model::expense_model_tests::db::item_positive_amount_constraint ... ok
+test business::erp::expense_model::expense_model_tests::db::item_tax_sum_constraint ... ok
+test business::erp::expense_model::expense_model_tests::db::old_shape_without_marker_is_rejected_by_guard ... ok
+test business::erp::expense_model::expense_model_tests::db::overpay_is_rejected_by_database ... ok
+test business::erp::expense_model::expense_model_tests::db::page_base_sql_has_exactly_one_filter_marker ... ok
+test business::erp::expense_model::expense_model_tests::db::page_with_filters_is_scoped_and_never_fails ... ok
+test business::erp::expense_model::expense_model_tests::db::pay_status_three_values_from_db ... ok
+test business::erp::expense_model::expense_model_tests::db::payment_voucher_two_lines ... ok
+test business::erp::expense_model::expense_model_tests::db::resubmit_after_release_reuses_same_usage_row ... ok
+test business::erp::expense_model::expense_model_tests::db::reverse_vouchers_after_cancel ... ok
+test business::erp::expense_model::expense_model_tests::db::type_usage_count ... ok
+test business::erp::expense_model::expense_model_tests::db::update_draft_only_from_draft ... ok
+test business::erp::expense_model::tests::scope_targets ... ok
+test business::erp::expense_model::tests::seq_specs_are_distinct ... ok
+
+test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 3928 filtered out; finished in 37.96s
+
+EXIT_business::erp::expense=0
+test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 3928 filtered out; finished in 37.96s
+===== business::erp::customer =====
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 47s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 19 tests
+test business::erp::customer_handler::tests::auto_code_generated_when_blank ... ok
+test business::erp::customer_handler::tests::auto_code_increments_consecutively ... ok
+test business::erp::customer_handler::tests::create_customer_persists_all_fields ... ok
+test business::erp::customer_handler::tests::customer_code_cannot_be_changed ... ok
+test business::erp::customer_handler::tests::duplicate_code_rejected_and_reusable_after_soft_delete ... ok
+test business::erp::customer_handler::tests::duplicate_manual_code_rejected_with_message ... ok
+test business::erp::customer_handler::tests::manual_code_is_preserved ... ok
+test business::erp::customer_handler::tests::negative_credit_limit_rejected_zero_allowed ... ok
+test business::erp::customer_handler::tests::page_filters_by_code_name_and_status ... ok
+test business::erp::customer_handler::tests::permission_codes_are_unique_and_prefixed ... ok
+test business::erp::customer_handler::tests::preview_code_does_not_consume_sequence ... ok
+test business::erp::customer_handler::tests::previewed_code_is_used_verbatim_on_create ... ok
+test business::erp::customer_handler::tests::soft_delete_hides_row_but_keeps_it ... ok
+test business::erp::customer_handler::tests::update_is_partial_and_locks_code ... ok
+test business::erp::customer_model::tests::columns_cover_every_v0260_field ... ok
+test business::erp::customer_model::tests::credit_days_guard_boundary ... ok
+test business::erp::customer_model::tests::credit_limit_guard_boundary ... ok
+test business::erp::customer_model::tests::normalize_code_only_trims ... ok
+test business::erp::customer_model::tests::status_domain_matches_check_constraint ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 3967 filtered out; finished in 7.01s
+
+EXIT_business::erp::customer=0
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 3967 filtered out; finished in 7.01s
