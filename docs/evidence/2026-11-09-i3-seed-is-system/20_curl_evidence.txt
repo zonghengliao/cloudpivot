@@ -1,0 +1,39 @@
+===== 0) 起隔离实例（库 cloudpivot_i3_clean，端口 18039）=====
+health=200  my_pid=1444964  listener=pid=1444964
+
+===== 1) 登录（真实 token；初始口令取自服务 env，不回显明文）=====
+login code=0  must_change=True
+token_len=461
+
+===== 2) 首登改密（种子 admin 恒 must_change_password=true）=====
+PUT /api/system/auth/password → {"code":0,"msg":"密码已修改"}
+relogin code=0  token_len=461
+
+===== 3) N2：超管有部门（/auth/me + /system/dept/tree）=====
+  /auth/me → code=0 username=admin dept_id=20000000-0000-4000-8000-0000000f0366 must_change=False roles=['SUPER_ADMIN']
+  dept →  HQ parent_id=None dept_path=None
+
+===== 4) H5/H6 的业务后果：模板库默认口径（SQL 是 AND d.is_system）=====
+-- A. 修复态（V0366 之后）--
+  HTTP code=0 total=18 条目数=18
+  ✔ pr_approve   采购申请审批（标准·超预算加签） | is_system=True | status=PUBLISHED
+  ✔ prt_approve  采购退货审批（标准·两级） | is_system=True | status=PUBLISHED
+  含 pr_approve=True  含 prt_approve=True
+
+-- B. 对照：两条 is_system 改回 false（= V0366 之前的库状态）→ 标准流程列表里应消失 --
+  HTTP code=0 total=16 条目数=16
+  含 pr_approve=False  含 prt_approve=False
+
+-- C. 复原（再跑一次 V0366 的 UPDATE）→ 应重新出现 --
+  HTTP code=0 total=18 条目数=18
+  ✔ pr_approve   采购申请审批（标准·超预算加签） | is_system=True | status=PUBLISHED
+  ✔ prt_approve  采购退货审批（标准·两级） | is_system=True | status=PUBLISHED
+  含 pr_approve=True  含 prt_approve=True
+
+===== 5) 库侧复核（与上面接口一致）=====
+biz_flow_def: pr_approve is_system=true
+biz_flow_def: prt_approve is_system=true
+admin dept=HQ
+
+===== 6) 收尾：关掉隔离实例 =====
+instance stopped (pid 1444964)

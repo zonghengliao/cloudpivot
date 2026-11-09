@@ -1,0 +1,81 @@
+===== 1) 全新空库 + 全量迁移（含 V0366）=====
+==> dropped: cloudpivot_i3_clean
+==> created: cloudpivot_i3_clean (owner=cloudpivot)
+==> 启动 pid=1443660 库=cloudpivot_i3_clean 端口=18166 日志=/root/erp-clean-db.log（跑迁移 + bootstrap）
+==> 启动日志尾部
+==> 库指纹
+    schema_migrations(max|count) = 366|297
+    超管人数（= assignee_type=ADMIN 节点的会签人数） = 1
+==> 完成。下一步：
+
+===== 2) 迁移与数据指纹 =====
+migrations max/num = 366 / 297
+V0366 落库条数 = 1
+pr_approve | 采购申请审批（标准·超预算加签） | is_system=true
+prt_approve | 采购退货审批（标准·两级） | is_system=true
+标准流程数 / 名字含标准但非系统(H5) = 18 / 0
+dept: HQ | 总部 | parent=NULL
+admin dept = HQ
+N2 违规账号 = (无)
+
+===== 3) 迁移后不变量 =====
+[迁移后] 结果：80/80 通过   🚨 BLOCKER 0   ⚠️ WARN 0
+  · 覆盖：在役卡片 0 张 Σ累计折旧 = 0 / 已排除已处置卡片 0 张 Σ累计折旧 = 0（处置凭证已把它们的 1602 借平；逐卡对账见 K5b）
+  · 跳过：库 cloudpivot_i3_clean 不是生产库（库名 cloudpivot_i3_clean 不是生产库）——e2e 夹具在测试库/演练库是预期产物
+  · 覆盖：销售订单 0 张 / 明细 0 行
+  · 覆盖：订单明细 0 行，其中已发货 0 行
+  · 覆盖：发票 0 张（其中红字 0 张）
+  · 覆盖：应收 0 张，其中已收款 0 张
+  · 覆盖：收款 0 张 / 核销明细 0 行
+  · 覆盖：已过账销售出库 0 张（赠品/零价免挂应收 0 张） / SALES_OUT 来源应收 0 张
+  ✅ [审批] H6 预置流程种子的 INSERT 必须显式写 is_system（或由后续迁移补偿）
+  ✅ [审批] H5 名字自称「标准」的流程定义必须 is_system=TRUE
+  ✅ [权限] N2 在用 HUMAN 账号必须有部门归属
+
+===== 4) 幂等：把 V0366 再跑一遍（应 UPDATE 0 / INSERT 0 0）=====
+UPDATE 0
+DO
+INSERT 0 0
+
+===== 5) 因果对照：回退成缺陷态 → 应重新变红 =====
+UPDATE 2
+UPDATE 1
+[回退成缺陷态] 结果：78/80 通过   🚨 BLOCKER 0   ⚠️ WARN 2
+  · 覆盖：在役卡片 0 张 Σ累计折旧 = 0 / 已排除已处置卡片 0 张 Σ累计折旧 = 0（处置凭证已把它们的 1602 借平；逐卡对账见 K5b）
+  · 跳过：库 cloudpivot_i3_clean 不是生产库（库名 cloudpivot_i3_clean 不是生产库）——e2e 夹具在测试库/演练库是预期产物
+  · 覆盖：销售订单 0 张 / 明细 0 行
+  · 覆盖：订单明细 0 行，其中已发货 0 行
+  · 覆盖：发票 0 张（其中红字 0 张）
+  · 覆盖：应收 0 张，其中已收款 0 张
+  · 覆盖：收款 0 张 / 核销明细 0 行
+  · 覆盖：已过账销售出库 0 张（赠品/零价免挂应收 0 张） / SALES_OUT 来源应收 0 张
+  ✅ [审批] H6 预置流程种子的 INSERT 必须显式写 is_system（或由后续迁移补偿）
+  ⚠️ [审批] H5 名字自称「标准」的流程定义必须 is_system=TRUE
+  ⚠️ [权限] N2 在用 HUMAN 账号必须有部门归属
+
+===== 6) 启动期落位：清空 admin 部门后重启一次实例 =====
+==> 已存在：cloudpivot_i3_clean（要重建请加 RECREATE=1）
+==> 启动 pid=1444567 库=cloudpivot_i3_clean 端口=18166 日志=/root/erp-clean-db.log（跑迁移 + bootstrap）
+==> 启动日志尾部
+==> 库指纹
+==> 完成。下一步：
+[2m2026-11-09T14:39:19.656017Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+[2m2026-11-09T14:39:19.766204Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 超管部门落位：admin 原先没有部门，已归入根部门 [3musers[0m[2m=[0m["admin"] [3mdept[0m[2m=[0m"HQ"
+admin dept（重启后）= HQ
+
+===== 7) 再跑 V0366 修复 is_system → 不变量（最终）=====
+UPDATE 2
+DO
+INSERT 0 0
+[最终] 结果：80/80 通过   🚨 BLOCKER 0   ⚠️ WARN 0
+  · 覆盖：在役卡片 0 张 Σ累计折旧 = 0 / 已排除已处置卡片 0 张 Σ累计折旧 = 0（处置凭证已把它们的 1602 借平；逐卡对账见 K5b）
+  · 跳过：库 cloudpivot_i3_clean 不是生产库（库名 cloudpivot_i3_clean 不是生产库）——e2e 夹具在测试库/演练库是预期产物
+  · 覆盖：销售订单 0 张 / 明细 0 行
+  · 覆盖：订单明细 0 行，其中已发货 0 行
+  · 覆盖：发票 0 张（其中红字 0 张）
+  · 覆盖：应收 0 张，其中已收款 0 张
+  · 覆盖：收款 0 张 / 核销明细 0 行
+  · 覆盖：已过账销售出库 0 张（赠品/零价免挂应收 0 张） / SALES_OUT 来源应收 0 张
+  ✅ [审批] H6 预置流程种子的 INSERT 必须显式写 is_system（或由后续迁移补偿）
+  ✅ [审批] H5 名字自称「标准」的流程定义必须 is_system=TRUE
+  ✅ [权限] N2 在用 HUMAN 账号必须有部门归属
