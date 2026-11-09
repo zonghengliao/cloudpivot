@@ -1022,6 +1022,16 @@ pub async fn resolve_period(tx: &Transaction, period: &str) -> DbResult<PeriodIn
 /// `opening_period` = **报表所属期间**（`yyyy-MM`）。报表与期间不是一一对应时
 /// （利润表的「本年累计」窗口从 1 月 1 日起算）传同一期间，保证期初在两边口径一致：
 /// 利润表的「期末累计 − 年初之前」正好把期初抵消掉，勾稽不会因为期初而假红。
+///
+/// # 期初凭证按「落在本窗口内」识别，不只看「期间恰好等于报表期间」（E2E-04 修）
+///
+/// 只按 `v.period = 报表期间` 识别会漏掉最常见的一种：**财务在年初 1 月录的期初**。
+/// 那时 `net_before`（本年累计窗口，起点 1 月 1 日）拿不到它（日期不早于 1 月 1 日、
+/// 期间也不等于报表期间），`net_period` 又把 OPENING 排除掉 —— 于是这笔期初
+/// 「年初没有、本期也没有」，却照样出现在「期末累计」里，利润表勾稽
+/// 「净利润 = 未分配利润本年变动」凭空多出期初的未分配利润（实测 2022 年差 500 000）。
+/// 期初凭证的 `voucher_date` 恒为其期间第一天，所以「落在 [start, end] 区间内」
+/// 与「该期间在本窗口内」等价，且对「年中补录期初」同样成立（早于它的报表窗口看不到它）。
 pub async fn load_accounts(
     tx: &Transaction,
     start: NaiveDate,
@@ -1040,7 +1050,9 @@ pub async fn load_accounts(
                   FROM {ENTRY_TABLE} e JOIN {VOUCHER_TABLE} v ON v.id = e.voucher_id \
                  WHERE v.status = '{POSTED}' AND v.deleted_at IS NULL \
                    AND (v.voucher_date < ? \
-                        OR (v.voucher_type = 'OPENING' AND v.period = NULLIF(?::text, ''))) \
+                        OR (v.voucher_type = 'OPENING' \
+                            AND (v.voucher_date BETWEEN ? AND ? \
+                                 OR v.period = NULLIF(?::text, '')))) \
                  GROUP BY e.account_id \
            ) o ON o.account_id = a.id \
            LEFT JOIN ( \
@@ -1059,6 +1071,8 @@ pub async fn load_accounts(
             &sql,
             vec![
                 Value::from(start),
+                Value::from(start),
+                Value::from(end),
                 Value::Text(opening_period.to_string()),
                 Value::from(start),
                 Value::from(end),

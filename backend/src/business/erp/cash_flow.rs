@@ -1042,6 +1042,15 @@ pub async fn load_items(tx: &Transaction) -> DbResult<Vec<CashFlowItemDef>> {
 /// 窗口内**含现金分录**的凭证与它们的全部分录（按日期 → 凭证号 → 行号排序）。
 ///
 /// 只取「有现金分录」的凭证：没有现金分录的凭证不产生现金流，读进来只会浪费内存。
+///
+/// # 期初 / 年结凭证不算「本期发生的现金流」（E2E-04 修）
+///
+/// `OPENING` 是**建账余额**、`YEAR_END` 是**账内搬运**，两者都不是「这一年收了/付了钱」。
+/// 不排除它们时，年初录的期初凭证会被当成一笔「未分类的经营活动流入」，
+/// 于是「期初现金」= 0、净增加额凭空多出期初金额、`unclassified_count` 永远 ≥ 1，
+/// 而「期末现金」又因 `ledger_cash_balance`（走 `report::load_accounts`，期初单列）
+/// 是对的 —— 一增一减，勾稽差额恰好抵消成 0，把口径错误藏了起来（实测 2022 年
+/// 净增加额 1 616 000 而不是 1 116 000）。期初现金只由 `opening_cash_balance()` 提供。
 pub async fn load_cash_vouchers(
     tx: &Transaction,
     start: NaiveDate,
@@ -1055,6 +1064,7 @@ pub async fn load_cash_vouchers(
            JOIN {entry} e ON e.voucher_id = v.id \
            LEFT JOIN {account} a ON a.id = e.account_id \
           WHERE v.status = '{posted}' AND v.deleted_at IS NULL \
+            AND v.voucher_type NOT IN ('OPENING', 'YEAR_END') \
             AND v.voucher_date >= ? AND v.voucher_date <= ? \
             AND v.id IN ( \
                 SELECT v2.id FROM {voucher} v2 \
