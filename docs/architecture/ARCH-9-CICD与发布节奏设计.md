@@ -19,7 +19,7 @@
 
 | # | 决策 | 依据 |
 |---|---|---|
-| **D-1** | **运行位置**：L0/L1 留在开发机（99），由 git hook 机械强制；**L2 每日回归放 145 测试机**（03:10，用 145 上的 `cloudpivot_dev` + 每次重建的干净库 `cloudpivot_ci`）；**L3 发版前在 145 人工触发**。不引入 Gitea/Woodpecker（§4.1/§4.9） | 145 已跑着 30 分钟一次的 `test_deploy.sh`（实测周期 1 m 16 s–3 m 13 s），同机就有真库和 systemd 服务；99 上 `backend/target` 已 **109 G**、根盘只剩 **8.1 G**（97% used，实测），再压一套 CI 服务会挤爆 |
+| **D-1** | **运行位置（A/D 组合，不用 B/C）**：L0/L1 在开发机（99）由 git hook 机械强制；**L2-A 在 145**（03:10：干净库 + 21 道门禁 + HTTP 回归 + 13 域抽样）；**L2-B 在 99**（03:40：真库全量单测，只有 15 G 内存的机器能跑 7.7 GiB 的 test 链接）；**L3 发版前在 145 人工触发**。逐项裁定见 §4.1 | 145 已跑着 30 分钟一次的 `test_deploy.sh`（实测周期 1 m 16 s–3 m 13 s），同机就有真库与 systemd 服务；99 上 `backend/target` 已 **109 G**、根盘只剩 **8.1 G**（97% used，实测），再压一套 CI 服务会挤爆。A/B/C/D 逐项对比见 §4.1 |
 | **D-2** | **四层门禁的实测耗时**：L0 3.1 s；L1 **2 min 05 s**（clippy 83.6 + 单测 2.1 + typecheck 39.5，实测）；L2 **≈ max(L2-A 14–18 min, L2-B ≥40 min) = ≥40 min**（静态门禁合计 2 min 42 s + 干净库重建 6.4 s + 13 域抽样 / 真库全量单测两段并行；**超「<30 min」目标，处置见 §4.1**）；L3 1–2 h（含 e2e 424 例） | 附录 A 逐项实测 |
 | **D-3** | **单测必须带库才算数**：不带库 `cargo test --lib` 是 **4021 passed / 1.78 s 的假绿**（真库用例全部 print SKIP 后 return，libtest 记 passed）。L1 只跑「无库 + 受影响模块」，**L2 跑全量真库**（`--test-threads=1`，因为库里有改全局配置的用例） | 实测 2.1 s vs check.sh 注释自述「约 12 分钟」；`scripts/check.sh:60-110` 已写明同一条判据 |
 | **D-4** | **工具链必须钉死**：新增 `rust-toolchain.toml`（`1.94.1`）。当前 99 是 `rustc 1.94.1`，**145 / 144 都是 `1.99.1`** ⇒ 同一棵树在两台机器上 clippy 结论可以不同，「本机绿、CI 红」是必然 | 三台机实测 `--version`（附录 A-12） |
@@ -326,6 +326,20 @@ CREATE INDEX idx_ci_baseline_active    ON sys_ci_baseline (expires_at) WHERE rev
 | **L2-A** | 每日 **03:10**（145，cron） | **145 测试机** | ① 干净库重建（**实测 6.43 s / 298 迁移**）② **21 道**静态+DB 检查（即 `check.sh` 全部，含 fmt/clippy/typecheck）+ `menu_invariants.sh`（8 条）+ `icon_invariant_teeth.sh` ③ `verify.py all`（HTTP 回归，**实测 34.5 s**）④ 13 域抽样（§4.4） | 静态部分实测合计 **2 min 42 s**（99 热 target）；145 上 clippy 无缓存，**待实测**（确认方式：145 跑一次 `cargo clippy --all-targets` 计时，见 §8.4 待确认 2）；+ 抽样 ≈ 10–15 min | 不阻断主干，**建卡 + 飞书**（§4.8） | `sys_ci_run`（host=145）+ 每项一行 |
 | **L2-B** | 每日 **03:40**（99，cron） | **99 开发机** | 真库全量单测：重建库 + `cargo test --lib --features test-hooks -- --test-threads=1 --nocapture`（`ERP_DB_URL`/`SYS_DB_URL`/`TASK_DB_URL` 三把都给） | **实测 ≥ 40 min**（见附录 A-15 的两轮实测与外推；全程 4014 例）—— 超「<30 min」目标，处置见下 | 建卡 + 飞书 | `sys_ci_run`（host=99）+ item 1 行（DBTEST） |
 | **L3** | 发版前人工触发（`run_layer.sh L3`） | 145 | ① 全部 484 个可执行 verify 脚本 + 37 个 `.sql` 证据脚本 ② 前端 e2e 全量（**424 例 / 25 spec**，`workers:1`）③ k6 性能基线（有性能改动时） | 40–90 min（e2e 串行是主项，**待实测**，见 §8.4 待确认 3） | **阻断发版**（`deploy.sh` 拒跑） | `sys_ci_run`（layer=L3）+ 每项一行 |
+
+**运行位置：A / B / C / D 四个选项逐项裁定（这是本设计最需要拍板的一条）**
+
+| 选项 | 描述 | 实测/直读依据 | 裁定 |
+|---|---|---|---|
+| **A** | 全部放 99 开发机（现有机器，无 CI 服务） | 99：4 核 / 15 G；`backend/target` **109 G**、根盘 **8.1 G 可用（97% used）**；机器上还有 2 个 agent worker 在跑、cron 每 3 分钟一次 `concurrency_guard.sh` | **部分采用**：只承接 L0/L1（登录即开发者的机器，改完立刻能跑）+ L2-B（真库单测要 7.7 GiB RSS，只有 15 G 的 99 能跑）。**不**承接 L2-A/L3（磁盘与 IO 会跟 worker 抢） |
+| **B** | GitHub Actions | 当前 `origin` = `ssh://172.18.10.145/opt/git/cloudpivot.git`（145 内网 bare），**没有 GitHub 远端**；仓库含内部业务文档与生产凭据路径（`/etc/cloudpivot/*.env`），双推 GitHub 要先过脱敏 | **不采用**（长期条件触发：若对外开源/需要给外部贡献者看 PR 结果，再上；见 §8.2） |
+| **C** | 自建 Gitea + Woodpecker/Drone | 要新增 2 个常驻服务（Gitea + runner）+ 一套镜像/缓存，机器只有 99/145/144 三台 4 核机；145 内存 7 G，新增 runner 会直接与 `test_deploy.sh` 抢 | **中期不做**（触发条件见 §8.2）；但**表结构与 manifest 已按「换调度器只换触发源」设计**，将来接 C 不用改数据模型 |
+| **D** | 145 测试机 cron（半自动） | 145 已有 30 分钟一次的 `test_deploy.sh`（实测全周期 1 m 16 s–3 m 13 s、增量编译 58 s–2 m 13 s）、`cloudpivot-test` + `chromium-pdf` 两个 systemd 服务、真库 `cloudpivot_dev`（433 菜单）、123 G 空闲盘 | **采用**（L2-A + L3 的宿主）。唯一缺口是「不是 per-commit 触发」——那个缺口由 A 的 pre-push 补上（L1 已在 99 机械强制） |
+
+**结论（D-1 的完整表述）**：**A（L0/L1 + L2-B）+ D（L2-A + L3）组合，不用 B/C**。理由不是「零成本」，而是三条实测事实：
+1. **per-commit 触发的缺口已经有解**：`pre-push` 已经在 99 上机械跑 fmt/clippy/typecheck（今天 `845618b2` 加的，实测 2 min 56 s 内）。这比 GitHub Actions 更早、更快，且不需要公网。
+2. **145 是唯一「代码 + 真库 + 常驻服务」三者齐全的机器**，跑「干净库迁移 + 13 域抽样 + HTTP 回归」天然对得上；换任何 CI 服务都要重新解决「CI 机器上没有真库」的问题。
+3. 三台机器的现实都是 4 核 / 7–15 G**：多一个常驻 CI 服务 = 从「门禁跑不动」升级为「门禁和业务互相拖死」。今天的 `test_deploy.sh` 已经因为内存紧（前端 build 要 4096 MB 堆）踩过 OOM，这条教训不该重复。
 
 **为什么 L2 拆两段（关键决策）**：
 
