@@ -1,0 +1,24 @@
+BEGIN
+INSERT 0 9
+UPDATE 3
+DO
+INSERT 0 4
+INSERT 0 26
+INSERT 0 6
+INSERT 0 30
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 3
+INSERT 0 2
+INSERT 0 4
+psql:docs/evidence/2026-11-10-arch9-2-hr-ddl/02_alter_tables_check.sql:258: NOTICE:  本库无 biz_doc_attachment：放宽段按幂等守卫跳过（生产库会执行）
+DO
+psql:docs/evidence/2026-11-10-arch9-2-hr-ddl/02_alter_tables_check.sql:363: NOTICE:  ARCH-9-2 改造表/种子断言通过 24 条
+DO
+                      result                      
+--------------------------------------------------
+ ARCH-9-2 改造表校验完成（即将 ROLLBACK，零残留）
+(1 row)
+
+ROLLBACK
