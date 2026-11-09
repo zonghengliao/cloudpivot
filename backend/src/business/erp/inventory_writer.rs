@@ -695,36 +695,80 @@ pub(crate) async fn sync_cost_qty_from_serials(
     Ok(())
 }
 
-/// 巡检修正语句：按序列号把不一致的 `(物料, 仓库)` 账面数量**批量**对齐（一条语句）。
+/// 巡检修正语句（① 单桶按差额调整）—— 把不一致的 `(物料, 仓库)` 账面**按差额**推平（一条语句）。
 ///
 /// `source_cte` 是巡检提供的只读 CTE，必须产出关系
-/// `combos(material_id, warehouse_id, book_qty, actual_qty)`（含「有序列号没库存行」那一侧）。
+/// `combos(material_id, warehouse_id, book_qty, actual_qty, bucket_count)`。
 /// **写语句本身住在本模块**（这是唯一写入口的一部分）；只有读侧 CTE 留在
 /// [`super::inventory_audit`]，保证「报的口径」和「修的口径」是同一段 SQL。
 ///
-/// - `amount = qty * avg_cost`：数量变了金额必须跟着变（否则成本账两列互相矛盾）；
-/// - 只处理 `warehouse_id IS NOT NULL` 的行（没有仓库维度就写不进 `biz_inventory`，
-///   这类行由巡检以 `unfixable` 计数暴露）；
-/// - `last_txn_at` 不写：巡检不是一笔业务，不该伪造流水时刻（只动 `updated_at`）；
-/// - 冲突目标是三列表达式 `ON CONFLICT (material_id, warehouse_id,
-///   COALESCE(location_id, 全零 uuid))`（`uk_biz_inv_mat_wh_loc`），`INSERT` 显式写
-///   `location_id = NULL` = 整仓汇总桶。写两列目标会在 V0139 之后以 PG 42P10 失败。
-pub(crate) fn align_cost_qty_sql(source_cte: &str) -> String {
+/// # 为什么是「差额」而不是「覆盖」
+///
+/// 单桶时两者数学等价（桶里就那么多，`qty + (actual - qty) = actual`），
+/// 但语义差在三处：
+///
+/// 1. **不写死 `qty = actual`**：将来若给单桶加「在途」之类的附加列，
+///    差额语义不会把它们抹掉（覆盖语义会）；
+/// 2. 口径与迁移后的两桶/多桶分支**同源** —— 多桶时也只允许「往某一个桶加差额」，
+///    不存在「整仓覆盖」这种会把别的桶抹掉的写法；
+/// 3. 历史事故（E2E-03，`Σqty=5` 报成 `2`）的根因就是「覆盖成汇总桶的值」：
+///    `location_id = NULL` 的桶被当成整仓汇总，写 `qty = actual` 直接把库位桶的 3 件抹掉。
+///
+/// # 为什么只修单桶（`bucket_count = 1`）
+///
+/// 多桶并存（`bucket_count >= 2`）时「差额该记到哪个桶」本身有歧义：
+/// 记到未分配桶会让「库位账 vs 成本账」逐桶对不上（B1b），记到某个库位桶则是凭空猜。
+/// 这种行**一律不动**，由巡检以 `unfixable_reason = MULTI_BUCKET` 报出来要求人工处理。
+///
+/// # 其余口径
+///
+/// - `amount = 新 qty × avg_cost`：数量变了金额必须跟着变（否则成本账两列互相矛盾）；
+///   差值由 SQL 侧 numeric 算，不在 Rust 里重算（PG 与 Rust 的舍入不是一套）；
+/// - 只处理 `warehouse_id IS NOT NULL` 的行（没有仓库维度就写不进 `biz_inventory`）；
+/// - `last_txn_at` 不写：巡检不是一笔业务，不该伪造流水时刻（只动 `updated_at`）。
+pub(crate) fn align_cost_qty_delta_sql(source_cte: &str) -> String {
     format!(
         "{source_cte} \
          , bad AS ( \
             SELECT * FROM combos \
-             WHERE book_qty <> actual_qty AND warehouse_id IS NOT NULL \
+             WHERE book_qty <> actual_qty \
+               AND warehouse_id IS NOT NULL \
+               AND bucket_count = 1 \
+         ) \
+         UPDATE biz_inventory i \
+            SET qty = i.qty + (b.actual_qty - b.book_qty), \
+                amount = (i.qty + (b.actual_qty - b.book_qty)) * i.avg_cost, \
+                updated_at = now() \
+           FROM bad b \
+          WHERE i.material_id = b.material_id AND i.warehouse_id = b.warehouse_id \
+         RETURNING i.id"
+    )
+}
+
+/// 巡检修正语句（② 反向：整行没建账 → 建档），`bucket_count = 0` 的那些组合。
+///
+/// 冲突目标是三列表达式 `ON CONFLICT (material_id, warehouse_id,
+/// COALESCE(location_id, 全零 uuid))`（`uk_biz_inv_mat_wh_loc`），`INSERT` 显式写
+/// `location_id = NULL` = 未分配桶 —— 与「期初落未分配桶」的历史口径一致
+/// （ADR-20261031 §2.2 的批量生成同样落这一桶）。写两列目标会在 V0139 之后以 PG 42P10 失败。
+///
+/// `bucket_count = 0` 说明这个 `(物料, 仓库)` 在成本账里**一行都没有**，
+/// 不存在可参照的均价 → `avg_cost = 0`、`amount = 0`（与修正前的行为一致：
+/// 老实现 `LEFT JOIN` 未分配桶取 `avg_cost` 也只会拿到 NULL → 0）。
+pub(crate) fn align_cost_qty_insert_sql(source_cte: &str) -> String {
+    format!(
+        "{source_cte} \
+         , bad AS ( \
+            SELECT * FROM combos \
+             WHERE book_qty <> actual_qty \
+               AND warehouse_id IS NOT NULL \
+               AND bucket_count = 0 \
          ) \
          INSERT INTO biz_inventory AS i \
              (id, material_id, warehouse_id, location_id, qty, locked_qty, avg_cost, amount) \
          SELECT gen_random_uuid(), b.material_id, b.warehouse_id, NULL::uuid, b.actual_qty, \
-                0, COALESCE(i_amt.avg_cost, 0)::numeric, \
-                b.actual_qty * COALESCE(i_amt.avg_cost, 0)::numeric \
+                0, 0::numeric, 0::numeric \
            FROM bad b \
-           LEFT JOIN biz_inventory i_amt \
-             ON i_amt.material_id = b.material_id AND i_amt.warehouse_id = b.warehouse_id \
-            AND i_amt.location_id IS NULL \
          ON CONFLICT (material_id, warehouse_id, \
                       COALESCE(location_id, '{ZERO_UUID}'::uuid)) \
          DO UPDATE \
@@ -735,14 +779,23 @@ pub(crate) fn align_cost_qty_sql(source_cte: &str) -> String {
     )
 }
 
-/// 执行巡检批量修正，返回实际修正行数（`INSERT` 建档与 `UPDATE` 对齐都算）。
+/// 执行巡检批量修正，返回实际修正行数（差额调整 + 反向建档都算，多桶被跳过的行不算）。
+///
+/// 两条语句同一段 `source_cte`、同一个 executor（`dry_run=false` 时是同一个事务），
+/// 各自按 `bucket_count` 分流，**互不相交**（`= 1` 与 `= 0`），所以顺序无关；
+/// 也绝不按 (物料, 仓库) 循环 —— 每类都是一条集合语句。
 pub(crate) async fn align_cost_qty_batch(
     ex: &impl SqlExecutor,
     source_cte: &str,
     params: Vec<Value>,
 ) -> DbResult<u64> {
-    let rows = ex.query_sql(align_cost_qty_sql(source_cte), params).await?;
-    Ok(u64::try_from(rows.len()).unwrap_or(u64::MAX))
+    let updated = ex
+        .query_sql(align_cost_qty_delta_sql(source_cte), params.clone())
+        .await?;
+    let inserted = ex
+        .query_sql(align_cost_qty_insert_sql(source_cte), params)
+        .await?;
+    Ok(u64::try_from(updated.len() + inserted.len()).unwrap_or(u64::MAX))
 }
 
 // ============================================================================

@@ -338,11 +338,17 @@ test('④ 可修正标记与结论文案：把 only-read 口径写进页面，�
   assert.equal(auditFixableLabel(true), '可修正');
   // 在库序列号没有仓库归属 → 写不进 biz_inventory，得说清原因
   assert.equal(auditFixableLabel(false), '缺仓库归属');
+  assert.equal(auditFixableLabel(false, 'NO_WAREHOUSE'), '缺仓库归属');
+  // 多桶并存：差额该记哪个桶有歧义，后端拒绝自动修 —— 文案不能还说「缺仓库归属」
+  assert.equal(auditFixableLabel(false, 'MULTI_BUCKET'), '多桶并存·需人工');
+  // 可修时原因字段即使脏也不该影响文案
+  assert.equal(auditFixableLabel(true, 'MULTI_BUCKET'), '可修正');
 
   const summary = auditSummaryText({ dry_run: true, checked: 12, mismatched: 3, unfixable: 1 });
   assert.match(summary, /12 个（物料 × 仓库）组合/);
   assert.match(summary, /发现 3 个漂移/);
-  assert.match(summary, /其中 1 个缺仓库归属、无法自动修正/);
+  assert.match(summary, /其中 1 个无法自动修正/);
+  assert.match(summary, /多桶并存/);
   assert.match(summary, /dry_run=true，不改任何库存/);
 
   // 没有 unfixable 时不该多出一句「其中 0 个…」

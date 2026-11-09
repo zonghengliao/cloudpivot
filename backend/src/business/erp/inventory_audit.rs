@@ -33,9 +33,12 @@
 //!
 //! # 一次查完（红线②）
 //!
-//! 报告是**一条** `WITH … SELECT`（两条 CTE 各自聚合一次 + 一次 `FULL OUTER JOIN`），
-//! 修正也是**一条** `WITH … INSERT … ON CONFLICT DO UPDATE`。绝不按 (物料, 仓库) 循环。
-//! 两条语句共用同一个 [`AUDIT_CTE`] 常量 —— 报出来的口径和修的口径只有一份，
+//! 报告是**一条** `WITH … SELECT`（两条 CTE 各自聚合一次 + 一次 `FULL OUTER JOIN`）。
+//! 修正是**两条**集合语句（① 单桶差额 `UPDATE`、② 零桶 `INSERT`），都在同一个事务里、
+//! 按 `combos` 集合分流（`bucket_count = 1` / `= 0`，互不相交），多桶一律不碰。
+//! 绝不按 (物料, 仓库) 循环。
+//!
+//! 三条语句共用同一个 [`AUDIT_CTE`] 常量 —— 报出来的口径和修的口径只有一份，
 //! 不可能出现「报的是一套、修的是另一套」。
 //!
 //! `checked` 用 `COUNT(*) FROM combos` 一次算出来（`LEFT JOIN combos ON 不一致` 保证
@@ -61,21 +64,33 @@
 //!    是 0 位小数、`qty` 是 4 位，不显式定标会让**同一个字段**在不同行出现 `"3"` 与
 //!    `"5.0000"` 两种字符串形态（e2e 实测踩到）。
 //!
-//! # 与 V0139（W3a · 三列唯一键）的对齐
+//! # 与 V0139（W3a · 三列唯一键）的对齐 —— 以及「未分配桶」到底是什么
 //!
 //! W3a 的 `V0139` 给 `biz_inventory` 加了 `location_id`，唯一键从
 //! `uk_biz_inv_mat_wh (material_id, warehouse_id)` 换成
 //! `uk_biz_inv_mat_wh_loc (material_id, warehouse_id, COALESCE(location_id, 全零 uuid))`。
-//! `location_id IS NULL` 是**整仓汇总桶**（W0 §2.4），`serial_model::recompute_quantity`
-//! 也是往这一桶写。本文件两处按这个口径落地：
 //!
-//! 1. **账面侧**（[`AUDIT_CTE`] 的 `book`）：`COALESCE(MAX(qty) FILTER (WHERE location_id IS NULL), SUM(qty))`
-//!    —— 有汇总桶就取汇总桶（唯一索引保证最多 1 行），没有（纯库位行）才按库位求和。
-//!    直接 `SUM(qty)` 会在「汇总桶 + 库位行并存」时**双计**，直接取单行又会漏掉纯库位行。
-//! 2. **修正侧**（[`fix_sql`]）：`INSERT` 显式写 `location_id = NULL`（汇总桶），冲突目标用
-//!    `ON CONFLICT (material_id, warehouse_id, COALESCE(location_id, 全零 uuid))`。
-//!    与 `recompute_quantity` 同一处修法（V0139 文件头 ④ / commit 40fe39e）——
-//!    两列目标在 V0139 之后会以 PG 42P10 失败，`dry_run=false` 直接 500。
+//! **`location_id IS NULL` 是「未分配库位」这一个真实的桶，不是整仓汇总行。**
+//! 同一个 (物料, 仓库) 在成本账里可以有多行（期初 / 批量生成落未分配桶，收货落默认库位桶），
+//! 整仓数量 = **各桶之和**。这一点有三处独立证据：
+//!
+//! 1. `docs/ERP-库存对账口径.md` §1 / §2.1：`biz_inventory` 的粒度是「桶」，
+//!    「库存表 vs 流水累计」按 `(物料, 仓库) GROUP BY` + `SUM(qty)`；
+//! 2. `transfer_settle::assert_settle_invariants` 第 4 条：`SUM(biz_inventory_location.qty)
+//!    == SUM(biz_inventory.qty)`（两本账**按桶相加**后相等，说明成本账的桶是可加的）；
+//! 3. `inventory_writer::add_cost` 等写入口每次只写一个桶，从不「先写库位桶再同步汇总桶」。
+//!
+//! 所以 **[`AUDIT_CTE`] 的 `book` 必须 `SUM(i.qty)`**。历史实现写的是
+//! `COALESCE(MAX(qty) FILTER (WHERE location_id IS NULL), SUM(qty))`，
+//! 即「有未分配桶就只取那一桶、忽略库位桶」—— 两桶并存时必然报**假差异**
+//! （E2E-03 实测：`Σqty = 5`（未分配 2 + 默认库位 3）报成 `book = 2`，`diff = -3`）。
+//!
+//! 1. **账面侧**（[`AUDIT_CTE`] 的 `book`）：`SUM(i.qty)`，同时 `COUNT(*)` 出桶数
+//!    （`bucket_count`，修正路径据此判断「能不能自动修」）。
+//! 2. **修正侧**（[`inventory_writer::align_cost_qty_delta_sql`] /
+//!    [`inventory_writer::align_cost_qty_insert_sql`]）：**单桶按差额调整**
+//!    （`qty += actual - book`，不覆盖）、**多桶一律不动**（标 `MULTI_BUCKET` 交人工）、
+//!    **零桶建档**（`INSERT` 到未分配桶），冲突目标是三列表达式 `uk_biz_inv_mat_wh_loc`。
 //!
 //! 卡面写的是「不改 V0139」，那不是「不用管 V0139」：本文件在 V0139 落地后仍要按新唯一键写
 //! （这里已对齐并实测），但**不碰** V0139 文件本身。
@@ -130,8 +145,8 @@ WITH serial_cnt AS ( \
      GROUP BY s.material_id, s.warehouse_id \
 ), book AS ( \
     SELECT i.material_id, i.warehouse_id, \
-           COALESCE(MAX(i.qty) FILTER (WHERE i.location_id IS NULL), \
-                    SUM(i.qty))::numeric AS book_qty \
+           SUM(i.qty)::numeric AS book_qty, \
+           COUNT(*) AS bucket_count \
       FROM biz_inventory i \
       JOIN biz_material m ON m.id = i.material_id \
      WHERE m.serial_required IS TRUE AND m.deleted_at IS NULL \
@@ -141,7 +156,8 @@ WITH serial_cnt AS ( \
     SELECT COALESCE(b.material_id, a.material_id) AS material_id, \
            COALESCE(b.warehouse_id, a.warehouse_id) AS warehouse_id, \
            COALESCE(b.book_qty, 0)::numeric AS book_qty, \
-           COALESCE(a.actual_qty, 0)::numeric AS actual_qty \
+           COALESCE(a.actual_qty, 0)::numeric AS actual_qty, \
+           COALESCE(b.bucket_count, 0)::integer AS bucket_count \
       FROM book b \
       FULL OUTER JOIN serial_cnt a \
         ON a.material_id = b.material_id AND a.warehouse_id = b.warehouse_id \
@@ -154,6 +170,7 @@ fn audit_sql() -> String {
          , stats AS (SELECT COUNT(*) AS checked FROM combos) \
          SELECT s.checked, c.material_id, m.material_code, m.material_name, \
                 c.warehouse_id, w.warehouse_name, \
+                c.bucket_count, \
                 c.book_qty::numeric(18,4) AS book_qty, \
                 c.actual_qty::numeric(18,4) AS actual_qty, \
                 (c.book_qty - c.actual_qty)::numeric(18,4) AS diff \
@@ -165,24 +182,12 @@ fn audit_sql() -> String {
     )
 }
 
-/// 修正语句：按序列号重算全部不一致行（账多/账少 = `UPDATE`，反向 = `INSERT` 建档）。
-///
-/// - `amount = qty * avg_cost`：数量变了金额必须跟着变（与
-///   [`super::serial_model::recompute_quantity`] 同一口径，否则成本账两列互相矛盾）；
-/// - 只处理 `warehouse_id IS NOT NULL` 的行（没有仓库维度就写不进 `biz_inventory`，
-///   这类行在报告里以 `warehouse_id = null` + `unfixable` 计数暴露）；
-/// - `last_txn_at` 不写：巡检不是一笔业务，不该伪造流水时刻（只动 `updated_at`）；
-/// - **V0139 联动**：冲突目标是三列表达式 `ON CONFLICT (material_id, warehouse_id,
-///   COALESCE(location_id, 全零 uuid))`（`uk_biz_inv_mat_wh_loc`），`INSERT` 显式写
-///   `location_id = NULL` = 整仓汇总桶。写两列目标会在 V0139 之后以 PG 42P10 失败、
-///   `dry_run=false` 直接 500（与 `recompute_quantity` 同一处修法，见模块头）。
-///
-/// 只在单测里用来断言「冲突目标是三列表达式」（生产路径直接用写入口执行）。
+/// 修正语句（只用于单测断言 SQL 形态）。生产路径直接用写入口执行。
 #[cfg(test)]
 fn fix_sql() -> String {
-    // P2-5A：写语句本体住在唯一写入口 [`inventory_writer::align_cost_qty_sql`]，
-    // 这里只把巡检侧「报的口径」那段只读 CTE 拼上去（读与写共用同一段 combos 定义）。
-    inventory_writer::align_cost_qty_sql(AUDIT_CTE)
+    // P2-5A：写语句本体住在唯一写入口 [`inventory_writer`]，这里只把巡检侧「报的口径」
+    // 那段只读 CTE 拼上去（读与写共用同一段 combos 定义）。
+    inventory_writer::align_cost_qty_delta_sql(AUDIT_CTE)
 }
 
 // ==================== 契约 ====================
@@ -200,15 +205,26 @@ pub struct AuditItem {
     pub warehouse_id: Option<String>,
     /// 仓库名称（与 `warehouse_id` 同生共死）。
     pub warehouse_name: Option<String>,
-    /// 账面数量（`biz_inventory.qty`；行不存在时按 0 报）。
+    /// 该 `(物料, 仓库)` 在成本账里有多少个桶（`biz_inventory` 行数）。
+    ///
+    /// `1` = 单桶（可自动修）；`0` = 一行没建账（可建档）；`≥2` = 多桶并存（拒绝自动修）。
+    pub bucket_count: i32,
+    /// 账面数量（该 `(物料, 仓库)` **所有桶之和**；行不存在时按 0 报）。
     pub book_qty: Decimal,
     /// 实际在库件数（`COUNT(status='IN_STOCK' AND deleted_at IS NULL)`）。
     pub actual_qty: Decimal,
     /// 账面 - 实际（正数 = 账多，负数 = 账少）。
     pub diff: Decimal,
-    /// 本行能否被 `dry_run=false` 修正（没有仓库的行不能）。
+    /// 本行能否被 `dry_run=false` 修正（缺仓库或多桶都不能）。
     pub fixable: bool,
+    /// 不能自动修的原因：`NO_WAREHOUSE` / `MULTI_BUCKET`；`None` = 可修。
+    pub unfixable_reason: Option<String>,
 }
+
+/// 在库序列号没有仓库归属 → 写不进 `biz_inventory`，没法修。
+pub const UNFIXABLE_NO_WAREHOUSE: &str = "NO_WAREHOUSE";
+/// 该 `(物料, 仓库)` 成本账里有多行桶 → 差额该记哪个桶有歧义，拒绝自动修。
+pub const UNFIXABLE_MULTI_BUCKET: &str = "MULTI_BUCKET";
 
 /// 巡检报告（卡面 §二 的响应体 + 两个诊断字段）。
 #[derive(Debug, Clone, Serialize)]
@@ -221,9 +237,9 @@ pub struct AuditReport {
     pub mismatched: u64,
     /// 不一致明细。
     pub items: Vec<AuditItem>,
-    /// 实际修好的行数（`dry_run=true` 恒为 0）。
+    /// 实际修好的行数（`dry_run=true` 恒为 0；多桶被跳过的行不算）。
     pub fixed: u64,
-    /// 报出来但**修不了**的行数（在库序列号没有仓库归属）。
+    /// 报出来但**修不了**的行数（缺仓库归属 / 多桶并存）。
     pub unfixable: u64,
 }
 
@@ -285,16 +301,26 @@ async fn scan(ex: &impl SqlExecutor, prefix: &str) -> DbResult<AuditReport> {
             continue;
         };
         let warehouse_id = row.get_typed::<Option<Uuid>>("warehouse_id")?;
+        let bucket_count = row.get_typed::<i32>("bucket_count")?;
+        let unfixable_reason = if warehouse_id.is_none() {
+            Some(UNFIXABLE_NO_WAREHOUSE.to_string())
+        } else if bucket_count > 1 {
+            Some(UNFIXABLE_MULTI_BUCKET.to_string())
+        } else {
+            None
+        };
         report.items.push(AuditItem {
             material_id: material_id.to_string(),
             material_code: row.get_typed("material_code")?,
             material_name: row.get_typed("material_name")?,
             warehouse_id: warehouse_id.map(|id| id.to_string()),
             warehouse_name: row.get_typed("warehouse_name")?,
+            bucket_count,
             book_qty: row.get_typed("book_qty")?,
             actual_qty: row.get_typed("actual_qty")?,
             diff: row.get_typed("diff")?,
-            fixable: warehouse_id.is_some(),
+            fixable: unfixable_reason.is_none(),
+            unfixable_reason,
         });
     }
     report.mismatched = u64::try_from(report.items.len()).unwrap_or(0);
@@ -303,7 +329,7 @@ async fn scan(ex: &impl SqlExecutor, prefix: &str) -> DbResult<AuditReport> {
     Ok(report)
 }
 
-/// 一条 `WITH … INSERT … ON CONFLICT` 修掉全部不一致行，返回实际改动行数。
+/// 执行修正（单桶差额调整 + 零桶建档；多桶跳过），返回实际改动行数。
 async fn fix(ex: &impl SqlExecutor, prefix: &str) -> DbResult<u64> {
     // P2-5A：执行也走唯一写入口（SQL 只有一份，报与修不可能各写一套）。
     inventory_writer::align_cost_qty_batch(
@@ -520,6 +546,64 @@ mod tests {
         rows.first().map(|row| row.get_typed("qty").expect("qty"))
     }
 
+    /// 把某 `(物料, 仓库)` 的成本账桶**重排**成给定的一组 `(库位账行 id, 数量)`；
+    /// `None` = 未分配桶（`location_id IS NULL`）。`qty` 用字符串传，落 `numeric`。
+    ///
+    /// 用于「两桶并存」这类场景：基线是一个未分配桶，先清掉再造。
+    async fn set_buckets(material_id: &str, warehouse_id: &str, buckets: &[(Option<&str>, &str)]) {
+        db().execute_with_params(
+            "DELETE FROM biz_inventory WHERE material_id = ?::uuid AND warehouse_id = ?::uuid",
+            vec![
+                Value::from(&uuid(material_id)),
+                Value::from(&uuid(warehouse_id)),
+            ],
+        )
+        .await
+        .expect("清空成本账桶");
+        for (location_row, qty) in buckets {
+            db().execute_with_params(
+                "INSERT INTO biz_inventory \
+                     (id, material_id, warehouse_id, location_id, qty, locked_qty, avg_cost, amount) \
+                 VALUES (gen_random_uuid(), ?::uuid, ?::uuid, NULLIF(?::text,'')::uuid, \
+                         NULLIF(?::text,'')::numeric, 0, 10.000000, \
+                         NULLIF(?::text,'')::numeric * 10)",
+                vec![
+                    Value::from(&uuid(material_id)),
+                    Value::from(&uuid(warehouse_id)),
+                    Value::Text(location_row.map(str::to_string).unwrap_or_default()),
+                    Value::Text((*qty).to_string()),
+                    Value::Text((*qty).to_string()),
+                ],
+            )
+            .await
+            .expect("造成本账桶");
+        }
+    }
+
+    /// 读某 `(物料, 仓库)` 的全部桶：`(location_id, qty)`，按 `location_id` 升序（NULL 在前）。
+    async fn buckets(material_id: &str, warehouse_id: &str) -> Vec<(Option<Uuid>, Decimal)> {
+        let rows = db()
+            .find_with_params(
+                "SELECT location_id, qty FROM biz_inventory \
+                  WHERE material_id = ?::uuid AND warehouse_id = ?::uuid \
+                  ORDER BY location_id NULLS FIRST",
+                vec![
+                    Value::from(&uuid(material_id)),
+                    Value::from(&uuid(warehouse_id)),
+                ],
+            )
+            .await
+            .expect("读成本账桶");
+        rows.iter()
+            .map(|row| {
+                (
+                    row.get_typed("location_id").expect("location_id"),
+                    row.get_typed("qty").expect("qty"),
+                )
+            })
+            .collect()
+    }
+
     async fn serial_row(id: &str) -> (Option<Uuid>, Option<Uuid>, String) {
         let rows = db()
             .find_with_params(
@@ -558,18 +642,46 @@ mod tests {
             sql.matches("COUNT(*)").count() >= 1,
             "checked 用一次聚合算出来：{sql}"
         );
-        // 修正语句必须带三列表达式的 ON CONFLICT 目标（V0139 之后两列目标会 42P10）
+        // book_qty 口径：按 (物料, 仓库) 把**所有桶相加**。
+        // E2E-03 的 P1（两桶并存时只取未分配桶 → 假差异 + 修复会抹掉库位桶）就死在这条上。
+        assert!(
+            sql.contains("SUM(i.qty)::numeric AS book_qty"),
+            "账面必须是 SUM(所有桶)：{sql}"
+        );
+        assert!(
+            !sql.contains("FILTER (WHERE"),
+            "不许再按 location_id 挑桶（那是假差异的来源）：{sql}"
+        );
+        assert!(
+            sql.contains("COUNT(*) AS bucket_count"),
+            "要同时报出桶数（修正路径据此判断能否自动修）：{sql}"
+        );
+        assert!(sql.contains("c.bucket_count"), "报告要带出 bucket_count：{sql}");
+        // 修正语句：单桶差额调整（不是覆盖），且必须带三列表达式的 ON CONFLICT 目标备用；
         let fix = fix_sql();
         assert!(
-            fix.contains("ON CONFLICT (material_id, warehouse_id,"),
-            "冲突目标必须是三列表达式：{fix}"
+            fix.contains("qty = i.qty + (b.actual_qty - b.book_qty)"),
+            "单桶必须按差额调整，不许覆盖：{fix}"
         );
         assert!(
-            fix.contains("COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid)"),
-            "冲突目标必须与 uk_biz_inv_mat_wh_loc 逐字一致：{fix}"
+            fix.contains("AND bucket_count = 1"),
+            "多桶必须被排除在自动修之外：{fix}"
         );
-        assert!(fix.contains("DO UPDATE"));
-        assert!(fix.contains("warehouse_id IS NOT NULL"), "没有仓库的行不修");
+        let insert = inventory_writer::align_cost_qty_insert_sql(AUDIT_CTE);
+        assert!(
+            insert.contains("AND bucket_count = 0"),
+            "只有整行没建账才 INSERT：{insert}"
+        );
+        assert!(
+            insert.contains("ON CONFLICT (material_id, warehouse_id,"),
+            "冲突目标必须是三列表达式：{insert}"
+        );
+        assert!(
+            insert.contains("COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid)"),
+            "冲突目标必须与 uk_biz_inv_mat_wh_loc 逐字一致：{insert}"
+        );
+        assert!(insert.contains("DO UPDATE"));
+        assert!(insert.contains("warehouse_id IS NOT NULL"), "没有仓库的行不修");
     }
 
     /// ⑪ `dry_run` 缺省 true（红线③），非法值必须报错而不是静默当成 false。
@@ -731,6 +843,11 @@ mod tests {
         assert_eq!(report.mismatched, 2, "{:?}", report.items);
         assert_eq!(report.fixed, 2, "一改一建：两行都该被修");
         assert!(!report.dry_run);
+        // 账多那行是单桶（可修）；反向那行一个桶都没有（可建档）
+        let mut counts: Vec<i32> = report.items.iter().map(|i| i.bucket_count).collect();
+        counts.sort_unstable();
+        assert_eq!(counts, vec![0, 1], "一行为 0 桶（反向建档）、一行为 1 桶（差额调整）");
+        assert!(report.items.iter().all(|i| i.fixable && i.unfixable_reason.is_none()));
 
         assert_eq!(
             book_qty(M_SN, W_A).await,
@@ -763,7 +880,127 @@ mod tests {
         assert_eq!(amount, qty * avg, "金额必须随数量重算");
     }
 
-    /// ⑦ `move_serials`：3 个序列号从 A 仓移到 B 仓 → 3 条 `warehouse_id` 变更。
+    /// ⑦-bis **两桶并存、总数正确** → 零漂移（E2E-03 P1 的回归：不再报假红）。
+    ///
+    /// 场景来自演练现场：一物一码物料「批量生成 3 件」落未分配桶、同仓「入库 3 件」落默认库位桶，
+    /// 两种写法并存但总数对。旧口径 `COALESCE(MAX(NULL 桶), SUM)` 只取未分配桶 → 报假差异。
+    #[tokio::test]
+    async fn book_qty_sums_all_buckets_no_false_drift() {
+        let Some(_guard) = setup().await else { return };
+        // 3 条在库序列号（基线），成本账拆成两桶：默认库位桶 2 + 未分配桶 1（Σ = 3）
+        set_buckets(M_SN, W_A, &[(Some(IL_A), "2"), (None, "1")]).await;
+
+        let report = audit_prefix(true).await;
+        assert_eq!(
+            report.mismatched, 0,
+            "两桶并存、Σqty == 在库件数 → 不该报漂移：{:?}",
+            report.items
+        );
+        assert_eq!(report.checked, 2);
+        assert_eq!(report.fixed, 0);
+
+        // dry_run=false 也不该动任何账（没有不一致）
+        let strict = audit_prefix(false).await;
+        assert_eq!(strict.fixed, 0, "一致时不许动账");
+        assert_eq!(
+            buckets(M_SN, W_A).await,
+            vec![(None, Decimal::from(1)), (Some(uuid(IL_A)), Decimal::from(2))],
+            "两个桶都必须原样保留"
+        );
+    }
+
+    /// ⑦-ter **多桶 + 真差异** → 标签 `MULTI_BUCKET` 且 `dry_run=false` 拒绝自动修（一行都不改）。
+    #[tokio::test]
+    async fn multi_bucket_mismatch_is_never_auto_fixed() {
+        let Some(_guard) = setup().await else { return };
+        set_buckets(M_SN, W_A, &[(Some(IL_A), "2"), (None, "1")]).await;
+        // 再加一条在库序列号（同仓同库位）→ actual = 4、book = Σ桶 = 3、diff = -1
+        db().execute_with_params(
+            "INSERT INTO biz_material_serial \
+                 (id, serial_no, material_id, warehouse_id, location_id, status, inbound_at) \
+             VALUES ('b2c20005-0000-4000-8000-000000000005', 'W2C2-SN-0005', ?::uuid, ?::uuid, \
+                     ?::uuid, 'IN_STOCK', now())",
+            vec![
+                Value::from(&uuid(M_SN)),
+                Value::from(&uuid(W_A)),
+                Value::from(&uuid(IL_A)),
+            ],
+        )
+        .await
+        .expect("再插一条在库序列号");
+
+        let report = audit_prefix(true).await;
+        assert_eq!(report.mismatched, 1, "{:?}", report.items);
+        let item = &report.items[0];
+        assert_eq!(item.material_code, "W2C2-M-SN");
+        assert_eq!(item.bucket_count, 2, "成本账里有两个桶");
+        assert_eq!(item.book_qty, Decimal::from(3), "账面 = 2 + 1");
+        assert_eq!(item.actual_qty, Decimal::from(4));
+        assert_eq!(item.diff, Decimal::from(-1));
+        assert!(!item.fixable, "多桶必须拒绝自动修");
+        assert_eq!(
+            item.unfixable_reason.as_deref(),
+            Some(UNFIXABLE_MULTI_BUCKET),
+            "原因要能一眼看出是「多桶」"
+        );
+        assert_eq!(report.unfixable, 1);
+
+        // dry_run=false：一条都不许动（差额该记哪个桶本身有歧义）
+        let strict = audit_prefix(false).await;
+        assert_eq!(strict.mismatched, 1);
+        assert_eq!(strict.fixed, 0, "多桶不许被「修」");
+        assert_eq!(
+            buckets(M_SN, W_A).await,
+            vec![(None, Decimal::from(1)), (Some(uuid(IL_A)), Decimal::from(2))],
+            "两个桶都必须原样保留（旧实现会把未分配桶覆盖成 4）"
+        );
+
+        // 修完再巡检：仍然报同一条，不许静默吞掉
+        let again = audit_prefix(true).await;
+        assert_eq!(again.mismatched, 1);
+        assert_eq!(
+            again.items[0].unfixable_reason.as_deref(),
+            Some(UNFIXABLE_MULTI_BUCKET)
+        );
+    }
+
+    /// ⑦-quater **单桶差额语义**：值被推平到 `actual`，金额仍是 `qty × avg_cost`（不覆盖、不丢列）。
+    #[tokio::test]
+    async fn single_bucket_fix_is_delta_not_overwrite() {
+        let Some(_guard) = setup().await else { return };
+        // 单桶（未分配），账面 9 / 均价 2.5，实际在库 3 → 差额 -6
+        db().execute_with_params(
+            "UPDATE biz_inventory SET qty = 9, avg_cost = 2.5, amount = 22.5 \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid",
+            vec![Value::from(&uuid(M_SN)), Value::from(&uuid(W_A))],
+        )
+        .await
+        .expect("造单桶脏账");
+
+        let report = audit_prefix(false).await;
+        assert_eq!(report.mismatched, 1, "{:?}", report.items);
+        assert_eq!(report.items[0].bucket_count, 1);
+        assert_eq!(report.fixed, 1, "单桶必须被修");
+
+        let rows = db()
+            .find_with_params(
+                "SELECT qty::numeric(18,4)::text AS qty, amount::numeric(18,4)::text AS amount \
+                   FROM biz_inventory WHERE material_id = ?::uuid AND warehouse_id = ?::uuid",
+                vec![Value::from(&uuid(M_SN)), Value::from(&uuid(W_A))],
+            )
+            .await
+            .expect("读修后账面");
+        assert_eq!(rows.len(), 1, "单桶修复不许凭空多出第二个桶");
+        assert_eq!(rows[0].get_typed::<String>("qty").unwrap(), "3.0000");
+        assert_eq!(
+            rows[0].get_typed::<String>("amount").unwrap(),
+            "7.5000",
+            "金额 = 新 qty × 均价（3 × 2.5）"
+        );
+        assert_eq!(audit_prefix(true).await.mismatched, 0, "修完必须全绿");
+    }
+
+    /// 单桶修复之外的 `move_serials`：3 个序列号从 A 仓移到 B 仓 → 3 条 `warehouse_id` 变更。
     #[tokio::test]
     async fn move_serials_moves_three_rows() {
         let Some(_guard) = setup().await else { return };

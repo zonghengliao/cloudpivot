@@ -59,9 +59,9 @@
                 </span>
               </div>
               <span class="panel-head__tip">
-                口径：<code>biz_inventory.qty</code> 对比
+                口径：<code>SUM(biz_inventory.qty)</code>（该物料×仓库的「所有桶之和」）对比
                 <code>biz_material_serial.status='IN_STOCK'</code> 的件数；修正走巡检接口
-                （<code>dry_run=false</code>），本页只读
+                （<code>dry_run=false</code>，单桶按差额调整、多桶交人工），本页只读
               </span>
             </div>
 
@@ -89,6 +89,12 @@
               <template #book_qty="{ row }">
                 <span class="num">{{ formatQty(row.book_qty) }}</span>
               </template>
+              <template #bucket_count="{ row }">
+                <span
+                  class="num muted"
+                  :data-testid="`audit-buckets-${row.material_code}`"
+                >{{ row.bucket_count }}</span>
+              </template>
               <template #actual_qty="{ row }">
                 <span class="num">{{ formatQty(row.actual_qty) }}</span>
               </template>
@@ -107,7 +113,9 @@
                 </t-tag>
               </template>
               <template #fixable="{ row }">
-                <span class="muted">{{ auditFixableLabel(row.fixable) }}</span>
+                <span class="muted" :data-testid="`audit-fixable-${row.material_code}`">
+                  {{ auditFixableLabel(row.fixable, row.unfixable_reason) }}
+                </span>
               </template>
 
               <template #empty>
@@ -1146,11 +1154,12 @@ const auditError = ref('');
 const auditColumns: PrimaryTableCol[] = [
   { colKey: 'material', title: '物料', minWidth: 220 },
   { colKey: 'warehouse', title: '仓库', width: 180 },
+  { colKey: 'bucket_count', title: '成本账桶数', width: 110, align: 'right' },
   { colKey: 'book_qty', title: '账面数量', width: 120, align: 'right' },
   { colKey: 'actual_qty', title: '在库件数', width: 120, align: 'right' },
   { colKey: 'diff', title: '差异', width: 100, align: 'right' },
   { colKey: 'drift', title: '状态', width: 100 },
-  { colKey: 'fixable', title: '可否修正', width: 120 },
+  { colKey: 'fixable', title: '可否修正', width: 150 },
 ];
 
 /**

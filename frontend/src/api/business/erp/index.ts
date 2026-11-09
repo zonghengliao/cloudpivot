@@ -3251,14 +3251,22 @@ export interface InventoryAuditItem {
   warehouse_id: string | null;
   /** 仓库名称（与 `warehouse_id` 同生共死） */
   warehouse_name: string | null;
-  /** 账面数量（`biz_inventory.qty`；行不存在按 0 报） */
+  /**
+   * 该 `(物料, 仓库)` 在成本账里有多少个桶（`biz_inventory` 行数）。
+   *
+   * `1` = 单桶（可自动修）；`0` = 一行没建账（可建档）；`≥2` = 多桶并存（拒绝自动修）。
+   */
+  bucket_count: number;
+  /** 账面数量（该 `(物料, 仓库)` **所有桶之和**；行不存在按 0 报） */
   book_qty: number | string;
   /** 实际在库件数（`status='IN_STOCK'` 的序列号条数） */
   actual_qty: number | string;
   /** 账面 − 实际（正 = 账多，负 = 账少） */
   diff: number | string;
-  /** 能否被 `dry_run=false` 修正（没有仓库的行不能） */
+  /** 能否被 `dry_run=false` 修正（缺仓库 / 多桶都不能） */
   fixable: boolean;
+  /** 不能自动修的原因：`NO_WAREHOUSE` / `MULTI_BUCKET`；`null` = 可修 */
+  unfixable_reason: string | null;
 }
 
 /**

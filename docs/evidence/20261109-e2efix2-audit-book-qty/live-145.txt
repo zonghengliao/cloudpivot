@@ -1,0 +1,38 @@
+==== 0. 建隔离库 + 起实例（不影响 cloudpivot_dev / :8033）
+  pid=1109571 迁移=1 health=200
+  库指纹 schema_migrations(max|count)=353 286
+==== 1. 造场景（真实 API：批量生成 3 件未分配桶 + 3 件默认库位桶）
+  material=e2f20004-0000-4000-8000-000000000001 warehouse=e2f20002-0000-4000-8000-000000000001 location_row=e2f20008-0000-4000-8000-000000000001
+  首次登录（must_change_password=true）→ 先改密
+  改密 http=200 code=0
+  ✅ 登录拿到 token
+  ✅ 批量生成 3 件（未指定库位 → 未分配桶）
+  ✅ 入库 3 件（指定默认库位 → 默认库位桶）
+  -- 账实快照（SQL）
+     bucket=(未分配) qty=3.0000
+     bucket=e2f20008-0000-4000-8000-000000000001 qty=3.0000
+     Σqty=6.0000 serials=6
+==== 2. GET /erp/inventory/audit?dry_run=true → 期望 book=6 actual=6 diff=0（不再假红）
+  http=200 code=0
+  report: {"checked":1,"mismatched":0,"unfixable":0,"items":0}
+  ✅ 两桶并存、账实一致 → 该物料无漂移（旧口径会报 book=3 / diff=-3）
+==== 3. dry_run=false（账实一致）→ 一行都不许改
+  http=200 fixed=0
+  桶布局: (未分配)=3.0000,e2f20008-0000-4000-8000-000000000001=3.0000
+==== 4. 单桶场景的修复仍然正确（另起一物一码物料：只有未分配桶 → 改脏 → 差额修回）
+  生成 3 件：http=200 code=0 桶=1
+  修前: [{"book_qty":"9.0000","actual_qty":"3.0000","diff":"6.0000","bucket_count":1,"fixable":true}]
+  dry_run=false: fixed=1
+  修后: 3.0000 / amount=30.0000 / buckets=1
+  ✅ 单桶按差额修回 3（金额随数量重算 30）
+==== 5. 多桶 + 真差异 → dry_run=false 必须一行不改（数据安全级验收）
+  dry_run=true 明细: [{"book_qty":"12.0000","actual_qty":"6.0000","diff":"6.0000","bucket_count":2,"fixable":false,"unfixable_reason":"MULTI_BUCKET"}]
+  http=200 fixed=0 unfixable=1
+  该物料: [{"book_qty":"12.0000","actual_qty":"6.0000","diff":"6.0000","bucket_count":2,"fixable":false,"unfixable_reason":"MULTI_BUCKET"}]
+  before: (未分配)=9.0000,e2f20008-0000-4000-8000-000000000001=3.0000
+  after : (未分配)=9.0000,e2f20008-0000-4000-8000-000000000001=3.0000
+  ✅ 多桶行被拒绝自动修：账面逐桶原样
+==== 6. 收尾：停实例（库保留取证）
+  ✅ 实例已停，18318 释放
+
+== PASS=7 FAIL=0

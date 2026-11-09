@@ -1052,7 +1052,11 @@ pub(super) async fn post_stock_txn(
 ///
 /// 1. 本次动过的库存行 `qty >= 0`（条件扣减已保证，这里再断一次防止将来被改成无条件 UPDATE）；
 /// 2. 一物一码物料：「账面数量 == 在库序列号件数」（W2c-1 / W2c-2 的口径：
-///    `COALESCE(汇总桶 qty, SUM(库位行 qty))` vs `COUNT(serial WHERE status='IN_STOCK')`）；
+///    **`SUM(所有桶 qty)`** vs `COUNT(serial WHERE status='IN_STOCK')`）。
+///    这里曾经写成 `COALESCE(MAX(汇总桶 qty), SUM(qty))` —— 那等于「有未分配桶就只取那一桶」，
+///    两桶并存（期初 / 批量生成落未分配桶 + 收货落默认库位桶）时会**假红**并整单回滚；
+///    账面是「按桶相加」的（与第 4 条 `SUM(库位账) == SUM(成本账)` 同一个粒度），
+///    口径见 `docs/ERP-库存对账口径.md` §2.1；
 /// 3. 成本守恒：本单 `SUM(OUT amount) == SUM(IN amount)`；
 /// 4. **两本账相符**（与巡检 B1 同判据，容差 0.0001）：本次调拨涉及的每个
 ///    `(material_id, warehouse_id)` 上 `SUM(biz_inventory_location.qty) == SUM(biz_inventory.qty)`。
@@ -1072,8 +1076,7 @@ pub(super) async fn assert_settle_invariants(
                       WHERE doc_type = '{DOC_TYPE_TRANSFER}' AND doc_id = ?::uuid), \
                  book AS ( \
                      SELECT t.material_id, t.warehouse_id, \
-                            COALESCE(MAX(b.qty) FILTER (WHERE b.location_id IS NULL), \
-                                     SUM(b.qty), 0)::numeric(18,4) AS book_qty \
+                            COALESCE(SUM(b.qty), 0)::numeric(18,4) AS book_qty \
                        FROM touched t \
                        LEFT JOIN biz_inventory b \
                               ON b.material_id = t.material_id \

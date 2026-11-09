@@ -31,6 +31,11 @@
    盘点差异流水的 `biz_type` 是 `STOCK_TAKE_GAIN` / `STOCK_TAKE_LOSS`（不是 `ADJUST`）；
    销售出库流水是 `SALE_OUT`（不是 `OTHER_OUT`，见 §4）。
 
+> ⚠️ **`location_id IS NULL` 的那一行是「未分配库位」这一个真实的桶，不是整仓汇总行。**
+> 历史上有两处代码把它当整仓汇总（`COALESCE(MAX(qty) FILTER (WHERE location_id IS NULL), SUM(qty))`），
+> 两桶并存时就报假差异、修的时候还会把库位桶抹掉（E2E-03 的 P1，见 §6）。
+> 任何「整仓数量」都只能是 `SUM(qty)`。
+
 ---
 
 ## 2. 正确对账 SQL（两类，抄这两段就够）
@@ -181,10 +186,81 @@ SELECT SUM(i.qty)
 
 ---
 
-## 6. 相关文件
+## 6. 库存巡检（不变式③）：`book_qty` 口径与修复语义
+
+接口 `GET /api/business/erp/inventory/audit?dry_run=true|false`（权限 `business:erp:inventory:audit`），
+实现 `backend/src/business/erp/inventory_audit.rs`（修正语句在唯一写入口 `inventory_writer.rs`）。
+
+### 6.1 判定口径（唯一）
+
+```text
+对每个 serial_required 物料 × 仓库：
+    book_qty   = SUM(biz_inventory.qty)            -- 该物料×仓库的【所有桶之和】
+    actual_qty = COUNT(biz_material_serial WHERE status='IN_STOCK' AND deleted_at IS NULL)
+    不一致     = book_qty <> actual_qty            -- 正 = 账多，负 = 账少
+```
+
+**`book_qty` 必须是 `SUM(qty)`**，与 §2.1 同一个粒度。
+
+❌ 错误写法（历史实现，`E2E-FIX-2` 修掉）：
+
+```sql
+COALESCE(MAX(qty) FILTER (WHERE location_id IS NULL), SUM(qty))
+-- 含义变成「只要存在未分配桶，就只取那一桶」→ 库位桶被无视
+```
+
+实测（E2E-03 · 一物一码物料 MS）：未分配桶 2 + 默认库位桶 3，`Σqty = 5`；
+旧口径报 `book = 2`、`actual = 5`、`diff = -3` 的**假差异**。
+
+### 6.2 修复语义（`dry_run=false`，数据安全级）
+
+| 该 `(物料, 仓库)` 的桶数 | 语义 | 为什么 |
+|---|---|---|
+| `0`（成本账一行都没有） | `INSERT` 建档，`qty = actual`，落未分配桶（`location_id = NULL`） | 没有可参照的桶，等价于「补建一笔账」 |
+| `1`（单桶） | **差额调整** `qty += (actual - book)`，`amount = 新 qty × avg_cost` | 数学上等于 `qty = actual`，但不写死覆盖、将来加了列也不会被抹 |
+| `≥2`（多桶并存） | **拒绝自动修**，报告标 `unfixable_reason = MULTI_BUCKET`，要人工处理 | 「差额该记哪个桶」本身有歧义：记未分配桶会让 §2.2 逐桶对账错位，记某个库位桶则是凭空猜 |
+
+- `dry_run` **缺省 `true`**（只报不修），非法值（`?dry_run=treu`）回 400，不静默当 `false`；
+- 没有仓库归属的在库序列号（`warehouse_id IS NULL`）写不进仓账 → `unfixable_reason = NO_WAREHOUSE`；
+- 报告里的 `bucket_count` / `unfixable` / `unfixable_reason` 是给运维看的诊断字段：
+  「报了但修不了」必须可见，不能静默跳过。
+
+> ❌ 旧实现：`INSERT … ON CONFLICT (…) DO UPDATE SET qty = EXCLUDED.qty`，`INSERT` 恒写
+> `location_id = NULL`。两桶并存时它把**未分配桶覆盖成 `actual`**、库位桶原样留着 →
+> 账上总量变成 `actual + 库位桶`，**正确的账面被改错且不可逆**（需人工回修）。
+
+### 6.3 与 ADR-20261031（批量生成落未分配桶）的关系
+
+ADR-20261031 起「一物一码批量生成 = 一笔无来源入库」：成本账与库位账都按**未分配桶**落；
+而**收货**按 ADR 之前的 FIX-4 桶策略落**默认库位桶**（`docs` 见 `inventory-bucket-policy`）。
+于是同一个 `(物料, 仓库)` 天然会同时存在「未分配桶 + 默认库位桶」两种行 —— **这不是脏数据**，
+是两条业务路径各自正确的落点。
+
+由此得到两条结论：
+
+1. 「同一物料同仓多行」是常态，**任何按整仓取数的 SQL 都必须 `SUM(qty)`**
+   （本仓历史上把 NULL 桶当「整仓汇总」的假设已被 §6.1 的错误口径与
+   `transfer_settle::assert_settle_invariants` 第 2 条假红两次反证）；
+2. 「自动改账」在多桶时必须交人工 —— 因为桶的选择是业务语义（批量生成 vs 收货），
+   代码没有依据替业务决定差额该落在哪一桶。
+
+### 6.4 回归用例
+
+`backend/src/business/erp/inventory_audit.rs::tests`（真库，需 `ERP_DB_URL`）：
+
+- `book_qty_sums_all_buckets_no_false_drift`：两桶并存且总数正确 → `mismatched = 0`（不再假红）；
+- `multi_bucket_mismatch_is_never_auto_fixed`：多桶 + 真差异 → `MULTI_BUCKET`、`dry_run=false` 一行不改；
+- `single_bucket_fix_is_delta_not_overwrite`：单桶按差额修正到 `actual`，`amount = qty × avg_cost`；
+- `dry_run_false_fixes_quantities`：单桶差额调整 + 零桶建档（反向巡检）都仍然可修。
+
+---
+
+## 7. 相关文件
 
 | 文件 | 作用 |
 |---|---|
+| `backend/src/business/erp/inventory_audit.rs` | 库存巡检（不变式③）：`book_qty = SUM(所有桶)`、桶数诊断、修复分流 |
+| `backend/src/business/erp/inventory_writer.rs` | 三本账唯一写入口（含巡检修正语句 `align_cost_qty_*`） |
 | `scripts/verify/erp_invariants.py` | 巡检（B1 / B1b / B4 已按本文口径固化） |
 | `scripts/verify/biz_type_domain.py` | `biz_type` 值域巡检（词表＝`doc_kind.rs`） |
 | `backend/src/business/shared/doc_kind.rs` | 业务类型词表唯一真相 |

@@ -467,9 +467,18 @@ export function auditDiffText(diff: number | string | null | undefined): string 
   return '0';
 }
 
-/** 能否被「修正」（`dry_run=false`）修好 —— 缺仓库归属的行修不了，页面上要说清原因 */
-export function auditFixableLabel(fixable: boolean): string {
-  return fixable ? '可修正' : '缺仓库归属';
+/**
+ * 能否被「修正」（`dry_run=false`）修好 —— 两种修不了的原因要在页面上分开说：
+ * 缺仓库归属（写不进仓账）/ 多桶并存（差额该记哪个桶有歧义，后端拒绝自动修）。
+ */
+export function auditFixableLabel(fixable: boolean, unfixableReason?: string | null): string {
+  if (fixable) {
+    return '可修正';
+  }
+  if (unfixableReason === 'MULTI_BUCKET') {
+    return '多桶并存·需人工';
+  }
+  return '缺仓库归属';
 }
 
 /**
@@ -485,7 +494,8 @@ export function auditSummaryText(report: {
   unfixable: number;
 }): string {
   const mode = report.dry_run ? '只读巡检（dry_run=true，不改任何库存）' : '巡检并修正（dry_run=false）';
-  const unfixable = report.unfixable > 0 ? `，其中 ${report.unfixable} 个缺仓库归属、无法自动修正` : '';
+  const unfixable =
+    report.unfixable > 0 ? `，其中 ${report.unfixable} 个无法自动修正（缺仓库归属 / 多桶并存）` : '';
   return `本次检查 ${report.checked} 个（物料 × 仓库）组合，发现 ${report.mismatched} 个漂移${unfixable}。${mode}。`;
 }
 
