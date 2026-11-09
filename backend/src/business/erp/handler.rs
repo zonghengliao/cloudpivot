@@ -1400,7 +1400,10 @@ pub async fn material_update(
                 "物料 tax_rate",
             )?;
             (
-                " tax_rate = ?::numeric, tax_rate_mode = ?, ".to_string(),
+                // 参数是 Text（`normalized.percent.to_string()`）：**必须先 `::text` 再 `::numeric`**。
+                // 直接 `?::numeric` 会让库把占位符推断成 numeric，canal 序列化 Text 失败 →
+                // 500「error serializing parameter」（E2E-04 实测：编辑物料带税率整页 500）。
+                " tax_rate = NULLIF(?::text,'')::numeric, tax_rate_mode = ?, ".to_string(),
                 vec![
                     Value::Text(normalized.percent.to_string()),
                     Value::Text(normalized.mode_text().to_string()),
@@ -2461,11 +2464,12 @@ pub struct InventoryAuditQuery {
     pub dry_run: Option<String>,
 }
 
-/// 库存巡检：`biz_inventory.qty` 是否等于该 (物料, 仓库) 的在库序列号件数（不变式③）。
+/// 库存巡检：`SUM(biz_inventory.qty)`（该物料×仓库**所有桶之和**）是否等于在库序列号件数（不变式③）。
 ///
-/// `dry_run=true`（默认）只报不修；`false` 按序列号重算并修正。
+/// `dry_run=true`（默认）只报不修；`false` 按序列号重算并修正
+/// （单桶按差额调整、零桶建档、**多桶一律不修**并标 `MULTI_BUCKET`）。
 /// 扫描与修正在**同一事务**里（否则「查到 3 个」与「修了 4 个」可能对不上）；
-/// 扫描是一次 `WITH … SELECT`、修正是一次 `WITH … INSERT … ON CONFLICT`，都不是 N+1。
+/// 扫描是一次 `WITH … SELECT`、修正是两条集合语句（`UPDATE` / `INSERT`），都不是 N+1。
 #[nik::permission(
     path = "/business/erp/inventory/audit",
     method = "GET",

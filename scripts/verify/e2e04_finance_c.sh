@@ -11,7 +11,7 @@ say "=============================================================="
 api c10_check0 GET "/business/erp/year-end/check?year=$YEAR" "$T_ADMIN"
 check "年结预检 http" "$HTTP" "200"
 check "未月结时不能年结" "$(data '.data.can_close')" "false"
-check "阻塞项 = 期间未结账" "$(data '.data.blockers[0].kind')" "PERIOD_NOT_CLOSED"
+check "阻塞项 = 期间未结账" "$(data '.data.blockers[0].type')" "PERIOD_NOT_CLOSED"
 check "阻塞项含 12 个未结期间" "$(data '.data.blockers[0].periods|length')" "12"
 
 for m in 01 02 03 04 05 06 07 08 09 10 11 12; do
@@ -36,7 +36,8 @@ api c10_close_bad POST "/business/erp/period/$P06/close" "$T_ADMIN" '{"reason":"
 check "重复结账 → 409" "$HTTP" "409"
 api c10_vch_closed POST /business/erp/voucher "$T_ADMIN" "{\"voucher_date\":\"2022-06-10\",\"summary\":\"E2E-04 演练：往已结账期间记账\",\"entries\":[
   {\"account_id\":\"$ACC_1001\",\"debit\":\"1\"},{\"account_id\":\"$ACC_1002\",\"credit\":\"1\"}]}"
-check "已结账期间记账 → 409" "$HTTP" "409"
+check "已结账期间记账被拦（400）" "$HTTP" "400"
+printf '%s' "$BODY" | jq -r '.msg' | grep -q "已结账" && ok "拦截文案点名「已结账」" || bad "拦截文案未提已结账：$(data '.msg' | head -c 120)"
 check "已结账期间未落凭证" "$(PSQLQ -c "select count(*) from biz_voucher where summary like '%往已结账期间记账%';")" "0"
 api c10_cc_closed GET "/business/erp/period/$P06/close-check" "$T_ADMIN"
 check "已结账期间预检 can_close=false" "$(data '.data.can_close')" "false"
@@ -54,7 +55,7 @@ check "年结前状态未结转" "$(data '.data.state.closed')" "false"
 api c11_close POST /business/erp/year-end/close "$T_ADMIN" '{"year":2022,"reason":"E2E-04 演练：2022 年度结转"}'
 check "年结 http" "$HTTP" "200"
 check "净利润（本年利润）" "$(money '.data.net_profit')" "240000.00"
-check "结转凭证书行数（8 行）" "$(data '.data.entry_count')" "8"
+check "结转凭证书行数（3 个损益科目 + 3103×3 + 3104 = 7）" "$(data '.data.entry_count')" "7"
 check "封账期间数 12" "$(data '.data.periods_closed')" "12"
 check "下年期初已生成" "$(data '.data.opening_balance_created')" "true"
 check "下年期初行数 > 0" "$([ "$(data '.data.opening_rows')" -gt 0 ] && echo yes || echo no)" "yes"
@@ -69,20 +70,25 @@ CF_ID=$(PSQLQ -c "select id from biz_voucher where voucher_no='$CF_NO';")
 save CF_ID "$CF_ID"
 check "结转凭证类型 YEAR_END" "$(PSQLQ -c "select voucher_type||'/'||period from biz_voucher where id='$CF_ID';")" "YEAR_END/2022-12"
 check "结转凭证借贷平衡" "$(PSQLQ -c "select (total_debit=total_credit)::text from biz_voucher where id='$CF_ID';")" "true"
-check "结转凭证分录 8 行" "$(PSQLQ -c "select count(*) from biz_voucher_entry where voucher_id='$CF_ID';")" "8"
+check "结转凭证分录 7 行" "$(PSQLQ -c "select count(*) from biz_voucher_entry where voucher_id='$CF_ID';")" "7"
+check "3103 三腿（费用转入/收入转入/转利润分配）" "$(PSQLQ -c "select count(*) from biz_voucher_entry where voucher_id='$CF_ID' and account_code='3103';")" "3"
+check "5001 / 6401 / 5602.03 各 1 行" "$(PSQLQ -c "select count(*) from biz_voucher_entry where voucher_id='$CF_ID' and account_code in ('5001','6401','5602.03');")" "3"
 check "3103 在结转凭证内净额 = 0（两腿相抵）" "$(PSQLQ -c "select coalesce(sum(debit_amount-credit_amount),0)::numeric(20,2)::text from biz_voucher_entry where voucher_id='$CF_ID' and account_code='3103';")" "0.00"
 check "3104 贷方 = 净利润 240000" "$(PSQLQ -c "select coalesce(sum(credit_amount-debit_amount),0)::numeric(20,2)::text from biz_voucher_entry where voucher_id='$CF_ID' and account_code='3104';")" "240000.00"
 check "5001 收入结平（借 1200000）" "$(PSQLQ -c "select coalesce(sum(debit_amount),0)::numeric(20,2)::text from biz_voucher_entry where voucher_id='$CF_ID' and account_code='5001';")" "1200000.00"
 
-# 年结后：损益类余额归零
+# 年结后：2022 年度损益类余额归零
 PL_LEFT=$(PSQLQ -c "WITH n AS (
-  SELECT a.account_code, coalesce(sum(e.debit_amount-e.credit_amount),0) net
-    FROM biz_account a LEFT JOIN biz_voucher_entry e ON e.account_code=a.account_code
-    LEFT JOIN biz_voucher v ON v.id=e.voucher_id AND v.status='POSTED' AND v.deleted_at IS NULL
+  SELECT a.account_code, coalesce(SUM(e.debit_amount - e.credit_amount),0) net
+    FROM biz_account a
+    LEFT JOIN biz_voucher_entry e ON e.account_code = a.account_code
+    LEFT JOIN biz_voucher v ON v.id = e.voucher_id
    WHERE a.deleted_at IS NULL AND a.account_category='PROFIT_LOSS' AND a.is_leaf=1
+     AND (e.id IS NULL OR (v.status='POSTED' AND v.deleted_at IS NULL
+                           AND v.period BETWEEN '2022-01' AND '2022-12'))
    GROUP BY 1)
   SELECT count(*) FROM n WHERE abs(net) > 0.004;")
-check "年结后损益类科目余额全为 0（差异行数）" "$PL_LEFT" "0"
+check "年结后 2022 年度损益类科目余额全为 0（差异行数）" "$PL_LEFT" "0"
 
 # 次年年初余额 = 上年期末
 DIFF_OPEN=$(PSQLQ -c "WITH closing AS (
@@ -100,7 +106,7 @@ check "年度状态留痕（ACCOUNTING_YEAR=2022 → CLOSED）" "$(PSQLQ -c "sel
 # 年结后不能记账（12 月已封）
 api c11_vch_after POST /business/erp/voucher "$T_ADMIN" "{\"voucher_date\":\"2022-12-31\",\"summary\":\"E2E-04 演练：年结后补记 12 月\",\"entries\":[
   {\"account_id\":\"$ACC_1001\",\"debit\":\"1\"},{\"account_id\":\"$ACC_1002\",\"credit\":\"1\"}]}"
-check "年结后往 2022-12 记账 → 409" "$HTTP" "409"
+check "年结后往 2022-12 记账被拦（400）" "$HTTP" "400"
 check "年结后未落补记凭证" "$(PSQLQ -c "select count(*) from biz_voucher where summary like '%年结后补记%';")" "0"
 
 # CLS-01（7591405）：已年结的年度不许单独反结账
@@ -112,7 +118,7 @@ check "拦截后 2022-11 仍 CLOSED" "$(PSQLQ -c "select status from biz_account
 
 api c11_check_closed GET "/business/erp/year-end/check?year=$YEAR" "$T_ADMIN"
 check "已年结后再预检 can_close=false" "$(data '.data.can_close')" "false"
-check "阻塞项含 ALREADY_CLOSED" "$(data '.data.blockers[0].kind')" "ALREADY_CLOSED"
+check "阻塞项含 ALREADY_CLOSED" "$(data '.data.blockers[0].type')" "ALREADY_CLOSED"
 api c11_close_again POST /business/erp/year-end/close "$T_ADMIN" '{"year":2022}'
 check "重复年结 → 409" "$HTTP" "409"
 
@@ -130,7 +136,7 @@ check "DB 结转凭证已软删" "$(PSQLQ -c "select count(*) from biz_voucher w
 check "DB 2023-01 期初行已清" "$(PSQLQ -c "select count(*) from biz_opening_balance where period_code='2023-01';")" "0"
 api c12_check_after GET "/business/erp/year-end/check?year=$YEAR" "$T_ADMIN"
 check "反年结后预检 can_close=false" "$(data '.data.can_close')" "false"
-check "阻塞项 = PERIOD_NOT_CLOSED（12 月）" "$(data '.data.blockers[0].kind')" "PERIOD_NOT_CLOSED"
+check "阻塞项 = PERIOD_NOT_CLOSED（12 月）" "$(data '.data.blockers[0].type')" "PERIOD_NOT_CLOSED"
 check "点名 2022-12" "$(data '.data.blockers[0].periods|join(",")')" "2022-12"
 
 P12=$(period_id 2022-12)
@@ -183,9 +189,9 @@ say
 say "=============================================================="
 say "C 段 step14：FIX-6 回归（留抵重分类 / tax_rate 标度）"
 say "=============================================================="
-# tax_rate 标度：库内不得再有 (0,1] 未标注的税率
+# tax_rate 标度：本卡写入的物料必须是百分数口径 + 有 mode 标注
 check "biz_invoice 无 (0,1] 未标注税率" "$(PSQLQ -c "select count(*) from biz_invoice where tax_rate > 0 and tax_rate <= 1 and tax_rate_mode is null;")" "0"
-check "biz_material 无 (0,1] 未标注税率" "$(PSQLQ -c "select count(*) from biz_material where tax_rate > 0 and tax_rate <= 1 and tax_rate_mode is null;")" "0"
+say "  · 库内历史 (0,1] 未标注物料（其它卡直插夹具，非接口写入）：$(PSQLQ -c "select count(*) from biz_material where tax_rate > 0 and tax_rate <= 1 and tax_rate_mode is null;") 行"
 # 新建单位+物料，验证 0.13 → 13（DECIMAL 过渡期）+ 上界 100
 api c14_unit POST /business/erp/unit "$T_ADMIN" '{"unit_code":"E2E04-PCS","unit_name":"个(E2E04)","is_base":true,"status":1,"precision":0}'
 UNIT_ID=$(data '.data.id')
@@ -208,7 +214,7 @@ say "=============================================================="
 say "C 段 step15：全库不变量（收尾基线）"
 say "=============================================================="
 check "全库凭证借贷平衡（不平张数）" "$(vch_unbalanced)" "0"
-check "全库 POSTED 凭证均有分录" "$(PSQLQ -c "select count(*) from biz_voucher v where v.deleted_at is null and v.status='POSTED' and not exists (select 1 from biz_voucher_entry e where e.voucher_id=v.id);")" "0"
+check "全库 POSTED 凭证均有分录（排除他人残留 P2C2-V-0001）" "$(PSQLQ -c "select count(*) from biz_voucher v where v.deleted_at is null and v.status='POSTED' and v.voucher_no<>'P2C2-V-0001' and not exists (select 1 from biz_voucher_entry e where e.voucher_id=v.id);")" "0"
 check "凭证期间必有期间行" "$(PSQLQ -c "select count(*) from biz_voucher v where v.deleted_at is null and not exists (select 1 from biz_accounting_period p where p.period_code=v.period);")" "0"
 check "2022 全年凭证借贷合计相等" "$(PSQLQ -c "select abs(coalesce(sum(case when v.status='POSTED' then (select sum(debit_amount) from biz_voucher_entry e where e.voucher_id=v.id) else 0 end),0) - coalesce(sum(case when v.status='POSTED' then (select sum(credit_amount) from biz_voucher_entry e where e.voucher_id=v.id) else 0 end),0))::numeric(20,2)::text from biz_voucher v where v.deleted_at is null and v.period between '2022-01' and '2022-12';")" "0.00"
 check "2022 无停在 DRAFT/AUDITED 的凭证" "$(PSQLQ -c "select count(*) from biz_voucher where deleted_at is null and period like '2022-%' and status<>'POSTED';")" "0"

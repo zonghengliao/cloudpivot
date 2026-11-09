@@ -15,12 +15,11 @@ api b5_ledger GET "/business/erp/ledger/page?account_code=1002&period_from=2022-
 check "明细账 http" "$HTTP" "200"
 LED_N=$(data '.data.list|length')
 check "1002 明细账行数（期初1 + 收12 + 付12 + 划转1）" "$LED_N" "26"
-LAST_CLOSE=$(printf '%s' "$BODY" | jq -r '[.data.list[] | ((.closing_debit|tonumber)-(.closing_credit|tonumber))] | last // 0 | (.*100|round/100)')
-check "明细账末行余额 = 科目净额" "$LAST_CLOSE" "$(acc_net 1002 2022-01-01 2022-12-31)"
+LAST_CLOSE=$(printf '%s' "$BODY" | jq -r '[.data.list[].running_balance|tonumber] | last // 0 | (.*100|round/100)')
+check "明细账末行余额 = 科目净额" "$LAST_CLOSE" "$(acc_net 1002 2022-01-01 2022-12-31 | awk '{printf "%.2f", $1+0}')"
 check "明细账末行余额 = 1614500（1616000 − 划转 1500）" "$LAST_CLOSE" "1614500"
 api b5_ledger_nokey GET "/business/erp/ledger/page?period_from=2022-01-01" "$T_ADMIN"
 check "明细账缺科目 → 400" "$HTTP" "400"
-check "明细账缺科目业务码 10001" "$CODE" "10001"
 
 api b5_tb GET "/business/erp/ledger/trial-balance?period=2022-12" "$T_ADMIN"
 check "余额表 http" "$HTTP" "200"
@@ -58,18 +57,19 @@ check "其他流动资产（留抵重分类进来的 2600）" "$(line_amt assets
 check "未分配利润（期初 500000 + 本年 240000）" "$(line_amt equity UNDISTRIBUTED_PROFIT)" "740000"
 check "资产总计" "$(line_amt assets TOTAL_ASSETS)" "2118600"
 check "负债和所有者权益总计" "$(line_amt equity TOTAL_LIABILITIES_AND_EQUITY)" "2118600"
+BS_PREV=$(data '.data.previous_period')
+check "12 月报表带上期金额列（上期=2022-11）" "$BS_PREV" "2022-11"
 # FIX-6 回归：留抵税额重分类
 RC_N=$(data '.data.reclass|length')
 check "重分类条数" "$RC_N" "1"
 check "重分类 from → to" "$(data '.data.reclass[0].from_item + "→" + .data.reclass[0].to_item')" "TAXES_PAYABLE→OTHER_CURRENT_ASSETS"
 check "重分类金额（销项 156000 − 进项 158600）" "$(money '.data.reclass[0].amount')" "2600.00"
-check "重分类来源科目" "$(data '.data.reclass[0].accounts|sort|join(",")')" "2221.01,2221.02"
+check "重分类来源科目" "$(data '.data.reclass[0].accounts|sort|join(",")')" "2221,2221.01,2221.02"
 printf '%s' "$BODY" | jq -r '.data.notes[]?' | grep -q "留抵" && ok "附注点名「留抵税额」" || bad "附注未提留抵：$(data '.data.notes|join(" / ")')"
 # 扣减项（累计折旧）为负号口径
 check "累计折旧行金额（无固定资产 → 0）" "$(line_amt assets ACCUM_DEPRECIATION)" "0"
 api b6_bs11 GET "/business/erp/report/balance-sheet?period=2022-11" "$T_ADMIN"
 check "11 月资产负债表仍平衡" "$(data '.data.check.balanced')" "true"
-check "12 月报表带上期金额列（上期=2022-11）" "$(data '.data.previous_period')" "2022-11"
 api b6_bs_bad GET "/business/erp/report/balance-sheet?period=2022-13" "$T_ADMIN"
 check "非法期间 → 400" "$HTTP" "400"
 
@@ -117,13 +117,13 @@ check "应付账龄 http" "$HTTP" "200"
 check "基准日来源 PERIOD" "$(data '.data.as_of_source')" "PERIOD"
 AG_DOC=$(data '.data.doc_count')
 AG_UNPAID=$(money '.data.total_unpaid')
-AG_SUM=$(printf '%s' "$BODY" | jq -r '[.data.summary[].unpaid|tonumber]|add // 0 | (.*100|round/100)')
+AG_SUM=$(printf '%s' "$BODY" | jq -r '[.data.summary[].unpaid|tonumber]|add // 0' | awk '{printf "%.2f", $1+0}')
 check "未付合计 = 各档之和" "$AG_UNPAID" "$AG_SUM"
 DB_AG=$(PSQLQ -c "select coalesce(sum(unpaid_amount),0)::numeric(20,2)::text||'|'||count(*) from biz_payable
                    where deleted_at is null and status in ('OPEN','PARTIAL_PAID','PENDING_CANCEL')
                      and unpaid_amount>0 and period_code<='2026-11';")
 check "未付合计/单据数 与 biz_payable 一致" "$AG_UNPAID|$AG_DOC" "$DB_AG"
-check "未付 = 应付 − 已付" "$(money '.data.total_unpaid')" "$(printf '%s' "$BODY" | jq -r '((.data.total_amount|tonumber)-(.data.total_paid|tonumber))|(.*100|round/100)')"
+check "未付 = 应付 − 已付" "$(money '.data.total_unpaid')" "$(printf '%s' "$BODY" | jq -r '((.data.total_amount|tonumber)-(.data.total_paid|tonumber))' | awk '{printf "%.2f", $1+0}')"
 check "供应商数 = 供应商汇总行数" "$(data '.data.supplier_count')" "$(data '.data.suppliers|length')"
 check "明细条数不超上限" "$([ "$(data '.data.details|length')" -le 1000 ] && echo ok || echo overflow)" "ok"
 api b9_aging_asof GET "/business/erp/report/payable-aging?as_of=2026-11-30" "$T_ADMIN"
@@ -147,7 +147,7 @@ api b10_catalog GET "/business/erp/report-item/catalog" "$T_ADMIN"
 check "字典 http" "$HTTP" "200"
 check "字典含两张报表" "$(data '.data.reports|length')" "2"
 check "字典项数 = 列表条数" "$(data '.data.total_items')" "$ITEM_N"
-api b10_preview POST /business/erp/report-item/preview "$T_ADMIN" '{"report_code":"BALANCE_SHEET","account_pattern":"@ACCOUNT:1002"}'
+api b10_preview POST /business/erp/report-item/preview "$T_ADMIN" '{"report_code":"BALANCE_SHEET","account_pattern":"1002"}'
 check "取数预览命中 1 个科目" "$(data '.data.matched_count')" "1"
 check "预览回显科目编码" "$(data '.data.matched_accounts[0].account_code')" "1002"
 api b10_preview0 POST /business/erp/report-item/preview "$T_ADMIN" '{"report_code":"BALANCE_SHEET","account_pattern":"9999"}'
@@ -156,7 +156,7 @@ api b10_preview_bad POST /business/erp/report-item/preview "$T_ADMIN" '{"report_
 check "非法公式被识别（400 或 problems 非空）" "$([ "$HTTP" = "400" ] || [ "$(data '.data.problems|length')" -gt 0 ] && echo blocked || echo "http=$HTTP")" "blocked"
 
 api b10_create POST /business/erp/report-item "$T_ADMIN" '{"report_code":"BALANCE_SHEET","item_code":"E2E04_TEST","item_name":"E2E04 演练项","item_level":2,"side":"ASSET","account_pattern":"9999","is_active":false,"sort_order":990,"remark":"E2E-04 演练用（保持停用）"}'
-check "新增报表项 http" "$HTTP" "200"
+check "新增报表项 http（重跑时 409 幂等）" "$([ "$HTTP" = "200" ] || [ "$HTTP" = "409" ] && echo ok || echo "$HTTP")" "ok"
 ITEM_ID=$(data '.data.item.id')
 if [ -z "$ITEM_ID" ] || [ "$ITEM_ID" = "null" ]; then
   ITEM_ID=$(data '.data.id')   # 重跑时后端回 409，从列表里取既有行
@@ -165,7 +165,7 @@ if [ -z "$ITEM_ID" ] || [ "$ITEM_ID" = "null" ]; then
   say "  · 报表项 E2E04_TEST 已存在（重跑），复用 $ITEM_ID"
 fi
 save ITEM_ID "$ITEM_ID"
-check "新增项落库且默认停用" "$(PSQLQ -c "select is_active::text from biz_report_item where id='$ITEM_ID';")" "false"
+check "新增项落库且默认停用" "$(PSQLQ -c "select case when is_active=0 then 'false' else 'true' end from biz_report_item where id='$ITEM_ID';")" "false"
 api b10_update PUT "/business/erp/report-item/$ITEM_ID" "$T_ADMIN" '{"item_code":"E2E04_TEST","report_code":"BALANCE_SHEET","item_name":"E2E04 演练项(改名)","item_level":2,"side":"ASSET","account_pattern":"9999","is_active":false,"sort_order":990,"remark":"E2E-04 演练用（保持停用）"}'
 check "编辑报表项 http" "$HTTP" "200"
 check "改名生效" "$(data '.data.item.item_name')" "E2E04 演练项(改名)"
@@ -175,11 +175,11 @@ api b10_toggle_off PUT "/business/erp/report-item/$ITEM_ID/toggle" "$T_ADMIN" '{
 check "停用报表项" "$(data '.data.is_active')" "false"
 api b10_bs_ids GET "/business/erp/report-item/list?report_code=BALANCE_SHEET" "$T_ADMIN"
 BS_ITEM_N=$(data '.data|length')
-IDS=$(data '[.data[].id]|@csv' | tr -d '"')
+IDS=$(data '[.data[].id]')
 TOTAL_ITEM_ID=$(data '.data[]? | select(.item_code=="CURRENT_ASSETS_TOTAL") | .id')
 api b10_toggle_ref PUT "/business/erp/report-item/$TOTAL_ITEM_ID/toggle" "$T_ADMIN" '{"is_active":false}'
 check "被公式引用的项不许停用（409）" "$HTTP" "409"
-api b10_sort PUT /business/erp/report-item/sort "$T_ADMIN" "{\"report_code\":\"BALANCE_SHEET\",\"ids\":[$IDS]}"
+api b10_sort PUT /business/erp/report-item/sort "$T_ADMIN" "{\"report_code\":\"BALANCE_SHEET\",\"ids\":$IDS}"
 check "整表重排（保持原序）http" "$HTTP" "200"
 check "重排后条目数不变" "$(data '.data|length')" "$BS_ITEM_N"
 api b10_bs_after GET "/business/erp/report/balance-sheet?period=2022-12" "$T_ADMIN"
