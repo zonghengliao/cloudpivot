@@ -1,0 +1,94 @@
+{
+  "env": {
+    "BASE": "http://127.0.0.1:5400",
+    "API": "http://127.0.0.1:18094"
+  },
+  "viewer": {
+    "me": {
+      "username": "h4viewer",
+      "roles": [
+        "EMPLOYEE"
+      ],
+      "hasNoticeMine": false,
+      "hasAnnouncementRead": false,
+      "hasTaskRead": true,
+      "hasFlowRead": true
+    },
+    "network": {
+      "noticeStream": 0,
+      "noticeUnreadCount": 0,
+      "announcementUnreadCount": 0,
+      "noticePage": 0
+    },
+    "badResponses": [],
+    "consoleErrors": [],
+    "bell": 0,
+    "dialogVisible": false,
+    "dialogRows": []
+  },
+  "admin": {
+    "me": {
+      "username": "admin",
+      "roles": [
+        "SUPER_ADMIN"
+      ]
+    },
+    "expectedCounts": {
+      "notice": 3,
+      "announcement": 2,
+      "task": 3,
+      "approval": 0
+    },
+    "network": {
+      "noticeStream": 1,
+      "noticeUnreadCount": 4,
+      "announcementUnreadCount": 1
+    },
+    "streamResponses": 1,
+    "badResponses": [],
+    "consoleErrors": [],
+    "bell": 1,
+    "badgeBefore": "3",
+    "badgeAfter": "4",
+    "dialogVisible": true,
+    "dialogCounts": {
+      "notice": "3",
+      "announcement": "2",
+      "task": "3",
+      "approval": "0"
+    },
+    "push": {
+      "status": 200,
+      "toastTitle": "新消息 1 条"
+    }
+  },
+  "pass": [
+    "前置：viewer 无 business:notice:mine",
+    "前置：viewer 无 business:announcement:read",
+    "① 无 notice:mine → 不请求 /notice/stream :: 实际 0 次",
+    "① 无 notice:mine → 不请求 /notice/unread-count :: 实际 0 次",
+    "① 无 notice:mine → 不请求 /notice/page（铃铛面板数据源） :: 实际 0 次",
+    "② 无 announcement:read → 不请求 /announcement/unread-count :: 实际 0 次",
+    "① 无 notice:mine → 铃铛整只不渲染（角标无从显示） :: bell=0",
+    "② 未读弹窗不出现「站内信」行 :: []",
+    "② 未读弹窗不出现「公告」行 :: []",
+    "无权限账号整页 0 个 4xx/5xx :: []",
+    "无权限账号 console error = 0 :: []",
+    "④ 超管铃铛仍渲染 :: bell=1",
+    "④ 超管仍建立 /notice/stream 长连接 :: 实际 1 次",
+    "④ 超管仍拉 /notice/unread-count :: 实际 4 次",
+    "④ 超管仍拉 /announcement/unread-count :: 实际 1 次",
+    "④ 超管整页 0 个 4xx/5xx :: []",
+    "④ 超管 console error = 0 :: []",
+    "④ SSE 实时推送仍生效（发站内信 → 浮层秒弹） :: {\"status\":200,\"toastTitle\":\"新消息 1 条\"}",
+    "④ 未读弹窗「notice」数字与接口值一致 :: 弹窗=3 接口=3",
+    "④ 未读弹窗「announcement」数字与接口值一致 :: 弹窗=2 接口=2",
+    "④ 未读弹窗「task」数字与接口值一致 :: 弹窗=3 接口=3",
+    "④ 未读弹窗「approval」数字与接口值一致 :: 弹窗=0 接口=0"
+  ],
+  "fail": [],
+  "summary": {
+    "pass": 22,
+    "fail": 0
+  }
+}

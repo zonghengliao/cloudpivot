@@ -1,0 +1,4 @@
+# viewer(EMPLOYEE，无 notice:mine / announcement:read) 直连后端的状态码 —— 说明这三个请求「发了必 403」
+/api/business/notice/stream                -> 403
+/api/business/notice/unread-count          -> 403
+/api/business/announcement/unread-count    -> 403

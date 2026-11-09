@@ -1,0 +1,30 @@
+  duration_ms: 0.298833
+  type: 'test'
+  ...
+# Subtest: permittedUnreadKeys：只返回有权限的类别，保持原顺序
+ok 10 - permittedUnreadKeys：只返回有权限的类别，保持原顺序
+  ---
+  duration_ms: 0.375083
+  type: 'test'
+  ...
+# Subtest: pickUnreadLoaders：无权限类别的 loader 被整条剔除，collectUnread 不会去调它
+ok 11 - pickUnreadLoaders：无权限类别的 loader 被整条剔除，collectUnread 不会去调它
+  ---
+  duration_ms: 0.223833
+  type: 'test'
+  ...
+# Subtest: summarizeUnread 传 keys：无权限的行根本不出现（不是置灰）
+ok 12 - summarizeUnread 传 keys：无权限的行根本不出现（不是置灰）
+  ---
+  duration_ms: 0.09925
+  type: 'test'
+  ...
+1..12
+# tests 12
+# suites 0
+# pass 12
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 114.532618
