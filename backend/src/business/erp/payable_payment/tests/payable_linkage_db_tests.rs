@@ -390,14 +390,18 @@ async fn excluded_payable_balance_action_does_not_double_deduct() {
     let excluded = linkage::engine::run_excluding(db(), &ctx, spec::PAYABLE_EXCLUDED_ACTIONS)
         .await
         .expect("排除清单下引擎必须正常返回");
+    // 预置规则（V0360 的 `PAYABLE/SETTLED → SEND_NOTICE`）会在同一个触发点上产生**提交后**动作，
+    // 所以这里只能断言「**被排除的**动作没有执行记录」，不能要求整个 run 为空。
+    let stray: Vec<&str> = excluded
+        .runs
+        .iter()
+        .map(|item| item.action_code.as_str())
+        .chain(excluded.deferred.iter().map(|rule| rule.action_code.as_str()))
+        .filter(|code| spec::PAYABLE_EXCLUDED_ACTIONS.contains(code))
+        .collect();
     assert!(
-        excluded.runs.is_empty() && excluded.deferred.is_empty(),
-        "排除清单里的动作不许产生任何执行记录，实际：{:?}",
-        excluded
-            .runs
-            .iter()
-            .map(|item| (&item.action_code, item.outcome.label()))
-            .collect::<Vec<_>>()
+        stray.is_empty(),
+        "排除清单里的动作不许产生任何执行记录，实际：{stray:?}"
     );
     // 不传排除清单 → 引擎会真的去跑它（该动作尚未接管 ⇒ Skipped，规则确实被读到）
     let unfiltered = linkage::engine::run_excluding(db(), &ctx, &[])

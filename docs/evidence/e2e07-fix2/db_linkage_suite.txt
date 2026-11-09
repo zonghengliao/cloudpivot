@@ -1,0 +1,35 @@
+# 真库联动用例（本卡改过夹具的 11 个模块）在「145 dev 库副本」上的结果
+# 为什么用副本：99 工作区里另有一份未提交的 V0360__receipt_refund_approval_instance（撞号，起实例会直接 FATAL），
+#   所以真库用例改成 pg_dump 145 cloudpivot_dev → 99 新建库 cloudpivot_copy_fix4（副本，不是原库）。
+# 采集时间：2026-11-09T16:09:30+08:00
+#
+## 命令
+# ERP_DB_URL=postgres://alun:alun@127.0.0.1:5432/cloudpivot_copy_fix4 (SYS/TASK 同库)
+# cargo test --lib linkage -- --test-threads=1
+
+test result: ok. 192 passed; 0 failed; 0 ignored; 0 measured; 3734 filtered out; finished in 173.84s
+## 覆盖的模块（去重到模块级，192 条用例）
+  business::erp::asset_linkage_tests                                       11 条
+  business::erp::asset_linkage::tests                                      10 条
+  business::erp::contract_linkage_tests                                    6 条
+  business::erp::contract_linkage::tests                                   2 条
+  business::erp::depreciation_linkage_tests                                5 条
+  business::erp::depreciation_linkage::tests                               3 条
+  business::erp::expense_linkage_tests                                     6 条
+  business::erp::payable_payment::tests::payable_linkage_db_tests          5 条
+  business::erp::period_linkage_tests                                      6 条
+  business::erp::period_linkage::tests                                     2 条
+  business::erp::stockin_handler::purchase_linkage_db_tests                5 条
+  business::erp::stocktake_tests                                           3 条
+  business::erp::transfer_handler::db_linkage                              4 条
+  business::erp::voucher_linkage_tests                                     6 条
+  business::erp::year_end_linkage_tests                                    6 条
+  business::erp::year_end_linkage::tests                                   4 条
+  business::flow::instance_linkage_db_tests                                4 条
+  business::flow::instance_linkage::tests                                  6 条
+  business::flow::linkage::admin::tests                                    8 条
+  business::flow::linkage::spec::tests                                     4 条
+  business::flow::linkage::tests                                           35 条
+  business::flow::linkage::tests_presets                                   13 条
+  business::flow::linkage::tests_presets_coverage                          15 条
+  business::flow::linkage::tests_wiring                                    23 条

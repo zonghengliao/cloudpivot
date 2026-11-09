@@ -453,14 +453,18 @@ async fn excluded_received_qty_action_is_not_executed_by_the_generic_engine() {
     let excluded = linkage::engine::run_excluding(db(), &ctx, spec::PURCHASE_EXCLUDED_ACTIONS)
         .await
         .expect("排除清单下引擎必须正常返回");
+    // 预置规则（V0360 的 `PURCHASE_ORDER/RECEIVED → SEND_NOTICE`）会在同一个触发点上产生
+    // **提交后**动作，所以这里只能断言「**被排除的**动作没有执行记录」，不能要求整个 run 为空。
+    let stray: Vec<&str> = excluded
+        .runs
+        .iter()
+        .map(|item| item.action_code.as_str())
+        .chain(excluded.deferred.iter().map(|rule| rule.action_code.as_str()))
+        .filter(|code| spec::PURCHASE_EXCLUDED_ACTIONS.contains(code))
+        .collect();
     assert!(
-        excluded.runs.is_empty() && excluded.deferred.is_empty(),
-        "排除清单里的动作不许产生任何执行记录，实际：{:?}",
-        excluded
-            .runs
-            .iter()
-            .map(|item| (&item.action_code, item.outcome.label()))
-            .collect::<Vec<_>>()
+        stray.is_empty(),
+        "排除清单里的动作不许产生任何执行记录，实际：{stray:?}"
     );
     // 反证：同一份规则、**不传**排除清单 → 引擎会真的去跑它，而且因为超收
     // 作为关键动作失败返回 Err（`run_excluding` 对 Critical 失败直接 Err →

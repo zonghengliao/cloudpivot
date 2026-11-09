@@ -109,3 +109,37 @@ E2E-07 演练发现：`LNK-07` 把合同状态变更接进了联动引擎（`con
 * 预置规则是**新增通知**：这些触发点以前一条通知都不发。客户若嫌吵可在
   「流程配置 → 跨单据联动」停用（停用后不变量 ① 会点名 —— 那是配置事实，不是 bug；运维需知情）。
 * 144 生产未部署：本卡含新迁移 **V0360**，下次 `scripts/deploy/deploy.sh` 随发布应用。
+
+## 真库联动用例（本卡改过夹具的 11 个模块）
+
+99 工作区里有另一张卡未提交的 `V0360__receipt_refund_approval_instance`（**撞号**，起实例直接
+`FATAL: duplicate up migration for version 360`），所以真库用例改成跑
+**145 dev 库的副本**（`pg_dump cloudpivot_dev → 99 cloudpivot_copy_fix4`，不是原库）：
+
+```
+ERP_DB_URL=postgres://alun:***@127.0.0.1:5432/cloudpivot_copy_fix4   # SYS/TASK 同库
+cargo test --lib linkage -- --test-threads=1
+→ test result: ok. 192 passed; 0 failed; 0 ignored  （见 db_linkage_suite.txt）
+```
+
+覆盖：`contract_linkage_tests` / `period_linkage_tests` / `voucher_linkage_tests` /
+`expense_linkage_tests` / `payable_linkage_db_tests` / `purchase_linkage_db_tests` /
+`transfer_handler::db_linkage` / `depreciation_linkage_tests` / `year_end_linkage_tests` /
+`stocktake_tests` / `instance_linkage_db_tests` + 全部纯逻辑用例（`tests` / `tests_presets` /
+`tests_wiring` / `tests_presets_coverage`）。
+
+**两处用例口径修正**（不是把断言放宽成假绿）：`payable_linkage_db_tests::
+excluded_payable_balance_action_does_not_double_deduct` 与 `purchase_linkage_db_tests::
+excluded_received_qty_action_is_not_executed_by_the_generic_engine` 原来断言
+「带排除清单跑一遍 ⇒ `runs` 与 `deferred` **全空**」。预置规则补齐后，同一个触发点上还合法地
+有一条 `SEND_NOTICE`（提交后动作）⇒ 整个 run 不再为空。断言改成
+「**被排除的那些动作**没有执行记录」（`runs` + `deferred` 里逐条按排除清单过滤），
+「钱只扣一次 / 累计量不被二次推进 / 流水只有一条」这些真正的判据一条没动；
+两个用例下面原有的「不传排除清单 ⇒ 引擎真的会跑它」的反证也保留。
+
+## 已知问题（不是本卡引入，但会挡住所有人）
+
+99 共享工作区里 `backend/migrations/business/V0360__receipt_refund_approval_instance.{up,down}.sql`
+是**另一张卡未提交**的 WIP，与已上 main 的 `V0360__linkage_rules_coverage` 撞号 ⇒ 在被测树上
+起实例直接 FATAL（迁移器要求 version 全局唯一）。已在看板留 `hotspot:` 记录，
+**需要那张卡改用 V0361+**（V0360 已被 145 应用，改名会破坏已应用迁移的指纹校验）。
