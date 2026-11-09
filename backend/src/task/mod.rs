@@ -33,6 +33,7 @@
 //! | 审批图快照自检 | `0 30 3 * * *` | `flow_graph_selfcheck` | 批次 D · D4d（真实现，见 `business::flow::maintain::register_builtin`） |
 //! | 令牌吊销表清理 | `0 50 3 * * *` | `token_blacklist_cleanup` | 批次 G · 令牌吊销落库（见 `system::auth::cleanup::register_builtin`） |
 //! | 账务不变量巡检 | `0 20 2 * * *` | `invariant_audit` | P2-7（真实现，见 `support::invariant::runner`） |
+//! | 运维观测采样 | `0 * * * * *` | `metrics_snapshot` | NEAR-FIX-3（真实现，见 [`metrics_sampler`]） |
 //!
 //! 五张日志表错峰清理（均为每小时 3 点的不同分钟），避免同时发起批量删除抬高
 //! 数据库瞬时压力。存储对象回收单独排在 04:30，与日志清理完全错峰（它要遍历
@@ -59,6 +60,8 @@ use crate::shared::{constants, error_code};
 use crate::support::job::model::{JobLogStatus, SysJobLogModel, SysJobModel};
 use crate::support::log::model::{self as log_model, JsonLogTable};
 use crate::utils;
+
+pub mod metrics_sampler;
 
 /// 系统内置的日志清理任务：`(处理器标识 / 调度名, cron 表达式)`。
 ///
@@ -342,6 +345,10 @@ impl Scheduler {
                 "账务不变量巡检任务已注册（P2-7）"
             );
         }
+        // NEAR-FIX-3：运维观测采样（每分钟）—— 把「告警判定要用的事实」采成 gauge：
+        // 导入导出积压、最近一次巡检结论、采样器自身存活。`/metrics` 从此是告警口径的
+        // 唯一来源（告警脚本不必持有库口令），也是 Prometheus 上规则要用的同一批名字。
+        crate::task::metrics_sampler::register_builtin(self);
     }
 
     /// 注册一个业务侧的内置 cron 任务（供业务模块在 [`Self::register_builtin`] 中调用）。

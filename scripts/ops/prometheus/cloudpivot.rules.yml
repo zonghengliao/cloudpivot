@@ -1,0 +1,125 @@
+# 云枢（cloudpivot）Prometheus 告警规则 —— 配 `/metrics` 用
+#
+# 现状（NEAR-FIX-3）：
+#   · 告警的**默认通道**是 `scripts/ops/alert_check.sh`（cron 每 5 分钟，零依赖，见
+#     `docs/ops/告警接入说明.md`）——评审要求的「先做 B 方案」。
+#   · 本文件是**选项 A**（装 Prometheus）那一半：指标名与阈值都和 alert_check.sh 对齐，
+#     上了 Prometheus 直接 `rule_files` 引用本文件即可，不用重写规则、也不会出现
+#     「脚本说红、面板说绿」两套口径。
+#   · 两套可以并存：脚本管建卡/日志/飞书即时通知，Prometheus 管趋势与历史。
+#
+# 指标来源（backend/src/task/metrics_sampler.rs，每分钟采样）：
+#   cloudpivot_invariant_ok                    1 通过 / 0 未通过 / -1 从未跑过
+#   cloudpivot_invariant_blockers              失败项里 BLOCKER 数（-1 未知）
+#   cloudpivot_invariant_age_seconds           最近一次巡检距今秒数（-1 从未跑过）
+#   cloudpivot_impexp_backlog_pending          导入+导出未终态任务数（-1 未知）
+#   cloudpivot_impexp_backlog_stuck_seconds    最早一张未终态任务已等秒数（-1 未知）
+#   cloudpivot_metrics_sampler_last_success_timestamp  采样器最后一次成功的时间戳
+#   nik_http_requests_total{status="2xx|4xx|5xx"}      框架自带请求计数
+#   up{job="cloudpivot"}                        Prometheus 抓取是否成功
+#
+# 注意 `-1` 的语义：所有业务 gauge 用 -1 表示**未知**（查询失败 / 从未跑过）。
+# 规则里对 -1 的处理是「告警」而不是「忽略」——未知不等于正常。
+
+groups:
+  - name: cloudpivot-core
+    rules:
+      # ① 服务挂了（评审三条核心告警之一）
+      # up=0 = /metrics 抓不到，说明进程退出 / 端口不通 / 被网络隔离
+      - alert: CloudpivotServiceDown
+        expr: up{job="cloudpivot"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          channel: kanban+feishu
+        annotations:
+          summary: "云枢服务不可用（/metrics 抓取失败）"
+          description: "{{ $labels.instance }} 连续 2 分钟抓不到 /metrics；对照 alert_check.sh 的 health 检查（GET /health 非 200）"
+          runbook: "systemctl status cloudpivot；journalctl -u cloudpivot -n 200；curl -s 127.0.0.1:8023/health"
+
+      # 采样器自己停了：业务指标会「静静地冻在上一个值」，看起来全是正常
+      - alert: CloudpivotMetricsSamplerStale
+        expr: time() - cloudpivot_metrics_sampler_last_success_timestamp > 300
+        for: 5m
+        labels:
+          severity: warning
+          channel: kanban+feishu
+        annotations:
+          summary: "运维采样任务已 5 分钟没成功（告警指标可能已失真）"
+          description: "metrics_snapshot 每分钟一次；停摆时 invariant/backlog 指标不再更新，别把它们当最新结论"
+          runbook: "grep '运维观测采样' /var/log/cloudpivot/*.log；psql 验证库连通；检查调度器是否 reload 过"
+
+      # ② 账务巡检 FAIL（评审三条核心告警之二）
+      - alert: CloudpivotInvariantBlockers
+        expr: cloudpivot_invariant_blockers > 0
+        for: 5m
+        labels:
+          severity: critical
+          channel: kanban+feishu
+        annotations:
+          summary: "账务巡检发现 {{ $value }} 个 BLOCKER（账已错）"
+          description: "最近一次 erp_invariants.py 巡检有 BLOCKER；明细见「账务巡检看板」或 scripts/verify/erp_invariants.py --json"
+          runbook: "不要动数据先定位：scripts/verify/erp_invariants.py --json | jq '.results[] | select(.ok==false)'"
+
+      - alert: CloudpivotInvariantFailed
+        expr: cloudpivot_invariant_ok == 0
+        for: 5m
+        labels:
+          severity: warning
+          channel: kanban+feishu
+        annotations:
+          summary: "账务巡检未通过（status ≠ OK）"
+          description: "status 为 FAIL 或 ERROR；ERROR 表示脚本没跑成——没有结论不等于账是对的"
+
+      - alert: CloudpivotInvariantStale
+        expr: cloudpivot_invariant_age_seconds > 36 * 3600 or cloudpivot_invariant_age_seconds == -1
+        for: 10m
+        labels:
+          severity: warning
+          channel: kanban+feishu
+        annotations:
+          summary: "账务巡检超过 36 小时没跑（或从未跑过）"
+          description: "invariant_audit 每天 02:20；「没跑」和「跑挂了」都要有人看"
+          runbook: "确认定时任务页 invariant_audit 的状态；scheduler reload 后注册表是否包含它"
+
+      # ③ 导入导出积压（评审三条核心告警之三）
+      - alert: CloudpivotImpexpBacklog
+        expr: cloudpivot_impexp_backlog_stuck_seconds > 1800
+        for: 10m
+        labels:
+          severity: warning
+          channel: kanban+feishu
+        annotations:
+          summary: "导入导出积压：最早一张未终态任务已等 {{ $value | humanizeDuration }}"
+          description: "导出 worker 每 5 秒扫一次队列；卡住 30 分钟以上通常是 worker 挂了或任务被取消标志锁住"
+          runbook: "查 sys_export_task status='RUNNING' 的行；看 impexp_export_worker 的日志与 cancel_requested"
+
+      # 5xx 比例（框架自带指标，用来兜「服务活着但接口在炸」）
+      - alert: CloudpivotHttp5xxRatioHigh
+        expr: |
+          sum(rate(nik_http_requests_total{status="5xx"}[5m]))
+            /
+          sum(rate(nik_http_requests_total[5m])) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          channel: feishu
+        annotations:
+          summary: "近 5 分钟 5xx 占比超过 5%"
+          description: "接口在批量失败；对照操作日志与 auth_logs 找共因"
+
+  - name: cloudpivot-host
+    rules:
+      # ④ 磁盘（需要 node_exporter；没有 node_exporter 时由 alert_check.sh 的 df 检查兜底）
+      - alert: CloudpivotDiskAlmostFull
+        expr: |
+          (1 - node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}
+             / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}) > 0.85
+        for: 10m
+        labels:
+          severity: critical
+          channel: kanban+feishu
+        annotations:
+          summary: "根分区使用率超过 85%"
+          description: "写满会让服务、日志、备份同时失败；cargo target / 备份 / 日志是最常见的大头"
+          runbook: "df -P /；du -sh /root/*-target /opt/*/backend/target /root/db-backup 2>/dev/null | sort -h | tail"
