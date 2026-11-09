@@ -1,0 +1,157 @@
+login_admin0                       | 0 ok                     | "access_token,refresh_token,token_type,expires_in,user,must_change_password"
+login_appr0                        | 0 ok                     | "access_token,refresh_token,token_type,expires_in,user,must_change_password"
+s0_appr                            | 0 ok                     | "id,username,real_name,email,mobile,dept_id,dept_name,status,is_locked,last_login_at,created_at,user_type,roles"
+s0_dept                            | 0 ok                     | "id,dept_code,dept_name,parent_id,leader_id,leader_name,phone,email,status,sort_order"
+s0_in_ap_ap0                       | 0 ok                     | "instance_id,instance_status,node_status,done,idempotent,next_nodes,auto_passed_nodes,approver_count,approved_count,reje
+s0_in_ap_todo0                     | 0 ok                     | "list,total,page,page_size"
+s0_in_ap_todo1                     | 0 ok                     | "list,total,page,page_size"
+s0_in                              | 0 ok                     | "header,items,serial_count,summary,purchase_order_id,purchase_order_no,contract_no,location_warnings,approval_instance_s
+s0_in_post                         | 0 ok                     | "header,items,serial_count,summary,purchase_order_id,purchase_order_no,contract_no,location_warnings,approval_instance_s
+s0_loc                             | 0 ok                     | "id,location_code,location_name,warehouse_id,location_type,is_default,capacity,status,sort_order,remark,created_at,updat
+s0_mat_E2E02-M1                    | 0 ok                     | "id,material_code,material_name,spec,unit_id,material_type,default_warehouse_id,safety_stock,costing_method,inventory_ac
+s0_mat_E2E02-M2                    | 0 ok                     | "id,material_code,material_name,spec,unit_id,material_type,default_warehouse_id,safety_stock,costing_method,inventory_ac
+s0_mat_E2E02-M3                    | 0 ok                     | "id,material_code,material_name,spec,unit_id,material_type,default_warehouse_id,safety_stock,costing_method,inventory_ac
+s0_sp                              | 0 ok                     | "id,username,real_name,email,mobile,dept_id,dept_name,status,is_locked,last_login_at,created_at,user_type,roles"
+s0_sup                             | 0 ok                     | "id,supplier_code,supplier_name,short_name,contact_person,contact_phone,email,tax_no,address,credit_days,credit_limit,pa
+s0_unit                            | 0 ok                     | "id,unit_code,unit_name,is_base,base_unit_id,rate,status,sort_order,remark,is_system,precision,created_at,updated_at"
+s0_wh                              | 0 ok                     | "id,warehouse_code,warehouse_name,warehouse_type,manager,allow_negative,address,status,sort_order,remark,parent_id,level
+s10_approve                        | 0 ok                     | "id,return_no,customer_id,customer_code,customer_name,so_id,so_no,shipment_id,shipment_no,return_date,return_type,return
+s10_attach                         | 0 ok                     | "id,file_id,file_name,file_size,file_role,doc_type,doc_id,duplicated"
+s10_create                         | 0 ok                     | "id,return_no,customer_id,customer_code,customer_name,so_id,so_no,shipment_id,shipment_no,return_date,return_type,return
+s10_over_qty                       | 10001 items[0].qty = 20 超过可退量 8.0000（已发 10.0000 − 已退 2.0000）：超退被拒绝 | "null"
+s10_pending                        | 0 ok                     | "id,return_no,customer_id,customer_code,customer_name,so_id,so_no,shipment_id,shipment_no,return_date,return_type,return
+s10_posted                         | 0 ok                     | "id,return_no,customer_id,customer_code,customer_name,so_id,so_no,shipment_id,shipment_no,return_date,return_type,return
+s10_retble                         | 0 ok                     | "array[2]"
+s10_skip                           | 10003 非法状态迁移：已提交（SUBMITTED）→ 待过账（PENDING_POST）不在合法边表里；当前可流转到：APPROVED（已批准） / CANCELLED（已取消） | "null"
+s10_submit                         | 0 ok                     | "id,return_no,customer_id,customer_code,customer_name,so_id,so_no,shipment_id,shipment_no,return_date,return_type,return
+s10_submit_noatt                   | 10001 销售退货单必须上传退货单或物流凭证（pdf/jpg/png）：至少要 1 个，当前 0 个（该单据共 0 个附件），还差 1 个 | "null"
+s11_ach_order2                     | 0 ok                     | "array[1]"
+s11_ach_ORDER                      | 0 ok                     | "array[1]"
+s11_ach_RECEIPT                    | 0 ok                     | "array[1]"
+s11_ach_r                          | 0 ok                     | "array[1]"
+s11_dup                            | 10003 新建销售目标失败：同一范围 / 维度在同期已有一条（目标按「范围 + 期间」唯一，预测按「客户 + 物料 + 期间 + 版本」唯一）。改那一条，或者换个期间 / 版本号 | "null"
+s11_page                           | 0 ok                     | "list,total,page,page_size"
+s11_t1                             | 10003 新建销售目标失败：同一范围 / 维度在同期已有一条（目标按「范围 + 期间」唯一，预测按「客户 + 物料 + 期间 + 版本」唯一）。改那一条，或者换个期间 / 版本号 | "null"
+s11_t2                             | 10003 新建销售目标失败：同一范围 / 维度在同期已有一条（目标按「范围 + 期间」唯一，预测按「客户 + 物料 + 期间 + 版本」唯一）。改那一条，或者换个期间 / 版本号 | "null"
+s12_approve                        | 0 ok                     | "id,settlement_no,salesperson_id,salesperson_name,period_code,total_sales,total_commission,status,paid_at,voucher_id,vou
+s12_bad                            | 10003 结算单 CM-202611-000004 不能从「已发放」变成「草稿」（合法路径：DRAFT → APPROVED → PAID） | "null"
+s12_dup                            | 0 ok                     | "period_code,settlements,skipped"
+s12_page                           | 0 ok                     | "list,total,page,page_size"
+s12_pay                            | 0 ok                     | "id,settlement_no,salesperson_id,salesperson_name,period_code,total_sales,total_commission,status,paid_at,voucher_id,vou
+s12_r1                             | 0 ok                     | "id,rule_name,scope_type,scope_id,scope_name,calc_type,rate,min_amount,max_amount,effective_from,effective_to,status,rem
+s12_r2                             | 0 ok                     | "id,rule_name,scope_type,scope_id,scope_name,calc_type,rate,min_amount,max_amount,effective_from,effective_to,status,rem
+s12_settle                         | 0 ok                     | "period_code,settlements,skipped"
+s13_ap_ap0                         | 0 ok                     | "instance_id,instance_status,node_status,done,idempotent,next_nodes,auto_passed_nodes,approver_count,approved_count,reje
+s13_ap_todo0                       | 0 ok                     | "list,total,page,page_size"
+s13_ap_todo1                       | 0 ok                     | "list,total,page,page_size"
+s13_eur                            | 10001 销售订单币种 EUR 在 2026-11-09（含）之前没有可用的 SPOT 汇率（本位币 CNY）：请先在「币种 / 汇率」里维护该币种的即时汇率；外币单不允许按汇率 1 入账 | "null"
+s13_inv_att                        | 0 ok                     | "id,file_id,file_name,file_size,file_role,doc_type,doc_id,duplicated"
+s13_inv_issue                      | 0 ok                     | "id,invoice_no,invoice_type,invoice_type_label,invoice_code,is_electronic,customer_id,customer_name,invoice_date,amount,
+s13_inv                            | 0 ok                     | "id,invoice_no,invoice_type,invoice_type_label,invoice_code,is_electronic,customer_id,customer_name,invoice_date,amount,
+s13_pending                        | 0 ok                     | "id,ship_no,so_id,so_no,customer_id,customer_code,customer_name,warehouse_id,warehouse_code,warehouse_name,ship_date,sta
+s13_posted                         | 0 ok                     | "id,ship_no,so_id,so_no,customer_id,customer_code,customer_name,warehouse_id,warehouse_code,warehouse_name,ship_date,sta
+s13_quote                          | 0 ok                     | "currency_code,base_currency,exchange_rate,on_date,source,effective_date"
+s13_rate1                          | 0 ok                     | "id,from_currency,to_currency,rate,rate_type,effective_date,remark,created_at,updated_at"
+s13_rate2                          | 0 ok                     | "id,from_currency,to_currency,rate,rate_type,effective_date,remark,created_at,updated_at"
+s13_ship                           | 0 ok                     | "id,ship_no,so_id,so_no,customer_id,customer_code,customer_name,warehouse_id,warehouse_code,warehouse_name,ship_date,sta
+s13_so2                            | 0 ok                     | "id,so_no,customer_id,customer_code,customer_name,contract_id,contract_no,salesperson_id,salesperson_name,order_date,del
+s13_so3                            | 0 ok                     | "id,so_no,customer_id,customer_code,customer_name,contract_id,contract_no,salesperson_id,salesperson_name,order_date,del
+s13_submit                         | 0 ok                     | "id,so_no,customer_id,customer_code,customer_name,contract_id,contract_no,salesperson_id,salesperson_name,order_date,del
+s1_active                          | 0 ok                     | "id,code,name,tax_no,contact_name,contact_phone,address,credit_days,credit_limit,credit_used,credit_available,status,rem
+s1_create                          | 0 ok                     | "id,code,name,tax_no,contact_name,contact_phone,address,credit_days,credit_limit,credit_used,credit_available,status,rem
+s1_detail                          | 0 ok                     | "id,code,name,tax_no,contact_name,contact_phone,address,credit_days,credit_limit,credit_used,credit_available,status,rem
+s1_freeze                          | 0 ok                     | "id,code,name,tax_no,contact_name,contact_phone,address,credit_days,credit_limit,credit_used,credit_available,status,rem
+s1_nextcode                        | 0 ok                     | "code"
+s1_order_frozen                    | 10003 客户 `E2E02-C1`（E2E-02 演练客户甲（改名））已冻结，不能开新销售订单；冻结客户的历史单据不受影响 | "null"
+s1_page                            | 0 ok                     | "list,total,page,page_size"
+s1_update                          | 0 ok                     | "id,code,name,tax_no,contact_name,contact_phone,address,credit_days,credit_limit,credit_used,credit_available,status,rem
+s2_agreed                          | 10003 该客户在此物料上已有起订量 `0`、生效日 `2026-01-01` 的协议价（同一组键只能一条；要改价请编辑原行，或换一个起订量 / 生效日） | "null"
+s2_agreed_off                      | 0 ok                     | "id,customer_id,customer_code,customer_name,material_id,material_code,material_name,material_spec,price,min_qty,effectiv
+s2_agreed_on                       | 0 ok                     | "id,customer_id,customer_code,customer_name,material_id,material_code,material_name,material_spec,price,min_qty,effectiv
+s2_promo                           | 10003 同物料同档位（PROMO）上已有起订量 `1`、生效日 `2026-01-01` 的档位价（同一组键只能一条） | "null"
+s2_promo_off                       | 0 ok                     | "id,material_id,material_code,material_name,material_spec,customer_id,customer_code,customer_name,tier_type,min_qty,max_
+s2_promo_on                        | 0 ok                     | "id,material_id,material_code,material_name,material_spec,customer_id,customer_code,customer_name,tier_type,min_qty,max_
+s2_rv_a                            | 0 ok                     | "price,source,source_id"
+s2_rv_b                            | 0 ok                     | "price,source,source_id"
+s2_rv_c                            | 0 ok                     | "price,source,source_id"
+s2_rv_d                            | 0 ok                     | "price,source,source_id"
+s2_rv_e                            | 0 ok                     | "price,source,source_id"
+s2_rv_f                            | 0 ok                     | "price,source,source_id"
+s2_rv_g                            | 0 ok                     | "price,source,source_id"
+s2_rv_h                            | 0 ok                     | "price,source,source_id"
+s2_tierc                           | 10003 同物料同档位（TIER）上已有起订量 `100`、生效日 `2026-01-01` 的档位价（同一组键只能一条） | "null"
+s3_ap_ap0                          | 0 ok                     | "instance_id,instance_status,node_status,done,idempotent,next_nodes,auto_passed_nodes,approver_count,approved_count,reje
+s3_ap_todo0                        | 0 ok                     | "list,total,page,page_size"
+s3_ap_todo1                        | 0 ok                     | "list,total,page,page_size"
+s3_create                          | 0 ok                     | "id,so_no,customer_id,customer_code,customer_name,contract_id,contract_no,salesperson_id,salesperson_name,order_date,del
+s3_detail                          | 0 ok                     | "id,so_no,customer_id,customer_code,customer_name,contract_id,contract_no,salesperson_id,salesperson_name,order_date,del
+s3_page                            | 0 ok                     | "list,total,page,page_size"
+s3_submit                          | 0 ok                     | "id,so_no,customer_id,customer_code,customer_name,contract_id,contract_no,salesperson_id,salesperson_name,order_date,del
+s4_page                            | 0 ok                     | "list,total,page,page_size"
+s4_pending                         | 10003 发货单 SH-20261109-000004 已是终态 已过账（POSTED），不能再流转：已过账的作废要走销售出库红冲（SO-10） | "null"
+s4_posted                          | 0 ok                     | "id,ship_no,so_id,so_no,customer_id,customer_code,customer_name,warehouse_id,warehouse_code,warehouse_name,ship_date,sta
+s4_ship                            | 10003 销售订单当前是「OUTBOUND」（OUTBOUND），只有 APPROVED / PARTIAL_OUT 的订单能发货：订单还没审批通过（或已关闭 / 已作废 / 已发完）时不允许开发货单 | "null"
+s4_sout                            | 0 ok                     | "id,out_no,out_type,out_type_label,warehouse_id,out_date,status,status_label,total_qty,total_amount,voucher_id,reason,re
+s5_detail                          | 0 ok                     | "id,out_no,out_type,out_type_label,warehouse_id,out_date,status,status_label,total_qty,total_amount,voucher_id,reason,re
+s5_page                            | 0 ok                     | "list,total,page,page_size"
+s6_aging                           | 0 ok                     | "report_code,report_name,company_name,unit,as_of,as_of_source,period,period_name,period_status,generated_at,buckets,summ
+s6_page                            | 0 ok                     | "list,total,page,page_size"
+s7_alloc                           | 0 ok                     | "id,receipt_no,customer_id,customer_name,receipt_date,amount,allocated_amount,unallocated_amount,method,method_label,ban
+s7_attach                          | 0 ok                     | "id,file_id,file_name,file_size,file_role,doc_type,doc_id,duplicated"
+s7_confirm                         | 0 ok                     | "id,receipt_no,customer_id,customer_name,receipt_date,amount,allocated_amount,unallocated_amount,method,method_label,ban
+s7_create                          | 0 ok                     | "id,receipt_no,customer_id,customer_name,receipt_date,amount,allocated_amount,unallocated_amount,method,method_label,ban
+s7_over                            | 10001 核销总额 1200 超过收款金额 1000.0000（收款单 RC-20261109-000001）：超收的部分核不出去，请减少核销金额 | "null"
+s7_post_early                      | 10001 收款单必须上传银行回单（pdf/jpg/png）：至少要 1 个，当前 0 个（该单据共 0 个附件），还差 1 个 | "null"
+s7_posted                          | 0 ok                     | "id,receipt_no,customer_id,customer_name,receipt_date,amount,allocated_amount,unallocated_amount,method,method_label,ban
+s8_alloc                           | 0 ok                     | "id,refund_no,customer_id,customer_name,source_receipt_id,refund_date,amount,allocated_amount,unallocated_amount,method,
+s8_ap_ap0                          | 0 ok                     | "instance_id,instance_status,node_status,done,idempotent,next_nodes,auto_passed_nodes,approver_count,approved_count,reje
+s8_ap_todo0                        | 0 ok                     | "list,total,page,page_size"
+s8_ap_todo1                        | 0 ok                     | "list,total,page,page_size"
+s8_confirm                         | 0 ok                     | "id,refund_no,customer_id,customer_name,source_receipt_id,refund_date,amount,allocated_amount,unallocated_amount,method,
+s8_create                          | 0 ok                     | "id,refund_no,customer_id,customer_name,source_receipt_id,refund_date,amount,allocated_amount,unallocated_amount,method,
+s8_submit                          | 0 ok                     | "id,refund_no,customer_id,customer_name,source_receipt_id,refund_date,amount,allocated_amount,unallocated_amount,method,
+s97_achievement_order              | 0 ok                     | "array[1]"
+s97_achievement_receipt            | 0 ok                     | "array[1]"
+s97_aging                          | 0 ok                     | "report_code,report_name,company_name,unit,as_of,as_of_source,period,period_name,period_status,generated_at,buckets,summ
+s97_commission_detail              | 0 ok                     | "id,settlement_no,salesperson_id,salesperson_name,period_code,total_sales,total_commission,status,paid_at,voucher_id,vou
+s97_commission_page                | 0 ok                     | "list,total,page,page_size"
+s97_currency_list                  | 0 ok                     | "array[4]"
+s97_customer_detail                | 0 ok                     | "id,code,name,tax_no,contact_name,contact_phone,address,credit_days,credit_limit,credit_used,credit_available,status,rem
+s97_customer_page                  | 0 ok                     | "list,total,page,page_size"
+s97_fx_page                        | 0 ok                     | "list,total,page,page_size"
+s97_fx_quote                       | 0 ok                     | "currency_code,base_currency,exchange_rate,on_date,source,effective_date"
+s97_invoice_detail                 | 0 ok                     | "id,invoice_no,invoice_type,invoice_type_label,invoice_code,is_electronic,customer_id,customer_name,invoice_date,amount,
+s97_invoice_page                   | 0 ok                     | "list,total,page,page_size"
+s97_price_agreed_page              | 0 ok                     | "list,total,page,page_size"
+s97_price_resolve                  | 0 ok                     | "price,source,source_id"
+s97_price_tier_page                | 0 ok                     | "list,total,page,page_size"
+s97_receipt_detail                 | 0 ok                     | "id,receipt_no,customer_id,customer_name,receipt_date,amount,allocated_amount,unallocated_amount,method,method_label,ban
+s97_receipt_page                   | 0 ok                     | "list,total,page,page_size"
+s97_receivable_detail              | 0 ok                     | "id,ar_no,customer_id,customer_name,source_type,source_id,source_no,invoice_no,invoice_date,currency_code,amount,receive
+s97_receivable_page                | 0 ok                     | "list,total,page,page_size"
+s97_refund_detail                  | 0 ok                     | "id,refund_no,customer_id,customer_name,source_receipt_id,refund_date,amount,allocated_amount,unallocated_amount,method,
+s97_refund_page                    | 0 ok                     | "list,total,page,page_size"
+s97_returnable                     | 0 ok                     | "array[2]"
+s97_return_detail                  | 0 ok                     | "id,return_no,customer_id,customer_code,customer_name,so_id,so_no,shipment_id,shipment_no,return_date,return_type,return
+s97_return_page                    | 0 ok                     | "list,total,page,page_size"
+s97_rule_page                      | 0 ok                     | "list,total,page,page_size"
+s97_sales_order_detail             | 0 ok                     | "id,so_no,customer_id,customer_code,customer_name,contract_id,contract_no,salesperson_id,salesperson_name,order_date,del
+s97_sales_order_page               | 0 ok                     | "list,total,page,page_size"
+s97_shipment_detail                | 0 ok                     | "id,ship_no,so_id,so_no,customer_id,customer_code,customer_name,warehouse_id,warehouse_code,warehouse_name,ship_date,sta
+s97_shipment_page                  | 0 ok                     | "list,total,page,page_size"
+s97_stockout_detail                | 0 ok                     | "id,out_no,out_type,out_type_label,warehouse_id,out_date,status,status_label,total_qty,total_amount,voucher_id,reason,re
+s97_target_page                    | 0 ok                     | "list,total,page,page_size"
+s9_inv1                            | 0 ok                     | "id,invoice_no,invoice_type,invoice_type_label,invoice_code,is_electronic,customer_id,customer_name,invoice_date,amount,
+s9_inv2                            | 0 ok                     | "id,invoice_no,invoice_type,invoice_type_label,invoice_code,is_electronic,customer_id,customer_name,invoice_date,amount,
+s9_inv3                            | 0 ok                     | "id,invoice_no,invoice_type,invoice_type_label,invoice_code,is_electronic,customer_id,customer_name,invoice_date,amount,
+s9_issue2                          | 0 ok                     | "id,invoice_no,invoice_type,invoice_type_label,invoice_code,is_electronic,customer_id,customer_name,invoice_date,amount,
+s9_issue                           | 0 ok                     | "id,invoice_no,invoice_type,invoice_type_label,invoice_code,is_electronic,customer_id,customer_name,invoice_date,amount,
+s9_issue_noimg                     | 10001 发票必须上传发票影像（pdf/ofd/xml）：至少要 1 个，当前 0 个（该单据共 0 个附件），还差 1 个 | "null"
+s9_issue_png                       | 10001 发票必须上传发票影像（pdf/ofd/xml）：至少要 1 个，当前 0 个（该单据共 1 个附件），还差 1 个；现有附件是 png 格式，不在白名单内，请上传 pdf/ofd/xml 格式 | "null"
+s9_pdf                             | 0 ok                     | "id,file_id,file_name,file_size,file_role,doc_type,doc_id,duplicated"
+s9_png2                            | 0 ok                     | "id,file_id,file_name,file_size,file_role,doc_type,doc_id,duplicated"
+s9_png                             | 0 ok                     | "id,file_id,file_name,file_size,file_role,doc_type,doc_id,duplicated"
+s9_posted2                         | 0 ok                     | "id,invoice_no,invoice_type,invoice_type_label,invoice_code,is_electronic,customer_id,customer_name,invoice_date,amount,
+s9_void3                           | 0 ok                     | "id,invoice_no,invoice_type,invoice_type_label,invoice_code,is_electronic,customer_id,customer_name,invoice_date,amount,
+s9_void                            | 0 ok                     | "id,invoice_no,invoice_type,invoice_type_label,invoice_code,is_electronic,customer_id,customer_name,invoice_date,amount,
+s9_void_posted                     | 10003 发票 IV-20261109-000002 不能从「已归档」变成「已作废」：合法去向是 无（终态） | "null"

@@ -1,0 +1,34 @@
+== step97 13 个页面只读巡检（GET 全量，验证读接口可用 + 关键字段）
+  ✅ customer_page http=200 total=1
+  ✅ customer_detail http=200 E2E02-C1 E2E-02 演练客户甲（改名） ACTIVE 联系人=李四
+  ✅ price_agreed_page http=200 total=1
+  ✅ price_tier_page http=200 total=2
+  ✅ price_resolve http=200 120.0000 / AGREED
+  ✅ sales_order_page http=200 total=3
+  ✅ sales_order_detail http=200 SO-20261109-000020 OUTBOUND 1582.0000
+  ✅ shipment_page http=200 total=1
+  ✅ shipment_detail http=200 SH-20261109-000004 POSTED
+  ✅ stockout_detail http=200 OUT-20261109-000031 POSTED src=SALES 成本=60.0000
+  ✅ receivable_page http=200 total=2
+  ✅ receivable_detail http=200 AR-20261109-000017 PARTIAL amt=1356.0000 recv=800.0000 unpaid=556.0000
+  ✅ aging http=200 客户=8
+  ✅ receipt_page http=200 total=1
+  ✅ receipt_detail http=200 RC-20261109-000001 POSTED 核销=1000.0000
+  ✅ refund_page http=200 total=1
+  ✅ refund_detail http=200 RR-20261109-000005 POSTED
+  ✅ invoice_page http=200 total=4
+  ✅ invoice_detail http=200 IV-20261109-000002 POSTED 782.0000
+  ✅ return_page http=200 total=1
+  ✅ return_detail http=200 SR-20261109-000002 POSTED 226.0000
+  ✅ returnable http=200 2 行可退
+  ✅ target_page http=200 total=2
+  ✅ achievement_order http=200 ORDER 实际=3186.60 达成率=63.73
+  ✅ achievement_receipt http=200 RECEIPT 实际=800.00 达成率=16.00
+  ✅ rule_page http=200 total=4
+  ✅ commission_page http=200 total=1
+  ✅ commission_detail http=200 CM-202611-000004 PAID 佣金=96.0000
+  ✅ currency_list http=200 本位币=CNY
+  ✅ fx_page http=200 total=2
+  ✅ fx_quote http=200 USD rate=7.20000000 src=SPOT
+
+== PASS=31 FAIL=0

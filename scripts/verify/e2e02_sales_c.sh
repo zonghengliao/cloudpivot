@@ -197,6 +197,7 @@ step12() {
 step99() {
   say "== step99 结论勾稽（订单/应收/发票/库存/凭证/目标/佣金）"
   local ARS="'$AR1','$AR2'"
+  [ -z "${SOUT2:-}" ] && SOUT2=$(PSQLQ -c "select id from biz_stock_out where source_type='SALES' and source_id='$SHIP2' and deleted_at is null;")
   say "-- ① 订单主表 = Σ明细（不含税 / 税 / 价税）"
   PSQLQ -c "select o.so_no||' 主表='||o.total_amount||'/'||o.total_tax||'/'||o.total_with_tax||' 明细='||sum(i.amount)||'/'||sum(i.tax_amount)||'/'||sum(i.amount+i.tax_amount)||' 一致='||(o.total_amount=sum(i.amount) and o.total_tax=sum(i.tax_amount) and o.total_with_tax=sum(i.amount+i.tax_amount))::text
               from biz_sales_order o join biz_sales_order_item i on i.so_id=o.id
@@ -283,7 +284,7 @@ step97() {
   g commission_detail "/business/erp/commission/$SET1" '.data.settlement_no+" "+.data.status+" 佣金="+.data.total_commission'
   g currency_list "/business/erp/currency/list" '[.data[] | select(.is_base==true) | .code] | "本位币="+join(",")'
   g fx_page "/business/erp/exchange-rate/page?page=1&page_size=10&from_currency=USD" '"total="+(.data.total|tostring)'
-  g fx_quote "/business/erp/exchange-rate/quote?from_currency=USD&date=2026-11-16" '.data.rate+" @"+.data.effective_date'
+  g fx_quote "/business/erp/exchange-rate/quote?currency_code=USD&date=2026-11-16" '.data.currency_code+" rate="+(.data.exchange_rate|tostring)+" src="+.data.source'
   summary
 }
 

@@ -1,0 +1,1 @@
+{"code":10003,"msg":"销售订单当前是「OUTBOUND」（OUTBOUND），只有 APPROVED / PARTIAL_OUT 的订单能发货：订单还没审批通过（或已关闭 / 已作废 / 已发完）时不允许开发货单"}
