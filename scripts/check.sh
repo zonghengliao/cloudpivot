@@ -1,33 +1,148 @@
 #!/usr/bin/env bash
-# 提交前检查：后端 fmt / clippy / check + 前端 typecheck + 批次B 数据权限防漏门禁
-#            + 闸③ERP不变量 / 闸④词表 / 闸⑤快照巡检 / 闸⑥死权限码（handler 注解码必须有菜单承载）
-#            + 闸⓪真库用例（**可选档**：CHECK_WITH_DB=1，见文件中部「闸⓪」段）
-#            + 闸⑦孤儿按钮（角色拿到的按钮码必须至少有一个可达父页）
-#            + 闸⑧迁移授权段角色码（INSERT INTO sys_role_menu 里的 role_code 必须真实存在）
+# 提交前 / push 前 / 发版前的统一门禁。**分四层**（卡 t_2746ca53，ARCH-9 §4 口径）：
 #
-# 用法：bash scripts/check.sh
+#   L0  静态闸（秒级，无编译、无库）  ：C7 G1–G6 / 色板 / 库存写入口（含自检）/ 迁移授权段角色码
+#   L1  编译与类型闸（≈2 分钟）       ：cargo fmt --check / clippy --all-targets -D warnings
+#                                       / cargo check / pnpm typecheck
+#   L2  连库与存量档（分钟级，需库）   ：闸⓪真库用例（CHECK_WITH_DB=1）/ 批次B 闸①闸②
+#                                       / 闸③ERP不变量 / 闸④词表 / 闸⑤快照 / 闸⑥死权限码 / 闸⑦孤儿按钮
+#   L3  干净检出闸（≈15 秒）          ：`git archive HEAD` 提取干净树 → 跑 lib 单测
+#                                       （证明「不依赖本机 gitignored 私有配置」，见 scripts/verify/clean_checkout_gate.sh）
 #
-#   BATCHB_GATE=warn bash scripts/check.sh
-#       批次B 两条门禁只告警不失败（B2–B4 施工期用；B5 完成后默认行为即为全绿）
+# 用法：
+#   bash scripts/check.sh --fast       # L0+L1（≈2–3 分钟）—— push 前的机械门禁，pre-push 钩子就调这个
+#   bash scripts/check.sh --full       # L0+L1+L2+L3（不传参数时的默认行为，发版前必跑）
+#   bash scripts/check.sh --dry-run    # 只打印会跑什么（含每项属于哪一层），不执行
+#   bash scripts/check.sh --help       # 同上说明
 #
-# 说明：本脚本的退出码 = 「任一检查失败」。批次B 门禁是**故意**会在当前树上报错的
+#   叠加用法：bash scripts/check.sh --fast --dry-run   # 看 --fast 会跑什么
+#
+# 环境变量（与旧版完全一致，未改动语义）：
+#   BATCHB_GATE=warn      批次B 两条门禁只告警不失败（B2–B4 施工期用）
+#   CHECK_WITH_DB=1       开闸⓪真库用例（需 ERP_DB_URL / SYS_DB_URL / TASK_DB_URL 三个都指同一隔离库）
+#   CHECK_WITH_DB_FILTER= 只跑某段真库用例
+#   ERP_INVARIANTS_GATE / BIZ_VOCAB_GATE / SNAPSHOT_AUDIT_GATE / PERM_MENU_GATE / ORPHAN_BTN_GATE / ROLE_CODE_GATE
+#                         = block（默认）/ warn / off
+#
+# 说明：本脚本的退出码 = 「本次所跑层里任一检查失败」。批次B 闸② 是**故意**会在当前树上报错的
 #       —— 它度量的是「还没接入数据权限的存量查询」，见 docs/批次B-DDL.md §6 与
-#       docs/后端二开指南.md「数据权限检查清单」。
+#       docs/后端二开指南.md「数据权限检查清单」。因此它属 L2（日常档），**不进 pre-push**。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-echo "==> 后端：cargo fmt --check"
-(cd "$ROOT/backend" && cargo fmt -- --check)
+# ======================================================================
+# 分层与参数
+# ======================================================================
+LAYERS="L0 L1 L2 L3"     # --full：全跑
+DRY_RUN=0
 
-echo "==> 后端：cargo clippy -- -D warnings"
-(cd "$ROOT/backend" && cargo clippy --all-targets -- -D warnings)
+usage() {
+    # 打印文件头的注释块（第一个非注释行之前）
+    awk 'NR > 1 { if ($0 ~ /^#/) { sub(/^# ?/, ""); print; next } else { exit } }' "${BASH_SOURCE[0]}"
+}
 
-echo "==> 后端：cargo check"
-(cd "$ROOT/backend" && cargo check)
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --fast)    LAYERS="L0 L1"; shift ;;
+        --full)    LAYERS="L0 L1 L2 L3"; shift ;;
+        --l0)      LAYERS="L0"; shift ;;
+        --l1)      LAYERS="L1"; shift ;;
+        --dry-run) DRY_RUN=1; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "未知参数：$1（支持 --fast / --full / --dry-run / --help）" >&2; exit 2 ;;
+    esac
+done
 
-echo "==> 前端：pnpm typecheck"
-(cd "$ROOT/frontend" && pnpm typecheck)
+# want <层名>：本层是否启用
+want() {
+    local l="$1"
+    case " $LAYERS " in *" $l "*) return 0 ;; *) return 1 ;; esac
+}
+
+LAYER_DESC="L0 静态闸（秒级）→ L1 编译与类型闸（≈2 分钟）"
+if want L2; then LAYER_DESC="$LAYER_DESC → L2 连库与存量档"; fi
+if want L3; then LAYER_DESC="$LAYER_DESC → L3 干净检出闸"; fi
+echo "==> check.sh：本次执行 $LAYERS（$LAYER_DESC）"
+
+# dry-run 用：声明一个计划项（层 · 说明 · 命令行）
+plan() { printf '   [%s] %-44s %s\n' "$1" "$2" "${3:-}"; }
+
+# 计划表：--dry-run 时只打这张表就退出。
+# ⚠ 加/删门禁时要同步改这里 —— 它与脚本里实际执行的段落一一对应（顺序也一致）。
+# 执行顺序就是脚本内顺序：L1 编译类（最快暴露语法/类型问题）→ 闸⓪/批次B（L2）
+#   → L0 静态闸 → 闸③–⑦（L2）→ L3。层只决定「跑不跑」，不改变文件内顺序。
+plan_all() {
+    echo "==> 计划（--dry-run）："
+    if want L1; then
+        plan L1 "后端格式" "cd backend && cargo fmt -- --check"
+        plan L1 "后端 lint（lib+bin+tests+examples，告警即错）" "cd backend && cargo clippy --all-targets -- -D warnings"
+        plan L1 "后端类型检查" "cd backend && cargo check"
+        if [ -d "$ROOT/frontend/node_modules" ]; then
+            plan L1 "前端类型检查" "cd frontend && pnpm typecheck"
+        else
+            plan L1 "前端类型检查（缺 node_modules → 会跳过）" "cd frontend && pnpm typecheck"
+        fi
+    fi
+    if want L2; then
+        plan L2 "闸⓪ 真库用例（仅 CHECK_WITH_DB=1 时真跑）" "cd backend && cargo test --lib --features test-hooks -- --test-threads=1"
+        plan L2 "批次B 闸① 分页唯一写法（paginate_with_params 必须 0 处）" "grep 静态检查（scripts/check.sh · batchb_gates）"
+        plan L2 "批次B 闸② 登记表必须接 scope:: 或 SCOPE-EXEMPT" "python3 scripts/lint/scope_gate.py --root . --baseline 21"
+    fi
+    if want L0; then
+        plan L0 "C7 变更日志回滚零残留 G1–G6" "grep/awk 静态检查（scripts/check.sh · batchc_gates）"
+        plan L0 "偏好字典 ui.palette ↔ 前端色板一致" "python3 scripts/lint/palette_def_sync.py --root ."
+        plan L0 "库存三本账唯一写入口（判据自检 + 扫描）" "python3 scripts/verify/inventory_write_gate.py [--self-test]"
+        plan L0 "迁移授权段角色码（自检 + 扫描）" "python3 scripts/verify/role_code_gate.py [--self-test]"
+    fi
+    if want L2; then
+        plan L2 "闸③ ERP 账务不变量" "python3 scripts/verify/erp_invariants.py"
+        plan L2 "闸④ 业务类型词表值域" "python3 scripts/verify/biz_type_domain.py --strict"
+        plan L2 "闸⑤ 快照一致性巡检" "python3 scripts/verify/snapshot_audit.py"
+        plan L2 "闸⑥ 死权限码（handler 注解码必须有菜单承载）" "python3 scripts/verify/perm_menu_gate.py"
+        plan L2 "闸⑦ 孤儿按钮" "python3 scripts/verify/orphan_button_gate.py"
+    fi
+    if want L3; then
+        plan L3 "干净检出闸（git archive HEAD → lib 单测）" "bash scripts/verify/clean_checkout_gate.sh"
+    fi
+    echo ""
+    echo "   （L2 里 闸③–⑦ 需要库口令；无库环境按「无 DB 环境」跳过，与旧版口径一致）"
+}
+
+if [ "$DRY_RUN" = "1" ]; then
+    plan_all
+    exit 0
+fi
+
+# ======================================================================
+# L1 编译与类型闸
+# ======================================================================
+run_l1() {
+    echo "==> L1 后端：cargo fmt -- --check"
+    (cd "$ROOT/backend" && cargo fmt -- --check)
+
+    echo "==> L1 后端：cargo clippy --all-targets -- -D warnings"
+    (cd "$ROOT/backend" && cargo clippy --all-targets -- -D warnings)
+
+    echo "==> L1 后端：cargo check"
+    (cd "$ROOT/backend" && cargo check)
+
+    echo "==> L1 前端：pnpm typecheck"
+    # 干净克隆里没有 node_modules（.gitignore）；这时跳过而不是判红，
+    # 否则「干净检出必红」，与本仓 2026-11-10 审查口径冲突（L3 闸同一条原理）。
+    if [ ! -d "$ROOT/frontend/node_modules" ]; then
+        echo "  ℹ frontend/node_modules 不存在 → 跳过（先 cd frontend && pnpm install；CI 会跑）"
+    elif ! command -v pnpm >/dev/null 2>&1; then
+        echo "  ℹ 本机没有 pnpm → 跳过前端类型检查（CI 会跑）"
+    else
+        (cd "$ROOT/frontend" && pnpm typecheck)
+    fi
+}
+
+if want L1; then
+    run_l1
+fi
+
 
 # ======================================================================
 # 闸⓪ · 真库用例（**可选档**：`CHECK_WITH_DB=1`，卡 t_977c5189）
@@ -68,7 +183,10 @@ echo "==> 前端：pnpm typecheck"
 # （`P0FIX_DB_URL`），同库全量时必须排除（与 `scripts/verify/run_lib_tests_by_module.sh` 同口径）。
 # ======================================================================
 
-if [ "${CHECK_WITH_DB:-0}" = "1" ]; then
+# ---- L2 层起点 --------------------------------------------------------
+if ! want L2; then
+    echo "==> 闸⓪：真库用例 —— 跳过（本档不含 L2；--fast 只跑 L0+L1）"
+elif [ "${CHECK_WITH_DB:-0}" = "1" ]; then
     echo "==> 闸⓪：真库用例（cargo test --lib --features test-hooks -- --test-threads=1）"
     missing=""
     for var in ERP_DB_URL SYS_DB_URL TASK_DB_URL; do
@@ -277,7 +395,12 @@ batchb_gates() {
     return 0
 }
 
-batchb_gates
+# 批次B 两闸属 L2：闸② 度量的是「还没接入数据权限的存量查询」，存量未清零前在树上
+# 就是红的（ARCH-9 §0 D-6「已知红台账」口径），不能进 pre-push —— 否则每次 push 都被
+# 存量债挡住，钩子当天就会被 SKIP_PREPUSH 绕过，等于没有钩子。
+if want L2; then
+    batchb_gates
+fi
 
 # ======================================================================
 # 批次 C · C7：变更日志「回滚零残留」六条门禁（G1–G6）
@@ -306,14 +429,24 @@ batchc_gates() {
     local out n
 
     echo "==> C7 G1：只有 business/changelog/ 能碰 sys_change_log（防止别处偷偷 INSERT）"
-    out=$(grep -rn "sys_change_log" "$src" --include=*.rs | grep -v "/business/changelog/" | batchc_strip_comments || true)
-    if [ -n "$out" ]; then
-        n=$(printf '%s\n' "$out" | wc -l | tr -d ' ')
-        echo "  FAIL：$n 处（应在 0 处；变更日志只能由 changelog 模块写）"
-        printf '%s\n' "$out" | sed 's/^/    /'
-        failed=$((failed + 1))
+    # 口径 v2（2026-11-10，卡 t_2746ca53）：判据搬进 scripts/lint/sys_change_log_gate.py，
+    # **只判生产面**（测试文件整体跳过 + `#[cfg(test)]` 项按花括号配对跳过），与 scope_gate /
+    # inventory_write_gate 同口径。v1 是纯 grep（只排注释），实测在 HEAD 上被测试代码里的
+    # `SELECT … FROM sys_change_log` 断言误判成 2 处红 —— 测试读审计表不是生产写路径。
+    # 判据没有放宽：生产面仍是 0 容忍，且新增 --self-test 红/绿语料守住判据本身。
+    if command -v python3 >/dev/null 2>&1; then
+        if ! python3 "$ROOT/scripts/lint/sys_change_log_gate.py" --self-test >/dev/null 2>&1; then
+            echo "  FAIL：判据自检未通过（判据被改坏了？python3 scripts/lint/sys_change_log_gate.py --self-test）"
+            failed=$((failed + 1))
+        elif out="$(python3 "$ROOT/scripts/lint/sys_change_log_gate.py" --root "$ROOT" 2>&1)"; then
+            echo "  PASS：生产面 0 处（测试面按语义豁免）"
+        else
+            printf '%s\n' "$out" | sed 's/^/    /'
+            failed=$((failed + 1))
+        fi
     else
-        echo "  PASS：0 处"
+        echo "  FAIL：找不到 python3（G1 需要它按 Rust 模块语义解析测试面）"
+        failed=$((failed + 1))
     fi
 
     echo "==> C7 G2：changelog 模块内禁止自开事务（db() 非注释命中必须为 0）"
@@ -390,7 +523,9 @@ batchc_gates() {
     return 0
 }
 
-batchc_gates
+if want L0; then
+    batchc_gates
+fi
 
 # ======================================================================
 # 批次 D · 偏好体系：字典 `ui.palette` 的 oneof 必须与前端色板逐字一致
@@ -400,10 +535,12 @@ batchc_gates
 # 这条检查秒级，放在所有编译类检查之后、汇总之前。
 # ======================================================================
 
+if want L0; then
 echo "==> 偏好字典与色板一致性（V0091 ui.palette oneof ↔ style/palettes.ts）"
 if ! python3 "$ROOT/scripts/lint/palette_def_sync.py" --root "$ROOT"; then
     echo "==> 一致性门禁未通过：改色板时必须同步改 V0091 的 validator" >&2
     exit 1
+fi
 fi
 
 # ======================================================================
@@ -420,6 +557,7 @@ fi
 # 判定规则本身由 `--self-test` 的红/绿语料守住。
 # ======================================================================
 
+if want L0; then
 echo "==> 库存三本账唯一写入口闸 · 判据自检（--self-test）"
 if ! python3 "$ROOT/scripts/verify/inventory_write_gate.py" --self-test; then
     echo "==> 门禁自身失效：自检语料未全绿（判据被改坏了？）" >&2
@@ -430,6 +568,7 @@ echo "==> 库存三本账唯一写入口（scripts/verify/inventory_write_gate.p
 if ! python3 "$ROOT/scripts/verify/inventory_write_gate.py"; then
     echo "==> 门禁未通过：库存三本账的写语句必须走 backend/src/business/erp/inventory_writer.rs" >&2
     exit 1
+fi
 fi
 
 # ======================================================================
@@ -488,8 +627,10 @@ erp_invariants_gate() {
     return 1
 }
 
+if want L2; then
 if ! erp_invariants_gate; then
     exit 1
+fi
 fi
 
 # ======================================================================
@@ -594,12 +735,14 @@ snapshot_audit_gate() {
     return 1
 }
 
+if want L2; then
 if ! biz_vocab_gate; then
     exit 1
 fi
 
 if ! snapshot_audit_gate; then
     exit 1
+fi
 fi
 
 # ======================================================================
@@ -681,8 +824,10 @@ perm_menu_gate() {
     return 1
 }
 
+if want L2; then
 if ! perm_menu_gate; then
     exit 1
+fi
 fi
 
 # ======================================================================
@@ -762,8 +907,10 @@ orphan_button_gate() {
     return 1
 }
 
+if want L2; then
 if ! orphan_button_gate; then
     exit 1
+fi
 fi
 
 # ======================================================================
@@ -831,13 +978,65 @@ role_code_gate() {
     return 1
 }
 
+if want L0; then
 if ! role_code_gate; then
     exit 1
+fi
+fi
+
+# ======================================================================
+# L3 · 干净检出闸（卡 t_2746ca53 ②：禁止本机依赖）
+#
+# 评审 5.7 原文：「单测依赖 gitignored 私有配置，干净检出必红」。
+# E2E-14 已把 `startup_guard.rs` 的断言改成「私有配置在就断言它，不在就断言 *.example.toml」，
+# 但**没有门禁守住这条性质**：下一个人再写一条 `assert!(Path::new("config/config-dev.toml").exists())`
+# 就会立刻把「干净检出必红」带回来，而且只有到 CI / 新人克隆时才炸。
+#
+# 这道闸的判据是**真的把干净检出做出来跑一遍**（不是模拟）：
+#   ① `git archive HEAD | tar -x` → 只含 git 跟踪的文件（gitignored 的私有配置天然不在）；
+#   ② 断言私有配置确实不在、模板 *.example.toml 确实在（否则说明 .gitignore 漏了 / 模板被删）；
+#   ③ `cargo test --lib --no-run` 取已编译的 lib 单测二进制，把 **CWD 指到干净检出**再跑全量
+#      （配置路径是 `config/` 相对 CWD，于是测试读到的是干净树里的配置面）；
+#   ④ 断言 0 failed —— 红就是「干净检出必红」，必须修代码，不许改这道闸。
+#
+# 为什么能这么便宜（≈15 s）：复用主 target 里已编好的测试二进制，不重复编译；全量 4032 条
+# 用例无库时 5.5 s 跑完（真库用例按设计 SKIP，库侧归闸⓪ 管）。
+# 开关：CLEAN_CHECKOUT_GATE = block（默认）/ warn / off
+# ======================================================================
+clean_checkout_gate() {
+    local mode="${CLEAN_CHECKOUT_GATE:-block}"
+    if [ "$mode" = "off" ]; then
+        echo "==> L3 干净检出闸（CLEAN_CHECKOUT_GATE=off → 跳过）"
+        return 0
+    fi
+    local gate="$ROOT/scripts/verify/clean_checkout_gate.sh"
+    if [ ! -f "$gate" ]; then
+        echo "  ✗ 找不到 $gate" >&2
+        return 1
+    fi
+    local rc=0
+    bash "$gate" || rc=$?
+    if [ "$rc" -eq 0 ]; then
+        return 0
+    fi
+    if [ "$mode" = "warn" ]; then
+        echo "  ⚠ 干净检出闸未通过（CLEAN_CHECKOUT_GATE=warn → 不阻断）" >&2
+        return 0
+    fi
+    echo "  ✗ 干净检出闸未通过：干净树上有单测是红的（依赖了本机 gitignored 文件？）" >&2
+    echo "    修法：测试要么断言入库的 *.example.toml，要么用 .exists() 兜底 —— 见 startup_guard.rs 的写法。" >&2
+    return 1
+}
+
+if want L3; then
+if ! clean_checkout_gate; then
+    exit 1
+fi
 fi
 
 # 批次B 的 warn 模式提示保留在最后（C7 门禁是硬门禁，没有 warn 开关）
 if [ "$BATCHB_GATE_WARNED" -gt 0 ]; then
-    echo "==> 检查完成：fmt / clippy / check / typecheck 通过；批次B 门禁 $BATCHB_GATE_WARNED 条按告警处理（BATCHB_GATE=warn）"
+    echo "==> 检查完成（$LAYERS）：fmt / clippy / check / typecheck 通过；批次B 门禁 $BATCHB_GATE_WARNED 条按告警处理（BATCHB_GATE=warn）"
 else
-    echo "==> 全部检查通过"
+    echo "==> 全部检查通过（$LAYERS）"
 fi

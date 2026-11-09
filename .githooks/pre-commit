@@ -3,13 +3,21 @@
 #
 #   闸 1 · 密钥/口令明文不得进入 git（scripts/secret-scan.sh --staged）
 #   闸 2 · 库存三本账不得绕过唯一写入口直写（scripts/verify/inventory_write_gate.py，P2-5B）
+#   闸 3 · 暂存区里的 .rs 必须符合 rustfmt（2026-11-10 补，卡 t_2746ca53）
+#
+# 为什么闸 3 要在这里（而不是只靠 pre-push）：
+#   2026-11-09 有人在 `.git/hooks/pre-commit` 里加过一份 rustfmt 检查，但同一天
+#   `core.hooksPath` 切到了 `.githooks` —— **`.git/hooks/` 从此不再被执行**，
+#   那份检查变成了死代码。「提交前自动跑 fmt」于是只存在于文档里，实际没有生效。
+#   本闸只查**暂存区新增/修改的 .rs**（秒级，不跑全仓），是全仓 `cargo fmt --check`
+#   （pre-push / check.sh 的 L1）的第一道便宜防线。
 #
 # 安装（每个克隆执行一次）：
-#   git config core.hooksPath .githooks
+#   bash scripts/git/install_hooks.sh      # 幂等：core.hooksPath=.githooks + chmod +x
 #
 # 设计：fail closed —— 扫描器不可用时拒绝提交，而不是静默放行。
 # 紧急绕过：git commit --no-verify（关掉全部闸）；或 SKIP_SECRET_SCAN=1 /
-#          SKIP_INVENTORY_GATE=1 只关掉其中一道（都会打 stderr）。
+#          SKIP_INVENTORY_GATE=1 / SKIP_RUSTFMT=1 只关掉其中一道（都会打 stderr）。
 set -uo pipefail
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
@@ -67,6 +75,41 @@ else
     echo "        （add_cost / subtract_cost / insert_txn …），业务侧只负责编排。" >&2
     echo "  说明：docs/后端二开指南.md §十四；测试夹具不受限（*_tests.rs / #[cfg(test)]）。" >&2
     exit 1
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# 闸 3 · 暂存区 .rs 的 rustfmt（卡 t_2746ca53）
+#
+# 只查本次**暂存**的新增/修改 .rs（`git diff --cached --diff-filter=ACM`），
+# 全仓 `cargo fmt --check` 留给 pre-push 的 L1 —— 这里要的是「提交那一刻就拦住」，
+# 而不是让人 push 到一半才发现。
+# ---------------------------------------------------------------------------
+if [ "${SKIP_RUSTFMT:-0}" = "1" ]; then
+  echo "! pre-commit: SKIP_RUSTFMT=1，跳过 rustfmt 检查（已记录到 stderr）" >&2
+elif ! command -v rustfmt >/dev/null 2>&1; then
+  echo "ℹ pre-commit: 本机没有 rustfmt → 跳过（pre-push 的 cargo fmt --check 仍会兜住）"
+else
+  STAGED_RS="$(git -C "$ROOT" diff --cached --name-only --diff-filter=ACM 2>/dev/null | grep '\.rs$' || true)"
+  if [ -n "$STAGED_RS" ]; then
+    BAD=""
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      [ -f "$ROOT/$f" ] || continue
+      if ! rustfmt --check --edition 2024 "$ROOT/$f" >/dev/null 2>&1; then
+        BAD="${BAD}  $f"$'\n'
+      fi
+    done <<< "$STAGED_RS"
+    if [ -n "$BAD" ]; then
+      echo "" >&2
+      echo "✘ 提交被拒绝：以下暂存文件不符合 rustfmt" >&2
+      printf '%s' "$BAD" >&2
+      echo "" >&2
+      echo "  修法：cd backend && cargo fmt      # 格式化全部（或用 rustfmt --edition 2024 <文件>）" >&2
+      echo "  配置：backend/rustfmt.toml（max_width=120）" >&2
+      exit 1
+    fi
+    echo "▶ pre-commit rustfmt：暂存区 $(printf '%s\n' "$STAGED_RS" | wc -l | tr -d ' ') 个 .rs 全部通过"
   fi
 fi
 

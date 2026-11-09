@@ -1,33 +1,28 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════════════════
-# cloudpivot pre-push — 推送前机械强制门禁（2026-11-09 加入，卡 REVIEW-FIX-4）
+# cloudpivot pre-push — 推送前的 L1 机械门禁（2026-11-09 立，2026-11-10 改为调 check.sh --fast）
 #
 # 为什么需要它：`scripts/check.sh` 一直是「靠人记得跑」。实测 HEAD 上
 # `cargo clippy --all-targets -- -D warnings` 与 `cargo fmt --check` 都红着，
-# 而提交照样推得上去 —— 门禁等于没有。pre-commit 只查 rustfmt（且只查暂存区
-# 的 .rs），拦不住 clippy 的语义类告警。这里把「能秒级跑完的编译期门禁」
-# 挪到 push 前，做最后一道机械拦截。
+# 而提交照样推得上去 —— 门禁等于没有。pre-commit 只做密钥 / 库存写入口 / 暂存区
+# rustfmt，拦不住 clippy 的语义类告警。这里把「编译期门禁」挪到 push 前，
+# 做最后一道机械拦截。
 #
-# 检查项（与 scripts/check.sh 的核心项同口径，**不跑**连库/慢检查）：
-#   ① backend: cargo fmt -- --check
-#   ② backend: cargo clippy --all-targets -- -D warnings
-#      （--all-targets 覆盖 lib + bins + tests + examples；clippy 自带 cargo check，
-#        故不再单跑一遍 cargo check，省 30s）
-#   ③ frontend: pnpm typecheck（有 `frontend/node_modules` 时才跑，CI 里没有依赖树属正常）
-# 不在这里跑：cargo test / 真库用例 / ERP 不变量 / 快照巡检 —— 那些要库、要几分钟，
-# 属于 `bash scripts/check.sh`（CHECK_WITH_DB=1）与 CI 的职责。
+# 判据只有一份：本钩子**不自己写检查**，直接调 `bash scripts/check.sh --fast`
+# （L0 静态闸 + L1 编译与类型闸，≈2–3 分钟）。这样 check.sh 加一道闸，pre-push 自动跟上，
+# 不会出现「钩子里的判据比 check.sh 旧」这种漂移 —— 那正是本次审查（5.7 门禁被绕过）的成因之一。
 #
 # 安装（每个克隆执行一次；本仓库已设置）：
-#     git config core.hooksPath .githooks
+#     bash scripts/git/install_hooks.sh      # 幂等：设置 core.hooksPath + chmod +x
 # 校验：
-#     git config --get core.hooksPath   # 应输出 .githooks
+#     git config --get core.hooksPath        # 应输出 .githooks
 #
-# 绕过（仅限紧急，且必须写进卡内说明）：
-#     SKIP_PREPUSH=1 git push
-#     SKIP_PREPUSH_TYPECHECK=1 git push   # 只跳过前端 typecheck
+# 绕过（仅限紧急，且必须写进 PR / 卡内说明原因）：
+#     SKIP_PREPUSH=1 git push                # 跳过整个 L0+L1
+#     git push --no-verify                   # 绕过全部钩子（等价，但连 pre-commit 历史也不留痕）
 #
-# 设计：fail closed —— 工具缺失（cargo 不存在）时拒绝推送并给出绕过方式，
-#       而不是「没找到 cargo 就当绿」。
+# 设计：fail closed —— check.sh 不存在（比如只推了一个不含 scripts/ 的分支）时
+#       拒绝推送并给出绕过方式，而不是「找不到就当绿」。
 # ═══════════════════════════════════════════════════════════════════════════
 set -uo pipefail
 
@@ -35,7 +30,7 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
 cd "$ROOT" || exit 0
 
 # ---------------------------------------------------------------------------
-# 0. 只删除远端分支的 push（local_sha 全 0）不需要检查代码
+# 0. 只删除远端分支的 push（local_sha 全 0）没有内容要检查
 # ---------------------------------------------------------------------------
 skip_all=0
 saw_ref=0
@@ -52,55 +47,46 @@ if [ "$saw_ref" = "1" ] && [ "$skip_all" = "1" ]; then
     exit 0
 fi
 
+# ---------------------------------------------------------------------------
+# 1. 紧急绕过开关
+# ---------------------------------------------------------------------------
 if [ "${SKIP_PREPUSH:-0}" = "1" ]; then
-    echo "! pre-push: SKIP_PREPUSH=1 → 跳过 fmt / clippy / typecheck（已记录到 stderr）" >&2
+    echo "" >&2
+    echo "! pre-push: SKIP_PREPUSH=1 → 跳过 L0+L1 门禁" >&2
+    echo "  这条绕过必须在 PR / 卡里写明原因，否则事后无法解释" >&2
+    echo "" >&2
     exit 0
 fi
 
-fail=0
-fail_items=""
-
 # ---------------------------------------------------------------------------
-# 1. 后端 fmt
+# 2. 门禁实体：scripts/check.sh --fast（判据唯一来源）
 # ---------------------------------------------------------------------------
-echo "▶ pre-push ①/③ cargo fmt -- --check"
-if ! ( cd "$ROOT/backend" && cargo fmt -- --check ); then
-    fail=1; fail_items="${fail_items}  · cargo fmt（修：cd backend && cargo fmt）\n"
-fi
-
-# ---------------------------------------------------------------------------
-# 2. 后端 clippy --all-targets -D warnings
-# ---------------------------------------------------------------------------
-echo "▶ pre-push ②/③ cargo clippy --all-targets -- -D warnings"
-if ! ( cd "$ROOT/backend" && cargo clippy --all-targets -- -D warnings ); then
-    fail=1; fail_items="${fail_items}  · cargo clippy --all-targets -D warnings（修：见上面的 lint 名与行号）\n"
-fi
-
-# ---------------------------------------------------------------------------
-# 3. 前端 typecheck
-# ---------------------------------------------------------------------------
-if [ "${SKIP_PREPUSH_TYPECHECK:-0}" = "1" ]; then
-    echo "! pre-push ③/③ 前端 pnpm typecheck：SKIP_PREPUSH_TYPECHECK=1 → 跳过" >&2
-elif ! command -v pnpm >/dev/null 2>&1; then
-    echo "ℹ pre-push ③/③ 前端 pnpm typecheck：本机没有 pnpm → 跳过（CI 会跑）"
-elif [ ! -d "$ROOT/frontend/node_modules" ]; then
-    echo "ℹ pre-push ③/③ 前端 pnpm typecheck：frontend/node_modules 不存在 → 跳过（先 pnpm install；CI 会跑）"
-else
-    echo "▶ pre-push ③/③ 前端 pnpm typecheck"
-    if ! ( cd "$ROOT/frontend" && pnpm typecheck ); then
-        fail=1; fail_items="${fail_items}  · pnpm typecheck（修：cd frontend && pnpm typecheck 看报错）\n"
-    fi
-fi
-
-if [ "$fail" -ne 0 ]; then
+CHECK="$ROOT/scripts/check.sh"
+if [ ! -f "$CHECK" ]; then
     echo "" >&2
-    echo "✘ push 被拒绝：编译期门禁未通过" >&2
-    printf "%b" "$fail_items" >&2
-    echo "" >&2
-    echo "  这些检查与 CI 同口径，推上去也会红。修完重新 push 即可。" >&2
-    echo "  紧急绕过（须在卡内写明理由）：SKIP_PREPUSH=1 git push" >&2
+    echo "✘ pre-push：找不到 $CHECK" >&2
+    echo "  这个分支不含 scripts/check.sh，无法执行门禁。确认无误后可：SKIP_PREPUSH=1 git push" >&2
     exit 1
 fi
 
-echo "✓ pre-push 门禁全部通过（fmt / clippy --all-targets / typecheck）"
+echo "▶ pre-push：bash scripts/check.sh --fast（L0 静态闸 + L1 编译与类型闸）"
+START=$(date +%s)
+bash "$CHECK" --fast
+rc=$?
+END=$(date +%s)
+if [ "$rc" -ne 0 ]; then
+    echo "" >&2
+    echo "✘ push 被拒绝：L0/L1 门禁未通过（退出码 $rc，耗时 $((END - START))s）" >&2
+    echo "" >&2
+    echo "  修法：按上面红掉的那一项的提示改（fmt → cd backend && cargo fmt；" >&2
+    echo "        clippy → 看 lint 名与行号；typecheck → cd frontend && pnpm typecheck），" >&2
+    echo "        改完重新 push 即可（无需重新 commit）。" >&2
+    echo "" >&2
+    echo "  紧急绕过（须在卡内写明理由）：SKIP_PREPUSH=1 git push" >&2
+    exit 1
+fi
+END=$(date +%s)
+
+echo ""
+echo "✓ pre-push 门禁通过（L0+L1，耗时 $((END - START))s）"
 exit 0
