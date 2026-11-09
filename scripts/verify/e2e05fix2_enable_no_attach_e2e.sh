@@ -25,6 +25,14 @@
 # 退出码：0 = 全绿；非 0 = 有 FAIL（明细见 $LOG）
 source /opt/cloudpivot/scripts/verify/e2e05_asset_common.sh
 
+# 允许外部覆盖库名：145 上 `/etc/cloudpivot/cloudpivot-dev.env` 指向的 `cloudpivot_dev`
+# 不一定存在（实测 2026-11-09 已被删），隔离验收时用 `DB_NAME=cp_e2e05fix2` 让
+# 本脚本与被测实例连同一个库（口令仍取 env 里的 NIK_DATABASE_PASSWORD）。
+if [ -n "${DB_NAME:-}" ]; then
+  export NIK_DATABASE_NAME="$DB_NAME"
+  export PGPASSWORD="$NIK_DATABASE_PASSWORD"
+fi
+
 YEAR=${YEAR:-2032}
 P1="$YEAR-01"
 RUN_TAG=${RUN_TAG:-$(date +%m%d%H%M)}

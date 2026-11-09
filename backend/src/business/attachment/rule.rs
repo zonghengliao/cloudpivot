@@ -33,10 +33,18 @@
 //! | 收款单 `RECEIPT` | `SUBMIT` | `receipt::change_status` → `CONFIRMED`（收款单没有独立提交态，确认即提交） |
 //! | 付款单 `PAYMENT` | `ACTIVATE` | `payable_payment::execute_approved_payment`（审批通过、真正出款前；付款记录是提交动作内部创建的，提交时还没有单据可挂附件） |
 //! | 费用报销 `EXPENSE_REPORT` | `SUBMIT` | `expense_handler::report_submit` |
-//! | 固定资产 `FIXED_ASSET` | `ACTIVATE` | `asset_handler::asset_status_change` → `IN_USE`（建卡即 `IN_USE`，故新建不受限） |
+//! | 固定资产 `FIXED_ASSET` | `ACTIVATE` | `asset_handler::asset_status_change` → `IN_USE`：**只警告不硬拦**（E2E05-FIX-2 方案 B，见下） |
 //! | 盘点单 `STOCK_TAKE` | `CONFIRM` | `stocktake_handler::change_status` → `PENDING_POST`（提交审批） |
 //! | 采购退货 `PURCHASE_RETURN` | `SUBMIT` | `purchase_return_handler::submit_return` |
 //! | 销售退货 `SALES_RETURN` | `SUBMIT` | `sales_return_handler::change_return_status` → `SUBMITTED` |
+//!
+//! ## 固定资产「启用」为什么是例外（E2E05-FIX-2）
+//!
+//! 建卡直接把状态落 `IN_USE`、不查附件；而「停用 → 再启用」会走到这条规则。若硬拦，
+//! 「发票未到先建卡」的既有资产停用一次就**永远启用不回来**（E2E-05 演练实测 400）。
+//! 所以这一处调 [`check_attachments`] 拿缺口清单后**放行**：响应带 `warning`、
+//! 直写一条 `operation_logs`（`ERP_ASSET_ENABLE_NO_ATTACH`）、打 `tracing::warn!`。
+//! 其余单据仍是**硬闸**（`ensure_attachments`），这条例外不影响它们。
 //!
 //! # 错误文案的形状（卡面验收②③要求「缺什么、要什么格式、还差几个」）
 //!
