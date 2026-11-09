@@ -1,0 +1,116 @@
+======== E2E-11 DB 证据（cloudpivot_dev）========
+① 本卡任务 / 依赖 / 附件 / 评论 / 工时 / 模板
+  => task=29 dep=1 att=1 tpl=1
+
+② 任务状态分布（本卡）
+  => CANCELLED=1
+DOING=7
+DONE=4
+REVIEW=1
+TODO=16
+
+③ 八层父子链深度（从根向下递归）
+  => depth=8 nodes=8
+
+④ 父子链逐层标题（从根往下）
+  => 1|E2E11 任务根（八层链）
+2|E2E11 L2 子任务
+3|E2E11 L3 子任务
+4|E2E11 L4 子任务
+5|E2E11 L5 子任务
+6|E2E11 L6 子任务
+7|E2E11 L7 子任务
+8|E2E11 L8 子任务
+
+⑤ 勾稽：parent_id 指向的任务必须存在且未软删（悬空父 = 0）
+  => 0
+
+⑥ 勾稽：依赖行两端都存在（本卡依赖悬空 = 0）
+  => 0
+
+⑦ 勾稽：DONE 任务 done_at 必须非空（本卡 DONE 缺 done_at = 0）
+  => 0
+
+⑧ 勾稽：DONE 任务进度必须 100（本卡不一致 = 0）
+  => 0
+
+⑨ 勾稽：子任务进度/状态与父任务汇总（父任务 progress 落后子任务 = 列出）
+  => E2E11 L6 子任务|p=0|avg_child=0
+E2E11 L3 子任务|p=0|avg_child=0
+E2E11 L5 子任务|p=0|avg_child=0
+E2E11 L4 子任务|p=0|avg_child=0
+E2E11 L2 子任务|p=0|avg_child=0
+E2E11 任务根（八层链）|p=0|avg_child=0
+E2E11 L7 子任务|p=0|avg_child=0
+E2E11 从模板建的巡检单|p=0|avg_child=0
+
+⑩ 状态日志（biz_task / STATUS）逐条
+  => 01a1beb5-7385-72fa-9008-40f752958312|?|admin|11-09 13:08:45
+01a1beb5-7401-7342-b6b4-c105d1e98141|?|e2e11_w1|11-09 13:08:45
+01a1beb5-75e5-722c-9e23-fa9923d6b162|{"a": "DOING", "b": "TODO"}|admin|11-09 13:08:45
+01a1beb5-75e5-722c-9e23-fa9923d6b162|{"a": "DONE", "b": "DOING"}|admin|11-09 13:08:45
+01a1beb5-745e-7072-8882-6231e52ce177|{"a": "DOING", "b": "TODO"}|admin|11-09 13:08:45
+01a1beb5-7385-72fa-9008-40f752958312|{"a": "DOING", "b": "TODO"}|admin|11-09 13:08:45
+01a1beb5-7701-73b3-9493-53127d196ce3|{"a": "DOING", "b": "TODO"}|e2e11_w1|11-09 13:08:45
+01a1beb5-7701-73b3-9493-53127d196ce3|{"a": "REVIEW", "b": "DOING"}|e2e11_w1|11-09 13:08:45
+01a1beb5-7701-73b3-9493-53127d196ce3|{"a": "DONE", "b": "REVIEW"}|审批流程（系统回调）|11-09 13:08:46
+01a1beb5-7807-77c2-b079-c8d4c601e3e5|{"a": "DOING", "b": "TODO"}|admin|11-09 13:08:46
+01a1beb5-7807-77c2-b079-c8d4c601e3e5|{"a": "REVIEW", "b": "DOING"}|admin|11-09 13:08:46
+01a1beb5-78c4-7189-b7c2-674f3176fdf5|{"a": "DOING", "b": "TODO"}|admin|11-09 13:08:46
+01a1beb5-78c4-7189-b7c2-674f3176fdf5|{"a": "REVIEW", "b": "DOING"}|admin|11-09 13:08:46
+01a1beb5-78c4-7189-b7c2-674f3176fdf5|{"a": "DOING", "b": "REVIEW"}|审批流程（系统回调）|11-09 13:08:46
+01a1beb5-7980-7367-8ac9-3830b8ebcd33|{"a": "DOING", "b": "TODO"}|admin|11-09 13:08:46
+01a1beb5-7980-7367-8ac9-3830b8ebcd33|{"a": "DONE", "b": "DOING"}|admin|11-09 13:08:46
+01a1beb5-7986-7304-8f9e-4222a196dbed|{"a": "DOING", "b": "TODO"}|e2e11_w1|11-09 13:08:46
+01a1beb5-7a50-71f8-83af-3bacc8499da3|{"a": "CANCELLED", "b": "TODO"}|admin|11-09 13:08:46
+01a1beb5-7a56-70ae-b57d-4499df3bff5e|{"a": "DOING", "b": "TODO"}|e2e11_w1|11-09 13:08:46
+01a1beb5-7ad6-7661-a366-32a17634501a|{"a": "DOING", "b": "TODO"}|admin|11-09 13:08:46
+
+⑪ 附件 uploader_name 快照覆盖率（本卡附件非空 = 全部）
+  => rows=1 with_name=1
+
+⑫ 项目 / 成员 / 关联任务
+  => E2E11P|members=1|tasks=1
+
+⑬ 勾稽：项目任务里 DONE 的比例 vs 项目 task_done（逐项目列出）
+  => E2E11P|total=1|done=1
+
+⑭ 公告状态 / 范围 / 附件 / 阅读回执
+  => AN2026110986C19A|OFFLINE|scope=ALL|readers=1|atts=1|receipts=1
+AN20261109BD4B3C|PUBLISHED|scope=USER|readers=0|atts=0|receipts=0
+AN20261109ADBB1D|PUBLISHED|scope=ROLE|readers=0|atts=0|receipts=0
+
+⑮ 勾稽：公告 read_count 冗余计数 vs 已读回执行数（差异必须 0）
+  => 0
+
+⑯ 勾稽：公告扇出通知数 vs 实际接收行（公告类通知）
+  => E2E11 全员公告|receiver_count=39|rows=39
+E2E11 定向公告（仅乙）|receiver_count=1|rows=1
+E2E11 角色公告（执行人角色）|receiver_count=2|rows=2
+E2E11 消息直投|receiver_count=1|rows=1
+
+⑰ 勾稽：通知已读冗余 vs 接收行 read_at（差异必须 0）
+  => 0
+
+⑱ 消息送达通道（本卡通知；channel_mask=1 只走站内信，不进 delivery 表）
+  => E2E11 全员公告|mask=1|status=SENT ; E2E11 定向公告（仅乙）|mask=1|status=SENT ; E2E11 消息直投|mask=1|status=SENT ; E2E11 角色公告（执行人角色）|mask=1|status=SENT
+
+⑲ 通知模板状态（本卡）
+  => E2E11_TPL|1|E2E11 演练模板
+
+⑳ 残留自检：本卡角色 / 用户 / 项目 / 公告 / 通知行数
+  => role=2 user=4 proj=1 ann=3 notice=4
+
+
+======== 断言式勾稽（0 = 一致）========
+  OK  悬空父任务 = 0
+  OK  DONE 缺 done_at = 0
+  OK  DONE 进度非 100 = 0
+  OK  公告 read_count 不一致 = 0
+  OK  通知 read_count 不一致 = 0
+  OK  附件 uploader_name 为空 = 0
+  OK  审批单已通过但任务未 DONE（回调漏推） = 0
+  OK  公告 receiver_count 与实际通知接收行不一致 = 0
+  OK  依赖自环 / 父子环（本卡任务） = 0
+
+勾稽失败项 = 0

@@ -1,0 +1,1 @@
+{"code":0,"msg":"ok","data":{"total_users":2,"total_receivers":2,"users":[{"user_id":"01a1beae-92d6-7472-b96b-67c164f02f97","receivers":1},{"user_id":"01a1beae-941f-7140-bec2-c1c774d968fd","receivers":1}],"published_total":4,"delivered_total":4,"subscribe_total":6,"heartbeat_seconds":15}}

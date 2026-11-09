@@ -1,0 +1,1 @@
+{"code":63010,"msg":"该状态流转不在允许的白名单内（TODO → DOING → REVIEW → DONE，任意非终态可取消，CANCELLED 可恢复为 TODO）"}
