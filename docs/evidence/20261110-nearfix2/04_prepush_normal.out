@@ -1,0 +1,79 @@
+=== 正常：移除探针后 push（预期通过）===
+▶ pre-push：bash scripts/check.sh --fast（L0 静态闸 + L1 编译与类型闸）
+==> check.sh：本次执行 L0 L1（L0 静态闸（秒级）→ L1 编译与类型闸（≈2 分钟））
+==> L1 后端：cargo fmt -- --check
+==> L1 后端：cargo clippy --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+==> L1 后端：cargo check
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.13s
+==> L1 前端：pnpm typecheck
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+
+==> 闸⓪：真库用例 —— 跳过（本档不含 L2；--fast 只跑 L0+L1）
+==> C7 G1：只有 business/changelog/ 能碰 sys_change_log（防止别处偷偷 INSERT）
+  PASS：生产面 0 处（测试面按语义豁免）
+==> C7 G2：changelog 模块内禁止自开事务（db() 非注释命中必须为 0）
+  PASS：0 处（注释中的示例不计）
+==> C7 G3：record 的签名必须带 &impl SqlExecutor
+  PASS
+==> C7 G4：不得存在『无 executor 版本』的 record 函数
+  PASS
+==> C7 G5：每个 record/record_in 调用点必须在 transaction 闭包内且传 &tx
+G5 PASS：检查了 30 个调用点（changelog::record / changelog::record_in），全部有事务证据（扫了 582 个文件）
+==> C7 G6：按 id 查 sys_change_log 必须同时带分区键 created_at（R14）
+  PASS：0 处
+==> C7 门禁汇总：G1–G6 共 6 条，未通过 0 条
+==> C7 门禁：全部通过
+==> 偏好字典与色板一致性（V0091 ui.palette oneof ↔ style/palettes.ts）
+  PASS：22 套色板与 V0091 的 ui.palette oneof 逐字一致
+==> 库存三本账唯一写入口闸 · 判据自检（--self-test）
+============================================================================================
+闸门自检：判据红/绿语料
+============================================================================================
+✔ 期望红 实得红  基线 UPDATE
+✔ 期望红 实得红  小写 INSERT
+✔ 期望红 实得红  DELETE 库位账
+✔ 期望红 实得红  UPDATE 流水
+✔ 期望红 实得红  schema 限定 public.
+✔ 期望红 实得红  schema 占位符
+✔ 期望红 实得红  双引号标识符
+✔ 期望红 实得红  跨行（关键字后折行）
+✔ 期望红 实得红  跨行 INSERT
+✔ 期望红 实得红  源码里的转义引号 \" + 跨行 + 限定符
+✔ 期望红 实得红  TRUNCATE
+✔ 期望红 实得红  COPY
+✔ 期望绿 实得绿  行注释
+✔ 期望绿 实得绿  块注释
+✔ 期望绿 实得绿  非目标表 biz_inventory_po
+✔ 期望绿 实得绿  只读查询
+✔ 期望绿 实得绿  cfg(test) 模块
+✔ 期望绿 实得绿  cfg(test) 外部模块
+✔ 期望红 实得红  cfg(test) 模块之后的代码必须仍被抓（旧实现漏）
+✔ 期望绿 实得绿  测试文件按命名豁免
+✔ 期望红 实得红  名字含 test 子串的文件必须仍被抓（旧实现误豁免）
+✔ 期望红 实得红  attestation 含 test 子串也必须被抓
+--------------------------------------------------------------------------------------------
+22/22 通过
+==> 库存三本账唯一写入口（scripts/verify/inventory_write_gate.py）
+============================================================================================
+库存三本账唯一写入口闸（P2-5A 收口 / P2-5B 门禁）
+扫描 486 个非测试 .rs（豁免 95 个测试文件）
+唯一写入口 backend/src/business/erp/inventory_writer.rs：23 条写语句
+============================================================================================
+
+★ 零越界：非测试代码里没有任何一处直写库存三本账。
+==> 闸⑧：迁移授权段角色码（scripts/verify/role_code_gate.py）
+  ✓ 判据自检通过（38/38 通过）
+  ℹ 历史基线豁免 29 条语句（存量授权段，文件指纹已锁）。
+  ⚠ 策略提示（WARN，不判红）：新增迁移里有 22 条 `INSERT INTO sys_role_menu` 授权段：
+  ✓ 无新增/改动的未知角色码（288 个 .up.sql 已扫）
+==> 全部检查通过（L0 L1）
+
+✓ pre-push 门禁通过（L0+L1，耗时 40s）
+To ssh://172.18.10.145/opt/git/cloudpivot.git
+   5cb41fca..b876c6d0  main -> main
+PUSH_TOTAL 40.59s
+PUSH_RC=0

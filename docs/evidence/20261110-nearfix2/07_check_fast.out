@@ -1,0 +1,31 @@
+=== check.sh --dry-run ===
+==> check.sh：本次执行 L0 L1 L2 L3（L0 静态闸（秒级）→ L1 编译与类型闸（≈2 分钟） → L2 连库与存量档 → L3 干净检出闸）
+==> 计划（--dry-run）：
+   [L1] 后端格式                                 cd backend && cargo fmt -- --check
+   [L1] 后端 lint（lib+bin+tests+examples，告警即错） cd backend && cargo clippy --all-targets -- -D warnings
+   [L1] 后端类型检查                           cd backend && cargo check
+   [L1] 前端类型检查                           cd frontend && pnpm typecheck
+   [L2] 闸⓪ 真库用例（仅 CHECK_WITH_DB=1 时真跑） cd backend && cargo test --lib --features test-hooks -- --test-threads=1
+   [L2] 批次B 闸① 分页唯一写法（paginate_with_params 必须 0 处） grep 静态检查（scripts/check.sh · batchb_gates）
+   [L2] 批次B 闸② 登记表必须接 scope:: 或 SCOPE-EXEMPT python3 scripts/lint/scope_gate.py --root . --baseline 21
+   [L0] C7 变更日志回滚零残留 G1–G6       grep/awk 静态检查（scripts/check.sh · batchc_gates）
+   [L0] 偏好字典 ui.palette ↔ 前端色板一致 python3 scripts/lint/palette_def_sync.py --root .
+   [L0] 库存三本账唯一写入口（判据自检 + 扫描） python3 scripts/verify/inventory_write_gate.py [--self-test]
+   [L0] 迁移授权段角色码（自检 + 扫描） python3 scripts/verify/role_code_gate.py [--self-test]
+   [L2] 闸③ ERP 账务不变量                   python3 scripts/verify/erp_invariants.py
+   [L2] 闸④ 业务类型词表值域              python3 scripts/verify/biz_type_domain.py --strict
+   [L2] 闸⑤ 快照一致性巡检                 python3 scripts/verify/snapshot_audit.py
+   [L2] 闸⑥ 死权限码（handler 注解码必须有菜单承载） python3 scripts/verify/perm_menu_gate.py
+   [L2] 闸⑦ 孤儿按钮                          python3 scripts/verify/orphan_button_gate.py
+   [L3] 干净检出闸（git archive HEAD → lib 单测） bash scripts/verify/clean_checkout_gate.sh
+
+   （L2 里 闸③–⑦ 需要库口令；无库环境按「无 DB 环境」跳过，与旧版口径一致）
+RC=0
+
+=== check.sh --fast（计时）===
+  ✓ 判据自检通过（38/38 通过）
+  ℹ 历史基线豁免 29 条语句（存量授权段，文件指纹已锁）。
+  ⚠ 策略提示（WARN，不判红）：新增迁移里有 22 条 `INSERT INTO sys_role_menu` 授权段：
+  ✓ 无新增/改动的未知角色码（288 个 .up.sql 已扫）
+==> 全部检查通过（L0 L1）
+FAST_TOTAL 40.50s

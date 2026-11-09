@@ -1,0 +1,62 @@
+==> check.sh：本次执行 L0 L1 L2 L3（L0 静态闸（秒级）→ L1 编译与类型闸（≈2 分钟） → L2 连库与存量档 → L3 干净检出闸）
+==> L1 后端：cargo fmt -- --check
+==> L1 后端：cargo clippy --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s
+==> L1 后端：cargo check
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.13s
+==> L1 前端：pnpm typecheck
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+
+==> 闸⓪：真库用例 —— 未启用（CHECK_WITH_DB=1 才跑）
+    ⚠ 本档不开时，全部真库用例都会打印 SKIP 并 return（libtest 记 passed）⇒
+      「全绿」不代表真库断言跑过；夹具污染 / 真库断言过期这类缺陷只能在本档发现。
+      提交前建议：CHECK_WITH_DB=1 CHECK_WITH_DB_FILTER=<受影响模块> bash scripts/check.sh
+==> 批次B 闸①：分页必须走 scope::paginate（paginate_with_params 仅允许出现在白名单）
+    白名单：business/shared/scope.rs（+ 注释行不计）
+  PASS：0 处（分页全部走 scope::paginate）
+==> 批次B 闸②：登记表的查询必须接入 scope:: 或写明 SCOPE-EXEMPT 理由
+    登记表：sys_user sys_dept sys_import_task sys_export_task sys_notice sys_file operation_logs audit_logs auth_logs security_logs biz_task biz_task_comment biz_task_attachment biz_task_worklog biz_task_member biz_task_dependency biz_task_status_def biz_project biz_project_member biz_flow_def biz_flow_def_version biz_flow_node biz_flow_edge biz_flow_node_assignee biz_flow_instance biz_flow_instance_node biz_flow_task biz_flow_cc 
+闸② 判定面（v2）：扫描生产面 485 个文件 / 跳过测试面 97 个文件
+    跳过依据：父模块 `#[cfg(test)]` 声明（mod x; / #[path=...] mod x;）与文件内 `#[cfg(test)] mod {…}` 内联区（均不进生产编译）
+  PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+    FAIL: business/erp/payable_payment/tests/payable_linkage_db_tests.rs 查询 biz_task sys_notice sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/flow/subprocess.rs 查询 biz_flow_def biz_flow_def_version biz_flow_instance biz_flow_node 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/monitor/model.rs 查询 auth_logs operation_logs sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/shared/user_name.rs 查询 sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: system/setup/model.rs 查询 sys_dept sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+  FAIL：跳过清单断言：backend/src/business/attachment/rule_admin/tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/attachment/rule_admin/mod.rs:52）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/attachment/rule_admin/tests.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/asset_linkage_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/mod.rs:399）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/asset_linkage_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/contract_linkage_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/mod.rs:389）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/contract_linkage_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/depreciation_dept_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/mod.rs:157）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/depreciation_dept_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/depreciation_linkage_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/mod.rs:404）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/depreciation_linkage_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/doc_shape_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/mod.rs:174）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/doc_shape_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/expense_linkage_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/mod.rs:379）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/expense_linkage_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/period_linkage_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/mod.rs:394）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/period_linkage_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/purchase_linkage_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/stockin_handler.rs:93）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/purchase_linkage_db_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/shipment_page_fill_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/mod.rs:417）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/shipment_page_fill_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/transfer_handler_db_linkage_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/transfer_handler.rs:122）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/transfer_handler_db_linkage_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/voucher_linkage_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/mod.rs:384）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/voucher_linkage_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/year_end_linkage_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/mod.rs:409）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/year_end_linkage_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/flow/instance_linkage_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/flow/mod.rs:75）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/flow/instance_linkage_db_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/flow/linkage/tests_presets_coverage.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/flow/linkage.rs:66）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/flow/linkage/tests_presets_coverage.rs",
+  FAIL：跳过清单断言：backend/src/business/flow/terminate_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/flow/mod.rs:111）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/flow/terminate_db_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/task/task_attachment_snapshot_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/task/model.rs:104）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/task/task_attachment_snapshot_tests.rs",
+  FAIL：跳过清单断言：backend/src/shared/test_helpers.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/shared/mod.rs:29）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："shared/test_helpers.rs",
+  FAIL：5 个文件（按文件计；B0 实测基线 21 处是 file×table 口径，仅作历史参考）
+  失败文件清单（file (tables)，供逐文件裁定核对）：
+    business/erp/payable_payment/tests/payable_linkage_db_tests.rs (biz_task, sys_notice, sys_user)
+    business/flow/subprocess.rs (biz_flow_def, biz_flow_def_version, biz_flow_instance, biz_flow_node)
+    business/monitor/model.rs (auth_logs, operation_logs, sys_user)
+    business/shared/user_name.rs (sys_user)
+    system/setup/model.rs (sys_dept, sys_user)
+==> 批次B 门禁汇总：闸①=0 处  闸②=5 处  （B0 基线 20 / 21）
+==> 批次B 门禁：1 条未通过。修法（二选一）：
+    ① 分页接口改成 scope::paginate；单条/导出查询用 scope::filter_for
+    ② 确实不需要数据权限的查询，在函数上方写一行 // SCOPE-EXEMPT: <理由>
+    B2–B4 施工期可临时用 BATCHB_GATE=warn bash scripts/check.sh 绕过本门禁。
+Command exited with non-zero status 1
+TOTAL 35.94s
+RC=1

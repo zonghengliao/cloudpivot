@@ -1,0 +1,9 @@
+=== 钩子体检 ===
+==> 钩子体检（.githooks）
+  ✓ .githooks/pre-commit 存在且可执行
+  ✓ .githooks/pre-push 存在且可执行
+  ✓ .githooks/post-commit 存在且可执行
+  ✓ core.hooksPath = .githooks
+
+✓ 钩子已就绪（pre-commit pre-push post-commit）
+RC=0

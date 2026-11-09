@@ -1,0 +1,25 @@
+=== 干净检出闸 · 判据自检 ===
+==> 干净检出闸 · 判据自检（红/绿语料）
+  ✓ [绿] 只含跟踪面 → 判绿
+  ✓ [红] 混入 config-dev.toml → 判红
+  ✓ [红] 缺模板 example → 判红
+  ✓ [红] 混入 node_modules → 判红
+  ✓ [红] 混入 .env → 判红
+
+✓ 干净检出闸自检通过（5/5）
+RC=0
+
+=== 干净检出闸 · 真跑 ===
+==> 干净检出闸：基线 HEAD (b876c6d0)
+  ℹ 工作树有未提交的后端改动：本闸验证的是「工作树代码 + HEAD 的配置面」（提交后二者一致）
+==> ① 提取干净检出（git archive HEAD → /root/.hermes/profiles/backend-developer/cache/scratch/cleanco.pjmtUV）
+  ✓ 提取完成：10393 个文件（只含 git 跟踪面）
+==> ② 断言检出确实干净（私有配置不得混进来）
+  ✓ 无私有配置（backend/config/config-dev.toml backend/config/config-test.toml .env backend/.env ），模板齐全
+==> ③ 取 lib 单测二进制（复用主 target，不重复编译）
+  ✓ 二进制：/opt/cloudpivot/backend/target/debug/deps/cloudpivot-92b1418ede0d3e18
+==> ④ 在干净检出的 CWD 上跑全量 lib 单测（配置面 = 干净树）
+  test result: ok. 4032 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.37s
+  ✓ 干净检出全绿：4032 passed / 0 failed（地板 1000）
+✓ 干净检出闸通过（基线 b876c6d0）
+RC=0

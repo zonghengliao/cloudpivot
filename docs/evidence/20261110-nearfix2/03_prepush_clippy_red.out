@@ -1,0 +1,26 @@
+=== 负例：造 clippy 告警后 push（预期被拒）===
+▶ pre-push：bash scripts/check.sh --fast（L0 静态闸 + L1 编译与类型闸）
+==> check.sh：本次执行 L0 L1（L0 静态闸（秒级）→ L1 编译与类型闸（≈2 分钟））
+==> L1 后端：cargo fmt -- --check
+==> L1 后端：cargo clippy --all-targets -- -D warnings
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+error: unused variable: `unused_probe`
+ --> examples/clippy_probe.rs:3:9
+  |
+3 |     let unused_probe = 1;
+  |         ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_unused_probe`
+  |
+  = note: `-D unused-variables` implied by `-D warnings`
+  = help: to override `-D warnings` add `#[allow(unused_variables)]`
+
+error: could not compile `cloudpivot` (example "clippy_probe") due to 1 previous error
+
+✘ push 被拒绝：L0/L1 门禁未通过（退出码 101，耗时 3s）
+
+  修法：按上面红掉的那一项的提示改（fmt → cd backend && cargo fmt；
+        clippy → 看 lint 名与行号；typecheck → cd frontend && pnpm typecheck），
+        改完重新 push 即可（无需重新 commit）。
+
+  紧急绕过（须在卡内写明理由）：SKIP_PREPUSH=1 git push
+error: failed to push some refs to 'ssh://172.18.10.145/opt/git/cloudpivot.git'
+PUSH_RC=1
