@@ -203,6 +203,37 @@ else
   echo "  [SKIP] 未连库（N7_SKIP_DB=1 或无 DB 凭证），跳过 sys_change_log / audit_logs 复核"
 fi
 
+echo "==================== 3b. 验收①（续）：只改自定义部门集合也必须留痕 ===================="
+if can_db; then
+  DEPT_ID=$(psql_q "select id from sys_dept where deleted_at is null order by sort_order, id limit 1")
+else
+  DEPT_ID=""
+fi
+if [ -z "$DEPT_ID" ]; then
+  echo "  [SKIP] 库里没有可用部门，跳过「自定义部门集合」留痕实测（纯逻辑由单测 n7_scope_diff_records_dept_set_only_change 覆盖）"
+else
+  echo "  探针部门：$DEPT_ID"
+  CODE=$(call PUT "/api/business/permission/scope/role/$ROLE_ID" "$(jq -nc --arg d "$DEPT_ID" '{data_scope:5,custom_dept_ids:[$d]}')")
+  echo "  PUT 数据范围 1→5 + 自定义部门：HTTP $CODE"
+  if [ "$CODE" = "200" ]; then
+    pass "改成「自定义部门」+ 指定部门 200"
+    CL_ROW=$(psql_q "select changed_fields::text, diff::text from sys_change_log
+                      where resource='sys_role' and resource_id='$ROLE_ID'
+                      order by created_at desc limit 1")
+    CL_FIELDS=$(printf '%s' "$CL_ROW" | cut -d'|' -f1)
+    DIFF=$(printf '%s' "$CL_ROW" | cut -d'|' -f2-)
+    printf '%s\n' "$CL_ROW" > "$OUT_DIR/01b_change_log_dept_set.txt"
+    case "$CL_FIELDS" in
+      *custom_dept_ids*) pass "只改集合也进了变更日志：changed_fields=$CL_FIELDS" ;;
+      *) fail "自定义部门集合变更没留痕：changed_fields=$CL_FIELDS" ;;
+    esac
+    printf '%s' "$DIFF" | grep -q "$DEPT_ID" && pass "diff 里点名了部门 $DEPT_ID" \
+      || fail "diff 里没有部门 $DEPT_ID：$DIFF"
+  else
+    fail "改自定义部门失败：HTTP $CODE $(jq -c . "$OUT_DIR/last_body.json")"
+  fi
+fi
+
 echo "==================== 4. 建流程定义（拿到 DRAFT 版本） ===================="
 DEF_BODY=$(jq -nc --arg c "${TAG}_flow" --arg n "N7 验收流程 ${TS}" '{flow_code:$c,flow_name:$n,biz_type:"N7_ACCEPT",is_default:false,allow_auto_approve:false}')
 CODE=$(call POST /api/business/flow/def "$DEF_BODY")
