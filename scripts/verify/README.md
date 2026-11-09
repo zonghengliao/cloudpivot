@@ -493,6 +493,39 @@ bash scripts/verify/menu_invariants.sh <db>; echo $?                          # 
 
 以上 ①②③ 在 145 `cloudpivot_dev` 实测：注入前/复原后整表 md5 一致（`c8530451…`），复原后 rc=0。
 
+## 菜单元数据对不对 ≠ 界面上看得见（`menu_render_check.mjs`，卡 MENU-FIX-3）
+
+`menu_invariants.sh` 查的是 `sys_menu` 的**结构**（parent / path / sort / title）。它查不出
+「`icon` 写了一个 TDesign 图标库里不存在的名字」这类问题 —— 那种情况 DB 完全合规，
+但 `SideMenuItem.vue` 的 `<t-icon :name="item.icon" />` 渲染空节点，侧栏那一项就是**空白**，
+而且 `icon` 非空串时连组件里的 `folder` / `app` 兜底也不会触发。
+
+实测（2026-11-09）：`tdesign-icons-vue-next/esm/components/` 有 `cart.js`，**没有** `shopping-cart.js`；
+145 dev 的 60 个 distinct icon 全部存在，144 生产只有 `shopping-cart` 一个不存在
+（`/business/erp/purchase`，即「采购订单」，V0170 只修了 dev 那条 `purchase-order` 路径——
+两条是同一逻辑菜单在 prod/dev 的不同 path，V0319 头注释有记载，V0353 才补齐）。
+
+所以这类问题**必须渲染出来看 DOM**：
+
+```bash
+FE_PASS="$(ssh root@172.18.10.145 'grep -m1 ^NIK_ADMIN_PASSWORD= /etc/cloudpivot/cloudpivot-dev.env | cut -d= -f2-')" \
+  node scripts/verify/menu_render_check.mjs
+# 退出码：0 = 没有空白图标 ｜ 1 = 有空白（明细里打印 [目录] 菜单项）
+# 环境变量：FE_BASE（默认 http://172.18.10.145）/ FE_USER（默认 admin）/ OUT_DIR（截图目录）
+```
+
+做法：API 登录拿 `/api/system/auth/menus` → 开 chromium → 逐个**展开顶级目录**
+（TDesign 侧栏是手风琴，展开一个会收起别的，所以一次只验一个）→ 逐项断言 `li` 里存在
+`svg.t-icon`，并打印「目录 → 子项 [渲染出的 svg class]」清单。
+
+基线（145 `cloudpivot_dev`，2026-11-09 V0353 之后）：**82 个菜单项全部渲染出图标，rc=0**。
+
+DOM 事实（写选择器前先看，否则会假红）：图标是 `li` 内**直接**的 `svg.t-icon t-icon-<name>`，
+**不**在 `.t-menu__icon` 里；子项在 `li.t-submenu > ul` 内，层级 = 祖先 `li.t-submenu` 个数；
+登录后「您有 N 件待处理」弹层会挡住侧栏点击，必须先点「知道了」；
+`networkidle` 永远等不到（通知流是 SSE 长连接），用 `domcontentloaded` + 等 `.t-menu`。
+
+
 ## 菜单结构导出 / 跨环境比对 / 新环境初始化（卡 MENU-03）
 
 三个脚本一条链：**导出**（归一化）→ **比对**（含等价规则）→ **新库从零重建并自检**。
