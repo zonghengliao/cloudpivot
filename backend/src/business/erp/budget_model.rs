@@ -583,7 +583,6 @@ pub async fn supersede_active(
 }
 
 /// CAS 写状态（带上审批实例 / 时间戳；`expect` 不符 → 返回 0 行）。
-#[allow(clippy::too_many_arguments)]
 pub async fn apply_status(
     ex: &impl SqlExecutor,
     id: Uuid,

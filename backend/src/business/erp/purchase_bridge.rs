@@ -234,12 +234,14 @@ async fn settle(instance_id: Uuid, verdict: PoVerdict) -> DbResult<Option<Uuid>>
         .await?;
         let affected = purchase_model::apply_status(
             &tx,
-            order_id,
-            STATUS_SUBMITTED,
-            to_status,
-            Some(&reason),
-            approver,
-            now,
+            purchase_model::ApplyStatusInput {
+                id: order_id,
+                from: STATUS_SUBMITTED,
+                to: to_status,
+                reason: Some(&reason),
+                operator: approver,
+                now,
+            },
             &mut linkage_outbox,
         )
         .await

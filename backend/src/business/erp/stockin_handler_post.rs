@@ -564,9 +564,19 @@ pub async fn restore_after_post_rejection(
             None,
         )
         .await?;
-        let affected = stockin_model::apply_status(&tx, id, STATUS_PENDING_POST, STATUS_DRAFT, None, operator, now)
-            .await
-            .map_err(|error| write_error(error, "收货单过账审批打回草稿"))?;
+        let affected = stockin_model::apply_status(
+            &tx,
+            stockin_model::ApplyStatusInput {
+                id,
+                from: STATUS_PENDING_POST,
+                to: STATUS_DRAFT,
+                reason: None,
+                operator,
+                now,
+            },
+        )
+        .await
+        .map_err(|error| write_error(error, "收货单过账审批打回草稿"))?;
         if affected == 0 {
             return Err(conflict(format!(
                 "收货入库单 {} 的状态在本次打回期间已被改动（期望 {STATUS_PENDING_POST}），请刷新后重试",
@@ -714,9 +724,19 @@ pub(super) async fn post_in_tx(
         None,
     )
     .await?;
-    let affected = stockin_model::apply_status(ex, id, from_status, STATUS_POSTED, reason, operator.id, now)
-        .await
-        .map_err(|error| write_error(error, "收货入库单过账改状态"))?;
+    let affected = stockin_model::apply_status(
+        ex,
+        stockin_model::ApplyStatusInput {
+            id,
+            from: from_status,
+            to: STATUS_POSTED,
+            reason,
+            operator: operator.id,
+            now,
+        },
+    )
+    .await
+    .map_err(|error| write_error(error, "收货入库单过账改状态"))?;
     if affected == 0 {
         return Err(conflict(format!(
             "收货入库单 {} 已被过账（并发），本次未生效",

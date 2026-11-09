@@ -305,9 +305,19 @@ pub(super) async fn withdraw_cancel_tx(
         None,
     )
     .await?;
-    let affected = stockin_model::apply_status(tx, id, STATUS_PENDING_CANCEL, STATUS_POSTED, None, Some(operator), now)
-        .await
-        .map_err(|error| write_error(error, "收货单撤回作废"))?;
+    let affected = stockin_model::apply_status(
+        tx,
+        stockin_model::ApplyStatusInput {
+            id,
+            from: STATUS_PENDING_CANCEL,
+            to: STATUS_POSTED,
+            reason: None,
+            operator: Some(operator),
+            now,
+        },
+    )
+    .await
+    .map_err(|error| write_error(error, "收货单撤回作废"))?;
     if affected == 0 {
         return Err(conflict(format!(
             "收货入库单 {} 的状态在本次撤回期间已被改动（期望 {STATUS_PENDING_CANCEL}），请刷新后重试",
@@ -384,9 +394,19 @@ pub async fn restore_after_cancel_approval(
             None,
         )
         .await?;
-        let affected = stockin_model::apply_status(&tx, id, STATUS_PENDING_CANCEL, STATUS_POSTED, None, operator, now)
-            .await
-            .map_err(|error| write_error(error, "收货单作废打回"))?;
+        let affected = stockin_model::apply_status(
+            &tx,
+            stockin_model::ApplyStatusInput {
+                id,
+                from: STATUS_PENDING_CANCEL,
+                to: STATUS_POSTED,
+                reason: None,
+                operator,
+                now,
+            },
+        )
+        .await
+        .map_err(|error| write_error(error, "收货单作废打回"))?;
         if affected == 0 {
             return Err(conflict(format!(
                 "收货入库单 {} 的状态在本次打回期间已被改动（期望 {STATUS_PENDING_CANCEL}），请刷新后重试",
@@ -458,9 +478,19 @@ pub(super) async fn cancel_in_tx(
     )
     .await?;
 
-    let affected = stockin_model::apply_status(ex, id, &row.status, STATUS_CANCELLED, reason, operator.id, now)
-        .await
-        .map_err(|error| write_error(error, "收货入库单状态流转"))?;
+    let affected = stockin_model::apply_status(
+        ex,
+        stockin_model::ApplyStatusInput {
+            id,
+            from: &row.status,
+            to: STATUS_CANCELLED,
+            reason,
+            operator: operator.id,
+            now,
+        },
+    )
+    .await
+    .map_err(|error| write_error(error, "收货入库单状态流转"))?;
     if affected == 0 {
         return Err(conflict(format!(
             "收货入库单状态在本次流转期间已被改动（期望 {}），请刷新后重试",

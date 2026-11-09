@@ -751,14 +751,16 @@ pub async fn change_status(
         }
         let affected = model::apply_status(
             &tx,
-            row.id,
-            &row.status,
-            &target,
-            paid_at,
-            voucher_id,
-            reason.as_deref(),
-            operator,
-            now,
+            model::CommissionApplyStatusInput {
+                id: row.id,
+                from: &row.status,
+                to: &target,
+                paid_at,
+                voucher_id,
+                remark: reason.as_deref(),
+                operator,
+                now,
+            },
         )
         .await
         .map_err(|error| utils::db_error(error, "写佣金结算单状态"))?;

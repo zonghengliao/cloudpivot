@@ -1175,12 +1175,14 @@ pub(crate) async fn cascade_purchase_order_tx(
     .map_err(|error| step_failure(seq, "作废采购单（状态机）", error))?;
     let affected = purchase_model::apply_status(
         tx,
-        id,
-        &current,
-        purchase_model::STATUS_CANCELLED,
-        Some(reason),
-        op.id,
-        now,
+        purchase_model::ApplyStatusInput {
+            id,
+            from: &current,
+            to: purchase_model::STATUS_CANCELLED,
+            reason: Some(reason),
+            operator: op.id,
+            now,
+        },
         linkage_outbox,
     )
     .await

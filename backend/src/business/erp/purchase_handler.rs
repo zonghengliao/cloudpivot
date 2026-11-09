@@ -1105,7 +1105,20 @@ pub async fn change_purchase_order_status(
         let _ = tx.rollback().await;
         return Err(error);
     }
-    match purchase_model::apply_status(&tx, id, &row.status, target, reason, op.id, now, &mut linkage_outbox).await {
+    match purchase_model::apply_status(
+        &tx,
+        purchase_model::ApplyStatusInput {
+            id,
+            from: &row.status,
+            to: target,
+            reason,
+            operator: op.id,
+            now,
+        },
+        &mut linkage_outbox,
+    )
+    .await
+    {
         Ok(0) => {
             let _ = tx.rollback().await;
             Err(conflict(format!(

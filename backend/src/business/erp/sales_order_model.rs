@@ -658,8 +658,8 @@ pub async fn create_order(
 /// 改单入参（**单头覆盖 + 明细整表替换**的完整口径）。
 ///
 /// 除了执行器 `ex` 之外的部分全部收在这里：`id` / 新单头 / 新明细 / 合计 / 锁定汇率 /
-/// 操作人 / 时间。这样调用点读起来就是「改哪张单、改成什么」，也不必再挂
-/// `#[allow(clippy::too_many_arguments)]`（阈值 7，散参数原本是 8）。
+/// 操作人 / 时间。这样调用点读起来就是「改哪张单、改成什么」，也不再有
+/// 「第 5 个参数到底是汇率还是操作人」这种靠记忆的读法。
 #[derive(Debug, Clone, Copy)]
 pub struct UpdateOrderInput<'a> {
     /// 单据主键（`WHERE id = ?`）。
@@ -786,7 +786,7 @@ pub async fn apply_status(
 /// [`apply_status_with_instance`] 的入参（`ex` 之外的 7 项）。
 ///
 /// 把散参数收成一块：调用点读起来就是「哪张单、从哪个态到哪个态、谁、何时、
-/// 挂哪个审批实例」，也不必在函数上挂 `#[allow(clippy::too_many_arguments)]`。
+/// 挂哪个审批实例」，不必再靠参数顺序记「第 6 个是 operator 还是实例 id」。
 #[derive(Debug, Clone, Copy)]
 pub struct ApplyStatusWithInstanceInput<'a> {
     /// 销售订单主键（`WHERE id = ?`）。

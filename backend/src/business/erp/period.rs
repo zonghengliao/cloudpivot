@@ -758,18 +758,38 @@ async fn insert_period(
     Ok(id)
 }
 
-/// 期间状态迁移 + 备注（CAS：`WHERE status = 迁移前状态`）。
-#[allow(clippy::too_many_arguments)]
-async fn apply_status(
-    ex: &impl SqlExecutor,
+/// [`apply_status`] 的入参（`ex` 之外的 7 项）。
+///
+/// 只在本模块内使用，故与函数同可见性（`period` 不对外暴露这条写入路径）。
+#[derive(Debug, Clone, Copy)]
+struct PeriodApplyStatusInput<'a> {
+    /// 会计期间主键（`WHERE id = ?::uuid`）。
     id: Uuid,
-    from: &str,
-    to: &str,
+    /// 期望的当前态（CAS：`WHERE status = ?`；与库中不符则 `affected = 0`）。
+    from: &'a str,
+    /// 目标态（`NOT_OPENED` / `OPEN` / `CLOSED` 等，见 `PERIOD_EDGES`）。
+    to: &'a str,
+    /// 结账时间戳（仅 `→ CLOSED` 用；`None` = 保持原值）。
     closed_at: Option<DateTime<Utc>>,
+    /// 结账操作人（仅 `→ CLOSED` 用；`None` = 保持原值）。
     closed_by: Option<Uuid>,
-    remark: Option<&str>,
+    /// 备注（`COALESCE(NULLIF(?::text,''), remark)`：空 = 不覆盖原备注）。
+    remark: Option<&'a str>,
+    /// 业务时间（落 `updated_at`）。
     now: DateTime<Utc>,
-) -> Result<u64, ApiError> {
+}
+
+/// 期间状态迁移 + 备注（CAS：`WHERE status = 迁移前状态`）。
+async fn apply_status(ex: &impl SqlExecutor, input: PeriodApplyStatusInput<'_>) -> Result<u64, ApiError> {
+    let PeriodApplyStatusInput {
+        id,
+        from,
+        to,
+        closed_at,
+        closed_by,
+        remark,
+        now,
+    } = input;
     let affected = ex
         .exec_sql(
             // `closed_at` / `closed_by` 走 `?::text` 再转型：直接把 `Value::Text` 绑到
@@ -876,8 +896,19 @@ pub async fn open_period(
                     None,
                 )
                 .await?;
-                let affected =
-                    apply_status(&tx, row.id, STATUS_NOT_OPENED, STATUS_OPEN, None, None, remark, now).await?;
+                let affected = apply_status(
+                    &tx,
+                    PeriodApplyStatusInput {
+                        id: row.id,
+                        from: STATUS_NOT_OPENED,
+                        to: STATUS_OPEN,
+                        closed_at: None,
+                        closed_by: None,
+                        remark,
+                        now,
+                    },
+                )
+                .await?;
                 if affected == 0 {
                     return Err(conflict(format!(
                         "会计期间 {code} 的状态在本次开账期间已被改动，请刷新后重试"
@@ -1339,13 +1370,15 @@ pub async fn close_period(
 
     let affected = apply_status(
         &tx,
-        row.id,
-        STATUS_OPEN,
-        STATUS_CLOSED,
-        Some(now),
-        operator.id,
-        remark.as_deref(),
-        now,
+        PeriodApplyStatusInput {
+            id: row.id,
+            from: STATUS_OPEN,
+            to: STATUS_CLOSED,
+            closed_at: Some(now),
+            closed_by: operator.id,
+            remark: remark.as_deref(),
+            now,
+        },
     )
     .await?;
     if affected == 0 {

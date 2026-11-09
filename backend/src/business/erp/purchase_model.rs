@@ -606,6 +606,27 @@ pub async fn update(
     Ok(affected)
 }
 
+/// [`apply_status`] 的入参（`ex` / `outbox` 之外的 6 项）。
+///
+/// 与 [`ApplyStatusWithInstanceInput`] 同形，只是**没有** `approval_instance_id`：
+/// 本包装恒不挂审批实例。单独成型是为了让「这条路径不接审批」在类型上就看得见。
+/// 字段语义与 [`ApplyStatusWithInstanceInput`] 逐项一致。
+#[derive(Debug, Clone, Copy)]
+pub struct ApplyStatusInput<'a> {
+    /// 采购订单主键（`WHERE id = ?::uuid`）。
+    pub id: Uuid,
+    /// 期望的当前态（CAS：`WHERE status = ?`；与库中不符则 `affected = 0`）。
+    pub from: &'a str,
+    /// 目标态（`SUBMITTED` / `APPROVED` / `DRAFT` / `CLOSED` / `CANCELLED`）。
+    pub to: &'a str,
+    /// 驳回 / 取消原因（`DRAFT` / `CANCELLED` 追加进 `remark`）；`None`/空 = 不动 `remark`。
+    pub reason: Option<&'a str>,
+    /// 操作人（落 `update_by` / `approved_by` / `closed_by`；`None` = 系统 / 测试）。
+    pub operator: Option<Uuid>,
+    /// 业务时间（落 `updated_at` 等时间列）。
+    pub now: DateTime<Utc>,
+}
+
 /// 状态流转（CAS：`WHERE id = ? AND status = from`），返回 `affected`。
 ///
 /// 目标态接受 `SUBMITTED` / `APPROVED` / `DRAFT` / `CLOSED` / `CANCELLED`：
@@ -617,17 +638,19 @@ pub async fn update(
 /// `outbox` 由**调用方**在开事务之前建、`commit()` 之后 `flush()` —— 事务内的
 /// `Phase::InTx` 动作（写库存 / 凭证一类）在这里执行（失败整笔回滚），
 /// 通知 / 建任务这类 `Phase::AfterCommit` 动作只在提交之后跑（永不回滚业务）。
-#[allow(clippy::too_many_arguments)]
 pub async fn apply_status(
     ex: &impl SqlExecutor,
-    id: Uuid,
-    from: &str,
-    to: &str,
-    reason: Option<&str>,
-    operator: Option<Uuid>,
-    now: DateTime<Utc>,
+    input: ApplyStatusInput<'_>,
     outbox: &mut LinkageOutbox,
 ) -> DbResult<u64> {
+    let ApplyStatusInput {
+        id,
+        from,
+        to,
+        reason,
+        operator,
+        now,
+    } = input;
     apply_status_with_instance(
         ex,
         ApplyStatusWithInstanceInput {

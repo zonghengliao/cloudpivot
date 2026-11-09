@@ -652,22 +652,42 @@ pub async fn insert_items(
     Ok(usize::try_from(affected).unwrap_or(0))
 }
 
+/// [`apply_status`] 的入参（`ex` 之外的 8 项）。
+#[derive(Debug, Clone, Copy)]
+pub struct CommissionApplyStatusInput<'a> {
+    /// 佣金结算单主键（`WHERE id = ?::uuid`）。
+    pub id: Uuid,
+    /// 期望的当前态（乐观锁：`WHERE status = ?`；与库中不符则 `affected = 0`）。
+    pub from: &'a str,
+    /// 目标态（`APPROVED` / `PAID` / …，见 `commission_dto` 的状态机）。
+    pub to: &'a str,
+    /// 发放时间（仅 `→ PAID` 用；`Some` 时才拼进 `SET paid_at = ?`）。
+    pub paid_at: Option<DateTime<Utc>>,
+    /// 计提 / 付款凭证 id（`Some` 时才拼进 `SET voucher_id = ?::uuid`）。
+    pub voucher_id: Option<Uuid>,
+    /// 追加备注（空 = 不动 `remark`；非空时 `remark || E'\n' || ?` 追加一行，不覆盖）。
+    pub remark: Option<&'a str>,
+    /// 操作人（落 `update_by`；`None` = 系统 / 测试）。
+    pub operator: Option<Uuid>,
+    /// 业务时间（落 `updated_at`）。
+    pub now: DateTime<Utc>,
+}
+
 /// 状态迁移落库（乐观锁：`WHERE status = 原状态`）+ 回写凭证 / 发放时间。
 ///
-/// 参数多于 7 个：这里是**唯一**的状态落库入口，拆成结构体只会把「哪个字段忘了传」
-/// 从编译期挪到运行期；`clippy::too_many_arguments` 在此显式豁免并写明理由。
-#[allow(clippy::too_many_arguments)]
-pub async fn apply_status(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    from: &str,
-    to: &str,
-    paid_at: Option<DateTime<Utc>>,
-    voucher_id: Option<Uuid>,
-    remark: Option<&str>,
-    operator: Option<Uuid>,
-    now: DateTime<Utc>,
-) -> DbResult<u64> {
+/// 这是结算单**唯一**的状态落库入口：字段语义写在 [`CommissionApplyStatusInput`] 上，
+/// 调用点必须逐字段点名，避免「第 5 个参数到底传的是 paid_at 还是 voucher_id」这种误读。
+pub async fn apply_status(ex: &impl SqlExecutor, input: CommissionApplyStatusInput<'_>) -> DbResult<u64> {
+    let CommissionApplyStatusInput {
+        id,
+        from,
+        to,
+        paid_at,
+        voucher_id,
+        remark,
+        operator,
+        now,
+    } = input;
     // 可空列一律「按需拼进 SQL」，不把 NULL 绑到强类型占位符上（驱动对 NULL 的类型推断不稳）。
     let mut sql = format!(
         "UPDATE {TABLE} SET status = ?, updated_at = ?, \

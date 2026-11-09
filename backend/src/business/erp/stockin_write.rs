@@ -216,6 +216,27 @@ pub async fn update_remark(
     .await
 }
 
+/// [`apply_status`] 的入参（`ex` 之外的 6 项）。
+///
+/// 与 [`ApplyStatusWithInstanceInput`] 同形，只是**没有** `approval_instance_id`：
+/// 本包装恒不挂审批实例。与 `purchase_model::ApplyStatusInput` 保持同一形态
+/// （两个同名包装函数读起来一致）。字段语义与 [`ApplyStatusWithInstanceInput`] 逐项一致。
+#[derive(Debug, Clone, Copy)]
+pub struct ApplyStatusInput<'a> {
+    /// 收货入库单主键（`WHERE id = ?::uuid`）。
+    pub id: Uuid,
+    /// 期望的当前态（CAS：`WHERE status = ?`；与库中不符则 `affected = 0`）。
+    pub from: &'a str,
+    /// 目标态（`POSTED` / `PENDING_CANCEL` / `PENDING_POST` / `DRAFT` / `CANCELLED`）。
+    pub to: &'a str,
+    /// 申请 / 作废理由（`PENDING_CANCEL` 落 `cancel_reason`，`CANCELLED` 落 `cancel_reason`）。
+    pub reason: Option<&'a str>,
+    /// 操作人（落 `update_by` / `posted_by` / `cancelled_by`；`None` = 系统 / 测试）。
+    pub operator: Option<Uuid>,
+    /// 业务时间（落 `posted_at` / `cancelled_at` / `updated_at` 等时间列）。
+    pub now: DateTime<Utc>,
+}
+
 /// 状态流转（CAS：`WHERE id = ? AND status = from`），返回 `affected`。
 ///
 /// * `DRAFT → POSTED`：写 `posted_at` / `posted_by`。**库存增加不在这里做** ——
@@ -228,15 +249,15 @@ pub async fn update_remark(
 ///   （红冲凭证摘要用它），并**清空 `approval_instance_id`**（`ck_biz_si_pending_cancel`
 ///   要求非审批中状态不得挂实例）。
 /// * `PENDING_CANCEL → POSTED`（P16 驳回 / 撤回）：状态回滚 + 清空实例与申请理由。
-pub async fn apply_status(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    from: &str,
-    to: &str,
-    reason: Option<&str>,
-    operator: Option<Uuid>,
-    now: DateTime<Utc>,
-) -> DbResult<u64> {
+pub async fn apply_status(ex: &impl SqlExecutor, input: ApplyStatusInput<'_>) -> DbResult<u64> {
+    let ApplyStatusInput {
+        id,
+        from,
+        to,
+        reason,
+        operator,
+        now,
+    } = input;
     apply_status_with_instance(
         ex,
         ApplyStatusWithInstanceInput {

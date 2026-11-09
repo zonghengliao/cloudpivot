@@ -109,15 +109,17 @@ pub(super) async fn apply_transition(
     }
     let affected = transfer_model::apply_status(
         tx,
-        ctx.id,
-        ctx.from,
-        ctx.effect,
-        ctx.cancel_reason,
-        ctx.transit_warehouse_id,
-        Some(ctx.operator),
-        approval_instance_id,
-        Some(ctx.operator),
-        ctx.now,
+        transfer_model::TransferApplyStatusInput {
+            id: ctx.id,
+            from: ctx.from,
+            effect: ctx.effect,
+            cancel_reason: ctx.cancel_reason,
+            transit_warehouse_id: ctx.transit_warehouse_id,
+            approver: Some(ctx.operator),
+            approval_instance_id,
+            operator: Some(ctx.operator),
+            now: ctx.now,
+        },
     )
     .await?;
     // 撤回：调拨单从 PENDING 变 CANCELLED 时把在跑的审批单一起终止（否则

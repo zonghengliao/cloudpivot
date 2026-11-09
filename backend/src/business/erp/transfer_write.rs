@@ -247,6 +247,29 @@ pub async fn soft_delete(ex: &impl SqlExecutor, id: Uuid, operator: Option<Uuid>
 
 // ==================== 写：状态流转 ====================
 
+/// [`apply_status`] 的入参（`ex` 之外的 9 项）。
+#[derive(Debug, Clone, Copy)]
+pub struct TransferApplyStatusInput<'a> {
+    /// 调拨单主键（`WHERE id = ?::uuid`）。
+    pub id: Uuid,
+    /// 调用方读到的当前状态（CAS 期望值：`WHERE status = ?`；与库中不符则 `affected = 0`）。
+    pub from: &'a str,
+    /// [`transition_effect`] 的产物（含目标状态与要写的列）。
+    pub effect: &'a TransitionEffect,
+    /// 仅 `→ CANCELLED` 用（`ck_biz_transfer_state` 要求非空白）。
+    pub cancel_reason: Option<&'a str>,
+    /// 仅 `→ IN_TRANSIT` 用（该状态起必须非空）。
+    pub transit_warehouse_id: Option<Uuid>,
+    /// 仅 `→ APPROVED` 用（写 `approver_id`）。
+    pub approver: Option<Uuid>,
+    /// 仅 `DRAFT → PENDING` 用（发起审批后回写）。
+    pub approval_instance_id: Option<Uuid>,
+    /// 操作人（落 `update_by` / `applicant_id`；`None` = 系统 / 测试）。
+    pub operator: Option<Uuid>,
+    /// Rust 侧算好的时间点（与变更日志 / 响应里的时间同源）。
+    pub now: DateTime<Utc>,
+}
+
 /// 状态流转落库（**CAS：`WHERE status = 期望的当前态`**）。
 ///
 /// 五个目标各有自己的 `SET` 子句（`ck_biz_transfer_state` 绑死了时间戳），
@@ -255,30 +278,24 @@ pub async fn soft_delete(ex: &impl SqlExecutor, id: Uuid, operator: Option<Uuid>
 ///
 /// # 参数
 ///
-/// - `effect`：[`transition_effect`] 的产物（含目标状态与要写的列）；
-/// - `from`：调用方读到的当前状态（CAS 期望值）；
-/// - `now`：Rust 侧算好的时间点（与变更日志 / 响应里的时间同源）；
-/// - `cancel_reason`：仅 `→ CANCELLED` 用（`ck_biz_transfer_state` 要求非空白）；
-/// - `transit_warehouse_id`：仅 `→ IN_TRANSIT` 用（该状态起必须非空）；
-/// - `approver`：仅 `→ APPROVED` 用（写 `approver_id`）；
-/// - `approval_instance_id`：仅 `DRAFT → PENDING` 用（发起审批后回写）。
+/// 字段语义见 [`TransferApplyStatusInput`]（`effect` / `from` / `now` / `cancel_reason` /
+/// `transit_warehouse_id` / `approver` / `approval_instance_id` 各自只在对应目标态生效）。
 ///
 /// # 异常情况
 ///
 /// 数据库异常 / CHECK 冲突 → [`DbError`]；`affected = 0` 表示状态已被别人改走。
-#[allow(clippy::too_many_arguments)]
-pub async fn apply_status(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    from: &str,
-    effect: &TransitionEffect,
-    cancel_reason: Option<&str>,
-    transit_warehouse_id: Option<Uuid>,
-    approver: Option<Uuid>,
-    approval_instance_id: Option<Uuid>,
-    operator: Option<Uuid>,
-    now: DateTime<Utc>,
-) -> DbResult<u64> {
+pub async fn apply_status(ex: &impl SqlExecutor, input: TransferApplyStatusInput<'_>) -> DbResult<u64> {
+    let TransferApplyStatusInput {
+        id,
+        from,
+        effect,
+        cancel_reason,
+        transit_warehouse_id,
+        approver,
+        approval_instance_id,
+        operator,
+        now,
+    } = input;
     let uuid_text = |value: Option<Uuid>| Value::Text(value.map(|id| id.to_string()).unwrap_or_default());
     let (sql, params) = match effect.status {
         STATUS_PENDING => (
