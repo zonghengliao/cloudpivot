@@ -106,6 +106,11 @@ cargo build（debug，1m10s） → systemctl restart cloudpivot-test → health=
 前端：pnpm exec vite build --outDir dist-fix3 → 双 rename（旧 dist 留 dist-prev-*）
       entry_chunk = assets/index-BYe9Wf1D.js，与 :80 实际返回一致 → DIST_OK，page=200
 真 token 探针：scripts/verify/e2e06_fix3_period_probe.sh → PASS=19 FAIL=0（probe_145.out）
+E2E-06 全量演练（脚本造完新夹具后再跑一遍，确认没有回归）：
+      bash scripts/verify/e2e06_run_all.sh → 汇总 PASS=228 FAIL=0（其中勾稽失败 0）
+      勾稽 13 条 0 差异，含「未生效预算却标了超支（本卡数据） = 0」
+      演练后复跑只读探针：dirty_usage=0 / dirty_report=0 / true_over_usage=2 / backup_rows=10
+      原始断言：run_all_145_asserts.log
 ```
 
 ## 复跑方式
