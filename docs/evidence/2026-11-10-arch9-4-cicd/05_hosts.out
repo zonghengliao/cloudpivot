@@ -1,0 +1,30 @@
+# ARCH-9-4 实测：三台机的工具链 / 资源 / cron
+# 采集时间：2026-11-10 01:18:59 CST
+
+=== 99 开发机 ===
+nproc=4 mem=15G(total) 12G(avail) disk=8.1G avail (97% used)
+rustc=rustc 1.94.1 (e408947bf 2026-03-25) cargo=cargo 1.94.1 (29ea6fb6a 2026-03-24)
+backend/target=109G
+
+=== 145 测试机 ===
+nproc=4 mem=7G(total) 6G(avail) disk=123G avail
+rustc=rustc 1.99.1 (58cf8f9c3 2026-10-13) cargo=cargo 1.99.1 (5f94df478 2026-08-27)
+target=57G
+active active 
+*/30 * * * * /root/test_deploy.sh >> /var/log/cloudpivot/test-deploy.log 2>&1
+30 3 * * * bash /opt/cloudpivot/scripts/ops/backup_db.sh --keep 7 >> /var/log/cloudpivot/backup.log 2>&1
+
+=== 144 生产 ===
+nproc=4 mem=7G(total) 6G(avail) disk=218G avail
+rustc=rustc 1.99.1 (58cf8f9c3 2026-10-13)
+active 
+Tue 2026-11-10 01:16:38 CST
+0 2 * * * /opt/cloudpivot/scripts/erp-health-daily.sh >/dev/null 2>&1
+0 2 * * * /opt/cloudpivot/scripts/cron/snapshot_audit.sh >> /var/log/cloudpivot/snapshot-audit.cron.log 2>&1
+30 2 * * * bash /opt/cloudpivot/scripts/ops/backup_db.sh --keep 14 >> /var/log/cloudpivot/backup.log 2>&1
+--- erp-health 日志 mtime ---
+-rw-r--r-- 1 root root 27768 Nov  5 02:00 /var/log/cloudpivot/erp-health-202611.log
+★ 全部不变量成立，账目干净。
+[2026-11-05 02:00:01] ✓ 全部不变量成立
+--- 脚本是否存在 ---
+ls: cannot access '/opt/cloudpivot/scripts/erp-health-daily.sh': No such file or directory

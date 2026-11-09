@@ -1,0 +1,62 @@
+# ARCH-9-4 实测：21 项门禁 + menu_invariants + icon 逐项耗时（干净库 cloudpivot_arch9_ci4）
+# 采集时间：2026-11-10 01:18:59 CST
+
+=== 干净库重建（erp_clean_db.sh）===
+CLEAN_DB_ELAPSED=6.43 s ；库指纹：
+schema_migrations max=367 count=298
+
+=== 逐项（label / rc / 耗时 / 日志）===
+fmt --check                 rc=0    3.10 s
+cargo check(增量)            rc=0   12.60 s   (纯热 0.20 s)
+clippy --all-targets        rc=0   83.60 s   (纯热 0.30 s)
+cargo test --lib(无库)       rc=0    2.10 s   4021 passed
+cargo test --lib(无库,j1)    rc=0    6.20 s   4021 passed
+cargo test --no-run(增量)    rc=0   50.40 s
+pnpm typecheck              rc=0   39.50 s
+erp_invariants              rc=0    4.50 s
+menu_invariants             rc=0    0.39 s
+biz_type_domain --strict    rc=1    0.76 s   ← 红：3 个域外值
+snapshot_audit              rc=0    1.12 s   (26 项；--install-views 1.37 s)
+perm_menu_gate              rc=0    3.50 s
+orphan_button_gate          rc=1    0.12 s   ← 红：2 对孤儿
+role_code_gate              rc=0    0.45 s
+scope_gate --baseline 21    rc=1    2.55 s   ← 红：5 文件 + 2 未登记跳过
+palette_def_sync            rc=0    0.04 s
+inventory_write_gate        rc=0    2.18 s
+changelog_in_tx (C7-G5)     rc=0    3.38 s
+icon_invariant_teeth        rc=0    4.12 s
+verify.py smoke             rc=0    0.83 s   39 项全绿
+verify.py all               rc=1   34.50 s   163 pass / 8 fail / 2 skip
+
+=== 红项明细（原文摘录）===
+--- biz_type_domain ---
+[FAIL] ② 审批动作      biz_flow_def.biz_type                    取值 18 种
+       ✗ 域外值 'PR_APPROVE' × 1
+       ✗ 域外值 'PRT_APPROVE' × 1
+       ✗ 域外值 'SO_APPROVE' × 1
+结果：FAIL（1 列有域外值）
+--- orphan_button ---
+孤儿按钮常驻闸 · orphan_button_gate.py（角色拿到的按钮码 ⇒ 至少有一个可达父页）
+✗ 孤儿 (角色,码) = 2  ← 必须为 0！这些按钮挂在该角色看不见的页面下：
+  · SALES_CLERK            business:erp:statement:export      不可达父页 /business/erp/receivable(business:erp:receivable:list)（该角色未持有父页码）
+  · SALES_CLERK            business:erp:statement:view        不可达父页 /business/erp/receivable(business:erp:receivable:list)（该角色未持有父页码）
+--- scope_gate ---
+    FAIL: business/erp/payable_payment/tests/payable_linkage_db_tests.rs 查询 biz_task sys_notice sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/flow/subprocess.rs 查询 biz_flow_def biz_flow_def_version biz_flow_instance biz_flow_node 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/monitor/model.rs 查询 auth_logs operation_logs sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/shared/user_name.rs 查询 sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: system/setup/model.rs 查询 sys_dept sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+  FAIL：跳过清单断言：backend/src/business/attachment/rule_admin/tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/attachment/rule_admin/mod.rs:52）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/attachment/rule_admin/tests.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/asset_linkage_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/mod.rs:399）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/asset_linkage_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/contract_linkage_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/mod.rs:389）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/contract_linkage_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/depreciation_dept_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/mod.rs:157）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/depreciation_dept_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/depreciation_linkage_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/mod.rs:404）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/depreciation_linkage_tests.rs",
+--- verify.py all 失败项 ---
+  ❌ 同步导出返回文件流  http=422 len=37
+  ❌ 异步导出建任务（biz_type）  code=10001 msg=当前筛选条件下没有可导出的数据
+  ❌ 派活成功  code=63305 msg=派活失败：派活到 Hermes kanban失败：kanban: delegate_task child contexts cannot mutate Kanb
+  ❌ 拿到 hermes_task_id  None
+  ❌ exec_mode=AI 且 id 回写  HUMAN|-
+  ❌ 任务令牌已生成  0
+  ❌ 发布 vrf_cs_1110010844  code=65048 msg=节点 n1（会签审批）是全员会签（approval_mode=ALL），但没有超时也没配兜底人：任一审批人失效（离职 / 停用 / 口令坏号）就会永久卡在「等待
+  ❌ 会签实例创建  {'code': 65005, 'msg': '流程 vrf_cs_1110010844 尚未发布（status=DRAFT），不能发起审批'}

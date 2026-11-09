@@ -1,0 +1,71 @@
+# ARCH-9-4 实测：scripts/verify 脚本盘点与可移植性
+# 采集时间：2026-11-10 01:18:59 CST
+
+=== 文件类型计数 ===
+.sh    312
+.py    137
+.mjs   35
+.sql   37
+.md    1
+目录数  10
+文件总数 547
+
+=== 13 域脚本计数（e2eNN 前缀）===
+e2e01 5
+e2e02 5
+e2e03 5
+e2e04 10
+e2e05 11
+e2e06 12
+e2e07 14
+e2e08 12
+e2e09 8
+e2e10 5
+e2e11 7
+e2e12 5
+e2e13 6
+e2e14 1
+
+=== 可移植性（grep -rl 计数，分母 484 个可执行脚本）===
+引用 /etc/cloudpivot      113
+写死 cloudpivot-dev.env   82
+写死 :8033                47
+写死 172.18.10.145        3
+接受 BASE_URL             35
+
+=== 已迁移到 BASE_URL 的脚本清单（35 个，B 档的现成样板）===
+b2_approve_switch_e2e.py
+b2_separation_e2e.py
+common.py
+d1_edge_config_e2e.py
+d3_state_edge_admin_e2e.py
+d5_payable_payment_e2e.py
+d5_prod_readonly_check.py
+d7_batch_e2e.py
+d9_document_copy_e2e.py
+d9_instance.sh
+dc09_e2e_up.sh
+dc09_units_e2e.py
+deployB_flowgate.sh
+e2e_isolated_instance.sh
+e2e_marker.py
+erpr3_page_up.sh
+fix8a_aging_e2e.py
+fix8b_report_item_e2e.py
+p17_payable_approval.sh
+p2_6_template_probe.py
+p27_invariant_store_probe.py
+pflow2_notify.py
+pflow2_notify.sh
+pflow3a_po_stockin_approval.sh
+pflow3b_finance_approval_e2e.py
+pflow3b_gap_e2e.py
+run_all.sh
+t8a_depth_e2e.py
+v_a.py
+v_b.py
+v_c.py
+verify.py
+v_flow.py
+v_smoke.py
+v_task.py

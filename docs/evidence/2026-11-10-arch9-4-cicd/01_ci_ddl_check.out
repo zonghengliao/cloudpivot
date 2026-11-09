@@ -1,0 +1,85 @@
+Timing is off.
+BEGIN
+=== ① 建表 sys_ci_run（一次运行一行）===
+CREATE TABLE
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+ALTER TABLE
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+=== ② 建表 sys_ci_item（一项门禁/脚本/用例一行）===
+CREATE TABLE
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+ALTER TABLE
+CREATE INDEX
+CREATE INDEX
+=== ③ 建表 sys_ci_baseline（已知红台账：谁认领、到什么时候、理由）===
+CREATE TABLE
+COMMENT
+COMMENT
+COMMENT
+ALTER TABLE
+CREATE INDEX
+CREATE INDEX
+=== 断言 A：三张表都在 ===
+psql:01_ci_ddl_check.sql:117: NOTICE:  断言A通过：3 张表
+DO
+=== 断言 B：正常插一行 run + 两行 item ===
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+psql:01_ci_ddl_check.sql:136: NOTICE:  断言B通过：run 2 行 / item 2 行
+DO
+=== 断言 C：同主机同日第二次 SCHEDULED 被拒；换一台主机则允许（L2 双段）===
+psql:01_ci_ddl_check.sql:151: NOTICE:  断言C-1通过：同日同层同主机第二次定时运行被拒
+psql:01_ci_ddl_check.sql:151: NOTICE:  断言C-2通过：同一天另一台主机的 L2 段允许（145 门禁段 + 99 单测段）
+DO
+=== 断言 D：layer / status 非法值被 CHECK 拒绝 ===
+psql:01_ci_ddl_check.sql:164: NOTICE:  断言D-1通过：layer 非法值被拒
+psql:01_ci_ddl_check.sql:164: NOTICE:  断言D-2通过：status 非法值被拒
+DO
+=== 断言 E：counts 一致性 CHECK（passed+failed+skipped+baselined <= total）===
+psql:01_ci_ddl_check.sql:174: NOTICE:  断言E通过：计数不一致被拒
+DO
+=== 断言 F：(run_id, item_key) 唯一：同一运行同一项不能两行 ===
+psql:01_ci_ddl_check.sql:185: NOTICE:  断言F通过：重复 item 被拒
+DO
+=== 断言 G：删 run 级联删 item（ON DELETE CASCADE）===
+psql:01_ci_ddl_check.sql:196: NOTICE:  断言G通过：run 删除后 item 级联清空
+DO
+=== 断言 H：baseline 的理由太短 / 窗口越界被拒 ===
+psql:01_ci_ddl_check.sql:213: NOTICE:  断言H-1通过：理由过短被拒
+psql:01_ci_ddl_check.sql:213: NOTICE:  断言H-2通过：窗口超 90 天被拒
+psql:01_ci_ddl_check.sql:213: NOTICE:  断言H-3通过：到期早于创建被拒
+DO
+=== 断言 I：同一 item_key 只能有一条未撤销台账；撤销后可再开一条 ===
+psql:01_ci_ddl_check.sql:231: NOTICE:  断言I-1通过：重复认领被拒
+psql:01_ci_ddl_check.sql:231: NOTICE:  断言I-2通过：撤销后可再开一条（历史行保留）
+DO
+=== 断言 J：趋势查询（同一 item_key 最近 5 次）走索引 ===
+                           QUERY PLAN                            
+-----------------------------------------------------------------
+ Limit
+   ->  Index Scan using idx_ci_item_key_time on sys_ci_item
+         Index Cond: ((item_key)::text = 'erp_invariants'::text)
+(3 rows)
+
+=== 收尾：整段 ROLLBACK（零残留）===
+ROLLBACK
+=== ROLLBACK 后核对：三张表应不存在 ===
+ should_be_0 
+-------------
+           0
+(1 row)
+

@@ -1,0 +1,40 @@
+# ARCH-9-4 实测：L0/L1 层耗时（99 开发机，4 核 / 15 G，HEAD cdf3044f）
+# 采集时间：2026-11-10 01:18:59 CST
+# 说明：cargo_gates.log 里的 check 首跑含「等待他人 cargo 锁」82 s，故增量口径另测于 cargo_incr.log
+
+=== cargo_gates.log（fmt / check / clippy / test / typecheck 首轮）===
+=== 开始 2026-11-10 01:07:24 （cargo 版本：cargo 1.94.1 (29ea6fb6a 2026-03-24)）
+=== 树状态：HEAD=b252db2e，未提交改动 46 个文件
+L0 fmt --check                   rc=0     3.1s  log=/tmp/cg_L0_fmt___check.log
+L0 cargo check                   rc=0    82.4s  log=/tmp/cg_L0_cargo_check.log
+        Blocking waiting for file lock on build directory
+        Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+        Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 22s
+L1 clippy --all-targets          rc=0     0.5s  log=/tmp/cg_L1_clippy___all_targets.log
+        Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.44s
+L1 cargo test --lib              rc=0     2.1s  log=/tmp/cg_test_lib.log
+    test result: ok. 4021 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.77s
+    running 4021 tests
+L1 test --lib -j1                rc=0     6.2s  log=/tmp/cg_test_lib_st1.log
+    test result: ok. 4021 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.03s
+L1 pnpm typecheck                rc=0    37.5s  log=/tmp/cg_L1_pnpm_typecheck.log
+    > @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+    > node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+    
+=== 结束 2026-11-10 01:09:36
+
+=== cargo_incr.log（touch lib.rs 后的增量真实成本）===
+check(no-op warm)              rc=0     0.2s  
+check(touch lib.rs)            rc=0    12.6s  
+clippy(touch lib.rs)           rc=0    83.6s  
+clippy(no-op warm)             rc=0     0.3s  
+test --no-run(touch)           rc=0    50.4s  
+pnpm typecheck(warm)           rc=0    39.5s  
+
+=== test --lib 结果（无库口径 = 假绿证据）===
+running 4021 tests
+test result: ok. 4021 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.77s
+
+=== test --lib --test-threads=1（无库、单线程）===
+running 4021 tests
+test result: ok. 4021 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.03s
