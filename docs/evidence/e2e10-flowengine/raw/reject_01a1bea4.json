@@ -1,0 +1,1 @@
+{"code":0,"msg":"ok","data":{"instance_id":"01a1bea4-c9a3-7292-9ba2-b5c106b756c5","instance_status":"REJECTED","node_status":"REJECTED","done":true,"idempotent":false,"next_nodes":[],"auto_passed_nodes":0,"approver_count":1,"approved_count":0,"rejected_count":1}}

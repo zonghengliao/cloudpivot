@@ -388,7 +388,7 @@ def s8_linkage(state):
 
     st, body = req("PUT", "/api/business/flow/linkage", admin,
                    {"name": "E2E10 TASK DOING 通知", "trigger_entity": "TASK", "trigger_status": "DOING",
-                    "action_code": "SEND_NOTICE", "action_params": {"mode": "TAKEOVER", "recipient": "CREATOR"},
+                    "action_code": "SEND_NOTICE", "action_params": {"mode": "TAKEOVER", "recipient": "OWNER"},
                     "seq": 30, "confirm": True}, name="linkage_create")
     eq("新建联动规则（TASK DOING → SEND_NOTICE）→ 200", st, 200)
     rid = data_of(body).get("id")

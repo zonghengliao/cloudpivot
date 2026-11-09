@@ -1,0 +1,1 @@
+{"code":10001,"msg":"这是主链路必需边（STOCK_IN DRAFT→POSTED），禁用它会让采购收货无法直接过账。确认要禁用请传 confirm_critical=true（一般不需要禁用主链路边，请先确认是不是点错了对象）"}
