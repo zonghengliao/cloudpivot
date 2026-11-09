@@ -15,9 +15,9 @@ api b5_ledger GET "/business/erp/ledger/page?account_code=1002&period_from=2022-
 check "明细账 http" "$HTTP" "200"
 LED_N=$(data '.data.list|length')
 check "1002 明细账行数（期初1 + 收12 + 付12 + 划转1）" "$LED_N" "26"
-LAST_CLOSE=$(printf '%s' "$BODY" | jq -r '[.data.list[].running_balance|tonumber] | last // 0 | (.*100|round/100)')
+LAST_CLOSE=$(printf '%s' "$BODY" | jq -r '[.data.list[].running_balance|tonumber] | last // 0' | awk '{printf "%.2f", $1+0}')
 check "明细账末行余额 = 科目净额" "$LAST_CLOSE" "$(acc_net 1002 2022-01-01 2022-12-31 | awk '{printf "%.2f", $1+0}')"
-check "明细账末行余额 = 1614500（1616000 − 划转 1500）" "$LAST_CLOSE" "1614500"
+check "明细账末行余额 = 1614500（1616000 − 划转 1500）" "$LAST_CLOSE" "1614500.00"
 api b5_ledger_nokey GET "/business/erp/ledger/page?period_from=2022-01-01" "$T_ADMIN"
 check "明细账缺科目 → 400" "$HTTP" "400"
 

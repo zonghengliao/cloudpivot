@@ -195,11 +195,11 @@ say "  · 库内历史 (0,1] 未标注物料（其它卡直插夹具，非接口
 # 新建单位+物料，验证 0.13 → 13（DECIMAL 过渡期）+ 上界 100
 api c14_unit POST /business/erp/unit "$T_ADMIN" '{"unit_code":"E2E04-PCS","unit_name":"个(E2E04)","is_base":true,"status":1,"precision":0}'
 UNIT_ID=$(data '.data.id')
-[ -z "$UNIT_ID" ] && UNIT_ID=$(PSQLQ -c "select id from biz_unit where unit_code='E2E04-PCS' and deleted_at is null;")
+case "${UNIT_ID:-}" in ""|null) UNIT_ID=$(PSQLQ -c "select id from biz_unit where unit_code='E2E04-PCS' and deleted_at is null;");; esac
 save UNIT_ID "$UNIT_ID"
 api c14_mat POST /business/erp/material "$T_ADMIN" "{\"material_code\":\"E2E04-MAT\",\"material_name\":\"E2E-04 演练物料\",\"unit_id\":\"$UNIT_ID\",\"material_type\":\"RAW\",\"tax_rate\":0.13,\"status\":1,\"remark\":\"E2E-04 演练物料（税率标度回归）\"}"
 MAT_ID=$(data '.data.id')
-[ -z "$MAT_ID" ] && MAT_ID=$(PSQLQ -c "select id from biz_material where material_code='E2E04-MAT' and deleted_at is null;")
+case "${MAT_ID:-}" in ""|null) MAT_ID=$(PSQLQ -c "select id from biz_material where material_code='E2E04-MAT' and deleted_at is null;");; esac
 save MAT_ID "$MAT_ID"
 check "物料 tax_rate 0.13 → 归一 13" "$(PSQLQ -c "select tax_rate::text from biz_material where id='$MAT_ID';")" "13.0000"
 check "物料 tax_rate_mode=DECIMAL（过渡期标注）" "$(PSQLQ -c "select coalesce(tax_rate_mode,'') from biz_material where id='$MAT_ID';")" "DECIMAL"
