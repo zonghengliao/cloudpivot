@@ -1,0 +1,26 @@
+# cron 到点实跑（cron 最小环境，PATH 只有 /usr/bin:/bin）
+2026-11-10T03:21:27+08:00
+=== 172.18.10.144 ===
+[2026-11-10T03:20:01+08:00] 库连接就绪：cloudpivot@127.0.0.1:5432/cloudpivot（env=/etc/cloudpivot/cloudpivot.env）
+[2026-11-10T03:20:01+08:00] === 告警巡检开始 host=144 base=http://127.0.0.1:8023 检查=[health deps invariant disk secret_expiry backlog] dry_run=0 ===
+[2026-11-10T03:20:01+08:00] health: OK — 服务健康
+[2026-11-10T03:20:01+08:00] deps: OK — 依赖全通
+[2026-11-10T03:20:01+08:00] invariant: 数据源 = sys_invariant_result（psql 只读）（FAIL|1|2|61202）
+[2026-11-10T03:20:01+08:00] invariant: ALERT — 账务巡检有 1 个 BLOCKER（账已错）
+[2026-11-10T03:20:01+08:00] disk: OK — 磁盘正常
+[2026-11-10T03:20:01+08:00] secret_expiry: INFO — 没有可检查的证书（当前部署是 HTTP（nginx 无 ssl_certificate）；JWT/存储主密钥是对称密钥，无有效期，靠轮换流程管理）
+[2026-11-10T03:20:01+08:00] backlog: 数据源 = sys_import_task+sys_export_task（psql 只读）
+[2026-11-10T03:20:01+08:00] backlog: OK — 导入导出无积压
+[2026-11-10T03:20:01+08:00] === 巡检结束：1 项告警，开始派发 ===
+[2026-11-10T03:20:01+08:00]   ↳ invariant: 去重窗口内已告警过（<300s），本次抑制
+=== 172.18.10.145 ===
+[2026-11-10T03:20:01+08:00] 库连接就绪：cpb@127.0.0.1:5432/cloudpivot_base（env=/etc/cloudpivot-base/base.env）
+[2026-11-10T03:20:01+08:00] === 告警巡检开始 host=145 base=http://127.0.0.1:8024 检查=[health deps invariant disk secret_expiry backlog] dry_run=0 ===
+[2026-11-10T03:20:02+08:00] health: OK — 服务健康
+[2026-11-10T03:20:02+08:00] deps: OK — 依赖全通
+[2026-11-10T03:20:02+08:00] invariant: INFO — 巡检结论查不到（库连上了（cloudpivot_base）但 sys_invariant_result 查询失败：该库大概没应用 V0235 巡检迁移（145 base 实例就是这样）→ 巡检在这套部署上还没生效）
+[2026-11-10T03:20:02+08:00] disk: OK — 磁盘正常
+[2026-11-10T03:20:02+08:00] secret_expiry: INFO — 没有可检查的证书（当前部署是 HTTP（nginx 无 ssl_certificate）；JWT/存储主密钥是对称密钥，无有效期，靠轮换流程管理）
+[2026-11-10T03:20:02+08:00] backlog: 数据源 = sys_import_task+sys_export_task（psql 只读）
+[2026-11-10T03:20:02+08:00] backlog: OK — 导入导出无积压
+[2026-11-10T03:20:02+08:00] === 巡检结束：无告警（0 项）===

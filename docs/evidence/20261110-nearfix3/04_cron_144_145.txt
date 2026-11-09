@@ -1,0 +1,6 @@
+# cron 已装（144 + 145），每 5 分钟
+2026-11-10T03:20:44+08:00
+=== 144 crontab ===
+4:*/5 * * * * NIK_ALERT_BASE_URL=http://127.0.0.1:8023 NIK_ALERT_HOST_TAG=144 /opt/cloudpivot/scripts/ops/alert_check.sh >> /var/log/cloudpivot/alert-check.cron.log 2>&1
+=== 145 crontab ===
+3:*/5 * * * * NIK_ALERT_BASE_URL=http://127.0.0.1:8024 NIK_ALERT_HOST_TAG=145 /opt/cloudpivot/scripts/ops/alert_check.sh >> /var/log/cloudpivot/alert-check.cron.log 2>&1

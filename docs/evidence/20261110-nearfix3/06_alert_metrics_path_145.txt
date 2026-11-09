@@ -1,0 +1,11 @@
+# 145 隔离实例（18095）走 /metrics 数据源：巡检 12 BLOCKER + 积压读取
+2026-11-10T03:20:54+08:00
+
+[2026-11-10T03:20:55+08:00] 库连接就绪：cpb@127.0.0.1:5432/cloudpivot_base（env=/etc/cloudpivot-base/base.env）
+[2026-11-10T03:20:55+08:00] === 告警巡检开始 host=145-probe base=http://127.0.0.1:18095 检查=[invariant backlog] dry_run=1 ===
+[2026-11-10T03:20:55+08:00] invariant: 数据源 = /metrics（cloudpivot_invariant_*）（FAIL|12|20|49069）
+[2026-11-10T03:20:55+08:00] invariant: ALERT — 账务巡检有 12 个 BLOCKER（账已错）
+[2026-11-10T03:20:55+08:00] backlog: 数据源 = /metrics
+[2026-11-10T03:20:55+08:00] backlog: OK — 导入导出无积压
+[2026-11-10T03:20:55+08:00] === 巡检结束：1 项告警，开始派发 ===
+[2026-11-10T03:20:55+08:00]   ↳ dry-run：本该建卡/发飞书（ALERT 账务巡检有 12 个 BLOCKER（账已错））

@@ -1,0 +1,18 @@
+# ALERT.log（144 与 145）
+2026-11-10T03:21:07+08:00
+=== 144 ===
+[2026-11-10T03:15:36+08:00] ALERT     host=144             check=invariant     账务巡检有 1 个 BLOCKER（账已错） | 最近一次巡检 status=FAIL failed=2 blockers=1；明细见「账务巡检看板」或 scripts/verify/erp_invariants.py
+[2026-11-10T03:18:12+08:00] ALERT     host=144             check=invariant     账务巡检有 1 个 BLOCKER（账已错） | 最近一次巡检 status=FAIL failed=2 blockers=1；明细见「账务巡检看板」或 scripts/verify/erp_invariants.py
+--- 去重状态 ---
+total 4
+-rw-r--r-- 1 root root 10 Nov 10 03:18 invariant.last
+
+=== 145 ===
+[2026-11-10T03:08:05+08:00] ALERT     host=172.18.10.145   check=health        服务不可用（/health 返回体无法解析） | HTTP 200 但响应不是 JSON：
+[2026-11-10T03:08:05+08:00] ALERT     host=172.18.10.145   check=deps          依赖探测返回体无法解析 | HTTP 200 但不是 JSON
+[2026-11-10T03:08:45+08:00] ALERT     host=172.18.10.145   check=invariant     账务巡检有 12 个 BLOCKER（账已错） | 最近一次巡检 status=FAIL failed=20 blockers=12；明细见「账务巡检看板」或 scripts/verify/erp_invariants.py
+[2026-11-10T03:20:31+08:00] ALERT     host=145-demo        check=health        服务不可用（/health 返回 000） | GET http://127.0.0.1:9/health → HTTP 000；进程可能已退出或端口未监听
+[2026-11-10T03:20:55+08:00] ALERT     host=145-demo        check=health        服务不可用（/health 返回 000） | GET http://127.0.0.1:9/health → HTTP 000；进程可能已退出或端口未监听
+--- 去重状态 ---
+total 4
+-rw-r--r-- 1 root root 10 Nov 10 03:20 health.last

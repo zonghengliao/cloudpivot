@@ -1,0 +1,31 @@
+# 145 /metrics 指标家族（隔离实例 18095，NEAR-FIX-3 采样器生效后）
+2026-11-10T03:20:37+08:00
+
+     1	cloudpivot_auth_cache_degraded
+     2	cloudpivot_impexp_backlog_pending
+     3	cloudpivot_impexp_backlog_stuck_seconds
+     4	cloudpivot_impexp_export_failed_24h
+     5	cloudpivot_impexp_export_open
+     6	cloudpivot_impexp_export_pending
+     7	cloudpivot_impexp_export_stuck_seconds
+     8	cloudpivot_impexp_import_failed_24h
+     9	cloudpivot_impexp_import_open
+    10	cloudpivot_impexp_import_pending
+    11	cloudpivot_impexp_import_stuck_seconds
+    12	cloudpivot_invariant_age_seconds
+    13	cloudpivot_invariant_blockers
+    14	cloudpivot_invariant_failed
+    15	cloudpivot_invariant_ok
+    16	cloudpivot_metrics_sampler_last_success_timestamp
+    17	cloudpivot_metrics_sampler_runs_total
+    18	cloudpivot_token_blacklist_rows
+    19	nik_cache_operation_duration_seconds
+    20	nik_cache_operations_total
+    21	nik_db_queries_total
+    22	nik_db_query_duration_seconds
+    23	nik_db_raw_sql_total
+    24	nik_http_request_duration_seconds
+    25	nik_http_requests_in_flight
+    26	nik_http_requests_total
+
+count=26

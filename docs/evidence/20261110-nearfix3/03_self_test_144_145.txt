@@ -1,0 +1,92 @@
+# alert_check.sh --self-test（144 与 145 各跑一遍，34 条判据）
+2026-11-10T03:20:43+08:00
+=== 144 ===
+== ① health ==
+  [PASS] 200 + status=ok → OK
+  [PASS] 200 + status=degraded → ALERT
+  [PASS] 200 + 非 JSON → ALERT
+  [PASS] 000（连不上）→ ALERT
+  [PASS] 500 → ALERT
+== ② deps ==
+  [PASS] db/cache ok → OK
+  [PASS] cache 挂 → ALERT
+  [PASS] db 挂 → ALERT
+  [PASS] 连不上 → ALERT
+== ③ invariant ==
+  [PASS] OK/0/0/1h → OK
+  [PASS] FAIL+BLOCKER → ALERT
+  [PASS] FAIL 无 BLOCKER → ALERT
+  [PASS] ERROR → ALERT（没跑成不是通过）
+  [PASS] 过期 48h → ALERT
+  [PASS] 无记录 → INFO
+== ④ disk ==
+  [PASS] 52% → OK
+  [PASS] 75% → WARN
+  [PASS] 84% → WARN
+  [PASS] 85% → ALERT
+  [PASS] 99% → ALERT
+== ⑤ secret_expiry ==
+  [PASS] 剩 400 天 → OK
+  [PASS] 剩 30 天 → OK（边界）
+  [PASS] 剩 29 天 → ALERT
+  [PASS] 已过期 3 天 → ALERT
+== ⑥ backlog ==
+  [PASS] 0 张 0s → OK
+  [PASS] 3 张等 60s → OK
+  [PASS] 1 张等 40 分钟 → ALERT
+  [PASS] 12 张 → ALERT
+  [PASS] 未知 -1/-1 → INFO
+== 去重（5 分钟窗口）==
+  [PASS] 首次应发、窗口内第二次应抑制
+  [PASS] 窗口过期后应再次发送
+== 派发：去重 + ALERT.log（端到端，sinks 关掉不建卡）==
+  [PASS] 首次派发：ALERT.log 写 1 条
+  [PASS] 5 分钟内第二次派发：被去重（仍 1 条）
+  [PASS] dry-run 不写 ALERT.log
+
+自检通过：34/34
+=== 145 ===
+== ① health ==
+  [PASS] 200 + status=ok → OK
+  [PASS] 200 + status=degraded → ALERT
+  [PASS] 200 + 非 JSON → ALERT
+  [PASS] 000（连不上）→ ALERT
+  [PASS] 500 → ALERT
+== ② deps ==
+  [PASS] db/cache ok → OK
+  [PASS] cache 挂 → ALERT
+  [PASS] db 挂 → ALERT
+  [PASS] 连不上 → ALERT
+== ③ invariant ==
+  [PASS] OK/0/0/1h → OK
+  [PASS] FAIL+BLOCKER → ALERT
+  [PASS] FAIL 无 BLOCKER → ALERT
+  [PASS] ERROR → ALERT（没跑成不是通过）
+  [PASS] 过期 48h → ALERT
+  [PASS] 无记录 → INFO
+== ④ disk ==
+  [PASS] 52% → OK
+  [PASS] 75% → WARN
+  [PASS] 84% → WARN
+  [PASS] 85% → ALERT
+  [PASS] 99% → ALERT
+== ⑤ secret_expiry ==
+  [PASS] 剩 400 天 → OK
+  [PASS] 剩 30 天 → OK（边界）
+  [PASS] 剩 29 天 → ALERT
+  [PASS] 已过期 3 天 → ALERT
+== ⑥ backlog ==
+  [PASS] 0 张 0s → OK
+  [PASS] 3 张等 60s → OK
+  [PASS] 1 张等 40 分钟 → ALERT
+  [PASS] 12 张 → ALERT
+  [PASS] 未知 -1/-1 → INFO
+== 去重（5 分钟窗口）==
+  [PASS] 首次应发、窗口内第二次应抑制
+  [PASS] 窗口过期后应再次发送
+== 派发：去重 + ALERT.log（端到端，sinks 关掉不建卡）==
+  [PASS] 首次派发：ALERT.log 写 1 条
+  [PASS] 5 分钟内第二次派发：被去重（仍 1 条）
+  [PASS] dry-run 不写 ALERT.log
+
+自检通过：34/34

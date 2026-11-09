@@ -1,0 +1,43 @@
+# 各 profile 的 [metrics] 段现状（2026-11-10）
+2026-11-10T03:21:25+08:00
+=== 172.18.10.144 ===
+--- /opt/cloudpivot/backend/config/config-prod.toml
+[metrics]
+enabled = true
+path = "/metrics"
+allow_ips = []
+--- /opt/cloudpivot/backend/config/config-test.toml
+[metrics]
+enabled = true
+path = "/metrics"
+allow_ips = []
+--- /opt/cloudpivot/backend/config/config-dev.toml
+(无 [metrics] 段)
+--- /metrics 实测
+  :8023 → 200
+  :8024 → 000
+=== 172.18.10.145 ===
+--- /opt/cloudpivot/backend/config/config-prod.toml
+[metrics]
+enabled = true
+path = "/metrics"
+allow_ips = []
+--- /opt/cloudpivot/backend/config/config-test.toml
+[metrics]
+enabled = true
+path = "/metrics"
+allow_ips = []
+--- /opt/cloudpivot/backend/config/config-dev.toml
+[metrics]
+enabled = true
+path = "/metrics"
+allow_ips = []
+--- /metrics 实测
+  :8023 → 000
+  :8024 → 200
+
+=== 仓库内被跟踪的模板 ===
+  backend/config/config-dev.example.toml
+  backend/config/config-prod.toml
+  backend/config/config-test.example.toml
+  backend/config/config.toml

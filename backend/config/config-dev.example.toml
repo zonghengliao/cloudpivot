@@ -34,3 +34,13 @@ enabled = true
 # access 15 分钟；refresh 24 小时是**绝对上限**（登录时刻 + 该值，轮换不滑动）。
 access_token_expire_secs = 900
 refresh_token_expire_secs = 86400
+
+# ── 可观测性（ADR-20261101 §5.4 / NEAR-FIX-3）─────────────────────────────
+# 开发期也开 /metrics（仅回环），这样本地就能 curl 验告警指标、跑 alert_check.sh：
+#   curl -s http://127.0.0.1:8024/metrics | grep cloudpivot_
+# 本段必须写进每个 profile 的私有配置：基础 config.toml 没有 [metrics] 段，
+# 缺了它 `/metrics` 直接 404（2026-11-10 实测 145 的私有 config-dev.toml 就是这种状态）。
+[metrics]
+enabled = true
+path = "/metrics"
+allow_ips = []

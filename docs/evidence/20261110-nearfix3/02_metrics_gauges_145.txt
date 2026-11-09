@@ -1,0 +1,21 @@
+# 145 采样器 gauge 实际值（真库 cloudpivot_dev，含 12 个 BLOCKER 的巡检结论）
+2026-11-10T03:20:38+08:00
+
+cloudpivot_metrics_sampler_runs_total 1
+cloudpivot_impexp_import_open 0
+cloudpivot_impexp_backlog_stuck_seconds 0
+cloudpivot_impexp_export_stuck_seconds 0
+cloudpivot_impexp_export_pending 0
+cloudpivot_impexp_export_failed_24h 0
+cloudpivot_invariant_blockers 12
+cloudpivot_auth_cache_degraded 0
+cloudpivot_invariant_ok 0
+cloudpivot_invariant_age_seconds 49069
+cloudpivot_impexp_backlog_pending 0
+cloudpivot_token_blacklist_rows 562
+cloudpivot_impexp_import_failed_24h 4
+cloudpivot_impexp_import_pending 0
+cloudpivot_impexp_export_open 0
+cloudpivot_invariant_failed 20
+cloudpivot_metrics_sampler_last_success_timestamp 1794252000
+cloudpivot_impexp_import_stuck_seconds 0

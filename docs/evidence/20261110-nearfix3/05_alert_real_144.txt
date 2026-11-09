@@ -1,0 +1,43 @@
+# 144 真实告警：巡检 BLOCKER → 建卡（真库 cloudpivot，真数据）
+2026-11-10T03:20:49+08:00
+
+=== 巡检原始证据（sys_invariant_result 最近一行）===
+run_at|status|total|passed|failed|blockers|warns
+2026-11-09 10:20:00.002927+08|FAIL|79|77|2|1|1
+(1 row)
+
+=== alert_check.sh 实跑（--force 绕过上一条被错误抑制的状态）===
+[2026-11-10T03:20:49+08:00] 库连接就绪：cloudpivot@127.0.0.1:5432/cloudpivot（env=/etc/cloudpivot/cloudpivot.env）
+[2026-11-10T03:20:49+08:00] === 告警巡检开始 host=144 base=http://127.0.0.1:8023 检查=[health deps invariant disk secret_expiry backlog] dry_run=1 ===
+[2026-11-10T03:20:49+08:00] health: OK — 服务健康
+[2026-11-10T03:20:49+08:00] deps: OK — 依赖全通
+[2026-11-10T03:20:49+08:00] invariant: 数据源 = sys_invariant_result（psql 只读）（FAIL|1|2|61249）
+[2026-11-10T03:20:49+08:00] invariant: ALERT — 账务巡检有 1 个 BLOCKER（账已错）
+[2026-11-10T03:20:49+08:00] disk: OK — 磁盘正常
+[2026-11-10T03:20:49+08:00] secret_expiry: INFO — 没有可检查的证书（当前部署是 HTTP（nginx 无 ssl_certificate）；JWT/存储主密钥是对称密钥，无有效期，靠轮换流程管理）
+[2026-11-10T03:20:49+08:00] backlog: 数据源 = sys_import_task+sys_export_task（psql 只读）
+[2026-11-10T03:20:49+08:00] backlog: OK — 导入导出无积压
+[2026-11-10T03:20:49+08:00] === 巡检结束：1 项告警，开始派发 ===
+[2026-11-10T03:20:49+08:00]   ↳ dry-run：本该建卡/发飞书（ALERT 账务巡检有 1 个 BLOCKER（账已错））
+
+=== 板的卡（真建过：t_cfc10bad）===
+Task t_cfc10bad: 【ALERT】144 账务巡检有 1 个 BLOCKER（账已错）
+  status:    running
+  assignee:  laoliu
+  workspace: scratch @ /root/.hermes/kanban/boards/dev/workspaces/t_cfc10bad
+  max-retries: 2 (default)
+  created:   2026-11-10 03:18 by user
+  started:   2026-11-10 03:18
+
+Body:
+**主机**：144（http://127.0.0.1:8023）
+**检查项**：`invariant`（ALERT）
+**现象**：账务巡检有 1 个 BLOCKER（账已错）
+**详情**：最近一次巡检 status=FAIL failed=2 blockers=1；明细见「账务巡检看板」或 scripts/verify/erp_invariants.py
+**时间**：2026-11-10T03:18:12+08:00
+
+本卡由 `scripts/ops/alert_check.sh` 自动创建（NEAR-FIX-3 告警接入）。
+去重窗口 300s：同一检查项在窗口内只建一张卡。处置完请归档本卡。
+
+Events (7):
+  [2026-11-10 03:18] created {'assignee': 'laoliu', 'status': 'ready', 'parents': [], 'creator_task_id': None, 'tenant': None, 'workspace_kind': 'scratch', 'workspace_path': None, 'branch_name': None, 'project_id': None, 'skills': None, 'goal_mode': None, 'model_override': None, 'provider_override': None}

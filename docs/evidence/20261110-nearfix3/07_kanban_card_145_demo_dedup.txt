@@ -1,0 +1,33 @@
+# 145 造异常实测建卡 + 去重（同 key 5 分钟内只建一张）
+2026-11-10T03:20:55+08:00
+
+=== 第一次（--force，造 /health 连不上）===
+[2026-11-10T03:20:55+08:00] 库连接就绪：cpb@127.0.0.1:5432/cloudpivot_base（env=/etc/cloudpivot-base/base.env）
+[2026-11-10T03:20:55+08:00] === 告警巡检开始 host=145-demo base=http://127.0.0.1:9 检查=[health] dry_run=0 ===
+[2026-11-10T03:20:55+08:00] health: ALERT — 服务不可用（/health 返回 000）
+[2026-11-10T03:20:55+08:00] === 巡检结束：1 项告警，开始派发 ===
+[2026-11-10T03:20:56+08:00]   ↳ kanban: 已建卡 t_d97f73c1（ssh，assignee=laoliu）
+[2026-11-10T03:20:56+08:00]   ↳ 飞书: 未发送（无凭据或发送失败；144/145 无 FEISHU_* env 属预期）
+
+=== 第二次（同 key，不 --force）===
+[2026-11-10T03:20:56+08:00] 库连接就绪：cpb@127.0.0.1:5432/cloudpivot_base（env=/etc/cloudpivot-base/base.env）
+[2026-11-10T03:20:56+08:00] === 告警巡检开始 host=145-demo base=http://127.0.0.1:9 检查=[health] dry_run=0 ===
+[2026-11-10T03:20:56+08:00] health: ALERT — 服务不可用（/health 返回 000）
+[2026-11-10T03:20:56+08:00] === 巡检结束：1 项告警，开始派发 ===
+[2026-11-10T03:20:56+08:00]   ↳ health: 去重窗口内已告警过（<300s），本次抑制
+
+=== 板的卡（真建过：t_6e586657）===
+Task t_6e586657: 【ALERT】145-demo 服务不可用（/health 返回 000）
+  status:    running
+  assignee:  laoliu
+  workspace: scratch @ /root/.hermes/kanban/boards/dev/workspaces/t_6e586657
+  max-retries: 2 (default)
+  created:   2026-11-10 03:20 by user
+  started:   2026-11-10 03:20
+
+Body:
+**主机**：145-demo（http://127.0.0.1:9）
+**检查项**：`health`（ALERT）
+**现象**：服务不可用（/health 返回 000）
+**详情**：GET http://127.0.0.1:9/health → HTTP 000；进程可能已退出或端口未监听
+**时间**：2026-11-10T03:20:31+08:00

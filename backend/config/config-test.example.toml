@@ -23,3 +23,16 @@ enabled = true
 # access 15 分钟；refresh 24 小时是**绝对上限**（登录时刻 + 该值，轮换不滑动）。
 access_token_expire_secs = 900
 refresh_token_expire_secs = 86400
+
+# ── 可观测性（ADR-20261101 §5.4 / NEAR-FIX-3）─────────────────────────────
+# 隔离实例（profile=test）必须能抓 /metrics，否则告警脚本的 invariant / backlog
+# 两项只能退回 psql，A20/A21 这类指标断言也没法做。
+# allow_ips 为空 = 只允许本机回环（127.0.0.1 / ::1），不对外暴露。
+#
+# 注意：本段**必须**出现在每个 profile 的私有配置里 —— `config.toml` 基础配置
+# 没有 [metrics] 段，缺了它 `/metrics` 直接 404（2026-11-10 实测：145 的
+# 私有 config-dev.toml 少了这一段，/metrics 就是 404，而 /health 正常）。
+[metrics]
+enabled = true
+path = "/metrics"
+allow_ips = []
