@@ -1,0 +1,32 @@
+════ svc_selfcheck 验收 2026-11-10 06:35:08 ════
+  BASE=http://127.0.0.1:18247  账号=svc_selfcheck  口令长度=32
+== 1. 登录（单次尝试，失败不重试）
+  ✅ 登录 200（token 655 字符）
+== 2. 自查必需的三个列表接口（必须 200）
+  ✅ 200  /api/business/task/page?page=1&page_size=2
+  ✅ 200  /api/business/erp/sales-order/page?page=1&page_size=2
+  ✅ 200  /api/business/erp/voucher/page?page=1&page_size=2
+== 3. 菜单接口（/api/system/auth/menus）
+  ✅ menus 200，节点 10 个
+  ✅ 只读页面节点齐全：/task/list, /business/erp/sales-order, /business/erp/voucher, /business/erp/seq, /business/erp/inventory-location
+== 4. 越权探测（空 body：有权限→400，无权限→403；这里必须是 403）
+  ✅ 建销售订单 403（无 business:erp:sale-order:create）
+  ✅ 建用户 403（无 system:user:create）
+  ✅ 查用户列表 403（无 system:user:list）
+== 5. 连续 6 次登录
+    第 1 次: http=200
+    第 2 次: http=200
+    第 3 次: http=200
+    第 4 次: http=200
+    第 5 次: http=200
+    第 6 次: http=200
+  ✅ 连续登录 6/6 全部 200
+== 6. 库侧（角色/权限/锁定）
+  ✅ admin is_locked=false / login_fail_count=0
+  ✅ svc_selfcheck is_locked=false / login_fail_count=0
+  ✅ 账号只挂 1 个角色：OPS_SELFCHECK
+  ✅ 角色里没有写/导出/审批码
+  ✅ 授权节点 10 个
+== 汇总
+  ✅ 验收通过（硬失败 0 / 告警 0）
+  rc=0

@@ -1,0 +1,18 @@
+账号|svc_selfcheck|HUMAN|1|f|f|0|01a18381-b7c4-753c-8fe6-d39684ead5cd
+---- 角色 ----
+OPS_SELFCHECK|运维自查（只读）|1|1
+---- 挂的角色（应恰好 1 个）----
+OPS_SELFCHECK
+---- 授权节点与权限码 ----
+1|/task|工作任务|business:task:read
+1|/business/erp/sales-mgmt|销售管理|(目录，无码)
+1|/business/erp/warehouse-mgmt|仓库管理|(目录，无码)
+1|/business/erp/finance-mgmt|财务管理|(目录，无码)
+1|/business/erp/master-data|基础数据|(目录，无码)
+2|/task/list|任务列表|business:task:read
+2|/business/erp/sales-order|销售订单|business:erp:sale-order:list
+2|/business/erp/seq|单号序列|business:erp:seq:list
+2|/business/erp/voucher|记账凭证|business:erp:voucher:list
+2|/business/erp/inventory-location|库位库存|business:erp:inventory-location:list
+---- 写/导出/审批类码数量（应为 0）----
+0

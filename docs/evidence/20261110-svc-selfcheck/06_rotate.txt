@@ -1,0 +1,25 @@
+---- apply --rotate ----
+  凭据文件: /root/svcc_test.cred
+== 2. 凭据
+  用 python3 生成新凭据（--rotate=1）
+✅ 凭据已写 /root/svcc_test.cred（600）
+NOTICE:  svc_selfcheck 就绪：user=91518a68-580e-4d83-b8ef-f1fe531d5617 role=9427bb57-5b1f-4b08-9793-bb05f573c12e 授权节点=10 个
+  ✅ 变更后 = 4/13/1112/12（Δ = 4/13/1112/12 → 4/13/1112/12）
+  ✅ CLOUDPIVOT_OPS_USER=svc_selfcheck / CLOUDPIVOT_OPS_PASSWORD 长度=32（权限 600）
+---- 改密后 env 与凭据文件一致（只打长度）----
+  env_user=svc_selfcheck env_pw_len=32
+---- 改密后 verify（新口令必须能登，6/6）----
+== 1. 登录（单次尝试，失败不重试）
+  ✅ 登录 200（token 655 字符）
+== 2. 自查必需的三个列表接口（必须 200）
+== 5. 连续 6 次登录
+    第 1 次: http=200
+    第 2 次: http=200
+    第 3 次: http=200
+    第 4 次: http=200
+    第 5 次: http=200
+    第 6 次: http=200
+  ✅ 连续登录 6/6 全部 200
+== 6. 库侧（角色/权限/锁定）
+== 汇总
+  ✅ 验收通过（硬失败 0 / 告警 0）

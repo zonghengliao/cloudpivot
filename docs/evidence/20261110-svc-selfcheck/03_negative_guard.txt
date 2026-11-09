@@ -1,0 +1,56 @@
+  ---- 塞完后角色里的授权码 ----
+,,,,business:erp:inventory-location:list,business:erp:sale-order:create,business:erp:sale-order:create,business:erp:sale-order:list,business:erp:seq:list,business:erp:voucher:list,business:task:read,business:task:read
+  ---- verify（--sessions 1，只看越权探测与库侧断言）----
+════ svc_selfcheck 验收 2026-11-10 06:35:10 ════
+  BASE=http://127.0.0.1:18247  账号=svc_selfcheck  口令长度=32
+== 1. 登录（单次尝试，失败不重试）
+  ✅ 登录 200（token 699 字符）
+== 2. 自查必需的三个列表接口（必须 200）
+  ✅ 200  /api/business/task/page?page=1&page_size=2
+  ✅ 200  /api/business/erp/sales-order/page?page=1&page_size=2
+  ✅ 200  /api/business/erp/voucher/page?page=1&page_size=2
+== 3. 菜单接口（/api/system/auth/menus）
+  ✅ menus 200，节点 10 个
+  ✅ 只读页面节点齐全：/task/list, /business/erp/sales-order, /business/erp/voucher, /business/erp/seq, /business/erp/inventory-location
+== 4. 越权探测（空 body：有权限→400，无权限→403；这里必须是 403）
+  ✗ 建销售订单 http=422（要求 403 —— 权限给多了或路由变了）
+  ✅ 建用户 403（无 system:user:create）
+  ✅ 查用户列表 403（无 system:user:list）
+== 5. 连续 1 次登录
+    第 1 次: http=200
+  ✅ 连续登录 1/1 全部 200
+== 6. 库侧（角色/权限/锁定）
+  ✅ admin is_locked=false / login_fail_count=0
+  ✅ svc_selfcheck is_locked=false / login_fail_count=0
+  ✅ 账号只挂 1 个角色：OPS_SELFCHECK
+  ✗ 角色里有非只读码：business:erp:sale-order:create
+  ✅ 授权节点 11 个
+== 汇总
+  ✗ 验收失败：硬失败 2 / 告警 0
+  verify_rc=1
+  ---- apply（应 rc=3 整笔回滚）----
+════ svc_selfcheck 落地 2026-11-10 06:35:11 ════
+  目标库: cloudpivot@127.0.0.1:5432/cloudpivot_svcchk_0610
+  env: /root/svcc_test.env（--no-env：不改 env）
+  凭据文件: /root/svcc_test.cred
+== 1. 库里现状
+user|svc_selfcheck|type=HUMAN|status=1|must_change=false|locked=false|fails=0|dept=01a18381-b7c4-753c-8fe6-d39684ead5cd
+role|OPS_SELFCHECK|scope=1|status=1|menus=11
+admin_dept=01a18381-b7c4-753c-8fe6-d39684ead5cd
+  · 账号已存在：本次**不改口令**（要改密加 --rotate；env 里的口令必须与库内一致）
+== 2. 凭据
+  ✅ 沿用已有凭据文件（账号 svc_selfcheck，口令长度 32）
+  ✅ 账号=svc_selfcheck 口令长度=32 PHC=$argon2id
+== 3. 备份四张鉴权表
+════ sys_user / sys_role / sys_role_menu / sys_user_role 备份 2026-11-10 06:35:11 ════
+  目标库: cloudpivot@127.0.0.1:5432/cloudpivot_svcchk_0610
+  备份目录: /root/svcchk/backup-neg
+  ✅ dump 181000B  c66a43328c469e72…
+  ✅ 还原：psql -h $H -p $P -U $U -d $D -f /root/svcchk/backup-neg/auth_tables.sql
+════ 备份完成 ════
+== 4. 落库（单事务 + 硬断言）
+  变更前 sys_user/sys_role/sys_role_menu/sys_user_role = 4/13/1113/12
+ERROR:  OPS_SELFCHECK 里出现非只读权限码：business:erp:sale-order:create
+CONTEXT:  PL/pgSQL function inline_code_block line 146 at RAISE
+  ✗ SQL 断言失败（rc=3）：整笔已回滚，库内未留半套权限。看上面 RAISE EXCEPTION 的原因。
+  apply_rc=3

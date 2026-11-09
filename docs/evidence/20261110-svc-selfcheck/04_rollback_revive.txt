@@ -1,0 +1,17 @@
+---- down（账号/角色软删，关系表硬删）----
+psql:/root/svcchk/scripts/10_svc_selfcheck.down.sql:46: NOTICE:  svc_selfcheck 回滚：用户软删 1 行 / 角色软删 1 行 / user_role 删 1 行 / role_menu 删 11 行
+  ✅ 已回滚（sys_user/sys_role 软删，关系表硬删）
+  ⚠ env 里的 CLOUDPIVOT_OPS_USER 未改：请手动指回原账号，否则自查会 401
+---- down 之后的库侧状态 ----
+user|svc_selfcheck|deleted_at=2026-11-10 06:35:11.384076+08
+role|OPS_SELFCHECK|deleted_at=2026-11-10 06:28:30.157857+08
+user_role_rows=0
+---- 再 up（应复活原行，id 不变）----
+  ✅ 沿用已有凭据文件（账号 svc_selfcheck，口令长度 32）
+  ✅ 账号=svc_selfcheck 口令长度=32 PHC=$argon2id
+  ✅ dump 179359B  d6f3487552290f59…
+  ✅ 还原：psql -h $H -p $P -U $U -d $D -f /root/svcchk/backup-revive/auth_tables.sql
+NOTICE:  复活软删的 OPS_SELFCHECK（9427bb57-5b1f-4b08-9793-bb05f573c12e）
+NOTICE:  复活软删的 svc_selfcheck（91518a68-580e-4d83-b8ef-f1fe531d5617）
+NOTICE:  svc_selfcheck 就绪：user=91518a68-580e-4d83-b8ef-f1fe531d5617 role=9427bb57-5b1f-4b08-9793-bb05f573c12e 授权节点=10 个
+  ✅ 变更后 = 4/13/1112/12（Δ = 4/13/1102/11 → 4/13/1112/12）

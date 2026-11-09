@@ -1,0 +1,78 @@
+  副本库 cloudpivot_svcchk_b（prod dump 还原，裸库）行数: 3 账号 / 436 菜单 / 11 角色
+  裸库里的自助账号/角色（应为空）: (不存在) / (不存在)
+  ---- 第一次 apply（全新落地）----
+════ svc_selfcheck 落地 2026-11-10 06:36:34 ════
+  目标库: cloudpivot@127.0.0.1:5432/cloudpivot_svcchk_b
+  env: /root/svcc_b.env（--no-env：不改 env）
+  凭据文件: /root/svcc_b.cred
+== 1. 库里现状
+admin_dept=01a18381-b7c4-753c-8fe6-d39684ead5cd
+== 2. 凭据
+  ✅ 沿用已有凭据文件（账号 svc_selfcheck，口令长度 32）
+  ✅ 账号=svc_selfcheck 口令长度=32 PHC=$argon2id
+== 3. 备份四张鉴权表
+════ sys_user / sys_role / sys_role_menu / sys_user_role 备份 2026-11-10 06:36:34 ════
+  目标库: cloudpivot@127.0.0.1:5432/cloudpivot_svcchk_b
+  备份目录: /root/svcchk/backup-b
+  ✅ dump 178028B  233f596734d2debe…
+  ✅ 还原：psql -h $H -p $P -U $U -d $D -f /root/svcchk/backup-b/auth_tables.sql
+════ 备份完成 ════
+== 4. 落库（单事务 + 硬断言）
+  变更前 sys_user/sys_role/sys_role_menu/sys_user_role = 3/11/1101/11
+NOTICE:  插入角色 OPS_SELFCHECK（b263827b-03f8-4bc9-941f-6b66a8f6976a）
+NOTICE:  插入账号 svc_selfcheck（2d9a17f6-2877-4881-84eb-1927965f66c2）
+NOTICE:  svc_selfcheck 就绪：user=2d9a17f6-2877-4881-84eb-1927965f66c2 role=b263827b-03f8-4bc9-941f-6b66a8f6976a 授权节点=10 个
+  ✅ 变更后 = 4/12/1111/12（Δ = 3/11/1101/11 → 4/12/1111/12）
+== 5. env
+  ⚠ --no-env：跳过（隔离库演练）
+════ 完成 ════
+  下一步验收：
+    bash /root/svcchk/scripts/verify_svc_selfcheck.sh --cred-file /root/svcc_b.cred --env-file /root/svcc_b.env --base-url http://127.0.0.1:8023
+    bash /root/prod_selfcheck.sh
+  回滚：bash /root/svcchk/scripts/apply.sh --env-file /root/svcc_b.env --down
+  apply_rc=0
+  ---- 第二次 apply（幂等，应 0 变更）----
+════ svc_selfcheck 落地 2026-11-10 06:36:34 ════
+  目标库: cloudpivot@127.0.0.1:5432/cloudpivot_svcchk_b
+  env: /root/svcc_b.env（--no-env：不改 env）
+  凭据文件: /root/svcc_b.cred
+== 1. 库里现状
+user|svc_selfcheck|type=HUMAN|status=1|must_change=false|locked=false|fails=0|dept=01a18381-b7c4-753c-8fe6-d39684ead5cd
+role|OPS_SELFCHECK|scope=1|status=1|menus=10
+admin_dept=01a18381-b7c4-753c-8fe6-d39684ead5cd
+  · 账号已存在：本次**不改口令**（要改密加 --rotate；env 里的口令必须与库内一致）
+== 2. 凭据
+  ✅ 沿用已有凭据文件（账号 svc_selfcheck，口令长度 32）
+  ✅ 账号=svc_selfcheck 口令长度=32 PHC=$argon2id
+== 3. 备份四张鉴权表
+════ sys_user / sys_role / sys_role_menu / sys_user_role 备份 2026-11-10 06:36:34 ════
+  目标库: cloudpivot@127.0.0.1:5432/cloudpivot_svcchk_b
+  备份目录: /root/svcchk/backup-b2
+  ✅ dump 180346B  510d559c1a86fe46…
+  ✅ 还原：psql -h $H -p $P -U $U -d $D -f /root/svcchk/backup-b2/auth_tables.sql
+════ 备份完成 ════
+== 4. 落库（单事务 + 硬断言）
+  变更前 sys_user/sys_role/sys_role_menu/sys_user_role = 4/12/1111/12
+NOTICE:  svc_selfcheck 就绪：user=2d9a17f6-2877-4881-84eb-1927965f66c2 role=b263827b-03f8-4bc9-941f-6b66a8f6976a 授权节点=10 个
+  ✅ 变更后 = 4/12/1111/12（Δ = 4/12/1111/12 → 4/12/1111/12）
+== 5. env
+  ⚠ --no-env：跳过（隔离库演练）
+════ 完成 ════
+  下一步验收：
+    bash /root/svcchk/scripts/verify_svc_selfcheck.sh --cred-file /root/svcc_b.cred --env-file /root/svcc_b.env --base-url http://127.0.0.1:8023
+    bash /root/prod_selfcheck.sh
+  回滚：bash /root/svcchk/scripts/apply.sh --env-file /root/svcc_b.env --down
+  apply_rc=0
+  ---- 落地后库侧事实 ----
+user|svc_selfcheck|type=HUMAN|status=1|must_change=false|locked=false|fails=0|dept=01a18381-b7c4-753c-8fe6-d39684ead5cd|pwd_algo=$argon2id$
+role|OPS_SELFCHECK|运维自查（只读）|scope=1|status=1|menus=10
+grant|1|/task|business:task:read
+grant|1|/business/erp/sales-mgmt|(目录，无码)
+grant|1|/business/erp/warehouse-mgmt|(目录，无码)
+grant|1|/business/erp/finance-mgmt|(目录，无码)
+grant|1|/business/erp/master-data|(目录，无码)
+grant|2|/task/list|business:task:read
+grant|2|/business/erp/sales-order|business:erp:sale-order:list
+grant|2|/business/erp/seq|business:erp:seq:list
+grant|2|/business/erp/voucher|business:erp:voucher:list
+grant|2|/business/erp/inventory-location|business:erp:inventory-location:list
