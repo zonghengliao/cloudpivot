@@ -17,13 +17,15 @@
 #    （`--purge-orphan-posted P2C2-V-0001`），且脚本会先把它整行打出来复核。
 #    税率归一用固定判据（只会碰到 (0,1] + mode 为空的行），dry-run 先列清单。
 #
-# 用法：
-#   bash scripts/verify/e2e04fix3_data_hygiene.sh --db-url postgres://u:p@h:5432/db
+# 用法（145 dev）：
+#   set -a; . /etc/cloudpivot/cloudpivot-dev.env; set +a
+#   bash scripts/verify/e2e04fix3_data_hygiene.sh \
+#        --db-url postgres://$NIK_DATABASE_USER@$NIK_DATABASE_HOST:$NIK_DATABASE_PORT/$NIK_DATABASE_NAME
 #       只看（dry-run，默认）
-#   ... --fix                                  归一税率残留
-#   ... --fix --purge-orphan-posted P2C2-V-0001 归一税率 + 点名删掉指定的裸头凭证
+#   ... --fix                                    归一税率残留
+#   ... --fix --purge-orphan-posted P2C2-V-0001  归一税率 + 点名删掉指定的裸头凭证
 #
-# 连接串也可以从环境变量 `ERP_DB_URL` 取。
+# 连接串也可以从环境变量 `ERP_DB_URL` 取；口令取 URL 内 / PGPASSWORD / NIK_DATABASE_PASSWORD。
 set -uo pipefail
 
 DB_URL="${ERP_DB_URL:-}"
@@ -53,8 +55,31 @@ if [ -z "$DB_URL" ]; then
   exit 2
 fi
 
+# 口令：优先用 URL 里的 / PGPASSWORD；否则回落到 145 dev 环境文件的 NIK_DATABASE_PASSWORD。
+# （`set -a; . /etc/cloudpivot/cloudpivot-dev.env; set +a` 之后直接跑即可。）
+if [ -z "${PGPASSWORD:-}" ] && [ -n "${NIK_DATABASE_PASSWORD:-}" ]; then
+  export PGPASSWORD="$NIK_DATABASE_PASSWORD"
+fi
+
 # 统一出口：psql 出错立刻停（不静默吞错）
 q() { psql "$DB_URL" -v ON_ERROR_STOP=1 -qtA -c "$1"; }
+
+# 计数必须拿到真数字 —— 空串 / 报错文本绝不能因为 `${x:-0}` 变成「0 行」（假绿）。
+# 用法：先赋值，再在**顶层**调用 assert_num（在 $(...) 里 exit 只退子 shell，挡不住假绿）。
+assert_num() { # assert_num <值> <说明>
+  case "${1:-}" in
+    ''|*[!0-9]*)
+      echo "✗ $2 没拿到计数（实际「${1:-<空>}」）—— 查询失败或连接不可用，不能当成 0" >&2
+      exit 3 ;;
+  esac
+}
+
+# 预检：连不上就别往下跑（后面每个 assert_num 都会红，但先给一句人话）
+if ! q "SELECT 1;" >/dev/null 2>&1; then
+  echo "✗ 连不上数据库：$DB_URL（口令见 --db-url 或 PGPASSWORD / NIK_DATABASE_PASSWORD）" >&2
+  exit 3
+fi
+
 say() { printf '\n%s\n' "$*"; }
 
 FAILED=0
@@ -69,10 +94,11 @@ TAX_ROWS=$(q "SELECT material_code || ' | ' || material_name || ' | tax_rate=' |
                ORDER BY material_code;")
 TAX_BEFORE=$(q "SELECT count(*) FROM biz_material
                  WHERE deleted_at IS NULL AND tax_rate > 0 AND tax_rate <= 1 AND tax_rate_mode IS NULL;")
+assert_num "$TAX_BEFORE" "③ 残留计数"
 echo "残留行数：$TAX_BEFORE"
 if [ -n "$TAX_ROWS" ]; then printf '%s\n' "$TAX_ROWS"; fi
 
-if [ "$FIX" = "1" ] && [ "${TAX_BEFORE:-0}" != "0" ]; then
+if [ "$FIX" = "1" ] && [ "$TAX_BEFORE" != "0" ]; then
   say "→ --fix：按 LEGACY 既有语义 ×100 并落 tax_rate_mode='PERCENT'"
   UPDATED=$(q "WITH u AS (
                   UPDATE biz_material
@@ -88,8 +114,9 @@ fi
 
 TAX_AFTER=$(q "SELECT count(*) FROM biz_material
                 WHERE deleted_at IS NULL AND tax_rate > 0 AND tax_rate <= 1 AND tax_rate_mode IS NULL;")
+assert_num "$TAX_AFTER" "③ 归一后残留计数"
 echo "残留行数（归一后）：$TAX_AFTER"
-if [ "${TAX_AFTER:-0}" != "0" ]; then
+if [ "$TAX_AFTER" != "0" ]; then
   echo "✗ ③ 未清零（--fix 才会写库）"
   FAILED=1
 else
@@ -99,8 +126,9 @@ fi
 # 同族护栏：发票侧同一判据（当前应为 0；有残留说明又有裸 SQL 直插）
 INV_TAX=$(q "SELECT count(*) FROM biz_invoice
               WHERE deleted_at IS NULL AND tax_rate > 0 AND tax_rate <= 1 AND tax_rate_mode IS NULL;")
-echo "  附：biz_invoice 同判据残留 = ${INV_TAX:-?} 行（本脚本不改发票：口径同 ③，若 >0 请先查来源）"
-if [ "${INV_TAX:-0}" != "0" ]; then FAILED=1; fi
+assert_num "$INV_TAX" "附：biz_invoice 残留计数"
+echo "  附：biz_invoice 同判据残留 = $INV_TAX 行（本脚本不改发票：口径同 ③，若 >0 请先查来源）"
+if [ "$INV_TAX" != "0" ]; then FAILED=1; fi
 
 say "=============================================================="
 say "E2E04-FIX-3 ④ 已记账（POSTED）却零分录的凭证"
@@ -116,6 +144,7 @@ ORPHANS=$(q "SELECT v.voucher_no || ' | ' || v.voucher_type || ' | ' || v.period
 ORPHAN_COUNT=$(q "SELECT count(*) FROM biz_voucher v
                    WHERE v.deleted_at IS NULL AND v.status = 'POSTED'
                      AND NOT EXISTS (SELECT 1 FROM biz_voucher_entry e WHERE e.voucher_id = v.id);")
+assert_num "$ORPHAN_COUNT" "④ 裸头凭证计数"
 echo "裸头凭证数：$ORPHAN_COUNT"
 if [ -n "$ORPHANS" ]; then printf '%s\n' "$ORPHANS"; fi
 
@@ -125,7 +154,8 @@ if [ "$FIX" = "1" ] && [ "${#PURGE_NOS[@]}" -gt 0 ]; then
     matched=$(q "SELECT count(*) FROM biz_voucher v
                   WHERE v.voucher_no = '${no//\'/\'\'}' AND v.deleted_at IS NULL AND v.status = 'POSTED'
                     AND NOT EXISTS (SELECT 1 FROM biz_voucher_entry e WHERE e.voucher_id = v.id);")
-    if [ "${matched:-0}" = "0" ]; then
+    assert_num "$matched" "④ $no 命中数"
+    if [ "$matched" = "0" ]; then
       echo "  · $no：当前不满足「POSTED 且零分录」（已删过 / 状态变了），跳过"
       continue
     fi
@@ -139,8 +169,9 @@ fi
 ORPHAN_AFTER=$(q "SELECT count(*) FROM biz_voucher v
                    WHERE v.deleted_at IS NULL AND v.status = 'POSTED'
                      AND NOT EXISTS (SELECT 1 FROM biz_voucher_entry e WHERE e.voucher_id = v.id);")
+assert_num "$ORPHAN_AFTER" "④ 清理后裸头计数"
 echo "裸头凭证数（清理后）：$ORPHAN_AFTER"
-if [ "${ORPHAN_AFTER:-0}" != "0" ]; then
+if [ "$ORPHAN_AFTER" != "0" ]; then
   echo "✗ ④ 未清零（未被点名的裸头会留着 —— 属主不清的数据不在本脚本的通配范围内）"
   FAILED=1
 else
