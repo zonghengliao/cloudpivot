@@ -1,0 +1,31 @@
+### 0) 登录
+  ✅ admin 登录
+  ✅ e2e01_appr（PURCHASE_MANAGER 成员）登录
+### 1) V0360 预置规则在库内生效（CONTRACT/SIGNED + CONTRACT/TERMINATED）
+  ✅ CONTRACT/SIGNED 规则（enabled|mode） = true|TAKEOVER
+  ✅ CONTRACT/TERMINATED 规则（enabled|mode） = true|TAKEOVER
+### 2) 建单 + 提交审批（5 万 → 命中 n_pm 单级）
+  ✅ 建单 HTTP/CODE = 200/c0
+  ✅ 制单人（biz_contract.create_by） = 01a17c3b-4f78-77c3-bbc5-1c1c2a412195
+  ✅ 建单阶段 CONTRACT 联动通知条数（提交前应为 0） = 0
+  ✅ 提交审批 HTTP/CODE = 200/c0
+  ✅ 合同状态 = PENDING_APPROVAL
+### 3) 审批通过（n_pm 或签：只批一票）→ 合同 SIGNED 并发通知
+  ✅ 审批 HTTP/CODE = 200/c0
+  ✅ 流程实例状态 = APPROVED
+  ✅ 合同状态 = SIGNED
+  ✅ SIGNED 通知条数（幂等键 LNK:CONTRACT:SIGNED:01a1bf46-d5b7-756f-9545-b0150c851f5f） = 1
+     · 通知正文：合同已签订 / 合同「HT-20261109-000057」状态已变更为「已签订」
+  ✅ SIGNED 通知收件人 = 制单人（sys_notice_receiver） = 1
+  ✅ 合同名下凭证张数（合同不产生凭证） = 0
+### 4) 重复审批同一待办 → 幂等（HTTP 200 + idempotent=true），通知不增
+  ✅ 重复审批被挡住（HTTP 200 / code 0 / idempotent=true）
+  ✅ SIGNED 通知条数（重复触发被抑制） = 1
+### 5) 合同终止（SIGNED → TERMINATED，需 reason）→ 再发一条终止通知
+  ✅ 终止 HTTP/CODE = 200/c0
+  ✅ 合同状态 = TERMINATED
+  ✅ TERMINATED 通知条数 = 1
+     · 通知正文：合同已终止 / 合同「HT-20261109-000057」状态已变更为「已终止」
+     · 合同 01a1bf46-d5b7-756f-9545-b0150c851f5f（E2E07FIX2-NOTICE-1109154732）与其通知留作演练证据，不删除
+
+== PASS=20 FAIL=0

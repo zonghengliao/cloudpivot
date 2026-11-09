@@ -95,14 +95,20 @@ check "SIGNED 通知收件人 = 制单人（sys_notice_receiver）" \
 check "合同名下凭证张数（合同不产生凭证）" \
   "$(SQ "select count(*) from biz_voucher where source_id='$C1' and deleted_at is null")" "0"
 
-say "### 4) 重复审批同一待办 → 409，通知不增（联动只触发一次）"
+say "### 4) 重复审批同一待办 → 幂等（HTTP 200 + idempotent=true），通知不增"
 api approve_again POST "/business/flow/task/$TID/approve" "$T_PM" '{"comment":"重复审批"}'
-case "$HTTP" in 400|409) ok "重复审批被挡（HTTP $HTTP / code $CODE）";; *) bad "重复审批应被挡，实际 HTTP $HTTP code $CODE";; esac
+IDEM=$(data '.data.idempotent')
+if [ "$HTTP" = 200 ] && { [ "$IDEM" = "true" ] || [ "$CODE" = "409" ] || [ "$CODE" = "400" ]; }; then
+  ok "重复审批被挡住（HTTP $HTTP / code $CODE / idempotent=${IDEM:-n/a}）"
+else
+  bad "重复审批应被挡（期望 200+idempotent 或 409/400），实际 HTTP $HTTP code $CODE idem=${IDEM:-n/a}"
+fi
 check "SIGNED 通知条数（重复触发被抑制）" \
   "$(SQ "select count(*) from sys_notice where idempotency_key='$KEY_SIGNED' and deleted_at is null")" "1"
 
-say "### 5) 合同终止（SIGNED → TERMINATED）→ 再发一条终止通知"
-api terminate PATCH "/business/erp/contract/$C1/status" "$T_ADMIN" '{"target_status":"TERMINATED"}'
+say "### 5) 合同终止（SIGNED → TERMINATED，需 reason）→ 再发一条终止通知"
+api terminate PATCH "/business/erp/contract/$C1/status" "$T_ADMIN" \
+  '{"target_status":"TERMINATED","reason":"E2E07-FIX-2 联动通知验证：合同终止"}'
 check "终止 HTTP/CODE" "$HTTP/c$CODE" "200/c0"
 check "合同状态" "$(SQ "select status from biz_contract where id='$C1'")" "TERMINATED"
 KEY_TERM="LNK:CONTRACT:TERMINATED:$C1"
