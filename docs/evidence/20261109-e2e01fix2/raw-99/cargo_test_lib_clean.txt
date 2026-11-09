@@ -1,0 +1,5 @@
+== worktree @ 41b6a205（纯 HEAD，无他人未提交改动）
+== cargo test --lib -j 2（无 ERP_DB_URL）
+
+test result: ok. 3928 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.63s
+

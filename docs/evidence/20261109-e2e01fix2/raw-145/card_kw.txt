@@ -1,0 +1,30 @@
+== 卡面字面关键词实测（145 · cloudpivot_dev）
+po2026         kw=PO-2026    http=200 total=11 行=11 单号种类=10 物料种类=3
+               01a1b5d2-7135-753a-9ad4-e0d38ef598b3 line=1 material=01a1b5d2-5061-75c1-9845-fd0a8a41512b
+               01a1b5d2-7135-753a-9ad4-e0d38ef598b3 line=2 material=01a1b5d2-506e-73e0-96e9-0533e4f4e791
+               01a1b5d4-91f5-7330-b2d2-83b5d4db8ce9 line=1 material=01a1b5d2-506e-73e0-96e9-0533e4f4e791
+               01a1b5d5-42cc-77f9-b9f4-6ef5f27fcb11 line=1 material=01a1b5d2-5061-75c1-9845-fd0a8a41512b
+               01a1bdc5-00d3-7792-8518-47b3f17034c9 line=1 material=01a1b5d2-5061-75c1-9845-fd0a8a41512b
+               01a1bdc5-00e2-728b-9a00-2045e7d5f8c3 line=1 material=01a1b5d2-506e-73e0-96e9-0533e4f4e791
+demop1         kw=DEMO-P1    http=200 total=8 行=8 单号种类=7 物料种类=2
+               01a1b5d2-7135-753a-9ad4-e0d38ef598b3 line=1 material=01a1b5d2-5061-75c1-9845-fd0a8a41512b
+               01a1b5d2-7135-753a-9ad4-e0d38ef598b3 line=2 material=01a1b5d2-506e-73e0-96e9-0533e4f4e791
+               01a1b5d4-91f5-7330-b2d2-83b5d4db8ce9 line=1 material=01a1b5d2-506e-73e0-96e9-0533e4f4e791
+               01a1b5d5-42cc-77f9-b9f4-6ef5f27fcb11 line=1 material=01a1b5d2-5061-75c1-9845-fd0a8a41512b
+               01a1bdc5-00d3-7792-8518-47b3f17034c9 line=1 material=01a1b5d2-5061-75c1-9845-fd0a8a41512b
+               01a1bdc5-00e2-728b-9a00-2045e7d5f8c3 line=1 material=01a1b5d2-506e-73e0-96e9-0533e4f4e791
+wuliao         kw=物料P1   http=200 total=5 行=5 单号种类=5 物料种类=1
+               01a1b5d2-7135-753a-9ad4-e0d38ef598b3 line=1 material=01a1b5d2-5061-75c1-9845-fd0a8a41512b
+               01a1b5d5-42cc-77f9-b9f4-6ef5f27fcb11 line=1 material=01a1b5d2-5061-75c1-9845-fd0a8a41512b
+               01a1bdc5-00d3-7792-8518-47b3f17034c9 line=1 material=01a1b5d2-5061-75c1-9845-fd0a8a41512b
+               01a1bdc7-3d91-73ed-8103-2876d1eaab04 line=1 material=01a1b5d2-5061-75c1-9845-fd0a8a41512b
+               01a1bdd2-1191-7064-90ac-26bed6237644 line=1 material=01a1b5d2-5061-75c1-9845-fd0a8a41512b
+
+== 同一关键词的 SQL 真值（ILIKE 同谓词）
+   kw    | count 
+---------+-------
+ PO-2026 |    11
+ DEMO-P1 |     8
+ 物料P1  |     5
+(3 rows)
+

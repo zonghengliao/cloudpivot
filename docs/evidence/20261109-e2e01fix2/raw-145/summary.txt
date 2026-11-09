@@ -1,0 +1,46 @@
+== E2E01-FIX-2 采购明细 keyword 搜索 · 145 真机（2026-11-09 16:16:57）
+   BASE=http://127.0.0.1:8033/api   DB=cloudpivot_dev   HEAD=41b6a205 feat(erp): E2E01-FIX-2 采购明细列表加 keyword 搜索（单号/物料编码/物料名称）
+   登录成功（admin · http=200）
+
+-- ⑤ 无 keyword = 全量（与库里 15 行一致）
+  PASS  http(无 keyword) = 200
+  PASS  total(无 keyword) = 15
+  PASS  total(keyword=空串) = 15
+  PASS  total(keyword=3 空格) = 15
+
+-- ① keyword=P1FIX-PO-1（该单 2 行；ILIKE 真值 2 行 / 1 张单）
+  PASS  http(单号) = 200
+  PASS  total(单号) = SQL 真值 = 2
+  PASS  命中行的 order_id 种类数 = 1
+  PASS  命中行的 order_id = d2a30001-0000-4000-8000-000000000021
+
+-- ② keyword=DEMO-P101（该物料 5 行；ILIKE 真值 5 行 / 1 个物料）
+  PASS  http(编码) = 200
+  PASS  total(编码) = SQL 真值 = 5
+  PASS  命中行的 material_id 种类数 = 1
+
+-- ③ keyword=采购演练物料P1（该名称 5 行；ILIKE 真值 5 行 / 1 个物料）
+  PASS  http(名称) = 200
+  PASS  total(名称) = SQL 真值 = 5
+  PASS  命中行的 material_id 种类数 = 1
+
+-- ④ keyword=demo-p101（小写编码，ILIKE 必须同样命中）
+  PASS  http(小写) = 200
+  PASS  total(小写) 与 ② 一致 = 5
+  PASS  用例有效：小写 != 原编码（demo-p101 vs DEMO-P101）
+
+-- ⑥ keyword=P1FIX-PO-1 + order_id=（另一张单）→ 0 行
+  PASS  http(AND) = 200
+  PASS  total(AND 冲突) = 0
+  PASS  list 长度(AND 冲突) = 0
+
+-- 反向：keyword=zz-no-such-material → 0 行（不是全量、不是 500）
+  PASS  http(未命中) = 200
+  PASS  total(未命中) = 0
+
+-- 回归：?order_id=<原单> 仍按原口径（总数 = 该单明细数）
+  PASS  http(order_id) = 200
+  PASS  total(order_id) = 2
+
+== PASS=24 FAIL=0
+   报文：/tmp/e2e01fix2/raw/    汇总：/tmp/e2e01fix2/summary.txt

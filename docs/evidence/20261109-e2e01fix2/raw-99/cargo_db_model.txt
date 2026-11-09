@@ -1,0 +1,10 @@
+== ERP_DB_URL=postgres://alun:***@127.0.0.1:5432/cloudpivot_e2efix8
+== cargo test --lib -j 1 business::erp::model::tests
+test business::erp::model::tests::warehouse_child_counts_and_children ... ok
+test business::erp::model::tests::warehouse_row_maps_level_and_path ... ok
+test business::erp::model::tests::warehouse_subtree_excludes_sibling_root ... ok
+test business::erp::model::tests::warehouse_tree_returns_three_levels_in_path_order ... ok
+test business::erp::model::tests::zz_teardown_purges_fixture_accounts ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 3902 filtered out; finished in 17.62s
+

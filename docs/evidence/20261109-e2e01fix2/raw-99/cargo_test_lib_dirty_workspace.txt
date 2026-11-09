@@ -1,0 +1,5 @@
+== cargo test --lib (无 ERP_DB_URL，真库用例自动 SKIP)
+
+test result: FAILED. 3931 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.74s
+
+error: test failed, to rerun pass `--lib`

@@ -1,0 +1,14 @@
+== pnpm build（= typecheck + vite build）
+dist//opt/cloudpivot/frontend/demo/flow-poc/vendor/vue-flow.bundle.js.gz                                   283.84kb / gzip: 100.30kb
+dist//opt/cloudpivot/frontend/assets/echarts-CuV_skF0.js.gz                                                1002.89kb / gzip: 331.52kb
+dist//opt/cloudpivot/frontend/assets/pdf.worker.min-yatZIOMy.mjs.gz                                        1343.59kb / gzip: 393.48kb
+dist//opt/cloudpivot/frontend/assets/tdesign-Cj2uTWY5.js.gz                                                7995.70kb / gzip: 772.69kb
+
+
+
+== 产物校验
+entry=index-CStkxsjl.js
+chunk=dist/assets/index-C3SwNuON.js
+含 item-filter-keyword: 1
+含搜索占位文案: 1
+入口引用该 chunk: 2
