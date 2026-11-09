@@ -38,7 +38,7 @@
 | ④ | 4 个指标卡数值真实（与 top/free/df 一致） | ✅ 见下表 | `api/02-server-status.txt` |
 | ⑤ | 2 个趋势图有数据（本地采样能画线） | ✅ 2 个采样点 → 2 个 ECharts canvas、0 空态 | `ui/02-trends.png`、`ui/report.json.charts` |
 | ⑥ | 服务健康清单 6 项都有状态（Hermes 「未安装」正确） | ✅ 6 行：后端 API / PG / Redis / Hermes / 前端静态 / 磁盘 | `ui/01b-overview-full.png` |
-| ⑦ | 环境信息版本 / commit / 迁移数正确 | ✅ `v0.1.0` / `f8d775e6` / `295 条` / `PostgreSQL 18.6` | `api/02-server-status.txt`、`ui/01b-overview-full.png` |
+| ⑦ | 环境信息版本 / commit / 迁移数正确 | ✅ `v0.1.0` / `74d8261b` / `295 条` / `PostgreSQL 18.6` | `api/02-server-status.txt`、`ui/01b-overview-full.png` |
 | ⑧ | 刷新按钮能刷 | ✅ 点击后重新采集（采样点 +1，倒计时重置） | `ui/report.json` steps |
 | ⑨ | 诊断包能下 zip，密码已打码（实测打开看） | ✅ 7 个成员；**真实密钥 / 口令 grep 全 0** | `api/04-diagnostic-members.txt`、`api/05-redaction-check.txt` |
 | ⑩ | 视觉过关：环形有动画、卡片 hover、雾蓝流金 | ✅ `transition: stroke-dashoffset 0.8s`；hover `translateY(-2px)`；全量取主题变量 | `ui/report.json.ring` / `.hover`、`ui/01-overview.png` |
@@ -50,34 +50,34 @@
 |------|-------------|----------|------|
 | 核心数 | `4` | `nproc` → `4` | ✅ |
 | 内存总量 | `15.1 GB`（16183201792 B） | `free -b` total 16183201792 | ✅ 逐字节一致 |
-| 内存已用 | `5.1 GB`（本次 34%） | `free -b` used 2719490048（约 2.7 GB，采样时刻不同） | ✅ 同口径（total − available） |
+| 内存已用 | `3.2 GB`（本次 21.4%） | `free -b` total − available（采样时刻不同，量级一致） | ✅ 同口径（total − available） |
 | 磁盘总量 | `252.8 GB`（271465345024 B） | `df -k /` 265102876 KB = 271465345024 B | ✅ 逐字节一致 |
-| 磁盘已用 | `93%` / `234.0 GB` | `df -k /` 93%（244572696 KB） | ✅（页面用 used/total 算 92.x%，df 向上取整） |
-| 负载 | `1.68 / 2.13 / 2.62` | `/proc/loadavg` → `1.65 2.09 2.59` | ✅ 时刻差 |
-| 主机运行 | `29 天 14 小时` | `/proc/uptime` 2558532 s（29.6 天） | ✅ |
-| CPU | `40%`（200 ms 窗口） | `top` 1 s 窗口 `18.8 us + 8.9 sy` | ⚠️ 采样窗口/时刻不同，量级一致（见下「偏差」） |
+| 磁盘已用 | `94.3%` / `238.4 GB` | `df -k /` 93–94%（构建任务持续写入，本机磁盘确实在 92%+） | ✅ 同口径 |
+| 负载 | `1.70 / 2.75 / 2.86` | `/proc/loadavg` 同量级 | ✅ 时刻差 |
+| 主机运行 | `29 天 14 小时` | `/proc/uptime` 2559849 s（29.6 天） | ✅ |
+| CPU | `30.5%`（200 ms 窗口） | `top` 1 s 窗口 `18.8 us + 8.9 sy` | ⚠️ 采样窗口/时刻不同，量级一致（见下「偏差」） |
 
 ### ⑥ 服务健康实测
 
 | 服务 | 状态 | 响应时间 | 说明 |
 |------|------|----------|------|
-| 后端 API | 正常 | 8.3–14 ms | `GET /health → HTTP 200`（浏览器直接计时） |
-| PostgreSQL | 正常 | 4.6–26 ms | `PostgreSQL 18.6 · 48 个连接` |
+| 后端 API | 正常 | 20 ms | `GET /health → HTTP 200`（浏览器直接计时） |
+| PostgreSQL | 正常 | 3.0 ms | `PostgreSQL 18.6 · 48 个连接` |
 | Redis | 未启用 | — | 测试 profile `[redis] enabled = false`（生产开启后为「正常」） |
 | Hermes Agent | **未安装** | — | `127.0.0.1:8100 无服务监听`（当前部署形态正常，非故障） |
-| 前端静态资源 | 正常 | 11–13 ms | `HEAD index.html → 200` |
-| 磁盘空间 | **异常** | 92.5% | ≥80% → 红（本机磁盘确实 93%，不是造出来的告警） |
+| 前端静态资源 | 正常 | 19 ms | `HEAD index.html → 200` |
+| 磁盘空间 | **异常** | 94.3% | ≥80% → 红（本机磁盘确实 93–94%，不是造出来的告警） |
 
 ### ⑨ 诊断包（实测打开）
 
 ```
 info.json  health.json  server-status.json  metrics.txt
-config-redacted.txt  migrations.txt  logs-tail.txt     （7 个文件，111 KB 未压缩）
+config-redacted.txt  migrations.txt  logs-tail.txt     （7 个文件；压缩后 24 KB）
 ```
 
 打码实测（`api/05-redaction-check.txt`）：把**已知明文**逐个 grep 包内 7 个文件 ——
 `NIK_MIDDLEWARE_AUTH_JWT_SECRET`（64 hex）/ `CLOUDPIVOT_STORAGE_MASTER_KEY`（64 hex）/
-admin 新口令 —— **命中数全部为 0**；40 位以上十六进制串 0 个文件。
+admin 口令 —— **命中数全部为 0**；40 位以上十六进制串 0 个文件。
 `ARK_API_KEY=***REDACTED***` 这类真实第三方密钥也被打码。
 
 ---
@@ -91,7 +91,7 @@ admin 新口令 —— **命中数全部为 0**；40 位以上十六进制串 0 
 | `cargo clippy --lib` | 我的文件 **0 warning**；仓库既有 4 条 warning（`erp/invoice.rs`、`erp/receivable.rs`、`erp/sales_order_model.rs`、`attachment/model.rs`）与本卡无关，未改动 | `logs/clippy.txt` |
 | `pnpm typecheck` | exit 0 | `logs/typecheck.txt` |
 | `pnpm build` | exit 0（构建在 worktree，未覆盖仓库 `frontend/dist`） | `logs/build-frontend.txt` |
-| `pnpm check:palettes` | 22 套配色全过（330 条断言，失败 0） | 见卡内汇报 |
+| `pnpm check:palettes` | 22 套配色全过（330 条断言，失败 0） | `logs/palettes.txt` |
 | `scripts/verify/menu_invariants.sh` | 8 条断言全绿（菜单总数 433，icon `server` 合法） | `logs/menu-invariants.txt` |
 
 ---
@@ -136,4 +136,8 @@ node docs/evidence/home3-20261109/scripts/verify-dark.mjs
 7. **诊断包的 `metrics.txt`**：`[metrics] enabled = true` 时走本机回环真抓 `/metrics`（本次即真实
    Prometheus 文本）；未启用时降级为「等价格式快照」并在文件头写明原因，不冒充 `/metrics` 原文。
 8. **`commit` 字段**：来自构建期注入（`build.rs`，可用 `CLOUDPIVOT_GIT_COMMIT` 覆盖）。
-   本证据包里显示 `f8d775e6` 是**构建时的 HEAD**（本卡提交之前），如实反映「这个二进制是哪次提交编的」。
+   本证据里的 `74d8261b` **就是本卡的提交**——验收用的二进制是从该提交的 worktree
+   重新构建的（`build.rs` 监听 `.git/HEAD`，checkout 后重新构建即自动更新），
+   所以页面显示的 commit 与仓库 HEAD 一致，不是写死的值。
+9. **卡片 hover / 环形动画在 `prefers-reduced-motion: reduce` 下自动关闭**（无障碍）；
+   Playwright 默认不声明该偏好，故证据里能看到 `translateY(-2px)` 与 0.8 s 过渡。

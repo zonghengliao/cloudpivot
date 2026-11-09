@@ -1,5 +1,5 @@
-# 打码实测：包内 7 个文件逐个 grep 真实密钥 / 新口令（0 = 未泄漏）
-# 被搜索的明文：NIK_MIDDLEWARE_AUTH_JWT_SECRET(64 hex)、CLOUDPIVOT_STORAGE_MASTER_KEY(64 hex)、admin 新口令 Home3@2026Pass
+# 打码实测（zip: 7 个成员）：逐个 grep 真实密钥 / 口令（0 = 未泄漏）
+# 被搜索的明文：NIK_MIDDLEWARE_AUTH_JWT_SECRET(64 hex)、CLOUDPIVOT_STORAGE_MASTER_KEY(64 hex)、admin 口令
 config-redacted.txt  jwt=0  storage_key=0  admin_pass=0
 health.json  jwt=0  storage_key=0  admin_pass=0
 info.json  jwt=0  storage_key=0  admin_pass=0
@@ -11,16 +11,12 @@ server-status.json  jwt=0  storage_key=0  admin_pass=0
 # 40 位以上十六进制串（兜底规则命中后应为 0）：
 0 个文件
 
-# config-redacted.txt 的打码行样例：
-## 进程环境变量（按键名排序；敏感值已打码）
-A2A_TRUSTED_PEERS=ip:127.0.0.1,ip:172.18.10.99
-AI_AGENT=hermes-agent
+# config-redacted.txt 打码样例：
 ARK_API_KEY=***REDACTED***
-CARGO_BUILD_JOBS=1
-CLOUDPIVOT_DIAG_LOG=/var/tmp/home3-run/server.log
 CLOUDPIVOT_STORAGE_MASTER_KEY=***REDACTED***
-DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/0/bus
-DEBUGINFOD_URLS=https://debuginfod.ubuntu.com 
-DISCORD_HISTORY_BACKFILL=true
-DISCORD_HISTORY_BACKFILL_LIMIT=50
-DISCORD_REACTIONS=true
+HERMES_REDACT_SECRETS=***REDACTED***
+HERMES_SESSION_ID=***REDACTED***
+NIK_ADMIN_PASSWORD=***REDACTED***
+NIK_DATABASE_PASSWORD=***REDACTED***
+NIK_MIDDLEWARE_AUTH_JWT_SECRET=***REDACTED***
+OLDPWD=***REDACTED***

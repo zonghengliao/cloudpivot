@@ -2,15 +2,15 @@
   "steps": [
     "超管登录成功 → /dashboard",
     "点侧栏进入：URL=http://127.0.0.1:5399/system/server-status",
-    "指标卡：[{\"label\":\"CPU\",\"value\":\"40\",\"unit\":\"%\",\"foot\":\"4 核\",\"extra\":\"5 分钟负载 2.26\",\"tone\":\"ss-ring__value ss-ring__value--ok\",\"dashoffset\":\"195.382\"},{\"label\":\"内存\",\"value\":\"34\",\"unit\":\"%\",\"foot\":\"5.1 GB / 15.1 GB\",\"extra\":\"可用 10.0 GB\",\"tone\":\"ss-ring__value ss-ring__value--ok\",\"dashoffset\":\"216.946\"},{\"label\":\"磁盘\",\"value\":\"93\",\"unit\":\"%\",\"foot\":\"234.0 GB / 252.8 GB\",\"extra\":\"根分区 /\",\"tone\":\"ss-ring__value ss-ring__value--danger\",\"dashoffset\":\"24.5044\"},{\"label\":\"运行时长\",\"value\":\"4\",\"unit\":\"分 44 秒\",\"foot\":\"启动 11-09 21:50\",\"extra\":\"主机已运行 29 天 14 小时\",\"tone\":\"\",\"dashoffset\":\"(none)\"}]",
-    "环形动画：{\"transitionProperty\":\"stroke-dashoffset\",\"transitionDuration\":\"0.8s\",\"circumference\":326.7,\"dashoffset\":197.1,\"impliedPercent\":39.7}",
-    "健康清单：[{\"name\":\"后端 API\",\"state\":\"正常\",\"latency\":\"14 ms\",\"detail\":\"GET /health → HTTP 200\"},{\"name\":\"PostgreSQL\",\"state\":\"正常\",\"latency\":\"4.6 ms\",\"detail\":\"PostgreSQL 18.6 · 48 个连接\"},{\"name\":\"Redis\",\"state\":\"未启用\",\"latency\":\"—\",\"detail\":\"缓存未启用（[redis] enabled = false）或不可达\"},{\"name\":\"Hermes Agent\",\"state\":\"未安装\",\"latency\":\"—\",\"detail\":\"127.0.0.1:8100 无服务监听（Agent 未部署在本机或未启动）\"},{\"name\":\"前端静态资源\",\"state\":\"正常\",\"latency\":\"13 ms\",\"detail\":\"index.html 可访问\"},{\"name\":\"磁盘空间\",\"state\":\"异常\",\"latency\":\"92.5%\",\"detail\":\"根分区 234.0 GB / 252.8 GB（≥60% 警告、≥80% 异常）\"}]",
-    "环境信息：{\"应用\":{\"版本\":\"v0.1.0\",\"commit\":\"f8d775e6\",\"profile\":\"test\",\"启动\":\"11-09 21:50\"},\"数据库\":{\"版本\":\"18.6\",\"迁移\":\"295 条\",\"库名\":\"cloudpivot_home3_v1\",\"大小\":\"24 MB\"},\"运行时\":{\"主机\":\"ubuntu-svr\",\"内核\":\"7.0.0-38-generic\",\"Rust\":\"rustc 1.94.1 (e408947bf 2026-03-25)\",\"Redis\":\"未启用\"},\"业务\":{\"用户\":\"2 个\",\"在线会话\":\"6 个\",\"今日登录\":\"8 次\",\"今日操作\":\"12 次\"}}",
+    "指标卡：[{\"label\":\"CPU\",\"value\":\"56\",\"unit\":\"%\",\"foot\":\"4 核\",\"extra\":\"5 分钟负载 2.69\",\"tone\":\"ss-ring__value ss-ring__value--ok\",\"dashoffset\":\"145.066\"},{\"label\":\"内存\",\"value\":\"25\",\"unit\":\"%\",\"foot\":\"3.8 GB / 15.1 GB\",\"extra\":\"可用 11.3 GB\",\"tone\":\"ss-ring__value ss-ring__value--ok\",\"dashoffset\":\"244.718\"},{\"label\":\"磁盘\",\"value\":\"94\",\"unit\":\"%\",\"foot\":\"238.4 GB / 252.8 GB\",\"extra\":\"根分区 /\",\"tone\":\"ss-ring__value ss-ring__value--danger\",\"dashoffset\":\"18.6234\"},{\"label\":\"运行时长\",\"value\":\"0\",\"unit\":\"分 53 秒\",\"foot\":\"启动 11-09 22:09\",\"extra\":\"主机已运行 29 天 15 小时\",\"tone\":\"\",\"dashoffset\":\"(none)\"}]",
+    "环形动画：{\"transitionProperty\":\"stroke-dashoffset\",\"transitionDuration\":\"0.8s\",\"circumference\":326.7,\"dashoffset\":147.4,\"impliedPercent\":54.9}",
+    "健康清单：[{\"name\":\"后端 API\",\"state\":\"正常\",\"latency\":\"20 ms\",\"detail\":\"GET /health → HTTP 200\"},{\"name\":\"PostgreSQL\",\"state\":\"正常\",\"latency\":\"3.0 ms\",\"detail\":\"PostgreSQL 18.6 · 48 个连接\"},{\"name\":\"Redis\",\"state\":\"未启用\",\"latency\":\"—\",\"detail\":\"缓存未启用（[redis] enabled = false）或不可达\"},{\"name\":\"Hermes Agent\",\"state\":\"未安装\",\"latency\":\"—\",\"detail\":\"127.0.0.1:8100 无服务监听（Agent 未部署在本机或未启动）\"},{\"name\":\"前端静态资源\",\"state\":\"正常\",\"latency\":\"19 ms\",\"detail\":\"index.html 可访问\"},{\"name\":\"磁盘空间\",\"state\":\"异常\",\"latency\":\"94.3%\",\"detail\":\"根分区 238.4 GB / 252.8 GB（≥60% 警告、≥80% 异常）\"}]",
+    "环境信息：{\"应用\":{\"版本\":\"v0.1.0\",\"commit\":\"74d8261b\",\"profile\":\"test\",\"启动\":\"11-09 22:09\"},\"数据库\":{\"版本\":\"18.6\",\"迁移\":\"295 条\",\"库名\":\"cloudpivot_home3_v1\",\"大小\":\"24 MB\"},\"运行时\":{\"主机\":\"ubuntu-svr\",\"内核\":\"7.0.0-38-generic\",\"Rust\":\"rustc 1.94.1 (e408947bf 2026-03-25)\",\"Redis\":\"未启用\"},\"业务\":{\"用户\":\"2 个\",\"在线会话\":\"3 个\",\"今日登录\":\"13 次\",\"今日操作\":\"21 次\"}}",
     "首屏截图：01-overview.png",
     "整页长图：01b-overview-full.png",
     "趋势图：{\"samples\":\"2 个采样点\",\"canvases\":2,\"emptyStates\":0}",
     "hover transform：{\"before\":\"none\",\"after\":\"matrix(1, 0, 0, 1, 0, -2)\"}",
-    "下载诊断包：{\"suggested\":\"cloudpivot-diagnostic-20261109-215514.zip\",\"saved\":\"/var/tmp/home3-evidence/ui/03-diagnostic.zip\"}",
+    "下载诊断包：{\"suggested\":\"cloudpivot-diagnostic-20261109-221052.zip\",\"saved\":\"/var/tmp/home3-evidence/ui/03-diagnostic.zip\"}",
     "响应式列数：{\"colsAt1360\":2,\"colsAt960\":1}",
     "非超管登录成功",
     "非超管：菜单命中=0，直连后 URL=http://127.0.0.1:5399/result/403"
@@ -18,37 +18,37 @@
   "metrics": [
     {
       "label": "CPU",
-      "value": "40",
+      "value": "56",
       "unit": "%",
       "foot": "4 核",
-      "extra": "5 分钟负载 2.26",
+      "extra": "5 分钟负载 2.69",
       "tone": "ss-ring__value ss-ring__value--ok",
-      "dashoffset": "195.382"
+      "dashoffset": "145.066"
     },
     {
       "label": "内存",
-      "value": "34",
+      "value": "25",
       "unit": "%",
-      "foot": "5.1 GB / 15.1 GB",
-      "extra": "可用 10.0 GB",
+      "foot": "3.8 GB / 15.1 GB",
+      "extra": "可用 11.3 GB",
       "tone": "ss-ring__value ss-ring__value--ok",
-      "dashoffset": "216.946"
+      "dashoffset": "244.718"
     },
     {
       "label": "磁盘",
-      "value": "93",
+      "value": "94",
       "unit": "%",
-      "foot": "234.0 GB / 252.8 GB",
+      "foot": "238.4 GB / 252.8 GB",
       "extra": "根分区 /",
       "tone": "ss-ring__value ss-ring__value--danger",
-      "dashoffset": "24.5044"
+      "dashoffset": "18.6234"
     },
     {
       "label": "运行时长",
-      "value": "4",
-      "unit": "分 44 秒",
-      "foot": "启动 11-09 21:50",
-      "extra": "主机已运行 29 天 14 小时",
+      "value": "0",
+      "unit": "分 53 秒",
+      "foot": "启动 11-09 22:09",
+      "extra": "主机已运行 29 天 15 小时",
       "tone": "",
       "dashoffset": "(none)"
     }
@@ -57,13 +57,13 @@
     {
       "name": "后端 API",
       "state": "正常",
-      "latency": "14 ms",
+      "latency": "20 ms",
       "detail": "GET /health → HTTP 200"
     },
     {
       "name": "PostgreSQL",
       "state": "正常",
-      "latency": "4.6 ms",
+      "latency": "3.0 ms",
       "detail": "PostgreSQL 18.6 · 48 个连接"
     },
     {
@@ -81,22 +81,22 @@
     {
       "name": "前端静态资源",
       "state": "正常",
-      "latency": "13 ms",
+      "latency": "19 ms",
       "detail": "index.html 可访问"
     },
     {
       "name": "磁盘空间",
       "state": "异常",
-      "latency": "92.5%",
-      "detail": "根分区 234.0 GB / 252.8 GB（≥60% 警告、≥80% 异常）"
+      "latency": "94.3%",
+      "detail": "根分区 238.4 GB / 252.8 GB（≥60% 警告、≥80% 异常）"
     }
   ],
   "env": {
     "应用": {
       "版本": "v0.1.0",
-      "commit": "f8d775e6",
+      "commit": "74d8261b",
       "profile": "test",
-      "启动": "11-09 21:50"
+      "启动": "11-09 22:09"
     },
     "数据库": {
       "版本": "18.6",
@@ -112,9 +112,9 @@
     },
     "业务": {
       "用户": "2 个",
-      "在线会话": "6 个",
-      "今日登录": "8 次",
-      "今日操作": "12 次"
+      "在线会话": "3 个",
+      "今日登录": "13 次",
+      "今日操作": "21 次"
     }
   },
   "charts": {
@@ -123,7 +123,7 @@
     "emptyStates": 0
   },
   "download": {
-    "suggested": "cloudpivot-diagnostic-20261109-215514.zip",
+    "suggested": "cloudpivot-diagnostic-20261109-221052.zip",
     "saved": "/var/tmp/home3-evidence/ui/03-diagnostic.zip"
   },
   "viewer": {
@@ -139,8 +139,8 @@
     "transitionProperty": "stroke-dashoffset",
     "transitionDuration": "0.8s",
     "circumference": 326.7,
-    "dashoffset": 197.1,
-    "impliedPercent": 39.7
+    "dashoffset": 147.4,
+    "impliedPercent": 54.9
   },
   "adminConsoleErrors": [],
   "responsive": {
