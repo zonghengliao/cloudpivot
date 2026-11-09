@@ -265,11 +265,16 @@ def set_sod(token, value, label):
 
 def master_data():
     step("0. 主数据（只读选取：5602.03 要求 DEPT / 1002 不要求维度 / 一个部门）")
+    # 卡面点名的 5602.03（管理费用—办公费）优先；库里没有时退化成「第一个声明 DEPT 的末级科目」
     dept_required = sql_line(
         "SELECT id || '|' || account_code || '|' || account_name FROM biz_account "
-        "WHERE deleted_at IS NULL AND status = 1 AND is_leaf = 1 "
-        "AND aux_dimensions IS NOT NULL AND aux_dimensions LIKE '%DEPT%' "
-        "ORDER BY account_code LIMIT 1")
+        "WHERE deleted_at IS NULL AND status = 1 AND is_leaf = 1 AND account_code = '5602.03'")
+    if not dept_required:
+        dept_required = sql_line(
+            "SELECT id || '|' || account_code || '|' || account_name FROM biz_account "
+            "WHERE deleted_at IS NULL AND status = 1 AND is_leaf = 1 "
+            "AND aux_dimensions IS NOT NULL AND aux_dimensions LIKE '%DEPT%' "
+            "ORDER BY account_code LIMIT 1")
     plain = sql_line(
         "SELECT id || '|' || account_code || '|' || account_name FROM biz_account "
         "WHERE deleted_at IS NULL AND status = 1 AND is_leaf = 1 "
