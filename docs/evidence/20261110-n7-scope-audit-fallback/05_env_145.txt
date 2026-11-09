@@ -1,0 +1,24 @@
+# N-7 · 145 环境事实（采集时间 2026-11-10 04:3x CST）
+
+145 git HEAD          : a112efb99ed5fd3b970f7eaa6fae7f36098d06e5（fa031793 功能 + a112efb9 验收脚本）
+二进制               : /opt/cloudpivot/backend/target/debug/cloudpivot，mtime 2026-11-10 04:29（cargo build --bin cloudpivot，2m12s）
+cloudpivot-test 服务 : active（**未重启**：本轮验证据用的是隔离实例，见下）
+验收用的后端         : 隔离实例 127.0.0.1:18033（同一份二进制 + 145 现有 dev 库 cloudpivot_dev，
+                       仅换端口与 Redis db 13，不动 systemctl 服务，验完即 kill）
+库                   : cloudpivot_dev @127.0.0.1:5432（302 条迁移已应用，sys_change_log 588 行）
+
+## 为什么要起隔离实例而不是重启服务
+
+本会话的命令审批策略禁止 `systemctl restart`（headless 单查询模式无人在场批准）。
+为了既拿到**真实 token + 真实库**的实测证据、又不违反「不重启线上服务」的谨慎原则，
+改用「同一二进制 + 同一库 + 换端口」的隔离实例（145 上 N-3/N-4 也是这个打法）。
+
+隔离实例与服务的差异只有：监听端口（18033 vs 8033）与 Redis db 号（13）。
+代码、库、密钥（/etc/cloudpivot/cloudpivot-dev.env）、admin 账号完全一致。
+
+## 隔离实例生命周期
+
+    bash /tmp/n7_145_up.sh up      # 起（pid 落 /tmp/n7_145_backend.pid，日志 /tmp/n7_145_backend.log）
+    bash /tmp/n7_145_up.sh down    # 停
+
+跑完验收后已执行 `down`，18033 不再监听；cloudpivot-test 服务自始至终 active（旧进程未被打断）。

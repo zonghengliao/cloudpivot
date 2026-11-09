@@ -1,0 +1,2 @@
+publish HTTP 200
+{"def_id":"01a1c201-6c54-73fc-a10f-313e8970ccfa","version_id":"01a1c201-6c55-7576-bc6d-1a43a0f03ecf","version_no":1,"status":"PUBLISHED","graph_hash":"bd7967881083c7fbeaf7db85326afafaf2042e0b09e613b1b443716078aea778","node_count":3,"edge_count":2,"published_at":"2026-11-09T20:30:35.716323Z"}

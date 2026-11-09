@@ -1,0 +1,2 @@
+  sys_change_log: {data_scope}|{"v": 1, "meta": {"pk": "01a1c201-6523-733f-accd-7506fe8bc1f4", "table": "sys_role", "action": "UPDATE"}, "mode": "WHITELIST", "fields": {"data_scope": {"a": 1, "b": 3}}}
+  audit_logs: DATA_SCOPE_UPDATE|{"data_scope": 3, "custom_dept_ids": []}|{"data_scope": 1, "custom_dept_ids": []}
