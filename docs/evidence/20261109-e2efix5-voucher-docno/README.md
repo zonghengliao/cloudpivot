@@ -118,10 +118,20 @@ V0357 里三条回填（`up.sql` §4–§6），全部幂等：
 
 ---
 
-## 三、验收对照（全部为本机隔离库 `cp_e2efix5` + `:18322` + 真实 HTTP/token 实测）
+## 三、验收对照（**两台机器都跑过**：99 隔离库 + 145 隔离库，均为真实 HTTP/token）
 
-脚本：`live-99.sh`（**可重放**：自建库、自起实例、全量断言，末尾自动停实例）
-原始输出：`live-99.txt` ｜ 报文：`raw/*.json`
+脚本：`live-99.sh`（**可重放**：自建库、自起实例、全量断言，末尾自动停实例；145 上复用同一脚本）
+原始输出：`live-99.txt`（99）｜ `live-145.txt`（145）｜ 报文：`raw/` `raw-145/`
+
+| 环境 | 二进制 | 库 / 端口 | 结果 |
+|---|---|---|---|
+| 99（工作机） | `backend/target/debug/cloudpivot`（commit 5a19f004） | `cp_e2efix5` / `:18322` | **PASS=40 FAIL=0** |
+| 145（测试机） | `/root/e2efix5-target/debug/cloudpivot`（worktree @ 5a19f004，`/etc/cloudpivot/cloudpivot-dev.env`） | `cp_e2efix5_145` / `:18322` | **PASS=40 FAIL=0** |
+
+> 145 上**没有**动共享工作区 `/opt/cloudpivot`（它有两个别的 worker 的未跟踪脚本，`git merge --ff-only`
+> 会被挡），也没有重启 `cloudpivot-test.service`（:8033 照常跑旧二进制）。
+> 做法：`git worktree add --detach /root/e2efix5-wt 5a19f004` + 私有 `CARGO_TARGET_DIR=/root/e2efix5-target`
+> 编译，隔离库 `cp_e2efix5_145` + 端口 `:18322` 起第三个实例，演练完即杀。
 
 | 卡面验收 | 实测 |
 |---|---|
@@ -184,8 +194,8 @@ backend/src/business/erp/payable_payment.rs    # 摘要带供应商名
 
 ## 六、未验证 / 风险
 
-- **144 生产未碰**（卡面禁止）；145 主实例未重启（本卡用隔离库 + 隔离实例，见 `live-99.txt` 第 0 节
-  的二进制路径与迁移指纹 `290 条 / 最新 357`）。
+- **144 生产未碰**（卡面禁止）。145 共享实例（`cloudpivot-test.service` :8033）**未重启**——145 的实测用的是
+  worktree `5a19f004` + 私有 target 编出的二进制 + 隔离库 `cp_e2efix5_145` + 端口 `:18322`（见 §三表）。
 - 全量 `cargo test --lib`（3882 条）未跑：本卡只跑受影响的 8 个模块套件（见上表），
   合计 184 条真库/纯逻辑用例全绿。
 - 前端未做浏览器点击级 E2E：业务单号筛选的 DOM 行为由 `voucher-logic` 单测覆盖（trim / 参数拼装）。

@@ -90,3 +90,14 @@ $ bash docs/evidence/20261109-e2efix5-voucher-docno/live-99.sh
   ✅ biz_voucher 摘要含 UUID 的行数 = 0
   ✅ biz_voucher_entry 摘要含 UUID 的行数 = 0
   ✅ 有来源单号的 AUTO 凭证 source_doc_no 均非空 = 0
+
+## §9 145 测试机复跑（同一脚本，worktree @ 5a19f004 + 私有 target + 隔离库 cp_e2efix5_145 / :18322）
+$ ssh root@172.18.10.145 'cd /root/e2efix5-wt && REPO=/root/e2efix5-wt \
+    BIN=/root/e2efix5-target/debug/cloudpivot DB=cp_e2efix5_145 PORT=18322 \
+    ENVF=/etc/cloudpivot/cloudpivot-dev.env bash docs/evidence/.../live-99.sh'
+  pid=1270063 bin=/root/e2efix5-target/debug/cloudpivot health=200
+  库指纹：迁移 290 条 / 最新 357
+== PASS=40 FAIL=0
+完整输出见 live-145.txt（106 行），报文见 raw-145/。
+说明：145 共享工作区 /opt/cloudpivot 未改动（有两个别的 worker 的未跟踪脚本挡着 ff），
+      cloudpivot-test.service（:8033）未重启，仍是旧二进制。
