@@ -1,0 +1,21 @@
+failures:
+
+---- business::erp::contract_handler::tests::manual_sign_from_pending_keeps_approval_instance stdout ----
+
+thread 'business::erp::contract_handler::tests::manual_sign_from_pending_keeps_approval_instance' (3000461) panicked at src/business/erp/contract_handler.rs:2235:10:
+造审批中前置: Query { sql: "UPDATE biz_contract SET status = 'PENDING_APPROVAL', approval_instance_id = $1::uuid WHERE id = $2::uuid", source: Error { kind: ToSql(0), cause: Some("cannot bind parameter to column type uuid") } }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- business::erp::stocktake_tests::lnk04_excluded_inventory_actions_do_not_double_write stdout ----
+
+thread 'business::erp::stocktake_tests::lnk04_excluded_inventory_actions_do_not_double_write' (3054730) panicked at src/business/erp/stocktake_tests.rs:1395:5:
+排除清单里的动作不许产生任何执行记录，实际：[]
+
+
+failures:
+    business::erp::contract_handler::tests::manual_sign_from_pending_keeps_approval_instance
+    business::erp::stocktake_tests::lnk04_excluded_inventory_actions_do_not_double_write
+
+test result: FAILED. 2022 passed; 2 failed; 0 ignored; 0 measured; 1933 filtered out; finished in 1741.07s
+
+error: test failed, to rerun pass `--lib`

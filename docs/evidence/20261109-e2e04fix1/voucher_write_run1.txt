@@ -1,0 +1,47 @@
+
+===================================================================
+[e2e04aux=business::erp::voucher_write] 第 1 轮  filter='business::erp::voucher_write'
+  库：cp_libtest_e2e04aux    P0FIX：cp_libtest_e2e04aux_p0fix
+  时间：2026-11-09 17:32:40 CST  HEAD：8791c47e
+  命令：ERP_DB_URL=…/cp_libtest_e2e04aux TASK_DB_URL=…/cp_libtest_e2e04aux P0FIX_DB_URL=…/cp_libtest_e2e04aux_p0fix \
+        cargo test --lib 'business::erp::voucher_write' -- --test-threads=1
+===================================================================
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 32 tests
+test business::erp::voucher_write::tests::aux_dimensions_parse_is_lenient_but_bounded ... ok
+test business::erp::voucher_write::tests::aux_missing_is_400_with_account_code_and_field ... ok
+test business::erp::voucher_write::tests::biz_active_conflict_maps_to_409_with_voucher_no ... ok
+test business::erp::voucher_write::tests::e2e04_aux_id_must_be_uuid ... ok
+test business::erp::voucher_write::tests::e2e04_legacy_voucher_with_null_aux_is_not_blocked ... ok
+test business::erp::voucher_write::tests::e2e04_manual_voucher_with_dept_lands_and_shows_in_aux_balance ... ok
+test business::erp::voucher_write::tests::e2e04_manual_voucher_without_dimension_account_needs_no_aux ... ok
+test business::erp::voucher_write::tests::e2e04_manual_voucher_without_required_dept_is_rejected ... ok
+test business::erp::voucher_write::tests::p4a_audit_by_other_lands_audited ... ok
+test business::erp::voucher_write::tests::p4a_audited_voucher_summary_is_locked ... ok
+test business::erp::voucher_write::tests::p4a_auto_voucher_still_posts_directly ... ok
+test business::erp::voucher_write::tests::p4a_create_lands_draft_with_creation_log ... ok
+test business::erp::voucher_write::tests::p4a_initial_audited_status_is_rejected ... ok
+test business::erp::voucher_write::tests::p4a_locked_statuses_are_posted_and_audited ... ok
+test business::erp::voucher_write::tests::p4a_only_posted_enters_ledger_and_trial_balance ... ok
+test business::erp::voucher_write::tests::p4a_only_un_audit_needs_reason ... ok
+test business::erp::voucher_write::tests::p4a_post_requires_audited ... ok
+test business::erp::voucher_write::tests::p4a_posted_is_terminal ... ok
+test business::erp::voucher_write::tests::p4a_self_audit_gate_matrix ... ok
+test business::erp::voucher_write::tests::p4a_self_audit_is_forbidden ... ok
+test business::erp::voucher_write::tests::p4a_un_audit_back_to_draft_keeps_reason ... ok
+test business::erp::voucher_write::tests::p4a_un_audit_requires_reason ... ok
+test business::erp::voucher_write::tests::p4a_voucher_state_machine_registry ... ok
+test business::erp::voucher_write::tests::p7_manual_voucher_balanced_lands_draft ... ok
+test business::erp::voucher_write::tests::p7_manual_voucher_unbalanced_is_rejected ... ok
+test business::erp::voucher_write::tests::p7_reverse_closed_period_is_conflict ... ok
+test business::erp::voucher_write::tests::p7_reverse_creates_red_voucher ... ok
+test business::erp::voucher_write::tests::p7_reverse_red_voucher_is_conflict ... ok
+test business::erp::voucher_write::tests::p7_reverse_requires_reason ... ok
+test business::erp::voucher_write::tests::p7_reverse_twice_is_conflict ... ok
+test business::erp::voucher_write::tests::p7_reverse_writes_back_reversed_by_and_keeps_posted ... ok
+test business::erp::voucher_write::tests::zz_teardown_purges_voucher_status_logs ... ok
+
+test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 3925 filtered out; finished in 23.17s
+
