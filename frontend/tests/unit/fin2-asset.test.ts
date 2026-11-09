@@ -741,8 +741,8 @@ test('validateCategoryForm：编码可留空 / 月数 / 残值率 / 科目必填
     expense_account_id: 'c',
   };
   assert.deepEqual(validateCategoryForm(filled), {});
-  // CODE-07：字符集改为「字母 / 数字 / - _ .」，统一大写后校验（后端 seq::validate_manual_code 同口径）：
-  // 小写直接放行（落库前转大写），取号器自己的 `AC-01` 与企业自有码 `CAT-BUILDING` 都要能过。
+  // CODE-07 + E2E08-FIX-2 ①：字符集 =「字母 / 数字 / - _ .」，**大小写原样保留**
+  // （前后端都不再 to_ascii_upper），取号器自己的 `AC-01` 与企业自有码 `CAT-BUILDING` / `elec` 都要能过。
   assert.equal(validateCategoryForm({ ...filled, category_code: 'elec' }).category_code, undefined);
   assert.equal(validateCategoryForm({ ...filled, category_code: 'AC-01' }).category_code, undefined);
   assert.equal(

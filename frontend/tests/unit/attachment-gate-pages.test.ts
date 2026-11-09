@@ -16,10 +16,17 @@
  * 每页断言四件事（缺一条就会出「按钮亮着点下去 400」或「灰着没解释」）：
  *
  * 1. 闸门确实调了后端：`doc_type` 与 `at` 与 `biz_attachment_rule` 种子**逐字**一致；
- * 2. 目标按钮 `:disabled` **同时**含权限与闸门；
+ * 2. 目标按钮 `:disabled` **同时**含权限与闸门（**固定资产启用是唯一例外** ——
+ *    它已降级为「提示 + 允许 + 审计」，不置灰，见文末例外段）；
  * 3. 按钮旁有 `<AttachmentGateHint>`（红字，文案来自后端）；
  * 4. 附件面板 `@changed` 触发重查（验收②「传完自动变亮」）；
  * 5. 该页有上传入口（`DocAttachmentPanel`）—— 否则必传规则永远无法满足。
+ *
+ * **例外（唯一的非硬闸）：固定资产启用。** E2E05-FIX-2（635b07fe）把
+ * `FIXED_ASSET` + `ACTIVATE` 从「硬闸」降级为「提示 + 允许 + 审计」：
+ * 按钮**不置灰**，缺附件时弹窗给黄字（`t-alert`，testid `asset-enable-gate-hint`）
+ * + 去上传的链接 + 点「确认启用」时二次确认，后端写 `ERP_ASSET_ENABLE_NO_ATTACH`
+ * 审计。理由：建卡不查附件，「发票未到先建卡」的资产停用一次就再也启用不回来。
  *
  * 运行：`pnpm test:unit`
  */
@@ -136,24 +143,57 @@ test('盘点单：只有「提交审批」那条边受闸门约束，动作按�
 
 // ==================== ⑤ 固定资产（FIXED_ASSET / ACTIVATE） ====================
 
-test('固定资产：「确认启用」受闸门约束，红字在弹窗里，附件挂详情页签', () => {
+test('固定资产：启用不再被闸门置灰，缺附件给黄字 + 二次确认 + 审计留痕，附件挂详情页签', () => {
   const page = readSource('views/business/erp/asset/index.vue');
   assert.ok(page.includes("ref<DocType>('FIXED_ASSET')"), 'doc_type 必须是 FIXED_ASSET');
   assert.ok(page.includes("at: 'ACTIVATE'"), '动作必须是 ACTIVATE（入账 / 启用）');
+
+  // E2E05-FIX-2（635b07fe）方案 B：启用从「硬闸」降级为「提示 + 允许 + 审计」。
+  // 旧口径 `disabled: statusChangeKind === 'IN_USE' && !assetGate.canProceed` 会让
+  // 「发票未到先建卡」的资产停用一次就永远启用不了（E2E-05 实测 400），已删除。
   assert.ok(
-    page.includes('disabled: statusChangeKind === \'IN_USE\' && !assetGate.canProceed'),
-    '「确认启用」必须受闸门约束（停用不受约束）',
+    !page.includes("disabled: statusChangeKind === 'IN_USE' && !assetGate.canProceed"),
+    '「确认启用」不能再按附件闸门置灰（E2E05-FIX-2 已降级为提示 + 允许 + 审计）',
   );
-  assert.ok(page.includes('<AttachmentGateHint'), '弹窗里必须有红字组件');
-  assert.ok(page.includes('testid="asset-enable-gate-hint"'), '红字必须有稳定的 testid');
+  // 两种写法都要挡：`:confirm-btn="{ disabled: … }"`（对象属性）与
+  // `:confirm-btn-disabled="…"` / `:disabled="…"`（属性绑定）。只钉一种会留后门 ——
+  // 本卡做变异验证时实测：只匹配 `disabled:` 的版本把闸门绑成属性写法仍能溜过。
+  assert.ok(
+    !/disabled\s*[:=][^\n]*assetGate/.test(page),
+    '本页任何按钮都不得再被 assetGate 直接禁用（闸门只负责「提示」）',
+  );
+
+  // 缺附件时弹窗里仍有黄字（文案来自后端 assetGate.hint），但只是提示、不拦人。
+  // 断言只钉「这个 t-alert 自身」的条件与主题，**不钉属性顺序 / 换行**（d9d25d83 那种
+  // rustfmt 折行曾把 244 的逐字断言打成假红，源码契约不该靠排版）。
+  const hintAt = page.indexOf('data-testid="asset-enable-gate-hint"');
+  assert.ok(hintAt > 0, '缺附件提示必须有稳定 testid `asset-enable-gate-hint`');
+  const hintTag = page.slice(page.lastIndexOf('<t-alert', hintAt), page.indexOf('/>', hintAt));
+  assert.ok(
+    hintTag.includes('!assetGate.canProceed'),
+    '黄字必须只在缺附件（!assetGate.canProceed）时出现，不能变成常显',
+  );
+  assert.ok(hintTag.includes('theme="warning"'), '必须是 warning 黄字（提示），不能是红字 / 危险色');
+  assert.ok(page.includes('assetGate.hint'), '缺口文案必须来自后端闸门（前端不拼句子）');
+  assert.ok(page.includes('ERP_ASSET_ENABLE_NO_ATTACH'), '必须点名审计操作码（说清会被留痕）');
+  assert.ok(page.includes('data-testid="asset-enable-upload-link"'), '提示旁必须给去上传的入口');
   assert.ok(page.includes(':doc-type="DOC_KIND.FIXED_ASSET"'), '必须能上传发票 / 验收单');
   assert.ok(page.includes('@changed="refreshAssetGate()"'), '上传后必须重查');
+
   // 只有「启用」才查（停用与附件无关）
   const docId = bodyOf(page, 'const assetGateDocId');
   assert.ok(docId.includes("statusChangeKind.value === 'IN_USE'"), docId);
-  // 后端兜底：弹窗按钮灰了也再判一次
+
+  // 缺附件：不 return 静默失败，走二次确认 → 确认后照常提交（真留痕在后端）
   const submit = bodyOf(page, 'async function submitStatusChange');
-  assert.ok(submit.includes('assetGate.value.canProceed'), '提交函数必须再兜一次闸门');
+  assert.ok(submit.includes('assetGate.value.canProceed'), '提交函数仍要判断闸门结果（缺附件走二次确认）');
+  assert.ok(
+    submit.includes('confirmEnableWithoutAttachment(target)'),
+    '缺附件时不能直接拦掉，必须走二次确认放行',
+  );
+  const confirm = bodyOf(page, 'function confirmEnableWithoutAttachment');
+  assert.ok(confirm.includes('无附件启用'), '二次确认按钮文案要点明「无附件启用」');
+  assert.ok(confirm.includes('doSubmitStatusChange()'), '确认后必须真正提交');
 });
 
 // ==================== ⑥ 付款单（PAYMENT / ACTIVATE） ====================

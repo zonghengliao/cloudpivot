@@ -468,23 +468,24 @@ test('toPayPayload：空账户 / 空备注不发', () => {
 test('validateTypeForm：编码可留空（后端取号 ET-01）、科目必填、上限非负', () => {
   // CODE-07：编码留空交给后端取号，前端第一个错应是名称
   assert.match(validateTypeForm(emptyTypeForm()) ?? '', /费用类型名称必填/);
-  // 字符集 = MASTER_CODE_PATTERN（字母 / 数字 / - _ .，≤ 40，调用方先转大写）
+  // 字符集 = MASTER_CODE_PATTERN（字母 / 数字 / - _ .，≤ 40；**大小写都收**，原样保存）
   assert.equal(TYPE_CODE_PATTERN.test('TRAVEL'), true);
   assert.equal(TYPE_CODE_PATTERN.test('TRAVEL_2026'), true);
   assert.equal(TYPE_CODE_PATTERN.test('ET-01'), true, '取号器产物带连字符，必须放行');
   assert.equal(TYPE_CODE_PATTERN.test('ADMIN-FEE'), true, '企业自有编码可对接');
   assert.equal(TYPE_CODE_PATTERN.test('1TRAVEL'), true, '不再要求字母开头（后端也不要求）');
-  assert.equal(TYPE_CODE_PATTERN.test('travel'), false, 'pattern 本身只管大写形态，转大写由调用方做');
+  // E2E08-FIX-2（e53a4937）①：六类主数据统一「大小写原样保留」，pattern 放开小写
+  assert.equal(TYPE_CODE_PATTERN.test('travel'), true, '小写编码也是合法编码（后端 validate_manual_code 同样收）');
   assert.equal(TYPE_CODE_PATTERN.test('TRA VEL'), false, '空格不在字符集里');
 
   const base = { ...emptyTypeForm(), type_code: 'travel', type_name: '差旅费', account_id: 'acc-1' };
-  // 小写会被大写化后再校验（后端同样先 upper）
+  // 小写原样通过（前后端都不再 to_ascii_upper，改的是用户的编码）
   assert.equal(validateTypeForm(base), null);
   assert.match(validateTypeForm({ ...base, account_id: '' }) ?? '', /借方费用科目/);
   assert.match(validateTypeForm({ ...base, amount_limit: '-1' }) ?? '', /不能为负/);
 });
 
-test('toTypePayload：编码大写化、0 上限原样提交、备注空串不发', () => {
+test('toTypePayload：编码原样保留（只 trim）、0 上限原样提交、备注空串不发', () => {
   const payload = toTypePayload({
     ...emptyTypeForm(),
     type_code: ' travel ',
@@ -492,10 +493,13 @@ test('toTypePayload：编码大写化、0 上限原样提交、备注空串不�
     account_id: 'acc-1',
     remark: '',
   });
-  assert.equal(payload.type_code, 'TRAVEL');
+  // E2E08-FIX-2（e53a4937）①：不再大写化 —— 企业自有编码区分大小写，替用户改大小写等于改他的编码
+  assert.equal(payload.type_code, 'travel');
   assert.equal(payload.type_name, '差旅费');
   assert.equal(payload.amount_limit, '0');
   assert.equal(payload.remark, undefined);
+  // 本来就大写的（取号器产物 ET-01）照旧
+  assert.equal(toTypePayload({ ...emptyTypeForm(), type_code: ' ET-01 ' }).type_code, 'ET-01');
 });
 
 // ==================== 详情展示 ====================

@@ -57,6 +57,7 @@ import type {
 } from '@/api/business/erp/commission';
 
 import {
+  COMMISSION_SETTLEMENT_STATUSES,
   COMMISSION_STATUS_EDGES,
   buildSettlePayload,
   canTransition,
@@ -337,16 +338,50 @@ test('前端状态边 = 后端 commission_dto::LEGAL_EDGES（源码即契约）'
     resolve(REPO_ROOT, 'backend/src/business/erp/commission_dto.rs'),
     'utf8',
   );
-  assert.ok(
-    dto.includes('pub const LEGAL_EDGES: [(&str, &str); 2] = [\n    (STATUS_DRAFT, STATUS_APPROVED),\n    (STATUS_APPROVED, STATUS_PAID),\n];'),
+
+  /** 后端 `pub const <name>: &str = "VALUE";` 的字面值（不在测试里重抄一遍状态名） */
+  const statusValue = (name: string): string => {
+    const hit = new RegExp(`pub const ${name}:\\s*&str\\s*=\\s*"([A-Z_]+)";`).exec(dto);
+    assert.ok(hit, `后端 commission_dto 缺常量 ${name}`);
+    return hit![1];
+  };
+
+  // 状态域三值 + 顺序，与前端 COMMISSION_SETTLEMENT_STATUSES 一一对应（源码即契约）
+  const backendStatuses = /pub const STATUSES:\s*\[&str;\s*(\d+)\]\s*=\s*\[([^\]]*)\];/.exec(dto);
+  assert.ok(backendStatuses, '后端 commission_dto 缺 STATUSES');
+  const statusNames = [...backendStatuses![2].matchAll(/STATUS_[A-Z]+/g)].map((m) => m[0]);
+  assert.equal(statusNames.length, Number(backendStatuses![1]), 'STATUSES 声明的长度必须与字面量一致');
+  assert.deepEqual(
+    statusNames.map(statusValue),
+    [...COMMISSION_SETTLEMENT_STATUSES],
+    '状态域 / 顺序不一致：前端 COMMISSION_SETTLEMENT_STATUSES 必须同步',
+  );
+
+  // 边表按语义解析 —— **不钉源码排版**（d9d25d83 全仓 rustfmt 把两行折成一行，
+  // max_width=120；逐字匹配纳的只是格式，不是契约本身）
+  const edges = /pub const LEGAL_EDGES:\s*\[\(&str, &str\);\s*(\d+)\]\s*=\s*\[([\s\S]*?)\];/.exec(dto);
+  assert.ok(edges, '后端 commission_dto 缺 LEGAL_EDGES');
+  const pairs = [...edges![2].matchAll(/\(\s*(STATUS_[A-Z]+)\s*,\s*(STATUS_[A-Z]+)\s*\)/g)];
+  assert.equal(pairs.length, Number(edges![1]), 'LEGAL_EDGES 声明的边数必须与字面量条数一致');
+  const backendEdges: string[][] = pairs.map((m) => [statusValue(m[1]), statusValue(m[2])]);
+
+  // 前端边表 = 后端边表（逐边 + 同序：多一条 / 少一条 / 换了方向都算不同步）
+  assert.deepEqual(
+    COMMISSION_STATUS_EDGES.map(([from, to]) => [from, to]),
+    backendEdges,
     '后端 LEGAL_EDGES 变了：前端 COMMISSION_STATUS_EDGES 必须同步',
   );
-  assert.deepEqual(COMMISSION_STATUS_EDGES, [
-    ['DRAFT', 'APPROVED'],
-    ['APPROVED', 'PAID'],
-  ]);
-  // 状态域三值，顺序一致
-  assert.ok(dto.includes('pub const STATUSES: [&str; 3] = [STATUS_DRAFT, STATUS_APPROVED, STATUS_PAID];'));
+  // 业务不变量：没有任何边指向 DRAFT（回退 = 改写已入账的凭证）
+  const draft = statusValue('STATUS_DRAFT');
+  assert.ok(!backendEdges.some(([, to]) => to === draft), '不允许回退到草稿');
+  assert.deepEqual(
+    backendEdges,
+    [
+      [draft, statusValue('STATUS_APPROVED')],
+      [statusValue('STATUS_APPROVED'), statusValue('STATUS_PAID')],
+    ],
+    '业务口径：只有 DRAFT→APPROVED→PAID，没有跳步 / 回退边',
+  );
 });
 
 test('权限码 = V0310 种的 7 个（前端先核对，别再出现「卡面写错码」）', () => {

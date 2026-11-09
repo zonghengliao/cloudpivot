@@ -381,6 +381,8 @@ test('create payload keeps dates and folds empty remark to null', () => {
     contract_id: null,
     // 没选销售员 → `null`（SO-37：后端不默认成建单人 —— 佣金归属必须显式指定）
     salesperson_id: null,
+    // 没选币种 → `null`（SO-42 / V0316：null = 账套本位币，后端按单据日锁汇率）
+    currency_code: null,
     order_date: '2026-11-06',
     delivery_date: null,
     remark: null,

@@ -8,8 +8,8 @@
  *    会被前端自己挡住。**同时钉**「取号器自己产出的 `AC-01` / `ET-01` 必须能通过校验」
  *    —— 旧正则 `^[A-Z][A-Z0-9_]*$` 不接受连字符，点完「生成编码」保存不过去。
  * 2. **留空发 `null`**（不是 `''`）：与 CODE-05/06 同一口径，后端 `resolve_manual_code`
- *    两种都当「没填」，但 `null` 一眼看出意图；填了原样保留（转大写，企业自有码
- *    `CAT-BUILDING` / `ADMIN-FEE` 要能对接）。
+ *    两种都当「没填」，但 `null` 一眼看出意图；填了**原样保留**（E2E08-FIX-2 起不再转大写，
+ *    企业自有码区分大小写，`cat-building` / `admin-fee` 原样入库）。
  * 3. **API 层有预览接口且路径写全** `/api`：漏前缀会命中 SPA fallback 返回 HTML
  *    （仓内高频坑）。资产分类的接口在 `api/business/erp/asset.ts`（不是 index.ts），
  *    费用类型在 `api/business/erp/expense.ts` —— 与供应商/物料那几个不同文件，别找错。
@@ -96,16 +96,20 @@ test('资产分类·①validateCategoryForm：编码留空不拦（后端取号 
   );
 });
 
-// ==================== 资产分类 ② 请求体：留空发 null，填了大写 trim ====================
+// ==================== 资产分类 ② 请求体：留空发 null，填了原样保留（只 trim） ====================
 
-test('资产分类·②请求体：编码留空发 null（交给后端取号），填了转大写只 trim', () => {
+test('资产分类·②请求体：编码留空发 null（交给后端取号），填了原样保留只 trim', () => {
   // 页面 toPayload 直接调这套 helper（源码钉在 ④），这里钉语义本身
   assert.equal(toMasterCodeInput(''), null, '空串 ⇒ null');
   assert.equal(toMasterCodeInput('   '), null, '纯空白 ⇒ null');
   assert.equal(toMasterCodeInput(undefined), null, 'undefined ⇒ null');
-  assert.equal(toMasterCodeInput('  ac-01 '), 'AC-01', '手工/预览编码原样保留，只 trim + 转大写');
-  assert.equal(toMasterCodeInput('cat-building'), 'CAT-BUILDING', '企业自有编码可对接');
+  // E2E08-FIX-2（e53a4937）：六类主数据统一「原样保留」，不再 to_ascii_upper ——
+  // 有些企业自有编码区分大小写，替用户改大小写等于改他的编码。
+  assert.equal(toMasterCodeInput('  ac-01 '), 'ac-01', '手工/预览编码原样保留，只 trim（不转大写）');
+  assert.equal(toMasterCodeInput('AC-01'), 'AC-01', '本来就大写的照旧');
+  assert.equal(toMasterCodeInput('cat-building'), 'cat-building', '企业自有编码可对接（连字符 + 小写都要能过）');
   assert.equal(masterCodeError(''), null, '留空 = 通过（交给后端取号）');
+  assert.equal(masterCodeError('travel'), null, '小写编码也不拦（字符集大小写都收）');
 });
 
 // ==================== 资产分类 ③ API 层：预览接口 + 路径写全 ====================
@@ -193,24 +197,31 @@ test('费用类型·①validateTypeForm：编码留空不拦（后端取号 ET-0
   );
 });
 
-// ==================== 费用类型 ② 请求体：留空发 null ====================
+// ==================== 费用类型 ② 请求体：留空发 null，填了原样保留 ====================
 
-test('费用类型·②toTypePayload：编码留空发 null（交给后端取号），填了转大写只 trim', () => {
+test('费用类型·②toTypePayload：编码留空发 null（交给后端取号），填了原样保留只 trim', () => {
   assert.equal(toTypePayload(filledTypeForm()).type_code, null, '留空必须是 null');
   assert.equal(
     toTypePayload({ ...filledTypeForm(), type_code: '   ' }).type_code,
     null,
     '纯空白也是 null',
   );
+  // E2E08-FIX-2（e53a4937）①：六类主数据（SUP/CUS/MAT/WH/AC/ET）手工编码统一「大小写原样保留」，
+  // 后端 `validate_type` 已删掉 `to_ascii_uppercase`，前端 `toMasterCodeInput` 只 trim、不转大写。
   assert.equal(
     toTypePayload({ ...filledTypeForm(), type_code: '  et-01  ' }).type_code,
-    'ET-01',
-    '预览号原样保留（只 trim + 转大写）',
+    'et-01',
+    '预览号原样保留：只 trim，不转大写',
   );
   assert.equal(
     toTypePayload({ ...filledTypeForm(), type_code: 'admin-fee' }).type_code,
-    'ADMIN-FEE',
-    '企业自有编码可对接',
+    'admin-fee',
+    '企业自有编码可对接（小写 + 连字符原样发）',
+  );
+  assert.equal(
+    toTypePayload({ ...filledTypeForm(), type_code: 'ET-01' }).type_code,
+    'ET-01',
+    '本来就大写的一样原样发（取号器产物）',
   );
 });
 
