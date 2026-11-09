@@ -1,0 +1,21 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.61s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 14 tests
+test business::erp::customer_handler::tests::auto_code_generated_when_blank ... ok
+test business::erp::customer_handler::tests::auto_code_increments_consecutively ... ok
+test business::erp::customer_handler::tests::create_customer_persists_all_fields ... ok
+test business::erp::customer_handler::tests::customer_code_cannot_be_changed ... ok
+test business::erp::customer_handler::tests::duplicate_code_rejected_and_reusable_after_soft_delete ... ok
+test business::erp::customer_handler::tests::duplicate_manual_code_rejected_with_message ... ok
+test business::erp::customer_handler::tests::manual_code_is_preserved ... ok
+test business::erp::customer_handler::tests::negative_credit_limit_rejected_zero_allowed ... ok
+test business::erp::customer_handler::tests::page_filters_by_code_name_and_status ... ok
+test business::erp::customer_handler::tests::permission_codes_are_unique_and_prefixed ... ok
+test business::erp::customer_handler::tests::preview_code_does_not_consume_sequence ... ok
+test business::erp::customer_handler::tests::previewed_code_is_used_verbatim_on_create ... ok
+test business::erp::customer_handler::tests::soft_delete_hides_row_but_keeps_it ... ok
+test business::erp::customer_handler::tests::update_is_partial_and_locks_code ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 3957 filtered out; finished in 7.02s
+

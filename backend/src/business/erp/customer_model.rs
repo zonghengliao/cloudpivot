@@ -293,6 +293,12 @@ pub async fn customer_insert_ex(
 }
 
 /// 整行覆盖编辑（软删行不命中 → 返回 0）。
+///
+/// **编码列仍整行写回**，但 `write.code` 恒等于当前行的 `code`：
+/// 编辑入口 [`crate::business::erp::customer_handler::update_customer`] 在合并前就把
+/// 「换成另一个编码」拒成 400「客户编码不可修改」（编码是历史单据 / 审计的引用口径）。
+/// 这里不做「跳过 code 列」的写法，是为了让 `CustomerWrite` 保持「整行真相」的语义
+/// （导入 / 补数若走同一写入函数，不会因为静默跳列而写出半行）。
 pub async fn customer_update(id: Uuid, write: &CustomerWrite, operator: Option<Uuid>) -> DbResult<u64> {
     db().execute_with_params(
         "UPDATE biz_customer SET code = ?, name = ?, tax_no = ?, contact_name = ?, \

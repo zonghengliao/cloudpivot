@@ -1,0 +1,37 @@
+# cargo clippy -- -D warnings（2026-11-09T19:38:52+08:00）
+# 结论：4 条红全部在**本卡未修改**的文件里（origin/main 既有），本卡 3 个改过的文件 0 告警
+
+error: this function has too many arguments (8/7)
+   --> src/business/attachment/model.rs:879:1
+error: the following explicit lifetimes could be elided: 'a
+    --> src/business/erp/invoice.rs:1912:26
+error: doc list item without indentation
+   --> src/business/erp/receivable.rs:782:5
+error: this function has too many arguments (8/7)
+   --> src/business/erp/sales_order_model.rs:661:1
+error: could not compile `cloudpivot` (lib) due to 4 previous errors
+
+## 红点文件是否被本卡修改（git status --porcelain <file> 应为空）
+  src/business/attachment/model.rs : (空=未改)
+  src/business/erp/receivable.rs : (空=未改)
+  src/business/erp/sales_order_model.rs : (空=未改)
+  src/business/erp/invoice.rs : (空=未改)
+
+## 本卡改过的文件（git diff --stat 33961c15^ 33961c15）
+ backend/src/business/erp/customer_handler.rs    | 128 ++++++-
+ backend/src/business/erp/price_admin_handler.rs | 472 +++++++++++++++++++++++-
+ backend/src/business/erp/price_admin_model.rs   |  83 +++++
+ 3 files changed, 670 insertions(+), 13 deletions(-)
+
+## 格式：rustfmt --check（默认版本 + 项目口径 1.94.1）
+  default: OK src/business/erp/price_admin_handler.rs
+  1.94.1: OK src/business/erp/price_admin_handler.rs
+  default: OK src/business/erp/price_admin_model.rs
+  1.94.1: OK src/business/erp/price_admin_model.rs
+  default: OK src/business/erp/customer_handler.rs
+  1.94.1: OK src/business/erp/customer_handler.rs
+  default: OK src/business/erp/customer_model.rs
+  1.94.1: OK src/business/erp/customer_model.rs
+
+## 全仓 cargo fmt -p cloudpivot -- --check 剩余差异文件（都不是本卡文件）
+Diff in /opt/cloudpivot/backend/src/business/shared/state_machine.rs

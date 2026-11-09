@@ -1,0 +1,30 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 08s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 22 tests
+test business::erp::price_admin_handler::tests::adjacent_periods_share_boundary_day ... ok
+test business::erp::price_admin_handler::tests::agreed_update_merges_partial_fields ... ok
+test business::erp::price_admin_handler::tests::duplicate_messages_name_the_key ... ok
+test business::erp::price_admin_handler::tests::effective_dates_order_is_enforced ... ok
+test business::erp::price_admin_handler::tests::filter_invalid_uuid_is_rejected ... ok
+test business::erp::price_admin_handler::tests::filter_status_is_validated ... ok
+test business::erp::price_admin_handler::tests::inactive_tier_may_overlap_but_reenable_is_blocked ... ok
+test business::erp::price_admin_handler::tests::invalid_uuid_is_bad_request ... ok
+test business::erp::price_admin_handler::tests::min_qty_defaults_to_zero_and_rejects_negative ... ok
+test business::erp::price_admin_handler::tests::period_overlap_boundaries ... ok
+test business::erp::price_admin_handler::tests::permission_codes_shape ... ok
+test business::erp::price_admin_handler::tests::price_must_be_positive_at_entry ... ok
+test business::erp::price_admin_handler::tests::qty_overlap_boundaries ... ok
+test business::erp::price_admin_handler::tests::route_paths_have_no_api_prefix ... ok
+test business::erp::price_admin_handler::tests::status_defaults_to_active ... ok
+test business::erp::price_admin_handler::tests::tier_max_qty_must_exceed_min_qty ... ok
+test business::erp::price_admin_handler::tests::tier_overlap_message_names_both_ranges ... ok
+test business::erp::price_admin_handler::tests::tier_overlap_rejected_and_adjacent_allowed ... ok
+test business::erp::price_admin_handler::tests::tier_overlap_scoped_to_material_customer_type_period ... ok
+test business::erp::price_admin_handler::tests::tier_type_domain ... ok
+test business::erp::price_admin_handler::tests::tier_update_cannot_create_overlap_and_excludes_self ... ok
+test business::erp::price_admin_handler::tests::tier_update_max_qty_clear_semantics ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 3949 filtered out; finished in 7.68s
+

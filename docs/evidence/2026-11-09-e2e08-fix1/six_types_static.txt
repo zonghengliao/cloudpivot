@@ -1,0 +1,66 @@
+# 七类主数据「编码字段」静态核查（2026-11-09T19:38:34+08:00）
+# 判据：① Update*Req 里有没有 *_code 字段；② UPDATE 语句里有没有写编码列
+
+## 客户（本次修复：显式 400）
+234-#[derive(Debug, Clone, Deserialize)]
+235-#[serde(default)]
+236-pub struct CustomerFilter {
+237-    /// 客户编码（模糊）。
+238:    pub code: Option<String>,
+--
+266-    /// **CODE-02**：留空（`null` / `""` / 纯空白）⇒ 后端自动取号 `CUS-0001` 形态；
+267-    /// 有值 ⇒ 原样保留（企业自有编码体系要能对接），只校验长度与字符集，
+29-//!    冻结只影响开新单，历史单据与引用不受影响（`contract_model.rs:31` 的 `status = 1`
+30-//!    是旧占位注释之误，客户分支写 `status = 'ACTIVE'`）。
+31-//! ④ **编码建后不可改**：编辑时传了非空且与现值不同的编码 → `400 + 10001`
+32://!    「客户编码不可修改」（口径与资产分类 `asset_handler::asset_category_update` 一致）。
+33-//!    前端编辑态本就是只读，这条是接口侧兜底 —— 否则绕过界面直接 PUT 就能改，
+34-//!    历史单据 / 审计日志里按编码回溯时会串。
+35-//!    不传编码 = 不改；传原值 = 放行（前端整体提交表单的两种常见形态）；
+36-//!    传空串 / 纯空白仍按既有入参校验 400「code 不能为空」（编码是必填列，不存在「清空」）。
+37-//!
+38-//! # 数据权限
+--
+545-        let requested = normalize_code(requested);
+546-        if !requested.is_empty() && requested != current.code {
+547-            return Err(bad_request(format!(
+
+## 资产分类（既有基准：显式 400）
+261-    // 编码留空 = 不改编码（编辑表单里编码常是只读/预填，提交空值不应报错）；
+262-    // 填了就必须与原来一致 —— 编码是历史卡片的快照口径，改了会让老卡片对不上。
+263-    if !spec.category_code.is_empty() && spec.category_code != existing.category_code {
+264-        return Err(invalid(format!(
+265:            "分类编码不可修改（当前 {}）：编码是历史卡片的快照口径，改了会让老卡片的 \
+266-             category_code 与新分类对不上",
+267-            existing.category_code
+268-        )));
+269-    }
+270-    spec.category_code = existing.category_code.clone();
+
+## 供应商：UpdateSupplierReq 无 supplier_code
+supplier_code 出现次数 = 0
+## 物料：UpdateMaterialReq 无 material_code
+material_code 出现次数 = 0
+## 仓库：UpdateWarehouseReq 无 warehouse_code
+warehouse_code 出现次数 = 0
+## 单位：UpdateUnitReq 无 unit_code
+unit_code 出现次数 = 0
+
+## 费用类型：TypeReq 接受 type_code，但 type_update 的 UPDATE 语句不写 type_code
+293-            "UPDATE {TYPE_TABLE} SET type_name = ?, account_id = ?::uuid, account_code = ?, \
+301-            Value::Text(spec.type_name.clone()),
+
+## 客户 update 的 SQL（改码与否由 handler 前置判定，SQL 仍整行写回）
+296:pub async fn customer_update(id: Uuid, write: &CustomerWrite, operator: Option<Uuid>) -> DbResult<u64> {
+297-    db().execute_with_params(
+298-        "UPDATE biz_customer SET code = ?, name = ?, tax_no = ?, contact_name = ?, \
+299-             contact_phone = ?, address = ?, credit_days = ?, credit_limit = ?::text::numeric, \
+300-             status = ?, remark = ?, \
+301-             updated_at = now(), update_by = NULLIF(?::text,'')::uuid \
+302-             WHERE id = ?::uuid AND deleted_at IS NULL",
+303-        vec![
+304-            Value::from(write.code.clone()),
+305-            Value::from(write.name.clone()),
+306-            Value::from(write.tax_no.clone()),
+307-            Value::from(write.contact_name.clone()),
+308-            Value::from(write.contact_phone.clone()),
