@@ -14,12 +14,14 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import type { PriceResolveRes } from '@/api/business/erp/customer-price';
 import type { SalesOrder } from '@/api/business/erp';
 import {
   SALES_ORDER_MAX_LINES,
   SALES_ORDER_PAGE_SIZE,
   SALES_ORDER_STATUS_OPTIONS,
   SALES_ORDER_STATUS_LABELS,
+  applyResolvedPrice,
   buildCreatePayload,
   buildSalesOrderQuery,
   buildUpdatePayload,
@@ -38,6 +40,7 @@ import {
   isDateString,
   isEditable,
   isSalesOrderFiltered,
+  linePriceInclHint,
   newSalesOrderLine,
   rowActions,
   salesOrderStatusLabel,
@@ -491,4 +494,80 @@ test('null delivery date / remark in detail become empty strings in the form', (
   const form = formFromDetail(order({ delivery_date: null, remark: null }));
   assert.equal(form.delivery_date, '');
   assert.equal(form.remark, '');
+});
+
+// ==================== 取价口径（E2E-FIX-4 ②③） ====================
+
+/** 一条协议价命中结果：120 元**含税**，13% 折出 106.1947 不含税 */
+function agreedResolve(): PriceResolveRes {
+  return {
+    price: '120.0000',
+    source: 'AGREED',
+    source_id: 'cp-1',
+    tax_inclusive: true,
+    price_excl: '106.1947',
+    tax_rate: '13.0000',
+  };
+}
+
+test('自动带价只填不含税价 price_excl（协议价 120 含税 → 订单单价 106.1947，不是 120）', () => {
+  const line = newSalesOrderLine({ material_id: 'm1', qty: '2' });
+  const filled = applyResolvedPrice(line, agreedResolve());
+
+  assert.equal(filled, true, '有价就要带出来');
+  assert.equal(String(line.price), '106.1947', '★ 填的是折算后的不含税价（虚高 13% 就是照抄 price）');
+  assert.equal(String(line.tax_rate), '13', '税率跟着折算用的税率走，税额才不会算错');
+  assert.equal(line.price_source, 'AGREED');
+});
+
+test('含税口径提示：协议价显示「含税价 120（税率 13%）」；标准售价不显示', () => {
+  const line = newSalesOrderLine({ material_id: 'm1', qty: '2' });
+  applyResolvedPrice(line, agreedResolve());
+  assert.equal(linePriceInclHint(line), '含税价 120（税率 13%）');
+
+  // 标准售价本身不含税：没有「含税价」可言，不该提示
+  const standard = newSalesOrderLine({ material_id: 'm2', qty: '1' });
+  applyResolvedPrice(standard, {
+    price: '11.0000',
+    source: 'STANDARD',
+    source_id: 'm2',
+    tax_inclusive: false,
+    price_excl: '11.0000',
+    tax_rate: '13.0000',
+  });
+  assert.equal(String(standard.price), '11');
+  assert.equal(linePriceInclHint(standard), '');
+});
+
+test('手动价：不覆盖已填价格，也不显示规则价的含税提示', () => {
+  const line = newSalesOrderLine({ material_id: 'm1', qty: '2', price: '99', price_source: 'AGREED', price_manual: true });
+  const filled = applyResolvedPrice(line, agreedResolve());
+  assert.equal(filled, false, '手动价优先，不许被规则价冲掉');
+  assert.equal(String(line.price), '99');
+  assert.equal(linePriceInclHint(line), '', '手动价时不展示规则口径，避免和人工价对不上');
+});
+
+test('未取到价（NONE）：不清空已填单价，且不给口径提示', () => {
+  const line = newSalesOrderLine({ material_id: 'm1', qty: '2', price: '50' });
+  const filled = applyResolvedPrice(line, {
+    price: null,
+    source: 'NONE',
+    source_id: null,
+    tax_inclusive: false,
+    price_excl: null,
+    tax_rate: null,
+  });
+  assert.equal(filled, false);
+  assert.equal(String(line.price), '50', '手填的数字不许被抹掉');
+  assert.equal(line.price_source, 'NONE', '来源仍然要记（前端显示「未定价」）');
+  assert.equal(linePriceInclHint(line), '');
+});
+
+test('税额闭环：不含税 106.1947 × 13% 与含税价 120 对得上（±0.001）', () => {
+  const line = newSalesOrderLine({ material_id: 'm1', qty: '1' });
+  applyResolvedPrice(line, agreedResolve());
+  const amounts = computeLine(line.qty, line.price, line.tax_rate);
+  assert.equal(amounts.amount, 106.1947);
+  assert.equal(amounts.tax_amount, 13.8053);
+  assert.ok(Math.abs(amounts.with_tax - 120) < 0.001, `含税合计应≈120，实际 ${amounts.with_tax}`);
 });

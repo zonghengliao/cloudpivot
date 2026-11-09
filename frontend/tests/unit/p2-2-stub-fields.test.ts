@@ -171,6 +171,7 @@ test('② 新建/编辑请求体都显式带 safety_stock（留空发 0，不靠
     costing_method: 'MOVING_AVG',
     inventory_account_id: null,
     tax_rate: '0',
+    standard_price: null,
     status: 1,
     serial_required: false,
     remark: null,

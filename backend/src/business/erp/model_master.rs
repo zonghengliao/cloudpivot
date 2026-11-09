@@ -493,7 +493,7 @@ pub async fn location_page(q: &LocationFilter) -> DbResult<(Vec<LocationRow>, i6
 /// V0137 的 `information_schema` 里没有它。
 pub const MATERIAL_COLUMNS: &str = "id, material_code, material_name, spec, unit_id, \
      material_type, default_warehouse_id, safety_stock, costing_method, inventory_account_id, \
-     tax_rate, status, serial_required, remark, created_at, updated_at, create_by, update_by, \
+     tax_rate, standard_price, status, serial_required, remark, created_at, updated_at, create_by, update_by, \
      deleted_at";
 
 /// 「一物一码」列名（V0138 才建）。[`material_page`] 用它做存在性探测。
@@ -531,6 +531,11 @@ pub struct MaterialRow {
     pub inventory_account_id: Option<Uuid>,
     /// 税率（`NUMERIC(7,4)`，0–1）。
     pub tax_rate: Decimal,
+    /// 标准售价（**不含税**，`NUMERIC(18,4)`，V0270 的列；`None` = 未维护）。
+    ///
+    /// 取价链第 ④ 级（`STANDARD`）的唯一来源；与销售订单行 `price` 同口径（不含税）。
+    /// 维护入口：`POST/PUT /business/erp/material`（`standard_price` 字段）。
+    pub standard_price: Option<Decimal>,
     /// 启用状态（1 启用 / 0 停用）。
     pub status: i16,
     /// 是否强制一物一码（V0138 加的列；`TRUE` 时出入库必须逐件登记序列号）。
@@ -564,6 +569,7 @@ impl MaterialRow {
             costing_method: row.get_typed("costing_method")?,
             inventory_account_id: row.get_typed("inventory_account_id")?,
             tax_rate: row.get_typed("tax_rate")?,
+            standard_price: row.get_typed("standard_price")?,
             status: row.get_typed("status")?,
             serial_required: row.get_typed("serial_required")?,
             remark: row.get_typed("remark")?,

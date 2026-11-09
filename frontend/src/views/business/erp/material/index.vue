@@ -217,6 +217,26 @@
           </div>
         </t-form-item>
 
+        <!-- 标准售价（E2E-FIX-4 ①）：取价链第 ④ 级，口径 = 不含税（与订单行单价同口径） -->
+        <t-form-item
+          label="标准售价"
+          name="standard_price"
+          :status="formErrors.standard_price ? 'error' : undefined"
+          :tips="formErrors.standard_price"
+        >
+          <div class="dlg-inline">
+            <t-input
+              v-model="form.standard_price"
+              class="stock-input"
+              placeholder="留空 = 不维护"
+              type="number"
+              :min="0"
+              data-testid="mat-standard-price"
+            />
+            <span class="dlg-help" data-testid="mat-standard-price-help">{{ STANDARD_PRICE_HINT }}</span>
+          </div>
+        </t-form-item>
+
         <!-- 成本法：本版本只有移动加权（V0201 收敛）。下拉只有一项且置灰 —— 不给「选了不生效」的机会 -->
         <t-form-item label="成本法" name="costing_method">
           <div class="dlg-inline">
@@ -275,6 +295,7 @@ import {
   MATERIAL_PAGE_SIZE,
   MATERIAL_TYPE_OPTIONS,
   SAFETY_STOCK_HINT,
+  STANDARD_PRICE_HINT,
   SERIAL_FILTER_OPTIONS,
   buildMaterialCreatePayload,
   buildMaterialQuery,

@@ -381,6 +381,14 @@ export interface MaterialRow {
   inventory_account_id: string | null;
   /** 税率（0–1） */
   tax_rate: string | number;
+  /**
+   * 标准售价（**不含税**，`null` = 未维护）。
+   *
+   * 取价链第 ④ 级（`STANDARD`）：协议价 / 阶梯价都没命中时用它。
+   * 与订单行 `price` 同口径（不含税）；协议价 / 阶梯价是含税价，
+   * `GET /price/resolve` 会折算成 `price_excl` 再给前端填单。
+   */
+  standard_price: string | number | null;
   /** 启用状态：1 启用 / 0 停用 */
   status: number;
   /** ★ 是否一物一码（V0138 的列；W2b 补进接口的开关） */
@@ -421,6 +429,12 @@ export interface CreateMaterialReq {
   inventory_account_id?: string | null;
   /** 税率（缺省 0） */
   tax_rate?: string | number | null;
+  /**
+   * 标准售价（**不含税**，取价链第 ④ 级；留空 = 不维护）。
+   *
+   * 必须 `> 0`（后端 `ck_biz_material_standard_price` 同口径：0 元不表示免费）。
+   */
+  standard_price?: string | number | null;
   /** 启用状态（缺省 1） */
   status?: number;
   /** ★ 是否一物一码（缺省 false） */
@@ -453,6 +467,8 @@ export interface UpdateMaterialReq {
   inventory_account_id?: string | null;
   /** 税率 */
   tax_rate?: string | number;
+  /** 标准售价（**不含税**；`null` = 清空标准售价，缺席 = 不改） */
+  standard_price?: string | number | null;
   /** 启用状态 */
   status?: number;
   /** ★ 一物一码（缺席 = 不改；页面编辑态置灰，故正常不发） */

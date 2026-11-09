@@ -265,6 +265,14 @@ export interface MaterialFormState {
    * 留空是没设阈值），提交时两者统一按 0（不预警）处理。
    */
   safety_stock: string;
+  /**
+   * 标准售价（**不含税**，E2E-FIX-4 ①）。
+   *
+   * 表单里是文本：`''` = 不维护（后端落 `NULL`，取价链第 ④ 级跳过 → 落到 NONE 手填）。
+   * 填了必须 `> 0`（后端 `ck_biz_material_standard_price` 同口径；0 元不表示免费）。
+   * 与订单行 `price` 同口径 —— **不含税**；协议价 / 阶梯价是含税，取价接口会折算。
+   */
+  standard_price: string;
   /** 成本法（本版本锁定 MOVING_AVG；字段留在表单里是为了回填 + 提交时显式带上） */
   costing_method: string;
   /** ★ 是否一物一码 */
@@ -277,7 +285,7 @@ export interface MaterialFormState {
 
 /** 表单校验错误（键 = 字段名） */
 export type MaterialFieldErrors = Partial<
-  Record<'material_code' | 'material_name' | 'unit_id' | 'safety_stock', string>
+  Record<'material_code' | 'material_name' | 'unit_id' | 'safety_stock' | 'standard_price', string>
 >;
 
 /** 空表单（新建） */
@@ -289,6 +297,7 @@ export function emptyMaterialForm(defaultType: MaterialType = 'RAW'): MaterialFo
     unit_id: '',
     spec: '',
     safety_stock: '',
+    standard_price: '',
     costing_method: 'MOVING_AVG',
     serial_required: false,
     status: 1,
@@ -330,6 +339,29 @@ export function safetyStockOf(text: string): number {
 export const SAFETY_STOCK_HINT =
   '安全库存用于低库存提醒：某仓库的账面数量低于它时通知仓管主管。留空或填 0 = 不提醒。';
 
+/**
+ * 标准售价输入 → 提交值（E2E-FIX-4 ① 的口径）。
+ *
+ * - 留空 / 非数字 / `<= 0` → `null`（= **不维护**，取价链第 ④ 级跳过）；
+ * - 其余按原值提交（后端 `NUMERIC(18,4)`）。
+ *
+ * 为什么 0 归一到 `null` 而不是原样发 0：后端 CHECK 就是 `> 0`，发 0 只会换一个
+ * 400；而「留空」本来就表示不维护，两者语义相同，这里统一成 null（前端校验
+ * [`validateMaterialForm`] 仍会先挡住并提示，这只是兜底）。
+ */
+export function standardPriceOf(text: string): number | null {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const num = Number(trimmed);
+  return Number.isFinite(num) && num > 0 ? num : null;
+}
+
+/** 标准售价输入框的提示文案（口径写清楚，别让用户以为填的是含税价）。 */
+export const STANDARD_PRICE_HINT =
+  '标准售价（不含税，与销售订单单价同口径）：取价链第 ④ 级，客户协议价 / 阶梯价都没命中时用它。留空 = 不维护。';
+
 /** 列表行 → 表单（编辑回填） */
 export function materialFormFromRow(row: MaterialRow): MaterialFormState {
   return {
@@ -339,6 +371,7 @@ export function materialFormFromRow(row: MaterialRow): MaterialFormState {
     unit_id: row.unit_id,
     spec: row.spec ?? '',
     safety_stock: quantityText(row.safety_stock),
+    standard_price: quantityText(row.standard_price),
     costing_method: row.costing_method ?? 'MOVING_AVG',
     serial_required: isSerialRequired(row.serial_required),
     status: row.status,
@@ -380,6 +413,16 @@ export function validateMaterialForm(form: MaterialFormState, isEdit: boolean): 
       errors.safety_stock = '安全库存不能是负数（留空 = 不提醒）';
     }
   }
+  // 标准售价：留空合法（= 不维护）；填了必须 > 0（后端 require_standard_price / DB CHECK 同口径）
+  const standard = form.standard_price.trim();
+  if (standard !== '') {
+    const num = Number(standard);
+    if (!Number.isFinite(num)) {
+      errors.standard_price = '标准售价要填数字（留空 = 不维护）';
+    } else if (num <= 0) {
+      errors.standard_price = '标准售价必须大于 0（0 元不表示免费；不维护请留空）';
+    }
+  }
   return errors;
 }
 
@@ -411,6 +454,8 @@ export function buildMaterialCreatePayload(form: MaterialFormState): CreateMater
     spec: nullableText(form.spec),
     // 安全库存：留空也显式发 0（= 不预警），不靠后端缺省蒙对
     safety_stock: safetyStockOf(form.safety_stock),
+    // 标准售价：留空发 null（= 不维护），显式表达「没有标准价」而不是让后端缺省蒙对
+    standard_price: standardPriceOf(form.standard_price),
     // 成本法显式带上：本版本只有 MOVING_AVG（V0201 收敛），不靠后端缺省蒙对
     costing_method: form.costing_method || 'MOVING_AVG',
     serial_required: form.serial_required === true,
@@ -437,6 +482,9 @@ export function buildMaterialUpdatePayload(form: MaterialFormState, row: Materia
     spec: nullableText(form.spec),
     // 安全库存：编辑时**总是**发（留空 = 0 = 关掉提醒），否则用户「清空」等于没改
     safety_stock: safetyStockOf(form.safety_stock),
+    // 标准售价：编辑时**总是**发（`null` = 清空标准售价），否则用户「清空」等于没改 —
+    // 那会让取价链第 ④ 级一直命中一个作废的价
+    standard_price: standardPriceOf(form.standard_price),
     status: form.status === 1 ? 1 : 0,
     remark: nullableText(form.remark),
   };

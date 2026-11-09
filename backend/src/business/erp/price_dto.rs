@@ -9,11 +9,14 @@
 //! | `customer_id` | ❌ | 客户 UUID；不传 / 空串 = **跳过 ①② 两级**，只走 ③ 通用阶梯 → ④ 标准价 → ⑤ 无价。非法 → 400 |
 //! | `date` | ❌ | 取价基准日 `YYYY-MM-DD`；缺省 = **今天（北京时间）**。非法 → 400 |
 //!
-//! 出参（**只有这三个字段**，字段名与 ARCH-7 §15.3.3 逐字对齐，前端直接读）：
+//! 出参（字段名与 ARCH-7 §15.3.3 对齐；`tax_inclusive` / `price_excl` / `tax_rate`
+//! 是 E2E-FIX-4 ② 补的**口径标注**，前端填单只准用 `price_excl`）：
 //!
 //! ```json
-//! { "price": "12.5000", "source": "AGREED", "source_id": "…uuid…" }
-//! { "price": null,      "source": "NONE",   "source_id": null }
+//! { "price": "120.0000", "source": "AGREED", "source_id": "…uuid…",
+//!   "tax_inclusive": true, "price_excl": "106.1947", "tax_rate": "13.0000" }
+//! { "price": null, "source": "NONE", "source_id": null,
+//!   "tax_inclusive": false, "price_excl": null, "tax_rate": null }
 //! ```
 //!
 //! * `price`：`Decimal`（**JSON 里是字符串**，与全仓金额口径一致），`18,4`；
@@ -166,14 +169,33 @@ fn parse_qty(text: &str) -> std::result::Result<Decimal, ApiError> {
 ///
 /// `price` / `source_id` 都是 `Option`：五级全未命中时给 `null`（**不是** 0 元，
 /// 也不是 404 —— 「没有价」是合法业务结果，前端据此让销售员手填）。
+///
+/// # 口径（E2E-FIX-4 ②）：`price` 可能是含税价，**填单请用 `price_excl`**
+///
+/// 价格表里两套口径并存：协议价 / 阶梯价存**含税**、标准售价存**不含税**，
+/// 而销售订单行 `price` 是**不含税**。所以出参显式带三个口径字段：
+///
+/// ```text
+/// AGREED / TIER_CUSTOMER / TIER_COMMON → tax_inclusive = true,  price_excl = price / (1 + tax_rate/100)
+/// STANDARD                             → tax_inclusive = false, price_excl = price
+/// NONE                                 → price_excl = null, tax_rate = null
+/// ```
 #[derive(Debug, Clone, Serialize)]
 pub struct PriceResolveRes {
-    /// 含税单价（`18,4`，JSON 里是字符串）；`None` = 未取到价。
+    /// 命中价（**协议价 / 阶梯价是含税**；标准售价是不含税 —— 看 [`Self::tax_inclusive`]）。
     pub price: Option<Decimal>,
     /// 命中层级（[`SOURCES`] 之一）。
     pub source: String,
     /// 命中行主键；`STANDARD` 时是物料 id；`NONE` 时 `None`。
     pub source_id: Option<String>,
+    /// [`Self::price`] 是否**含税**（`false` = 该值已是不含税，`price_excl` 与它相等）。
+    pub tax_inclusive: bool,
+    /// 折算后的**不含税**单价（4 位定标）—— **前端填订单行单价用这个值**。
+    /// `None` = 没取到价（`NONE`）。
+    pub price_excl: Option<Decimal>,
+    /// 折算用的税率（**百分数** 0–100，13 = 13%；来自 `biz_material.tax_rate`）。
+    /// `None` = 没取到价。
+    pub tax_rate: Option<Decimal>,
 }
 
 // ==================== 单测（纯逻辑，不碰库） ====================
@@ -289,28 +311,41 @@ mod tests {
         assert!(error.msg.contains("customer_id"), "{}", error.msg);
     }
 
-    /// 出参形状：三个字段、名字与 ARCH-7 一致，未命中时 price / source_id 都是 null。
+    /// 出参形状：六个字段（E2E-FIX-4 补了含税口径三字段），未命中时 price / source_id /
+    /// price_excl / tax_rate 都是 null、tax_inclusive = false。
     #[test]
-    fn response_shape_is_three_fields() {
+    fn response_shape_is_six_fields() {
         let hit = PriceResolveRes {
-            price: Some(Decimal::from_str("12.5000").unwrap()),
+            price: Some(Decimal::from_str("120.0000").unwrap()),
             source: SOURCE_AGREED.to_string(),
             source_id: Some(MAT.to_string()),
+            tax_inclusive: true,
+            price_excl: Some(Decimal::from_str("106.1947").unwrap()),
+            tax_rate: Some(Decimal::from_str("13.0000").unwrap()),
         };
         let json = serde_json::to_value(&hit).expect("序列化");
         let object = json.as_object().expect("应是对象");
-        assert_eq!(object.len(), 3, "出参只能有三个字段：{json}");
+        assert_eq!(object.len(), 6, "出参只能是这六个字段：{json}");
         assert_eq!(json["source"], "AGREED");
-        assert_eq!(json["price"], "12.5000");
+        assert_eq!(json["price"], "120.0000");
+        assert_eq!(json["tax_inclusive"], true);
+        assert_eq!(json["price_excl"], "106.1947", "不含税价必须是字符串（金额口径一致）");
+        assert_eq!(json["tax_rate"], "13.0000");
 
         let miss = PriceResolveRes {
             price: None,
             source: SOURCE_NONE.to_string(),
             source_id: None,
+            tax_inclusive: false,
+            price_excl: None,
+            tax_rate: None,
         };
         let json = serde_json::to_value(&miss).expect("序列化");
         assert!(json["price"].is_null());
         assert!(json["source_id"].is_null());
+        assert!(json["price_excl"].is_null(), "没取到价就没有不含税价");
+        assert!(json["tax_rate"].is_null(), "没取到价就不给折算税率");
+        assert_eq!(json["tax_inclusive"], false);
         assert_eq!(json["source"], "NONE");
     }
 }

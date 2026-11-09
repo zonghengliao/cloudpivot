@@ -1,0 +1,70 @@
+==== 0. 隔离库 + 隔离实例（本机兜底（无 /etc/cloudpivot/cloudpivot.env，DB 账号 alun））
+  pid=2519671 bin=/opt/cloudpivot/backend/target/debug/cloudpivot health=200
+  库指纹：迁移 289 条
+  biz_material.standard_price 列：numeric(18,4)
+  ✅ standard_price 列已就位（V0270，本卡无需新迁移）
+==== 1. admin 登录（全新库首登带 must_change_password）
+  改密 http=200 msg=密码已修改
+  ✅ admin 已登录
+==== 2. 基础数据：计量单位
+  http=200 id=01a1bebb-a664-76d1-a472-320fd52747a6 msg=ok
+  ✅ 建基本单位 E4U131531
+==== 3. ① 物料建：带 standard_price = 11.5（不含税）+ 税率 13%
+  http=200 id=01a1bebb-a678-7238-b5c1-b77d5ae178ef standard_price=11.5000 msg=ok
+  ✅ 建物料成功（原实现没有 standard_price 字段）
+  ✅ 响应回显 standard_price=11.5000
+  ✅ 落库 standard_price=11.5000
+==== 4. ② 取价（无客户）：命中第 ④ 级 STANDARD，口径 = 不含税
+  http=200 data={"price":"11.5000","source":"STANDARD","source_id":"01a1bebb-a678-7238-b5c1-b77d5ae178ef","tax_inclusive":false,"price_excl":"11.5000","tax_rate":"13.0000"}
+  ✅ 取价命中 STANDARD（第 ④ 级可用了）
+  ✅ price=11.5000
+  ✅ tax_inclusive=false（标准售价是不含税价）
+  ✅ price_excl=11.5000（不含税价不再折算）
+  ✅ tax_rate=13.0000（物料税率）
+  ✅ 出参恰好 6 个字段（price/source/source_id/tax_inclusive/price_excl/tax_rate）
+==== 5. ① 物料改：standard_price 20 → 第 ④ 级立刻按新价
+  http=200 standard_price=20.0000 msg=ok
+  ✅ 改接口写入 standard_price=20.0000
+  ✅ 取价立刻按新标准价 20.0000
+==== 6. ① 物料改：standard_price = null（清空）→ 第 ④ 级不再命中 → NONE
+  http=200 standard_price=null
+  ✅ 清空生效（回显 null）
+  resolve={"price":null,"source":"NONE","source_id":null,"tax_inclusive":false,"price_excl":null,"tax_rate":null}
+  ✅ 清空后取价 = NONE（第 ④ 级不再命中）
+  ✅ NONE 时 price_excl = null（绝不给 0 元）
+  ✅ NONE 时 tax_rate = null
+==== 7. ① 校验：standard_price = 0 / 负数 → 400 + 10001（0 元不表示免费）
+  0 ⇒ http=400 code=10001 msg=standard_price 必须大于 0（当前 0）：0 元不表示免费，不维护标准售价请留空（取价链会落到 NONE 让销售手填）
+  ✅ standard_price=0 被拒（400/10001）
+  ✅ 错误文案点名字段 standard_price
+  ✅ 被拒的编辑没有改库（仍是 NULL）
+  ✅ 标准价恢复为 90.0000（协议价对照用）
+==== 8. 客户 + 协议价 120（含税）
+  客户 http=200 id=01a1bebb-a72a-7182-9229-d00b30d2a550 msg=ok
+  ✅ 建客户 01a1bebb-a72a-7182-9229-d00b30d2a550
+  协议价 http=200 msg=ok
+  ✅ 建协议价 120（含税）
+==== 9. ③ 取价（有客户）：协议价 120 含税 → price_excl = 106.1947
+  http=200 data={"price":"120.0000","source":"AGREED","source_id":"01a1bebb-a73c-718d-b5a6-60fc822c14cf","tax_inclusive":true,"price_excl":"106.1947","tax_rate":"13.0000"}
+  ✅ 命中 AGREED（协议价优先于标准价 90）
+  ✅ price=120.0000（含税原值）
+  ✅ tax_inclusive=true（协议价是含税价）
+  ✅ ★ price_excl=106.1947（120 / 1.13，卡面验收 ③）
+  ✅ tax_rate=13.0000
+==== 10. ④⑤ 用 price_excl 建销售订单（2 件），校验单价 / 税额 / 价税合计
+  http=200 so_no=SO-20261109-000001 msg=ok
+  行单价=106.194700 行金额=212.3894 行税额=27.6106
+  合计：不含税=212.3894 税额=27.6106 价税合计=240.0000
+  ✅ 销售订单建成 SO-20261109-000001
+  ✅ ★ 订单单价 106.1947（不是 120：修复前会虚高 13%；库列 18,6 显示为 106.194700）
+  ✅ 行金额 = 2 × 106.1947 = 212.3894
+  ✅ 行税额 = 212.3894 × 13% = 27.6106（卡面验收 ⑤）
+  ✅ 价税合计 = 240.0000 = 2 × 120（含税口径闭环）
+  ---- 数据库勾稽（biz_sales_order_item）----
+SO-20261109-000001 | price=106.194700 | amount=212.3894 | tax=27.6106 | rate=13.0000
+  ✅ 落库单价 106.1947（与 resolve 的 price_excl 一致）
+==== 11. ⑥ 迁移幂等 & 收尾
+  schema_migrations 共 289 条；V0270 在册：1
+  本次未新增迁移（standard_price 列 V0270 已提供；CHECK 为 >0）
+
+======== 汇总：PASS=35 FAIL=0 ========

@@ -20,6 +20,7 @@ import {
   COSTING_METHOD_HINT,
   COSTING_METHOD_OPTIONS,
   MATERIAL_PAGE_SIZE,
+  STANDARD_PRICE_HINT,
   buildMaterialCreatePayload,
   buildMaterialQuery,
   buildMaterialUpdatePayload,
@@ -54,6 +55,7 @@ function seedRow(overrides: Partial<MaterialRow> = {}): MaterialRow {
     costing_method: 'MOVING_AVG',
     inventory_account_id: 'd1370004-0000-4000-8000-000000000001',
     tax_rate: '0.1300',
+    standard_price: null,
     status: 1,
     serial_required: true,
     remark: null,
@@ -186,6 +188,8 @@ test('新建请求体：serial_required / costing_method 显式带上（不靠�
     spec: null,
     // P2-2 ②：安全库存显式带上（留空 = 0 = 不提醒；不靠后端缺省蒙对）
     safety_stock: 0,
+    // E2E-FIX-4 ①：标准售价留空也显式发 null（= 不维护，取价链第 ④ 级跳过）
+    standard_price: null,
     costing_method: 'MOVING_AVG',
     serial_required: false,
     status: 1,
@@ -287,4 +291,36 @@ test('列表文案：单位译名、分类中文、状态', () => {
 
   assert.equal(materialStatusLabel(1), '启用');
   assert.equal(materialStatusLabel(0), '停用');
+});
+
+// ⑦ 标准售价（E2E-FIX-4 ①）：写接口字段 / 三态 / 校验 / 回填
+test('标准售价：建改都带 standard_price，留空发 null（= 不维护），> 0 才合法', () => {
+  const form = { ...emptyMaterialForm('RAW'), material_code: 'M-1', material_name: '物料', unit_id: 'u-1' };
+
+  // 留空 → null（后端落 NULL，取价链第 ④ 级跳过）
+  assert.equal(buildMaterialCreatePayload(form).standard_price, null);
+  // 填了 → 原值提交
+  assert.equal(buildMaterialCreatePayload({ ...form, standard_price: '106.1947' }).standard_price, 106.1947);
+
+  // 校验：0 / 负数 / 非数字被拦（后端 CHECK 是 > 0，0 元不表示免费）
+  for (const bad of ['0', '-1', 'abc']) {
+    const errors = validateMaterialForm({ ...form, standard_price: bad }, false);
+    assert.ok(errors.standard_price, `standard_price = ${bad} 必须报错`);
+  }
+  assert.equal(hasFieldError(validateMaterialForm({ ...form, standard_price: '11' }, false)), false);
+
+  // 编辑：总是发（null = 清空标准售价），否则「清空」等于没改
+  const row = seedRow({ standard_price: '11.5000' });
+  const filled = materialFormFromRow(row);
+  assert.equal(filled.standard_price, '11.5', '回填去掉尾零，用户看得懂');
+  assert.equal(buildMaterialUpdatePayload(filled, row).standard_price, 11.5);
+  assert.equal(
+    buildMaterialUpdatePayload({ ...filled, standard_price: '' }, row).standard_price,
+    null,
+    '清空 = 发 null，让后端把这一列置 NULL',
+  );
+
+  // 提示文案必须点名「不含税」（口径写错等于回到老事故：含税价当不含税填）
+  assert.match(STANDARD_PRICE_HINT, /不含税/);
+  assert.match(STANDARD_PRICE_HINT, /取价链第 ④ 级/);
 });

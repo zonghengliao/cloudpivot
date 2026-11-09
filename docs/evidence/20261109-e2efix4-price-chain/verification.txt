@@ -1,0 +1,66 @@
+================================================================
+E2E-FIX-4 验证输出（生成时间 2026-11-09 13:28:32 CST）
+================================================================
+
+---- 1) 纯逻辑单测：dto（标准售价三态/校验）+ price_dto + price_model（含 tax_view）----
+running 2 tests
+test business::erp::dto::tests::material_standard_price_json_is_three_state ... ok
+test business::erp::dto::tests::material_standard_price_must_be_positive ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 3878 filtered out; finished in 0.00s
+test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 3796 filtered out; finished in 0.01s
+
+---- 2) 真库单测（ERP_DB_URL=cp_e2efix4，隔离库）：物料建改 + 取价第 ④ 级闭环 ----
+running 9 tests
+test business::erp::handler::tests::material_auto_code_increments_consecutively ... ok
+test business::erp::handler::tests::material_manual_code_is_preserved ... ok
+test business::erp::handler::tests::material_auto_code_generated_when_blank ... ok
+test business::erp::handler::tests::material_duplicate_code_rejected_with_message ... ok
+test business::erp::handler::tests::material_preview_code_does_not_consume_sequence ... ok
+test business::erp::handler::tests::material_previewed_code_is_used_verbatim_on_create ... ok
+test business::erp::handler::tests::material_reference_search_and_soft_delete ... ok
+test business::erp::handler::tests::material_standard_price_feeds_price_resolve ... ok
+test business::erp::handler::tests::material_unit_must_be_base ... ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 3871 filtered out; finished in 6.38s
+
+---- 3) 前端：typecheck ----
+v22.23.4
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+
+typecheck exit=0
+
+---- 4) 前端：单测（含本卡新增 11 条）----
+not ok 233 - 前端状态边 = 后端 commission_dto::LEGAL_EDGES（源码即契约）
+not ok 492 - create payload keeps dates and folds empty remark to null
+# tests 1250
+# pass 1248
+# fail 2
+（上面 2 条 not ok 是 **main 既有红**，与本卡无关：已在 HEAD 干净 worktree 复现，见 §5）
+
+---- 5) main 既有红的证明：干净 worktree（HEAD）跑同样两个用例 ----
+not ok 8 - 前端状态边 = 后端 commission_dto::LEGAL_EDGES（源码即契约）
+not ok 29 - create payload keeps dates and folds empty remark to null
+# tests 34
+# pass 32
+# fail 2
+
+---- 6) 前端：build（只留尾部：vite 产物体积表已省略）----
+build exit=0
+✓ 5425 modules transformed.
+✓ built in 47.01s
+
+---- 7) clippy（现状：main 既有红，均不在本卡改动文件里）----
+  7.1 cargo clippy --lib --tests -- -D warnings → 18 errors（test target）
+  7.2 cargo clippy --lib -- -D warnings → 3 errors
+  涉及文件：flow/edge_admin_tests、attachment/rule、erp/asset_linkage、erp/fx_revaluation、
+            erp/opening、erp/purchase_requisition_dto、erp/voucher、erp/year_end_linkage_tests、
+            flow/assignee、flow/self_approval、pdf/dto、invoice、receivable、sales_order_model
+  ★ 本卡改动的 6 个后端文件（erp/dto.rs、erp/handler.rs、erp/model_master.rs、
+    erp/price_dto.rs、erp/price_model.rs、erp/price_handler.rs）一条诊断都没有。
+
+error: the following explicit lifetimes could be elided: 'a
+error: doc list item without indentation
+error: this function has too many arguments (8/7)
+error: could not compile `cloudpivot` (lib) due to 3 previous errors

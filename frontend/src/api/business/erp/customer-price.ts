@@ -247,11 +247,22 @@ export interface PriceResolveQuery {
   date?: string;
 }
 
-/** 取价解析出参：`NONE` 时 `price` / `source_id` 都是 null（200，不是错误） */
+/** 取价解析出参：`NONE` 时 `price` / `source_id` / `price_excl` / `tax_rate` 都是 null（200，不是错误） */
 export interface PriceResolveRes {
+  /**
+   * 命中价。**协议价 / 阶梯价是含税价**，标准售价是不含税价 —— 看 `tax_inclusive`。
+   *
+   * 别直接用它填订单行：含税价填进不含税字段会让单价虚高一个税率（120 vs 106.19）。
+   */
   price: DecimalText | null;
   source: PriceSource;
   source_id: string | null;
+  /** `price` 是否含税（`false` = 该值已是不含税，`price_excl` 与它相等） */
+  tax_inclusive: boolean;
+  /** 折算后的**不含税**单价 —— **填订单行单价用这个值**；`null` = 没取到价 */
+  price_excl: DecimalText | null;
+  /** 折算用的税率（百分数，13 = 13%，来自物料税率）；`null` = 没取到价 */
+  tax_rate: DecimalText | null;
 }
 
 /**

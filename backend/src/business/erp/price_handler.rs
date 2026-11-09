@@ -9,8 +9,12 @@
 //! # 调用方拿到什么
 //!
 //! ```json
-//! { "code": 0, "data": { "price": "12.5000", "source": "AGREED", "source_id": "…" } }
+//! { "code": 0, "data": { "price": "120.0000", "source": "AGREED", "source_id": "…",
+//!                        "tax_inclusive": true, "price_excl": "106.1947", "tax_rate": "13.0000" } }
 //! ```
+//!
+//! **填单只准用 `price_excl`（不含税）**：`price` 对协议价 / 阶梯价是含税价，
+//! 直接填进销售订单行会让单价虚高一个税率（120 vs 106.19），税额再算一遍 → 整单金额全错。
 //!
 //! `source` 五值（[`crate::business::erp::price_dto::SOURCES`]）：
 //! `AGREED`（客户协议价）→ `TIER_CUSTOMER`（客户专属阶梯）→ `TIER_COMMON`（通用阶梯）
@@ -35,6 +39,7 @@
 //! ```
 
 use axum::extract::Query;
+use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 
 use crate::business::erp::price_dto::{PriceResolveQuery, PriceResolveReq, PriceResolveRes};
@@ -77,16 +82,24 @@ fn customer_not_found() -> ApiError {
 /// 每级只在**上一级没有命中**时才查库（短路，少两次查询也少两次误命中机会）。
 pub async fn resolve_price(query: PriceResolveQuery) -> std::result::Result<PriceResolveRes, ApiError> {
     let req = query.validate()?;
-    let outcome = resolve_validated(&req).await?;
+    let (outcome, material_tax_rate) = resolve_validated(&req).await?;
+    // 口径标注（含税 / 不含税 + 折算出不含税价）：纯函数，规则见 price_model::tax_view
+    let view = model::tax_view(outcome.price, outcome.source, material_tax_rate);
     Ok(PriceResolveRes {
         price: outcome.price,
         source: outcome.source.to_string(),
         source_id: outcome.source_id.map(|id| id.to_string()),
+        tax_inclusive: view.tax_inclusive,
+        price_excl: view.price_excl,
+        tax_rate: view.tax_rate,
     })
 }
 
-/// 已通过校验的入参 → 取价结果（拆出来是为了让库里那几步能单独测顺序）。
-async fn resolve_validated(req: &PriceResolveReq) -> std::result::Result<ResolveOutcome, ApiError> {
+/// 已通过校验的入参 → `(取价结果, 物料税率)`（拆出来是为了让库里那几步能单独测顺序）。
+///
+/// 物料税率（百分数）必须一起带回来：协议价 / 阶梯价是**含税**价，
+/// 折算 `price_excl` 要用它；这一列的读取和取价是同一次物料查询，不额外多一次往返。
+async fn resolve_validated(req: &PriceResolveReq) -> std::result::Result<(ResolveOutcome, Decimal), ApiError> {
     // ④ 顺手先读物料：物料不存在时后面三级全无意义（而且 level ④ 本来就要这一行）
     let material = model::load_material(req.material_id)
         .await?
@@ -114,7 +127,7 @@ async fn resolve_validated(req: &PriceResolveReq) -> std::result::Result<Resolve
     let common_tiers = model::load_common_tiers(req.material_id).await?;
 
     // 排序与优先级全在纯函数里（可单测，不依赖库）
-    Ok(model::resolve_from(
+    let outcome = model::resolve_from(
         req.material_id,
         req.qty,
         req.date,
@@ -122,7 +135,8 @@ async fn resolve_validated(req: &PriceResolveReq) -> std::result::Result<Resolve
         &customer_tiers,
         &common_tiers,
         material.standard_price,
-    ))
+    );
+    Ok((outcome, material.tax_rate))
 }
 
 // ==================== HTTP 入口 ====================

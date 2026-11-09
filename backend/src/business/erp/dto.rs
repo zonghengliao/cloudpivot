@@ -202,6 +202,21 @@ fn require_tax_rate(value: Decimal) -> std::result::Result<(), ApiError> {
     Ok(())
 }
 
+/// 标准售价（`> 0`）。
+///
+/// 为什么不是 `>= 0`：`biz_material.standard_price` 的 CHECK（`V0270`）就是
+/// `standard_price IS NULL OR standard_price > 0`。0 元**不表示免费**，
+/// 要取消标准售价请留空（`NULL`）——把 0 当"免费"是脏数据最容易的来源。
+fn require_standard_price(value: Decimal) -> std::result::Result<(), ApiError> {
+    if value <= Decimal::ZERO {
+        return Err(bad_request(format!(
+            "standard_price 必须大于 0（当前 {value}）：0 元不表示免费，\
+             不维护标准售价请留空（取价链会落到 NONE 让销售手填）"
+        )));
+    }
+    Ok(())
+}
+
 /// `400 + 10001`（参数非法）：ERP 全部校验失败都走这个码，前端按 `field` 文案提示即可。
 fn bad_request(message: String) -> ApiError {
     ApiError::new(400, error_code::PARAM_INVALID, message)
@@ -1005,6 +1020,17 @@ pub struct CreateMaterialReq {
     /// 税率（**百分数** `0`–`100`，缺省 0；FIX-6 起与订单 / 发票同口径，13 = 13%）。
     #[serde(default)]
     pub tax_rate: Option<Decimal>,
+    /// 标准售价（**不含税**，`NUMERIC(18,4)`，V0270 的 `biz_material.standard_price`）。
+    ///
+    /// 取价链第 ④ 级（`STANDARD`）：①②③ 全未命中时给这个价。
+    ///
+    /// * 留空 = 不维护（`NULL`，取价继续落到 ⑤ `NONE` 让销售手填）；
+    /// * 填了必须 `> 0`：V0270 的 `ck_biz_material_standard_price` 就是这个口径
+    ///   （0 元不表示免费；要取消标准售价请留空）；
+    /// * **口径 = 不含税单价**，与销售订单行 `price` 同口径。协议价 / 阶梯价存的是
+    ///   **含税**单价，`GET /price/resolve` 会按物料税率折算成 `price_excl` 再给前端。
+    #[serde(default)]
+    pub standard_price: Option<Decimal>,
     /// 启用状态（缺省 1）。
     #[serde(default = "default_enabled")]
     pub status: i16,
@@ -1038,6 +1064,9 @@ impl CreateMaterialReq {
         }
         if let Some(tax_rate) = self.tax_rate {
             require_tax_rate(tax_rate)?;
+        }
+        if let Some(standard_price) = self.standard_price {
+            require_standard_price(standard_price)?;
         }
         Ok(())
     }
@@ -1073,6 +1102,12 @@ pub struct UpdateMaterialReq {
     /// 税率。
     #[serde(default)]
     pub tax_rate: Option<Decimal>,
+    /// 标准售价（`Some(None)` = **清空**，即不再维护；缺席 = 不改）。
+    ///
+    /// 三态与 `spec` / `remark` 同口径（[`double_option`]）。口径与校验同
+    /// `CreateMaterialReq::standard_price`：**不含税**、`> 0`（0 元不表示免费）。
+    #[serde(default, deserialize_with = "double_option")]
+    pub standard_price: Option<Option<Decimal>>,
     /// 启用状态。
     #[serde(default)]
     pub status: Option<i16>,
@@ -1104,6 +1139,9 @@ impl UpdateMaterialReq {
         }
         if let Some(tax_rate) = self.tax_rate {
             require_tax_rate(tax_rate)?;
+        }
+        if let Some(standard_price) = self.standard_price.flatten() {
+            require_standard_price(standard_price)?;
         }
         if let Some(spec) = self.spec.as_ref().and_then(|value| value.as_deref()) {
             check_optional_text(Some(spec), "spec", 200)?;
@@ -1210,6 +1248,8 @@ pub struct MaterialRes {
     pub inventory_account_id: Option<String>,
     /// 税率。
     pub tax_rate: Decimal,
+    /// 标准售价（**不含税**；`null` = 未维护 = 取价链第 ④ 级跳过）。
+    pub standard_price: Option<Decimal>,
     /// 启用状态。
     pub status: i16,
     /// 是否强制一物一码（V0138 的列；前端据此显示「一物一码」标签与生成入口）。
@@ -1236,6 +1276,7 @@ impl From<&MaterialRow> for MaterialRes {
             costing_method: row.costing_method.clone(),
             inventory_account_id: row.inventory_account_id.map(|id| id.to_string()),
             tax_rate: row.tax_rate,
+            standard_price: row.standard_price,
             status: row.status,
             serial_required: row.serial_required,
             remark: row.remark.clone(),
@@ -3505,6 +3546,73 @@ mod tests {
         assert!(err.msg.contains("本版本仅支持移动加权平均（MOVING_AVG）"));
     }
 
+    /// 标准售价（E2E-FIX-4 ①）：与 `ck_biz_material_standard_price` 同口径 —— `> 0`。
+    ///
+    /// 建与改两条路径都要挡 0 / 负数（0 元不表示免费，取消维护请留空）；
+    /// 改的三态由 `double_option` 解析：缺席 = 不改、`null` = 清空、有值 = 覆盖。
+    #[test]
+    fn material_standard_price_must_be_positive() {
+        // 建：留空合法、正数合法、0 与负数 400 且点名 standard_price
+        let mut create = material_req();
+        create.standard_price = None;
+        assert!(create.validate().is_ok(), "留空 = 不维护，合法");
+
+        for ok in ["0.0001", "11", "120.0000"] {
+            create.standard_price = Some(dec(ok));
+            assert!(create.validate().is_ok(), "standard_price = {ok} 应合法");
+        }
+        for bad in ["0", "-0.0001", "-1"] {
+            create.standard_price = Some(dec(bad));
+            let err = create.validate().expect_err("standard_price = {bad} 必须被拒");
+            assert_eq!(err.status, 400, "standard_price = {bad}");
+            assert_eq!(err.code, error_code::PARAM_INVALID);
+            assert!(err.msg.contains("standard_price"), "文案要点名字段：{}", err.msg);
+            assert!(
+                err.msg.contains("大于 0") && err.msg.contains("留空"),
+                "文案要说明「不维护请留空」：{}",
+                err.msg
+            );
+        }
+
+        // 改：同口径；`Some(None)`（= 清空）不校验数值
+        let mut update = UpdateMaterialReq::default();
+        assert!(update.validate().is_ok(), "缺席 = 不改");
+        update.standard_price = Some(None);
+        assert!(update.validate().is_ok(), "null = 清空标准售价，合法");
+        update.standard_price = Some(Some(dec("0")));
+        let err = update.validate().expect_err("编辑设 0 同样被拒");
+        assert!(err.msg.contains("standard_price"), "{}", err.msg);
+        update.standard_price = Some(Some(dec("106.1947")));
+        assert!(update.validate().is_ok(), "编辑设正数合法");
+    }
+
+    /// 标准售价的 JSON 三态必须能区分（`double_option` 的行为钉死）。
+    ///
+    /// 前端「不清空 / 清空 / 设置」分别是：键缺席 / `null` / `数字`。
+    /// 若这里退化成 `Option<Decimal>`，「清空」与「不改」就再也分不开 —— 标准售价
+    /// 一旦设过就永远删不掉，取价链第 ④ 级会一直命中一个作废的价。
+    #[test]
+    fn material_standard_price_json_is_three_state() {
+        let absent: UpdateMaterialReq = serde_json::from_str(r#"{"material_name":"螺栓"}"#).expect("解析");
+        assert_eq!(absent.standard_price, None, "键缺席 = 不改");
+
+        let clear: UpdateMaterialReq = serde_json::from_str(r#"{"standard_price":null}"#).expect("解析");
+        assert_eq!(clear.standard_price, Some(None), "null = 清空");
+
+        let set: UpdateMaterialReq = serde_json::from_str(r#"{"standard_price":"106.1947"}"#).expect("解析");
+        assert_eq!(
+            set.standard_price,
+            Some(Some(dec("106.1947"))),
+            "有值 = 覆盖（金额按字符串传，与全仓口径一致）"
+        );
+
+        // 建：键缺席 = 不维护
+        let created: CreateMaterialReq =
+            serde_json::from_str(r#"{"material_name":"螺栓","unit_id":"5a000000-0000-4000-8000-000000000001"}"#)
+                .expect("解析");
+        assert_eq!(created.standard_price, None);
+    }
+
     /// 期间：月份越界 / 起止倒置 / 期间编码推导。
     #[test]
     fn validate_period_bounds_and_code() {
@@ -3648,6 +3756,7 @@ mod tests {
             costing_method: "MOVING_AVG".to_string(),
             inventory_account_id: None,
             tax_rate: Some(dec("0.13")),
+            standard_price: None,
             status: 1,
             serial_required: None,
             remark: None,

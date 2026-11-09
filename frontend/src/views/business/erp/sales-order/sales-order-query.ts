@@ -398,6 +398,16 @@ export interface SalesOrderLineDraft {
    * 想看规则价就点行尾「重取价」。展示上打「手动价」标签盖住来源。
    */
   price_manual?: boolean;
+  /**
+   * 规则命中价的**含税原值**（E2E-FIX-4 ②，仅展示，不提交）。
+   *
+   * 协议价 / 阶梯价是含税价：订单行填的是折算后的不含税价（`price_excl`），
+   * 这个字段用来在单价下方提示「含税价 120（税率 13%）」，让销售看得见原始口径。
+   * 标准售价（不含税）不填它 —— 那种情况没有「含税价」可言。
+   */
+  price_incl?: string;
+  /** 折算用的税率（百分数，仅展示；与 {@link price_incl} 成对出现） */
+  price_tax_rate?: string;
 }
 
 /** 单头草稿（`customer_id` / `contract_id` / 日期 / 备注） */
@@ -449,6 +459,8 @@ export function newSalesOrderLine(
     tax_rate: '13',
     price_source: '',
     price_manual: false,
+    price_incl: '',
+    price_tax_rate: '',
     ...defaults,
   };
 }
@@ -458,29 +470,77 @@ export function newSalesOrderLine(
 /**
  * 取价结果 → 行（自动带价）。
  *
- * 三条口径：
+ * 四条口径：
  * 1. **来源总是更新**：即使销售手动改过价，也把"规则命中了哪一级"记下来
  *    （页面用「手动价」标签盖住它展示，但 `重取价` 时要用）；
- * 2. **手动价不被覆盖**：`price_manual = true` 时价格保持人工值 —— 自动重算冲掉
+ * 2. **填单价只用 `price_excl`（不含税）**：协议价 / 阶梯价是**含税**价，
+ *    直接填进订单行会让单价虚高一个税率（120 vs 106.19），税额再按 13% 算一遍，
+ *    整单金额全错（E2E-FIX-4 ② 的现场事故）。`price_excl` 缺失（老后端）才退回 `price`；
+ * 3. **手动价不被覆盖**：`price_manual = true` 时价格保持人工值 —— 自动重算冲掉
  *    销售特意让的价，是最容易"卖亏了还查不出来"的一类事故；
- * 3. **`NONE` 不清空已填价**：没价是业务事实（让销售手填），把用户手填的数字抹掉更糟。
+ * 4. **`NONE` 不清空已填价**：没价是业务事实（让销售手填），把用户手填的数字抹掉更糟。
  *
  * @returns `true` = 价格被自动带出；`false` = 只是记录了来源（手动价 / 无价）
  */
 export function applyResolvedPrice(line: SalesOrderLineDraft, res: PriceResolveRes): boolean {
   line.price_source = res.source;
+  // 含税口径提示：只有「含税来源」才有可展示的含税原值（标准售价本身是不含税）
+  if (res.tax_inclusive && hasAmount(res.price)) {
+    line.price_incl = formatPrice(res.price);
+    line.price_tax_rate = hasAmount(res.tax_rate) ? String(Number(res.tax_rate)) : '';
+  } else {
+    line.price_incl = '';
+    line.price_tax_rate = '';
+  }
   if (line.price_manual) {
     return false;
   }
-  if (res.price === null || res.price === undefined || res.price === '') {
+  // ★ 填单口径：不含税价优先（协议价 / 阶梯价是含税，必须用折算后的 price_excl）
+  const fill = hasAmount(res.price_excl) ? res.price_excl : res.price;
+  if (!hasAmount(fill)) {
     return false;
   }
-  const num = Number(res.price);
+  const num = Number(fill);
   if (!Number.isFinite(num)) {
     return false;
   }
   line.price = String(Number(num.toFixed(4)));
+  // 税率跟着「折算这个价时用的税率」走：否则 price_excl 按 9% 折出、税额却按行上的 13%
+  // 算，含税合计就对不上协议价（这是"金额没错但税额错"的另一半坑）。
+  if (hasAmount(res.tax_rate) && Number.isFinite(Number(res.tax_rate))) {
+    line.tax_rate = String(Number(res.tax_rate));
+  }
   return true;
+}
+
+/** 金额是否可用（`null` / `undefined` / 空串 = 没有值；0 是合法值，不能当「没有」） */
+function hasAmount(value: string | number | null | undefined): value is string | number {
+  if (value === null || value === undefined) {
+    return false;
+  }
+  return String(value).trim() !== '';
+}
+
+/** 金额展示文本：去掉尾零、最多 4 位小数（`"120.0000"` → `"120"`） */
+function formatPrice(value: string | number): string {
+  const num = Number(value);
+  return Number.isFinite(num) ? String(Number(num.toFixed(4))) : String(value);
+}
+
+/**
+ * 行的「含税价」提示文案（E2E-FIX-4 ②③）。
+ *
+ * 例：`含税价 120（税率 13%）`。订单行填的是不含税价（`price_excl`），
+ * 这行提示让销售看得见原始协议口径，知道为什么单价是 106.1947 而不是 120。
+ *
+ * 手动价 / 无含税来源 / 没取过价 → 空串（模板里 `v-if` 不渲染）。
+ */
+export function linePriceInclHint(line: SalesOrderLineDraft): string {
+  if (line.price_manual || !line.price_incl) {
+    return '';
+  }
+  const rate = line.price_tax_rate;
+  return rate ? `含税价 ${line.price_incl}（税率 ${rate}%）` : `含税价 ${line.price_incl}`;
 }
 
 /**

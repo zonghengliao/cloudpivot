@@ -870,14 +870,31 @@ biz_price_tier
 ⑤ 都没有 → 返回空，让销售员手填（并提示"未找到协议价"）
 
 **接口**: GET /api/business/erp/price/resolve?customer_id=&material_id=&qty=&date=
-返回: { price, source: 'AGREED'|'TIER_CUSTOMER'|'TIER_COMMON'|'STANDARD'|'NONE', source_id }
+返回: { price, source: 'AGREED'|'TIER_CUSTOMER'|'TIER_COMMON'|'STANDARD'|'NONE', source_id,
+        tax_inclusive, price_excl, tax_rate }
 ```
+
+**口径（E2E-FIX-4 补）**：价格表里两套口径并存 —— ① 协议价 / ②③ 阶梯价存的是**含税**单价，
+④ 标准售价存的是**不含税**单价；而销售订单行 `biz_sales_order_item.price` 是**不含税**。
+
+| `source` | `tax_inclusive` | `price_excl` |
+|---|---|---|
+| `AGREED` / `TIER_CUSTOMER` / `TIER_COMMON` | `true` | `price / (1 + tax_rate/100)`（4 位定标） |
+| `STANDARD` | `false` | `= price` |
+| `NONE` | `false` | `null`（`tax_rate` 同为 `null`） |
+
+`tax_rate` 取自 `biz_material.tax_rate`（**百分数**，13 = 13%，FIX-6 口径）。
+**前端填单只准用 `price_excl`**：把含税价 120 直接填进订单行会让单价虚高 13%（120 vs 106.1947），
+税额再按 13% 算一遍，整单金额全错（E2E-02 演练的现场事故）。
 
 #### 15.3.4 表改动
 
 | 表 | 改动 |
 |---|---|
-| `biz_material` | 新增 `standard_price numeric(18,4)`（标准售价） |
+| `biz_material` | 新增 `standard_price numeric(18,4)`（标准售价，**不含税**；V0270） |
+
+标准售价的维护入口（E2E-FIX-4 补）：`POST /business/erp/material` 与 `PUT /business/erp/material/{id}`
+的 `standard_price` 字段（`> 0`；留空 = 不维护；改单时 `null` = 清空），前端物料页有「标准售价」输入框。
 
 ---
 

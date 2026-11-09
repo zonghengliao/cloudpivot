@@ -379,16 +379,22 @@
           </template>
 
           <template #price="{ row }">
-            <t-input-number
-              v-model="row.price"
-              theme="normal"
-              :decimal-places="4"
-              :min="0"
-              align="right"
-              placeholder="0.0000"
-              data-testid="so-form-price"
-              @change="onLinePriceChange(row)"
-            />
+            <div class="price-cell">
+              <t-input-number
+                v-model="row.price"
+                theme="normal"
+                :decimal-places="4"
+                :min="0"
+                align="right"
+                placeholder="0.0000"
+                data-testid="so-form-price"
+                @change="onLinePriceChange(row)"
+              />
+              <!-- 含税口径提示（E2E-FIX-4 ②）：填的是不含税价，原协议价是含税价 -->
+              <span v-if="linePriceInclHint(row)" class="price-cell__hint" data-testid="so-form-price-incl-hint">
+                {{ linePriceInclHint(row) }}
+              </span>
+            </div>
           </template>
 
           <template #price_source="{ row }">
@@ -715,6 +721,7 @@ import {
   linePriceBadge,
   linePriceBadgeLabel,
   linePriceBadgeTheme,
+  linePriceInclHint,
   markPriceManual,
   newSalesOrderLine,
   rowActions,
@@ -1159,7 +1166,7 @@ async function refetchLinePrice(line: SalesOrderLineDraft, force = false): Promi
     applyResolvedPrice(line, res);
     if (res.source === 'NONE' && !line.price_manual) {
       // 无价是合法业务结果（200）：提示手填，不是报错弹窗
-      MessagePlugin.warning(`第 ${lineNoOf(line)} 行未找到协议价 / 阶梯价 / 标准价，请手填含税单价`);
+      MessagePlugin.warning(`第 ${lineNoOf(line)} 行未找到协议价 / 阶梯价 / 标准价，请手填不含税单价`);
     }
   } catch (error) {
     if (priceSeq.get(line.key) === token) {
@@ -1179,6 +1186,8 @@ function onLineMaterialChange(row: SalesOrderLineDraft): void {
   row.price = '';
   row.price_source = '';
   row.price_manual = false;
+  row.price_incl = '';
+  row.price_tax_rate = '';
   void refetchLinePrice(row);
 }
 
@@ -1611,5 +1620,19 @@ onMounted(async () => {
 
 .source-cell__empty {
   color: var(--td-text-color-placeholder);
+}
+
+/* 单价 + 含税口径提示（E2E-FIX-4 ②）：提示要小、要贴着输入框，不能挤掉明细行高 */
+.price-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.price-cell__hint {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--td-text-color-placeholder);
+  white-space: nowrap;
 }
 </style>

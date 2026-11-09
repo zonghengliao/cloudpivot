@@ -1209,10 +1209,10 @@ pub async fn create_material(
         "INSERT INTO biz_material \
              (id, material_code, material_name, spec, unit_id, material_type, \
               default_warehouse_id, safety_stock, costing_method, inventory_account_id, tax_rate, \
-              tax_rate_mode, status, serial_required, remark, created_at, updated_at, create_by, update_by) \
+              tax_rate_mode, standard_price, status, serial_required, remark, created_at, updated_at, create_by, update_by) \
              VALUES (?::uuid, ?, ?, ?, ?::uuid, ?, NULLIF(?::text,'')::uuid, \
                      COALESCE(NULLIF(?::text,''),'0')::numeric, ?, NULLIF(?::text,'')::uuid, \
-                     COALESCE(NULLIF(?::text,''),'0')::numeric, ?, ?, ?, ?, now(), now(), \
+                     COALESCE(NULLIF(?::text,''),'0')::numeric, ?, NULLIF(?::text,'')::numeric, ?, ?, ?, now(), now(), \
                      NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)",
         vec![
             Value::from(&id),
@@ -1235,6 +1235,7 @@ pub async fn create_material(
                     .map(|value| value.mode_text().to_string())
                     .unwrap_or_else(|| tax_rate_mod::MODE_PERCENT.to_string()),
             ),
+            decimal_text(req.standard_price),
             Value::I16(req.status),
             Value::from(req.serial_required.unwrap_or(false)),
             Value::from(req.remark.clone()),
@@ -1355,6 +1356,19 @@ pub async fn material_update(
         }
         None => (String::new(), Vec::new()),
     };
+    // 标准售价三态（与 spec / remark 同口径）：缺席 = 不改、`null` = 清空、有值 = 覆盖。
+    // 数值校验（> 0）已在 `req.validate()` 拦过，这里只负责拼 SQL 片段。
+    let (standard_clause, standard_param) = match req.standard_price {
+        Some(Some(price)) => (
+            // 参数是 Text，用 `NULLIF(?::text,'')::numeric` 两步转：直接 `?::numeric`
+            // 会让库把占位符推断成 numeric，canal 序列化 Text 失败 → 500
+            // 「error serializing parameter」（与同函数里 tax_rate 的坑同源，E2E-04 实测过）。
+            " standard_price = NULLIF(?::text,'')::numeric, ".to_string(),
+            vec![Value::Text(price.to_string())],
+        ),
+        Some(None) => (" standard_price = NULL, ".to_string(), Vec::new()),
+        None => (String::new(), Vec::new()),
+    };
     let status = req.status.unwrap_or(current.status);
     // 一物一码开关：缺席 = 不改（不是「关掉」），与其余可选字段同口径。
     let (serial_clause, serial_param) = match req.serial_required {
@@ -1375,6 +1389,7 @@ pub async fn material_update(
         Value::from(costing_method),
         uuid_text(inventory_account_id),
     ];
+    params.extend(standard_param);
     params.extend(tax_params);
     params.push(Value::I16(status));
     params.push(Value::from(remark));
@@ -1389,7 +1404,7 @@ pub async fn material_update(
             "UPDATE biz_material SET material_name = ?, spec = ?, unit_id = ?::uuid, \
              material_type = ?, default_warehouse_id = NULLIF(?::text,'')::uuid, \
              safety_stock = NULLIF(?::text,'')::numeric, costing_method = ?, \
-             inventory_account_id = NULLIF(?::text,'')::uuid,{tax_clause} \
+             inventory_account_id = NULLIF(?::text,'')::uuid,{standard_clause}{tax_clause} \
              status = ?, remark = ?,{serial_clause} \
              updated_at = now(), update_by = NULLIF(?::text,'')::uuid \
              WHERE id = ?::uuid AND deleted_at IS NULL"
@@ -3443,6 +3458,7 @@ mod tests {
                 costing_method: "MOVING_AVG".to_string(),
                 inventory_account_id: None,
                 tax_rate: None,
+                standard_price: None,
                 status: 1,
                 serial_required: None,
                 remark: None,
@@ -3468,6 +3484,7 @@ mod tests {
                     costing_method: "MOVING_AVG".to_string(),
                     inventory_account_id: None,
                     tax_rate: Some(Decimal::new(1300, 4)),
+                    standard_price: None,
                     status: 1,
                     serial_required: None,
                     remark: None,
@@ -3508,6 +3525,7 @@ mod tests {
                     costing_method: None,
                     inventory_account_id: None,
                     tax_rate: None,
+                    standard_price: None,
                     status: None,
                     serial_required: None,
                     remark: None,
@@ -3597,6 +3615,7 @@ mod tests {
                 costing_method: "MOVING_AVG".to_string(),
                 inventory_account_id: None,
                 tax_rate: None,
+                standard_price: None,
                 status: 1,
                 serial_required: None,
                 remark: None,
@@ -3638,6 +3657,7 @@ mod tests {
                     costing_method: "MOVING_AVG".to_string(),
                     inventory_account_id: None,
                     tax_rate: None,
+                    standard_price: None,
                     status: 1,
                     serial_required: None,
                     remark: None,
@@ -3731,6 +3751,160 @@ mod tests {
         hard_delete("biz_material", legacy_id).await;
         hard_delete("biz_unit", box_id).await;
         hard_delete("biz_unit", base_id).await;
+    }
+
+    /// ㉒-B 标准售价写接口 + 取价链第 ④ 级（E2E-FIX-4 ① / ② 的真库闭环）。
+    ///
+    /// 走的是**真实 handler**（`material_create` / `material_update`）与真实取价
+    /// （`price_handler::resolve_price`），不是改库造数：
+    ///
+    /// ① 建物料带 `standard_price = 11.5` → 落库并可回读；
+    /// ② `GET /price/resolve`（无客户、无阶梯）→ 命中 `STANDARD`，且回口径标注：
+    ///    `tax_inclusive = false`、`price_excl = price`、`tax_rate = 物料税率`；
+    /// ③ 编辑成 `20` → 第 ④ 级给新价（证明改接口真的生效）；
+    /// ④ 编辑清空（`standard_price: null`）→ 第 ④ 级不再命中 → `NONE`。
+    #[tokio::test]
+    async fn material_standard_price_feeds_price_resolve() {
+        use crate::business::erp::price_dto::PriceResolveQuery;
+
+        let Some(_guard) = setup().await else { return };
+        let unit = data(
+            unit_create(
+                Extension(AuthClaims(claims())),
+                Json(CreateUnitReq {
+                    unit_code: code("SPU"),
+                    unit_name: "E2E4 标准价单位".to_string(),
+                    is_base: true,
+                    base_unit_id: None,
+                    rate: None,
+                    status: 1,
+                    sort_order: 0,
+                    remark: None,
+                    precision: None,
+                }),
+            )
+            .await
+            .expect("建单位"),
+        );
+        let unit_id = Uuid::parse_str(&unit.id).unwrap();
+
+        // ---------- ① 建：带标准售价 + 13% 税率 ----------
+        let created = data(
+            material_create(
+                Extension(AuthClaims(claims())),
+                Json(CreateMaterialReq {
+                    material_code: Some(code("MSTD")),
+                    material_name: "E2E4 标准价物料".to_string(),
+                    spec: None,
+                    unit_id: unit_id.to_string(),
+                    material_type: "RAW".to_string(),
+                    default_warehouse_id: None,
+                    safety_stock: None,
+                    costing_method: "MOVING_AVG".to_string(),
+                    inventory_account_id: None,
+                    tax_rate: Some(Decimal::from(13)),
+                    standard_price: Some(Decimal::new(115000, 4)),
+                    status: 1,
+                    serial_required: None,
+                    remark: None,
+                }),
+            )
+            .await
+            .expect("建带标准售价的物料"),
+        );
+        let material_id = Uuid::parse_str(&created.id).unwrap();
+        assert_eq!(
+            created.standard_price,
+            Some(Decimal::new(115000, 4)),
+            "建接口必须能写标准售价（原实现无此字段，取价第 ④ 级只能改库）"
+        );
+        let row = model::material_find_by_id(material_id)
+            .await
+            .unwrap()
+            .expect("物料必须落库");
+        assert_eq!(row.standard_price, Some(Decimal::new(115000, 4)), "落库值");
+
+        // ---------- ② 取价：无客户 / 无阶梯 → 第 ④ 级 ----------
+        let resolve = |qty: &str| {
+            crate::business::erp::price_handler::resolve_price(PriceResolveQuery {
+                customer_id: None,
+                material_id: Some(material_id.to_string()),
+                qty: Some(qty.to_string()),
+                date: None,
+            })
+        };
+        let hit = resolve("1").await.expect("取价");
+        assert_eq!(hit.source, "STANDARD", "只维护了标准售价 → 命中第 ④ 级");
+        assert_eq!(hit.price, Some(Decimal::new(115000, 4)));
+        assert_eq!(
+            hit.source_id,
+            Some(material_id.to_string()),
+            "STANDARD 的 source_id = 物料 id"
+        );
+        assert!(!hit.tax_inclusive, "标准售价本身是不含税价");
+        assert_eq!(
+            hit.price_excl,
+            Some(Decimal::new(115000, 4)),
+            "不含税价不再折算，price_excl = price"
+        );
+        assert_eq!(hit.tax_rate, Some(Decimal::from(13)), "折算税率 = 物料税率");
+
+        // ---------- ③ 改：20 → 第 ④ 级给新价 ----------
+        let updated = data(
+            material_update(
+                Extension(AuthClaims(claims())),
+                Path(material_id.to_string()),
+                Json(UpdateMaterialReq {
+                    standard_price: Some(Some(Decimal::from(20))),
+                    ..Default::default()
+                }),
+            )
+            .await
+            .expect("改标准售价"),
+        );
+        assert_eq!(updated.standard_price, Some(Decimal::from(20)), "改接口生效");
+        let hit = resolve("1").await.expect("取价");
+        assert_eq!(hit.source, "STANDARD");
+        assert_eq!(hit.price, Some(Decimal::from(20)), "改完立刻按新价取");
+
+        // ---------- ④ 清空（null）→ 第 ④ 级不再命中 ----------
+        let cleared = data(
+            material_update(
+                Extension(AuthClaims(claims())),
+                Path(material_id.to_string()),
+                Json(UpdateMaterialReq {
+                    standard_price: Some(None),
+                    ..Default::default()
+                }),
+            )
+            .await
+            .expect("清空标准售价"),
+        );
+        assert_eq!(cleared.standard_price, None, "`null` = 清空");
+        let miss = resolve("1").await.expect("取价");
+        assert_eq!(miss.source, "NONE", "标准售价清空后第 ④ 级不再命中");
+        assert_eq!(miss.price, None);
+        assert_eq!(miss.price_excl, None, "没取到价就没有不含税价");
+        assert_eq!(miss.tax_rate, None, "没取到价就不给折算税率");
+
+        // ---------- ⑤ 0 元被校验挡住（不落库、不留假价）----------
+        let error = material_update(
+            Extension(AuthClaims(claims())),
+            Path(material_id.to_string()),
+            Json(UpdateMaterialReq {
+                standard_price: Some(Some(Decimal::ZERO)),
+                ..Default::default()
+            }),
+        )
+        .await
+        .expect_err("0 元标准售价必须被拒");
+        assert_eq!(error.status, 400);
+        assert!(error.msg.contains("standard_price"), "{}", error.msg);
+        let row = model::material_find_by_id(material_id).await.unwrap().unwrap();
+        assert_eq!(row.standard_price, None, "被拒的编辑不许改库");
+
+        hard_delete("biz_material", material_id).await;
+        hard_delete("biz_unit", unit_id).await;
     }
 
     /// ㉓ 供应商：建 → 详情 → 编辑 → 软删。
@@ -4175,6 +4349,7 @@ mod tests {
             costing_method: "MOVING_AVG".to_string(),
             inventory_account_id: None,
             tax_rate: None,
+            standard_price: None,
             status: 1,
             serial_required: None,
             remark: None,

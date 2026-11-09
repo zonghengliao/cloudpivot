@@ -86,8 +86,9 @@ const COMMON_TIER_SQL: &str = "SELECT id, tier_type, price, min_qty, max_qty, ef
      WHERE customer_id IS NULL AND material_id = ?::uuid \
        AND status = 'ACTIVE' AND deleted_at IS NULL";
 
-/// ④ 物料标准售价（软删行不算：删掉的物料给不出价）。
-const MATERIAL_SQL: &str = "SELECT id, standard_price FROM biz_material WHERE id = ?::uuid AND deleted_at IS NULL";
+/// ④ 物料标准售价（软删行不算：删掉的物料给不出价）+ 税率（折算含税价要用）。
+const MATERIAL_SQL: &str =
+    "SELECT id, standard_price, tax_rate FROM biz_material WHERE id = ?::uuid AND deleted_at IS NULL";
 
 /// 客户存在性（软删行不算）。
 const CUSTOMER_EXISTS_SQL: &str = "SELECT COUNT(*) FROM biz_customer WHERE id = ?::uuid AND deleted_at IS NULL";
@@ -135,6 +136,8 @@ pub struct MaterialPrice {
     pub id: Uuid,
     /// 标准售价；`None` = 未维护。
     pub standard_price: Option<Decimal>,
+    /// 物料税率（**百分数** 0–100，FIX-6 / V0327 口径；折算含税价用它）。
+    pub tax_rate: Decimal,
 }
 
 /// 取价结果（`source` 从 [`crate::business::erp::price_dto::SOURCES`] 里取一个）。
@@ -277,6 +280,80 @@ pub fn resolve_from(
     }
 }
 
+// ==================== 含税 / 不含税口径（纯函数） ====================
+
+/// 命中价的口径标注（`GET /price/resolve` 的三个新字段）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct TaxView {
+    /// 命中价是否**含税**（协议价 / 阶梯价 = 含税；标准售价 = 不含税）。
+    pub tax_inclusive: bool,
+    /// 折算后的**不含税**单价（4 位定标）；`None` = 没取到价。
+    pub price_excl: Option<Decimal>,
+    /// 折算用的税率（百分数）；`None` = 没取到价。
+    pub tax_rate: Option<Decimal>,
+}
+
+/// 把「命中价 + 命中层级 + 物料税率」翻译成含税口径标注。
+///
+/// # 为什么必须有这一层
+///
+/// 价格表里两套口径并存（ARCH-7 §15.3.3 / V0270）：
+///
+/// | 来源 | 存的值 | 口径 |
+/// |---|---|---|
+/// | 客户协议价 / 阶梯价 / 促销价 | `biz_customer_price.price` / `biz_price_tier.price` | **含税** |
+/// | 物料标准售价 | `biz_material.standard_price` | **不含税** |
+///
+/// 而销售订单行 `biz_sales_order_item.price` 是**不含税**单价。原实现只回 `price`，
+/// 前端把含税价当不含税填进订单行 → 单价虚高 13%（120 vs 106.19），税额又按 13% 再算
+/// 一遍，整单金额全错。所以这里显式回 `tax_inclusive` + `price_excl`，
+/// **前端只准用 `price_excl` 填单**。
+///
+/// # 规则
+///
+/// ```text
+/// AGREED / TIER_CUSTOMER / TIER_COMMON → tax_inclusive = true,  price_excl = price / (1 + rate/100)
+/// STANDARD                             → tax_inclusive = false, price_excl = price
+/// NONE                                 → price_excl = None, tax_rate = None（没价可折算）
+/// ```
+///
+/// 折算复用 [`crate::business::erp::tax_rate::split`]：先定不含税（4 位四舍五入）、
+/// 税额 = 含税 − 不含税，两者相加恒等于原价（不会出现 1 分尾差）。
+pub fn tax_view(price: Option<Decimal>, source: &str, material_tax_rate: Decimal) -> TaxView {
+    use crate::business::erp::price_dto::{SOURCE_NONE, SOURCE_STANDARD};
+
+    let Some(price) = price else {
+        // 没取到价：没有口径可言（`tax_rate` 也不给，避免前端拿它去算一个不存在的价的税）
+        return TaxView {
+            tax_inclusive: false,
+            price_excl: None,
+            tax_rate: None,
+        };
+    };
+    if source == SOURCE_NONE {
+        // 理论上走不到（NONE 时 price 必为 None），防御性判定：绝不把「没有价」说成 0 元
+        return TaxView {
+            tax_inclusive: false,
+            price_excl: None,
+            tax_rate: None,
+        };
+    }
+    if source == SOURCE_STANDARD {
+        // 标准售价本身就是不含税，折算 = 恒等
+        return TaxView {
+            tax_inclusive: false,
+            price_excl: Some(price),
+            tax_rate: Some(material_tax_rate),
+        };
+    }
+    let (price_excl, _tax) = crate::business::erp::tax_rate::split(price, material_tax_rate);
+    TaxView {
+        tax_inclusive: true,
+        price_excl: Some(price_excl),
+        tax_rate: Some(material_tax_rate),
+    }
+}
+
 // ==================== DB 读（粗筛） ====================
 
 /// 物料 + 标准售价；物料不存在 / 已软删 → `None`（handler 转 404）。
@@ -289,6 +366,7 @@ pub async fn load_material(material_id: Uuid) -> DbResult<Option<MaterialPrice>>
             Ok(MaterialPrice {
                 id: row.get_typed("id")?,
                 standard_price: row.get_typed("standard_price")?,
+                tax_rate: row.get_typed("tax_rate")?,
             })
         })
         .transpose()
@@ -504,6 +582,82 @@ mod tests {
         assert_eq!(out.source, "NONE");
         assert_eq!(out.price, None);
         assert_eq!(out.source_id, None);
+    }
+
+    // ---------- 含税 / 不含税口径（E2E-FIX-4 ②） ----------
+
+    /// 协议价 120（**含税**）→ 13% 折算出 `price_excl = 106.1947`。
+    ///
+    /// 这是卡面验收 ③ 的那组数：120 / 1.13 = 106.19469… → 4 位定标 106.1947。
+    /// 同时验证「不含税 + 税额 = 含税价」闭环（tax = 120 − 106.1947 = 13.8053）。
+    #[test]
+    fn tax_view_agreed_price_is_inclusive() {
+        let view = tax_view(Some(dec("120.0000")), "AGREED", dec("13"));
+        assert!(view.tax_inclusive, "协议价是含税价");
+        assert_eq!(view.price_excl, Some(dec("106.1947")));
+        assert_eq!(view.tax_rate, Some(dec("13")));
+
+        let excl = view.price_excl.expect("有价就有不含税价");
+        let tax = dec("120.0000") - excl;
+        assert_eq!(tax, dec("13.8053"), "税额 = 含税 − 不含税");
+        assert_eq!(
+            excl + tax,
+            dec("120.0000"),
+            "不含税 + 税额必须等于原含税价（不许有尾差）"
+        );
+        // 用系统的税额公式复核一遍：106.1947 × 13% = 13.8053
+        assert_eq!(crate::business::erp::tax_rate::tax_of(excl, dec("13")), tax);
+    }
+
+    /// 客户专属阶梯 / 通用阶梯同样是**含税**口径。
+    #[test]
+    fn tax_view_tiers_are_inclusive() {
+        for source in ["TIER_CUSTOMER", "TIER_COMMON"] {
+            let view = tax_view(Some(dec("113.0000")), source, dec("13"));
+            assert!(view.tax_inclusive, "{source} 是含税价");
+            assert_eq!(view.price_excl, Some(dec("100.0000")), "{source} 113 / 1.13 = 100");
+            assert_eq!(view.tax_rate, Some(dec("13")));
+        }
+    }
+
+    /// 标准售价本身就是**不含税**：`price_excl` 恒等于 `price`，标 `tax_inclusive = false`。
+    #[test]
+    fn tax_view_standard_price_is_exclusive() {
+        let view = tax_view(Some(dec("11.0000")), "STANDARD", dec("13"));
+        assert!(!view.tax_inclusive, "标准售价是不含税价");
+        assert_eq!(view.price_excl, Some(dec("11.0000")), "不含税价不再折算");
+        assert_eq!(view.tax_rate, Some(dec("13")), "税率仍回物料税率（前端算税额用）");
+    }
+
+    /// 没取到价：三个字段一律 null / false，绝不给 0 元或假税率。
+    #[test]
+    fn tax_view_none_has_no_numbers() {
+        let view = tax_view(None, "NONE", dec("13"));
+        assert!(!view.tax_inclusive);
+        assert_eq!(view.price_excl, None);
+        assert_eq!(view.tax_rate, None);
+
+        // 防御：source = NONE 却带了 price（脏数据 / 逻辑回归）也不折算
+        let weird = tax_view(Some(dec("120")), "NONE", dec("13"));
+        assert_eq!(weird.price_excl, None);
+        assert_eq!(weird.tax_rate, None);
+    }
+
+    /// 税率 0（免税 / 未维护税率）：含税价 = 不含税价，折算恒等。
+    #[test]
+    fn tax_view_zero_rate_is_identity() {
+        let view = tax_view(Some(dec("120.0000")), "AGREED", Decimal::ZERO);
+        assert!(view.tax_inclusive);
+        assert_eq!(view.price_excl, Some(dec("120.0000")));
+        assert_eq!(view.tax_rate, Some(Decimal::ZERO));
+    }
+
+    /// 折算用 4 位定标（与订单行单价 / 金额同精度）：100 / 1.13 = 88.4956。
+    #[test]
+    fn tax_view_rounds_to_four_decimals() {
+        let view = tax_view(Some(dec("100")), "TIER_COMMON", dec("9"));
+        // 100 / 1.09 = 91.743119… → 91.7431
+        assert_eq!(view.price_excl, Some(dec("91.7431")));
     }
 
     /// 优先级严格：五级同时可用时，永远取最高的那一级（不是最便宜的那一级）。
