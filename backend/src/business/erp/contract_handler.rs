@@ -683,6 +683,9 @@ fn validate_mutation(merged: &ContractMut) -> std::result::Result<(), ApiError> 
 ///    回写 `approval_instance_id`，与本事务同生共死，见 [`submit_approval_tx`]）；
 /// 5. 目标态 = `DRAFT` 且当前 `PENDING_APPROVAL` → 视为**撤回**：先在跑的审批终止
 ///    （否则留下孤儿实例，下次提交撞唯一索引），再走普通流转并清空实例；
+/// 5-b. 目标态 = `SIGNED` 且当前 `PENDING_APPROVAL` → 视为**审批中心之外的登记签订**：
+///    同事务终止在跑的审批实例（待办 / 节点 / 实例一起 `CANCELLED`，实例 id 保留作审计），
+///    并把这件事写进状态日志的 reason（E2E07-FIX-4 ①：已签不该再挂着待办）；
 /// 6. DDL 前置：目标态需要日期三件套（`ck_biz_contract_signed_dates`）→ 缺 → 400；
 /// 7. `transition()`（需要 reason 的边缺 reason → 它自己报 400）；
 /// 8. 带 CAS 的 `UPDATE status`，0 行 → 409。
@@ -807,6 +810,25 @@ pub async fn contract_change_status(
         }
     }
 
+    // ⑤-b 审批中 → 已签订（**审批中心之外的登记签订**，E2E07-FIX-4 ①）：
+    //      合同一落 SIGNED，会签 / 审批待办就再也不该挂着（改之前是「已签 + 待办未清」，
+    //      只能靠把剩余会签签完收口）。这里**同事务**终止在跑的实例：待办 / 节点 / 主表
+    //      一起翻 CANCELLED，实例 id 仍保留在合同上作审计（⑦ 的 `keep_instance`）。
+    //      实例不在跑（不存在 / 已 APPROVED / 已 CANCELLED）→ 什么都不做（终态是既成事实）。
+    let mut terminated = None;
+    if row.status == contract_model::STATUS_PENDING_APPROVAL
+        && target == contract_model::STATUS_SIGNED
+        && let Some(instance_id) = row.approval_instance_id
+    {
+        match contract_bridge::terminate_for_out_of_band_sign(&tx, instance_id, &row.contract_no).await {
+            Ok(out) => terminated = out,
+            Err(error) => {
+                let _ = tx.rollback().await;
+                return Err(error);
+            }
+        }
+    }
+
     // ④ DDL 前置：SIGNED / ACTIVE / COMPLETED 要求 sign/start/end 三件套齐全
     if contract_model::requires_full_dates(&target) {
         let mut missing = Vec::new();
@@ -834,6 +856,14 @@ pub async fn contract_change_status(
     }
 
     // ⑤ 状态机唯一入口（边校验 + reason 校验 + 写 biz_status_log，与本次 UPDATE 同事务）
+    //    ⑤-b 终止过实例时，把「为什么实例被终止」并进状态日志的 reason：审计必须能回答
+    //    「会签还没走完，为什么待办没了」；用户自己填的原因优先保留在前面。
+    let log_reason: Option<String> = match (&reason, terminated.is_some()) {
+        (Some(text), true) => Some(format!("{text}；{}", contract_bridge::OUT_OF_BAND_SIGN_NOTE)),
+        (None, true) => Some(contract_bridge::OUT_OF_BAND_SIGN_NOTE.to_string()),
+        (Some(text), false) => Some(text.clone()),
+        (None, false) => None,
+    };
     if let Err(error) = state_machine::transition(
         &tx,
         state_machine::ENTITY_CONTRACT,
@@ -843,7 +873,7 @@ pub async fn contract_change_status(
         &row.status,
         &target,
         operator_of(&claims),
-        reason.as_deref(),
+        log_reason.as_deref(),
         None,
     )
     .await
@@ -917,6 +947,18 @@ pub async fn contract_change_status(
         .map_err(|error| utils::db_error(error, "提交合同状态流转事务"))?;
     // 通知类动作在提交之后跑（失败不回滚状态变更）
     contract_linkage::run_deferred_after_commit(linkage_change).await;
+    // ⑤-b 终止实例的锁外副作用（通知发起人「流程已终止」）：也在提交之后发。
+    //     实例已经 CANCELLED，一封站内信发失败不该把「登记签订」撤回去。
+    if let Some(mut out) = terminated {
+        let effects = out.effects.take();
+        if !effects.is_empty() {
+            engine::flush_effects(effects).await;
+        }
+        let drafts = out.effects.take_drafts();
+        if !drafts.is_empty() {
+            engine::flush_drafts(drafts).await;
+        }
+    }
 
     detail_of(id).await
 }

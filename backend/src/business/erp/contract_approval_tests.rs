@@ -740,6 +740,122 @@ async fn manual_withdraw_cancels_running_instance() {
     restore_borrowed_bindings().await;
 }
 
+/// **E2E07-FIX-4 ①** 路径②「登记签订」(`PENDING_APPROVAL → SIGNED`)：
+/// 合同落 `SIGNED` 的同时**终止在跑的审批实例** —— 实例 / 待办 / 节点一起收口，
+/// 状态日志写清「为什么待办没了」，实例 id 仍保留作审计。
+///
+/// 改之前的病：合同已 `SIGNED`、实例仍 `PENDING`、待办仍挂在审批人处 ——
+/// 会签没走完时只剩「把剩余会签签完」一条出口（签完会把一张已签合同再判一次 `APPROVED`），
+/// 没有审批权的人只能找工程师改库。
+#[tokio::test]
+async fn manual_sign_from_pending_terminates_running_instance() {
+    let Some(_guard) = setup().await else { return };
+    let id = make_contract("MANSIGN-TERM", dec("50000.00")).await;
+    submit(id).await.expect("提交审批应成功");
+    let instance = running_instance(id).await;
+    // 前置：会签/审批确实挂着待办（否则「待办被取消」这条断言无意义）
+    let pending_before: i64 = db()
+        .scalar_with_params(
+            "SELECT count(*) FROM biz_flow_task WHERE instance_id = ?::uuid AND status = 'PENDING'",
+            vec![Value::from(&instance)],
+        )
+        .await
+        .expect("查待办");
+    assert!(pending_before > 0, "登记签订前实例上必须有 PENDING 待办");
+
+    // 路径②：审批中心之外登记签订
+    let signed = submit_with_target(id, "SIGNED")
+        .await
+        .expect("PENDING_APPROVAL → SIGNED（登记签订）应放行");
+    assert_eq!(signed.base.status, "SIGNED");
+    assert_eq!(
+        signed.base.approval_instance_id.as_deref(),
+        Some(instance.to_string().as_str()),
+        "实例 id 必须保留作审计（详情仍显示 FLW 单号）"
+    );
+
+    // ① 实例已终止（`CANCELLED` 是全仓的行政终止态，DDL CHECK 里没有 TERMINATED）
+    let instance_status: Option<String> = db()
+        .scalar_with_params::<Option<String>>(
+            "SELECT status FROM biz_flow_instance WHERE id = ?::uuid",
+            vec![Value::from(&instance)],
+        )
+        .await
+        .expect("查实例状态");
+    assert_eq!(
+        instance_status.as_deref(),
+        Some("CANCELLED"),
+        "登记签订必须终止在跑的实例（否则「已签 + 待办未清」）"
+    );
+    let ended_at_missing: i64 = db()
+        .scalar_with_params(
+            "SELECT count(*) FROM biz_flow_instance WHERE id = ?::uuid AND ended_at IS NULL",
+            vec![Value::from(&instance)],
+        )
+        .await
+        .expect("查 ended_at");
+    assert_eq!(
+        ended_at_missing, 0,
+        "实例翻终态必须同写 ended_at（ck_biz_flow_instance_end）"
+    );
+
+    // ② 待办全部 CANCELLED（不是被删掉：留痕），且 completed_at 已写
+    let pending_after: i64 = db()
+        .scalar_with_params(
+            "SELECT count(*) FROM biz_flow_task WHERE instance_id = ?::uuid AND status = 'PENDING'",
+            vec![Value::from(&instance)],
+        )
+        .await
+        .expect("查待办");
+    assert_eq!(pending_after, 0, "登记签订后不许有 PENDING 待办");
+    let cancelled_after: i64 = db()
+        .scalar_with_params(
+            "SELECT count(*) FROM biz_flow_task WHERE instance_id = ?::uuid AND status = 'CANCELLED'",
+            vec![Value::from(&instance)],
+        )
+        .await
+        .expect("查已取消待办");
+    assert_eq!(
+        cancelled_after, pending_before,
+        "原 PENDING 待办应全部翻 CANCELLED（{pending_before} 条）"
+    );
+    let nodes_pending: i64 = db()
+        .scalar_with_params(
+            "SELECT count(*) FROM biz_flow_instance_node \n              WHERE instance_id = ?::uuid AND status IN ('ACTIVE','PENDING')",
+            vec![Value::from(&instance)],
+        )
+        .await
+        .expect("查节点");
+    assert_eq!(nodes_pending, 0, "实例节点也要收口（不留 ACTIVE 节点）");
+
+    // ③ 状态日志写清「审批实例已终止」（审计要能回答「会签没走完，为什么待办没了」）
+    let reason: Option<String> = db()
+        .scalar_with_params::<Option<String>>(
+            "SELECT reason FROM biz_status_log WHERE entity_type = 'CONTRACT' \n              AND entity_id = ?::uuid AND to_status = 'SIGNED' ORDER BY created_at DESC LIMIT 1",
+            vec![Value::from(&id)],
+        )
+        .await
+        .expect("查状态日志");
+    let reason = reason.unwrap_or_default();
+    assert!(
+        reason.contains("审批实例已终止"),
+        "状态日志必须写明实例被终止：{reason:?}"
+    );
+
+    // ④ 实例 id 在库里也保留（弱引用审计，与 CTR-02 口径一致）
+    let stored: Option<Uuid> = db()
+        .scalar_with_params::<Option<Uuid>>(
+            "SELECT approval_instance_id FROM biz_contract WHERE id = ?::uuid",
+            vec![Value::from(&id)],
+        )
+        .await
+        .expect("查合同实例 id");
+    assert_eq!(stored, Some(instance), "登记签订后合同仍指向原实例（审计）");
+
+    // 用例结束：把借用的共享角色成员挂回去（进程内最后一个用例也就不用靠下一轮 setup 收尾）。
+    restore_borrowed_bindings().await;
+}
+
 /// ⑥ 不审批直接点签订 / 生效 → 409 + 66015，文案点名「先提交审批」。
 #[tokio::test]
 async fn draft_cannot_be_signed_or_activated_without_approval() {

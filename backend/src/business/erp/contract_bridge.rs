@@ -24,6 +24,7 @@
 //! |------|------|--------|
 //! | [`on_contract_settled`] | `flow::handler::{approve_task, reject_task, withdraw_instance}`（**审批事务已提交之后**） | `APPROVED` → `PENDING_APPROVAL → SIGNED`；其余终态 → `PENDING_APPROVAL → DRAFT` |
 //! | [`cancel_approval_of`] | 合同软删 / 审批中直接改状态等「其它路径」 | 把在跑的审批**终止**（`biz_flow_task` / 节点 / 主表一起翻 `CANCELLED`），不留孤儿待办 |
+//! | [`terminate_for_out_of_band_sign`] | `contract_handler::contract_change_status` 的**路径②**（`PENDING_APPROVAL → SIGNED` = 审批中心外登记签订） | 同上，但走 `engine::terminate_instance`（含实例名下 `biz_task` + 通知副作用），返回值交给调用方在提交后发 |
 //! | [`internal_control_creator`] | `flow::internal_control`（生成待办**之前**） | 提供「制单人」，把他从审批人列表里排除（职责分离） |
 //!
 //! # 时序与失败口径（与 `purchase_bridge` 同款）
@@ -49,8 +50,8 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::contract_linkage;
 use crate::business::erp::contract_model::{self, STATUS_DRAFT, STATUS_PENDING_APPROVAL, STATUS_SIGNED};
-use crate::business::flow::model as flow_model;
 use crate::business::flow::settle_guard;
+use crate::business::flow::{engine, model as flow_model};
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 
@@ -349,6 +350,89 @@ pub async fn cancel_approval_of(
     } else {
         Ok(None)
     }
+}
+
+// ============ 路径②「登记签订」→ 终止在跑的审批实例（E2E07-FIX-4 ①） ============
+
+/// 「审批中心之外登记签订」终止实例时写进 `biz_flow_instance.result_comment` /
+/// 待办 `comment` / 状态日志 `reason` 的文案（一句话把因果说完）。
+///
+/// 措辞考究：它同时出现在三处（实例结果、被取消的待办、合同状态日志），
+/// 所以既要说清「为什么待办没了」，又不能说成「审批被驳回」（不是驳回，是业务已线下签完）。
+pub const OUT_OF_BAND_SIGN_NOTE: &str = "审批中心外登记签订：审批实例已终止（待办一并取消）";
+
+/// 路径②「登记签订」（`PENDING_APPROVAL → SIGNED`）时**终止在跑的审批实例**。
+///
+/// # 为什么必须有（问题原样）
+///
+/// `PATCH /contract/{id}/status {target_status:"SIGNED"}` 是「合同线下已签、系统补登记」
+/// 这条合法路径。改之前它只翻合同状态：合同已经 `SIGNED`，审批实例还 `PENDING`，
+/// 待办还挂在审批人处 —— 会签没走完时出现「已签但待办未清」的死结：这批待办只剩
+/// 「把剩余会签全签完」一个出口（签完会把一张**已签**合同再判一次 `APPROVED`），
+/// 而没有签完权限的人只能找工程师改库。
+///
+/// # 语义（与 `engine::terminate_instance` 一致）
+///
+/// * 实例 → `CANCELLED`（DDL CHECK 只有 `PENDING/APPROVED/REJECTED/CANCELLED/WITHDRAWN`，
+///   全仓 15 个业务桥把 `CANCELLED` 读作「行政终止」，**没有** `TERMINATED` 字面量）；
+/// * `PENDING` 待办 → `CANCELLED`（`completed_at` 同写，否则撞 `ck_biz_flow_task_done`）；
+/// * 实例节点 → `CANCELLED`；实例名下的 `biz_task`（协作任务）→ `CANCELLED` + 变更日志；
+/// * 合同上的 `approval_instance_id` **保留**（调用方 `keep_instance` 照旧），审计要能回答
+///   「这张合同当时提交过哪张审批单」。
+///
+/// # 为什么不做成「无条件终止」
+///
+/// 1. 实例不存在（弱引用历史行 / 已物理清理）→ `None`，不报错（登记签订不能被审计残留挡住）；
+/// 2. 实例已 `APPROVED`（审批中心走完的正常链路）→ `None`，终态是**已经发生的事实**，
+///    再翻 `CANCELLED` 会把「谁批的」改写成「谁终止的」。
+///
+/// 返回 `ActionOut` 交给调用方：**通知副作用必须在调用方 `commit()` 之后**
+/// （`engine::flush_effects`），撤销实例是事务内的，一封站内信失败不该把签订撤回去。
+///
+/// # 异常情况
+///
+/// * 引擎业务拒绝（实例并发被推进 / 已结束）→ 原样透传 `ApiError`（调用方整笔回滚）；
+/// * 数据库异常 → 500。
+pub async fn terminate_for_out_of_band_sign(
+    tx: &Transaction,
+    instance_id: Uuid,
+    contract_no: &str,
+) -> std::result::Result<Option<engine::ActionOut>, ApiError> {
+    let Some(instance) = flow_model::find_instance(instance_id)
+        .await
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询合同审批单失败：{error}")))?
+    else {
+        tracing::warn!(%contract_no, %instance_id, "登记签订：审批实例查不到（弱引用残留），跳过终止");
+        return Ok(None);
+    };
+    if !instance.is_pending() {
+        tracing::info!(
+            %contract_no,
+            %instance_id,
+            status = %instance.status,
+            "登记签订：审批实例已是终态，保留原结论（不再翻 CANCELLED）"
+        );
+        return Ok(None);
+    }
+    let mut out = engine::terminate_instance(tx, instance_id, "CANCELLED", OUT_OF_BAND_SIGN_NOTE)
+        .await
+        .map_err(|error| {
+            ApiError::new(
+                500,
+                error_code::INTERNAL_ERROR,
+                format!("终止合同审批实例失败：{error}"),
+            )
+        })?;
+    if let Some(rejected) = out.rejected.take() {
+        // 原样透传（不要用 `ApiError::new(..)` 重建：那会丢 65018 之类的结构化载荷）
+        return Err(rejected);
+    }
+    tracing::info!(
+        %contract_no,
+        %instance_id,
+        "合同在审批中心外登记签订：在跑的审批实例已终止，待办已取消"
+    );
+    Ok(Some(out))
 }
 
 // ==================== 内控：制单人不能批自己的合同 ====================

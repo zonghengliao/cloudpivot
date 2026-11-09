@@ -56,6 +56,7 @@ import {
   isNoOrderContractType,
   needsReason,
   transitionConfirmText,
+  openOrderWarning,
   validateContractForm,
   type ContractFormState,
 } from '@/views/business/erp/contract/contract-logic';
@@ -666,5 +667,35 @@ test('⑰ 类型选择引导：四行判定表与后端放行清单一致，服�
   const leaseText = transitionConfirmText('HT-1', 'SIGNED', active, 'LEASE');
   assert.ok(!leaseText.includes('可被新建采购单引用'), `租赁不能提「可被采购单引用」：${leaseText}`);
   assert.ok(leaseText.includes('服务期 / 租期'), `租赁应说明生效后算租期：${leaseText}`);
+});
+
+test('⑱ 归档前提示（E2E07-FIX-4 ④）：ACTIVE→COMPLETED 带上未关闭单据数', () => {
+  const archive = contractTransitions('ACTIVE').find((item: { target: string }) => item.target === 'COMPLETED');
+  assert.ok(archive, 'ACTIVE 应有「归档（COMPLETED）」这条出边');
+
+  // ① 有在途单据 → 提示里点名张数（不硬拦，只在确认弹窗上说清）
+  const warn = openOrderWarning(3, 'COMPLETED');
+  assert.ok(warn.includes('3 张未关闭单据'), `提示要点名张数：${warn}`);
+  const withCount = transitionConfirmText('HT-1', 'ACTIVE', archive!, 'PURCHASE', 3);
+  assert.ok(withCount.includes('3 张未关闭单据'), `确认文案要带上提示：${withCount}`);
+
+  // ② 没有在途单据 / 不是归档 → 一个字都不加（别给审计与用户塞噪声）
+  assert.equal(openOrderWarning(0, 'COMPLETED'), '', '0 张不提示');
+  assert.equal(openOrderWarning(3, 'TERMINATED'), '', '终止不是归档，不提示未关闭单据');
+  assert.equal(openOrderWarning(null, 'COMPLETED'), '', '字段缺失按 0 处理');
+  const clean = transitionConfirmText('HT-1', 'ACTIVE', archive!, 'PURCHASE', 0);
+  assert.ok(!clean.includes('未关闭单据'), `0 张时不许出现提示：${clean}`);
+
+  // ③ 口径固定在后端详情：`open_order_count`（前端不重算，只显示）
+  const dto = backendSource('erp/contract_dto.rs');
+  assert.ok(
+    dto.includes('pub open_order_count: i64'),
+    'open_order_count 必须由详情接口下发（前端据此提示）',
+  );
+  const model = backendSource('erp/contract_model.rs');
+  assert.ok(
+    model.includes('open_order_count'),
+    '未关闭单据数的口径在 contract_model（前端不许自己拼 SQL 语义）',
+  );
 });
 

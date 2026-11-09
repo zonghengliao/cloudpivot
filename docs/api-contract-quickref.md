@@ -146,6 +146,33 @@ COALESCE((SELECT SUM(si.qty) FROM biz_stock_in s
 
 ---
 
+## 9. 合同：归档是 `COMPLETED`（**没有** `CLOSED`）；路径②「登记签订」会终止审批实例
+
+```text
+❌ 卡面：PATCH /api/business/erp/contract/{id}/status  {"target_status":"CLOSED"}   → 400 + 10001
+✅ 真实：{"target_status":"COMPLETED"}（前端 contract-logic.ts 的 EDGE_LABELS 同口径）
+```
+
+- 合同是 **6 态**：`DRAFT / PENDING_APPROVAL / SIGNED / ACTIVE / COMPLETED / TERMINATED`
+  （`ck_biz_contract_status`；`backend/src/business/shared/state_machine.rs::CONTRACT_EDGES`）。
+  `CLOSED` 是**采购单 / 销售单**的状态，不是合同的 —— 两个域的字面量别混用。
+- `COMPLETED` 的语义是**归档（不再接新单）**，不是「履约完成」：是否履行完要看详情的
+  `open_order_count == 0`（`biz_contract` 没有「已履行」列）。
+- **归档不硬拦在途单据**（设计决策 **E4**：`ACTIVE → COMPLETED` 一律放行 200），
+  前端在确认弹窗上显示「仍有 N 张未关闭单据」（数据源 = 详情接口 `open_order_count`）。
+- **路径②**（审批中心之外的登记签订，`PENDING_APPROVAL → SIGNED`）：接口返回 200 后
+  **在跑的审批实例已终止** —— 实例 `CANCELLED`、`PENDING` 待办 `CANCELLED`、
+  节点收口，状态日志 `reason` 写明「审批中心外登记签订：审批实例已终止」；
+  合同上的 `approval_instance_id` 保留作审计。**不要再用「审批中心」去推进这张单**
+  （待办已经没了），要重审只能走 `TERMINATED` 后新签。
+- 乙方类型只有 `CUSTOMER` / `SUPPLIER`：`PURCHASE`/`SERVICE`/`LEASE` → `SUPPLIER`、
+  `SALES` → `CUSTOMER`。**服务商 / 出租方都建在供应商档**（决策 D1，见
+  `docs/合同类型开放口径-决策.md` §二）；传 `CUSTOMER` 给服务/租赁类一律 400（`66021`）。
+- 出处：`backend/src/business/erp/contract_handler.rs::contract_change_status`、
+  `contract_bridge.rs::terminate_for_out_of_band_sign`、`contract_dto.rs::ContractStatusReq`。
+
+---
+
 ## 附录 A：无源入库单的 `in_type` = `SOURCELESS`（FIX-7 已修）
 
 ```text

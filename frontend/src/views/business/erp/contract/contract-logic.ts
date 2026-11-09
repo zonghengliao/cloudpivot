@@ -500,19 +500,48 @@ export function isNoOrderContractType(type: string | null | undefined): boolean 
   return key === 'SERVICE' || key === 'LEASE';
 }
 
+/**
+ * 「归档前提示」：`ACTIVE → COMPLETED` 在途单据数（E2E07-FIX-4 ④）。
+ *
+ * # 口径
+ *
+ * 归档**不硬拦**在途单据（设计决策 **E4**：`ACTIVE → COMPLETED` 是「归档」，不是「履约完成」，
+ * 见 `docs/architecture/ARCH-2-合同表数据模型与校验规则.md` §5.2 与
+ * `docs/architecture/合同与勾稽关系设计.md` §6.4 E4）。所以后端照旧放行 200，
+ * 由前端在确认弹窗上把「还有几张没关」说清楚，让用户自己决定要不要先处理。
+ *
+ * 数据来源是**详情接口**的 `open_order_count`（不另外发请求、不在前端重算口径）。
+ *
+ * @param count 未关闭下游单据数（`open_order_count`）
+ * @param target 本次流转的目标态
+ * @returns 空串 = 不提示；否则是要显示在弹窗里的整句提示
+ */
+export function openOrderWarning(count: number | null | undefined, target: string): string {
+  if ((target ?? '').trim().toUpperCase() !== 'COMPLETED') {
+    return '';
+  }
+  const open = Number(count ?? 0) || 0;
+  if (open <= 0) {
+    return '';
+  }
+  return `归档前请注意：这张合同仍有 ${open} 张未关闭单据。归档后不再接新单，这些单据仍可继续执行到底。`;
+}
+
 /** 流转确认文案（说明「从哪个状态到哪个状态」+ 副作用） */
 export function transitionConfirmText(
   contractNo: string,
   status: string,
   action: ContractTransition,
   contractType?: string | null,
+  openOrderCount?: number | null,
 ): string {
   const fromKey = (status ?? '').trim().toUpperCase();
   const from = contractStatusLabel(fromKey);
   const to = contractStatusLabel(action.target);
   const tails = isNoOrderContractType(contractType) ? NO_ORDER_EDGE_TAILS : EDGE_CONFIRM_TAILS;
   const tail = tails[`${fromKey}→${action.target}`] ?? '';
-  return `确定把 ${contractNo} 从「${from}」流转到「${to}」吗？${tail}`;
+  const warning = openOrderWarning(openOrderCount, action.target);
+  return `确定把 ${contractNo} 从「${from}」流转到「${to}」吗？${tail}${warning}`;
 }
 
 /** 行内/行级动作的显隐（卡面：只有草稿能编辑、只有草稿能删） */

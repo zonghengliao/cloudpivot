@@ -606,6 +606,13 @@
       @confirm="submitStatus"
     >
       <t-alert v-if="statusError" theme="error" :message="statusError" class="dlg-alert" />
+      <t-alert
+        v-if="statusOpenOrderWarning"
+        theme="warning"
+        :message="statusOpenOrderWarning"
+        class="dlg-alert"
+        data-testid="contract-archive-open-orders"
+      />
       <p class="status-confirm__text" data-testid="contract-status-confirm-text">
         {{ statusConfirmText }}
       </p>
@@ -706,6 +713,7 @@ import {
   formErrorMessage,
   isContractFiltered,
   isNoOrderContractType,
+  openOrderWarning,
   transitionConfirmText,
   validateContractForm,
   type ContractFilterState,
@@ -1070,9 +1078,22 @@ function confirmRemove(row: ContractRow): void {
 /** 流转弹窗可见 */
 const statusVisible = ref(false);
 /** 流转中的合同（带 `contract_type`：确认文案要按「挂不挂订单」换一套说法） */
-const statusRow = ref<{ id: string; contract_no: string; status: string; contract_type?: string } | null>(null);
+const statusRow = ref<{ id: string; contract_no: string; status: string; contract_type?: string; open_order_count?: number | null } | null>(null);
 /** 本次动作 */
 const statusAction = ref<ContractTransition | null>(null);
+/**
+ * 本次归档（`ACTIVE → COMPLETED`）的未关闭单据数（E2E07-FIX-4 ④）。
+ *
+ * 列表行没有 `open_order_count`（那是详情字段），所以点「归档」时按需拉一次详情回填；
+ * 拉不到就按 0 处理（提示只是附加信息，不能把流转挡死）。
+ */
+const statusOpenOrderCount = ref(0);
+/** 归档前提示文案（空串 = 不显示警示条） */
+const statusOpenOrderWarning = computed(() =>
+  statusVisible.value && statusAction.value
+    ? openOrderWarning(statusOpenOrderCount.value, statusAction.value.target)
+    : '',
+);
 /** 终止原因 */
 const statusReason = ref('');
 /** 原因校验错误 */
@@ -1082,7 +1103,7 @@ const statusSaving = ref(false);
 /** 后端错误 */
 const statusError = ref('');
 
-/** 确认文案（服务 / 租赁换一套不挂订单的说法） */
+/** 确认文案（服务 / 租赁换一套不挂订单的说法；归档带上未关闭单据数） */
 const statusConfirmText = computed(() =>
   statusRow.value && statusAction.value
     ? transitionConfirmText(
@@ -1090,21 +1111,36 @@ const statusConfirmText = computed(() =>
         statusRow.value.status,
         statusAction.value,
         statusRow.value.contract_type,
+        statusOpenOrderCount.value,
       )
     : '',
 );
 
 /** 打开流转弹窗 */
-function openStatusDialog(
-  row: { id: string; contract_no: string; status: string; contract_type?: string },
+async function openStatusDialog(
+  row: { id: string; contract_no: string; status: string; contract_type?: string; open_order_count?: number | null },
   action: ContractTransition,
-): void {
+): Promise<void> {
   statusRow.value = row;
   statusAction.value = action;
   statusReason.value = '';
   statusReasonError.value = '';
   statusError.value = '';
+  statusOpenOrderCount.value = 0;
   statusVisible.value = true;
+  // 归档前提示（E2E07-FIX-4 ④）：`ACTIVE → COMPLETED` 不硬拦在途单据（设计决策 E4），
+  // 但要把「还有几张没关」摆在确认弹窗上。列表行没有这个字段 → 按需拉一次详情。
+  if (action.target === 'COMPLETED' && typeof row.open_order_count !== 'number') {
+    try {
+      const loaded = await fetchContractDetail(row.id);
+      statusOpenOrderCount.value = Number(loaded?.open_order_count ?? 0) || 0;
+    } catch {
+      // 拉不到只是提示缺失：不清空弹窗、不拦流转（口径同 loadLinkedOrders）
+      statusOpenOrderCount.value = 0;
+    }
+  } else {
+    statusOpenOrderCount.value = Number(row.open_order_count ?? 0) || 0;
+  }
 }
 
 /** 提交流转（需要原因的两条终止边先在本地拦一道） */
