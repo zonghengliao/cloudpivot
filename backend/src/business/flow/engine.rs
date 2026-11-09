@@ -779,6 +779,28 @@ async fn vote(
         );
     }
 
+    // ③.5 退回目标预校验（E2E-10）——**必须在写票之前**。
+    //
+    // `apply_return` 里也有同一条校验，但它发生在「当前节点已 REJECTED、其余待办已作废」之后；
+    // handler 的写法是「事务提交后再 drain 错误」，于是目标节点写错时单据会停在
+    // `PENDING` + 节点 `REJECTED` + 0 条待办 —— 界面上没有任何按钮可点，只能改库。
+    // 校验提前到这里：拒绝请求不产生任何副作用（待办仍 PENDING、节点仍 ACTIVE）。
+    if vote == Vote::Reject
+        && let ReturnTo::Node(key) = &return_to
+    {
+        let snapshot = load_snapshot(ex, instance.version_id).await?;
+        if !snapshot.nodes.iter().any(|node| &node.key == key) {
+            return Ok(ActionOut::deny(
+                Some(instance.id),
+                ApiError::new(
+                    400,
+                    error_code::FLOW_RETURN_TARGET_INVALID,
+                    format!("退回目标节点 {key} 不在本流程图上"),
+                ),
+            ));
+        }
+    }
+
     // ④ 写这一票
     let status = if vote == Vote::Approve { "APPROVED" } else { "REJECTED" };
     model::finish_task(ex, task.id, status, comment, is_auto).await?;
