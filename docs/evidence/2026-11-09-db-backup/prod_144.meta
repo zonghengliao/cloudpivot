@@ -1,0 +1,22 @@
+{
+  "db": "cloudpivot",
+  "dumped_at": "2026-11-09T22:07:54+08:00",
+  "dump_file": "cloudpivot-20261109-220753.dump",
+  "host": "127.0.0.1",
+  "port": 5432,
+  "server_version_num": 180006,
+  "migrations": {"count": 295, "max_version": 362},
+  "tables": {"count": 176},
+  "key_tables": {
+    "sys_user": 3,
+    "sys_role": 11,
+    "sys_menu": 435,
+    "biz_purchase_order": 0,
+    "biz_voucher": 0,
+    "biz_inventory": 0
+  },
+  "size_bytes": 1509164,
+  "db_size_bytes": 37508799,
+  "verify": {"toc_entries": 2332, "table_data_entries": 175},
+  "elapsed_seconds": 1
+}

@@ -1,0 +1,8 @@
+### GUARD1: 非交互无 --yes
+[2026-11-09T22:08:12+08:00] INFO  dump 校验通过：TOC 2332 条（TABLE DATA 175 条），源库 cloudpivot，源服务端 18.6 (Ubuntu 18.6-0ubuntu0.26.04.1)
+[2026-11-09T22:08:12+08:00] INFO  读到备份基线：/root/db-backup/from-144/cloudpivot-20261109-220753.meta（备份于 2026-11-09T22:07:54+08:00，迁移 295 / 版本 362 / 表 176）
+[2026-11-09T22:08:13+08:00] INFO  源 dump  : cloudpivot-20261109-220753.dump（库 cloudpivot，TOC 2332 条）
+[2026-11-09T22:08:13+08:00] INFO  目标库   : cloudpivot_drill3_20261109 @ 127.0.0.1:5432（当前 env 库：cloudpivot_dev，生产 env 库：未找到）
+[2026-11-09T22:08:13+08:00] INFO  即将把 cloudpivot-20261109-220753.dump 恢复到 cloudpivot_drill3_20261109，目标库现有数据会被清除
+[2026-11-09T22:08:13+08:00] ERROR 非交互环境必须显式加 --yes 才会执行恢复
+RC=1

@@ -1,0 +1,8 @@
+--- 当前备份 cron ---
+30 2 * * * bash /opt/cloudpivot/scripts/ops/backup_db.sh --keep 14 >> /var/log/cloudpivot/backup.log 2>&1
+--- cron 等价环境连通性预检（--dry-run，不落盘）---
+[2026-11-09T22:15:42+08:00] INFO  环境变量来源：/etc/cloudpivot/cloudpivot.env
+[2026-11-09T22:15:42+08:00] INFO  目标库 cloudpivot@127.0.0.1:5432（服务端 180006 / pg_dump 18，37508799 字节，176 张表）
+[2026-11-09T22:15:42+08:00] INFO  磁盘余量检查：/root/db-backup 可用 234183200768 字节 / 需要 3018328 字节（2 × 预估 dump 1509164）
+[2026-11-09T22:15:42+08:00] INFO  磁盘余量检查：通过
+[2026-11-09T22:15:42+08:00] INFO  --dry-run 结束：连通性与容量均通过，未生成备份

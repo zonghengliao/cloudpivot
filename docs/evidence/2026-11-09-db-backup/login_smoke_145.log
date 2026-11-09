@@ -1,0 +1,37 @@
+===== 0) 目标库与恢复出来的账号（只读）=====
+库 cloudpivot_drill3_20261109：表 176 张，迁移 295 条，菜单 435 条
+恢复库内真实账号：admin(status=1), henry.liao(status=1), laoliu(status=1)
+admin 口令哈希（恢复库原值，前缀）：$argon2id$v=19$m=19456,t=2,p=1
+===== 1) 仅对演练副本替换 admin 口令哈希（生产口令不持有，见脚本头说明）=====
+替换后 admin 哈希前缀：$argon2id$v=19$m=19456,t=2,p=1
+其余账号未被改动：admin|$argon2id$v=, henry.liao|$argon2id$v=, laoliu|$argon2id$v=
+===== 2) 起隔离实例 :8039（库=cloudpivot_drill3_20261109）=====
+health_ok=1 pid=1425805
+===== 3) 确认实例连的就是恢复库（不是 dev/test 库）=====
+到 cloudpivot_drill3_20261109 的连接数：11
+本实例 listen：LISTEN 0      128        127.0.0.1:8039       0.0.0.0:*    users:(("cloudpivot",pid=1425805,fd=20))                                                                                                         
+===== 4) 用恢复出来的 admin 账号登录（真 token）=====
+login 响应：{"code":0,"msg":"ok","data":{"access_token":"eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJqdGkiOiIzYjYyOWI3YS1hZGQ1LTRiYzgtOWJjMi04ZjYwOTRiZjU3NzMiLCJzdWIiOiIwMWExN2JiOS03ZDk5LTc2YzMtYjM2Mi01OGQzYTI4NGMyNz
+token_len=487
+===== 5) 关键接口冒烟（带 token）=====
+  user_page GET /system/user/page?page=1&page_size=5 -> HTTP 200 | {"code":0,"msg":"ok","data":{"list":[{"id":"01a18bc8-bd0c-7792-9118-90fccc9ef0a2","username":"laoliu","real_name":"老六","email":"laoliu@c
+  menu_tree GET /system/menu/tree -> HTTP 200 | {"code":0,"msg":"ok","data":[{"id":"10000000-0000-0000-0000-000000000050","name":"工作台","menu_type":2,"auth_code":"support:dashboard:li
+  auth_menus GET /system/auth/menus -> HTTP 200 | {"code":0,"msg":"ok","data":[{"id":"10000000-0000-0000-0000-000000000050","name":"工作台","menu_type":2,"auth_code":"support:dashboard:li
+  material_page GET /business/erp/material/page?page=1&page_size=3 -> HTTP 200 | {"code":0,"msg":"ok","data":{"list":[],"total":0,"page":1,"page_size":3}}
+  role_page GET /system/role/page?page=1&page_size=5 -> HTTP 200 | {"code":0,"msg":"ok","data":{"list":[{"id":"65e33e25-4261-4d46-bda8-34da9e698991","role_code":"SUPER_ADMIN","role_name":"超级管理员","d
+===== 6) 断言 =====
+PASS ① 恢复库上 admin 登录返回 code=0
+PASS ② 拿到 access_token :: len=487
+PASS ③ /system/user/page HTTP 200 :: 200
+PASS ③ /system/menu/tree HTTP 200 :: 200
+PASS ③ /system/auth/menus HTTP 200 :: 200
+PASS ③ /business/erp/material/page HTTP 200 :: 200
+PASS ③ /system/role/page HTTP 200 :: 200
+PASS ④ 用户分页 code=0
+PASS ⑤ 分页里能看到恢复出来的 admin :: ['laoliu', 'henry.liao', 'admin']
+PASS ⑥ 分页里能看到生产库里其它真实账号（证明数据来自 dump 而非新建） :: ['laoliu', 'henry.liao', 'admin']
+PASS ⑦ 菜单树非空（恢复出来的菜单） :: top_nodes=19
+RESULT: PASS
+===== 7) 收尾：停掉临时实例（只杀本脚本起的 PID 1425805）=====
+实例已停：已退出
+RC=0
