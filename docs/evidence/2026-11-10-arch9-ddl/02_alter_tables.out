@@ -1,0 +1,89 @@
+BEGIN
+ALTER TABLE
+UPDATE 107
+ALTER TABLE
+ALTER TABLE
+DROP INDEX
+CREATE INDEX
+DROP INDEX
+CREATE INDEX
+DROP INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+ALTER TABLE
+UPDATE 68
+ALTER TABLE
+DROP INDEX
+DROP INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+ALTER TABLE
+UPDATE 4
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+CREATE INDEX
+ALTER TABLE
+UPDATE 0
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+UPDATE 11
+ALTER TABLE
+DROP INDEX
+CREATE INDEX
+ALTER TABLE
+UPDATE 67
+ALTER TABLE
+CREATE INDEX
+ALTER TABLE
+UPDATE 284
+ALTER TABLE
+CREATE INDEX
+ALTER TABLE
+UPDATE 13
+ALTER TABLE
+CREATE INDEX
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+CREATE INDEX
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+CREATE INDEX
+ALTER TABLE
+UPDATE 0
+ALTER TABLE
+CREATE INDEX
+ALTER TABLE
+UPDATE 75
+CREATE INDEX
+ALTER TABLE
+UPDATE 14
+ALTER TABLE
+CREATE INDEX
+psql:/tmp/b.sql:172: NOTICE:  ARCH-9 改造表语义测试通过：8 条断言
+DO
+           indexname            |                                                                                     indexdef                                                                                     
+--------------------------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ uk_biz_period_code             | CREATE UNIQUE INDEX uk_biz_period_code ON public.biz_accounting_period USING btree (org_id, period_code)
+ uk_biz_period_ym               | CREATE UNIQUE INDEX uk_biz_period_ym ON public.biz_accounting_period USING btree (org_id, period_year, period_month)
+ uk_biz_seq_type                | CREATE UNIQUE INDEX uk_biz_seq_type ON public.biz_seq USING btree (org_id, seq_type) WHERE (deleted_at IS NULL)
+ uk_biz_voucher_no              | CREATE UNIQUE INDEX uk_biz_voucher_no ON public.biz_voucher USING btree (org_id, voucher_word, period, voucher_no) WHERE (deleted_at IS NULL)
+ uk_biz_voucher_opening_period  | CREATE UNIQUE INDEX uk_biz_voucher_opening_period ON public.biz_voucher USING btree (org_id, period) WHERE (((voucher_type)::text = 'OPENING'::text) AND (deleted_at IS NULL))
+ uk_biz_voucher_year_end_period | CREATE UNIQUE INDEX uk_biz_voucher_year_end_period ON public.biz_voucher USING btree (org_id, period) WHERE (((voucher_type)::text = 'YEAR_END'::text) AND (deleted_at IS NULL))
+(6 rows)
+
+         conname          |                                                 pg_get_constraintdef                                                 
+--------------------------+----------------------------------------------------------------------------------------------------------------------
+ ck_biz_stock_in_ic       | CHECK (((counterparty_org_id IS NULL) OR (counterparty_org_id <> org_id)))
+ ck_biz_supplier_ic       | CHECK ((((is_internal = 0) AND (internal_org_id IS NULL)) OR ((is_internal = 1) AND (internal_org_id IS NOT NULL))))
+ uk_biz_opening_balance   | UNIQUE (org_id, period_code, account_id)
+ uk_biz_opening_inventory | UNIQUE (org_id, period_code, material_id, warehouse_id)
+(4 rows)
+
+ROLLBACK
